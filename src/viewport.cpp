@@ -4,7 +4,10 @@
 #include <cstdio>
 #include <utility>
 
+#include <filesystem>
+
 #include "gl_loader.h"
+#include "objparser.hpp"
 
 // ---------------------------------------------------------------------------
 // Minimal matrix math (column-major, OpenGL style)
@@ -415,6 +418,7 @@ void Viewport::shutdown() {
     destroyMesh(spawnMarker_);
     destroyMesh(wireCube_);
     destroyMesh(skyQuad_);
+    clearModelCache();
     if (fbo_) glDeleteFramebuffers(1, &fbo_);
     if (colorTex_) glDeleteTextures(1, &colorTex_);
     if (depthRbo_) glDeleteRenderbuffers(1, &depthRbo_);
@@ -622,7 +626,42 @@ void Viewport::setLighting(const float* dir, float ambient, float diffuse) {
     if (program_) {
         buildPrimitiveMeshes();  // shade is baked into the unit meshes
         buildTerrainMesh();
+        clearModelCache();  // model shading is baked too
     }
+}
+
+void Viewport::setProjectDir(const std::string& dir) {
+    if (projectDir_ == dir) return;
+    projectDir_ = dir;
+    clearModelCache();
+}
+
+void Viewport::clearModelCache() {
+    for (auto& [path, mesh] : modelCache_) destroyMesh(mesh);
+    modelCache_.clear();
+}
+
+const Viewport::Mesh* Viewport::modelMesh(const std::string& relPath) {
+    if (relPath.empty()) return nullptr;
+    auto it = modelCache_.find(relPath);
+    if (it != modelCache_.end()) return it->second.vao ? &it->second : nullptr;
+
+    std::vector<float> posNormal;
+    Mesh mesh;  // stays empty on failure - negative result is cached too
+    if (objparser::load((std::filesystem::path(projectDir_) / relPath).string(),
+                        posNormal)) {
+        std::vector<float> interleaved;
+        interleaved.reserve(posNormal.size());
+        for (size_t i = 0; i + 5 < posNormal.size(); i += 6) {
+            const float s =
+                shadeOf({posNormal[i + 3], posNormal[i + 4], posNormal[i + 5]});
+            interleaved.insert(interleaved.end(),
+                               {posNormal[i], posNormal[i + 1], posNormal[i + 2], s, s, s});
+        }
+        mesh = uploadMesh(interleaved);
+    }
+    modelCache_[relPath] = mesh;
+    return mesh.vao ? &modelCache_[relPath] : nullptr;
 }
 
 void Viewport::setSky(const float* horizonRgb, const float* topRgb, bool gradient) {
@@ -712,6 +751,10 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             case PrimitiveType::Cylinder: return &cylinder_;
             case PrimitiveType::Cone: return &cone_;
             case PrimitiveType::SpawnPoint: return &spawnMarker_;
+            case PrimitiveType::Model: {
+                const Mesh* m = modelMesh(o.modelPath);
+                return m ? m : &box_;  // missing model -> placeholder box
+            }
             default: return &box_;
         }
     };

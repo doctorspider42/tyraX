@@ -26,7 +26,10 @@
 // Native pickers (IFileOpenDialog). pickFolder: FOS_PICKFOLDERS;
 // pickSolutionFile: file dialog filtered to *.tyra solution files.
 // ---------------------------------------------------------------------------
-static std::string pickPath(bool folder) {
+enum class PickKind { Folder, Solution, ObjModel };
+
+static std::string pickPath(PickKind kind) {
+    const bool folder = kind == PickKind::Folder;
     std::string result;
     HRESULT hrInit = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     IFileOpenDialog* dialog = nullptr;
@@ -35,13 +38,20 @@ static std::string pickPath(bool folder) {
         DWORD options = 0;
         dialog->GetOptions(&options);
         dialog->SetOptions(options | (folder ? FOS_PICKFOLDERS : 0) | FOS_FORCEFILESYSTEM);
-        if (!folder) {
+        if (kind == PickKind::Solution) {
             static const COMDLG_FILTERSPEC filters[] = {
                 {L"Tyra project (*.tyra, project.json)", L"*.tyra;project.json"},
                 {L"All files (*.*)", L"*.*"},
             };
             dialog->SetFileTypes(2, filters);
             dialog->SetTitle(L"Open Tyra project");
+        } else if (kind == PickKind::ObjModel) {
+            static const COMDLG_FILTERSPEC filters[] = {
+                {L"Wavefront model (*.obj)", L"*.obj"},
+                {L"All files (*.*)", L"*.*"},
+            };
+            dialog->SetFileTypes(2, filters);
+            dialog->SetTitle(L"Import 3D model");
         }
         if (SUCCEEDED(dialog->Show(nullptr))) {
             IShellItem* item = nullptr;
@@ -66,8 +76,9 @@ static std::string pickPath(bool folder) {
     return result;
 }
 
-static std::string pickFolder() { return pickPath(true); }
-static std::string pickSolutionFile() { return pickPath(false); }
+static std::string pickFolder() { return pickPath(PickKind::Folder); }
+static std::string pickSolutionFile() { return pickPath(PickKind::Solution); }
+static std::string pickModelFile() { return pickPath(PickKind::ObjModel); }
 
 // ---------------------------------------------------------------------------
 
@@ -559,6 +570,45 @@ void App::addObject(PrimitiveType type) {
     commitChange();
 }
 
+void App::importModel() {
+    const std::string src = pickModelFile();
+    if (src.empty()) return;
+
+    const std::filesystem::path srcPath(src);
+    const std::string fileName = srcPath.filename().string();
+    const std::filesystem::path destDir = std::filesystem::path(project_.dir) / "res" / "models";
+    std::error_code ec;
+    std::filesystem::create_directories(destDir, ec);
+    std::filesystem::copy_file(srcPath, destDir / fileName,
+                               std::filesystem::copy_options::overwrite_existing, ec);
+    if (ec) {
+        statusMessage_ = "Model import failed: " + ec.message();
+        return;
+    }
+
+    SceneObject o;
+    o.type = PrimitiveType::Model;
+    o.modelPath = "res/models/" + fileName;
+    o.color[0] = o.color[1] = o.color[2] = 0.85f;
+    o.position[1] = 0.0f;
+
+    // unique name from the file name
+    std::string base = srcPath.stem().string();
+    std::string name = base;
+    for (int n = 2;; ++n) {
+        bool taken = false;
+        for (const auto& other : project_.objects) taken |= (other.name == name);
+        if (!taken) break;
+        name = base + "-" + std::to_string(n);
+    }
+    o.name = name;
+
+    project_.objects.push_back(std::move(o));
+    selectedObject_ = (int)project_.objects.size() - 1;
+    commitChange();
+    statusMessage_ = "Imported " + fileName;
+}
+
 void App::drawSceneSection() {
     ImGui::SeparatorText("Scene objects");
 
@@ -571,6 +621,8 @@ void App::drawSceneSection() {
     if (ImGui::SmallButton("+ Cone")) addObject(PrimitiveType::Cone);
     ImGui::SameLine();
     if (ImGui::SmallButton("+ Spawn")) addObject(PrimitiveType::SpawnPoint);
+    ImGui::SameLine();
+    if (ImGui::SmallButton("+ Model")) importModel();
 
     if (project_.objects.empty()) {
         ImGui::TextDisabled("No objects - add a primitive above.");
@@ -598,10 +650,13 @@ void App::drawSceneSection() {
     committed |= ImGui::IsItemDeactivatedAfterEdit();
 
     int typeIdx = (int)o.type;
-    const char* typeNames[] = {"Box", "Sphere", "Cylinder", "Cone", "Spawn point"};
-    if (ImGui::Combo("Type", &typeIdx, typeNames, 5)) {
+    const char* typeNames[] = {"Box", "Sphere", "Cylinder", "Cone", "Spawn point", "Model"};
+    if (ImGui::Combo("Type", &typeIdx, typeNames, 6)) {
         o.type = (PrimitiveType)typeIdx;
         committed = true;
+    }
+    if (o.type == PrimitiveType::Model) {
+        ImGui::TextDisabled("Model: %s", o.modelPath.empty() ? "<none>" : o.modelPath.c_str());
     }
 
     ImGui::DragFloat3("Position", o.position, 0.1f);
@@ -1030,6 +1085,7 @@ void App::drawNewProjectModal() {
 }
 
 void App::applyProjectToViewport() {
+    viewport_.setProjectDir(project_.dir);
     viewport_.setTerrain(project_.terrain, project_.settings.terrainDetail);
     viewport_.setSky(project_.settings.skyColor, project_.settings.skyTopColor,
                      project_.settings.skyDome);

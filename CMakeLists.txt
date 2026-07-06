@@ -31,6 +31,7 @@ add_executable(tyra-editor
     src/app.cpp
     src/gl_loader.cpp
     src/json.cpp
+    src/objparser.cpp
     src/project.cpp
     src/templates.cpp
     src/viewport.cpp

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
+#include <string>
 #include <vector>
 
 #include "project.hpp"
@@ -30,6 +32,9 @@ public:
 
     // directional light baked into mesh shading (matches the PS2 output)
     void setLighting(const float* dir, float ambient, float diffuse);
+
+    // project root for resolving relative model paths (clears the model cache)
+    void setProjectDir(const std::string& dir);
 
     // Renders terrain + objects at the given pixel size, returns GL texture id.
     // selectedIndex: index into objects highlighted with an outline (-1 = none).
@@ -82,6 +87,10 @@ private:
     Mesh terrain_mesh_;
     Mesh lines_;  // terrain grid + axes
     Mesh box_, sphere_, cylinder_, cone_, spawnMarker_;
+    std::string projectDir_;
+    std::map<std::string, Mesh> modelCache_;  // .obj meshes by relative path
+    const Mesh* modelMesh(const std::string& relPath);
+    void clearModelCache();
     Mesh wireCube_;  // selection outline (unit cube edges)
 
     uint32_t fbo_ = 0, colorTex_ = 0, depthRbo_ = 0;

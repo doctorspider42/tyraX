@@ -30,6 +30,7 @@ private:
     void openProjectDialog();
     void applyProjectToViewport();
     void addObject(PrimitiveType type);
+    void importModel();
     void saveProject();
 
     // Editing model: mutate project_ freely, then commitChange() once per

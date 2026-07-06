@@ -18,6 +18,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Cylinder: return "cylinder";
         case PrimitiveType::Cone: return "cone";
         case PrimitiveType::SpawnPoint: return "spawn-point";
+        case PrimitiveType::Model: return "model";
     }
     return "box";
 }
@@ -27,6 +28,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "cylinder") return PrimitiveType::Cylinder;
     if (s == "cone") return PrimitiveType::Cone;
     if (s == "spawn-point") return PrimitiveType::SpawnPoint;
+    if (s == "model") return PrimitiveType::Model;
     return PrimitiveType::Box;
 }
 
@@ -56,7 +58,8 @@ static std::string objectJson(const SceneObject& o) {
            "\", \"position\": " + fmtVec3(o.position) +
            ", \"rotation\": " + fmtVec3(o.rotation) + ", \"scale\": " + fmtVec3(o.scale) +
            ", \"color\": " + fmtVec3(o.color) +
-           ", \"physics\": " + (o.physics ? "true" : "false") + " }";
+           ", \"physics\": " + (o.physics ? "true" : "false") +
+           (o.modelPath.empty() ? "" : ", \"model\": \"" + o.modelPath + "\"") + " }";
 }
 
 // "objects": [ ... ] with the given indentation for entries
@@ -200,6 +203,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         readVec3(jo.find("color"), o.color);
         if (const auto* v = jo.find("physics"))
             o.physics = v->type == json::Value::Type::Bool && v->boolean;
+        if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         out.push_back(std::move(o));
     }
 }
@@ -384,7 +388,8 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\terrain_config.hpp" ||
             f.relativePath == "inc\\scene_data.hpp" ||
             f.relativePath == ".vscode\\c_cpp_properties.json" ||
-            f.relativePath == "src\\scripts\\flow_graph.gen.cpp") {
+            f.relativePath == "src\\scripts\\flow_graph.gen.cpp" ||
+            f.relativePath == "inc\\model_data.gen.hpp") {
             write = true;  // editor-owned, always in sync with project data
         } else if (f.relativePath == "src\\terrain_game.cpp" ||
                    f.relativePath == "inc\\terrain_game.hpp" ||

@@ -18,6 +18,8 @@ enum class PrimitiveType {
     // Marker, not geometry: where the player appears at game start
     // (used by the FPP template; the first one in the scene wins).
     SpawnPoint = 4,
+    // Custom .obj mesh (modelPath, relative to the project dir)
+    Model = 5,
 };
 
 // Unit primitives fit a 1x1x1 cube centered at origin and are transformed by
@@ -29,7 +31,8 @@ struct SceneObject {
     float rotation[3] = {0.0f, 0.0f, 0.0f};  // degrees
     float scale[3] = {1.0f, 1.0f, 1.0f};
     float color[3] = {0.8f, 0.35f, 0.25f};
-    bool physics = false;  // falls with gravity in the game
+    bool physics = false;   // falls with gravity in the game
+    std::string modelPath;  // for PrimitiveType::Model, e.g. "res/models/tree.obj"
 };
 
 const char* primitiveTypeName(PrimitiveType t);
@@ -40,7 +43,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
     };
     return a.name == b.name && a.type == b.type && eq3(a.position, b.position) &&
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
-           a.physics == b.physics;
+           a.physics == b.physics && a.modelPath == b.modelPath;
 }
 
 // General project preferences (Project > Preferences in the editor).
