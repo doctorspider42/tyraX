@@ -931,6 +931,603 @@ static const char* TPL_GAME_CPP_FOOTER = R"(
 )";
 
 // ---------------------------------------------------------------------------
+// Engine patch v2: fast EE clipper. Replaces two engine .cpp files (headers
+// untouched, ABI identical). Copied into /tyra by the Runner and the engine
+// is rebuilt once per shared volume.
+//
+// What it fixes:
+// - Cohen-Sutherland outcodes: fully-visible triangles skip the 6-plane
+//   Sutherland-Hodgman entirely (1 byte per vertex instead of ~6 passes of
+//   64-byte struct copies), fully-outside triangles are rejected instantly.
+// - clipAgainstPlane edge loop used BY-VALUE copies of two 64-byte structs
+//   per edge per plane - now const references.
+// - StaPipClipper::clip allocated a std::vector on the heap per call, per
+//   subpackage, per frame - now a static pool (render is single-threaded).
+// ---------------------------------------------------------------------------
+
+static const char* TPL_ENGINE_PATCH_ALGO = R"(/*
+# Patched by tyra-editor (engine patch v2) - fast clipping via outcodes.
+# Based on the original by Sandro Sobczynski (h4570/tyra), Apache License 2.0.
+*/
+
+#include "renderer/core/3d/clipper/planes_clip_algorithm.hpp"
+
+namespace Tyra {
+
+PlanesClipAlgorithm::PlanesClipAlgorithm() {
+  tempVertices = new PlanesClipVertex[9];
+}
+
+PlanesClipAlgorithm::~PlanesClipAlgorithm() { delete[] tempVertices; }
+
+float PlanesClipAlgorithm::clipMargin = -10.0F;
+
+void PlanesClipAlgorithm::init(const RendererSettings& settings) {
+  halfWidth = 0.5F;
+  halfHeight = 0.5F;
+  near = settings.getNear() - (-clipMargin);
+  far = -settings.getFar();
+}
+
+u8 PlanesClipAlgorithm::clip(PlanesClipVertex* o_vertices,
+                             PlanesClipVertexPtrs* i_vertices,
+                             const EEClipAlgorithmSettings& settings) {
+  // Cohen-Sutherland outcodes: one byte per vertex, six plane bits.
+  u8 codes[3];
+  for (int i = 0; i < 3; i++) {
+    const Vec4& p = *i_vertices[i].position;
+    if (p.w <= 0.0F) {
+      codes[i] = 16;  // behind the eye plane - never trivially accepted
+      continue;
+    }
+    u8 c = 0;
+    if (p.x > halfWidth * p.w) c |= 1;
+    if (p.x < -halfWidth * p.w) c |= 2;
+    if (p.y > halfHeight * p.w) c |= 4;
+    if (p.y < -halfHeight * p.w) c |= 8;
+    if (p.z > near) c |= 16;
+    if (p.z < far) c |= 32;
+    codes[i] = c;
+  }
+
+  // Trivial reject: all three vertices outside the same plane.
+  if (codes[0] & codes[1] & codes[2]) return 0;
+
+  for (int i = 0; i < 3; i++) {
+    o_vertices[i].position = *i_vertices[i].position;
+    if (settings.lerpColors) o_vertices[i].color = *i_vertices[i].color;
+    if (settings.lerpNormals) o_vertices[i].normal = *i_vertices[i].normal;
+    if (settings.lerpTexCoords) o_vertices[i].st = *i_vertices[i].st;
+  }
+
+  // Trivial accept: all three vertices fully inside - no clipping needed.
+  if ((codes[0] | codes[1] | codes[2]) == 0) return 3;
+
+  // Real work only for triangles that actually cross a plane.
+  u8 tempVerticesSize = 0;
+  u8 outputSize = 0;
+
+  tempVerticesSize =
+      clipAgainstPlane(o_vertices, 3, tempVertices, 1, halfWidth, settings);
+
+  outputSize = clipAgainstPlane(tempVertices, tempVerticesSize, o_vertices, 1,
+                                -halfWidth, settings);
+
+  tempVerticesSize = clipAgainstPlane(o_vertices, outputSize, tempVertices, 2,
+                                      halfHeight, settings);
+
+  outputSize = clipAgainstPlane(tempVertices, tempVerticesSize, o_vertices, 2,
+                                -halfHeight, settings);
+
+  tempVerticesSize =
+      clipAgainstPlane(o_vertices, outputSize, tempVertices, 3, near, settings);
+
+  outputSize = clipAgainstPlane(tempVertices, tempVerticesSize, o_vertices, 4,
+                                far, settings);
+
+  return outputSize;
+}
+
+float PlanesClipAlgorithm::getValueByPlane(const PlanesClipVertex& v,
+                                           const int& plane) {
+  switch (plane) {
+    case 1:
+      return v.position.x;  // x plane
+    case 2:
+      return v.position.y;  // y plane
+    case 3:                 // z near
+    case 4:
+      return v.position.z;  // z far
+    default:
+      return 0;
+  }
+}
+
+bool PlanesClipAlgorithm::isInside(const int& plane, const float& v,
+                                   const float& w,
+                                   const float& planeLimitValue) {
+  switch (plane) {
+    case 3:
+      return v <= planeLimitValue;  // near z plane
+    case 4:
+      return v >= planeLimitValue;  // far z plane
+    default:
+      return (planeLimitValue < 0) ? (v >= planeLimitValue * w)
+                                   : (v <= planeLimitValue * w);
+  }
+}
+
+u8 PlanesClipAlgorithm::clipAgainstPlane(
+    PlanesClipVertex* original, const u8& originalSize,
+    PlanesClipVertex* clipped, const int& plane, const float& planeLimitValue,
+    const EEClipAlgorithmSettings& settings) {
+  int clippedSize = 0;
+
+  for (u32 i = 0; i < originalSize; i++) {
+    // const references - the original copied two 64-byte structs per edge
+    const auto& a = original[i];
+    const auto& b = original[(i + 1) % originalSize];
+    const float apx = getValueByPlane(a, plane);
+    const float bpx = getValueByPlane(b, plane);
+    const bool aIsInside = isInside(plane, apx, a.position.w, planeLimitValue);
+    const bool bIsInside = isInside(plane, bpx, b.position.w, planeLimitValue);
+
+    if (aIsInside) {
+      clipped[clippedSize++] = a;
+    }
+
+    if (aIsInside != bIsInside) {
+      const float p =
+          (plane >= 3)
+              ? (planeLimitValue - a.position.z) / (b.position.z - a.position.z)
+              : (-a.position.w * planeLimitValue + apx) /
+                    ((b.position.w - a.position.w) * planeLimitValue -
+                     (bpx - apx));
+
+      const auto index = clippedSize++;
+
+      clipped[index].position = Vec4::getByLerp(a.position, b.position, p);
+
+      if (settings.lerpNormals)
+        clipped[index].normal = Vec4::getByLerp(a.normal, b.normal, p);
+
+      if (settings.lerpTexCoords)
+        clipped[index].st = Vec4::getByLerp(a.st, b.st, p);
+
+      if (settings.lerpColors)
+        clipped[index].color = Vec4::getByLerp(a.color, b.color, p);
+    }
+  }
+
+  return clippedSize;
+}
+
+}  // namespace Tyra
+)";
+
+static const char* TPL_ENGINE_PATCH_CLIPPER = R"(/*
+# Patched by tyra-editor (engine patch v2) - no heap allocations per clip call.
+# Based on the original by Sandro Sobczynski (h4570/tyra), Apache License 2.0.
+*/
+
+#include "renderer/3d/pipeline/static/core/stapip_clipper.hpp"
+
+namespace Tyra {
+
+namespace {
+// Rendering is single-threaded on the EE - one static pool is enough.
+constexpr u32 kMaxClippedVerts = 1024;
+PlanesClipVertex clippedPool[kMaxClippedVerts];
+}  // namespace
+
+StaPipClipper::StaPipClipper() {}
+StaPipClipper::~StaPipClipper() {}
+
+void StaPipClipper::setMVP(M4x4* t_mvp) { mvp = t_mvp; }
+
+void StaPipClipper::init(const RendererSettings& settings) {
+  algorithm.init(settings);
+}
+
+void StaPipClipper::setMaxVertCount(const u32& count) { maxVertCount = count; }
+
+void StaPipClipper::clip(StaPipQBuffer* buffer) {
+  TYRA_ASSERT(buffer->size <= maxVertCount / 3, "Buffer should have max ",
+              maxVertCount / 3, " verts if we want to clip it.");
+
+  EEClipAlgorithmSettings algoSettings = {buffer->bag->lighting != nullptr,
+                                          buffer->bag->texture != nullptr,
+                                          buffer->bag->color->many != nullptr};
+
+  u32 outCount = 0;
+
+  for (u32 i = 0; i < buffer->size / 3; i++) {
+    for (u8 j = 0; j < 3; j++) {
+      inputVerts[j] = *mvp * buffer->vertices[i * 3 + j];
+
+      inputTriangle[j] = {
+          &inputVerts[j],
+          buffer->bag->lighting ? &buffer->normals[i * 3 + j] : nullptr,
+          buffer->bag->texture ? &buffer->sts[i * 3 + j] : nullptr,
+          buffer->bag->color->many ? &buffer->colors[i * 3 + j] : nullptr};
+    }
+
+    const u8 clippedSize =
+        algorithm.clip(clippedTriangle, inputTriangle, algoSettings);
+    if (clippedSize < 3) continue;
+
+    for (u8 j = 1; j <= (u8)(clippedSize - 2); j++) {
+      if (outCount + 3 > kMaxClippedVerts) break;
+      clippedPool[outCount++] = clippedTriangle[0];
+      clippedPool[outCount++] = clippedTriangle[j];
+      clippedPool[outCount++] = clippedTriangle[(j + 1) % clippedSize];
+    }
+  }
+
+  for (u32 i = 0; i < outCount; i++)
+    clippedPool[i].position /= clippedPool[i].position.w;
+
+  buffer->reallocateManually(outCount);
+  for (u32 i = 0; i < outCount; i++) {
+    buffer->vertices[i] = clippedPool[i].position;
+    if (buffer->bag->texture) buffer->sts[i] = clippedPool[i].st;
+    if (buffer->bag->color->many) buffer->colors[i] = clippedPool[i].color;
+    if (buffer->bag->lighting) buffer->normals[i] = clippedPool[i].normal;
+  }
+}
+
+// Kept only to satisfy the class declaration (unused after the patch).
+void StaPipClipper::perspectiveDivide(std::vector<PlanesClipVertex>* vertices) {
+  for (u32 i = 0; i < vertices->size(); i++) {
+    (*vertices)[i].position /= (*vertices)[i].position.w;
+  }
+}
+
+void StaPipClipper::moveDataToBuffer(
+    const std::vector<PlanesClipVertex>& vertices, StaPipQBuffer* buffer) {
+  buffer->reallocateManually(vertices.size());
+
+  for (u32 i = 0; i < vertices.size(); i++) {
+    auto& vertex = vertices.at(i);
+    buffer->vertices[i] = vertex.position;
+
+    if (buffer->bag->texture) buffer->sts[i] = vertex.st;
+    if (buffer->bag->color->many) buffer->colors[i] = vertex.color;
+    if (buffer->bag->lighting) buffer->normals[i] = vertex.normal;
+  }
+}
+
+}  // namespace Tyra
+)";
+
+static const char* TPL_ENGINE_PATCH_QBUFFER = R"QBUF(/*
+# Patched by tyra-editor (engine patch v2) - persistent qbuffer pools.
+# The original allocated and freed up to four Vec4 arrays PER FILL CALL,
+# per subpackage, per frame. Arrays are now allocated once per buffer at
+# maxVertCount capacity and reused. Based on the original by
+# Sandro Sobczynski (h4570/tyra), Apache License 2.0.
+*/
+
+#include "renderer/3d/pipeline/static/core/stapip_qbuffer.hpp"
+#include <sstream>
+#include <iomanip>
+
+namespace Tyra {
+
+namespace {
+
+struct QBufferPool {
+  const void* owner = nullptr;
+  Vec4* vertices = nullptr;
+  Vec4* sts = nullptr;
+  Vec4* colors = nullptr;
+  Vec4* normals = nullptr;
+  u16 capacity = 0;
+};
+
+constexpr int kMaxPools = 32;
+QBufferPool pools[kMaxPools];
+
+QBufferPool* poolFor(const void* owner) {
+  for (int i = 0; i < kMaxPools; i++)
+    if (pools[i].owner == owner) return &pools[i];
+  for (int i = 0; i < kMaxPools; i++)
+    if (pools[i].owner == nullptr) {
+      pools[i].owner = owner;
+      return &pools[i];
+    }
+  return nullptr;  // more buffers than pools - fall back to plain new[]
+}
+
+}  // namespace
+
+StaPipQBuffer::StaPipQBuffer() {
+  size = 0;
+  _isDynamicallyAllocated = false;
+  _stAllocated = false;
+  _colorAllocated = false;
+  _normalAllocated = false;
+
+  vertices = nullptr;
+  colors = nullptr;
+  sts = nullptr;
+  normals = nullptr;
+}
+
+StaPipQBuffer::~StaPipQBuffer() { deallocateDynamicData(); }
+
+void StaPipQBuffer::setMaxVertCount(const u32& count) { maxVertCount = count; }
+
+void StaPipQBuffer::fillByPointer(const StaPipBagPackage& pkg) {
+  TYRA_ASSERT(pkg.size <= maxVertCount, "VU1 buffer supports only ",
+              maxVertCount, " verts. Provided: ", pkg.size);
+
+  deallocateDynamicData();
+
+  // Too bad, but in reality const is not violated.
+  // This class needs refactor
+  vertices = const_cast<Vec4*>(pkg.vertices);
+  sts = const_cast<Vec4*>(pkg.sts);
+  colors = const_cast<Vec4*>(pkg.colors);
+  normals = const_cast<Vec4*>(pkg.normals);
+  size = pkg.size;
+  bag = pkg.bag;
+}
+
+void StaPipQBuffer::fillByCopyMax(const StaPipBagPackage& pkg1,
+                                  const StaPipBagPackage& pkg2,
+                                  const StaPipBagPackage& pkg3) {
+  TYRA_ASSERT(pkg1.size <= maxVertCount / 3,
+              "Wrong package size (1). Provided: ", pkg1.size);
+  TYRA_ASSERT(pkg2.size <= maxVertCount / 3,
+              "Wrong package size (2). Provided: ", pkg2.size);
+  TYRA_ASSERT(pkg3.size <= maxVertCount / 3,
+              "Wrong package size (3). Provided: ", pkg3.size);
+
+  deallocateDynamicData();
+  size = pkg1.size + pkg2.size + pkg3.size;
+  allocateDynamicData(size, pkg1.bag);
+
+  for (u16 i = 0; i < pkg1.size; i++) {
+    vertices[i].set(pkg1.vertices[i]);
+
+    if (pkg1.bag->texture) sts[i].set(pkg1.sts[i]);
+
+    if (pkg1.bag->color->many)
+      colors[i].set(reinterpret_cast<const Vec4&>(pkg1.colors[i]));
+
+    if (pkg1.bag->lighting) normals[i].set(pkg1.normals[i]);
+  }
+
+  for (u16 i = 0; i < pkg2.size; i++) {
+    vertices[i + pkg1.size].set(pkg2.vertices[i]);
+
+    if (pkg1.bag->texture) sts[i + pkg1.size].set(pkg2.sts[i]);
+
+    if (pkg1.bag->color->many)
+      colors[i + pkg1.size].set(reinterpret_cast<const Vec4&>(pkg2.colors[i]));
+
+    if (pkg1.bag->lighting) normals[i + pkg1.size].set(pkg2.normals[i]);
+  }
+
+  for (u16 i = 0; i < pkg3.size; i++) {
+    vertices[i + pkg1.size + pkg2.size].set(pkg3.vertices[i]);
+
+    if (pkg1.bag->texture) sts[i + pkg1.size + pkg2.size].set(pkg3.sts[i]);
+
+    if (pkg1.bag->color->many)
+      colors[i + pkg1.size + pkg2.size].set(
+          reinterpret_cast<const Vec4&>(pkg3.colors[i]));
+
+    if (pkg1.bag->lighting)
+      normals[i + pkg1.size + pkg2.size].set(pkg3.normals[i]);
+  }
+
+  bag = pkg1.bag;
+}
+
+void StaPipQBuffer::fillByCopy1By2(const StaPipBagPackage& pkg1,
+                                   const StaPipBagPackage& pkg2) {
+  TYRA_ASSERT(pkg1.size <= maxVertCount / 3,
+              "Wrong package size (1). Provided: ", pkg1.size);
+  TYRA_ASSERT(pkg2.size <= maxVertCount / 3,
+              "Wrong package size (2). Provided: ", pkg2.size);
+
+  deallocateDynamicData();
+  size = pkg1.size + pkg2.size;
+  allocateDynamicData(size, pkg1.bag);
+
+  for (u16 i = 0; i < pkg1.size; i++) {
+    vertices[i].set(pkg1.vertices[i]);
+
+    if (pkg1.bag->texture) sts[i].set(pkg1.sts[i]);
+
+    if (pkg1.bag->color->many)
+      colors[i].set(reinterpret_cast<const Vec4&>(pkg1.colors[i]));
+
+    if (pkg1.bag->lighting) normals[i].set(pkg1.normals[i]);
+  }
+
+  for (u16 i = 0; i < pkg2.size; i++) {
+    vertices[i + pkg1.size].set(pkg2.vertices[i]);
+
+    if (pkg1.bag->texture) sts[i + pkg1.size].set(pkg2.sts[i]);
+
+    if (pkg1.bag->color->many)
+      colors[i + pkg1.size].set(reinterpret_cast<const Vec4&>(pkg2.colors[i]));
+
+    if (pkg1.bag->lighting) normals[i + pkg1.size].set(pkg2.normals[i]);
+  }
+
+  bag = pkg1.bag;
+}
+
+void StaPipQBuffer::fillByCopy1By3(const StaPipBagPackage& pkg) {
+  TYRA_ASSERT(pkg.size <= maxVertCount / 3,
+              "Wrong package size (1). Provided: ", pkg.size);
+
+  deallocateDynamicData();
+  size = pkg.size;
+  allocateDynamicData(size, pkg.bag);
+
+  for (u16 i = 0; i < pkg.size; i++) {
+    vertices[i].set(pkg.vertices[i]);
+
+    if (pkg.bag->texture) sts[i].set(pkg.sts[i]);
+
+    if (pkg.bag->color->many)
+      colors[i].set(reinterpret_cast<const Vec4&>(pkg.colors[i]));
+
+    if (pkg.bag->lighting) normals[i].set(pkg.normals[i]);
+  }
+
+  bag = pkg.bag;
+}
+
+void StaPipQBuffer::reallocateManually(const u16& t_size) {
+  deallocateDynamicData();
+  allocateDynamicData(t_size, bag);
+  size = t_size;
+}
+
+void StaPipQBuffer::deallocateDynamicData() {
+  if (!_isDynamicallyAllocated) return;
+
+  // Pooled arrays are kept for reuse - only true heap fallbacks are freed.
+  QBufferPool* pool = poolFor(this);
+  const bool pooled = pool && vertices == pool->vertices;
+
+  if (!pooled) {
+    delete[] vertices;
+
+    if (_stAllocated) delete[] sts;
+    if (_colorAllocated) delete[] colors;
+    if (_normalAllocated) delete[] normals;
+  }
+
+  _stAllocated = false;
+  _colorAllocated = false;
+  _normalAllocated = false;
+  _isDynamicallyAllocated = false;
+}
+
+void StaPipQBuffer::allocateDynamicData(u16 size, StaPipBag* bag) {
+  TYRA_ASSERT(size <= maxVertCount, "Wrong size. Max buffer size in VU1 is ",
+              maxVertCount, ". Provided: ", size);
+  TYRA_ASSERT(!_isDynamicallyAllocated, "Buffer is already allocated");
+
+  if (size == 0) return;
+
+  QBufferPool* pool = poolFor(this);
+  if (pool) {
+    const u16 needed = maxVertCount > size ? (u16)maxVertCount : size;
+    if (pool->capacity < needed) {
+      delete[] pool->vertices;
+      delete[] pool->sts;
+      delete[] pool->colors;
+      delete[] pool->normals;
+      pool->vertices = new Vec4[needed];
+      pool->sts = new Vec4[needed];
+      pool->colors = new Vec4[needed];
+      pool->normals = new Vec4[needed];
+      pool->capacity = needed;
+    }
+    vertices = pool->vertices;
+    if (bag->texture != nullptr) {
+      sts = pool->sts;
+      _stAllocated = true;
+    }
+    if (bag->color->many != nullptr) {
+      colors = pool->colors;
+      _colorAllocated = true;
+    }
+    if (bag->lighting != nullptr) {
+      normals = pool->normals;
+      _normalAllocated = true;
+    }
+    _isDynamicallyAllocated = true;
+    return;
+  }
+
+  // Fallback: original behavior
+  vertices = new Vec4[size];
+
+  if (bag->texture != nullptr) {
+    sts = new Vec4[size];
+    _stAllocated = true;
+  }
+
+  if (bag->color->many != nullptr) {
+    colors = new Vec4[size];
+    _colorAllocated = true;
+  }
+
+  if (bag->lighting != nullptr) {
+    normals = new Vec4[size];
+    _normalAllocated = true;
+  }
+
+  _isDynamicallyAllocated = true;
+}
+
+bool StaPipQBuffer::any() const { return size > 0; }
+
+void StaPipQBuffer::print() const {
+  auto text = getPrint(nullptr);
+  printf("%s\n", text.c_str());
+}
+
+void StaPipQBuffer::print(const char* name) const {
+  auto text = getPrint(name);
+  printf("%s\n", text.c_str());
+}
+
+std::string StaPipQBuffer::getPrint(const char* name) const {
+  std::stringstream res;
+  if (name) {
+    res << name << "(";
+  } else {
+    res << "StaPipQBuffer(";
+  }
+  res << std::fixed << std::setprecision(2);
+  res << std::endl;
+  res << "Size: " << static_cast<int>(size) << std::endl;
+
+  res << "Vertices: " << std::endl;
+  for (u32 i = 0; i < size; i++)
+    res << i << ": " << vertices[i].getPrint() << std::endl;
+
+  if (bag->texture != nullptr) {
+    res << "STs: " << std::endl;
+    for (u32 i = 0; i < size; i++)
+      res << i << ": " << sts[i].getPrint() << std::endl;
+  }
+
+  if (bag->color->many != nullptr) {
+    res << "Colors: " << std::endl;
+    for (u32 i = 0; i < size; i++)
+      res << i << ": " << colors[i].getPrint() << std::endl;
+  }
+
+  if (bag->lighting != nullptr) {
+    res << "Normals: " << std::endl;
+    for (u32 i = 0; i < size; i++) {
+      res << i << ": " << normals[i].getPrint();
+      if (i < size - 1) {
+        res << std::endl;
+      }
+    }
+  }
+
+  res << ")";
+
+  return res.str();
+}
+
+}  // namespace Tyra
+)QBUF";
+
+// ---------------------------------------------------------------------------
 // Built-in assets for the "FPP showcase" template
 // ---------------------------------------------------------------------------
 
@@ -1366,6 +1963,7 @@ static const char* TPL_GITIGNORE = R"(obj/
 bin/*.elf
 *.tyra
 .vscode/
+.tyra-engine-patch/
 )";
 
 static const char* TPL_DIR_KEEP = "*\n!.gitignore\n";
@@ -1782,6 +2380,9 @@ std::vector<File> generate(const Project& p) {
         {"inc\\hud_data.gen.hpp", hudDataHeader(p)},
         {"inc\\scripts\\script.hpp", fill(TPL_SCRIPT_HPP)},
         {"src\\scripts\\flow_graph.gen.cpp", flowGraphScript(p)},
+        {".tyra-engine-patch\\planes_clip_algorithm.cpp", TPL_ENGINE_PATCH_ALGO},
+        {".tyra-engine-patch\\stapip_clipper.cpp", TPL_ENGINE_PATCH_CLIPPER},
+        {".tyra-engine-patch\\stapip_qbuffer.cpp", TPL_ENGINE_PATCH_QBUFFER},
         {"src\\scripts\\example_interaction.cpp",
          fill(fpp ? TPL_EXAMPLE_SCRIPT_FPP : TPL_EXAMPLE_SCRIPT_ORBIT)},
         {".vscode\\c_cpp_properties.json", vscodeCppProperties()},

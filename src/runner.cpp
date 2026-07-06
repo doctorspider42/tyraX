@@ -226,6 +226,28 @@ void Runner::worker(Project p, bool build, bool run) {
                       p.dir) == 0;
         }
 
+        // Engine patch v2 (idempotent): fast EE clipper - outcode-based
+        // trivial accept/reject + no heap allocations per clip call.
+        // Patched sources are generated into <project>/.tyra-engine-patch/
+        // and land in /src via the rsync above.
+        if (ok && exec(dc + "\"test -f /tyra/.tyra-editor-patch-3\"", p.dir) != 0) {
+            appendLine("[editor] Patching Tyra engine (fast EE clipper + qbuffer pools) "
+                       "and rebuilding it - one-time step, takes a minute...");
+            ok = exec(dc + "\"cp /src/.tyra-engine-patch/planes_clip_algorithm.cpp "
+                           "/tyra/engine/src/renderer/core/3d/clipper/"
+                           "planes_clip_algorithm.cpp && "
+                           "cp /src/.tyra-engine-patch/stapip_clipper.cpp "
+                           "/tyra/engine/src/renderer/3d/pipeline/static/core/"
+                           "stapip_clipper.cpp && "
+                           "cp /src/.tyra-engine-patch/stapip_qbuffer.cpp "
+                           "/tyra/engine/src/renderer/3d/pipeline/static/core/"
+                           "stapip_qbuffer.cpp && "
+                           "cd /tyra/engine && make -j$(nproc) && "
+                           "touch /tyra/.tyra-editor-patch-3\"",
+                      p.dir) == 0;
+            if (!ok) appendLine("[editor] Engine clipper patch failed.");
+        }
+
         if (ok) {
             appendLine("[editor] Compiling (PS2DEV toolchain)...");
             ok = exec(dc + "\"cd /src && make\"", p.dir) == 0;

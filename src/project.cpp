@@ -499,7 +499,10 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == ".vscode\\c_cpp_properties.json" ||
             f.relativePath == "src\\scripts\\flow_graph.gen.cpp" ||
             f.relativePath == "inc\\model_data.gen.hpp" ||
-            f.relativePath == "inc\\hud_data.gen.hpp") {
+            f.relativePath == "inc\\hud_data.gen.hpp" ||
+            f.relativePath == ".tyra-engine-patch\\planes_clip_algorithm.cpp" ||
+            f.relativePath == ".tyra-engine-patch\\stapip_clipper.cpp" ||
+            f.relativePath == ".tyra-engine-patch\\stapip_qbuffer.cpp") {
             write = true;  // editor-owned, always in sync with project data
         } else if (f.relativePath == "src\\terrain_game.cpp" ||
                    f.relativePath == "inc\\terrain_game.hpp" ||
