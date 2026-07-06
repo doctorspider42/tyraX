@@ -5,7 +5,7 @@ Each finished feature lands as its own commit.
 
 ## In progress
 
-- (4) Sky gradient dome + directional light preferences
+- (6) Directional light + ambient shading for scene objects
 
 ## Done
 
@@ -23,9 +23,17 @@ Each finished feature lands as its own commit.
 - (3) **Object physics** — `Physics` checkbox per object: falls with GRAVITY pref,
   rests on the terrain. New FPP projects seed a falling ball as demo. Verified.
 
-## Backlog (rough order)
+- (4) **Sky gradient dome** — vertex-colored dome (horizon/zenith preference colors),
+  same gradient in the editor viewport. Scripts changing ctx.skyColor retint the
+  dome at runtime. Verified in PCSX2.
+- (5) **Flow graph** — CryEngine-like visual logic (imnodes window, tab next to
+  Viewport): triggers (On Start, On Button, Near Object, Every N Seconds) wired to
+  actions (Set Sky Color, Show/Hide/Toggle Object, Move Object By, Set Object Color,
+  Log). Graph lives in project.json, compiles to src/scripts/flow_graph.gen.cpp on
+  every build. Runtime verified in PCSX2 (OnStart->SetSky retints the dome; codegen
+  for all trigger types inspected). Editor node UI compiled but needs a hands-on pass.
 
-- (4b) Directional light + ambient shading for scene objects (viewport parity)
+## Backlog (rough order)
 - (5) Sky gradient dome (no textures needed) + sky preferences
 - (6) Custom .obj models as scene objects (editor preview + PS2 loader)
 - (7) HUD from images (PNG sprites placed in the editor, rendered by Renderer2D)

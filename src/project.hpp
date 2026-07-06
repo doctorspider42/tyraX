@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 
+#include "flowgraph.hpp"
+
 struct TerrainConfig {
     int width = 64;   // world units, X axis
     int depth = 64;   // world units, Z axis
@@ -77,6 +79,7 @@ struct Project {
     ProjectSettings settings;
     std::vector<std::string> scenes{"main"};
     std::vector<SceneObject> objects;
+    FlowGraph flowGraph;
 
     bool valid() const { return !name.empty() && !dir.empty(); }
     std::string elfName() const { return name + ".elf"; }

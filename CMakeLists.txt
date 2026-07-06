@@ -36,8 +36,9 @@ add_executable(tyra-editor
     src/viewport.cpp
     src/runner.cpp
     vendor/imguizmo/src/ImGuizmo.cpp
+    vendor/imnodes/imnodes.cpp
 )
-target_include_directories(tyra-editor PRIVATE src vendor/imguizmo/src)
+target_include_directories(tyra-editor PRIVATE src vendor/imguizmo/src vendor/imnodes)
 target_compile_definitions(tyra-editor PRIVATE GLFW_INCLUDE_NONE)
 target_link_libraries(tyra-editor PRIVATE imgui glfw opengl32 ole32 uuid)
 

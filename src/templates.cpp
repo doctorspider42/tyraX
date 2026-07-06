@@ -174,6 +174,7 @@ class TerrainGame : public Tyra::Game {
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
   ObjectGeometry skyDome;
+  float skyHorizonR = 0, skyHorizonG = 0, skyHorizonB = 0;
 
   void buildSkyDome();
   void rebuildObjectGeometry(int index);
@@ -236,6 +237,7 @@ class TerrainGame : public Tyra::Game {
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
   ObjectGeometry skyDome;
+  float skyHorizonR = 0, skyHorizonG = 0, skyHorizonB = 0;
 
   void buildSkyDome();
   void rebuildObjectGeometry(int index);
@@ -489,6 +491,7 @@ void TerrainGame::buildScene() {
   bag->lighting = nullptr;
 
   // Runtime copies of the scene objects - scripts and physics mutate these.
+  skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
   buildSkyDome();
 
   runtimeObjects.assign(SCENE_OBJECT_COUNT, RuntimeObject());
@@ -511,8 +514,9 @@ void TerrainGame::buildSkyDome() {
 
   const int stacks = 6, slices = 14;
   auto skyAt = [&](float t) {  // t: 0 = horizon, 1 = zenith
-    return Color(SKY_R + (SKY_TOP_R - SKY_R) * t, SKY_G + (SKY_TOP_G - SKY_G) * t,
-                 SKY_B + (SKY_TOP_B - SKY_B) * t, 128.0F);
+    return Color(skyHorizonR + (SKY_TOP_R - skyHorizonR) * t,
+                 skyHorizonG + (SKY_TOP_G - skyHorizonG) * t,
+                 skyHorizonB + (SKY_TOP_B - skyHorizonB) * t, 128.0F);
   };
   auto domeVert = [&](int stack, int slice) {
     // Start slightly below the horizon so the seam is never visible
@@ -621,6 +625,15 @@ void TerrainGame::updateObjectPhysics() {
 }
 
 void TerrainGame::renderScene() {
+  // Scripts changing ctx.skyColor retint the dome horizon
+  if (skyDome.bag && (scriptCtx.skyColor.r != skyHorizonR ||
+                      scriptCtx.skyColor.g != skyHorizonG ||
+                      scriptCtx.skyColor.b != skyHorizonB)) {
+    skyHorizonR = scriptCtx.skyColor.r;
+    skyHorizonG = scriptCtx.skyColor.g;
+    skyHorizonB = scriptCtx.skyColor.b;
+    buildSkyDome();
+  }
   if (skyDome.bag) stapip.core.render(skyDome.bag.get());
   stapip.core.render(bag.get());
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
@@ -1079,10 +1092,9 @@ class ExampleInteraction : public Script {
     if (nearBox && ctx.engine->pad.getClicked().Cross) {
       toggled = !toggled;
       TYRA_LOG("Box says hello! Sky toggled: ", (int)toggled);
+      ctx.skyColor = toggled ? Tyra::Color(230.0F, 120.0F, 60.0F)
+                             : Tyra::Color(SKY_R, SKY_G, SKY_B);
     }
-
-    ctx.skyColor = toggled ? Tyra::Color(230.0F, 120.0F, 60.0F)
-                           : Tyra::Color(SKY_R, SKY_G, SKY_B);
   }
 
  private:
@@ -1110,10 +1122,9 @@ class ExampleInteraction : public Script {
     if (ctx.engine->pad.getClicked().Cross) {
       toggled = !toggled;
       TYRA_LOG("X pressed! Sky toggled: ", (int)toggled);
+      ctx.skyColor = toggled ? Tyra::Color(230.0F, 120.0F, 60.0F)
+                             : Tyra::Color(SKY_R, SKY_G, SKY_B);
     }
-
-    ctx.skyColor = toggled ? Tyra::Color(230.0F, 120.0F, 60.0F)
-                           : Tyra::Color(SKY_R, SKY_G, SKY_B);
   }
 
  private:
@@ -1333,6 +1344,131 @@ bool matchesLegacy(const Project& p, const std::string& relativePath,
     return content == fillTemplate(p, tpl);
 }
 
+// ---------------------------------------------------------------------------
+// Flow graph -> C++ script. Object names are resolved to indices at codegen
+// time; unknown names produce a comment instead of code.
+// ---------------------------------------------------------------------------
+std::string flowGraphScript(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+
+    auto objectIndex = [&](const std::string& name) {
+        for (size_t i = 0; i < p.objects.size(); ++i)
+            if (p.objects[i].name == name) return (int)i;
+        return -1;
+    };
+
+    // action node -> inline statements
+    auto actionCode = [&](const FlowNode& n, const std::string& pad) -> std::string {
+        std::ostringstream c;
+        const int idx = objectIndex(n.str);
+        const bool needsObject = flowNodeType(n.type)->strKind == FlowParamKind::ObjectName;
+        if (needsObject && idx < 0) {
+            c << pad << "// node " << n.id << " (" << n.type << "): unknown object '"
+              << n.str << "'\n";
+            return c.str();
+        }
+        const std::string obj = "ctx.objects[" + std::to_string(idx) + "]";
+        if (n.type == "SetSky") {
+            c << pad << "ctx.skyColor = Tyra::Color(" << floatLit(n.num[0] * 255.0f) << ", "
+              << floatLit(n.num[1] * 255.0f) << ", " << floatLit(n.num[2] * 255.0f) << ");\n";
+        } else if (n.type == "ShowObject") {
+            c << pad << obj << ".visible = true;\n";
+        } else if (n.type == "HideObject") {
+            c << pad << obj << ".visible = false;\n";
+        } else if (n.type == "ToggleObject") {
+            c << pad << obj << ".visible = !" << obj << ".visible;\n";
+        } else if (n.type == "MoveObjectBy") {
+            for (int a = 0; a < 3; ++a)
+                if (n.num[a] != 0.0f)
+                    c << pad << obj << ".data.position[" << a << "] += " << floatLit(n.num[a])
+                      << ";\n";
+            c << pad << obj << ".dirty = true;\n";
+        } else if (n.type == "SetObjectColor") {
+            for (int a = 0; a < 3; ++a)
+                c << pad << obj << ".data.color[" << a << "] = " << floatLit(n.num[a]) << ";\n";
+            c << pad << obj << ".dirty = true;\n";
+        } else if (n.type == "Log") {
+            std::string text = n.str;
+            text = replaceAll(text, "\\", "\\\\");
+            text = replaceAll(text, "\"", "\\\"");
+            c << pad << "TYRA_LOG(\"" << text << "\");\n";
+        }
+        return c.str();
+    };
+
+    // all actions linked to a trigger
+    auto linkedActions = [&](int triggerId, const std::string& pad) {
+        std::ostringstream c;
+        for (const FlowLink& l : p.flowGraph.links) {
+            if (l.fromNode != triggerId) continue;
+            for (const FlowNode& n : p.flowGraph.nodes) {
+                if (n.id != l.toNode) continue;
+                const FlowNodeType* t = flowNodeType(n.type);
+                if (t && !t->trigger) c << actionCode(n, pad);
+            }
+        }
+        return c.str();
+    };
+
+    std::ostringstream out;
+    out << "// Generated by tyra-editor from the Flow Graph. Do not edit -\n"
+           "// regenerated on every build. Edit the graph in the editor instead.\n"
+           "#include \"scripts/script.hpp\"\n\n"
+           "namespace "
+        << ns
+        << " {\n\n"
+           "class FlowGraphScript : public Script {\n"
+           " public:\n"
+           "  void update(ScriptContext& ctx) override {\n"
+           "    frame++;\n";
+
+    std::ostringstream members;
+    for (const FlowNode& n : p.flowGraph.nodes) {
+        const FlowNodeType* t = flowNodeType(n.type);
+        if (!t || !t->trigger) continue;
+        const std::string body = linkedActions(n.id, "      ");
+        if (body.empty()) continue;
+
+        if (n.type == "OnStart") {
+            out << "    if (!started) {\n      started = true;\n" << body << "    }\n";
+        } else if (n.type == "OnButton") {
+            std::string btn = n.str.empty() ? "Cross" : n.str;
+            out << "    if (ctx.engine->pad.getClicked()." << btn << ") {\n" << body
+                << "    }\n";
+        } else if (n.type == "NearObject") {
+            const int idx = objectIndex(n.str);
+            if (idx < 0) {
+                out << "    // node " << n.id << " (NearObject): unknown object '" << n.str
+                    << "'\n";
+                continue;
+            }
+            const std::string flag = "near" + std::to_string(n.id);
+            members << "  bool " << flag << " = false;\n";
+            const float r = n.num[0] > 0.01f ? n.num[0] : 3.0f;
+            out << "    {\n      const float dx = ctx.playerPosition.x - ctx.objects[" << idx
+                << "].data.position[0];\n      const float dz = ctx.playerPosition.z - "
+                   "ctx.objects["
+                << idx << "].data.position[2];\n      const bool isNear = dx * dx + dz * dz < "
+                << floatLit(r * r) << ";\n      if (isNear && !" << flag << ") {\n"
+                << body << "      }\n      " << flag << " = isNear;\n    }\n";
+        } else if (n.type == "EverySeconds") {
+            int frames = (int)(n.num[0] * 50.0f);
+            if (frames < 1) frames = 1;
+            out << "    if (frame % " << frames << " == 0) {\n" << body << "    }\n";
+        }
+    }
+
+    out << "  }\n\n"
+           " private:\n"
+           "  int frame = 0;\n"
+           "  bool started = false;\n"
+        << members.str()
+        << "};\n\n"
+           "}  // namespace "
+        << ns << "\n\nTYRA_SCRIPT(" << ns << "::FlowGraphScript);\n";
+    return out.str();
+}
+
 std::string scriptStub(const Project& p, const std::string& className,
                        const std::string& fileName) {
     std::string s = fillTemplate(p, TPL_SCRIPT_STUB);
@@ -1412,6 +1548,7 @@ std::vector<File> generate(const Project& p) {
         {"inc\\terrain_config.hpp", fill(TPL_TERRAIN_CONFIG_HPP)},
         {"inc\\scene_data.hpp", sceneDataContent(p, ns)},
         {"inc\\scripts\\script.hpp", fill(TPL_SCRIPT_HPP)},
+        {"src\\scripts\\flow_graph.gen.cpp", flowGraphScript(p)},
         {"src\\scripts\\example_interaction.cpp",
          fill(fpp ? TPL_EXAMPLE_SCRIPT_FPP : TPL_EXAMPLE_SCRIPT_ORBIT)},
         {".vscode\\c_cpp_properties.json", vscodeCppProperties()},

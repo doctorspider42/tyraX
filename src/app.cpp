@@ -16,6 +16,7 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 #include <ImGuizmo.h>
+#include <imnodes.h>
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -103,6 +104,7 @@ int App::run(const std::string& initialProjectDir) {
 
     ImGui_ImplGlfw_InitForOpenGL(window_, true);
     ImGui_ImplOpenGL3_Init("#version 330 core");
+    ImNodes::CreateContext();
 
     if (!viewport_.init()) {
         std::fprintf(stderr, "Failed to init viewport renderer\n");
@@ -149,6 +151,7 @@ int App::run(const std::string& initialProjectDir) {
     }
 
     viewport_.shutdown();
+    ImNodes::DestroyContext();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
@@ -178,6 +181,7 @@ void App::drawUI() {
                                                          &center);
             ImGui::DockBuilderDockWindow("Project", left);
             ImGui::DockBuilderDockWindow("Output", bottom);
+            ImGui::DockBuilderDockWindow("Flow Graph", center);
             ImGui::DockBuilderDockWindow("Viewport", center);
             ImGui::DockBuilderFinish(dockspace);
         }
@@ -186,6 +190,7 @@ void App::drawUI() {
     drawMenuBar();
     drawViewportWindow();
     drawProjectWindow();
+    drawFlowGraphWindow();
     drawOutputWindow();
     drawNewProjectModal();
     drawPreferencesModal();
@@ -527,6 +532,7 @@ void App::attachProject() {
         project::saveSolution(project_, history_, selectedObject_, gizmoOp_, viewMode);
     }
     viewport_.setViewMode((Viewport::ViewMode)viewMode);
+    flowPositionsApplied_ = false;
     statusMessage_.clear();
 }
 
@@ -616,6 +622,213 @@ void App::drawSceneSection() {
     }
 
     if (committed) commitChange();
+}
+
+void App::drawFlowGraphWindow() {
+    ImGui::Begin("Flow Graph");
+    if (!hasProject_) {
+        ImGui::TextDisabled("No project open.");
+        ImGui::End();
+        return;
+    }
+
+    FlowGraph& fg = project_.flowGraph;
+    bool changed = false;
+
+    ImGui::TextDisabled(
+        "Right-click: add node. Drag pins to connect. Del: remove selection. "
+        "Compiled into flow_graph.gen.cpp on build.");
+
+    ImNodes::BeginNodeEditor();
+
+    // Push stored node positions into imnodes once per project
+    if (!flowPositionsApplied_) {
+        flowPositionsApplied_ = true;
+        for (const FlowNode& n : fg.nodes)
+            ImNodes::SetNodeGridSpacePos(n.id, ImVec2(n.pos[0], n.pos[1]));
+    }
+
+    for (FlowNode& n : fg.nodes) {
+        const FlowNodeType* t = flowNodeType(n.type);
+        if (!t) continue;
+
+        if (t->trigger)
+            ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(40, 110, 60, 255));
+        else
+            ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(60, 80, 140, 255));
+
+        ImNodes::BeginNode(n.id);
+        ImNodes::BeginNodeTitleBar();
+        ImGui::TextUnformatted(t->title);
+        ImNodes::EndNodeTitleBar();
+
+        ImGui::PushID(n.id);
+        ImGui::PushItemWidth(130.0f);
+
+        // string param
+        if (t->strKind == FlowParamKind::ObjectName) {
+            if (ImGui::BeginCombo("Object", n.str.empty() ? "<none>" : n.str.c_str())) {
+                for (const SceneObject& o : project_.objects) {
+                    if (ImGui::Selectable(o.name.c_str(), o.name == n.str)) {
+                        n.str = o.name;
+                        changed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+        } else if (t->strKind == FlowParamKind::Button) {
+            const char* buttons[] = {"Cross", "Circle", "Square", "Triangle"};
+            if (ImGui::BeginCombo("Button", n.str.empty() ? "Cross" : n.str.c_str())) {
+                for (const char* b : buttons) {
+                    if (ImGui::Selectable(b, n.str == b)) {
+                        n.str = b;
+                        changed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+        } else if (t->strKind == FlowParamKind::Text) {
+            char buf[128];
+            std::snprintf(buf, sizeof(buf), "%s", n.str.c_str());
+            if (ImGui::InputText("Text", buf, sizeof(buf))) n.str = buf;
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+
+        // numeric params
+        if (t->numKind == FlowParamKind::Color) {
+            ImGui::ColorEdit3("Color", n.num, ImGuiColorEditFlags_NoInputs);
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        } else {
+            for (int a = 0; a < t->numCount; ++a) {
+                ImGui::DragFloat(t->numLabels[a], &n.num[a], 0.1f);
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+            }
+        }
+        ImGui::PopItemWidth();
+        ImGui::PopID();
+
+        if (t->trigger) {
+            ImNodes::BeginOutputAttribute(flowOutPin(n.id));
+            ImGui::TextUnformatted("then >");
+            ImNodes::EndOutputAttribute();
+        } else {
+            ImNodes::BeginInputAttribute(flowInPin(n.id));
+            ImGui::TextUnformatted("> do");
+            ImNodes::EndInputAttribute();
+        }
+
+        ImNodes::EndNode();
+        ImNodes::PopColorStyle();
+    }
+
+    for (const FlowLink& l : fg.links)
+        ImNodes::Link(l.id, flowOutPin(l.fromNode), flowInPin(l.toNode));
+
+    ImNodes::MiniMap(0.15f, ImNodesMiniMapLocation_BottomRight);
+    const bool editorHovered = ImNodes::IsEditorHovered();
+    ImNodes::EndNodeEditor();
+
+    // Read node positions back (imnodes owns them while dragging)
+    for (FlowNode& n : fg.nodes) {
+        const ImVec2 pos = ImNodes::GetNodeGridSpacePos(n.id);
+        n.pos[0] = pos.x;
+        n.pos[1] = pos.y;
+    }
+
+    // New link dragged between pins
+    int startPin = 0, endPin = 0;
+    if (ImNodes::IsLinkCreated(&startPin, &endPin)) {
+        const int outPin = startPin % 4 == 1 ? startPin : endPin;
+        const int inPin = startPin % 4 == 2 ? startPin : endPin;
+        if (outPin % 4 == 1 && inPin % 4 == 2) {
+            FlowLink l;
+            l.id = project_.flowGraph.nextId++;
+            l.fromNode = (outPin - 1) / 4;
+            l.toNode = (inPin - 2) / 4;
+            bool duplicate = false;
+            for (const FlowLink& e : fg.links)
+                duplicate |= (e.fromNode == l.fromNode && e.toNode == l.toNode);
+            if (!duplicate) {
+                fg.links.push_back(l);
+                changed = true;
+            }
+        }
+    }
+
+    // Delete selection
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) &&
+        ImGui::IsKeyPressed(ImGuiKey_Delete)) {
+        const int numLinks = ImNodes::NumSelectedLinks();
+        if (numLinks > 0) {
+            std::vector<int> ids(numLinks);
+            ImNodes::GetSelectedLinks(ids.data());
+            for (int id : ids)
+                for (size_t i = 0; i < fg.links.size(); ++i)
+                    if (fg.links[i].id == id) {
+                        fg.links.erase(fg.links.begin() + i);
+                        changed = true;
+                        break;
+                    }
+        }
+        const int numNodes = ImNodes::NumSelectedNodes();
+        if (numNodes > 0) {
+            std::vector<int> ids(numNodes);
+            ImNodes::GetSelectedNodes(ids.data());
+            for (int id : ids) {
+                for (size_t i = 0; i < fg.nodes.size(); ++i)
+                    if (fg.nodes[i].id == id) {
+                        fg.nodes.erase(fg.nodes.begin() + i);
+                        changed = true;
+                        break;
+                    }
+                for (size_t i = fg.links.size(); i-- > 0;)
+                    if (fg.links[i].fromNode == id || fg.links[i].toNode == id)
+                        fg.links.erase(fg.links.begin() + i);
+            }
+            ImNodes::ClearNodeSelection();
+        }
+    }
+
+    // Right-click: add node
+    if (editorHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+        ImGui::OpenPopup("##flow_add_node");
+    if (ImGui::BeginPopup("##flow_add_node")) {
+        const ImVec2 clickPos = ImGui::GetMousePosOnOpeningCurrentPopup();
+        ImGui::SeparatorText("Triggers");
+        for (const FlowNodeType& t : flowNodeTypes()) {
+            if (!t.trigger) continue;
+            if (ImGui::MenuItem(t.title)) {
+                FlowNode n;
+                n.id = fg.nextId++;
+                n.type = t.key;
+                if (t.strKind == FlowParamKind::Button) n.str = "Cross";
+                if (std::string(t.key) == "NearObject") n.num[0] = 4.0f;
+                if (std::string(t.key) == "EverySeconds") n.num[0] = 1.0f;
+                fg.nodes.push_back(n);
+                ImNodes::SetNodeScreenSpacePos(n.id, clickPos);
+                changed = true;
+            }
+        }
+        ImGui::SeparatorText("Actions");
+        for (const FlowNodeType& t : flowNodeTypes()) {
+            if (t.trigger) continue;
+            if (ImGui::MenuItem(t.title)) {
+                FlowNode n;
+                n.id = fg.nextId++;
+                n.type = t.key;
+                if (t.numKind == FlowParamKind::Color)
+                    n.num[0] = n.num[1] = n.num[2] = 1.0f;
+                fg.nodes.push_back(n);
+                ImNodes::SetNodeScreenSpacePos(n.id, clickPos);
+                changed = true;
+            }
+        }
+        ImGui::EndPopup();
+    }
+
+    if (changed) saveAll("Saved");
+
+    ImGui::End();
 }
 
 void App::openInVSCode() {

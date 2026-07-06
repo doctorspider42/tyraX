@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
 # Dependencies in vendor/
-if (-not (Test-Path 'vendor/imgui') -or -not (Test-Path 'vendor/glfw') -or -not (Test-Path 'vendor/imguizmo')) {
+if (-not (Test-Path 'vendor/imgui') -or -not (Test-Path 'vendor/glfw') -or -not (Test-Path 'vendor/imguizmo') -or -not (Test-Path 'vendor/imnodes')) {
     Write-Host '== Cloning dependencies (setup.ps1) ==' -ForegroundColor Cyan
     ./setup.ps1
 }

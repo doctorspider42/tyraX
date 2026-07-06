@@ -26,10 +26,9 @@ class ExampleInteraction : public Script {
     if (nearBox && ctx.engine->pad.getClicked().Cross) {
       toggled = !toggled;
       TYRA_LOG("Box says hello! Sky toggled: ", (int)toggled);
+      ctx.skyColor = toggled ? Tyra::Color(230.0F, 120.0F, 60.0F)
+                             : Tyra::Color(SKY_R, SKY_G, SKY_B);
     }
-
-    ctx.skyColor = toggled ? Tyra::Color(230.0F, 120.0F, 60.0F)
-                           : Tyra::Color(SKY_R, SKY_G, SKY_B);
   }
 
  private:

@@ -22,6 +22,7 @@ private:
     void drawSceneSection();
     void drawScriptsSection();
     void drawNewScriptModal();
+    void drawFlowGraphWindow();
     void openInVSCode();
     void drawOutputWindow();
     void drawNewProjectModal();
@@ -55,6 +56,10 @@ private:
     History history_;
     SceneObject clipboard_;
     bool hasClipboard_ = false;
+
+    // Flow graph editor state
+    bool flowPositionsApplied_ = false;  // node positions pushed to imnodes once
+
 
     Viewport viewport_;
     Runner runner_;

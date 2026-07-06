@@ -99,7 +99,22 @@ std::string save(const Project& p) {
     json << "],\n"
          << "  \"objects\": ";
     writeObjectsArray(json, p.objects, "    ");
-    json << "\n}\n";
+    json << ",\n  \"flowGraph\": {\n"
+         << "    \"nextId\": " << p.flowGraph.nextId << ",\n"
+         << "    \"nodes\": [";
+    for (size_t i = 0; i < p.flowGraph.nodes.size(); ++i) {
+        const FlowNode& n = p.flowGraph.nodes[i];
+        json << (i ? ",\n      " : "\n      ") << "{ \"id\": " << n.id << ", \"type\": \""
+             << n.type << "\", \"pos\": [" << fmtFloat(n.pos[0]) << ", " << fmtFloat(n.pos[1])
+             << "], \"str\": \"" << n.str << "\", \"num\": " << fmtVec3(n.num) << " }";
+    }
+    json << (p.flowGraph.nodes.empty() ? "],\n" : "\n    ],\n") << "    \"links\": [";
+    for (size_t i = 0; i < p.flowGraph.links.size(); ++i) {
+        const FlowLink& l = p.flowGraph.links[i];
+        json << (i ? ",\n      " : "\n      ") << "{ \"id\": " << l.id
+             << ", \"from\": " << l.fromNode << ", \"to\": " << l.toNode << " }";
+    }
+    json << (p.flowGraph.links.empty() ? "]\n" : "\n    ]\n") << "  }\n}\n";
     return writeFile(fs::path(p.dir) / "project.json", json.str());
 }
 
@@ -240,6 +255,36 @@ std::string load(Project& out, const std::string& projectDir) {
         objects && objects->type == json::Value::Type::Array) {
         readObjectsArray(*objects, out.objects);
     }
+
+    if (const auto* fg = root.find("flowGraph")) {
+        if (const auto* v = fg->find("nextId")) out.flowGraph.nextId = (int)v->numberOr(1);
+        if (const auto* nodes = fg->find("nodes");
+            nodes && nodes->type == json::Value::Type::Array) {
+            for (const auto& jn : nodes->arr) {
+                FlowNode n;
+                if (const auto* v = jn.find("id")) n.id = (int)v->numberOr(0);
+                if (const auto* v = jn.find("type")) n.type = v->stringOr("");
+                if (const auto* v = jn.find("pos");
+                    v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                    n.pos[0] = (float)v->arr[0].numberOr(0);
+                    n.pos[1] = (float)v->arr[1].numberOr(0);
+                }
+                if (const auto* v = jn.find("str")) n.str = v->stringOr("");
+                readVec3(jn.find("num"), n.num);
+                if (n.id > 0 && flowNodeType(n.type)) out.flowGraph.nodes.push_back(n);
+            }
+        }
+        if (const auto* links = fg->find("links");
+            links && links->type == json::Value::Type::Array) {
+            for (const auto& jl : links->arr) {
+                FlowLink l;
+                if (const auto* v = jl.find("id")) l.id = (int)v->numberOr(0);
+                if (const auto* v = jl.find("from")) l.fromNode = (int)v->numberOr(0);
+                if (const auto* v = jl.find("to")) l.toNode = (int)v->numberOr(0);
+                if (l.id > 0) out.flowGraph.links.push_back(l);
+            }
+        }
+    }
     return "";
 }
 
@@ -332,7 +377,8 @@ std::string refreshGenerated(const Project& p) {
         if (f.relativePath == "Dockerfile" || f.relativePath == "docker-compose.yml" ||
             f.relativePath == "inc\\terrain_config.hpp" ||
             f.relativePath == "inc\\scene_data.hpp" ||
-            f.relativePath == ".vscode\\c_cpp_properties.json") {
+            f.relativePath == ".vscode\\c_cpp_properties.json" ||
+            f.relativePath == "src\\scripts\\flow_graph.gen.cpp") {
             write = true;  // editor-owned, always in sync with project data
         } else if (f.relativePath == "src\\terrain_game.cpp" ||
                    f.relativePath == "inc\\terrain_game.hpp" ||
