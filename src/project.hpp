@@ -67,6 +67,11 @@ struct ProjectSettings {
     // Physics
     float gravity = 9.8f;    // units/s^2
     float jumpSpeed = 4.5f;  // units/s (FPP jump)
+
+    // Lighting (baked into vertex colors at build)
+    float lightDir[3] = {0.37f, 0.82f, 0.44f};  // direction TO the light
+    float ambient = 0.55f;                      // 0..1
+    float diffuse = 0.45f;                      // 0..1
 };
 
 class History;

@@ -1033,6 +1033,8 @@ void App::applyProjectToViewport() {
     viewport_.setTerrain(project_.terrain, project_.settings.terrainDetail);
     viewport_.setSky(project_.settings.skyColor, project_.settings.skyTopColor,
                      project_.settings.skyDome);
+    viewport_.setLighting(project_.settings.lightDir, project_.settings.ambient,
+                          project_.settings.diffuse);
 }
 
 void App::drawPreferencesModal() {
@@ -1075,6 +1077,11 @@ void App::drawPreferencesModal() {
     ImGui::ColorEdit3("Sky horizon color", prefSettings_.skyColor);
     ImGui::ColorEdit3("Sky zenith color", prefSettings_.skyTopColor);
     ImGui::Checkbox("Gradient sky dome", &prefSettings_.skyDome);
+
+    ImGui::SeparatorText("Lighting");
+    ImGui::DragFloat3("Light direction", prefSettings_.lightDir, 0.02f, -1.0f, 1.0f, "%.2f");
+    ImGui::SliderFloat("Ambient", &prefSettings_.ambient, 0.0f, 1.0f, "%.2f");
+    ImGui::SliderFloat("Diffuse", &prefSettings_.diffuse, 0.0f, 1.0f, "%.2f");
 
     if (prefTemplate_ == 1) {
         ImGui::SeparatorText("FPP camera");

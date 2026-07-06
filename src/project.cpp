@@ -89,7 +89,10 @@ std::string save(const Project& p) {
          << "    \"lookSpeed\": " << fmtFloat(p.settings.lookSpeed) << ",\n"
          << "    \"orbitSpeed\": " << fmtFloat(p.settings.orbitSpeed) << ",\n"
          << "    \"gravity\": " << fmtFloat(p.settings.gravity) << ",\n"
-         << "    \"jumpSpeed\": " << fmtFloat(p.settings.jumpSpeed) << "\n"
+         << "    \"jumpSpeed\": " << fmtFloat(p.settings.jumpSpeed) << ",\n"
+         << "    \"lightDir\": " << fmtVec3(p.settings.lightDir) << ",\n"
+         << "    \"ambient\": " << fmtFloat(p.settings.ambient) << ",\n"
+         << "    \"diffuse\": " << fmtFloat(p.settings.diffuse) << "\n"
          << "  },\n"
          << "  \"scenes\": [";
     for (size_t i = 0; i < p.scenes.size(); ++i) {
@@ -243,6 +246,9 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = s->find("orbitSpeed")) st.orbitSpeed = (float)v->numberOr(1.0);
         if (const auto* v = s->find("gravity")) st.gravity = (float)v->numberOr(9.8);
         if (const auto* v = s->find("jumpSpeed")) st.jumpSpeed = (float)v->numberOr(4.5);
+        readVec3(s->find("lightDir"), st.lightDir);
+        if (const auto* v = s->find("ambient")) st.ambient = (float)v->numberOr(0.55);
+        if (const auto* v = s->find("diffuse")) st.diffuse = (float)v->numberOr(0.45);
     }
 
     if (const auto* scenes = root.find("scenes");

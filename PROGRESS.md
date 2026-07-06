@@ -5,7 +5,7 @@ Each finished feature lands as its own commit.
 
 ## In progress
 
-- (6) Directional light + ambient shading for scene objects
+- (7) Custom .obj models as scene objects
 
 ## Done
 
@@ -32,6 +32,12 @@ Each finished feature lands as its own commit.
   Log). Graph lives in project.json, compiles to src/scripts/flow_graph.gen.cpp on
   every build. Runtime verified in PCSX2 (OnStart->SetSky retints the dome; codegen
   for all trigger types inspected). Editor node UI compiled but needs a hands-on pass.
+
+- (6) **Directional lighting** — light direction + ambient/diffuse in preferences,
+  baked into vertex colors at build (engine lighting bags don't support per-vertex
+  colors); terrain shaded by its up normal; viewport uses the same formula.
+  Gotcha: PS2SDK math3d.h #defines LIGHT_AMBIENT - constants use SCENE_ prefix.
+  Verified in PCSX2 (side light: strong directional shading on sphere/box).
 
 ## Backlog (rough order)
 - (5) Sky gradient dome (no textures needed) + sky preferences

@@ -177,10 +177,16 @@ GLuint compile(GLenum type, const char* src) {
 // per-object tint comes from the uTint uniform. Mirrors the generated PS2 code.
 // ---------------------------------------------------------------------------
 
+// Directional light parameters (match the generated PS2 code)
+float gLightDir[3] = {0.37f, 0.82f, 0.44f};
+float gAmbient = 0.55f;
+float gDiffuse = 0.45f;
+
 float shadeOf(Vec3 n) {
-    float d = n.x * 0.37f + n.y * 0.82f + n.z * 0.44f;
+    float d = n.x * gLightDir[0] + n.y * gLightDir[1] + n.z * gLightDir[2];
     if (d < 0.0f) d = 0.0f;
-    return 0.55f + 0.45f * d;
+    float s = gAmbient + gDiffuse * d;
+    return s > 1.0f ? 1.0f : s;
 }
 
 void pushShaded(std::vector<float>& v, Vec3 p, Vec3 n) {
@@ -451,8 +457,9 @@ void Viewport::buildTerrainMesh() {
     const int cellsZ = terrain_.depth > maxCells_ ? maxCells_ : terrain_.depth;
     const float sx = w / cellsX, sz = d / cellsZ;
 
-    const float cA[3] = {96 / 255.0f, 160 / 255.0f, 72 / 255.0f};
-    const float cB[3] = {74 / 255.0f, 128 / 255.0f, 56 / 255.0f};
+    const float sUp = shadeOf({0, 1, 0});
+    const float cA[3] = {96 / 255.0f * sUp, 160 / 255.0f * sUp, 72 / 255.0f * sUp};
+    const float cB[3] = {74 / 255.0f * sUp, 128 / 255.0f * sUp, 56 / 255.0f * sUp};
 
     std::vector<float> tri;
     tri.reserve((size_t)cellsX * cellsZ * 6 * 6);
@@ -602,6 +609,20 @@ int Viewport::pick(float u, float v, const std::vector<SceneObject>& objects) co
         }
     }
     return best;
+}
+
+void Viewport::setLighting(const float* dir, float ambient, float diffuse) {
+    float lx = dir[0], ly = dir[1], lz = dir[2];
+    const float len = std::sqrt(lx * lx + ly * ly + lz * lz);
+    if (len > 1e-5f) lx /= len, ly /= len, lz /= len;
+    else lx = 0, ly = 1, lz = 0;
+    gLightDir[0] = lx, gLightDir[1] = ly, gLightDir[2] = lz;
+    gAmbient = ambient;
+    gDiffuse = diffuse;
+    if (program_) {
+        buildPrimitiveMeshes();  // shade is baked into the unit meshes
+        buildTerrainMesh();
+    }
 }
 
 void Viewport::setSky(const float* horizonRgb, const float* topRgb, bool gradient) {

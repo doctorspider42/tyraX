@@ -1,5 +1,6 @@
 #include "templates.hpp"
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -121,6 +122,12 @@ constexpr bool SKY_DOME = {{SKY_DOME}};
 constexpr float SKY_TOP_R = {{SKY_TOP_R}};  // 0-255, dome zenith color
 constexpr float SKY_TOP_G = {{SKY_TOP_G}};
 constexpr float SKY_TOP_B = {{SKY_TOP_B}};
+// (SCENE_ prefix: the PS2SDK math3d.h already claims LIGHT_AMBIENT etc.)
+constexpr float SCENE_LIGHT_X = {{LIGHT_X}};  // normalized, points TO the light
+constexpr float SCENE_LIGHT_Y = {{LIGHT_Y}};
+constexpr float SCENE_LIGHT_Z = {{LIGHT_Z}};
+constexpr float SCENE_AMBIENT = {{AMBIENT}};  // 0..1
+constexpr float SCENE_DIFFUSE = {{DIFFUSE}};  // 0..1
 
 }  // namespace {{NAME_UPPER_NS}}
 )";
@@ -294,11 +301,12 @@ V3 rotated(const V3& v, const float* rotDeg) {
   return r;
 }
 
-/** Fake directional light, baked into vertex colors. */
+/** Directional light (Project > Preferences), baked into vertex colors. */
 float shadeOf(const V3& n) {
-  float d = n.x * 0.37F + n.y * 0.82F + n.z * 0.44F;
+  float d = n.x * SCENE_LIGHT_X + n.y * SCENE_LIGHT_Y + n.z * SCENE_LIGHT_Z;
   if (d < 0.0F) d = 0.0F;
-  return 0.55F + 0.45F * d;
+  float s = SCENE_AMBIENT + SCENE_DIFFUSE * d;
+  return s > 1.0F ? 1.0F : s;
 }
 
 void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
@@ -655,9 +663,10 @@ void TerrainGame::generateTerrainGrid() {
   const float startZ = -TERRAIN_DEPTH * 0.5F;
 
   // Two greens in a checker pattern, so the grid is visible.
-  // PS2 colors: RGB 0-255, alpha 0-128.
-  const Color colorA(96.0F, 160.0F, 72.0F, 128.0F);
-  const Color colorB(74.0F, 128.0F, 56.0F, 128.0F);
+  // PS2 colors: RGB 0-255, alpha 0-128. Lit by the directional light (up normal).
+  const float sUp = shadeOf({0.0F, 1.0F, 0.0F});
+  const Color colorA(96.0F * sUp, 160.0F * sUp, 72.0F * sUp, 128.0F);
+  const Color colorB(74.0F * sUp, 128.0F * sUp, 56.0F * sUp, 128.0F);
 
   for (u32 z = 0; z < cellsZ; ++z) {
     for (u32 x = 0; x < cellsX; ++x) {
@@ -1330,6 +1339,17 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{SKY_TOP_R}}", floatLit(st.skyTopColor[0] * 255.0f));
     s = replaceAll(s, "{{SKY_TOP_G}}", floatLit(st.skyTopColor[1] * 255.0f));
     s = replaceAll(s, "{{SKY_TOP_B}}", floatLit(st.skyTopColor[2] * 255.0f));
+    {
+        float lx = st.lightDir[0], ly = st.lightDir[1], lz = st.lightDir[2];
+        const float len = std::sqrt(lx * lx + ly * ly + lz * lz);
+        if (len > 1e-5f) lx /= len, ly /= len, lz /= len;
+        else lx = 0, ly = 1, lz = 0;
+        s = replaceAll(s, "{{LIGHT_X}}", floatLit(lx));
+        s = replaceAll(s, "{{LIGHT_Y}}", floatLit(ly));
+        s = replaceAll(s, "{{LIGHT_Z}}", floatLit(lz));
+    }
+    s = replaceAll(s, "{{AMBIENT}}", floatLit(st.ambient));
+    s = replaceAll(s, "{{DIFFUSE}}", floatLit(st.diffuse));
     return s;
 }
 

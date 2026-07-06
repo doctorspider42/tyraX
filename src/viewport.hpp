@@ -28,6 +28,9 @@ public:
     // horizon + zenith colors; gradient=false renders a flat horizon color
     void setSky(const float* horizonRgb, const float* topRgb, bool gradient);
 
+    // directional light baked into mesh shading (matches the PS2 output)
+    void setLighting(const float* dir, float ambient, float diffuse);
+
     // Renders terrain + objects at the given pixel size, returns GL texture id.
     // selectedIndex: index into objects highlighted with an outline (-1 = none).
     uint32_t render(int width, int height, const std::vector<SceneObject>& objects,
