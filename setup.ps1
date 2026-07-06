@@ -1,0 +1,17 @@
+# Clones third-party dependencies into vendor/
+$ErrorActionPreference = 'Stop'
+
+$deps = @(
+    @{ Url = 'https://github.com/ocornut/imgui.git'; Branch = 'docking'; Dir = 'vendor/imgui' },
+    @{ Url = 'https://github.com/glfw/glfw.git';     Branch = '3.4';     Dir = 'vendor/glfw' },
+    @{ Url = 'https://github.com/h4570/tyra.git';    Branch = 'master';  Dir = 'vendor/tyra' }
+)
+
+foreach ($d in $deps) {
+    if (Test-Path (Join-Path $d.Dir '.git')) {
+        Write-Host "OK: $($d.Dir) already present"
+    }
+    else {
+        git clone --depth 1 --branch $d.Branch $d.Url $d.Dir
+    }
+}

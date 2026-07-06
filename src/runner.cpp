@@ -1,0 +1,209 @@
+#include "runner.hpp"
+
+#include <filesystem>
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+namespace fs = std::filesystem;
+
+Runner::~Runner() { join(); }
+
+void Runner::join() {
+    if (thread_.joinable()) thread_.join();
+}
+
+std::string Runner::log() const {
+    std::lock_guard<std::mutex> lock(logMutex_);
+    return log_;
+}
+
+void Runner::clearLog() {
+    std::lock_guard<std::mutex> lock(logMutex_);
+    log_.clear();
+}
+
+void Runner::appendLine(const std::string& line) {
+    std::lock_guard<std::mutex> lock(logMutex_);
+    log_ += line;
+    log_ += '\n';
+}
+
+void Runner::buildAndRun(const Project& p, bool runEmulator) {
+    if (busy()) return;
+    join();
+    state_ = State::Running;
+    thread_ = std::thread(&Runner::worker, this, p, true, runEmulator);
+}
+
+void Runner::runEmulatorOnly(const Project& p) {
+    if (busy()) return;
+    join();
+    state_ = State::Running;
+    thread_ = std::thread(&Runner::worker, this, p, false, true);
+}
+
+int Runner::exec(const std::string& cmdline, const std::string& cwd) {
+    appendLine("> " + cmdline);
+
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+
+    HANDLE readPipe = nullptr, writePipe = nullptr;
+    if (!CreatePipe(&readPipe, &writePipe, &sa, 0)) {
+        appendLine("[editor] Failed to create pipe");
+        return -1;
+    }
+    SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = writePipe;
+    si.hStdError = writePipe;
+    si.hStdInput = INVALID_HANDLE_VALUE;
+
+    PROCESS_INFORMATION pi{};
+    // /S: strip only the outermost quotes, regardless of quotes inside
+    std::string full = "cmd.exe /S /C \"" + cmdline + "\"";
+
+    BOOL ok = CreateProcessA(nullptr, full.data(), nullptr, nullptr, TRUE,
+                             CREATE_NO_WINDOW, nullptr,
+                             cwd.empty() ? nullptr : cwd.c_str(), &si, &pi);
+    CloseHandle(writePipe);
+    if (!ok) {
+        CloseHandle(readPipe);
+        appendLine("[editor] Failed to start: " + cmdline);
+        return -1;
+    }
+
+    std::string pending;
+    char buf[4096];
+    DWORD n = 0;
+    while (ReadFile(readPipe, buf, sizeof(buf), &n, nullptr) && n > 0) {
+        pending.append(buf, n);
+        size_t nl;
+        while ((nl = pending.find('\n')) != std::string::npos) {
+            std::string line = pending.substr(0, nl);
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            appendLine(line);
+            pending.erase(0, nl + 1);
+        }
+    }
+    if (!pending.empty()) appendLine(pending);
+    CloseHandle(readPipe);
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD code = 0;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    return (int)code;
+}
+
+static std::string findPCSX2() {
+    std::vector<fs::path> dirs;
+    if (const char* pf = getenv("ProgramFiles")) dirs.push_back(fs::path(pf) / "PCSX2");
+    if (const char* pf86 = getenv("ProgramFiles(x86)")) dirs.push_back(fs::path(pf86) / "PCSX2");
+    for (const auto& dir : dirs) {
+        for (const char* exe : {"pcsx2-qt.exe", "pcsx2.exe"}) {
+            fs::path p = dir / exe;
+            std::error_code ec;
+            if (fs::exists(p, ec)) return p.string();
+        }
+    }
+    return "";
+}
+
+bool Runner::launchPCSX2(const Project& p) {
+    const std::string exe = findPCSX2();
+    if (exe.empty()) {
+        appendLine("[editor] PCSX2 not found in Program Files. Install it or add a custom path.");
+        return false;
+    }
+    std::error_code ec;
+    if (!fs::exists(p.elfPath(), ec)) {
+        appendLine("[editor] ELF not found: " + p.elfPath() + " - build the project first.");
+        return false;
+    }
+
+    // Kill a previous emulator instance, if any (ignore errors).
+    exec("taskkill /F /IM pcsx2-qt.exe 2>nul & taskkill /F /IM pcsx2.exe 2>nul & exit 0", "");
+
+    appendLine("[editor] Launching PCSX2: " + exe);
+    std::string cmd = "\"" + exe + "\" -elf \"" + p.elfPath() + "\"";
+
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+    std::string mutableCmd = cmd;
+    BOOL ok = CreateProcessA(nullptr, mutableCmd.data(), nullptr, nullptr, FALSE,
+                             DETACHED_PROCESS, nullptr, nullptr, &si, &pi);
+    if (!ok) {
+        appendLine("[editor] Failed to launch PCSX2.");
+        return false;
+    }
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    return true;
+}
+
+void Runner::worker(Project p, bool build, bool run) {
+    bool ok = true;
+
+    if (build) {
+        appendLine("[editor] === Build started: " + p.name + " ===");
+
+        // Keep docker files and generated sources in sync with the project
+        // data (also migrates projects created with older editor versions).
+        if (auto err = project::refreshGenerated(p); !err.empty())
+            appendLine("[editor] Warning: could not refresh generated files: " + err);
+
+        // Old template used a fixed container name shared by all projects;
+        // remove such a leftover so `compose up` cannot hit a name conflict.
+        exec("docker rm -f tyra-game-compiler 2>nul & exit 0", p.dir);
+
+        appendLine("[editor] Starting docker container (first run may download the Tyra image)...");
+        if (exec("docker compose up -d --build", p.dir) != 0) {
+            appendLine("[editor] Failed to start docker container. Is Docker Desktop running?");
+            ok = false;
+        }
+
+        const std::string dc = "docker compose exec -T compiler sh -c ";
+        if (ok && exec(dc + "\"test -f /tyra/Makefile.base\"", p.dir) != 0) {
+            appendLine("[editor] Tyra engine not found - installing into the shared "
+                       "volume (one-time step, takes a few minutes)...");
+            ok = exec(dc + "\"rm -rf /tyra/* /tyra/.git && git clone --depth 1 "
+                           "https://github.com/h4570/tyra.git /tyra && cd /tyra/engine && "
+                           "make -j$(nproc)\"",
+                      p.dir) == 0;
+            if (!ok) appendLine("[editor] Engine installation failed.");
+        }
+
+        if (ok) {
+            appendLine("[editor] Syncing sources into container...");
+            ok = exec(dc + "\"rsync -ac --delete --exclude=.git --exclude=.vscode "
+                           "--exclude=obj --exclude=bin /host/ /src/\"",
+                      p.dir) == 0;
+        }
+
+        if (ok) {
+            appendLine("[editor] Compiling (PS2DEV toolchain)...");
+            ok = exec(dc + "\"cd /src && make\"", p.dir) == 0;
+        }
+
+        if (ok) {
+            appendLine("[editor] Copying binaries back to host...");
+            ok = exec(dc + "\"rsync -zac --include=*/ --include=bin/** --exclude=* "
+                           "/src/ /host/\"",
+                      p.dir) == 0;
+        }
+
+        appendLine(ok ? "[editor] === Build OK ===" : "[editor] === Build FAILED ===");
+    }
+
+    if (ok && run) ok = launchPCSX2(p);
+
+    state_ = ok ? State::Success : State::Failed;
+}
