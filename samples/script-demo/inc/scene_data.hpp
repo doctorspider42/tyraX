@@ -4,17 +4,19 @@
 namespace Script_demo {
 
 struct SceneObjectData {
-  int type;  // 0=box 1=sphere 2=cylinder 3=cone
+  int type;  // 0=box 1=sphere 2=cylinder 3=cone 4=spawn-point
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
   float color[3];  // 0..1
+  int physics;  // 1 = falls with gravity
+  int model;    // index into MODELS (model_data.gen.hpp), -1 = none
 };
 
 constexpr int SCENE_OBJECT_COUNT = 2;
 constexpr SceneObjectData SCENE_OBJECTS[SCENE_OBJECT_COUNT > 0 ? SCENE_OBJECT_COUNT : 1] = {
-    {4, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}},  // spawn-1
-    {0, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.8F, 0.35F, 0.25F}},  // box-1
+    {4, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, -1},  // spawn-1
+    {0, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.8F, 0.35F, 0.25F}, 0, -1},  // box-1
 };
 
 }  // namespace Script_demo

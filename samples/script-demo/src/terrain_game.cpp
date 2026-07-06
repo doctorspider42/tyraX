@@ -2,6 +2,8 @@
 #include "terrain_game.hpp"
 #include "terrain_config.hpp"
 #include "scene_data.hpp"
+#include "model_data.gen.hpp"
+#include "hud_data.gen.hpp"
 #include <math.h>
 
 namespace Script_demo {
@@ -40,11 +42,12 @@ V3 rotated(const V3& v, const float* rotDeg) {
   return r;
 }
 
-/** Fake directional light, baked into vertex colors. */
+/** Directional light (Project > Preferences), baked into vertex colors. */
 float shadeOf(const V3& n) {
-  float d = n.x * 0.37F + n.y * 0.82F + n.z * 0.44F;
+  float d = n.x * SCENE_LIGHT_X + n.y * SCENE_LIGHT_Y + n.z * SCENE_LIGHT_Z;
   if (d < 0.0F) d = 0.0F;
-  return 0.55F + 0.45F * d;
+  float s = SCENE_AMBIENT + SCENE_DIFFUSE * d;
+  return s > 1.0F ? 1.0F : s;
 }
 
 void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
@@ -154,6 +157,16 @@ void addCone(std::vector<Vec4>& verts, std::vector<Color>& cols,
   }
 }
 
+void addModel(std::vector<Vec4>& verts, std::vector<Color>& cols,
+              const SceneObjectData& o) {
+  if (o.model < 0 || o.model >= MODEL_COUNT) return;
+  const ModelData& m = MODELS[o.model];
+  for (int i = 0; i < m.vertexCount; ++i) {
+    const float* v = m.verts + i * 6;
+    pushVert(verts, cols, o, {v[0], v[1], v[2]}, {v[3], v[4], v[5]});
+  }
+}
+
 }  // namespace
 
 TerrainGame::TerrainGame(Engine* t_engine)
@@ -162,6 +175,8 @@ TerrainGame::TerrainGame(Engine* t_engine)
       playerZ(0.0F),
       yaw(0.0F),
       pitch(0.0F),
+      playerY(0.0F),
+      playerVelY(0.0F),
       model(M4x4::Identity) {}
 
 TerrainGame::~TerrainGame() {}
@@ -192,11 +207,27 @@ void TerrainGame::init() {
   buildScene();
 
   scriptCtx.engine = engine;
-  scriptCtx.objects = SCENE_OBJECTS;
-  scriptCtx.objectCount = SCENE_OBJECT_COUNT;
+  scriptCtx.objects = runtimeObjects.data();
+  scriptCtx.objectCount = (int)runtimeObjects.size();
   scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
   scriptCtx.playerPosition = cameraPosition;
   for (Script* script : getScripts()) script->init(scriptCtx);
+
+  // HUD sprites (see hud_data.gen.hpp)
+  const auto& screen = engine->renderer.core.getSettings();
+  hudSprites.reserve(HUD_COUNT);
+  for (int i = 0; i < HUD_COUNT; ++i) {
+    const HudImageData& h = HUD_IMAGES[i];
+    Sprite sprite;
+    sprite.mode = SpriteMode::MODE_STRETCH;
+    sprite.size = Vec2(h.w, h.h);
+    sprite.position = Vec2(h.x * screen.getWidth() - h.w * 0.5F,
+                           h.y * screen.getHeight() - h.h * 0.5F);
+    hudSprites.push_back(sprite);
+    auto* texture =
+        engine->renderer.getTextureRepository().add(FileUtils::fromCwd(h.path));
+    texture->addLink(hudSprites.back().id);
+  }
 }
 
 void TerrainGame::loop() {
@@ -206,10 +237,13 @@ void TerrainGame::loop() {
   for (Script* script : getScripts()) script->update(scriptCtx);
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
 
+  updateObjectPhysics();
+
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
-    stapip.core.render(bag.get());
+    renderScene();
+    for (auto& sprite : hudSprites) engine->renderer.renderer2D.render(sprite);
   }
   engine->renderer.endFrame();
 }
@@ -219,17 +253,6 @@ void TerrainGame::buildScene() {
   colors.clear();
 
   generateTerrainGrid();
-
-  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
-    const SceneObjectData& o = SCENE_OBJECTS[i];
-    switch (o.type) {
-      case 1: addSphere(vertices, colors, o); break;
-      case 2: addCylinder(vertices, colors, o); break;
-      case 3: addCone(vertices, colors, o); break;
-      case 4: break;  // spawn point - marker only, no geometry
-      default: addBox(vertices, colors, o); break;
-    }
-  }
 
   infoBag = std::make_unique<StaPipInfoBag>();
   infoBag->model = &model;
@@ -251,6 +274,159 @@ void TerrainGame::buildScene() {
   bag->count = static_cast<u32>(vertices.size());
   bag->texture = nullptr;
   bag->lighting = nullptr;
+
+  // Runtime copies of the scene objects - scripts and physics mutate these.
+  skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
+  buildSkyDome();
+
+  runtimeObjects.assign(SCENE_OBJECT_COUNT, RuntimeObject());
+  objectGeometry.clear();
+  objectGeometry.resize(SCENE_OBJECT_COUNT);
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+    runtimeObjects[i].data = SCENE_OBJECTS[i];
+    runtimeObjects[i].visible = SCENE_OBJECTS[i].type != 4;  // spawn = marker
+    runtimeObjects[i].dirty = true;
+  }
+}
+
+void TerrainGame::buildSkyDome() {
+  if (!SKY_DOME) return;
+
+  const float diag = TERRAIN_WIDTH > TERRAIN_DEPTH ? TERRAIN_WIDTH : TERRAIN_DEPTH;
+  float radius = diag * 1.5F;
+  if (radius < 60.0F) radius = 60.0F;
+  if (radius > 450.0F) radius = 450.0F;
+
+  const int stacks = 6, slices = 14;
+  auto skyAt = [&](float t) {  // t: 0 = horizon, 1 = zenith
+    return Color(skyHorizonR + (SKY_TOP_R - skyHorizonR) * t,
+                 skyHorizonG + (SKY_TOP_G - skyHorizonG) * t,
+                 skyHorizonB + (SKY_TOP_B - skyHorizonB) * t, 128.0F);
+  };
+  auto domeVert = [&](int stack, int slice) {
+    // Start slightly below the horizon so the seam is never visible
+    const float lat = -0.06F + (PI * 0.5F + 0.06F) * stack / stacks;
+    const float lon = 2.0F * PI * slice / slices;
+    return Vec4(radius * cosf(lat) * cosf(lon), radius * sinf(lat),
+                radius * cosf(lat) * sinf(lon), 1.0F);
+  };
+
+  skyDome.vertices.clear();
+  skyDome.colors.clear();
+  for (int st = 0; st < stacks; ++st) {
+    const float t0 = (float)st / stacks, t1 = (float)(st + 1) / stacks;
+    for (int sl = 0; sl < slices; ++sl) {
+      const Vec4 v00 = domeVert(st, sl), v01 = domeVert(st, sl + 1);
+      const Vec4 v10 = domeVert(st + 1, sl), v11 = domeVert(st + 1, sl + 1);
+      skyDome.vertices.push_back(v00);
+      skyDome.vertices.push_back(v10);
+      skyDome.vertices.push_back(v11);
+      skyDome.vertices.push_back(v00);
+      skyDome.vertices.push_back(v11);
+      skyDome.vertices.push_back(v01);
+      skyDome.colors.push_back(skyAt(t0));
+      skyDome.colors.push_back(skyAt(t1));
+      skyDome.colors.push_back(skyAt(t1));
+      skyDome.colors.push_back(skyAt(t0));
+      skyDome.colors.push_back(skyAt(t1));
+      skyDome.colors.push_back(skyAt(t0));
+    }
+  }
+
+  skyDome.infoBag = std::make_unique<StaPipInfoBag>();
+  skyDome.infoBag->model = &model;
+  skyDome.infoBag->shadingType = TyraShadingGouraud;
+  // Static geometry crossing the screen edges all the time - needs clipping
+  skyDome.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+  skyDome.infoBag->fullClipChecks = true;
+  skyDome.colorBag = std::make_unique<StaPipColorBag>();
+  skyDome.colorBag->many = skyDome.colors.data();
+  skyDome.bag = std::make_unique<StaPipBag>();
+  skyDome.bag->info = skyDome.infoBag.get();
+  skyDome.bag->color = skyDome.colorBag.get();
+  skyDome.bag->vertices = skyDome.vertices.data();
+  skyDome.bag->count = static_cast<u32>(skyDome.vertices.size());
+  skyDome.bag->texture = nullptr;
+  skyDome.bag->lighting = nullptr;
+}
+
+void TerrainGame::rebuildObjectGeometry(int index) {
+  RuntimeObject& o = runtimeObjects[index];
+  ObjectGeometry& g = objectGeometry[index];
+  o.dirty = false;
+
+  g.vertices.clear();
+  g.colors.clear();
+  switch (o.data.type) {
+    case 1: addSphere(g.vertices, g.colors, o.data); break;
+    case 2: addCylinder(g.vertices, g.colors, o.data); break;
+    case 3: addCone(g.vertices, g.colors, o.data); break;
+    case 4: break;  // spawn point - marker only
+    case 5: addModel(g.vertices, g.colors, o.data); break;
+    default: addBox(g.vertices, g.colors, o.data); break;
+  }
+  if (g.vertices.empty()) {
+    g.bag.reset();
+    return;
+  }
+
+  if (!g.bag) {
+    g.infoBag = std::make_unique<StaPipInfoBag>();
+    g.infoBag->model = &model;
+    g.infoBag->shadingType = TyraShadingFlat;
+    // Objects can move at runtime, but the engine caches frustum bboxes by
+    // the vertex pointer (stale bbox = object culled at its old position).
+    // Objects are small, so skip culling/clipping for them entirely;
+    // the terrain keeps CLIP_PRECISE.
+    g.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_None;
+    g.infoBag->fullClipChecks = false;
+    g.colorBag = std::make_unique<StaPipColorBag>();
+    g.bag = std::make_unique<StaPipBag>();
+    g.bag->info = g.infoBag.get();
+    g.bag->color = g.colorBag.get();
+    g.bag->texture = nullptr;
+    g.bag->lighting = nullptr;
+  }
+  g.colorBag->many = g.colors.data();
+  g.bag->vertices = g.vertices.data();
+  g.bag->count = static_cast<u32>(g.vertices.size());
+}
+
+void TerrainGame::updateObjectPhysics() {
+  // GRAVITY is units/s^2; the game runs at 50 FPS
+  const float gravityPerFrame = GRAVITY / (50.0F * 50.0F);
+  for (RuntimeObject& o : runtimeObjects) {
+    if (!o.data.physics) continue;
+    const float half = 0.5F * o.data.scale[1];
+    if (o.velocityY == 0.0F && o.data.position[1] <= half) continue;  // resting
+
+    o.velocityY -= gravityPerFrame;
+    o.data.position[1] += o.velocityY;
+    if (o.data.position[1] <= half) {
+      o.data.position[1] = half;
+      o.velocityY = 0.0F;
+    }
+    o.dirty = true;
+  }
+}
+
+void TerrainGame::renderScene() {
+  // Scripts changing ctx.skyColor retint the dome horizon
+  if (skyDome.bag && (scriptCtx.skyColor.r != skyHorizonR ||
+                      scriptCtx.skyColor.g != skyHorizonG ||
+                      scriptCtx.skyColor.b != skyHorizonB)) {
+    skyHorizonR = scriptCtx.skyColor.r;
+    skyHorizonG = scriptCtx.skyColor.g;
+    skyHorizonB = scriptCtx.skyColor.b;
+    buildSkyDome();
+  }
+  if (skyDome.bag) stapip.core.render(skyDome.bag.get());
+  stapip.core.render(bag.get());
+  for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
+    if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
+    if (runtimeObjects[i].visible && objectGeometry[i].bag)
+      stapip.core.render(objectGeometry[i].bag.get());
+  }
 }
 
 void TerrainGame::generateTerrainGrid() {
@@ -265,9 +441,10 @@ void TerrainGame::generateTerrainGrid() {
   const float startZ = -TERRAIN_DEPTH * 0.5F;
 
   // Two greens in a checker pattern, so the grid is visible.
-  // PS2 colors: RGB 0-255, alpha 0-128.
-  const Color colorA(96.0F, 160.0F, 72.0F, 128.0F);
-  const Color colorB(74.0F, 128.0F, 56.0F, 128.0F);
+  // PS2 colors: RGB 0-255, alpha 0-128. Lit by the directional light (up normal).
+  const float sUp = shadeOf({0.0F, 1.0F, 0.0F});
+  const Color colorA(96.0F * sUp, 160.0F * sUp, 72.0F * sUp, 128.0F);
+  const Color colorB(74.0F * sUp, 128.0F * sUp, 56.0F * sUp, 128.0F);
 
   for (u32 z = 0; z < cellsZ; ++z) {
     for (u32 x = 0; x < cellsX; ++x) {
@@ -313,21 +490,64 @@ void TerrainGame::updatePlayer() {
   const float fz = cosf(yaw);
   const float forward = -axisValue(leftJoy.v);
   const float strafe = axisValue(leftJoy.h);
-  const float speed = WALK_SPEED;
-  playerX += (fx * forward - fz * strafe) * speed;
-  playerZ += (fz * forward + fx * strafe) * speed;
+  float nextX = playerX + (fx * forward - fz * strafe) * WALK_SPEED;
+  float nextZ = playerZ + (fz * forward + fx * strafe) * WALK_SPEED;
 
   // Keep the player on the terrain
   const float limX = TERRAIN_WIDTH * 0.5F - 1.0F;
   const float limZ = TERRAIN_DEPTH * 0.5F - 1.0F;
-  if (playerX > limX) playerX = limX;
-  if (playerX < -limX) playerX = -limX;
-  if (playerZ > limZ) playerZ = limZ;
-  if (playerZ < -limZ) playerZ = -limZ;
+  if (nextX > limX) nextX = limX;
+  if (nextX < -limX) nextX = -limX;
+  if (nextZ > limZ) nextZ = limZ;
+  if (nextZ < -limZ) nextZ = -limZ;
 
-  const float eyeHeight = EYE_HEIGHT;
-  cameraPosition = Vec4(playerX, eyeHeight, playerZ);
-  cameraLookAt = Vec4(playerX + fx * cosf(pitch), eyeHeight + sinf(pitch),
+  // Collision with scene objects (XZ, boxes expanded by the player radius)
+  // + standing on top of them. Player can step ~0.5 units up.
+  const float playerRadius = 0.35F;
+  float ground = 0.0F;
+  for (const RuntimeObject& o : runtimeObjects) {
+    if (!o.visible || o.data.type == 4) continue;
+    const float ox = o.data.position[0];
+    const float oz = o.data.position[2];
+    const float hx = 0.5F * o.data.scale[0] + playerRadius;
+    const float hz = 0.5F * o.data.scale[2] + playerRadius;
+    const float top = o.data.position[1] + 0.5F * o.data.scale[1];
+    const float bottom = o.data.position[1] - 0.5F * o.data.scale[1];
+
+    const bool nextInside =
+        nextX > ox - hx && nextX < ox + hx && nextZ > oz - hz && nextZ < oz + hz;
+    if (!nextInside) continue;
+
+    if (playerY + 0.5F >= top) {
+      // Low enough to walk onto - candidate floor
+      if (top > ground) ground = top;
+    } else if (playerY < top && playerY + EYE_HEIGHT > bottom) {
+      // Blocked - cancel the axes that entered the box this frame
+      const bool wasInsideX = playerX > ox - hx && playerX < ox + hx;
+      const bool wasInsideZ = playerZ > oz - hz && playerZ < oz + hz;
+      if (!wasInsideX) nextX = playerX;
+      if (!wasInsideZ) nextZ = playerZ;
+      if (wasInsideX && wasInsideZ) {
+        nextX = playerX;
+        nextZ = playerZ;
+      }
+    }
+  }
+  playerX = nextX;
+  playerZ = nextZ;
+
+  // Gravity & jumping (X). GRAVITY: units/s^2, JUMP_SPEED: units/s, 50 FPS.
+  playerVelY -= GRAVITY / (50.0F * 50.0F);
+  playerY += playerVelY;
+  if (playerY <= ground) {
+    playerY = ground;
+    playerVelY = 0.0F;
+    if (engine->pad.getClicked().Cross) playerVelY = JUMP_SPEED / 50.0F;
+  }
+
+  const float eyeY = playerY + EYE_HEIGHT;
+  cameraPosition = Vec4(playerX, eyeY, playerZ);
+  cameraLookAt = Vec4(playerX + fx * cosf(pitch), eyeY + sinf(pitch),
                       playerZ + fz * cosf(pitch));
 }
 

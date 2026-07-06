@@ -7,11 +7,21 @@
 
 namespace Script_demo {
 
+/** A scene object at runtime. Mutate `data` (position/rotation/scale/color),
+ * `visible` or `velocityY`, then set `dirty = true` so the geometry gets
+ * rebuilt on the next frame. */
+struct RuntimeObject {
+  SceneObjectData data;
+  bool visible = true;
+  float velocityY = 0.0F;  // vertical velocity (object physics)
+  bool dirty = true;
+};
+
 /** Everything a script can see and touch each frame. */
 struct ScriptContext {
   Tyra::Engine* engine = nullptr;  // pad, renderer, audio, ...
   Tyra::Vec4 playerPosition;       // camera/player position this frame
-  const SceneObjectData* objects = nullptr;  // scene objects (read-only)
+  RuntimeObject* objects = nullptr;  // mutable scene objects
   int objectCount = 0;
   Tyra::Color skyColor;  // write to change the clear color
 };

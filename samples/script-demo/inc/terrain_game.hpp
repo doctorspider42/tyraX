@@ -26,6 +26,7 @@ class TerrainGame : public Tyra::Game {
 
   Tyra::Vec4 cameraPosition, cameraLookAt;
   float playerX, playerZ, yaw, pitch;
+  float playerY, playerVelY;  // feet height + vertical velocity (physics)
 
   std::vector<Tyra::Vec4> vertices;
   std::vector<Tyra::Color> colors;
@@ -34,6 +35,25 @@ class TerrainGame : public Tyra::Game {
   std::unique_ptr<Tyra::StaPipBag> bag;
   std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
   std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+
+  // Scene objects at runtime (mutable by scripts/physics); geometry per object
+  struct ObjectGeometry {
+    std::vector<Tyra::Vec4> vertices;
+    std::vector<Tyra::Color> colors;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+  };
+  std::vector<RuntimeObject> runtimeObjects;
+  std::vector<ObjectGeometry> objectGeometry;
+  ObjectGeometry skyDome;
+  float skyHorizonR = 0, skyHorizonG = 0, skyHorizonB = 0;
+  std::vector<Tyra::Sprite> hudSprites;
+
+  void buildSkyDome();
+  void rebuildObjectGeometry(int index);
+  void updateObjectPhysics();
+  void renderScene();
 
   ScriptContext scriptCtx;
 };

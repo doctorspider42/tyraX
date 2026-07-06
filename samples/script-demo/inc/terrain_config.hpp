@@ -16,5 +16,17 @@ constexpr float EYE_HEIGHT = 1.8F;
 constexpr float WALK_SPEED = 0.4F;
 constexpr float LOOK_SPEED = 1.0F;    // multiplier
 constexpr float ORBIT_SPEED = 1.0F;  // multiplier
+constexpr float GRAVITY = 9.8F;          // units/s^2
+constexpr float JUMP_SPEED = 4.5F;    // units/s
+constexpr bool SKY_DOME = true;
+constexpr float SKY_TOP_R = 20.4F;  // 0-255, dome zenith color
+constexpr float SKY_TOP_G = 76.5F;
+constexpr float SKY_TOP_B = 165.75F;
+// (SCENE_ prefix: the PS2SDK math3d.h already claims LIGHT_AMBIENT etc.)
+constexpr float SCENE_LIGHT_X = 0.369465F;  // normalized, points TO the light
+constexpr float SCENE_LIGHT_Y = 0.818814F;
+constexpr float SCENE_LIGHT_Z = 0.439363F;
+constexpr float SCENE_AMBIENT = 0.55F;  // 0..1
+constexpr float SCENE_DIFFUSE = 0.45F;  // 0..1
 
 }  // namespace Script_demo

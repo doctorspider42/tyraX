@@ -9,14 +9,33 @@
     "clipping": "precise",
     "terrainDetail": 32,
     "skyColor": [0.25, 0.55, 0.78],
+    "skyTopColor": [0.08, 0.3, 0.65],
+    "skyDome": true,
     "eyeHeight": 1.8,
     "walkSpeed": 0.4,
     "lookSpeed": 1,
-    "orbitSpeed": 1
+    "orbitSpeed": 1,
+    "gravity": 9.8,
+    "jumpSpeed": 4.5,
+    "lightDir": [0.37, 0.82, 0.44],
+    "ambient": 0.55,
+    "diffuse": 0.45
   },
   "scenes": ["main"],
   "objects": [
-    { "name": "spawn-1", "type": "spawn-point", "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.15, 0.9, 0.9] },
-    { "name": "box-1", "type": "box", "position": [0, 1, 6], "rotation": [0, 0, 0], "scale": [2, 2, 2], "color": [0.8, 0.35, 0.25] }
-  ]
+    { "name": "spawn-1", "type": "spawn-point", "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.15, 0.9, 0.9], "physics": false },
+    { "name": "box-1", "type": "box", "position": [0, 1, 6], "rotation": [0, 0, 0], "scale": [2, 2, 2], "color": [0.8, 0.35, 0.25], "physics": false },
+    { "name": "house-1", "type": "model", "position": [-7, 0, 9], "rotation": [0, 30, 0], "scale": [2.5, 2.5, 2.5], "color": [0.9, 0.85, 0.7], "physics": false, "model": "res/models/house.obj" }
+  ],
+  "hud": [],
+  "flowGraph": {
+    "nextId": 4,
+    "nodes": [
+      { "id": 1, "type": "OnStart", "pos": [50.5767, -12.9969], "str": "", "num": [0, 0, 0] },
+      { "id": 2, "type": "SetSky", "pos": [247.577, 29.0031], "str": "", "num": [0, 0, 0] }
+    ],
+    "links": [
+      { "id": 3, "from": 1, "to": 2 }
+    ]
+  }
 }
