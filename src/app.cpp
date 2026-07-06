@@ -1165,9 +1165,11 @@ void App::drawNewProjectModal() {
         if (newDepth_ > 4096) newDepth_ = 4096;
 
         ImGui::SeparatorText("Game template");
-        const char* templateNames[] = {"Terrain orbit (camera circles the terrain)",
-                                       "FPP walkthrough (left stick walk, right stick look)"};
-        ImGui::Combo("Template", &newTemplate_, templateNames, 2);
+        const char* templateNames[] = {
+            "Terrain orbit (camera circles the terrain)",
+            "FPP walkthrough (left stick walk, right stick look)",
+            "FPP showcase (all features: model, physics, HUD, flow graph)"};
+        ImGui::Combo("Template", &newTemplate_, templateNames, 3);
 
         ImGui::TextDisabled("Creates: %s\\%s", newLocation_, newName_);
         ImGui::TextDisabled("Default scene \"main\" with a flat %d x %d terrain.%s", newWidth_,
@@ -1181,8 +1183,10 @@ void App::drawNewProjectModal() {
         if (ImGui::Button("Create", ImVec2(120, 0))) {
             Project p;
             TerrainConfig t{newWidth_, newDepth_};
-            std::string err = project::create(p, newName_, newLocation_, t,
-                                              newTemplate_ == 1 ? "fpp" : "orbit");
+            const char* tpl = newTemplate_ == 2 ? "showcase"
+                              : newTemplate_ == 1 ? "fpp"
+                                                  : "orbit";
+            std::string err = project::create(p, newName_, newLocation_, t, tpl);
             if (err.empty()) {
                 project_ = p;
                 hasProject_ = true;

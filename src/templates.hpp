@@ -19,6 +19,10 @@ std::vector<File> generate(const Project& p);
 // Compiles the project flow graph into a C++ script (flow_graph.gen.cpp).
 std::string flowGraphScript(const Project& p);
 
+// Built-in assets for the "FPP showcase" template.
+const char* houseObjText();
+const unsigned char* crosshairPng(size_t& size);
+
 // Content of a new user script created from the "New script..." action.
 std::string scriptStub(const Project& p, const std::string& className,
                        const std::string& fileName);

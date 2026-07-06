@@ -153,7 +153,9 @@ std::string create(Project& out, const std::string& name, const std::string& par
     out.name = name;
     out.dir = root.string();
     out.terrain = terrain;
-    out.gameTemplate = gameTemplate == "fpp" ? "fpp" : "orbit";
+    // "showcase" is a content preset on top of the FPP game template
+    const bool showcase = gameTemplate == "showcase";
+    out.gameTemplate = (gameTemplate == "fpp" || showcase) ? "fpp" : "orbit";
 
     if (out.gameTemplate == "fpp") {
         // FPP scenes need a player start - seed one in the terrain center.
@@ -180,6 +182,85 @@ std::string create(Project& out, const std::string& name, const std::string& par
         ball.color[0] = 0.25f, ball.color[1] = 0.45f, ball.color[2] = 0.9f;
         ball.physics = true;
         out.objects.push_back(ball);
+    }
+
+    if (showcase) {
+        // Built-in assets (written before generate(): model codegen reads them)
+        if (auto err = writeFile(root / "res" / "models" / "house.obj",
+                                 templates::houseObjText());
+            !err.empty())
+            return err;
+        {
+            size_t pngSize = 0;
+            const unsigned char* png = templates::crosshairPng(pngSize);
+            std::error_code ec;
+            fs::create_directories(root / "res" / "hud", ec);
+            std::ofstream f(root / "res" / "hud" / "crosshair.png", std::ios::binary);
+            if (!f) return "Cannot write crosshair.png";
+            f.write((const char*)png, (std::streamsize)pngSize);
+        }
+
+        // A house model...
+        SceneObject house;
+        house.name = "house-1";
+        house.type = PrimitiveType::Model;
+        house.modelPath = "res/models/house.obj";
+        house.position[0] = -7.0f, house.position[1] = 0.0f, house.position[2] = 9.0f;
+        house.rotation[1] = 30.0f;
+        house.scale[0] = house.scale[1] = house.scale[2] = 2.5f;
+        house.color[0] = 0.9f, house.color[1] = 0.85f, house.color[2] = 0.7f;
+        out.objects.push_back(house);
+
+        // ...a pillar to jump on...
+        SceneObject pillar;
+        pillar.name = "pillar-1";
+        pillar.type = PrimitiveType::Cylinder;
+        pillar.position[0] = 5.0f, pillar.position[1] = 0.5f, pillar.position[2] = 10.0f;
+        pillar.scale[0] = 2.0f, pillar.scale[1] = 1.0f, pillar.scale[2] = 2.0f;
+        pillar.color[0] = 0.7f, pillar.color[1] = 0.7f, pillar.color[2] = 0.75f;
+        out.objects.push_back(pillar);
+
+        // ...a HUD crosshair...
+        HudImage crosshair;
+        crosshair.name = "crosshair";
+        crosshair.imagePath = "res/hud/crosshair.png";
+        crosshair.size[0] = crosshair.size[1] = 40.0f;
+        out.hud.push_back(crosshair);
+
+        // ...and a small flow graph: Circle toggles the box,
+        // walking up to the house greets you in the log.
+        FlowGraph& fg = out.flowGraph;
+        FlowNode onButton;
+        onButton.id = fg.nextId++;
+        onButton.type = "OnButton";
+        onButton.str = "Circle";
+        onButton.pos[0] = 40, onButton.pos[1] = 40;
+        FlowNode toggle;
+        toggle.id = fg.nextId++;
+        toggle.type = "ToggleObject";
+        toggle.str = "box-1";
+        toggle.pos[0] = 300, toggle.pos[1] = 40;
+        FlowNode near;
+        near.id = fg.nextId++;
+        near.type = "NearObject";
+        near.str = "house-1";
+        near.num[0] = 6.0f;
+        near.pos[0] = 40, near.pos[1] = 200;
+        FlowNode log;
+        log.id = fg.nextId++;
+        log.type = "Log";
+        log.str = "Welcome home!";
+        log.pos[0] = 300, log.pos[1] = 200;
+        fg.nodes = {onButton, toggle, near, log};
+        FlowLink l1;
+        l1.id = fg.nextId++;
+        l1.fromNode = onButton.id;
+        l1.toNode = toggle.id;
+        FlowLink l2;
+        l2.id = fg.nextId++;
+        l2.fromNode = near.id;
+        l2.toNode = log.id;
+        fg.links = {l1, l2};
     }
 
     for (const auto& f : templates::generate(out)) {

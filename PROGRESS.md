@@ -7,6 +7,13 @@ Each finished feature lands as its own commit.
 
 - (nothing - the feature marathon batch is complete; see Backlog for next steps)
 
+## Also done after the marathon
+
+- (10) **FPP showcase template** — third choice in New Project: seeds a fresh project
+  with all features (built-in house.obj + crosshair.png embedded in the editor,
+  physics ball, pillar, HUD, starter flow graph). Fresh copy every time, so the
+  shared sample no longer gets wrecked by experiments. Verified in PCSX2.
+
 ## Done
 
 - Core editor: project creation (orbit/FPP templates), solution files + undo history,

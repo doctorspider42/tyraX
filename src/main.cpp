@@ -8,11 +8,13 @@
 #include "project.hpp"
 #include "runner.hpp"
 
-// Headless helper: tyra-editor.exe --new <name> <parentDir> [width] [depth] [orbit|fpp]
+// Headless helper:
+//   tyra-editor.exe --new <name> <parentDir> [width] [depth] [orbit|fpp|showcase]
 static int createFromCli(int argc, char** argv) {
     if (argc < 4) {
         std::fprintf(stderr,
-                     "usage: tyra-editor --new <name> <parentDir> [width] [depth] [orbit|fpp]\n");
+                     "usage: tyra-editor --new <name> <parentDir> [width] [depth] "
+                     "[orbit|fpp|showcase]\n");
         return 2;
     }
     TerrainConfig t;
