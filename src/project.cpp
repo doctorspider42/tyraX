@@ -105,6 +105,15 @@ std::string save(const Project& p) {
     json << "],\n"
          << "  \"objects\": ";
     writeObjectsArray(json, p.objects, "    ");
+    json << ",\n  \"hud\": [";
+    for (size_t i = 0; i < p.hud.size(); ++i) {
+        const HudImage& h = p.hud[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << h.name << "\", \"image\": \""
+             << h.imagePath << "\", \"pos\": [" << fmtFloat(h.pos[0]) << ", "
+             << fmtFloat(h.pos[1]) << "], \"size\": [" << fmtFloat(h.size[0]) << ", "
+             << fmtFloat(h.size[1]) << "] }";
+    }
+    json << (p.hud.empty() ? "]" : "\n  ]");
     json << ",\n  \"flowGraph\": {\n"
          << "    \"nextId\": " << p.flowGraph.nextId << ",\n"
          << "    \"nodes\": [";
@@ -266,6 +275,25 @@ std::string load(Project& out, const std::string& projectDir) {
         readObjectsArray(*objects, out.objects);
     }
 
+    if (const auto* hud = root.find("hud"); hud && hud->type == json::Value::Type::Array) {
+        for (const auto& jh : hud->arr) {
+            HudImage h;
+            if (const auto* v = jh.find("name")) h.name = v->stringOr("image");
+            if (const auto* v = jh.find("image")) h.imagePath = v->stringOr("");
+            if (const auto* v = jh.find("pos");
+                v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                h.pos[0] = (float)v->arr[0].numberOr(0.5);
+                h.pos[1] = (float)v->arr[1].numberOr(0.5);
+            }
+            if (const auto* v = jh.find("size");
+                v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                h.size[0] = (float)v->arr[0].numberOr(64);
+                h.size[1] = (float)v->arr[1].numberOr(64);
+            }
+            if (!h.imagePath.empty()) out.hud.push_back(std::move(h));
+        }
+    }
+
     if (const auto* fg = root.find("flowGraph")) {
         if (const auto* v = fg->find("nextId")) out.flowGraph.nextId = (int)v->numberOr(1);
         if (const auto* nodes = fg->find("nodes");
@@ -389,7 +417,8 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\scene_data.hpp" ||
             f.relativePath == ".vscode\\c_cpp_properties.json" ||
             f.relativePath == "src\\scripts\\flow_graph.gen.cpp" ||
-            f.relativePath == "inc\\model_data.gen.hpp") {
+            f.relativePath == "inc\\model_data.gen.hpp" ||
+            f.relativePath == "inc\\hud_data.gen.hpp") {
             write = true;  // editor-owned, always in sync with project data
         } else if (f.relativePath == "src\\terrain_game.cpp" ||
                    f.relativePath == "inc\\terrain_game.hpp" ||

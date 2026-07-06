@@ -5,7 +5,7 @@ Each finished feature lands as its own commit.
 
 ## In progress
 
-- (7) Custom .obj models as scene objects
+- (nothing - the feature marathon batch is complete; see Backlog for next steps)
 
 ## Done
 
@@ -22,7 +22,6 @@ Each finished feature lands as its own commit.
   Compiles & boots; interactive feel needs a pad test.
 - (3) **Object physics** — `Physics` checkbox per object: falls with GRAVITY pref,
   rests on the terrain. New FPP projects seed a falling ball as demo. Verified.
-
 - (4) **Sky gradient dome** — vertex-colored dome (horizon/zenith preference colors),
   same gradient in the editor viewport. Scripts changing ctx.skyColor retint the
   dome at runtime. Verified in PCSX2.
@@ -30,18 +29,29 @@ Each finished feature lands as its own commit.
   Viewport): triggers (On Start, On Button, Near Object, Every N Seconds) wired to
   actions (Set Sky Color, Show/Hide/Toggle Object, Move Object By, Set Object Color,
   Log). Graph lives in project.json, compiles to src/scripts/flow_graph.gen.cpp on
-  every build. Runtime verified in PCSX2 (OnStart->SetSky retints the dome; codegen
-  for all trigger types inspected). Editor node UI compiled but needs a hands-on pass.
-
+  every build. Runtime verified in PCSX2 (OnStart->SetSky retints the dome).
+  Editor node UI compiled but needs a hands-on pass.
 - (6) **Directional lighting** — light direction + ambient/diffuse in preferences,
-  baked into vertex colors at build (engine lighting bags don't support per-vertex
-  colors); terrain shaded by its up normal; viewport uses the same formula.
-  Gotcha: PS2SDK math3d.h #defines LIGHT_AMBIENT - constants use SCENE_ prefix.
-  Verified in PCSX2 (side light: strong directional shading on sphere/box).
+  baked into vertex colors at build; terrain shaded by its up normal; viewport uses
+  the same formula. Gotcha: PS2SDK math3d.h #defines LIGHT_AMBIENT - constants use
+  SCENE_ prefix. Verified in PCSX2 (side light: directional shading on sphere/box).
+- (7) **Custom .obj models** — "+ Model" imports a .obj into res/models/, shown in
+  the viewport (shared parser, per-face normals) and compiled into the game as
+  vertex data (capped 3000 tris/model). Full citizen: gizmos, physics, scripts,
+  lighting. Verified in editor + PCSX2 (hand-written house model).
+- (8) **Gizmo snapping** — hold Ctrl while dragging: 0.5 units / 15 deg / 0.25 scale.
+- (9) **HUD from images** — "+ Image (PNG)" imports into res/hud/; position
+  (normalized, center anchor) + pixel size editable; live preview overlaid on the
+  viewport (stb_image); in-game rendering via Tyra Renderer2D sprites. Verified in
+  PCSX2 (crosshair over the 3D scene).
 
 ## Backlog (rough order)
-- (5) Sky gradient dome (no textures needed) + sky preferences
-- (6) Custom .obj models as scene objects (editor preview + PS2 loader)
-- (7) HUD from images (PNG sprites placed in the editor, rendered by Renderer2D)
-- (8) Flow graph - visual logic from ready components (CryEngine-3-like), codegen to a script
-- (9) Editor QoL: gizmo snapping, object duplication in viewport, camera presets
+
+- Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)
+- Object physics vs objects (stacking), player physics polish (pad feel)
+- Model picking uses the unit-box approximation (big models pick imprecisely)
+- HUD images draggable directly in the viewport
+- Textured models (.mtl/PNG) and textured terrain
+- Audio (Tyra supports wav/adpcm) - trigger via flow graph action
+- Multiple scenes (model exists in project.json, editor edits only "main")
+- Flow graph: more nodes (timers with reset, gates, variables, sounds)

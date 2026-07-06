@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <string>
 
 #include "history.hpp"
@@ -31,6 +32,8 @@ private:
     void applyProjectToViewport();
     void addObject(PrimitiveType type);
     void importModel();
+    void drawHudSection();
+    void importHudImage();
     void saveProject();
 
     // Editing model: mutate project_ freely, then commitChange() once per
@@ -60,6 +63,15 @@ private:
 
     // Flow graph editor state
     bool flowPositionsApplied_ = false;  // node positions pushed to imnodes once
+
+    // HUD editing
+    int selectedHud_ = -1;
+    struct HudTexture {
+        unsigned tex = 0;
+        int w = 0, h = 0;
+    };
+    std::map<std::string, HudTexture> hudTexCache_;
+    const HudTexture* hudTexture(const std::string& relPath);
 
 
     Viewport viewport_;

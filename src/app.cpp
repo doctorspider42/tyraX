@@ -10,6 +10,10 @@
 #include "gl_loader.h"
 #include "templates.hpp"
 
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_PNG
+#include <stb_image.h>
+
 #include <GLFW/glfw3.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -26,7 +30,7 @@
 // Native pickers (IFileOpenDialog). pickFolder: FOS_PICKFOLDERS;
 // pickSolutionFile: file dialog filtered to *.tyra solution files.
 // ---------------------------------------------------------------------------
-enum class PickKind { Folder, Solution, ObjModel };
+enum class PickKind { Folder, Solution, ObjModel, Png };
 
 static std::string pickPath(PickKind kind) {
     const bool folder = kind == PickKind::Folder;
@@ -52,6 +56,13 @@ static std::string pickPath(PickKind kind) {
             };
             dialog->SetFileTypes(2, filters);
             dialog->SetTitle(L"Import 3D model");
+        } else if (kind == PickKind::Png) {
+            static const COMDLG_FILTERSPEC filters[] = {
+                {L"PNG image (*.png)", L"*.png"},
+                {L"All files (*.*)", L"*.*"},
+            };
+            dialog->SetFileTypes(2, filters);
+            dialog->SetTitle(L"Import HUD image");
         }
         if (SUCCEEDED(dialog->Show(nullptr))) {
             IShellItem* item = nullptr;
@@ -79,6 +90,7 @@ static std::string pickPath(PickKind kind) {
 static std::string pickFolder() { return pickPath(PickKind::Folder); }
 static std::string pickSolutionFile() { return pickPath(PickKind::Solution); }
 static std::string pickModelFile() { return pickPath(PickKind::ObjModel); }
+static std::string pickPngFile() { return pickPath(PickKind::Png); }
 
 // ---------------------------------------------------------------------------
 
@@ -328,11 +340,19 @@ void App::drawViewportWindow() {
             const ImGuizmo::MODE mode =
                 op == ImGuizmo::TRANSLATE ? ImGuizmo::WORLD : ImGuizmo::LOCAL;
 
+            // Hold Ctrl to snap: 0.5 units / 15 degrees / 0.25 scale
+            const float snapValues[3] = {op == ImGuizmo::ROTATE ? 15.0f
+                                         : op == ImGuizmo::SCALE ? 0.25f
+                                                                 : 0.5f,
+                                         op == ImGuizmo::TRANSLATE ? 0.5f : 0.0f,
+                                         op == ImGuizmo::TRANSLATE ? 0.5f : 0.0f};
+            const float* snap = io.KeyCtrl ? snapValues : nullptr;
+
             // Same TRS composition as the viewport / PS2 code
             float model[16];
             ImGuizmo::RecomposeMatrixFromComponents(o.position, o.rotation, o.scale, model);
             if (ImGuizmo::Manipulate(viewport_.viewMatrix(), viewport_.projMatrix(), op, mode,
-                                     model)) {
+                                     model, nullptr, snap)) {
                 ImGuizmo::DecomposeMatrixToComponents(model, o.position, o.rotation, o.scale);
                 for (float& s : o.scale)
                     if (s < 0.01f) s = 0.01f;
@@ -360,6 +380,25 @@ void App::drawViewportWindow() {
                 const float u = (io.MousePos.x - imgPos.x) / avail.x;
                 const float v = (io.MousePos.y - imgPos.y) / avail.y;
                 selectedObject_ = viewport_.pick(u, v, project_.objects);
+            }
+        }
+
+        // --- HUD preview overlay (matches the PS2 512x448 screen mapping) ---
+        if (!project_.hud.empty()) {
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            for (int i = 0; i < (int)project_.hud.size(); ++i) {
+                const HudImage& hi = project_.hud[i];
+                const float w = hi.size[0] / 512.0f * avail.x;
+                const float h = hi.size[1] / 448.0f * avail.y;
+                const ImVec2 c(imgPos.x + hi.pos[0] * avail.x, imgPos.y + hi.pos[1] * avail.y);
+                const ImVec2 pMin(c.x - w * 0.5f, c.y - h * 0.5f);
+                const ImVec2 pMax(c.x + w * 0.5f, c.y + h * 0.5f);
+                if (const HudTexture* t = hudTexture(hi.imagePath))
+                    dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax);
+                else
+                    dl->AddRect(pMin, pMax, IM_COL32(255, 100, 100, 200));
+                if (i == selectedHud_)
+                    dl->AddRect(pMin, pMax, IM_COL32(255, 160, 30, 255), 0.0f, 0, 2.0f);
             }
         }
 
@@ -438,6 +477,7 @@ void App::drawProjectWindow() {
     }
 
     drawSceneSection();
+    drawHudSection();
     drawScriptsSection();
 
     ImGui::SeparatorText("Build");
@@ -901,6 +941,83 @@ void App::openInVSCode() {
     } else {
         statusMessage_ = "Could not launch VS Code (is 'code' on PATH?)";
     }
+}
+
+const App::HudTexture* App::hudTexture(const std::string& relPath) {
+    auto it = hudTexCache_.find(relPath);
+    if (it != hudTexCache_.end()) return it->second.tex ? &it->second : nullptr;
+
+    HudTexture entry;
+    const std::string full = (std::filesystem::path(project_.dir) / relPath).string();
+    int w = 0, h = 0, comp = 0;
+    if (unsigned char* pixels = stbi_load(full.c_str(), &w, &h, &comp, 4)) {
+        GLuint tex = 0;
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        stbi_image_free(pixels);
+        entry = {tex, w, h};
+    }
+    hudTexCache_[relPath] = entry;
+    return entry.tex ? &hudTexCache_[relPath] : nullptr;
+}
+
+void App::importHudImage() {
+    const std::string src = pickPngFile();
+    if (src.empty()) return;
+
+    const std::filesystem::path srcPath(src);
+    const std::string fileName = srcPath.filename().string();
+    const std::filesystem::path destDir = std::filesystem::path(project_.dir) / "res" / "hud";
+    std::error_code ec;
+    std::filesystem::create_directories(destDir, ec);
+    std::filesystem::copy_file(srcPath, destDir / fileName,
+                               std::filesystem::copy_options::overwrite_existing, ec);
+    if (ec) {
+        statusMessage_ = "HUD image import failed: " + ec.message();
+        return;
+    }
+
+    HudImage h;
+    h.name = srcPath.stem().string();
+    h.imagePath = "res/hud/" + fileName;
+    hudTexCache_.erase(h.imagePath);  // reload if replaced
+    if (const HudTexture* t = hudTexture(h.imagePath)) {
+        h.size[0] = (float)t->w;
+        h.size[1] = (float)t->h;
+    }
+    project_.hud.push_back(std::move(h));
+    selectedHud_ = (int)project_.hud.size() - 1;
+    saveAll("Saved");
+}
+
+void App::drawHudSection() {
+    ImGui::SeparatorText("HUD");
+
+    if (ImGui::SmallButton("+ Image (PNG)")) importHudImage();
+
+    bool changed = false;
+    for (int i = 0; i < (int)project_.hud.size(); ++i) {
+        std::string label = project_.hud[i].name + "##hud" + std::to_string(i);
+        if (ImGui::Selectable(label.c_str(), selectedHud_ == i)) selectedHud_ = i;
+    }
+    if (project_.hud.empty()) ImGui::TextDisabled("No HUD images.");
+
+    if (selectedHud_ >= 0 && selectedHud_ < (int)project_.hud.size()) {
+        HudImage& h = project_.hud[selectedHud_];
+        ImGui::DragFloat2("Position##hud", h.pos, 0.005f, 0.0f, 1.0f, "%.3f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat2("Size (px)##hud", h.size, 1.0f, 1.0f, 512.0f, "%.0f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::Button("Delete HUD image")) {
+            project_.hud.erase(project_.hud.begin() + selectedHud_);
+            selectedHud_ = -1;
+            changed = true;
+        }
+    }
+    if (changed) saveAll("Saved");
 }
 
 void App::drawScriptsSection() {

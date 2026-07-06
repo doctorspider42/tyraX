@@ -79,6 +79,14 @@ struct ProjectSettings {
 
 class History;
 
+// A HUD image (PNG sprite) drawn on top of the 3D scene.
+struct HudImage {
+    std::string name;
+    std::string imagePath;      // e.g. "res/hud/crosshair.png"
+    float pos[2] = {0.5f, 0.5f};   // normalized screen position (center anchor)
+    float size[2] = {64.0f, 64.0f};  // pixels (PS2 screen is 512x448)
+};
+
 struct Project {
     std::string name;
     std::string dir;  // absolute path to project root
@@ -87,6 +95,7 @@ struct Project {
     ProjectSettings settings;
     std::vector<std::string> scenes{"main"};
     std::vector<SceneObject> objects;
+    std::vector<HudImage> hud;
     FlowGraph flowGraph;
 
     bool valid() const { return !name.empty() && !dir.empty(); }
