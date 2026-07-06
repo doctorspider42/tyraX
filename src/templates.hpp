@@ -16,6 +16,10 @@ struct File {
 // docker-compose, run scripts...) with project values substituted.
 std::vector<File> generate(const Project& p);
 
+// Content of a new user script created from the "New script..." action.
+std::string scriptStub(const Project& p, const std::string& className,
+                       const std::string& fileName);
+
 // True when `content` is byte-identical to what an older editor version
 // generated for this file - i.e. the user never edited it and it is safe
 // to regenerate even though it predates the ownership marker.

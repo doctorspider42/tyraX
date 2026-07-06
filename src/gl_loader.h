@@ -62,6 +62,9 @@ typedef ptrdiff_t GLintptr;
 #define GL_ONE_MINUS_SRC_ALPHA 0x0303
 #define GL_MULTISAMPLE 0x809D
 #define GL_POLYGON_OFFSET_FILL 0x8037
+#define GL_FRONT_AND_BACK 0x0408
+#define GL_LINE 0x1B01
+#define GL_FILL 0x1B02
 
 #define TYRA_GL_FUNCS(X) \
     X(void, Clear, GLbitfield) \
@@ -73,6 +76,7 @@ typedef ptrdiff_t GLintptr;
     X(void, LineWidth, GLfloat) \
     X(void, BlendFunc, GLenum, GLenum) \
     X(void, PolygonOffset, GLfloat, GLfloat) \
+    X(void, PolygonMode, GLenum, GLenum) \
     X(void, GenTextures, GLsizei, GLuint*) \
     X(void, DeleteTextures, GLsizei, const GLuint*) \
     X(void, BindTexture, GLenum, GLuint) \

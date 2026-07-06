@@ -1,5 +1,6 @@
 #include "runner.hpp"
 
+#include <cstdlib>
 #include <filesystem>
 
 #define WIN32_LEAN_AND_MEAN
@@ -179,6 +180,43 @@ void Runner::worker(Project p, bool build, bool run) {
                            "make -j$(nproc)\"",
                       p.dir) == 0;
             if (!ok) appendLine("[editor] Engine installation failed.");
+        }
+
+        // Engine patch (idempotent, marker file in the shared volume):
+        // zero the hardcoded "crappy guard band" in RenderBBox::clipFrustumCheck.
+        // Those fixed world-unit margins reclassify partially-visible geometry
+        // as "fully visible" and send it to the fast cull path, where the VU1
+        // program drops whole triangles -> holes in the ground near the camera.
+        if (ok && exec(dc + "\"test -f /tyra/.tyra-editor-patch-1\"", p.dir) != 0) {
+            appendLine("[editor] Patching Tyra engine (clipper guard band) and "
+                       "rebuilding it - one-time step, takes a few minutes...");
+            ok = exec(dc + "\"sed -i -E 's/(guardBand\\[[0-9]\\]) = -[0-9.]+F;/\\1 = 0.0F;/' "
+                           "/tyra/engine/src/renderer/core/3d/bbox/render_bbox.cpp && "
+                           "cd /tyra/engine && make -j$(nproc) && "
+                           "touch /tyra/.tyra-editor-patch-1\"",
+                      p.dir) == 0;
+            if (!ok) appendLine("[editor] Engine patch failed.");
+        }
+
+        // Export PS2SDK headers for VS Code IntelliSense (one-time per machine).
+        if (ok) {
+            if (const char* lad = getenv("LOCALAPPDATA")) {
+                fs::path sdkCache = fs::path(lad) / "tyra-editor" / "ps2sdk";
+                std::error_code ec;
+                if (!fs::exists(sdkCache / "ee" / "include", ec)) {
+                    appendLine("[editor] Exporting PS2SDK headers for IntelliSense...");
+                    fs::create_directories(sdkCache / "ee", ec);
+                    fs::create_directories(sdkCache / "common", ec);
+                    // Failure is non-fatal - IntelliSense just has fewer headers.
+                    exec("docker compose cp compiler:/usr/local/ps2dev/ps2sdk/ee/include \"" +
+                             (sdkCache / "ee" / "include").string() + "\"",
+                         p.dir);
+                    exec("docker compose cp "
+                         "compiler:/usr/local/ps2dev/ps2sdk/common/include \"" +
+                             (sdkCache / "common" / "include").string() + "\"",
+                         p.dir);
+                }
+            }
         }
 
         if (ok) {

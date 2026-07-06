@@ -1,0 +1,22 @@
+{
+  "name": "script-demo",
+  "terrain": {
+    "width": 32,
+    "depth": 32
+  },
+  "template": "fpp",
+  "settings": {
+    "clipping": "precise",
+    "terrainDetail": 32,
+    "skyColor": [0.25, 0.55, 0.78],
+    "eyeHeight": 1.8,
+    "walkSpeed": 0.4,
+    "lookSpeed": 1,
+    "orbitSpeed": 1
+  },
+  "scenes": ["main"],
+  "objects": [
+    { "name": "spawn-1", "type": "spawn-point", "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.15, 0.9, 0.9] },
+    { "name": "box-1", "type": "box", "position": [0, 1, 6], "rotation": [0, 0, 0], "scale": [2, 2, 2], "color": [0.8, 0.35, 0.25] }
+  ]
+}

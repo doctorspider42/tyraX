@@ -4,6 +4,7 @@ $ErrorActionPreference = 'Stop'
 $deps = @(
     @{ Url = 'https://github.com/ocornut/imgui.git'; Branch = 'docking'; Dir = 'vendor/imgui' },
     @{ Url = 'https://github.com/glfw/glfw.git';     Branch = '3.4';     Dir = 'vendor/glfw' },
+    @{ Url = 'https://github.com/CedricGuillemet/ImGuizmo.git'; Branch = 'master'; Dir = 'vendor/imguizmo' },
     @{ Url = 'https://github.com/h4570/tyra.git';    Branch = 'master';  Dir = 'vendor/tyra' }
 )
 

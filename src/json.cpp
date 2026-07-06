@@ -143,7 +143,13 @@ struct Parser {
 }  // namespace
 
 bool parse(const std::string& src, Value& out) {
-    Parser parser{src.data(), src.data() + src.size()};
+    const char* begin = src.data();
+    const char* end = src.data() + src.size();
+    // Tolerate a UTF-8 BOM (common when files are edited on Windows)
+    if (src.size() >= 3 && (unsigned char)begin[0] == 0xEF && (unsigned char)begin[1] == 0xBB &&
+        (unsigned char)begin[2] == 0xBF)
+        begin += 3;
+    Parser parser{begin, end};
     if (!parser.parseValue(out)) return false;
     parser.skipWs();
     return parser.p == parser.end;

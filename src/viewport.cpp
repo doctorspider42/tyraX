@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <utility>
 
 #include "gl_loader.h"
 
@@ -278,6 +279,52 @@ std::vector<float> unitCone() {
     return v;
 }
 
+// Spawn point marker: a pole with an arrow pointing +Z (the facing direction,
+// i.e. object yaw = player start yaw in the FPP template).
+std::vector<float> unitSpawnMarker() {
+    std::vector<float> v;
+    auto cuboid = [&](Vec3 c, Vec3 h) {
+        pushQuadShaded(v, {c.x + h.x, c.y - h.y, c.z - h.z}, {c.x + h.x, c.y + h.y, c.z - h.z},
+                       {c.x + h.x, c.y + h.y, c.z + h.z}, {c.x + h.x, c.y - h.y, c.z + h.z},
+                       {1, 0, 0});
+        pushQuadShaded(v, {c.x - h.x, c.y - h.y, c.z + h.z}, {c.x - h.x, c.y + h.y, c.z + h.z},
+                       {c.x - h.x, c.y + h.y, c.z - h.z}, {c.x - h.x, c.y - h.y, c.z - h.z},
+                       {-1, 0, 0});
+        pushQuadShaded(v, {c.x - h.x, c.y + h.y, c.z - h.z}, {c.x - h.x, c.y + h.y, c.z + h.z},
+                       {c.x + h.x, c.y + h.y, c.z + h.z}, {c.x + h.x, c.y + h.y, c.z - h.z},
+                       {0, 1, 0});
+        pushQuadShaded(v, {c.x - h.x, c.y - h.y, c.z + h.z}, {c.x - h.x, c.y - h.y, c.z - h.z},
+                       {c.x + h.x, c.y - h.y, c.z - h.z}, {c.x + h.x, c.y - h.y, c.z + h.z},
+                       {0, -1, 0});
+        pushQuadShaded(v, {c.x - h.x, c.y - h.y, c.z + h.z}, {c.x + h.x, c.y - h.y, c.z + h.z},
+                       {c.x + h.x, c.y + h.y, c.z + h.z}, {c.x - h.x, c.y + h.y, c.z + h.z},
+                       {0, 0, 1});
+        pushQuadShaded(v, {c.x + h.x, c.y - h.y, c.z - h.z}, {c.x - h.x, c.y - h.y, c.z - h.z},
+                       {c.x - h.x, c.y + h.y, c.z - h.z}, {c.x + h.x, c.y + h.y, c.z - h.z},
+                       {0, 0, -1});
+    };
+    cuboid({0, -0.05f, 0}, {0.06f, 0.45f, 0.06f});   // vertical pole
+    cuboid({0, 0.1f, 0.15f}, {0.04f, 0.04f, 0.15f});  // arrow shaft (+Z)
+    // arrowhead pyramid, apex at +Z
+    const Vec3 apex{0, 0.1f, 0.5f};
+    const Vec3 b0{-0.12f, -0.02f, 0.3f}, b1{0.12f, -0.02f, 0.3f};
+    const Vec3 b2{0.12f, 0.22f, 0.3f}, b3{-0.12f, 0.22f, 0.3f};
+    pushShaded(v, apex, {0, -1, 0.4f});
+    pushShaded(v, b1, {0, -1, 0.4f});
+    pushShaded(v, b0, {0, -1, 0.4f});
+    pushShaded(v, apex, {1, 0, 0.4f});
+    pushShaded(v, b2, {1, 0, 0.4f});
+    pushShaded(v, b1, {1, 0, 0.4f});
+    pushShaded(v, apex, {0, 1, 0.4f});
+    pushShaded(v, b3, {0, 1, 0.4f});
+    pushShaded(v, b2, {0, 1, 0.4f});
+    pushShaded(v, apex, {-1, 0, 0.4f});
+    pushShaded(v, b0, {-1, 0, 0.4f});
+    pushShaded(v, b3, {-1, 0, 0.4f});
+    pushQuadShaded(v, b0, b1, b2, b3, {0, 0, -1});  // pyramid base
+    return v;
+}
+
 std::vector<float> unitWireCube() {
     std::vector<float> v;
     const float h = 0.52f;  // slightly larger than the shape, avoids z-fighting
@@ -359,14 +406,16 @@ void Viewport::shutdown() {
     destroyMesh(sphere_);
     destroyMesh(cylinder_);
     destroyMesh(cone_);
+    destroyMesh(spawnMarker_);
     destroyMesh(wireCube_);
     if (fbo_) glDeleteFramebuffers(1, &fbo_);
     if (colorTex_) glDeleteTextures(1, &colorTex_);
     if (depthRbo_) glDeleteRenderbuffers(1, &depthRbo_);
 }
 
-void Viewport::setTerrain(const TerrainConfig& terrain) {
+void Viewport::setTerrain(const TerrainConfig& terrain, int maxCells) {
     terrain_ = terrain;
+    maxCells_ = maxCells < 1 ? 1 : maxCells;
     float diag = (float)(terrain_.width > terrain_.depth ? terrain_.width : terrain_.depth);
     distance_ = diag * 1.4f;
     buildTerrainMesh();
@@ -377,11 +426,13 @@ void Viewport::buildPrimitiveMeshes() {
     destroyMesh(sphere_);
     destroyMesh(cylinder_);
     destroyMesh(cone_);
+    destroyMesh(spawnMarker_);
     destroyMesh(wireCube_);
     box_ = uploadMesh(unitBox());
     sphere_ = uploadMesh(unitSphere());
     cylinder_ = uploadMesh(unitCylinder());
     cone_ = uploadMesh(unitCone());
+    spawnMarker_ = uploadMesh(unitSpawnMarker());
     wireCube_ = uploadMesh(unitWireCube());
 }
 
@@ -395,9 +446,8 @@ void Viewport::buildTerrainMesh() {
     const float x0 = -w * 0.5f, z0 = -d * 0.5f;
 
     // Match the generated PS2 game: checker pattern, capped cell count.
-    const int maxCells = 32;
-    const int cellsX = terrain_.width > maxCells ? maxCells : terrain_.width;
-    const int cellsZ = terrain_.depth > maxCells ? maxCells : terrain_.depth;
+    const int cellsX = terrain_.width > maxCells_ ? maxCells_ : terrain_.width;
+    const int cellsZ = terrain_.depth > maxCells_ ? maxCells_ : terrain_.depth;
     const float sx = w / cellsX, sz = d / cellsZ;
 
     const float cA[3] = {96 / 255.0f, 160 / 255.0f, 72 / 255.0f};
@@ -470,6 +520,89 @@ void Viewport::ensureFramebuffer(int width, int height) {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
+namespace {
+
+// Applies the inverse of the object's euler rotation (rotZ, rotY, rotX with
+// negated angles - the reverse of the model matrix composition).
+Vec3 rotateInverse(Vec3 v, const float* rotDeg) {
+    const float d2r = kPi / 180.0f;
+    {
+        const float c = std::cos(-rotDeg[2] * d2r), s = std::sin(-rotDeg[2] * d2r);
+        const float x = v.x * c - v.y * s, y = v.x * s + v.y * c;
+        v.x = x, v.y = y;
+    }
+    {
+        const float c = std::cos(-rotDeg[1] * d2r), s = std::sin(-rotDeg[1] * d2r);
+        const float x = v.x * c + v.z * s, z = -v.x * s + v.z * c;
+        v.x = x, v.z = z;
+    }
+    {
+        const float c = std::cos(-rotDeg[0] * d2r), s = std::sin(-rotDeg[0] * d2r);
+        const float y = v.y * c - v.z * s, z = v.y * s + v.z * c;
+        v.y = y, v.z = z;
+    }
+    return v;
+}
+
+// Ray vs unit AABB [-0.5, 0.5]^3 slab test; returns hit distance or -1.
+float rayUnitBox(Vec3 o, Vec3 d) {
+    float t0 = 0.0001f, t1 = 1e9f;
+    const float* op = &o.x;
+    const float* dp = &d.x;
+    for (int axis = 0; axis < 3; ++axis) {
+        if (std::fabs(dp[axis]) < 1e-8f) {
+            if (op[axis] < -0.5f || op[axis] > 0.5f) return -1.0f;
+            continue;
+        }
+        float ta = (-0.5f - op[axis]) / dp[axis];
+        float tb = (0.5f - op[axis]) / dp[axis];
+        if (ta > tb) std::swap(ta, tb);
+        if (ta > t0) t0 = ta;
+        if (tb < t1) t1 = tb;
+        if (t0 > t1) return -1.0f;
+    }
+    return t0;
+}
+
+}  // namespace
+
+int Viewport::pick(float u, float v, const std::vector<SceneObject>& objects) const {
+    if (fbWidth_ < 1 || fbHeight_ < 1) return -1;
+
+    // Camera ray through the pixel (same camera setup as render())
+    const Vec3 eye{distance_ * std::cos(pitch_) * std::cos(yaw_), distance_ * std::sin(pitch_),
+                   distance_ * std::cos(pitch_) * std::sin(yaw_)};
+    const Vec3 fwd = normalize(sub({0, 0, 0}, eye));
+    const Vec3 right = normalize(cross(fwd, {0, 1, 0}));
+    const Vec3 up = cross(right, fwd);
+    const float aspect = (float)fbWidth_ / (float)fbHeight_;
+    const float th = std::tan(50.0f * kPi / 180.0f * 0.5f);
+    const float ndcX = u * 2.0f - 1.0f;
+    const float ndcY = 1.0f - v * 2.0f;
+    const Vec3 dir = normalize({fwd.x + right.x * ndcX * th * aspect + up.x * ndcY * th,
+                                fwd.y + right.y * ndcX * th * aspect + up.y * ndcY * th,
+                                fwd.z + right.z * ndcX * th * aspect + up.z * ndcY * th});
+
+    int best = -1;
+    float bestT = 1e9f;
+    for (size_t i = 0; i < objects.size(); ++i) {
+        const SceneObject& o = objects[i];
+        // Transform the ray into the object's unit-box space
+        Vec3 lo = rotateInverse(sub(eye, {o.position[0], o.position[1], o.position[2]}),
+                                o.rotation);
+        Vec3 ld = rotateInverse(dir, o.rotation);
+        lo = {lo.x / o.scale[0], lo.y / o.scale[1], lo.z / o.scale[2]};
+        ld = {ld.x / o.scale[0], ld.y / o.scale[1], ld.z / o.scale[2]};
+
+        const float t = rayUnitBox(lo, ld);
+        if (t > 0.0f && t < bestT) {
+            bestT = t;
+            best = (int)i;
+        }
+    }
+    return best;
+}
+
 void Viewport::orbit(float dx, float dy) {
     yaw_ += dx * 0.01f;
     pitch_ += dy * 0.01f;
@@ -491,7 +624,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
     glViewport(0, 0, width, height);
-    glClearColor(0.25f, 0.55f, 0.78f, 1.0f);  // sky, matches PS2 clear color-ish
+    glClearColor(sky_[0], sky_[1], sky_[2], 1.0f);  // sky, matches the PS2 clear color
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -503,6 +636,10 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     Mat4 proj = perspective(50.0f * kPi / 180.0f, (float)width / (float)height, 0.1f,
                             diag * 10.0f + 100.0f);
     Mat4 viewProj = mul(proj, view);
+    for (int i = 0; i < 16; ++i) {
+        viewM_[i] = view.m[i];
+        projM_[i] = proj.m[i];
+    }
 
     glUseProgram(program_);
 
@@ -514,27 +651,49 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glDrawArrays(mode, 0, mesh.vertexCount);
     };
 
-    // Terrain
-    glEnable(GL_POLYGON_OFFSET_FILL);
-    glPolygonOffset(1.0f, 1.0f);
-    draw(terrain_mesh_, GL_TRIANGLES, viewProj, 1.0f, 1.0f, 1.0f);
-    glDisable(GL_POLYGON_OFFSET_FILL);
-    draw(lines_, GL_LINES, viewProj, 1.0f, 1.0f, 1.0f);
-
-    // Scene objects
-    for (size_t i = 0; i < objects.size(); ++i) {
-        const SceneObject& o = objects[i];
-        const Mesh* mesh = &box_;
+    auto meshFor = [&](const SceneObject& o) -> const Mesh* {
         switch (o.type) {
-            case PrimitiveType::Sphere: mesh = &sphere_; break;
-            case PrimitiveType::Cylinder: mesh = &cylinder_; break;
-            case PrimitiveType::Cone: mesh = &cone_; break;
-            default: break;
+            case PrimitiveType::Sphere: return &sphere_;
+            case PrimitiveType::Cylinder: return &cylinder_;
+            case PrimitiveType::Cone: return &cone_;
+            case PrimitiveType::SpawnPoint: return &spawnMarker_;
+            default: return &box_;
         }
-        const Mat4 mvp = mul(viewProj, modelMatrix(o));
-        draw(*mesh, GL_TRIANGLES, mvp, o.color[0], o.color[1], o.color[2]);
+    };
 
-        if ((int)i == selectedIndex) draw(wireCube_, GL_LINES, mvp, 1.0f, 0.6f, 0.1f);
+    // One pass over terrain + objects, filled or as wireframe.
+    // tintScale darkens the overlay wires in SolidWireframe mode.
+    auto scenePass = [&](bool asLines, float tintScale) {
+        glPolygonMode(GL_FRONT_AND_BACK, asLines ? GL_LINE : GL_FILL);
+        if (!asLines) {
+            // push filled geometry back so wires and grid lines win the z-test
+            glEnable(GL_POLYGON_OFFSET_FILL);
+            glPolygonOffset(1.0f, 1.0f);
+        }
+        draw(terrain_mesh_, GL_TRIANGLES, viewProj, tintScale, tintScale, tintScale);
+        for (const SceneObject& o : objects) {
+            const Mat4 mvp = mul(viewProj, modelMatrix(o));
+            draw(*meshFor(o), GL_TRIANGLES, mvp, o.color[0] * tintScale,
+                 o.color[1] * tintScale, o.color[2] * tintScale);
+        }
+        if (!asLines) glDisable(GL_POLYGON_OFFSET_FILL);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    };
+
+    switch (viewMode_) {
+        case ViewMode::Wireframe: scenePass(true, 1.0f); break;
+        case ViewMode::SolidWireframe:
+            scenePass(false, 1.0f);
+            scenePass(true, 0.15f);
+            break;
+        default: scenePass(false, 1.0f); break;
+    }
+
+    // Grid lines, axes and the selection outline are unaffected by view mode
+    draw(lines_, GL_LINES, viewProj, 1.0f, 1.0f, 1.0f);
+    if (selectedIndex >= 0 && selectedIndex < (int)objects.size()) {
+        const Mat4 mvp = mul(viewProj, modelMatrix(objects[selectedIndex]));
+        draw(wireCube_, GL_LINES, mvp, 1.0f, 0.6f, 0.1f);
     }
 
     glBindVertexArray(0);

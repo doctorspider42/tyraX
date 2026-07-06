@@ -8,7 +8,15 @@ struct TerrainConfig {
     int depth = 64;   // world units, Z axis
 };
 
-enum class PrimitiveType { Box = 0, Sphere = 1, Cylinder = 2, Cone = 3 };
+enum class PrimitiveType {
+    Box = 0,
+    Sphere = 1,
+    Cylinder = 2,
+    Cone = 3,
+    // Marker, not geometry: where the player appears at game start
+    // (used by the FPP template; the first one in the scene wins).
+    SpawnPoint = 4,
+};
 
 // Unit primitives fit a 1x1x1 cube centered at origin and are transformed by
 // scale -> rotation (X, then Y, then Z) -> translation.
@@ -23,10 +31,42 @@ struct SceneObject {
 
 const char* primitiveTypeName(PrimitiveType t);
 
+inline bool operator==(const SceneObject& a, const SceneObject& b) {
+    auto eq3 = [](const float* x, const float* y) {
+        return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
+    };
+    return a.name == b.name && a.type == b.type && eq3(a.position, b.position) &&
+           eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color);
+}
+
+// General project preferences (Project > Preferences in the editor).
+// Baked into the generated terrain_config.hpp on every build.
+struct ProjectSettings {
+    // "precise": real per-triangle clipping - no holes at screen edges, but
+    // costs EE time. "fast": VU1 cull only - fastest, may drop triangles
+    // that extend far beyond the screen.
+    std::string clipping = "precise";
+
+    int terrainDetail = 32;  // max terrain grid cells per axis (quality vs perf)
+    float skyColor[3] = {0.25f, 0.55f, 0.78f};
+
+    // FPP template
+    float eyeHeight = 1.8f;
+    float walkSpeed = 0.4f;
+    float lookSpeed = 1.0f;  // multiplier
+
+    // Orbit template
+    float orbitSpeed = 1.0f;  // multiplier
+};
+
+class History;
+
 struct Project {
     std::string name;
     std::string dir;  // absolute path to project root
     TerrainConfig terrain;
+    std::string gameTemplate = "orbit";  // "orbit" | "fpp"
+    ProjectSettings settings;
     std::vector<std::string> scenes{"main"};
     std::vector<SceneObject> objects;
 
@@ -38,14 +78,28 @@ struct Project {
 namespace project {
 
 // Creates the project directory, generates all Tyra game sources / build files
-// and project.json. Returns empty string on success, error message otherwise.
+// and project.json. gameTemplate: "orbit" (camera circles the terrain) or
+// "fpp" (walk with the left stick, look with the right; seeds a spawn point).
+// Returns empty string on success, error message otherwise.
 std::string create(Project& out, const std::string& name, const std::string& parentDir,
-                   const TerrainConfig& terrain);
+                   const TerrainConfig& terrain, const std::string& gameTemplate = "orbit");
 
 // Loads project.json from an existing project directory.
 std::string load(Project& out, const std::string& projectDir);
 
 std::string save(const Project& p);
+
+// --- Solution file (<name>.tyra) --------------------------------------------
+// Editor-side state next to project.json: selection, active gizmo tool and
+// the undo history (up to History::kMaxEntries snapshots).
+
+std::string saveSolution(const Project& p, const History& h, int selectedObject, int gizmoOp,
+                         int viewMode);
+
+// Restores history + editor state. Returns an error string when the file is
+// missing/malformed/stale - the caller should then start a fresh history.
+std::string loadSolution(const Project& p, History& h, int& selectedObject, int& gizmoOp,
+                         int& viewMode);
 
 // Rewrites editor-owned files from the current templates and project data:
 // docker infra (Dockerfile, docker-compose.yml) and generated headers
