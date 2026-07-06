@@ -10,17 +10,17 @@ class ExampleInteraction : public Script {
  public:
   void update(ScriptContext& ctx) override {
     // Find the first box in the scene
-    const SceneObjectData* box = nullptr;
+    RuntimeObject* box = nullptr;
     for (int i = 0; i < ctx.objectCount; ++i) {
-      if (ctx.objects[i].type == 0) {  // 0 = box
+      if (ctx.objects[i].data.type == 0) {  // 0 = box
         box = &ctx.objects[i];
         break;
       }
     }
     if (!box) return;
 
-    const float dx = ctx.playerPosition.x - box->position[0];
-    const float dz = ctx.playerPosition.z - box->position[2];
+    const float dx = ctx.playerPosition.x - box->data.position[0];
+    const float dz = ctx.playerPosition.z - box->data.position[2];
     const bool nearBox = (dx * dx + dz * dz) < 8.0F * 8.0F;
 
     if (nearBox && ctx.engine->pad.getClicked().Cross) {

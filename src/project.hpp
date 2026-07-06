@@ -27,6 +27,7 @@ struct SceneObject {
     float rotation[3] = {0.0f, 0.0f, 0.0f};  // degrees
     float scale[3] = {1.0f, 1.0f, 1.0f};
     float color[3] = {0.8f, 0.35f, 0.25f};
+    bool physics = false;  // falls with gravity in the game
 };
 
 const char* primitiveTypeName(PrimitiveType t);
@@ -36,7 +37,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
         return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
     };
     return a.name == b.name && a.type == b.type && eq3(a.position, b.position) &&
-           eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color);
+           eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
+           a.physics == b.physics;
 }
 
 // General project preferences (Project > Preferences in the editor).
@@ -57,6 +59,10 @@ struct ProjectSettings {
 
     // Orbit template
     float orbitSpeed = 1.0f;  // multiplier
+
+    // Physics
+    float gravity = 9.8f;    // units/s^2
+    float jumpSpeed = 4.5f;  // units/s (FPP jump)
 };
 
 class History;

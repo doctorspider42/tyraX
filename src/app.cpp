@@ -607,6 +607,8 @@ void App::drawSceneSection() {
     ImGui::ColorEdit3("Color", o.color);
     committed |= ImGui::IsItemDeactivatedAfterEdit();
 
+    if (ImGui::Checkbox("Physics (falls with gravity)", &o.physics)) committed = true;
+
     if (ImGui::Button("Delete object")) {
         project_.objects.erase(project_.objects.begin() + selectedObject_);
         selectedObject_ = -1;
@@ -867,6 +869,14 @@ void App::drawPreferencesModal() {
         ImGui::SeparatorText("Orbit camera");
         ImGui::DragFloat("Orbit speed", &prefSettings_.orbitSpeed, 0.05f, 0.0f, 10.0f, "%.2f");
     }
+
+    ImGui::SeparatorText("Physics");
+    ImGui::DragFloat("Gravity (units/s^2)", &prefSettings_.gravity, 0.1f, 0.0f, 100.0f,
+                     "%.1f");
+    if (prefTemplate_ == 1)
+        ImGui::DragFloat("Jump speed (units/s)", &prefSettings_.jumpSpeed, 0.1f, 0.0f, 50.0f,
+                         "%.1f");
+    ImGui::TextDisabled("Objects with the 'Physics' flag fall; the FPP player jumps with X.");
 
     ImGui::Separator();
     if (ImGui::Button("OK", ImVec2(120, 0))) {

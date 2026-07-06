@@ -115,6 +115,8 @@ constexpr float EYE_HEIGHT = {{EYE_HEIGHT}};
 constexpr float WALK_SPEED = {{WALK_SPEED}};
 constexpr float LOOK_SPEED = {{LOOK_SPEED}};    // multiplier
 constexpr float ORBIT_SPEED = {{ORBIT_SPEED}};  // multiplier
+constexpr float GRAVITY = {{GRAVITY}};          // units/s^2
+constexpr float JUMP_SPEED = {{JUMP_SPEED}};    // units/s
 
 }  // namespace {{NAME_UPPER_NS}}
 )";
@@ -157,6 +159,21 @@ class TerrainGame : public Tyra::Game {
   std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
   std::unique_ptr<Tyra::StaPipColorBag> colorBag;
 
+  // Scene objects at runtime (mutable by scripts/physics); geometry per object
+  struct ObjectGeometry {
+    std::vector<Tyra::Vec4> vertices;
+    std::vector<Tyra::Color> colors;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+  };
+  std::vector<RuntimeObject> runtimeObjects;
+  std::vector<ObjectGeometry> objectGeometry;
+
+  void rebuildObjectGeometry(int index);
+  void updateObjectPhysics();
+  void renderScene();
+
   ScriptContext scriptCtx;
 };
 
@@ -192,6 +209,7 @@ class TerrainGame : public Tyra::Game {
 
   Tyra::Vec4 cameraPosition, cameraLookAt;
   float playerX, playerZ, yaw, pitch;
+  float playerY, playerVelY;  // feet height + vertical velocity (physics)
 
   std::vector<Tyra::Vec4> vertices;
   std::vector<Tyra::Color> colors;
@@ -200,6 +218,21 @@ class TerrainGame : public Tyra::Game {
   std::unique_ptr<Tyra::StaPipBag> bag;
   std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
   std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+
+  // Scene objects at runtime (mutable by scripts/physics); geometry per object
+  struct ObjectGeometry {
+    std::vector<Tyra::Vec4> vertices;
+    std::vector<Tyra::Color> colors;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+  };
+  std::vector<RuntimeObject> runtimeObjects;
+  std::vector<ObjectGeometry> objectGeometry;
+
+  void rebuildObjectGeometry(int index);
+  void updateObjectPhysics();
+  void renderScene();
 
   ScriptContext scriptCtx;
 };
@@ -393,8 +426,8 @@ void TerrainGame::init() {
   buildScene();
 
   scriptCtx.engine = engine;
-  scriptCtx.objects = SCENE_OBJECTS;
-  scriptCtx.objectCount = SCENE_OBJECT_COUNT;
+  scriptCtx.objects = runtimeObjects.data();
+  scriptCtx.objectCount = (int)runtimeObjects.size();
   scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
   scriptCtx.playerPosition = cameraPosition;
   for (Script* script : getScripts()) script->init(scriptCtx);
@@ -407,33 +440,24 @@ void TerrainGame::loop() {
   for (Script* script : getScripts()) script->update(scriptCtx);
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
 
+  updateObjectPhysics();
+
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
-    stapip.core.render(bag.get());
+    renderScene();
   }
   engine->renderer.endFrame();
 }
 )";
 
-// Shared scene/terrain mesh building.
+// Shared scene/terrain mesh building and runtime object management.
 static const char* TPL_GAME_CPP_SCENE = R"(
 void TerrainGame::buildScene() {
   vertices.clear();
   colors.clear();
 
   generateTerrainGrid();
-
-  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
-    const SceneObjectData& o = SCENE_OBJECTS[i];
-    switch (o.type) {
-      case 1: addSphere(vertices, colors, o); break;
-      case 2: addCylinder(vertices, colors, o); break;
-      case 3: addCone(vertices, colors, o); break;
-      case 4: break;  // spawn point - marker only, no geometry
-      default: addBox(vertices, colors, o); break;
-    }
-  }
 
   infoBag = std::make_unique<StaPipInfoBag>();
   infoBag->model = &model;
@@ -455,6 +479,84 @@ void TerrainGame::buildScene() {
   bag->count = static_cast<u32>(vertices.size());
   bag->texture = nullptr;
   bag->lighting = nullptr;
+
+  // Runtime copies of the scene objects - scripts and physics mutate these.
+  runtimeObjects.assign(SCENE_OBJECT_COUNT, RuntimeObject());
+  objectGeometry.clear();
+  objectGeometry.resize(SCENE_OBJECT_COUNT);
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+    runtimeObjects[i].data = SCENE_OBJECTS[i];
+    runtimeObjects[i].visible = SCENE_OBJECTS[i].type != 4;  // spawn = marker
+    runtimeObjects[i].dirty = true;
+  }
+}
+
+void TerrainGame::rebuildObjectGeometry(int index) {
+  RuntimeObject& o = runtimeObjects[index];
+  ObjectGeometry& g = objectGeometry[index];
+  o.dirty = false;
+
+  g.vertices.clear();
+  g.colors.clear();
+  switch (o.data.type) {
+    case 1: addSphere(g.vertices, g.colors, o.data); break;
+    case 2: addCylinder(g.vertices, g.colors, o.data); break;
+    case 3: addCone(g.vertices, g.colors, o.data); break;
+    case 4: break;  // spawn point - marker only
+    default: addBox(g.vertices, g.colors, o.data); break;
+  }
+  if (g.vertices.empty()) {
+    g.bag.reset();
+    return;
+  }
+
+  if (!g.bag) {
+    g.infoBag = std::make_unique<StaPipInfoBag>();
+    g.infoBag->model = &model;
+    g.infoBag->shadingType = TyraShadingFlat;
+    // Objects can move at runtime, but the engine caches frustum bboxes by
+    // the vertex pointer (stale bbox = object culled at its old position).
+    // Objects are small, so skip culling/clipping for them entirely;
+    // the terrain keeps CLIP_PRECISE.
+    g.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_None;
+    g.infoBag->fullClipChecks = false;
+    g.colorBag = std::make_unique<StaPipColorBag>();
+    g.bag = std::make_unique<StaPipBag>();
+    g.bag->info = g.infoBag.get();
+    g.bag->color = g.colorBag.get();
+    g.bag->texture = nullptr;
+    g.bag->lighting = nullptr;
+  }
+  g.colorBag->many = g.colors.data();
+  g.bag->vertices = g.vertices.data();
+  g.bag->count = static_cast<u32>(g.vertices.size());
+}
+
+void TerrainGame::updateObjectPhysics() {
+  // GRAVITY is units/s^2; the game runs at 50 FPS
+  const float gravityPerFrame = GRAVITY / (50.0F * 50.0F);
+  for (RuntimeObject& o : runtimeObjects) {
+    if (!o.data.physics) continue;
+    const float half = 0.5F * o.data.scale[1];
+    if (o.velocityY == 0.0F && o.data.position[1] <= half) continue;  // resting
+
+    o.velocityY -= gravityPerFrame;
+    o.data.position[1] += o.velocityY;
+    if (o.data.position[1] <= half) {
+      o.data.position[1] = half;
+      o.velocityY = 0.0F;
+    }
+    o.dirty = true;
+  }
+}
+
+void TerrainGame::renderScene() {
+  stapip.core.render(bag.get());
+  for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
+    if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
+    if (runtimeObjects[i].visible && objectGeometry[i].bag)
+      stapip.core.render(objectGeometry[i].bag.get());
+  }
 }
 
 void TerrainGame::generateTerrainGrid() {
@@ -516,6 +618,8 @@ TerrainGame::TerrainGame(Engine* t_engine)
       playerZ(0.0F),
       yaw(0.0F),
       pitch(0.0F),
+      playerY(0.0F),
+      playerVelY(0.0F),
       model(M4x4::Identity) {}
 
 TerrainGame::~TerrainGame() {}
@@ -546,8 +650,8 @@ void TerrainGame::init() {
   buildScene();
 
   scriptCtx.engine = engine;
-  scriptCtx.objects = SCENE_OBJECTS;
-  scriptCtx.objectCount = SCENE_OBJECT_COUNT;
+  scriptCtx.objects = runtimeObjects.data();
+  scriptCtx.objectCount = (int)runtimeObjects.size();
   scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
   scriptCtx.playerPosition = cameraPosition;
   for (Script* script : getScripts()) script->init(scriptCtx);
@@ -560,10 +664,12 @@ void TerrainGame::loop() {
   for (Script* script : getScripts()) script->update(scriptCtx);
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
 
+  updateObjectPhysics();
+
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
-    stapip.core.render(bag.get());
+    renderScene();
   }
   engine->renderer.endFrame();
 }
@@ -594,21 +700,64 @@ void TerrainGame::updatePlayer() {
   const float fz = cosf(yaw);
   const float forward = -axisValue(leftJoy.v);
   const float strafe = axisValue(leftJoy.h);
-  const float speed = WALK_SPEED;
-  playerX += (fx * forward - fz * strafe) * speed;
-  playerZ += (fz * forward + fx * strafe) * speed;
+  float nextX = playerX + (fx * forward - fz * strafe) * WALK_SPEED;
+  float nextZ = playerZ + (fz * forward + fx * strafe) * WALK_SPEED;
 
   // Keep the player on the terrain
   const float limX = TERRAIN_WIDTH * 0.5F - 1.0F;
   const float limZ = TERRAIN_DEPTH * 0.5F - 1.0F;
-  if (playerX > limX) playerX = limX;
-  if (playerX < -limX) playerX = -limX;
-  if (playerZ > limZ) playerZ = limZ;
-  if (playerZ < -limZ) playerZ = -limZ;
+  if (nextX > limX) nextX = limX;
+  if (nextX < -limX) nextX = -limX;
+  if (nextZ > limZ) nextZ = limZ;
+  if (nextZ < -limZ) nextZ = -limZ;
 
-  const float eyeHeight = EYE_HEIGHT;
-  cameraPosition = Vec4(playerX, eyeHeight, playerZ);
-  cameraLookAt = Vec4(playerX + fx * cosf(pitch), eyeHeight + sinf(pitch),
+  // Collision with scene objects (XZ, boxes expanded by the player radius)
+  // + standing on top of them. Player can step ~0.5 units up.
+  const float playerRadius = 0.35F;
+  float ground = 0.0F;
+  for (const RuntimeObject& o : runtimeObjects) {
+    if (!o.visible || o.data.type == 4) continue;
+    const float ox = o.data.position[0];
+    const float oz = o.data.position[2];
+    const float hx = 0.5F * o.data.scale[0] + playerRadius;
+    const float hz = 0.5F * o.data.scale[2] + playerRadius;
+    const float top = o.data.position[1] + 0.5F * o.data.scale[1];
+    const float bottom = o.data.position[1] - 0.5F * o.data.scale[1];
+
+    const bool nextInside =
+        nextX > ox - hx && nextX < ox + hx && nextZ > oz - hz && nextZ < oz + hz;
+    if (!nextInside) continue;
+
+    if (playerY + 0.5F >= top) {
+      // Low enough to walk onto - candidate floor
+      if (top > ground) ground = top;
+    } else if (playerY < top && playerY + EYE_HEIGHT > bottom) {
+      // Blocked - cancel the axes that entered the box this frame
+      const bool wasInsideX = playerX > ox - hx && playerX < ox + hx;
+      const bool wasInsideZ = playerZ > oz - hz && playerZ < oz + hz;
+      if (!wasInsideX) nextX = playerX;
+      if (!wasInsideZ) nextZ = playerZ;
+      if (wasInsideX && wasInsideZ) {
+        nextX = playerX;
+        nextZ = playerZ;
+      }
+    }
+  }
+  playerX = nextX;
+  playerZ = nextZ;
+
+  // Gravity & jumping (X). GRAVITY: units/s^2, JUMP_SPEED: units/s, 50 FPS.
+  playerVelY -= GRAVITY / (50.0F * 50.0F);
+  playerY += playerVelY;
+  if (playerY <= ground) {
+    playerY = ground;
+    playerVelY = 0.0F;
+    if (engine->pad.getClicked().Cross) playerVelY = JUMP_SPEED / 50.0F;
+  }
+
+  const float eyeY = playerY + EYE_HEIGHT;
+  cameraPosition = Vec4(playerX, eyeY, playerZ);
+  cameraLookAt = Vec4(playerX + fx * cosf(pitch), eyeY + sinf(pitch),
                       playerZ + fz * cosf(pitch));
 }
 )";
@@ -785,11 +934,21 @@ static const char* TPL_SCRIPT_HPP =
 
 namespace {{NAME_UPPER_NS}} {
 
+/** A scene object at runtime. Mutate `data` (position/rotation/scale/color),
+ * `visible` or `velocityY`, then set `dirty = true` so the geometry gets
+ * rebuilt on the next frame. */
+struct RuntimeObject {
+  SceneObjectData data;
+  bool visible = true;
+  float velocityY = 0.0F;  // vertical velocity (object physics)
+  bool dirty = true;
+};
+
 /** Everything a script can see and touch each frame. */
 struct ScriptContext {
   Tyra::Engine* engine = nullptr;  // pad, renderer, audio, ...
   Tyra::Vec4 playerPosition;       // camera/player position this frame
-  const SceneObjectData* objects = nullptr;  // scene objects (read-only)
+  RuntimeObject* objects = nullptr;  // mutable scene objects
   int objectCount = 0;
   Tyra::Color skyColor;  // write to change the clear color
 };
@@ -833,17 +992,17 @@ class ExampleInteraction : public Script {
  public:
   void update(ScriptContext& ctx) override {
     // Find the first box in the scene
-    const SceneObjectData* box = nullptr;
+    RuntimeObject* box = nullptr;
     for (int i = 0; i < ctx.objectCount; ++i) {
-      if (ctx.objects[i].type == 0) {  // 0 = box
+      if (ctx.objects[i].data.type == 0) {  // 0 = box
         box = &ctx.objects[i];
         break;
       }
     }
     if (!box) return;
 
-    const float dx = ctx.playerPosition.x - box->position[0];
-    const float dz = ctx.playerPosition.z - box->position[2];
+    const float dx = ctx.playerPosition.x - box->data.position[0];
+    const float dz = ctx.playerPosition.z - box->data.position[2];
     const bool nearBox = (dx * dx + dz * dz) < 8.0F * 8.0F;
 
     if (nearBox && ctx.engine->pad.getClicked().Cross) {
@@ -1016,11 +1175,12 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         << " {\n"
            "\n"
            "struct SceneObjectData {\n"
-           "  int type;  // 0=box 1=sphere 2=cylinder 3=cone\n"
+           "  int type;  // 0=box 1=sphere 2=cylinder 3=cone 4=spawn-point\n"
            "  float position[3];\n"
            "  float rotation[3];  // degrees\n"
            "  float scale[3];\n"
            "  float color[3];  // 0..1\n"
+           "  int physics;  // 1 = falls with gravity\n"
            "};\n"
            "\n"
            "constexpr int SCENE_OBJECT_COUNT = "
@@ -1028,12 +1188,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         << "constexpr SceneObjectData SCENE_OBJECTS[SCENE_OBJECT_COUNT > 0 ? "
            "SCENE_OBJECT_COUNT : 1] = {\n";
     if (p.objects.empty()) {
-        out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}},\n";
+        out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0},\n";
     } else {
         for (const SceneObject& o : p.objects) {
             out << "    {" << (int)o.type << ", " << vec3Init(o.position) << ", "
                 << vec3Init(o.rotation) << ", " << vec3Init(o.scale) << ", "
-                << vec3Init(o.color) << "},  // " << o.name << "\n";
+                << vec3Init(o.color) << ", " << (o.physics ? 1 : 0) << "},  // " << o.name
+                << "\n";
         }
     }
     out << "};\n"
@@ -1081,6 +1242,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{WALK_SPEED}}", floatLit(st.walkSpeed));
     s = replaceAll(s, "{{LOOK_SPEED}}", floatLit(st.lookSpeed));
     s = replaceAll(s, "{{ORBIT_SPEED}}", floatLit(st.orbitSpeed));
+    s = replaceAll(s, "{{GRAVITY}}", floatLit(st.gravity));
+    s = replaceAll(s, "{{JUMP_SPEED}}", floatLit(st.jumpSpeed));
     return s;
 }
 

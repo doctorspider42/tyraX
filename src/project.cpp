@@ -55,7 +55,8 @@ static std::string objectJson(const SceneObject& o) {
     return "{ \"name\": \"" + o.name + "\", \"type\": \"" + primitiveTypeName(o.type) +
            "\", \"position\": " + fmtVec3(o.position) +
            ", \"rotation\": " + fmtVec3(o.rotation) + ", \"scale\": " + fmtVec3(o.scale) +
-           ", \"color\": " + fmtVec3(o.color) + " }";
+           ", \"color\": " + fmtVec3(o.color) +
+           ", \"physics\": " + (o.physics ? "true" : "false") + " }";
 }
 
 // "objects": [ ... ] with the given indentation for entries
@@ -84,7 +85,9 @@ std::string save(const Project& p) {
          << "    \"eyeHeight\": " << fmtFloat(p.settings.eyeHeight) << ",\n"
          << "    \"walkSpeed\": " << fmtFloat(p.settings.walkSpeed) << ",\n"
          << "    \"lookSpeed\": " << fmtFloat(p.settings.lookSpeed) << ",\n"
-         << "    \"orbitSpeed\": " << fmtFloat(p.settings.orbitSpeed) << "\n"
+         << "    \"orbitSpeed\": " << fmtFloat(p.settings.orbitSpeed) << ",\n"
+         << "    \"gravity\": " << fmtFloat(p.settings.gravity) << ",\n"
+         << "    \"jumpSpeed\": " << fmtFloat(p.settings.jumpSpeed) << "\n"
          << "  },\n"
          << "  \"scenes\": [";
     for (size_t i = 0; i < p.scenes.size(); ++i) {
@@ -136,6 +139,15 @@ std::string create(Project& out, const std::string& name, const std::string& par
         box.position[0] = 0.0f, box.position[1] = 1.0f, box.position[2] = 6.0f;
         box.scale[0] = box.scale[1] = box.scale[2] = 2.0f;
         out.objects.push_back(box);
+
+        // ...and a physics demo: a sphere that drops from the sky at start.
+        SceneObject ball;
+        ball.name = "ball-1";
+        ball.type = PrimitiveType::Sphere;
+        ball.position[0] = 3.0f, ball.position[1] = 10.0f, ball.position[2] = 6.0f;
+        ball.color[0] = 0.25f, ball.color[1] = 0.45f, ball.color[2] = 0.9f;
+        ball.physics = true;
+        out.objects.push_back(ball);
     }
 
     for (const auto& f : templates::generate(out)) {
@@ -166,6 +178,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         readVec3(jo.find("rotation"), o.rotation);
         readVec3(jo.find("scale"), o.scale);
         readVec3(jo.find("color"), o.color);
+        if (const auto* v = jo.find("physics"))
+            o.physics = v->type == json::Value::Type::Bool && v->boolean;
         out.push_back(std::move(o));
     }
 }
@@ -207,6 +221,8 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = s->find("walkSpeed")) st.walkSpeed = (float)v->numberOr(0.4);
         if (const auto* v = s->find("lookSpeed")) st.lookSpeed = (float)v->numberOr(1.0);
         if (const auto* v = s->find("orbitSpeed")) st.orbitSpeed = (float)v->numberOr(1.0);
+        if (const auto* v = s->find("gravity")) st.gravity = (float)v->numberOr(9.8);
+        if (const auto* v = s->find("jumpSpeed")) st.jumpSpeed = (float)v->numberOr(4.5);
     }
 
     if (const auto* scenes = root.find("scenes");
