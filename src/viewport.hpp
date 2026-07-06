@@ -25,9 +25,8 @@ public:
     // maxCells: terrain grid detail cap (Project > Preferences).
     void setTerrain(const TerrainConfig& terrain, int maxCells = 32);
 
-    void setSkyColor(const float* rgb) {
-        sky_[0] = rgb[0], sky_[1] = rgb[1], sky_[2] = rgb[2];
-    }
+    // horizon + zenith colors; gradient=false renders a flat horizon color
+    void setSky(const float* horizonRgb, const float* topRgb, bool gradient);
 
     // Renders terrain + objects at the given pixel size, returns GL texture id.
     // selectedIndex: index into objects highlighted with an outline (-1 = none).
@@ -62,6 +61,10 @@ private:
     TerrainConfig terrain_;
     int maxCells_ = 32;
     float sky_[3] = {0.25f, 0.55f, 0.78f};
+    float skyTop_[3] = {0.08f, 0.3f, 0.65f};
+    bool skyGradient_ = true;
+    Mesh skyQuad_;
+    bool skyQuadDirty_ = true;
     ViewMode viewMode_ = ViewMode::Solid;
 
     // camera (orbit around terrain center)

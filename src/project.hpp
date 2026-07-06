@@ -50,7 +50,9 @@ struct ProjectSettings {
     std::string clipping = "precise";
 
     int terrainDetail = 32;  // max terrain grid cells per axis (quality vs perf)
-    float skyColor[3] = {0.25f, 0.55f, 0.78f};
+    float skyColor[3] = {0.25f, 0.55f, 0.78f};   // horizon / clear color
+    float skyTopColor[3] = {0.08f, 0.3f, 0.65f};  // zenith (gradient dome)
+    bool skyDome = true;  // render a gradient sky dome (vs flat clear color)
 
     // FPP template
     float eyeHeight = 1.8f;

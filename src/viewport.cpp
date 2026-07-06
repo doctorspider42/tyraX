@@ -408,6 +408,7 @@ void Viewport::shutdown() {
     destroyMesh(cone_);
     destroyMesh(spawnMarker_);
     destroyMesh(wireCube_);
+    destroyMesh(skyQuad_);
     if (fbo_) glDeleteFramebuffers(1, &fbo_);
     if (colorTex_) glDeleteTextures(1, &colorTex_);
     if (depthRbo_) glDeleteRenderbuffers(1, &depthRbo_);
@@ -603,6 +604,15 @@ int Viewport::pick(float u, float v, const std::vector<SceneObject>& objects) co
     return best;
 }
 
+void Viewport::setSky(const float* horizonRgb, const float* topRgb, bool gradient) {
+    for (int i = 0; i < 3; ++i) {
+        sky_[i] = horizonRgb[i];
+        skyTop_[i] = topRgb[i];
+    }
+    skyGradient_ = gradient;
+    skyQuadDirty_ = true;
+}
+
 void Viewport::orbit(float dx, float dy) {
     yaw_ += dx * 0.01f;
     pitch_ += dy * 0.01f;
@@ -628,6 +638,30 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    // Gradient sky (matches the PS2 sky dome): fullscreen quad, no depth
+    if (skyGradient_) {
+        if (skyQuadDirty_) {
+            skyQuadDirty_ = false;
+            destroyMesh(skyQuad_);
+            std::vector<float> q;
+            pushVertexColor(q, -1, -1, 0, sky_[0], sky_[1], sky_[2]);
+            pushVertexColor(q, 1, -1, 0, sky_[0], sky_[1], sky_[2]);
+            pushVertexColor(q, 1, 1, 0, skyTop_[0], skyTop_[1], skyTop_[2]);
+            pushVertexColor(q, -1, -1, 0, sky_[0], sky_[1], sky_[2]);
+            pushVertexColor(q, 1, 1, 0, skyTop_[0], skyTop_[1], skyTop_[2]);
+            pushVertexColor(q, -1, 1, 0, skyTop_[0], skyTop_[1], skyTop_[2]);
+            skyQuad_ = uploadMesh(q);
+        }
+        glDisable(GL_DEPTH_TEST);
+        glUseProgram(program_);
+        Mat4 id = identity();
+        glUniformMatrix4fv(uMvp_, 1, GL_FALSE, id.m);
+        glUniform3f(uTint_, 1.0f, 1.0f, 1.0f);
+        glBindVertexArray(skyQuad_.vao);
+        glDrawArrays(GL_TRIANGLES, 0, skyQuad_.vertexCount);
+        glEnable(GL_DEPTH_TEST);
+    }
 
     Vec3 eye{distance_ * std::cos(pitch_) * std::cos(yaw_), distance_ * std::sin(pitch_),
              distance_ * std::cos(pitch_) * std::sin(yaw_)};

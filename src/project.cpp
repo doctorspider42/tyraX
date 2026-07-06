@@ -82,6 +82,8 @@ std::string save(const Project& p) {
          << "    \"clipping\": \"" << p.settings.clipping << "\",\n"
          << "    \"terrainDetail\": " << p.settings.terrainDetail << ",\n"
          << "    \"skyColor\": " << fmtVec3(p.settings.skyColor) << ",\n"
+         << "    \"skyTopColor\": " << fmtVec3(p.settings.skyTopColor) << ",\n"
+         << "    \"skyDome\": " << (p.settings.skyDome ? "true" : "false") << ",\n"
          << "    \"eyeHeight\": " << fmtFloat(p.settings.eyeHeight) << ",\n"
          << "    \"walkSpeed\": " << fmtFloat(p.settings.walkSpeed) << ",\n"
          << "    \"lookSpeed\": " << fmtFloat(p.settings.lookSpeed) << ",\n"
@@ -217,6 +219,9 @@ std::string load(Project& out, const std::string& projectDir) {
         if (st.terrainDetail < 4) st.terrainDetail = 4;
         if (st.terrainDetail > 128) st.terrainDetail = 128;
         readVec3(s->find("skyColor"), st.skyColor);
+        readVec3(s->find("skyTopColor"), st.skyTopColor);
+        if (const auto* v = s->find("skyDome"))
+            st.skyDome = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = s->find("eyeHeight")) st.eyeHeight = (float)v->numberOr(1.8);
         if (const auto* v = s->find("walkSpeed")) st.walkSpeed = (float)v->numberOr(0.4);
         if (const auto* v = s->find("lookSpeed")) st.lookSpeed = (float)v->numberOr(1.0);

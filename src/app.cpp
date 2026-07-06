@@ -818,7 +818,8 @@ void App::drawNewProjectModal() {
 
 void App::applyProjectToViewport() {
     viewport_.setTerrain(project_.terrain, project_.settings.terrainDetail);
-    viewport_.setSkyColor(project_.settings.skyColor);
+    viewport_.setSky(project_.settings.skyColor, project_.settings.skyTopColor,
+                     project_.settings.skyDome);
 }
 
 void App::drawPreferencesModal() {
@@ -858,7 +859,9 @@ void App::drawPreferencesModal() {
         "Fast culling (fastest; big near triangles may vanish)"};
     if (ImGui::Combo("Triangles", &clipMode, clipNames, 2))
         prefSettings_.clipping = clipMode == 1 ? "fast" : "precise";
-    ImGui::ColorEdit3("Sky color", prefSettings_.skyColor);
+    ImGui::ColorEdit3("Sky horizon color", prefSettings_.skyColor);
+    ImGui::ColorEdit3("Sky zenith color", prefSettings_.skyTopColor);
+    ImGui::Checkbox("Gradient sky dome", &prefSettings_.skyDome);
 
     if (prefTemplate_ == 1) {
         ImGui::SeparatorText("FPP camera");

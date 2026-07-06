@@ -117,6 +117,10 @@ constexpr float LOOK_SPEED = {{LOOK_SPEED}};    // multiplier
 constexpr float ORBIT_SPEED = {{ORBIT_SPEED}};  // multiplier
 constexpr float GRAVITY = {{GRAVITY}};          // units/s^2
 constexpr float JUMP_SPEED = {{JUMP_SPEED}};    // units/s
+constexpr bool SKY_DOME = {{SKY_DOME}};
+constexpr float SKY_TOP_R = {{SKY_TOP_R}};  // 0-255, dome zenith color
+constexpr float SKY_TOP_G = {{SKY_TOP_G}};
+constexpr float SKY_TOP_B = {{SKY_TOP_B}};
 
 }  // namespace {{NAME_UPPER_NS}}
 )";
@@ -169,7 +173,9 @@ class TerrainGame : public Tyra::Game {
   };
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
+  ObjectGeometry skyDome;
 
+  void buildSkyDome();
   void rebuildObjectGeometry(int index);
   void updateObjectPhysics();
   void renderScene();
@@ -229,7 +235,9 @@ class TerrainGame : public Tyra::Game {
   };
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
+  ObjectGeometry skyDome;
 
+  void buildSkyDome();
   void rebuildObjectGeometry(int index);
   void updateObjectPhysics();
   void renderScene();
@@ -481,6 +489,8 @@ void TerrainGame::buildScene() {
   bag->lighting = nullptr;
 
   // Runtime copies of the scene objects - scripts and physics mutate these.
+  buildSkyDome();
+
   runtimeObjects.assign(SCENE_OBJECT_COUNT, RuntimeObject());
   objectGeometry.clear();
   objectGeometry.resize(SCENE_OBJECT_COUNT);
@@ -489,6 +499,66 @@ void TerrainGame::buildScene() {
     runtimeObjects[i].visible = SCENE_OBJECTS[i].type != 4;  // spawn = marker
     runtimeObjects[i].dirty = true;
   }
+}
+
+void TerrainGame::buildSkyDome() {
+  if (!SKY_DOME) return;
+
+  const float diag = TERRAIN_WIDTH > TERRAIN_DEPTH ? TERRAIN_WIDTH : TERRAIN_DEPTH;
+  float radius = diag * 1.5F;
+  if (radius < 60.0F) radius = 60.0F;
+  if (radius > 450.0F) radius = 450.0F;
+
+  const int stacks = 6, slices = 14;
+  auto skyAt = [&](float t) {  // t: 0 = horizon, 1 = zenith
+    return Color(SKY_R + (SKY_TOP_R - SKY_R) * t, SKY_G + (SKY_TOP_G - SKY_G) * t,
+                 SKY_B + (SKY_TOP_B - SKY_B) * t, 128.0F);
+  };
+  auto domeVert = [&](int stack, int slice) {
+    // Start slightly below the horizon so the seam is never visible
+    const float lat = -0.06F + (PI * 0.5F + 0.06F) * stack / stacks;
+    const float lon = 2.0F * PI * slice / slices;
+    return Vec4(radius * cosf(lat) * cosf(lon), radius * sinf(lat),
+                radius * cosf(lat) * sinf(lon), 1.0F);
+  };
+
+  skyDome.vertices.clear();
+  skyDome.colors.clear();
+  for (int st = 0; st < stacks; ++st) {
+    const float t0 = (float)st / stacks, t1 = (float)(st + 1) / stacks;
+    for (int sl = 0; sl < slices; ++sl) {
+      const Vec4 v00 = domeVert(st, sl), v01 = domeVert(st, sl + 1);
+      const Vec4 v10 = domeVert(st + 1, sl), v11 = domeVert(st + 1, sl + 1);
+      skyDome.vertices.push_back(v00);
+      skyDome.vertices.push_back(v10);
+      skyDome.vertices.push_back(v11);
+      skyDome.vertices.push_back(v00);
+      skyDome.vertices.push_back(v11);
+      skyDome.vertices.push_back(v01);
+      skyDome.colors.push_back(skyAt(t0));
+      skyDome.colors.push_back(skyAt(t1));
+      skyDome.colors.push_back(skyAt(t1));
+      skyDome.colors.push_back(skyAt(t0));
+      skyDome.colors.push_back(skyAt(t1));
+      skyDome.colors.push_back(skyAt(t0));
+    }
+  }
+
+  skyDome.infoBag = std::make_unique<StaPipInfoBag>();
+  skyDome.infoBag->model = &model;
+  skyDome.infoBag->shadingType = TyraShadingGouraud;
+  // Static geometry crossing the screen edges all the time - needs clipping
+  skyDome.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+  skyDome.infoBag->fullClipChecks = true;
+  skyDome.colorBag = std::make_unique<StaPipColorBag>();
+  skyDome.colorBag->many = skyDome.colors.data();
+  skyDome.bag = std::make_unique<StaPipBag>();
+  skyDome.bag->info = skyDome.infoBag.get();
+  skyDome.bag->color = skyDome.colorBag.get();
+  skyDome.bag->vertices = skyDome.vertices.data();
+  skyDome.bag->count = static_cast<u32>(skyDome.vertices.size());
+  skyDome.bag->texture = nullptr;
+  skyDome.bag->lighting = nullptr;
 }
 
 void TerrainGame::rebuildObjectGeometry(int index) {
@@ -551,6 +621,7 @@ void TerrainGame::updateObjectPhysics() {
 }
 
 void TerrainGame::renderScene() {
+  if (skyDome.bag) stapip.core.render(skyDome.bag.get());
   stapip.core.render(bag.get());
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
@@ -1244,6 +1315,10 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{ORBIT_SPEED}}", floatLit(st.orbitSpeed));
     s = replaceAll(s, "{{GRAVITY}}", floatLit(st.gravity));
     s = replaceAll(s, "{{JUMP_SPEED}}", floatLit(st.jumpSpeed));
+    s = replaceAll(s, "{{SKY_DOME}}", st.skyDome ? "true" : "false");
+    s = replaceAll(s, "{{SKY_TOP_R}}", floatLit(st.skyTopColor[0] * 255.0f));
+    s = replaceAll(s, "{{SKY_TOP_G}}", floatLit(st.skyTopColor[1] * 255.0f));
+    s = replaceAll(s, "{{SKY_TOP_B}}", floatLit(st.skyTopColor[2] * 255.0f));
     return s;
 }
 
