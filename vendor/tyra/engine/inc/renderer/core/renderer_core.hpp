@@ -15,6 +15,7 @@
 #include "./3d/renderer_core_3d.hpp"
 #include "./gs/renderer_core_gs.hpp"
 #include "./texture/renderer_core_texture.hpp"
+#include "./postfx/renderer_core_postfx.hpp"
 #include "./paths/path3/path3.hpp"
 #include "./paths/path1/path1.hpp"
 #include "./renderer_core_sync.hpp"
@@ -37,6 +38,9 @@ class RendererCore {
 
   /** Texture transferring. */
   RendererCoreTexture texture;
+
+  /** Full screen post effects: bloom, film grain (tyra-editor fork). */
+  RendererCorePostFx postFx;
 
   /** EE <-> VU1 synchronization */
   RendererCoreSync sync;

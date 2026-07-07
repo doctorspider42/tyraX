@@ -182,7 +182,9 @@ std::string save(const Project& p) {
          << "    \"lightColor\": " << fmtVec3(p.settings.lightColor) << ",\n"
          << "    \"brightness\": " << fmtFloat(p.settings.brightness) << ",\n"
          << "    \"terrainTexture\": \"" << p.settings.terrainTexture << "\",\n"
-         << "    \"terrainTexScale\": " << fmtFloat(p.settings.terrainTexScale) << "\n"
+         << "    \"terrainTexScale\": " << fmtFloat(p.settings.terrainTexScale) << ",\n"
+         << "    \"bloom\": " << fmtFloat(p.settings.bloom) << ",\n"
+         << "    \"grain\": " << fmtFloat(p.settings.grain) << "\n"
          << "  },\n"
          << "  \"scenes\": [";
     for (size_t i = 0; i < p.scenes.size(); ++i) {
@@ -592,6 +594,9 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = s->find("terrainTexScale"))
             st.terrainTexScale = (float)v->numberOr(4.0);
         if (st.terrainTexScale < 0.25f) st.terrainTexScale = 0.25f;
+        auto clamp01 = [](float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
+        if (const auto* v = s->find("bloom")) st.bloom = clamp01((float)v->numberOr(0.0));
+        if (const auto* v = s->find("grain")) st.grain = clamp01((float)v->numberOr(0.0));
     }
 
     // Scenes. New format: [{ "name", "objects" }]; legacy: an array of scene

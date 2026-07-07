@@ -114,6 +114,11 @@ struct ProjectSettings {
     // Terrain texture (PNG, tiled; empty = checker colors)
     std::string terrainTexture;
     float terrainTexScale = 4.0f;  // world units per texture tile
+
+    // Post effects (GS framebuffer blits at the end of every frame; no
+    // pixel shaders on the PS2). 0 = off, 1 = maximum.
+    float bloom = 0.0f;  // downsample + blur + additive re-add (glow)
+    float grain = 0.0f;  // animated film grain noise overlay
 };
 
 class History;

@@ -305,6 +305,19 @@ Each finished feature lands as its own commit.
   Show/Hide Object nodes switch emitters on/off. Verified in PCSX2: fog
   animates frame to frame at a steady 50 FPS.
 
+- (30) **Post effects: bloom + film grain** - "shaders" the PS2 way, no pixel
+  shaders involved. New engine module RendererCorePostFx (GS framebuffer
+  blits at end of frame): bloom = frame downsampled to 1/8 res (bilinear),
+  softened with 4 offset taps, re-added over the frame additively (the
+  bilinear filter is the blur); film grain = 64x64 noise texture drawn
+  subtractive+additive with independent random offsets every frame
+  (zero-mean grain from unsigned GS math). ~8 textured sprites per frame,
+  z writes masked, all touched GS registers restored (ALPHA/TEX1/CLAMP/
+  FRAME/ZBUF/XYOFFSET - a leftover additive ALPHA made VU1 re-blend the
+  whole scene and compound-brighten it). Editor: Preferences > Post effects
+  sliders (0-1), baked as POSTFX_BLOOM/POSTFX_GRAIN (0-128). Verified in
+  PCSX2 SW renderer at steady 50 FPS.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

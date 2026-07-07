@@ -30,6 +30,9 @@ class RendererCoreGS {
 
   void enableZTests();
 
+  /** The buffer currently being drawn to (tyra-editor fork, for post fx). */
+  framebuffer_t* getCurrentFrameBuffer() { return &frameBuffers[context]; }
+
  private:
   constexpr static float gsCenter = 4096.0F;
   constexpr static float screenCenter = gsCenter / 2.0F;

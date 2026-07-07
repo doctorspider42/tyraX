@@ -176,6 +176,10 @@ constexpr float SKY_TOP_G = {{SKY_TOP_G}};
 constexpr float SKY_TOP_B = {{SKY_TOP_B}};
   // 0..1
 
+// Post effects, 0 (off) .. 128 (see RendererCorePostFx in the engine)
+constexpr int POSTFX_BLOOM = {{POSTFX_BLOOM}};
+constexpr int POSTFX_GRAIN = {{POSTFX_GRAIN}};
+
 }  // namespace {{NAME_UPPER_NS}}
 )";
 
@@ -626,6 +630,9 @@ void TerrainGame::init() {
       -(engine->renderer.core.getSettings().getNear() + 0.5F);
 
   stapip.setRenderer(&engine->renderer.core);
+
+  engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
+  engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
 
   engine->renderer.setClearScreenColor(Color(SKY_R, SKY_G, SKY_B));
 
@@ -1373,6 +1380,9 @@ void TerrainGame::init() {
       -(engine->renderer.core.getSettings().getNear() + 0.5F);
 
   stapip.setRenderer(&engine->renderer.core);
+
+  engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
+  engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
 
   engine->renderer.setClearScreenColor(Color(SKY_R, SKY_G, SKY_B));
 
@@ -2360,6 +2370,12 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{SKY_TOP_R}}", floatLit(st.skyTopColor[0] * 255.0f));
     s = replaceAll(s, "{{SKY_TOP_G}}", floatLit(st.skyTopColor[1] * 255.0f));
     s = replaceAll(s, "{{SKY_TOP_B}}", floatLit(st.skyTopColor[2] * 255.0f));
+    auto fx128 = [](float v) {
+        int n = (int)(v * 128.0f + 0.5f);
+        return std::to_string(n < 0 ? 0 : (n > 128 ? 128 : n));
+    };
+    s = replaceAll(s, "{{POSTFX_BLOOM}}", fx128(st.bloom));
+    s = replaceAll(s, "{{POSTFX_GRAIN}}", fx128(st.grain));
     {
         float lx = st.lightDir[0], ly = st.lightDir[1], lz = st.lightDir[2];
         const float len = std::sqrt(lx * lx + ly * ly + lz * lz);

@@ -20,6 +20,9 @@ void RendererCore::init() {
   path3.init(&settings);
   sync.init(&path3, &path1);
   gs.init(&settings);
+  // Post fx VRAM sits right above the frame/z buffers; allocate it before
+  // any texture buffer so texture free (FIFO) never reclaims it.
+  postFx.init(&settings, &gs);
   texture.init(&gs, &path3);
   renderer3D.init(&settings, &path1);
   renderer2D.init(&settings, &texture.clut);
@@ -41,6 +44,7 @@ void RendererCore::beginFrame(const CameraInfo3D& cameraInfo) {
 
 void RendererCore::endFrame() {
   Threading::switchThread();
+  postFx.apply();
   if (isFrameLimitOn) graph_wait_vsync();
   gs.flipBuffers();
 }

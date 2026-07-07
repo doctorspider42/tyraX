@@ -2144,6 +2144,14 @@ void App::drawPreferencesModal() {
     ImGui::ColorEdit3("Sky zenith color", prefSettings_.skyTopColor);
     ImGui::Checkbox("Gradient sky dome", &prefSettings_.skyDome);
 
+    ImGui::SeparatorText("Post effects");
+    ImGui::SliderFloat("Bloom", &prefSettings_.bloom, 0.0f, 1.0f, "%.2f");
+    ImGui::SliderFloat("Film grain", &prefSettings_.grain, 0.0f, 1.0f, "%.2f");
+    ImGui::TextDisabled(
+        "GS framebuffer tricks, applied in-game at the end of every frame.\n"
+        "Bloom: quarter-res blur re-added over the frame (soft glow).\n"
+        "Film grain: animated noise overlay. Subtle values work best.");
+
     ImGui::SeparatorText("Lighting");
     ImGui::DragFloat3("Light direction", prefSettings_.lightDir, 0.02f, -1.0f, 1.0f, "%.2f");
     ImGui::ColorEdit3("Light color", prefSettings_.lightColor);
