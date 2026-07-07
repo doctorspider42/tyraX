@@ -117,6 +117,9 @@ struct Project {
     std::vector<std::string> scenes{"main"};
     std::vector<SceneObject> objects;
     std::vector<HudImage> hud;
+    // Music tracks (16-bit 22kHz stereo WAV in res/audio/), played via the
+    // flow graph (Play Music / Stop Music / Set Music Volume actions).
+    std::vector<std::string> music;
     FlowGraph flowGraph;
 
     // Terrain heightmap: vertex heights on the render grid (row-major,

@@ -30,7 +30,7 @@
 // Native pickers (IFileOpenDialog). pickFolder: FOS_PICKFOLDERS;
 // pickSolutionFile: file dialog filtered to *.tyra solution files.
 // ---------------------------------------------------------------------------
-enum class PickKind { Folder, Solution, ObjModel, Png };
+enum class PickKind { Folder, Solution, ObjModel, Png, Wav };
 
 static std::string pickPath(PickKind kind) {
     const bool folder = kind == PickKind::Folder;
@@ -63,6 +63,13 @@ static std::string pickPath(PickKind kind) {
             };
             dialog->SetFileTypes(2, filters);
             dialog->SetTitle(L"Import HUD image");
+        } else if (kind == PickKind::Wav) {
+            static const COMDLG_FILTERSPEC filters[] = {
+                {L"WAV audio (*.wav)", L"*.wav"},
+                {L"All files (*.*)", L"*.*"},
+            };
+            dialog->SetFileTypes(2, filters);
+            dialog->SetTitle(L"Import music track (16-bit 22kHz stereo WAV)");
         }
         if (SUCCEEDED(dialog->Show(nullptr))) {
             IShellItem* item = nullptr;
@@ -91,6 +98,35 @@ static std::string pickFolder() { return pickPath(PickKind::Folder); }
 static std::string pickSolutionFile() { return pickPath(PickKind::Solution); }
 static std::string pickModelFile() { return pickPath(PickKind::ObjModel); }
 static std::string pickPngFile() { return pickPath(PickKind::Png); }
+static std::string pickWavFile() { return pickPath(PickKind::Wav); }
+
+// Reads the fmt chunk of a WAV file. Returns false when the file is not a
+// parseable RIFF/WAVE. Tyra's song player expects 16-bit 22050 Hz stereo PCM.
+static bool readWavFormat(const std::string& path, int& channels, int& sampleRate,
+                          int& bitsPerSample) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return false;
+    char riff[12] = {};
+    if (!f.read(riff, 12) || std::memcmp(riff, "RIFF", 4) != 0 ||
+        std::memcmp(riff + 8, "WAVE", 4) != 0)
+        return false;
+    char header[8];
+    while (f.read(header, 8)) {
+        const uint32_t size = (uint8_t)header[4] | ((uint8_t)header[5] << 8) |
+                              ((uint8_t)header[6] << 16) | ((uint8_t)header[7] << 24);
+        if (std::memcmp(header, "fmt ", 4) == 0) {
+            char fmt[16] = {};
+            if (!f.read(fmt, 16)) return false;
+            channels = (uint8_t)fmt[2] | ((uint8_t)fmt[3] << 8);
+            sampleRate = (uint8_t)fmt[4] | ((uint8_t)fmt[5] << 8) | ((uint8_t)fmt[6] << 16) |
+                         ((uint8_t)fmt[7] << 24);
+            bitsPerSample = (uint8_t)fmt[14] | ((uint8_t)fmt[15] << 8);
+            return true;
+        }
+        f.seekg(size + (size & 1), std::ios::cur);
+    }
+    return false;
+}
 
 // ---------------------------------------------------------------------------
 
@@ -554,6 +590,7 @@ void App::drawProjectWindow() {
 
     drawSceneSection();
     drawHudSection();
+    drawMusicSection();
     drawScriptsSection();
 
     ImGui::SeparatorText("Build");
@@ -917,6 +954,22 @@ void App::drawFlowGraphWindow() {
             std::snprintf(buf, sizeof(buf), "%s", n.str.c_str());
             if (ImGui::InputText("Text", buf, sizeof(buf))) n.str = buf;
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+        } else if (t->strKind == FlowParamKind::MusicTrack) {
+            const std::string current =
+                n.str.empty() ? "<none>"
+                              : std::filesystem::path(n.str).filename().string();
+            if (ImGui::BeginCombo("Track", current.c_str())) {
+                for (const std::string& m : project_.music) {
+                    const std::string name = std::filesystem::path(m).filename().string();
+                    if (ImGui::Selectable(name.c_str(), m == n.str)) {
+                        n.str = m;
+                        changed = true;
+                    }
+                }
+                if (project_.music.empty())
+                    ImGui::TextDisabled("Import tracks in the\nProject panel (Music).");
+                ImGui::EndCombo();
+            }
         }
 
         // numeric params
@@ -925,8 +978,21 @@ void App::drawFlowGraphWindow() {
             changed |= ImGui::IsItemDeactivatedAfterEdit();
         } else {
             for (int a = 0; a < t->numCount; ++a) {
-                ImGui::DragFloat(t->numLabels[a], &n.num[a], 0.1f);
-                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                const bool isLoop = std::strcmp(t->numLabels[a], "Loop") == 0;
+                const bool isVolume = std::strcmp(t->numLabels[a], "Volume") == 0;
+                if (isLoop) {
+                    bool loop = n.num[a] != 0.0f;
+                    if (ImGui::Checkbox("Loop", &loop)) {
+                        n.num[a] = loop ? 1.0f : 0.0f;
+                        changed = true;
+                    }
+                } else if (isVolume) {
+                    ImGui::SliderFloat("Volume", &n.num[a], 0.0f, 100.0f, "%.0f");
+                    changed |= ImGui::IsItemDeactivatedAfterEdit();
+                } else {
+                    ImGui::DragFloat(t->numLabels[a], &n.num[a], 0.1f);
+                    changed |= ImGui::IsItemDeactivatedAfterEdit();
+                }
             }
         }
         ImGui::PopItemWidth();
@@ -1043,6 +1109,12 @@ void App::drawFlowGraphWindow() {
                 n.type = t.key;
                 if (t.numKind == FlowParamKind::Color)
                     n.num[0] = n.num[1] = n.num[2] = 1.0f;
+                if (std::string(t.key) == "PlayMusic") {
+                    n.num[0] = 80.0f;  // volume
+                    n.num[1] = 1.0f;   // loop
+                    if (!project_.music.empty()) n.str = project_.music.front();
+                }
+                if (std::string(t.key) == "SetMusicVolume") n.num[0] = 80.0f;
                 fg.nodes.push_back(n);
                 ImNodes::SetNodeScreenSpacePos(n.id, clickPos);
                 changed = true;
@@ -1147,6 +1219,77 @@ void App::drawHudSection() {
             changed = true;
         }
     }
+    if (changed) saveAll("Saved");
+}
+
+void App::importMusicTrack() {
+    const std::string src = pickWavFile();
+    if (src.empty()) return;
+
+    // Tyra's song player streams exactly this format; anything else plays
+    // wrong (pitch/mono) or stays silent, so check before importing.
+    int channels = 0, rate = 0, bits = 0;
+    if (!readWavFormat(src, channels, rate, bits)) {
+        statusMessage_ = "Music import failed: not a readable WAV file";
+        return;
+    }
+    if (channels != 2 || rate != 22050 || bits != 16) {
+        statusMessage_ = "Music import: expected 16-bit 22050 Hz stereo, got " +
+                         std::to_string(bits) + "-bit " + std::to_string(rate) + " Hz " +
+                         (channels == 1 ? "mono" : std::to_string(channels) + "ch") +
+                         " (imported anyway - may play wrong on PS2)";
+    }
+
+    const std::filesystem::path srcPath(src);
+    const std::string fileName = srcPath.filename().string();
+    const std::filesystem::path destDir =
+        std::filesystem::path(project_.dir) / "res" / "audio";
+    std::error_code ec;
+    std::filesystem::create_directories(destDir, ec);
+    std::filesystem::copy_file(srcPath, destDir / fileName,
+                               std::filesystem::copy_options::overwrite_existing, ec);
+    if (ec) {
+        statusMessage_ = "Music import failed: " + ec.message();
+        return;
+    }
+
+    const std::string relPath = "res/audio/" + fileName;
+    bool exists = false;
+    for (const std::string& m : project_.music) exists |= (m == relPath);
+    if (!exists) project_.music.push_back(relPath);
+    const std::string status =
+        (channels == 2 && rate == 22050 && bits == 16) ? "Imported " + fileName
+                                                       : statusMessage_;
+    saveAll(status.c_str());
+}
+
+void App::drawMusicSection() {
+    ImGui::SeparatorText("Music");
+
+    if (ImGui::SmallButton("+ Track (WAV)")) importMusicTrack();
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("16-bit 22050 Hz stereo WAV.\n"
+                          "Play via Flow Graph: On Start -> Play Music.");
+
+    bool changed = false;
+    for (int i = 0; i < (int)project_.music.size(); ++i) {
+        const std::string name = std::filesystem::path(project_.music[i]).filename().string();
+        ImGui::PushID(i);
+        ImGui::Bullet();
+        ImGui::SameLine();
+        ImGui::TextUnformatted(name.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("x")) {
+            project_.music.erase(project_.music.begin() + i);
+            changed = true;
+            ImGui::PopID();
+            break;
+        }
+        ImGui::PopID();
+    }
+    if (project_.music.empty()) ImGui::TextDisabled("No music tracks.");
     if (changed) saveAll("Saved");
 }
 

@@ -124,6 +124,18 @@ Each finished feature lands as its own commit.
   project: noclip camera at the entity, scene objects framed as expected).
   Interactive pad feel needs a hands-on test.
 
+- (17) **Music playback** — background music controlled from the Flow Graph.
+  New Music section in the Project panel imports WAV tracks into `res/audio/`
+  (16-bit 22050 Hz stereo - the format Tyra's song player streams; the importer
+  reads the WAV header and warns about anything else). Three new action nodes:
+  **Play Music** (track combo, volume slider 0-100, loop checkbox), **Stop
+  Music**, **Set Music Volume** - wired to `engine->audio.song` (audsrv) in the
+  generated flow_graph.gen.cpp. "Play from scene start" = the existing On Start
+  trigger -> Play Music. Verified in PCSX2: game boots at full frame rate and
+  the emulator's WASAPI session peak meter pulses with the test melody
+  (generated 22kHz arpeggio); Triangle -> Stop Music compiled in. Speaker check
+  by ear is left for a human.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)
@@ -131,7 +143,7 @@ Each finished feature lands as its own commit.
 - Model picking uses the unit-box approximation (big models pick imprecisely)
 - HUD images draggable directly in the viewport
 - Textured models (.mtl/PNG) and textured terrain
-- Audio (Tyra supports wav/adpcm) - trigger via flow graph action
+- Sound effects (Tyra adpcm channels) - short one-shot samples via flow graph
 - Multiple scenes (model exists in project.json, editor edits only "main")
 - Flow graph: more nodes (timers with reset, gates, variables, sounds)
 - Engine perf, next targets: packager allocates its package array per frame

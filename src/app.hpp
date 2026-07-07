@@ -34,6 +34,8 @@ private:
     void importModel();
     void drawHudSection();
     void importHudImage();
+    void drawMusicSection();
+    void importMusicTrack();
     void saveProject();
 
     // Editing model: mutate project_ freely, then commitChange() once per

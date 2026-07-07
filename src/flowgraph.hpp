@@ -30,7 +30,7 @@ struct FlowGraph {
 
 // ---------------------------------------------------------------------------
 
-enum class FlowParamKind { None, Text, ObjectName, Button, Color };
+enum class FlowParamKind { None, Text, ObjectName, Button, Color, MusicTrack };
 
 struct FlowNodeType {
     const char* key;
@@ -64,6 +64,12 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         {"SetObjectColor", "Set Object Color", false, FlowParamKind::ObjectName, 3, {},
          FlowParamKind::Color},
         {"Log", "Log Message", false, FlowParamKind::Text, 0, {}, FlowParamKind::None},
+        // Music (background song: 16-bit 22kHz stereo WAV, one at a time)
+        {"PlayMusic", "Play Music", false, FlowParamKind::MusicTrack, 2,
+         {"Volume", "Loop"}, FlowParamKind::None},
+        {"StopMusic", "Stop Music", false, FlowParamKind::None, 0, {}, FlowParamKind::None},
+        {"SetMusicVolume", "Set Music Volume", false, FlowParamKind::None, 1,
+         {"Volume"}, FlowParamKind::None},
     };
     return types;
 }

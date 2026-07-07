@@ -1839,6 +1839,33 @@ std::string flowGraphScript(const Project& p) {
             text = replaceAll(text, "\\", "\\\\");
             text = replaceAll(text, "\"", "\\\"");
             c << pad << "TYRA_LOG(\"" << text << "\");\n";
+        } else if (n.type == "PlayMusic") {
+            if (n.str.empty()) {
+                c << pad << "// node " << n.id << " (PlayMusic): no track selected\n";
+            } else {
+                // res/audio/x.wav on the host lands as audio/x.wav next to the ELF
+                std::string binPath = n.str;
+                if (binPath.rfind("res/", 0) == 0) binPath = binPath.substr(4);
+                int vol = (int)n.num[0];
+                if (vol < 0) vol = 0;
+                if (vol > 100) vol = 100;
+                c << pad << "{\n"
+                  << pad << "  auto& song = ctx.engine->audio.song;\n"
+                  << pad << "  song.stop();\n"
+                  << pad << "  song.load(Tyra::FileUtils::fromCwd(\"" << binPath << "\"));\n"
+                  << pad << "  song.inLoop = " << (n.num[1] != 0.0f ? "true" : "false")
+                  << ";\n"
+                  << pad << "  song.setVolume(" << vol << ");\n"
+                  << pad << "  song.play();\n"
+                  << pad << "}\n";
+            }
+        } else if (n.type == "StopMusic") {
+            c << pad << "ctx.engine->audio.song.stop();\n";
+        } else if (n.type == "SetMusicVolume") {
+            int vol = (int)n.num[0];
+            if (vol < 0) vol = 0;
+            if (vol > 100) vol = 100;
+            c << pad << "ctx.engine->audio.song.setVolume(" << vol << ");\n";
         }
         return c.str();
     };

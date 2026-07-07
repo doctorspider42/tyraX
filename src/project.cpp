@@ -132,6 +132,10 @@ std::string save(const Project& p) {
              << fmtFloat(h.size[1]) << "] }";
     }
     json << (p.hud.empty() ? "]" : "\n  ]");
+    json << ",\n  \"music\": [";
+    for (size_t i = 0; i < p.music.size(); ++i)
+        json << (i ? ", " : "") << "\"" << p.music[i] << "\"";
+    json << "]";
     json << ",\n  \"flowGraph\": {\n"
          << "    \"nextId\": " << p.flowGraph.nextId << ",\n"
          << "    \"nodes\": [";
@@ -508,6 +512,14 @@ std::string load(Project& out, const std::string& projectDir) {
                 h.size[1] = (float)v->arr[1].numberOr(64);
             }
             if (!h.imagePath.empty()) out.hud.push_back(std::move(h));
+        }
+    }
+
+    if (const auto* music = root.find("music");
+        music && music->type == json::Value::Type::Array) {
+        for (const auto& m : music->arr) {
+            const std::string path = m.stringOr("");
+            if (!path.empty()) out.music.push_back(path);
         }
     }
 
