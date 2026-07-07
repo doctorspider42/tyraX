@@ -382,6 +382,7 @@ void App::drawViewportWindow() {
         if (sculptStroke_ && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             sculptStroke_ = false;
             project::saveHeights(project_);
+            commitChange();  // one undo step per finished brush stroke
             statusMessage_ = "Terrain saved";
         }
 
@@ -655,6 +656,7 @@ void App::drawProjectWindow() {
             selectedObject_ = -1;
             flowGraphObject_ = -1;
             flowPositionsApplied_ = false;
+            applyProjectToViewport();  // terrain/lighting are per scene
         }
         if (project_.scenes.size() > 1) {
             ImGui::SameLine(ImGui::GetContentRegionMax().x - 22.0f);
@@ -716,7 +718,8 @@ void App::applySnapshot(const SceneSnapshot& s) {
     if (project_.activeScene >= (int)project_.scenes.size()) project_.activeScene = 0;
     if (selectedObject_ >= (int)project_.objects().size()) selectedObject_ = -1;
     flowPositionsApplied_ = false;  // graphs live in objects - re-pin node positions
-    applyProjectToViewport();  // terrain/lighting may differ per snapshot
+    project::saveHeights(project_);  // snapshots carry heightmaps (sculpt undo)
+    applyProjectToViewport();  // terrain/lighting/heights may differ per snapshot
 }
 
 void App::undo() {
@@ -1873,6 +1876,8 @@ void App::drawNewSceneModal() {
         return;
 
     ImGui::InputText("Name", newSceneName_, sizeof(newSceneName_));
+    ImGui::DragInt("Terrain width", &newSceneWidth_, 1.0f, 8, 512, "%d units");
+    ImGui::DragInt("Terrain depth", &newSceneDepth_, 1.0f, 8, 512, "%d units");
     if (!newSceneError_.empty())
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", newSceneError_.c_str());
 
@@ -1888,11 +1893,17 @@ void App::drawNewSceneModal() {
         if (!valid) {
             newSceneError_ = "Name must be unique, letters/digits/'-'/'_' only";
         } else {
-            project_.scenes.push_back(SceneData{name, {}});
+            SceneData sc;
+            sc.name = name;
+            sc.terrain.width = newSceneWidth_;
+            sc.terrain.depth = newSceneDepth_;
+            project_.scenes.push_back(std::move(sc));
             project_.activeScene = (int)project_.scenes.size() - 1;
             selectedObject_ = -1;
             flowGraphObject_ = -1;
             flowPositionsApplied_ = false;
+            applyProjectToViewport();  // builds the flat heightmap + mesh
+            project::saveHeights(project_);
             commitChange();
             statusMessage_ = "Created scene " + name;
             ImGui::CloseCurrentPopup();

@@ -788,6 +788,19 @@ std::string loadSolution(const Project& p, History& h, int& selectedObject, int&
         entries.push_back(std::move(s));
     }
 
+    // Heightmaps are not persisted in the solution (they would balloon it);
+    // adopt the current per-scene heights into every entry, so the stale
+    // check below passes and in-session undo of sculpting works from here.
+    for (SceneSnapshot& e : entries)
+        for (SceneData& sc : e.scenes)
+            for (const SceneData& cur : p.scenes)
+                if (cur.name == sc.name) {
+                    sc.heights = cur.heights;
+                    sc.hmW = cur.hmW;
+                    sc.hmD = cur.hmD;
+                    break;
+                }
+
     int index = 0;
     if (const auto* v = hist->find("index")) index = (int)v->numberOr(0);
     if (index < 0 || index >= (int)entries.size()) return "solution history index is invalid";

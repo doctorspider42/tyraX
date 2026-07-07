@@ -115,6 +115,7 @@ private:
     int deleteScenePending_ = -1;  // scene index awaiting delete confirmation
     bool openNewScenePopup_ = false;
     char newSceneName_[64] = "scene-2";
+    int newSceneWidth_ = 64, newSceneDepth_ = 64;
     std::string newSceneError_;
 
     // "Preferences" modal staging (applied on OK)

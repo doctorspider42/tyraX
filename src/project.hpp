@@ -144,10 +144,9 @@ inline bool operator==(const SceneData& a, const SceneData& b) {
     auto eq3 = [](const float* x, const float* y) {
         return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
     };
-    // heights intentionally ignored: sculpting is outside undo history
-    // (saved on stroke end), like before scenes existed
     return a.name == b.name && a.objects == b.objects &&
            a.terrain.width == b.terrain.width && a.terrain.depth == b.terrain.depth &&
+           a.heights == b.heights && a.hmW == b.hmW && a.hmD == b.hmD &&
            a.terrainTexture == b.terrainTexture &&
            a.terrainTexScale == b.terrainTexScale && eq3(a.lightDir, b.lightDir) &&
            a.ambient == b.ambient && a.diffuse == b.diffuse &&
