@@ -11,7 +11,6 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-#include "engine_patches.h"
 #include "objparser.hpp"
 #include "project.hpp"
 
@@ -112,8 +111,9 @@ CMD ["/bin/bash"]
 )";
 
 // Per-project container (no fixed container_name - avoids conflicts between
-// projects). The Tyra engine lives in a volume shared by all projects, so it
-// is cloned & compiled only once.
+// projects). The Tyra engine sources are maintained inside the editor repo
+// (vendor/tyra) and bind-mounted read-only; the shared volume holds the
+// compiled engine, synced+rebuilt by the Runner whenever the sources change.
 static const char* TPL_COMPOSE = R"(name: {{NAME_LOWER}}
 volumes:
   tyra-game-volume:
@@ -132,6 +132,7 @@ services:
       - tyra-game-volume:/src
       - tyra-engine:/tyra
       - ./:/host
+      - "{{ENGINE_SRC}}:/engine-src:ro"
 )";
 
 static const char* TPL_MAIN_CPP = R"(#include <tyra>
@@ -592,6 +593,7 @@ void TerrainGame::loop() {
       entY = scriptCtx.teleportPos.y;
       entZ = scriptCtx.teleportPos.z;
       entVelY = 0.0F;
+      entYaw = scriptCtx.teleportYaw * PI / 180.0F;
     }
   }
 
@@ -1093,11 +1095,13 @@ void TerrainGame::loop() {
       entY = scriptCtx.teleportPos.y;
       entZ = scriptCtx.teleportPos.z;
       entVelY = 0.0F;
+      entYaw = scriptCtx.teleportYaw * PI / 180.0F;
     } else {
       playerX = scriptCtx.teleportPos.x;
       playerY = scriptCtx.teleportPos.y;
       playerZ = scriptCtx.teleportPos.z;
       playerVelY = 0.0F;
+      yaw = scriptCtx.teleportYaw * PI / 180.0F;
     }
   }
 
@@ -1476,8 +1480,10 @@ struct ScriptContext {
 
   // Set teleport = true and teleportPos to move the player (Player entity or
   // the FPP template player) there; the game applies and clears it.
+  // teleportYaw: facing direction in degrees (Y rotation, 0 = +Z).
   bool teleport = false;
   Tyra::Vec4 teleportPos;
+  float teleportYaw = 0.0F;
 };
 
 /** Base class for game scripts. Put .cpp files in src/scripts/. */
@@ -1670,7 +1676,6 @@ static const char* TPL_GITIGNORE = R"(obj/
 bin/*.elf
 *.tyra
 .vscode/
-.tyra-engine-patch/
 )";
 
 static const char* TPL_DIR_KEEP = "*\n!.gitignore\n";
@@ -1684,6 +1689,24 @@ static std::string floatLit(float v) {
         s.find("inf") == std::string::npos && s.find("nan") == std::string::npos)
         s += ".0";
     return s + "F";
+}
+
+// Absolute path to the in-tree Tyra engine (editor repo, vendor/tyra), with
+// forward slashes - bind-mounted into the build container by docker-compose.
+static std::string engineSourceDir() {
+    char exePath[MAX_PATH] = {};
+    if (GetModuleFileNameA(nullptr, exePath, MAX_PATH) > 0) {
+        std::filesystem::path candidate = std::filesystem::path(exePath).parent_path() /
+                                          ".." / "vendor" / "tyra";
+        std::error_code ec;
+        if (std::filesystem::exists(candidate / "Makefile.base", ec)) {
+            std::string s = std::filesystem::weakly_canonical(candidate, ec).string();
+            for (auto& c : s)
+                if (c == '\\') c = '/';
+            return s;
+        }
+    }
+    return ".";  // wrong on purpose - the engine sync fails with a clear error
 }
 
 static std::string vec3Init(const float* v) {
@@ -1813,6 +1836,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{LIGHT_COL_G}}", floatLit(st.lightColor[1]));
     s = replaceAll(s, "{{LIGHT_COL_B}}", floatLit(st.lightColor[2]));
     s = replaceAll(s, "{{BRIGHTNESS}}", floatLit(st.brightness));
+    s = replaceAll(s, "{{ENGINE_SRC}}", engineSourceDir());
     return s;
 }
 
@@ -1985,7 +2009,8 @@ std::string flowGraphScript(const Project& p) {
                 const auto e = posExpr(n);
                 c << pad << "ctx.teleport = true;\n"
                   << pad << "ctx.teleportPos = Tyra::Vec4(" << e[0] << ", " << e[1] << ", "
-                  << e[2] << ");\n";
+                  << e[2] << ");\n"
+                  << pad << "ctx.teleportYaw = " << obj << ".data.rotation[1];\n";
             } else if (n.type == "Log") {
                 std::string text = n.str;
                 text = replaceAll(text, "\\", "\\\\");
@@ -2387,11 +2412,6 @@ std::vector<File> generate(const Project& p) {
         {"inc\\texture_data.gen.hpp", textureDataHeader(p)},
         {"inc\\scripts\\script.hpp", fill(TPL_SCRIPT_HPP)},
         {"src\\scripts\\flow_graph.gen.cpp", flowGraphScript(p)},
-        {".tyra-engine-patch\\planes_clip_algorithm.cpp", EP_PLANES_CLIP_ALGORITHM},
-        {".tyra-engine-patch\\stapip_clipper.cpp", EP_STAPIP_CLIPPER},
-        {".tyra-engine-patch\\stapip_qbuffer.cpp", EP_STAPIP_QBUFFER},
-        {".tyra-engine-patch\\render_bbox.cpp", EP_RENDER_BBOX},
-        {".tyra-engine-patch\\apply_vu1_guardband.sh", EP_VU1_GUARDBAND_SH},
         {"src\\scripts\\example_interaction.cpp",
          fill(fpp ? TPL_EXAMPLE_SCRIPT_FPP : TPL_EXAMPLE_SCRIPT_ORBIT)},
         {".vscode\\c_cpp_properties.json", vscodeCppProperties()},

@@ -183,6 +183,25 @@ Each finished feature lands as its own commit.
   the house position through a Get Position -> Set Object Position link);
   Square-button respawn needs a pad test.
 
+- (21) **In-tree Tyra engine + WAV-aware music player** — the engine-patch
+  machinery (embedded sources, awk macro swap, `/tyra/.tyra-editor-patch-N`
+  markers) is gone: `vendor/tyra/engine` is now a versioned fork (Apache 2.0,
+  upstream `9273416`) with all editor fixes applied directly. The Runner
+  bind-mounts it read-only at `/engine-src`, checksum-rsyncs into the shared
+  volume and rebuilds libtyra + relinks games only when something actually
+  changed - editing the engine is now a regular workflow. New engine fix in
+  the fork: `audio_song.cpp` parses the WAV header (RIFF chunk walk, done
+  in-memory - fseek/ftell are unreliable over the PS2 host fs) instead of
+  assuming 16-bit/22050/stereo at offset 0x30, configures audsrv from the
+  file and streams exactly the data chunk; small formats get a smaller chunk
+  size + fill threshold (mono 22 kHz starved audsrv's ring buffer before).
+  Verified in PCSX2 with a tone/silence pattern: 44.1 kHz stereo with LIST
+  metadata, mono 44.1 kHz and mono 22 kHz all play clean at correct speed
+  (the old player fed metadata bytes to the speakers and halved the tempo).
+  Music importer keeps files untouched and reports the format (PCM 16-bit,
+  mono/stereo, 11-48 kHz; float/24-bit flagged as unplayable). Also: Spawn
+  Player At now applies the target's Y rotation to the player's yaw.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

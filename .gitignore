@@ -1,5 +1,17 @@
 build/
-vendor/
 .vs/
 *.user
 imgui.ini
+
+# Vendored dependencies are fetched separately (see README)...
+vendor/*
+# ...except the Tyra engine, which is maintained in-tree: the editor edits
+# it directly and syncs it into the build container (Apache License 2.0,
+# forked from github.com/h4570/tyra @ 9273416).
+!vendor/tyra/
+vendor/tyra/*
+!vendor/tyra/engine/
+!vendor/tyra/Makefile.base
+!vendor/tyra/README.MD
+vendor/tyra/engine/obj/
+vendor/tyra/engine/bin/

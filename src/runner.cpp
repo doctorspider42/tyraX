@@ -172,30 +172,34 @@ void Runner::worker(Project p, bool build, bool run) {
         }
 
         const std::string dc = "docker compose exec -T compiler sh -c ";
-        if (ok && exec(dc + "\"test -f /tyra/Makefile.base\"", p.dir) != 0) {
-            appendLine("[editor] Tyra engine not found - installing into the shared "
-                       "volume (one-time step, takes a few minutes)...");
-            ok = exec(dc + "\"rm -rf /tyra/* /tyra/.git && git clone --depth 1 "
-                           "https://github.com/h4570/tyra.git /tyra && cd /tyra/engine && "
-                           "make -j$(nproc)\"",
-                      p.dir) == 0;
-            if (!ok) appendLine("[editor] Engine installation failed.");
-        }
 
-        // Engine patch (idempotent, marker file in the shared volume):
-        // zero the hardcoded "crappy guard band" in RenderBBox::clipFrustumCheck.
-        // Those fixed world-unit margins reclassify partially-visible geometry
-        // as "fully visible" and send it to the fast cull path, where the VU1
-        // program drops whole triangles -> holes in the ground near the camera.
-        if (ok && exec(dc + "\"test -f /tyra/.tyra-editor-patch-1\"", p.dir) != 0) {
-            appendLine("[editor] Patching Tyra engine (clipper guard band) and "
-                       "rebuilding it - one-time step, takes a few minutes...");
-            ok = exec(dc + "\"sed -i -E 's/(guardBand\\[[0-9]\\]) = -[0-9.]+F;/\\1 = 0.0F;/' "
-                           "/tyra/engine/src/renderer/core/3d/bbox/render_bbox.cpp && "
-                           "cd /tyra/engine && make -j$(nproc) && "
-                           "touch /tyra/.tyra-editor-patch-1\"",
+        // The Tyra engine is maintained inside the editor repo (vendor/tyra,
+        // with the editor's fixes applied directly) and bind-mounted read-only
+        // at /engine-src. Sync it into the shared build volume; when anything
+        // changed (checksum compare - mounts have unreliable mtimes), rebuild
+        // libtyra, force the VU1 microprograms (outside make's dependency
+        // tracking) and drop the game ELF so it relinks against the new lib.
+        if (ok && exec(dc + "\"test -d /engine-src/engine\"", p.dir) != 0) {
+            appendLine("[editor] Engine sources not mounted at /engine-src - the editor "
+                       "must run from its repo (vendor/tyra). Recreate the container "
+                       "if docker-compose.yml just changed.");
+            ok = false;
+        }
+        if (ok) {
+            ok = exec(dc + "\"mkdir -p /tyra/engine && "
+                           "cp /engine-src/Makefile.base /tyra/Makefile.base && "
+                           "rsync -rlci --delete --exclude=obj --exclude=bin "
+                           "/engine-src/engine/ /tyra/engine/ "
+                           "| grep -v '^.d' > /tmp/engine-sync.txt; "
+                           "if [ -s /tmp/engine-sync.txt ] || "
+                           "[ ! -f /tyra/engine/bin/libtyra.a ]; then "
+                           "echo '[editor] Engine sources changed - rebuilding "
+                           "libtyra (takes a minute)...' && "
+                           "find /tyra/engine/obj -name '*vu1.o*' -delete 2>/dev/null; "
+                           "cd /tyra/engine && make -j$(nproc) && rm -f /src/bin/*.elf; "
+                           "fi\"",
                       p.dir) == 0;
-            if (!ok) appendLine("[editor] Engine patch failed.");
+            if (!ok) appendLine("[editor] Engine sync/build failed.");
         }
 
         // Export PS2SDK headers for VS Code IntelliSense (one-time per machine).
@@ -224,31 +228,6 @@ void Runner::worker(Project p, bool build, bool run) {
             ok = exec(dc + "\"rsync -ac --delete --exclude=.git --exclude=.vscode "
                            "--exclude=obj --exclude=bin /host/ /src/\"",
                       p.dir) == 0;
-        }
-
-        // Engine patch v2 (idempotent): fast EE clipper - outcode-based
-        // trivial accept/reject + no heap allocations per clip call.
-        // Patched sources are generated into <project>/.tyra-engine-patch/
-        // and land in /src via the rsync above.
-        if (ok && exec(dc + "\"test -f /tyra/.tyra-editor-patch-5\"", p.dir) != 0) {
-            appendLine("[editor] Patching Tyra engine (VU1 guard band + fast EE clipper) "
-                       "and rebuilding it - one-time step, takes a minute...");
-            ok = exec(dc + "\"cp /src/.tyra-engine-patch/planes_clip_algorithm.cpp "
-                           "/tyra/engine/src/renderer/core/3d/clipper/"
-                           "planes_clip_algorithm.cpp && "
-                           "cp /src/.tyra-engine-patch/stapip_clipper.cpp "
-                           "/tyra/engine/src/renderer/3d/pipeline/static/core/"
-                           "stapip_clipper.cpp && "
-                           "cp /src/.tyra-engine-patch/stapip_qbuffer.cpp "
-                           "/tyra/engine/src/renderer/3d/pipeline/static/core/"
-                           "stapip_qbuffer.cpp && "
-                           "cp /src/.tyra-engine-patch/render_bbox.cpp "
-                           "/tyra/engine/src/renderer/core/3d/bbox/render_bbox.cpp && "
-                           "sh /src/.tyra-engine-patch/apply_vu1_guardband.sh && "
-                           "cd /tyra/engine && make -j$(nproc) && "
-                           "touch /tyra/.tyra-editor-patch-5\"",
-                      p.dir) == 0;
-            if (!ok) appendLine("[editor] Engine clipper patch failed.");
         }
 
         if (ok) {

@@ -101,9 +101,10 @@ static std::string pickPngFile() { return pickPath(PickKind::Png); }
 static std::string pickWavFile() { return pickPath(PickKind::Wav); }
 
 // Reads the fmt chunk of a WAV file. Returns false when the file is not a
-// parseable RIFF/WAVE. Tyra's song player expects 16-bit 22050 Hz stereo PCM.
-static bool readWavFormat(const std::string& path, int& channels, int& sampleRate,
-                          int& bitsPerSample) {
+// parseable RIFF/WAVE. audioFormat: 1 = integer PCM (the only thing the PS2
+// side streams), 3 = float, others = compressed.
+static bool readWavFormat(const std::string& path, int& audioFormat, int& channels,
+                          int& sampleRate, int& bitsPerSample) {
     std::ifstream f(path, std::ios::binary);
     if (!f) return false;
     char riff[12] = {};
@@ -114,13 +115,18 @@ static bool readWavFormat(const std::string& path, int& channels, int& sampleRat
     while (f.read(header, 8)) {
         const uint32_t size = (uint8_t)header[4] | ((uint8_t)header[5] << 8) |
                               ((uint8_t)header[6] << 16) | ((uint8_t)header[7] << 24);
-        if (std::memcmp(header, "fmt ", 4) == 0) {
-            char fmt[16] = {};
-            if (!f.read(fmt, 16)) return false;
+        if (std::memcmp(header, "fmt ", 4) == 0 && size >= 16) {
+            char fmt[40] = {};
+            const uint32_t want = size < sizeof(fmt) ? size : (uint32_t)sizeof(fmt);
+            if (!f.read(fmt, want)) return false;
+            audioFormat = (uint8_t)fmt[0] | ((uint8_t)fmt[1] << 8);
             channels = (uint8_t)fmt[2] | ((uint8_t)fmt[3] << 8);
             sampleRate = (uint8_t)fmt[4] | ((uint8_t)fmt[5] << 8) | ((uint8_t)fmt[6] << 16) |
                          ((uint8_t)fmt[7] << 24);
             bitsPerSample = (uint8_t)fmt[14] | ((uint8_t)fmt[15] << 8);
+            // WAVE_FORMAT_EXTENSIBLE: real format tag leads the sub-format GUID
+            if (audioFormat == 0xFFFE && size >= 40)
+                audioFormat = (uint8_t)fmt[24] | ((uint8_t)fmt[25] << 8);
             return true;
         }
         f.seekg(size + (size & 1), std::ios::cur);
@@ -1464,18 +1470,29 @@ void App::importMusicTrack() {
     const std::string src = pickWavFile();
     if (src.empty()) return;
 
-    // Tyra's song player streams exactly this format; anything else plays
-    // wrong (pitch/mono) or stays silent, so check before importing.
-    int channels = 0, rate = 0, bits = 0;
-    if (!readWavFormat(src, channels, rate, bits)) {
+    // The patched song player reads the WAV header (PCM 8/16-bit, mono or
+    // stereo, standard rates - audsrv resamples on the IOP). Float, 24-bit
+    // and compressed WAVs still play as noise, so flag those before import.
+    int audioFormat = 0, channels = 0, rate = 0, bits = 0;
+    if (!readWavFormat(src, audioFormat, channels, rate, bits)) {
         statusMessage_ = "Music import failed: not a readable WAV file";
         return;
     }
-    if (channels != 2 || rate != 22050 || bits != 16) {
-        statusMessage_ = "Music import: expected 16-bit 22050 Hz stereo, got " +
-                         std::to_string(bits) + "-bit " + std::to_string(rate) + " Hz " +
-                         (channels == 1 ? "mono" : std::to_string(channels) + "ch") +
-                         " (imported anyway - may play wrong on PS2)";
+    std::string formatWarning;
+    if (audioFormat != 1) {
+        formatWarning = audioFormat == 3 ? "32-bit float WAV" : "compressed WAV";
+    } else if (bits != 8 && bits != 16) {
+        formatWarning = std::to_string(bits) + "-bit PCM";
+    } else if (channels > 2) {
+        formatWarning = std::to_string(channels) + "-channel WAV";
+    } else if (rate < 11025 || rate > 48000) {
+        formatWarning = std::to_string(rate) + " Hz sample rate";
+    }
+    if (!formatWarning.empty()) {
+        statusMessage_ = "Music import: " + formatWarning +
+                         " is not supported on PS2 - export the track as 16-bit PCM WAV, "
+                         "mono/stereo, 11-48 kHz (22050 Hz stereo recommended). "
+                         "Imported anyway, but it will play as noise.";
     }
 
     const std::filesystem::path srcPath(src);
@@ -1496,8 +1513,10 @@ void App::importMusicTrack() {
     for (const std::string& m : project_.music) exists |= (m == relPath);
     if (!exists) project_.music.push_back(relPath);
     const std::string status =
-        (channels == 2 && rate == 22050 && bits == 16) ? "Imported " + fileName
-                                                       : statusMessage_;
+        formatWarning.empty()
+            ? "Imported " + fileName + " (" + std::to_string(rate) + " Hz " +
+                  std::to_string(bits) + "-bit " + (channels == 1 ? "mono" : "stereo") + ")"
+            : statusMessage_;
     saveAll(status.c_str());
 }
 
@@ -1508,7 +1527,8 @@ void App::drawMusicSection() {
     ImGui::SameLine();
     ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("16-bit 22050 Hz stereo WAV.\n"
+        ImGui::SetTooltip("16-bit PCM WAV, mono or stereo, 11-48 kHz\n"
+                          "(22050 Hz stereo recommended; float/24-bit will not play).\n"
                           "Play via Flow Graph: On Start -> Play Music.");
 
     bool changed = false;
@@ -1535,17 +1555,18 @@ void App::importSoundEffect() {
     const std::string src = pickWavFile();
     if (src.empty()) return;
 
-    // adpenc (runs in the toolchain container at build) expects 16-bit 22 kHz;
-    // it accepts mono and stereo.
-    int channels = 0, rate = 0, bits = 0;
-    if (!readWavFormat(src, channels, rate, bits)) {
+    // adpenc (runs in the toolchain container at build) expects 16-bit PCM
+    // 22 kHz; it accepts mono and stereo.
+    int audioFormat = 0, channels = 0, rate = 0, bits = 0;
+    if (!readWavFormat(src, audioFormat, channels, rate, bits)) {
         statusMessage_ = "Sound import failed: not a readable WAV file";
         return;
     }
-    if (rate != 22050 || bits != 16) {
-        statusMessage_ = "Sound import: expected 16-bit 22050 Hz, got " +
+    if (audioFormat != 1 || rate != 22050 || bits != 16) {
+        statusMessage_ = "Sound import: adpenc expects 16-bit PCM 22050 Hz, got " +
+                         std::string(audioFormat != 1 ? "non-PCM " : "") +
                          std::to_string(bits) + "-bit " + std::to_string(rate) +
-                         " Hz (imported anyway - may play wrong on PS2)";
+                         " Hz (imported anyway - may convert wrong)";
     }
 
     const std::filesystem::path srcPath(src);
@@ -1564,8 +1585,9 @@ void App::importSoundEffect() {
     bool exists = false;
     for (const std::string& s : project_.sounds) exists |= (s == relPath);
     if (!exists) project_.sounds.push_back(relPath);
-    const std::string status =
-        (rate == 22050 && bits == 16) ? "Imported " + fileName : statusMessage_;
+    const std::string status = (audioFormat == 1 && rate == 22050 && bits == 16)
+                                   ? "Imported " + fileName
+                                   : statusMessage_;
     saveAll(status.c_str());
 }
 
