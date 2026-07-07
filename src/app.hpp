@@ -31,6 +31,7 @@ private:
     void drawPreferencesModal();
     void openProjectDialog();
     void applyProjectToViewport();
+    void stageSceneIntoPrefs();  // active-scene terrain/light -> pref staging
     void addObject(PrimitiveType type);
     void drawAddObjectMenu();
     void importModel();

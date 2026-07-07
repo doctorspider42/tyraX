@@ -6,15 +6,13 @@
 #include "project.hpp"
 
 // One editable state (everything undo/redo affects): all scenes with their
-// objects and flow graphs, plus the terrain config.
+// objects, flow graphs, terrain and lighting.
 struct SceneSnapshot {
-    TerrainConfig terrain;
     std::vector<SceneData> scenes;
 };
 
 inline bool operator==(const SceneSnapshot& a, const SceneSnapshot& b) {
-    return a.terrain.width == b.terrain.width && a.terrain.depth == b.terrain.depth &&
-           a.scenes == b.scenes;
+    return a.scenes == b.scenes;
 }
 
 // Linear undo/redo stack. entries_[index_] is always the current state;

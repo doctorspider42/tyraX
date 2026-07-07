@@ -154,10 +154,6 @@ std::string save(const Project& p) {
     std::ostringstream json;
     json << "{\n"
          << "  \"name\": \"" << p.name << "\",\n"
-         << "  \"terrain\": {\n"
-         << "    \"width\": " << p.terrain.width << ",\n"
-         << "    \"depth\": " << p.terrain.depth << "\n"
-         << "  },\n"
          << "  \"template\": \"" << p.gameTemplate << "\",\n"
          << "  \"settings\": {\n"
          << "    \"clipping\": \"" << p.settings.clipping << "\",\n"
@@ -181,9 +177,17 @@ std::string save(const Project& p) {
          << "  },\n"
          << "  \"scenes\": [";
     for (size_t i = 0; i < p.scenes.size(); ++i) {
-        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << p.scenes[i].name
-             << "\", \"objects\": ";
-        writeObjectsArray(json, p.scenes[i].objects, "      ");
+        const SceneData& sc = p.scenes[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << sc.name
+             << "\",\n      \"terrain\": { \"width\": " << sc.terrain.width
+             << ", \"depth\": " << sc.terrain.depth << " },\n      \"lighting\": {"
+             << " \"dir\": " << fmtVec3(sc.lightDir) << ", \"ambient\": "
+             << fmtFloat(sc.ambient) << ", \"diffuse\": " << fmtFloat(sc.diffuse)
+             << ", \"color\": " << fmtVec3(sc.lightColor) << ", \"brightness\": "
+             << fmtFloat(sc.brightness) << " },\n      \"terrainTexture\": \""
+             << sc.terrainTexture << "\", \"terrainTexScale\": "
+             << fmtFloat(sc.terrainTexScale) << ",\n      \"objects\": ";
+        writeObjectsArray(json, sc.objects, "      ");
         json << " }";
     }
     json << "\n  ]";
@@ -227,7 +231,7 @@ std::string create(Project& out, const std::string& name, const std::string& par
     out = Project{};
     out.name = name;
     out.dir = root.string();
-    out.terrain = terrain;
+    out.scenes[0].terrain = terrain;
     // "showcase" is a content preset on top of the FPP game template
     const bool showcase = gameTemplate == "showcase";
     out.gameTemplate = (gameTemplate == "fpp" || showcase) ? "fpp" : "orbit";
@@ -356,64 +360,75 @@ std::string create(Project& out, const std::string& name, const std::string& par
     // Every project is born with its solution file (projects are opened
     // through it) and a single-entry history.
     History h;
-    h.reset({out.terrain, out.scenes});
+    h.reset({out.scenes});
     return saveSolution(out, h, -1, 0, 0);
 }
 
 // --- Terrain heightmap -------------------------------------------------------
 
-void terrainGridDims(const Project& p, int& vertsW, int& vertsD) {
+static void sceneGridDims(const Project& p, const SceneData& s, int& vertsW,
+                          int& vertsD) {
     const int maxCells = p.settings.terrainDetail;
-    const int cellsX = p.terrain.width > maxCells ? maxCells : p.terrain.width;
-    const int cellsZ = p.terrain.depth > maxCells ? maxCells : p.terrain.depth;
+    const int cellsX = s.terrain.width > maxCells ? maxCells : s.terrain.width;
+    const int cellsZ = s.terrain.depth > maxCells ? maxCells : s.terrain.depth;
     vertsW = cellsX + 1;
     vertsD = cellsZ + 1;
 }
 
-void ensureHeightmap(Project& p) {
+void terrainGridDims(const Project& p, int& vertsW, int& vertsD) {
+    sceneGridDims(p, p.active(), vertsW, vertsD);
+}
+
+static void ensureSceneHeightmap(const Project& p, SceneData& s) {
     int vw = 0, vd = 0;
-    terrainGridDims(p, vw, vd);
-    if (p.hmW == vw && p.hmD == vd && (int)p.heights.size() == vw * vd) return;
+    sceneGridDims(p, s, vw, vd);
+    if (s.hmW == vw && s.hmD == vd && (int)s.heights.size() == vw * vd) return;
 
     std::vector<float> next((size_t)vw * vd, 0.0f);
-    if (p.hmW > 1 && p.hmD > 1 && (int)p.heights.size() == p.hmW * p.hmD) {
+    if (s.hmW > 1 && s.hmD > 1 && (int)s.heights.size() == s.hmW * s.hmD) {
         // nearest-neighbor resample from the previous grid
         for (int z = 0; z < vd; ++z)
             for (int x = 0; x < vw; ++x) {
-                const int sx = (int)((float)x / (vw - 1) * (p.hmW - 1) + 0.5f);
-                const int sz = (int)((float)z / (vd - 1) * (p.hmD - 1) + 0.5f);
-                next[(size_t)z * vw + x] = p.heights[(size_t)sz * p.hmW + sx];
+                const int sx = (int)((float)x / (vw - 1) * (s.hmW - 1) + 0.5f);
+                const int sz = (int)((float)z / (vd - 1) * (s.hmD - 1) + 0.5f);
+                next[(size_t)z * vw + x] = s.heights[(size_t)sz * s.hmW + sx];
             }
     }
-    p.heights = std::move(next);
-    p.hmW = vw;
-    p.hmD = vd;
+    s.heights = std::move(next);
+    s.hmW = vw;
+    s.hmD = vd;
+}
+
+void ensureHeightmap(Project& p) {
+    for (SceneData& s : p.scenes) ensureSceneHeightmap(p, s);
 }
 
 float heightAtWorld(const Project& p, float x, float z) {
-    if (p.hmW < 2 || p.hmD < 2) return 0.0f;
-    const float w = (float)p.terrain.width, d = (float)p.terrain.depth;
-    float gx = (x + w * 0.5f) / w * (p.hmW - 1);
-    float gz = (z + d * 0.5f) / d * (p.hmD - 1);
+    const SceneData& s = p.active();
+    if (s.hmW < 2 || s.hmD < 2) return 0.0f;
+    const float w = (float)s.terrain.width, d = (float)s.terrain.depth;
+    float gx = (x + w * 0.5f) / w * (s.hmW - 1);
+    float gz = (z + d * 0.5f) / d * (s.hmD - 1);
     if (gx < 0) gx = 0;
     if (gz < 0) gz = 0;
-    if (gx > p.hmW - 1.001f) gx = p.hmW - 1.001f;
-    if (gz > p.hmD - 1.001f) gz = p.hmD - 1.001f;
+    if (gx > s.hmW - 1.001f) gx = s.hmW - 1.001f;
+    if (gz > s.hmD - 1.001f) gz = s.hmD - 1.001f;
     const int ix = (int)gx, iz = (int)gz;
     const float fx = gx - ix, fz = gz - iz;
-    auto h = [&](int a, int b) { return p.heights[(size_t)b * p.hmW + a]; };
+    auto h = [&](int a, int b) { return s.heights[(size_t)b * s.hmW + a]; };
     const float top = h(ix, iz) * (1 - fx) + h(ix + 1, iz) * fx;
     const float bottom = h(ix, iz + 1) * (1 - fx) + h(ix + 1, iz + 1) * fx;
     return top * (1 - fz) + bottom * fz;
 }
 
 void sculptHeightmap(Project& p, float worldX, float worldZ, float radius, float delta) {
-    if (p.hmW < 2 || p.hmD < 2 || radius <= 0.0f) return;
-    const float w = (float)p.terrain.width, d = (float)p.terrain.depth;
-    const float stepX = w / (p.hmW - 1), stepZ = d / (p.hmD - 1);
+    SceneData& s = p.active();
+    if (s.hmW < 2 || s.hmD < 2 || radius <= 0.0f) return;
+    const float w = (float)s.terrain.width, d = (float)s.terrain.depth;
+    const float stepX = w / (s.hmW - 1), stepZ = d / (s.hmD - 1);
 
-    for (int z = 0; z < p.hmD; ++z) {
-        for (int x = 0; x < p.hmW; ++x) {
+    for (int z = 0; z < s.hmD; ++z) {
+        for (int x = 0; x < s.hmW; ++x) {
             const float vx = -w * 0.5f + x * stepX;
             const float vz = -d * 0.5f + z * stepZ;
             const float dx = vx - worldX, dz = vz - worldZ;
@@ -422,39 +437,53 @@ void sculptHeightmap(Project& p, float worldX, float worldZ, float radius, float
             // smooth cosine falloff: 1 at the center, 0 at the edge
             const float t = dist / radius;
             const float falloff = 0.5f + 0.5f * std::cos(t * 3.14159265f);
-            p.heights[(size_t)z * p.hmW + x] += delta * falloff;
+            s.heights[(size_t)z * s.hmW + x] += delta * falloff;
         }
     }
+}
+
+// One heights file per scene: terrain-<scene>.heights; the first scene also
+// reads the legacy single-scene terrain.heights.
+static fs::path heightsPath(const Project& p, const SceneData& s) {
+    return fs::path(p.dir) / ("terrain-" + s.name + ".heights");
 }
 
 std::string saveHeights(const Project& p) {
-    std::ostringstream out;
-    out << p.hmW << " " << p.hmD << "\n";
-    for (int z = 0; z < p.hmD; ++z) {
-        for (int x = 0; x < p.hmW; ++x) {
-            if (x) out << " ";
-            out << fmtFloat(p.heights[(size_t)z * p.hmW + x]);
+    for (const SceneData& s : p.scenes) {
+        std::ostringstream out;
+        out << s.hmW << " " << s.hmD << "\n";
+        for (int z = 0; z < s.hmD; ++z) {
+            for (int x = 0; x < s.hmW; ++x) {
+                if (x) out << " ";
+                out << fmtFloat(s.heights[(size_t)z * s.hmW + x]);
+            }
+            out << "\n";
         }
-        out << "\n";
+        if (auto err = writeFile(heightsPath(p, s), out.str()); !err.empty()) return err;
     }
-    return writeFile(fs::path(p.dir) / "terrain.heights", out.str());
+    return "";
 }
 
 void loadHeights(Project& p) {
-    std::ifstream f(fs::path(p.dir) / "terrain.heights");
-    if (!f) return;
-    int vw = 0, vd = 0;
-    f >> vw >> vd;
-    if (vw < 2 || vd < 2 || vw > 1025 || vd > 1025) return;
-    std::vector<float> data((size_t)vw * vd, 0.0f);
-    for (auto& h : data)
-        if (!(f >> h)) return;
-    p.heights = std::move(data);
-    p.hmW = vw;
-    p.hmD = vd;
+    for (size_t i = 0; i < p.scenes.size(); ++i) {
+        SceneData& s = p.scenes[i];
+        std::ifstream f(heightsPath(p, s));
+        if (!f && i == 0) f.open(fs::path(p.dir) / "terrain.heights");  // legacy
+        if (!f) continue;
+        int vw = 0, vd = 0;
+        f >> vw >> vd;
+        if (vw < 2 || vd < 2 || vw > 1025 || vd > 1025) continue;
+        std::vector<float> data((size_t)vw * vd, 0.0f);
+        bool ok = true;
+        for (auto& h : data)
+            if (!(f >> h)) { ok = false; break; }
+        if (!ok) continue;
+        s.heights = std::move(data);
+        s.hmW = vw;
+        s.hmD = vd;
+    }
     ensureHeightmap(p);  // resample if the grid config changed meanwhile
 }
-
 static void readVec3(const json::Value* v, float* out) {
     if (!v || v->type != json::Value::Type::Array || v->arr.size() < 3) return;
     for (int i = 0; i < 3; ++i) out[i] = (float)v->arr[i].numberOr(out[i]);
@@ -512,11 +541,6 @@ std::string load(Project& out, const std::string& projectDir) {
     if (const auto* v = root.find("name")) out.name = v->stringOr("");
     if (out.name.empty()) return "project.json is malformed (no name)";
 
-    if (const auto* terrain = root.find("terrain")) {
-        if (const auto* v = terrain->find("width")) out.terrain.width = (int)v->numberOr(64);
-        if (const auto* v = terrain->find("depth")) out.terrain.depth = (int)v->numberOr(64);
-    }
-
     if (const auto* v = root.find("template"))
         out.gameTemplate = v->stringOr("orbit") == "fpp" ? "fpp" : "orbit";
 
@@ -562,6 +586,26 @@ std::string load(Project& out, const std::string& projectDir) {
                 if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
                 if (const auto* objs = js.find("objects"))
                     readObjectsArray(*objs, sc.objects);
+                if (const auto* t = js.find("terrain")) {
+                    if (const auto* v = t->find("width"))
+                        sc.terrain.width = (int)v->numberOr(64);
+                    if (const auto* v = t->find("depth"))
+                        sc.terrain.depth = (int)v->numberOr(64);
+                }
+                if (const auto* li = js.find("lighting")) {
+                    readVec3(li->find("dir"), sc.lightDir);
+                    if (const auto* v = li->find("ambient"))
+                        sc.ambient = (float)v->numberOr(0.55);
+                    if (const auto* v = li->find("diffuse"))
+                        sc.diffuse = (float)v->numberOr(0.45);
+                    readVec3(li->find("color"), sc.lightColor);
+                    if (const auto* v = li->find("brightness"))
+                        sc.brightness = (float)v->numberOr(1.0);
+                }
+                if (const auto* v = js.find("terrainTexture"))
+                    sc.terrainTexture = v->stringOr("");
+                if (const auto* v = js.find("terrainTexScale"))
+                    sc.terrainTexScale = (float)v->numberOr(4.0);
                 out.scenes.push_back(std::move(sc));
             }
         } else {
@@ -571,6 +615,29 @@ std::string load(Project& out, const std::string& projectDir) {
         }
     }
     if (out.scenes.empty()) out.scenes.push_back(SceneData{});
+
+    // Legacy project-level terrain size + lighting + terrain texture: copy
+    // into every scene that did not carry its own values.
+    if (const auto* terrain = root.find("terrain")) {
+        TerrainConfig t;
+        if (const auto* v = terrain->find("width")) t.width = (int)v->numberOr(64);
+        if (const auto* v = terrain->find("depth")) t.depth = (int)v->numberOr(64);
+        for (SceneData& sc : out.scenes) sc.terrain = t;
+    }
+    if (const auto* s = root.find("settings")) {
+        for (SceneData& sc : out.scenes) {
+            readVec3(s->find("lightDir"), sc.lightDir);
+            if (const auto* v = s->find("ambient")) sc.ambient = (float)v->numberOr(0.55);
+            if (const auto* v = s->find("diffuse")) sc.diffuse = (float)v->numberOr(0.45);
+            readVec3(s->find("lightColor"), sc.lightColor);
+            if (const auto* v = s->find("brightness"))
+                sc.brightness = (float)v->numberOr(1.0);
+            if (const auto* v = s->find("terrainTexture"))
+                sc.terrainTexture = v->stringOr("");
+            if (const auto* v = s->find("terrainTexScale"))
+                sc.terrainTexScale = (float)v->numberOr(4.0);
+        }
+    }
 
     if (const auto* objects = root.find("objects");
         objects && objects->type == json::Value::Type::Array) {
@@ -647,13 +714,19 @@ std::string saveSolution(const Project& p, const History& h, int selectedObject,
     const auto& entries = h.entries();
     for (size_t i = 0; i < entries.size(); ++i) {
         const SceneSnapshot& s = entries[i];
-        json << (i ? ",\n      " : "\n      ")
-             << "{ \"terrain\": { \"width\": " << s.terrain.width
-             << ", \"depth\": " << s.terrain.depth << " }, \"scenes\": [";
+        json << (i ? ",\n      " : "\n      ") << "{ \"scenes\": [";
         for (size_t k = 0; k < s.scenes.size(); ++k) {
-            json << (k ? ", " : "") << "{ \"name\": \"" << s.scenes[k].name
-                 << "\", \"objects\": ";
-            writeObjectsArray(json, s.scenes[k].objects, "        ");
+            const SceneData& sc = s.scenes[k];
+            json << (k ? ", " : "") << "{ \"name\": \"" << sc.name
+                 << "\", \"terrain\": { \"width\": " << sc.terrain.width
+                 << ", \"depth\": " << sc.terrain.depth << " }, \"lighting\": {"
+                 << " \"dir\": " << fmtVec3(sc.lightDir) << ", \"ambient\": "
+                 << fmtFloat(sc.ambient) << ", \"diffuse\": " << fmtFloat(sc.diffuse)
+                 << ", \"color\": " << fmtVec3(sc.lightColor) << ", \"brightness\": "
+                 << fmtFloat(sc.brightness) << " }, \"terrainTexture\": \""
+                 << sc.terrainTexture << "\", \"terrainTexScale\": "
+                 << fmtFloat(sc.terrainTexScale) << ", \"objects\": ";
+            writeObjectsArray(json, sc.objects, "        ");
             json << " }";
         }
         json << "] }";
@@ -682,10 +755,6 @@ std::string loadSolution(const Project& p, History& h, int& selectedObject, int&
     std::vector<SceneSnapshot> entries;
     for (const auto& je : entriesVal->arr) {
         SceneSnapshot s;
-        if (const auto* terrain = je.find("terrain")) {
-            if (const auto* v = terrain->find("width")) s.terrain.width = (int)v->numberOr(64);
-            if (const auto* v = terrain->find("depth")) s.terrain.depth = (int)v->numberOr(64);
-        }
         if (const auto* scenes = je.find("scenes");
             scenes && scenes->type == json::Value::Type::Array) {
             for (const auto& js : scenes->arr) {
@@ -693,6 +762,26 @@ std::string loadSolution(const Project& p, History& h, int& selectedObject, int&
                 if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
                 if (const auto* objs = js.find("objects"))
                     readObjectsArray(*objs, sc.objects);
+                if (const auto* t = js.find("terrain")) {
+                    if (const auto* v = t->find("width"))
+                        sc.terrain.width = (int)v->numberOr(64);
+                    if (const auto* v = t->find("depth"))
+                        sc.terrain.depth = (int)v->numberOr(64);
+                }
+                if (const auto* li = js.find("lighting")) {
+                    readVec3(li->find("dir"), sc.lightDir);
+                    if (const auto* v = li->find("ambient"))
+                        sc.ambient = (float)v->numberOr(0.55);
+                    if (const auto* v = li->find("diffuse"))
+                        sc.diffuse = (float)v->numberOr(0.45);
+                    readVec3(li->find("color"), sc.lightColor);
+                    if (const auto* v = li->find("brightness"))
+                        sc.brightness = (float)v->numberOr(1.0);
+                }
+                if (const auto* v = js.find("terrainTexture"))
+                    sc.terrainTexture = v->stringOr("");
+                if (const auto* v = js.find("terrainTexScale"))
+                    sc.terrainTexScale = (float)v->numberOr(4.0);
                 s.scenes.push_back(std::move(sc));
             }
         }
@@ -706,7 +795,7 @@ std::string loadSolution(const Project& p, History& h, int& selectedObject, int&
     // Stale check: project.json is the source of truth for the current state.
     // If it was edited outside the editor, the persisted history no longer applies.
     // (Old solution formats fail this too and simply start a fresh history.)
-    if (!(entries[index] == SceneSnapshot{p.terrain, p.scenes}))
+    if (!(entries[index] == SceneSnapshot{p.scenes}))
         return "solution history is stale (project.json changed outside the editor)";
 
     h.restore(std::move(entries), index);

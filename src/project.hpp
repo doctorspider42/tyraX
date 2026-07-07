@@ -116,37 +116,64 @@ struct HudImage {
     float size[2] = {64.0f, 64.0f};  // pixels (PS2 screen is 512x448)
 };
 
-// A scene: its own set of objects (each with its flow graph). Terrain,
-// settings, HUD and audio assets are shared by all scenes; the game starts
-// in the first scene and switches via the Switch Scene flow node.
+// A scene: its own objects (each with its flow graph), its own terrain
+// (size, heightmap, texture) and its own lighting. Sky, physics prefs, HUD
+// and audio assets are shared; the game starts in the first scene and
+// switches via the Switch Scene flow node.
 struct SceneData {
     std::string name = "main";
     std::vector<SceneObject> objects;
+
+    TerrainConfig terrain;
+    // Heightmap: vertex heights on the render grid (row-major, hmW x hmD).
+    // Empty = flat. Persisted in <project>/terrain-<scene>.heights.
+    std::vector<float> heights;
+    int hmW = 0, hmD = 0;
+    std::string terrainTexture;    // PNG, tiled; empty = checker colors
+    float terrainTexScale = 4.0f;  // world units per texture tile
+
+    // Lighting (baked into vertex colors)
+    float lightDir[3] = {0.37f, 0.82f, 0.44f};  // direction TO the light
+    float ambient = 0.55f;                      // 0..1
+    float diffuse = 0.45f;                      // 0..1
+    float lightColor[3] = {1.0f, 1.0f, 1.0f};   // tints the diffuse term
+    float brightness = 1.0f;                    // global multiplier (0..2)
 };
 
 inline bool operator==(const SceneData& a, const SceneData& b) {
-    return a.name == b.name && a.objects == b.objects;
+    auto eq3 = [](const float* x, const float* y) {
+        return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
+    };
+    // heights intentionally ignored: sculpting is outside undo history
+    // (saved on stroke end), like before scenes existed
+    return a.name == b.name && a.objects == b.objects &&
+           a.terrain.width == b.terrain.width && a.terrain.depth == b.terrain.depth &&
+           a.terrainTexture == b.terrainTexture &&
+           a.terrainTexScale == b.terrainTexScale && eq3(a.lightDir, b.lightDir) &&
+           a.ambient == b.ambient && a.diffuse == b.diffuse &&
+           eq3(a.lightColor, b.lightColor) && a.brightness == b.brightness;
 }
 
 struct Project {
     std::string name;
     std::string dir;  // absolute path to project root
-    TerrainConfig terrain;
     std::string gameTemplate = "orbit";  // "orbit" | "fpp"
     ProjectSettings settings;
     std::vector<SceneData> scenes{SceneData{}};
     int activeScene = 0;  // scene edited in the editor (not persisted in json)
 
-    // Objects of the active scene - what the editor UI operates on.
-    std::vector<SceneObject>& objects() {
+    // The active scene - what the editor UI operates on.
+    SceneData& active() {
         if (activeScene < 0 || activeScene >= (int)scenes.size()) activeScene = 0;
-        return scenes[activeScene].objects;
+        return scenes[activeScene];
     }
-    const std::vector<SceneObject>& objects() const {
+    const SceneData& active() const {
         const int i =
             (activeScene < 0 || activeScene >= (int)scenes.size()) ? 0 : activeScene;
-        return scenes[i].objects;
+        return scenes[i];
     }
+    std::vector<SceneObject>& objects() { return active().objects; }
+    const std::vector<SceneObject>& objects() const { return active().objects; }
 
     std::vector<HudImage> hud;
     // Music tracks (16-bit 22kHz stereo WAV in res/audio/), played via the
@@ -155,12 +182,6 @@ struct Project {
     // Sound effects (16-bit 22kHz WAV in res/sfx/, converted to ADPCM by the
     // toolchain at build). One-shots via the flow graph Play Sound action.
     std::vector<std::string> sounds;
-
-    // Terrain heightmap: vertex heights on the render grid (row-major,
-    // hmW x hmD where hmW = min(detail, width) + 1 etc.). Empty = flat.
-    // Persisted in <project>/terrain.heights, sculpted with the viewport brush.
-    std::vector<float> heights;
-    int hmW = 0, hmD = 0;
 
     bool valid() const { return !name.empty() && !dir.empty(); }
     std::string elfName() const { return name + ".elf"; }
@@ -183,13 +204,13 @@ std::string save(const Project& p);
 
 // --- Terrain heightmap -------------------------------------------------------
 
-// Vertex grid dimensions for the current terrain size + detail cap.
+// Vertex grid dimensions for the ACTIVE scene terrain size + detail cap.
 void terrainGridDims(const Project& p, int& vertsW, int& vertsD);
 
-// Makes p.heights match the current grid (zero-fill or nearest resample).
+// Makes every scene heightmap match its grid (zero-fill or resample).
 void ensureHeightmap(Project& p);
 
-// Bilinear height at world coordinates (0 outside the terrain).
+// Bilinear height at world coordinates in the ACTIVE scene (0 outside).
 float heightAtWorld(const Project& p, float x, float z);
 
 // Raise/lower with a smooth (cosine) falloff brush.

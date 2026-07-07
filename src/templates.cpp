@@ -51,7 +51,7 @@ static std::vector<std::string> collectTexturePaths(const Project& p) {
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects)
             if (o.type != PrimitiveType::SpawnPoint) add(o.texturePath);
-    add(p.settings.terrainTexture);
+    for (const SceneData& sc : p.scenes) add(sc.terrainTexture);
     return paths;
 }
 
@@ -155,8 +155,8 @@ static const char* TPL_TERRAIN_CONFIG_HPP =
 
 namespace {{NAME_UPPER_NS}} {
 
-constexpr float TERRAIN_WIDTH = {{WIDTH}}.0F;  // world units, X axis
-constexpr float TERRAIN_DEPTH = {{DEPTH}}.0F;  // world units, Z axis
+// Terrain size and lighting are per scene - see scene_data.hpp arrays and
+// the TERRAIN_*/SCENE_* accessor macros in the game cpp.
 
 // Project preferences (Project > Preferences in the editor)
 constexpr int TERRAIN_MAX_CELLS = {{DETAIL}};
@@ -174,16 +174,7 @@ constexpr bool SKY_DOME = {{SKY_DOME}};
 constexpr float SKY_TOP_R = {{SKY_TOP_R}};  // 0-255, dome zenith color
 constexpr float SKY_TOP_G = {{SKY_TOP_G}};
 constexpr float SKY_TOP_B = {{SKY_TOP_B}};
-// (SCENE_ prefix: the PS2SDK math3d.h already claims LIGHT_AMBIENT etc.)
-constexpr float SCENE_LIGHT_X = {{LIGHT_X}};  // normalized, points TO the light
-constexpr float SCENE_LIGHT_Y = {{LIGHT_Y}};
-constexpr float SCENE_LIGHT_Z = {{LIGHT_Z}};
-constexpr float SCENE_AMBIENT = {{AMBIENT}};  // 0..1
-constexpr float SCENE_DIFFUSE = {{DIFFUSE}};  // 0..1
-constexpr float SCENE_LIGHT_COL_R = {{LIGHT_COL_R}};  // tints the diffuse term
-constexpr float SCENE_LIGHT_COL_G = {{LIGHT_COL_G}};
-constexpr float SCENE_LIGHT_COL_B = {{LIGHT_COL_B}};
-constexpr float SCENE_BRIGHTNESS = {{BRIGHTNESS}};  // global multiplier
+  // 0..1
 
 }  // namespace {{NAME_UPPER_NS}}
 )";
@@ -370,17 +361,36 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "texture_data.gen.hpp"
 #include <math.h>
 
-// Active-scene accessors: scene_data.hpp holds one object table per scene,
-// indexed here by the TerrainGame::currentScene member (see loadScene()).
-#define SCENE_OBJECT_COUNT SCENE_OBJECT_COUNTS[currentScene]
-#define SCENE_OBJECTS SCENE_OBJECT_TABLES[currentScene]
-#define PLAYER_INDEX PLAYER_INDEXES[currentScene]
-#define PLAYER_MODE PLAYER_MODES[currentScene]
-#define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[currentScene]
-#define PLAYER_LOOK_SPEED PLAYER_LOOK_SPEEDS[currentScene]
-#define PLAYER_EYE_HEIGHT PLAYER_EYE_HEIGHTS[currentScene]
-#define PLAYER_JUMP_SPEED PLAYER_JUMP_SPEEDS[currentScene]
-#define PLAYER_CAN_JUMP PLAYER_CAN_JUMPS[currentScene]
+// Active-scene accessors: scene_data.hpp holds one table per scene, indexed
+// by g_activeScene (mirrors TerrainGame::currentScene; a file-scope variable
+// so free functions like shadeOf see the active scene too).
+static int g_activeScene = 0;
+#define SCENE_OBJECT_COUNT SCENE_OBJECT_COUNTS[g_activeScene]
+#define SCENE_OBJECTS SCENE_OBJECT_TABLES[g_activeScene]
+#define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
+#define PLAYER_MODE PLAYER_MODES[g_activeScene]
+#define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[g_activeScene]
+#define PLAYER_LOOK_SPEED PLAYER_LOOK_SPEEDS[g_activeScene]
+#define PLAYER_EYE_HEIGHT PLAYER_EYE_HEIGHTS[g_activeScene]
+#define PLAYER_JUMP_SPEED PLAYER_JUMP_SPEEDS[g_activeScene]
+#define PLAYER_CAN_JUMP PLAYER_CAN_JUMPS[g_activeScene]
+#define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
+#define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
+#define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]
+#define SCENE_LIGHT_Y SCENE_LIGHT_YS[g_activeScene]
+#define SCENE_LIGHT_Z SCENE_LIGHT_ZS[g_activeScene]
+#define SCENE_AMBIENT SCENE_AMBIENTS[g_activeScene]
+#define SCENE_DIFFUSE SCENE_DIFFUSES[g_activeScene]
+#define SCENE_LIGHT_COL_R SCENE_LIGHT_COL_RS[g_activeScene]
+#define SCENE_LIGHT_COL_G SCENE_LIGHT_COL_GS[g_activeScene]
+#define SCENE_LIGHT_COL_B SCENE_LIGHT_COL_BS[g_activeScene]
+#define SCENE_BRIGHTNESS SCENE_BRIGHTNESSES[g_activeScene]
+#define HM_W HM_WS[g_activeScene]
+#define HM_D HM_DS[g_activeScene]
+#define TERRAIN_HEIGHTS TERRAIN_HEIGHTS_TABLES[g_activeScene]
+#define TERRAIN_TEXTURE TERRAIN_TEXTURES[g_activeScene]
+#define TERRAIN_TEX_SCALE TERRAIN_TEX_SCALES[g_activeScene]
+#define terrainHeightAt(x, z) terrainHeightAtScene(g_activeScene, (x), (z))
 
 namespace {{NAME_UPPER_NS}} {
 
@@ -724,7 +734,29 @@ void TerrainGame::buildScene() {
 void TerrainGame::loadScene(int sceneIndex) {
   if (sceneIndex < 0 || sceneIndex >= SCENE_COUNT) return;
   currentScene = sceneIndex;
+  g_activeScene = sceneIndex;
   sceneGeneration++;  // scene scripts see this and reset their state
+
+  // Terrain and lighting are per scene - rebuild the terrain mesh and the
+  // sky dome (its radius follows the terrain size). Vectors are reused.
+  if (bag) {
+    vertices.clear();
+    colors.clear();
+    terrainSts.clear();
+    generateTerrainGrid();
+    colorBag->many = colors.data();
+    bag->vertices = vertices.data();
+    bag->count = static_cast<u32>(vertices.size());
+    bag->bboxVersion++;
+    if (TERRAIN_TEXTURE >= 0 && loadedTextures[TERRAIN_TEXTURE]) {
+      terrainTexBag.texture = loadedTextures[TERRAIN_TEXTURE];
+      terrainTexBag.coordinates = terrainSts.data();
+      bag->texture = &terrainTexBag;
+    } else {
+      bag->texture = nullptr;
+    }
+    buildSkyDome();
+  }
 
   runtimeObjects.assign(SCENE_OBJECT_COUNT, RuntimeObject());
   objectGeometry.clear();
@@ -1985,7 +2017,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "\n";
 
     // One object table per scene; the game indexes everything through
-    // SCENE_OBJECT_TABLES[currentScene] (see the accessor macros in the
+    // SCENE_OBJECT_TABLES[g_activeScene] (see the accessor macros in the
     // generated game cpp).
     const int sceneCount = (int)p.scenes.size();
     out << "constexpr int SCENE_COUNT = " << sceneCount << ";\n\n";
@@ -2060,10 +2092,41 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     for (int si = 0; si < sceneCount; ++si)
         out << (si ? ", " : "")
             << (!players[si] || players[si]->playerCanJump ? "true" : "false");
-    out << "};\n"
-           "\n"
-           "}  // namespace "
-        << ns << "\n";
+    out << "};\n\n";
+
+    // Per-scene terrain size and lighting (accessor macros in the game cpp)
+    auto sceneFloats = [&](const char* name, auto get) {
+        out << "constexpr float " << name << "[SCENE_COUNT] = {";
+        for (int si = 0; si < sceneCount; ++si) out << (si ? ", " : "") << get(si);
+        out << "};\n";
+    };
+    sceneFloats("TERRAIN_WIDTHS",
+                [&](int si) { return floatLit((float)p.scenes[si].terrain.width); });
+    sceneFloats("TERRAIN_DEPTHS",
+                [&](int si) { return floatLit((float)p.scenes[si].terrain.depth); });
+    auto lightOf = [&](int si, int axis) {
+        const SceneData& sc = p.scenes[si];
+        float lx = sc.lightDir[0], ly = sc.lightDir[1], lz = sc.lightDir[2];
+        const float len = std::sqrt(lx * lx + ly * ly + lz * lz);
+        if (len > 1e-5f) lx /= len, ly /= len, lz /= len;
+        else lx = 0, ly = 1, lz = 0;
+        return floatLit(axis == 0 ? lx : axis == 1 ? ly : lz);
+    };
+    sceneFloats("SCENE_LIGHT_XS", [&](int si) { return lightOf(si, 0); });
+    sceneFloats("SCENE_LIGHT_YS", [&](int si) { return lightOf(si, 1); });
+    sceneFloats("SCENE_LIGHT_ZS", [&](int si) { return lightOf(si, 2); });
+    sceneFloats("SCENE_AMBIENTS", [&](int si) { return floatLit(p.scenes[si].ambient); });
+    sceneFloats("SCENE_DIFFUSES", [&](int si) { return floatLit(p.scenes[si].diffuse); });
+    sceneFloats("SCENE_LIGHT_COL_RS",
+                [&](int si) { return floatLit(p.scenes[si].lightColor[0]); });
+    sceneFloats("SCENE_LIGHT_COL_GS",
+                [&](int si) { return floatLit(p.scenes[si].lightColor[1]); });
+    sceneFloats("SCENE_LIGHT_COL_BS",
+                [&](int si) { return floatLit(p.scenes[si].lightColor[2]); });
+    sceneFloats("SCENE_BRIGHTNESSES",
+                [&](int si) { return floatLit(p.scenes[si].brightness); });
+
+    out << "\n}  // namespace " << ns << "\n";
     return out.str();
 }
 
@@ -2092,8 +2155,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{NAME_LOWER}}", nameLower);
     s = replaceAll(s, "{{NAME}}", p.name);
     s = replaceAll(s, "{{NAME_UPPER_NS}}", sanitizeNamespace(p.name));
-    s = replaceAll(s, "{{WIDTH}}", std::to_string(p.terrain.width));
-    s = replaceAll(s, "{{DEPTH}}", std::to_string(p.terrain.depth));
+    s = replaceAll(s, "{{WIDTH}}", std::to_string(p.scenes[0].terrain.width));
+    s = replaceAll(s, "{{DEPTH}}", std::to_string(p.scenes[0].terrain.depth));
 
     const ProjectSettings& st = p.settings;
     s = replaceAll(s, "{{DETAIL}}", std::to_string(st.terrainDetail));
@@ -2557,60 +2620,87 @@ static std::string modelDataHeader(const Project& p) {
     return out.str();
 }
 
-// inc/terrain_heights.gen.hpp - the sculpted terrain heightmap + sampler
+// inc/terrain_heights.gen.hpp - per-scene sculpted heightmaps + sampler
 static std::string terrainHeightsHeader(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
-    const bool hasData = p.hmW >= 2 && p.hmD >= 2 &&
-                         (int)p.heights.size() == p.hmW * p.hmD;
-    const int vw = hasData ? p.hmW : 2;
-    const int vd = hasData ? p.hmD : 2;
+    const int sceneCount = (int)p.scenes.size();
 
     std::ostringstream out;
     out << "// Generated by tyra-editor. Do not edit - regenerated on every build.\n"
-           "#pragma once\n\nnamespace "
-        << ns << " {\n\n"
-        << "constexpr int HM_W = " << vw << ";\n"
-        << "constexpr int HM_D = " << vd << ";\n"
-        << "constexpr float HM_ORIGIN_X = " << floatLit(-(float)p.terrain.width * 0.5f)
-        << ";\n"
-        << "constexpr float HM_ORIGIN_Z = " << floatLit(-(float)p.terrain.depth * 0.5f)
-        << ";\n"
-        << "constexpr float HM_STEP_X = "
-        << floatLit((float)p.terrain.width / (vw - 1)) << ";\n"
-        << "constexpr float HM_STEP_Z = "
-        << floatLit((float)p.terrain.depth / (vd - 1)) << ";\n\n"
-        << "constexpr float TERRAIN_HEIGHTS[HM_W * HM_D] = {";
-    if (!hasData) {
-        out << "0, 0, 0, 0";
-    } else {
-        for (int i = 0; i < vw * vd; ++i) {
-            if (i % 12 == 0) out << "\n    ";
-            out << floatLit(p.heights[i]) << ",";
+           "#pragma once\n\n#include \"scene_data.hpp\"\n\nnamespace "
+        << ns << " {\n\n";
+
+    std::vector<int> vws(sceneCount, 2), vds(sceneCount, 2);
+    for (int si = 0; si < sceneCount; ++si) {
+        const SceneData& sc = p.scenes[si];
+        const bool hasData =
+            sc.hmW >= 2 && sc.hmD >= 2 && (int)sc.heights.size() == sc.hmW * sc.hmD;
+        if (hasData) vws[si] = sc.hmW, vds[si] = sc.hmD;
+        out << "// scene \"" << sc.name << "\"\n"
+            << "constexpr float HM_" << si << "_HEIGHTS[" << vws[si] * vds[si] << "] = {";
+        if (!hasData) {
+            out << "0, 0, 0, 0";
+        } else {
+            for (int i = 0; i < vws[si] * vds[si]; ++i) {
+                if (i % 12 == 0) out << "\n    ";
+                out << floatLit(sc.heights[i]) << ",";
+            }
         }
+        out << "\n};\n";
     }
-    out << "\n};\n\n"
-           "/** Bilinear terrain height at world coordinates. */\n"
-           "inline float terrainHeightAt(float x, float z) {\n"
-           "  float gx = (x - HM_ORIGIN_X) / HM_STEP_X;\n"
-           "  float gz = (z - HM_ORIGIN_Z) / HM_STEP_Z;\n"
+
+    auto intArr = [&](const char* name, auto get) {
+        out << "constexpr int " << name << "[SCENE_COUNT] = {";
+        for (int si = 0; si < sceneCount; ++si) out << (si ? ", " : "") << get(si);
+        out << "};\n";
+    };
+    auto floatArr = [&](const char* name, auto get) {
+        out << "constexpr float " << name << "[SCENE_COUNT] = {";
+        for (int si = 0; si < sceneCount; ++si) out << (si ? ", " : "") << get(si);
+        out << "};\n";
+    };
+    out << "\n";
+    intArr("HM_WS", [&](int si) { return vws[si]; });
+    intArr("HM_DS", [&](int si) { return vds[si]; });
+    floatArr("HM_ORIGIN_XS",
+             [&](int si) { return floatLit(-(float)p.scenes[si].terrain.width * 0.5f); });
+    floatArr("HM_ORIGIN_ZS",
+             [&](int si) { return floatLit(-(float)p.scenes[si].terrain.depth * 0.5f); });
+    floatArr("HM_STEP_XS", [&](int si) {
+        return floatLit((float)p.scenes[si].terrain.width / (vws[si] - 1));
+    });
+    floatArr("HM_STEP_ZS", [&](int si) {
+        return floatLit((float)p.scenes[si].terrain.depth / (vds[si] - 1));
+    });
+    out << "inline const float* TERRAIN_HEIGHTS_TABLES[SCENE_COUNT] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "") << "HM_" << si << "_HEIGHTS";
+    out << "};\n\n"
+           "/** Bilinear terrain height at world coordinates in a scene. The\n"
+           " * game maps terrainHeightAt(x, z) to the active scene. */\n"
+           "inline float terrainHeightAtScene(int scene, float x, float z) {\n"
+           "  const float* hm = TERRAIN_HEIGHTS_TABLES[scene];\n"
+           "  const int hw = HM_WS[scene];\n"
+           "  const int hd = HM_DS[scene];\n"
+           "  float gx = (x - HM_ORIGIN_XS[scene]) / HM_STEP_XS[scene];\n"
+           "  float gz = (z - HM_ORIGIN_ZS[scene]) / HM_STEP_ZS[scene];\n"
            "  if (gx < 0.0F) gx = 0.0F;\n"
            "  if (gz < 0.0F) gz = 0.0F;\n"
-           "  if (gx > HM_W - 1.001F) gx = HM_W - 1.001F;\n"
-           "  if (gz > HM_D - 1.001F) gz = HM_D - 1.001F;\n"
+           "  if (gx > hw - 1.001F) gx = hw - 1.001F;\n"
+           "  if (gz > hd - 1.001F) gz = hd - 1.001F;\n"
            "  const int ix = (int)gx;\n"
            "  const int iz = (int)gz;\n"
            "  const float fx = gx - ix;\n"
            "  const float fz = gz - iz;\n"
-           "  const float t = TERRAIN_HEIGHTS[iz * HM_W + ix] * (1.0F - fx) +\n"
-           "                  TERRAIN_HEIGHTS[iz * HM_W + ix + 1] * fx;\n"
-           "  const float b = TERRAIN_HEIGHTS[(iz + 1) * HM_W + ix] * (1.0F - fx) +\n"
-           "                  TERRAIN_HEIGHTS[(iz + 1) * HM_W + ix + 1] * fx;\n"
+           "  const float t = hm[iz * hw + ix] * (1.0F - fx) +\n"
+           "                  hm[iz * hw + ix + 1] * fx;\n"
+           "  const float b = hm[(iz + 1) * hw + ix] * (1.0F - fx) +\n"
+           "                  hm[(iz + 1) * hw + ix + 1] * fx;\n"
            "  return t * (1.0F - fz) + b * fz;\n"
            "}\n\n}  // namespace "
         << ns << "\n";
     return out.str();
 }
-
 // inc/texture_data.gen.hpp - PNG textures used by the scene
 static std::string textureDataHeader(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
@@ -2633,10 +2723,14 @@ static std::string textureDataHeader(const Project& p) {
         }
     }
     out << "};\n\n"
-        << "constexpr int TERRAIN_TEXTURE = " << textureIndexOf(p, p.settings.terrainTexture)
-        << ";\n"
-        << "constexpr float TERRAIN_TEX_SCALE = " << floatLit(p.settings.terrainTexScale)
-        << ";\n\n}  // namespace " << ns << "\n";
+        << "constexpr int TERRAIN_TEXTURES[" << p.scenes.size() << "] = {";
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        out << (si ? ", " : "") << textureIndexOf(p, p.scenes[si].terrainTexture);
+    out << "};\n"
+        << "constexpr float TERRAIN_TEX_SCALES[" << p.scenes.size() << "] = {";
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        out << (si ? ", " : "") << floatLit(p.scenes[si].terrainTexScale);
+    out << "};\n\n}  // namespace " << ns << "\n";
     return out.str();
 }
 

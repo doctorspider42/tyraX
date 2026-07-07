@@ -282,6 +282,17 @@ Each finished feature lands as its own commit.
   Trade-off noted: assets of ALL scenes stay resident (fine for editor-scale
   projects; per-scene asset streaming = future work).
 
+- (28) **Per-scene terrain and lighting** — each scene now owns its terrain
+  (size, sculpted heightmap in terrain-<scene>.heights, tiled texture) and
+  its lighting (direction/ambient/diffuse/color/brightness); sky and physics
+  prefs stay project-global. Preferences edit the ACTIVE scene. Generated
+  code: per-scene arrays (TERRAIN_WIDTHS, HM_*_HEIGHTS tables, SCENE_LIGHT_*)
+  behind accessor macros bound to a file-scope g_activeScene; loadScene()
+  rebuilds the terrain mesh + sky dome on switch (vectors reused, bboxVersion
+  bumped - still leak-free). Legacy project-level terrain/light migrate into
+  every scene on load. Verified: legacy project renders identically at
+  50 FPS; scene switching rebuilds terrain per scene.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

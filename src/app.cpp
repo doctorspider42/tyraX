@@ -271,9 +271,10 @@ void App::drawUI() {
     if (hasProject_) {
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S)) saveAll("Saved");
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Comma)) {
-            prefTerrain_ = project_.terrain;
+            prefTerrain_ = project_.active().terrain;
             prefTemplate_ = project_.gameTemplate == "fpp" ? 1 : 0;
             prefSettings_ = project_.settings;
+            stageSceneIntoPrefs();
             openPreferencesPopup_ = true;
         }
         if (!io.WantTextInput) {
@@ -312,7 +313,7 @@ void App::drawMenuBar() {
         if (ImGui::BeginMenu("Project", hasProject_)) {
             const bool busy = runner_.busy();
             if (ImGui::MenuItem("Preferences...", "Ctrl+,")) {
-                prefTerrain_ = project_.terrain;
+                prefTerrain_ = project_.active().terrain;
                 prefTemplate_ = project_.gameTemplate == "fpp" ? 1 : 0;
                 prefSettings_ = project_.settings;
                 openPreferencesPopup_ = true;
@@ -624,7 +625,8 @@ void App::drawProjectWindow() {
 
     ImGui::Text("Terrain:");
     ImGui::SameLine(110);
-    ImGui::Text("%d x %d units (flat)", project_.terrain.width, project_.terrain.depth);
+    ImGui::Text("%d x %d units (scene %s)", project_.active().terrain.width,
+                project_.active().terrain.depth, project_.active().name.c_str());
 
     ImGui::Text("Target:");
     ImGui::SameLine(110);
@@ -714,19 +716,16 @@ void App::saveAll(const char* status) {
 }
 
 void App::commitChange() {
-    history_.push({project_.terrain, project_.scenes});
+    history_.push({project_.scenes});
     saveAll("Saved");
 }
 
 void App::applySnapshot(const SceneSnapshot& s) {
-    const bool terrainChanged = s.terrain.width != project_.terrain.width ||
-                                s.terrain.depth != project_.terrain.depth;
-    project_.terrain = s.terrain;
     project_.scenes = s.scenes;
     if (project_.activeScene >= (int)project_.scenes.size()) project_.activeScene = 0;
     if (selectedObject_ >= (int)project_.objects().size()) selectedObject_ = -1;
     flowPositionsApplied_ = false;  // graphs live in objects - re-pin node positions
-    if (terrainChanged) applyProjectToViewport();
+    applyProjectToViewport();  // terrain/lighting may differ per snapshot
 }
 
 void App::undo() {
@@ -773,14 +772,14 @@ void App::attachProject() {
     selectedObject_ = -1;
     flowGraphObject_ = -1;
     flowPositionsApplied_ = false;
-    history_.reset({project_.terrain, project_.scenes});
+    history_.reset({project_.scenes});
     // Solution file restores undo history + editor state when it is in sync
     // with project.json; otherwise we start fresh (and write a new one).
     int viewMode = 0;
     if (auto err =
             project::loadSolution(project_, history_, selectedObject_, gizmoOp_, viewMode);
         !err.empty()) {
-        history_.reset({project_.terrain, project_.scenes});
+        history_.reset({project_.scenes});
         project::saveSolution(project_, history_, selectedObject_, gizmoOp_, viewMode);
     }
     viewport_.setViewMode((Viewport::ViewMode)viewMode);
@@ -1972,18 +1971,30 @@ void App::drawNewProjectModal() {
     }
 }
 
+void App::stageSceneIntoPrefs() {
+    const SceneData& sc = project_.active();
+    for (int i = 0; i < 3; ++i) {
+        prefSettings_.lightDir[i] = sc.lightDir[i];
+        prefSettings_.lightColor[i] = sc.lightColor[i];
+    }
+    prefSettings_.ambient = sc.ambient;
+    prefSettings_.diffuse = sc.diffuse;
+    prefSettings_.brightness = sc.brightness;
+    prefSettings_.terrainTexture = sc.terrainTexture;
+    prefSettings_.terrainTexScale = sc.terrainTexScale;
+}
+
 void App::applyProjectToViewport() {
     project::ensureHeightmap(project_);
+    const SceneData& sc = project_.active();
     viewport_.setProjectDir(project_.dir);
-    viewport_.setTerrainTexture(project_.settings.terrainTexture,
-                                project_.settings.terrainTexScale);
-    viewport_.setTerrain(project_.terrain, project_.settings.terrainDetail, project_.heights,
-                         project_.hmW, project_.hmD);
+    viewport_.setTerrainTexture(sc.terrainTexture, sc.terrainTexScale);
+    viewport_.setTerrain(sc.terrain, project_.settings.terrainDetail, sc.heights, sc.hmW,
+                         sc.hmD);
     viewport_.setSky(project_.settings.skyColor, project_.settings.skyTopColor,
                      project_.settings.skyDome);
-    viewport_.setLighting(project_.settings.lightDir, project_.settings.ambient,
-                          project_.settings.diffuse, project_.settings.lightColor,
-                          project_.settings.brightness);
+    viewport_.setLighting(sc.lightDir, sc.ambient, sc.diffuse, sc.lightColor,
+                          sc.brightness);
 }
 
 void App::drawPreferencesModal() {
@@ -2078,9 +2089,19 @@ void App::drawPreferencesModal() {
 
     ImGui::Separator();
     if (ImGui::Button("OK", ImVec2(120, 0))) {
-        project_.terrain = prefTerrain_;
         project_.gameTemplate = prefTemplate_ == 1 ? "fpp" : "orbit";
         project_.settings = prefSettings_;
+        SceneData& sc = project_.active();
+        sc.terrain = prefTerrain_;
+        for (int i = 0; i < 3; ++i) {
+            sc.lightDir[i] = prefSettings_.lightDir[i];
+            sc.lightColor[i] = prefSettings_.lightColor[i];
+        }
+        sc.ambient = prefSettings_.ambient;
+        sc.diffuse = prefSettings_.diffuse;
+        sc.brightness = prefSettings_.brightness;
+        sc.terrainTexture = prefSettings_.terrainTexture;
+        sc.terrainTexScale = prefSettings_.terrainTexScale;
         applyProjectToViewport();
         commitChange();
         ImGui::CloseCurrentPopup();

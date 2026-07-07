@@ -28,8 +28,8 @@ static int createFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
-    std::printf("created: %s (terrain %dx%d)\n", p.dir.c_str(), p.terrain.width,
-                p.terrain.depth);
+    std::printf("created: %s (terrain %dx%d)\n", p.dir.c_str(), p.scenes[0].terrain.width,
+                p.scenes[0].terrain.depth);
     return 0;
 }
 
