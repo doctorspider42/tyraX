@@ -8,6 +8,7 @@
 
 #include "gl_loader.h"
 #include "objparser.hpp"
+#include <stb_image.h>
 
 // ---------------------------------------------------------------------------
 // Minimal matrix math (column-major, OpenGL style)
@@ -143,19 +144,28 @@ Mat4 lookAt(Vec3 eye, Vec3 center, Vec3 up) {
 const char* VS = R"(#version 330 core
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aColor;
+layout(location = 2) in vec2 aUV;
 uniform mat4 uMvp;
 out vec3 vColor;
+out vec2 vUV;
 void main() {
     vColor = aColor;
+    vUV = aUV;
     gl_Position = uMvp * vec4(aPos, 1.0);
 }
 )";
 
 const char* FS = R"(#version 330 core
 in vec3 vColor;
+in vec2 vUV;
 uniform vec3 uTint;
+uniform int uUseTex;
+uniform sampler2D uTex;
 out vec4 FragColor;
-void main() { FragColor = vec4(vColor * uTint, 1.0); }
+void main() {
+    vec3 tex = uUseTex != 0 ? texture(uTex, vUV).rgb : vec3(1.0);
+    FragColor = vec4(vColor * uTint * tex, 1.0);
+}
 )";
 
 GLuint compile(GLenum type, const char* src) {
@@ -192,18 +202,19 @@ float shadeOf(Vec3 n) {
     return s > 1.0f ? 1.0f : s;
 }
 
-void pushShaded(std::vector<float>& v, Vec3 p, Vec3 n) {
+// Vertex layout: pos(3) + color(3) + uv(2)
+void pushShaded(std::vector<float>& v, Vec3 p, Vec3 n, float tu = 0, float tv = 0) {
     const float s = shadeOf(n);
-    v.insert(v.end(), {p.x, p.y, p.z, s, s, s});
+    v.insert(v.end(), {p.x, p.y, p.z, s, s, s, tu, tv});
 }
 
 void pushQuadShaded(std::vector<float>& v, Vec3 a, Vec3 b, Vec3 c, Vec3 d, Vec3 n) {
-    pushShaded(v, a, n);
-    pushShaded(v, b, n);
-    pushShaded(v, c, n);
-    pushShaded(v, a, n);
-    pushShaded(v, c, n);
-    pushShaded(v, d, n);
+    pushShaded(v, a, n, 0, 0);
+    pushShaded(v, b, n, 1, 0);
+    pushShaded(v, c, n, 1, 1);
+    pushShaded(v, a, n, 0, 0);
+    pushShaded(v, c, n, 1, 1);
+    pushShaded(v, d, n, 0, 1);
 }
 
 std::vector<float> unitBox() {
@@ -227,16 +238,18 @@ std::vector<float> unitSphere() {
     };
     for (int st = 0; st < stacks; ++st) {
         const float t0 = kPi * st / stacks, t1 = kPi * (st + 1) / stacks;
+        const float tv0 = (float)st / stacks, tv1 = (float)(st + 1) / stacks;
         for (int sl = 0; sl < slices; ++sl) {
             const float p0 = 2 * kPi * sl / slices, p1 = 2 * kPi * (sl + 1) / slices;
+            const float tu0 = (float)sl / slices, tu1 = (float)(sl + 1) / slices;
             Vec3 v00 = at(t0, p0), v01 = at(t0, p1), v10 = at(t1, p0), v11 = at(t1, p1);
             auto n = [](Vec3 p) -> Vec3 { return {p.x * 2, p.y * 2, p.z * 2}; };
-            pushShaded(v, v00, n(v00));
-            pushShaded(v, v10, n(v10));
-            pushShaded(v, v11, n(v11));
-            pushShaded(v, v00, n(v00));
-            pushShaded(v, v11, n(v11));
-            pushShaded(v, v01, n(v01));
+            pushShaded(v, v00, n(v00), tu0, tv0);
+            pushShaded(v, v10, n(v10), tu0, tv1);
+            pushShaded(v, v11, n(v11), tu1, tv1);
+            pushShaded(v, v00, n(v00), tu0, tv0);
+            pushShaded(v, v11, n(v11), tu1, tv1);
+            pushShaded(v, v01, n(v01), tu1, tv0);
         }
     }
     return v;
@@ -252,18 +265,19 @@ std::vector<float> unitCylinder() {
         const float x1 = r * std::cos(a1), z1 = r * std::sin(a1);
         const Vec3 n0 = {std::cos(a0), 0, std::sin(a0)};
         const Vec3 n1 = {std::cos(a1), 0, std::sin(a1)};
-        pushShaded(v, {x0, -h, z0}, n0);
-        pushShaded(v, {x0, h, z0}, n0);
-        pushShaded(v, {x1, h, z1}, n1);
-        pushShaded(v, {x0, -h, z0}, n0);
-        pushShaded(v, {x1, h, z1}, n1);
-        pushShaded(v, {x1, -h, z1}, n1);
-        pushShaded(v, {0, h, 0}, {0, 1, 0});
-        pushShaded(v, {x1, h, z1}, {0, 1, 0});
-        pushShaded(v, {x0, h, z0}, {0, 1, 0});
-        pushShaded(v, {0, -h, 0}, {0, -1, 0});
-        pushShaded(v, {x0, -h, z0}, {0, -1, 0});
-        pushShaded(v, {x1, -h, z1}, {0, -1, 0});
+        const float u0 = (float)i / seg, u1 = (float)(i + 1) / seg;
+        pushShaded(v, {x0, -h, z0}, n0, u0, 1);
+        pushShaded(v, {x0, h, z0}, n0, u0, 0);
+        pushShaded(v, {x1, h, z1}, n1, u1, 0);
+        pushShaded(v, {x0, -h, z0}, n0, u0, 1);
+        pushShaded(v, {x1, h, z1}, n1, u1, 0);
+        pushShaded(v, {x1, -h, z1}, n1, u1, 1);
+        pushShaded(v, {0, h, 0}, {0, 1, 0}, 0.5f, 0.5f);
+        pushShaded(v, {x1, h, z1}, {0, 1, 0}, x1 + 0.5f, z1 + 0.5f);
+        pushShaded(v, {x0, h, z0}, {0, 1, 0}, x0 + 0.5f, z0 + 0.5f);
+        pushShaded(v, {0, -h, 0}, {0, -1, 0}, 0.5f, 0.5f);
+        pushShaded(v, {x0, -h, z0}, {0, -1, 0}, x0 + 0.5f, z0 + 0.5f);
+        pushShaded(v, {x1, -h, z1}, {0, -1, 0}, x1 + 0.5f, z1 + 0.5f);
     }
     return v;
 }
@@ -278,12 +292,14 @@ std::vector<float> unitCone() {
         const float am = (a0 + a1) * 0.5f;
         const float x0 = r * std::cos(a0), z0 = r * std::sin(a0);
         const float x1 = r * std::cos(a1), z1 = r * std::sin(a1);
-        pushShaded(v, {0, h, 0}, {nl * std::cos(am), ny, nl * std::sin(am)});
-        pushShaded(v, {x1, -h, z1}, {nl * std::cos(a1), ny, nl * std::sin(a1)});
-        pushShaded(v, {x0, -h, z0}, {nl * std::cos(a0), ny, nl * std::sin(a0)});
-        pushShaded(v, {0, -h, 0}, {0, -1, 0});
-        pushShaded(v, {x0, -h, z0}, {0, -1, 0});
-        pushShaded(v, {x1, -h, z1}, {0, -1, 0});
+        const float u0 = (float)i / seg, u1 = (float)(i + 1) / seg;
+        pushShaded(v, {0, h, 0}, {nl * std::cos(am), ny, nl * std::sin(am)},
+                   (u0 + u1) * 0.5f, 0);
+        pushShaded(v, {x1, -h, z1}, {nl * std::cos(a1), ny, nl * std::sin(a1)}, u1, 1);
+        pushShaded(v, {x0, -h, z0}, {nl * std::cos(a0), ny, nl * std::sin(a0)}, u0, 1);
+        pushShaded(v, {0, -h, 0}, {0, -1, 0}, 0.5f, 0.5f);
+        pushShaded(v, {x0, -h, z0}, {0, -1, 0}, x0 + 0.5f, z0 + 0.5f);
+        pushShaded(v, {x1, -h, z1}, {0, -1, 0}, x1 + 0.5f, z1 + 0.5f);
     }
     return v;
 }
@@ -349,8 +365,8 @@ std::vector<float> unitWireCube() {
 }
 
 void pushVertexColor(std::vector<float>& v, float x, float y, float z, float r, float g,
-                     float b) {
-    v.insert(v.end(), {x, y, z, r, g, b});
+                     float b, float tu = 0, float tv = 0) {
+    v.insert(v.end(), {x, y, z, r, g, b, tu, tv});
 }
 
 }  // namespace
@@ -359,7 +375,7 @@ void pushVertexColor(std::vector<float>& v, float x, float y, float z, float r, 
 
 Viewport::Mesh Viewport::uploadMesh(const std::vector<float>& interleaved) {
     Mesh m;
-    m.vertexCount = (int)(interleaved.size() / 6);
+    m.vertexCount = (int)(interleaved.size() / 8);
     glGenVertexArrays(1, &m.vao);
     glGenBuffers(1, &m.vbo);
     glBindVertexArray(m.vao);
@@ -367,10 +383,13 @@ Viewport::Mesh Viewport::uploadMesh(const std::vector<float>& interleaved) {
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(interleaved.size() * sizeof(float)),
                  interleaved.data(), GL_STATIC_DRAW);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float),
                           (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float),
+                          (void*)(6 * sizeof(float)));
     glBindVertexArray(0);
     return m;
 }
@@ -401,6 +420,7 @@ bool Viewport::init() {
     }
     uMvp_ = glGetUniformLocation(program_, "uMvp");
     uTint_ = glGetUniformLocation(program_, "uTint");
+    uUseTex_ = glGetUniformLocation(program_, "uUseTex");
 
     buildTerrainMesh();
     buildPrimitiveMeshes();
@@ -419,6 +439,7 @@ void Viewport::shutdown() {
     destroyMesh(wireCube_);
     destroyMesh(skyQuad_);
     clearModelCache();
+    clearTexCache();
     if (fbo_) glDeleteFramebuffers(1, &fbo_);
     if (colorTex_) glDeleteTextures(1, &colorTex_);
     if (depthRbo_) glDeleteRenderbuffers(1, &depthRbo_);
@@ -553,11 +574,18 @@ void Viewport::buildTerrainMesh() {
         return shadeOf(normalize(n));
     };
 
-    const float cA[3] = {96 / 255.0f, 160 / 255.0f, 72 / 255.0f};
-    const float cB[3] = {74 / 255.0f, 128 / 255.0f, 56 / 255.0f};
+    // Textured terrain modulates the texture with a neutral shade only.
+    const bool texturedTerrain = !terrainTexture_.empty();
+    const float cA[3] = {texturedTerrain ? 1.0f : 96 / 255.0f,
+                         texturedTerrain ? 1.0f : 160 / 255.0f,
+                         texturedTerrain ? 1.0f : 72 / 255.0f};
+    const float cB[3] = {texturedTerrain ? 1.0f : 74 / 255.0f,
+                         texturedTerrain ? 1.0f : 128 / 255.0f,
+                         texturedTerrain ? 1.0f : 56 / 255.0f};
+    const float ts = terrainTexScale_;
 
     std::vector<float> tri;
-    tri.reserve((size_t)cellsX * cellsZ * 6 * 6);
+    tri.reserve((size_t)cellsX * cellsZ * 6 * 8);
     for (int z = 0; z < cellsZ; ++z) {
         for (int x = 0; x < cellsX; ++x) {
             const float* c = ((x + z) % 2 == 0) ? cA : cB;
@@ -567,12 +595,18 @@ void Viewport::buildTerrainMesh() {
             const float h01 = hAt(x, z + 1), h11 = hAt(x + 1, z + 1);
             const float s00 = shadeAt(x, z), s10 = shadeAt(x + 1, z);
             const float s01 = shadeAt(x, z + 1), s11 = shadeAt(x + 1, z + 1);
-            pushVertexColor(tri, ax, h00, az, c[0] * s00, c[1] * s00, c[2] * s00);
-            pushVertexColor(tri, bx, h10, az, c[0] * s10, c[1] * s10, c[2] * s10);
-            pushVertexColor(tri, ax, h01, bz, c[0] * s01, c[1] * s01, c[2] * s01);
-            pushVertexColor(tri, bx, h10, az, c[0] * s10, c[1] * s10, c[2] * s10);
-            pushVertexColor(tri, bx, h11, bz, c[0] * s11, c[1] * s11, c[2] * s11);
-            pushVertexColor(tri, ax, h01, bz, c[0] * s01, c[1] * s01, c[2] * s01);
+            pushVertexColor(tri, ax, h00, az, c[0] * s00, c[1] * s00, c[2] * s00, ax / ts,
+                            az / ts);
+            pushVertexColor(tri, bx, h10, az, c[0] * s10, c[1] * s10, c[2] * s10, bx / ts,
+                            az / ts);
+            pushVertexColor(tri, ax, h01, bz, c[0] * s01, c[1] * s01, c[2] * s01, ax / ts,
+                            bz / ts);
+            pushVertexColor(tri, bx, h10, az, c[0] * s10, c[1] * s10, c[2] * s10, bx / ts,
+                            az / ts);
+            pushVertexColor(tri, bx, h11, bz, c[0] * s11, c[1] * s11, c[2] * s11, bx / ts,
+                            bz / ts);
+            pushVertexColor(tri, ax, h01, bz, c[0] * s01, c[1] * s01, c[2] * s01, ax / ts,
+                            bz / ts);
         }
     }
     terrain_mesh_ = uploadMesh(tri);
@@ -733,6 +767,42 @@ void Viewport::setProjectDir(const std::string& dir) {
     if (projectDir_ == dir) return;
     projectDir_ = dir;
     clearModelCache();
+    clearTexCache();
+}
+
+void Viewport::setTerrainTexture(const std::string& relPath, float scale) {
+    if (terrainTexture_ == relPath && terrainTexScale_ == scale) return;
+    terrainTexture_ = relPath;
+    terrainTexScale_ = scale < 0.25f ? 0.25f : scale;
+    if (program_) buildTerrainMesh();
+}
+
+void Viewport::clearTexCache() {
+    for (auto& [path, tex] : texCache_)
+        if (tex) glDeleteTextures(1, &tex);
+    texCache_.clear();
+}
+
+uint32_t Viewport::glTexture(const std::string& relPath) {
+    if (relPath.empty()) return 0;
+    auto it = texCache_.find(relPath);
+    if (it != texCache_.end()) return it->second;
+
+    GLuint tex = 0;
+    const std::string full = (std::filesystem::path(projectDir_) / relPath).string();
+    int w = 0, h = 0, comp = 0;
+    if (unsigned char* pixels = stbi_load(full.c_str(), &w, &h, &comp, 4)) {
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        stbi_image_free(pixels);
+    }
+    texCache_[relPath] = tex;  // 0 is cached too (missing/unreadable)
+    return tex;
 }
 
 void Viewport::clearModelCache() {
@@ -745,17 +815,18 @@ const Viewport::Mesh* Viewport::modelMesh(const std::string& relPath) {
     auto it = modelCache_.find(relPath);
     if (it != modelCache_.end()) return it->second.vao ? &it->second : nullptr;
 
-    std::vector<float> posNormal;
+    std::vector<float> posNormalUv;
     Mesh mesh;  // stays empty on failure - negative result is cached too
     if (objparser::load((std::filesystem::path(projectDir_) / relPath).string(),
-                        posNormal)) {
+                        posNormalUv)) {
         std::vector<float> interleaved;
-        interleaved.reserve(posNormal.size());
-        for (size_t i = 0; i + 5 < posNormal.size(); i += 6) {
+        interleaved.reserve(posNormalUv.size());
+        for (size_t i = 0; i + 7 < posNormalUv.size(); i += 8) {
             const float s =
-                shadeOf({posNormal[i + 3], posNormal[i + 4], posNormal[i + 5]});
+                shadeOf({posNormalUv[i + 3], posNormalUv[i + 4], posNormalUv[i + 5]});
             interleaved.insert(interleaved.end(),
-                               {posNormal[i], posNormal[i + 1], posNormal[i + 2], s, s, s});
+                               {posNormalUv[i], posNormalUv[i + 1], posNormalUv[i + 2], s, s,
+                                s, posNormalUv[i + 6], posNormalUv[i + 7]});
         }
         mesh = uploadMesh(interleaved);
     }
@@ -837,9 +908,11 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     glUseProgram(program_);
 
     auto draw = [&](const Mesh& mesh, GLenum mode, const Mat4& mvp, float r, float g,
-                    float b) {
+                    float b, uint32_t texture = 0) {
         glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
         glUniform3f(uTint_, r, g, b);
+        glUniform1i(uUseTex_, texture ? 1 : 0);
+        if (texture) glBindTexture(GL_TEXTURE_2D, texture);
         glBindVertexArray(mesh.vao);
         glDrawArrays(mode, 0, mesh.vertexCount);
     };
@@ -867,11 +940,15 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             glEnable(GL_POLYGON_OFFSET_FILL);
             glPolygonOffset(1.0f, 1.0f);
         }
-        draw(terrain_mesh_, GL_TRIANGLES, viewProj, tintScale, tintScale, tintScale);
+        const uint32_t terrainTex =
+            asLines ? 0 : glTexture(terrainTexture_);  // wire passes stay untextured
+        draw(terrain_mesh_, GL_TRIANGLES, viewProj, tintScale, tintScale, tintScale,
+             terrainTex);
         for (const SceneObject& o : objects) {
             const Mat4 mvp = mul(viewProj, modelMatrix(o));
+            const uint32_t tex = asLines ? 0 : glTexture(o.texturePath);
             draw(*meshFor(o), GL_TRIANGLES, mvp, o.color[0] * tintScale,
-                 o.color[1] * tintScale, o.color[2] * tintScale);
+                 o.color[1] * tintScale, o.color[2] * tintScale, tex);
         }
         if (!asLines) glDisable(GL_POLYGON_OFFSET_FILL);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);

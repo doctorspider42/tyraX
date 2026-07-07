@@ -60,7 +60,8 @@ static std::string objectJson(const SceneObject& o) {
            ", \"rotation\": " + fmtVec3(o.rotation) + ", \"scale\": " + fmtVec3(o.scale) +
            ", \"color\": " + fmtVec3(o.color) +
            ", \"physics\": " + (o.physics ? "true" : "false") +
-           (o.modelPath.empty() ? "" : ", \"model\": \"" + o.modelPath + "\"") + " }";
+           (o.modelPath.empty() ? "" : ", \"model\": \"" + o.modelPath + "\"") +
+           (o.texturePath.empty() ? "" : ", \"texture\": \"" + o.texturePath + "\"") + " }";
 }
 
 // "objects": [ ... ] with the given indentation for entries
@@ -96,7 +97,9 @@ std::string save(const Project& p) {
          << "    \"jumpSpeed\": " << fmtFloat(p.settings.jumpSpeed) << ",\n"
          << "    \"lightDir\": " << fmtVec3(p.settings.lightDir) << ",\n"
          << "    \"ambient\": " << fmtFloat(p.settings.ambient) << ",\n"
-         << "    \"diffuse\": " << fmtFloat(p.settings.diffuse) << "\n"
+         << "    \"diffuse\": " << fmtFloat(p.settings.diffuse) << ",\n"
+         << "    \"terrainTexture\": \"" << p.settings.terrainTexture << "\",\n"
+         << "    \"terrainTexScale\": " << fmtFloat(p.settings.terrainTexScale) << "\n"
          << "  },\n"
          << "  \"scenes\": [";
     for (size_t i = 0; i < p.scenes.size(); ++i) {
@@ -392,6 +395,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* v = jo.find("physics"))
             o.physics = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
+        if (const auto* v = jo.find("texture")) o.texturePath = v->stringOr("");
         out.push_back(std::move(o));
     }
 }
@@ -441,6 +445,10 @@ std::string load(Project& out, const std::string& projectDir) {
         readVec3(s->find("lightDir"), st.lightDir);
         if (const auto* v = s->find("ambient")) st.ambient = (float)v->numberOr(0.55);
         if (const auto* v = s->find("diffuse")) st.diffuse = (float)v->numberOr(0.45);
+        if (const auto* v = s->find("terrainTexture")) st.terrainTexture = v->stringOr("");
+        if (const auto* v = s->find("terrainTexScale"))
+            st.terrainTexScale = (float)v->numberOr(4.0);
+        if (st.terrainTexScale < 0.25f) st.terrainTexScale = 0.25f;
     }
 
     if (const auto* scenes = root.find("scenes");
@@ -602,6 +610,7 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\model_data.gen.hpp" ||
             f.relativePath == "inc\\hud_data.gen.hpp" ||
             f.relativePath == "inc\\terrain_heights.gen.hpp" ||
+            f.relativePath == "inc\\texture_data.gen.hpp" ||
             f.relativePath == ".tyra-engine-patch\\planes_clip_algorithm.cpp" ||
             f.relativePath == ".tyra-engine-patch\\stapip_clipper.cpp" ||
             f.relativePath == ".tyra-engine-patch\\stapip_qbuffer.cpp" ||

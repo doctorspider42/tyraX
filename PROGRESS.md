@@ -95,6 +95,16 @@ Each finished feature lands as its own commit.
   the hilltop). Sculpting itself needs a hands-on mouse test. Not in undo history
   (saved on stroke end).
 
+- (14) **Textures (PNG)** — the PS2-native format Tyra loads (32/24bpp + fast
+  palletized 8/4bpp; power-of-two sizes recommended). Per-object texture
+  (Set.../Clear in object properties; object color modulates the texture, white =
+  plain) and a tiled terrain texture (preference + world-units-per-tile scale).
+  UVs generated for all primitives, `vt` parsed from .obj models, terrain tiles in
+  world space. PS2 side: StaPipTextureBag per bag, textures loaded once via the
+  TextureRepository, modulation-correct colors (128 = 1.0). Editor viewport renders
+  the same textures via stb_image + a sampler in the shader (wire passes stay
+  untextured). Verified in editor + PCSX2 (bricks on sculpted terrain and a box).
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

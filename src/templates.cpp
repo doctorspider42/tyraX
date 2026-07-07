@@ -36,6 +36,30 @@ static int modelIndexOf(const Project& p, const SceneObject& o) {
     return -1;
 }
 
+// Unique texture paths (objects + terrain), first-use order. The index in
+// this list == SceneObjectData::texture / TERRAIN_TEXTURE in generated code.
+static std::vector<std::string> collectTexturePaths(const Project& p) {
+    std::vector<std::string> paths;
+    auto add = [&](const std::string& t) {
+        if (t.empty()) return;
+        for (const auto& e : paths)
+            if (e == t) return;
+        paths.push_back(t);
+    };
+    for (const SceneObject& o : p.objects)
+        if (o.type != PrimitiveType::SpawnPoint) add(o.texturePath);
+    add(p.settings.terrainTexture);
+    return paths;
+}
+
+static int textureIndexOf(const Project& p, const std::string& texturePath) {
+    if (texturePath.empty()) return -1;
+    const auto paths = collectTexturePaths(p);
+    for (size_t i = 0; i < paths.size(); ++i)
+        if (paths[i] == texturePath) return (int)i;
+    return -1;
+}
+
 static std::string replaceAll(std::string s, const std::string& from, const std::string& to) {
     size_t pos = 0;
     while ((pos = s.find(from, pos)) != std::string::npos) {
@@ -197,10 +221,15 @@ class TerrainGame : public Tyra::Game {
   struct ObjectGeometry {
     std::vector<Tyra::Vec4> vertices;
     std::vector<Tyra::Color> colors;
+    std::vector<Tyra::Vec4> sts;  // texture coordinates
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
   };
+  std::vector<Tyra::Texture*> loadedTextures;
+  std::vector<Tyra::Vec4> terrainSts;
+  Tyra::StaPipTextureBag terrainTexBag;
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
   ObjectGeometry skyDome;
@@ -261,10 +290,15 @@ class TerrainGame : public Tyra::Game {
   struct ObjectGeometry {
     std::vector<Tyra::Vec4> vertices;
     std::vector<Tyra::Color> colors;
+    std::vector<Tyra::Vec4> sts;  // texture coordinates
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
   };
+  std::vector<Tyra::Texture*> loadedTextures;
+  std::vector<Tyra::Vec4> terrainSts;
+  Tyra::StaPipTextureBag terrainTexBag;
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
   ObjectGeometry skyDome;
@@ -291,6 +325,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "model_data.gen.hpp"
 #include "hud_data.gen.hpp"
 #include "terrain_heights.gen.hpp"
+#include "texture_data.gen.hpp"
 #include <math.h>
 
 namespace {{NAME_UPPER_NS}} {
@@ -338,46 +373,56 @@ float shadeOf(const V3& n) {
 }
 
 void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
-              const SceneObjectData& o, V3 p, V3 n) {
+              std::vector<Vec4>& sts, const SceneObjectData& o, V3 p, V3 n,
+              float u, float v) {
   p.x *= o.scale[0], p.y *= o.scale[1], p.z *= o.scale[2];
   p = rotated(p, o.rotation);
   n = rotated(n, o.rotation);
   const float shade = shadeOf(n);
   verts.push_back(Vec4(p.x + o.position[0], p.y + o.position[1],
                        p.z + o.position[2], 1.0F));
-  cols.push_back(Color(o.color[0] * 255.0F * shade, o.color[1] * 255.0F * shade,
-                       o.color[2] * 255.0F * shade, 128.0F));
+  // In textured mode the color modulates the texture (128 = 1.0)
+  const float scale = o.texture >= 0 ? 128.0F : 255.0F;
+  cols.push_back(Color(o.color[0] * scale * shade, o.color[1] * scale * shade,
+                       o.color[2] * scale * shade, 128.0F));
+  sts.push_back(Vec4(u, v, 1.0F, 0.0F));
 }
 
 void pushQuad(std::vector<Vec4>& verts, std::vector<Color>& cols,
-              const SceneObjectData& o, V3 a, V3 b, V3 c, V3 d, V3 n) {
-  pushVert(verts, cols, o, a, n);
-  pushVert(verts, cols, o, b, n);
-  pushVert(verts, cols, o, c, n);
-  pushVert(verts, cols, o, a, n);
-  pushVert(verts, cols, o, c, n);
-  pushVert(verts, cols, o, d, n);
+              std::vector<Vec4>& sts, const SceneObjectData& o, V3 a, V3 b, V3 c,
+              V3 d, V3 n) {
+  pushVert(verts, cols, sts, o, a, n, 0, 0);
+  pushVert(verts, cols, sts, o, b, n, 1, 0);
+  pushVert(verts, cols, sts, o, c, n, 1, 1);
+  pushVert(verts, cols, sts, o, a, n, 0, 0);
+  pushVert(verts, cols, sts, o, c, n, 1, 1);
+  pushVert(verts, cols, sts, o, d, n, 0, 1);
 }
 
 void addBox(std::vector<Vec4>& verts, std::vector<Color>& cols,
-            const SceneObjectData& o) {
+            std::vector<Vec4>& sts, const SceneObjectData& o) {
   const float h = 0.5F;
-  pushQuad(verts, cols, o, {h, -h, -h}, {h, h, -h}, {h, h, h}, {h, -h, h}, {1, 0, 0});
-  pushQuad(verts, cols, o, {-h, -h, h}, {-h, h, h}, {-h, h, -h}, {-h, -h, -h}, {-1, 0, 0});
-  pushQuad(verts, cols, o, {-h, h, -h}, {-h, h, h}, {h, h, h}, {h, h, -h}, {0, 1, 0});
-  pushQuad(verts, cols, o, {-h, -h, h}, {-h, -h, -h}, {h, -h, -h}, {h, -h, h}, {0, -1, 0});
-  pushQuad(verts, cols, o, {-h, -h, h}, {h, -h, h}, {h, h, h}, {-h, h, h}, {0, 0, 1});
-  pushQuad(verts, cols, o, {h, -h, -h}, {-h, -h, -h}, {-h, h, -h}, {h, h, -h}, {0, 0, -1});
+  pushQuad(verts, cols, sts, o, {h, -h, -h}, {h, h, -h}, {h, h, h}, {h, -h, h}, {1, 0, 0});
+  pushQuad(verts, cols, sts, o, {-h, -h, h}, {-h, h, h}, {-h, h, -h}, {-h, -h, -h},
+           {-1, 0, 0});
+  pushQuad(verts, cols, sts, o, {-h, h, -h}, {-h, h, h}, {h, h, h}, {h, h, -h}, {0, 1, 0});
+  pushQuad(verts, cols, sts, o, {-h, -h, h}, {-h, -h, -h}, {h, -h, -h}, {h, -h, h},
+           {0, -1, 0});
+  pushQuad(verts, cols, sts, o, {-h, -h, h}, {h, -h, h}, {h, h, h}, {-h, h, h}, {0, 0, 1});
+  pushQuad(verts, cols, sts, o, {h, -h, -h}, {-h, -h, -h}, {-h, h, -h}, {h, h, -h},
+           {0, 0, -1});
 }
 
 void addSphere(std::vector<Vec4>& verts, std::vector<Color>& cols,
-               const SceneObjectData& o) {
+               std::vector<Vec4>& sts, const SceneObjectData& o) {
   const int stacks = 10, slices = 14;
   const float r = 0.5F;
   for (int st = 0; st < stacks; ++st) {
     const float t0 = PI * st / stacks, t1 = PI * (st + 1) / stacks;
+    const float tv0 = (float)st / stacks, tv1 = (float)(st + 1) / stacks;
     for (int sl = 0; sl < slices; ++sl) {
       const float p0 = 2.0F * PI * sl / slices, p1 = 2.0F * PI * (sl + 1) / slices;
+      const float tu0 = (float)sl / slices, tu1 = (float)(sl + 1) / slices;
       const V3 v00 = {r * sinf(t0) * cosf(p0), r * cosf(t0), r * sinf(t0) * sinf(p0)};
       const V3 v01 = {r * sinf(t0) * cosf(p1), r * cosf(t0), r * sinf(t0) * sinf(p1)};
       const V3 v10 = {r * sinf(t1) * cosf(p0), r * cosf(t1), r * sinf(t1) * sinf(p0)};
@@ -387,70 +432,73 @@ void addSphere(std::vector<Vec4>& verts, std::vector<Color>& cols,
       const V3 n01 = {v01.x * 2, v01.y * 2, v01.z * 2};
       const V3 n10 = {v10.x * 2, v10.y * 2, v10.z * 2};
       const V3 n11 = {v11.x * 2, v11.y * 2, v11.z * 2};
-      pushVert(verts, cols, o, v00, n00);
-      pushVert(verts, cols, o, v10, n10);
-      pushVert(verts, cols, o, v11, n11);
-      pushVert(verts, cols, o, v00, n00);
-      pushVert(verts, cols, o, v11, n11);
-      pushVert(verts, cols, o, v01, n01);
+      pushVert(verts, cols, sts, o, v00, n00, tu0, tv0);
+      pushVert(verts, cols, sts, o, v10, n10, tu0, tv1);
+      pushVert(verts, cols, sts, o, v11, n11, tu1, tv1);
+      pushVert(verts, cols, sts, o, v00, n00, tu0, tv0);
+      pushVert(verts, cols, sts, o, v11, n11, tu1, tv1);
+      pushVert(verts, cols, sts, o, v01, n01, tu1, tv0);
     }
   }
 }
 
 void addCylinder(std::vector<Vec4>& verts, std::vector<Color>& cols,
-                 const SceneObjectData& o) {
+                 std::vector<Vec4>& sts, const SceneObjectData& o) {
   const int seg = 16;
   const float r = 0.5F, h = 0.5F;
   for (int i = 0; i < seg; ++i) {
     const float a0 = 2.0F * PI * i / seg, a1 = 2.0F * PI * (i + 1) / seg;
+    const float u0 = (float)i / seg, u1 = (float)(i + 1) / seg;
     const float x0 = r * cosf(a0), z0 = r * sinf(a0);
     const float x1 = r * cosf(a1), z1 = r * sinf(a1);
     const V3 n0 = {cosf(a0), 0, sinf(a0)}, n1 = {cosf(a1), 0, sinf(a1)};
     // side (smooth)
-    pushVert(verts, cols, o, {x0, -h, z0}, n0);
-    pushVert(verts, cols, o, {x0, h, z0}, n0);
-    pushVert(verts, cols, o, {x1, h, z1}, n1);
-    pushVert(verts, cols, o, {x0, -h, z0}, n0);
-    pushVert(verts, cols, o, {x1, h, z1}, n1);
-    pushVert(verts, cols, o, {x1, -h, z1}, n1);
-    // caps
-    pushVert(verts, cols, o, {0, h, 0}, {0, 1, 0});
-    pushVert(verts, cols, o, {x1, h, z1}, {0, 1, 0});
-    pushVert(verts, cols, o, {x0, h, z0}, {0, 1, 0});
-    pushVert(verts, cols, o, {0, -h, 0}, {0, -1, 0});
-    pushVert(verts, cols, o, {x0, -h, z0}, {0, -1, 0});
-    pushVert(verts, cols, o, {x1, -h, z1}, {0, -1, 0});
+    pushVert(verts, cols, sts, o, {x0, -h, z0}, n0, u0, 1);
+    pushVert(verts, cols, sts, o, {x0, h, z0}, n0, u0, 0);
+    pushVert(verts, cols, sts, o, {x1, h, z1}, n1, u1, 0);
+    pushVert(verts, cols, sts, o, {x0, -h, z0}, n0, u0, 1);
+    pushVert(verts, cols, sts, o, {x1, h, z1}, n1, u1, 0);
+    pushVert(verts, cols, sts, o, {x1, -h, z1}, n1, u1, 1);
+    // caps (planar mapping)
+    pushVert(verts, cols, sts, o, {0, h, 0}, {0, 1, 0}, 0.5F, 0.5F);
+    pushVert(verts, cols, sts, o, {x1, h, z1}, {0, 1, 0}, x1 + 0.5F, z1 + 0.5F);
+    pushVert(verts, cols, sts, o, {x0, h, z0}, {0, 1, 0}, x0 + 0.5F, z0 + 0.5F);
+    pushVert(verts, cols, sts, o, {0, -h, 0}, {0, -1, 0}, 0.5F, 0.5F);
+    pushVert(verts, cols, sts, o, {x0, -h, z0}, {0, -1, 0}, x0 + 0.5F, z0 + 0.5F);
+    pushVert(verts, cols, sts, o, {x1, -h, z1}, {0, -1, 0}, x1 + 0.5F, z1 + 0.5F);
   }
 }
 
 void addCone(std::vector<Vec4>& verts, std::vector<Color>& cols,
-             const SceneObjectData& o) {
+             std::vector<Vec4>& sts, const SceneObjectData& o) {
   const int seg = 16;
   const float r = 0.5F, h = 0.5F;
   const float nl = 0.894F, ny = 0.447F;  // side normal for r=0.5, h=1
   for (int i = 0; i < seg; ++i) {
     const float a0 = 2.0F * PI * i / seg, a1 = 2.0F * PI * (i + 1) / seg;
     const float am = (a0 + a1) * 0.5F;
+    const float u0 = (float)i / seg, u1 = (float)(i + 1) / seg;
     const float x0 = r * cosf(a0), z0 = r * sinf(a0);
     const float x1 = r * cosf(a1), z1 = r * sinf(a1);
     // side
-    pushVert(verts, cols, o, {0, h, 0}, {nl * cosf(am), ny, nl * sinf(am)});
-    pushVert(verts, cols, o, {x1, -h, z1}, {nl * cosf(a1), ny, nl * sinf(a1)});
-    pushVert(verts, cols, o, {x0, -h, z0}, {nl * cosf(a0), ny, nl * sinf(a0)});
-    // base
-    pushVert(verts, cols, o, {0, -h, 0}, {0, -1, 0});
-    pushVert(verts, cols, o, {x0, -h, z0}, {0, -1, 0});
-    pushVert(verts, cols, o, {x1, -h, z1}, {0, -1, 0});
+    pushVert(verts, cols, sts, o, {0, h, 0}, {nl * cosf(am), ny, nl * sinf(am)},
+             (u0 + u1) * 0.5F, 0);
+    pushVert(verts, cols, sts, o, {x1, -h, z1}, {nl * cosf(a1), ny, nl * sinf(a1)}, u1, 1);
+    pushVert(verts, cols, sts, o, {x0, -h, z0}, {nl * cosf(a0), ny, nl * sinf(a0)}, u0, 1);
+    // base (planar mapping)
+    pushVert(verts, cols, sts, o, {0, -h, 0}, {0, -1, 0}, 0.5F, 0.5F);
+    pushVert(verts, cols, sts, o, {x0, -h, z0}, {0, -1, 0}, x0 + 0.5F, z0 + 0.5F);
+    pushVert(verts, cols, sts, o, {x1, -h, z1}, {0, -1, 0}, x1 + 0.5F, z1 + 0.5F);
   }
 }
 
 void addModel(std::vector<Vec4>& verts, std::vector<Color>& cols,
-              const SceneObjectData& o) {
+              std::vector<Vec4>& sts, const SceneObjectData& o) {
   if (o.model < 0 || o.model >= MODEL_COUNT) return;
   const ModelData& m = MODELS[o.model];
   for (int i = 0; i < m.vertexCount; ++i) {
-    const float* v = m.verts + i * 6;
-    pushVert(verts, cols, o, {v[0], v[1], v[2]}, {v[3], v[4], v[5]});
+    const float* v = m.verts + i * 8;
+    pushVert(verts, cols, sts, o, {v[0], v[1], v[2]}, {v[3], v[4], v[5]}, v[6], v[7]);
   }
 }
 
@@ -527,8 +575,15 @@ void TerrainGame::loop() {
 // Shared scene/terrain mesh building and runtime object management.
 static const char* TPL_GAME_CPP_SCENE = R"(
 void TerrainGame::buildScene() {
+  // Load all scene textures once (paths in texture_data.gen.hpp)
+  loadedTextures.assign(TEXTURE_COUNT, nullptr);
+  for (int i = 0; i < TEXTURE_COUNT; ++i)
+    loadedTextures[i] =
+        engine->renderer.getTextureRepository().add(FileUtils::fromCwd(TEXTURE_PATHS[i]));
+
   vertices.clear();
   colors.clear();
+  terrainSts.clear();
 
   generateTerrainGrid();
 
@@ -552,6 +607,12 @@ void TerrainGame::buildScene() {
   bag->count = static_cast<u32>(vertices.size());
   bag->texture = nullptr;
   bag->lighting = nullptr;
+
+  if (TERRAIN_TEXTURE >= 0 && loadedTextures[TERRAIN_TEXTURE]) {
+    terrainTexBag.texture = loadedTextures[TERRAIN_TEXTURE];
+    terrainTexBag.coordinates = terrainSts.data();
+    bag->texture = &terrainTexBag;
+  }
 
   // Runtime copies of the scene objects - scripts and physics mutate these.
   skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
@@ -635,13 +696,14 @@ void TerrainGame::rebuildObjectGeometry(int index) {
 
   g.vertices.clear();
   g.colors.clear();
+  g.sts.clear();
   switch (o.data.type) {
-    case 1: addSphere(g.vertices, g.colors, o.data); break;
-    case 2: addCylinder(g.vertices, g.colors, o.data); break;
-    case 3: addCone(g.vertices, g.colors, o.data); break;
+    case 1: addSphere(g.vertices, g.colors, g.sts, o.data); break;
+    case 2: addCylinder(g.vertices, g.colors, g.sts, o.data); break;
+    case 3: addCone(g.vertices, g.colors, g.sts, o.data); break;
     case 4: break;  // spawn point - marker only
-    case 5: addModel(g.vertices, g.colors, o.data); break;
-    default: addBox(g.vertices, g.colors, o.data); break;
+    case 5: addModel(g.vertices, g.colors, g.sts, o.data); break;
+    default: addBox(g.vertices, g.colors, g.sts, o.data); break;
   }
   if (g.vertices.empty()) {
     g.bag.reset();
@@ -668,6 +730,16 @@ void TerrainGame::rebuildObjectGeometry(int index) {
   g.colorBag->many = g.colors.data();
   g.bag->vertices = g.vertices.data();
   g.bag->count = static_cast<u32>(g.vertices.size());
+
+  if (o.data.texture >= 0 && o.data.texture < TEXTURE_COUNT &&
+      loadedTextures[o.data.texture]) {
+    if (!g.texBag) g.texBag = std::make_unique<StaPipTextureBag>();
+    g.texBag->texture = loadedTextures[o.data.texture];
+    g.texBag->coordinates = g.sts.data();
+    g.bag->texture = g.texBag.get();
+  } else {
+    g.bag->texture = nullptr;
+  }
 }
 
 void TerrainGame::updateObjectPhysics() {
@@ -735,10 +807,13 @@ void TerrainGame::generateTerrainGrid() {
     return shadeOf(n);
   };
 
-  // Two greens in a checker pattern, so the grid is visible.
-  // PS2 colors: RGB 0-255, alpha 0-128.
-  const float baseA[3] = {96.0F, 160.0F, 72.0F};
-  const float baseB[3] = {74.0F, 128.0F, 56.0F};
+  // Untextured: two greens in a checker pattern. Textured: a neutral gray
+  // that modulates the texture 1:1 (PS2 modulation: 128 = 1.0).
+  const bool textured = TERRAIN_TEXTURE >= 0;
+  const float baseA[3] = {textured ? 128.0F : 96.0F, textured ? 128.0F : 160.0F,
+                          textured ? 128.0F : 72.0F};
+  const float baseB[3] = {textured ? 128.0F : 74.0F, textured ? 128.0F : 128.0F,
+                          textured ? 128.0F : 56.0F};
 
   for (u32 z = 0; z < cellsZ; ++z) {
     for (u32 x = 0; x < cellsX; ++x) {
@@ -755,6 +830,10 @@ void TerrainGame::generateTerrainGrid() {
       auto shaded = [&](float s) {
         return Color(base[0] * s, base[1] * s, base[2] * s, 128.0F);
       };
+      auto st = [&](float wx, float wz) {
+        terrainSts.push_back(
+            Vec4(wx / TERRAIN_TEX_SCALE, wz / TERRAIN_TEX_SCALE, 1.0F, 0.0F));
+      };
 
       vertices.push_back(Vec4(x0, h00, z0, 1.0F));
       vertices.push_back(Vec4(x1, h10, z0, 1.0F));
@@ -762,6 +841,13 @@ void TerrainGame::generateTerrainGrid() {
       vertices.push_back(Vec4(x1, h10, z0, 1.0F));
       vertices.push_back(Vec4(x1, h11, z1, 1.0F));
       vertices.push_back(Vec4(x0, h01, z1, 1.0F));
+
+      st(x0, z0);
+      st(x1, z0);
+      st(x0, z1);
+      st(x1, z0);
+      st(x1, z1);
+      st(x0, z1);
 
       colors.push_back(shaded(s00));
       colors.push_back(shaded(s10));
@@ -1461,6 +1547,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  float color[3];  // 0..1\n"
            "  int physics;  // 1 = falls with gravity\n"
            "  int model;    // index into MODELS (model_data.gen.hpp), -1 = none\n"
+           "  int texture;  // index into TEXTURE_PATHS (texture_data.gen.hpp), -1 = none\n"
            "};\n"
            "\n"
            "constexpr int SCENE_OBJECT_COUNT = "
@@ -1468,13 +1555,14 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         << "constexpr SceneObjectData SCENE_OBJECTS[SCENE_OBJECT_COUNT > 0 ? "
            "SCENE_OBJECT_COUNT : 1] = {\n";
     if (p.objects.empty()) {
-        out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1},\n";
+        out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1},\n";
     } else {
         for (const SceneObject& o : p.objects) {
             out << "    {" << (int)o.type << ", " << vec3Init(o.position) << ", "
                 << vec3Init(o.rotation) << ", " << vec3Init(o.scale) << ", "
                 << vec3Init(o.color) << ", " << (o.physics ? 1 : 0) << ", "
-                << modelIndexOf(p, o) << "},  // " << o.name << "\n";
+                << modelIndexOf(p, o) << ", " << textureIndexOf(p, o.texturePath)
+                << "},  // " << o.name << "\n";
         }
     }
     out << "};\n"
@@ -1691,7 +1779,7 @@ static std::string modelDataHeader(const Project& p) {
         << ns
         << " {\n\n"
            "struct ModelData {\n"
-           "  const float* verts;  // 6 floats per vertex: x,y,z,nx,ny,nz\n"
+           "  const float* verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v\n"
            "  int vertexCount;\n"
            "};\n\n"
         << "constexpr int MODEL_COUNT = " << paths.size() << ";\n\n";
@@ -1700,7 +1788,7 @@ static std::string modelDataHeader(const Project& p) {
         std::vector<float> data;
         const bool ok =
             objparser::load((std::filesystem::path(p.dir) / paths[m]).string(), data);
-        int vertexCount = ok ? (int)(data.size() / 6) : 0;
+        int vertexCount = ok ? (int)(data.size() / 8) : 0;
         if (vertexCount > kMaxTris * 3) {
             out << "// " << paths[m] << ": truncated from " << vertexCount / 3 << " to "
                 << kMaxTris << " triangles\n";
@@ -1708,8 +1796,8 @@ static std::string modelDataHeader(const Project& p) {
         }
         out << "// " << paths[m] << (ok ? "" : " (missing or unparseable)") << "\n";
         out << "constexpr float MODEL_" << m << "_VERTS[] = {";
-        for (int i = 0; i < vertexCount * 6; ++i) {
-            if (i % 6 == 0) out << "\n    ";
+        for (int i = 0; i < vertexCount * 8; ++i) {
+            if (i % 8 == 0) out << "\n    ";
             out << floatLit(data[i]) << ",";
         }
         if (vertexCount == 0) out << "0.0F";  // avoid empty array
@@ -1778,6 +1866,35 @@ static std::string terrainHeightsHeader(const Project& p) {
            "  return t * (1.0F - fz) + b * fz;\n"
            "}\n\n}  // namespace "
         << ns << "\n";
+    return out.str();
+}
+
+// inc/texture_data.gen.hpp - PNG textures used by the scene
+static std::string textureDataHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    const auto paths = collectTexturePaths(p);
+
+    std::ostringstream out;
+    out << "// Generated by tyra-editor. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\nnamespace "
+        << ns << " {\n\n"
+        << "constexpr int TEXTURE_COUNT = " << paths.size() << ";\n"
+        << "inline const char* TEXTURE_PATHS[TEXTURE_COUNT > 0 ? TEXTURE_COUNT : 1] = {\n";
+    if (paths.empty()) {
+        out << "    \"\",\n";
+    } else {
+        for (const auto& path : paths) {
+            // res/textures/x.png on the host lands as textures/x.png in bin/
+            std::string binPath = path;
+            if (binPath.rfind("res/", 0) == 0) binPath = binPath.substr(4);
+            out << "    \"" << binPath << "\",\n";
+        }
+    }
+    out << "};\n\n"
+        << "constexpr int TERRAIN_TEXTURE = " << textureIndexOf(p, p.settings.terrainTexture)
+        << ";\n"
+        << "constexpr float TERRAIN_TEX_SCALE = " << floatLit(p.settings.terrainTexScale)
+        << ";\n\n}  // namespace " << ns << "\n";
     return out.str();
 }
 
@@ -1893,6 +2010,7 @@ std::vector<File> generate(const Project& p) {
         {"inc\\model_data.gen.hpp", modelDataHeader(p)},
         {"inc\\hud_data.gen.hpp", hudDataHeader(p)},
         {"inc\\terrain_heights.gen.hpp", terrainHeightsHeader(p)},
+        {"inc\\texture_data.gen.hpp", textureDataHeader(p)},
         {"inc\\scripts\\script.hpp", fill(TPL_SCRIPT_HPP)},
         {"src\\scripts\\flow_graph.gen.cpp", flowGraphScript(p)},
         {".tyra-engine-patch\\planes_clip_algorithm.cpp", EP_PLANES_CLIP_ALGORITHM},

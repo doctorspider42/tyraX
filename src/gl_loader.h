@@ -65,6 +65,9 @@ typedef ptrdiff_t GLintptr;
 #define GL_FRONT_AND_BACK 0x0408
 #define GL_LINE 0x1B01
 #define GL_FILL 0x1B02
+#define GL_REPEAT 0x2901
+#define GL_TEXTURE_WRAP_S 0x2802
+#define GL_TEXTURE_WRAP_T 0x2803
 
 #define TYRA_GL_FUNCS(X) \
     X(void, Clear, GLbitfield) \
@@ -101,6 +104,7 @@ typedef ptrdiff_t GLintptr;
     X(void, UniformMatrix4fv, GLint, GLsizei, GLboolean, const GLfloat*) \
     X(void, Uniform4f, GLint, GLfloat, GLfloat, GLfloat, GLfloat) \
     X(void, Uniform3f, GLint, GLfloat, GLfloat, GLfloat) \
+    X(void, Uniform1i, GLint, GLint) \
     X(void, GenVertexArrays, GLsizei, GLuint*) \
     X(void, DeleteVertexArrays, GLsizei, const GLuint*) \
     X(void, BindVertexArray, GLuint) \

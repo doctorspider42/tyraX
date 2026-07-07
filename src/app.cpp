@@ -785,6 +785,37 @@ void App::drawSceneSection() {
 
     if (ImGui::Checkbox("Physics (falls with gravity)", &o.physics)) committed = true;
 
+    // Texture (PNG modulated by the object color; white color = plain texture)
+    ImGui::TextDisabled("Texture: %s",
+                        o.texturePath.empty() ? "<none>" : o.texturePath.c_str());
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Set...")) {
+        const std::string src = pickPngFile();
+        if (!src.empty()) {
+            const std::filesystem::path srcPath(src);
+            const std::filesystem::path destDir =
+                std::filesystem::path(project_.dir) / "res" / "textures";
+            std::error_code ec;
+            std::filesystem::create_directories(destDir, ec);
+            std::filesystem::copy_file(srcPath, destDir / srcPath.filename(),
+                                       std::filesystem::copy_options::overwrite_existing,
+                                       ec);
+            if (!ec) {
+                o.texturePath = "res/textures/" + srcPath.filename().string();
+                committed = true;
+            } else {
+                statusMessage_ = "Texture import failed: " + ec.message();
+            }
+        }
+    }
+    if (!o.texturePath.empty()) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Clear##tex")) {
+            o.texturePath.clear();
+            committed = true;
+        }
+    }
+
     if (ImGui::Button("Delete object")) {
         project_.objects.erase(project_.objects.begin() + selectedObject_);
         selectedObject_ = -1;
@@ -1283,6 +1314,8 @@ void App::drawNewProjectModal() {
 void App::applyProjectToViewport() {
     project::ensureHeightmap(project_);
     viewport_.setProjectDir(project_.dir);
+    viewport_.setTerrainTexture(project_.settings.terrainTexture,
+                                project_.settings.terrainTexScale);
     viewport_.setTerrain(project_.terrain, project_.settings.terrainDetail, project_.heights,
                          project_.hmW, project_.hmD);
     viewport_.setSky(project_.settings.skyColor, project_.settings.skyTopColor,
@@ -1328,6 +1361,30 @@ void App::drawPreferencesModal() {
         "Fast culling (fastest; big near triangles may vanish)"};
     if (ImGui::Combo("Triangles", &clipMode, clipNames, 2))
         prefSettings_.clipping = clipMode == 1 ? "fast" : "precise";
+    ImGui::TextDisabled(
+        "Terrain texture: %s",
+        prefSettings_.terrainTexture.empty() ? "<none>" : prefSettings_.terrainTexture.c_str());
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Set...##terrtex")) {
+        const std::string src = pickPngFile();
+        if (!src.empty()) {
+            const std::filesystem::path srcPath(src);
+            const std::filesystem::path destDir =
+                std::filesystem::path(project_.dir) / "res" / "textures";
+            std::error_code ec;
+            std::filesystem::create_directories(destDir, ec);
+            std::filesystem::copy_file(srcPath, destDir / srcPath.filename(),
+                                       std::filesystem::copy_options::overwrite_existing, ec);
+            if (!ec)
+                prefSettings_.terrainTexture = "res/textures/" + srcPath.filename().string();
+        }
+    }
+    if (!prefSettings_.terrainTexture.empty()) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Clear##terrtex")) prefSettings_.terrainTexture.clear();
+        ImGui::DragFloat("Texture tile (units)", &prefSettings_.terrainTexScale, 0.25f, 0.25f,
+                         64.0f, "%.2f");
+    }
     ImGui::ColorEdit3("Sky horizon color", prefSettings_.skyColor);
     ImGui::ColorEdit3("Sky zenith color", prefSettings_.skyTopColor);
     ImGui::Checkbox("Gradient sky dome", &prefSettings_.skyDome);

@@ -31,8 +31,9 @@ struct SceneObject {
     float rotation[3] = {0.0f, 0.0f, 0.0f};  // degrees
     float scale[3] = {1.0f, 1.0f, 1.0f};
     float color[3] = {0.8f, 0.35f, 0.25f};
-    bool physics = false;   // falls with gravity in the game
-    std::string modelPath;  // for PrimitiveType::Model, e.g. "res/models/tree.obj"
+    bool physics = false;     // falls with gravity in the game
+    std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
+    std::string texturePath;  // PNG, e.g. "res/textures/bricks.png" (empty = color only)
 };
 
 const char* primitiveTypeName(PrimitiveType t);
@@ -43,7 +44,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
     };
     return a.name == b.name && a.type == b.type && eq3(a.position, b.position) &&
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
-           a.physics == b.physics && a.modelPath == b.modelPath;
+           a.physics == b.physics && a.modelPath == b.modelPath &&
+           a.texturePath == b.texturePath;
 }
 
 // General project preferences (Project > Preferences in the editor).
@@ -75,6 +77,10 @@ struct ProjectSettings {
     float lightDir[3] = {0.37f, 0.82f, 0.44f};  // direction TO the light
     float ambient = 0.55f;                      // 0..1
     float diffuse = 0.45f;                      // 0..1
+
+    // Terrain texture (PNG, tiled; empty = checker colors)
+    std::string terrainTexture;
+    float terrainTexScale = 4.0f;  // world units per texture tile
 };
 
 class History;

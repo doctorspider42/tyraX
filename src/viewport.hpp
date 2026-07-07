@@ -44,6 +44,9 @@ public:
     // project root for resolving relative model paths (clears the model cache)
     void setProjectDir(const std::string& dir);
 
+    // terrain texture (PNG, tiled; empty = checker colors) + world units per tile
+    void setTerrainTexture(const std::string& relPath, float scale);
+
     // Renders terrain + objects at the given pixel size, returns GL texture id.
     // selectedIndex: index into objects highlighted with an outline (-1 = none).
     uint32_t render(int width, int height, const std::vector<SceneObject>& objects,
@@ -93,6 +96,7 @@ private:
     uint32_t program_ = 0;
     int uMvp_ = -1;
     int uTint_ = -1;
+    int uUseTex_ = -1;
 
     Mesh terrain_mesh_;
     Mesh lines_;  // terrain grid + axes
@@ -101,6 +105,12 @@ private:
     std::map<std::string, Mesh> modelCache_;  // .obj meshes by relative path
     const Mesh* modelMesh(const std::string& relPath);
     void clearModelCache();
+
+    std::map<std::string, uint32_t> texCache_;  // GL textures by relative path
+    uint32_t glTexture(const std::string& relPath);
+    void clearTexCache();
+    std::string terrainTexture_;
+    float terrainTexScale_ = 4.0f;
     Mesh wireCube_;  // selection outline (unit cube edges)
 
     uint32_t fbo_ = 0, colorTex_ = 0, depthRbo_ = 0;
