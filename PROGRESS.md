@@ -272,6 +272,9 @@ Each finished feature lands as its own commit.
 - HUD images draggable directly in the viewport
 - Textured models (.mtl/PNG) and textured terrain
 - Positional audio (volume falloff by distance to an object)
+- Compressed music streaming (SPU2-native ADPCM/VAG, ~3.5:1 vs 16-bit PCM) -
+  needs a custom double-buffered SPU RAM streamer in the engine; audsrv only
+  streams PCM and plays ADPCM one-shots
 - Multiple scenes (model exists in project.json, editor edits only "main")
 - Flow graph: more nodes (timers with reset, gates, variables, sounds)
 - Engine perf, next targets: packager allocates its package array per frame
