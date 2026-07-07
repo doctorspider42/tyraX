@@ -194,18 +194,27 @@ GLuint compile(GLenum type, const char* src) {
 float gLightDir[3] = {0.37f, 0.82f, 0.44f};
 float gAmbient = 0.55f;
 float gDiffuse = 0.45f;
+float gLightColor[3] = {1.0f, 1.0f, 1.0f};
+float gBrightness = 1.0f;
 
-float shadeOf(Vec3 n) {
+// Per-channel multipliers: brightness * (ambient + diffuse*d*lightColor)
+Vec3 shadeOf(Vec3 n) {
     float d = n.x * gLightDir[0] + n.y * gLightDir[1] + n.z * gLightDir[2];
     if (d < 0.0f) d = 0.0f;
-    float s = gAmbient + gDiffuse * d;
-    return s > 1.0f ? 1.0f : s;
+    const float base = gDiffuse * d;
+    Vec3 s = {gBrightness * (gAmbient + base * gLightColor[0]),
+              gBrightness * (gAmbient + base * gLightColor[1]),
+              gBrightness * (gAmbient + base * gLightColor[2])};
+    if (s.x > 1.0f) s.x = 1.0f;
+    if (s.y > 1.0f) s.y = 1.0f;
+    if (s.z > 1.0f) s.z = 1.0f;
+    return s;
 }
 
 // Vertex layout: pos(3) + color(3) + uv(2)
 void pushShaded(std::vector<float>& v, Vec3 p, Vec3 n, float tu = 0, float tv = 0) {
-    const float s = shadeOf(n);
-    v.insert(v.end(), {p.x, p.y, p.z, s, s, s, tu, tv});
+    const Vec3 s = shadeOf(n);
+    v.insert(v.end(), {p.x, p.y, p.z, s.x, s.y, s.z, tu, tv});
 }
 
 void pushQuadShaded(std::vector<float>& v, Vec3 a, Vec3 b, Vec3 c, Vec3 d, Vec3 n) {
@@ -568,7 +577,7 @@ void Viewport::buildTerrainMesh() {
         iz = iz < 0 ? 0 : iz > hmD_ - 1 ? hmD_ - 1 : iz;
         return heights_[(size_t)iz * hmW_ + ix];
     };
-    auto shadeAt = [&](int ix, int iz) {
+    auto shadeAt = [&](int ix, int iz) -> Vec3 {
         Vec3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0f * (sx < sz ? sx : sz),
                   hAt(ix, iz - 1) - hAt(ix, iz + 1)};
         return shadeOf(normalize(n));
@@ -593,20 +602,20 @@ void Viewport::buildTerrainMesh() {
             float bx = ax + sx, bz = az + sz;
             const float h00 = hAt(x, z), h10 = hAt(x + 1, z);
             const float h01 = hAt(x, z + 1), h11 = hAt(x + 1, z + 1);
-            const float s00 = shadeAt(x, z), s10 = shadeAt(x + 1, z);
-            const float s01 = shadeAt(x, z + 1), s11 = shadeAt(x + 1, z + 1);
-            pushVertexColor(tri, ax, h00, az, c[0] * s00, c[1] * s00, c[2] * s00, ax / ts,
-                            az / ts);
-            pushVertexColor(tri, bx, h10, az, c[0] * s10, c[1] * s10, c[2] * s10, bx / ts,
-                            az / ts);
-            pushVertexColor(tri, ax, h01, bz, c[0] * s01, c[1] * s01, c[2] * s01, ax / ts,
-                            bz / ts);
-            pushVertexColor(tri, bx, h10, az, c[0] * s10, c[1] * s10, c[2] * s10, bx / ts,
-                            az / ts);
-            pushVertexColor(tri, bx, h11, bz, c[0] * s11, c[1] * s11, c[2] * s11, bx / ts,
-                            bz / ts);
-            pushVertexColor(tri, ax, h01, bz, c[0] * s01, c[1] * s01, c[2] * s01, ax / ts,
-                            bz / ts);
+            const Vec3 s00 = shadeAt(x, z), s10 = shadeAt(x + 1, z);
+            const Vec3 s01 = shadeAt(x, z + 1), s11 = shadeAt(x + 1, z + 1);
+            pushVertexColor(tri, ax, h00, az, c[0] * s00.x, c[1] * s00.y, c[2] * s00.z,
+                            ax / ts, az / ts);
+            pushVertexColor(tri, bx, h10, az, c[0] * s10.x, c[1] * s10.y, c[2] * s10.z,
+                            bx / ts, az / ts);
+            pushVertexColor(tri, ax, h01, bz, c[0] * s01.x, c[1] * s01.y, c[2] * s01.z,
+                            ax / ts, bz / ts);
+            pushVertexColor(tri, bx, h10, az, c[0] * s10.x, c[1] * s10.y, c[2] * s10.z,
+                            bx / ts, az / ts);
+            pushVertexColor(tri, bx, h11, bz, c[0] * s11.x, c[1] * s11.y, c[2] * s11.z,
+                            bx / ts, bz / ts);
+            pushVertexColor(tri, ax, h01, bz, c[0] * s01.x, c[1] * s01.y, c[2] * s01.z,
+                            ax / ts, bz / ts);
         }
     }
     terrain_mesh_ = uploadMesh(tri);
@@ -748,7 +757,8 @@ int Viewport::pick(float u, float v, const std::vector<SceneObject>& objects) co
     return best;
 }
 
-void Viewport::setLighting(const float* dir, float ambient, float diffuse) {
+void Viewport::setLighting(const float* dir, float ambient, float diffuse,
+                           const float* color, float brightness) {
     float lx = dir[0], ly = dir[1], lz = dir[2];
     const float len = std::sqrt(lx * lx + ly * ly + lz * lz);
     if (len > 1e-5f) lx /= len, ly /= len, lz /= len;
@@ -756,6 +766,8 @@ void Viewport::setLighting(const float* dir, float ambient, float diffuse) {
     gLightDir[0] = lx, gLightDir[1] = ly, gLightDir[2] = lz;
     gAmbient = ambient;
     gDiffuse = diffuse;
+    gLightColor[0] = color[0], gLightColor[1] = color[1], gLightColor[2] = color[2];
+    gBrightness = brightness;
     if (program_) {
         buildPrimitiveMeshes();  // shade is baked into the unit meshes
         buildTerrainMesh();
@@ -822,11 +834,11 @@ const Viewport::Mesh* Viewport::modelMesh(const std::string& relPath) {
         std::vector<float> interleaved;
         interleaved.reserve(posNormalUv.size());
         for (size_t i = 0; i + 7 < posNormalUv.size(); i += 8) {
-            const float s =
+            const Vec3 s =
                 shadeOf({posNormalUv[i + 3], posNormalUv[i + 4], posNormalUv[i + 5]});
             interleaved.insert(interleaved.end(),
-                               {posNormalUv[i], posNormalUv[i + 1], posNormalUv[i + 2], s, s,
-                                s, posNormalUv[i + 6], posNormalUv[i + 7]});
+                               {posNormalUv[i], posNormalUv[i + 1], posNormalUv[i + 2], s.x,
+                                s.y, s.z, posNormalUv[i + 6], posNormalUv[i + 7]});
         }
         mesh = uploadMesh(interleaved);
     }

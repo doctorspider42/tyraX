@@ -1321,7 +1321,8 @@ void App::applyProjectToViewport() {
     viewport_.setSky(project_.settings.skyColor, project_.settings.skyTopColor,
                      project_.settings.skyDome);
     viewport_.setLighting(project_.settings.lightDir, project_.settings.ambient,
-                          project_.settings.diffuse);
+                          project_.settings.diffuse, project_.settings.lightColor,
+                          project_.settings.brightness);
 }
 
 void App::drawPreferencesModal() {
@@ -1391,6 +1392,8 @@ void App::drawPreferencesModal() {
 
     ImGui::SeparatorText("Lighting");
     ImGui::DragFloat3("Light direction", prefSettings_.lightDir, 0.02f, -1.0f, 1.0f, "%.2f");
+    ImGui::ColorEdit3("Light color", prefSettings_.lightColor);
+    ImGui::SliderFloat("Brightness", &prefSettings_.brightness, 0.0f, 2.0f, "%.2f");
     ImGui::SliderFloat("Ambient", &prefSettings_.ambient, 0.0f, 1.0f, "%.2f");
     ImGui::SliderFloat("Diffuse", &prefSettings_.diffuse, 0.0f, 1.0f, "%.2f");
 

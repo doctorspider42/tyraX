@@ -74,9 +74,11 @@ struct ProjectSettings {
     float jumpSpeed = 4.5f;  // units/s (FPP jump)
 
     // Lighting (baked into vertex colors at build)
-    float lightDir[3] = {0.37f, 0.82f, 0.44f};  // direction TO the light
-    float ambient = 0.55f;                      // 0..1
-    float diffuse = 0.45f;                      // 0..1
+    float lightDir[3] = {0.37f, 0.82f, 0.44f};   // direction TO the light
+    float ambient = 0.55f;                       // 0..1
+    float diffuse = 0.45f;                       // 0..1
+    float lightColor[3] = {1.0f, 1.0f, 1.0f};    // tints the diffuse term
+    float brightness = 1.0f;                     // global multiplier (0..2)
 
     // Terrain texture (PNG, tiled; empty = checker colors)
     std::string terrainTexture;

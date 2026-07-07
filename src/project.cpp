@@ -98,6 +98,8 @@ std::string save(const Project& p) {
          << "    \"lightDir\": " << fmtVec3(p.settings.lightDir) << ",\n"
          << "    \"ambient\": " << fmtFloat(p.settings.ambient) << ",\n"
          << "    \"diffuse\": " << fmtFloat(p.settings.diffuse) << ",\n"
+         << "    \"lightColor\": " << fmtVec3(p.settings.lightColor) << ",\n"
+         << "    \"brightness\": " << fmtFloat(p.settings.brightness) << ",\n"
          << "    \"terrainTexture\": \"" << p.settings.terrainTexture << "\",\n"
          << "    \"terrainTexScale\": " << fmtFloat(p.settings.terrainTexScale) << "\n"
          << "  },\n"
@@ -445,6 +447,10 @@ std::string load(Project& out, const std::string& projectDir) {
         readVec3(s->find("lightDir"), st.lightDir);
         if (const auto* v = s->find("ambient")) st.ambient = (float)v->numberOr(0.55);
         if (const auto* v = s->find("diffuse")) st.diffuse = (float)v->numberOr(0.45);
+        readVec3(s->find("lightColor"), st.lightColor);
+        if (const auto* v = s->find("brightness")) st.brightness = (float)v->numberOr(1.0);
+        if (st.brightness < 0.0f) st.brightness = 0.0f;
+        if (st.brightness > 2.0f) st.brightness = 2.0f;
         if (const auto* v = s->find("terrainTexture")) st.terrainTexture = v->stringOr("");
         if (const auto* v = s->find("terrainTexScale"))
             st.terrainTexScale = (float)v->numberOr(4.0);

@@ -39,7 +39,8 @@ public:
     void setSky(const float* horizonRgb, const float* topRgb, bool gradient);
 
     // directional light baked into mesh shading (matches the PS2 output)
-    void setLighting(const float* dir, float ambient, float diffuse);
+    void setLighting(const float* dir, float ambient, float diffuse, const float* color,
+                     float brightness);
 
     // project root for resolving relative model paths (clears the model cache)
     void setProjectDir(const std::string& dir);

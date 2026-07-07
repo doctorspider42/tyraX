@@ -175,6 +175,10 @@ constexpr float SCENE_LIGHT_Y = {{LIGHT_Y}};
 constexpr float SCENE_LIGHT_Z = {{LIGHT_Z}};
 constexpr float SCENE_AMBIENT = {{AMBIENT}};  // 0..1
 constexpr float SCENE_DIFFUSE = {{DIFFUSE}};  // 0..1
+constexpr float SCENE_LIGHT_COL_R = {{LIGHT_COL_R}};  // tints the diffuse term
+constexpr float SCENE_LIGHT_COL_G = {{LIGHT_COL_G}};
+constexpr float SCENE_LIGHT_COL_B = {{LIGHT_COL_B}};
+constexpr float SCENE_BRIGHTNESS = {{BRIGHTNESS}};  // global multiplier
 
 }  // namespace {{NAME_UPPER_NS}}
 )";
@@ -364,12 +368,19 @@ V3 rotated(const V3& v, const float* rotDeg) {
   return r;
 }
 
-/** Directional light (Project > Preferences), baked into vertex colors. */
-float shadeOf(const V3& n) {
+/** Directional light (Project > Preferences), baked into vertex colors.
+ * Returns per-channel multipliers: brightness * (ambient + diffuse*d*lightColor). */
+V3 shadeOf(const V3& n) {
   float d = n.x * SCENE_LIGHT_X + n.y * SCENE_LIGHT_Y + n.z * SCENE_LIGHT_Z;
   if (d < 0.0F) d = 0.0F;
-  float s = SCENE_AMBIENT + SCENE_DIFFUSE * d;
-  return s > 1.0F ? 1.0F : s;
+  const float base = SCENE_DIFFUSE * d;
+  V3 s = {SCENE_BRIGHTNESS * (SCENE_AMBIENT + base * SCENE_LIGHT_COL_R),
+          SCENE_BRIGHTNESS * (SCENE_AMBIENT + base * SCENE_LIGHT_COL_G),
+          SCENE_BRIGHTNESS * (SCENE_AMBIENT + base * SCENE_LIGHT_COL_B)};
+  if (s.x > 1.0F) s.x = 1.0F;
+  if (s.y > 1.0F) s.y = 1.0F;
+  if (s.z > 1.0F) s.z = 1.0F;
+  return s;
 }
 
 void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
@@ -378,13 +389,13 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   p.x *= o.scale[0], p.y *= o.scale[1], p.z *= o.scale[2];
   p = rotated(p, o.rotation);
   n = rotated(n, o.rotation);
-  const float shade = shadeOf(n);
+  const V3 shade = shadeOf(n);
   verts.push_back(Vec4(p.x + o.position[0], p.y + o.position[1],
                        p.z + o.position[2], 1.0F));
   // In textured mode the color modulates the texture (128 = 1.0)
   const float scale = o.texture >= 0 ? 128.0F : 255.0F;
-  cols.push_back(Color(o.color[0] * scale * shade, o.color[1] * scale * shade,
-                       o.color[2] * scale * shade, 128.0F));
+  cols.push_back(Color(o.color[0] * scale * shade.x, o.color[1] * scale * shade.y,
+                       o.color[2] * scale * shade.z, 128.0F));
   sts.push_back(Vec4(u, v, 1.0F, 0.0F));
 }
 
@@ -799,7 +810,7 @@ void TerrainGame::generateTerrainGrid() {
     if (iz > HM_D - 1) iz = HM_D - 1;
     return TERRAIN_HEIGHTS[iz * HM_W + ix];
   };
-  auto shadeAt = [&](int ix, int iz) {
+  auto shadeAt = [&](int ix, int iz) -> V3 {
     V3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0F * (stepX < stepZ ? stepX : stepZ),
             hAt(ix, iz - 1) - hAt(ix, iz + 1)};
     const float len = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
@@ -825,10 +836,10 @@ void TerrainGame::generateTerrainGrid() {
 
       const float h00 = hAt(x, z), h10 = hAt(x + 1, z);
       const float h01 = hAt(x, z + 1), h11 = hAt(x + 1, z + 1);
-      const float s00 = shadeAt(x, z), s10 = shadeAt(x + 1, z);
-      const float s01 = shadeAt(x, z + 1), s11 = shadeAt(x + 1, z + 1);
-      auto shaded = [&](float s) {
-        return Color(base[0] * s, base[1] * s, base[2] * s, 128.0F);
+      const V3 s00 = shadeAt(x, z), s10 = shadeAt(x + 1, z);
+      const V3 s01 = shadeAt(x, z + 1), s11 = shadeAt(x + 1, z + 1);
+      auto shaded = [&](const V3& s) {
+        return Color(base[0] * s.x, base[1] * s.y, base[2] * s.z, 128.0F);
       };
       auto st = [&](float wx, float wz) {
         terrainSts.push_back(
@@ -1627,6 +1638,10 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     }
     s = replaceAll(s, "{{AMBIENT}}", floatLit(st.ambient));
     s = replaceAll(s, "{{DIFFUSE}}", floatLit(st.diffuse));
+    s = replaceAll(s, "{{LIGHT_COL_R}}", floatLit(st.lightColor[0]));
+    s = replaceAll(s, "{{LIGHT_COL_G}}", floatLit(st.lightColor[1]));
+    s = replaceAll(s, "{{LIGHT_COL_B}}", floatLit(st.lightColor[2]));
+    s = replaceAll(s, "{{BRIGHTNESS}}", floatLit(st.brightness));
     return s;
 }
 

@@ -105,6 +105,12 @@ Each finished feature lands as its own commit.
   the same textures via stb_image + a sampler in the shader (wire passes stay
   untextured). Verified in editor + PCSX2 (bricks on sculpted terrain and a box).
 
+- (15) **Scene light management** — light color (tints the diffuse term) and a
+  global brightness multiplier (0..2), next to the existing direction/ambient/
+  diffuse in Preferences > Lighting (same dialog as the sky). Shading is now
+  per-channel RGB in the whole pipeline (game codegen + viewport). Verified in
+  editor + PCSX2 (warm sunset light over the textured terrain).
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)
