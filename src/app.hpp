@@ -24,6 +24,7 @@ private:
     void drawScriptsSection();
     void drawNewScriptModal();
     void drawNewSceneModal();
+    void drawDeleteSceneModal();
     void drawFlowGraphWindow();
     void openInVSCode();
     void drawOutputWindow();
@@ -111,6 +112,7 @@ private:
     std::string newScriptError_;
 
     // "New scene" modal state
+    int deleteScenePending_ = -1;  // scene index awaiting delete confirmation
     bool openNewScenePopup_ = false;
     char newSceneName_[64] = "scene-2";
     std::string newSceneError_;

@@ -261,6 +261,7 @@ void App::drawUI() {
     drawPreferencesModal();
     drawNewScriptModal();
     drawNewSceneModal();
+    drawDeleteSceneModal();
 
     // Keyboard shortcuts
     ImGuiIO& io = ImGui::GetIO();
@@ -657,18 +658,8 @@ void App::drawProjectWindow() {
         }
         if (project_.scenes.size() > 1) {
             ImGui::SameLine(ImGui::GetContentRegionMax().x - 22.0f);
-            if (ImGui::SmallButton("x")) {
-                project_.scenes.erase(project_.scenes.begin() + i);
-                if (project_.activeScene >= (int)project_.scenes.size() ||
-                    project_.activeScene == i)
-                    project_.activeScene = 0;
-                selectedObject_ = -1;
-                flowGraphObject_ = -1;
-                flowPositionsApplied_ = false;
-                commitChange();
-                ImGui::PopID();
-                break;
-            }
+            // deletion is confirmed in a modal (objects + graphs go with it)
+            if (ImGui::SmallButton("x")) deleteScenePending_ = i;
         }
         ImGui::PopID();
     }
@@ -1823,6 +1814,50 @@ void App::drawNewScriptModal() {
     }
     ImGui::SameLine();
     if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+}
+
+void App::drawDeleteSceneModal() {
+    if (deleteScenePending_ >= 0 && !ImGui::IsPopupOpen("Delete Scene?"))
+        ImGui::OpenPopup("Delete Scene?");
+    if (deleteScenePending_ < 0 || deleteScenePending_ >= (int)project_.scenes.size())
+        return;
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal("Delete Scene?", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+
+    const SceneData& sc = project_.scenes[deleteScenePending_];
+    ImGui::Text("Delete scene \"%s\"?", sc.name.c_str());
+    ImGui::TextDisabled("%d object(s), their flow graphs and the sculpted terrain\n"
+                        "go with it. Undo (Ctrl+Z) can bring the scene back,\n"
+                        "but not its heightmap.",
+                        (int)sc.objects.size());
+    if (deleteScenePending_ == 0)
+        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f),
+                           "This is the start scene - the next one takes its place.");
+
+    ImGui::Separator();
+    if (ImGui::Button("Delete", ImVec2(120, 0))) {
+        project_.scenes.erase(project_.scenes.begin() + deleteScenePending_);
+        if (project_.activeScene >= (int)project_.scenes.size() ||
+            project_.activeScene == deleteScenePending_)
+            project_.activeScene = 0;
+        selectedObject_ = -1;
+        flowGraphObject_ = -1;
+        flowPositionsApplied_ = false;
+        deleteScenePending_ = -1;
+        commitChange();
+        applyProjectToViewport();
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+        deleteScenePending_ = -1;
+        ImGui::CloseCurrentPopup();
+    }
     ImGui::EndPopup();
 }
 
