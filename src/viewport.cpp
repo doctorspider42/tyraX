@@ -499,6 +499,7 @@ void Viewport::setTerrain(const TerrainConfig& terrain, int maxCells,
         float diag =
             (float)(terrain_.width > terrain_.depth ? terrain_.width : terrain_.depth);
         distance_ = diag * 1.4f;
+        target_[0] = target_[1] = target_[2] = 0.0f;  // re-center on the terrain
     }
     buildTerrainMesh();
 }
@@ -524,9 +525,11 @@ bool Viewport::terrainRaycast(float u, float v, float& outX, float& outZ) const 
     if (fbWidth_ < 1 || fbHeight_ < 1) return false;
 
     // Same camera ray construction as pick()
-    const Vec3 eye{distance_ * std::cos(pitch_) * std::cos(yaw_), distance_ * std::sin(pitch_),
-                   distance_ * std::cos(pitch_) * std::sin(yaw_)};
-    const Vec3 fwd = normalize(sub({0, 0, 0}, eye));
+    const Vec3 tgt{target_[0], target_[1], target_[2]};
+    const Vec3 eye{tgt.x + distance_ * std::cos(pitch_) * std::cos(yaw_),
+                   tgt.y + distance_ * std::sin(pitch_),
+                   tgt.z + distance_ * std::cos(pitch_) * std::sin(yaw_)};
+    const Vec3 fwd = normalize(sub(tgt, eye));
     const Vec3 right = normalize(cross(fwd, {0, 1, 0}));
     const Vec3 up = cross(right, fwd);
     const float aspect = (float)fbWidth_ / (float)fbHeight_;
@@ -758,9 +761,11 @@ int Viewport::pick(float u, float v, const std::vector<SceneObject>& objects) co
     if (fbWidth_ < 1 || fbHeight_ < 1) return -1;
 
     // Camera ray through the pixel (same camera setup as render())
-    const Vec3 eye{distance_ * std::cos(pitch_) * std::cos(yaw_), distance_ * std::sin(pitch_),
-                   distance_ * std::cos(pitch_) * std::sin(yaw_)};
-    const Vec3 fwd = normalize(sub({0, 0, 0}, eye));
+    const Vec3 tgt{target_[0], target_[1], target_[2]};
+    const Vec3 eye{tgt.x + distance_ * std::cos(pitch_) * std::cos(yaw_),
+                   tgt.y + distance_ * std::sin(pitch_),
+                   tgt.z + distance_ * std::cos(pitch_) * std::sin(yaw_)};
+    const Vec3 fwd = normalize(sub(tgt, eye));
     const Vec3 right = normalize(cross(fwd, {0, 1, 0}));
     const Vec3 up = cross(right, fwd);
     const float aspect = (float)fbWidth_ / (float)fbHeight_;
@@ -902,6 +907,32 @@ void Viewport::zoom(float wheel) {
     if (distance_ > 2000.0f) distance_ = 2000.0f;
 }
 
+void Viewport::pan(float dx, float dy) {
+    // Slide the orbit target in the view plane; speed scales with distance
+    // so a pixel of drag covers the same fraction of the screen at any zoom.
+    const Vec3 eye{distance_ * std::cos(pitch_) * std::cos(yaw_),
+                   distance_ * std::sin(pitch_),
+                   distance_ * std::cos(pitch_) * std::sin(yaw_)};
+    const Vec3 fwd = normalize(sub({0, 0, 0}, eye));
+    const Vec3 right = normalize(cross(fwd, {0, 1, 0}));
+    const Vec3 up = cross(right, fwd);
+    const float s = distance_ * 0.0016f;
+    target_[0] += (-right.x * dx + up.x * dy) * s;
+    target_[1] += (-right.y * dx + up.y * dy) * s;
+    target_[2] += (-right.z * dx + up.z * dy) * s;
+}
+
+void Viewport::fly(float forward, float strafe, float dt) {
+    // WASD: move the orbit target on the horizontal plane along the camera
+    // heading. Speed scales with zoom so travel feels constant on screen.
+    if (forward == 0.0f && strafe == 0.0f) return;
+    const Vec3 fwdH{-std::cos(yaw_), 0.0f, -std::sin(yaw_)};  // toward the scene
+    const Vec3 rightH{-fwdH.z, 0.0f, fwdH.x};
+    const float s = distance_ * 0.9f * dt;
+    target_[0] += (fwdH.x * forward + rightH.x * strafe) * s;
+    target_[2] += (fwdH.z * forward + rightH.z * strafe) * s;
+}
+
 uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>& objects,
                           int selectedIndex) {
     if (width < 1) width = 1;
@@ -939,9 +970,11 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glEnable(GL_DEPTH_TEST);
     }
 
-    Vec3 eye{distance_ * std::cos(pitch_) * std::cos(yaw_), distance_ * std::sin(pitch_),
-             distance_ * std::cos(pitch_) * std::sin(yaw_)};
-    Mat4 view = lookAt(eye, {0, 0, 0}, {0, 1, 0});
+    const Vec3 tgt{target_[0], target_[1], target_[2]};
+    Vec3 eye{tgt.x + distance_ * std::cos(pitch_) * std::cos(yaw_),
+             tgt.y + distance_ * std::sin(pitch_),
+             tgt.z + distance_ * std::cos(pitch_) * std::sin(yaw_)};
+    Mat4 view = lookAt(eye, tgt, {0, 1, 0});
     float diag = (float)(terrain_.width > terrain_.depth ? terrain_.width : terrain_.depth);
     Mat4 proj = perspective(50.0f * kPi / 180.0f, (float)width / (float)height, 0.1f,
                             diag * 10.0f + 100.0f);

@@ -227,6 +227,14 @@ Each finished feature lands as its own commit.
   box up close; On Used -> Log compiled (`ctx.usedObject == idx`); the actual
   Square press needs a pad test.
 
+- (24) **Viewport camera panning** — the editor camera orbits a movable target
+  now: middle-mouse drag pans in the view plane, WASD flies over the terrain
+  along the camera heading (both scale with zoom, so screen-space speed feels
+  constant). Picking, sculpt raycast and the gizmo all follow the moved
+  camera. Tool shortcuts moved off the letters to make room: Move/Rotate/
+  Scale/Sculpt are 1/2/3/4 (button labels updated). New-terrain projects
+  re-center the target. Interactions need a hands-on mouse/keyboard pass.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

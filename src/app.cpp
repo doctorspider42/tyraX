@@ -464,6 +464,9 @@ void App::drawViewportWindow() {
                 ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
                 viewport_.orbit(io.MouseDelta.x, io.MouseDelta.y);
             }
+            // Middle mouse: pan the camera target in the view plane
+            if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle))
+                viewport_.pan(io.MouseDelta.x, io.MouseDelta.y);
             if (io.MouseWheel != 0.0f) viewport_.zoom(io.MouseWheel);
 
             // Click (no drag) = pick object under cursor
@@ -496,7 +499,7 @@ void App::drawViewportWindow() {
 
         // --- Tool buttons overlay (top-left corner of the viewport) ---
         ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, imgPos.y + 8));
-        const char* toolNames[] = {"Move (W)", "Rotate (E)", "Scale (R)"};
+        const char* toolNames[] = {"Move (1)", "Rotate (2)", "Scale (3)"};
         for (int i = 0; i < 3; ++i) {
             if (i) ImGui::SameLine();
             const bool active = gizmoOp_ == i;
@@ -528,7 +531,7 @@ void App::drawViewportWindow() {
         if (sculptMode_)
             ImGui::PushStyleColor(ImGuiCol_Button,
                                   ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::SmallButton("Sculpt (T)")) sculptMode_ = !sculptMode_;
+        if (ImGui::SmallButton("Sculpt (4)")) sculptMode_ = !sculptMode_;
         if (sculptMode_) ImGui::PopStyleColor();
 
         if (sculptMode_) {
@@ -544,10 +547,17 @@ void App::drawViewportWindow() {
 
         // --- Keyboard shortcuts (viewport hovered, not typing) ---
         if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && !io.WantTextInput) {
-            if (ImGui::IsKeyPressed(ImGuiKey_W)) gizmoOp_ = 0;
-            if (ImGui::IsKeyPressed(ImGuiKey_E)) gizmoOp_ = 1;
-            if (ImGui::IsKeyPressed(ImGuiKey_R)) gizmoOp_ = 2;
-            if (ImGui::IsKeyPressed(ImGuiKey_T)) sculptMode_ = !sculptMode_;
+            if (ImGui::IsKeyPressed(ImGuiKey_1)) gizmoOp_ = 0;
+            if (ImGui::IsKeyPressed(ImGuiKey_2)) gizmoOp_ = 1;
+            if (ImGui::IsKeyPressed(ImGuiKey_3)) gizmoOp_ = 2;
+            if (ImGui::IsKeyPressed(ImGuiKey_4)) sculptMode_ = !sculptMode_;
+
+            // WASD: fly the camera over the terrain (tools live on 1-4)
+            const float fwd = (ImGui::IsKeyDown(ImGuiKey_W) ? 1.0f : 0.0f) -
+                              (ImGui::IsKeyDown(ImGuiKey_S) ? 1.0f : 0.0f);
+            const float strafe = (ImGui::IsKeyDown(ImGuiKey_D) ? 1.0f : 0.0f) -
+                                 (ImGui::IsKeyDown(ImGuiKey_A) ? 1.0f : 0.0f);
+            viewport_.fly(fwd, strafe, io.DeltaTime);
             if (objectSelected && ImGui::IsKeyPressed(ImGuiKey_Delete)) {
                 project_.objects.erase(project_.objects.begin() + selectedObject_);
                 selectedObject_ = -1;

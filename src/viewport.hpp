@@ -53,9 +53,13 @@ public:
     uint32_t render(int width, int height, const std::vector<SceneObject>& objects,
                     int selectedIndex);
 
-    // Camera controls, driven by the UI layer.
+    // Camera controls, driven by the UI layer. The camera orbits a movable
+    // target point: pan slides it in the view plane (middle mouse drag),
+    // fly moves it on the horizontal plane along the view direction (WASD).
     void orbit(float dxPixels, float dyPixels);
     void zoom(float wheel);
+    void pan(float dxPixels, float dyPixels);
+    void fly(float forward, float strafe, float dt);
 
     // View/projection of the last render() call (column-major, OpenGL style) -
     // used by the transform gizmo.
@@ -89,10 +93,11 @@ private:
     bool skyQuadDirty_ = true;
     ViewMode viewMode_ = ViewMode::Solid;
 
-    // camera (orbit around terrain center)
+    // camera (orbit around a movable target, initially the terrain center)
     float yaw_ = 0.8f;
     float pitch_ = 0.6f;
     float distance_ = 90.0f;
+    float target_[3] = {0.0f, 0.0f, 0.0f};
 
     uint32_t program_ = 0;
     int uMvp_ = -1;
