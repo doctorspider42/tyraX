@@ -264,6 +264,24 @@ Each finished feature lands as its own commit.
   independent). Verified in PCSX2: Every-2-Seconds -> Toggle HUD blinks the
   crosshair while USE stays; editor overlays verified by screenshot.
 
+- (27) **Multiple scenes** — every scene owns its objects (with their flow
+  graphs); terrain/heightmap, settings, HUD and audio assets stay shared. The
+  Scenes section creates (+ Scene modal), switches (click) and deletes (x)
+  scenes; the first scene is the start scene. New **Switch Scene** flow node
+  (Scene category) requests a change applied between frames. Memory design:
+  all textures/models load once at startup for every scene, so a switch only
+  rebuilds the runtime objects (vectors and per-object bags are reused/freed
+  - no leaks, no VRAM churn, takes a frame). Generated code holds one object
+  table per scene (SCENE_OBJECT_TABLES + per-scene PLAYER_* arrays indexed by
+  currentScene); scene scripts are guarded by the active scene index and
+  reset their state via a scene-generation counter on every (re)entry - a
+  reused scene starts fresh. Legacy single-scene projects and old solution
+  files migrate automatically. Verified in PCSX2: a two-scene ping-pong
+  (Every 4 s -> Switch Scene both ways) alternates correctly and the state
+  after re-entry is identical to the first visit; 50 FPS throughout.
+  Trade-off noted: assets of ALL scenes stay resident (fine for editor-scale
+  projects; per-scene asset streaming = future work).
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)
@@ -275,7 +293,6 @@ Each finished feature lands as its own commit.
 - Compressed music streaming (SPU2-native ADPCM/VAG, ~3.5:1 vs 16-bit PCM) -
   needs a custom double-buffered SPU RAM streamer in the engine; audsrv only
   streams PCM and plays ADPCM one-shots
-- Multiple scenes (model exists in project.json, editor edits only "main")
 - Flow graph: more nodes (timers with reset, gates, variables, sounds)
 - Engine perf, next targets: packager allocates its package array per frame
   (poolable); the real endgame is the engine author's own TODO in

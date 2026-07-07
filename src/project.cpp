@@ -181,12 +181,12 @@ std::string save(const Project& p) {
          << "  },\n"
          << "  \"scenes\": [";
     for (size_t i = 0; i < p.scenes.size(); ++i) {
-        if (i) json << ", ";
-        json << "\"" << p.scenes[i] << "\"";
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << p.scenes[i].name
+             << "\", \"objects\": ";
+        writeObjectsArray(json, p.scenes[i].objects, "      ");
+        json << " }";
     }
-    json << "],\n"
-         << "  \"objects\": ";
-    writeObjectsArray(json, p.objects, "    ");
+    json << "\n  ]";
     json << ",\n  \"hud\": [";
     for (size_t i = 0; i < p.hud.size(); ++i) {
         const HudImage& h = p.hud[i];
@@ -239,7 +239,7 @@ std::string create(Project& out, const std::string& name, const std::string& par
         spawn.type = PrimitiveType::SpawnPoint;
         spawn.position[1] = 0.0f;
         spawn.color[0] = 0.15f, spawn.color[1] = 0.9f, spawn.color[2] = 0.9f;
-        out.objects.push_back(spawn);
+        out.scenes[0].objects.push_back(spawn);
 
         // ...and a box in front of the player, so the example script
         // (walk close + press X) has something to interact with.
@@ -247,7 +247,7 @@ std::string create(Project& out, const std::string& name, const std::string& par
         box.name = "box-1";
         box.position[0] = 0.0f, box.position[1] = 1.0f, box.position[2] = 6.0f;
         box.scale[0] = box.scale[1] = box.scale[2] = 2.0f;
-        out.objects.push_back(box);
+        out.scenes[0].objects.push_back(box);
 
         // ...and a physics demo: a sphere that drops from the sky at start.
         SceneObject ball;
@@ -256,7 +256,7 @@ std::string create(Project& out, const std::string& name, const std::string& par
         ball.position[0] = 3.0f, ball.position[1] = 10.0f, ball.position[2] = 6.0f;
         ball.color[0] = 0.25f, ball.color[1] = 0.45f, ball.color[2] = 0.9f;
         ball.physics = true;
-        out.objects.push_back(ball);
+        out.scenes[0].objects.push_back(ball);
     }
 
     ensureHeightmap(out);
@@ -286,7 +286,7 @@ std::string create(Project& out, const std::string& name, const std::string& par
         house.rotation[1] = 30.0f;
         house.scale[0] = house.scale[1] = house.scale[2] = 2.5f;
         house.color[0] = 0.9f, house.color[1] = 0.85f, house.color[2] = 0.7f;
-        out.objects.push_back(house);
+        out.scenes[0].objects.push_back(house);
 
         // ...a pillar to jump on...
         SceneObject pillar;
@@ -295,7 +295,7 @@ std::string create(Project& out, const std::string& name, const std::string& par
         pillar.position[0] = 5.0f, pillar.position[1] = 0.5f, pillar.position[2] = 10.0f;
         pillar.scale[0] = 2.0f, pillar.scale[1] = 1.0f, pillar.scale[2] = 2.0f;
         pillar.color[0] = 0.7f, pillar.color[1] = 0.7f, pillar.color[2] = 0.75f;
-        out.objects.push_back(pillar);
+        out.scenes[0].objects.push_back(pillar);
 
         // ...a HUD crosshair...
         HudImage crosshair;
@@ -307,7 +307,7 @@ std::string create(Project& out, const std::string& name, const std::string& par
         // ...and two small per-object flow graphs. Object params are left
         // empty = "self", so both graphs survive copy-paste unchanged.
         // box-1: Circle toggles the box.
-        for (SceneObject& obj : out.objects) {
+        for (SceneObject& obj : out.scenes[0].objects) {
             if (obj.name == "box-1") {
                 FlowGraph& fg = obj.flowGraph;
                 FlowNode onButton;
@@ -356,7 +356,7 @@ std::string create(Project& out, const std::string& name, const std::string& par
     // Every project is born with its solution file (projects are opened
     // through it) and a single-entry history.
     History h;
-    h.reset({out.terrain, out.objects});
+    h.reset({out.terrain, out.scenes});
     return saveSolution(out, h, -1, 0, 0);
 }
 
@@ -551,15 +551,30 @@ std::string load(Project& out, const std::string& projectDir) {
         if (st.terrainTexScale < 0.25f) st.terrainTexScale = 0.25f;
     }
 
+    // Scenes. New format: [{ "name", "objects" }]; legacy: an array of scene
+    // name strings plus a project-level "objects" array (single scene).
     if (const auto* scenes = root.find("scenes");
         scenes && scenes->type == json::Value::Type::Array && !scenes->arr.empty()) {
-        out.scenes.clear();
-        for (const auto& s : scenes->arr) out.scenes.push_back(s.stringOr("main"));
+        if (scenes->arr[0].type == json::Value::Type::Object) {
+            out.scenes.clear();
+            for (const auto& js : scenes->arr) {
+                SceneData sc;
+                if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
+                if (const auto* objs = js.find("objects"))
+                    readObjectsArray(*objs, sc.objects);
+                out.scenes.push_back(std::move(sc));
+            }
+        } else {
+            out.scenes.clear();
+            for (const auto& s : scenes->arr)
+                out.scenes.push_back(SceneData{s.stringOr("main"), {}});
+        }
     }
+    if (out.scenes.empty()) out.scenes.push_back(SceneData{});
 
     if (const auto* objects = root.find("objects");
         objects && objects->type == json::Value::Type::Array) {
-        readObjectsArray(*objects, out.objects);
+        readObjectsArray(*objects, out.scenes[0].objects);  // legacy single scene
     }
 
     if (const auto* hud = root.find("hud"); hud && hud->type == json::Value::Type::Array) {
@@ -603,11 +618,11 @@ std::string load(Project& out, const std::string& projectDir) {
     // Legacy project-level flow graph (pre per-object graphs): adopt it into
     // the first object so old projects keep working. It is written back in
     // the new per-object format on the next save.
-    if (const auto* fg = root.find("flowGraph"); fg && !out.objects.empty()) {
+    if (const auto* fg = root.find("flowGraph"); fg && !out.scenes[0].objects.empty()) {
         FlowGraph legacy;
         readFlowGraph(*fg, legacy);
-        if (!legacy.empty() && out.objects[0].flowGraph.empty())
-            out.objects[0].flowGraph = std::move(legacy);
+        if (!legacy.empty() && out.scenes[0].objects[0].flowGraph.empty())
+            out.scenes[0].objects[0].flowGraph = std::move(legacy);
     }
     return "";
 }
@@ -622,7 +637,7 @@ std::string saveSolution(const Project& p, const History& h, int selectedObject,
                          int viewMode) {
     std::ostringstream json;
     json << "{\n"
-         << "  \"version\": 1,\n"
+         << "  \"version\": 2,\n"
          << "  \"project\": \"project.json\",\n"
          << "  \"editor\": { \"selectedObject\": " << selectedObject
          << ", \"gizmo\": " << gizmoOp << ", \"viewMode\": " << viewMode << " },\n"
@@ -634,9 +649,14 @@ std::string saveSolution(const Project& p, const History& h, int selectedObject,
         const SceneSnapshot& s = entries[i];
         json << (i ? ",\n      " : "\n      ")
              << "{ \"terrain\": { \"width\": " << s.terrain.width
-             << ", \"depth\": " << s.terrain.depth << " }, \"objects\": ";
-        writeObjectsArray(json, s.objects, "        ");
-        json << " }";
+             << ", \"depth\": " << s.terrain.depth << " }, \"scenes\": [";
+        for (size_t k = 0; k < s.scenes.size(); ++k) {
+            json << (k ? ", " : "") << "{ \"name\": \"" << s.scenes[k].name
+                 << "\", \"objects\": ";
+            writeObjectsArray(json, s.scenes[k].objects, "        ");
+            json << " }";
+        }
+        json << "] }";
     }
     json << (entries.empty() ? "]\n" : "\n    ]\n") << "  }\n}\n";
     return writeFile(solutionPath(p), json.str());
@@ -666,7 +686,16 @@ std::string loadSolution(const Project& p, History& h, int& selectedObject, int&
             if (const auto* v = terrain->find("width")) s.terrain.width = (int)v->numberOr(64);
             if (const auto* v = terrain->find("depth")) s.terrain.depth = (int)v->numberOr(64);
         }
-        if (const auto* objects = je.find("objects")) readObjectsArray(*objects, s.objects);
+        if (const auto* scenes = je.find("scenes");
+            scenes && scenes->type == json::Value::Type::Array) {
+            for (const auto& js : scenes->arr) {
+                SceneData sc;
+                if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
+                if (const auto* objs = js.find("objects"))
+                    readObjectsArray(*objs, sc.objects);
+                s.scenes.push_back(std::move(sc));
+            }
+        }
         entries.push_back(std::move(s));
     }
 
@@ -676,7 +705,8 @@ std::string loadSolution(const Project& p, History& h, int& selectedObject, int&
 
     // Stale check: project.json is the source of truth for the current state.
     // If it was edited outside the editor, the persisted history no longer applies.
-    if (!(entries[index] == SceneSnapshot{p.terrain, p.objects}))
+    // (Old solution formats fail this too and simply start a fresh history.)
+    if (!(entries[index] == SceneSnapshot{p.terrain, p.scenes}))
         return "solution history is stale (project.json changed outside the editor)";
 
     h.restore(std::move(entries), index);
@@ -687,7 +717,7 @@ std::string loadSolution(const Project& p, History& h, int& selectedObject, int&
         if (const auto* v = editor->find("gizmo")) gizmoOp = (int)v->numberOr(0);
         if (const auto* v = editor->find("viewMode")) viewMode = (int)v->numberOr(0);
     }
-    if (selectedObject >= (int)p.objects.size()) selectedObject = -1;
+    if (selectedObject >= (int)p.objects().size()) selectedObject = -1;
     if (gizmoOp < 0 || gizmoOp > 2) gizmoOp = 0;
     if (viewMode < 0 || viewMode > 2) viewMode = 0;
     return "";

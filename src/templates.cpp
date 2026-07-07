@@ -20,12 +20,13 @@ namespace templates {
 // The index in this list == SceneObjectData::model in the generated code.
 static std::vector<std::string> collectModelPaths(const Project& p) {
     std::vector<std::string> paths;
-    for (const SceneObject& o : p.objects) {
-        if (o.type != PrimitiveType::Model || o.modelPath.empty()) continue;
-        bool seen = false;
-        for (const auto& e : paths) seen |= (e == o.modelPath);
-        if (!seen) paths.push_back(o.modelPath);
-    }
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects) {
+            if (o.type != PrimitiveType::Model || o.modelPath.empty()) continue;
+            bool seen = false;
+            for (const auto& e : paths) seen |= (e == o.modelPath);
+            if (!seen) paths.push_back(o.modelPath);
+        }
     return paths;
 }
 
@@ -47,8 +48,9 @@ static std::vector<std::string> collectTexturePaths(const Project& p) {
             if (e == t) return;
         paths.push_back(t);
     };
-    for (const SceneObject& o : p.objects)
-        if (o.type != PrimitiveType::SpawnPoint) add(o.texturePath);
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (o.type != PrimitiveType::SpawnPoint) add(o.texturePath);
     add(p.settings.terrainTexture);
     return paths;
 }
@@ -248,10 +250,16 @@ class TerrainGame : public Tyra::Game {
   void updateObjectPhysics();
   void renderScene();
 
-  // Player entity (PLAYER_INDEX in scene_data.hpp); overrides the template
+  // Player entity (PLAYER_INDEXES in scene_data.hpp); overrides the template
   // camera when present. Returns false when the scene has no player.
   bool updatePlayerEntity();
   float entX = 0, entY = 0, entZ = 0, entVelY = 0, entYaw = 0, entPitch = 0;
+
+  // Multiple scenes: the game starts in scene 0; the flow graph Switch
+  // Scene node requests a change applied between frames.
+  void loadScene(int sceneIndex);
+  int currentScene = 0;
+  unsigned int sceneGeneration = 0;
 
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
   void updateUseTarget();
@@ -327,10 +335,16 @@ class TerrainGame : public Tyra::Game {
   void updateObjectPhysics();
   void renderScene();
 
-  // Player entity (PLAYER_INDEX in scene_data.hpp); overrides the template
+  // Player entity (PLAYER_INDEXES in scene_data.hpp); overrides the template
   // camera when present. Returns false when the scene has no player.
   bool updatePlayerEntity();
   float entX = 0, entY = 0, entZ = 0, entVelY = 0, entYaw = 0, entPitch = 0;
+
+  // Multiple scenes: the game starts in scene 0; the flow graph Switch
+  // Scene node requests a change applied between frames.
+  void loadScene(int sceneIndex);
+  int currentScene = 0;
+  unsigned int sceneGeneration = 0;
 
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
   void updateUseTarget();
@@ -355,6 +369,18 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
 #include <math.h>
+
+// Active-scene accessors: scene_data.hpp holds one object table per scene,
+// indexed here by the TerrainGame::currentScene member (see loadScene()).
+#define SCENE_OBJECT_COUNT SCENE_OBJECT_COUNTS[currentScene]
+#define SCENE_OBJECTS SCENE_OBJECT_TABLES[currentScene]
+#define PLAYER_INDEX PLAYER_INDEXES[currentScene]
+#define PLAYER_MODE PLAYER_MODES[currentScene]
+#define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[currentScene]
+#define PLAYER_LOOK_SPEED PLAYER_LOOK_SPEEDS[currentScene]
+#define PLAYER_EYE_HEIGHT PLAYER_EYE_HEIGHTS[currentScene]
+#define PLAYER_JUMP_SPEED PLAYER_JUMP_SPEEDS[currentScene]
+#define PLAYER_CAN_JUMP PLAYER_CAN_JUMPS[currentScene]
 
 namespace {{NAME_UPPER_NS}} {
 
@@ -606,6 +632,13 @@ void TerrainGame::loop() {
   for (Script* script : getScripts()) script->update(scriptCtx);
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
 
+  // Scene switch requested by the flow graph / scripts
+  if (scriptCtx.requestScene >= 0) {
+    const int target = scriptCtx.requestScene;
+    scriptCtx.requestScene = -1;
+    loadScene(target);
+  }
+
   // Flow graph / script teleport request (needs a Player entity - the orbit
   // camera itself is not teleportable)
   if (scriptCtx.teleport) {
@@ -681,6 +714,18 @@ void TerrainGame::buildScene() {
   skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
   buildSkyDome();
 
+  loadScene(0);
+}
+
+// Switches the runtime state to a scene from scene_data.hpp. Assets
+// (textures, models) are loaded once for all scenes at startup, so this
+// only rebuilds the runtime objects: vectors and per-object bags are
+// reused/freed here - nothing leaks and the switch takes a frame or two.
+void TerrainGame::loadScene(int sceneIndex) {
+  if (sceneIndex < 0 || sceneIndex >= SCENE_COUNT) return;
+  currentScene = sceneIndex;
+  sceneGeneration++;  // scene scripts see this and reset their state
+
   runtimeObjects.assign(SCENE_OBJECT_COUNT, RuntimeObject());
   objectGeometry.clear();
   objectGeometry.resize(SCENE_OBJECT_COUNT);
@@ -691,14 +736,22 @@ void TerrainGame::buildScene() {
         SCENE_OBJECTS[i].type != 4 && SCENE_OBJECTS[i].type != 6;
     runtimeObjects[i].dirty = true;
   }
+  scriptCtx.objects = runtimeObjects.data();
+  scriptCtx.objectCount = (int)runtimeObjects.size();
+  scriptCtx.scene = currentScene;
+  scriptCtx.sceneGeneration = sceneGeneration;
+  scriptCtx.usedObject = -1;
+  useTargetIndex = -1;
 
-  // Player entity start state
+  // Player entity start state for this scene
   if (PLAYER_INDEX >= 0 && PLAYER_INDEX < SCENE_OBJECT_COUNT) {
     entX = SCENE_OBJECTS[PLAYER_INDEX].position[0];
     entZ = SCENE_OBJECTS[PLAYER_INDEX].position[2];
     entY = PLAYER_MODE == 1 ? SCENE_OBJECTS[PLAYER_INDEX].position[1]
                             : terrainHeightAt(entX, entZ);
     entYaw = SCENE_OBJECTS[PLAYER_INDEX].rotation[1] * PI / 180.0F;
+    entVelY = 0.0F;
+    entPitch = 0.0F;
   }
 }
 
@@ -1167,6 +1220,28 @@ void TerrainGame::loop() {
   scriptCtx.playerPosition = cameraPosition;
   for (Script* script : getScripts()) script->update(scriptCtx);
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
+
+  // Scene switch requested by the flow graph / scripts. The built-in FPP
+  // player respawns at the new scene's spawn point.
+  if (scriptCtx.requestScene >= 0) {
+    const int target = scriptCtx.requestScene;
+    scriptCtx.requestScene = -1;
+    loadScene(target);
+    playerX = 0.0F;
+    playerZ = 0.0F;
+    yaw = 0.0F;
+    pitch = 0.0F;
+    for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+      if (SCENE_OBJECTS[i].type == 4) {
+        playerX = SCENE_OBJECTS[i].position[0];
+        playerZ = SCENE_OBJECTS[i].position[2];
+        yaw = SCENE_OBJECTS[i].rotation[1] * PI / 180.0F;
+        break;
+      }
+    }
+    playerY = terrainHeightAt(playerX, playerZ);
+    playerVelY = 0.0F;
+  }
 
   // Flow graph / script teleport request: move the Player entity when the
   // scene has one, the built-in FPP player otherwise.
@@ -1649,6 +1724,14 @@ struct ScriptContext {
 
   // Write to show/hide all HUD images (the USE prompt is unaffected).
   bool hudVisible = true;
+
+  // Scenes: `scene` is the active scene index (scene_data.hpp order),
+  // `sceneGeneration` bumps on every (re)load - scripts use it to reset
+  // their state. Write a scene index into `requestScene` to switch after
+  // the current frame's scripts.
+  int scene = 0;
+  unsigned int sceneGeneration = 0;
+  int requestScene = -1;
 };
 
 /** Base class for game scripts. Put .cpp files in src/scripts/. */
@@ -1899,46 +1982,85 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int texture;  // index into TEXTURE_PATHS (texture_data.gen.hpp), -1 = none\n"
            "  int usable;   // 1 = shows the USE prompt up close (see controls.hpp)\n"
            "};\n"
-           "\n"
-           "constexpr int SCENE_OBJECT_COUNT = "
-        << p.objects.size() << ";\n"
-        << "constexpr SceneObjectData SCENE_OBJECTS[SCENE_OBJECT_COUNT > 0 ? "
-           "SCENE_OBJECT_COUNT : 1] = {\n";
-    if (p.objects.empty()) {
-        out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0},\n";
-    } else {
-        for (const SceneObject& o : p.objects) {
-            out << "    {" << (int)o.type << ", " << vec3Init(o.position) << ", "
-                << vec3Init(o.rotation) << ", " << vec3Init(o.scale) << ", "
-                << vec3Init(o.color) << ", " << (o.physics ? 1 : 0) << ", "
-                << modelIndexOf(p, o) << ", " << textureIndexOf(p, o.texturePath) << ", "
-                << (o.usable ? 1 : 0) << "},  // " << o.name << "\n";
+           "\n";
+
+    // One object table per scene; the game indexes everything through
+    // SCENE_OBJECT_TABLES[currentScene] (see the accessor macros in the
+    // generated game cpp).
+    const int sceneCount = (int)p.scenes.size();
+    out << "constexpr int SCENE_COUNT = " << sceneCount << ";\n\n";
+
+    for (int si = 0; si < sceneCount; ++si) {
+        const auto& objs = p.scenes[si].objects;
+        out << "// scene \"" << p.scenes[si].name << "\"\n"
+            << "constexpr SceneObjectData SCENE_" << si << "_OBJECTS["
+            << (objs.empty() ? (size_t)1 : objs.size()) << "] = {\n";
+        if (objs.empty()) {
+            out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0},\n";
+        } else {
+            for (const SceneObject& o : objs) {
+                out << "    {" << (int)o.type << ", " << vec3Init(o.position) << ", "
+                    << vec3Init(o.rotation) << ", " << vec3Init(o.scale) << ", "
+                    << vec3Init(o.color) << ", " << (o.physics ? 1 : 0) << ", "
+                    << modelIndexOf(p, o) << ", " << textureIndexOf(p, o.texturePath)
+                    << ", " << (o.usable ? 1 : 0) << "},  // " << o.name << "\n";
+            }
         }
+        out << "};\n";
     }
+
+    out << "\nconstexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "") << p.scenes[si].objects.size();
+    out << "};\n"
+           "inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "") << "SCENE_" << si << "_OBJECTS";
     out << "};\n\n";
 
-    // Player entity: the first Player object drives the camera in the game
-    const SceneObject* player = nullptr;
-    int playerIndex = -1;
-    for (size_t i = 0; i < p.objects.size(); ++i)
-        if (p.objects[i].type == PrimitiveType::Player) {
-            player = &p.objects[i];
-            playerIndex = (int)i;
-            break;
-        }
-    out << "constexpr int PLAYER_INDEX = " << playerIndex << ";\n"
-        << "constexpr int PLAYER_MODE = " << (player ? player->playerMode : 0)
-        << ";  // 0 = walk, 1 = noclip\n"
-        << "constexpr float PLAYER_WALK_SPEED = "
-        << floatLit(player ? player->playerWalkSpeed : 0.4f) << ";\n"
-        << "constexpr float PLAYER_LOOK_SPEED = "
-        << floatLit(player ? player->playerLookSpeed : 1.0f) << ";\n"
-        << "constexpr float PLAYER_EYE_HEIGHT = "
-        << floatLit(player ? player->playerEyeHeight : 1.8f) << ";\n"
-        << "constexpr float PLAYER_JUMP_SPEED = "
-        << floatLit(player ? player->playerJumpSpeed : 4.5f) << ";\n"
-        << "constexpr bool PLAYER_CAN_JUMP = "
-        << (!player || player->playerCanJump ? "true" : "false") << ";\n"
+    // Player entity per scene: the first Player object drives the camera
+    std::vector<const SceneObject*> players(sceneCount, nullptr);
+    std::vector<int> playerIdx(sceneCount, -1);
+    for (int si = 0; si < sceneCount; ++si)
+        for (size_t i = 0; i < p.scenes[si].objects.size(); ++i)
+            if (p.scenes[si].objects[i].type == PrimitiveType::Player) {
+                players[si] = &p.scenes[si].objects[i];
+                playerIdx[si] = (int)i;
+                break;
+            }
+
+    out << "constexpr int PLAYER_INDEXES[SCENE_COUNT] = {";
+    for (int si = 0; si < sceneCount; ++si) out << (si ? ", " : "") << playerIdx[si];
+    out << "};\n"
+        << "constexpr int PLAYER_MODES[SCENE_COUNT] = {";  // 0 = walk, 1 = noclip
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "") << (players[si] ? players[si]->playerMode : 0);
+    out << "};\n"
+        << "constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "")
+            << floatLit(players[si] ? players[si]->playerWalkSpeed : 0.4f);
+    out << "};\n"
+        << "constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "")
+            << floatLit(players[si] ? players[si]->playerLookSpeed : 1.0f);
+    out << "};\n"
+        << "constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "")
+            << floatLit(players[si] ? players[si]->playerEyeHeight : 1.8f);
+    out << "};\n"
+        << "constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "")
+            << floatLit(players[si] ? players[si]->playerJumpSpeed : 4.5f);
+    out << "};\n"
+        << "constexpr bool PLAYER_CAN_JUMPS[SCENE_COUNT] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "")
+            << (!players[si] || players[si]->playerCanJump ? "true" : "false");
+    out << "};\n"
            "\n"
            "}  // namespace "
         << ns << "\n";
@@ -2026,9 +2148,9 @@ bool matchesLegacy(const Project& p, const std::string& relativePath,
 std::string flowGraphScript(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
 
-    auto objectIndex = [&](const std::string& name) {
-        for (size_t i = 0; i < p.objects.size(); ++i)
-            if (p.objects[i].name == name) return (int)i;
+    auto sceneIndexOf = [&](const std::string& name) {
+        for (size_t i = 0; i < p.scenes.size(); ++i)
+            if (p.scenes[i].name == name) return (int)i;
         return -1;
     };
 
@@ -2042,8 +2164,15 @@ std::string flowGraphScript(const Project& p) {
     std::ostringstream registrations;
     bool anyGraph = false;
 
-    for (size_t ownerIdx = 0; ownerIdx < p.objects.size(); ++ownerIdx) {
-        const FlowGraph& fg = p.objects[ownerIdx].flowGraph;
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+    const auto& sceneObjs = p.scenes[si].objects;
+    auto objectIndex = [&](const std::string& name) {
+        for (size_t i = 0; i < sceneObjs.size(); ++i)
+            if (sceneObjs[i].name == name) return (int)i;
+        return -1;
+    };
+    for (size_t ownerIdx = 0; ownerIdx < sceneObjs.size(); ++ownerIdx) {
+        const FlowGraph& fg = sceneObjs[ownerIdx].flowGraph;
         if (fg.empty()) continue;
         anyGraph = true;
 
@@ -2151,6 +2280,15 @@ std::string flowGraphScript(const Project& p) {
                 c << pad << "ctx.skyColor = Tyra::Color(" << floatLit(n.num[0] * 255.0f)
                   << ", " << floatLit(n.num[1] * 255.0f) << ", "
                   << floatLit(n.num[2] * 255.0f) << ");\n";
+            } else if (n.type == "SwitchScene") {
+                const int target = sceneIndexOf(n.str);
+                if (target < 0) {
+                    c << pad << "// node " << n.id << " (SwitchScene): unknown scene '"
+                      << n.str << "'\n";
+                } else {
+                    c << pad << "ctx.requestScene = " << target << ";  // \"" << n.str
+                      << "\"\n";
+                }
             } else if (n.type == "ShowObject") {
                 c << pad << obj << ".visible = true;\n";
             } else if (n.type == "HideObject") {
@@ -2263,15 +2401,28 @@ std::string flowGraphScript(const Project& p) {
             return c.str();
         };
 
-        const std::string cls = "FlowGraphScript_" + std::to_string(ownerIdx);
-        out << "\n// Graph of \"" << p.objects[ownerIdx].name << "\" (object " << ownerIdx
-            << ")\nclass " << cls
+        const std::string cls =
+            "FlowGraphScript_" + std::to_string(si) + "_" + std::to_string(ownerIdx);
+        std::ostringstream clsOut;
+        clsOut << "\n// Scene \"" << p.scenes[si].name << "\": graph of \""
+            << sceneObjs[ownerIdx].name << "\" (object " << ownerIdx << ")\nclass " << cls
             << " : public Script {\n"
                " public:\n"
                "  void update(ScriptContext& ctx) override {\n"
+               "    if (ctx.scene != "
+            << si
+            << ") return;\n"
+               "    if (ctx.sceneGeneration != generation) {\n"
+               "      // scene was (re)loaded - back to the initial state\n"
+               "      generation = ctx.sceneGeneration;\n"
+               "      frame = 0;\n"
+               "      started = false;\n"
+               "{{FLAG_RESETS}}"
+               "    }\n"
                "    frame++;\n";
 
         std::ostringstream members;
+        std::ostringstream flagResets;
         for (const FlowNode& n : fg.nodes) {
             const FlowNodeType* t = flowNodeType(n.type);
             if (!t || !t->trigger) continue;
@@ -2279,30 +2430,31 @@ std::string flowGraphScript(const Project& p) {
             if (body.empty()) continue;
 
             if (n.type == "OnStart") {
-                out << "    if (!started) {\n      started = true;\n" << body << "    }\n";
+                clsOut << "    if (!started) {\n      started = true;\n" << body << "    }\n";
             } else if (n.type == "OnUsed") {
                 const int idx = resolveTarget(n);
                 if (idx < 0) {
-                    out << "    // node " << n.id << " (OnUsed): unknown object '" << n.str
+                    clsOut << "    // node " << n.id << " (OnUsed): unknown object '" << n.str
                         << "'\n";
                     continue;
                 }
-                out << "    if (ctx.usedObject == " << idx << ") {\n" << body << "    }\n";
+                clsOut << "    if (ctx.usedObject == " << idx << ") {\n" << body << "    }\n";
             } else if (n.type == "OnButton") {
                 std::string btn = n.str.empty() ? "Cross" : n.str;
-                out << "    if (ctx.engine->pad.getClicked()." << btn << ") {\n" << body
+                clsOut << "    if (ctx.engine->pad.getClicked()." << btn << ") {\n" << body
                     << "    }\n";
             } else if (n.type == "NearObject") {
                 const int idx = resolveTarget(n);
                 if (idx < 0) {
-                    out << "    // node " << n.id << " (NearObject): unknown object '"
+                    clsOut << "    // node " << n.id << " (NearObject): unknown object '"
                         << n.str << "'\n";
                     continue;
                 }
                 const std::string flag = "near" + std::to_string(n.id);
                 members << "  bool " << flag << " = false;\n";
+                flagResets << "      " << flag << " = false;\n";
                 const float r = n.num[0] > 0.01f ? n.num[0] : 3.0f;
-                out << "    {\n      const float dx = ctx.playerPosition.x - ctx.objects["
+                clsOut << "    {\n      const float dx = ctx.playerPosition.x - ctx.objects["
                     << idx
                     << "].data.position[0];\n      const float dz = ctx.playerPosition.z - "
                        "ctx.objects["
@@ -2313,37 +2465,41 @@ std::string flowGraphScript(const Project& p) {
             } else if (n.type == "EverySeconds") {
                 int frames = (int)(n.num[0] * 50.0f);
                 if (frames < 1) frames = 1;
-                out << "    if (frame % " << frames << " == 0) {\n" << body << "    }\n";
+                clsOut << "    if (frame % " << frames << " == 0) {\n" << body << "    }\n";
             }
         }
 
-        out << "  }\n";
+        clsOut << "  }\n";
 
         if (!usedSounds.empty()) {
-            out << "\n  void init(ScriptContext& ctx) override {\n";
+            clsOut << "\n  void init(ScriptContext& ctx) override {\n";
             for (size_t i = 0; i < usedSounds.size(); ++i) {
                 // res/sfx/x.wav lands as sfx/x.adpcm next to the ELF (adpenc)
                 std::string binPath = usedSounds[i];
                 if (binPath.rfind("res/", 0) == 0) binPath = binPath.substr(4);
                 const size_t dot = binPath.rfind('.');
                 if (dot != std::string::npos) binPath = binPath.substr(0, dot);
-                out << "    sfx" << i << " = ctx.engine->audio.adpcm.load(\n"
+                clsOut << "    sfx" << i << " = ctx.engine->audio.adpcm.load(\n"
                     << "        Tyra::FileUtils::fromCwd(\"" << binPath << ".adpcm\"));\n";
             }
-            out << "  }\n";
+            clsOut << "  }\n";
         }
 
-        out << "\n private:\n"
+        clsOut << "\n private:\n"
+               "  unsigned int generation = 0;\n"
                "  int frame = 0;\n"
                "  bool started = false;\n";
         if (!usedSounds.empty()) {
-            out << "  int sfxNextCh = 0;\n";
+            clsOut << "  int sfxNextCh = 0;\n";
             for (size_t i = 0; i < usedSounds.size(); ++i)
-                out << "  audsrv_adpcm_t* sfx" << i << " = nullptr;\n";
+                clsOut << "  audsrv_adpcm_t* sfx" << i << " = nullptr;\n";
         }
-        out << members.str() << "};\n";
+        clsOut << members.str() << "};\n";
+
+        out << replaceAll(clsOut.str(), "{{FLAG_RESETS}}", flagResets.str());
 
         registrations << "TYRA_SCRIPT(" << ns << "::" << cls << ");\n";
+    }
     }
 
     if (!anyGraph) out << "\n// No object has a flow graph yet.\n";

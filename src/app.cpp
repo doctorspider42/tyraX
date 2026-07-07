@@ -260,6 +260,7 @@ void App::drawUI() {
     drawNewProjectModal();
     drawPreferencesModal();
     drawNewScriptModal();
+    drawNewSceneModal();
 
     // Keyboard shortcuts
     ImGuiIO& io = ImGui::GetIO();
@@ -296,7 +297,7 @@ void App::drawMenuBar() {
         }
         if (ImGui::BeginMenu("Edit", hasProject_)) {
             const bool objectSelected =
-                selectedObject_ >= 0 && selectedObject_ < (int)project_.objects.size();
+                selectedObject_ >= 0 && selectedObject_ < (int)project_.objects().size();
             if (ImGui::MenuItem("Undo", "Ctrl+Z", false, history_.canUndo())) undo();
             if (ImGui::MenuItem("Redo", "Ctrl+Y", false, history_.canRedo())) redo();
             ImGui::Separator();
@@ -353,7 +354,7 @@ void App::drawViewportWindow() {
     ImVec2 avail = ImGui::GetContentRegionAvail();
     if (avail.x >= 8 && avail.y >= 8) {
         uint32_t tex =
-            viewport_.render((int)avail.x, (int)avail.y, project_.objects, selectedObject_);
+            viewport_.render((int)avail.x, (int)avail.y, project_.objects(), selectedObject_);
         // Flip vertically: GL texture origin is bottom-left
         ImGui::Image((ImTextureID)(intptr_t)tex, avail, ImVec2(0, 1), ImVec2(1, 0));
 
@@ -417,9 +418,9 @@ void App::drawViewportWindow() {
 
         // --- Transform gizmo on the selected object (disabled while sculpting) ---
         bool objectSelected = !sculptMode_ && selectedObject_ >= 0 &&
-                              selectedObject_ < (int)project_.objects.size();
+                              selectedObject_ < (int)project_.objects().size();
         if (objectSelected) {
-            SceneObject& o = project_.objects[selectedObject_];
+            SceneObject& o = project_.objects()[selectedObject_];
 
             ImGuizmo::SetOrthographic(false);
             ImGuizmo::SetDrawlist();
@@ -474,7 +475,7 @@ void App::drawViewportWindow() {
                 io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
                 const float u = (io.MousePos.x - imgPos.x) / avail.x;
                 const float v = (io.MousePos.y - imgPos.y) / avail.y;
-                selectedObject_ = viewport_.pick(u, v, project_.objects);
+                selectedObject_ = viewport_.pick(u, v, project_.objects());
             }
         }
 
@@ -595,7 +596,7 @@ void App::drawViewportWindow() {
                                  (ImGui::IsKeyDown(ImGuiKey_A) ? 1.0f : 0.0f);
             viewport_.fly(fwd, strafe, io.DeltaTime);
             if (objectSelected && ImGui::IsKeyPressed(ImGuiKey_Delete)) {
-                project_.objects.erase(project_.objects.begin() + selectedObject_);
+                project_.objects().erase(project_.objects().begin() + selectedObject_);
                 selectedObject_ = -1;
                 commitChange();
             }
@@ -630,8 +631,44 @@ void App::drawProjectWindow() {
     ImGui::TextUnformatted(project_.elfName().c_str());
 
     ImGui::SeparatorText("Scenes");
-    for (const auto& s : project_.scenes) {
-        ImGui::BulletText("%s%s", s.c_str(), s == "main" ? " (default)" : "");
+    if (ImGui::SmallButton("+ Scene")) {
+        openNewScenePopup_ = true;
+        newSceneError_.clear();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Each scene has its own objects and flow graphs.\n"
+                          "The game starts in the first scene; switch with the\n"
+                          "Switch Scene flow node. Terrain, HUD and audio are shared.");
+    for (int i = 0; i < (int)project_.scenes.size(); ++i) {
+        ImGui::PushID(i + 3000);
+        const std::string label =
+            project_.scenes[i].name + (i == 0 ? "  (start)" : "") + "##scene";
+        if (ImGui::Selectable(label.c_str(), project_.activeScene == i,
+                              ImGuiSelectableFlags_AllowOverlap) &&
+            project_.activeScene != i) {
+            project_.activeScene = i;
+            selectedObject_ = -1;
+            flowGraphObject_ = -1;
+            flowPositionsApplied_ = false;
+        }
+        if (project_.scenes.size() > 1) {
+            ImGui::SameLine(ImGui::GetContentRegionMax().x - 22.0f);
+            if (ImGui::SmallButton("x")) {
+                project_.scenes.erase(project_.scenes.begin() + i);
+                if (project_.activeScene >= (int)project_.scenes.size() ||
+                    project_.activeScene == i)
+                    project_.activeScene = 0;
+                selectedObject_ = -1;
+                flowGraphObject_ = -1;
+                flowPositionsApplied_ = false;
+                commitChange();
+                ImGui::PopID();
+                break;
+            }
+        }
+        ImGui::PopID();
     }
 
     drawSceneSection();
@@ -677,7 +714,7 @@ void App::saveAll(const char* status) {
 }
 
 void App::commitChange() {
-    history_.push({project_.terrain, project_.objects});
+    history_.push({project_.terrain, project_.scenes});
     saveAll("Saved");
 }
 
@@ -685,8 +722,9 @@ void App::applySnapshot(const SceneSnapshot& s) {
     const bool terrainChanged = s.terrain.width != project_.terrain.width ||
                                 s.terrain.depth != project_.terrain.depth;
     project_.terrain = s.terrain;
-    project_.objects = s.objects;
-    if (selectedObject_ >= (int)project_.objects.size()) selectedObject_ = -1;
+    project_.scenes = s.scenes;
+    if (project_.activeScene >= (int)project_.scenes.size()) project_.activeScene = 0;
+    if (selectedObject_ >= (int)project_.objects().size()) selectedObject_ = -1;
     flowPositionsApplied_ = false;  // graphs live in objects - re-pin node positions
     if (terrainChanged) applyProjectToViewport();
 }
@@ -704,8 +742,8 @@ void App::redo() {
 }
 
 void App::copyObject() {
-    if (selectedObject_ < 0 || selectedObject_ >= (int)project_.objects.size()) return;
-    clipboard_ = project_.objects[selectedObject_];
+    if (selectedObject_ < 0 || selectedObject_ >= (int)project_.objects().size()) return;
+    clipboard_ = project_.objects()[selectedObject_];
     hasClipboard_ = true;
     statusMessage_ = "Copied " + clipboard_.name;
 }
@@ -717,7 +755,7 @@ void App::pasteObject() {
     std::string name = o.name + "-copy";
     for (int n = 2;; ++n) {
         bool taken = false;
-        for (const auto& other : project_.objects) taken |= (other.name == name);
+        for (const auto& other : project_.objects()) taken |= (other.name == name);
         if (!taken) break;
         name = o.name + "-copy" + std::to_string(n);
     }
@@ -725,24 +763,24 @@ void App::pasteObject() {
     o.position[0] += 1.0f;  // offset so the copy is visible next to the original
     o.position[2] += 1.0f;
 
-    project_.objects.push_back(std::move(o));
-    selectedObject_ = (int)project_.objects.size() - 1;
+    project_.objects().push_back(std::move(o));
+    selectedObject_ = (int)project_.objects().size() - 1;
     commitChange();
-    statusMessage_ = "Pasted " + project_.objects.back().name;
+    statusMessage_ = "Pasted " + project_.objects().back().name;
 }
 
 void App::attachProject() {
     selectedObject_ = -1;
     flowGraphObject_ = -1;
     flowPositionsApplied_ = false;
-    history_.reset({project_.terrain, project_.objects});
+    history_.reset({project_.terrain, project_.scenes});
     // Solution file restores undo history + editor state when it is in sync
     // with project.json; otherwise we start fresh (and write a new one).
     int viewMode = 0;
     if (auto err =
             project::loadSolution(project_, history_, selectedObject_, gizmoOp_, viewMode);
         !err.empty()) {
-        history_.reset({project_.terrain, project_.objects});
+        history_.reset({project_.terrain, project_.scenes});
         project::saveSolution(project_, history_, selectedObject_, gizmoOp_, viewMode);
     }
     viewport_.setViewMode((Viewport::ViewMode)viewMode);
@@ -757,7 +795,7 @@ void App::addObject(PrimitiveType type) {
     for (;;) {
         name = std::string(primitiveTypeName(type)) + "-" + std::to_string(++counter);
         bool taken = false;
-        for (const auto& o : project_.objects) taken |= (o.name == name);
+        for (const auto& o : project_.objects()) taken |= (o.name == name);
         if (!taken) break;
     }
 
@@ -772,8 +810,8 @@ void App::addObject(PrimitiveType type) {
         o.position[1] = 0.0f;  // marker stands on the ground
         o.color[0] = 0.95f, o.color[1] = 0.75f, o.color[2] = 0.2f;
     }
-    project_.objects.push_back(o);
-    selectedObject_ = (int)project_.objects.size() - 1;
+    project_.objects().push_back(o);
+    selectedObject_ = (int)project_.objects().size() - 1;
     commitChange();
 }
 
@@ -804,14 +842,14 @@ void App::importModel() {
     std::string name = base;
     for (int n = 2;; ++n) {
         bool taken = false;
-        for (const auto& other : project_.objects) taken |= (other.name == name);
+        for (const auto& other : project_.objects()) taken |= (other.name == name);
         if (!taken) break;
         name = base + "-" + std::to_string(n);
     }
     o.name = name;
 
-    project_.objects.push_back(std::move(o));
-    selectedObject_ = (int)project_.objects.size() - 1;
+    project_.objects().push_back(std::move(o));
+    selectedObject_ = (int)project_.objects().size() - 1;
     commitChange();
     statusMessage_ = "Imported " + fileName;
 }
@@ -847,12 +885,12 @@ void App::drawSceneSection() {
         ImGui::EndPopup();
     }
 
-    if (project_.objects.empty()) {
+    if (project_.objects().empty()) {
         ImGui::TextDisabled("No objects - add a primitive above.");
     } else {
         ImGui::BeginChild("##objects", ImVec2(0, 130), ImGuiChildFlags_Borders);
-        for (int i = 0; i < (int)project_.objects.size(); ++i) {
-            const SceneObject& o = project_.objects[i];
+        for (int i = 0; i < (int)project_.objects().size(); ++i) {
+            const SceneObject& o = project_.objects()[i];
             std::string label = o.name + "  (" + primitiveTypeName(o.type) + ")##obj" +
                                 std::to_string(i);
             if (ImGui::Selectable(label.c_str(), selectedObject_ == i)) selectedObject_ = i;
@@ -860,8 +898,8 @@ void App::drawSceneSection() {
         ImGui::EndChild();
     }
 
-    if (selectedObject_ < 0 || selectedObject_ >= (int)project_.objects.size()) return;
-    SceneObject& o = project_.objects[selectedObject_];
+    if (selectedObject_ < 0 || selectedObject_ >= (int)project_.objects().size()) return;
+    SceneObject& o = project_.objects()[selectedObject_];
 
     // Edits apply live; a history snapshot is committed once per finished
     // interaction (slider released, text field defocused...).
@@ -949,7 +987,7 @@ void App::drawSceneSection() {
     }
 
     if (ImGui::Button("Delete object")) {
-        project_.objects.erase(project_.objects.begin() + selectedObject_);
+        project_.objects().erase(project_.objects().begin() + selectedObject_);
         selectedObject_ = -1;
         committed = true;
     }
@@ -964,16 +1002,16 @@ void App::drawFlowGraphWindow() {
         ImGui::End();
         return;
     }
-    if (project_.objects.empty()) {
+    if (project_.objects().empty()) {
         ImGui::TextDisabled("Add an object first - every flow graph belongs to an object.");
         ImGui::End();
         return;
     }
 
     // --- which object's graph is being edited -------------------------------
-    if (flowGraphObject_ < 0 || flowGraphObject_ >= (int)project_.objects.size()) {
+    if (flowGraphObject_ < 0 || flowGraphObject_ >= (int)project_.objects().size()) {
         flowGraphObject_ =
-            (selectedObject_ >= 0 && selectedObject_ < (int)project_.objects.size())
+            (selectedObject_ >= 0 && selectedObject_ < (int)project_.objects().size())
                 ? selectedObject_
                 : 0;
         flowPositionsApplied_ = false;
@@ -981,12 +1019,12 @@ void App::drawFlowGraphWindow() {
 
     auto graphLabel = [&](int i) {
         // objects with a non-empty graph are marked with *
-        return project_.objects[i].name +
-               (project_.objects[i].flowGraph.empty() ? "" : " *");
+        return project_.objects()[i].name +
+               (project_.objects()[i].flowGraph.empty() ? "" : " *");
     };
     ImGui::SetNextItemWidth(220.0f);
     if (ImGui::BeginCombo("Graph of", graphLabel(flowGraphObject_).c_str())) {
-        for (int i = 0; i < (int)project_.objects.size(); ++i) {
+        for (int i = 0; i < (int)project_.objects().size(); ++i) {
             const std::string lbl = graphLabel(i) + "##fgobj" + std::to_string(i);
             if (ImGui::Selectable(lbl.c_str(), flowGraphObject_ == i) &&
                 flowGraphObject_ != i) {
@@ -998,13 +1036,13 @@ void App::drawFlowGraphWindow() {
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("Selected object") && selectedObject_ >= 0 &&
-        selectedObject_ < (int)project_.objects.size() &&
+        selectedObject_ < (int)project_.objects().size() &&
         selectedObject_ != flowGraphObject_) {
         flowGraphObject_ = selectedObject_;
         flowPositionsApplied_ = false;
     }
 
-    SceneObject& owner = project_.objects[flowGraphObject_];
+    SceneObject& owner = project_.objects()[flowGraphObject_];
     FlowGraph& fg = owner.flowGraph;
     bool changed = false;
 
@@ -1103,7 +1141,7 @@ void App::drawFlowGraphWindow() {
                         n.str.clear();
                         changed = true;
                     }
-                    for (const SceneObject& o : project_.objects) {
+                    for (const SceneObject& o : project_.objects()) {
                         if (ImGui::Selectable(o.name.c_str(), o.name == n.str)) {
                             n.str = o.name;
                             changed = true;
@@ -1112,8 +1150,8 @@ void App::drawFlowGraphWindow() {
                     ImGui::EndCombo();
                 }
                 if (ImGui::SmallButton("From selected") && selectedObject_ >= 0 &&
-                    selectedObject_ < (int)project_.objects.size()) {
-                    n.str = project_.objects[selectedObject_].name;
+                    selectedObject_ < (int)project_.objects().size()) {
+                    n.str = project_.objects()[selectedObject_].name;
                     changed = true;
                 }
             }
@@ -1163,6 +1201,16 @@ void App::drawFlowGraphWindow() {
                 }
                 if (project_.sounds.empty())
                     ImGui::TextDisabled("Import sounds in the\nProject panel (Sounds).");
+                ImGui::EndCombo();
+            }
+        } else if (t->strKind == FlowParamKind::SceneName) {
+            if (ImGui::BeginCombo("Scene", n.str.empty() ? "<none>" : n.str.c_str())) {
+                for (const SceneData& s : project_.scenes) {
+                    if (ImGui::Selectable(s.name.c_str(), s.name == n.str)) {
+                        n.str = s.name;
+                        changed = true;
+                    }
+                }
                 ImGui::EndCombo();
             }
         }
@@ -1576,9 +1624,11 @@ void App::importMusicTrack() {
 }
 
 // Removing an audio track: clear every flow node that referenced it (in all
-// object graphs) so nothing keeps playing it, and delete the file from res/.
+// scenes and object graphs) so nothing keeps playing it, and delete the
+// file from res/.
 static void removeAudioTrack(Project& p, const std::string& relPath, bool music) {
-    for (SceneObject& o : p.objects) {
+    for (SceneData& scene : p.scenes)
+    for (SceneObject& o : scene.objects) {
         for (FlowNode& n : o.flowGraph.nodes) {
             const FlowNodeType* t = flowNodeType(n.type);
             if (!t || n.str != relPath) continue;
@@ -1770,6 +1820,48 @@ void App::drawNewScriptModal() {
                     newScriptError_ = "Cannot write " + path.string();
                 }
             }
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+}
+
+void App::drawNewSceneModal() {
+    if (openNewScenePopup_) {
+        ImGui::OpenPopup("New Scene");
+        openNewScenePopup_ = false;
+    }
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal("New Scene", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+
+    ImGui::InputText("Name", newSceneName_, sizeof(newSceneName_));
+    if (!newSceneError_.empty())
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", newSceneError_.c_str());
+
+    ImGui::Separator();
+    if (ImGui::Button("Create", ImVec2(120, 0))) {
+        std::string name = newSceneName_;
+        bool valid = !name.empty();
+        for (char c : name)
+            if (!isalnum((unsigned char)c) && c != '_' && c != '-') valid = false;
+        for (const SceneData& s : project_.scenes)
+            if (s.name == name) valid = false;
+
+        if (!valid) {
+            newSceneError_ = "Name must be unique, letters/digits/'-'/'_' only";
+        } else {
+            project_.scenes.push_back(SceneData{name, {}});
+            project_.activeScene = (int)project_.scenes.size() - 1;
+            selectedObject_ = -1;
+            flowGraphObject_ = -1;
+            flowPositionsApplied_ = false;
+            commitChange();
+            statusMessage_ = "Created scene " + name;
+            ImGui::CloseCurrentPopup();
         }
     }
     ImGui::SameLine();

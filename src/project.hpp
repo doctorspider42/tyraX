@@ -116,14 +116,38 @@ struct HudImage {
     float size[2] = {64.0f, 64.0f};  // pixels (PS2 screen is 512x448)
 };
 
+// A scene: its own set of objects (each with its flow graph). Terrain,
+// settings, HUD and audio assets are shared by all scenes; the game starts
+// in the first scene and switches via the Switch Scene flow node.
+struct SceneData {
+    std::string name = "main";
+    std::vector<SceneObject> objects;
+};
+
+inline bool operator==(const SceneData& a, const SceneData& b) {
+    return a.name == b.name && a.objects == b.objects;
+}
+
 struct Project {
     std::string name;
     std::string dir;  // absolute path to project root
     TerrainConfig terrain;
     std::string gameTemplate = "orbit";  // "orbit" | "fpp"
     ProjectSettings settings;
-    std::vector<std::string> scenes{"main"};
-    std::vector<SceneObject> objects;
+    std::vector<SceneData> scenes{SceneData{}};
+    int activeScene = 0;  // scene edited in the editor (not persisted in json)
+
+    // Objects of the active scene - what the editor UI operates on.
+    std::vector<SceneObject>& objects() {
+        if (activeScene < 0 || activeScene >= (int)scenes.size()) activeScene = 0;
+        return scenes[activeScene].objects;
+    }
+    const std::vector<SceneObject>& objects() const {
+        const int i =
+            (activeScene < 0 || activeScene >= (int)scenes.size()) ? 0 : activeScene;
+        return scenes[i].objects;
+    }
+
     std::vector<HudImage> hud;
     // Music tracks (16-bit 22kHz stereo WAV in res/audio/), played via the
     // flow graph (Play Music / Stop Music / Set Music Volume actions).

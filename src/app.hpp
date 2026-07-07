@@ -23,6 +23,7 @@ private:
     void drawSceneSection();
     void drawScriptsSection();
     void drawNewScriptModal();
+    void drawNewSceneModal();
     void drawFlowGraphWindow();
     void openInVSCode();
     void drawOutputWindow();
@@ -107,6 +108,11 @@ private:
     bool openNewScriptPopup_ = false;
     char newScriptName_[64] = "my_script";
     std::string newScriptError_;
+
+    // "New scene" modal state
+    bool openNewScenePopup_ = false;
+    char newSceneName_[64] = "scene-2";
+    std::string newSceneError_;
 
     // "Preferences" modal staging (applied on OK)
     bool openPreferencesPopup_ = false;

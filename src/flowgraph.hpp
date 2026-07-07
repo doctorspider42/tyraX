@@ -66,7 +66,16 @@ inline bool operator==(const FlowGraph& a, const FlowGraph& b) {
 
 // ---------------------------------------------------------------------------
 
-enum class FlowParamKind { None, Text, ObjectName, Button, Color, MusicTrack, SoundTrack };
+enum class FlowParamKind {
+    None,
+    Text,
+    ObjectName,
+    Button,
+    Color,
+    MusicTrack,
+    SoundTrack,
+    SceneName,
+};
 
 struct FlowNodeType {
     const char* key;
@@ -126,6 +135,11 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // Scene
         {"SetSky", "Set Sky Color", "Scene", false, FlowParamKind::None, 3, {},
          FlowParamKind::Color, false, false},
+        // Loads another scene (applied after the current frame's scripts):
+        // runtime objects are rebuilt from the target scene's data, script
+        // state resets; textures/models stay loaded (shared across scenes).
+        {"SwitchScene", "Switch Scene", "Scene", false, FlowParamKind::SceneName, 0, {},
+         FlowParamKind::None, false, false},
         // HUD (all HUD images at once; the USE prompt is unaffected)
         {"ShowHud", "Show HUD", "HUD", false, FlowParamKind::None, 0, {},
          FlowParamKind::None, false, false},
