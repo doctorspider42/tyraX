@@ -126,6 +126,13 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // Scene
         {"SetSky", "Set Sky Color", "Scene", false, FlowParamKind::None, 3, {},
          FlowParamKind::Color, false, false},
+        // HUD (all HUD images at once; the USE prompt is unaffected)
+        {"ShowHud", "Show HUD", "HUD", false, FlowParamKind::None, 0, {},
+         FlowParamKind::None, false, false},
+        {"HideHud", "Hide HUD", "HUD", false, FlowParamKind::None, 0, {},
+         FlowParamKind::None, false, false},
+        {"ToggleHud", "Toggle HUD", "HUD", false, FlowParamKind::None, 0, {},
+         FlowParamKind::None, false, false},
         // Audio (music: 16-bit 22kHz stereo WAV; sounds: ADPCM one-shots)
         {"PlayMusic", "Play Music", "Audio", false, FlowParamKind::MusicTrack, 2,
          {"Volume", "Loop"}, FlowParamKind::None, false, false},

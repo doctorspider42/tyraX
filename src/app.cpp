@@ -478,14 +478,39 @@ void App::drawViewportWindow() {
             }
         }
 
-        // --- HUD preview overlay (matches the PS2 512x448 screen mapping) ---
-        if (!project_.hud.empty()) {
+        // --- 4:3 console frame (the visible area on a PAL TV, roughly) ---
+        // The HUD preview maps into this frame when it is shown.
+        ImVec2 frameMin = imgPos, frameSize = avail;
+        if (show43_) {
+            float fw = avail.x, fh = avail.y;
+            if (fw / fh > 4.0f / 3.0f)
+                fw = fh * (4.0f / 3.0f);
+            else
+                fh = fw * 0.75f;
+            frameMin = ImVec2(imgPos.x + (avail.x - fw) * 0.5f,
+                              imgPos.y + (avail.y - fh) * 0.5f);
+            frameSize = ImVec2(fw, fh);
+            const ImVec2 fMax(frameMin.x + fw, frameMin.y + fh);
+            const ImVec2 imgMax(imgPos.x + avail.x, imgPos.y + avail.y);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImU32 dim = IM_COL32(0, 0, 0, 110);
+            dl->AddRectFilled(imgPos, ImVec2(imgMax.x, frameMin.y), dim);
+            dl->AddRectFilled(ImVec2(imgPos.x, fMax.y), imgMax, dim);
+            dl->AddRectFilled(ImVec2(imgPos.x, frameMin.y), ImVec2(frameMin.x, fMax.y), dim);
+            dl->AddRectFilled(ImVec2(fMax.x, frameMin.y), ImVec2(imgMax.x, fMax.y), dim);
+            dl->AddRect(frameMin, fMax, IM_COL32(255, 255, 255, 140));
+        }
+
+        // --- HUD preview overlay (matches the PS2 512x448 screen mapping;
+        // hidden by default - toggle in the HUD section) ---
+        if (showHudInEditor_ && !project_.hud.empty()) {
             ImDrawList* dl = ImGui::GetWindowDrawList();
             for (int i = 0; i < (int)project_.hud.size(); ++i) {
                 const HudImage& hi = project_.hud[i];
-                const float w = hi.size[0] / 512.0f * avail.x;
-                const float h = hi.size[1] / 448.0f * avail.y;
-                const ImVec2 c(imgPos.x + hi.pos[0] * avail.x, imgPos.y + hi.pos[1] * avail.y);
+                const float w = hi.size[0] / 512.0f * frameSize.x;
+                const float h = hi.size[1] / 448.0f * frameSize.y;
+                const ImVec2 c(frameMin.x + hi.pos[0] * frameSize.x,
+                               frameMin.y + hi.pos[1] * frameSize.y);
                 const ImVec2 pMin(c.x - w * 0.5f, c.y - h * 0.5f);
                 const ImVec2 pMax(c.x + w * 0.5f, c.y + h * 0.5f);
                 if (const HudTexture* t = hudTexture(hi.imagePath))
@@ -533,6 +558,17 @@ void App::drawViewportWindow() {
                                   ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
         if (ImGui::SmallButton("Sculpt (4)")) sculptMode_ = !sculptMode_;
         if (sculptMode_) ImGui::PopStyleColor();
+
+        // 4:3 console frame toggle
+        ImGui::SameLine(0.0f, 24.0f);
+        if (show43_)
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        if (ImGui::SmallButton("4:3")) show43_ = !show43_;
+        if (show43_) ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Dim everything outside a 4:3 frame - a rough\n"
+                              "preview of what the console shows on a TV.");
 
         if (sculptMode_) {
             ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, imgPos.y + 32));
@@ -1460,6 +1496,8 @@ void App::drawHudSection() {
     ImGui::SeparatorText("HUD");
 
     if (ImGui::SmallButton("+ Image (PNG)")) importHudImage();
+    ImGui::SameLine();
+    ImGui::Checkbox("Show in viewport", &showHudInEditor_);
 
     bool changed = false;
     for (int i = 0; i < (int)project_.hud.size(); ++i) {

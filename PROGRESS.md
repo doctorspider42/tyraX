@@ -254,6 +254,16 @@ Each finished feature lands as its own commit.
   (the honest one): known-bad camera positions render clean and stable,
   gameplay views correct, near-plane clipping right, 50 FPS.
 
+- (26) **4:3 frame, HUD preview toggle, HUD flow nodes** — the viewport gets a
+  "4:3" toolbar toggle that dims everything outside a centered 4:3 frame (a
+  rough preview of the console picture on a TV); the HUD editor overlay maps
+  into that frame when active. The HUD preview itself is now hidden by
+  default ("Show in viewport" checkbox in the HUD section). New flow graph
+  category **HUD**: Show HUD / Hide HUD / Toggle HUD flip all HUD images at
+  runtime via ctx.hudVisible (scripts can use it too; the USE prompt is
+  independent). Verified in PCSX2: Every-2-Seconds -> Toggle HUD blinks the
+  crosshair while USE stays; editor overlays verified by screenshot.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

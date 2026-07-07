@@ -625,7 +625,8 @@ void TerrainGame::loop() {
   {
     engine->renderer.renderer3D.usePipeline(stapip);
     renderScene();
-    for (auto& sprite : hudSprites) engine->renderer.renderer2D.render(sprite);
+    if (scriptCtx.hudVisible)
+      for (auto& sprite : hudSprites) engine->renderer.renderer2D.render(sprite);
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
   }
   engine->renderer.endFrame();
@@ -1192,7 +1193,8 @@ void TerrainGame::loop() {
   {
     engine->renderer.renderer3D.usePipeline(stapip);
     renderScene();
-    for (auto& sprite : hudSprites) engine->renderer.renderer2D.render(sprite);
+    if (scriptCtx.hudVisible)
+      for (auto& sprite : hudSprites) engine->renderer.renderer2D.render(sprite);
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
   }
   engine->renderer.endFrame();
@@ -1644,6 +1646,9 @@ struct ScriptContext {
   // Index of the usable object the player pressed BTN_USE on this frame
   // (-1 = none). Drives the flow graph "On Used" trigger.
   int usedObject = -1;
+
+  // Write to show/hide all HUD images (the USE prompt is unaffected).
+  bool hudVisible = true;
 };
 
 /** Base class for game scripts. Put .cpp files in src/scripts/. */
@@ -2200,6 +2205,12 @@ std::string flowGraphScript(const Project& p) {
                       << pad << "  song.play();\n"
                       << pad << "}\n";
                 }
+            } else if (n.type == "ShowHud") {
+                c << pad << "ctx.hudVisible = true;\n";
+            } else if (n.type == "HideHud") {
+                c << pad << "ctx.hudVisible = false;\n";
+            } else if (n.type == "ToggleHud") {
+                c << pad << "ctx.hudVisible = !ctx.hudVisible;\n";
             } else if (n.type == "StopMusic") {
                 c << pad << "ctx.engine->audio.song.stop();\n";
             } else if (n.type == "PlaySound") {

@@ -77,6 +77,10 @@ private:
     bool flowPositionsApplied_ = false;  // node positions pushed to imnodes per graph
     float flowZoom_ = 1.0f;              // canvas zoom (imnodes emulation, 0.4-1.8)
 
+    // Viewport overlays
+    bool show43_ = false;           // 4:3 console frame in the viewport
+    bool showHudInEditor_ = false;  // HUD preview overlay (default hidden)
+
     // HUD editing
     int selectedHud_ = -1;
     struct HudTexture {
