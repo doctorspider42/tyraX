@@ -23,6 +23,9 @@ enum class PrimitiveType {
     // Player entity: marker in the editor; in the game the camera becomes
     // this player (walk FPP or noclip), regardless of the project template.
     Player = 6,
+    // Particle emitter (fire/smoke/fog/sparks): cone marker in the editor,
+    // camera-facing color quads simulated on a fixed pool in the game.
+    Emitter = 7,
 };
 
 // Unit primitives fit a 1x1x1 cube centered at origin and are transformed by
@@ -47,6 +50,11 @@ struct SceneObject {
     float playerJumpSpeed = 4.5f;  // units/s (walk mode, X button)
     bool playerCanJump = true;     // walk mode: X jumps
 
+    // Particle emitter parameters (used when type == Emitter)
+    int emitterKind = 0;      // 0 fire, 1 smoke, 2 fog, 3 sparks
+    int emitterCount = 24;    // particle pool size (compiled in, no runtime alloc)
+    float emitterSize = 0.5f; // base particle size in world units
+
     // Per-object logic. Object-referencing nodes default to this object
     // ("self"), so a copied object brings a working copy of its behavior.
     FlowGraph flowGraph;
@@ -66,7 +74,9 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.playerLookSpeed == b.playerLookSpeed &&
            a.playerEyeHeight == b.playerEyeHeight &&
            a.playerJumpSpeed == b.playerJumpSpeed &&
-           a.playerCanJump == b.playerCanJump && a.flowGraph == b.flowGraph;
+           a.playerCanJump == b.playerCanJump && a.emitterKind == b.emitterKind &&
+           a.emitterCount == b.emitterCount && a.emitterSize == b.emitterSize &&
+           a.flowGraph == b.flowGraph;
 }
 
 // General project preferences (Project > Preferences in the editor).

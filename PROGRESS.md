@@ -293,6 +293,18 @@ Each finished feature lands as its own commit.
   every scene on load. Verified: legacy project renders identically at
   50 FPS; scene switching rebuilds terrain per scene.
 
+- (29) **Particle emitters (fire/smoke/fog/sparks)** — new Emitter object
+  (Effects submenu presets; cone marker in the viewport; properties: effect
+  kind, pool size 1-128, particle size; color tints, scale X/Z = spawn area).
+  2002-style runtime: fixed pools allocated once per scene load, one LCG,
+  no trig or allocations in the per-frame path; particles are camera-facing
+  color quads (no textures - alpha does the softness) with per-kind ramps
+  (fire cools orange->red and shrinks, smoke grows, fog fades in/out on big
+  lazy puffs, sparks burst and fall). One bag per emitter, Precise-culled,
+  bboxVersion bumped per frame; rendered last (alpha over the scene).
+  Show/Hide Object nodes switch emitters on/off. Verified in PCSX2: fog
+  animates frame to frame at a steady 50 FPS.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

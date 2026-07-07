@@ -252,6 +252,23 @@ class TerrainGame : public Tyra::Game {
   int currentScene = 0;
   unsigned int sceneGeneration = 0;
 
+  // Particle emitters (type 7): fixed pools sized at scene load, zero
+  // per-frame allocations; camera-facing color quads, one bag per emitter.
+  struct ParticleSystem {
+    int objectIndex = -1;
+    unsigned int rng = 1;
+    std::vector<Tyra::Vec4> pos, vel;
+    std::vector<float> life, maxLife;
+    std::vector<Tyra::Vec4> verts;
+    std::vector<Tyra::Color> cols;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+  };
+  std::vector<ParticleSystem> particles;
+  void buildParticles();
+  void updateParticles();
+
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
   void updateUseTarget();
   int useTargetIndex = -1;
@@ -336,6 +353,23 @@ class TerrainGame : public Tyra::Game {
   void loadScene(int sceneIndex);
   int currentScene = 0;
   unsigned int sceneGeneration = 0;
+
+  // Particle emitters (type 7): fixed pools sized at scene load, zero
+  // per-frame allocations; camera-facing color quads, one bag per emitter.
+  struct ParticleSystem {
+    int objectIndex = -1;
+    unsigned int rng = 1;
+    std::vector<Tyra::Vec4> pos, vel;
+    std::vector<float> life, maxLife;
+    std::vector<Tyra::Vec4> verts;
+    std::vector<Tyra::Color> cols;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+  };
+  std::vector<ParticleSystem> particles;
+  void buildParticles();
+  void updateParticles();
 
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
   void updateUseTarget();
@@ -663,6 +697,7 @@ void TerrainGame::loop() {
   }
 
   updateObjectPhysics();
+  updateParticles();
 
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
@@ -785,8 +820,147 @@ void TerrainGame::loadScene(int sceneIndex) {
     entVelY = 0.0F;
     entPitch = 0.0F;
   }
+
+  buildParticles();
 }
 
+// --- Particle emitters ------------------------------------------------
+// 2002-style particles: fixed pools sized at scene load, one cheap LCG,
+// no trig and no allocations in the per-frame path. Camera-facing quads
+// colored per vertex (no textures) - alpha does the softness.
+static float prand(unsigned int& s) {  // 0..1
+  s = s * 1664525u + 1013904223u;
+  return (float)(s >> 8) * (1.0F / 16777216.0F);
+}
+
+void TerrainGame::buildParticles() {
+  particles.clear();
+  for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
+    if (runtimeObjects[i].data.type != 7) continue;
+    ParticleSystem ps;
+    ps.objectIndex = i;
+    ps.rng = 12345u + (unsigned int)i * 7919u;
+    int n = SCENE_OBJECTS[i].emitCount;
+    if (n < 1) n = 1;
+    if (n > 128) n = 128;
+    ps.pos.assign(n, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    ps.vel.assign(n, Vec4(0.0F, 0.0F, 0.0F, 0.0F));
+    ps.life.assign(n, 0.0F);  // dead -> staggered respawn over the first frames
+    ps.maxLife.assign(n, 1.0F);
+    ps.verts.assign((size_t)n * 6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    ps.cols.assign((size_t)n * 6, Color(0.0F, 0.0F, 0.0F, 0.0F));
+    ps.infoBag = std::make_unique<StaPipInfoBag>();
+    ps.infoBag->model = &model;
+    ps.infoBag->shadingType = TyraShadingGouraud;
+    ps.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    ps.infoBag->fullClipChecks = true;
+    ps.colorBag = std::make_unique<StaPipColorBag>();
+    ps.bag = std::make_unique<StaPipBag>();
+    ps.bag->info = ps.infoBag.get();
+    ps.bag->color = ps.colorBag.get();
+    ps.bag->texture = nullptr;
+    ps.bag->lighting = nullptr;
+    ps.bag->count = 0;
+    particles.push_back(std::move(ps));
+  }
+}
+
+void TerrainGame::updateParticles() {
+  if (particles.empty()) return;
+  const float dt = 1.0F / 50.0F;
+
+  // camera right/up shared by every billboard this frame
+  Vec4 fwd = cameraLookAt - cameraPosition;
+  const float fl = sqrtf(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
+  if (fl > 0.0001F) fwd.x /= fl, fwd.y /= fl, fwd.z /= fl;
+  float rx = fwd.z, rz = -fwd.x;
+  const float rl = sqrtf(rx * rx + rz * rz);
+  if (rl > 0.0001F) rx /= rl, rz /= rl;
+  else rx = 1.0F, rz = 0.0F;
+  const float ux = -rz * fwd.y;
+  const float uy = rz * fwd.x - rx * fwd.z;
+  const float uz = rx * fwd.y;
+
+  for (ParticleSystem& ps : particles) {
+    const RuntimeObject& o = runtimeObjects[ps.objectIndex];
+    if (!o.visible) {
+      ps.bag->count = 0;  // Hide Object turns the emitter off
+      continue;
+    }
+    const SceneObjectData& d = o.data;
+    const int kind = d.emitKind;
+    const int n = (int)ps.life.size();
+
+    for (int i = 0; i < n; ++i) {
+      ps.life[i] -= dt;
+      if (ps.life[i] <= 0.0F) {
+        const float r1 = prand(ps.rng), r2 = prand(ps.rng), r3 = prand(ps.rng);
+        ps.pos[i] = Vec4(d.position[0] + (r1 - 0.5F) * d.scale[0], d.position[1],
+                         d.position[2] + (r3 - 0.5F) * d.scale[2], 1.0F);
+        if (kind == 0) {  // fire: rises and flickers
+          ps.vel[i] = Vec4((r1 - 0.5F) * 0.8F, 1.2F + r2 * 1.2F, (r3 - 0.5F) * 0.8F, 0.0F);
+          ps.maxLife[i] = 0.5F + r2 * 0.6F;
+        } else if (kind == 1) {  // smoke: slow rise with drift
+          ps.vel[i] = Vec4((r1 - 0.5F) * 0.5F, 0.5F + r2 * 0.5F, (r3 - 0.5F) * 0.5F, 0.0F);
+          ps.maxLife[i] = 2.0F + r2 * 1.5F;
+        } else if (kind == 2) {  // fog: big lazy puffs hugging the ground
+          ps.vel[i] = Vec4((r1 - 0.5F) * 0.25F, 0.02F, (r3 - 0.5F) * 0.25F, 0.0F);
+          ps.maxLife[i] = 3.0F + r2 * 3.0F;
+        } else {  // sparks: radial burst pulled down by gravity
+          ps.vel[i] = Vec4((r1 - 0.5F) * 5.0F, 1.5F + r2 * 2.5F, (r3 - 0.5F) * 5.0F, 0.0F);
+          ps.maxLife[i] = 0.35F + r2 * 0.5F;
+        }
+        ps.life[i] = ps.maxLife[i] * (0.05F + 0.95F * prand(ps.rng));  // stagger
+      }
+      if (kind == 3) ps.vel[i].y -= 6.0F * dt;
+      ps.pos[i].x += ps.vel[i].x * dt;
+      ps.pos[i].y += ps.vel[i].y * dt;
+      ps.pos[i].z += ps.vel[i].z * dt;
+
+      // life fraction drives size, alpha (0-128) and the color ramp
+      const float t = ps.life[i] / ps.maxLife[i];
+      float size = d.emitSize;
+      float alpha;
+      float cr = d.color[0] * 128.0F, cg = d.color[1] * 128.0F, cb = d.color[2] * 128.0F;
+      if (kind == 0) {
+        size *= 0.5F + 0.8F * t;
+        alpha = 90.0F * t;
+        cg *= 0.35F + 0.65F * t;  // orange cools to red as it dies
+        cb *= 0.25F * t;
+      } else if (kind == 1) {
+        size *= 1.6F - t;  // smoke grows while fading
+        alpha = 40.0F * t;
+      } else if (kind == 2) {
+        size *= 3.0F;
+        alpha = 18.0F * (t < 0.5F ? t * 2.0F : (1.0F - t) * 2.0F);  // fade in+out
+      } else {
+        size *= 0.35F;
+        alpha = 110.0F * t;
+      }
+
+      const float Rx = rx * size, Rz = rz * size;
+      const float Ux = ux * size, Uy = uy * size, Uz = uz * size;
+      const Vec4& P = ps.pos[i];
+      const Vec4 v0(P.x - Rx - Ux, P.y - Uy, P.z - Rz - Uz, 1.0F);
+      const Vec4 v1(P.x + Rx - Ux, P.y - Uy, P.z + Rz - Uz, 1.0F);
+      const Vec4 v2(P.x + Rx + Ux, P.y + Uy, P.z + Rz + Uz, 1.0F);
+      const Vec4 v3(P.x - Rx + Ux, P.y + Uy, P.z - Rz + Uz, 1.0F);
+      const int b = i * 6;
+      ps.verts[b] = v0;
+      ps.verts[b + 1] = v1;
+      ps.verts[b + 2] = v2;
+      ps.verts[b + 3] = v0;
+      ps.verts[b + 4] = v2;
+      ps.verts[b + 5] = v3;
+      const Color c(cr, cg, cb, alpha);
+      for (int k = 0; k < 6; ++k) ps.cols[b + k] = c;
+    }
+    ps.colorBag->many = ps.cols.data();
+    ps.bag->vertices = ps.verts.data();
+    ps.bag->count = (u32)ps.verts.size();
+    ps.bag->bboxVersion++;  // moving cloud - refresh the frustum bbox
+  }
+}
 // Picks the nearest usable object the camera is close to and looking at
 // (thresholds in controls.hpp). BTN_USE on it -> scriptCtx.usedObject for
 // one frame, which fires the flow graph "On Used" trigger.
@@ -803,7 +977,7 @@ void TerrainGame::updateUseTarget() {
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     const RuntimeObject& o = runtimeObjects[i];
     if (!o.data.usable || !o.visible) continue;
-    if (o.data.type == 4 || o.data.type == 6) continue;  // editor markers
+    if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7) continue;
 
     const float dx = o.data.position[0] - cameraPosition.x;
     const float dy = o.data.position[1] - cameraPosition.y;
@@ -877,7 +1051,8 @@ bool TerrainGame::updatePlayerEntity() {
   const float playerRadius = 0.35F;
   float ground = terrainHeightAt(nextX, nextZ);
   for (const RuntimeObject& o : runtimeObjects) {
-    if (!o.visible || o.data.type == 4 || o.data.type == 6) continue;
+    if (!o.visible || o.data.type == 4 || o.data.type == 6 || o.data.type == 7)
+      continue;
     const float ox = o.data.position[0];
     const float oz = o.data.position[2];
     const float hx = 0.5F * o.data.scale[0] + playerRadius;
@@ -999,6 +1174,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     case 4: break;  // spawn point - marker only
     case 5: addModel(g.vertices, g.colors, g.sts, o.data); break;
     case 6: break;  // player - marker only
+    case 7: break;  // emitter - particles are built by updateParticles()
     default: addBox(g.vertices, g.colors, g.sts, o.data); break;
   }
   if (g.vertices.empty()) {
@@ -1076,6 +1252,9 @@ void TerrainGame::renderScene() {
     if (runtimeObjects[i].visible && objectGeometry[i].bag)
       stapip.core.render(objectGeometry[i].bag.get());
   }
+  // particles last - alpha blended over the scene
+  for (ParticleSystem& ps : particles)
+    if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
 }
 
 void TerrainGame::generateTerrainGrid() {
@@ -1295,6 +1474,7 @@ void TerrainGame::loop() {
   }
 
   updateObjectPhysics();
+  updateParticles();
 
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
@@ -2013,6 +2193,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int model;    // index into MODELS (model_data.gen.hpp), -1 = none\n"
            "  int texture;  // index into TEXTURE_PATHS (texture_data.gen.hpp), -1 = none\n"
            "  int usable;   // 1 = shows the USE prompt up close (see controls.hpp)\n"
+           "  int emitKind;   // emitters: 0 fire, 1 smoke, 2 fog, 3 sparks\n"
+           "  int emitCount;  // emitters: particle pool size\n"
+           "  float emitSize; // emitters: base particle size\n"
            "};\n"
            "\n";
 
@@ -2028,14 +2211,17 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << "constexpr SceneObjectData SCENE_" << si << "_OBJECTS["
             << (objs.empty() ? (size_t)1 : objs.size()) << "] = {\n";
         if (objs.empty()) {
-            out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0},\n";
+            out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
+                   "0, 0, 0.0F},\n";
         } else {
             for (const SceneObject& o : objs) {
                 out << "    {" << (int)o.type << ", " << vec3Init(o.position) << ", "
                     << vec3Init(o.rotation) << ", " << vec3Init(o.scale) << ", "
                     << vec3Init(o.color) << ", " << (o.physics ? 1 : 0) << ", "
                     << modelIndexOf(p, o) << ", " << textureIndexOf(p, o.texturePath)
-                    << ", " << (o.usable ? 1 : 0) << "},  // " << o.name << "\n";
+                    << ", " << (o.usable ? 1 : 0) << ", " << o.emitterKind << ", "
+                    << o.emitterCount << ", " << floatLit(o.emitterSize) << "},  // "
+                    << o.name << "\n";
             }
         }
         out << "};\n";

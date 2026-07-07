@@ -1003,6 +1003,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             case PrimitiveType::Cone: return &cone_;
             case PrimitiveType::SpawnPoint: return &spawnMarker_;
             case PrimitiveType::Player: return &playerMarker_;
+            case PrimitiveType::Emitter: return &cone_;  // flame-ish marker
             case PrimitiveType::Model: {
                 const Mesh* m = modelMesh(o.modelPath);
                 return m ? m : &box_;  // missing model -> placeholder box

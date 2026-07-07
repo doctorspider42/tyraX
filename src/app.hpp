@@ -34,6 +34,7 @@ private:
     void applyProjectToViewport();
     void stageSceneIntoPrefs();  // active-scene terrain/light -> pref staging
     void addObject(PrimitiveType type);
+    void addEmitter(int kind);  // Effects menu presets (fire/smoke/fog/sparks)
     void drawAddObjectMenu();
     void importModel();
     void drawHudSection();

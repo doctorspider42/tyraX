@@ -781,6 +781,23 @@ void App::attachProject() {
     statusMessage_.clear();
 }
 
+void App::addEmitter(int kind) {
+    addObject(PrimitiveType::Emitter);
+    SceneObject& o = project_.objects().back();
+    o.emitterKind = kind;
+    // preset tints (particles are untextured color quads)
+    const float presets[4][3] = {{1.0f, 0.6f, 0.2f},   // fire
+                                 {0.5f, 0.5f, 0.5f},   // smoke
+                                 {0.8f, 0.85f, 0.9f},  // fog
+                                 {1.0f, 0.9f, 0.4f}};  // sparks
+    for (int i = 0; i < 3; ++i) o.color[i] = presets[kind][i];
+    if (kind == 2) {  // fog: wide footprint, big lazy puffs
+        o.scale[0] = o.scale[2] = 8.0f;
+        o.emitterCount = 16;
+        o.emitterSize = 1.2f;
+    }
+    saveAll("Saved");
+}
 void App::addObject(PrimitiveType type) {
     // Unique default name: box-1, box-2, ...
     int counter = 0;
@@ -862,6 +879,13 @@ void App::drawAddObjectMenu() {
         if (ImGui::MenuItem("Spawn point")) addObject(PrimitiveType::SpawnPoint);
         ImGui::EndMenu();
     }
+    if (ImGui::BeginMenu("Effects")) {
+        if (ImGui::MenuItem("Fire")) addEmitter(0);
+        if (ImGui::MenuItem("Smoke")) addEmitter(1);
+        if (ImGui::MenuItem("Fog")) addEmitter(2);
+        if (ImGui::MenuItem("Sparks")) addEmitter(3);
+        ImGui::EndMenu();
+    }
     if (ImGui::BeginMenu("Custom")) {
         if (ImGui::MenuItem("3D model (.obj)...")) importModel();
         ImGui::EndMenu();
@@ -927,6 +951,18 @@ void App::drawSceneSection() {
     if (o.type != PrimitiveType::SpawnPoint && o.type != PrimitiveType::Player) {
         if (ImGui::Checkbox("Usable (USE prompt + On Used trigger)", &o.usable))
             committed = true;
+    }
+
+    if (o.type == PrimitiveType::Emitter) {
+        ImGui::SeparatorText("Particle emitter");
+        const char* kinds[] = {"Fire", "Smoke", "Fog", "Sparks"};
+        if (ImGui::Combo("Effect", &o.emitterKind, kinds, 4)) committed = true;
+        if (ImGui::DragInt("Particles", &o.emitterCount, 1.0f, 1, 128)) {}
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat("Particle size", &o.emitterSize, 0.02f, 0.05f, 8.0f, "%.2f");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::TextDisabled("Color tints the particles; scale X/Z = spawn area.\n"
+                            "Show/Hide Object nodes switch the emitter on/off.");
     }
 
     if (o.type == PrimitiveType::Player) {

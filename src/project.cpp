@@ -21,6 +21,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::SpawnPoint: return "spawn-point";
         case PrimitiveType::Model: return "model";
         case PrimitiveType::Player: return "player";
+        case PrimitiveType::Emitter: return "emitter";
     }
     return "box";
 }
@@ -32,6 +33,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "spawn-point") return PrimitiveType::SpawnPoint;
     if (s == "model") return PrimitiveType::Model;
     if (s == "player") return PrimitiveType::Player;
+    if (s == "emitter") return PrimitiveType::Emitter;
     return PrimitiveType::Box;
 }
 
@@ -135,6 +137,13 @@ static std::string objectJson(const SceneObject& o) {
                 ", \"eyeHeight\": " + fmtFloat(o.playerEyeHeight) +
                 ", \"jumpSpeed\": " + fmtFloat(o.playerJumpSpeed) +
                 ", \"canJump\": " + (o.playerCanJump ? "true" : "false") + " }";
+    }
+    if (o.type == PrimitiveType::Emitter) {
+        static const char* kinds[] = {"fire", "smoke", "fog", "sparks"};
+        const int k = (o.emitterKind >= 0 && o.emitterKind < 4) ? o.emitterKind : 0;
+        json += ", \"emitter\": { \"kind\": \"" + std::string(kinds[k]) +
+                "\", \"count\": " + std::to_string(o.emitterCount) +
+                ", \"size\": " + fmtFloat(o.emitterSize) + " }";
     }
     if (!o.flowGraph.empty()) json += ", \"flowGraph\": " + flowGraphJson(o.flowGraph);
     return json + " }";
@@ -519,6 +528,16 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 o.playerJumpSpeed = (float)v->numberOr(4.5);
             if (const auto* v = pl->find("canJump"))
                 o.playerCanJump = !(v->type == json::Value::Type::Bool && !v->boolean);
+        }
+        if (const auto* em = jo.find("emitter")) {
+            if (const auto* v = em->find("kind")) {
+                const std::string k = v->stringOr("fire");
+                o.emitterKind = k == "smoke" ? 1 : k == "fog" ? 2 : k == "sparks" ? 3 : 0;
+            }
+            if (const auto* v = em->find("count")) o.emitterCount = (int)v->numberOr(24);
+            if (o.emitterCount < 1) o.emitterCount = 1;
+            if (o.emitterCount > 128) o.emitterCount = 128;
+            if (const auto* v = em->find("size")) o.emitterSize = (float)v->numberOr(0.5);
         }
         if (const auto* fg = jo.find("flowGraph")) readFlowGraph(*fg, o.flowGraph);
         out.push_back(std::move(o));
