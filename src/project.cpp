@@ -124,6 +124,7 @@ static std::string objectJson(const SceneObject& o) {
         ", \"rotation\": " + fmtVec3(o.rotation) + ", \"scale\": " + fmtVec3(o.scale) +
         ", \"color\": " + fmtVec3(o.color) +
         ", \"physics\": " + (o.physics ? "true" : "false") +
+        (o.usable ? ", \"usable\": true" : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + o.modelPath + "\"") +
         (o.texturePath.empty() ? "" : ", \"texture\": \"" + o.texturePath + "\"");
     if (o.type == PrimitiveType::Player) {
@@ -472,6 +473,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         readVec3(jo.find("color"), o.color);
         if (const auto* v = jo.find("physics"))
             o.physics = v->type == json::Value::Type::Bool && v->boolean;
+        if (const auto* v = jo.find("usable"))
+            o.usable = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("texture")) o.texturePath = v->stringOr("");
         if (const auto* pl = jo.find("player")) {
@@ -707,6 +710,7 @@ std::string refreshGenerated(const Project& p) {
             write = true;  // editor-owned, always in sync with project data
         } else if (f.relativePath == "src\\terrain_game.cpp" ||
                    f.relativePath == "inc\\terrain_game.hpp" ||
+                   f.relativePath == "inc\\controls.hpp" ||
                    f.relativePath == "inc\\scripts\\script.hpp") {
             // Regenerate while the ownership marker is present, or when the
             // file is byte-identical to an old template (never user-edited).
@@ -724,6 +728,20 @@ std::string refreshGenerated(const Project& p) {
 
         if (write) {
             if (auto err = writeFile(path, f.content); !err.empty()) return err;
+        }
+    }
+
+    // Built-in HUD assets shipped into every project, written only when
+    // missing - replace the file to customize the prompt.
+    {
+        const fs::path usePng = fs::path(p.dir) / "res" / "hud" / "use.png";
+        std::error_code ec;
+        if (!fs::exists(usePng, ec)) {
+            size_t n = 0;
+            const unsigned char* png = templates::usePromptPng(n);
+            fs::create_directories(usePng.parent_path(), ec);
+            std::ofstream f(usePng, std::ios::binary);
+            if (f) f.write(reinterpret_cast<const char*>(png), (std::streamsize)n);
         }
     }
     return "";

@@ -212,6 +212,21 @@ Each finished feature lands as its own commit.
   Player entity gets a "Can jump (X)" checkbox (PLAYER_CAN_JUMP gates the walk
   jump; jump speed hidden when off).
 
+- (23) **"Use" interaction + global control mapping** — objects get a "Usable"
+  checkbox: when the player camera is close (USE_DISTANCE) and looking at the
+  object (USE_LOOK_DOT), a built-in "USE" sprite shows bottom-center
+  (res/hud/use.png, 128x32 - PS2 textures need power-of-two sizes; shipped
+  into every project when missing, replace to customize). Pressing the use
+  button then sets ctx.usedObject for one frame, which fires the new flow
+  graph **On Used** trigger (object param, self default - drop the graph on
+  the usable object itself). Buttons are no longer hardcoded: the generated
+  `inc/controls.hpp` is the single mapping place (BTN_USE = Square,
+  BTN_JUMP = Cross, BTN_FLY_UP/DOWN for noclip + use-interaction tuning
+  constants); marker-owned, so deleting the first line makes it a per-project
+  settings file. Verified in PCSX2: USE prompt renders while facing a usable
+  box up close; On Used -> Log compiled (`ctx.usedObject == idx`); the actual
+  Square press needs a pad test.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

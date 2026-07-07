@@ -23,6 +23,9 @@ std::string flowGraphScript(const Project& p);
 const char* houseObjText();
 const unsigned char* crosshairPng(size_t& size);
 
+// Built-in "USE" prompt sprite, shipped into every project (res/hud/use.png).
+const unsigned char* usePromptPng(size_t& size);
+
 // Content of a new user script created from the "New script..." action.
 std::string scriptStub(const Project& p, const std::string& className,
                        const std::string& fileName);

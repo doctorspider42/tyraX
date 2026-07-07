@@ -847,6 +847,10 @@ void App::drawSceneSection() {
     committed |= ImGui::IsItemDeactivatedAfterEdit();
 
     if (ImGui::Checkbox("Physics (falls with gravity)", &o.physics)) committed = true;
+    if (o.type != PrimitiveType::SpawnPoint && o.type != PrimitiveType::Player) {
+        if (ImGui::Checkbox("Usable (USE prompt + On Used trigger)", &o.usable))
+            committed = true;
+    }
 
     if (o.type == PrimitiveType::Player) {
         ImGui::SeparatorText("Player");

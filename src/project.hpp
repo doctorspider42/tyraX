@@ -35,6 +35,7 @@ struct SceneObject {
     float scale[3] = {1.0f, 1.0f, 1.0f};
     float color[3] = {0.8f, 0.35f, 0.25f};
     bool physics = false;     // falls with gravity in the game
+    bool usable = false;      // shows the USE prompt up close; BTN_USE fires On Used
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     std::string texturePath;  // PNG, e.g. "res/textures/bricks.png" (empty = color only)
 
@@ -59,7 +60,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
     };
     return a.name == b.name && a.type == b.type && eq3(a.position, b.position) &&
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
-           a.physics == b.physics && a.modelPath == b.modelPath &&
+           a.physics == b.physics && a.usable == b.usable && a.modelPath == b.modelPath &&
            a.texturePath == b.texturePath && a.playerMode == b.playerMode &&
            a.playerWalkSpeed == b.playerWalkSpeed &&
            a.playerLookSpeed == b.playerLookSpeed &&

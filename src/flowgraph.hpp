@@ -93,6 +93,10 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          FlowParamKind::None, false, true},
         {"NearObject", "Near Object", "Triggers", true, FlowParamKind::ObjectName, 1,
          {"Radius"}, FlowParamKind::None, true, true},
+        // Fires when the player presses BTN_USE (controls.hpp) while looking
+        // at the target object up close. The object must be marked "usable".
+        {"OnUsed", "On Used", "Triggers", true, FlowParamKind::ObjectName, 0, {},
+         FlowParamKind::None, true, true},
         {"EverySeconds", "Every N Seconds", "Triggers", true, FlowParamKind::None, 1,
          {"Seconds"}, FlowParamKind::None, false, true},
         // Object actions (id in = target, id out = the same target)
