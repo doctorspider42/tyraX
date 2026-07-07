@@ -269,6 +269,7 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Add Cone")) addObject(PrimitiveType::Cone);
             ImGui::Separator();
             if (ImGui::MenuItem("Add Spawn Point")) addObject(PrimitiveType::SpawnPoint);
+            if (ImGui::MenuItem("Add Player")) addObject(PrimitiveType::Player);
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Project", hasProject_)) {
@@ -680,6 +681,10 @@ void App::addObject(PrimitiveType type) {
         o.position[1] = 0.0f;  // marker sits on the ground
         o.color[0] = 0.15f, o.color[1] = 0.9f, o.color[2] = 0.9f;
     }
+    if (type == PrimitiveType::Player) {
+        o.position[1] = 0.0f;  // marker stands on the ground
+        o.color[0] = 0.95f, o.color[1] = 0.75f, o.color[2] = 0.2f;
+    }
     project_.objects.push_back(o);
     selectedObject_ = (int)project_.objects.size() - 1;
     commitChange();
@@ -738,6 +743,8 @@ void App::drawSceneSection() {
     if (ImGui::SmallButton("+ Spawn")) addObject(PrimitiveType::SpawnPoint);
     ImGui::SameLine();
     if (ImGui::SmallButton("+ Model")) importModel();
+    ImGui::SameLine();
+    if (ImGui::SmallButton("+ Player")) addObject(PrimitiveType::Player);
 
     if (project_.objects.empty()) {
         ImGui::TextDisabled("No objects - add a primitive above.");
@@ -765,8 +772,9 @@ void App::drawSceneSection() {
     committed |= ImGui::IsItemDeactivatedAfterEdit();
 
     int typeIdx = (int)o.type;
-    const char* typeNames[] = {"Box", "Sphere", "Cylinder", "Cone", "Spawn point", "Model"};
-    if (ImGui::Combo("Type", &typeIdx, typeNames, 6)) {
+    const char* typeNames[] = {"Box",         "Sphere", "Cylinder", "Cone",
+                               "Spawn point", "Model",  "Player"};
+    if (ImGui::Combo("Type", &typeIdx, typeNames, 7)) {
         o.type = (PrimitiveType)typeIdx;
         committed = true;
     }
@@ -784,6 +792,22 @@ void App::drawSceneSection() {
     committed |= ImGui::IsItemDeactivatedAfterEdit();
 
     if (ImGui::Checkbox("Physics (falls with gravity)", &o.physics)) committed = true;
+
+    if (o.type == PrimitiveType::Player) {
+        ImGui::SeparatorText("Player");
+        const char* modes[] = {"Walk (FPP)", "Noclip (fly)"};
+        if (ImGui::Combo("Mode", &o.playerMode, modes, 2)) committed = true;
+        ImGui::DragFloat("Walk speed", &o.playerWalkSpeed, 0.02f, 0.05f, 10.0f, "%.2f");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat("Look speed", &o.playerLookSpeed, 0.05f, 0.1f, 5.0f, "%.2f");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat("Eye height", &o.playerEyeHeight, 0.05f, 0.2f, 50.0f, "%.2f");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat("Jump speed", &o.playerJumpSpeed, 0.1f, 0.0f, 50.0f, "%.1f");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::TextDisabled("First player in the scene drives the camera in the game.");
+        ImGui::TextDisabled("Noclip: X up, Square down. Walk: X jumps.");
+    }
 
     // Texture (PNG modulated by the object color; white color = plain texture)
     ImGui::TextDisabled("Texture: %s",

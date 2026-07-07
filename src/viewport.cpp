@@ -359,6 +359,37 @@ std::vector<float> unitSpawnMarker() {
     return v;
 }
 
+// Player marker: a simple humanoid with a nose pointing +Z (start yaw).
+std::vector<float> unitPlayerMarker() {
+    std::vector<float> v;
+    auto cuboid = [&](Vec3 c, Vec3 h) {
+        pushQuadShaded(v, {c.x + h.x, c.y - h.y, c.z - h.z}, {c.x + h.x, c.y + h.y, c.z - h.z},
+                       {c.x + h.x, c.y + h.y, c.z + h.z}, {c.x + h.x, c.y - h.y, c.z + h.z},
+                       {1, 0, 0});
+        pushQuadShaded(v, {c.x - h.x, c.y - h.y, c.z + h.z}, {c.x - h.x, c.y + h.y, c.z + h.z},
+                       {c.x - h.x, c.y + h.y, c.z - h.z}, {c.x - h.x, c.y - h.y, c.z - h.z},
+                       {-1, 0, 0});
+        pushQuadShaded(v, {c.x - h.x, c.y + h.y, c.z - h.z}, {c.x - h.x, c.y + h.y, c.z + h.z},
+                       {c.x + h.x, c.y + h.y, c.z + h.z}, {c.x + h.x, c.y + h.y, c.z - h.z},
+                       {0, 1, 0});
+        pushQuadShaded(v, {c.x - h.x, c.y - h.y, c.z + h.z}, {c.x - h.x, c.y - h.y, c.z - h.z},
+                       {c.x + h.x, c.y - h.y, c.z - h.z}, {c.x + h.x, c.y - h.y, c.z + h.z},
+                       {0, -1, 0});
+        pushQuadShaded(v, {c.x - h.x, c.y - h.y, c.z + h.z}, {c.x + h.x, c.y - h.y, c.z + h.z},
+                       {c.x + h.x, c.y + h.y, c.z + h.z}, {c.x - h.x, c.y + h.y, c.z + h.z},
+                       {0, 0, 1});
+        pushQuadShaded(v, {c.x + h.x, c.y - h.y, c.z - h.z}, {c.x - h.x, c.y - h.y, c.z - h.z},
+                       {c.x - h.x, c.y + h.y, c.z - h.z}, {c.x + h.x, c.y + h.y, c.z - h.z},
+                       {0, 0, -1});
+    };
+    // proportions of a ~1.8-unit figure standing on y=0
+    cuboid({0, 0.35f, 0}, {0.12f, 0.35f, 0.09f});    // legs
+    cuboid({0, 1.05f, 0}, {0.22f, 0.35f, 0.12f});    // torso
+    cuboid({0, 1.58f, 0}, {0.13f, 0.15f, 0.13f});    // head
+    cuboid({0, 1.58f, 0.16f}, {0.04f, 0.04f, 0.05f});  // nose (facing +Z)
+    return v;
+}
+
 std::vector<float> unitWireCube() {
     std::vector<float> v;
     const float h = 0.52f;  // slightly larger than the shape, avoids z-fighting
@@ -445,6 +476,7 @@ void Viewport::shutdown() {
     destroyMesh(cylinder_);
     destroyMesh(cone_);
     destroyMesh(spawnMarker_);
+    destroyMesh(playerMarker_);
     destroyMesh(wireCube_);
     destroyMesh(skyQuad_);
     clearModelCache();
@@ -545,12 +577,14 @@ void Viewport::buildPrimitiveMeshes() {
     destroyMesh(cylinder_);
     destroyMesh(cone_);
     destroyMesh(spawnMarker_);
+    destroyMesh(playerMarker_);
     destroyMesh(wireCube_);
     box_ = uploadMesh(unitBox());
     sphere_ = uploadMesh(unitSphere());
     cylinder_ = uploadMesh(unitCylinder());
     cone_ = uploadMesh(unitCone());
     spawnMarker_ = uploadMesh(unitSpawnMarker());
+    playerMarker_ = uploadMesh(unitPlayerMarker());
     wireCube_ = uploadMesh(unitWireCube());
 }
 
@@ -935,6 +969,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             case PrimitiveType::Cylinder: return &cylinder_;
             case PrimitiveType::Cone: return &cone_;
             case PrimitiveType::SpawnPoint: return &spawnMarker_;
+            case PrimitiveType::Player: return &playerMarker_;
             case PrimitiveType::Model: {
                 const Mesh* m = modelMesh(o.modelPath);
                 return m ? m : &box_;  // missing model -> placeholder box

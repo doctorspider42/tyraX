@@ -20,6 +20,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Cone: return "cone";
         case PrimitiveType::SpawnPoint: return "spawn-point";
         case PrimitiveType::Model: return "model";
+        case PrimitiveType::Player: return "player";
     }
     return "box";
 }
@@ -30,6 +31,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "cone") return PrimitiveType::Cone;
     if (s == "spawn-point") return PrimitiveType::SpawnPoint;
     if (s == "model") return PrimitiveType::Model;
+    if (s == "player") return PrimitiveType::Player;
     return PrimitiveType::Box;
 }
 
@@ -55,13 +57,23 @@ static std::string fmtVec3(const float* v) {
 }
 
 static std::string objectJson(const SceneObject& o) {
-    return "{ \"name\": \"" + o.name + "\", \"type\": \"" + primitiveTypeName(o.type) +
-           "\", \"position\": " + fmtVec3(o.position) +
-           ", \"rotation\": " + fmtVec3(o.rotation) + ", \"scale\": " + fmtVec3(o.scale) +
-           ", \"color\": " + fmtVec3(o.color) +
-           ", \"physics\": " + (o.physics ? "true" : "false") +
-           (o.modelPath.empty() ? "" : ", \"model\": \"" + o.modelPath + "\"") +
-           (o.texturePath.empty() ? "" : ", \"texture\": \"" + o.texturePath + "\"") + " }";
+    std::string json =
+        "{ \"name\": \"" + o.name + "\", \"type\": \"" + primitiveTypeName(o.type) +
+        "\", \"position\": " + fmtVec3(o.position) +
+        ", \"rotation\": " + fmtVec3(o.rotation) + ", \"scale\": " + fmtVec3(o.scale) +
+        ", \"color\": " + fmtVec3(o.color) +
+        ", \"physics\": " + (o.physics ? "true" : "false") +
+        (o.modelPath.empty() ? "" : ", \"model\": \"" + o.modelPath + "\"") +
+        (o.texturePath.empty() ? "" : ", \"texture\": \"" + o.texturePath + "\"");
+    if (o.type == PrimitiveType::Player) {
+        json += ", \"player\": { \"mode\": \"" +
+                std::string(o.playerMode == 1 ? "noclip" : "walk") +
+                "\", \"walkSpeed\": " + fmtFloat(o.playerWalkSpeed) +
+                ", \"lookSpeed\": " + fmtFloat(o.playerLookSpeed) +
+                ", \"eyeHeight\": " + fmtFloat(o.playerEyeHeight) +
+                ", \"jumpSpeed\": " + fmtFloat(o.playerJumpSpeed) + " }";
+    }
+    return json + " }";
 }
 
 // "objects": [ ... ] with the given indentation for entries
@@ -398,6 +410,18 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             o.physics = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("texture")) o.texturePath = v->stringOr("");
+        if (const auto* pl = jo.find("player")) {
+            if (const auto* v = pl->find("mode"))
+                o.playerMode = v->stringOr("walk") == "noclip" ? 1 : 0;
+            if (const auto* v = pl->find("walkSpeed"))
+                o.playerWalkSpeed = (float)v->numberOr(0.4);
+            if (const auto* v = pl->find("lookSpeed"))
+                o.playerLookSpeed = (float)v->numberOr(1.0);
+            if (const auto* v = pl->find("eyeHeight"))
+                o.playerEyeHeight = (float)v->numberOr(1.8);
+            if (const auto* v = pl->find("jumpSpeed"))
+                o.playerJumpSpeed = (float)v->numberOr(4.5);
+        }
         out.push_back(std::move(o));
     }
 }

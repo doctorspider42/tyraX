@@ -111,6 +111,19 @@ Each finished feature lands as its own commit.
   per-channel RGB in the whole pipeline (game codegen + viewport). Verified in
   editor + PCSX2 (warm sunset light over the textured terrain).
 
+- (16) **Player entity** — "+ Player" inserts a playable player into any scene, no
+  FPP template required (works in orbit projects too; the first Player wins over
+  the template camera). Per-object parameters in the properties panel: movement
+  mode (**Walk FPP** — terrain relief + AABB collision + gravity/jump on X, or
+  **Noclip** — free flight toward the look direction, Cross up / Square down),
+  walk speed, look speed, eye height, jump speed. Left stick moves, right stick
+  looks. Shown as a gold humanoid marker in the viewport (nose = facing),
+  invisible in the game. Stored as `"player": {...}` in project.json, compiled
+  into `scene_data.hpp` as PLAYER_* constants. Verified in editor + PCSX2
+  (FPP project: camera starts at the entity on the sculpted terrain; orbit
+  project: noclip camera at the entity, scene objects framed as expected).
+  Interactive pad feel needs a hands-on test.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

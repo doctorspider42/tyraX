@@ -20,6 +20,9 @@ enum class PrimitiveType {
     SpawnPoint = 4,
     // Custom .obj mesh (modelPath, relative to the project dir)
     Model = 5,
+    // Player entity: marker in the editor; in the game the camera becomes
+    // this player (walk FPP or noclip), regardless of the project template.
+    Player = 6,
 };
 
 // Unit primitives fit a 1x1x1 cube centered at origin and are transformed by
@@ -34,6 +37,13 @@ struct SceneObject {
     bool physics = false;     // falls with gravity in the game
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     std::string texturePath;  // PNG, e.g. "res/textures/bricks.png" (empty = color only)
+
+    // Player entity parameters (used when type == Player)
+    int playerMode = 0;            // 0 = walk (FPP), 1 = noclip (fly)
+    float playerWalkSpeed = 0.4f;  // units per frame at full stick
+    float playerLookSpeed = 1.0f;  // multiplier
+    float playerEyeHeight = 1.8f;
+    float playerJumpSpeed = 4.5f;  // units/s (walk mode, X button)
 };
 
 const char* primitiveTypeName(PrimitiveType t);
@@ -45,7 +55,10 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
     return a.name == b.name && a.type == b.type && eq3(a.position, b.position) &&
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
            a.physics == b.physics && a.modelPath == b.modelPath &&
-           a.texturePath == b.texturePath;
+           a.texturePath == b.texturePath && a.playerMode == b.playerMode &&
+           a.playerWalkSpeed == b.playerWalkSpeed &&
+           a.playerLookSpeed == b.playerLookSpeed &&
+           a.playerEyeHeight == b.playerEyeHeight && a.playerJumpSpeed == b.playerJumpSpeed;
 }
 
 // General project preferences (Project > Preferences in the editor).

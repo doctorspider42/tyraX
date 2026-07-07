@@ -245,6 +245,11 @@ class TerrainGame : public Tyra::Game {
   void updateObjectPhysics();
   void renderScene();
 
+  // Player entity (PLAYER_INDEX in scene_data.hpp); overrides the template
+  // camera when present. Returns false when the scene has no player.
+  bool updatePlayerEntity();
+  float entX = 0, entY = 0, entZ = 0, entVelY = 0, entYaw = 0, entPitch = 0;
+
   ScriptContext scriptCtx;
 };
 
@@ -313,6 +318,11 @@ class TerrainGame : public Tyra::Game {
   void rebuildObjectGeometry(int index);
   void updateObjectPhysics();
   void renderScene();
+
+  // Player entity (PLAYER_INDEX in scene_data.hpp); overrides the template
+  // camera when present. Returns false when the scene has no player.
+  bool updatePlayerEntity();
+  float entX = 0, entY = 0, entZ = 0, entVelY = 0, entYaw = 0, entPitch = 0;
 
   ScriptContext scriptCtx;
 };
@@ -565,7 +575,7 @@ void TerrainGame::init() {
 }
 
 void TerrainGame::loop() {
-  updateCameraOrbit();
+  if (!updatePlayerEntity()) updateCameraOrbit();
 
   scriptCtx.playerPosition = cameraPosition;
   for (Script* script : getScripts()) script->update(scriptCtx);
@@ -634,9 +644,112 @@ void TerrainGame::buildScene() {
   objectGeometry.resize(SCENE_OBJECT_COUNT);
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     runtimeObjects[i].data = SCENE_OBJECTS[i];
-    runtimeObjects[i].visible = SCENE_OBJECTS[i].type != 4;  // spawn = marker
+    // spawn points and the player are editor markers, not geometry
+    runtimeObjects[i].visible =
+        SCENE_OBJECTS[i].type != 4 && SCENE_OBJECTS[i].type != 6;
     runtimeObjects[i].dirty = true;
   }
+
+  // Player entity start state
+  if (PLAYER_INDEX >= 0 && PLAYER_INDEX < SCENE_OBJECT_COUNT) {
+    entX = SCENE_OBJECTS[PLAYER_INDEX].position[0];
+    entZ = SCENE_OBJECTS[PLAYER_INDEX].position[2];
+    entY = PLAYER_MODE == 1 ? SCENE_OBJECTS[PLAYER_INDEX].position[1]
+                            : terrainHeightAt(entX, entZ);
+    entYaw = SCENE_OBJECTS[PLAYER_INDEX].rotation[1] * PI / 180.0F;
+  }
+}
+
+bool TerrainGame::updatePlayerEntity() {
+  if (PLAYER_INDEX < 0) return false;
+
+  const auto& leftJoy = engine->pad.getLeftJoyPad();
+  const auto& rightJoy = engine->pad.getRightJoyPad();
+  auto axis = [](const u8& raw) {
+    const float v = (raw - 128.0F) / 128.0F;
+    return (v > -0.20F && v < 0.20F) ? 0.0F : v;  // deadzone
+  };
+
+  // Right stick: look around (stick right = turn right)
+  entYaw -= axis(rightJoy.h) * 0.05F * PLAYER_LOOK_SPEED;
+  entPitch -= axis(rightJoy.v) * 0.035F * PLAYER_LOOK_SPEED;
+  if (entPitch > 1.35F) entPitch = 1.35F;
+  if (entPitch < -1.35F) entPitch = -1.35F;
+
+  const float fx = sinf(entYaw);
+  const float fz = cosf(entYaw);
+  const float forward = -axis(leftJoy.v);
+  const float strafe = axis(leftJoy.h);
+
+  if (PLAYER_MODE == 1) {
+    // Noclip: fly where the camera looks; X up, Square down.
+    const float cp = cosf(entPitch);
+    entX += (fx * cp * forward - fz * strafe) * PLAYER_WALK_SPEED;
+    entZ += (fz * cp * forward + fx * strafe) * PLAYER_WALK_SPEED;
+    entY += sinf(entPitch) * forward * PLAYER_WALK_SPEED;
+    if (engine->pad.getPressed().Cross) entY += PLAYER_WALK_SPEED;
+    if (engine->pad.getPressed().Square) entY -= PLAYER_WALK_SPEED;
+
+    cameraPosition = Vec4(entX, entY, entZ);
+    cameraLookAt = Vec4(entX + fx * cp, entY + sinf(entPitch), entZ + fz * cp);
+    return true;
+  }
+
+  // Walk mode: terrain bounds, object collision, gravity + jump.
+  float nextX = entX + (fx * forward - fz * strafe) * PLAYER_WALK_SPEED;
+  float nextZ = entZ + (fz * forward + fx * strafe) * PLAYER_WALK_SPEED;
+
+  const float limX = TERRAIN_WIDTH * 0.5F - 1.0F;
+  const float limZ = TERRAIN_DEPTH * 0.5F - 1.0F;
+  if (nextX > limX) nextX = limX;
+  if (nextX < -limX) nextX = -limX;
+  if (nextZ > limZ) nextZ = limZ;
+  if (nextZ < -limZ) nextZ = -limZ;
+
+  const float playerRadius = 0.35F;
+  float ground = terrainHeightAt(nextX, nextZ);
+  for (const RuntimeObject& o : runtimeObjects) {
+    if (!o.visible || o.data.type == 4 || o.data.type == 6) continue;
+    const float ox = o.data.position[0];
+    const float oz = o.data.position[2];
+    const float hx = 0.5F * o.data.scale[0] + playerRadius;
+    const float hz = 0.5F * o.data.scale[2] + playerRadius;
+    const float top = o.data.position[1] + 0.5F * o.data.scale[1];
+    const float bottom = o.data.position[1] - 0.5F * o.data.scale[1];
+
+    const bool nextInside =
+        nextX > ox - hx && nextX < ox + hx && nextZ > oz - hz && nextZ < oz + hz;
+    if (!nextInside) continue;
+
+    if (entY + 0.5F >= top) {
+      if (top > ground) ground = top;
+    } else if (entY < top && entY + PLAYER_EYE_HEIGHT > bottom) {
+      const bool wasInsideX = entX > ox - hx && entX < ox + hx;
+      const bool wasInsideZ = entZ > oz - hz && entZ < oz + hz;
+      if (!wasInsideX) nextX = entX;
+      if (!wasInsideZ) nextZ = entZ;
+      if (wasInsideX && wasInsideZ) {
+        nextX = entX;
+        nextZ = entZ;
+      }
+    }
+  }
+  entX = nextX;
+  entZ = nextZ;
+
+  entVelY -= GRAVITY / (50.0F * 50.0F);
+  entY += entVelY;
+  if (entY <= ground) {
+    entY = ground;
+    entVelY = 0.0F;
+    if (engine->pad.getClicked().Cross) entVelY = PLAYER_JUMP_SPEED / 50.0F;
+  }
+
+  const float eyeY = entY + PLAYER_EYE_HEIGHT;
+  cameraPosition = Vec4(entX, eyeY, entZ);
+  cameraLookAt = Vec4(entX + fx * cosf(entPitch), eyeY + sinf(entPitch),
+                      entZ + fz * cosf(entPitch));
+  return true;
 }
 
 void TerrainGame::buildSkyDome() {
@@ -714,6 +827,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     case 3: addCone(g.vertices, g.colors, g.sts, o.data); break;
     case 4: break;  // spawn point - marker only
     case 5: addModel(g.vertices, g.colors, g.sts, o.data); break;
+    case 6: break;  // player - marker only
     default: addBox(g.vertices, g.colors, g.sts, o.data); break;
   }
   if (g.vertices.empty()) {
@@ -950,7 +1064,7 @@ void TerrainGame::init() {
 }
 
 void TerrainGame::loop() {
-  updatePlayer();
+  if (!updatePlayerEntity()) updatePlayer();
 
   scriptCtx.playerPosition = cameraPosition;
   for (Script* script : getScripts()) script->update(scriptCtx);
@@ -1576,7 +1690,28 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 << "},  // " << o.name << "\n";
         }
     }
-    out << "};\n"
+    out << "};\n\n";
+
+    // Player entity: the first Player object drives the camera in the game
+    const SceneObject* player = nullptr;
+    int playerIndex = -1;
+    for (size_t i = 0; i < p.objects.size(); ++i)
+        if (p.objects[i].type == PrimitiveType::Player) {
+            player = &p.objects[i];
+            playerIndex = (int)i;
+            break;
+        }
+    out << "constexpr int PLAYER_INDEX = " << playerIndex << ";\n"
+        << "constexpr int PLAYER_MODE = " << (player ? player->playerMode : 0)
+        << ";  // 0 = walk, 1 = noclip\n"
+        << "constexpr float PLAYER_WALK_SPEED = "
+        << floatLit(player ? player->playerWalkSpeed : 0.4f) << ";\n"
+        << "constexpr float PLAYER_LOOK_SPEED = "
+        << floatLit(player ? player->playerLookSpeed : 1.0f) << ";\n"
+        << "constexpr float PLAYER_EYE_HEIGHT = "
+        << floatLit(player ? player->playerEyeHeight : 1.8f) << ";\n"
+        << "constexpr float PLAYER_JUMP_SPEED = "
+        << floatLit(player ? player->playerJumpSpeed : 4.5f) << ";\n"
            "\n"
            "}  // namespace "
         << ns << "\n";
