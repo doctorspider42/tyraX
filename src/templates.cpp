@@ -650,11 +650,13 @@ void TerrainGame::buildScene() {
   infoBag = std::make_unique<StaPipInfoBag>();
   infoBag->model = &model;
   infoBag->shadingType = TyraShadingFlat;
-  // CLIP_PRECISE (Project > Preferences): real per-triangle clipping - no
-  // holes at screen edges, but costs EE time. The fast path drops whole
-  // triangles that extend far beyond the screen, but is much cheaper.
-  infoBag->frustumCulling = CLIP_PRECISE ? PipelineInfoBagFrustumCulling_Precise
-                                         : PipelineInfoBagFrustumCulling_None;
+  // Always classify per package against the frustum: packages fully outside
+  // are skipped, packages touching a plane get per-triangle clipping
+  // (CLIP_PRECISE, Project > Preferences) or per-triangle culling (fast -
+  // cheaper, may drop triangles at the screen edge). Raw submission (None)
+  // is never safe: geometry behind or far off-screen wraps the GS raster
+  // window and smears giant polygons (faithful on real HW / SW renderer).
+  infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
   infoBag->fullClipChecks = CLIP_PRECISE;
 
   colorBag = std::make_unique<StaPipColorBag>();
@@ -892,6 +894,8 @@ void TerrainGame::buildSkyDome() {
   skyDome.bag->count = static_cast<u32>(skyDome.vertices.size());
   skyDome.bag->texture = nullptr;
   skyDome.bag->lighting = nullptr;
+  static u32 domeVersion = 0;  // dome rebuilds on retint - skip stale bboxes
+  skyDome.bag->bboxVersion = ++domeVersion;
 }
 
 void TerrainGame::rebuildObjectGeometry(int index) {
@@ -920,12 +924,12 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     g.infoBag = std::make_unique<StaPipInfoBag>();
     g.infoBag->model = &model;
     g.infoBag->shadingType = TyraShadingFlat;
-    // Objects can move at runtime, but the engine caches frustum bboxes by
-    // the vertex pointer (stale bbox = object culled at its old position).
-    // Objects are small, so skip culling/clipping for them entirely;
-    // the terrain keeps CLIP_PRECISE.
-    g.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_None;
-    g.infoBag->fullClipChecks = false;
+    // Objects go through frustum classification too - raw submission (None)
+    // wraps the GS raster window for anything behind/off-screen. The bbox
+    // cache is keyed by pointer + bboxVersion, bumped on every rebuild, so
+    // moving objects never reuse a stale box.
+    g.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    g.infoBag->fullClipChecks = true;
     g.colorBag = std::make_unique<StaPipColorBag>();
     g.bag = std::make_unique<StaPipBag>();
     g.bag->info = g.infoBag.get();
@@ -936,6 +940,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
   g.colorBag->many = g.colors.data();
   g.bag->vertices = g.vertices.data();
   g.bag->count = static_cast<u32>(g.vertices.size());
+  g.bag->bboxVersion++;  // geometry changed - refresh the frustum bbox cache
 
   if (o.data.texture >= 0 && o.data.texture < TEXTURE_COUNT &&
       loadedTextures[o.data.texture]) {

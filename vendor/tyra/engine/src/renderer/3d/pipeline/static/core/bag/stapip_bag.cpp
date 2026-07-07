@@ -19,6 +19,7 @@ StaPipBag::StaPipBag() {
   color = nullptr;
   texture = nullptr;
   lighting = nullptr;
+  bboxVersion = 0;
 }
 
 StaPipBag::~StaPipBag() {}

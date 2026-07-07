@@ -111,8 +111,12 @@ void StaPipCore::render(StaPipBag* bag) {
 
   StaPipBagPackagesBBox* bbox = nullptr;
   if (bag->info->frustumCulling == PipelineInfoBagFrustumCulling_Precise) {
-    bbox = cacher.getBBoxes(bag->vertices, bag->count,
-                            reinterpret_cast<u32>(bag->vertices), maxVertCount);
+    // tyra-editor: mix the bag's bboxVersion into the cache id so reused
+    // vertex buffers with new content do not resolve to stale boxes
+    bbox = cacher.getBBoxes(
+        bag->vertices, bag->count,
+        reinterpret_cast<u32>(bag->vertices) + bag->bboxVersion * 2654435761u,
+        maxVertCount);
   }
 
   setMaxVertCount(maxVertCount);

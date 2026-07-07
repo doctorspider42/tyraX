@@ -1,6 +1,11 @@
 /*
-# Modified by tyra-editor - guard-band aware frustum check.
-# Based on the original by Sandro Sobczynski (h4570/tyra), Apache License 2.0.
+# _____        ____   ___
+#   |     \/   ____| |___|
+#   |     |   |   \  |   |
+#-----------------------------------------------------------------------
+# Copyright 2022, tyra - https://github.com/h4570/tyra
+# Licensed under Apache License 2.0
+# Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
 #include <string>
@@ -33,16 +38,11 @@ RenderBBox RenderBBox::getTransformed(const M4x4& t_matrix) const {
 }
 
 /**
- * Frustum check for the renderer.
- *
- * The VU1 cull programs accept a 3x wider XY window than the screen
- * (tyra-editor guard band patch) and the GS scissor trims the pixels, so
- * packages crossing the LEFT/RIGHT/TOP/BOTTOM planes render correctly on the
- * fast cull path with no geometric clipping.
- *
- * Only geometry close to the NEAR plane really needs the clipper: vertices
- * behind the eye cannot be scissored, they must be cut before the
- * perspective division.
+ * @brief Frustum checker for renderer.
+ * Background: We want to really put as low as possible polys to clipper.
+ * So we are doing magic trick. If BBox is partially inside frustum (clipper),
+ * we are adding some margins, and checking again if it really needs clipping,
+ * because "Cull" renderer can handle easy clip cases and its faster.
  */
 CoreBBoxFrustum RenderBBox::clipFrustumCheck(const Plane* frustumPlanes,
                                              const M4x4& model) const {
@@ -52,19 +52,19 @@ CoreBBoxFrustum RenderBBox::clipFrustumCheck(const Plane* frustumPlanes,
     return result;
   }
 
-  float guardBand[6];
+  // Oh no, it probably needs clipping
 
-  guardBand[0] = -100000.0F;  // Top    - handled by the GS scissor
-  guardBand[1] = -100000.0F;  // Bottom - handled by the GS scissor
-  guardBand[2] = -100000.0F;  // Left   - handled by the GS scissor
-  guardBand[3] = -100000.0F;  // Right  - handled by the GS scissor
-  guardBand[4] = 1.5F;        // Near   - the clipper must handle this band
-  guardBand[5] = 0.0F;        // Far
+  // This is crappy guard band, but it works xd
+  float guardBand[6];  // This probably needs more calibration
 
-  const auto withMargins = frustumCheck(frustumPlanes, model, guardBand);
+  guardBand[0] = 0.0F;  // Top
+  guardBand[1] = 0.0F;  // BOTTOM
+  guardBand[2] = 0.0F;  // LEFT
+  guardBand[3] = 0.0F;  // RIGHT
+  guardBand[4] = 0.0F;  // NEAR
+  guardBand[5] = 0.0F;  // FAR
 
-  // Never skip on the second chance - worst case is a bit of extra clipping.
-  return withMargins == OUTSIDE_FRUSTUM ? PARTIALLY_IN_FRUSTUM : withMargins;
+  return frustumCheck(frustumPlanes, model, guardBand);  // Let's check it again
 }
 
 }  // namespace Tyra

@@ -235,6 +235,25 @@ Each finished feature lands as its own commit.
   Scale/Sculpt are 1/2/3/4 (button labels updated). New-terrain projects
   re-center the target. Interactions need a hands-on mouse/keyboard pass.
 
+- (25) **Rendering corruption root-caused and fixed for real** - the
+  recurring "objects render twice / giant smeared polygons" was never the
+  engine patches (bisected all of them - even full upstream reproduced it):
+  per-object bags used frustumCulling **None**, so objects behind or far
+  off-screen were submitted raw and their coordinates wrapped the GS 4096px
+  raster window. PCSX2's HW renderer often masks the wrap (hence "czasem
+  działa"); the SW renderer - and real hardware - show it faithfully. Fix:
+  every bag (terrain, objects, sky dome) now goes through per-package frustum
+  classification; the engine's bbox cache got a `bboxVersion` field on
+  StaPipBag (mixed into the cache key) which the game bumps on every geometry
+  rebuild, killing the stale-bbox problem that originally motivated None.
+  Fast clipping mode = Precise classification + per-triangle cull (cheap, no
+  wraps). The upstream "crappy guard band" bbox margins are zeroed (exact
+  classification), and the VU1 guard-band experiments are fully retired
+  (three variants all corrupted ADC bits; documented in vcl_sml.i). The EE
+  clipper keeps the outcode + pool optimizations. Verified on the SW renderer
+  (the honest one): known-bad camera positions render clean and stable,
+  gameplay views correct, near-plane clipping right, 50 FPS.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

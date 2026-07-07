@@ -1391,20 +1391,15 @@ QSL3@:
 ;//     triangle.
 ;//---------------------------------------------------------
 #macro PerformClipCheck: t_vertex, t_destAddress, t_destAddressOffset
-   ; tyra-editor guard band v2: accept XY up to 3x outside the clip
-   ; volume - the GS scissor trims the pixels, so edge-crossing
-   ; triangles render correctly without geometric clipping.
-   ; Vertices behind the camera (w <= 0) are rejected explicitly:
-   ; the widened XY window no longer catches them and the plain
-   ; |z| <= |w| test is borderline in single precision.
-   loi         0.3333333
-   muli.xy     scaledClipVtx, t_vertex, i
-   move.zw     scaledClipVtx, t_vertex
-   mul.w       vclsmlftemp, t_vertex, vf00   ; STATUS sign/zero of w
-   clipw.xyz   scaledClipVtx, scaledClipVtx
+   ; tyra-editor note: this macro is intentionally UPSTREAM-ORIGINAL.
+   ; Three attempts at a guard band here (I-register scale, STATUS-flag
+   ; w test, DIV/Q-built constant) all corrupted the ADC bits under VCL
+   ; scheduling and rendered flickering garbage when geometry crossed the
+   ; frustum sides. Until that is debugged on real VU1 tooling, precise
+   ; clipping (the editor default) routes edge-crossing geometry through
+   ; the EE clipper instead - correct, just slower on pathological scenes.
+   clipw.xyz	t_vertex,   t_vertex
    fcand       VI01,       0x3FFFF
-   fsand       vclsmlitemp, 0x3              ; NEG | ZERO -> w <= 0
-   ior         VI01,       VI01, vclsmlitemp
    iaddiu      adcBit,     VI01, 0x7FFF
    isw.w       adcBit,     t_destAddressOffset(t_destAddress)
 #endmacro
