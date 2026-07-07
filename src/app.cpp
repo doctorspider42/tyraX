@@ -955,10 +955,20 @@ void App::drawFlowGraphWindow() {
         flowZoom_ * 100.0f, owner.name.c_str());
 
     // imnodes has no native zoom: emulate it by scaling the font, the style
-    // metrics and the grid-space node positions by flowZoom_.
+    // metrics and the grid-space node positions by flowZoom_. The ImGui
+    // spacing vars scale too, so node layouts shrink uniformly instead of
+    // drifting apart at low zoom.
     const float zoom = flowZoom_;
     const ImVec2 canvasOrigin = ImGui::GetCursorScreenPos();
     ImGui::SetWindowFontScale(zoom);
+    const ImGuiStyle& gstyle = ImGui::GetStyle();
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+                        ImVec2(gstyle.ItemSpacing.x * zoom, gstyle.ItemSpacing.y * zoom));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing,
+                        ImVec2(gstyle.ItemInnerSpacing.x * zoom,
+                               gstyle.ItemInnerSpacing.y * zoom));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+                        ImVec2(gstyle.FramePadding.x * zoom, gstyle.FramePadding.y * zoom));
     ImNodesStyle& nstyle = ImNodes::GetStyle();
     const ImNodesStyle savedStyle = nstyle;
     nstyle.GridSpacing *= zoom;
@@ -1016,11 +1026,15 @@ void App::drawFlowGraphWindow() {
         ImGui::PushID(n.id);
         ImGui::PushItemWidth(130.0f * zoom);
 
+        bool posLinked = false;
+        for (const FlowLink& l : fg.links)
+            posLinked |= (l.kind == FlowLinkPos && l.toNode == n.id);
+
         // string param
         if (t->strKind == FlowParamKind::ObjectName) {
             bool idLinked = false;
             for (const FlowLink& l : fg.links)
-                idLinked |= (l.data && l.toNode == n.id);
+                idLinked |= (l.kind == FlowLinkObject && l.toNode == n.id);
             if (idLinked) {
                 ImGui::TextDisabled("Object: from id link");
             } else {
@@ -1095,7 +1109,10 @@ void App::drawFlowGraphWindow() {
         }
 
         // numeric params
-        if (t->numKind == FlowParamKind::Color) {
+        if (posLinked && t->posIn && t->numCount == 3) {
+            // X/Y/Z come from the position link, the node's own params rest
+            ImGui::TextDisabled("Position: from link");
+        } else if (t->numKind == FlowParamKind::Color) {
             ImGui::ColorEdit3("Color", n.num, ImGuiColorEditFlags_NoInputs);
             changed |= ImGui::IsItemDeactivatedAfterEdit();
         } else {
@@ -1127,25 +1144,50 @@ void App::drawFlowGraphWindow() {
         ImGui::PopItemWidth();
         ImGui::PopID();
 
-        // pins: exec flow (round) + object id (square)
+        // pins: exec flow (round) + object id (square, amber) + position
+        // (triangle, green). Pure data nodes have no exec pins.
+        const unsigned idPinCol = IM_COL32(222, 170, 60, 255);
+        const unsigned posPinCol = IM_COL32(110, 200, 120, 255);
         if (t->idIn) {
+            ImNodes::PushColorStyle(ImNodesCol_Pin, idPinCol);
             ImNodes::BeginInputAttribute(flowIdInPin(n.id), ImNodesPinShape_QuadFilled);
             ImGui::TextDisabled("object");
             ImNodes::EndInputAttribute();
+            ImNodes::PopColorStyle();
         }
-        if (t->trigger) {
-            ImNodes::BeginOutputAttribute(flowOutPin(n.id));
-            rightLabel("then >", false);
-            ImNodes::EndOutputAttribute();
-        } else {
-            ImNodes::BeginInputAttribute(flowInPin(n.id));
-            ImGui::TextUnformatted("> do");
+        if (t->posIn) {
+            ImNodes::PushColorStyle(ImNodesCol_Pin, posPinCol);
+            ImNodes::BeginInputAttribute(flowPosInPin(n.id),
+                                         ImNodesPinShape_TriangleFilled);
+            ImGui::TextDisabled("position");
             ImNodes::EndInputAttribute();
+            ImNodes::PopColorStyle();
+        }
+        if (!t->pure) {
+            if (t->trigger) {
+                ImNodes::BeginOutputAttribute(flowOutPin(n.id));
+                rightLabel("then >", false);
+                ImNodes::EndOutputAttribute();
+            } else {
+                ImNodes::BeginInputAttribute(flowInPin(n.id));
+                ImGui::TextUnformatted("> do");
+                ImNodes::EndInputAttribute();
+            }
         }
         if (t->idOut) {
+            ImNodes::PushColorStyle(ImNodesCol_Pin, idPinCol);
             ImNodes::BeginOutputAttribute(flowIdOutPin(n.id), ImNodesPinShape_QuadFilled);
             rightLabel("object >", true);
             ImNodes::EndOutputAttribute();
+            ImNodes::PopColorStyle();
+        }
+        if (t->posOut) {
+            ImNodes::PushColorStyle(ImNodesCol_Pin, posPinCol);
+            ImNodes::BeginOutputAttribute(flowPosOutPin(n.id),
+                                          ImNodesPinShape_TriangleFilled);
+            rightLabel("position >", true);
+            ImNodes::EndOutputAttribute();
+            ImNodes::PopColorStyle();
         }
 
         ImNodes::EndNode();
@@ -1153,10 +1195,14 @@ void App::drawFlowGraphWindow() {
     }
 
     for (const FlowLink& l : fg.links) {
-        if (l.data) {
-            // object-id links in amber, execution links keep the default
+        if (l.kind == FlowLinkObject) {
+            // object links amber, position links green, exec the default
             ImNodes::PushColorStyle(ImNodesCol_Link, IM_COL32(222, 170, 60, 255));
             ImNodes::Link(l.id, flowIdOutPin(l.fromNode), flowIdInPin(l.toNode));
+            ImNodes::PopColorStyle();
+        } else if (l.kind == FlowLinkPos) {
+            ImNodes::PushColorStyle(ImNodesCol_Link, IM_COL32(110, 200, 120, 255));
+            ImNodes::Link(l.id, flowPosOutPin(l.fromNode), flowPosInPin(l.toNode));
             ImNodes::PopColorStyle();
         } else {
             ImNodes::Link(l.id, flowOutPin(l.fromNode), flowInPin(l.toNode));
@@ -1168,6 +1214,7 @@ void App::drawFlowGraphWindow() {
     ImNodes::EndNodeEditor();
 
     nstyle = savedStyle;
+    ImGui::PopStyleVar(3);
     ImGui::SetWindowFontScale(1.0f);
 
     // Read node positions back in unzoomed model coordinates (imnodes owns
@@ -1198,35 +1245,40 @@ void App::drawFlowGraphWindow() {
         }
     }
 
-    // New link dragged between pins. Pin kinds by id: 0 = object-id in,
-    // 1 = exec out, 2 = exec in, 3 = object-id out; node = pin / 4.
+    // New link dragged between pins. Pin kinds by id (pin % 8): 0 = object
+    // in, 1 = exec out, 2 = exec in, 3 = object out, 4 = position in,
+    // 5 = position out; node = pin / 8.
     int startPin = 0, endPin = 0;
     if (ImNodes::IsLinkCreated(&startPin, &endPin)) {
-        const int a = startPin % 4, b = endPin % 4;
+        const int a = startPin % 8, b = endPin % 8;
         int outPin = -1, inPin = -1;
-        bool data = false;
+        int kind = FlowLinkExec;
         if ((a == 1 && b == 2) || (a == 2 && b == 1)) {
             outPin = a == 1 ? startPin : endPin;
             inPin = a == 2 ? startPin : endPin;
         } else if ((a == 3 && b == 0) || (a == 0 && b == 3)) {
             outPin = a == 3 ? startPin : endPin;
             inPin = a == 0 ? startPin : endPin;
-            data = true;
+            kind = FlowLinkObject;
+        } else if ((a == 5 && b == 4) || (a == 4 && b == 5)) {
+            outPin = a == 5 ? startPin : endPin;
+            inPin = a == 4 ? startPin : endPin;
+            kind = FlowLinkPos;
         }
-        if (outPin >= 0 && outPin / 4 != inPin / 4) {
+        if (outPin >= 0 && outPin / 8 != inPin / 8) {
             FlowLink l;
-            l.fromNode = outPin / 4;
-            l.toNode = inPin / 4;
-            l.data = data;
-            if (data) {
-                // a node takes its object from at most one id link
+            l.fromNode = outPin / 8;
+            l.toNode = inPin / 8;
+            l.kind = kind;
+            if (kind != FlowLinkExec) {
+                // a node takes its object/position from at most one link
                 for (size_t i = fg.links.size(); i-- > 0;)
-                    if (fg.links[i].data && fg.links[i].toNode == l.toNode)
+                    if (fg.links[i].kind == kind && fg.links[i].toNode == l.toNode)
                         fg.links.erase(fg.links.begin() + i);
             }
             bool duplicate = false;
             for (const FlowLink& e : fg.links)
-                duplicate |= (e.data == l.data && e.fromNode == l.fromNode &&
+                duplicate |= (e.kind == l.kind && e.fromNode == l.fromNode &&
                               e.toNode == l.toNode);
             if (!duplicate) {
                 l.id = fg.nextId++;

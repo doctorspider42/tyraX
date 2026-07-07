@@ -75,7 +75,8 @@ static std::string flowGraphJson(const FlowGraph& fg) {
         json += std::string(i ? ", " : "") + "{ \"id\": " + std::to_string(l.id) +
                 ", \"from\": " + std::to_string(l.fromNode) +
                 ", \"to\": " + std::to_string(l.toNode) +
-                (l.data ? ", \"data\": true" : "") + " }";
+                (l.kind == FlowLinkObject ? ", \"data\": true" : "") +
+                (l.kind == FlowLinkPos ? ", \"pos\": true" : "") + " }";
     }
     return json + "] }";
 }
@@ -105,8 +106,12 @@ static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
             if (const auto* v = jl.find("id")) l.id = (int)v->numberOr(0);
             if (const auto* v = jl.find("from")) l.fromNode = (int)v->numberOr(0);
             if (const auto* v = jl.find("to")) l.toNode = (int)v->numberOr(0);
-            if (const auto* v = jl.find("data"))
-                l.data = v->type == json::Value::Type::Bool && v->boolean;
+            if (const auto* v = jl.find("data");
+                v && v->type == json::Value::Type::Bool && v->boolean)
+                l.kind = FlowLinkObject;
+            if (const auto* v = jl.find("pos");
+                v && v->type == json::Value::Type::Bool && v->boolean)
+                l.kind = FlowLinkPos;
             if (l.id > 0) fg.links.push_back(l);
         }
     }

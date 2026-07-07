@@ -167,6 +167,22 @@ Each finished feature lands as its own commit.
   self-references correctly (phys-demo), game boots at 50 FPS; node-editor
   interactions (pins, combos) need a hands-on mouse pass.
 
+- (20) **Position pins + player spawning** — second data type in the flow
+  graph: XYZ positions travel over green triangle pins (object ids stay on
+  amber squares; pure data nodes have no exec pins). New nodes: **Get
+  Position** (pure - reads the target object's position live at the consumer),
+  **Set Object Position** (X/Y/Z params, overridden by an incoming position
+  link; passes both the object and the position through) and **Spawn Player
+  At** (Player category - teleports the Player entity, or the FPP template
+  player, to the target object's position; e.g. On Button -> Spawn Player At
+  a spawn point = respawn). ScriptContext gained a teleport request the game
+  loops apply per template. Position links resolve at codegen into direct
+  `objects[i].position` reads, so chains stay zero-cost. Also: flow zoom now
+  scales the ImGui spacing vars, so node layouts shrink uniformly instead of
+  drifting at low zoom. Verified via generated code + PCSX2 boot (box adopts
+  the house position through a Get Position -> Set Object Position link);
+  Square-button respawn needs a pad test.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

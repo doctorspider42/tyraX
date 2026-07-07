@@ -1,9 +1,11 @@
 #include "templates.hpp"
 
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <functional>
 #include <sstream>
 
 #define WIN32_LEAN_AND_MEAN
@@ -581,6 +583,18 @@ void TerrainGame::loop() {
   for (Script* script : getScripts()) script->update(scriptCtx);
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
 
+  // Flow graph / script teleport request (needs a Player entity - the orbit
+  // camera itself is not teleportable)
+  if (scriptCtx.teleport) {
+    scriptCtx.teleport = false;
+    if (PLAYER_INDEX >= 0) {
+      entX = scriptCtx.teleportPos.x;
+      entY = scriptCtx.teleportPos.y;
+      entZ = scriptCtx.teleportPos.z;
+      entVelY = 0.0F;
+    }
+  }
+
   updateObjectPhysics();
 
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
@@ -1070,6 +1084,23 @@ void TerrainGame::loop() {
   for (Script* script : getScripts()) script->update(scriptCtx);
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
 
+  // Flow graph / script teleport request: move the Player entity when the
+  // scene has one, the built-in FPP player otherwise.
+  if (scriptCtx.teleport) {
+    scriptCtx.teleport = false;
+    if (PLAYER_INDEX >= 0) {
+      entX = scriptCtx.teleportPos.x;
+      entY = scriptCtx.teleportPos.y;
+      entZ = scriptCtx.teleportPos.z;
+      entVelY = 0.0F;
+    } else {
+      playerX = scriptCtx.teleportPos.x;
+      playerY = scriptCtx.teleportPos.y;
+      playerZ = scriptCtx.teleportPos.z;
+      playerVelY = 0.0F;
+    }
+  }
+
   updateObjectPhysics();
 
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
@@ -1442,6 +1473,11 @@ struct ScriptContext {
   RuntimeObject* objects = nullptr;  // mutable scene objects
   int objectCount = 0;
   Tyra::Color skyColor;  // write to change the clear color
+
+  // Set teleport = true and teleportPos to move the player (Player entity or
+  // the FPP template player) there; the game applies and clears it.
+  bool teleport = false;
+  Tyra::Vec4 teleportPos;
 };
 
 /** Base class for game scripts. Put .cpp files in src/scripts/. */
@@ -1840,7 +1876,7 @@ std::string flowGraphScript(const Project& p) {
                 if (!t || !t->idIn) break;
                 const FlowLink* dataLink = nullptr;
                 for (const FlowLink& l : fg.links)
-                    if (l.data && l.toNode == cur->id) {
+                    if (l.kind == FlowLinkObject && l.toNode == cur->id) {
                         dataLink = &l;
                         break;
                     }
@@ -1853,6 +1889,45 @@ std::string flowGraphScript(const Project& p) {
             if (ct && ct->strKind == FlowParamKind::ObjectName && !cur->str.empty())
                 return objectIndex(cur->str);
             return (int)ownerIdx;  // self
+        };
+
+        // XYZ expressions a node's position resolves to: an incoming position
+        // link (Get Position reads the source object live; Set Object
+        // Position forwards its own resolution) beats the node's own
+        // X/Y/Z params (SetPosition) or its target object's position
+        // (TeleportPlayer / GetPosition).
+        std::function<std::array<std::string, 3>(const FlowNode&, std::vector<int>&)>
+            posExprImpl = [&](const FlowNode& n,
+                              std::vector<int>& visited) -> std::array<std::string, 3> {
+            auto objectPos = [&](int idx) -> std::array<std::string, 3> {
+                const std::string base =
+                    "ctx.objects[" + std::to_string(idx) + "].data.position[";
+                return {base + "0]", base + "1]", base + "2]"};
+            };
+            bool seen = false;
+            for (int id : visited) seen |= (id == n.id);
+            if (!seen) {
+                visited.push_back(n.id);
+                const FlowNodeType* t = flowNodeType(n.type);
+                if (t && t->posIn) {
+                    for (const FlowLink& l : fg.links) {
+                        if (l.kind != FlowLinkPos || l.toNode != n.id) continue;
+                        if (const FlowNode* src = nodeById(l.fromNode)) {
+                            const FlowNodeType* st = flowNodeType(src->type);
+                            if (st && st->posOut) return posExprImpl(*src, visited);
+                        }
+                    }
+                }
+            }
+            if (n.type == "SetPosition")
+                return {floatLit(n.num[0]), floatLit(n.num[1]), floatLit(n.num[2])};
+            const int idx = resolveTarget(n);
+            if (idx < 0) return {"0.0F", "0.0F", "0.0F"};
+            return objectPos(idx);
+        };
+        auto posExpr = [&](const FlowNode& n) {
+            std::vector<int> visited;
+            return posExprImpl(n, visited);
         };
 
         // Sounds referenced by this graph's Play Sound nodes become sfx<i>
@@ -1901,6 +1976,16 @@ std::string flowGraphScript(const Project& p) {
                     c << pad << obj << ".data.color[" << a
                       << "] = " << floatLit(n.num[a]) << ";\n";
                 c << pad << obj << ".dirty = true;\n";
+            } else if (n.type == "SetPosition") {
+                const auto e = posExpr(n);
+                for (int a = 0; a < 3; ++a)
+                    c << pad << obj << ".data.position[" << a << "] = " << e[a] << ";\n";
+                c << pad << obj << ".dirty = true;\n";
+            } else if (n.type == "TeleportPlayer") {
+                const auto e = posExpr(n);
+                c << pad << "ctx.teleport = true;\n"
+                  << pad << "ctx.teleportPos = Tyra::Vec4(" << e[0] << ", " << e[1] << ", "
+                  << e[2] << ");\n";
             } else if (n.type == "Log") {
                 std::string text = n.str;
                 text = replaceAll(text, "\\", "\\\\");
@@ -1960,15 +2045,15 @@ std::string flowGraphScript(const Project& p) {
             return c.str();
         };
 
-        // all actions exec-linked to a trigger
+        // all actions exec-linked to a trigger (pure data nodes never "run")
         auto linkedActions = [&](int triggerId, const std::string& pad) {
             std::ostringstream c;
             for (const FlowLink& l : fg.links) {
-                if (l.data || l.fromNode != triggerId) continue;
+                if (l.kind != FlowLinkExec || l.fromNode != triggerId) continue;
                 for (const FlowNode& n : fg.nodes) {
                     if (n.id != l.toNode) continue;
                     const FlowNodeType* t = flowNodeType(n.type);
-                    if (t && !t->trigger) c << actionCode(n, pad);
+                    if (t && !t->trigger && !t->pure) c << actionCode(n, pad);
                 }
             }
             return c.str();

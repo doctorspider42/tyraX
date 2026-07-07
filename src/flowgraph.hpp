@@ -8,13 +8,15 @@
 // compiled into src/scripts/flow_graph.gen.cpp on every build (one script
 // class per object graph).
 //
-// Two link kinds:
+// Three link kinds:
 //  - exec links (trigger "then" -> action "do"): execution flow
-//  - data links (id out -> id in): pass an object reference between nodes.
+//  - object links (square pins): pass an object reference between nodes
+//  - position links (triangle pins): pass XYZ coordinates between nodes.
 // Object-referencing nodes resolve their target in this order:
-//  1. incoming data link  ->  the source node's resolved object
+//  1. incoming object link  ->  the source node's resolved object
 //  2. explicit object name (str)
 //  3. the object owning the graph ("self")
+// Position inputs override a node's own X/Y/Z params when linked.
 // Copying an object copies its graph; self-references follow the copy, so a
 // graph built around "self" works as a reusable component.
 
@@ -26,11 +28,17 @@ struct FlowNode {
     float num[3] = {0, 0, 0};  // numeric params (radius, color, volume...)
 };
 
+enum FlowLinkKind {
+    FlowLinkExec = 0,    // trigger "then" -> action "do"
+    FlowLinkObject = 1,  // object id out -> object id in
+    FlowLinkPos = 2,     // position out -> position in
+};
+
 struct FlowLink {
     int id = 0;
-    int fromNode = 0;  // exec: trigger side; data: id-output side
-    int toNode = 0;    // exec: action side;  data: id-input side
-    bool data = false;  // false = exec link, true = object-id link
+    int fromNode = 0;  // output side
+    int toNode = 0;    // input side
+    int kind = FlowLinkExec;
 };
 
 struct FlowGraph {
@@ -49,7 +57,7 @@ inline bool operator==(const FlowNode& a, const FlowNode& b) {
 
 inline bool operator==(const FlowLink& a, const FlowLink& b) {
     return a.id == b.id && a.fromNode == b.fromNode && a.toNode == b.toNode &&
-           a.data == b.data;
+           a.kind == b.kind;
 }
 
 inline bool operator==(const FlowGraph& a, const FlowGraph& b) {
@@ -71,6 +79,9 @@ struct FlowNodeType {
     FlowParamKind numKind;   // Color = show a color picker for num[0..2]
     bool idIn;   // accepts an object id from a data link (object-param nodes)
     bool idOut;  // exposes its resolved object as an id output
+    bool posIn = false;   // accepts XYZ coordinates from a position link
+    bool posOut = false;  // exposes XYZ coordinates as a position output
+    bool pure = false;    // data-only node: no exec pins, never "runs"
 };
 
 inline const std::vector<FlowNodeType>& flowNodeTypes() {
@@ -95,6 +106,19 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          {"dX", "dY", "dZ"}, FlowParamKind::None, true, true},
         {"SetObjectColor", "Set Object Color", "Object", false, FlowParamKind::ObjectName,
          3, {}, FlowParamKind::Color, true, true},
+        // Position plumbing: Get Position is a pure data node (no exec pins);
+        // Set Object Position uses its X/Y/Z params unless a position link
+        // feeds it. Both pass the object through and expose the position.
+        {"GetPosition", "Get Position", "Object", false, FlowParamKind::ObjectName, 0, {},
+         FlowParamKind::None, true, true, false, true, true},
+        {"SetPosition", "Set Object Position", "Object", false, FlowParamKind::ObjectName,
+         3, {"X", "Y", "Z"}, FlowParamKind::None, true, true, true, true, false},
+        // Player
+        // Teleports the player (entity or FPP template player) to the target
+        // object's position - e.g. respawn at a spawn point. A position link
+        // overrides the object's position.
+        {"TeleportPlayer", "Spawn Player At", "Player", false, FlowParamKind::ObjectName,
+         0, {}, FlowParamKind::None, true, true, true, false, false},
         // Scene
         {"SetSky", "Set Sky Color", "Scene", false, FlowParamKind::None, 3, {},
          FlowParamKind::Color, false, false},
@@ -131,9 +155,12 @@ inline std::vector<const char*> flowNodeCategories() {
     return cats;
 }
 
-// imnodes pin ids derived from node ids. Four pins per node:
-// exec out / exec in / object-id out / object-id in.
-inline int flowOutPin(int nodeId) { return nodeId * 4 + 1; }
-inline int flowInPin(int nodeId) { return nodeId * 4 + 2; }
-inline int flowIdOutPin(int nodeId) { return nodeId * 4 + 3; }
-inline int flowIdInPin(int nodeId) { return nodeId * 4; }
+// imnodes pin ids derived from node ids (pin % 8 encodes the pin kind,
+// pin / 8 the node): object-id in / exec out / exec in / object-id out /
+// position in / position out.
+inline int flowIdInPin(int nodeId) { return nodeId * 8; }
+inline int flowOutPin(int nodeId) { return nodeId * 8 + 1; }
+inline int flowInPin(int nodeId) { return nodeId * 8 + 2; }
+inline int flowIdOutPin(int nodeId) { return nodeId * 8 + 3; }
+inline int flowPosInPin(int nodeId) { return nodeId * 8 + 4; }
+inline int flowPosOutPin(int nodeId) { return nodeId * 8 + 5; }
