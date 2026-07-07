@@ -950,18 +950,53 @@ void App::drawFlowGraphWindow() {
     bool changed = false;
 
     ImGui::TextDisabled(
-        "Right-click: add node. Round pins: execution, square pins: object id. "
-        "Empty object param = self (%s).",
-        owner.name.c_str());
+        "Right-click: add node. Mouse wheel: zoom (%.0f%%). Round pins: execution, "
+        "square pins: object id. Empty object param = self (%s).",
+        flowZoom_ * 100.0f, owner.name.c_str());
+
+    // imnodes has no native zoom: emulate it by scaling the font, the style
+    // metrics and the grid-space node positions by flowZoom_.
+    const float zoom = flowZoom_;
+    const ImVec2 canvasOrigin = ImGui::GetCursorScreenPos();
+    ImGui::SetWindowFontScale(zoom);
+    ImNodesStyle& nstyle = ImNodes::GetStyle();
+    const ImNodesStyle savedStyle = nstyle;
+    nstyle.GridSpacing *= zoom;
+    nstyle.NodeCornerRounding *= zoom;
+    nstyle.NodePadding = ImVec2(savedStyle.NodePadding.x * zoom,
+                                savedStyle.NodePadding.y * zoom);
+    nstyle.NodeBorderThickness *= zoom;
+    nstyle.LinkThickness *= zoom;
+    nstyle.PinCircleRadius *= zoom;
+    nstyle.PinQuadSideLength *= zoom;
+    nstyle.PinHoverRadius *= zoom;
+    nstyle.PinOffset *= zoom;
+
+    // Node content width (params + right-aligned pin labels share it)
+    const float nodeWidth =
+        130.0f * zoom + ImGui::GetStyle().ItemInnerSpacing.x +
+        ImGui::CalcTextSize("Object").x;
+    // Right-aligns a pin label to the node edge (Indent must be paired with
+    // Unindent - it is window state, not per-attribute)
+    auto rightLabel = [&](const char* txt, bool disabled) {
+        const float indent = nodeWidth - ImGui::CalcTextSize(txt).x;
+        if (indent > 0) ImGui::Indent(indent);
+        if (disabled)
+            ImGui::TextDisabled("%s", txt);
+        else
+            ImGui::TextUnformatted(txt);
+        if (indent > 0) ImGui::Unindent(indent);
+    };
 
     ImNodes::BeginNodeEditor();
 
-    // Push stored node positions into imnodes whenever the edited graph
-    // changes (node ids repeat across graphs, so this must re-run per switch)
+    // Push stored node positions into imnodes whenever the edited graph or
+    // the zoom changes (node ids repeat across graphs; positions are stored
+    // unzoomed and scaled on the way in / divided on the way out)
     if (!flowPositionsApplied_) {
         flowPositionsApplied_ = true;
         for (const FlowNode& n : fg.nodes)
-            ImNodes::SetNodeGridSpacePos(n.id, ImVec2(n.pos[0], n.pos[1]));
+            ImNodes::SetNodeGridSpacePos(n.id, ImVec2(n.pos[0] * zoom, n.pos[1] * zoom));
     }
 
     for (FlowNode& n : fg.nodes) {
@@ -979,7 +1014,7 @@ void App::drawFlowGraphWindow() {
         ImNodes::EndNodeTitleBar();
 
         ImGui::PushID(n.id);
-        ImGui::PushItemWidth(130.0f);
+        ImGui::PushItemWidth(130.0f * zoom);
 
         // string param
         if (t->strKind == FlowParamKind::ObjectName) {
@@ -1100,8 +1135,7 @@ void App::drawFlowGraphWindow() {
         }
         if (t->trigger) {
             ImNodes::BeginOutputAttribute(flowOutPin(n.id));
-            ImGui::Indent(70.0f);
-            ImGui::TextUnformatted("then >");
+            rightLabel("then >", false);
             ImNodes::EndOutputAttribute();
         } else {
             ImNodes::BeginInputAttribute(flowInPin(n.id));
@@ -1110,8 +1144,7 @@ void App::drawFlowGraphWindow() {
         }
         if (t->idOut) {
             ImNodes::BeginOutputAttribute(flowIdOutPin(n.id), ImNodesPinShape_QuadFilled);
-            ImGui::Indent(70.0f);
-            ImGui::TextDisabled("object >");
+            rightLabel("object >", true);
             ImNodes::EndOutputAttribute();
         }
 
@@ -1134,11 +1167,35 @@ void App::drawFlowGraphWindow() {
     const bool editorHovered = ImNodes::IsEditorHovered();
     ImNodes::EndNodeEditor();
 
-    // Read node positions back (imnodes owns them while dragging)
+    nstyle = savedStyle;
+    ImGui::SetWindowFontScale(1.0f);
+
+    // Read node positions back in unzoomed model coordinates (imnodes owns
+    // the zoomed ones while dragging)
     for (FlowNode& n : fg.nodes) {
         const ImVec2 pos = ImNodes::GetNodeGridSpacePos(n.id);
-        n.pos[0] = pos.x;
-        n.pos[1] = pos.y;
+        n.pos[0] = pos.x / zoom;
+        n.pos[1] = pos.y / zoom;
+    }
+
+    // Mouse wheel over the canvas: zoom, keeping the point under the cursor
+    // fixed (the panning is adjusted for the new scale).
+    if (editorHovered && ImGui::GetIO().MouseWheel != 0.0f) {
+        float next = flowZoom_ * ImPow(1.1f, ImGui::GetIO().MouseWheel);
+        if (next < 0.4f) next = 0.4f;
+        if (next > 1.8f) next = 1.8f;
+        if (next != flowZoom_) {
+            const float ratio = next / flowZoom_;
+            ImVec2 pan = ImNodes::EditorContextGetPanning();
+            const ImVec2 mouse = ImGui::GetIO().MousePos;
+            const float relX = mouse.x - canvasOrigin.x;
+            const float relY = mouse.y - canvasOrigin.y;
+            pan.x = relX - ratio * (relX - pan.x);
+            pan.y = relY - ratio * (relY - pan.y);
+            ImNodes::EditorContextResetPanning(pan);
+            flowZoom_ = next;
+            flowPositionsApplied_ = false;  // re-push positions at the new scale
+        }
     }
 
     // New link dragged between pins. Pin kinds by id: 0 = object-id in,

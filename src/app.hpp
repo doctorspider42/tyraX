@@ -75,6 +75,7 @@ private:
     // Flow graph editor state
     int flowGraphObject_ = -1;           // object whose graph is open in the editor
     bool flowPositionsApplied_ = false;  // node positions pushed to imnodes per graph
+    float flowZoom_ = 1.0f;              // canvas zoom (imnodes emulation, 0.4-1.8)
 
     // HUD editing
     int selectedHud_ = -1;
