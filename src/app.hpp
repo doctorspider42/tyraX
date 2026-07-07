@@ -35,6 +35,7 @@ private:
     void stageSceneIntoPrefs();  // active-scene terrain/light -> pref staging
     void addObject(PrimitiveType type);
     void addEmitter(int kind);  // Effects menu presets (fire/smoke/fog/sparks)
+    void addSoundEmitter();
     void drawAddObjectMenu();
     void importModel();
     void drawHudSection();
@@ -71,6 +72,8 @@ private:
     float brushRadius_ = 5.0f;
     float brushStrength_ = 0.08f;  // units per frame at the brush center
     bool sculptStroke_ = false;    // an LMB stroke is in progress
+    bool sculptFlatten_ = false;   // level toward flattenHeight_ instead of raise
+    float flattenHeight_ = 0.0f;   // flatten target height (world units)
 
     History history_;
     SceneObject clipboard_;
@@ -81,8 +84,10 @@ private:
     bool flowPositionsApplied_ = false;  // node positions pushed to imnodes per graph
     float flowZoom_ = 1.0f;              // canvas zoom (imnodes emulation, 0.4-1.8)
 
-    // Viewport overlays
-    bool show43_ = false;           // 4:3 console frame in the viewport
+    // Viewport overlays: TV frames (PAL 4:3 and NTSC, which shows a
+    // slightly wider slice of the same 512x448 buffer)
+    bool showPal_ = false;
+    bool showNtsc_ = false;
     bool showHudInEditor_ = false;  // HUD preview overlay (default hidden)
 
     // HUD editing

@@ -26,6 +26,9 @@ enum class PrimitiveType {
     // Particle emitter (fire/smoke/fog/sparks): cone marker in the editor,
     // camera-facing color quads simulated on a fixed pool in the game.
     Emitter = 7,
+    // Sound emitter: sphere marker in the editor; in the game it plays an
+    // imported sound effect with distance-attenuated (spatial) volume.
+    SoundEmitter = 8,
 };
 
 // Unit primitives fit a 1x1x1 cube centered at origin and are transformed by
@@ -55,6 +58,12 @@ struct SceneObject {
     int emitterCount = 24;    // particle pool size (compiled in, no runtime alloc)
     float emitterSize = 0.5f; // base particle size in world units
 
+    // Sound emitter parameters (used when type == SoundEmitter)
+    std::string soundPath;      // one of Project::sounds ("res/sfx/x.wav")
+    bool soundAuto = true;      // play automatically while the player is in range
+    float soundRange = 15.0f;   // world units; volume fades linearly to 0
+    float soundInterval = 0.0f; // seconds between retriggers; 0 = loop seamlessly
+
     // Per-object logic. Object-referencing nodes default to this object
     // ("self"), so a copied object brings a working copy of its behavior.
     FlowGraph flowGraph;
@@ -76,6 +85,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.playerJumpSpeed == b.playerJumpSpeed &&
            a.playerCanJump == b.playerCanJump && a.emitterKind == b.emitterKind &&
            a.emitterCount == b.emitterCount && a.emitterSize == b.emitterSize &&
+           a.soundPath == b.soundPath && a.soundAuto == b.soundAuto &&
+           a.soundRange == b.soundRange && a.soundInterval == b.soundInterval &&
            a.flowGraph == b.flowGraph;
 }
 
@@ -119,6 +130,10 @@ struct ProjectSettings {
     // pixel shaders on the PS2). 0 = off, 1 = maximum.
     float bloom = 0.0f;  // downsample + blur + additive re-add (glow)
     float grain = 0.0f;  // animated film grain noise overlay
+
+    // Scene switches show res/hud/loading.png centered on black for a
+    // moment (a generated placeholder is written when the file is missing).
+    bool loadingScreen = true;
 };
 
 class History;
@@ -229,6 +244,11 @@ float heightAtWorld(const Project& p, float x, float z);
 
 // Raise/lower with a smooth (cosine) falloff brush.
 void sculptHeightmap(Project& p, float worldX, float worldZ, float radius, float delta);
+
+// Level the terrain toward targetH under the brush (same falloff; strength
+// is the per-stroke lerp rate, 0..1).
+void flattenHeightmap(Project& p, float worldX, float worldZ, float radius, float targetH,
+                      float strength);
 
 std::string saveHeights(const Project& p);
 void loadHeights(Project& p);  // silent no-op when the file is absent

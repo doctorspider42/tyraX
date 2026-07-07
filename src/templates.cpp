@@ -180,6 +180,9 @@ constexpr float SKY_TOP_B = {{SKY_TOP_B}};
 constexpr int POSTFX_BLOOM = {{POSTFX_BLOOM}};
 constexpr int POSTFX_GRAIN = {{POSTFX_GRAIN}};
 
+// Scene switches show res/hud/loading.png on black for a moment
+constexpr bool LOADING_SCREEN = {{LOADING_SCREEN}};
+
 }  // namespace {{NAME_UPPER_NS}}
 )";
 
@@ -272,6 +275,15 @@ class TerrainGame : public Tyra::Game {
   std::vector<ParticleSystem> particles;
   void buildParticles();
   void updateParticles();
+
+  // Sound emitters (type 8): distance-attenuated one-shots on channels 16-23
+  std::vector<audsrv_adpcm_t*> sndSamples;  // scene_data.hpp SND_PATHS order
+  std::vector<int> sndTimers;               // per-object retrigger countdown
+  void updateSoundEmitters();
+
+  // Scene switches show res/hud/loading.png on black for a moment
+  Tyra::Sprite loadingSprite;
+  int loadingFrames = 0, loadingTarget = -1;
 
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
   void updateUseTarget();
@@ -374,6 +386,15 @@ class TerrainGame : public Tyra::Game {
   std::vector<ParticleSystem> particles;
   void buildParticles();
   void updateParticles();
+
+  // Sound emitters (type 8): distance-attenuated one-shots on channels 16-23
+  std::vector<audsrv_adpcm_t*> sndSamples;  // scene_data.hpp SND_PATHS order
+  std::vector<int> sndTimers;               // per-object retrigger countdown
+  void updateSoundEmitters();
+
+  // Scene switches show res/hud/loading.png on black for a moment
+  Tyra::Sprite loadingSprite;
+  int loadingFrames = 0, loadingTarget = -1;
 
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
   void updateUseTarget();
@@ -672,6 +693,20 @@ void TerrainGame::init() {
   auto* useTexture =
       engine->renderer.getTextureRepository().add(FileUtils::fromCwd("hud/use.png"));
   useTexture->addLink(usePromptSprite.id);
+
+  // Loading screen sprite (res/hud/loading.png), shown on scene switches
+  loadingSprite.mode = SpriteMode::MODE_STRETCH;
+  loadingSprite.size = Vec2(256.0F, 64.0F);
+  loadingSprite.position = Vec2((screen.getWidth() - 256.0F) * 0.5F,
+                                (screen.getHeight() - 64.0F) * 0.5F);
+  auto* loadingTexture = engine->renderer.getTextureRepository().add(
+      FileUtils::fromCwd("hud/loading.png"));
+  loadingTexture->addLink(loadingSprite.id);
+
+  // Sound emitter samples (adpenc output next to the ELF)
+  for (int i = 0; i < SND_COUNT; ++i)
+    sndSamples.push_back(
+        engine->audio.adpcm.load(FileUtils::fromCwd(SND_PATHS[i])));
 }
 
 void TerrainGame::loop() {
@@ -683,11 +718,27 @@ void TerrainGame::loop() {
   for (Script* script : getScripts()) script->update(scriptCtx);
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
 
-  // Scene switch requested by the flow graph / scripts
+  // Scene switch requested by the flow graph / scripts. With the loading
+  // screen enabled the switch hides behind a short black "LOADING..." hold
+  // (the load itself is synchronous - the hold is presentation).
   if (scriptCtx.requestScene >= 0) {
     const int target = scriptCtx.requestScene;
     scriptCtx.requestScene = -1;
-    loadScene(target);
+    if (LOADING_SCREEN) {
+      loadingTarget = target;
+      loadingFrames = 35;  // 0.7s at 50 FPS
+    } else {
+      loadScene(target);
+    }
+  }
+  if (loadingFrames > 0) {
+    engine->renderer.setClearScreenColor(Color(0.0F, 0.0F, 0.0F));
+    engine->renderer.beginFrame();
+    engine->renderer.renderer2D.render(loadingSprite);
+    engine->renderer.endFrame();
+    --loadingFrames;
+    if (loadingFrames == 30) loadScene(loadingTarget);  // 5 frames shown first
+    return;
   }
 
   // Flow graph / script teleport request (needs a Player entity - the orbit
@@ -705,6 +756,7 @@ void TerrainGame::loop() {
 
   updateObjectPhysics();
   updateParticles();
+  updateSoundEmitters();
 
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
@@ -829,6 +881,45 @@ void TerrainGame::loadScene(int sceneIndex) {
   }
 
   buildParticles();
+
+  // Sound emitters: fresh retrigger state; mute the emitter channels (an
+  // ADPCM sample can't be stopped - it plays out, but silently).
+  sndTimers.assign(runtimeObjects.size(), 0);
+  for (int ch = 16; ch < 24; ++ch) engine->audio.adpcm.setVolume(0, (s8)ch);
+}
+
+// --- Sound emitters ----------------------------------------------------
+// Volume falls off linearly with the distance to the player. Interval 0
+// retriggers every frame: tryPlay() is skipped while the channel is still
+// busy, so the sample loops seamlessly. Hide Object mutes the emitter.
+void TerrainGame::updateSoundEmitters() {
+  if (sndSamples.empty()) return;
+  if (sndTimers.size() != runtimeObjects.size())
+    sndTimers.assign(runtimeObjects.size(), 0);
+  for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
+    const RuntimeObject& o = runtimeObjects[i];
+    if (o.data.type != 8 || !o.data.sndAuto) continue;
+    if (o.data.snd < 0 || o.data.snd >= (int)sndSamples.size()) continue;
+    const s8 ch = (s8)(16 + (i & 7));  // emitters own channels 16-23
+    if (!o.visible) {
+      engine->audio.adpcm.setVolume(0, ch);
+      continue;
+    }
+    const float dx = o.data.position[0] - scriptCtx.playerPosition.x;
+    const float dy = o.data.position[1] - scriptCtx.playerPosition.y;
+    const float dz = o.data.position[2] - scriptCtx.playerPosition.z;
+    const float dist = sqrtf(dx * dx + dy * dy + dz * dz);
+    const float range = o.data.sndRange > 0.5F ? o.data.sndRange : 0.5F;
+    const int vol = dist >= range ? 0 : (int)(100.0F * (1.0F - dist / range));
+    engine->audio.adpcm.setVolume((u8)vol, ch);
+    if (vol <= 0) continue;
+    if (sndTimers[i] > 0) {
+      --sndTimers[i];
+      continue;
+    }
+    engine->audio.adpcm.tryPlay(sndSamples[o.data.snd], ch);
+    sndTimers[i] = (int)(o.data.sndInterval * 50.0F);
+  }
 }
 
 // --- Particle emitters ------------------------------------------------
@@ -984,7 +1075,9 @@ void TerrainGame::updateUseTarget() {
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     const RuntimeObject& o = runtimeObjects[i];
     if (!o.data.usable || !o.visible) continue;
-    if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7) continue;
+    if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
+        o.data.type == 8)
+      continue;
 
     const float dx = o.data.position[0] - cameraPosition.x;
     const float dy = o.data.position[1] - cameraPosition.y;
@@ -1058,7 +1151,8 @@ bool TerrainGame::updatePlayerEntity() {
   const float playerRadius = 0.35F;
   float ground = terrainHeightAt(nextX, nextZ);
   for (const RuntimeObject& o : runtimeObjects) {
-    if (!o.visible || o.data.type == 4 || o.data.type == 6 || o.data.type == 7)
+    if (!o.visible || o.data.type == 4 || o.data.type == 6 ||
+        o.data.type == 7 || o.data.type == 8)
       continue;
     const float ox = o.data.position[0];
     const float oz = o.data.position[2];
@@ -1182,6 +1276,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     case 5: addModel(g.vertices, g.colors, g.sts, o.data); break;
     case 6: break;  // player - marker only
     case 7: break;  // emitter - particles are built by updateParticles()
+    case 8: break;  // sound emitter - marker only, no geometry
     default: addBox(g.vertices, g.colors, g.sts, o.data); break;
   }
   if (g.vertices.empty()) {
@@ -1431,6 +1526,20 @@ void TerrainGame::init() {
   auto* useTexture =
       engine->renderer.getTextureRepository().add(FileUtils::fromCwd("hud/use.png"));
   useTexture->addLink(usePromptSprite.id);
+
+  // Loading screen sprite (res/hud/loading.png), shown on scene switches
+  loadingSprite.mode = SpriteMode::MODE_STRETCH;
+  loadingSprite.size = Vec2(256.0F, 64.0F);
+  loadingSprite.position = Vec2((screen.getWidth() - 256.0F) * 0.5F,
+                                (screen.getHeight() - 64.0F) * 0.5F);
+  auto* loadingTexture = engine->renderer.getTextureRepository().add(
+      FileUtils::fromCwd("hud/loading.png"));
+  loadingTexture->addLink(loadingSprite.id);
+
+  // Sound emitter samples (adpenc output next to the ELF)
+  for (int i = 0; i < SND_COUNT; ++i)
+    sndSamples.push_back(
+        engine->audio.adpcm.load(FileUtils::fromCwd(SND_PATHS[i])));
 }
 
 void TerrainGame::loop() {
@@ -1444,10 +1553,33 @@ void TerrainGame::loop() {
 
   // Scene switch requested by the flow graph / scripts. The built-in FPP
   // player respawns at the new scene's spawn point.
+  static bool fppSpawnPending = false;
   if (scriptCtx.requestScene >= 0) {
     const int target = scriptCtx.requestScene;
     scriptCtx.requestScene = -1;
-    loadScene(target);
+    if (LOADING_SCREEN) {
+      loadingTarget = target;
+      loadingFrames = 35;  // 0.7s at 50 FPS
+    } else {
+      loadScene(target);
+      fppSpawnPending = true;
+    }
+  }
+  if (loadingFrames > 0) {
+    engine->renderer.setClearScreenColor(Color(0.0F, 0.0F, 0.0F));
+    engine->renderer.beginFrame();
+    engine->renderer.renderer2D.render(loadingSprite);
+    engine->renderer.endFrame();
+    --loadingFrames;
+    if (loadingFrames == 30) {  // a few frames shown before the actual load
+      loadScene(loadingTarget);
+      fppSpawnPending = true;
+    }
+    return;
+  }
+  if (fppSpawnPending) {
+    // The built-in FPP player respawns at the new scene's spawn point.
+    fppSpawnPending = false;
     playerX = 0.0F;
     playerZ = 0.0F;
     yaw = 0.0F;
@@ -1485,6 +1617,7 @@ void TerrainGame::loop() {
 
   updateObjectPhysics();
   updateParticles();
+  updateSoundEmitters();
 
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
@@ -1743,6 +1876,135 @@ const unsigned char* usePromptPng(size_t& size) {
         92,31,66,26,206,11,226,220,96,202,24,19,40,248,66,8,33,132,
         16,66,136,39,197,108,246,7,253,174,253,75,36,86,2,246,0,0,0,
         0,73,69,78,68,174,66,96,130,
+    };
+    size = sizeof(data);
+    return data;
+}
+
+// 256x64 "LOADING..." sprite, PNG - written into res/hud/loading.png of
+// every project when missing; shown centered on black during scene switches
+// when the loading screen is enabled. Replace the file to customize.
+const unsigned char* loadingPng(size_t& size) {
+    static const unsigned char data[] = {
+        137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,1,0,0,0,
+        0,64,8,6,0,0,0,245,93,169,190,0,0,0,1,115,82,71,66,0,174,206,
+        28,233,0,0,0,4,103,65,77,65,0,0,177,143,11,252,97,5,0,0,0,9,
+        112,72,89,115,0,0,14,195,0,0,14,195,1,199,111,168,100,0,0,9,186,73,
+        68,65,84,120,94,237,156,65,168,22,215,21,199,93,102,225,34,8,66,221,189,141,
+        18,220,201,91,104,179,18,178,209,69,178,10,40,65,12,4,186,144,71,22,113,101,
+        35,116,83,16,219,82,226,38,8,33,139,79,8,106,11,6,74,65,130,80,144,6,
+        163,80,186,40,40,72,119,5,81,10,110,4,87,34,218,255,127,190,115,111,238,157,
+        57,119,230,206,124,227,243,125,244,255,131,131,126,247,158,115,230,206,185,119,206,189,
+        115,103,230,237,18,66,8,33,132,16,66,8,33,132,16,66,8,33,132,16,66,8,
+        33,132,16,66,8,33,132,16,66,8,33,132,16,66,8,33,132,16,66,8,33,132,
+        16,66,8,33,132,16,66,8,33,132,72,121,245,234,213,1,200,247,142,28,48,149,
+        149,120,253,250,245,38,124,109,65,190,77,124,83,190,132,156,130,236,51,213,201,36,
+        62,219,114,202,84,6,129,110,41,14,109,225,121,240,124,62,130,84,181,29,122,181,
+        190,163,152,105,4,101,69,31,136,241,81,83,235,128,122,215,206,170,171,128,254,62,
+        8,207,151,231,221,246,245,7,200,22,251,217,212,197,58,193,142,131,120,172,212,161,
+        24,20,28,48,255,54,95,189,112,32,225,159,73,199,131,221,209,198,137,3,143,111,
+        106,131,64,189,20,135,94,106,218,206,250,70,121,4,102,26,65,81,209,135,197,121,
+        183,169,102,160,220,181,179,234,94,160,198,228,205,243,171,6,250,76,8,179,76,30,
+        98,27,64,159,185,3,228,244,233,211,191,71,245,231,144,95,52,138,149,192,116,55,
+        6,192,143,75,47,227,128,221,151,230,166,26,14,56,51,119,57,126,252,248,111,161,
+        246,254,82,187,12,84,39,37,128,0,219,97,174,58,160,122,74,2,96,236,41,13,
+        40,234,245,177,88,44,254,12,181,247,150,218,63,131,170,82,2,200,252,183,97,95,
+        152,234,84,180,34,88,7,216,81,203,254,202,57,118,236,216,95,81,189,128,108,52,
+        138,21,192,108,242,197,31,120,252,248,241,55,230,110,16,168,239,94,90,149,185,124,
+        249,242,63,161,250,187,165,69,25,168,174,148,0,200,243,231,207,255,97,238,50,80,
+        53,37,1,48,246,148,6,20,13,250,56,120,240,224,215,80,125,103,105,177,4,197,
+        165,4,144,249,79,25,74,170,53,108,109,109,253,26,174,70,77,30,226,45,128,190,
+        154,45,1,96,224,20,151,139,215,174,93,187,127,242,228,201,31,232,247,204,153,51,
+        127,187,115,231,206,127,172,170,195,213,171,87,255,104,46,123,193,241,62,50,147,34,
+        72,40,207,160,202,243,232,29,140,80,117,227,112,238,220,185,191,179,205,65,46,94,
+        188,120,143,62,173,186,195,173,91,183,174,153,203,8,138,153,168,54,175,95,191,254,
+        33,125,60,120,240,224,191,141,114,2,203,210,227,192,44,187,64,161,50,152,0,110,
+        222,188,201,91,158,15,150,22,75,80,60,42,1,12,205,252,76,168,161,31,41,140,
+        15,143,107,213,145,228,28,170,199,143,120,11,160,175,102,73,0,48,41,222,139,31,
+        62,124,152,155,78,97,192,69,97,34,48,149,14,27,27,27,159,66,167,23,12,214,
+        111,77,189,23,14,88,168,127,184,180,242,129,218,80,28,50,225,192,55,149,14,39,
+        78,156,224,76,236,193,88,46,188,228,199,50,214,57,210,0,149,193,4,64,172,189,
+        239,46,173,198,37,0,20,23,143,193,4,190,103,207,158,239,160,150,182,45,202,254,
+        253,251,255,148,38,2,37,128,53,1,125,53,75,2,40,205,254,206,5,116,2,194,
+        123,85,250,61,196,123,87,83,205,224,5,134,250,226,189,59,84,220,229,191,55,27,
+        113,240,194,164,247,54,0,106,67,113,96,91,216,230,32,31,156,61,123,246,134,169,
+        101,216,197,236,37,28,46,207,55,158,61,123,246,131,169,70,146,4,192,125,144,244,
+        56,13,80,169,74,0,182,226,249,108,105,85,182,67,85,232,143,72,41,161,90,252,
+        130,126,16,158,95,232,71,10,227,243,89,72,234,74,0,107,2,250,106,229,4,0,
+        117,247,98,116,102,181,206,50,28,106,67,182,217,61,109,192,91,254,243,226,231,108,
+        111,63,51,96,66,95,157,77,178,0,84,38,197,225,201,147,39,183,77,53,131,51,
+        34,170,93,27,47,89,38,231,235,110,204,65,165,211,62,218,120,183,19,150,60,155,
+        99,227,103,85,2,64,145,219,15,201,45,84,16,38,112,183,79,140,119,143,28,57,
+        242,69,178,90,80,2,216,201,160,143,231,72,0,238,242,223,6,98,24,56,69,63,
+        165,153,7,85,180,115,87,1,176,233,108,54,114,246,65,213,194,126,102,216,109,0,
+        7,175,11,84,38,197,193,75,68,196,218,226,94,204,115,38,0,182,207,126,102,236,
+        221,187,247,171,146,29,65,85,232,151,6,20,185,122,182,137,26,116,139,241,115,56,
+        4,161,141,18,192,78,6,125,188,114,2,192,128,230,139,32,29,18,31,197,199,77,
+        164,100,111,123,7,29,91,232,239,51,149,140,48,235,220,190,125,187,179,10,176,13,
+        50,182,197,5,42,83,19,128,219,22,110,22,162,154,118,241,126,60,48,103,2,64,
+        213,226,222,189,123,63,89,81,196,150,237,239,227,191,85,9,160,162,15,7,159,164,
+        56,240,220,251,86,11,226,109,131,62,222,142,4,208,251,28,190,194,62,3,250,167,
+        76,37,146,92,224,139,43,87,174,252,202,138,51,44,65,184,183,1,168,158,28,7,
+        83,205,72,18,0,103,194,140,185,19,192,230,230,230,121,43,202,96,219,31,61,122,
+        244,75,251,153,65,59,147,134,138,62,104,246,52,160,199,23,188,218,111,3,122,162,
+        151,129,214,1,244,241,118,36,128,94,31,21,246,217,222,1,244,139,203,127,147,119,
+        172,56,195,116,226,6,89,10,170,223,84,2,200,30,203,17,94,32,166,22,89,37,
+        1,64,62,247,98,200,122,62,143,183,159,25,102,71,105,168,237,195,146,158,131,94,
+        4,90,7,216,81,203,254,202,217,97,9,32,218,67,247,128,85,103,36,155,78,205,
+        5,14,189,206,203,44,201,42,161,179,44,69,245,90,39,0,252,116,55,241,120,43,
+        96,255,205,48,59,74,67,109,31,148,244,218,76,125,147,84,108,51,232,171,57,18,
+        64,103,73,78,108,227,109,208,7,236,221,151,79,188,157,100,79,55,93,254,67,154,
+        37,55,138,221,141,73,219,157,239,44,203,81,53,41,14,80,113,237,146,13,208,109,
+        73,0,212,129,223,193,23,163,2,102,71,105,40,245,97,178,178,26,149,0,198,140,
+        31,241,22,65,95,205,145,0,220,89,57,217,65,238,245,1,251,206,146,190,245,248,
+        41,218,67,183,243,156,159,186,188,24,40,47,94,188,248,11,116,154,251,80,171,206,
+        176,11,179,115,27,128,170,73,113,192,113,220,228,149,188,252,180,109,9,128,188,124,
+        249,242,142,85,247,2,85,218,81,26,208,38,183,15,147,99,52,231,15,61,110,122,
+        110,158,63,127,254,12,99,195,120,46,53,115,148,0,214,4,244,213,202,9,128,152,
+        89,135,190,141,55,2,21,247,248,173,151,79,154,37,123,105,144,142,129,207,205,205,
+        103,182,59,143,170,209,113,64,117,205,179,243,206,6,232,155,76,0,40,118,207,163,
+        13,84,67,251,34,86,213,193,98,208,94,53,49,177,45,88,103,106,25,74,0,107,
+        2,250,106,150,4,128,65,237,46,13,237,66,118,95,195,69,117,241,227,161,228,248,
+        241,241,19,116,87,254,72,133,216,109,64,118,97,162,120,84,28,80,85,108,123,107,
+        67,178,115,15,252,38,19,0,129,255,193,87,164,161,22,218,23,129,93,113,121,111,
+        95,85,166,48,129,110,240,251,6,83,201,240,226,6,255,238,19,4,171,142,160,108,
+        86,61,209,3,250,106,150,4,0,19,119,54,36,188,71,191,123,247,110,251,2,226,
+        183,230,238,5,148,12,108,74,124,249,196,170,87,198,54,232,178,79,143,81,92,29,
+        7,20,31,69,219,59,183,34,36,89,97,80,220,103,231,28,164,166,30,153,57,1,
+        184,239,38,164,64,45,180,49,130,226,98,31,146,135,15,31,254,134,190,77,189,1,
+        197,213,113,131,173,155,96,172,58,50,183,158,232,1,241,114,59,144,3,153,3,140,
+        239,173,35,208,157,44,27,196,220,52,192,172,248,65,16,129,254,143,102,231,94,60,
+        1,155,161,195,0,109,6,16,138,93,223,233,151,105,158,240,28,76,53,146,44,209,
+        7,63,154,105,199,193,138,139,180,62,124,106,150,205,176,203,254,42,143,169,118,224,
+        113,238,223,191,255,47,234,208,46,5,213,213,9,128,192,71,113,54,39,80,9,109,
+        204,64,85,111,31,6,146,243,25,90,193,213,36,0,182,63,158,195,220,122,162,7,
+        196,203,29,248,181,152,155,200,211,167,79,63,182,170,73,180,46,160,180,179,59,203,
+        255,214,108,235,10,151,227,166,158,97,199,137,27,116,40,90,41,14,164,213,246,184,
+        194,64,213,104,223,102,26,65,209,168,4,128,234,222,217,28,42,161,157,29,86,237,
+        67,50,50,1,100,109,153,91,79,244,128,120,173,154,0,58,217,246,198,141,27,167,
+        57,203,154,74,21,28,204,173,153,159,210,204,208,168,118,7,115,235,91,131,244,203,
+        180,40,24,136,7,77,61,163,253,135,66,80,52,57,14,133,182,199,123,127,168,76,
+        73,0,89,92,81,52,42,1,16,92,32,197,199,130,168,14,237,116,185,112,225,194,
+        49,250,55,245,81,176,239,147,100,168,4,176,147,65,188,86,77,0,165,96,31,226,
+        236,59,52,136,184,73,152,204,22,169,196,11,168,52,144,147,139,174,247,79,137,193,
+        190,239,99,163,230,56,248,57,42,14,28,228,53,109,39,80,159,146,0,130,175,6,
+        20,141,78,0,164,244,88,16,85,153,255,2,135,120,126,165,151,137,82,216,22,238,
+        173,180,86,65,20,37,128,157,12,226,197,217,53,254,181,154,177,2,23,125,193,230,
+        172,204,89,118,193,129,145,218,37,47,249,180,133,131,57,123,68,135,142,110,158,61,
+        243,189,246,212,7,170,130,205,208,183,6,251,218,182,20,107,67,243,132,162,54,14,
+        206,0,79,165,211,118,50,37,198,48,11,62,27,60,31,73,91,138,9,128,231,126,
+        233,210,165,79,82,223,20,84,101,254,123,96,50,163,255,5,227,213,246,211,211,143,
+        20,246,125,154,200,179,119,8,130,160,42,232,55,204,173,39,234,96,166,14,129,155,
+        34,125,112,51,172,25,68,61,194,221,254,56,91,20,160,31,207,182,115,209,21,224,
+        11,64,158,125,202,216,56,112,144,215,180,157,76,137,113,27,207,71,49,1,36,112,
+        149,212,182,163,212,194,227,242,60,61,31,169,176,45,220,91,201,86,65,45,154,119,
+        8,28,105,51,183,158,232,129,47,219,176,147,167,74,45,28,24,169,221,152,207,69,
+        121,161,167,182,65,106,41,217,167,109,168,141,67,223,0,47,49,37,198,109,60,31,
+        53,109,89,53,118,41,94,27,210,24,14,81,219,150,185,245,132,16,66,8,33,132,
+        16,66,8,33,132,16,66,8,33,132,16,66,8,33,132,16,66,8,33,132,16,66,
+        8,33,132,16,66,8,33,132,16,66,8,33,132,16,66,8,33,132,16,255,143,236,
+        218,245,63,190,43,70,212,162,35,194,196,0,0,0,0,73,69,78,68,174,66,96,
+        130,
     };
     size = sizeof(data);
     return data;
@@ -2206,6 +2468,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int emitKind;   // emitters: 0 fire, 1 smoke, 2 fog, 3 sparks\n"
            "  int emitCount;  // emitters: particle pool size\n"
            "  float emitSize; // emitters: base particle size\n"
+           "  int snd;        // sound emitters: index into SND_PATHS, -1 = none\n"
+           "  int sndAuto;    // sound emitters: 1 = plays while in range\n"
+           "  float sndRange;    // sound emitters: audible distance\n"
+           "  float sndInterval; // sound emitters: retrigger period (s), 0 = loop\n"
            "};\n"
            "\n";
 
@@ -2222,16 +2488,23 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << (objs.empty() ? (size_t)1 : objs.size()) << "] = {\n";
         if (objs.empty()) {
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
-                   "0, 0, 0.0F},\n";
+                   "0, 0, 0.0F, -1, 0, 15.0F, 0.0F},\n";
         } else {
+            auto soundIndexOf = [&](const std::string& path) {
+                for (size_t i = 0; i < p.sounds.size(); ++i)
+                    if (p.sounds[i] == path) return (int)i;
+                return -1;
+            };
             for (const SceneObject& o : objs) {
                 out << "    {" << (int)o.type << ", " << vec3Init(o.position) << ", "
                     << vec3Init(o.rotation) << ", " << vec3Init(o.scale) << ", "
                     << vec3Init(o.color) << ", " << (o.physics ? 1 : 0) << ", "
                     << modelIndexOf(p, o) << ", " << textureIndexOf(p, o.texturePath)
                     << ", " << (o.usable ? 1 : 0) << ", " << o.emitterKind << ", "
-                    << o.emitterCount << ", " << floatLit(o.emitterSize) << "},  // "
-                    << o.name << "\n";
+                    << o.emitterCount << ", " << floatLit(o.emitterSize) << ", "
+                    << soundIndexOf(o.soundPath) << ", " << (o.soundAuto ? 1 : 0)
+                    << ", " << floatLit(o.soundRange) << ", "
+                    << floatLit(o.soundInterval) << "},  // " << o.name << "\n";
             }
         }
         out << "};\n";
@@ -2244,6 +2517,24 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {";
     for (int si = 0; si < sceneCount; ++si)
         out << (si ? ", " : "") << "SCENE_" << si << "_OBJECTS";
+    out << "};\n\n";
+
+    // Sound effect samples referenced by sound emitters (SceneObjectData.snd
+    // indexes this list; res/sfx/x.wav -> sfx/x.adpcm next to the ELF)
+    out << "constexpr int SND_COUNT = " << p.sounds.size() << ";\n"
+        << "inline const char* SND_PATHS[" << (p.sounds.empty() ? (size_t)1 : p.sounds.size())
+        << "] = {";
+    if (p.sounds.empty()) {
+        out << "\"\"";
+    } else {
+        for (size_t i = 0; i < p.sounds.size(); ++i) {
+            std::string bin = p.sounds[i];
+            if (bin.rfind("res/", 0) == 0) bin = bin.substr(4);
+            if (const size_t dot = bin.rfind('.'); dot != std::string::npos)
+                bin = bin.substr(0, dot);
+            out << (i ? ", " : "") << "\"" << bin << ".adpcm\"";
+        }
+    }
     out << "};\n\n";
 
     // Player entity per scene: the first Player object drives the camera
@@ -2376,6 +2667,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     };
     s = replaceAll(s, "{{POSTFX_BLOOM}}", fx128(st.bloom));
     s = replaceAll(s, "{{POSTFX_GRAIN}}", fx128(st.grain));
+    s = replaceAll(s, "{{LOADING_SCREEN}}", st.loadingScreen ? "true" : "false");
     {
         float lx = st.lightDir[0], ly = st.lightDir[1], lz = st.lightDir[2];
         const float len = std::sqrt(lx * lx + ly * ly + lz * lz);

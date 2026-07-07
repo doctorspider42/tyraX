@@ -1,5 +1,6 @@
 #include "app.hpp"
 
+#include <algorithm>
 #include <cfloat>
 #include <cstdio>
 #include <cstring>
@@ -373,8 +374,15 @@ void App::drawViewportWindow() {
             brushHit = viewport_.terrainRaycast(u, v, brushX, brushZ);
 
             if (brushHit && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-                const float delta = io.KeyShift ? -brushStrength_ : brushStrength_;
-                project::sculptHeightmap(project_, brushX, brushZ, brushRadius_, delta);
+                if (sculptFlatten_) {
+                    // level toward the target height; strength = lerp rate
+                    project::flattenHeightmap(project_, brushX, brushZ, brushRadius_,
+                                              flattenHeight_, brushStrength_);
+                } else {
+                    const float delta = io.KeyShift ? -brushStrength_ : brushStrength_;
+                    project::sculptHeightmap(project_, brushX, brushZ, brushRadius_,
+                                             delta);
+                }
                 applyProjectToViewport();  // live mesh rebuild
                 sculptStroke_ = true;
             }
@@ -482,27 +490,58 @@ void App::drawViewportWindow() {
             }
         }
 
-        // --- 4:3 console frame (the visible area on a PAL TV, roughly) ---
-        // The HUD preview maps into this frame when it is shown.
+        // --- TV frames: what a PAL / NTSC set shows of the 512x448 buffer ---
+        // PAL fills a 4:3 screen exactly; NTSC has fewer active lines, so the
+        // same buffer looks a touch wider (~10:7). Rough approximations for
+        // composition. The HUD preview maps into the PAL frame when shown.
         ImVec2 frameMin = imgPos, frameSize = avail;
-        if (show43_) {
-            float fw = avail.x, fh = avail.y;
-            if (fw / fh > 4.0f / 3.0f)
-                fw = fh * (4.0f / 3.0f);
-            else
-                fh = fw * 0.75f;
-            frameMin = ImVec2(imgPos.x + (avail.x - fw) * 0.5f,
-                              imgPos.y + (avail.y - fh) * 0.5f);
-            frameSize = ImVec2(fw, fh);
-            const ImVec2 fMax(frameMin.x + fw, frameMin.y + fh);
-            const ImVec2 imgMax(imgPos.x + avail.x, imgPos.y + avail.y);
+        if (showPal_ || showNtsc_) {
             ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec2 imgMax(imgPos.x + avail.x, imgPos.y + avail.y);
+            auto fitFrame = [&](float aspect, ImVec2& fMin, ImVec2& fSize) {
+                float fw = avail.x, fh = avail.y;
+                if (fw / fh > aspect)
+                    fw = fh * aspect;
+                else
+                    fh = fw / aspect;
+                fMin = ImVec2(imgPos.x + (avail.x - fw) * 0.5f,
+                              imgPos.y + (avail.y - fh) * 0.5f);
+                fSize = ImVec2(fw, fh);
+            };
+            ImVec2 palMin, palSize, ntscMin, ntscSize;
+            fitFrame(4.0f / 3.0f, palMin, palSize);
+            fitFrame(480.0f / 448.0f * 4.0f / 3.0f, ntscMin, ntscSize);
+
+            // dim outside the union of the active frames
+            ImVec2 uMin = showPal_ ? palMin : ntscMin;
+            ImVec2 uSize = showPal_ ? palSize : ntscSize;
+            if (showPal_ && showNtsc_) {
+                uMin = ImVec2(std::min(palMin.x, ntscMin.x), std::min(palMin.y, ntscMin.y));
+                const float ux2 = std::max(palMin.x + palSize.x, ntscMin.x + ntscSize.x);
+                const float uy2 = std::max(palMin.y + palSize.y, ntscMin.y + ntscSize.y);
+                uSize = ImVec2(ux2 - uMin.x, uy2 - uMin.y);
+            }
+            const ImVec2 uMax(uMin.x + uSize.x, uMin.y + uSize.y);
             const ImU32 dim = IM_COL32(0, 0, 0, 110);
-            dl->AddRectFilled(imgPos, ImVec2(imgMax.x, frameMin.y), dim);
-            dl->AddRectFilled(ImVec2(imgPos.x, fMax.y), imgMax, dim);
-            dl->AddRectFilled(ImVec2(imgPos.x, frameMin.y), ImVec2(frameMin.x, fMax.y), dim);
-            dl->AddRectFilled(ImVec2(fMax.x, frameMin.y), ImVec2(imgMax.x, fMax.y), dim);
-            dl->AddRect(frameMin, fMax, IM_COL32(255, 255, 255, 140));
+            dl->AddRectFilled(imgPos, ImVec2(imgMax.x, uMin.y), dim);
+            dl->AddRectFilled(ImVec2(imgPos.x, uMax.y), imgMax, dim);
+            dl->AddRectFilled(ImVec2(imgPos.x, uMin.y), ImVec2(uMin.x, uMax.y), dim);
+            dl->AddRectFilled(ImVec2(uMax.x, uMin.y), ImVec2(imgMax.x, uMax.y), dim);
+
+            auto outline = [&](const ImVec2& fMin, const ImVec2& fSize, ImU32 col,
+                               const char* label) {
+                const ImVec2 fMax(fMin.x + fSize.x, fMin.y + fSize.y);
+                dl->AddRect(fMin, fMax, col);
+                dl->AddText(ImVec2(fMin.x + 4, fMax.y - 18), col, label);
+            };
+            if (showPal_)
+                outline(palMin, palSize, IM_COL32(255, 255, 255, 150), "PAL");
+            if (showNtsc_)
+                outline(ntscMin, ntscSize, IM_COL32(255, 220, 90, 170), "NTSC");
+
+            // HUD/screen mapping frame: PAL when active, NTSC otherwise
+            frameMin = showPal_ ? palMin : ntscMin;
+            frameSize = showPal_ ? palSize : ntscSize;
         }
 
         // --- HUD preview overlay (matches the PS2 512x448 screen mapping;
@@ -563,16 +602,24 @@ void App::drawViewportWindow() {
         if (ImGui::SmallButton("Sculpt (4)")) sculptMode_ = !sculptMode_;
         if (sculptMode_) ImGui::PopStyleColor();
 
-        // 4:3 console frame toggle
+        // TV frame toggles (PAL 4:3, NTSC slightly wider)
         ImGui::SameLine(0.0f, 24.0f);
-        if (show43_)
+        if (showPal_)
             ImGui::PushStyleColor(ImGuiCol_Button,
                                   ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::SmallButton("4:3")) show43_ = !show43_;
-        if (show43_) ImGui::PopStyleColor();
+        if (ImGui::SmallButton("PAL")) showPal_ = !showPal_;
+        if (showPal_) ImGui::PopStyleColor();
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Dim everything outside a 4:3 frame - a rough\n"
-                              "preview of what the console shows on a TV.");
+            ImGui::SetTooltip("4:3 frame - what a PAL TV shows.");
+        ImGui::SameLine();
+        if (showNtsc_)
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        if (ImGui::SmallButton("NTSC")) showNtsc_ = !showNtsc_;
+        if (showNtsc_) ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("NTSC has fewer active lines - the same 512x448\n"
+                              "buffer looks slightly wider (~10:7) on screen.");
 
         if (sculptMode_) {
             ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, imgPos.y + 32));
@@ -582,7 +629,18 @@ void App::drawViewportWindow() {
             ImGui::SetNextItemWidth(140.0f);
             ImGui::SliderFloat("Strength", &brushStrength_, 0.01f, 0.5f, "%.2f");
             ImGui::SameLine();
-            ImGui::TextDisabled("LMB raise, Shift+LMB lower, RMB orbit");
+            ImGui::Checkbox("Flatten", &sculptFlatten_);
+            if (sculptFlatten_) {
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(90.0f);
+                ImGui::DragFloat("Level", &flattenHeight_, 0.1f, -100.0f, 100.0f,
+                                 "%.1f");
+                ImGui::SameLine();
+                ImGui::TextDisabled("LMB level to height, RMB orbit");
+            } else {
+                ImGui::SameLine();
+                ImGui::TextDisabled("LMB raise, Shift+LMB lower, RMB orbit");
+            }
         }
 
         // --- Keyboard shortcuts (viewport hovered, not typing) ---
@@ -798,6 +856,15 @@ void App::addEmitter(int kind) {
     }
     saveAll("Saved");
 }
+void App::addSoundEmitter() {
+    addObject(PrimitiveType::SoundEmitter);
+    SceneObject& o = project_.objects().back();
+    o.position[1] = 1.0f;
+    o.color[0] = 0.65f, o.color[1] = 0.3f, o.color[2] = 0.9f;  // violet marker
+    o.scale[0] = o.scale[1] = o.scale[2] = 0.5f;
+    if (!project_.sounds.empty()) o.soundPath = project_.sounds.front();
+    saveAll("Saved");
+}
 void App::addObject(PrimitiveType type) {
     // Unique default name: box-1, box-2, ...
     int counter = 0;
@@ -886,6 +953,10 @@ void App::drawAddObjectMenu() {
         if (ImGui::MenuItem("Sparks")) addEmitter(3);
         ImGui::EndMenu();
     }
+    if (ImGui::BeginMenu("Audio")) {
+        if (ImGui::MenuItem("Sound emitter")) addSoundEmitter();
+        ImGui::EndMenu();
+    }
     if (ImGui::BeginMenu("Custom")) {
         if (ImGui::MenuItem("3D model (.obj)...")) importModel();
         ImGui::EndMenu();
@@ -963,6 +1034,37 @@ void App::drawSceneSection() {
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::TextDisabled("Color tints the particles; scale X/Z = spawn area.\n"
                             "Show/Hide Object nodes switch the emitter on/off.");
+    }
+
+    if (o.type == PrimitiveType::SoundEmitter) {
+        ImGui::SeparatorText("Sound emitter");
+        if (project_.sounds.empty()) {
+            ImGui::TextDisabled("No sounds - import WAVs in the Sounds section first.");
+        } else {
+            int current = -1;
+            for (int i = 0; i < (int)project_.sounds.size(); ++i)
+                if (project_.sounds[i] == o.soundPath) current = i;
+            const std::string preview =
+                current >= 0 ? project_.sounds[current] : "<pick a sound>";
+            if (ImGui::BeginCombo("Sound", preview.c_str())) {
+                for (int i = 0; i < (int)project_.sounds.size(); ++i) {
+                    if (ImGui::Selectable(project_.sounds[i].c_str(), i == current)) {
+                        o.soundPath = project_.sounds[i];
+                        committed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+        }
+        if (ImGui::Checkbox("Autoplay (while the player is in range)", &o.soundAuto))
+            committed = true;
+        ImGui::DragFloat("Range", &o.soundRange, 0.5f, 0.5f, 200.0f, "%.1f units");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat("Interval", &o.soundInterval, 0.1f, 0.0f, 60.0f, "%.1f s");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::TextDisabled("Volume fades with distance to the player.\n"
+                            "Interval 0 loops the sample seamlessly; > 0\n"
+                            "retriggers it every N seconds. Hide Object mutes.");
     }
 
     if (o.type == PrimitiveType::Player) {
@@ -2151,6 +2253,12 @@ void App::drawPreferencesModal() {
         "GS framebuffer tricks, applied in-game at the end of every frame.\n"
         "Bloom: quarter-res blur re-added over the frame (soft glow).\n"
         "Film grain: animated noise overlay. Subtle values work best.");
+
+    ImGui::SeparatorText("Scenes");
+    ImGui::Checkbox("Loading screen between scenes", &prefSettings_.loadingScreen);
+    ImGui::TextDisabled(
+        "Scene switches show res/hud/loading.png centered on black for ~0.7s.\n"
+        "A placeholder is generated - replace the file to customize it.");
 
     ImGui::SeparatorText("Lighting");
     ImGui::DragFloat3("Light direction", prefSettings_.lightDir, 0.02f, -1.0f, 1.0f, "%.2f");

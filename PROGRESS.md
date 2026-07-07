@@ -318,12 +318,28 @@ Each finished feature lands as its own commit.
   sliders (0-1), baked as POSTFX_BLOOM/POSTFX_GRAIN (0-128). Verified in
   PCSX2 SW renderer at steady 50 FPS.
 
-## Backlog (rough order)
+- (31) **PAL + NTSC viewport frames** - the single 4:3 frame became two
+  labeled toggles (PAL white, NTSC yellow). PAL fills 4:3 exactly; NTSC has
+  fewer active lines so the same 512x448 buffer reads slightly wider
+  (~10:7). Dim outside the union; HUD preview maps into the PAL frame.
+- (32) **Loading screens between scenes** - scene switches show
+  res/hud/loading.png centered on black for ~0.7s (a generated
+  "LOADING..." placeholder is written when missing; replace the file to
+  customize; Preferences > Scenes toggle). The load itself stays
+  synchronous - the hold is presentation. Verified in PCSX2 by
+  ping-ponging two scenes: steady 50 FPS, no leaks.
+- (33) **Sound emitter entity** - violet sphere marker; picks one of the
+  imported sounds, autoplay + range + interval in the properties. In the
+  game: volume falls off linearly with the distance to the player
+  (channels 16-23, one per emitter). Interval 0 loops the sample
+  seamlessly (tryPlay retriggers as soon as the channel frees); > 0
+  retriggers every N seconds; Hide Object mutes. Verified with a WASAPI
+  peak meter: near emitter 0.29, same emitter at 15/20 range units 0.03.
+- (34) **Sculpt flatten mode** - a Flatten checkbox + Level height in the
+  sculpt toolbar; the brush lerps terrain toward the target height with
+  the same cosine falloff (strength = lerp rate). Undoable like sculpting.
 
-- PAL + NTSC viewport frames (replace the single 4:3 frame; two toggles)
-- Loading screens between scene switches (placeholder image, Preferences)
-- Sound emitter entity: autoplay + spatial (distance-attenuated) audio
-- Sculpt: flatten mode (level the terrain to a given height under the brush)
+## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)
 - Object physics vs objects (stacking), player physics polish (pad feel)

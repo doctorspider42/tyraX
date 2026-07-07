@@ -22,6 +22,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Model: return "model";
         case PrimitiveType::Player: return "player";
         case PrimitiveType::Emitter: return "emitter";
+        case PrimitiveType::SoundEmitter: return "sound";
     }
     return "box";
 }
@@ -34,6 +35,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "model") return PrimitiveType::Model;
     if (s == "player") return PrimitiveType::Player;
     if (s == "emitter") return PrimitiveType::Emitter;
+    if (s == "sound") return PrimitiveType::SoundEmitter;
     return PrimitiveType::Box;
 }
 
@@ -145,6 +147,12 @@ static std::string objectJson(const SceneObject& o) {
                 "\", \"count\": " + std::to_string(o.emitterCount) +
                 ", \"size\": " + fmtFloat(o.emitterSize) + " }";
     }
+    if (o.type == PrimitiveType::SoundEmitter) {
+        json += ", \"sound\": { \"path\": \"" + o.soundPath +
+                "\", \"autoplay\": " + (o.soundAuto ? "true" : "false") +
+                ", \"range\": " + fmtFloat(o.soundRange) +
+                ", \"interval\": " + fmtFloat(o.soundInterval) + " }";
+    }
     if (!o.flowGraph.empty()) json += ", \"flowGraph\": " + flowGraphJson(o.flowGraph);
     return json + " }";
 }
@@ -184,7 +192,9 @@ std::string save(const Project& p) {
          << "    \"terrainTexture\": \"" << p.settings.terrainTexture << "\",\n"
          << "    \"terrainTexScale\": " << fmtFloat(p.settings.terrainTexScale) << ",\n"
          << "    \"bloom\": " << fmtFloat(p.settings.bloom) << ",\n"
-         << "    \"grain\": " << fmtFloat(p.settings.grain) << "\n"
+         << "    \"grain\": " << fmtFloat(p.settings.grain) << ",\n"
+         << "    \"loadingScreen\": " << (p.settings.loadingScreen ? "true" : "false")
+         << "\n"
          << "  },\n"
          << "  \"scenes\": [";
     for (size_t i = 0; i < p.scenes.size(); ++i) {
@@ -453,6 +463,29 @@ void sculptHeightmap(Project& p, float worldX, float worldZ, float radius, float
     }
 }
 
+void flattenHeightmap(Project& p, float worldX, float worldZ, float radius, float targetH,
+                      float strength) {
+    SceneData& s = p.active();
+    if (s.hmW < 2 || s.hmD < 2 || radius <= 0.0f) return;
+    const float w = (float)s.terrain.width, d = (float)s.terrain.depth;
+    const float stepX = w / (s.hmW - 1), stepZ = d / (s.hmD - 1);
+    if (strength > 1.0f) strength = 1.0f;
+
+    for (int z = 0; z < s.hmD; ++z) {
+        for (int x = 0; x < s.hmW; ++x) {
+            const float vx = -w * 0.5f + x * stepX;
+            const float vz = -d * 0.5f + z * stepZ;
+            const float dx = vx - worldX, dz = vz - worldZ;
+            const float dist = std::sqrt(dx * dx + dz * dz);
+            if (dist >= radius) continue;
+            const float t = dist / radius;
+            const float falloff = 0.5f + 0.5f * std::cos(t * 3.14159265f);
+            float& h = s.heights[(size_t)z * s.hmW + x];
+            h += (targetH - h) * strength * falloff;
+        }
+    }
+}
+
 // One heights file per scene: terrain-<scene>.heights; the first scene also
 // reads the legacy single-scene terrain.heights.
 static fs::path heightsPath(const Project& p, const SceneData& s) {
@@ -541,6 +574,16 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (o.emitterCount > 128) o.emitterCount = 128;
             if (const auto* v = em->find("size")) o.emitterSize = (float)v->numberOr(0.5);
         }
+        if (const auto* sn = jo.find("sound")) {
+            if (const auto* v = sn->find("path")) o.soundPath = v->stringOr("");
+            if (const auto* v = sn->find("autoplay"))
+                o.soundAuto = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (const auto* v = sn->find("range")) o.soundRange = (float)v->numberOr(15.0);
+            if (o.soundRange < 0.5f) o.soundRange = 0.5f;
+            if (const auto* v = sn->find("interval"))
+                o.soundInterval = (float)v->numberOr(0.0);
+            if (o.soundInterval < 0.0f) o.soundInterval = 0.0f;
+        }
         if (const auto* fg = jo.find("flowGraph")) readFlowGraph(*fg, o.flowGraph);
         out.push_back(std::move(o));
     }
@@ -597,6 +640,8 @@ std::string load(Project& out, const std::string& projectDir) {
         auto clamp01 = [](float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
         if (const auto* v = s->find("bloom")) st.bloom = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("grain")) st.grain = clamp01((float)v->numberOr(0.0));
+        if (const auto* v = s->find("loadingScreen"))
+            st.loadingScreen = !(v->type == json::Value::Type::Bool && !v->boolean);
     }
 
     // Scenes. New format: [{ "name", "objects" }]; legacy: an array of scene
@@ -897,6 +942,17 @@ std::string refreshGenerated(const Project& p) {
             const unsigned char* png = templates::usePromptPng(n);
             fs::create_directories(usePng.parent_path(), ec);
             std::ofstream f(usePng, std::ios::binary);
+            if (f) f.write(reinterpret_cast<const char*>(png), (std::streamsize)n);
+        }
+    }
+    {
+        const fs::path loadPng = fs::path(p.dir) / "res" / "hud" / "loading.png";
+        std::error_code ec;
+        if (!fs::exists(loadPng, ec)) {
+            size_t n = 0;
+            const unsigned char* png = templates::loadingPng(n);
+            fs::create_directories(loadPng.parent_path(), ec);
+            std::ofstream f(loadPng, std::ios::binary);
             if (f) f.write(reinterpret_cast<const char*>(png), (std::streamsize)n);
         }
     }
