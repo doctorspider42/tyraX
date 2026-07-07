@@ -25,6 +25,24 @@ add_library(imgui STATIC
 target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends)
 target_link_libraries(imgui PUBLIC glfw)
 
+# --- Tyra engine patches (embedded into the editor binary) ---
+# Kept as plain reviewable files in engine-patches/; the Runner copies them
+# into the shared engine volume and rebuilds the engine once.
+set(EP_FILES
+    engine-patches/planes_clip_algorithm.cpp
+    engine-patches/stapip_clipper.cpp
+    engine-patches/stapip_qbuffer.cpp
+    engine-patches/render_bbox.cpp
+    engine-patches/apply_vu1_guardband.sh
+)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${EP_FILES})
+file(READ ${CMAKE_SOURCE_DIR}/engine-patches/planes_clip_algorithm.cpp EP_ALGO)
+file(READ ${CMAKE_SOURCE_DIR}/engine-patches/stapip_clipper.cpp EP_CLIPPER)
+file(READ ${CMAKE_SOURCE_DIR}/engine-patches/stapip_qbuffer.cpp EP_QBUFFER)
+file(READ ${CMAKE_SOURCE_DIR}/engine-patches/render_bbox.cpp EP_BBOX)
+file(READ ${CMAKE_SOURCE_DIR}/engine-patches/apply_vu1_guardband.sh EP_VU1_SH)
+configure_file(src/engine_patches.h.in ${CMAKE_BINARY_DIR}/generated/engine_patches.h @ONLY)
+
 # --- Editor ---
 add_executable(tyra-editor
     src/main.cpp
@@ -39,7 +57,7 @@ add_executable(tyra-editor
     vendor/imguizmo/src/ImGuizmo.cpp
     vendor/imnodes/imnodes.cpp
 )
-target_include_directories(tyra-editor PRIVATE src vendor/imguizmo/src vendor/imnodes vendor/stb)
+target_include_directories(tyra-editor PRIVATE src vendor/imguizmo/src vendor/imnodes vendor/stb ${CMAKE_BINARY_DIR}/generated)
 target_compile_definitions(tyra-editor PRIVATE GLFW_INCLUDE_NONE)
 target_link_libraries(tyra-editor PRIVATE imgui glfw opengl32 ole32 uuid)
 
