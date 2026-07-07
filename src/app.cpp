@@ -324,9 +324,63 @@ void App::drawViewportWindow() {
         const bool imageHovered = ImGui::IsItemHovered();
         ImGuiIO& io = ImGui::GetIO();
 
-        // --- Transform gizmo on the selected object ---
-        bool objectSelected =
-            selectedObject_ >= 0 && selectedObject_ < (int)project_.objects.size();
+        // --- Terrain sculpting brush ---
+        bool brushHit = false;
+        float brushX = 0.0f, brushZ = 0.0f;
+        if (sculptMode_ && imageHovered) {
+            const float u = (io.MousePos.x - imgPos.x) / avail.x;
+            const float v = (io.MousePos.y - imgPos.y) / avail.y;
+            brushHit = viewport_.terrainRaycast(u, v, brushX, brushZ);
+
+            if (brushHit && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+                const float delta = io.KeyShift ? -brushStrength_ : brushStrength_;
+                project::sculptHeightmap(project_, brushX, brushZ, brushRadius_, delta);
+                applyProjectToViewport();  // live mesh rebuild
+                sculptStroke_ = true;
+            }
+        }
+        if (sculptStroke_ && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            sculptStroke_ = false;
+            project::saveHeights(project_);
+            statusMessage_ = "Terrain saved";
+        }
+
+        // brush ring projected onto the terrain
+        if (sculptMode_ && brushHit) {
+            auto worldToImage = [&](float wx, float wy, float wz, ImVec2& out) {
+                const float* V = viewport_.viewMatrix();
+                const float* P = viewport_.projMatrix();
+                const float vx = V[0] * wx + V[4] * wy + V[8] * wz + V[12];
+                const float vy = V[1] * wx + V[5] * wy + V[9] * wz + V[13];
+                const float vz = V[2] * wx + V[6] * wy + V[10] * wz + V[14];
+                const float cx = P[0] * vx + P[4] * vy + P[8] * vz + P[12];
+                const float cy = P[1] * vx + P[5] * vy + P[9] * vz + P[13];
+                const float cw = P[3] * vx + P[7] * vy + P[11] * vz + P[15];
+                if (cw <= 0.001f) return false;
+                out = ImVec2(imgPos.x + (cx / cw * 0.5f + 0.5f) * avail.x,
+                             imgPos.y + (1.0f - (cy / cw * 0.5f + 0.5f)) * avail.y);
+                return true;
+            };
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            ImVec2 prev;
+            bool prevOk = false;
+            for (int s = 0; s <= 32; ++s) {
+                const float a = (float)s / 32.0f * 6.2831853f;
+                const float px = brushX + std::cos(a) * brushRadius_;
+                const float pz = brushZ + std::sin(a) * brushRadius_;
+                ImVec2 pt;
+                const bool ok =
+                    worldToImage(px, viewport_.terrainHeight(px, pz) + 0.1f, pz, pt);
+                if (ok && prevOk)
+                    dl->AddLine(prev, pt, IM_COL32(255, 200, 40, 220), 2.0f);
+                prev = pt;
+                prevOk = ok;
+            }
+        }
+
+        // --- Transform gizmo on the selected object (disabled while sculpting) ---
+        bool objectSelected = !sculptMode_ && selectedObject_ >= 0 &&
+                              selectedObject_ < (int)project_.objects.size();
         if (objectSelected) {
             SceneObject& o = project_.objects[selectedObject_];
 
@@ -368,14 +422,15 @@ void App::drawViewportWindow() {
 
         // --- Camera + selection input ---
         if (imageHovered && !gizmoBusy) {
-            if (ImGui::IsMouseDragging(ImGuiMouseButton_Left) ||
+            // In sculpt mode LMB paints, so only RMB orbits
+            if ((!sculptMode_ && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) ||
                 ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
                 viewport_.orbit(io.MouseDelta.x, io.MouseDelta.y);
             }
             if (io.MouseWheel != 0.0f) viewport_.zoom(io.MouseWheel);
 
             // Click (no drag) = pick object under cursor
-            if (ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
+            if (!sculptMode_ && ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
                 io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
                 const float u = (io.MousePos.x - imgPos.x) / avail.x;
                 const float v = (io.MousePos.y - imgPos.y) / avail.y;
@@ -431,11 +486,31 @@ void App::drawViewportWindow() {
             if (active) ImGui::PopStyleColor();
         }
 
+        // Terrain sculpting toggle + brush parameters
+        ImGui::SameLine(0.0f, 24.0f);
+        if (sculptMode_)
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        if (ImGui::SmallButton("Sculpt (T)")) sculptMode_ = !sculptMode_;
+        if (sculptMode_) ImGui::PopStyleColor();
+
+        if (sculptMode_) {
+            ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, imgPos.y + 32));
+            ImGui::SetNextItemWidth(140.0f);
+            ImGui::SliderFloat("Radius", &brushRadius_, 1.0f, 30.0f, "%.1f");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(140.0f);
+            ImGui::SliderFloat("Strength", &brushStrength_, 0.01f, 0.5f, "%.2f");
+            ImGui::SameLine();
+            ImGui::TextDisabled("LMB raise, Shift+LMB lower, RMB orbit");
+        }
+
         // --- Keyboard shortcuts (viewport hovered, not typing) ---
         if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && !io.WantTextInput) {
             if (ImGui::IsKeyPressed(ImGuiKey_W)) gizmoOp_ = 0;
             if (ImGui::IsKeyPressed(ImGuiKey_E)) gizmoOp_ = 1;
             if (ImGui::IsKeyPressed(ImGuiKey_R)) gizmoOp_ = 2;
+            if (ImGui::IsKeyPressed(ImGuiKey_T)) sculptMode_ = !sculptMode_;
             if (objectSelected && ImGui::IsKeyPressed(ImGuiKey_Delete)) {
                 project_.objects.erase(project_.objects.begin() + selectedObject_);
                 selectedObject_ = -1;
@@ -1206,8 +1281,10 @@ void App::drawNewProjectModal() {
 }
 
 void App::applyProjectToViewport() {
+    project::ensureHeightmap(project_);
     viewport_.setProjectDir(project_.dir);
-    viewport_.setTerrain(project_.terrain, project_.settings.terrainDetail);
+    viewport_.setTerrain(project_.terrain, project_.settings.terrainDetail, project_.heights,
+                         project_.hmW, project_.hmD);
     viewport_.setSky(project_.settings.skyColor, project_.settings.skyTopColor,
                      project_.settings.skyDome);
     viewport_.setLighting(project_.settings.lightDir, project_.settings.ambient,

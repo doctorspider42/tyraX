@@ -84,6 +84,17 @@ Each finished feature lands as its own commit.
   frame rate)**, frame pixel-clean. VU1 usage 1% -> 6%: the work moved to the
   chip that was built for it.
 
+- (13) **Terraforming** — sculpt the terrain with a brush: *Sculpt (T)* mode in the
+  viewport, LMB raises / Shift+LMB lowers (cosine falloff, radius + strength
+  sliders, RMB orbits), brush ring projected onto the relief. Heightmap lives in
+  `terrain.heights` (vertex grid = terrain detail; resampled when the grid config
+  changes), compiled into the game as `terrain_heights.gen.hpp` with a bilinear
+  sampler. The FPP player walks the relief, physics objects rest on it, terrain
+  shading follows the height gradient in both the viewport and the game.
+  Verified in editor + PCSX2 (generated hill + valley; the physics ball landed on
+  the hilltop). Sculpting itself needs a hands-on mouse test. Not in undo history
+  (saved on stroke end).
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

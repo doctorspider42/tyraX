@@ -98,6 +98,12 @@ struct Project {
     std::vector<HudImage> hud;
     FlowGraph flowGraph;
 
+    // Terrain heightmap: vertex heights on the render grid (row-major,
+    // hmW x hmD where hmW = min(detail, width) + 1 etc.). Empty = flat.
+    // Persisted in <project>/terrain.heights, sculpted with the viewport brush.
+    std::vector<float> heights;
+    int hmW = 0, hmD = 0;
+
     bool valid() const { return !name.empty() && !dir.empty(); }
     std::string elfName() const { return name + ".elf"; }
     std::string elfPath() const { return dir + "\\bin\\" + elfName(); }
@@ -116,6 +122,23 @@ std::string create(Project& out, const std::string& name, const std::string& par
 std::string load(Project& out, const std::string& projectDir);
 
 std::string save(const Project& p);
+
+// --- Terrain heightmap -------------------------------------------------------
+
+// Vertex grid dimensions for the current terrain size + detail cap.
+void terrainGridDims(const Project& p, int& vertsW, int& vertsD);
+
+// Makes p.heights match the current grid (zero-fill or nearest resample).
+void ensureHeightmap(Project& p);
+
+// Bilinear height at world coordinates (0 outside the terrain).
+float heightAtWorld(const Project& p, float x, float z);
+
+// Raise/lower with a smooth (cosine) falloff brush.
+void sculptHeightmap(Project& p, float worldX, float worldZ, float radius, float delta);
+
+std::string saveHeights(const Project& p);
+void loadHeights(Project& p);  // silent no-op when the file is absent
 
 // --- Solution file (<name>.tyra) --------------------------------------------
 // Editor-side state next to project.json: selection, active gizmo tool and

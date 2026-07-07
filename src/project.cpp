@@ -1,5 +1,6 @@
 #include "project.hpp"
 
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -184,6 +185,8 @@ std::string create(Project& out, const std::string& name, const std::string& par
         out.objects.push_back(ball);
     }
 
+    ensureHeightmap(out);
+
     if (showcase) {
         // Built-in assets (written before generate(): model codegen reads them)
         if (auto err = writeFile(root / "res" / "models" / "house.obj",
@@ -273,6 +276,101 @@ std::string create(Project& out, const std::string& name, const std::string& par
     History h;
     h.reset({out.terrain, out.objects});
     return saveSolution(out, h, -1, 0, 0);
+}
+
+// --- Terrain heightmap -------------------------------------------------------
+
+void terrainGridDims(const Project& p, int& vertsW, int& vertsD) {
+    const int maxCells = p.settings.terrainDetail;
+    const int cellsX = p.terrain.width > maxCells ? maxCells : p.terrain.width;
+    const int cellsZ = p.terrain.depth > maxCells ? maxCells : p.terrain.depth;
+    vertsW = cellsX + 1;
+    vertsD = cellsZ + 1;
+}
+
+void ensureHeightmap(Project& p) {
+    int vw = 0, vd = 0;
+    terrainGridDims(p, vw, vd);
+    if (p.hmW == vw && p.hmD == vd && (int)p.heights.size() == vw * vd) return;
+
+    std::vector<float> next((size_t)vw * vd, 0.0f);
+    if (p.hmW > 1 && p.hmD > 1 && (int)p.heights.size() == p.hmW * p.hmD) {
+        // nearest-neighbor resample from the previous grid
+        for (int z = 0; z < vd; ++z)
+            for (int x = 0; x < vw; ++x) {
+                const int sx = (int)((float)x / (vw - 1) * (p.hmW - 1) + 0.5f);
+                const int sz = (int)((float)z / (vd - 1) * (p.hmD - 1) + 0.5f);
+                next[(size_t)z * vw + x] = p.heights[(size_t)sz * p.hmW + sx];
+            }
+    }
+    p.heights = std::move(next);
+    p.hmW = vw;
+    p.hmD = vd;
+}
+
+float heightAtWorld(const Project& p, float x, float z) {
+    if (p.hmW < 2 || p.hmD < 2) return 0.0f;
+    const float w = (float)p.terrain.width, d = (float)p.terrain.depth;
+    float gx = (x + w * 0.5f) / w * (p.hmW - 1);
+    float gz = (z + d * 0.5f) / d * (p.hmD - 1);
+    if (gx < 0) gx = 0;
+    if (gz < 0) gz = 0;
+    if (gx > p.hmW - 1.001f) gx = p.hmW - 1.001f;
+    if (gz > p.hmD - 1.001f) gz = p.hmD - 1.001f;
+    const int ix = (int)gx, iz = (int)gz;
+    const float fx = gx - ix, fz = gz - iz;
+    auto h = [&](int a, int b) { return p.heights[(size_t)b * p.hmW + a]; };
+    const float top = h(ix, iz) * (1 - fx) + h(ix + 1, iz) * fx;
+    const float bottom = h(ix, iz + 1) * (1 - fx) + h(ix + 1, iz + 1) * fx;
+    return top * (1 - fz) + bottom * fz;
+}
+
+void sculptHeightmap(Project& p, float worldX, float worldZ, float radius, float delta) {
+    if (p.hmW < 2 || p.hmD < 2 || radius <= 0.0f) return;
+    const float w = (float)p.terrain.width, d = (float)p.terrain.depth;
+    const float stepX = w / (p.hmW - 1), stepZ = d / (p.hmD - 1);
+
+    for (int z = 0; z < p.hmD; ++z) {
+        for (int x = 0; x < p.hmW; ++x) {
+            const float vx = -w * 0.5f + x * stepX;
+            const float vz = -d * 0.5f + z * stepZ;
+            const float dx = vx - worldX, dz = vz - worldZ;
+            const float dist = std::sqrt(dx * dx + dz * dz);
+            if (dist >= radius) continue;
+            // smooth cosine falloff: 1 at the center, 0 at the edge
+            const float t = dist / radius;
+            const float falloff = 0.5f + 0.5f * std::cos(t * 3.14159265f);
+            p.heights[(size_t)z * p.hmW + x] += delta * falloff;
+        }
+    }
+}
+
+std::string saveHeights(const Project& p) {
+    std::ostringstream out;
+    out << p.hmW << " " << p.hmD << "\n";
+    for (int z = 0; z < p.hmD; ++z) {
+        for (int x = 0; x < p.hmW; ++x) {
+            if (x) out << " ";
+            out << fmtFloat(p.heights[(size_t)z * p.hmW + x]);
+        }
+        out << "\n";
+    }
+    return writeFile(fs::path(p.dir) / "terrain.heights", out.str());
+}
+
+void loadHeights(Project& p) {
+    std::ifstream f(fs::path(p.dir) / "terrain.heights");
+    if (!f) return;
+    int vw = 0, vd = 0;
+    f >> vw >> vd;
+    if (vw < 2 || vd < 2 || vw > 1025 || vd > 1025) return;
+    std::vector<float> data((size_t)vw * vd, 0.0f);
+    for (auto& h : data)
+        if (!(f >> h)) return;
+    p.heights = std::move(data);
+    p.hmW = vw;
+    p.hmD = vd;
+    ensureHeightmap(p);  // resample if the grid config changed meanwhile
 }
 
 static void readVec3(const json::Value* v, float* out) {
@@ -374,6 +472,9 @@ std::string load(Project& out, const std::string& projectDir) {
             if (!h.imagePath.empty()) out.hud.push_back(std::move(h));
         }
     }
+
+    loadHeights(out);
+    ensureHeightmap(out);
 
     if (const auto* fg = root.find("flowGraph")) {
         if (const auto* v = fg->find("nextId")) out.flowGraph.nextId = (int)v->numberOr(1);
@@ -500,6 +601,7 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "src\\scripts\\flow_graph.gen.cpp" ||
             f.relativePath == "inc\\model_data.gen.hpp" ||
             f.relativePath == "inc\\hud_data.gen.hpp" ||
+            f.relativePath == "inc\\terrain_heights.gen.hpp" ||
             f.relativePath == ".tyra-engine-patch\\planes_clip_algorithm.cpp" ||
             f.relativePath == ".tyra-engine-patch\\stapip_clipper.cpp" ||
             f.relativePath == ".tyra-engine-patch\\stapip_qbuffer.cpp" ||

@@ -57,6 +57,12 @@ private:
     int gizmoOp_ = 0;
     bool gizmoWasUsing_ = false;
 
+    // Terrain sculpting brush
+    bool sculptMode_ = false;
+    float brushRadius_ = 5.0f;
+    float brushStrength_ = 0.08f;  // units per frame at the brush center
+    bool sculptStroke_ = false;    // an LMB stroke is in progress
+
     History history_;
     SceneObject clipboard_;
     bool hasClipboard_ = false;

@@ -290,6 +290,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "scene_data.hpp"
 #include "model_data.gen.hpp"
 #include "hud_data.gen.hpp"
+#include "terrain_heights.gen.hpp"
 #include <math.h>
 
 namespace {{NAME_UPPER_NS}} {
@@ -675,12 +676,14 @@ void TerrainGame::updateObjectPhysics() {
   for (RuntimeObject& o : runtimeObjects) {
     if (!o.data.physics) continue;
     const float half = 0.5F * o.data.scale[1];
-    if (o.velocityY == 0.0F && o.data.position[1] <= half) continue;  // resting
+    const float floorY =
+        terrainHeightAt(o.data.position[0], o.data.position[2]) + half;
+    if (o.velocityY == 0.0F && o.data.position[1] <= floorY) continue;  // resting
 
     o.velocityY -= gravityPerFrame;
     o.data.position[1] += o.velocityY;
-    if (o.data.position[1] <= half) {
-      o.data.position[1] = half;
+    if (o.data.position[1] <= floorY) {
+      o.data.position[1] = floorY;
       o.velocityY = 0.0F;
     }
     o.dirty = true;
@@ -707,21 +710,35 @@ void TerrainGame::renderScene() {
 }
 
 void TerrainGame::generateTerrainGrid() {
-  // Cap the amount of quads so big terrains stay PS2-friendly.
-  // Cell size grows with terrain size instead.
-  const u32 maxCells = (u32)TERRAIN_MAX_CELLS;
-  const u32 cellsX = TERRAIN_WIDTH > maxCells ? maxCells : (u32)TERRAIN_WIDTH;
-  const u32 cellsZ = TERRAIN_DEPTH > maxCells ? maxCells : (u32)TERRAIN_DEPTH;
+  // The grid follows the heightmap (terrain_heights.gen.hpp): one cell per
+  // heightmap quad, vertex heights sampled directly, per-vertex shading
+  // from the height gradient.
+  const u32 cellsX = HM_W - 1;
+  const u32 cellsZ = HM_D - 1;
   const float stepX = TERRAIN_WIDTH / cellsX;
   const float stepZ = TERRAIN_DEPTH / cellsZ;
   const float startX = -TERRAIN_WIDTH * 0.5F;
   const float startZ = -TERRAIN_DEPTH * 0.5F;
 
+  auto hAt = [&](int ix, int iz) {
+    if (ix < 0) ix = 0;
+    if (iz < 0) iz = 0;
+    if (ix > HM_W - 1) ix = HM_W - 1;
+    if (iz > HM_D - 1) iz = HM_D - 1;
+    return TERRAIN_HEIGHTS[iz * HM_W + ix];
+  };
+  auto shadeAt = [&](int ix, int iz) {
+    V3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0F * (stepX < stepZ ? stepX : stepZ),
+            hAt(ix, iz - 1) - hAt(ix, iz + 1)};
+    const float len = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
+    if (len > 0.00001F) n.x /= len, n.y /= len, n.z /= len;
+    return shadeOf(n);
+  };
+
   // Two greens in a checker pattern, so the grid is visible.
-  // PS2 colors: RGB 0-255, alpha 0-128. Lit by the directional light (up normal).
-  const float sUp = shadeOf({0.0F, 1.0F, 0.0F});
-  const Color colorA(96.0F * sUp, 160.0F * sUp, 72.0F * sUp, 128.0F);
-  const Color colorB(74.0F * sUp, 128.0F * sUp, 56.0F * sUp, 128.0F);
+  // PS2 colors: RGB 0-255, alpha 0-128.
+  const float baseA[3] = {96.0F, 160.0F, 72.0F};
+  const float baseB[3] = {74.0F, 128.0F, 56.0F};
 
   for (u32 z = 0; z < cellsZ; ++z) {
     for (u32 x = 0; x < cellsX; ++x) {
@@ -729,16 +746,29 @@ void TerrainGame::generateTerrainGrid() {
       const float x1 = x0 + stepX;
       const float z0 = startZ + z * stepZ;
       const float z1 = z0 + stepZ;
-      const Color& c = ((x + z) % 2 == 0) ? colorA : colorB;
+      const float* base = ((x + z) % 2 == 0) ? baseA : baseB;
 
-      vertices.push_back(Vec4(x0, 0.0F, z0, 1.0F));
-      vertices.push_back(Vec4(x1, 0.0F, z0, 1.0F));
-      vertices.push_back(Vec4(x0, 0.0F, z1, 1.0F));
-      vertices.push_back(Vec4(x1, 0.0F, z0, 1.0F));
-      vertices.push_back(Vec4(x1, 0.0F, z1, 1.0F));
-      vertices.push_back(Vec4(x0, 0.0F, z1, 1.0F));
+      const float h00 = hAt(x, z), h10 = hAt(x + 1, z);
+      const float h01 = hAt(x, z + 1), h11 = hAt(x + 1, z + 1);
+      const float s00 = shadeAt(x, z), s10 = shadeAt(x + 1, z);
+      const float s01 = shadeAt(x, z + 1), s11 = shadeAt(x + 1, z + 1);
+      auto shaded = [&](float s) {
+        return Color(base[0] * s, base[1] * s, base[2] * s, 128.0F);
+      };
 
-      for (int i = 0; i < 6; ++i) colors.push_back(c);
+      vertices.push_back(Vec4(x0, h00, z0, 1.0F));
+      vertices.push_back(Vec4(x1, h10, z0, 1.0F));
+      vertices.push_back(Vec4(x0, h01, z1, 1.0F));
+      vertices.push_back(Vec4(x1, h10, z0, 1.0F));
+      vertices.push_back(Vec4(x1, h11, z1, 1.0F));
+      vertices.push_back(Vec4(x0, h01, z1, 1.0F));
+
+      colors.push_back(shaded(s00));
+      colors.push_back(shaded(s10));
+      colors.push_back(shaded(s01));
+      colors.push_back(shaded(s10));
+      colors.push_back(shaded(s11));
+      colors.push_back(shaded(s01));
     }
   }
 }
@@ -793,6 +823,7 @@ void TerrainGame::init() {
       break;
     }
   }
+  playerY = terrainHeightAt(playerX, playerZ);
 
   updatePlayer();
   buildScene();
@@ -878,8 +909,9 @@ void TerrainGame::updatePlayer() {
 
   // Collision with scene objects (XZ, boxes expanded by the player radius)
   // + standing on top of them. Player can step ~0.5 units up.
+  // The floor is the sculpted terrain.
   const float playerRadius = 0.35F;
-  float ground = 0.0F;
+  float ground = terrainHeightAt(nextX, nextZ);
   for (const RuntimeObject& o : runtimeObjects) {
     if (!o.visible || o.data.type == 4) continue;
     const float ox = o.data.position[0];
@@ -1695,6 +1727,60 @@ static std::string modelDataHeader(const Project& p) {
     return out.str();
 }
 
+// inc/terrain_heights.gen.hpp - the sculpted terrain heightmap + sampler
+static std::string terrainHeightsHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    const bool hasData = p.hmW >= 2 && p.hmD >= 2 &&
+                         (int)p.heights.size() == p.hmW * p.hmD;
+    const int vw = hasData ? p.hmW : 2;
+    const int vd = hasData ? p.hmD : 2;
+
+    std::ostringstream out;
+    out << "// Generated by tyra-editor. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\nnamespace "
+        << ns << " {\n\n"
+        << "constexpr int HM_W = " << vw << ";\n"
+        << "constexpr int HM_D = " << vd << ";\n"
+        << "constexpr float HM_ORIGIN_X = " << floatLit(-(float)p.terrain.width * 0.5f)
+        << ";\n"
+        << "constexpr float HM_ORIGIN_Z = " << floatLit(-(float)p.terrain.depth * 0.5f)
+        << ";\n"
+        << "constexpr float HM_STEP_X = "
+        << floatLit((float)p.terrain.width / (vw - 1)) << ";\n"
+        << "constexpr float HM_STEP_Z = "
+        << floatLit((float)p.terrain.depth / (vd - 1)) << ";\n\n"
+        << "constexpr float TERRAIN_HEIGHTS[HM_W * HM_D] = {";
+    if (!hasData) {
+        out << "0, 0, 0, 0";
+    } else {
+        for (int i = 0; i < vw * vd; ++i) {
+            if (i % 12 == 0) out << "\n    ";
+            out << floatLit(p.heights[i]) << ",";
+        }
+    }
+    out << "\n};\n\n"
+           "/** Bilinear terrain height at world coordinates. */\n"
+           "inline float terrainHeightAt(float x, float z) {\n"
+           "  float gx = (x - HM_ORIGIN_X) / HM_STEP_X;\n"
+           "  float gz = (z - HM_ORIGIN_Z) / HM_STEP_Z;\n"
+           "  if (gx < 0.0F) gx = 0.0F;\n"
+           "  if (gz < 0.0F) gz = 0.0F;\n"
+           "  if (gx > HM_W - 1.001F) gx = HM_W - 1.001F;\n"
+           "  if (gz > HM_D - 1.001F) gz = HM_D - 1.001F;\n"
+           "  const int ix = (int)gx;\n"
+           "  const int iz = (int)gz;\n"
+           "  const float fx = gx - ix;\n"
+           "  const float fz = gz - iz;\n"
+           "  const float t = TERRAIN_HEIGHTS[iz * HM_W + ix] * (1.0F - fx) +\n"
+           "                  TERRAIN_HEIGHTS[iz * HM_W + ix + 1] * fx;\n"
+           "  const float b = TERRAIN_HEIGHTS[(iz + 1) * HM_W + ix] * (1.0F - fx) +\n"
+           "                  TERRAIN_HEIGHTS[(iz + 1) * HM_W + ix + 1] * fx;\n"
+           "  return t * (1.0F - fz) + b * fz;\n"
+           "}\n\n}  // namespace "
+        << ns << "\n";
+    return out.str();
+}
+
 // inc/hud_data.gen.hpp - HUD image sprites (PNG paths relative to bin/)
 static std::string hudDataHeader(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
@@ -1806,6 +1892,7 @@ std::vector<File> generate(const Project& p) {
         {"inc\\scene_data.hpp", sceneDataContent(p, ns)},
         {"inc\\model_data.gen.hpp", modelDataHeader(p)},
         {"inc\\hud_data.gen.hpp", hudDataHeader(p)},
+        {"inc\\terrain_heights.gen.hpp", terrainHeightsHeader(p)},
         {"inc\\scripts\\script.hpp", fill(TPL_SCRIPT_HPP)},
         {"src\\scripts\\flow_graph.gen.cpp", flowGraphScript(p)},
         {".tyra-engine-patch\\planes_clip_algorithm.cpp", EP_PLANES_CLIP_ALGORITHM},

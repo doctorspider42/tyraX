@@ -424,12 +424,89 @@ void Viewport::shutdown() {
     if (depthRbo_) glDeleteRenderbuffers(1, &depthRbo_);
 }
 
-void Viewport::setTerrain(const TerrainConfig& terrain, int maxCells) {
+void Viewport::setTerrain(const TerrainConfig& terrain, int maxCells,
+                          const std::vector<float>& heights, int hmW, int hmD) {
+    const bool sameTerrain = terrain_.width == terrain.width &&
+                             terrain_.depth == terrain.depth && maxCells_ == maxCells;
     terrain_ = terrain;
     maxCells_ = maxCells < 1 ? 1 : maxCells;
-    float diag = (float)(terrain_.width > terrain_.depth ? terrain_.width : terrain_.depth);
-    distance_ = diag * 1.4f;
+    heights_ = heights;
+    hmW_ = hmW;
+    hmD_ = hmD;
+    if (!sameTerrain) {
+        float diag =
+            (float)(terrain_.width > terrain_.depth ? terrain_.width : terrain_.depth);
+        distance_ = diag * 1.4f;
+    }
     buildTerrainMesh();
+}
+
+float Viewport::terrainHeight(float x, float z) const {
+    if (hmW_ < 2 || hmD_ < 2 || (int)heights_.size() != hmW_ * hmD_) return 0.0f;
+    const float w = (float)terrain_.width, d = (float)terrain_.depth;
+    float gx = (x + w * 0.5f) / w * (hmW_ - 1);
+    float gz = (z + d * 0.5f) / d * (hmD_ - 1);
+    if (gx < 0) gx = 0;
+    if (gz < 0) gz = 0;
+    if (gx > hmW_ - 1.001f) gx = hmW_ - 1.001f;
+    if (gz > hmD_ - 1.001f) gz = hmD_ - 1.001f;
+    const int ix = (int)gx, iz = (int)gz;
+    const float fx = gx - ix, fz = gz - iz;
+    auto h = [&](int a, int b) { return heights_[(size_t)b * hmW_ + a]; };
+    const float top = h(ix, iz) * (1 - fx) + h(ix + 1, iz) * fx;
+    const float bottom = h(ix, iz + 1) * (1 - fx) + h(ix + 1, iz + 1) * fx;
+    return top * (1 - fz) + bottom * fz;
+}
+
+bool Viewport::terrainRaycast(float u, float v, float& outX, float& outZ) const {
+    if (fbWidth_ < 1 || fbHeight_ < 1) return false;
+
+    // Same camera ray construction as pick()
+    const Vec3 eye{distance_ * std::cos(pitch_) * std::cos(yaw_), distance_ * std::sin(pitch_),
+                   distance_ * std::cos(pitch_) * std::sin(yaw_)};
+    const Vec3 fwd = normalize(sub({0, 0, 0}, eye));
+    const Vec3 right = normalize(cross(fwd, {0, 1, 0}));
+    const Vec3 up = cross(right, fwd);
+    const float aspect = (float)fbWidth_ / (float)fbHeight_;
+    const float th = std::tan(50.0f * kPi / 180.0f * 0.5f);
+    const float ndcX = u * 2.0f - 1.0f;
+    const float ndcY = 1.0f - v * 2.0f;
+    const Vec3 dir = normalize({fwd.x + right.x * ndcX * th * aspect + up.x * ndcY * th,
+                                fwd.y + right.y * ndcX * th * aspect + up.y * ndcY * th,
+                                fwd.z + right.z * ndcX * th * aspect + up.z * ndcY * th});
+
+    // Raymarch the heightfield: find the first step below the surface, then
+    // refine by bisection.
+    const float maxDist = distance_ * 4.0f;
+    const int steps = 400;
+    const float dt = maxDist / steps;
+    float prevT = 0.0f;
+    float prevDelta = eye.y - terrainHeight(eye.x, eye.z);
+    for (int i = 1; i <= steps; ++i) {
+        const float t = i * dt;
+        const float px = eye.x + dir.x * t, py = eye.y + dir.y * t,
+                    pz = eye.z + dir.z * t;
+        const float delta = py - terrainHeight(px, pz);
+        if (delta <= 0.0f && prevDelta > 0.0f) {
+            float lo = prevT, hi = t;
+            for (int k = 0; k < 16; ++k) {
+                const float mid = (lo + hi) * 0.5f;
+                const float mx = eye.x + dir.x * mid, my = eye.y + dir.y * mid,
+                            mz = eye.z + dir.z * mid;
+                if (my - terrainHeight(mx, mz) > 0.0f) lo = mid;
+                else hi = mid;
+            }
+            const float t2 = (lo + hi) * 0.5f;
+            outX = eye.x + dir.x * t2;
+            outZ = eye.z + dir.z * t2;
+            // only hits on the terrain rectangle count
+            return outX >= -terrain_.width * 0.5f && outX <= terrain_.width * 0.5f &&
+                   outZ >= -terrain_.depth * 0.5f && outZ <= terrain_.depth * 0.5f;
+        }
+        prevT = t;
+        prevDelta = delta;
+    }
+    return false;
 }
 
 void Viewport::buildPrimitiveMeshes() {
@@ -456,14 +533,28 @@ void Viewport::buildTerrainMesh() {
     const float d = (float)terrain_.depth;
     const float x0 = -w * 0.5f, z0 = -d * 0.5f;
 
-    // Match the generated PS2 game: checker pattern, capped cell count.
+    // Match the generated PS2 game: checker pattern, capped cell count,
+    // vertex heights from the sculpted heightmap.
     const int cellsX = terrain_.width > maxCells_ ? maxCells_ : terrain_.width;
     const int cellsZ = terrain_.depth > maxCells_ ? maxCells_ : terrain_.depth;
     const float sx = w / cellsX, sz = d / cellsZ;
 
-    const float sUp = shadeOf({0, 1, 0});
-    const float cA[3] = {96 / 255.0f * sUp, 160 / 255.0f * sUp, 72 / 255.0f * sUp};
-    const float cB[3] = {74 / 255.0f * sUp, 128 / 255.0f * sUp, 56 / 255.0f * sUp};
+    const bool hasHeights =
+        hmW_ == cellsX + 1 && hmD_ == cellsZ + 1 && (int)heights_.size() == hmW_ * hmD_;
+    auto hAt = [&](int ix, int iz) {
+        if (!hasHeights) return 0.0f;
+        ix = ix < 0 ? 0 : ix > hmW_ - 1 ? hmW_ - 1 : ix;
+        iz = iz < 0 ? 0 : iz > hmD_ - 1 ? hmD_ - 1 : iz;
+        return heights_[(size_t)iz * hmW_ + ix];
+    };
+    auto shadeAt = [&](int ix, int iz) {
+        Vec3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0f * (sx < sz ? sx : sz),
+                  hAt(ix, iz - 1) - hAt(ix, iz + 1)};
+        return shadeOf(normalize(n));
+    };
+
+    const float cA[3] = {96 / 255.0f, 160 / 255.0f, 72 / 255.0f};
+    const float cB[3] = {74 / 255.0f, 128 / 255.0f, 56 / 255.0f};
 
     std::vector<float> tri;
     tri.reserve((size_t)cellsX * cellsZ * 6 * 6);
@@ -472,28 +563,36 @@ void Viewport::buildTerrainMesh() {
             const float* c = ((x + z) % 2 == 0) ? cA : cB;
             float ax = x0 + x * sx, az = z0 + z * sz;
             float bx = ax + sx, bz = az + sz;
-            pushVertexColor(tri, ax, 0, az, c[0], c[1], c[2]);
-            pushVertexColor(tri, bx, 0, az, c[0], c[1], c[2]);
-            pushVertexColor(tri, ax, 0, bz, c[0], c[1], c[2]);
-            pushVertexColor(tri, bx, 0, az, c[0], c[1], c[2]);
-            pushVertexColor(tri, bx, 0, bz, c[0], c[1], c[2]);
-            pushVertexColor(tri, ax, 0, bz, c[0], c[1], c[2]);
+            const float h00 = hAt(x, z), h10 = hAt(x + 1, z);
+            const float h01 = hAt(x, z + 1), h11 = hAt(x + 1, z + 1);
+            const float s00 = shadeAt(x, z), s10 = shadeAt(x + 1, z);
+            const float s01 = shadeAt(x, z + 1), s11 = shadeAt(x + 1, z + 1);
+            pushVertexColor(tri, ax, h00, az, c[0] * s00, c[1] * s00, c[2] * s00);
+            pushVertexColor(tri, bx, h10, az, c[0] * s10, c[1] * s10, c[2] * s10);
+            pushVertexColor(tri, ax, h01, bz, c[0] * s01, c[1] * s01, c[2] * s01);
+            pushVertexColor(tri, bx, h10, az, c[0] * s10, c[1] * s10, c[2] * s10);
+            pushVertexColor(tri, bx, h11, bz, c[0] * s11, c[1] * s11, c[2] * s11);
+            pushVertexColor(tri, ax, h01, bz, c[0] * s01, c[1] * s01, c[2] * s01);
         }
     }
     terrain_mesh_ = uploadMesh(tri);
 
-    // Grid lines (cell borders) + world axes
+    // Grid lines (cell borders, following the relief) + world axes
     std::vector<float> lines;
     const float gc = 0.15f;  // grid line color (dark)
     for (int x = 0; x <= cellsX; ++x) {
-        float px = x0 + x * sx;
-        pushVertexColor(lines, px, 0.01f, z0, gc, gc, gc);
-        pushVertexColor(lines, px, 0.01f, z0 + d, gc, gc, gc);
+        const float px = x0 + x * sx;
+        for (int z = 0; z < cellsZ; ++z) {
+            pushVertexColor(lines, px, hAt(x, z) + 0.02f, z0 + z * sz, gc, gc, gc);
+            pushVertexColor(lines, px, hAt(x, z + 1) + 0.02f, z0 + (z + 1) * sz, gc, gc, gc);
+        }
     }
     for (int z = 0; z <= cellsZ; ++z) {
-        float pz = z0 + z * sz;
-        pushVertexColor(lines, x0, 0.01f, pz, gc, gc, gc);
-        pushVertexColor(lines, x0 + w, 0.01f, pz, gc, gc, gc);
+        const float pz = z0 + z * sz;
+        for (int x = 0; x < cellsX; ++x) {
+            pushVertexColor(lines, x0 + x * sx, hAt(x, z) + 0.02f, pz, gc, gc, gc);
+            pushVertexColor(lines, x0 + (x + 1) * sx, hAt(x + 1, z) + 0.02f, pz, gc, gc, gc);
+        }
     }
     // Axes: X red, Y green, Z blue (slightly above terrain)
     float axisLen = (w > d ? w : d) * 0.6f;

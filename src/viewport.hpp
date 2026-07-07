@@ -24,8 +24,16 @@ public:
     void shutdown();
 
     // (Re)builds the terrain mesh from project settings.
-    // maxCells: terrain grid detail cap (Project > Preferences).
-    void setTerrain(const TerrainConfig& terrain, int maxCells = 32);
+    // maxCells: terrain grid detail cap; heights: sculpted heightmap
+    // (hmW x hmD vertex grid, empty = flat).
+    void setTerrain(const TerrainConfig& terrain, int maxCells = 32,
+                    const std::vector<float>& heights = {}, int hmW = 0, int hmD = 0);
+
+    // Casts a ray through normalized image coords onto the terrain surface.
+    // Returns false when the ray misses; used by the sculpting brush.
+    bool terrainRaycast(float u, float v, float& outX, float& outZ) const;
+
+    float terrainHeight(float x, float z) const;  // bilinear, 0 when flat
 
     // horizon + zenith colors; gradient=false renders a flat horizon color
     void setSky(const float* horizonRgb, const float* topRgb, bool gradient);
@@ -68,6 +76,8 @@ private:
 
     TerrainConfig terrain_;
     int maxCells_ = 32;
+    std::vector<float> heights_;
+    int hmW_ = 0, hmD_ = 0;
     float sky_[3] = {0.25f, 0.55f, 0.78f};
     float skyTop_[3] = {0.08f, 0.3f, 0.65f};
     bool skyGradient_ = true;
