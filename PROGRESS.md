@@ -320,6 +320,11 @@ Each finished feature lands as its own commit.
 
 ## Backlog (rough order)
 
+- PAL + NTSC viewport frames (replace the single 4:3 frame; two toggles)
+- Loading screens between scene switches (placeholder image, Preferences)
+- Sound emitter entity: autoplay + spatial (distance-attenuated) audio
+- Sculpt: flatten mode (level the terrain to a given height under the brush)
+
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)
 - Object physics vs objects (stacking), player physics polish (pad feel)
 - Model picking uses the unit-box approximation (big models pick imprecisely)
