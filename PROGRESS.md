@@ -136,6 +136,18 @@ Each finished feature lands as its own commit.
   (generated 22kHz arpeggio); Triangle -> Stop Music compiled in. Speaker check
   by ear is left for a human.
 
+- (18) **Sound effects (ADPCM)** — one-shot samples from the Flow Graph. Sounds
+  section in the Project panel imports WAV (16-bit 22050 Hz, mono or stereo)
+  into `res/sfx/`; the Runner converts them with the PS2SDK `adpenc` tool at
+  build (`bin/sfx/*.adpcm`, skipped when already up to date). New **Play Sound**
+  action node: sound combo, volume slider, SPU channel slider (0-23, or "auto" =
+  round-robin over all 24 - ADPCM voices cannot be stopped, so rotation avoids
+  drop-outs when shots overlap). Samples load once in the generated script's
+  init(), playback via `engine->audio.adpcm.tryPlay`. Verified in PCSX2: with an
+  Every-2-Seconds -> Play Sound graph the emulator's audio session peak meter
+  shows silence with a burst exactly every 2 s (test chirp). Speaker check by
+  ear is left for a human.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)
@@ -143,7 +155,7 @@ Each finished feature lands as its own commit.
 - Model picking uses the unit-box approximation (big models pick imprecisely)
 - HUD images draggable directly in the viewport
 - Textured models (.mtl/PNG) and textured terrain
-- Sound effects (Tyra adpcm channels) - short one-shot samples via flow graph
+- Positional audio (volume falloff by distance to an object)
 - Multiple scenes (model exists in project.json, editor edits only "main")
 - Flow graph: more nodes (timers with reset, gates, variables, sounds)
 - Engine perf, next targets: packager allocates its package array per frame

@@ -591,6 +591,7 @@ void App::drawProjectWindow() {
     drawSceneSection();
     drawHudSection();
     drawMusicSection();
+    drawSoundsSection();
     drawScriptsSection();
 
     ImGui::SeparatorText("Build");
@@ -970,6 +971,22 @@ void App::drawFlowGraphWindow() {
                     ImGui::TextDisabled("Import tracks in the\nProject panel (Music).");
                 ImGui::EndCombo();
             }
+        } else if (t->strKind == FlowParamKind::SoundTrack) {
+            const std::string current =
+                n.str.empty() ? "<none>"
+                              : std::filesystem::path(n.str).filename().string();
+            if (ImGui::BeginCombo("Sound", current.c_str())) {
+                for (const std::string& s : project_.sounds) {
+                    const std::string name = std::filesystem::path(s).filename().string();
+                    if (ImGui::Selectable(name.c_str(), s == n.str)) {
+                        n.str = s;
+                        changed = true;
+                    }
+                }
+                if (project_.sounds.empty())
+                    ImGui::TextDisabled("Import sounds in the\nProject panel (Sounds).");
+                ImGui::EndCombo();
+            }
         }
 
         // numeric params
@@ -980,7 +997,14 @@ void App::drawFlowGraphWindow() {
             for (int a = 0; a < t->numCount; ++a) {
                 const bool isLoop = std::strcmp(t->numLabels[a], "Loop") == 0;
                 const bool isVolume = std::strcmp(t->numLabels[a], "Volume") == 0;
-                if (isLoop) {
+                const bool isChannel = std::strcmp(t->numLabels[a], "Channel") == 0;
+                if (isChannel) {
+                    // SPU channel 0-23; -1 = rotate through channels
+                    ImGui::SliderFloat("Channel", &n.num[a], -1.0f, 23.0f,
+                                       n.num[a] < 0.0f ? "auto" : "%.0f");
+                    n.num[a] = (float)(int)n.num[a];
+                    changed |= ImGui::IsItemDeactivatedAfterEdit();
+                } else if (isLoop) {
                     bool loop = n.num[a] != 0.0f;
                     if (ImGui::Checkbox("Loop", &loop)) {
                         n.num[a] = loop ? 1.0f : 0.0f;
@@ -1115,6 +1139,11 @@ void App::drawFlowGraphWindow() {
                     if (!project_.music.empty()) n.str = project_.music.front();
                 }
                 if (std::string(t.key) == "SetMusicVolume") n.num[0] = 80.0f;
+                if (std::string(t.key) == "PlaySound") {
+                    n.num[0] = 100.0f;  // volume
+                    n.num[1] = -1.0f;   // channel: auto
+                    if (!project_.sounds.empty()) n.str = project_.sounds.front();
+                }
                 fg.nodes.push_back(n);
                 ImNodes::SetNodeScreenSpacePos(n.id, clickPos);
                 changed = true;
@@ -1290,6 +1319,75 @@ void App::drawMusicSection() {
         ImGui::PopID();
     }
     if (project_.music.empty()) ImGui::TextDisabled("No music tracks.");
+    if (changed) saveAll("Saved");
+}
+
+void App::importSoundEffect() {
+    const std::string src = pickWavFile();
+    if (src.empty()) return;
+
+    // adpenc (runs in the toolchain container at build) expects 16-bit 22 kHz;
+    // it accepts mono and stereo.
+    int channels = 0, rate = 0, bits = 0;
+    if (!readWavFormat(src, channels, rate, bits)) {
+        statusMessage_ = "Sound import failed: not a readable WAV file";
+        return;
+    }
+    if (rate != 22050 || bits != 16) {
+        statusMessage_ = "Sound import: expected 16-bit 22050 Hz, got " +
+                         std::to_string(bits) + "-bit " + std::to_string(rate) +
+                         " Hz (imported anyway - may play wrong on PS2)";
+    }
+
+    const std::filesystem::path srcPath(src);
+    const std::string fileName = srcPath.filename().string();
+    const std::filesystem::path destDir = std::filesystem::path(project_.dir) / "res" / "sfx";
+    std::error_code ec;
+    std::filesystem::create_directories(destDir, ec);
+    std::filesystem::copy_file(srcPath, destDir / fileName,
+                               std::filesystem::copy_options::overwrite_existing, ec);
+    if (ec) {
+        statusMessage_ = "Sound import failed: " + ec.message();
+        return;
+    }
+
+    const std::string relPath = "res/sfx/" + fileName;
+    bool exists = false;
+    for (const std::string& s : project_.sounds) exists |= (s == relPath);
+    if (!exists) project_.sounds.push_back(relPath);
+    const std::string status =
+        (rate == 22050 && bits == 16) ? "Imported " + fileName : statusMessage_;
+    saveAll(status.c_str());
+}
+
+void App::drawSoundsSection() {
+    ImGui::SeparatorText("Sounds");
+
+    if (ImGui::SmallButton("+ Sound (WAV)")) importSoundEffect();
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("16-bit 22050 Hz WAV one-shots, converted to ADPCM\n"
+                          "at build. Play via Flow Graph: e.g. On Button -> Play Sound.");
+
+    bool changed = false;
+    for (int i = 0; i < (int)project_.sounds.size(); ++i) {
+        const std::string name =
+            std::filesystem::path(project_.sounds[i]).filename().string();
+        ImGui::PushID(i + 1000);
+        ImGui::Bullet();
+        ImGui::SameLine();
+        ImGui::TextUnformatted(name.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("x")) {
+            project_.sounds.erase(project_.sounds.begin() + i);
+            changed = true;
+            ImGui::PopID();
+            break;
+        }
+        ImGui::PopID();
+    }
+    if (project_.sounds.empty()) ImGui::TextDisabled("No sound effects.");
     if (changed) saveAll("Saved");
 }
 

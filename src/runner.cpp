@@ -256,6 +256,19 @@ void Runner::worker(Project p, bool build, bool run) {
             ok = exec(dc + "\"cd /src && make\"", p.dir) == 0;
         }
 
+        // Sound effects: res/sfx/*.wav -> bin/sfx/*.adpcm (PS2SDK adpenc).
+        // Skipped per file when the .adpcm is already newer than its .wav.
+        if (ok) {
+            ok = exec(dc + "\"cd /src && if ls res/sfx/*.wav >/dev/null 2>&1; then "
+                           "mkdir -p bin/sfx && for f in res/sfx/*.wav; do "
+                           "o=bin/sfx/$(basename $f .wav).adpcm; "
+                           "if [ ! $o -nt $f ]; then "
+                           "echo [editor] adpenc $f && adpenc $f $o || exit 1; "
+                           "fi; done; fi\"",
+                      p.dir) == 0;
+            if (!ok) appendLine("[editor] Sound conversion (adpenc) failed.");
+        }
+
         if (ok) {
             appendLine("[editor] Copying binaries back to host...");
             ok = exec(dc + "\"rsync -zac --include=*/ --include=bin/** --exclude=* "

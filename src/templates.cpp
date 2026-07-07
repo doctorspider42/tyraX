@@ -1804,6 +1804,19 @@ std::string flowGraphScript(const Project& p) {
         return -1;
     };
 
+    // Sounds referenced by Play Sound nodes become sfx<i> members loaded once
+    // in init(). Only tracks still present in the project count.
+    std::vector<std::string> usedSounds;
+    auto soundIndex = [&](const std::string& path) {
+        bool known = false;
+        for (const std::string& s : p.sounds) known |= (s == path);
+        if (!known) return -1;
+        for (size_t i = 0; i < usedSounds.size(); ++i)
+            if (usedSounds[i] == path) return (int)i;
+        usedSounds.push_back(path);
+        return (int)usedSounds.size() - 1;
+    };
+
     // action node -> inline statements
     auto actionCode = [&](const FlowNode& n, const std::string& pad) -> std::string {
         std::ostringstream c;
@@ -1861,6 +1874,28 @@ std::string flowGraphScript(const Project& p) {
             }
         } else if (n.type == "StopMusic") {
             c << pad << "ctx.engine->audio.song.stop();\n";
+        } else if (n.type == "PlaySound") {
+            const int si = soundIndex(n.str);
+            if (si < 0) {
+                c << pad << "// node " << n.id << " (PlaySound): unknown sound '" << n.str
+                  << "'\n";
+            } else {
+                int vol = (int)n.num[0];
+                if (vol < 0) vol = 0;
+                if (vol > 100) vol = 100;
+                int ch = (int)n.num[1];
+                if (ch > 23) ch = 23;
+                c << pad << "{\n";
+                if (ch >= 0) {
+                    c << pad << "  const s8 ch = " << ch << ";\n";
+                } else {
+                    c << pad << "  const s8 ch = (s8)sfxNextCh;\n"
+                      << pad << "  sfxNextCh = (sfxNextCh + 1) % 24;\n";
+                }
+                c << pad << "  ctx.engine->audio.adpcm.setVolume(" << vol << ", ch);\n"
+                  << pad << "  ctx.engine->audio.adpcm.tryPlay(sfx" << si << ", ch);\n"
+                  << pad << "}\n";
+            }
         } else if (n.type == "SetMusicVolume") {
             int vol = (int)n.num[0];
             if (vol < 0) vol = 0;
@@ -1932,11 +1967,32 @@ std::string flowGraphScript(const Project& p) {
         }
     }
 
-    out << "  }\n\n"
-           " private:\n"
+    out << "  }\n";
+
+    if (!usedSounds.empty()) {
+        out << "\n  void init(ScriptContext& ctx) override {\n";
+        for (size_t i = 0; i < usedSounds.size(); ++i) {
+            // res/sfx/x.wav on the host lands as sfx/x.adpcm next to the ELF
+            // (converted by adpenc during the build)
+            std::string binPath = usedSounds[i];
+            if (binPath.rfind("res/", 0) == 0) binPath = binPath.substr(4);
+            const size_t dot = binPath.rfind('.');
+            if (dot != std::string::npos) binPath = binPath.substr(0, dot);
+            out << "    sfx" << i << " = ctx.engine->audio.adpcm.load(\n"
+                << "        Tyra::FileUtils::fromCwd(\"" << binPath << ".adpcm\"));\n";
+        }
+        out << "  }\n";
+    }
+
+    out << "\n private:\n"
            "  int frame = 0;\n"
-           "  bool started = false;\n"
-        << members.str()
+           "  bool started = false;\n";
+    if (!usedSounds.empty()) {
+        out << "  int sfxNextCh = 0;\n";
+        for (size_t i = 0; i < usedSounds.size(); ++i)
+            out << "  audsrv_adpcm_t* sfx" << i << " = nullptr;\n";
+    }
+    out << members.str()
         << "};\n\n"
            "}  // namespace "
         << ns << "\n\nTYRA_SCRIPT(" << ns << "::FlowGraphScript);\n";

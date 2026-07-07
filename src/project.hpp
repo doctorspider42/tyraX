@@ -120,6 +120,9 @@ struct Project {
     // Music tracks (16-bit 22kHz stereo WAV in res/audio/), played via the
     // flow graph (Play Music / Stop Music / Set Music Volume actions).
     std::vector<std::string> music;
+    // Sound effects (16-bit 22kHz WAV in res/sfx/, converted to ADPCM by the
+    // toolchain at build). One-shots via the flow graph Play Sound action.
+    std::vector<std::string> sounds;
     FlowGraph flowGraph;
 
     // Terrain heightmap: vertex heights on the render grid (row-major,

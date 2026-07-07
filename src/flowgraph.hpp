@@ -30,7 +30,7 @@ struct FlowGraph {
 
 // ---------------------------------------------------------------------------
 
-enum class FlowParamKind { None, Text, ObjectName, Button, Color, MusicTrack };
+enum class FlowParamKind { None, Text, ObjectName, Button, Color, MusicTrack, SoundTrack };
 
 struct FlowNodeType {
     const char* key;
@@ -70,6 +70,10 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         {"StopMusic", "Stop Music", false, FlowParamKind::None, 0, {}, FlowParamKind::None},
         {"SetMusicVolume", "Set Music Volume", false, FlowParamKind::None, 1,
          {"Volume"}, FlowParamKind::None},
+        // One-shot sample on an SPU channel (0-23; -1 rotates through free
+        // ones). ADPCM samples cannot be stopped once started.
+        {"PlaySound", "Play Sound", false, FlowParamKind::SoundTrack, 2,
+         {"Volume", "Channel"}, FlowParamKind::None},
     };
     return types;
 }
