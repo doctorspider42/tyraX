@@ -858,8 +858,11 @@ void App::drawSceneSection() {
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::DragFloat("Eye height", &o.playerEyeHeight, 0.05f, 0.2f, 50.0f, "%.2f");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::DragFloat("Jump speed", &o.playerJumpSpeed, 0.1f, 0.0f, 50.0f, "%.1f");
-        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        committed |= ImGui::Checkbox("Can jump (X)", &o.playerCanJump);
+        if (o.playerCanJump) {
+            ImGui::DragFloat("Jump speed", &o.playerJumpSpeed, 0.1f, 0.0f, 50.0f, "%.1f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
         ImGui::TextDisabled("First player in the scene drives the camera in the game.");
         ImGui::TextDisabled("Noclip: X up, Square down. Walk: X jumps.");
     }

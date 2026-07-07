@@ -202,6 +202,16 @@ Each finished feature lands as its own commit.
   mono/stereo, 11-48 kHz; float/24-bit flagged as unplayable). Also: Spawn
   Player At now applies the target's Y rotation to the player's yaw.
 
+- (22) **8-bit WAV crackle fix + player jump toggle** - the user's "correct in
+  foobar, crackles on PS2" track turned out to be unsigned 8-bit PCM (48 kHz
+  stereo): WAV stores 8-bit samples unsigned (0x80 = silence) while audsrv
+  mixes them as signed, so the waveform wrapped at every zero crossing. The
+  in-tree song player now converts the chunk in place (XOR 0x80) for 8-bit
+  files. Verified with a quiet-tone pattern: peak 0.24 (full-scale wrap
+  garbage) before, 0.02 (clean sine at the expected amplitude) after. Also:
+  Player entity gets a "Can jump (X)" checkbox (PLAYER_CAN_JUMP gates the walk
+  jump; jump speed hidden when off).
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

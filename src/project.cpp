@@ -132,7 +132,8 @@ static std::string objectJson(const SceneObject& o) {
                 "\", \"walkSpeed\": " + fmtFloat(o.playerWalkSpeed) +
                 ", \"lookSpeed\": " + fmtFloat(o.playerLookSpeed) +
                 ", \"eyeHeight\": " + fmtFloat(o.playerEyeHeight) +
-                ", \"jumpSpeed\": " + fmtFloat(o.playerJumpSpeed) + " }";
+                ", \"jumpSpeed\": " + fmtFloat(o.playerJumpSpeed) +
+                ", \"canJump\": " + (o.playerCanJump ? "true" : "false") + " }";
     }
     if (!o.flowGraph.empty()) json += ", \"flowGraph\": " + flowGraphJson(o.flowGraph);
     return json + " }";
@@ -484,6 +485,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 o.playerEyeHeight = (float)v->numberOr(1.8);
             if (const auto* v = pl->find("jumpSpeed"))
                 o.playerJumpSpeed = (float)v->numberOr(4.5);
+            if (const auto* v = pl->find("canJump"))
+                o.playerCanJump = !(v->type == json::Value::Type::Bool && !v->boolean);
         }
         if (const auto* fg = jo.find("flowGraph")) readFlowGraph(*fg, o.flowGraph);
         out.push_back(std::move(o));

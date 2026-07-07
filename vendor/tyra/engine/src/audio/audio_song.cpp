@@ -280,6 +280,14 @@ void AudioSong::work() {
   chunkReadStatus = want > 0 ? fread(chunk, 1, want, wav) : 0;
   if (chunkReadStatus > 0) songBytesLeft -= (u32)chunkReadStatus;
 
+  // 8-bit WAV stores unsigned samples (0x80 = silence) but audsrv mixes
+  // them as signed - without this the waveform wraps at every zero
+  // crossing and plays as harsh crackle.
+  if (format.bits == 8 && chunkReadStatus > 0) {
+    u8* samples = (u8*)chunk;
+    for (s32 i = 0; i < chunkReadStatus; i++) samples[i] ^= 0x80;
+  }
+
   if (chunkReadStatus < (s32)want || songBytesLeft == 0) songFinished = true;
 }
 

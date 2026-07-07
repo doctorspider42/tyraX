@@ -44,6 +44,7 @@ struct SceneObject {
     float playerLookSpeed = 1.0f;  // multiplier
     float playerEyeHeight = 1.8f;
     float playerJumpSpeed = 4.5f;  // units/s (walk mode, X button)
+    bool playerCanJump = true;     // walk mode: X jumps
 
     // Per-object logic. Object-referencing nodes default to this object
     // ("self"), so a copied object brings a working copy of its behavior.
@@ -63,7 +64,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.playerWalkSpeed == b.playerWalkSpeed &&
            a.playerLookSpeed == b.playerLookSpeed &&
            a.playerEyeHeight == b.playerEyeHeight &&
-           a.playerJumpSpeed == b.playerJumpSpeed && a.flowGraph == b.flowGraph;
+           a.playerJumpSpeed == b.playerJumpSpeed &&
+           a.playerCanJump == b.playerCanJump && a.flowGraph == b.flowGraph;
 }
 
 // General project preferences (Project > Preferences in the editor).

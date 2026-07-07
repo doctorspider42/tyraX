@@ -758,7 +758,8 @@ bool TerrainGame::updatePlayerEntity() {
   if (entY <= ground) {
     entY = ground;
     entVelY = 0.0F;
-    if (engine->pad.getClicked().Cross) entVelY = PLAYER_JUMP_SPEED / 50.0F;
+    if (PLAYER_CAN_JUMP && engine->pad.getClicked().Cross)
+      entVelY = PLAYER_JUMP_SPEED / 50.0F;
   }
 
   const float eyeY = entY + PLAYER_EYE_HEIGHT;
@@ -1771,6 +1772,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         << floatLit(player ? player->playerEyeHeight : 1.8f) << ";\n"
         << "constexpr float PLAYER_JUMP_SPEED = "
         << floatLit(player ? player->playerJumpSpeed : 4.5f) << ";\n"
+        << "constexpr bool PLAYER_CAN_JUMP = "
+        << (!player || player->playerCanJump ? "true" : "false") << ";\n"
            "\n"
            "}  // namespace "
         << ns << "\n";
