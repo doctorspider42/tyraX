@@ -52,6 +52,22 @@ Each finished feature lands as its own commit.
   viewport (stb_image); in-game rendering via Tyra Renderer2D sprites. Verified in
   PCSX2 (crosshair over the 3D scene).
 
+- (11) **Engine optimization: fast EE clipper (patch v2)** — three engine files
+  patched via the Runner (marker `/tyra/.tyra-editor-patch-3`, originals restorable
+  with `git checkout` inside `/tyra`):
+  - `planes_clip_algorithm.cpp`: Cohen-Sutherland outcodes - fully-visible
+    triangles skip the 6-plane Sutherland-Hodgman entirely, fully-outside ones are
+    rejected instantly; `clipAgainstPlane` no longer copies two 64-byte structs
+    by value per edge per plane.
+  - `stapip_clipper.cpp`: static vertex pool instead of a heap-allocated
+    std::vector per clip call (per subpackage, per frame).
+  - `stapip_qbuffer.cpp`: persistent per-buffer arrays instead of up to four
+    new[]/delete[] pairs per fill call.
+  Benchmark (128x128 terrain, detail 128 = 98k verts, precise clipping, FPP at
+  ground level, PCSX2, 3 samples each): **12/12/12 -> 15/15/15 FPS (+25%)**,
+  pixel-identical output. Real scenes with a higher clipping share should gain
+  more (the pathological benchmark is partly VU1/DMA-bound).
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)
@@ -62,3 +78,6 @@ Each finished feature lands as its own commit.
 - Audio (Tyra supports wav/adpcm) - trigger via flow graph action
 - Multiple scenes (model exists in project.json, editor edits only "main")
 - Flow graph: more nodes (timers with reset, gates, variables, sounds)
+- Engine perf, next targets: packager allocates its package array per frame
+  (poolable); the real endgame is the engine author's own TODO in
+  stapip_clipper.hpp - move clipping to VU1 entirely ("too much time")
