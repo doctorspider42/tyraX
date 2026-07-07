@@ -2185,8 +2185,13 @@ std::string flowGraphScript(const Project& p) {
                 text = replaceAll(text, "\"", "\\\"");
                 c << pad << "TYRA_LOG(\"" << text << "\");\n";
             } else if (n.type == "PlayMusic") {
-                if (n.str.empty()) {
-                    c << pad << "// node " << n.id << " (PlayMusic): no track selected\n";
+                bool knownTrack = false;
+                for (const std::string& m : p.music) knownTrack |= (m == n.str);
+                if (n.str.empty() || !knownTrack) {
+                    // Tracks removed from the project stop playing even if a
+                    // node still references them (the file may linger in bin/)
+                    c << pad << "// node " << n.id << " (PlayMusic): unknown track '"
+                      << n.str << "'\n";
                 } else {
                     // res/audio/x.wav lands as audio/x.wav next to the ELF
                     std::string binPath = n.str;

@@ -1575,6 +1575,22 @@ void App::importMusicTrack() {
     saveAll(status.c_str());
 }
 
+// Removing an audio track: clear every flow node that referenced it (in all
+// object graphs) so nothing keeps playing it, and delete the file from res/.
+static void removeAudioTrack(Project& p, const std::string& relPath, bool music) {
+    for (SceneObject& o : p.objects) {
+        for (FlowNode& n : o.flowGraph.nodes) {
+            const FlowNodeType* t = flowNodeType(n.type);
+            if (!t || n.str != relPath) continue;
+            if ((music && t->strKind == FlowParamKind::MusicTrack) ||
+                (!music && t->strKind == FlowParamKind::SoundTrack))
+                n.str.clear();
+        }
+    }
+    std::error_code ec;
+    std::filesystem::remove(std::filesystem::path(p.dir) / relPath, ec);
+}
+
 void App::drawMusicSection() {
     ImGui::SeparatorText("Music");
 
@@ -1595,6 +1611,7 @@ void App::drawMusicSection() {
         ImGui::TextUnformatted(name.c_str());
         ImGui::SameLine();
         if (ImGui::SmallButton("x")) {
+            removeAudioTrack(project_, project_.music[i], true);
             project_.music.erase(project_.music.begin() + i);
             changed = true;
             ImGui::PopID();
@@ -1603,7 +1620,7 @@ void App::drawMusicSection() {
         ImGui::PopID();
     }
     if (project_.music.empty()) ImGui::TextDisabled("No music tracks.");
-    if (changed) saveAll("Saved");
+    if (changed) commitChange();  // graphs live in objects - undoable
 }
 
 void App::importSoundEffect() {
@@ -1666,6 +1683,7 @@ void App::drawSoundsSection() {
         ImGui::TextUnformatted(name.c_str());
         ImGui::SameLine();
         if (ImGui::SmallButton("x")) {
+            removeAudioTrack(project_, project_.sounds[i], false);
             project_.sounds.erase(project_.sounds.begin() + i);
             changed = true;
             ImGui::PopID();
@@ -1674,7 +1692,7 @@ void App::drawSoundsSection() {
         ImGui::PopID();
     }
     if (project_.sounds.empty()) ImGui::TextDisabled("No sound effects.");
-    if (changed) saveAll("Saved");
+    if (changed) commitChange();
 }
 
 void App::drawScriptsSection() {
