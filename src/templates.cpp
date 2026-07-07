@@ -1527,6 +1527,124 @@ std::string StaPipQBuffer::getPrint(const char* name) const {
 }  // namespace Tyra
 )QBUF";
 
+// Engine patch v3: clipping leaves the EE. The VU1 cull programs get a 3x
+// wider XY accept window (the GS scissor trims pixels in hardware, so
+// edge-crossing triangles need no geometric clipping at all), and the bbox
+// "second chance" reclassifies side-crossing packages as cullable. The EE
+// clipper stays only for geometry near the camera plane, where perspective
+// division would explode - the one case a scissor cannot fix.
+
+static const char* TPL_ENGINE_PATCH_BBOX = R"(/*
+# Patched by tyra-editor (engine patch v3) - guard-band aware frustum check.
+# Based on the original by Sandro Sobczynski (h4570/tyra), Apache License 2.0.
+*/
+
+#include <string>
+#include <sstream>
+#include "renderer/core/3d/bbox/render_bbox.hpp"
+
+namespace Tyra {
+
+RenderBBox::RenderBBox(CoreBBox** t_bboxes, const u32& count)
+    : CoreBBox(t_bboxes, count) {}
+
+RenderBBox::RenderBBox(const std::vector<CoreBBox>& t_bboxes,
+                       const u32& startIndex, const u32& stopIndex)
+    : CoreBBox(t_bboxes, startIndex, stopIndex) {}
+
+RenderBBox::RenderBBox(const Vec4* t_vertices, const u32* faces,
+                       const u32& count)
+    : CoreBBox(t_vertices, faces, count) {}
+
+RenderBBox::RenderBBox(const Vec4* t_vertices, const u32& count)
+    : CoreBBox(t_vertices, count) {}
+
+RenderBBox::RenderBBox(const Vec4* t_vertices) : CoreBBox(t_vertices) {}
+
+RenderBBox::RenderBBox(const RenderBBox& t_bbox, const M4x4& t_matrix)
+    : CoreBBox(t_bbox, t_matrix) {}
+
+RenderBBox RenderBBox::getTransformed(const M4x4& t_matrix) const {
+  return RenderBBox(*this, t_matrix);
+}
+
+/**
+ * Frustum check for the renderer.
+ *
+ * The VU1 cull programs accept a 3x wider XY window than the screen
+ * (tyra-editor guard band patch) and the GS scissor trims the pixels, so
+ * packages crossing the LEFT/RIGHT/TOP/BOTTOM planes render correctly on the
+ * fast cull path with no geometric clipping.
+ *
+ * Only geometry close to the NEAR plane really needs the clipper: vertices
+ * behind the eye cannot be scissored, they must be cut before the
+ * perspective division.
+ */
+CoreBBoxFrustum RenderBBox::clipFrustumCheck(const Plane* frustumPlanes,
+                                             const M4x4& model) const {
+  auto result = frustumCheck(frustumPlanes, model);
+
+  if (result != PARTIALLY_IN_FRUSTUM) {
+    return result;
+  }
+
+  float guardBand[6];
+
+  guardBand[0] = -100000.0F;  // Top    - handled by the GS scissor
+  guardBand[1] = -100000.0F;  // Bottom - handled by the GS scissor
+  guardBand[2] = -100000.0F;  // Left   - handled by the GS scissor
+  guardBand[3] = -100000.0F;  // Right  - handled by the GS scissor
+  guardBand[4] = 1.5F;        // Near   - the clipper must handle this band
+  guardBand[5] = 0.0F;        // Far
+
+  const auto withMargins = frustumCheck(frustumPlanes, model, guardBand);
+
+  // Never skip on the second chance - worst case is a bit of extra clipping.
+  return withMargins == OUTSIDE_FRUSTUM ? PARTIALLY_IN_FRUSTUM : withMargins;
+}
+
+}  // namespace Tyra
+)";
+
+// Shell script applied inside the container: swaps the PerformClipCheck VU1
+// macro for a guard-band version (XY widened 3x, Z/W test untouched).
+static const char* TPL_ENGINE_PATCH_VU1_SH = R"SH(#!/bin/sh
+# tyra-editor engine patch v3: guard-band clip check in the VU1 cull programs.
+set -e
+F=/tyra/engine/src/renderer/3d/pipeline/shared/vcl_sml.i
+
+if grep -q "tyra-editor guard band" "$F"; then
+  echo "vu1 guard band already applied"
+  exit 0
+fi
+
+awk '
+/#macro PerformClipCheck/ {
+  print "#macro PerformClipCheck: t_vertex, t_destAddress, t_destAddressOffset";
+  print "   ; tyra-editor guard band: accept XY up to 3x outside the clip";
+  print "   ; volume - the GS scissor trims the pixels, so edge-crossing";
+  print "   ; triangles render correctly without geometric clipping.";
+  print "   loi         0.3333333";
+  print "   muli.xy     scaledClipVtx, t_vertex, i";
+  print "   move.zw     scaledClipVtx, t_vertex";
+  print "   clipw.xyz   scaledClipVtx, scaledClipVtx";
+  print "   fcand       VI01,       0x3FFFF";
+  print "   iaddiu      adcBit,     VI01, 0x7FFF";
+  print "   isw.w       adcBit,     t_destAddressOffset(t_destAddress)";
+  skip = 1; next
+}
+skip && /#endmacro/ { print "#endmacro"; skip = 0; next }
+skip { next }
+{ print }
+' "$F" > "$F.new"
+mv "$F.new" "$F"
+
+# VU1 microprograms are not covered by the C++ dependency tracking -
+# force their rebuild.
+find /tyra/engine/obj -name "*vu1.o*" -delete 2>/dev/null || true
+echo "vu1 guard band applied"
+)SH";
+
 // ---------------------------------------------------------------------------
 // Built-in assets for the "FPP showcase" template
 // ---------------------------------------------------------------------------
@@ -2383,6 +2501,8 @@ std::vector<File> generate(const Project& p) {
         {".tyra-engine-patch\\planes_clip_algorithm.cpp", TPL_ENGINE_PATCH_ALGO},
         {".tyra-engine-patch\\stapip_clipper.cpp", TPL_ENGINE_PATCH_CLIPPER},
         {".tyra-engine-patch\\stapip_qbuffer.cpp", TPL_ENGINE_PATCH_QBUFFER},
+        {".tyra-engine-patch\\render_bbox.cpp", TPL_ENGINE_PATCH_BBOX},
+        {".tyra-engine-patch\\apply_vu1_guardband.sh", TPL_ENGINE_PATCH_VU1_SH},
         {"src\\scripts\\example_interaction.cpp",
          fill(fpp ? TPL_EXAMPLE_SCRIPT_FPP : TPL_EXAMPLE_SCRIPT_ORBIT)},
         {".vscode\\c_cpp_properties.json", vscodeCppProperties()},

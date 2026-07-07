@@ -502,7 +502,9 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\hud_data.gen.hpp" ||
             f.relativePath == ".tyra-engine-patch\\planes_clip_algorithm.cpp" ||
             f.relativePath == ".tyra-engine-patch\\stapip_clipper.cpp" ||
-            f.relativePath == ".tyra-engine-patch\\stapip_qbuffer.cpp") {
+            f.relativePath == ".tyra-engine-patch\\stapip_qbuffer.cpp" ||
+            f.relativePath == ".tyra-engine-patch\\render_bbox.cpp" ||
+            f.relativePath == ".tyra-engine-patch\\apply_vu1_guardband.sh") {
             write = true;  // editor-owned, always in sync with project data
         } else if (f.relativePath == "src\\terrain_game.cpp" ||
                    f.relativePath == "inc\\terrain_game.hpp" ||

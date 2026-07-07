@@ -68,6 +68,22 @@ Each finished feature lands as its own commit.
   pixel-identical output. Real scenes with a higher clipping share should gain
   more (the pathological benchmark is partly VU1/DMA-bound).
 
+- (12) **Engine optimization v3: clipping leaves the EE (the author's TODO)** —
+  resolves the engine author's own comment in stapip_clipper.hpp ("clipping
+  algorithm should be moved to VU1... too much time"). How: the classic PS2
+  guard-band trick. The shared `PerformClipCheck` VU1 macro now tests XY against
+  a 3x wider window (one extra `muli.xy` on a vertex copy; Z/W test untouched,
+  coordinates stay inside the GS 4096 raster window so nothing wraps) and the
+  GS scissor trims the pixels in hardware. `RenderBBox::clipFrustumCheck`
+  reclassifies packages crossing only the side planes as cullable; the EE
+  clipper survives solely for the near-plane band (`+1.5` unit margin), where
+  perspective division would explode - the one case a scissor cannot fix.
+  Applied by the Runner (marker `.tyra-editor-patch-4`, awk script swaps the
+  VCL macro, VU1 microprograms force-rebuilt).
+  Benchmark (same 98k-vert scene, 3 samples): **12 -> 50 FPS (4.2x, full PAL
+  frame rate)**, frame pixel-clean. VU1 usage 1% -> 6%: the work moved to the
+  chip that was built for it.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

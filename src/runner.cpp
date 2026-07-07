@@ -230,8 +230,8 @@ void Runner::worker(Project p, bool build, bool run) {
         // trivial accept/reject + no heap allocations per clip call.
         // Patched sources are generated into <project>/.tyra-engine-patch/
         // and land in /src via the rsync above.
-        if (ok && exec(dc + "\"test -f /tyra/.tyra-editor-patch-3\"", p.dir) != 0) {
-            appendLine("[editor] Patching Tyra engine (fast EE clipper + qbuffer pools) "
+        if (ok && exec(dc + "\"test -f /tyra/.tyra-editor-patch-4\"", p.dir) != 0) {
+            appendLine("[editor] Patching Tyra engine (VU1 guard band + fast EE clipper) "
                        "and rebuilding it - one-time step, takes a minute...");
             ok = exec(dc + "\"cp /src/.tyra-engine-patch/planes_clip_algorithm.cpp "
                            "/tyra/engine/src/renderer/core/3d/clipper/"
@@ -242,8 +242,11 @@ void Runner::worker(Project p, bool build, bool run) {
                            "cp /src/.tyra-engine-patch/stapip_qbuffer.cpp "
                            "/tyra/engine/src/renderer/3d/pipeline/static/core/"
                            "stapip_qbuffer.cpp && "
+                           "cp /src/.tyra-engine-patch/render_bbox.cpp "
+                           "/tyra/engine/src/renderer/core/3d/bbox/render_bbox.cpp && "
+                           "sh /src/.tyra-engine-patch/apply_vu1_guardband.sh && "
                            "cd /tyra/engine && make -j$(nproc) && "
-                           "touch /tyra/.tyra-editor-patch-3\"",
+                           "touch /tyra/.tyra-editor-patch-4\"",
                       p.dir) == 0;
             if (!ok) appendLine("[editor] Engine clipper patch failed.");
         }
