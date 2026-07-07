@@ -56,6 +56,62 @@ static std::string fmtVec3(const float* v) {
     return "[" + fmtFloat(v[0]) + ", " + fmtFloat(v[1]) + ", " + fmtFloat(v[2]) + "]";
 }
 
+static void readVec3(const json::Value* v, float* out);
+
+// "flowGraph": { nodes, links, nextId } - shared by objects (per-object
+// graphs) and the legacy project-level graph reader.
+static std::string flowGraphJson(const FlowGraph& fg) {
+    std::string json = "{ \"nextId\": " + std::to_string(fg.nextId) + ", \"nodes\": [";
+    for (size_t i = 0; i < fg.nodes.size(); ++i) {
+        const FlowNode& n = fg.nodes[i];
+        json += std::string(i ? ", " : "") + "{ \"id\": " + std::to_string(n.id) +
+                ", \"type\": \"" + n.type + "\", \"pos\": [" + fmtFloat(n.pos[0]) + ", " +
+                fmtFloat(n.pos[1]) + "], \"str\": \"" + n.str +
+                "\", \"num\": " + fmtVec3(n.num) + " }";
+    }
+    json += "], \"links\": [";
+    for (size_t i = 0; i < fg.links.size(); ++i) {
+        const FlowLink& l = fg.links[i];
+        json += std::string(i ? ", " : "") + "{ \"id\": " + std::to_string(l.id) +
+                ", \"from\": " + std::to_string(l.fromNode) +
+                ", \"to\": " + std::to_string(l.toNode) +
+                (l.data ? ", \"data\": true" : "") + " }";
+    }
+    return json + "] }";
+}
+
+static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
+    if (const auto* v = jg.find("nextId")) fg.nextId = (int)v->numberOr(1);
+    if (const auto* nodes = jg.find("nodes");
+        nodes && nodes->type == json::Value::Type::Array) {
+        for (const auto& jn : nodes->arr) {
+            FlowNode n;
+            if (const auto* v = jn.find("id")) n.id = (int)v->numberOr(0);
+            if (const auto* v = jn.find("type")) n.type = v->stringOr("");
+            if (const auto* v = jn.find("pos");
+                v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                n.pos[0] = (float)v->arr[0].numberOr(0);
+                n.pos[1] = (float)v->arr[1].numberOr(0);
+            }
+            if (const auto* v = jn.find("str")) n.str = v->stringOr("");
+            readVec3(jn.find("num"), n.num);
+            if (n.id > 0 && flowNodeType(n.type)) fg.nodes.push_back(n);
+        }
+    }
+    if (const auto* links = jg.find("links");
+        links && links->type == json::Value::Type::Array) {
+        for (const auto& jl : links->arr) {
+            FlowLink l;
+            if (const auto* v = jl.find("id")) l.id = (int)v->numberOr(0);
+            if (const auto* v = jl.find("from")) l.fromNode = (int)v->numberOr(0);
+            if (const auto* v = jl.find("to")) l.toNode = (int)v->numberOr(0);
+            if (const auto* v = jl.find("data"))
+                l.data = v->type == json::Value::Type::Bool && v->boolean;
+            if (l.id > 0) fg.links.push_back(l);
+        }
+    }
+}
+
 static std::string objectJson(const SceneObject& o) {
     std::string json =
         "{ \"name\": \"" + o.name + "\", \"type\": \"" + primitiveTypeName(o.type) +
@@ -73,6 +129,7 @@ static std::string objectJson(const SceneObject& o) {
                 ", \"eyeHeight\": " + fmtFloat(o.playerEyeHeight) +
                 ", \"jumpSpeed\": " + fmtFloat(o.playerJumpSpeed) + " }";
     }
+    if (!o.flowGraph.empty()) json += ", \"flowGraph\": " + flowGraphJson(o.flowGraph);
     return json + " }";
 }
 
@@ -140,22 +197,7 @@ std::string save(const Project& p) {
     for (size_t i = 0; i < p.sounds.size(); ++i)
         json << (i ? ", " : "") << "\"" << p.sounds[i] << "\"";
     json << "]";
-    json << ",\n  \"flowGraph\": {\n"
-         << "    \"nextId\": " << p.flowGraph.nextId << ",\n"
-         << "    \"nodes\": [";
-    for (size_t i = 0; i < p.flowGraph.nodes.size(); ++i) {
-        const FlowNode& n = p.flowGraph.nodes[i];
-        json << (i ? ",\n      " : "\n      ") << "{ \"id\": " << n.id << ", \"type\": \""
-             << n.type << "\", \"pos\": [" << fmtFloat(n.pos[0]) << ", " << fmtFloat(n.pos[1])
-             << "], \"str\": \"" << n.str << "\", \"num\": " << fmtVec3(n.num) << " }";
-    }
-    json << (p.flowGraph.nodes.empty() ? "],\n" : "\n    ],\n") << "    \"links\": [";
-    for (size_t i = 0; i < p.flowGraph.links.size(); ++i) {
-        const FlowLink& l = p.flowGraph.links[i];
-        json << (i ? ",\n      " : "\n      ") << "{ \"id\": " << l.id
-             << ", \"from\": " << l.fromNode << ", \"to\": " << l.toNode << " }";
-    }
-    json << (p.flowGraph.links.empty() ? "]\n" : "\n    ]\n") << "  }\n}\n";
+    json << "\n}\n";
     return writeFile(fs::path(p.dir) / "project.json", json.str());
 }
 
@@ -255,40 +297,48 @@ std::string create(Project& out, const std::string& name, const std::string& par
         crosshair.size[0] = crosshair.size[1] = 40.0f;
         out.hud.push_back(crosshair);
 
-        // ...and a small flow graph: Circle toggles the box,
-        // walking up to the house greets you in the log.
-        FlowGraph& fg = out.flowGraph;
-        FlowNode onButton;
-        onButton.id = fg.nextId++;
-        onButton.type = "OnButton";
-        onButton.str = "Circle";
-        onButton.pos[0] = 40, onButton.pos[1] = 40;
-        FlowNode toggle;
-        toggle.id = fg.nextId++;
-        toggle.type = "ToggleObject";
-        toggle.str = "box-1";
-        toggle.pos[0] = 300, toggle.pos[1] = 40;
-        FlowNode near;
-        near.id = fg.nextId++;
-        near.type = "NearObject";
-        near.str = "house-1";
-        near.num[0] = 6.0f;
-        near.pos[0] = 40, near.pos[1] = 200;
-        FlowNode log;
-        log.id = fg.nextId++;
-        log.type = "Log";
-        log.str = "Welcome home!";
-        log.pos[0] = 300, log.pos[1] = 200;
-        fg.nodes = {onButton, toggle, near, log};
-        FlowLink l1;
-        l1.id = fg.nextId++;
-        l1.fromNode = onButton.id;
-        l1.toNode = toggle.id;
-        FlowLink l2;
-        l2.id = fg.nextId++;
-        l2.fromNode = near.id;
-        l2.toNode = log.id;
-        fg.links = {l1, l2};
+        // ...and two small per-object flow graphs. Object params are left
+        // empty = "self", so both graphs survive copy-paste unchanged.
+        // box-1: Circle toggles the box.
+        for (SceneObject& obj : out.objects) {
+            if (obj.name == "box-1") {
+                FlowGraph& fg = obj.flowGraph;
+                FlowNode onButton;
+                onButton.id = fg.nextId++;
+                onButton.type = "OnButton";
+                onButton.str = "Circle";
+                onButton.pos[0] = 40, onButton.pos[1] = 40;
+                FlowNode toggle;
+                toggle.id = fg.nextId++;
+                toggle.type = "ToggleObject";  // str empty = self
+                toggle.pos[0] = 300, toggle.pos[1] = 40;
+                fg.nodes = {onButton, toggle};
+                FlowLink l1;
+                l1.id = fg.nextId++;
+                l1.fromNode = onButton.id;
+                l1.toNode = toggle.id;
+                fg.links = {l1};
+            } else if (obj.name == "house-1") {
+                // house-1: walking up to it greets you in the log.
+                FlowGraph& fg = obj.flowGraph;
+                FlowNode near;
+                near.id = fg.nextId++;
+                near.type = "NearObject";  // str empty = self
+                near.num[0] = 6.0f;
+                near.pos[0] = 40, near.pos[1] = 40;
+                FlowNode log;
+                log.id = fg.nextId++;
+                log.type = "Log";
+                log.str = "Welcome home!";
+                log.pos[0] = 300, log.pos[1] = 40;
+                fg.nodes = {near, log};
+                FlowLink l2;
+                l2.id = fg.nextId++;
+                l2.fromNode = near.id;
+                l2.toNode = log.id;
+                fg.links = {l2};
+            }
+        }
     }
 
     for (const auto& f : templates::generate(out)) {
@@ -430,6 +480,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (const auto* v = pl->find("jumpSpeed"))
                 o.playerJumpSpeed = (float)v->numberOr(4.5);
         }
+        if (const auto* fg = jo.find("flowGraph")) readFlowGraph(*fg, o.flowGraph);
         out.push_back(std::move(o));
     }
 }
@@ -538,34 +589,14 @@ std::string load(Project& out, const std::string& projectDir) {
     loadHeights(out);
     ensureHeightmap(out);
 
-    if (const auto* fg = root.find("flowGraph")) {
-        if (const auto* v = fg->find("nextId")) out.flowGraph.nextId = (int)v->numberOr(1);
-        if (const auto* nodes = fg->find("nodes");
-            nodes && nodes->type == json::Value::Type::Array) {
-            for (const auto& jn : nodes->arr) {
-                FlowNode n;
-                if (const auto* v = jn.find("id")) n.id = (int)v->numberOr(0);
-                if (const auto* v = jn.find("type")) n.type = v->stringOr("");
-                if (const auto* v = jn.find("pos");
-                    v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
-                    n.pos[0] = (float)v->arr[0].numberOr(0);
-                    n.pos[1] = (float)v->arr[1].numberOr(0);
-                }
-                if (const auto* v = jn.find("str")) n.str = v->stringOr("");
-                readVec3(jn.find("num"), n.num);
-                if (n.id > 0 && flowNodeType(n.type)) out.flowGraph.nodes.push_back(n);
-            }
-        }
-        if (const auto* links = fg->find("links");
-            links && links->type == json::Value::Type::Array) {
-            for (const auto& jl : links->arr) {
-                FlowLink l;
-                if (const auto* v = jl.find("id")) l.id = (int)v->numberOr(0);
-                if (const auto* v = jl.find("from")) l.fromNode = (int)v->numberOr(0);
-                if (const auto* v = jl.find("to")) l.toNode = (int)v->numberOr(0);
-                if (l.id > 0) out.flowGraph.links.push_back(l);
-            }
-        }
+    // Legacy project-level flow graph (pre per-object graphs): adopt it into
+    // the first object so old projects keep working. It is written back in
+    // the new per-object format on the next save.
+    if (const auto* fg = root.find("flowGraph"); fg && !out.objects.empty()) {
+        FlowGraph legacy;
+        readFlowGraph(*fg, legacy);
+        if (!legacy.empty() && out.objects[0].flowGraph.empty())
+            out.objects[0].flowGraph = std::move(legacy);
     }
     return "";
 }

@@ -31,6 +31,7 @@ private:
     void openProjectDialog();
     void applyProjectToViewport();
     void addObject(PrimitiveType type);
+    void drawAddObjectMenu();
     void importModel();
     void drawHudSection();
     void importHudImage();
@@ -72,7 +73,8 @@ private:
     bool hasClipboard_ = false;
 
     // Flow graph editor state
-    bool flowPositionsApplied_ = false;  // node positions pushed to imnodes once
+    int flowGraphObject_ = -1;           // object whose graph is open in the editor
+    bool flowPositionsApplied_ = false;  // node positions pushed to imnodes per graph
 
     // HUD editing
     int selectedHud_ = -1;

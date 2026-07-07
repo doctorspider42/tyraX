@@ -44,6 +44,10 @@ struct SceneObject {
     float playerLookSpeed = 1.0f;  // multiplier
     float playerEyeHeight = 1.8f;
     float playerJumpSpeed = 4.5f;  // units/s (walk mode, X button)
+
+    // Per-object logic. Object-referencing nodes default to this object
+    // ("self"), so a copied object brings a working copy of its behavior.
+    FlowGraph flowGraph;
 };
 
 const char* primitiveTypeName(PrimitiveType t);
@@ -58,7 +62,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.texturePath == b.texturePath && a.playerMode == b.playerMode &&
            a.playerWalkSpeed == b.playerWalkSpeed &&
            a.playerLookSpeed == b.playerLookSpeed &&
-           a.playerEyeHeight == b.playerEyeHeight && a.playerJumpSpeed == b.playerJumpSpeed;
+           a.playerEyeHeight == b.playerEyeHeight &&
+           a.playerJumpSpeed == b.playerJumpSpeed && a.flowGraph == b.flowGraph;
 }
 
 // General project preferences (Project > Preferences in the editor).
@@ -123,7 +128,6 @@ struct Project {
     // Sound effects (16-bit 22kHz WAV in res/sfx/, converted to ADPCM by the
     // toolchain at build). One-shots via the flow graph Play Sound action.
     std::vector<std::string> sounds;
-    FlowGraph flowGraph;
 
     // Terrain heightmap: vertex heights on the render grid (row-major,
     // hmW x hmD where hmW = min(detail, width) + 1 etc.). Empty = flat.

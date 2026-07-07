@@ -1804,198 +1804,254 @@ std::string flowGraphScript(const Project& p) {
         return -1;
     };
 
-    // Sounds referenced by Play Sound nodes become sfx<i> members loaded once
-    // in init(). Only tracks still present in the project count.
-    std::vector<std::string> usedSounds;
-    auto soundIndex = [&](const std::string& path) {
-        bool known = false;
-        for (const std::string& s : p.sounds) known |= (s == path);
-        if (!known) return -1;
-        for (size_t i = 0; i < usedSounds.size(); ++i)
-            if (usedSounds[i] == path) return (int)i;
-        usedSounds.push_back(path);
-        return (int)usedSounds.size() - 1;
-    };
-
-    // action node -> inline statements
-    auto actionCode = [&](const FlowNode& n, const std::string& pad) -> std::string {
-        std::ostringstream c;
-        const int idx = objectIndex(n.str);
-        const bool needsObject = flowNodeType(n.type)->strKind == FlowParamKind::ObjectName;
-        if (needsObject && idx < 0) {
-            c << pad << "// node " << n.id << " (" << n.type << "): unknown object '"
-              << n.str << "'\n";
-            return c.str();
-        }
-        const std::string obj = "ctx.objects[" + std::to_string(idx) + "]";
-        if (n.type == "SetSky") {
-            c << pad << "ctx.skyColor = Tyra::Color(" << floatLit(n.num[0] * 255.0f) << ", "
-              << floatLit(n.num[1] * 255.0f) << ", " << floatLit(n.num[2] * 255.0f) << ");\n";
-        } else if (n.type == "ShowObject") {
-            c << pad << obj << ".visible = true;\n";
-        } else if (n.type == "HideObject") {
-            c << pad << obj << ".visible = false;\n";
-        } else if (n.type == "ToggleObject") {
-            c << pad << obj << ".visible = !" << obj << ".visible;\n";
-        } else if (n.type == "MoveObjectBy") {
-            for (int a = 0; a < 3; ++a)
-                if (n.num[a] != 0.0f)
-                    c << pad << obj << ".data.position[" << a << "] += " << floatLit(n.num[a])
-                      << ";\n";
-            c << pad << obj << ".dirty = true;\n";
-        } else if (n.type == "SetObjectColor") {
-            for (int a = 0; a < 3; ++a)
-                c << pad << obj << ".data.color[" << a << "] = " << floatLit(n.num[a]) << ";\n";
-            c << pad << obj << ".dirty = true;\n";
-        } else if (n.type == "Log") {
-            std::string text = n.str;
-            text = replaceAll(text, "\\", "\\\\");
-            text = replaceAll(text, "\"", "\\\"");
-            c << pad << "TYRA_LOG(\"" << text << "\");\n";
-        } else if (n.type == "PlayMusic") {
-            if (n.str.empty()) {
-                c << pad << "// node " << n.id << " (PlayMusic): no track selected\n";
-            } else {
-                // res/audio/x.wav on the host lands as audio/x.wav next to the ELF
-                std::string binPath = n.str;
-                if (binPath.rfind("res/", 0) == 0) binPath = binPath.substr(4);
-                int vol = (int)n.num[0];
-                if (vol < 0) vol = 0;
-                if (vol > 100) vol = 100;
-                c << pad << "{\n"
-                  << pad << "  auto& song = ctx.engine->audio.song;\n"
-                  << pad << "  song.stop();\n"
-                  << pad << "  song.load(Tyra::FileUtils::fromCwd(\"" << binPath << "\"));\n"
-                  << pad << "  song.inLoop = " << (n.num[1] != 0.0f ? "true" : "false")
-                  << ";\n"
-                  << pad << "  song.setVolume(" << vol << ");\n"
-                  << pad << "  song.play();\n"
-                  << pad << "}\n";
-            }
-        } else if (n.type == "StopMusic") {
-            c << pad << "ctx.engine->audio.song.stop();\n";
-        } else if (n.type == "PlaySound") {
-            const int si = soundIndex(n.str);
-            if (si < 0) {
-                c << pad << "// node " << n.id << " (PlaySound): unknown sound '" << n.str
-                  << "'\n";
-            } else {
-                int vol = (int)n.num[0];
-                if (vol < 0) vol = 0;
-                if (vol > 100) vol = 100;
-                int ch = (int)n.num[1];
-                if (ch > 23) ch = 23;
-                c << pad << "{\n";
-                if (ch >= 0) {
-                    c << pad << "  const s8 ch = " << ch << ";\n";
-                } else {
-                    c << pad << "  const s8 ch = (s8)sfxNextCh;\n"
-                      << pad << "  sfxNextCh = (sfxNextCh + 1) % 24;\n";
-                }
-                c << pad << "  ctx.engine->audio.adpcm.setVolume(" << vol << ", ch);\n"
-                  << pad << "  ctx.engine->audio.adpcm.tryPlay(sfx" << si << ", ch);\n"
-                  << pad << "}\n";
-            }
-        } else if (n.type == "SetMusicVolume") {
-            int vol = (int)n.num[0];
-            if (vol < 0) vol = 0;
-            if (vol > 100) vol = 100;
-            c << pad << "ctx.engine->audio.song.setVolume(" << vol << ");\n";
-        }
-        return c.str();
-    };
-
-    // all actions linked to a trigger
-    auto linkedActions = [&](int triggerId, const std::string& pad) {
-        std::ostringstream c;
-        for (const FlowLink& l : p.flowGraph.links) {
-            if (l.fromNode != triggerId) continue;
-            for (const FlowNode& n : p.flowGraph.nodes) {
-                if (n.id != l.toNode) continue;
-                const FlowNodeType* t = flowNodeType(n.type);
-                if (t && !t->trigger) c << actionCode(n, pad);
-            }
-        }
-        return c.str();
-    };
-
     std::ostringstream out;
-    out << "// Generated by tyra-editor from the Flow Graph. Do not edit -\n"
-           "// regenerated on every build. Edit the graph in the editor instead.\n"
+    out << "// Generated by tyra-editor from the per-object Flow Graphs. Do not\n"
+           "// edit - regenerated on every build. Edit the graphs in the editor.\n"
            "#include \"scripts/script.hpp\"\n\n"
            "namespace "
-        << ns
-        << " {\n\n"
-           "class FlowGraphScript : public Script {\n"
-           " public:\n"
-           "  void update(ScriptContext& ctx) override {\n"
-           "    frame++;\n";
+        << ns << " {\n";
 
-    std::ostringstream members;
-    for (const FlowNode& n : p.flowGraph.nodes) {
-        const FlowNodeType* t = flowNodeType(n.type);
-        if (!t || !t->trigger) continue;
-        const std::string body = linkedActions(n.id, "      ");
-        if (body.empty()) continue;
+    std::ostringstream registrations;
+    bool anyGraph = false;
 
-        if (n.type == "OnStart") {
-            out << "    if (!started) {\n      started = true;\n" << body << "    }\n";
-        } else if (n.type == "OnButton") {
-            std::string btn = n.str.empty() ? "Cross" : n.str;
-            out << "    if (ctx.engine->pad.getClicked()." << btn << ") {\n" << body
-                << "    }\n";
-        } else if (n.type == "NearObject") {
-            const int idx = objectIndex(n.str);
-            if (idx < 0) {
-                out << "    // node " << n.id << " (NearObject): unknown object '" << n.str
-                    << "'\n";
-                continue;
+    for (size_t ownerIdx = 0; ownerIdx < p.objects.size(); ++ownerIdx) {
+        const FlowGraph& fg = p.objects[ownerIdx].flowGraph;
+        if (fg.empty()) continue;
+        anyGraph = true;
+
+        auto nodeById = [&](int id) -> const FlowNode* {
+            for (const FlowNode& n : fg.nodes)
+                if (n.id == id) return &n;
+            return nullptr;
+        };
+
+        // Which object a node refers to: incoming data link (follow the
+        // chain) > explicit name > the owning object ("self"). Resolved
+        // fully at codegen time - ids in links are wiring, not runtime data.
+        auto resolveTarget = [&](const FlowNode& n) -> int {
+            const FlowNode* cur = &n;
+            std::vector<int> visited;
+            for (;;) {
+                bool seen = false;
+                for (int id : visited) seen |= (id == cur->id);
+                if (seen) break;  // cycle guard
+                visited.push_back(cur->id);
+                const FlowNodeType* t = flowNodeType(cur->type);
+                if (!t || !t->idIn) break;
+                const FlowLink* dataLink = nullptr;
+                for (const FlowLink& l : fg.links)
+                    if (l.data && l.toNode == cur->id) {
+                        dataLink = &l;
+                        break;
+                    }
+                if (!dataLink) break;
+                const FlowNode* src = nodeById(dataLink->fromNode);
+                if (!src) break;
+                cur = src;
             }
-            const std::string flag = "near" + std::to_string(n.id);
-            members << "  bool " << flag << " = false;\n";
-            const float r = n.num[0] > 0.01f ? n.num[0] : 3.0f;
-            out << "    {\n      const float dx = ctx.playerPosition.x - ctx.objects[" << idx
-                << "].data.position[0];\n      const float dz = ctx.playerPosition.z - "
-                   "ctx.objects["
-                << idx << "].data.position[2];\n      const bool isNear = dx * dx + dz * dz < "
-                << floatLit(r * r) << ";\n      if (isNear && !" << flag << ") {\n"
-                << body << "      }\n      " << flag << " = isNear;\n    }\n";
-        } else if (n.type == "EverySeconds") {
-            int frames = (int)(n.num[0] * 50.0f);
-            if (frames < 1) frames = 1;
-            out << "    if (frame % " << frames << " == 0) {\n" << body << "    }\n";
-        }
-    }
+            const FlowNodeType* ct = flowNodeType(cur->type);
+            if (ct && ct->strKind == FlowParamKind::ObjectName && !cur->str.empty())
+                return objectIndex(cur->str);
+            return (int)ownerIdx;  // self
+        };
 
-    out << "  }\n";
+        // Sounds referenced by this graph's Play Sound nodes become sfx<i>
+        // members loaded once in init().
+        std::vector<std::string> usedSounds;
+        auto soundIndex = [&](const std::string& path) {
+            bool known = false;
+            for (const std::string& s : p.sounds) known |= (s == path);
+            if (!known) return -1;
+            for (size_t i = 0; i < usedSounds.size(); ++i)
+                if (usedSounds[i] == path) return (int)i;
+            usedSounds.push_back(path);
+            return (int)usedSounds.size() - 1;
+        };
 
-    if (!usedSounds.empty()) {
-        out << "\n  void init(ScriptContext& ctx) override {\n";
-        for (size_t i = 0; i < usedSounds.size(); ++i) {
-            // res/sfx/x.wav on the host lands as sfx/x.adpcm next to the ELF
-            // (converted by adpenc during the build)
-            std::string binPath = usedSounds[i];
-            if (binPath.rfind("res/", 0) == 0) binPath = binPath.substr(4);
-            const size_t dot = binPath.rfind('.');
-            if (dot != std::string::npos) binPath = binPath.substr(0, dot);
-            out << "    sfx" << i << " = ctx.engine->audio.adpcm.load(\n"
-                << "        Tyra::FileUtils::fromCwd(\"" << binPath << ".adpcm\"));\n";
+        // action node -> inline statements
+        auto actionCode = [&](const FlowNode& n, const std::string& pad) -> std::string {
+            std::ostringstream c;
+            const int idx = resolveTarget(n);
+            const bool needsObject =
+                flowNodeType(n.type)->strKind == FlowParamKind::ObjectName;
+            if (needsObject && idx < 0) {
+                c << pad << "// node " << n.id << " (" << n.type << "): unknown object '"
+                  << n.str << "'\n";
+                return c.str();
+            }
+            std::string obj = "ctx.objects[" + std::to_string(idx) + "]";
+            if (n.type == "SetSky") {
+                c << pad << "ctx.skyColor = Tyra::Color(" << floatLit(n.num[0] * 255.0f)
+                  << ", " << floatLit(n.num[1] * 255.0f) << ", "
+                  << floatLit(n.num[2] * 255.0f) << ");\n";
+            } else if (n.type == "ShowObject") {
+                c << pad << obj << ".visible = true;\n";
+            } else if (n.type == "HideObject") {
+                c << pad << obj << ".visible = false;\n";
+            } else if (n.type == "ToggleObject") {
+                c << pad << obj << ".visible = !" << obj << ".visible;\n";
+            } else if (n.type == "MoveObjectBy") {
+                for (int a = 0; a < 3; ++a)
+                    if (n.num[a] != 0.0f)
+                        c << pad << obj << ".data.position[" << a
+                          << "] += " << floatLit(n.num[a]) << ";\n";
+                c << pad << obj << ".dirty = true;\n";
+            } else if (n.type == "SetObjectColor") {
+                for (int a = 0; a < 3; ++a)
+                    c << pad << obj << ".data.color[" << a
+                      << "] = " << floatLit(n.num[a]) << ";\n";
+                c << pad << obj << ".dirty = true;\n";
+            } else if (n.type == "Log") {
+                std::string text = n.str;
+                text = replaceAll(text, "\\", "\\\\");
+                text = replaceAll(text, "\"", "\\\"");
+                c << pad << "TYRA_LOG(\"" << text << "\");\n";
+            } else if (n.type == "PlayMusic") {
+                if (n.str.empty()) {
+                    c << pad << "// node " << n.id << " (PlayMusic): no track selected\n";
+                } else {
+                    // res/audio/x.wav lands as audio/x.wav next to the ELF
+                    std::string binPath = n.str;
+                    if (binPath.rfind("res/", 0) == 0) binPath = binPath.substr(4);
+                    int vol = (int)n.num[0];
+                    if (vol < 0) vol = 0;
+                    if (vol > 100) vol = 100;
+                    c << pad << "{\n"
+                      << pad << "  auto& song = ctx.engine->audio.song;\n"
+                      << pad << "  song.stop();\n"
+                      << pad << "  song.load(Tyra::FileUtils::fromCwd(\"" << binPath
+                      << "\"));\n"
+                      << pad << "  song.inLoop = " << (n.num[1] != 0.0f ? "true" : "false")
+                      << ";\n"
+                      << pad << "  song.setVolume(" << vol << ");\n"
+                      << pad << "  song.play();\n"
+                      << pad << "}\n";
+                }
+            } else if (n.type == "StopMusic") {
+                c << pad << "ctx.engine->audio.song.stop();\n";
+            } else if (n.type == "PlaySound") {
+                const int si = soundIndex(n.str);
+                if (si < 0) {
+                    c << pad << "// node " << n.id << " (PlaySound): unknown sound '"
+                      << n.str << "'\n";
+                } else {
+                    int vol = (int)n.num[0];
+                    if (vol < 0) vol = 0;
+                    if (vol > 100) vol = 100;
+                    int ch = (int)n.num[1];
+                    if (ch > 23) ch = 23;
+                    c << pad << "{\n";
+                    if (ch >= 0) {
+                        c << pad << "  const s8 ch = " << ch << ";\n";
+                    } else {
+                        c << pad << "  const s8 ch = (s8)sfxNextCh;\n"
+                          << pad << "  sfxNextCh = (sfxNextCh + 1) % 24;\n";
+                    }
+                    c << pad << "  ctx.engine->audio.adpcm.setVolume(" << vol << ", ch);\n"
+                      << pad << "  ctx.engine->audio.adpcm.tryPlay(sfx" << si << ", ch);\n"
+                      << pad << "}\n";
+                }
+            } else if (n.type == "SetMusicVolume") {
+                int vol = (int)n.num[0];
+                if (vol < 0) vol = 0;
+                if (vol > 100) vol = 100;
+                c << pad << "ctx.engine->audio.song.setVolume(" << vol << ");\n";
+            }
+            return c.str();
+        };
+
+        // all actions exec-linked to a trigger
+        auto linkedActions = [&](int triggerId, const std::string& pad) {
+            std::ostringstream c;
+            for (const FlowLink& l : fg.links) {
+                if (l.data || l.fromNode != triggerId) continue;
+                for (const FlowNode& n : fg.nodes) {
+                    if (n.id != l.toNode) continue;
+                    const FlowNodeType* t = flowNodeType(n.type);
+                    if (t && !t->trigger) c << actionCode(n, pad);
+                }
+            }
+            return c.str();
+        };
+
+        const std::string cls = "FlowGraphScript_" + std::to_string(ownerIdx);
+        out << "\n// Graph of \"" << p.objects[ownerIdx].name << "\" (object " << ownerIdx
+            << ")\nclass " << cls
+            << " : public Script {\n"
+               " public:\n"
+               "  void update(ScriptContext& ctx) override {\n"
+               "    frame++;\n";
+
+        std::ostringstream members;
+        for (const FlowNode& n : fg.nodes) {
+            const FlowNodeType* t = flowNodeType(n.type);
+            if (!t || !t->trigger) continue;
+            const std::string body = linkedActions(n.id, "      ");
+            if (body.empty()) continue;
+
+            if (n.type == "OnStart") {
+                out << "    if (!started) {\n      started = true;\n" << body << "    }\n";
+            } else if (n.type == "OnButton") {
+                std::string btn = n.str.empty() ? "Cross" : n.str;
+                out << "    if (ctx.engine->pad.getClicked()." << btn << ") {\n" << body
+                    << "    }\n";
+            } else if (n.type == "NearObject") {
+                const int idx = resolveTarget(n);
+                if (idx < 0) {
+                    out << "    // node " << n.id << " (NearObject): unknown object '"
+                        << n.str << "'\n";
+                    continue;
+                }
+                const std::string flag = "near" + std::to_string(n.id);
+                members << "  bool " << flag << " = false;\n";
+                const float r = n.num[0] > 0.01f ? n.num[0] : 3.0f;
+                out << "    {\n      const float dx = ctx.playerPosition.x - ctx.objects["
+                    << idx
+                    << "].data.position[0];\n      const float dz = ctx.playerPosition.z - "
+                       "ctx.objects["
+                    << idx
+                    << "].data.position[2];\n      const bool isNear = dx * dx + dz * dz < "
+                    << floatLit(r * r) << ";\n      if (isNear && !" << flag << ") {\n"
+                    << body << "      }\n      " << flag << " = isNear;\n    }\n";
+            } else if (n.type == "EverySeconds") {
+                int frames = (int)(n.num[0] * 50.0f);
+                if (frames < 1) frames = 1;
+                out << "    if (frame % " << frames << " == 0) {\n" << body << "    }\n";
+            }
         }
+
         out << "  }\n";
+
+        if (!usedSounds.empty()) {
+            out << "\n  void init(ScriptContext& ctx) override {\n";
+            for (size_t i = 0; i < usedSounds.size(); ++i) {
+                // res/sfx/x.wav lands as sfx/x.adpcm next to the ELF (adpenc)
+                std::string binPath = usedSounds[i];
+                if (binPath.rfind("res/", 0) == 0) binPath = binPath.substr(4);
+                const size_t dot = binPath.rfind('.');
+                if (dot != std::string::npos) binPath = binPath.substr(0, dot);
+                out << "    sfx" << i << " = ctx.engine->audio.adpcm.load(\n"
+                    << "        Tyra::FileUtils::fromCwd(\"" << binPath << ".adpcm\"));\n";
+            }
+            out << "  }\n";
+        }
+
+        out << "\n private:\n"
+               "  int frame = 0;\n"
+               "  bool started = false;\n";
+        if (!usedSounds.empty()) {
+            out << "  int sfxNextCh = 0;\n";
+            for (size_t i = 0; i < usedSounds.size(); ++i)
+                out << "  audsrv_adpcm_t* sfx" << i << " = nullptr;\n";
+        }
+        out << members.str() << "};\n";
+
+        registrations << "TYRA_SCRIPT(" << ns << "::" << cls << ");\n";
     }
 
-    out << "\n private:\n"
-           "  int frame = 0;\n"
-           "  bool started = false;\n";
-    if (!usedSounds.empty()) {
-        out << "  int sfxNextCh = 0;\n";
-        for (size_t i = 0; i < usedSounds.size(); ++i)
-            out << "  audsrv_adpcm_t* sfx" << i << " = nullptr;\n";
-    }
-    out << members.str()
-        << "};\n\n"
-           "}  // namespace "
-        << ns << "\n\nTYRA_SCRIPT(" << ns << "::FlowGraphScript);\n";
+    if (!anyGraph) out << "\n// No object has a flow graph yet.\n";
+
+    out << "\n}  // namespace " << ns << "\n\n" << registrations.str();
     return out.str();
 }
 

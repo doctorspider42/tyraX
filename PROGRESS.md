@@ -148,6 +148,25 @@ Each finished feature lands as its own commit.
   shows silence with a burst exactly every 2 s (test chirp). Speaker check by
   ear is left for a human.
 
+- (19) **Per-object flow graphs + categorized menus** — the single global flow
+  graph is gone: every scene object can carry its own graph (stored inside the
+  object in project.json; legacy project-level graphs migrate to the first
+  object on load). The Flow Graph tab gets a "Graph of" combo (objects with a
+  graph are starred) and a "Selected object" jump button. Object-referencing
+  nodes resolve their target as: incoming **object-id data link** (new square
+  pins + amber links, id output on triggers and object actions) > explicit
+  name > **self** (the graph's owner - the new "(self)" combo default), plus a
+  "From selected" button that grabs the object selected in the editor.
+  Resolution happens at codegen (one script class per object graph); copying
+  an object copies its graph, and self-references follow the copy - graphs now
+  work as reusable components. Insert menus modernized into category trees:
+  scene objects (Simple / Gameplay / Custom - single "+ Add object" button
+  instead of the overflowing button row) and flow nodes (Triggers / Object /
+  Scene / Audio / Debug). Graph edits now land in undo history (graphs are
+  part of scene snapshots). Verified: codegen resolves a data-link chain and
+  self-references correctly (phys-demo), game boots at 50 FPS; node-editor
+  interactions (pins, combos) need a hands-on mouse pass.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

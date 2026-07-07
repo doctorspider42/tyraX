@@ -299,13 +299,7 @@ void App::drawMenuBar() {
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Scene", hasProject_)) {
-            if (ImGui::MenuItem("Add Box")) addObject(PrimitiveType::Box);
-            if (ImGui::MenuItem("Add Sphere")) addObject(PrimitiveType::Sphere);
-            if (ImGui::MenuItem("Add Cylinder")) addObject(PrimitiveType::Cylinder);
-            if (ImGui::MenuItem("Add Cone")) addObject(PrimitiveType::Cone);
-            ImGui::Separator();
-            if (ImGui::MenuItem("Add Spawn Point")) addObject(PrimitiveType::SpawnPoint);
-            if (ImGui::MenuItem("Add Player")) addObject(PrimitiveType::Player);
+            drawAddObjectMenu();
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Project", hasProject_)) {
@@ -641,6 +635,7 @@ void App::applySnapshot(const SceneSnapshot& s) {
     project_.terrain = s.terrain;
     project_.objects = s.objects;
     if (selectedObject_ >= (int)project_.objects.size()) selectedObject_ = -1;
+    flowPositionsApplied_ = false;  // graphs live in objects - re-pin node positions
     if (terrainChanged) applyProjectToViewport();
 }
 
@@ -686,6 +681,8 @@ void App::pasteObject() {
 
 void App::attachProject() {
     selectedObject_ = -1;
+    flowGraphObject_ = -1;
+    flowPositionsApplied_ = false;
     history_.reset({project_.terrain, project_.objects});
     // Solution file restores undo history + editor state when it is in sync
     // with project.json; otherwise we start fresh (and write a new one).
@@ -767,22 +764,36 @@ void App::importModel() {
     statusMessage_ = "Imported " + fileName;
 }
 
+// Categorized object palette, shared by the Scene menu and the "+ Add"
+// button in the Project panel.
+void App::drawAddObjectMenu() {
+    if (ImGui::BeginMenu("Simple")) {
+        if (ImGui::MenuItem("Box")) addObject(PrimitiveType::Box);
+        if (ImGui::MenuItem("Sphere")) addObject(PrimitiveType::Sphere);
+        if (ImGui::MenuItem("Cylinder")) addObject(PrimitiveType::Cylinder);
+        if (ImGui::MenuItem("Cone")) addObject(PrimitiveType::Cone);
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Gameplay")) {
+        if (ImGui::MenuItem("Player")) addObject(PrimitiveType::Player);
+        if (ImGui::MenuItem("Spawn point")) addObject(PrimitiveType::SpawnPoint);
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Custom")) {
+        if (ImGui::MenuItem("3D model (.obj)...")) importModel();
+        ImGui::EndMenu();
+    }
+}
+
 void App::drawSceneSection() {
     ImGui::SeparatorText("Scene objects");
 
-    if (ImGui::SmallButton("+ Box")) addObject(PrimitiveType::Box);
-    ImGui::SameLine();
-    if (ImGui::SmallButton("+ Sphere")) addObject(PrimitiveType::Sphere);
-    ImGui::SameLine();
-    if (ImGui::SmallButton("+ Cylinder")) addObject(PrimitiveType::Cylinder);
-    ImGui::SameLine();
-    if (ImGui::SmallButton("+ Cone")) addObject(PrimitiveType::Cone);
-    ImGui::SameLine();
-    if (ImGui::SmallButton("+ Spawn")) addObject(PrimitiveType::SpawnPoint);
-    ImGui::SameLine();
-    if (ImGui::SmallButton("+ Model")) importModel();
-    ImGui::SameLine();
-    if (ImGui::SmallButton("+ Player")) addObject(PrimitiveType::Player);
+    if (ImGui::Button("+ Add object"))
+        ImGui::OpenPopup("##add_object");
+    if (ImGui::BeginPopup("##add_object")) {
+        drawAddObjectMenu();
+        ImGui::EndPopup();
+    }
 
     if (project_.objects.empty()) {
         ImGui::TextDisabled("No objects - add a primitive above.");
@@ -894,17 +905,59 @@ void App::drawFlowGraphWindow() {
         ImGui::End();
         return;
     }
+    if (project_.objects.empty()) {
+        ImGui::TextDisabled("Add an object first - every flow graph belongs to an object.");
+        ImGui::End();
+        return;
+    }
 
-    FlowGraph& fg = project_.flowGraph;
+    // --- which object's graph is being edited -------------------------------
+    if (flowGraphObject_ < 0 || flowGraphObject_ >= (int)project_.objects.size()) {
+        flowGraphObject_ =
+            (selectedObject_ >= 0 && selectedObject_ < (int)project_.objects.size())
+                ? selectedObject_
+                : 0;
+        flowPositionsApplied_ = false;
+    }
+
+    auto graphLabel = [&](int i) {
+        // objects with a non-empty graph are marked with *
+        return project_.objects[i].name +
+               (project_.objects[i].flowGraph.empty() ? "" : " *");
+    };
+    ImGui::SetNextItemWidth(220.0f);
+    if (ImGui::BeginCombo("Graph of", graphLabel(flowGraphObject_).c_str())) {
+        for (int i = 0; i < (int)project_.objects.size(); ++i) {
+            const std::string lbl = graphLabel(i) + "##fgobj" + std::to_string(i);
+            if (ImGui::Selectable(lbl.c_str(), flowGraphObject_ == i) &&
+                flowGraphObject_ != i) {
+                flowGraphObject_ = i;
+                flowPositionsApplied_ = false;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Selected object") && selectedObject_ >= 0 &&
+        selectedObject_ < (int)project_.objects.size() &&
+        selectedObject_ != flowGraphObject_) {
+        flowGraphObject_ = selectedObject_;
+        flowPositionsApplied_ = false;
+    }
+
+    SceneObject& owner = project_.objects[flowGraphObject_];
+    FlowGraph& fg = owner.flowGraph;
     bool changed = false;
 
     ImGui::TextDisabled(
-        "Right-click: add node. Drag pins to connect. Del: remove selection. "
-        "Compiled into flow_graph.gen.cpp on build.");
+        "Right-click: add node. Round pins: execution, square pins: object id. "
+        "Empty object param = self (%s).",
+        owner.name.c_str());
 
     ImNodes::BeginNodeEditor();
 
-    // Push stored node positions into imnodes once per project
+    // Push stored node positions into imnodes whenever the edited graph
+    // changes (node ids repeat across graphs, so this must re-run per switch)
     if (!flowPositionsApplied_) {
         flowPositionsApplied_ = true;
         for (const FlowNode& n : fg.nodes)
@@ -930,14 +983,31 @@ void App::drawFlowGraphWindow() {
 
         // string param
         if (t->strKind == FlowParamKind::ObjectName) {
-            if (ImGui::BeginCombo("Object", n.str.empty() ? "<none>" : n.str.c_str())) {
-                for (const SceneObject& o : project_.objects) {
-                    if (ImGui::Selectable(o.name.c_str(), o.name == n.str)) {
-                        n.str = o.name;
+            bool idLinked = false;
+            for (const FlowLink& l : fg.links)
+                idLinked |= (l.data && l.toNode == n.id);
+            if (idLinked) {
+                ImGui::TextDisabled("Object: from id link");
+            } else {
+                const char* current = n.str.empty() ? "(self)" : n.str.c_str();
+                if (ImGui::BeginCombo("Object", current)) {
+                    if (ImGui::Selectable("(self)", n.str.empty())) {
+                        n.str.clear();
                         changed = true;
                     }
+                    for (const SceneObject& o : project_.objects) {
+                        if (ImGui::Selectable(o.name.c_str(), o.name == n.str)) {
+                            n.str = o.name;
+                            changed = true;
+                        }
+                    }
+                    ImGui::EndCombo();
                 }
-                ImGui::EndCombo();
+                if (ImGui::SmallButton("From selected") && selectedObject_ >= 0 &&
+                    selectedObject_ < (int)project_.objects.size()) {
+                    n.str = project_.objects[selectedObject_].name;
+                    changed = true;
+                }
             }
         } else if (t->strKind == FlowParamKind::Button) {
             const char* buttons[] = {"Cross", "Circle", "Square", "Triangle"};
@@ -1022,8 +1092,15 @@ void App::drawFlowGraphWindow() {
         ImGui::PopItemWidth();
         ImGui::PopID();
 
+        // pins: exec flow (round) + object id (square)
+        if (t->idIn) {
+            ImNodes::BeginInputAttribute(flowIdInPin(n.id), ImNodesPinShape_QuadFilled);
+            ImGui::TextDisabled("object");
+            ImNodes::EndInputAttribute();
+        }
         if (t->trigger) {
             ImNodes::BeginOutputAttribute(flowOutPin(n.id));
+            ImGui::Indent(70.0f);
             ImGui::TextUnformatted("then >");
             ImNodes::EndOutputAttribute();
         } else {
@@ -1031,13 +1108,27 @@ void App::drawFlowGraphWindow() {
             ImGui::TextUnformatted("> do");
             ImNodes::EndInputAttribute();
         }
+        if (t->idOut) {
+            ImNodes::BeginOutputAttribute(flowIdOutPin(n.id), ImNodesPinShape_QuadFilled);
+            ImGui::Indent(70.0f);
+            ImGui::TextDisabled("object >");
+            ImNodes::EndOutputAttribute();
+        }
 
         ImNodes::EndNode();
         ImNodes::PopColorStyle();
     }
 
-    for (const FlowLink& l : fg.links)
-        ImNodes::Link(l.id, flowOutPin(l.fromNode), flowInPin(l.toNode));
+    for (const FlowLink& l : fg.links) {
+        if (l.data) {
+            // object-id links in amber, execution links keep the default
+            ImNodes::PushColorStyle(ImNodesCol_Link, IM_COL32(222, 170, 60, 255));
+            ImNodes::Link(l.id, flowIdOutPin(l.fromNode), flowIdInPin(l.toNode));
+            ImNodes::PopColorStyle();
+        } else {
+            ImNodes::Link(l.id, flowOutPin(l.fromNode), flowInPin(l.toNode));
+        }
+    }
 
     ImNodes::MiniMap(0.15f, ImNodesMiniMapLocation_BottomRight);
     const bool editorHovered = ImNodes::IsEditorHovered();
@@ -1050,20 +1141,38 @@ void App::drawFlowGraphWindow() {
         n.pos[1] = pos.y;
     }
 
-    // New link dragged between pins
+    // New link dragged between pins. Pin kinds by id: 0 = object-id in,
+    // 1 = exec out, 2 = exec in, 3 = object-id out; node = pin / 4.
     int startPin = 0, endPin = 0;
     if (ImNodes::IsLinkCreated(&startPin, &endPin)) {
-        const int outPin = startPin % 4 == 1 ? startPin : endPin;
-        const int inPin = startPin % 4 == 2 ? startPin : endPin;
-        if (outPin % 4 == 1 && inPin % 4 == 2) {
+        const int a = startPin % 4, b = endPin % 4;
+        int outPin = -1, inPin = -1;
+        bool data = false;
+        if ((a == 1 && b == 2) || (a == 2 && b == 1)) {
+            outPin = a == 1 ? startPin : endPin;
+            inPin = a == 2 ? startPin : endPin;
+        } else if ((a == 3 && b == 0) || (a == 0 && b == 3)) {
+            outPin = a == 3 ? startPin : endPin;
+            inPin = a == 0 ? startPin : endPin;
+            data = true;
+        }
+        if (outPin >= 0 && outPin / 4 != inPin / 4) {
             FlowLink l;
-            l.id = project_.flowGraph.nextId++;
-            l.fromNode = (outPin - 1) / 4;
-            l.toNode = (inPin - 2) / 4;
+            l.fromNode = outPin / 4;
+            l.toNode = inPin / 4;
+            l.data = data;
+            if (data) {
+                // a node takes its object from at most one id link
+                for (size_t i = fg.links.size(); i-- > 0;)
+                    if (fg.links[i].data && fg.links[i].toNode == l.toNode)
+                        fg.links.erase(fg.links.begin() + i);
+            }
             bool duplicate = false;
             for (const FlowLink& e : fg.links)
-                duplicate |= (e.fromNode == l.fromNode && e.toNode == l.toNode);
+                duplicate |= (e.data == l.data && e.fromNode == l.fromNode &&
+                              e.toNode == l.toNode);
             if (!duplicate) {
+                l.id = fg.nextId++;
                 fg.links.push_back(l);
                 changed = true;
             }
@@ -1104,55 +1213,46 @@ void App::drawFlowGraphWindow() {
         }
     }
 
-    // Right-click: add node
+    // Right-click: add node (categorized)
     if (editorHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
         ImGui::OpenPopup("##flow_add_node");
     if (ImGui::BeginPopup("##flow_add_node")) {
         const ImVec2 clickPos = ImGui::GetMousePosOnOpeningCurrentPopup();
-        ImGui::SeparatorText("Triggers");
-        for (const FlowNodeType& t : flowNodeTypes()) {
-            if (!t.trigger) continue;
-            if (ImGui::MenuItem(t.title)) {
-                FlowNode n;
-                n.id = fg.nextId++;
-                n.type = t.key;
-                if (t.strKind == FlowParamKind::Button) n.str = "Cross";
-                if (std::string(t.key) == "NearObject") n.num[0] = 4.0f;
-                if (std::string(t.key) == "EverySeconds") n.num[0] = 1.0f;
-                fg.nodes.push_back(n);
-                ImNodes::SetNodeScreenSpacePos(n.id, clickPos);
-                changed = true;
-            }
-        }
-        ImGui::SeparatorText("Actions");
-        for (const FlowNodeType& t : flowNodeTypes()) {
-            if (t.trigger) continue;
-            if (ImGui::MenuItem(t.title)) {
-                FlowNode n;
-                n.id = fg.nextId++;
-                n.type = t.key;
-                if (t.numKind == FlowParamKind::Color)
-                    n.num[0] = n.num[1] = n.num[2] = 1.0f;
-                if (std::string(t.key) == "PlayMusic") {
-                    n.num[0] = 80.0f;  // volume
-                    n.num[1] = 1.0f;   // loop
-                    if (!project_.music.empty()) n.str = project_.music.front();
+        for (const char* cat : flowNodeCategories()) {
+            if (!ImGui::BeginMenu(cat)) continue;
+            for (const FlowNodeType& t : flowNodeTypes()) {
+                if (std::strcmp(t.category, cat) != 0) continue;
+                if (ImGui::MenuItem(t.title)) {
+                    FlowNode n;
+                    n.id = fg.nextId++;
+                    n.type = t.key;
+                    if (t.strKind == FlowParamKind::Button) n.str = "Cross";
+                    if (t.numKind == FlowParamKind::Color)
+                        n.num[0] = n.num[1] = n.num[2] = 1.0f;
+                    if (std::string(t.key) == "NearObject") n.num[0] = 4.0f;
+                    if (std::string(t.key) == "EverySeconds") n.num[0] = 1.0f;
+                    if (std::string(t.key) == "PlayMusic") {
+                        n.num[0] = 80.0f;  // volume
+                        n.num[1] = 1.0f;   // loop
+                        if (!project_.music.empty()) n.str = project_.music.front();
+                    }
+                    if (std::string(t.key) == "SetMusicVolume") n.num[0] = 80.0f;
+                    if (std::string(t.key) == "PlaySound") {
+                        n.num[0] = 100.0f;  // volume
+                        n.num[1] = -1.0f;   // channel: auto
+                        if (!project_.sounds.empty()) n.str = project_.sounds.front();
+                    }
+                    fg.nodes.push_back(n);
+                    ImNodes::SetNodeScreenSpacePos(n.id, clickPos);
+                    changed = true;
                 }
-                if (std::string(t.key) == "SetMusicVolume") n.num[0] = 80.0f;
-                if (std::string(t.key) == "PlaySound") {
-                    n.num[0] = 100.0f;  // volume
-                    n.num[1] = -1.0f;   // channel: auto
-                    if (!project_.sounds.empty()) n.str = project_.sounds.front();
-                }
-                fg.nodes.push_back(n);
-                ImNodes::SetNodeScreenSpacePos(n.id, clickPos);
-                changed = true;
             }
+            ImGui::EndMenu();
         }
         ImGui::EndPopup();
     }
 
-    if (changed) saveAll("Saved");
+    if (changed) commitChange();
 
     ImGui::End();
 }
