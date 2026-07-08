@@ -4,14 +4,19 @@
 namespace Script_demo {
 
 struct ModelData {
-  const float* verts;  // 6 floats per vertex: x,y,z,nx,ny,nz
+  const float* verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
   int vertexCount;
 };
 
-constexpr int MODEL_COUNT = 0;
+constexpr int MODEL_COUNT = 1;
+
+// res/models/house.obj (missing or unparseable)
+constexpr float MODEL_0_VERTS[] = {0.0F
+};
+constexpr int MODEL_0_COUNT = 0;
 
 inline const ModelData MODELS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
-    {nullptr, 0},
+    {MODEL_0_VERTS, MODEL_0_COUNT},
 };
 
 }  // namespace Script_demo

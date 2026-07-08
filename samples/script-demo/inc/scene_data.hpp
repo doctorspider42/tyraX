@@ -11,12 +11,52 @@ struct SceneObjectData {
   float color[3];  // 0..1
   int physics;  // 1 = falls with gravity
   int model;    // index into MODELS (model_data.gen.hpp), -1 = none
+  int texture;  // index into TEXTURE_PATHS (texture_data.gen.hpp), -1 = none
+  int usable;   // 1 = shows the USE prompt up close (see controls.hpp)
+  int emitKind;   // emitters: 0 fire, 1 smoke, 2 fog, 3 sparks
+  int emitCount;  // emitters: particle pool size
+  float emitSize; // emitters: base particle size
+  int snd;        // sound emitters: index into SND_PATHS, -1 = none
+  int sndAuto;    // sound emitters: 1 = plays while in range
+  float sndRange;    // sound emitters: audible distance
+  float sndInterval; // sound emitters: retrigger period (s), 0 = loop
+  float lightBright; // point lights (type 9): baked intensity
+  float lightRadius; // point lights (type 9): falloff radius
 };
 
-constexpr int SCENE_OBJECT_COUNT = 2;
-constexpr SceneObjectData SCENE_OBJECTS[SCENE_OBJECT_COUNT > 0 ? SCENE_OBJECT_COUNT : 1] = {
-    {4, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, -1},  // spawn-1
-    {0, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.8F, 0.35F, 0.25F}, 0, -1},  // box-1
+constexpr int SCENE_COUNT = 1;
+
+// scene "main"
+constexpr SceneObjectData SCENE_0_OBJECTS[3] = {
+    {4, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, -1, 1, 15.0F, 0.0F, 1.0F, 8.0F},  // spawn-1
+    {0, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.8F, 0.35F, 0.25F}, 0, -1, -1, 0, 0, 24, 0.5F, -1, 1, 15.0F, 0.0F, 1.0F, 8.0F},  // box-1
+    {5, {-7.0F, 0.0F, 9.0F}, {0.0F, 30.0F, 0.0F}, {2.5F, 2.5F, 2.5F}, {0.9F, 0.85F, 0.7F}, 0, 0, -1, 0, 0, 24, 0.5F, -1, 1, 15.0F, 0.0F, 1.0F, 8.0F},  // house-1
 };
+
+constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {3};
+inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
+
+constexpr int SND_COUNT = 0;
+inline const char* SND_PATHS[1] = {""};
+
+constexpr int PLAYER_INDEXES[SCENE_COUNT] = {-1};
+constexpr int PLAYER_MODES[SCENE_COUNT] = {0};
+constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {0.4F};
+constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
+constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {1.8F};
+constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};
+constexpr bool PLAYER_CAN_JUMPS[SCENE_COUNT] = {true};
+
+constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {32.0F};
+constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {32.0F};
+constexpr float SCENE_LIGHT_XS[SCENE_COUNT] = {0.369465F};
+constexpr float SCENE_LIGHT_YS[SCENE_COUNT] = {0.818814F};
+constexpr float SCENE_LIGHT_ZS[SCENE_COUNT] = {0.439363F};
+constexpr float SCENE_AMBIENTS[SCENE_COUNT] = {0.55F};
+constexpr float SCENE_DIFFUSES[SCENE_COUNT] = {0.45F};
+constexpr float SCENE_LIGHT_COL_RS[SCENE_COUNT] = {1.0F};
+constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {1.0F};
+constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {1.0F};
+constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {1.0F};
 
 }  // namespace Script_demo

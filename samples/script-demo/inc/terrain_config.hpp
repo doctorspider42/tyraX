@@ -3,8 +3,8 @@
 
 namespace Script_demo {
 
-constexpr float TERRAIN_WIDTH = 32.0F;  // world units, X axis
-constexpr float TERRAIN_DEPTH = 32.0F;  // world units, Z axis
+// Terrain size and lighting are per scene - see scene_data.hpp arrays and
+// the TERRAIN_*/SCENE_* accessor macros in the game cpp.
 
 // Project preferences (Project > Preferences in the editor)
 constexpr int TERRAIN_MAX_CELLS = 32;
@@ -22,11 +22,13 @@ constexpr bool SKY_DOME = true;
 constexpr float SKY_TOP_R = 20.4F;  // 0-255, dome zenith color
 constexpr float SKY_TOP_G = 76.5F;
 constexpr float SKY_TOP_B = 165.75F;
-// (SCENE_ prefix: the PS2SDK math3d.h already claims LIGHT_AMBIENT etc.)
-constexpr float SCENE_LIGHT_X = 0.369465F;  // normalized, points TO the light
-constexpr float SCENE_LIGHT_Y = 0.818814F;
-constexpr float SCENE_LIGHT_Z = 0.439363F;
-constexpr float SCENE_AMBIENT = 0.55F;  // 0..1
-constexpr float SCENE_DIFFUSE = 0.45F;  // 0..1
+  // 0..1
+
+// Post effects, 0 (off) .. 128 (see RendererCorePostFx in the engine)
+constexpr int POSTFX_BLOOM = 0;
+constexpr int POSTFX_GRAIN = 0;
+
+// Scene switches show res/hud/loading.png on black for a moment
+constexpr bool LOADING_SCREEN = true;
 
 }  // namespace Script_demo

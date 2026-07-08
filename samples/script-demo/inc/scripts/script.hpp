@@ -24,6 +24,28 @@ struct ScriptContext {
   RuntimeObject* objects = nullptr;  // mutable scene objects
   int objectCount = 0;
   Tyra::Color skyColor;  // write to change the clear color
+
+  // Set teleport = true and teleportPos to move the player (Player entity or
+  // the FPP template player) there; the game applies and clears it.
+  // teleportYaw: facing direction in degrees (Y rotation, 0 = +Z).
+  bool teleport = false;
+  Tyra::Vec4 teleportPos;
+  float teleportYaw = 0.0F;
+
+  // Index of the usable object the player pressed BTN_USE on this frame
+  // (-1 = none). Drives the flow graph "On Used" trigger.
+  int usedObject = -1;
+
+  // Write to show/hide all HUD images (the USE prompt is unaffected).
+  bool hudVisible = true;
+
+  // Scenes: `scene` is the active scene index (scene_data.hpp order),
+  // `sceneGeneration` bumps on every (re)load - scripts use it to reset
+  // their state. Write a scene index into `requestScene` to switch after
+  // the current frame's scripts.
+  int scene = 0;
+  unsigned int sceneGeneration = 0;
+  int requestScene = -1;
 };
 
 /** Base class for game scripts. Put .cpp files in src/scripts/. */

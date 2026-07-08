@@ -40,10 +40,15 @@ class TerrainGame : public Tyra::Game {
   struct ObjectGeometry {
     std::vector<Tyra::Vec4> vertices;
     std::vector<Tyra::Color> colors;
+    std::vector<Tyra::Vec4> sts;  // texture coordinates
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
   };
+  std::vector<Tyra::Texture*> loadedTextures;
+  std::vector<Tyra::Vec4> terrainSts;
+  Tyra::StaPipTextureBag terrainTexBag;
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
   ObjectGeometry skyDome;
@@ -54,6 +59,48 @@ class TerrainGame : public Tyra::Game {
   void rebuildObjectGeometry(int index);
   void updateObjectPhysics();
   void renderScene();
+
+  // Player entity (PLAYER_INDEXES in scene_data.hpp); overrides the template
+  // camera when present. Returns false when the scene has no player.
+  bool updatePlayerEntity();
+  float entX = 0, entY = 0, entZ = 0, entVelY = 0, entYaw = 0, entPitch = 0;
+
+  // Multiple scenes: the game starts in scene 0; the flow graph Switch
+  // Scene node requests a change applied between frames.
+  void loadScene(int sceneIndex);
+  int currentScene = 0;
+  unsigned int sceneGeneration = 0;
+
+  // Particle emitters (type 7): fixed pools sized at scene load, zero
+  // per-frame allocations; camera-facing color quads, one bag per emitter.
+  struct ParticleSystem {
+    int objectIndex = -1;
+    unsigned int rng = 1;
+    std::vector<Tyra::Vec4> pos, vel;
+    std::vector<float> life, maxLife;
+    std::vector<Tyra::Vec4> verts;
+    std::vector<Tyra::Color> cols;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+  };
+  std::vector<ParticleSystem> particles;
+  void buildParticles();
+  void updateParticles();
+
+  // Sound emitters (type 8): distance-attenuated one-shots on channels 16-23
+  std::vector<audsrv_adpcm_t*> sndSamples;  // scene_data.hpp SND_PATHS order
+  std::vector<int> sndTimers;               // per-object retrigger countdown
+  void updateSoundEmitters();
+
+  // Scene switches show res/hud/loading.png on black for a moment
+  Tyra::Sprite loadingSprite;
+  int loadingFrames = 0, loadingTarget = -1;
+
+  // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
+  void updateUseTarget();
+  int useTargetIndex = -1;
+  Tyra::Sprite usePromptSprite;
 
   ScriptContext scriptCtx;
 };

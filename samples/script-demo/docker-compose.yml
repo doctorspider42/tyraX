@@ -16,3 +16,4 @@ services:
       - tyra-game-volume:/src
       - tyra-engine:/tyra
       - ./:/host
+      - "D:/tyra-editor/vendor/tyra:/engine-src:ro"
