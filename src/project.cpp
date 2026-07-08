@@ -208,6 +208,8 @@ std::string save(const Project& p) {
          << "    \"highlightDistance\": " << fmtFloat(p.settings.highlightDistance)
          << ",\n"
          << "    \"highlightColor\": " << fmtVec3(p.settings.highlightColor) << ",\n"
+         << "    \"highlightWidth\": " << fmtFloat(p.settings.highlightWidth) << ",\n"
+         << "    \"highlightSteps\": " << p.settings.highlightSteps << ",\n"
          << "    \"loadingScreen\": " << (p.settings.loadingScreen ? "true" : "false")
          << "\n"
          << "  },\n"
@@ -669,6 +671,14 @@ std::string load(Project& out, const std::string& projectDir) {
         if (st.highlightDistance < 0.5f) st.highlightDistance = 0.5f;
         if (st.highlightDistance > 1000.0f) st.highlightDistance = 1000.0f;
         readVec3(s->find("highlightColor"), st.highlightColor);
+        if (const auto* v = s->find("highlightWidth"))
+            st.highlightWidth = (float)v->numberOr(0.35);
+        if (st.highlightWidth < 0.05f) st.highlightWidth = 0.05f;
+        if (st.highlightWidth > 2.0f) st.highlightWidth = 2.0f;
+        if (const auto* v = s->find("highlightSteps"))
+            st.highlightSteps = (int)v->numberOr(4);
+        if (st.highlightSteps < 1) st.highlightSteps = 1;
+        if (st.highlightSteps > 8) st.highlightSteps = 8;
         if (const auto* v = s->find("loadingScreen"))
             st.loadingScreen = !(v->type == json::Value::Type::Bool && !v->boolean);
     }

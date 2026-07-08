@@ -35,6 +35,8 @@ constexpr float HIGHLIGHT_DISTANCE = 6.0F;  // world units
 constexpr float HIGHLIGHT_R = 255.0F;  // 0-255
 constexpr float HIGHLIGHT_G = 216.75F;
 constexpr float HIGHLIGHT_B = 38.25F;
+constexpr float HIGHLIGHT_WIDTH = 0.35F;  // total rim, world units
+constexpr int HIGHLIGHT_STEPS = 4;    // blur shells, 1 = sharp
 
 // Scene switches show res/hud/loading.png on black for a moment
 constexpr bool LOADING_SCREEN = true;

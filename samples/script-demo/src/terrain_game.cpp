@@ -1055,12 +1055,9 @@ void TerrainGame::renderHighlightHull(int index) {
   if (dist2 > reach * reach) return;
   const float dist = sqrtf(dist2);
 
-  // Shell widths (world units) and alphas (128 = opaque). Near the
+  // HIGHLIGHT_STEPS concentric shells up to HIGHLIGHT_WIDTH wide (both from
+  // Project > Preferences), alpha roughly halving outward. Near the
   // silhouette all shells overlap - solid color fading outward.
-  constexpr int RIM_SHELLS = 4;
-  constexpr float rimW[RIM_SHELLS] = {0.07F, 0.15F, 0.24F, 0.35F};
-  constexpr float rimA[RIM_SHELLS] = {72.0F, 40.0F, 22.0F, 11.0F};
-
   const float cx = o.data.position[0], cy = o.data.position[1],
               cz = o.data.position[2];
   // How far in front of the object the camera is - the pushback must move
@@ -1070,19 +1067,22 @@ void TerrainGame::renderHighlightHull(int index) {
   if (behind < 0.5F) behind = 0.5F;
 
   const size_t n = g.vertices.size();
-  g.hullVerts.resize(n * RIM_SHELLS);
-  g.hullCols.resize(n * RIM_SHELLS);
+  g.hullVerts.resize(n * HIGHLIGHT_STEPS);
+  g.hullCols.resize(n * HIGHLIGHT_STEPS);
   // One pushback for all shells (sized for the widest) - per-shell depths
   // would make the terrain/scene cut each shell on a different line and the
   // rim edge turns into visible steps.
-  float growMax = rimW[RIM_SHELLS - 1] / half;
+  float growMax = HIGHLIGHT_WIDTH / half;
   if (growMax > 0.6F) growMax = 0.6F;
   const float k = 1.0F + (growMax * half + 0.15F) / behind;
-  for (int s = 0; s < RIM_SHELLS; ++s) {
-    float grow = rimW[s] / half;  // uniform - rotated objects stay unskewed
+  float alpha = HIGHLIGHT_STEPS > 1 ? 72.0F : 100.0F;  // single step = solid
+  for (int s = 0; s < HIGHLIGHT_STEPS; ++s) {
+    // uniform growth - rotated objects stay unskewed
+    float grow = (HIGHLIGHT_WIDTH * (s + 1)) / (HIGHLIGHT_STEPS * half);
     if (grow > 0.6F) grow = 0.6F;
     const float f = 1.0F + grow;
-    const Color c(HIGHLIGHT_R, HIGHLIGHT_G, HIGHLIGHT_B, rimA[s]);
+    const Color c(HIGHLIGHT_R, HIGHLIGHT_G, HIGHLIGHT_B, alpha);
+    alpha *= 0.55F;
     for (size_t v = 0; v < n; ++v) {
       const Vec4& p = g.vertices[v];
       float hx = cx + (p.x - cx) * f;

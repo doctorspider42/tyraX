@@ -146,10 +146,12 @@ struct ProjectSettings {
     bool loadingScreen = true;
 
     // In-game outline around usable objects while the player is within
-    // highlightDistance (flat-color silhouette drawn under the object).
+    // highlightDistance (fading silhouette shells drawn after the scene).
     bool highlightUsable = false;
     float highlightDistance = 6.0f;                  // world units
     float highlightColor[3] = {1.0f, 0.85f, 0.15f};  // outline color
+    float highlightWidth = 0.35f;  // total rim width incl. blur, world units
+    int highlightSteps = 4;        // blur shells; 1 = sharp outline
 };
 
 class History;

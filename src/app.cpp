@@ -2688,6 +2688,11 @@ void App::drawPreferencesModal() {
         ImGui::DragFloat("Proximity (units)", &prefSettings_.highlightDistance, 0.1f,
                          0.5f, 1000.0f, "%.1f");
         ImGui::ColorEdit3("Highlight color", prefSettings_.highlightColor);
+        ImGui::DragFloat("Blur width (units)", &prefSettings_.highlightWidth, 0.01f,
+                         0.05f, 2.0f, "%.2f");
+        ImGui::SliderInt("Blur steps", &prefSettings_.highlightSteps, 1, 8);
+        ImGui::TextDisabled(
+            "Width = total rim size; steps = shells in the fade (1 = sharp edge).");
     }
     ImGui::TextDisabled(
         "In-game outline around objects marked 'Usable' while the player is\n"

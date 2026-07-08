@@ -9,6 +9,13 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (13) **Configurable outline blur** — Preferences > Usable objects gains "Blur
+  width (units)" (total rim size, 0.05-2.0) and "Blur steps" (1-8 shells; 1 = sharp
+  solid edge). Baked into terrain_config.hpp as HIGHLIGHT_WIDTH / HIGHLIGHT_STEPS;
+  shells are spaced evenly up to the width with alpha halving outward. Verified in
+  PCSX2: width 0.7 / steps 6 produces a visibly wider, smoother glow than the
+  0.35 / 4 default.
+
 - (12) **Soft usable-object outline + draw-order fix** — the single hull rim could
   be punched through by objects drawn later in the loop (rim pixels carried the
   background's z, so e.g. a house behind the highlighted box overdrew the rim).
