@@ -45,13 +45,13 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
-    // Usable-object highlight: flat-color copy grown around the object
-    // center, drawn just before it (see renderHighlightHull)
+    // Usable-object highlight: fading shells grown around the object
+    // center, drawn after the scene (see renderHighlightHull)
     std::vector<Tyra::Vec4> hullVerts;
+    std::vector<Tyra::Color> hullCols;
     std::unique_ptr<Tyra::StaPipBag> hullBag;
     std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
     std::unique_ptr<Tyra::StaPipColorBag> hullColorBag;
-    Tyra::Color hullColor;
   };
   std::vector<Tyra::Texture*> loadedTextures;
   std::vector<Tyra::Vec4> terrainSts;

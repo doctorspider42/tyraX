@@ -9,6 +9,17 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (12) **Soft usable-object outline + draw-order fix** — the single hull rim could
+  be punched through by objects drawn later in the loop (rim pixels carried the
+  background's z, so e.g. a house behind the highlighted box overdrew the rim).
+  Rims now render after the whole scene: four concentric shells with fading alpha
+  (blur), each pushed away from the camera by a uniform scale around the eye point —
+  screen silhouette unchanged, but the object's own z-buffer rejects the interior
+  and the rim is depth-tested like normal geometry (one shared pushback for all
+  shells; per-shell depths made the terrain cut each shell on a different line).
+  Verified in PCSX2 (software renderer, 50 FPS): house directly behind the usable
+  box — rim glows in front of the house with a smooth falloff.
+
 - (11) **Usable-object highlight** — Preferences > Usable objects: "Highlight usable
   objects" + proximity (units) + color. In-game, objects marked Usable get a colored
   outline while the player is within proximity: a flat-color copy of the object grown

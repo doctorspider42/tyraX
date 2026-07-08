@@ -1011,21 +1011,31 @@ void TerrainGame::renderScene() {
   stapip.core.render(bag.get());
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
-    if (!runtimeObjects[i].visible || !objectGeometry[i].bag) continue;
-    if (HIGHLIGHT_USABLE && runtimeObjects[i].data.usable)
-      renderHighlightHull(i);  // proximity-checked inside; no-op when far
-    stapip.core.render(objectGeometry[i].bag.get());
+    if (runtimeObjects[i].visible && objectGeometry[i].bag)
+      stapip.core.render(objectGeometry[i].bag.get());
   }
+  // Highlight rims after every object so their depth is in the z-buffer:
+  // the rim is depth-tested against the finished scene and can no longer be
+  // punched through by an object drawn later in the loop.
+  if (HIGHLIGHT_USABLE)
+    for (int i = 0; i < (int)runtimeObjects.size(); ++i)
+      if (runtimeObjects[i].visible && runtimeObjects[i].data.usable &&
+          objectGeometry[i].bag)
+        renderHighlightHull(i);  // proximity-checked inside; no-op when far
   // particles last - alpha blended over the scene
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
 }
 
-// Usable-object highlight (Project > Preferences): a flat-color copy of the
-// object, grown around its center and drawn just before it with z-test but
-// no z-write (PipelineZTest_TestOnly). The object overdraws the interior,
-// leaving a colored rim around its silhouette. Proximity uses the same
-// reference point as the USE interaction (the camera / player eye).
+// Usable-object highlight (Project > Preferences): a soft colored rim around
+// the object silhouette. Three concentric copies of the object, grown around
+// its center with fading alpha, drawn after the scene with z-test but no
+// z-write (PipelineZTest_TestOnly). Each shell is additionally pushed away
+// from the camera by a uniform scale around the eye point - that keeps its
+// screen silhouette identical but places it behind the object's own depth,
+// so the z-buffer rejects the interior and only the rim survives, correctly
+// occluded by anything nearer. Proximity uses the same reference point as
+// the USE interaction (the camera / player eye).
 void TerrainGame::renderHighlightHull(int index) {
   const RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
@@ -1040,23 +1050,50 @@ void TerrainGame::renderHighlightHull(int index) {
   const float dx = o.data.position[0] - cameraPosition.x;
   const float dy = o.data.position[1] - cameraPosition.y;
   const float dz = o.data.position[2] - cameraPosition.z;
+  const float dist2 = dx * dx + dy * dy + dz * dz;
   const float reach = HIGHLIGHT_DISTANCE + half;
-  if (dx * dx + dy * dy + dz * dz > reach * reach) return;
+  if (dist2 > reach * reach) return;
+  const float dist = sqrtf(dist2);
 
-  // Rim ~0.12 units; clamped so small props stay visible and big walls
-  // don't get a monster halo. Uniform growth keeps rotated objects unskewed.
-  float grow = 0.12F / half;
-  if (grow < 0.04F) grow = 0.04F;
-  if (grow > 0.35F) grow = 0.35F;
-  const float f = 1.0F + grow;
+  // Shell widths (world units) and alphas (128 = opaque). Near the
+  // silhouette all shells overlap - solid color fading outward.
+  constexpr int RIM_SHELLS = 4;
+  constexpr float rimW[RIM_SHELLS] = {0.07F, 0.15F, 0.24F, 0.35F};
+  constexpr float rimA[RIM_SHELLS] = {72.0F, 40.0F, 22.0F, 11.0F};
 
   const float cx = o.data.position[0], cy = o.data.position[1],
               cz = o.data.position[2];
-  g.hullVerts.resize(g.vertices.size());
-  for (size_t k = 0; k < g.vertices.size(); ++k) {
-    const Vec4& v = g.vertices[k];
-    g.hullVerts[k] = Vec4(cx + (v.x - cx) * f, cy + (v.y - cy) * f,
-                          cz + (v.z - cz) * f, 1.0F);
+  // How far in front of the object the camera is - the pushback must move
+  // the shell past the object's front surface without reaching things
+  // right behind it.
+  float behind = dist - half;
+  if (behind < 0.5F) behind = 0.5F;
+
+  const size_t n = g.vertices.size();
+  g.hullVerts.resize(n * RIM_SHELLS);
+  g.hullCols.resize(n * RIM_SHELLS);
+  // One pushback for all shells (sized for the widest) - per-shell depths
+  // would make the terrain/scene cut each shell on a different line and the
+  // rim edge turns into visible steps.
+  float growMax = rimW[RIM_SHELLS - 1] / half;
+  if (growMax > 0.6F) growMax = 0.6F;
+  const float k = 1.0F + (growMax * half + 0.15F) / behind;
+  for (int s = 0; s < RIM_SHELLS; ++s) {
+    float grow = rimW[s] / half;  // uniform - rotated objects stay unskewed
+    if (grow > 0.6F) grow = 0.6F;
+    const float f = 1.0F + grow;
+    const Color c(HIGHLIGHT_R, HIGHLIGHT_G, HIGHLIGHT_B, rimA[s]);
+    for (size_t v = 0; v < n; ++v) {
+      const Vec4& p = g.vertices[v];
+      float hx = cx + (p.x - cx) * f;
+      float hy = cy + (p.y - cy) * f;
+      float hz = cz + (p.z - cz) * f;
+      hx = cameraPosition.x + (hx - cameraPosition.x) * k;
+      hy = cameraPosition.y + (hy - cameraPosition.y) * k;
+      hz = cameraPosition.z + (hz - cameraPosition.z) * k;
+      g.hullVerts[s * n + v] = Vec4(hx, hy, hz, 1.0F);
+      g.hullCols[s * n + v] = c;
+    }
   }
 
   if (!g.hullBag) {
@@ -1066,15 +1103,14 @@ void TerrainGame::renderHighlightHull(int index) {
     g.hullInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     g.hullInfoBag->fullClipChecks = true;
     g.hullInfoBag->zTestType = PipelineZTest_TestOnly;
-    g.hullColor = Color(HIGHLIGHT_R, HIGHLIGHT_G, HIGHLIGHT_B, 128.0F);
     g.hullColorBag = std::make_unique<StaPipColorBag>();
-    g.hullColorBag->single = &g.hullColor;
     g.hullBag = std::make_unique<StaPipBag>();
     g.hullBag->info = g.hullInfoBag.get();
     g.hullBag->color = g.hullColorBag.get();
     g.hullBag->texture = nullptr;
     g.hullBag->lighting = nullptr;
   }
+  g.hullColorBag->many = g.hullCols.data();
   g.hullBag->vertices = g.hullVerts.data();
   g.hullBag->count = static_cast<u32>(g.hullVerts.size());
   g.hullBag->bboxVersion++;  // rebuilt every frame while highlighted
