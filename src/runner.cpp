@@ -1,5 +1,8 @@
 #include "runner.hpp"
 
+#include "isoexport.hpp"
+#include "pcsx2_config.hpp"
+
 #include <cstdlib>
 #include <filesystem>
 
@@ -42,6 +45,19 @@ void Runner::runEmulatorOnly(const Project& p) {
     join();
     state_ = State::Running;
     thread_ = std::thread(&Runner::worker, this, p, false, true);
+}
+
+void Runner::exportIso(const Project& p) {
+    if (busy()) return;
+    join();
+    state_ = State::Running;
+    thread_ = std::thread([this, p] {
+        appendLine("[editor] === ISO export: " + p.name + " ===");
+        const std::string err =
+            isoexport::build(p, [this](const std::string& l) { appendLine(l); });
+        if (!err.empty()) appendLine("[editor] ISO export failed: " + err);
+        state_ = err.empty() ? State::Success : State::Failed;
+    });
 }
 
 int Runner::exec(const std::string& cmdline, const std::string& cwd) {
@@ -131,6 +147,27 @@ bool Runner::launchPCSX2(const Project& p) {
 
     // Kill a previous emulator instance, if any (ignore errors).
     exec("taskkill /F /IM pcsx2-qt.exe 2>nul & taskkill /F /IM pcsx2.exe 2>nul & exit 0", "");
+
+    // Without "Host Filesystem" the ELF boots but every host: fopen fails,
+    // so Tyra asserts on the first asset load. PCSX2 rewrites its ini on
+    // exit - fix the setting now, right after the instance was killed.
+    const fs::path ini = pcsx2::findIni(exe);
+    if (ini.empty()) {
+        appendLine("[editor] PCSX2.ini not found - if asset loading fails, enable "
+                   "Settings > Emulation > 'Enable Host Filesystem' in PCSX2.");
+    } else {
+        switch (pcsx2::ensureHostFs(ini)) {
+            case pcsx2::HostFsResult::Enabled:
+                appendLine("[editor] Enabled 'Host Filesystem' in PCSX2 config (needed for host: asset loading).");
+                break;
+            case pcsx2::HostFsResult::WriteFailed:
+                appendLine("[editor] Could not update " + ini.string() + " - enable "
+                           "Settings > Emulation > 'Enable Host Filesystem' in PCSX2 manually.");
+                break;
+            case pcsx2::HostFsResult::AlreadyEnabled:
+                break;
+        }
+    }
 
     appendLine("[editor] Launching PCSX2: " + exe);
     std::string cmd = "\"" + exe + "\" -elf \"" + p.elfPath() + "\"";

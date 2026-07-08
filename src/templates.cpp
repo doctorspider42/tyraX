@@ -2851,6 +2851,112 @@ std::string flowGraphScript(const Project& p) {
             return posExprImpl(n, visited);
         };
 
+        // Boolean-value plane: each trigger exposes a per-frame condition,
+        // logic gates fold those conditions, and "On Condition" turns a bool
+        // back into an exec pulse. Every bool is a self-contained C++
+        // expression evaluated fresh from ctx, so it inlines anywhere.
+        auto sourceCondition = [&](const FlowNode& n) -> std::string {
+            if (n.type == "OnStart") return "started";
+            if (n.type == "OnButton") {
+                const std::string btn = n.str.empty() ? "Cross" : n.str;
+                return "(ctx.engine->pad.getPressed()." + btn + ")";
+            }
+            if (n.type == "NearObject") {
+                const int idx = resolveTarget(n);
+                if (idx < 0) return "false";
+                const std::string oi = std::to_string(idx);
+                const std::string dx =
+                    "(ctx.playerPosition.x - ctx.objects[" + oi + "].data.position[0])";
+                const std::string dz =
+                    "(ctx.playerPosition.z - ctx.objects[" + oi + "].data.position[2])";
+                const float r = n.num[0] > 0.01f ? n.num[0] : 3.0f;
+                return "(" + dx + " * " + dx + " + " + dz + " * " + dz + " < " +
+                       floatLit(r * r) + ")";
+            }
+            if (n.type == "OnUsed") {
+                const int idx = resolveTarget(n);
+                if (idx < 0) return "false";
+                return "(ctx.usedObject == " + std::to_string(idx) + ")";
+            }
+            if (n.type == "EverySeconds") {
+                int frames = (int)(n.num[0] * 50.0f);
+                if (frames < 1) frames = 1;
+                return "(frame % " + std::to_string(frames) + " == 0)";
+            }
+            return "false";
+        };
+
+        // A node's bool-output expression. Sources return their condition;
+        // gates fold their (possibly several) bool inputs. visited is passed
+        // by value so a value reused on two branches (a diamond) still emits,
+        // while a genuine cycle short-circuits to "false".
+        std::function<std::string(const FlowNode&, std::vector<int>)> boolExprImpl =
+            [&](const FlowNode& n, std::vector<int> visited) -> std::string {
+            for (int id : visited)
+                if (id == n.id) return "false";  // cycle guard
+            visited.push_back(n.id);
+            const FlowNodeType* t = flowNodeType(n.type);
+            if (!t) return "false";
+            if (!(t->pure && t->boolIn)) return sourceCondition(n);  // bool source
+
+            std::vector<std::string> es;
+            for (const FlowLink& l : fg.links) {
+                if (l.kind != FlowLinkBool || l.toNode != n.id) continue;
+                const FlowNode* src = nodeById(l.fromNode);
+                if (!src) continue;
+                const FlowNodeType* st = flowNodeType(src->type);
+                if (!st || !st->boolOut) continue;
+                es.push_back(boolExprImpl(*src, visited));
+            }
+            if (es.empty()) return "false";
+
+            auto fold = [&](const char* op) {
+                std::string s = "(";
+                for (size_t i = 0; i < es.size(); ++i) {
+                    if (i) s += op;
+                    s += es[i];
+                }
+                return s + ")";
+            };
+            auto parityOdd = [&]() {
+                std::string s = "(";
+                for (size_t i = 0; i < es.size(); ++i) {
+                    if (i) s += " + ";
+                    s += "(" + es[i] + " ? 1 : 0)";
+                }
+                s += ")";
+                return "((" + s + " & 1) != 0)";
+            };
+
+            if (n.type == "And") return fold(" && ");
+            if (n.type == "Nand") return "(!" + fold(" && ") + ")";
+            if (n.type == "Or") return fold(" || ");
+            if (n.type == "Not") return "(!" + fold(" || ") + ")";  // NOT of the fold
+            if (n.type == "Xor") return parityOdd();
+            if (n.type == "Xnor") return "(!" + parityOdd() + ")";
+            return "false";
+        };
+
+        // OR of the bool inputs feeding a node (empty = no bool input wired)
+        auto boolInputsOr = [&](const FlowNode& n) -> std::string {
+            std::vector<std::string> es;
+            for (const FlowLink& l : fg.links) {
+                if (l.kind != FlowLinkBool || l.toNode != n.id) continue;
+                const FlowNode* src = nodeById(l.fromNode);
+                if (!src) continue;
+                const FlowNodeType* st = flowNodeType(src->type);
+                if (!st || !st->boolOut) continue;
+                es.push_back(boolExprImpl(*src, std::vector<int>{}));
+            }
+            if (es.empty()) return "";
+            std::string s = "(";
+            for (size_t i = 0; i < es.size(); ++i) {
+                if (i) s += " || ";
+                s += es[i];
+            }
+            return s + ")";
+        };
+
         // Sounds referenced by this graph's Play Sound nodes become sfx<i>
         // members loaded once in init().
         std::vector<std::string> usedSounds;
@@ -3066,6 +3172,20 @@ std::string flowGraphScript(const Project& p) {
                 int frames = (int)(n.num[0] * 50.0f);
                 if (frames < 1) frames = 1;
                 clsOut << "    if (frame % " << frames << " == 0) {\n" << body << "    }\n";
+            } else if (n.type == "OnCondition") {
+                // bridge bool -> exec: fire on the rising edge of the input
+                const std::string expr = boolInputsOr(n);
+                if (expr.empty()) {
+                    clsOut << "    // node " << n.id
+                        << " (OnCondition): no bool input\n";
+                    continue;
+                }
+                const std::string flag = "cond" + std::to_string(n.id);
+                members << "  bool " << flag << " = false;\n";
+                flagResets << "      " << flag << " = false;\n";
+                clsOut << "    {\n      const bool c = " << expr
+                    << ";\n      if (c && !" << flag << ") {\n"
+                    << body << "      }\n      " << flag << " = c;\n    }\n";
             }
         }
 

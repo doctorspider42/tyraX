@@ -338,7 +338,46 @@ Each finished feature lands as its own commit.
 - (34) **Sculpt flatten mode** - a Flatten checkbox + Level height in the
   sculpt toolbar; the brush lerps terrain toward the target height with
   the same cosine falloff (strength = lerp rate). Undoable like sculpting.
-- (35) **Point light entity** - new "Lighting > Point light" object
+- (35) **PS2 disc export + PCSX2 HostFs guard** - Project > Export PS2 ISO
+  builds <project>/<name>.iso from bin/ with an in-tree ISO9660 writer
+  (iso9660.cpp; no mkisofs), so file data LBAs follow load order:
+  SYSTEM.CNF + ELF, optional iso-layout.txt pins, startup assets (HUD,
+  sfx), per-scene textures/models, music, rest. Layout is printed to the
+  build log. Engine side: FileUtils::fromCwd converts cdrom0: paths to
+  ISO9660 form ('\', upper-case, ";1"), and extension/filename helpers
+  strip the ";1" version (the selector trapped on "png;1" - caught by
+  booting the ISO in PCSX2). Runner also flips HostFs=true in PCSX2.ini
+  before launching (missing HostFs = the "Failed to load ...png" assert
+  on first fopen). Verified: fixture ISO mounts on Windows byte-identical
+  with the expected LBA order; my-game.iso boots in PCSX2 from cdrom0:
+  and renders (screenshot check). Caveat for real DVD-Rs: keep asset
+  names <=30 chars, A-Z 0-9 . _ - (exporter warns); animated obj/md2
+  sequences don't get the ";1" suffix appended yet.
+- (36) **Disc Layout window** (Project > Disc Layout...) - the ISO plan as
+  a drag-to-reorder table (order persists to iso-layout.txt; pinned rows
+  marked *, boot files locked first; Reset returns to the automatic group
+  order) next to a physically-honest disc view: the spiral track drawn as
+  constant-pitch rings filled inside-out, LBA->radius via the area formula
+  (outer turns hold more data, like a real CLV disc), colored by load
+  group with hover tooltips, click-to-select sync with the table and a
+  capacity switch (fit/CD-R/DVD-5) with an over-capacity warning.
+  isoexport gained plan()/saveManualOrder() (shared ordering with build),
+  iso9660 gained plan() (layout without writing). Replans automatically
+  after builds. Verified by driving the editor UI: reorder wrote
+  iso-layout.txt, DVD-5 view shows the 2.3 MB image as a hairline at the
+  hub, fit-to-data shows the ELF band + asset arcs on the outer track.
+- (37) **Flow graph logic gates** - a "Logic" node category (AND, NAND, OR,
+  NOT, XOR, XNOR) plus "On Condition". New boolean data plane (violet round
+  pins, FlowLinkBool): every trigger now exposes a bool output = "does this
+  condition hold this frame?" (Near Object -> isNear, On Button -> held,
+  Every N Seconds -> the pulse, etc.). Gates fold their bool inputs (the
+  bool-in pin accepts several links: AND/OR/XOR fold, NAND/NOT/XNOR negate);
+  On Condition bridges back to exec and fires its "then" on the rising edge
+  of the folded bool. Codegen inlines each bool as a self-contained C++
+  expression (diamonds OK, cycles guard to false). Verified with a codegen
+  harness: "Near AND Button -> Toggle" and "Near XOR Button -> Show" emit
+  edge-gated blocks with the expected && / parity expressions.
+- (38) **Point light entity** - new "Lighting > Point light" object
   (PrimitiveType 9): color (shared Color field), brightness and radius in
   the properties. Editor preview: an unshaded bulb glowing in the light
   color plus a wireframe reach sphere scaled to the radius. In the game
@@ -360,7 +399,7 @@ Each finished feature lands as its own commit.
 - Compressed music streaming (SPU2-native ADPCM/VAG, ~3.5:1 vs 16-bit PCM) -
   needs a custom double-buffered SPU RAM streamer in the engine; audsrv only
   streams PCM and plays ADPCM one-shots
-- Flow graph: more nodes (timers with reset, gates, variables, sounds)
+- Flow graph: more nodes (timers with reset, variables)
 - Engine perf, next targets: packager allocates its package array per frame
   (poolable); the real endgame is the engine author's own TODO in
   stapip_clipper.hpp - move clipping to VU1 entirely ("too much time")

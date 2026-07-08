@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <string>
 #include "debug/debug.hpp"
+#include "file/file_utils.hpp"
 #include "renderer/core/texture/models/texture.hpp"
 #include "loaders/texture/base/texture_loader_selector.hpp"
 
@@ -26,9 +27,8 @@ TextureLoaderSelector::~TextureLoaderSelector() {}
 
 TextureLoader& TextureLoaderSelector::getLoaderByFileName(
     const char* fullpath) {
-  std::string path = fullpath;
-  std::string extension = path.substr(path.find_last_of(".") + 1);
-  return getLoaderByExtension(extension);
+  // Handles ISO9660 versioned names too ("USE.PNG;1" -> "PNG")
+  return getLoaderByExtension(FileUtils::getExtensionOfFilename(fullpath));
 }
 
 TextureLoader& TextureLoaderSelector::getLoaderByExtension(

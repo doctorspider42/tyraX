@@ -4,6 +4,7 @@
 #include <string>
 
 #include "history.hpp"
+#include "isoexport.hpp"
 #include "project.hpp"
 #include "runner.hpp"
 #include "viewport.hpp"
@@ -28,6 +29,7 @@ private:
     void drawFlowGraphWindow();
     void openInVSCode();
     void drawOutputWindow();
+    void drawDiscLayoutWindow();
     void drawNewProjectModal();
     void drawPreferencesModal();
     void openProjectDialog();
@@ -124,6 +126,16 @@ private:
     char newSceneName_[64] = "scene-2";
     int newSceneWidth_ = 64, newSceneDepth_ = 64;
     std::string newSceneError_;
+
+    // Disc Layout window (Project > Disc Layout...): plan preview + reorder
+    bool showDiscLayout_ = false;
+    bool discPlanDirty_ = true;        // replan on next draw
+    bool discRunnerWasBusy_ = false;   // replan after a build/export finishes
+    isoexport::Plan discPlan_;
+    std::string discPlanError_;
+    std::string discPlanWarnings_;
+    int discSelected_ = -1;   // index into discPlan_.items (list <-> disc sync)
+    int discCapacity_ = 2;    // 0 = fit to data, 1 = CD-R 700 MB, 2 = DVD-5
 
     // "Preferences" modal staging (applied on OK)
     bool openPreferencesPopup_ = false;

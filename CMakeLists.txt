@@ -32,6 +32,9 @@ add_executable(tyra-editor
     src/gl_loader.cpp
     src/json.cpp
     src/objparser.cpp
+    src/iso9660.cpp
+    src/isoexport.cpp
+    src/pcsx2_config.cpp
     src/project.cpp
     src/templates.cpp
     src/viewport.cpp
@@ -41,7 +44,7 @@ add_executable(tyra-editor
 )
 target_include_directories(tyra-editor PRIVATE src vendor/imguizmo/src vendor/imnodes vendor/stb ${CMAKE_BINARY_DIR}/generated)
 target_compile_definitions(tyra-editor PRIVATE GLFW_INCLUDE_NONE)
-target_link_libraries(tyra-editor PRIVATE imgui glfw opengl32 ole32 uuid)
+target_link_libraries(tyra-editor PRIVATE imgui glfw opengl32 shell32 ole32 uuid)
 
 if(MINGW)
     # Self-contained exe: don't depend on libstdc++/libgcc/libwinpthread DLLs
