@@ -874,6 +874,16 @@ void App::addSoundEmitter() {
     if (!project_.sounds.empty()) o.soundPath = project_.sounds.front();
     saveAll("Saved");
 }
+void App::addPointLight() {
+    addObject(PrimitiveType::PointLight);
+    SceneObject& o = project_.objects().back();
+    o.position[1] = 3.0f;  // hovers above the ground by default
+    o.color[0] = 1.0f, o.color[1] = 0.95f, o.color[2] = 0.8f;  // warm white
+    o.scale[0] = o.scale[1] = o.scale[2] = 0.4f;  // small bulb gizmo
+    o.lightBright = 1.0f;
+    o.lightRadius = 8.0f;
+    saveAll("Saved");
+}
 void App::addObject(PrimitiveType type) {
     // Unique default name: box-1, box-2, ...
     int counter = 0;
@@ -964,6 +974,10 @@ void App::drawAddObjectMenu() {
     }
     if (ImGui::BeginMenu("Audio")) {
         if (ImGui::MenuItem("Sound emitter")) addSoundEmitter();
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Lighting")) {
+        if (ImGui::MenuItem("Point light")) addPointLight();
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Custom")) {
@@ -1074,6 +1088,18 @@ void App::drawSceneSection() {
         ImGui::TextDisabled("Volume fades with distance to the player.\n"
                             "Interval 0 loops the sample seamlessly; > 0\n"
                             "retriggers it every N seconds. Hide Object mutes.");
+    }
+
+    if (o.type == PrimitiveType::PointLight) {
+        ImGui::SeparatorText("Point light");
+        ImGui::TextDisabled("The \"Color\" field above sets the light color.");
+        ImGui::DragFloat("Brightness", &o.lightBright, 0.02f, 0.0f, 4.0f, "%.2f");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat("Radius", &o.lightRadius, 0.1f, 0.1f, 100.0f, "%.1f units");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::TextDisabled("Previewed live in the viewport; in the game it is\n"
+                            "baked into nearby terrain & object vertex colors\n"
+                            "at build (static light, zero runtime cost).");
     }
 
     if (o.type == PrimitiveType::Player) {

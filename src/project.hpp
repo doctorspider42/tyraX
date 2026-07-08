@@ -29,6 +29,10 @@ enum class PrimitiveType {
     // Sound emitter: sphere marker in the editor; in the game it plays an
     // imported sound effect with distance-attenuated (spatial) volume.
     SoundEmitter = 8,
+    // Point light: a glowing bulb + radius ring in the editor; at build its
+    // color/brightness are baked into nearby terrain and object vertex colors
+    // with a linear distance falloff (static lighting - no runtime cost).
+    PointLight = 9,
 };
 
 // Unit primitives fit a 1x1x1 cube centered at origin and are transformed by
@@ -64,6 +68,11 @@ struct SceneObject {
     float soundRange = 15.0f;   // world units; volume fades linearly to 0
     float soundInterval = 0.0f; // seconds between retriggers; 0 = loop seamlessly
 
+    // Point light parameters (used when type == PointLight). The light color
+    // is the shared `color` field above.
+    float lightBright = 1.0f;   // intensity added on top of the scene ambient
+    float lightRadius = 8.0f;   // world units; contribution fades linearly to 0
+
     // Per-object logic. Object-referencing nodes default to this object
     // ("self"), so a copied object brings a working copy of its behavior.
     FlowGraph flowGraph;
@@ -87,6 +96,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.emitterCount == b.emitterCount && a.emitterSize == b.emitterSize &&
            a.soundPath == b.soundPath && a.soundAuto == b.soundAuto &&
            a.soundRange == b.soundRange && a.soundInterval == b.soundInterval &&
+           a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
            a.flowGraph == b.flowGraph;
 }
 

@@ -502,15 +502,47 @@ V3 shadeOf(const V3& n) {
   return s;
 }
 
+/** Point lights (SceneObject type 9) in the active scene, baked additively on
+ * top of the directional term. Linear distance falloff * N.L, tinted by the
+ * light color and scaled by its brightness. wp = world-space vertex position. */
+V3 pointLightAt(const V3& wp, const V3& n) {
+  V3 add = {0.0F, 0.0F, 0.0F};
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+    const SceneObjectData& L = SCENE_OBJECTS[i];
+    if (L.type != 9) continue;
+    const float radius = L.lightRadius > 0.01F ? L.lightRadius : 0.01F;
+    V3 d = {L.position[0] - wp.x, L.position[1] - wp.y, L.position[2] - wp.z};
+    const float dist = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
+    if (dist >= radius) continue;
+    float atten = 1.0F - dist / radius;
+    atten *= atten;  // softer, rounder pool of light
+    float ndotl = 1.0F;
+    if (dist > 0.0001F) {
+      ndotl = (n.x * d.x + n.y * d.y + n.z * d.z) / dist;
+      if (ndotl < 0.0F) ndotl = 0.0F;
+    }
+    const float k = L.lightBright * atten * ndotl;
+    add.x += k * L.color[0];
+    add.y += k * L.color[1];
+    add.z += k * L.color[2];
+  }
+  return add;
+}
+
 void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
               std::vector<Vec4>& sts, const SceneObjectData& o, V3 p, V3 n,
               float u, float v) {
   p.x *= o.scale[0], p.y *= o.scale[1], p.z *= o.scale[2];
   p = rotated(p, o.rotation);
   n = rotated(n, o.rotation);
-  const V3 shade = shadeOf(n);
-  verts.push_back(Vec4(p.x + o.position[0], p.y + o.position[1],
-                       p.z + o.position[2], 1.0F));
+  const V3 wp = {p.x + o.position[0], p.y + o.position[1], p.z + o.position[2]};
+  V3 shade = shadeOf(n);
+  const V3 pl = pointLightAt(wp, n);
+  shade.x += pl.x, shade.y += pl.y, shade.z += pl.z;
+  if (shade.x > 1.0F) shade.x = 1.0F;
+  if (shade.y > 1.0F) shade.y = 1.0F;
+  if (shade.z > 1.0F) shade.z = 1.0F;
+  verts.push_back(Vec4(wp.x, wp.y, wp.z, 1.0F));
   // In textured mode the color modulates the texture (128 = 1.0)
   const float scale = o.texture >= 0 ? 128.0F : 255.0F;
   cols.push_back(Color(o.color[0] * scale * shade.x, o.color[1] * scale * shade.y,
@@ -1076,7 +1108,7 @@ void TerrainGame::updateUseTarget() {
     const RuntimeObject& o = runtimeObjects[i];
     if (!o.data.usable || !o.visible) continue;
     if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
-        o.data.type == 8)
+        o.data.type == 8 || o.data.type == 9)
       continue;
 
     const float dx = o.data.position[0] - cameraPosition.x;
@@ -1152,7 +1184,7 @@ bool TerrainGame::updatePlayerEntity() {
   float ground = terrainHeightAt(nextX, nextZ);
   for (const RuntimeObject& o : runtimeObjects) {
     if (!o.visible || o.data.type == 4 || o.data.type == 6 ||
-        o.data.type == 7 || o.data.type == 8)
+        o.data.type == 7 || o.data.type == 8 || o.data.type == 9)
       continue;
     const float ox = o.data.position[0];
     const float oz = o.data.position[2];
@@ -1277,6 +1309,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     case 6: break;  // player - marker only
     case 7: break;  // emitter - particles are built by updateParticles()
     case 8: break;  // sound emitter - marker only, no geometry
+    case 9: break;  // point light - invisible source, no geometry
     default: addBox(g.vertices, g.colors, g.sts, o.data); break;
   }
   if (g.vertices.empty()) {
@@ -1382,7 +1415,14 @@ void TerrainGame::generateTerrainGrid() {
             hAt(ix, iz - 1) - hAt(ix, iz + 1)};
     const float len = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
     if (len > 0.00001F) n.x /= len, n.y /= len, n.z /= len;
-    return shadeOf(n);
+    V3 s = shadeOf(n);
+    const V3 wp = {startX + ix * stepX, hAt(ix, iz), startZ + iz * stepZ};
+    const V3 pl = pointLightAt(wp, n);
+    s.x += pl.x, s.y += pl.y, s.z += pl.z;
+    if (s.x > 1.0F) s.x = 1.0F;
+    if (s.y > 1.0F) s.y = 1.0F;
+    if (s.z > 1.0F) s.z = 1.0F;
+    return s;
   };
 
   // Untextured: two greens in a checker pattern. Textured: a neutral gray
@@ -1673,7 +1713,7 @@ void TerrainGame::updatePlayer() {
   const float playerRadius = 0.35F;
   float ground = terrainHeightAt(nextX, nextZ);
   for (const RuntimeObject& o : runtimeObjects) {
-    if (!o.visible || o.data.type == 4) continue;
+    if (!o.visible || o.data.type == 4 || o.data.type == 9) continue;
     const float ox = o.data.position[0];
     const float oz = o.data.position[2];
     const float hx = 0.5F * o.data.scale[0] + playerRadius;
@@ -2472,6 +2512,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int sndAuto;    // sound emitters: 1 = plays while in range\n"
            "  float sndRange;    // sound emitters: audible distance\n"
            "  float sndInterval; // sound emitters: retrigger period (s), 0 = loop\n"
+           "  float lightBright; // point lights (type 9): baked intensity\n"
+           "  float lightRadius; // point lights (type 9): falloff radius\n"
            "};\n"
            "\n";
 
@@ -2488,7 +2530,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << (objs.empty() ? (size_t)1 : objs.size()) << "] = {\n";
         if (objs.empty()) {
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
-                   "0, 0, 0.0F, -1, 0, 15.0F, 0.0F},\n";
+                   "0, 0, 0.0F, -1, 0, 15.0F, 0.0F, 1.0F, 8.0F},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
                 for (size_t i = 0; i < p.sounds.size(); ++i)
@@ -2504,7 +2546,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << o.emitterCount << ", " << floatLit(o.emitterSize) << ", "
                     << soundIndexOf(o.soundPath) << ", " << (o.soundAuto ? 1 : 0)
                     << ", " << floatLit(o.soundRange) << ", "
-                    << floatLit(o.soundInterval) << "},  // " << o.name << "\n";
+                    << floatLit(o.soundInterval) << ", " << floatLit(o.lightBright)
+                    << ", " << floatLit(o.lightRadius) << "},  // " << o.name << "\n";
             }
         }
         out << "};\n";

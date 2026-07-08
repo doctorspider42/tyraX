@@ -38,6 +38,7 @@ private:
     void addObject(PrimitiveType type);
     void addEmitter(int kind);  // Effects menu presets (fire/smoke/fog/sparks)
     void addSoundEmitter();
+    void addPointLight();
     void drawAddObjectMenu();
     void importModel();
     void drawHudSection();
