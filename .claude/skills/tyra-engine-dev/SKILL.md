@@ -1,0 +1,120 @@
+---
+name: tyra-engine-dev
+description: >
+  Guide to editing the in-tree Tyra PS2 engine fork in vendor/tyra — the
+  renderer/clipper/VU1 pipeline, audio (audsrv), file loading over PS2 host fs,
+  and how engine changes reach running games through the Docker build. Use this
+  skill whenever you touch ANY file under vendor/tyra, work on PS2-side
+  rendering, clipping, VU1 microprograms, textures, audio playback or asset
+  loading, or when diagnosing in-game symptoms like rendering corruption, giant
+  smeared polygons, crackling/wrong-speed audio, or "Failed to load" asserts.
+  The pitfalls section records expensive dead ends — read it before attempting
+  any PS2 rendering or performance work, even if the change looks trivial.
+---
+
+# Working on the in-tree Tyra engine fork
+
+## Fork policy
+
+`vendor/tyra/engine` is a **versioned fork** of [h4570/tyra](https://github.com/h4570/tyra)
+(Apache 2.0, forked at upstream commit `9273416`), maintained directly in this
+repo. Edit it like normal project code — no patch machinery, no submodule.
+Rules:
+
+- Mark every departure from upstream with a `Modified by tyra-editor` comment
+  near the top of the file (grep for existing examples:
+  `audio_song.cpp`, `stapip_clipper.cpp`, `planes_clip_algorithm.cpp`,
+  `stapip_qbuffer.cpp`, `render_bbox.cpp`, `vcl_sml.i`).
+- **LF line endings only** under `vendor/tyra/**` — enforced by
+  `.gitattributes`; the `vclpp` VU1 preprocessor chokes on CRLF. Don't fight it.
+- The rest of `vendor/` (imgui, glfw, imguizmo, imnodes, stb, and tyra's
+  non-engine parts) is git-ignored and cloned by `setup.ps1` — never edit those.
+
+## How an engine change reaches the game
+
+You don't rebuild the engine by hand. The editor's Runner (`src/runner.cpp`)
+does it on every game build (F5 or `tyra-editor.exe --build <projectDir>`):
+
+1. `vendor/tyra` is bind-mounted **read-only** at `/engine-src` in the
+   project's container (service `compiler`, container `<name>-compiler-1`).
+2. The Runner checksum-rsyncs `/engine-src` into the shared volume
+   `tyra-engine-shared` (mounted at `/tyra`), shared by all projects.
+3. If anything changed, `libtyra` is rebuilt once (VU1 microprograms are
+   force-rebuilt too) and the game ELF is dropped so it relinks.
+4. Unchanged engine → the rsync is a no-op and builds take seconds.
+
+So the loop is: edit a file under `vendor/tyra/engine`, run a game build, and
+the change is in the ELF. No container restarts needed. If the shared volume
+gets into a weird state, `git checkout` inside `/tyra` restores originals (it's
+a git checkout of the fork).
+
+## Engine layout
+
+`vendor/tyra/engine/{inc,src}/` mirror each other by subsystem:
+`audio` (audsrv music + ADPCM sfx), `debug`, `file`, `info`, `irx`, `loaders`
+(PNG, obj/md2), `math`, `pad`, `physics`, `renderer` (the big one — 2D, 3D
+static/dynamic pipelines, core GS/VU1 code), `thread`, `time`; plus
+`engine.hpp` / `game.hpp` and the VCL/VU1 sources under the renderer
+(`*.i`, `*.vcl` — preprocessed by vclpp inside the container).
+
+Editor-specific engine additions so far: Cohen–Sutherland outcodes in the EE
+clipper, static pools in `stapip_clipper.cpp` / `stapip_qbuffer.cpp`,
+`RendererCorePostFx` (bloom + film grain via GS blits), WAV-header-aware song
+player, `bboxVersion` on `StaPipBag` for moving geometry.
+
+## Hard-won pitfalls (dead ends already explored — don't repeat them)
+
+**Rendering**
+- **Never submit bags with `frustumCulling = None`.** Off-screen geometry wraps
+  the GS 4096-px raster window → "objects render twice / giant smeared
+  polygons". PCSX2's HW renderer often *masks* this; the SW renderer and real
+  hardware show it. This was the root cause of a long-standing corruption bug —
+  not the clipper patches (all were bisected; even pure upstream reproduced it).
+- **VU1 guard-band clipping is retired.** Three variants were tried; all
+  corrupted ADC bits. The failed approaches are documented in `vcl_sml.i`. The
+  EE clipper (with outcode + pool optimizations) handles the near-plane band;
+  don't resurrect the guard band without reading that history.
+- The engine bbox cache is keyed by bag pointer — geometry that changes at
+  runtime must bump `bboxVersion` on its `StaPipBag`, or culling uses stale
+  boxes.
+- Upstream's default `PlanesClipAlgorithm::clipMargin` pushes the near plane
+  ~10 units from the camera; generated games override it.
+- Judge rendering correctness on **PCSX2's software renderer** — it is the
+  honest one. See tyra-testing for how.
+
+**Audio**
+- audsrv streams PCM only; ADPCM is for one-shots (`adpcm.tryPlay`), and ADPCM
+  voices cannot be stopped — the editor round-robins SPU channels to avoid
+  drop-outs. Channels 16–23 are reserved by generated games for sound emitters.
+- WAV files: 8-bit PCM is unsigned (0x80 = silence) but audsrv mixes signed —
+  convert (XOR 0x80) or it wraps at every zero crossing (loud crackle at
+  correct pitch — that exact symptom happened).
+- Mono/low-rate streams need smaller chunk size + fill threshold or audsrv's
+  ring buffer starves.
+
+**Files / assets**
+- `fseek`/`ftell` are unreliable over the PS2 host filesystem — the WAV parser
+  walks RIFF chunks in memory for this reason. Prefer read-into-memory parsing.
+- Textures must be power-of-two sized; PNG 32/24bpp or palletized 8/4bpp
+  (palletized is fastest on PS2).
+- `cdrom0:` paths differ from `host:` paths — ISO9660 uses `\`, upper-case and
+  a `;1` version suffix; `FileUtils::fromCwd` and the extension helpers handle
+  the conversion. Test asset-loading changes on BOTH boot paths (host: via
+  normal Build & Run, cdrom0: via Export PS2 ISO).
+
+**Build environment**
+- PS2SDK's `math3d.h` `#define`s names like `LIGHT_AMBIENT` — prefix your
+  constants (the codebase uses `SCENE_*`).
+- The compiler is `mips64r5900el-ps2-elf-g++` inside the `h4570/tyra` image;
+  there is no way to compile engine code on the host. Even a syntax check
+  requires a game build (see tyra-testing).
+
+## Performance context
+
+The 98k-vertex benchmark scene went 12 → 50 FPS through: outcode early-out in
+the EE clipper, static pools (no per-call heap), and finally exact per-package
+frustum classification. Known next targets (from PROGRESS.md backlog): the
+packager allocates its package array per frame (poolable); the real endgame is
+upstream's own TODO in `stapip_clipper.hpp` — move clipping fully to VU1.
+Measure with PCSX2's FPS display on the software renderer, 3+ samples, before
+and after; pixel-compare screenshots to prove output is unchanged.
