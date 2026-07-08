@@ -9,6 +9,16 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (14) **Outline close-up fixes** — two artifacts visible when standing next to a
+  usable object: (a) no bottom rim - grounded objects' shells dip below the terrain
+  and the ground in front z-rejects them from a low camera; shell vertices are now
+  lifted just above the terrain surface, turning the bottom rim into a glow apron
+  hugging the ground around the base. (b) shells washed out receding side faces -
+  the camera pushback clears the front face but not glancing ones; the object is
+  now repainted right after its shells (wins the GEQUAL depth test) which erases
+  the wash without touching the rim outside the silhouette. Verified in PCSX2 up
+  close (USE prompt range): clean side faces, ground glow at the base, 50 FPS.
+
 - (13) **Configurable outline blur** — Preferences > Usable objects gains "Blur
   width (units)" (total rim size, 0.05-2.0) and "Blur steps" (1-8 shells; 1 = sharp
   solid edge). Baked into terrain_config.hpp as HIGHLIGHT_WIDTH / HIGHLIGHT_STEPS;

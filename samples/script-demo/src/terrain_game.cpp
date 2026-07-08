@@ -1091,6 +1091,12 @@ void TerrainGame::renderHighlightHull(int index) {
       hx = cameraPosition.x + (hx - cameraPosition.x) * k;
       hy = cameraPosition.y + (hy - cameraPosition.y) * k;
       hz = cameraPosition.z + (hz - cameraPosition.z) * k;
+      // Shell parts of grounded objects dip below the terrain and the
+      // ground in front z-rejects them (no bottom rim from a low camera).
+      // Lift them just above the surface - the bottom rim becomes a glow
+      // apron hugging the ground around the base.
+      const float ground = terrainHeightAt(hx, hz) + 0.02F;
+      if (hy < ground) hy = ground;
       g.hullVerts[s * n + v] = Vec4(hx, hy, hz, 1.0F);
       g.hullCols[s * n + v] = c;
     }
@@ -1115,6 +1121,11 @@ void TerrainGame::renderHighlightHull(int index) {
   g.hullBag->count = static_cast<u32>(g.hullVerts.size());
   g.hullBag->bboxVersion++;  // rebuilt every frame while highlighted
   stapip.core.render(g.hullBag.get());
+  // The pushback clears the object's front face but not its receding side
+  // faces - shells still blend over those at glancing angles. Repainting
+  // the object wins the equal-depth test (GEQUAL) and erases the wash
+  // without touching the rim outside the silhouette.
+  stapip.core.render(g.bag.get());
 }
 
 void TerrainGame::generateTerrainGrid() {
