@@ -66,9 +66,10 @@ without building:
 - To test a specific graph/scene shape, edit the project's `project.json`
   directly (it is the source of truth; the editor tolerates external edits and
   discards stale undo history), then refresh and inspect.
-- `samples/script-demo/` is a checked-in generated project, but its generated
-  files lag behind current codegen (legacy single-scene format) — rebuild it
-  first if you want to diff against it; don't treat it as ground truth as-is.
+- `samples/script-demo/` is a checked-in generated project — a useful diff
+  baseline, but only as fresh as its last regeneration. If codegen changed
+  since, regenerate the sample first (its files drift silently); don't treat a
+  stale copy as ground truth.
 
 Past features were verified with throwaway "codegen harnesses" — a scratch
 `main()` that builds a `Project` in code, calls `templates::generate()` and

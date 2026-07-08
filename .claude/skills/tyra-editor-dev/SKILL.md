@@ -64,9 +64,10 @@ Two sibling skills cover the rest of the system:
 | `gl_loader.h/.cpp` | 137 | Minimal hand-rolled GL 3.3 loader (only what the viewport needs). |
 
 `samples/script-demo/` is a complete generated project checked into the repo.
-Beware: its generated files **lag behind current codegen** (it still uses the
-legacy single-scene format) — rebuild it through the editor before trusting it
-as a reference for what `templates.cpp` emits today.
+Its generated files are only as fresh as the last time someone rebuilt it — if
+codegen changed since, they drift silently. Regenerate (load + save +
+`refreshGenerated`, or a `--build`) before trusting it as a reference for what
+`templates.cpp` emits today.
 
 ## The rules that keep the system consistent
 
