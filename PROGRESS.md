@@ -408,6 +408,23 @@ Each finished feature lands as its own commit.
   verified with a GDI screenshot (orange pool on the terrain, lit box
   faces, no bleed onto faces pointing away); PCSX2 boot pending.
 
+- (39) **Post fx grain/bloom flicker fix** - film grain dropped out for a few
+  frames every so often ("turns off for a fraction of a second"). Cause: the
+  dynamic pipeline kicks the 3D scene on PATH1/VU1 asynchronously (double
+  buffered - `sendPacket()` returns while the VIF1 DMA is still draining and VU1
+  is still rasterizing), but `RendererCore::endFrame()` ran `postFx.apply()`
+  with no barrier. PostFx composites over the framebuffer via PATH3 and masks z
+  writes, so on frames where VU1 lagged, late scene triangles reached the GS
+  after the grain sprites and drew back over them (passing the GEQUAL z-test),
+  erasing the grain across all scene surfaces - bursty, exactly matching "every
+  few frames". Fix: drain PATH1 before compositing with the engine's existing
+  `sync.align3D()` handshake (a VU1 draw-finish tag + GS FINISH spin-wait -
+  previously defined but never called in this fork), guarded by a new
+  `postFx.isEnabled()` so games without post fx pay nothing. Verified in PCSX2
+  SW renderer (showcase, grain=max): boots without hanging on the new spin-wait,
+  steady 50 FPS, grain now fully and uniformly present over sky, terrain and
+  every object across sampled moving frames.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)
