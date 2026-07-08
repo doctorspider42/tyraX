@@ -203,6 +203,11 @@ std::string save(const Project& p) {
          << "    \"terrainTexScale\": " << fmtFloat(p.settings.terrainTexScale) << ",\n"
          << "    \"bloom\": " << fmtFloat(p.settings.bloom) << ",\n"
          << "    \"grain\": " << fmtFloat(p.settings.grain) << ",\n"
+         << "    \"highlightUsable\": "
+         << (p.settings.highlightUsable ? "true" : "false") << ",\n"
+         << "    \"highlightDistance\": " << fmtFloat(p.settings.highlightDistance)
+         << ",\n"
+         << "    \"highlightColor\": " << fmtVec3(p.settings.highlightColor) << ",\n"
          << "    \"loadingScreen\": " << (p.settings.loadingScreen ? "true" : "false")
          << "\n"
          << "  },\n"
@@ -657,6 +662,13 @@ std::string load(Project& out, const std::string& projectDir) {
         auto clamp01 = [](float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
         if (const auto* v = s->find("bloom")) st.bloom = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("grain")) st.grain = clamp01((float)v->numberOr(0.0));
+        if (const auto* v = s->find("highlightUsable"))
+            st.highlightUsable = v->type == json::Value::Type::Bool && v->boolean;
+        if (const auto* v = s->find("highlightDistance"))
+            st.highlightDistance = (float)v->numberOr(6.0);
+        if (st.highlightDistance < 0.5f) st.highlightDistance = 0.5f;
+        if (st.highlightDistance > 1000.0f) st.highlightDistance = 1000.0f;
+        readVec3(s->find("highlightColor"), st.highlightColor);
         if (const auto* v = s->find("loadingScreen"))
             st.loadingScreen = !(v->type == json::Value::Type::Bool && !v->boolean);
     }

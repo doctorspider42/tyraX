@@ -180,6 +180,14 @@ constexpr float SKY_TOP_B = {{SKY_TOP_B}};
 constexpr int POSTFX_BLOOM = {{POSTFX_BLOOM}};
 constexpr int POSTFX_GRAIN = {{POSTFX_GRAIN}};
 
+// Usable-object highlight: outline drawn around objects marked usable while
+// the player is within HIGHLIGHT_DISTANCE of them
+constexpr bool HIGHLIGHT_USABLE = {{HIGHLIGHT_USABLE}};
+constexpr float HIGHLIGHT_DISTANCE = {{HIGHLIGHT_DISTANCE}};  // world units
+constexpr float HIGHLIGHT_R = {{HIGHLIGHT_R}};  // 0-255
+constexpr float HIGHLIGHT_G = {{HIGHLIGHT_G}};
+constexpr float HIGHLIGHT_B = {{HIGHLIGHT_B}};
+
 // Scene switches show res/hud/loading.png on black for a moment
 constexpr bool LOADING_SCREEN = {{LOADING_SCREEN}};
 
@@ -233,6 +241,13 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    // Usable-object highlight: flat-color copy grown around the object
+    // center, drawn just before it (see renderHighlightHull)
+    std::vector<Tyra::Vec4> hullVerts;
+    std::unique_ptr<Tyra::StaPipBag> hullBag;
+    std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> hullColorBag;
+    Tyra::Color hullColor;
   };
   std::vector<Tyra::Texture*> loadedTextures;
   std::vector<Tyra::Vec4> terrainSts;
@@ -247,6 +262,7 @@ class TerrainGame : public Tyra::Game {
   void rebuildObjectGeometry(int index);
   void updateObjectPhysics();
   void renderScene();
+  void renderHighlightHull(int index);
 
   // Player entity (PLAYER_INDEXES in scene_data.hpp); overrides the template
   // camera when present. Returns false when the scene has no player.
@@ -344,6 +360,13 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    // Usable-object highlight: flat-color copy grown around the object
+    // center, drawn just before it (see renderHighlightHull)
+    std::vector<Tyra::Vec4> hullVerts;
+    std::unique_ptr<Tyra::StaPipBag> hullBag;
+    std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> hullColorBag;
+    Tyra::Color hullColor;
   };
   std::vector<Tyra::Texture*> loadedTextures;
   std::vector<Tyra::Vec4> terrainSts;
@@ -358,6 +381,7 @@ class TerrainGame : public Tyra::Game {
   void rebuildObjectGeometry(int index);
   void updateObjectPhysics();
   void renderScene();
+  void renderHighlightHull(int index);
 
   // Player entity (PLAYER_INDEXES in scene_data.hpp); overrides the template
   // camera when present. Returns false when the scene has no player.
@@ -1384,12 +1408,74 @@ void TerrainGame::renderScene() {
   stapip.core.render(bag.get());
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
-    if (runtimeObjects[i].visible && objectGeometry[i].bag)
-      stapip.core.render(objectGeometry[i].bag.get());
+    if (!runtimeObjects[i].visible || !objectGeometry[i].bag) continue;
+    if (HIGHLIGHT_USABLE && runtimeObjects[i].data.usable)
+      renderHighlightHull(i);  // proximity-checked inside; no-op when far
+    stapip.core.render(objectGeometry[i].bag.get());
   }
   // particles last - alpha blended over the scene
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
+}
+
+// Usable-object highlight (Project > Preferences): a flat-color copy of the
+// object, grown around its center and drawn just before it with z-test but
+// no z-write (PipelineZTest_TestOnly). The object overdraws the interior,
+// leaving a colored rim around its silhouette. Proximity uses the same
+// reference point as the USE interaction (the camera / player eye).
+void TerrainGame::renderHighlightHull(int index) {
+  const RuntimeObject& o = runtimeObjects[index];
+  ObjectGeometry& g = objectGeometry[index];
+  if (g.vertices.empty()) return;
+
+  float half = o.data.scale[0];
+  if (o.data.scale[1] > half) half = o.data.scale[1];
+  if (o.data.scale[2] > half) half = o.data.scale[2];
+  half *= 0.5F;
+  if (half < 0.01F) half = 0.01F;
+
+  const float dx = o.data.position[0] - cameraPosition.x;
+  const float dy = o.data.position[1] - cameraPosition.y;
+  const float dz = o.data.position[2] - cameraPosition.z;
+  const float reach = HIGHLIGHT_DISTANCE + half;
+  if (dx * dx + dy * dy + dz * dz > reach * reach) return;
+
+  // Rim ~0.12 units; clamped so small props stay visible and big walls
+  // don't get a monster halo. Uniform growth keeps rotated objects unskewed.
+  float grow = 0.12F / half;
+  if (grow < 0.04F) grow = 0.04F;
+  if (grow > 0.35F) grow = 0.35F;
+  const float f = 1.0F + grow;
+
+  const float cx = o.data.position[0], cy = o.data.position[1],
+              cz = o.data.position[2];
+  g.hullVerts.resize(g.vertices.size());
+  for (size_t k = 0; k < g.vertices.size(); ++k) {
+    const Vec4& v = g.vertices[k];
+    g.hullVerts[k] = Vec4(cx + (v.x - cx) * f, cy + (v.y - cy) * f,
+                          cz + (v.z - cz) * f, 1.0F);
+  }
+
+  if (!g.hullBag) {
+    g.hullInfoBag = std::make_unique<StaPipInfoBag>();
+    g.hullInfoBag->model = &model;
+    g.hullInfoBag->shadingType = TyraShadingFlat;
+    g.hullInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    g.hullInfoBag->fullClipChecks = true;
+    g.hullInfoBag->zTestType = PipelineZTest_TestOnly;
+    g.hullColor = Color(HIGHLIGHT_R, HIGHLIGHT_G, HIGHLIGHT_B, 128.0F);
+    g.hullColorBag = std::make_unique<StaPipColorBag>();
+    g.hullColorBag->single = &g.hullColor;
+    g.hullBag = std::make_unique<StaPipBag>();
+    g.hullBag->info = g.hullInfoBag.get();
+    g.hullBag->color = g.hullColorBag.get();
+    g.hullBag->texture = nullptr;
+    g.hullBag->lighting = nullptr;
+  }
+  g.hullBag->vertices = g.hullVerts.data();
+  g.hullBag->count = static_cast<u32>(g.hullVerts.size());
+  g.hullBag->bboxVersion++;  // rebuilt every frame while highlighted
+  stapip.core.render(g.hullBag.get());
 }
 
 void TerrainGame::generateTerrainGrid() {
@@ -2711,6 +2797,11 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{POSTFX_BLOOM}}", fx128(st.bloom));
     s = replaceAll(s, "{{POSTFX_GRAIN}}", fx128(st.grain));
     s = replaceAll(s, "{{LOADING_SCREEN}}", st.loadingScreen ? "true" : "false");
+    s = replaceAll(s, "{{HIGHLIGHT_USABLE}}", st.highlightUsable ? "true" : "false");
+    s = replaceAll(s, "{{HIGHLIGHT_DISTANCE}}", floatLit(st.highlightDistance));
+    s = replaceAll(s, "{{HIGHLIGHT_R}}", floatLit(st.highlightColor[0] * 255.0f));
+    s = replaceAll(s, "{{HIGHLIGHT_G}}", floatLit(st.highlightColor[1] * 255.0f));
+    s = replaceAll(s, "{{HIGHLIGHT_B}}", floatLit(st.highlightColor[2] * 255.0f));
     {
         float lx = st.lightDir[0], ly = st.lightDir[1], lz = st.lightDir[2];
         const float len = std::sqrt(lx * lx + ly * ly + lz * lz);

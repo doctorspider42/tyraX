@@ -9,6 +9,21 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (11) **Usable-object highlight** — Preferences > Usable objects: "Highlight usable
+  objects" + proximity (units) + color. In-game, objects marked Usable get a colored
+  outline while the player is within proximity: a flat-color copy of the object grown
+  ~0.12 units around its center is drawn just before it with z-test but no z-write,
+  so the object overdraws the interior and only a rim survives. The no-z-write mode
+  is a new engine enum (`PipelineZTest_TestOnly`, stapip + dynpip) implemented purely
+  in the GS TEST register (alpha-test all-fail + AFAIL keep-zbuffer) — the VU1
+  options layout is untouched. Editor viewport marks usable objects with a wire box
+  in the highlight color when the pref is on (proximity is runtime-only). Verified
+  in PCSX2 (software renderer, 50 FPS): near usable box shows a yellow rim, far
+  usable pillar and non-usable objects stay clean; prefs UI + JSON round-trip +
+  viewport preview screenshotted. Dead end for the record: a classic inverted-hull
+  outline doesn't work here — the Tyra pipeline has no backface culling, so a scaled
+  hull drawn normally occludes the object; the no-z-write underdraw sidesteps that.
+
 - (10) **FPP showcase template** — third choice in New Project: seeds a fresh project
   with all features (built-in house.obj + crosshair.png embedded in the editor,
   physics ball, pillar, HUD, starter flow graph). Fresh copy every time, so the

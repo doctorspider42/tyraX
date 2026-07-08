@@ -48,6 +48,10 @@ public:
     // terrain texture (PNG, tiled; empty = checker colors) + world units per tile
     void setTerrainTexture(const std::string& relPath, float scale);
 
+    // "Highlight usable objects" preference: marks usable objects with a wire
+    // box in the highlight color (proximity is a game-runtime condition)
+    void setUsableHighlight(bool enabled, const float* rgb);
+
     // Renders terrain + objects at the given pixel size, returns GL texture id.
     // selectedIndex: index into objects highlighted with an outline (-1 = none).
     uint32_t render(int width, int height, const std::vector<SceneObject>& objects,
@@ -126,6 +130,8 @@ private:
     std::string terrainTexture_;
     float terrainTexScale_ = 4.0f;
     Mesh wireCube_;  // selection outline (unit cube edges)
+    bool usableHighlight_ = false;  // wire box on usable objects
+    float usableHighlightCol_[3] = {1.0f, 0.85f, 0.15f};
 
     uint32_t fbo_ = 0, colorTex_ = 0, depthRbo_ = 0;
     int fbWidth_ = 0, fbHeight_ = 0;

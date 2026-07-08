@@ -144,6 +144,12 @@ struct ProjectSettings {
     // Scene switches show res/hud/loading.png centered on black for a
     // moment (a generated placeholder is written when the file is missing).
     bool loadingScreen = true;
+
+    // In-game outline around usable objects while the player is within
+    // highlightDistance (flat-color silhouette drawn under the object).
+    bool highlightUsable = false;
+    float highlightDistance = 6.0f;                  // world units
+    float highlightColor[3] = {1.0f, 0.85f, 0.15f};  // outline color
 };
 
 class History;

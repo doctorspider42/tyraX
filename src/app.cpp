@@ -2597,6 +2597,8 @@ void App::applyProjectToViewport() {
                          sc.hmD);
     viewport_.setSky(project_.settings.skyColor, project_.settings.skyTopColor,
                      project_.settings.skyDome);
+    viewport_.setUsableHighlight(project_.settings.highlightUsable,
+                                 project_.settings.highlightColor);
     viewport_.setLighting(sc.lightDir, sc.ambient, sc.diffuse, sc.lightColor,
                           sc.brightness);
 }
@@ -2679,6 +2681,17 @@ void App::drawPreferencesModal() {
     ImGui::TextDisabled(
         "Scene switches show res/hud/loading.png centered on black for ~0.7s.\n"
         "A placeholder is generated - replace the file to customize it.");
+
+    ImGui::SeparatorText("Usable objects");
+    ImGui::Checkbox("Highlight usable objects", &prefSettings_.highlightUsable);
+    if (prefSettings_.highlightUsable) {
+        ImGui::DragFloat("Proximity (units)", &prefSettings_.highlightDistance, 0.1f,
+                         0.5f, 1000.0f, "%.1f");
+        ImGui::ColorEdit3("Highlight color", prefSettings_.highlightColor);
+    }
+    ImGui::TextDisabled(
+        "In-game outline around objects marked 'Usable' while the player is\n"
+        "within the proximity distance. The viewport marks them with a wire box.");
 
     ImGui::SeparatorText("Lighting");
     ImGui::DragFloat3("Light direction", prefSettings_.lightDir, 0.02f, -1.0f, 1.0f, "%.2f");
