@@ -23,6 +23,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Player: return "player";
         case PrimitiveType::Emitter: return "emitter";
         case PrimitiveType::SoundEmitter: return "sound";
+        case PrimitiveType::PointLight: return "point-light";
     }
     return "box";
 }
@@ -36,6 +37,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "player") return PrimitiveType::Player;
     if (s == "emitter") return PrimitiveType::Emitter;
     if (s == "sound") return PrimitiveType::SoundEmitter;
+    if (s == "point-light") return PrimitiveType::PointLight;
     return PrimitiveType::Box;
 }
 
@@ -152,6 +154,10 @@ static std::string objectJson(const SceneObject& o) {
                 "\", \"autoplay\": " + (o.soundAuto ? "true" : "false") +
                 ", \"range\": " + fmtFloat(o.soundRange) +
                 ", \"interval\": " + fmtFloat(o.soundInterval) + " }";
+    }
+    if (o.type == PrimitiveType::PointLight) {
+        json += ", \"light\": { \"brightness\": " + fmtFloat(o.lightBright) +
+                ", \"radius\": " + fmtFloat(o.lightRadius) + " }";
     }
     if (!o.flowGraph.empty()) json += ", \"flowGraph\": " + flowGraphJson(o.flowGraph);
     return json + " }";
@@ -583,6 +589,13 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (const auto* v = sn->find("interval"))
                 o.soundInterval = (float)v->numberOr(0.0);
             if (o.soundInterval < 0.0f) o.soundInterval = 0.0f;
+        }
+        if (const auto* lt = jo.find("light")) {
+            if (const auto* v = lt->find("brightness"))
+                o.lightBright = (float)v->numberOr(1.0);
+            if (const auto* v = lt->find("radius"))
+                o.lightRadius = (float)v->numberOr(8.0);
+            if (o.lightRadius < 0.1f) o.lightRadius = 0.1f;
         }
         if (const auto* fg = jo.find("flowGraph")) readFlowGraph(*fg, o.flowGraph);
         out.push_back(std::move(o));

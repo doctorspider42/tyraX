@@ -107,6 +107,8 @@ private:
     Mesh terrain_mesh_;
     Mesh lines_;  // terrain grid + axes
     Mesh box_, sphere_, cylinder_, cone_, spawnMarker_, playerMarker_;
+    Mesh lightGizmo_;  // small unshaded bulb marking a point light
+    Mesh wireSphere_;  // unit-radius ring sphere, scaled to a light's radius
     std::string projectDir_;
     std::map<std::string, Mesh> modelCache_;  // .obj meshes by relative path
     const Mesh* modelMesh(const std::string& relPath);

@@ -409,6 +409,50 @@ void pushVertexColor(std::vector<float>& v, float x, float y, float z, float r, 
     v.insert(v.end(), {x, y, z, r, g, b, tu, tv});
 }
 
+// Point-light bulb: a small sphere with flat white vertex colors so the draw
+// tint (the light color) shows through unshaded - i.e. it reads as emissive.
+std::vector<float> unitLightBulb() {
+    std::vector<float> v;
+    const int stacks = 8, slices = 12;
+    const float r = 0.5f;
+    auto at = [&](float t, float p) -> Vec3 {
+        return {r * std::sin(t) * std::cos(p), r * std::cos(t), r * std::sin(t) * std::sin(p)};
+    };
+    auto push = [&](Vec3 p) { pushVertexColor(v, p.x, p.y, p.z, 1.0f, 1.0f, 1.0f); };
+    for (int st = 0; st < stacks; ++st) {
+        const float t0 = kPi * st / stacks, t1 = kPi * (st + 1) / stacks;
+        for (int sl = 0; sl < slices; ++sl) {
+            const float p0 = 2 * kPi * sl / slices, p1 = 2 * kPi * (sl + 1) / slices;
+            Vec3 v00 = at(t0, p0), v01 = at(t0, p1), v10 = at(t1, p0), v11 = at(t1, p1);
+            push(v00); push(v10); push(v11);
+            push(v00); push(v11); push(v01);
+        }
+    }
+    return v;
+}
+
+// Unit-radius line sphere (three great-circle rings) drawn scaled to a light's
+// radius to show its reach. White vertex colors; tinted at draw time.
+std::vector<float> unitWireSphere() {
+    std::vector<float> v;
+    const int seg = 32;
+    auto ring = [&](int axis) {
+        for (int i = 0; i < seg; ++i) {
+            const float a0 = 2 * kPi * i / seg, a1 = 2 * kPi * (i + 1) / seg;
+            const float c0 = std::cos(a0), s0 = std::sin(a0);
+            const float c1 = std::cos(a1), s1 = std::sin(a1);
+            Vec3 p0, p1;
+            if (axis == 0) p0 = {0, c0, s0}, p1 = {0, c1, s1};        // YZ plane
+            else if (axis == 1) p0 = {c0, 0, s0}, p1 = {c1, 0, s1};   // XZ plane
+            else p0 = {c0, s0, 0}, p1 = {c1, s1, 0};                  // XY plane
+            pushVertexColor(v, p0.x, p0.y, p0.z, 1, 1, 1);
+            pushVertexColor(v, p1.x, p1.y, p1.z, 1, 1, 1);
+        }
+    };
+    ring(0); ring(1); ring(2);
+    return v;
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -478,6 +522,8 @@ void Viewport::shutdown() {
     destroyMesh(spawnMarker_);
     destroyMesh(playerMarker_);
     destroyMesh(wireCube_);
+    destroyMesh(lightGizmo_);
+    destroyMesh(wireSphere_);
     destroyMesh(skyQuad_);
     clearModelCache();
     clearTexCache();
@@ -582,6 +628,8 @@ void Viewport::buildPrimitiveMeshes() {
     destroyMesh(spawnMarker_);
     destroyMesh(playerMarker_);
     destroyMesh(wireCube_);
+    destroyMesh(lightGizmo_);
+    destroyMesh(wireSphere_);
     box_ = uploadMesh(unitBox());
     sphere_ = uploadMesh(unitSphere());
     cylinder_ = uploadMesh(unitCylinder());
@@ -589,6 +637,8 @@ void Viewport::buildPrimitiveMeshes() {
     spawnMarker_ = uploadMesh(unitSpawnMarker());
     playerMarker_ = uploadMesh(unitPlayerMarker());
     wireCube_ = uploadMesh(unitWireCube());
+    lightGizmo_ = uploadMesh(unitLightBulb());
+    wireSphere_ = uploadMesh(unitWireSphere());
 }
 
 void Viewport::buildTerrainMesh() {
@@ -1005,6 +1055,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             case PrimitiveType::Player: return &playerMarker_;
             case PrimitiveType::Emitter: return &cone_;  // flame-ish marker
             case PrimitiveType::SoundEmitter: return &sphere_;  // speaker-ish marker
+            case PrimitiveType::PointLight: return &lightGizmo_;  // glowing bulb
             case PrimitiveType::Model: {
                 const Mesh* m = modelMesh(o.modelPath);
                 return m ? m : &box_;  // missing model -> placeholder box
@@ -1047,6 +1098,17 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     // Grid lines, axes and the selection outline are unaffected by view mode
     draw(lines_, GL_LINES, viewProj, 1.0f, 1.0f, 1.0f);
+
+    // Point-light reach: a ring sphere at each light, scaled to its radius and
+    // tinted with the light color (a rough preview of the lit volume).
+    for (const SceneObject& o : objects) {
+        if (o.type != PrimitiveType::PointLight) continue;
+        const float r = o.lightRadius > 0.01f ? o.lightRadius : 0.01f;
+        const Mat4 m = mul(translation(o.position[0], o.position[1], o.position[2]),
+                           scaleM(r, r, r));
+        draw(wireSphere_, GL_LINES, mul(viewProj, m), o.color[0], o.color[1], o.color[2]);
+    }
+
     if (selectedIndex >= 0 && selectedIndex < (int)objects.size()) {
         const Mat4 mvp = mul(viewProj, modelMatrix(objects[selectedIndex]));
         draw(wireCube_, GL_LINES, mvp, 1.0f, 0.6f, 0.1f);
