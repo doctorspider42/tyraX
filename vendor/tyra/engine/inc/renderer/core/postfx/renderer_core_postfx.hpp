@@ -46,6 +46,9 @@ class RendererCorePostFx {
   u8 getBloom() const { return bloom; }
   u8 getGrain() const { return grain; }
 
+  /** True when any effect is active, i.e. apply() will draw something. */
+  bool isEnabled() const { return bloom != 0 || grain != 0; }
+
   /** Called by RendererCore::endFrame() right before the buffer flip. */
   void apply();
 

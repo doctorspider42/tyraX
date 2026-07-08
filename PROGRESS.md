@@ -9,6 +9,21 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (11) **Usable-object highlight** — Preferences > Usable objects: "Highlight usable
+  objects" + proximity (units) + color. In-game, objects marked Usable get a colored
+  outline while the player is within proximity: a flat-color copy of the object grown
+  ~0.12 units around its center is drawn just before it with z-test but no z-write,
+  so the object overdraws the interior and only a rim survives. The no-z-write mode
+  is a new engine enum (`PipelineZTest_TestOnly`, stapip + dynpip) implemented purely
+  in the GS TEST register (alpha-test all-fail + AFAIL keep-zbuffer) — the VU1
+  options layout is untouched. Editor viewport marks usable objects with a wire box
+  in the highlight color when the pref is on (proximity is runtime-only). Verified
+  in PCSX2 (software renderer, 50 FPS): near usable box shows a yellow rim, far
+  usable pillar and non-usable objects stay clean; prefs UI + JSON round-trip +
+  viewport preview screenshotted. Dead end for the record: a classic inverted-hull
+  outline doesn't work here — the Tyra pipeline has no backface culling, so a scaled
+  hull drawn normally occludes the object; the no-z-write underdraw sidesteps that.
+
 - (10) **FPP showcase template** — third choice in New Project: seeds a fresh project
   with all features (built-in house.obj + crosshair.png embedded in the editor,
   physics ball, pillar, HUD, starter flow graph). Fresh copy every time, so the
@@ -392,6 +407,23 @@ Each finished feature lands as its own commit.
   the fields and the pointLightAt bake (codegen harness); editor preview
   verified with a GDI screenshot (orange pool on the terrain, lit box
   faces, no bleed onto faces pointing away); PCSX2 boot pending.
+
+- (39) **Post fx grain/bloom flicker fix** - film grain dropped out for a few
+  frames every so often ("turns off for a fraction of a second"). Cause: the
+  dynamic pipeline kicks the 3D scene on PATH1/VU1 asynchronously (double
+  buffered - `sendPacket()` returns while the VIF1 DMA is still draining and VU1
+  is still rasterizing), but `RendererCore::endFrame()` ran `postFx.apply()`
+  with no barrier. PostFx composites over the framebuffer via PATH3 and masks z
+  writes, so on frames where VU1 lagged, late scene triangles reached the GS
+  after the grain sprites and drew back over them (passing the GEQUAL z-test),
+  erasing the grain across all scene surfaces - bursty, exactly matching "every
+  few frames". Fix: drain PATH1 before compositing with the engine's existing
+  `sync.align3D()` handshake (a VU1 draw-finish tag + GS FINISH spin-wait -
+  previously defined but never called in this fork), guarded by a new
+  `postFx.isEnabled()` so games without post fx pay nothing. Verified in PCSX2
+  SW renderer (showcase, grain=max): boots without hanging on the new spin-wait,
+  steady 50 FPS, grain now fully and uniformly present over sky, terrain and
+  every object across sampled moving frames.
 
 ## Backlog (rough order)
 

@@ -44,6 +44,14 @@ void RendererCore::beginFrame(const CameraInfo3D& cameraInfo) {
 
 void RendererCore::endFrame() {
   Threading::switchThread();
+  // The dynamic pipeline kicks the scene on PATH1/VU1 asynchronously (double
+  // buffered - sendPacket() returns while the DMA is still draining). PostFx
+  // composites over the framebuffer via PATH3 and writes no z, so any scene
+  // triangles the GS is still rasterizing would draw back over the grain/bloom
+  // (they pass the GEQUAL z-test) and erase it - a few frames every so often,
+  // exactly when VU1 lags. Drain PATH1 first so we composite over a finished
+  // frame. Only pay the barrier when an effect is actually on.
+  if (postFx.isEnabled()) sync.align3D();
   postFx.apply();
   if (isFrameLimitOn) graph_wait_vsync();
   gs.flipBuffers();

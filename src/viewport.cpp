@@ -911,6 +911,11 @@ void Viewport::setTerrainTexture(const std::string& relPath, float scale) {
     if (program_) buildTerrainMesh();
 }
 
+void Viewport::setUsableHighlight(bool enabled, const float* rgb) {
+    usableHighlight_ = enabled;
+    for (int i = 0; i < 3; ++i) usableHighlightCol_[i] = rgb[i];
+}
+
 void Viewport::clearTexCache() {
     for (auto& [path, tex] : texCache_)
         if (tex) glDeleteTextures(1, &tex);
@@ -1171,6 +1176,18 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         const Mat4 m = mul(translation(o.position[0], o.position[1], o.position[2]),
                            scaleM(r, r, r));
         draw(wireSphere_, GL_LINES, mul(viewProj, m), o.color[0], o.color[1], o.color[2]);
+    }
+
+    // "Highlight usable objects" preference: wire box in the highlight color
+    // around every usable object (the proximity condition only applies
+    // in-game; the editor just shows which objects qualify and the color).
+    if (usableHighlight_) {
+        for (const SceneObject& o : objects) {
+            if (!o.usable) continue;
+            const Mat4 mvp = mul(viewProj, modelMatrix(o));
+            draw(wireCube_, GL_LINES, mvp, usableHighlightCol_[0],
+                 usableHighlightCol_[1], usableHighlightCol_[2]);
+        }
     }
 
     if (selectedIndex >= 0 && selectedIndex < (int)objects.size()) {

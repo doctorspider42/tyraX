@@ -45,6 +45,13 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    // Usable-object highlight: flat-color copy grown around the object
+    // center, drawn just before it (see renderHighlightHull)
+    std::vector<Tyra::Vec4> hullVerts;
+    std::unique_ptr<Tyra::StaPipBag> hullBag;
+    std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> hullColorBag;
+    Tyra::Color hullColor;
   };
   std::vector<Tyra::Texture*> loadedTextures;
   std::vector<Tyra::Vec4> terrainSts;
@@ -59,6 +66,7 @@ class TerrainGame : public Tyra::Game {
   void rebuildObjectGeometry(int index);
   void updateObjectPhysics();
   void renderScene();
+  void renderHighlightHull(int index);
 
   // Player entity (PLAYER_INDEXES in scene_data.hpp); overrides the template
   // camera when present. Returns false when the scene has no player.

@@ -28,6 +28,14 @@ constexpr float SKY_TOP_B = 165.75F;
 constexpr int POSTFX_BLOOM = 0;
 constexpr int POSTFX_GRAIN = 0;
 
+// Usable-object highlight: outline drawn around objects marked usable while
+// the player is within HIGHLIGHT_DISTANCE of them
+constexpr bool HIGHLIGHT_USABLE = false;
+constexpr float HIGHLIGHT_DISTANCE = 6.0F;  // world units
+constexpr float HIGHLIGHT_R = 255.0F;  // 0-255
+constexpr float HIGHLIGHT_G = 216.75F;
+constexpr float HIGHLIGHT_B = 38.25F;
+
 // Scene switches show res/hud/loading.png on black for a moment
 constexpr bool LOADING_SCREEN = true;
 

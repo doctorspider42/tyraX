@@ -8,6 +8,8 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
+// Modified by tyra-editor: PipelineZTest_TestOnly branch in sendObjectData.
+
 #include "renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp"
 #include "renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h"
 #include "packet2/packet2_tyra_utils.hpp"
@@ -153,6 +155,16 @@ void StaPipQBufferRenderer::sendObjectData(
       packet2_add_2x_s64(objectDataPacket,
                          GS_SET_TEST(0, 0, 0, 0, 0, 0, 0, ZTEST_METHOD_ALLPASS),
                          GS_REG_TEST);
+    } else if (bag->info->zTestType == PipelineZTest_TestOnly) {
+      // Depth-tested, no z write: alpha test fails every pixel and AFAIL
+      // keeps the z buffer (GS FB_ONLY - color still written). The ZBUF
+      // register (and thus the VU1 options layout) stays untouched.
+      packet2_add_2x_s64(
+          objectDataPacket,
+          GS_SET_TEST(DRAW_ENABLE, ATEST_METHOD_ALLFAIL, 0x00,
+                      ATEST_KEEP_ZBUFFER, DRAW_DISABLE, DRAW_DISABLE,
+                      DRAW_ENABLE, rendererCore->gs.zBuffer.method),
+          GS_REG_TEST);
     } else {
       packet2_add_2x_s64(
           objectDataPacket,
