@@ -14,6 +14,7 @@
 #include <kernel.h>
 
 #include <unistd.h>
+#include <cctype>
 #include <cstring>
 #include "file/file_utils.hpp"
 
@@ -61,7 +62,24 @@ std::string FileUtils::fromCwd(const std::string& relativePath) {
 
 std::string FileUtils::fromCwd(const char* file) {
   auto cwd = getCwd();
-  return cwd + file;
+  auto path = cwd + file;
+
+  // ISO9660 (cdrom0:) stores names upper-case with a ";1" version suffix and
+  // the CD driver expects '\' separators. host:/mass:/mc0: take paths as-is.
+  if (path.rfind("cdrom", 0) == 0) {
+    auto rel = path.find(':');
+    rel = (rel == std::string::npos) ? 0 : rel + 1;
+    for (auto i = rel; i < path.size(); i++) {
+      if (path[i] == '/') {
+        path[i] = '\\';
+      } else {
+        path[i] = std::toupper(static_cast<unsigned char>(path[i]));
+      }
+    }
+    if (path.find(';', rel) == std::string::npos) path += ";1";
+  }
+
+  return path;
 }
 
 std::string FileUtils::getFilenameFromPath(const std::string& path) {
@@ -69,6 +87,9 @@ std::string FileUtils::getFilenameFromPath(const std::string& path) {
   if (filename.size() == path.size()) {
     filename = path.substr(path.find_last_of(":\\") + 1);
   }
+  // Drop the ISO9660 file version ("USE.PNG;1" -> "USE.PNG")
+  auto version = filename.find_last_of(';');
+  if (version != std::string::npos) filename = filename.substr(0, version);
   return filename;
 }
 
@@ -88,7 +109,11 @@ std::string FileUtils::getFilenameWithoutExtension(
 
 std::string FileUtils::getExtensionOfFilename(const std::string& filename) {
   auto lastindex = filename.find_last_of(".");
-  return filename.substr(lastindex + 1);
+  auto extension = filename.substr(lastindex + 1);
+  // Drop the ISO9660 file version ("PNG;1" -> "PNG")
+  auto version = extension.find_last_of(';');
+  if (version != std::string::npos) extension = extension.substr(0, version);
+  return extension;
 }
 
 }  // namespace Tyra

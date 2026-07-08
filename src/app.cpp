@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -258,6 +259,7 @@ void App::drawUI() {
     drawProjectWindow();
     drawFlowGraphWindow();
     drawOutputWindow();
+    drawDiscLayoutWindow();
     drawNewProjectModal();
     drawPreferencesModal();
     drawNewScriptModal();
@@ -327,6 +329,13 @@ void App::drawMenuBar() {
                 runner_.buildAndRun(project_, true);
             if (ImGui::MenuItem("Run in PCSX2 (no build)", nullptr, false, !busy))
                 runner_.runEmulatorOnly(project_);
+            ImGui::Separator();
+            if (ImGui::MenuItem("Export PS2 ISO", nullptr, false, !busy))
+                runner_.exportIso(project_);
+            if (ImGui::MenuItem("Disc Layout...")) {
+                showDiscLayout_ = true;
+                discPlanDirty_ = true;
+            }
             ImGui::EndMenu();
         }
 
@@ -1241,7 +1250,9 @@ void App::drawFlowGraphWindow() {
         const FlowNodeType* t = flowNodeType(n.type);
         if (!t) continue;
 
-        if (t->trigger)
+        if (t->pure && t->boolIn)  // logic gate
+            ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(110, 70, 150, 255));
+        else if (t->trigger)
             ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(40, 110, 60, 255));
         else
             ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(60, 80, 140, 255));
@@ -1383,9 +1394,11 @@ void App::drawFlowGraphWindow() {
         ImGui::PopID();
 
         // pins: exec flow (round) + object id (square, amber) + position
-        // (triangle, green). Pure data nodes have no exec pins.
+        // (triangle, green) + bool value (circle, violet). Pure data nodes
+        // have no exec pins; the bool-in pin accepts several links (folded).
         const unsigned idPinCol = IM_COL32(222, 170, 60, 255);
         const unsigned posPinCol = IM_COL32(110, 200, 120, 255);
+        const unsigned boolPinCol = IM_COL32(180, 120, 220, 255);
         if (t->idIn) {
             ImNodes::PushColorStyle(ImNodesCol_Pin, idPinCol);
             ImNodes::BeginInputAttribute(flowIdInPin(n.id), ImNodesPinShape_QuadFilled);
@@ -1398,6 +1411,13 @@ void App::drawFlowGraphWindow() {
             ImNodes::BeginInputAttribute(flowPosInPin(n.id),
                                          ImNodesPinShape_TriangleFilled);
             ImGui::TextDisabled("position");
+            ImNodes::EndInputAttribute();
+            ImNodes::PopColorStyle();
+        }
+        if (t->boolIn) {
+            ImNodes::PushColorStyle(ImNodesCol_Pin, boolPinCol);
+            ImNodes::BeginInputAttribute(flowBoolInPin(n.id), ImNodesPinShape_CircleFilled);
+            ImGui::TextDisabled("bool");
             ImNodes::EndInputAttribute();
             ImNodes::PopColorStyle();
         }
@@ -1427,6 +1447,14 @@ void App::drawFlowGraphWindow() {
             ImNodes::EndOutputAttribute();
             ImNodes::PopColorStyle();
         }
+        if (t->boolOut) {
+            ImNodes::PushColorStyle(ImNodesCol_Pin, boolPinCol);
+            ImNodes::BeginOutputAttribute(flowBoolOutPin(n.id),
+                                          ImNodesPinShape_CircleFilled);
+            rightLabel("bool >", true);
+            ImNodes::EndOutputAttribute();
+            ImNodes::PopColorStyle();
+        }
 
         ImNodes::EndNode();
         ImNodes::PopColorStyle();
@@ -1441,6 +1469,10 @@ void App::drawFlowGraphWindow() {
         } else if (l.kind == FlowLinkPos) {
             ImNodes::PushColorStyle(ImNodesCol_Link, IM_COL32(110, 200, 120, 255));
             ImNodes::Link(l.id, flowPosOutPin(l.fromNode), flowPosInPin(l.toNode));
+            ImNodes::PopColorStyle();
+        } else if (l.kind == FlowLinkBool) {
+            ImNodes::PushColorStyle(ImNodesCol_Link, IM_COL32(180, 120, 220, 255));
+            ImNodes::Link(l.id, flowBoolOutPin(l.fromNode), flowBoolInPin(l.toNode));
             ImNodes::PopColorStyle();
         } else {
             ImNodes::Link(l.id, flowOutPin(l.fromNode), flowInPin(l.toNode));
@@ -1485,7 +1517,7 @@ void App::drawFlowGraphWindow() {
 
     // New link dragged between pins. Pin kinds by id (pin % 8): 0 = object
     // in, 1 = exec out, 2 = exec in, 3 = object out, 4 = position in,
-    // 5 = position out; node = pin / 8.
+    // 5 = position out, 6 = bool in, 7 = bool out; node = pin / 8.
     int startPin = 0, endPin = 0;
     if (ImNodes::IsLinkCreated(&startPin, &endPin)) {
         const int a = startPin % 8, b = endPin % 8;
@@ -1502,14 +1534,19 @@ void App::drawFlowGraphWindow() {
             outPin = a == 5 ? startPin : endPin;
             inPin = a == 4 ? startPin : endPin;
             kind = FlowLinkPos;
+        } else if ((a == 7 && b == 6) || (a == 6 && b == 7)) {
+            outPin = a == 7 ? startPin : endPin;
+            inPin = a == 6 ? startPin : endPin;
+            kind = FlowLinkBool;
         }
         if (outPin >= 0 && outPin / 8 != inPin / 8) {
             FlowLink l;
             l.fromNode = outPin / 8;
             l.toNode = inPin / 8;
             l.kind = kind;
-            if (kind != FlowLinkExec) {
+            if (kind == FlowLinkObject || kind == FlowLinkPos) {
                 // a node takes its object/position from at most one link
+                // (bool-in pins fold over several links, so keep them all)
                 for (size_t i = fg.links.size(); i-- > 0;)
                     if (fg.links[i].kind == kind && fg.links[i].toNode == l.toNode)
                         fg.links.erase(fg.links.begin() + i);
@@ -2080,6 +2117,363 @@ void App::drawOutputWindow() {
             ImGui::SetScrollY(child, child->ScrollMax.y);
     }
     lastLogSize = log.size();
+
+    ImGui::End();
+}
+
+// ---------------------------------------------------------------------------
+// Disc Layout window: the ISO export plan as a reorderable list plus a disc
+// visualization (files as arcs, angle proportional to sectors, colored by
+// load group). Dragging rows persists the order into <project>/iso-layout.txt
+// so Export PS2 ISO lays the data out the same way.
+// ---------------------------------------------------------------------------
+
+static ImU32 discGroupColor(const std::string& g) {
+    if (g == "boot") return IM_COL32(235, 140, 52, 255);
+    if (g == "startup") return IM_COL32(84, 190, 247, 255);
+    if (g == "music") return IM_COL32(186, 104, 200, 255);
+    if (g == "other") return IM_COL32(150, 150, 150, 255);
+    // scene:<name> - stable green/teal per scene name
+    unsigned h = 2166136261u;
+    for (char c : g) h = (h ^ (unsigned char)c) * 16777619u;
+    static const ImU32 greens[] = {IM_COL32(102, 187, 106, 255), IM_COL32(38, 166, 154, 255),
+                                   IM_COL32(174, 213, 129, 255), IM_COL32(0, 150, 136, 255),
+                                   IM_COL32(205, 220, 57, 255)};
+    return greens[h % 5];
+}
+
+static std::string discPrettySize(uint64_t bytes) {
+    char buf[32];
+    if (bytes >= 1024 * 1024)
+        snprintf(buf, sizeof(buf), "%.1f MB", bytes / (1024.0 * 1024.0));
+    else if (bytes >= 1024)
+        snprintf(buf, sizeof(buf), "%.1f KB", bytes / 1024.0);
+    else
+        snprintf(buf, sizeof(buf), "%llu B", (unsigned long long)bytes);
+    return buf;
+}
+
+static ImU32 discBrighten(ImU32 col, float amount) {
+    ImVec4 f = ImGui::ColorConvertU32ToFloat4(col);
+    f.x += (1.0f - f.x) * amount;
+    f.y += (1.0f - f.y) * amount;
+    f.z += (1.0f - f.z) * amount;
+    return ImGui::ColorConvertFloat4ToU32(f);
+}
+
+void App::drawDiscLayoutWindow() {
+    if (!showDiscLayout_ || !hasProject_) return;
+
+    // Replan after any build/export finishes (bin/ contents changed).
+    if (runner_.busy())
+        discRunnerWasBusy_ = true;
+    else if (discRunnerWasBusy_) {
+        discRunnerWasBusy_ = false;
+        discPlanDirty_ = true;
+    }
+    if (discPlanDirty_) {
+        discPlanDirty_ = false;
+        discPlanError_.clear();
+        discPlanWarnings_.clear();
+        isoexport::Plan plan;
+        const std::string err = isoexport::plan(project_, &plan, [this](const std::string& l) {
+            discPlanWarnings_ += l + "\n";
+        });
+        if (err.empty()) {
+            discPlan_ = std::move(plan);
+        } else {
+            discPlan_ = {};
+            discPlanError_ = err;
+        }
+        if (discSelected_ >= (int)discPlan_.items.size()) discSelected_ = -1;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(980, 560), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Disc Layout", &showDiscLayout_)) {
+        ImGui::End();
+        return;
+    }
+
+    if (!discPlanError_.empty()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.4f, 1.0f), "%s", discPlanError_.c_str());
+        ImGui::TextDisabled("Project > Build produces bin/, then come back here.");
+        if (ImGui::Button("Refresh")) discPlanDirty_ = true;
+        ImGui::End();
+        return;
+    }
+
+    // --- Toolbar -----------------------------------------------------------
+    const bool busy = runner_.busy();
+    if (ImGui::Button("Refresh")) discPlanDirty_ = true;
+    ImGui::SameLine();
+    ImGui::BeginDisabled(busy);
+    if (ImGui::Button("Export ISO")) runner_.exportIso(project_);
+    ImGui::EndDisabled();
+    if (discPlan_.manualOrder) {
+        ImGui::SameLine();
+        if (ImGui::Button("Reset to automatic order")) {
+            isoexport::saveManualOrder(project_, {});
+            discPlanDirty_ = true;
+        }
+    }
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(150.0f);
+    ImGui::Combo("##capacity", &discCapacity_, "Fit to data\0CD-R (700 MB)\0DVD-5 (4.7 GB)\0");
+
+    const uint32_t kCdSectors = 360000, kDvd5Sectors = 2298496;
+    uint32_t capSectors = discPlan_.totalSectors;
+    if (discCapacity_ == 1) capSectors = std::max(capSectors, kCdSectors);
+    if (discCapacity_ == 2) capSectors = std::max(capSectors, kDvd5Sectors);
+
+    uint64_t dataBytes = 0;
+    for (const auto& it : discPlan_.items) dataBytes += it.size;
+    ImGui::SameLine();
+    ImGui::Text("%zu files, %s data, image %s", discPlan_.items.size(),
+                discPrettySize(dataBytes).c_str(),
+                discPrettySize((uint64_t)discPlan_.totalSectors * 2048).c_str());
+    if ((discCapacity_ == 1 && discPlan_.totalSectors > kCdSectors) ||
+        (discCapacity_ == 2 && discPlan_.totalSectors > kDvd5Sectors)) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "- does not fit this disc!");
+    }
+    if (!discPlanWarnings_.empty()) {
+        if (ImGui::CollapsingHeader("Name warnings"))
+            ImGui::TextWrapped("%s", discPlanWarnings_.c_str());
+    }
+    ImGui::Separator();
+
+    // --- Left: file table in burn order, drag rows to reorder ---------------
+    const float discPaneW = std::max(280.0f, ImGui::GetContentRegionAvail().x * 0.38f);
+    ImGui::BeginChild("##discfiles",
+                      ImVec2(ImGui::GetContentRegionAvail().x - discPaneW - 8.0f, 0));
+    ImGui::TextDisabled("Drag rows to change the disc order (saved to iso-layout.txt).");
+    if (ImGui::BeginTable("##disctable", 5,
+                          ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
+                              ImGuiTableFlags_ScrollY)) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 28.0f);
+        ImGui::TableSetupColumn("File", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Group", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+        ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 72.0f);
+        ImGui::TableSetupColumn("LBA", ImGuiTableColumnFlags_WidthFixed, 64.0f);
+        ImGui::TableHeadersRow();
+
+        int dragSrc = -1, dragDst = -1;
+        for (int i = 0; i < (int)discPlan_.items.size(); ++i) {
+            const auto& it = discPlan_.items[i];
+            const bool isBoot = it.group == "boot";
+            ImGui::PushID(i);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            char idx[16];
+            snprintf(idx, sizeof(idx), "%d", i);
+            if (ImGui::Selectable(idx, discSelected_ == i,
+                                  ImGuiSelectableFlags_SpanAllColumns))
+                discSelected_ = i;
+            if (!isBoot && ImGui::BeginDragDropSource()) {
+                ImGui::SetDragDropPayload("DISC_FILE", &i, sizeof(int));
+                ImGui::TextUnformatted(it.relPath.c_str());
+                ImGui::EndDragDropSource();
+            }
+            if (!isBoot && ImGui::BeginDragDropTarget()) {
+                if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("DISC_FILE")) {
+                    dragSrc = *(const int*)pl->Data;
+                    dragDst = i;
+                }
+                ImGui::EndDragDropTarget();
+            }
+            ImGui::TableNextColumn();
+            if (it.pinned) {
+                ImGui::TextDisabled("*");
+                ImGui::SameLine(0.0f, 3.0f);
+            }
+            ImGui::TextUnformatted(it.isoPath.c_str());
+            ImGui::TableNextColumn();
+            const ImU32 col = discGroupColor(it.group);
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(col), "%s", it.group.c_str());
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(discPrettySize(it.size).c_str());
+            ImGui::TableNextColumn();
+            ImGui::Text("%u", it.lba);
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+
+        if (dragSrc >= 0 && dragDst >= 0 && dragSrc != dragDst) {
+            // Move src to dst in display order, then persist every non-boot
+            // path - the whole visible order becomes the explicit one.
+            std::vector<isoexport::PlanItem> items = discPlan_.items;
+            isoexport::PlanItem moved = items[dragSrc];
+            items.erase(items.begin() + dragSrc);
+            items.insert(items.begin() + dragDst, moved);
+            std::vector<std::string> rels;
+            for (const auto& it : items)
+                if (it.group != "boot") rels.push_back(it.relPath);
+            isoexport::saveManualOrder(project_, rels);
+            discPlanDirty_ = true;
+            discSelected_ = dragDst;
+        }
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
+
+    // --- Right: the disc ----------------------------------------------------
+    // Drawn the way data actually sits on a PS2 disc: a spiral track that
+    // starts at the hub and winds outward, approximated as concentric track
+    // rings with a constant pitch. Like the real thing (constant linear
+    // density), an outer turn holds more data than an inner one, so
+    // LBA -> radius follows the area formula r = sqrt(rIn^2 + f*(rOut^2-rIn^2)).
+    // A small file is a short arc on one track; a big one is a band of turns.
+    ImGui::BeginChild("##discview", ImVec2(0, 0));
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const float legendH = ImGui::GetTextLineHeightWithSpacing() * 2.4f;
+    const float side = std::min(avail.x, std::max(120.0f, avail.y - legendH));
+    const ImVec2 c(origin.x + avail.x * 0.5f, origin.y + side * 0.5f);
+    const float rOut = side * 0.48f;
+    const float rIn = side * 0.165f;
+    const float kTop = -1.5707963f, kTau = 6.2831853f;
+
+    const int tracks = std::max(24, (int)((rOut - rIn) / 3.0f));
+    const float pitch = (rOut - rIn) / (float)tracks;
+    const double areaSpan = (double)rOut * rOut - (double)rIn * rIn;
+    // LBA of the spiral position at radius r (area-proportional fill)
+    auto lbaAtR = [&](float r) {
+        return (double)capSectors * ((double)r * r - (double)rIn * rIn) / areaSpan;
+    };
+
+    // Segment list covering the whole capacity: metadata, files, free space.
+    struct Seg {
+        double begin, end;
+        ImU32 col;
+        int item;  // index into items, or -1 metadata / -2 free
+    };
+    std::vector<Seg> segs;
+    segs.push_back({0.0, (double)discPlan_.dataStartLba, IM_COL32(120, 120, 128, 255), -1});
+    for (int i = 0; i < (int)discPlan_.items.size(); ++i) {
+        const auto& it = discPlan_.items[i];
+        segs.push_back({(double)it.lba, (double)(it.lba + std::max(it.sectors, 1u)),
+                        discGroupColor(it.group), i});
+    }
+    segs.push_back({(double)discPlan_.totalSectors, (double)capSectors,
+                    IM_COL32(46, 46, 50, 255), -2});
+
+    // Mouse -> track -> LBA -> segment (for hover/click before drawing)
+    const ImVec2 mouse = ImGui::GetIO().MousePos;
+    const float mdx = mouse.x - c.x, mdy = mouse.y - c.y;
+    const float mr = std::sqrt(mdx * mdx + mdy * mdy);
+    float ma = std::atan2(mdy, mdx) - kTop;
+    while (ma < 0.0f) ma += kTau;
+    const bool overDisc = ImGui::IsWindowHovered() && mr >= rIn && mr <= rOut;
+    int hovered = -1;
+    bool hoverMeta = false, hoverFree = false;
+    if (overDisc) {
+        const int k = std::min(tracks - 1, std::max(0, (int)((mr - rIn) / pitch)));
+        const double t0 = lbaAtR(rIn + k * pitch), t1 = lbaAtR(rIn + (k + 1) * pitch);
+        const double lba = t0 + (t1 - t0) * (ma / kTau);
+        for (const auto& s : segs)
+            if (lba >= s.begin && lba < s.end) {
+                hovered = s.item;
+                hoverMeta = s.item == -1;
+                hoverFree = s.item == -2;
+            }
+    }
+
+    // Track rings, inside out; a ring is split into arcs where segments
+    // begin/end mid-turn. Angles stay continuous across turns: an LBA's
+    // angle is its fraction of the turn it lives on, measured from the top.
+    size_t cursor = 0;
+    for (int k = 0; k < tracks; ++k) {
+        const float rc = rIn + (k + 0.5f) * pitch;
+        const double t0 = lbaAtR(rIn + k * pitch);
+        const double t1 = std::max(t0 + 1.0, lbaAtR(rIn + (k + 1) * pitch));
+        while (cursor > 0 && segs[cursor].begin > t0) --cursor;  // capacity changed
+        size_t s = cursor;
+        while (s < segs.size() && segs[s].end <= t0) ++s;
+        cursor = s;
+        for (; s < segs.size() && segs[s].begin < t1; ++s) {
+            const double b0 = std::max(segs[s].begin, t0), b1 = std::min(segs[s].end, t1);
+            if (b1 <= b0) continue;
+            float a0 = kTop + (float)((b0 - t0) / (t1 - t0)) * kTau;
+            float a1 = kTop + (float)((b1 - t0) / (t1 - t0)) * kTau;
+            // keep hairline files visible on their track
+            if (segs[s].item >= 0) a1 = std::max(a1, a0 + 0.03f);
+            ImU32 col = segs[s].col;
+            if (segs[s].item >= 0 &&
+                (segs[s].item == hovered || segs[s].item == discSelected_))
+                col = discBrighten(col, segs[s].item == discSelected_ ? 0.45f : 0.3f);
+            dl->PathArcTo(c, rc, a0, a1);
+            dl->PathStroke(col, 0, pitch + 0.75f);
+        }
+    }
+    dl->AddCircle(c, rIn - pitch * 0.5f, IM_COL32(20, 20, 22, 255), 64, 1.5f);
+    dl->AddCircle(c, rOut + pitch * 0.5f, IM_COL32(20, 20, 22, 255), 96, 1.5f);
+
+    // Selection marker: radial tick at the file's first sector + a pointer
+    // ring so even a hairline arc deep in the band is findable.
+    if (discSelected_ >= 0 && discSelected_ < (int)discPlan_.items.size()) {
+        const auto& it = discPlan_.items[discSelected_];
+        const float rSel = (float)std::sqrt((double)rIn * rIn +
+                                            (double)it.lba / (double)capSectors * areaSpan);
+        const int k = std::min(tracks - 1, std::max(0, (int)((rSel - rIn) / pitch)));
+        const double t0 = lbaAtR(rIn + k * pitch), t1 = lbaAtR(rIn + (k + 1) * pitch);
+        const float a = kTop + (float)(((double)it.lba - t0) / (t1 - t0)) * kTau;
+        const float rc = rIn + (k + 0.5f) * pitch;
+        const ImVec2 dir(std::cos(a), std::sin(a));
+        dl->AddLine(ImVec2(c.x + dir.x * (rc - pitch), c.y + dir.y * (rc - pitch)),
+                    ImVec2(c.x + dir.x * (rc + pitch), c.y + dir.y * (rc + pitch)),
+                    IM_COL32(255, 255, 255, 230), 2.0f);
+        dl->AddCircle(ImVec2(c.x + dir.x * rc, c.y + dir.y * rc), pitch * 1.6f,
+                      IM_COL32(255, 255, 255, 200), 24, 1.5f);
+    }
+
+    // center label
+    {
+        char mid[64];
+        snprintf(mid, sizeof(mid), "%s", discPrettySize(dataBytes).c_str());
+        const ImVec2 ts = ImGui::CalcTextSize(mid);
+        dl->AddText(ImVec2(c.x - ts.x * 0.5f, c.y - ts.y), IM_COL32(220, 220, 220, 255), mid);
+        char pct[64];
+        snprintf(pct, sizeof(pct), "%.1f%% of disc",
+                 100.0 * (double)discPlan_.totalSectors / (double)capSectors);
+        const ImVec2 ts2 = ImGui::CalcTextSize(pct);
+        dl->AddText(ImVec2(c.x - ts2.x * 0.5f, c.y + 2.0f), IM_COL32(140, 140, 140, 255), pct);
+    }
+
+    if (hovered >= 0) {
+        const auto& it = discPlan_.items[hovered];
+        ImGui::BeginTooltip();
+        ImGui::TextUnformatted(it.isoPath.c_str());
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(discGroupColor(it.group)), "%s%s",
+                           it.group.c_str(), it.pinned ? " (pinned)" : "");
+        ImGui::Text("%s, LBA %u-%u", discPrettySize(it.size).c_str(), it.lba,
+                    it.lba + std::max(it.sectors, 1u) - 1);
+        ImGui::EndTooltip();
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) discSelected_ = hovered;
+    } else if (hoverMeta) {
+        ImGui::SetTooltip("ISO9660 metadata (volume descriptor, path tables, directories)");
+    } else if (hoverFree) {
+        ImGui::SetTooltip("Free space");
+    }
+
+    // legend under the disc, in first-appearance order
+    ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + side + 6.0f));
+    std::vector<std::string> groups;
+    for (const auto& it : discPlan_.items)
+        if (std::find(groups.begin(), groups.end(), it.group) == groups.end())
+            groups.push_back(it.group);
+    for (size_t i = 0; i < groups.size(); ++i) {
+        if (i) ImGui::SameLine();
+        const ImU32 col = discGroupColor(groups[i]);
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        dl->AddRectFilled(p, ImVec2(p.x + 10.0f, p.y + 10.0f), col, 2.0f);
+        ImGui::Dummy(ImVec2(12.0f, 10.0f));
+        ImGui::SameLine();
+        ImGui::TextUnformatted(groups[i].c_str());
+    }
+    ImGui::TextDisabled("* = pinned by iso-layout.txt; inner rim = disc start (lowest LBA)");
+    ImGui::EndChild();
 
     ImGui::End();
 }

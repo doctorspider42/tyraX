@@ -20,6 +20,8 @@ public:
 
     void buildAndRun(const Project& p, bool runEmulator);
     void runEmulatorOnly(const Project& p);
+    // Builds <project>/<name>.iso from bin/ (see isoexport.hpp for layout).
+    void exportIso(const Project& p);
 
     State state() const { return state_.load(); }
     bool busy() const { return state_.load() == State::Running; }

@@ -32,6 +32,7 @@ enum FlowLinkKind {
     FlowLinkExec = 0,    // trigger "then" -> action "do"
     FlowLinkObject = 1,  // object id out -> object id in
     FlowLinkPos = 2,     // position out -> position in
+    FlowLinkBool = 3,    // boolean value out -> boolean value in (logic gates)
 };
 
 struct FlowLink {
@@ -91,23 +92,26 @@ struct FlowNodeType {
     bool posIn = false;   // accepts XYZ coordinates from a position link
     bool posOut = false;  // exposes XYZ coordinates as a position output
     bool pure = false;    // data-only node: no exec pins, never "runs"
+    bool boolIn = false;  // accepts boolean value(s) from bool link(s)
+    bool boolOut = false; // exposes a per-frame boolean condition as a bool output
 };
 
 inline const std::vector<FlowNodeType>& flowNodeTypes() {
     static const std::vector<FlowNodeType> types = {
-        // Triggers (id out = the watched object, or self)
+        // Triggers (id out = the watched object, or self). Each also exposes a
+        // bool output = "does this condition hold this frame?" for logic gates.
         {"OnStart", "On Start", "Triggers", true, FlowParamKind::None, 0, {},
-         FlowParamKind::None, false, true},
+         FlowParamKind::None, false, true, false, false, false, false, true},
         {"OnButton", "On Button", "Triggers", true, FlowParamKind::Button, 0, {},
-         FlowParamKind::None, false, true},
+         FlowParamKind::None, false, true, false, false, false, false, true},
         {"NearObject", "Near Object", "Triggers", true, FlowParamKind::ObjectName, 1,
-         {"Radius"}, FlowParamKind::None, true, true},
+         {"Radius"}, FlowParamKind::None, true, true, false, false, false, false, true},
         // Fires when the player presses BTN_USE (controls.hpp) while looking
         // at the target object up close. The object must be marked "usable".
         {"OnUsed", "On Used", "Triggers", true, FlowParamKind::ObjectName, 0, {},
-         FlowParamKind::None, true, true},
+         FlowParamKind::None, true, true, false, false, false, false, true},
         {"EverySeconds", "Every N Seconds", "Triggers", true, FlowParamKind::None, 1,
-         {"Seconds"}, FlowParamKind::None, false, true},
+         {"Seconds"}, FlowParamKind::None, false, true, false, false, false, false, true},
         // Object actions (id in = target, id out = the same target)
         {"ShowObject", "Show Object", "Object", false, FlowParamKind::ObjectName, 0, {},
          FlowParamKind::None, true, true},
@@ -159,6 +163,25 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // Debug
         {"Log", "Log Message", "Debug", false, FlowParamKind::Text, 0, {},
          FlowParamKind::None, false, false},
+        // Logic gates: pure boolean-data nodes (no exec pins). They combine the
+        // bool outputs of triggers (and each other) into a new bool. The bool
+        // input pin accepts several links - AND/OR/XOR fold over all of them,
+        // NOT/NAND/XNOR negate the fold. "On Condition" bridges back to exec:
+        // it is a trigger that fires on the rising edge of its bool input.
+        {"And", "AND", "Logic", false, FlowParamKind::None, 0, {},
+         FlowParamKind::None, false, false, false, false, true, true, true},
+        {"Nand", "NAND", "Logic", false, FlowParamKind::None, 0, {},
+         FlowParamKind::None, false, false, false, false, true, true, true},
+        {"Or", "OR", "Logic", false, FlowParamKind::None, 0, {},
+         FlowParamKind::None, false, false, false, false, true, true, true},
+        {"Not", "NOT", "Logic", false, FlowParamKind::None, 0, {},
+         FlowParamKind::None, false, false, false, false, true, true, true},
+        {"Xor", "XOR", "Logic", false, FlowParamKind::None, 0, {},
+         FlowParamKind::None, false, false, false, false, true, true, true},
+        {"Xnor", "XNOR", "Logic", false, FlowParamKind::None, 0, {},
+         FlowParamKind::None, false, false, false, false, true, true, true},
+        {"OnCondition", "On Condition", "Logic", true, FlowParamKind::None, 0, {},
+         FlowParamKind::None, false, false, false, false, false, true, false},
     };
     return types;
 }
@@ -182,10 +205,12 @@ inline std::vector<const char*> flowNodeCategories() {
 
 // imnodes pin ids derived from node ids (pin % 8 encodes the pin kind,
 // pin / 8 the node): object-id in / exec out / exec in / object-id out /
-// position in / position out.
+// position in / position out / bool in / bool out.
 inline int flowIdInPin(int nodeId) { return nodeId * 8; }
 inline int flowOutPin(int nodeId) { return nodeId * 8 + 1; }
 inline int flowInPin(int nodeId) { return nodeId * 8 + 2; }
 inline int flowIdOutPin(int nodeId) { return nodeId * 8 + 3; }
 inline int flowPosInPin(int nodeId) { return nodeId * 8 + 4; }
 inline int flowPosOutPin(int nodeId) { return nodeId * 8 + 5; }
+inline int flowBoolInPin(int nodeId) { return nodeId * 8 + 6; }
+inline int flowBoolOutPin(int nodeId) { return nodeId * 8 + 7; }

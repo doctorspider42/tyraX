@@ -80,7 +80,8 @@ static std::string flowGraphJson(const FlowGraph& fg) {
                 ", \"from\": " + std::to_string(l.fromNode) +
                 ", \"to\": " + std::to_string(l.toNode) +
                 (l.kind == FlowLinkObject ? ", \"data\": true" : "") +
-                (l.kind == FlowLinkPos ? ", \"pos\": true" : "") + " }";
+                (l.kind == FlowLinkPos ? ", \"pos\": true" : "") +
+                (l.kind == FlowLinkBool ? ", \"bool\": true" : "") + " }";
     }
     return json + "] }";
 }
@@ -116,6 +117,9 @@ static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
             if (const auto* v = jl.find("pos");
                 v && v->type == json::Value::Type::Bool && v->boolean)
                 l.kind = FlowLinkPos;
+            if (const auto* v = jl.find("bool");
+                v && v->type == json::Value::Type::Bool && v->boolean)
+                l.kind = FlowLinkBool;
             if (l.id > 0) fg.links.push_back(l);
         }
     }

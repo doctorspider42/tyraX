@@ -1,1 +1,6 @@
 engine-patches/** text eol=lf
+
+# Vendored Tyra engine is a Unix build (make + vclpp). vclpp chokes on CRLF
+# ("Preprocessor directive inside macro block: '#endmacro'"), so keep LF
+# regardless of the checkout's core.autocrlf setting.
+vendor/tyra/** text=auto eol=lf
