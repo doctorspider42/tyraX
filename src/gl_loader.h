@@ -103,6 +103,7 @@ typedef ptrdiff_t GLintptr;
     X(GLint, GetUniformLocation, GLuint, const GLchar*) \
     X(void, UniformMatrix4fv, GLint, GLsizei, GLboolean, const GLfloat*) \
     X(void, Uniform4f, GLint, GLfloat, GLfloat, GLfloat, GLfloat) \
+    X(void, Uniform4fv, GLint, GLsizei, const GLfloat*) \
     X(void, Uniform3f, GLint, GLfloat, GLfloat, GLfloat) \
     X(void, Uniform1i, GLint, GLint) \
     X(void, GenVertexArrays, GLsizei, GLuint*) \

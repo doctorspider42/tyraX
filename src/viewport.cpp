@@ -146,25 +146,53 @@ layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aColor;
 layout(location = 2) in vec2 aUV;
 uniform mat4 uMvp;
+uniform mat4 uModel;
 out vec3 vColor;
 out vec2 vUV;
+out vec3 vWorld;
 void main() {
     vColor = aColor;
     vUV = aUV;
+    vWorld = (uModel * vec4(aPos, 1.0)).xyz;
     gl_Position = uMvp * vec4(aPos, 1.0);
 }
 )";
 
+// Point lights are added on top of the baked directional shade, mirroring the
+// game's pointLightAt() bake: (1-d/r)^2 falloff * N.L, clamped to 1 with the
+// rest of the shade. Normals come from screen-space derivatives (flat, like
+// the PS2's flat shading), so the shared unit meshes need no extra data.
 const char* FS = R"(#version 330 core
 in vec3 vColor;
 in vec2 vUV;
+in vec3 vWorld;
 uniform vec3 uTint;
 uniform int uUseTex;
 uniform sampler2D uTex;
+uniform int uLit;                // 0: lines/markers/sky - skip point lights
+uniform int uLightCount;
+uniform vec4 uLightPos[8];       // xyz = world position, w = radius
+uniform vec4 uLightCol[8];       // rgb = color, w = brightness
 out vec4 FragColor;
 void main() {
     vec3 tex = uUseTex != 0 ? texture(uTex, vUV).rgb : vec3(1.0);
-    FragColor = vec4(vColor * uTint * tex, 1.0);
+    vec3 shade = vColor;
+    if (uLit != 0 && uLightCount > 0) {
+        vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
+        vec3 add = vec3(0.0);
+        for (int i = 0; i < uLightCount; ++i) {
+            vec3 d = uLightPos[i].xyz - vWorld;
+            float dist = length(d);
+            float radius = uLightPos[i].w;
+            if (dist >= radius) continue;
+            float atten = 1.0 - dist / radius;
+            atten *= atten;
+            float ndotl = dist > 0.0001 ? max(dot(n, d / dist), 0.0) : 1.0;
+            add += uLightCol[i].rgb * (uLightCol[i].w * atten * ndotl);
+        }
+        shade = min(shade + add, vec3(1.0));
+    }
+    FragColor = vec4(shade * uTint * tex, 1.0);
 }
 )";
 
@@ -505,6 +533,11 @@ bool Viewport::init() {
     uMvp_ = glGetUniformLocation(program_, "uMvp");
     uTint_ = glGetUniformLocation(program_, "uTint");
     uUseTex_ = glGetUniformLocation(program_, "uUseTex");
+    uModel_ = glGetUniformLocation(program_, "uModel");
+    uLit_ = glGetUniformLocation(program_, "uLit");
+    uLightCount_ = glGetUniformLocation(program_, "uLightCount");
+    uLightPos_ = glGetUniformLocation(program_, "uLightPos");
+    uLightCol_ = glGetUniformLocation(program_, "uLightCol");
 
     buildTerrainMesh();
     buildPrimitiveMeshes();
@@ -1015,6 +1048,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         Mat4 id = identity();
         glUniformMatrix4fv(uMvp_, 1, GL_FALSE, id.m);
         glUniform3f(uTint_, 1.0f, 1.0f, 1.0f);
+        glUniform1i(uLit_, 0);
         glBindVertexArray(skyQuad_.vao);
         glDrawArrays(GL_TRIANGLES, 0, skyQuad_.vertexCount);
         glEnable(GL_DEPTH_TEST);
@@ -1036,9 +1070,35 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     glUseProgram(program_);
 
+    // Point lights in the scene -> fragment shader uniforms (live preview of
+    // what the game bakes into vertex colors; capped at the shader's 8).
+    {
+        float pos[8 * 4] = {};
+        float col[8 * 4] = {};
+        int count = 0;
+        for (const SceneObject& o : objects) {
+            if (o.type != PrimitiveType::PointLight || count >= 8) continue;
+            pos[count * 4 + 0] = o.position[0];
+            pos[count * 4 + 1] = o.position[1];
+            pos[count * 4 + 2] = o.position[2];
+            pos[count * 4 + 3] = o.lightRadius > 0.01f ? o.lightRadius : 0.01f;
+            col[count * 4 + 0] = o.color[0];
+            col[count * 4 + 1] = o.color[1];
+            col[count * 4 + 2] = o.color[2];
+            col[count * 4 + 3] = o.lightBright;
+            ++count;
+        }
+        glUniform1i(uLightCount_, count);
+        glUniform4fv(uLightPos_, 8, pos);
+        glUniform4fv(uLightCol_, 8, col);
+    }
+    const Mat4 identityM = identity();
+
     auto draw = [&](const Mesh& mesh, GLenum mode, const Mat4& mvp, float r, float g,
-                    float b, uint32_t texture = 0) {
+                    float b, uint32_t texture = 0, const Mat4* model = nullptr) {
         glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
+        glUniformMatrix4fv(uModel_, 1, GL_FALSE, model ? model->m : identityM.m);
+        glUniform1i(uLit_, model ? 1 : 0);  // world matrix given = lit geometry
         glUniform3f(uTint_, r, g, b);
         glUniform1i(uUseTex_, texture ? 1 : 0);
         if (texture) glBindTexture(GL_TEXTURE_2D, texture);
@@ -1076,12 +1136,16 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         const uint32_t terrainTex =
             asLines ? 0 : glTexture(terrainTexture_);  // wire passes stay untextured
         draw(terrain_mesh_, GL_TRIANGLES, viewProj, tintScale, tintScale, tintScale,
-             terrainTex);
+             terrainTex, asLines ? nullptr : &identityM);
         for (const SceneObject& o : objects) {
-            const Mat4 mvp = mul(viewProj, modelMatrix(o));
+            const Mat4 model = modelMatrix(o);
+            const Mat4 mvp = mul(viewProj, model);
             const uint32_t tex = asLines ? 0 : glTexture(o.texturePath);
+            // the bulb gizmo stays emissive - everything else receives light
+            const bool lit = !asLines && o.type != PrimitiveType::PointLight;
             draw(*meshFor(o), GL_TRIANGLES, mvp, o.color[0] * tintScale,
-                 o.color[1] * tintScale, o.color[2] * tintScale, tex);
+                 o.color[1] * tintScale, o.color[2] * tintScale, tex,
+                 lit ? &model : nullptr);
         }
         if (!asLines) glDisable(GL_POLYGON_OFFSET_FILL);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);

@@ -1097,9 +1097,9 @@ void App::drawSceneSection() {
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::DragFloat("Radius", &o.lightRadius, 0.1f, 0.1f, 100.0f, "%.1f units");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::TextDisabled("Baked into nearby terrain & object vertex colors at\n"
-                            "build (static light). The viewport bulb + ring show\n"
-                            "its position, color and reach.");
+        ImGui::TextDisabled("Previewed live in the viewport; in the game it is\n"
+                            "baked into nearby terrain & object vertex colors\n"
+                            "at build (static light, zero runtime cost).");
     }
 
     if (o.type == PrimitiveType::Player) {

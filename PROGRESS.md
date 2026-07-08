@@ -380,13 +380,18 @@ Each finished feature lands as its own commit.
 - (38) **Point light entity** - new "Lighting > Point light" object
   (PrimitiveType 9): color (shared Color field), brightness and radius in
   the properties. Editor preview: an unshaded bulb glowing in the light
-  color plus a wireframe reach sphere scaled to the radius. In the game
-  the light is baked into nearby terrain and object vertex colors at build
-  (additive diffuse, quadratic-ish linear falloff * N.L, tinted by the
-  light color, clamped to 1.0 like the directional term) - static, so zero
-  runtime cost; no geometry and non-colliding. Verified: editor builds and
-  the generated scene_data + terrain_game.cpp emit the fields and the
-  pointLightAt bake for terrain and objects; PCSX2 boot pending.
+  color, a wireframe reach sphere scaled to the radius, and a **live light
+  preview** - the viewport fragment shader adds up to 8 point lights on
+  top of the baked directional shade (same (1-d/r)^2 * N.L formula as the
+  game; flat normals from screen-space derivatives, so the shared unit
+  meshes need no extra vertex data and the pool of light follows gizmo
+  drags in real time). In the game the light is baked into nearby terrain
+  and object vertex colors at build (additive diffuse, clamped to 1.0 like
+  the directional term) - static, so zero runtime cost; no geometry and
+  non-colliding. Verified: generated scene_data + terrain_game.cpp emit
+  the fields and the pointLightAt bake (codegen harness); editor preview
+  verified with a GDI screenshot (orange pool on the terrain, lit box
+  faces, no bleed onto faces pointing away); PCSX2 boot pending.
 
 ## Backlog (rough order)
 

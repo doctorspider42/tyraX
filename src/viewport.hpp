@@ -103,6 +103,12 @@ private:
     int uMvp_ = -1;
     int uTint_ = -1;
     int uUseTex_ = -1;
+    // Live point-light preview (fragment shader, world-space)
+    int uModel_ = -1;
+    int uLit_ = -1;
+    int uLightCount_ = -1;
+    int uLightPos_ = -1;
+    int uLightCol_ = -1;
 
     Mesh terrain_mesh_;
     Mesh lines_;  // terrain grid + axes
