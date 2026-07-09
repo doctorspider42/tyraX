@@ -2954,26 +2954,32 @@ void App::drawOutputWindow() {
     if (ImGui::SmallButton("Copy all")) ImGui::SetClipboardText(log.c_str());
     ImGui::Separator();
 
-    // Read-only multiline input: text is selectable / copyable with the mouse.
-    ImGui::InputTextMultiline("##log", const_cast<char*>(log.c_str()), log.size() + 1,
-                              ImVec2(-FLT_MIN, -FLT_MIN), ImGuiInputTextFlags_ReadOnly);
+    // Own scrolling child so we can drive the scroll directly. The nested
+    // InputTextMultiline keeps the text mouse-selectable; sizing it to its own
+    // content means this child (not the input) owns the scrollbars, so
+    // GetScrollY/SetScrollHereY below actually refer to what we see.
+    ImGui::BeginChild("##logscroll", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_HorizontalScrollbar);
 
-    // Stick to the bottom while new lines arrive, but stop when the user
-    // scrolls up (e.g. to select something).
+    const ImVec2 pad = ImGui::GetStyle().FramePadding;
+    const ImVec2 textSize = ImGui::CalcTextSize(log.c_str(), nullptr, false);
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const ImVec2 inputSize(ImMax(textSize.x + pad.x * 2.0f, avail.x),
+                           ImMax(textSize.y + pad.y * 2.0f, avail.y));
+    ImGui::InputTextMultiline("##log", const_cast<char*>(log.c_str()), log.size() + 1,
+                              inputSize, ImGuiInputTextFlags_ReadOnly);
+
+    // Stick to the bottom while new lines arrive, but only when the user is
+    // already at the bottom (scrolling up to read or select holds position).
+    // GetScrollMaxY() lags one frame behind the content just appended, so when
+    // we were pinned last frame Scroll.y still equals it here and the test
+    // passes; once the user scrolls up it no longer does and we let go.
     static size_t lastLogSize = 0;
-    static bool stickToBottom = true;
-    char childName[128];
-    ImFormatString(childName, sizeof(childName), "%s/%s_%08X",
-                   ImGui::GetCurrentWindow()->Name, "##log", ImGui::GetID("##log"));
-    if (ImGuiWindow* child = ImGui::FindWindowByName(childName)) {
-        const bool atBottom = child->Scroll.y >= child->ScrollMax.y - 4.0f;
-        if (log.size() == lastLogSize)
-            stickToBottom = atBottom;
-        else if (stickToBottom)
-            ImGui::SetScrollY(child, child->ScrollMax.y);
-    }
+    if (log.size() != lastLogSize && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f)
+        ImGui::SetScrollHereY(1.0f);
     lastLogSize = log.size();
 
+    ImGui::EndChild();
     ImGui::End();
 }
 

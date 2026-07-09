@@ -692,6 +692,21 @@ Each finished feature lands as its own commit.
   enlarged sizes on the e2e project (panel PNG + menu_data row geometry),
   PCSX2 boot screenshot.
 
+- (48) **Output panel autoscroll fix** - the Output window now reliably sticks
+  to the bottom as new build/launch lines arrive, and lets go the moment the
+  user scrolls up (to read or select). The old implementation reconstructed
+  InputTextMultiline's internal child-window name and drove it via
+  FindWindowByName/SetScrollY - fragile against ImGui internals and it silently
+  did nothing. Replaced with the canonical pattern: our own scrolling BeginChild
+  owns the scrollbars, the read-only InputTextMultiline is sized to its content
+  (still mouse-selectable) inside it, and SetScrollHereY(1.0f) fires only while
+  GetScrollY >= GetScrollMaxY (one-frame lag keeps us pinned across appends).
+  Note: this shows only the editor's build/launch pipeline; in-game TYRA_LOG
+  (Flow Graph "Debug > Log Message") is printf on the EE and lands in PCSX2's
+  console / emulog.txt, not here (PCSX2 is launched without an inherited pipe).
+  Verified: clean build; behavior matches ImGui's official log-autoscroll
+  example (live confirmation needs an interactive editor run).
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)
@@ -704,6 +719,12 @@ Each finished feature lands as its own commit.
   needs a custom double-buffered SPU RAM streamer in the engine; audsrv only
   streams PCM and plays ADPCM one-shots
 - Flow graph: more nodes (timers with reset, variables)
+- Surface in-game logs in the Output panel: tail PCSX2's emulog.txt while a game
+  runs so Flow Graph "Debug > Log Message" (TYRA_LOG) and other EE printf output
+  show up next to the build log. PCSX2 is currently launched without an inherited
+  pipe, so its stdout never reaches the runner - would need to locate emulog.txt
+  (portable dir vs Documents, mind OneDrive redirection like pcsx2_config) and
+  poll it on the runner thread.
 - Engine perf, next targets: packager allocates its package array per frame
   (poolable); the real endgame is the engine author's own TODO in
   stapip_clipper.hpp - move clipping to VU1 entirely ("too much time")
