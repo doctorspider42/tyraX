@@ -879,12 +879,19 @@ Each finished feature lands as its own commit.
   old IRX + new EE lib, the 3-word volume RPC is read as the old 2-word one -
   data[1] (the L level) becomes the mono volume, so pan=100 gave total silence
   and pan=70 gave quiet-equal-both - measurements that first looked like a
-  PCSX2 downmix. Verified end-to-end in PCSX2 with the WASAPI per-channel peak
-  meter on a beeping autoplay emitter (noclip player, camera at origin):
-  emitter front-right -> L=0.038/R=0.342, emitter front-left -> L=0.444/R=0.191,
-  forced center -> equal 0.39/0.39; instrumented TYRA_LOG confirmed
-  dist/vol/pan values (e.g. pan=70 at 45 degrees right). Diagnostic logging
-  removed after verification; editor + game build clean.
+  PCSX2 downmix. (c) the first shipped pan was MIRRORED (user report: sound on
+  the left heard on the right): the right vector was borrowed from the particle
+  billboards ((fwd.z, -fwd.x)), whose sign was never validated because
+  billboard quads are symmetric. In this right-handed Y-up world screen-right
+  is fwd x up = (-fwd.z, fwd.x). The original meter test only proved
+  pan-sign <-> speaker-side consistency, not formula <-> screen-side - the
+  emitter was off-screen and invisible. Re-verified with the loop actually
+  closed: a visible red box + emitter at the same spot, screenshot shows the
+  box on the LEFT half of the screen and the WASAPI per-channel meter reads
+  L=0.298/R=0.086 (and the pre-fix runs measured the full matrix:
+  centered -> equal 0.39/0.39, pan +-70 -> ~4-9x asymmetry; instrumented
+  TYRA_LOG confirmed dist/vol/pan). Diagnostic logging removed after
+  verification; editor + game build clean.
 
 ## Backlog (rough order)
 

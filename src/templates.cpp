@@ -1091,10 +1091,12 @@ void TerrainGame::updateSoundEmitters() {
     const float range = o.data.sndRange > 0.5F ? o.data.sndRange : 0.5F;
     const int vol = dist >= range ? 0 : (int)(100.0F * (1.0F - dist / range));
     // Pan: project the horizontal direction to the emitter onto the camera's
-    // right axis (same right vector as the particle billboards). -100 = full
-    // left, +100 = full right.
+    // screen-right axis; -100 = full left, +100 = full right. Screen-right is
+    // fwd x up = (-fwd.z, fwd.x) in this right-handed Y-up world - NOT the
+    // particle billboards' (fwd.z, -fwd.x), which is mirrored (billboard quads
+    // are symmetric so the sign never mattered there; ears notice).
     Vec4 fwd = cameraLookAt - cameraPosition;
-    float rx = fwd.z, rz = -fwd.x;
+    float rx = -fwd.z, rz = fwd.x;
     const float rl = sqrtf(rx * rx + rz * rz);
     int pan = 0;
     if (rl > 0.0001F) {
