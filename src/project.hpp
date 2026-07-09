@@ -382,6 +382,9 @@ struct Project {
     int gizmoOp = 0;           // transform gizmo: 0 move, 1 rotate, 2 scale
     int viewMode = 0;          // viewport shading: 0 solid, 1 wire, 2 wire+solid
     std::string windowLayout;  // ImGui docking layout (SaveIniSettingsToMemory)
+    // Absolute path to the PCSX2 executable to launch (Project > Preferences).
+    // Empty = auto-detect under Program Files. Editor-side, not game data.
+    std::string emulatorPath;
 
     bool valid() const { return !name.empty() && !dir.empty(); }
     std::string elfName() const { return name + ".elf"; }

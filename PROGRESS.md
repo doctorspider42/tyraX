@@ -786,6 +786,48 @@ Each finished feature lands as its own commit.
   site audited to use the sanitized name for both the copy destination and the
   stored path.
 
+- (51) **Debug window: game + emulator logs, configurable emulator path** -
+  added a dockable "Debug" window (tabbed next to Output) that tails a log file
+  from disk so game output is visible without leaving the editor. Two selectable
+  sources: (a) **Game log** - the game's own `TYRA_LOG`/`TYRA_WARN`/`TYRA_ERROR`
+  output and assertion dumps, and (b) **Emulator log** - PCSX2's `emulog.txt`
+  (boot progress, BIOS/ELF-load errors). The window reads the last 1 MB on a
+  Reload button or, while "Auto" is on, at most twice a second (per-frame reads
+  would be wasteful on a large log), and follows the tail unless the user
+  scrolls up (Output-window pattern). "Clear log" best-effort truncates the file.
+  The game log is the key part: `TYRA_LOG` was previously a dead channel because
+  it `printf`s to the EE console, which does not reach emulog (see tyra-testing),
+  and the runner builds with plain `make` (no `NDEBUG`, so the macros are *not*
+  stripped). Tyra already knows how to append logs to a host-side `log.txt`
+  (`TyraDebug::writeInLogFile` via `FileUtils::fromCwd`) when the
+  `Tyra::Info::writeLogsToFile` static is set - generated games just never
+  flipped it. So the generated `src/main.cpp` bootstrap (templates.cpp) now sets
+  it before constructing the Engine, and `main.cpp` was moved into
+  `refreshGenerated`'s always-regenerated set (it is a 6-line editor-owned entry
+  point; game logic lives in the ownable `terrain_game.cpp`/scripts) so existing
+  projects pick it up on the next build. `bin/log.txt` is deleted before each
+  launch (runner) so the window shows only the current run; no engine fork edit
+  was needed. Because all 54 engine `TYRA_LOG` sites are init-time or edge-case
+  warnings (none per-frame), routing them to a file is safe. Also added
+  `Project > Preferences > Emulator`: a PCSX2 executable path (Browse.../Clear).
+  The path is editor-side state (stored in the `.tyra` `editor` object next to
+  selection/gizmo/layout, escaped like `layout` - NOT in ProjectSettings, so it
+  is never baked into codegen, never per-scene, not part of undo); both
+  Build && Run and the emulator-log lookup prefer it over the Program Files
+  auto-detect (`resolveEmulator`), and a configured-but-missing path reports
+  itself specifically instead of silently falling back. Verified: clean rebuild
+  (all TUs); `--new` project serializes `"emulatorPath": ""` and stays valid
+  JSON; a backslash Windows path written into the `.tyra` round-trips (jsonEscape
+  `\`->`\\`, parser `\\`->`\`) and `--build` loads it and reaches the build stage
+  with no parse error; fresh `--new` `main.cpp` carries the
+  `Tyra::Info::writeLogsToFile = true` line, and a deliberately overwritten
+  `main.cpp` is rewritten back by `refreshGenerated` on the next `--build`. NOT
+  verified here (needs a PCSX2 + BIOS run, which launches an emulator window on
+  the active machine): the actual host-fs write of `log.txt` from the running
+  ELF and the live tail rendering. This reuses upstream Tyra's own logging path,
+  so the host-fs write is expected to work where asset *reads* already do
+  (HostFs is read-write), but it wants a hands-on run to confirm end to end.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)
@@ -798,12 +840,6 @@ Each finished feature lands as its own commit.
   needs a custom double-buffered SPU RAM streamer in the engine; audsrv only
   streams PCM and plays ADPCM one-shots
 - Flow graph: more nodes (timers with reset, variables)
-- Surface in-game logs in the Output panel: tail PCSX2's emulog.txt while a game
-  runs so Flow Graph "Debug > Log Message" (TYRA_LOG) and other EE printf output
-  show up next to the build log. PCSX2 is currently launched without an inherited
-  pipe, so its stdout never reaches the runner - would need to locate emulog.txt
-  (portable dir vs Documents, mind OneDrive redirection like pcsx2_config) and
-  poll it on the runner thread.
 - Engine perf, next targets: packager allocates its package array per frame
   (poolable); the real endgame is the engine author's own TODO in
   stapip_clipper.hpp - move clipping to VU1 entirely ("too much time")
