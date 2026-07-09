@@ -23,6 +23,9 @@ struct Value {
     double numberOr(double fallback) const {
         return type == Type::Number ? number : fallback;
     }
+    bool boolOr(bool fallback) const {
+        return type == Type::Bool ? boolean : fallback;
+    }
     std::string stringOr(const std::string& fallback) const {
         return type == Type::String ? str : fallback;
     }

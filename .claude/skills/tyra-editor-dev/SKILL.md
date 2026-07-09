@@ -49,7 +49,7 @@ Two sibling skills cover the rest of the system:
 
 | File | ~Lines (.cpp) | What it is |
 |---|---|---|
-| `main.cpp` | 76 | Entry point. GUI by default; headless `--new <name> <dir> [w] [d] [orbit\|fpp\|showcase]` and `--build <projectDir> [--run]`. |
+| `main.cpp` | 76 | Entry point. GUI by default; headless `--new <name> <dir> [w] [d] [empty\|fpp]` and `--build <projectDir> [--run]`. |
 | `app.cpp/.hpp` | 2751 | The whole ImGui shell: menus, all panels (Project, Scene, Scripts, HUD, Music, Sounds, Output, Disc Layout, Flow Graph), modals, gizmo + sculpt input, undo/redo, clipboard, wiring viewport ↔ project ↔ runner. |
 | `project.cpp/.hpp` | 979 | **Data model + JSON (de)serialization + generated-file refresh.** `Project`, `SceneData`, `SceneObject`, `TerrainConfig`, `ProjectSettings`. `save()`/`load()` (the single `<name>.tyra`: game data + editor state + window layout), `create()`, `saveHeights()/loadHeights()`, `saveHistory()/loadHistory()` (`<name>.history` undo stack), `refreshGenerated()`. |
 | `templates.cpp/.hpp` | 3522 | **All code generation.** `templates::generate(Project)` returns `vector<File>` (relativePath + content). Scene tables, terrain game sources, flow-graph compilation, Dockerfile/Makefile/compose, VS Code IntelliSense config. |

@@ -9,21 +9,21 @@
 #include "runner.hpp"
 
 // Headless helper:
-//   tyra-editor.exe --new <name> <parentDir> [width] [depth] [orbit|fpp|showcase]
+//   tyra-editor.exe --new <name> <parentDir> [width] [depth] [empty|fpp]
 static int createFromCli(int argc, char** argv) {
     if (argc < 4) {
         std::fprintf(stderr,
                      "usage: tyra-editor --new <name> <parentDir> [width] [depth] "
-                     "[orbit|fpp|showcase]\n");
+                     "[empty|fpp]\n");
         return 2;
     }
     TerrainConfig t;
     if (argc > 4) t.width = std::atoi(argv[4]);
     if (argc > 5) t.depth = std::atoi(argv[5]);
-    const char* gameTemplate = argc > 6 ? argv[6] : "orbit";
+    const char* preset = argc > 6 ? argv[6] : "empty";
 
     Project p;
-    std::string err = project::create(p, argv[2], argv[3], t, gameTemplate);
+    std::string err = project::create(p, argv[2], argv[3], t, preset);
     if (!err.empty()) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
