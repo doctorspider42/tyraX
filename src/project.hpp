@@ -276,6 +276,11 @@ struct GameMenu {
     int panelW = 256;  // 128 / 256 / 512
     float screenPos[2] = {0.5f, 0.45f};
     bool showTitle = true;  // off = logo-only menus (skips title + separator)
+    // Baked text: "" = default (Consolas Bold chain), "res/fonts/x.ttf" = a
+    // font imported into the project, bare "impact.ttf" = a Windows font.
+    std::string fontPath;
+    int titleSize = 18;  // px; entrySize also drives the row pitch (and the
+    int entrySize = 15;  // cursor geometry) through menubake::panelLayout.
     std::vector<MenuEntry> entries;
 };
 
@@ -286,7 +291,9 @@ inline bool operator==(const GameMenu& a, const GameMenu& b) {
            a.accent[1] == b.accent[1] && a.accent[2] == b.accent[2] &&
            a.images == b.images && a.panelW == b.panelW &&
            a.screenPos[0] == b.screenPos[0] && a.screenPos[1] == b.screenPos[1] &&
-           a.showTitle == b.showTitle && a.entries == b.entries;
+           a.showTitle == b.showTitle && a.fontPath == b.fontPath &&
+           a.titleSize == b.titleSize && a.entrySize == b.entrySize &&
+           a.entries == b.entries;
 }
 
 // A named value persisted on the memory card (project-wide, not per scene).

@@ -36,7 +36,7 @@
 // Native pickers (IFileOpenDialog). pickFolder: FOS_PICKFOLDERS;
 // pickSolutionFile: file dialog filtered to *.tyra solution files.
 // ---------------------------------------------------------------------------
-enum class PickKind { Folder, Solution, ObjModel, Png, Wav };
+enum class PickKind { Folder, Solution, ObjModel, Png, Wav, Ttf };
 
 // Owner window for the native dialogs. An unowned modal (Show(nullptr))
 // leaves the frozen GLFW window active behind it - Windows then wedges the
@@ -91,6 +91,10 @@ static std::string pickPath(PickKind kind) {
             return pickFileLegacy(
                 L"WAV audio (*.wav)\0*.wav\0All files (*.*)\0*.*\0",
                 L"Import WAV (16-bit 22kHz recommended)");
+        case PickKind::Ttf:
+            return pickFileLegacy(
+                L"TrueType font (*.ttf, *.otf)\0*.ttf;*.otf\0All files (*.*)\0*.*\0",
+                L"Import menu font");
         case PickKind::Folder:
             break;  // folders need the shell dialog below
     }
@@ -126,6 +130,7 @@ static std::string pickSolutionFile() { return pickPath(PickKind::Solution); }
 static std::string pickModelFile() { return pickPath(PickKind::ObjModel); }
 static std::string pickPngFile() { return pickPath(PickKind::Png); }
 static std::string pickWavFile() { return pickPath(PickKind::Wav); }
+static std::string pickTtfFile() { return pickPath(PickKind::Ttf); }
 
 // Reads the fmt chunk of a WAV file. Returns false when the file is not a
 // parseable RIFF/WAVE. audioFormat: 1 = integer PCM (the only thing the PS2
@@ -2109,17 +2114,21 @@ void App::drawSaveDataSection() {
 void App::handleFileDrop(int count, const char** paths) {
     if (!hasProject_) return;
 
-    int copied = 0, attached = 0, skipped = 0;
+    const bool menuTarget = showMenusEditor_ && selectedMenu_ >= 0 &&
+                            selectedMenu_ < (int)project_.menus.size();
+    int copied = 0, attached = 0, fonts = 0, skipped = 0;
     for (int i = 0; i < count; ++i) {
         const std::filesystem::path src(paths[i]);
         std::string ext = src.extension().string();
         for (char& c : ext) c = (char)tolower((unsigned char)c);
-        if (ext != ".png") {
+        const bool isPng = ext == ".png";
+        const bool isFont = ext == ".ttf" || ext == ".otf";
+        if (!isPng && !isFont) {
             ++skipped;
             continue;
         }
         const std::filesystem::path destDir =
-            std::filesystem::path(project_.dir) / "res" / "hud";
+            std::filesystem::path(project_.dir) / "res" / (isFont ? "fonts" : "hud");
         std::error_code ec;
         std::filesystem::create_directories(destDir, ec);
         std::filesystem::copy_file(src, destDir / src.filename(),
@@ -2129,9 +2138,16 @@ void App::handleFileDrop(int count, const char** paths) {
             statusMessage_ = "Drop import failed: " + ec.message();
             continue;
         }
+        if (isFont) {
+            ++fonts;
+            if (menuTarget) {
+                project_.menus[selectedMenu_].fontPath =
+                    "res/fonts/" + src.filename().string();
+            }
+            continue;
+        }
         ++copied;
-        if (showMenusEditor_ && selectedMenu_ >= 0 &&
-            selectedMenu_ < (int)project_.menus.size()) {
+        if (menuTarget) {
             MenuImage img;
             img.path = "res/hud/" + src.filename().string();
             project_.menus[selectedMenu_].images.push_back(std::move(img));
@@ -2139,16 +2155,19 @@ void App::handleFileDrop(int count, const char** paths) {
         }
     }
 
-    if (attached > 0) {
+    if ((attached > 0 || fonts > 0) && menuTarget) {
         commitChange();
-        statusMessage_ = "Added " + std::to_string(attached) + " image(s) to menu \"" +
+        std::string what;
+        if (attached > 0) what = std::to_string(attached) + " image(s)";
+        if (fonts > 0)
+            what += (what.empty() ? "" : " + ") + std::string("font");
+        statusMessage_ = "Added " + what + " to menu \"" +
                          project_.menus[selectedMenu_].name + "\"";
-    } else if (copied > 0) {
-        statusMessage_ = "Copied " + std::to_string(copied) +
-                         " PNG(s) into res/hud - attach them in the Menu Editor "
-                         "or the HUD section";
+    } else if (copied > 0 || fonts > 0) {
+        statusMessage_ = "Copied into res/ - attach in the Menu Editor (images: "
+                         "Images list, fonts: Font combo) or the HUD section";
     } else if (skipped > 0) {
-        statusMessage_ = "Drop: only PNG files are handled here";
+        statusMessage_ = "Drop: PNG images and TTF/OTF fonts are handled here";
     }
 }
 
@@ -2343,6 +2362,101 @@ void App::drawMenusWindow() {
     ImGui::DragFloat2("Screen position", m.screenPos, 0.005f, 0.0f, 1.0f, "%.3f");
     changed |= ImGui::IsItemDeactivatedAfterEdit();
     if (ImGui::Checkbox("Show title", &m.showTitle)) changed = true;
+
+    // Font: default chain / fonts imported into the project / a curated set
+    // of stock Windows fonts (existence-checked) / import a new TTF.
+    {
+        std::string current = "Default (Consolas Bold)";
+        if (!m.fontPath.empty())
+            current = std::filesystem::path(m.fontPath).filename().string();
+        ImGui::SetNextItemWidth(200.0f);
+        if (ImGui::BeginCombo("Font", current.c_str())) {
+            if (ImGui::Selectable("Default (Consolas Bold)", m.fontPath.empty())) {
+                m.fontPath.clear();
+                changed = true;
+            }
+            // fonts shipped inside the project (res/fonts)
+            const std::filesystem::path fontsDir =
+                std::filesystem::path(project_.dir) / "res" / "fonts";
+            std::error_code ec;
+            if (std::filesystem::exists(fontsDir, ec)) {
+                for (const auto& entry :
+                     std::filesystem::directory_iterator(fontsDir, ec)) {
+                    std::string ext = entry.path().extension().string();
+                    for (char& c : ext) c = (char)tolower((unsigned char)c);
+                    if (ext != ".ttf" && ext != ".otf") continue;
+                    const std::string rel =
+                        "res/fonts/" + entry.path().filename().string();
+                    if (ImGui::Selectable(
+                            (entry.path().filename().string() + "  [project]").c_str(),
+                            m.fontPath == rel)) {
+                        m.fontPath = rel;
+                        changed = true;
+                    }
+                }
+            }
+            // stock Windows fonts (bare file name - resolved via \Windows\Fonts)
+            struct SysFont {
+                const char* label;
+                const char* file;
+            };
+            static const SysFont kSysFonts[] = {
+                {"Arial Bold", "arialbd.ttf"},
+                {"Comic Sans MS Bold", "comicbd.ttf"},
+                {"Courier New Bold", "courbd.ttf"},
+                {"Georgia Bold", "georgiab.ttf"},
+                {"Impact", "impact.ttf"},
+                {"Segoe UI Bold", "segoeuib.ttf"},
+                {"Times New Roman Bold", "timesbd.ttf"},
+                {"Trebuchet MS Bold", "trebucbd.ttf"},
+                {"Verdana Bold", "verdanab.ttf"},
+            };
+            char windir[MAX_PATH] = {};
+            GetWindowsDirectoryA(windir, MAX_PATH);
+            for (const SysFont& sf : kSysFonts) {
+                const std::filesystem::path p =
+                    std::filesystem::path(windir) / "Fonts" / sf.file;
+                if (!std::filesystem::exists(p, ec)) continue;
+                if (ImGui::Selectable(sf.label, m.fontPath == sf.file)) {
+                    m.fontPath = sf.file;
+                    changed = true;
+                }
+            }
+            ImGui::Separator();
+            if (ImGui::Selectable("Import TTF into the project...")) {
+                const std::string src = pickTtfFile();
+                if (!src.empty()) {
+                    const std::filesystem::path srcPath(src);
+                    std::filesystem::create_directories(fontsDir, ec);
+                    std::filesystem::copy_file(
+                        srcPath, fontsDir / srcPath.filename(),
+                        std::filesystem::copy_options::overwrite_existing, ec);
+                    if (!ec) {
+                        m.fontPath = "res/fonts/" + srcPath.filename().string();
+                        changed = true;
+                    }
+                }
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Rasterized into the panel at build time - any TTF\n"
+                              "works, nothing ships to the PS2 but pixels.\n"
+                              "Project fonts (res/fonts) travel with the project;\n"
+                              "Windows fonts depend on this machine.");
+    }
+    {
+        int sizes[2] = {m.titleSize, m.entrySize};
+        ImGui::SetNextItemWidth(140.0f);
+        if (ImGui::DragInt2("Title / entry size", sizes, 0.2f, 8, 48)) {
+            m.titleSize = sizes[0] < 10 ? 10 : sizes[0] > 48 ? 48 : sizes[0];
+            m.entrySize = sizes[1] < 8 ? 8 : sizes[1] > 32 ? 32 : sizes[1];
+        }
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+    }
+
     if (menuPreviewClipped_)
         ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f),
                            "Panel taller than 512 px - the bottom gets clipped."
@@ -2543,7 +2657,9 @@ void App::drawMenusWindow() {
     {
         std::string key = m.name + "\x1f" + m.title + "\x1f" +
                           std::to_string(m.panelW) + "\x1f" +
-                          std::to_string(m.showTitle) + "\x1f" +
+                          std::to_string(m.showTitle) + "\x1f" + m.fontPath +
+                          "\x1f" + std::to_string(m.titleSize) + "|" +
+                          std::to_string(m.entrySize) + "\x1f" +
                           std::to_string(m.accent[0]) + "," +
                           std::to_string(m.accent[1]) + "," +
                           std::to_string(m.accent[2]);

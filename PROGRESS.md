@@ -647,6 +647,25 @@ Each finished feature lands as its own commit.
   too, drag&drop is the escape hatch. Needs the user's interactive
   confirmation - the freeze never reproduced under automation.
 
+- (47) **Per-menu fonts + text sizes** - menus pick their typeface and text
+  scale. GameMenu::fontPath: "" = the default chain (Consolas Bold ->
+  Arial Bold -> Arial), "res/fonts/x.ttf" = a font imported into the project
+  (travels with it - reproducible builds), bare "impact.ttf" = a stock
+  Windows font resolved via \Windows\Fonts. The Font combo in the Menu
+  Editor lists project fonts, an existence-checked curated set of stock
+  Windows faces (Arial/Comic Sans/Courier/Georgia/Impact/Segoe/Times/
+  Trebuchet/Verdana bolds) and an "Import TTF..." action; dropping a
+  .ttf/.otf on the editor window imports it and assigns it to the selected
+  menu (same flow as PNG drops). Title and entry pixel sizes are editable
+  (10-48 / 8-32); the entry size drives the row pitch (rowH = entrySize+9)
+  and the title size the title block, all through menubake::panelLayout -
+  MenuData.rowH was already per-menu data, so the game cursor follows
+  automatically. menubake now caches fonts per path (map) instead of one
+  static; a missing/unreadable font falls back to the default chain rather
+  than failing the bake. Verified: bake + codegen check with impact.ttf and
+  enlarged sizes on the e2e project (panel PNG + menu_data row geometry),
+  PCSX2 boot screenshot.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

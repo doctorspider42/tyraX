@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <map>
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include <stb_truetype.h>
@@ -23,40 +24,58 @@ constexpr RGBA kBg{10, 14, 28, 225};
 constexpr RGBA kText{235, 240, 245, 255};
 constexpr RGBA kDim{150, 160, 175, 255};
 
-// A loaded TTF (kept for the process lifetime - bakes happen per build and
-// per preview refresh, re-reading the font every time would be wasteful).
+// A loaded TTF (cached for the process lifetime, keyed by file path - bakes
+// happen per build and per preview refresh, re-reading fonts every time
+// would be wasteful).
 struct Font {
     std::vector<unsigned char> data;
     stbtt_fontinfo info{};
     bool ok = false;
 };
 
-Font& systemFont() {
-    static Font font = [] {
-        Font f;
-        char windir[MAX_PATH] = {};
-        GetWindowsDirectoryA(windir, MAX_PATH);
-        const char* candidates[] = {"consolab.ttf", "arialbd.ttf", "arial.ttf"};
-        for (const char* name : candidates) {
-            const std::string path = std::string(windir) + "\\Fonts\\" + name;
-            FILE* fp = std::fopen(path.c_str(), "rb");
-            if (!fp) continue;
-            std::fseek(fp, 0, SEEK_END);
-            const long size = std::ftell(fp);
-            std::fseek(fp, 0, SEEK_SET);
-            f.data.resize((size_t)size);
-            const size_t got = std::fread(f.data.data(), 1, (size_t)size, fp);
-            std::fclose(fp);
-            if (got != (size_t)size) continue;
-            if (stbtt_InitFont(&f.info, f.data.data(),
-                               stbtt_GetFontOffsetForIndex(f.data.data(), 0))) {
-                f.ok = true;
-                break;
-            }
-        }
-        return f;
-    }();
-    return font;
+Font* loadFontFile(const std::string& path) {
+    static std::map<std::string, Font> cache;
+    auto it = cache.find(path);
+    if (it != cache.end()) return it->second.ok ? &it->second : nullptr;
+    Font& f = cache[path];
+    FILE* fp = std::fopen(path.c_str(), "rb");
+    if (!fp) return nullptr;
+    std::fseek(fp, 0, SEEK_END);
+    const long size = std::ftell(fp);
+    std::fseek(fp, 0, SEEK_SET);
+    f.data.resize((size_t)size);
+    const size_t got = std::fread(f.data.data(), 1, (size_t)size, fp);
+    std::fclose(fp);
+    if (got != (size_t)size) return nullptr;
+    if (!stbtt_InitFont(&f.info, f.data.data(),
+                        stbtt_GetFontOffsetForIndex(f.data.data(), 0)))
+        return nullptr;
+    f.ok = true;
+    return &f;
+}
+
+std::string windowsFontPath(const std::string& name) {
+    char windir[MAX_PATH] = {};
+    GetWindowsDirectoryA(windir, MAX_PATH);
+    return std::string(windir) + "\\Fonts\\" + name;
+}
+
+// The menu's font: project-relative when the path has a separator
+// ("res/fonts/x.ttf"), a Windows font by bare file name ("impact.ttf"),
+// falling back to the default chain when unset or unreadable.
+Font* resolveFont(const GameMenu& menu, const std::string& projectDir) {
+    if (!menu.fontPath.empty()) {
+        const bool projectRelative =
+            menu.fontPath.find('/') != std::string::npos ||
+            menu.fontPath.find('\\') != std::string::npos;
+        const std::string full = projectRelative && !projectDir.empty()
+                                     ? projectDir + "\\" + menu.fontPath
+                                     : windowsFontPath(menu.fontPath);
+        if (Font* f = loadFontFile(full)) return f;
+    }
+    for (const char* name : {"consolab.ttf", "arialbd.ttf", "arial.ttf"})
+        if (Font* f = loadFontFile(windowsFontPath(name))) return f;
+    return nullptr;
 }
 
 // Minimal UTF-8 decode (labels may hold Polish diacritics, hints use U+25B2).
@@ -99,8 +118,7 @@ struct Canvas {
     }
 };
 
-float textWidth(const std::string& text, float pixelHeight) {
-    Font& f = systemFont();
+float textWidth(Font& f, const std::string& text, float pixelHeight) {
     const float scale = stbtt_ScaleForPixelHeight(&f.info, pixelHeight);
     float x = 0;
     size_t i = 0;
@@ -118,15 +136,14 @@ float textWidth(const std::string& text, float pixelHeight) {
 
 // Draws text with its baseline placed so the cap sits around y (top of the
 // line box); x is the left edge, or the center when centered = true.
-void drawText(Canvas& canvas, float x, int yTop, const std::string& text,
+void drawText(Canvas& canvas, Font& f, float x, int yTop, const std::string& text,
               float pixelHeight, RGBA color, bool centered) {
-    Font& f = systemFont();
     const float scale = stbtt_ScaleForPixelHeight(&f.info, pixelHeight);
     int ascent = 0, descent = 0, lineGap = 0;
     stbtt_GetFontVMetrics(&f.info, &ascent, &descent, &lineGap);
     const int baseline = yTop + (int)(ascent * scale + 0.5f);
 
-    if (centered) x -= textWidth(text, pixelHeight) * 0.5f;
+    if (centered) x -= textWidth(f, text, pixelHeight) * 0.5f;
 
     float penX = x;
     size_t i = 0;
@@ -221,10 +238,12 @@ PanelLayout panelLayout(const GameMenu& menu, const std::string& projectDir) {
     const int aboveEntries = flowBlockHeight(menu, fit, MenuImage::AboveEntries);
     const int belowEntries = flowBlockHeight(menu, fit, MenuImage::BelowEntries);
 
-    // title block: text at +8, separator at +31 (36 tall); hidden = small pad
-    const int titleBlock = menu.showTitle ? 44 : 10;
+    // text sizes drive the geometry: title block = text at +8 + separator,
+    // row pitch = entry size + breathing room (15px -> the classic 24)
+    l.rowH = menu.entrySize + 9;
+    const int titleBlock = menu.showTitle ? menu.titleSize + 26 : 10;
     l.row0Y = aboveTitle + titleBlock + aboveEntries;
-    l.contentH = l.row0Y + entries * kRowH + belowEntries + 22;  // hints + pad
+    l.contentH = l.row0Y + entries * l.rowH + belowEntries + 22;  // hints + pad
     if (l.contentH > 512) {
         l.contentH = 512;  // PS2 texture cap - the bake clips, editor warns
         l.clipped = true;
@@ -279,7 +298,8 @@ static void drawImageScaled(Canvas& canvas, const unsigned char* src, int sw,
 
 bool bakePanelRGBA(const GameMenu& menu, const std::string& projectDir,
                    std::vector<unsigned char>& out, int& w, int& h) {
-    if (!systemFont().ok) return false;
+    Font* font = resolveFont(menu, projectDir);
+    if (!font) return false;
 
     const int entries = (int)menu.entries.size() > kMaxEntries
                             ? kMaxEntries
@@ -345,23 +365,25 @@ bool bakePanelRGBA(const GameMenu& menu, const std::string& projectDir,
     int y = 8;
     drawFlowSlot(MenuImage::AboveTitle, y);
     if (menu.showTitle) {
-        drawText(canvas, w * 0.5f, y, menu.title, 18.0f, accent, true);
-        canvas.fillRect(16, y + 23, w - 16, y + 24, separator);
-        y += 36;
+        drawText(canvas, *font, w * 0.5f, y, menu.title, (float)menu.titleSize,
+                 accent, true);
+        canvas.fillRect(16, y + menu.titleSize + 5, w - 16, y + menu.titleSize + 6,
+                        separator);
+        y += menu.titleSize + 18;
     } else {
         y += 2;
     }
     drawFlowSlot(MenuImage::AboveEntries, y);
 
     for (int i = 0; i < entries; ++i)
-        drawText(canvas, 56, l.row0Y + i * kRowH + 2, menu.entries[i].label,
-                 15.0f, kText, false);
+        drawText(canvas, *font, 56, l.row0Y + i * l.rowH + 2, menu.entries[i].label,
+                 (float)menu.entrySize, kText, false);
 
-    int below = l.row0Y + entries * kRowH + 4;
+    int below = l.row0Y + entries * l.rowH + 4;
     drawFlowSlot(MenuImage::BelowEntries, below);
 
-    drawText(canvas, w * 0.5f, content - 18, "X OK    \xE2\x96\xB2 BACK", 11.0f,
-             kDim, true);
+    drawText(canvas, *font, w * 0.5f, content - 18, "X OK    \xE2\x96\xB2 BACK",
+             11.0f, kDim, true);
 
     // overlays: in front of everything, freeform top-left position
     for (size_t i = 0; i < menu.images.size(); ++i) {

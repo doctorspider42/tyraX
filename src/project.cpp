@@ -268,6 +268,11 @@ std::string save(const Project& p) {
              << (m.pauseMenu ? ", \"pauseMenu\": true" : "")
              << (m.panelW != 256 ? ", \"panelW\": " + std::to_string(m.panelW) : "")
              << (m.showTitle ? "" : ", \"showTitle\": false")
+             << (m.fontPath.empty() ? "" : ", \"font\": \"" + m.fontPath + "\"")
+             << (m.titleSize != 18 ? ", \"titleSize\": " + std::to_string(m.titleSize)
+                                   : "")
+             << (m.entrySize != 15 ? ", \"entrySize\": " + std::to_string(m.entrySize)
+                                   : "")
              << ", \"screenPos\": [" << fmtFloat(m.screenPos[0]) << ", "
              << fmtFloat(m.screenPos[1]) << "]"
              << ", \"accent\": " << fmtVec3(m.accent);
@@ -875,6 +880,15 @@ std::string load(Project& out, const std::string& projectDir) {
             }
             if (const auto* v = jm.find("showTitle"))
                 m.showTitle = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (const auto* v = jm.find("font")) m.fontPath = v->stringOr("");
+            if (const auto* v = jm.find("titleSize"))
+                m.titleSize = (int)v->numberOr(18);
+            if (m.titleSize < 10) m.titleSize = 10;
+            if (m.titleSize > 48) m.titleSize = 48;
+            if (const auto* v = jm.find("entrySize"))
+                m.entrySize = (int)v->numberOr(15);
+            if (m.entrySize < 8) m.entrySize = 8;
+            if (m.entrySize > 32) m.entrySize = 32;
             if (const auto* v = jm.find("screenPos");
                 v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
                 m.screenPos[0] = (float)v->arr[0].numberOr(0.5);

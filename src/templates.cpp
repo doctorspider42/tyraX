@@ -4221,7 +4221,7 @@ static std::string menuDataHeader(const Project& p) {
             const menubake::PanelLayout l = menubake::panelLayout(m, p.dir);
             out << "    {\"menus/" << menubake::panelFileName(m.name) << "\", "
                 << l.panelW << ", " << l.canvasH << ", " << l.contentH << ", "
-                << l.row0Y << ", " << menubake::kRowH << ", " << entries
+                << l.row0Y << ", " << l.rowH << ", " << entries
                 << ", MENU_" << mi << "_ENTRIES, " << (m.titleScreen ? 1 : 0)
                 << ", " << (m.pauseGame ? 1 : 0) << ", " << floatLit(m.screenPos[0])
                 << ", " << floatLit(m.screenPos[1]) << "},  // " << m.name << "\n";

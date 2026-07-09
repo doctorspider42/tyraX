@@ -18,17 +18,17 @@
 // generated game runtime (cursor row positions).
 namespace menubake {
 
-constexpr int kRowH = 24;  // entry row pitch
 constexpr int kMaxEntries = 8;
 
-// Geometry of a menu's panel. Flow images push the title and rows down;
-// canvas height rounds up to a power of two (64..512, the PS2 texture cap)
-// with the slack rows fully transparent.
+// Geometry of a menu's panel. Flow images push the title and rows down, the
+// row pitch follows the entry font size; canvas height rounds up to a power
+// of two (64..512, the PS2 texture cap) with the slack rows transparent.
 struct PanelLayout {
     int panelW = 256;    // texture width (from GameMenu::panelW)
     int canvasH = 64;    // texture height (pow2)
     int contentH = 64;   // drawn part (border to border)
     int row0Y = 44;      // first entry row
+    int rowH = 24;       // entry row pitch (entrySize + 9)
     bool clipped = false;  // content exceeded the 512px cap and was cut
 };
 
