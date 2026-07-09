@@ -36,7 +36,7 @@
 // Native pickers (IFileOpenDialog). pickFolder: FOS_PICKFOLDERS;
 // pickSolutionFile: file dialog filtered to *.tyra project files.
 // ---------------------------------------------------------------------------
-enum class PickKind { Folder, Solution, ObjModel, Png, Wav, Ttf };
+enum class PickKind { Folder, Solution, ObjModel, Png, Wav, Ttf, Executable };
 
 // Owner window for the native dialogs. An unowned modal (Show(nullptr))
 // leaves the frozen GLFW window active behind it - Windows then wedges the
@@ -94,6 +94,10 @@ static std::string pickPath(PickKind kind) {
             return pickFileLegacy(
                 L"TrueType font (*.ttf, *.otf)\0*.ttf;*.otf\0All files (*.*)\0*.*\0",
                 L"Import menu font");
+        case PickKind::Executable:
+            return pickFileLegacy(
+                L"Executable (*.exe)\0*.exe\0All files (*.*)\0*.*\0",
+                L"Select PCSX2 executable");
         case PickKind::Folder:
             break;  // folders need the shell dialog below
     }
@@ -130,6 +134,7 @@ static std::string pickModelFile() { return pickPath(PickKind::ObjModel); }
 static std::string pickPngFile() { return pickPath(PickKind::Png); }
 static std::string pickWavFile() { return pickPath(PickKind::Wav); }
 static std::string pickTtfFile() { return pickPath(PickKind::Ttf); }
+static std::string pickExeFile() { return pickPath(PickKind::Executable); }
 
 // Asset filenames flow into shell command lines (e.g. the adpenc wav->adpcm
 // loop in runner.cpp), Makefiles and ISO9660 paths - none of which reliably
@@ -310,6 +315,7 @@ void App::drawUI() {
                                                          &center);
             ImGui::DockBuilderDockWindow("Project", left);
             ImGui::DockBuilderDockWindow("Output", bottom);
+            ImGui::DockBuilderDockWindow("Debug", bottom);
             ImGui::DockBuilderDockWindow("Flow Graph", center);
             ImGui::DockBuilderDockWindow("Viewport", center);
             ImGui::DockBuilderFinish(dockspace);
@@ -321,6 +327,7 @@ void App::drawUI() {
     drawProjectWindow();
     drawFlowGraphWindow();
     drawOutputWindow();
+    drawDebugWindow();
     drawDiscLayoutWindow();
     drawMenusWindow();
     drawNewProjectModal();
@@ -342,6 +349,8 @@ void App::drawUI() {
             prefTerrain_ = project_.active().terrain;
             prefTemplate_ = project_.gameTemplate == "fpp" ? 1 : 0;
             prefSettings_ = project_.settings;
+            snprintf(prefEmulatorPath_, sizeof(prefEmulatorPath_), "%s",
+                     project_.emulatorPath.c_str());
             openPreferencesPopup_ = true;
         }
         if (!io.WantTextInput) {
@@ -385,6 +394,8 @@ void App::drawMenuBar() {
                 prefTerrain_ = project_.active().terrain;
                 prefTemplate_ = project_.gameTemplate == "fpp" ? 1 : 0;
                 prefSettings_ = project_.settings;
+                snprintf(prefEmulatorPath_, sizeof(prefEmulatorPath_), "%s",
+                         project_.emulatorPath.c_str());
                 openPreferencesPopup_ = true;
             }
             ImGui::Separator();
@@ -3007,6 +3018,105 @@ void App::drawOutputWindow() {
     ImGui::End();
 }
 
+// Reads at most maxBytes from the end of a text file (emulog.txt can grow
+// across long sessions). Returns "" when the file is absent or unreadable.
+static std::string readTextFileTail(const std::string& path, size_t maxBytes) {
+    std::ifstream in(path, std::ios::binary | std::ios::ate);
+    if (!in) return "";
+    const std::streamoff size = in.tellg();
+    if (size <= 0) return "";
+    const size_t want = (size_t)size < maxBytes ? (size_t)size : maxBytes;
+    in.seekg(size - (std::streamoff)want, std::ios::beg);
+    std::string data(want, '\0');
+    in.read(data.data(), (std::streamsize)want);
+    data.resize((size_t)in.gcount());
+    // Drop a partial first line when we started mid-file.
+    if ((size_t)size > maxBytes) {
+        const size_t nl = data.find('\n');
+        if (nl != std::string::npos) data.erase(0, nl + 1);
+    }
+    return data;
+}
+
+// ---------------------------------------------------------------------------
+// Debug window: tails a log file so game output is visible without leaving the
+// editor. Two sources: the game's own log (bin/log.txt - TYRA_LOG output and
+// assertion dumps, written to the host fs by the running ELF because generated
+// games set Tyra::Info::writeLogsToFile) and the emulator's console log (PCSX2
+// emulog.txt - boot progress, BIOS/ELF-load errors). The game log is the
+// primary channel; EE printf does not reliably reach emulog (see tyra-testing).
+// ---------------------------------------------------------------------------
+void App::drawDebugWindow() {
+    ImGui::Begin("Debug");
+
+    // Game log = the game's own TYRA_LOG output (bin/log.txt, written on the
+    // host fs by the running ELF); Emulator log = PCSX2's console (emulog.txt).
+    const char* sources[] = {"Game log", "Emulator log"};
+    ImGui::SetNextItemWidth(140.0f);
+    if (ImGui::Combo("Source", &debugLogSource_, sources, 2)) {
+        debugLog_.clear();       // don't show the other source's stale content
+        debugNextReload_ = 0.0;  // reload immediately from the new source
+    }
+
+    std::string path;
+    if (hasProject_) {
+        if (debugLogSource_ == 0)
+            path = (std::filesystem::path(project_.dir) / "bin" / "log.txt").string();
+        else
+            path = runner_.emulatorLogPath(project_);
+    }
+
+    ImGui::SameLine();
+    bool reloadNow = false;
+    if (ImGui::SmallButton("Reload")) reloadNow = true;
+    ImGui::SameLine();
+    ImGui::Checkbox("Auto", &debugAutoReload_);
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Copy all")) ImGui::SetClipboardText(debugLog_.c_str());
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Clear log") && !path.empty()) {
+        std::ofstream(path, std::ios::trunc);  // best effort; may be held open
+        debugLog_.clear();
+        debugNextReload_ = 0.0;
+    }
+
+    if (path.empty())
+        ImGui::TextDisabled(
+            debugLogSource_ == 0
+                ? "No project open."
+                : "Emulator not found. Set the path in Project > Preferences.");
+    else
+        ImGui::TextDisabled("%s", path.c_str());
+    ImGui::Separator();
+
+    // Refresh from disk on demand, and while Auto is on, at most twice a second
+    // (per-frame file reads would be wasteful for a possibly large log).
+    const double now = ImGui::GetTime();
+    if (!path.empty() && (reloadNow || (debugAutoReload_ && now >= debugNextReload_))) {
+        debugLog_ = readTextFileTail(path, 1u << 20);  // last 1 MB
+        debugNextReload_ = now + 0.5;
+    }
+
+    ImGui::BeginChild("##debugscroll", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_HorizontalScrollbar);
+    const ImVec2 pad = ImGui::GetStyle().FramePadding;
+    const ImVec2 textSize = ImGui::CalcTextSize(debugLog_.c_str(), nullptr, false);
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const ImVec2 inputSize(ImMax(textSize.x + pad.x * 2.0f, avail.x),
+                           ImMax(textSize.y + pad.y * 2.0f, avail.y));
+    ImGui::InputTextMultiline("##debuglog", const_cast<char*>(debugLog_.c_str()),
+                              debugLog_.size() + 1, inputSize, ImGuiInputTextFlags_ReadOnly);
+
+    // Follow the tail while new output arrives, unless the user scrolled up.
+    static size_t lastSize = 0;
+    if (debugLog_.size() != lastSize && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f)
+        ImGui::SetScrollHereY(1.0f);
+    lastSize = debugLog_.size();
+
+    ImGui::EndChild();
+    ImGui::End();
+}
+
 // ---------------------------------------------------------------------------
 // Disc Layout window: the ISO export plan as a reorderable list plus a disc
 // visualization (files as arcs, angle proportional to sectors, colored by
@@ -3567,6 +3677,22 @@ void App::drawPreferencesModal() {
                          "%.1f");
     ImGui::TextDisabled("Objects with the 'Physics' flag fall; the FPP player jumps with X.");
 
+    ImGui::SeparatorText("Emulator");
+    ImGui::InputText("PCSX2 path", prefEmulatorPath_, sizeof(prefEmulatorPath_));
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Browse...##pcsx2")) {
+        const std::string exe = pickExeFile();
+        if (!exe.empty())
+            snprintf(prefEmulatorPath_, sizeof(prefEmulatorPath_), "%s", exe.c_str());
+    }
+    if (prefEmulatorPath_[0] != '\0') {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Clear##pcsx2")) prefEmulatorPath_[0] = '\0';
+    }
+    ImGui::TextDisabled(
+        "Path to pcsx2-qt.exe used by Build && Run. Leave empty to auto-detect\n"
+        "under Program Files. The emulator's log appears in the Debug window.");
+
     ImGui::Separator();
     ImGui::TextDisabled(
         "These are project-wide defaults. Scenes inherit them unless a\n"
@@ -3574,6 +3700,7 @@ void App::drawPreferencesModal() {
     if (ImGui::Button("OK", ImVec2(120, 0))) {
         project_.gameTemplate = prefTemplate_ == 1 ? "fpp" : "orbit";
         project_.settings = prefSettings_;
+        project_.emulatorPath = prefEmulatorPath_;
         project_.active().terrain = prefTerrain_;
         applyProjectToViewport();  // scenes that inherit follow the new defaults
         commitChange();
