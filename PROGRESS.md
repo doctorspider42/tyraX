@@ -852,6 +852,40 @@ Each finished feature lands as its own commit.
   sample now degrades to silence without crashing (game boots fine). Editor UI
   warning path is compile-verified (native file dialog can't be driven headless).
 
+- (53) **Positional stereo for sound emitters (audsrv upgrade + panning)** -
+  emitters played dead-center regardless of position: the image's PS2SDK ships
+  an old audsrv whose only ADPCM volume call sets the SPU2 voice's L and R
+  levels equally, and audsrv has no pan RPC at all. Upstream ps2sdk added
+  per-channel L/R in `66ae317d` ("Implement positional audio in adpcm",
+  2023-01: IOP `audsrv_adpcm_set_volume(ch, voll, volr)` + EE
+  `audsrv_adpcm_set_volume_and_pan(ch, vol, pan)` with pan -100..100), but the
+  audsrv build system was later rewritten to need srxfixup + a newer toolchain
+  (`00f199ae`, 2025-01) that the image cannot run. Solution: built audsrv from
+  the last pre-srxfixup commit (`e78a9cb2`, pinned; builds with the image's
+  `mipsel-ps2-irx-` toolchain and has the pan feature) and vendored the three
+  artifacts in `vendor/tyra/audsrv-pan/` (audsrv.irx + libaudsrv.a + audsrv.h,
+  README has the rebuild recipe; marked binary in .gitattributes so the
+  vendor/tyra LF rule can't corrupt them). The runner overlays them over
+  `$PS2SDK` at the start of every build. Engine: `AudioAdpcm::setVolumeAndPan`
+  added; old `setVolume` still compiles via the header's 2-arg back-compat
+  macro (centered). Codegen: `updateSoundEmitters` computes pan by projecting
+  the horizontal emitter direction onto the camera's right axis (same right
+  vector as the particle billboards) and calls setVolumeAndPan.
+  Two pitfalls burned into the runner logic: (a) the `.irx-em` make rule
+  depends only on the `.irx-em` text file, NOT the IRX binary it embeds - so
+  swapping the SDK's audsrv.irx did nothing until the stamp check also deletes
+  `obj/irx/audsrv.o` (bin2s re-runs, libtyra re-embeds). Diagnosed via nm: the
+  embedded `audsrv_irx` symbol was still the old module's size. (b) with the
+  old IRX + new EE lib, the 3-word volume RPC is read as the old 2-word one -
+  data[1] (the L level) becomes the mono volume, so pan=100 gave total silence
+  and pan=70 gave quiet-equal-both - measurements that first looked like a
+  PCSX2 downmix. Verified end-to-end in PCSX2 with the WASAPI per-channel peak
+  meter on a beeping autoplay emitter (noclip player, camera at origin):
+  emitter front-right -> L=0.038/R=0.342, emitter front-left -> L=0.444/R=0.191,
+  forced center -> equal 0.39/0.39; instrumented TYRA_LOG confirmed
+  dist/vol/pan values (e.g. pan=70 at 45 degrees right). Diagnostic logging
+  removed after verification; editor + game build clean.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

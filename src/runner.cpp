@@ -255,6 +255,23 @@ void Runner::worker(Project p, bool build, bool run) {
         if (ok) {
             ok = exec(dc + "\"mkdir -p /tyra/engine && "
                            "cp /engine-src/Makefile.base /tyra/Makefile.base && "
+                           // Overlay the custom audsrv (per-channel L/R panning for sound
+                           // emitters) over the image's PS2SDK copies, so the engine embeds
+                           // this IRX, links this EE lib and compiles against this header
+                           // (see vendor/tyra/audsrv-pan/README.md). Idempotent; reapplied
+                           // every build so it survives container rebuilds. The md5 stamp
+                           // (kept outside the rsync target) forces a libtyra rebuild when
+                           // the vendored IRX changes, so the new one gets re-embedded.
+                           "cp /engine-src/audsrv-pan/audsrv.irx /usr/local/ps2dev/ps2sdk/iop/irx/audsrv.irx && "
+                           "cp /engine-src/audsrv-pan/libaudsrv.a /usr/local/ps2dev/ps2sdk/ee/lib/libaudsrv.a && "
+                           "cp /engine-src/audsrv-pan/audsrv.h /usr/local/ps2dev/ps2sdk/ee/include/audsrv.h && "
+                           "md5sum /engine-src/audsrv-pan/audsrv.irx > /tmp/audsrv.stamp; "
+                           "if ! cmp -s /tmp/audsrv.stamp /tyra/.audsrv-stamp 2>/dev/null; then "
+                           // obj/irx/audsrv.o must go too: the .irx-em make rule depends only
+                           // on the .irx-em file, not the IRX binary it embeds, so without
+                           // this bin2s never re-runs and the OLD irx stays inside libtyra.
+                           "rm -f /tyra/engine/bin/libtyra.a /tyra/engine/obj/irx/audsrv.o; "
+                           "cp /tmp/audsrv.stamp /tyra/.audsrv-stamp; fi && "
                            "rsync -rlci --delete --exclude=obj --exclude=bin "
                            "/engine-src/engine/ /tyra/engine/ "
                            "| grep -v '^.d' > /tmp/engine-sync.txt; "

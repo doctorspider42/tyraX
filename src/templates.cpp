@@ -1065,9 +1065,11 @@ void TerrainGame::loadScene(int sceneIndex) {
 }
 
 // --- Sound emitters ----------------------------------------------------
-// Volume falls off linearly with the distance to the player. Interval 0
-// retriggers every frame: tryPlay() is skipped while the channel is still
-// busy, so the sample loops seamlessly. Hide Object mutes the emitter.
+// Volume falls off linearly with the distance to the player; the sound is
+// panned left/right by the emitter's position relative to where the camera
+// faces (positional stereo). Interval 0 retriggers every frame: tryPlay() is
+// skipped while the channel is still busy, so the sample loops seamlessly.
+// Hide Object mutes the emitter.
 void TerrainGame::updateSoundEmitters() {
   if (sndSamples.empty()) return;
   if (sndTimers.size() != runtimeObjects.size())
@@ -1088,7 +1090,24 @@ void TerrainGame::updateSoundEmitters() {
     const float dist = sqrtf(dx * dx + dy * dy + dz * dz);
     const float range = o.data.sndRange > 0.5F ? o.data.sndRange : 0.5F;
     const int vol = dist >= range ? 0 : (int)(100.0F * (1.0F - dist / range));
-    engine->audio.adpcm.setVolume((u8)vol, ch);
+    // Pan: project the horizontal direction to the emitter onto the camera's
+    // right axis (same right vector as the particle billboards). -100 = full
+    // left, +100 = full right.
+    Vec4 fwd = cameraLookAt - cameraPosition;
+    float rx = fwd.z, rz = -fwd.x;
+    const float rl = sqrtf(rx * rx + rz * rz);
+    int pan = 0;
+    if (rl > 0.0001F) {
+      rx /= rl; rz /= rl;
+      const float ex = o.data.position[0] - cameraPosition.x;
+      const float ez = o.data.position[2] - cameraPosition.z;
+      const float el = sqrtf(ex * ex + ez * ez);
+      if (el > 0.0001F) {
+        pan = (int)(((ex * rx + ez * rz) / el) * 100.0F);
+        if (pan > 100) pan = 100; else if (pan < -100) pan = -100;
+      }
+    }
+    engine->audio.adpcm.setVolumeAndPan((u8)vol, (s8)pan, ch);
     if (vol <= 0) continue;
     if (sndTimers[i] > 0) {
       --sndTimers[i];
