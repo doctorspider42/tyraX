@@ -274,8 +274,12 @@ void Runner::worker(Project p, bool build, bool run) {
 
         // Sound effects: res/sfx/*.wav -> bin/sfx/*.adpcm (PS2SDK adpenc).
         // Skipped per file when the .adpcm is already newer than its .wav.
+        // IFS= disables word splitting so filenames with spaces survive the
+        // per-file loop. Inner double-quotes around $f/$o would be cleaner but
+        // cannot survive the cmd.exe /S + docker.exe argv unquoting (see exec);
+        // single quotes would block the expansion we need, so empty IFS it is.
         if (ok) {
-            ok = exec(dc + "\"cd /src && if ls res/sfx/*.wav >/dev/null 2>&1; then "
+            ok = exec(dc + "\"cd /src && IFS= && if ls res/sfx/*.wav >/dev/null 2>&1; then "
                            "mkdir -p bin/sfx && for f in res/sfx/*.wav; do "
                            "o=bin/sfx/$(basename $f .wav).adpcm; "
                            "if [ ! $o -nt $f ]; then "
