@@ -72,26 +72,25 @@ void RendererCoreGS::allocateBuffers() {
   zBuffer.address = vram.allocateBuffer(frameBuffers[0].width,
                                         frameBuffers[0].height, zBuffer.zsm);
 
+  // Resolve Auto to the console's actual region so games can read the real
+  // refresh rate back from RendererSettings (tyra-editor fork).
   if (settings->getVideoMode() == VideoMode::Auto) {
-    graph_initialize(frameBuffers[1].address, frameBuffers[1].width,
-                     frameBuffers[1].height, frameBuffers[1].psm, 0, 0);
-  } else {
-    // Forced PAL/NTSC (tyra-editor fork): same call sequence as ps2sdk's
-    // graph_initialize, but with an explicit mode instead of
-    // graph_get_region(). The 512x448 framebuffer is kept for both signals;
-    // PAL just outputs it at 50 Hz.
-    const int mode = settings->getVideoMode() == VideoMode::PAL
-                         ? GRAPH_MODE_PAL
-                         : GRAPH_MODE_NTSC;
-    graph_set_mode(GRAPH_MODE_INTERLACED, mode, GRAPH_MODE_FIELD,
-                   GRAPH_ENABLE);
-    graph_set_screen(0, 0, frameBuffers[1].width, frameBuffers[1].height);
-    graph_set_bgcolor(0, 0, 0);
-    graph_set_framebuffer_filtered(frameBuffers[1].address,
-                                   frameBuffers[1].width, frameBuffers[1].psm,
-                                   0, 0);
-    graph_enable_output();
+    settings->setVideoMode(graph_get_region() == GRAPH_MODE_PAL
+                               ? VideoMode::PAL
+                               : VideoMode::NTSC);
   }
+
+  // Same call sequence as ps2sdk's graph_initialize, with the mode explicit
+  // (region-resolved Auto, or forced PAL/NTSC from EngineOptions). The
+  // 512x448 framebuffer is kept for both signals; PAL just outputs at 50 Hz.
+  const int mode = settings->getVideoMode() == VideoMode::PAL ? GRAPH_MODE_PAL
+                                                              : GRAPH_MODE_NTSC;
+  graph_set_mode(GRAPH_MODE_INTERLACED, mode, GRAPH_MODE_FIELD, GRAPH_ENABLE);
+  graph_set_screen(0, 0, frameBuffers[1].width, frameBuffers[1].height);
+  graph_set_bgcolor(0, 0, 0);
+  graph_set_framebuffer_filtered(frameBuffers[1].address, frameBuffers[1].width,
+                                 frameBuffers[1].psm, 0, 0);
+  graph_enable_output();
 
   // Interlacing tests
   // graph_set_mode(GRAPH_MODE_INTERLACED, GRAPH_MODE_NTSC, GRAPH_MODE_FRAME,

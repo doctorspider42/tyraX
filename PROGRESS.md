@@ -927,6 +927,29 @@ Each finished feature lands as its own commit.
   the standard staged-copy + `BeginDisabled` pattern; the modal itself wasn't
   exercised by hand (no input injection) - one human click-through pending.
 
+- (55) **Wall-clock normalization: same game speed on PAL and NTSC** - all
+  generated game logic was per-frame with 50 FPS baked in (`GRAVITY/(50*50)`,
+  `JUMP_SPEED/50`, `EverySeconds * 50`, particle `dt = 1/50`...), so an NTSC
+  build ran 20% fast. Engine: GS init now resolves `VideoMode::Auto` to the
+  console's real region (`graph_get_region`) and writes it back into
+  `RendererSettings`, which gained `getRefreshRate()` (50/60); the Auto and
+  forced paths collapsed into one explicit `graph_set_mode` sequence. Codegen:
+  `scene_data.hpp` declares `g_frameRate` / `g_frameDt` (1/rate) /
+  `g_frameScale` (50/rate - the "tuned at 50 Hz" conversion factor) plus an
+  inline `everyFrames(seconds)` helper, all defined in the game cpp and set in
+  `TerrainGame::init()`; every per-frame site now multiplies through them:
+  FPP + Player-entity look/walk/fly/gravity/jump, orbit step, object physics,
+  particles, sound-emitter retrigger, flow-graph `EverySeconds` (emitted as
+  `frame % everyFrames(N)` instead of a compile-time constant), loading-screen
+  hold, save feedback and the debug-HUD MEM refresh. User scripts see the
+  globals through `scene_data.hpp` via `script.hpp`. Verified with a wall-clock
+  measurement, not by eye: an `EverySeconds(1s) -> Log("TICK")` graph, counting
+  TICK lines in the host-side log.txt against real time - forced NTSC 60 Hz:
+  0.998 ticks/s over 60 s; forced PAL 50 Hz: 0.998 ticks/s over 45 s (the old
+  codegen would read 1.2/s on NTSC). Both modes verified booting at their
+  vsync rate (status bar 50/60 VPS). Legacy V1 templates untouched (their
+  byte-identical match must keep working).
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

@@ -38,6 +38,11 @@ class RendererSettings {
   const float& getHeight() const { return height; }
   const VideoMode& getVideoMode() const { return videoMode; }
   void setVideoMode(const VideoMode& mode) { videoMode = mode; }
+  /** Vertical refresh in Hz (PAL 50 / NTSC 60). Valid after renderer init -
+   * GS init resolves an Auto mode to the console's actual region first. */
+  float getRefreshRate() const {
+    return videoMode == VideoMode::PAL ? 50.0F : 60.0F;
+  }
   const float& getNear() const { return near; }
   const float& getFar() const { return far; }
   const float& getProjectionScale() const { return projectionScale; }
