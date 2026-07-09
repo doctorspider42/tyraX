@@ -109,8 +109,9 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
 // Baked into the generated terrain_config.hpp on every build.
 struct ProjectSettings {
     // Build target. videoSystem: "auto" follows the console region, "ntsc"
-    // forces 60 Hz, "pal" forces 50 Hz (game logic is per-frame, so PAL runs
-    // ~17% slower). The "debug" profile unlocks the on-screen FPS / free-RAM
+    // forces 60 Hz, "pal" forces 50 Hz (gameplay speed is wall-clock
+    // normalized via g_frameScale in the generated game, so both play the
+    // same). The "debug" profile unlocks the on-screen FPS / free-RAM
     // overlays; "release" strips them from the build.
     std::string videoSystem = "auto";      // "auto" | "ntsc" | "pal"
     std::string buildProfile = "release";  // "release" | "debug"

@@ -3639,7 +3639,8 @@ void App::drawPreferencesModal() {
         prefSettings_.videoSystem = videoSys == 2 ? "pal" : videoSys == 1 ? "ntsc" : "auto";
     ImGui::TextDisabled(
         "Video signal of the built game (also on exported ISOs). Auto follows\n"
-        "the console region. Game logic is per-frame, so PAL runs at 50 Hz.");
+        "the console region. Game speed is normalized - PAL (50 Hz) and NTSC\n"
+        "(60 Hz) play at the same wall-clock speed.");
     int profile = prefSettings_.buildProfile == "debug" ? 1 : 0;
     const char* profileNames[] = {"Release", "Debug"};
     if (ImGui::Combo("Profile", &profile, profileNames, 2))
