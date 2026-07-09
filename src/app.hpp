@@ -29,6 +29,7 @@ private:
     void drawFlowGraphWindow();
     void openInVSCode();
     void drawOutputWindow();
+    void drawDebugWindow();
     void drawDiscLayoutWindow();
     void drawNewProjectModal();
     void drawPreferencesModal();
@@ -159,6 +160,15 @@ private:
     TerrainConfig prefTerrain_;
     int prefTemplate_ = 0;
     ProjectSettings prefSettings_;
+    char prefEmulatorPath_[512] = "";  // PCSX2 exe path (editor-side, not baked)
+
+    // "Debug" window: tails a log from disk (reloaded, throttled). Source 0 is
+    // the game's own log (bin/log.txt, written by TYRA_LOG); source 1 is the
+    // emulator's console log (PCSX2 emulog.txt, boot progress + asserts).
+    std::string debugLog_;
+    int debugLogSource_ = 0;
+    bool debugAutoReload_ = true;
+    double debugNextReload_ = 0.0;  // ImGui::GetTime() gate for the next read
 
     // "Scene Preferences" modal staging (applied on OK): the active scene's
     // per-category overrides of the project defaults.

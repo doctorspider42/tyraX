@@ -30,6 +30,11 @@ public:
     std::string log() const;
     void clearLog();
 
+    // Absolute path to the PCSX2 console log (emulog.txt) for the emulator this
+    // project would launch (configured path first, then auto-detect). Empty when
+    // the emulator or its PCSX2.ini can't be located. Used by the Debug window.
+    std::string emulatorLogPath(const Project& p) const;
+
 private:
     void appendLine(const std::string& line);
     // Runs a command through cmd.exe in `cwd`, streams output to log.

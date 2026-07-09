@@ -469,7 +469,8 @@ std::string save(const Project& p) {
     json << (p.menus.empty() ? "]" : "\n  ]");
     // Editor-side state + window layout: the .tyra file is the whole project.
     json << ",\n  \"editor\": { \"selectedObject\": " << p.selectedObject
-         << ", \"gizmo\": " << p.gizmoOp << ", \"viewMode\": " << p.viewMode << " }";
+         << ", \"gizmo\": " << p.gizmoOp << ", \"viewMode\": " << p.viewMode
+         << ", \"emulatorPath\": \"" << jsonEscape(p.emulatorPath) << "\" }";
     json << ",\n  \"layout\": \"" << jsonEscape(p.windowLayout) << "\"";
     json << "\n}\n";
     return writeFile(projectPath(p), json.str());
@@ -1021,6 +1022,7 @@ std::string load(Project& out, const std::string& projectDir) {
             out.selectedObject = (int)v->numberOr(-1);
         if (const auto* v = ed->find("gizmo")) out.gizmoOp = (int)v->numberOr(0);
         if (const auto* v = ed->find("viewMode")) out.viewMode = (int)v->numberOr(0);
+        if (const auto* v = ed->find("emulatorPath")) out.emulatorPath = v->stringOr("");
     }
     if (const auto* v = root.find("layout")) out.windowLayout = v->stringOr("");
 
@@ -1128,6 +1130,7 @@ std::string refreshGenerated(const Project& p) {
 
         bool write = false;
         if (f.relativePath == "Dockerfile" || f.relativePath == "docker-compose.yml" ||
+            f.relativePath == "src\\main.cpp" ||
             f.relativePath == "inc\\terrain_config.hpp" ||
             f.relativePath == "inc\\scene_data.hpp" ||
             f.relativePath == ".vscode\\c_cpp_properties.json" ||

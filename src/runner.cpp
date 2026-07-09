@@ -133,10 +133,35 @@ static std::string findPCSX2() {
     return "";
 }
 
+// The PCSX2 executable to launch: the project's configured path when set (and
+// it exists), otherwise the Program Files auto-detect. Empty when neither is
+// available (a configured-but-missing path resolves to empty, not the default).
+static std::string resolveEmulator(const Project& p) {
+    if (!p.emulatorPath.empty()) {
+        std::error_code ec;
+        return fs::exists(p.emulatorPath, ec) ? p.emulatorPath : "";
+    }
+    return findPCSX2();
+}
+
+std::string Runner::emulatorLogPath(const Project& p) const {
+    const std::string exe = resolveEmulator(p);
+    if (exe.empty()) return "";
+    // emulog.txt lives in the "logs" folder next to PCSX2.ini's "inis" folder.
+    const fs::path ini = pcsx2::findIni(exe);
+    if (ini.empty()) return "";
+    return (ini.parent_path().parent_path() / "logs" / "emulog.txt").string();
+}
+
 bool Runner::launchPCSX2(const Project& p) {
-    const std::string exe = findPCSX2();
+    const std::string exe = resolveEmulator(p);
     if (exe.empty()) {
-        appendLine("[editor] PCSX2 not found in Program Files. Install it or add a custom path.");
+        if (!p.emulatorPath.empty())
+            appendLine("[editor] Configured emulator not found: " + p.emulatorPath +
+                       " - check the path in Project > Preferences.");
+        else
+            appendLine("[editor] PCSX2 not found in Program Files. Install it or set the "
+                       "emulator path in Project > Preferences.");
         return false;
     }
     std::error_code ec;
@@ -147,6 +172,11 @@ bool Runner::launchPCSX2(const Project& p) {
 
     // Kill a previous emulator instance, if any (ignore errors).
     exec("taskkill /F /IM pcsx2-qt.exe 2>nul & taskkill /F /IM pcsx2.exe 2>nul & exit 0", "");
+
+    // The game appends its TYRA_LOG output to bin/log.txt (host fs); drop the
+    // stale file so the Debug window shows only this run's log.
+    std::error_code logEc;
+    fs::remove(fs::path(p.dir) / "bin" / "log.txt", logEc);
 
     // Without "Host Filesystem" the ELF boots but every host: fopen fails,
     // so Tyra asserts on the first asset load. PCSX2 rewrites its ini on
