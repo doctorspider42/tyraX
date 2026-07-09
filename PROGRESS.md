@@ -893,7 +893,87 @@ Each finished feature lands as its own commit.
   TYRA_LOG confirmed dist/vol/pan). Diagnostic logging removed after
   verification; editor + game build clean.
 
-- (54) **Window docking lost when opening a project mid-session** - user
+- (54) **Properties window + per-type property cleanup + collapsible Project
+  sections** - object properties moved out of the Project panel into a new
+  "Properties" dock window (default layout: below Project in the left column;
+  projects saved before this change get it docked there automatically - a
+  pending-dock pass splits the Project node when the stored layout ini has no
+  `[Window][Properties]` section). The properties themselves are now gated by
+  what the game actually reads per type (matrix derived from the generated
+  runtime: geometry build, collision, use-target and physics loops all skip
+  marker types): sound emitters/point lights/spawn points/player no longer
+  offer texture, rotation, scale, physics or "usable" (e.g. a texture set on a
+  sound emitter was a dead setting - only geometry types 0-3/5/10 ever bind
+  textures); color hidden for pure markers (sound/spawn/player) since they
+  draw in fixed editor colors; "save state" limited to solids + emitters +
+  sound emitters (lights are baked at build time); the Type combo now only
+  converts between the four primitive shapes instead of also offering
+  spawn-point/model/player conversions that silently produced misconfigured
+  objects (it also indexed past its 7-name array for types 7-10). Project
+  panel sections (Scenes, Scene objects, HUD, Music, Sounds, Save data,
+  Scripts) are CollapsingHeaders now - Scenes + Scene objects default open,
+  the rest collapsed. Verified: editor built clean; scratch project with a
+  player + injected sound emitter + box (`.tyra` edited directly, selection
+  preset) screenshotted per case - sound emitter shows only
+  name/type/position/save-state/sound params, box shows the full set, and a
+  layout with the Properties section stripped re-docks it under Project on
+  load. Sections collapse/expand state confirmed in the same screenshots.
+
+- (55) **Flow graph: Self node + typed variables (Set/Get Int, Bool,
+  Position)** - "Self" is a pure data node exposing the graph's owner as an
+  object output; object params already defaulted to self when empty, this
+  makes the reference explicit and wireable (it needed zero codegen changes -
+  resolveTarget's chain walk ends on a node with no object input and no
+  explicit name, which is exactly self). New "Variables" node category:
+  named game-global values in three separate namespaces (int / bool /
+  position), zeroed at boot, kept across scene switches, NOT saved to the
+  memory card (Save values remain the persistent store). Setters (Set Int,
+  Set Bool, Set Position) run on exec; Set Position accepts a position link
+  that overrides its X/Y/Z params (so Get Position on an object -> Set
+  Position stores a live object position). Readers are pure data sources in
+  the house style: Get Bool -> bool output for logic gates / On Condition,
+  Get Position -> position output for Set Object Position / Spawn Player At,
+  Int At Least -> bool (mirrors the save Value At Least). A variable exists
+  by being named on any node - codegen collects names across every scene's
+  graphs into static flowInt/flowBool/flowPos arrays at the top of
+  flow_graph.gen.cpp (statics, not ScriptContext - script.hpp is
+  user-ownable, so adding context fields would break owned copies). Editor:
+  VarName params are free text + a "Pick..." popup of same-type names used
+  anywhere in the project (typo guard); Set Bool renders a checkbox; the
+  node registry drives pins/serialization so project.cpp needed no changes.
+  Verified: editor builds clean; a graph exercising every new node (Self ->
+  Get Position -> Set Position "home" on On Start, Set Bool/Set Int, Get
+  Bool + Int At Least OR-folded into On Condition -> Hide Object, Every N
+  Seconds -> Set Object Position fed by Get Position "home") was injected
+  into a scratch project's .tyra; the generated flow_graph.gen.cpp is
+  exactly right (statics with name comments, self resolves to the owner
+  index, rising-edge OnCondition folds both variable reads) and the full
+  Docker PS2 build compiled it clean (bin/propwin.elf linked). GUI
+  screenshot confirms the nodes render with pins/params (Flow Graph tab
+  forced via the layout ini's Selected TabId - ImHashStr("#TAB", seed =
+  ImHashStr(name)), CRC32c in this imgui). Not boot-tested in PCSX2; the
+  generated code paths are the same ctx.objects/flag mechanics as existing
+  nodes.
+
+- (56) **Sound emitters: "Play on player" (2D stereo) property** - for
+  dialogs/narration: a sound that always plays "on the player" at full
+  volume, centered, regardless of the emitter's position. New
+  `SceneObject::soundOnPlayer` (saved as `"onPlayer"` in the sound block,
+  defaults false on old projects), `SceneObjectData::sndOnPlayer` in the
+  always-regenerated scene_data.hpp, and a branch in the terrain_game
+  template's updateSoundEmitters that skips the whole distance/range/pan
+  computation (vol=100, pan=0) when set - visibility mute and the
+  interval/loop retrigger logic still apply. Properties UI: checkbox under
+  Autoplay; Range is hidden while it's on (no falloff to range) and the help
+  text switches to the dialog wording. Verified: editor builds clean;
+  `onPlayer: true` set on a scratch project's emitter produces a `1` in the
+  right SceneObjectData slot (neighbors 0), the generated
+  updateSoundEmitters carries the sndOnPlayer branch, and the full Docker
+  PS2 build compiled + linked. GUI screenshot shows the ticked checkbox,
+  hidden Range and swapped help text (load path of the flag proven by the
+  ticked box). Not ear-tested; the playback path below the vol/pan values
+  is unchanged from (53).
+- (57) **Window docking lost when opening a project mid-session** - user
   report: docking didn't seem to persist and panels scattered after loading a
   project. Root cause: `attachProject()` called
   `ImGui::LoadIniSettingsFromMemory` mid-frame (File > Open / Ctrl+O fire from
