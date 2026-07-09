@@ -477,6 +477,176 @@ Each finished feature lands as its own commit.
   steady 50 FPS, grain now fully and uniformly present over sky, terrain and
   every object across sampled moving frames.
 
+- (40) **Memory card saves** - a save system spanning the whole chain. New
+  "Save point" entity (PrimitiveType 10, Gameplay menu): a solid box that is
+  implicitly usable; pressing USE on it in the game opens a 3-slot save/load
+  menu. Per-object "Save state" checkbox (position/color/visibility persisted);
+  project-level "Save data" values (name + fresh-game default, Project panel)
+  editable and persisted per slot; new Flow Graph "Save" nodes: Set Save Value,
+  Add To Save Value, Value At Least (pure bool source for logic gates) and
+  Open Save Menu. Slots store scene index, player feet position + yaw
+  (restored via the existing teleport request, so it survives scene switches
+  and covers both player kinds), flagged objects and all save values in one
+  fixed-size `SaveGameData` block sized at codegen (`SAVE_OBJECT_MAX`).
+  Runtime (`save_system.gen.cpp`, always regenerated) uses **libmc** RPC with
+  rom0:XMCMAN/XMCSERV (MCMAN/MCSERV fallback, nothing embedded - `-lmc` added
+  to Makefile.base); the menu is pure sprites (`res/hud/save-*.png`, baked
+  text rendered by a PIL script, embedded in `src/save_assets.cpp`, written
+  when missing) because the engine has no font. Menu pauses gameplay (player,
+  scripts, use target, object physics), with a 15-frame input grace after
+  opening (the pad reports garbage transitions at boot - without it a
+  spurious Cross click saved to slot 1 instantly). Hard-won mc lore: ps2sdk
+  newlib `#error`s on direct fio use and does NOT route `mc0:` paths (errno
+  EMLINK) - libmc is the only sane path; loading a rom0 module twice hangs
+  the IOP; `mcGetInfo` out-params are junk across module variants (reported
+  type=1/PS1 for an unformatted PS2 card), so card health is judged by a real
+  mkdir+open probe and `sceMcResNoFormat` (-2) alone triggers a format
+  (virgin PCSX2 card images are unformatted; formatting one destroys
+  nothing). Host fallback (save<n>.sav next to the ELF) when no card answers.
+  Verified e2e in PCSX2: probe script wrote+read a slot on the actual card
+  image (values and object state round-tripped, no host .sav files, card file
+  mtime moved), the OnStart-opened menu screenshot shows the panel with USED
+  on the probe's slot, saving via pad (keyboard bindings + PostMessage) marked
+  slot 1 USED, and loading the probe slot teleported the player, restored the
+  ball position and turned the sky orange - proving Value At Least (loaded
+  coins=42.5 >= 8) -> On Condition -> Set Sky fired from loaded data. Editor
+  UI (Save data section, save-point in list + viewport) screenshot-verified.
+
+- (41) **Menu generator** - author in-game menus in the editor, no font
+  needed on the PS2: the editor rasterizes a Windows TTF (stb_truetype,
+  Consolas Bold with Arial fallback, src/menubake.cpp) into one panel PNG
+  per menu (title, entry labels, button hints, accent border) on every
+  build (res/menus/*.png, always rebaked - derived data), and the game
+  runtime only draws the panel + a cursor. New "Menus" section in the
+  Project panel: entries with actions (Close, Switch Scene, Open Save
+  Menu, Open Menu = submenus with a Triangle back-stack, Set/Add Save
+  Value, Flow Event), per-menu accent color, "Title screen" flag (opens at
+  boot, one per project, Back cannot dismiss it) and a **live WYSIWYG
+  preview** of the exact panel pixels (in-memory bake -> GL texture,
+  rebaked on change). Flow graph gained a "Menus" category: Open Menu
+  (action) and On Menu Event (trigger + bool source) - menu entries with
+  the "Flow event" action fire named events that graphs react to; event
+  names resolve to indices at codegen (collectMenuEvents is the shared
+  contract between menu_data.gen.hpp and flow_graph.gen.cpp). Menus pause
+  gameplay like the save menu (player, use target, physics, scripts -
+  except the frame an event fires, so On Menu Event triggers can run);
+  the save menu draws on top when both are open. Layout constants
+  (256-wide panel, rows at 44+i*24, pow2 canvas with transparent slack)
+  live in menubake.hpp as the baker/preview/runtime contract. Verified
+  e2e in PCSX2: title screen "SAVE-E2E QUEST" opens at boot (screenshot),
+  pad-driven navigation (keyboard bindings + PostMessage) entered the
+  orange-accent OPTIONS submenu, its "Sunset sky" Flow-Event entry turned
+  the sky sunset via On Menu Event -> Set Sky while the menu stayed open
+  (screenshot), Triangle popped back to the title and "Start game" closed
+  it - gameplay resumed with the sunset sky kept (screenshot). Baked
+  title.png inspected 1:1. Editor Menus section renders (built + GUI run);
+  the ImGui preview widget shares the verified baker path.
+
+- (42) **Pause management** - menus grew two flags. "Pauses the game"
+  (default on): a pausing menu freezes gameplay under a new fullscreen dim
+  overlay (res/hud/menu-dim.png, an 8x8 translucent black stretched to the
+  screen, written when missing like the other built-ins; the save menu dims
+  too); switched off, the menu floats over the RUNNING game - scripts,
+  physics and the player keep going and pad presses reach both (by design,
+  noted in the tooltip). "Open on Start button" designates the classic pause
+  menu (one per project, like the title screen): Start opens it in-game and
+  Start closes it again while its root shows (submenus first pop with
+  Triangle). Runtime: updateGameMenu() now returns "is a PAUSING menu open"
+  (MENUS[].pause from menu_data.gen.hpp; PAUSE_MENU = the Start-button
+  target), so the loop gating needed no structural change. Also fixed a
+  boot-window bug this exposed: the title screen's input grace was 15 frames,
+  but the pad reports garbage clicks while it reconfigures for ~3.5s after
+  boot (emulog "Pad: DS2 Config Finished" up to 3.4s) - one such click
+  pressed "Start game" and unpaused the title, which is how the sunset-sky
+  scripts betrayed it. Title grace is now 200 frames. Verified e2e in PCSX2:
+  idle 13s boot keeps the title open over an unchanged (and now dimmed) blue
+  scene; Start opens PAUSED (dimmed, frozen); entering the pause-off OPTIONS
+  submenu un-dims and un-freezes - with the menu still open the ball fell
+  from the sky and landed and EverySeconds pushed coins past 8 turning the
+  sky sunset (one screenshot shows all three); Triangle back to PAUSED
+  re-dims; Start resumes gameplay at full brightness (screenshot pair).
+
+- (43) **Menu Editor window** - menu editing moved out of the cramped
+  Project-panel section into a dedicated dockable "Menu Editor" window
+  (Project > Menu Editor..., or click a menu in the panel's slim list, which
+  now just lists menus with [title]/[start] tags). Left: menu list with
+  "+ New menu"; right: properties, a Duplicate button (copies everything but
+  the unique title-screen/Start-button slots), entries laid out one per row
+  with reorder arrows (rows = dpad order in the game) and inline
+  target/amount widgets, and the live baked preview under its own separator.
+  This also fixes the reported ImGui "2 visible items with conflicting ID"
+  error when deleting a Flow event entry: the old section used integer
+  PushID offsets (2000/3000 ranges) and shared "##param"/"x" ids inside the
+  busy Project window; the rework gives every entry a clean per-index PushID
+  scope in a fresh window ID stack and every widget an explicit unique ##id
+  ("x##delete", "##event", "##scene"...) - collision-proof by construction.
+  Flow-graph invocation was already in place (Open Menu node, "Menus"
+  category) and is now advertised in the window's empty-state hints.
+  Verified: editor builds; the user drove the new window live (accent edits
+  from it landed in project.json through the commit path) - the delete-entry
+  repro needs their confirmation with the ImGui debug check active.
+
+- (44) **Menu editor v2** - three usability upgrades. (a) New top-level
+  "Tools" menu in the menu bar holds "Menu Editor..." (the Project-menu item
+  and the Project-panel Menus section are gone - the window is the single
+  home). (b) The preview gained display modes: "Panel (1:1)" plus "TV PAL" /
+  "TV NTSC" - the panel composited onto a mock TV screen (the 512x448
+  buffer stretched to 4:3 / ~10:7, same aspect approximations as the
+  viewport TV frames), over the project's sky gradient + terrain green and
+  under the pause dim when the menu pauses - so pixel-aspect distortion and
+  on-screen size are visible before any boot. (c) Menus can carry a custom
+  PNG ("Image: Set..." in the editor, copied into res/hud/), composited into
+  the baked panel as either a logo block above the title (the panel grows,
+  entry rows shift - menubake::panelLayout() is now the single geometry
+  source consumed by the baker, the preview AND menu_data.gen.hpp codegen,
+  so the game cursor lands on the shifted rows automatically) or a
+  background stretched under everything with a dark wash for text contrast.
+  Image scaling is bilinear, capped 224x160, canvas cap raised to 512 (pow2).
+  Verified: title menu with a 192x72 logo baked correctly (panel content
+  138->218, row0Y 44->124 in menu_data), PCSX2 boot shows the logo title
+  screen with the cursor aligned on the shifted rows (screenshot). TV
+  preview modes and the background image mode follow the same verified bake
+  path but their look was checked in code only - a human glance in the
+  editor window is welcome.
+
+- (45) **Menu layout system** - panels stopped being a fixed centered
+  256-wide stack. Per menu: texture width (128/256/512 - pow2, PS2 cap),
+  normalized screen position of the panel center (like HUD images; the TV
+  preview and the generated game share the same math), a "Show title" toggle
+  (logo-only menus) and **layout presets** (Centered dialog / Title at the
+  bottom / Corner card / Wide banner) that set width+position in one click.
+  The single menu image grew into an **image list**: each entry has a slot -
+  three flow slots (Above title / Above entries / Below entries) that stack
+  in list order and push the text down, Background (stretched + dark wash)
+  and Overlay (drawn over the text at a freeform offset) - plus a scale
+  multiplier and a px offset (nudge for flow images, absolute position for
+  overlays). menubake::panelLayout() stays the single geometry source
+  (baker + preview + menu_data codegen), now returning per-menu panelW and a
+  `clipped` flag surfaced as a red warning in the editor when content would
+  blow past the 512px texture cap. Legacy "image"/"imageMode" project.json
+  fields load into the list. Editor: new Layout + Images sections with
+  reorder arrows per image. Verified e2e: title menu converted to the new
+  format (logo above-title + a gold gem overlay at offset 206,8 scale 0.8,
+  screenPos 0.5/0.7) baked correctly (panel PNG inspected), menu_data
+  carries the position (0.5F, 0.7F), and the PCSX2 boot screenshot shows
+  the panel sitting low on screen with both images and the cursor tracking
+  the moved rows. 128/512 widths and the presets follow the same layout
+  path but had no dedicated boot test.
+
+- (46) **File-dialog freeze fix + drag&drop import** - on this machine the
+  shell-based IFileOpenDialog wedges (select file, click Open -> the button
+  grays and the dialog never returns), and giving it an owner HWND
+  (glfwGetWin32Window) did NOT cure it - kept anyway as correctness. Two-part
+  fix: (1) all FILE pickers now use the classic comdlg32 GetOpenFileNameW
+  (folder picking keeps IFileOpenDialog/FOS_PICKFOLDERS - no legacy
+  equivalent); (2) a dialog-free path: glfwSetDropCallback accepts PNGs
+  dragged from Explorer - they copy into res/hud and, with the Menu Editor
+  open, attach straight to the selected menu's image list (status bar
+  reports what happened). Root cause of the shell wedge unconfirmed
+  (OneDrive/shell-extension suspicion); if the legacy dialog ever wedges
+  too, drag&drop is the escape hatch. Needs the user's interactive
+  confirmation - the freeze never reproduced under automation.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

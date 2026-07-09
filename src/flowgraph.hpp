@@ -76,6 +76,8 @@ enum class FlowParamKind {
     MusicTrack,
     SoundTrack,
     SceneName,
+    SaveValue,  // name of a Project::saveValues entry
+    MenuName,   // name of a Project::menus entry
 };
 
 struct FlowNodeType {
@@ -160,6 +162,27 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          {"Volume"}, FlowParamKind::None, false, false},
         {"PlaySound", "Play Sound", "Audio", false, FlowParamKind::SoundTrack, 2,
          {"Volume", "Channel"}, FlowParamKind::None, false, false},
+        // Save data: named values persisted in memory card slots (defined in
+        // the Project panel, "Save data"). "Value At Least" is a pure bool
+        // source (value >= threshold, evaluated fresh every frame) for logic
+        // gates / On Condition. "Open Save Menu" opens the in-game 3-slot
+        // save/load menu (the same one a Save point object opens on USE).
+        {"SetValue", "Set Save Value", "Save", false, FlowParamKind::SaveValue, 1,
+         {"Value"}, FlowParamKind::None, false, false},
+        {"AddValue", "Add To Save Value", "Save", false, FlowParamKind::SaveValue, 1,
+         {"Delta"}, FlowParamKind::None, false, false},
+        {"ValueAtLeast", "Value At Least", "Save", false, FlowParamKind::SaveValue, 1,
+         {"Threshold"}, FlowParamKind::None, false, false, false, false, true, false,
+         true},
+        {"OpenSaveMenu", "Open Save Menu", "Save", false, FlowParamKind::None, 0, {},
+         FlowParamKind::None, false, false},
+        // Menus (Project panel, "Menus"): open a baked menu from logic, and
+        // react to menu entries with the "Flow event" action - On Menu Event
+        // fires the frame such an entry is selected (also a bool source).
+        {"OpenMenu", "Open Menu", "Menus", false, FlowParamKind::MenuName, 0, {},
+         FlowParamKind::None, false, false},
+        {"OnMenuEvent", "On Menu Event", "Menus", true, FlowParamKind::Text, 0, {},
+         FlowParamKind::None, false, false, false, false, false, false, true},
         // Debug
         {"Log", "Log Message", "Debug", false, FlowParamKind::Text, 0, {},
          FlowParamKind::None, false, false},

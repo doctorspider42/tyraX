@@ -11,10 +11,13 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include "menubake.hpp"
 #include "objparser.hpp"
 #include "project.hpp"
 
 namespace templates {
+
+static std::vector<std::string> collectMenuEvents(const Project& p);
 
 // Unique model paths referenced by the scene, in first-use order.
 // The index in this list == SceneObjectData::model in the generated code.
@@ -203,6 +206,7 @@ static const char* TPL_GAME_HPP_ORBIT =
 #include <tyra>
 #include <memory>
 #include <vector>
+#include "save_system.gen.hpp"
 #include "scripts/script.hpp"
 
 namespace {{NAME_UPPER_NS}} {
@@ -308,6 +312,40 @@ class TerrainGame : public Tyra::Game {
   int useTargetIndex = -1;
   Tyra::Sprite usePromptSprite;
 
+  // Memory card save menu (save_system.gen.hpp): opened by using a Save
+  // point object or the Open Save Menu flow node; gameplay pauses while
+  // open. updateSaveMenu() returns true while it owns the pad.
+  bool updateSaveMenu();
+  void renderSaveMenu();
+  void doSave(int slot);
+  void doLoad(int slot);
+  void applySavedObjects();
+  void refreshSlotStates();
+  std::vector<float> saveValues;
+  std::vector<SaveObjectState> pendingObjState;  // applied after a scene load
+  int pendingObjScene = -1;
+  bool saveMenuOpen = false;
+  int saveMenuSlot = 0;
+  int saveMenuGrace = 0;  // frames to ignore pad input after opening
+  bool slotUsed[SAVE_SLOTS] = {};
+  int saveFeedback = 0, saveFeedbackFrames = 0;  // 1 saved, 2 loaded, 3 error
+  Tyra::Sprite saveMenuSprite, saveCursorSprite, saveUsedSprite;
+  Tyra::Sprite saveFeedbackSprites[3];  // saved / loaded / error
+
+  // Game menus (menu_data.gen.hpp): panels baked by the editor, opened by
+  // the Open Menu flow node, a menu entry, or at boot (title screen).
+  // Gameplay pauses while one is open; Triangle walks the submenu stack.
+  bool updateGameMenu();
+  void renderGameMenu();
+  std::vector<Tyra::Sprite> menuSprites;
+  Tyra::Sprite menuCursorSprite;
+  Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
+  int gameMenuIndex = -1;
+  int gameMenuCursor = 0;
+  int gameMenuGrace = 0;
+  int gameMenuStack[4] = {};
+  int gameMenuStackDepth = 0;
+
   ScriptContext scriptCtx;
 };
 
@@ -321,6 +359,7 @@ static const char* TPL_GAME_HPP_FPP =
 #include <tyra>
 #include <memory>
 #include <vector>
+#include "save_system.gen.hpp"
 #include "scripts/script.hpp"
 
 namespace {{NAME_UPPER_NS}} {
@@ -427,6 +466,40 @@ class TerrainGame : public Tyra::Game {
   int useTargetIndex = -1;
   Tyra::Sprite usePromptSprite;
 
+  // Memory card save menu (save_system.gen.hpp): opened by using a Save
+  // point object or the Open Save Menu flow node; gameplay pauses while
+  // open. updateSaveMenu() returns true while it owns the pad.
+  bool updateSaveMenu();
+  void renderSaveMenu();
+  void doSave(int slot);
+  void doLoad(int slot);
+  void applySavedObjects();
+  void refreshSlotStates();
+  std::vector<float> saveValues;
+  std::vector<SaveObjectState> pendingObjState;  // applied after a scene load
+  int pendingObjScene = -1;
+  bool saveMenuOpen = false;
+  int saveMenuSlot = 0;
+  int saveMenuGrace = 0;  // frames to ignore pad input after opening
+  bool slotUsed[SAVE_SLOTS] = {};
+  int saveFeedback = 0, saveFeedbackFrames = 0;  // 1 saved, 2 loaded, 3 error
+  Tyra::Sprite saveMenuSprite, saveCursorSprite, saveUsedSprite;
+  Tyra::Sprite saveFeedbackSprites[3];  // saved / loaded / error
+
+  // Game menus (menu_data.gen.hpp): panels baked by the editor, opened by
+  // the Open Menu flow node, a menu entry, or at boot (title screen).
+  // Gameplay pauses while one is open; Triangle walks the submenu stack.
+  bool updateGameMenu();
+  void renderGameMenu();
+  std::vector<Tyra::Sprite> menuSprites;
+  Tyra::Sprite menuCursorSprite;
+  Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
+  int gameMenuIndex = -1;
+  int gameMenuCursor = 0;
+  int gameMenuGrace = 0;
+  int gameMenuStack[4] = {};
+  int gameMenuStackDepth = 0;
+
   ScriptContext scriptCtx;
 };
 
@@ -442,6 +515,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "scene_data.hpp"
 #include "model_data.gen.hpp"
 #include "hud_data.gen.hpp"
+#include "menu_data.gen.hpp"
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
 #include <math.h>
@@ -768,12 +842,20 @@ void TerrainGame::init() {
 }
 
 void TerrainGame::loop() {
-  if (!updatePlayerEntity()) updateCameraOrbit();
-
-  updateUseTarget();
+  const bool saveMenuActive = updateSaveMenu();
+  const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
+  const bool menuActive = saveMenuActive || gameMenuPausing;
+  if (!menuActive) {
+    if (!updatePlayerEntity()) updateCameraOrbit();
+    updateUseTarget();
+  }
 
   scriptCtx.playerPosition = cameraPosition;
-  for (Script* script : getScripts()) script->update(scriptCtx);
+  if (menuActive) scriptCtx.usedObject = -1;
+  // Menus pause scripts - except the frame a menu entry fires a flow event,
+  // which must reach the On Menu Event triggers.
+  if (!menuActive || scriptCtx.menuEvent >= 0)
+    for (Script* script : getScripts()) script->update(scriptCtx);
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
 
   // Scene switch requested by the flow graph / scripts. With the loading
@@ -812,7 +894,7 @@ void TerrainGame::loop() {
     }
   }
 
-  updateObjectPhysics();
+  if (!menuActive) updateObjectPhysics();
   updateParticles();
   updateSoundEmitters();
 
@@ -823,6 +905,8 @@ void TerrainGame::loop() {
     if (scriptCtx.hudVisible)
       for (auto& sprite : hudSprites) engine->renderer.renderer2D.render(sprite);
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
+    renderGameMenu();
+    renderSaveMenu();
   }
   engine->renderer.endFrame();
 }
@@ -875,6 +959,66 @@ void TerrainGame::buildScene() {
   // Runtime copies of the scene objects - scripts and physics mutate these.
   skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
   buildSkyDome();
+
+  // Save system: BIOS mc modules, custom values, menu sprites (hud/save-*.png)
+  saveValues.assign(SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1, 0.0F);
+  for (int i = 0; i < SAVE_VALUE_COUNT; ++i) saveValues[i] = SAVE_VALUE_DEFAULTS[i];
+  scriptCtx.saveValues = saveValues.data();
+  scriptCtx.saveValueCount = SAVE_VALUE_COUNT;
+  saveInit();
+  {
+    const auto& scr = engine->renderer.core.getSettings();
+    auto setupSprite = [&](Sprite& s, const char* path, float w, float h,
+                           float x, float y) {
+      s.mode = SpriteMode::MODE_STRETCH;
+      s.size = Vec2(w, h);
+      s.position = Vec2(x, y);
+      auto* t =
+          engine->renderer.getTextureRepository().add(FileUtils::fromCwd(path));
+      t->addLink(s.id);
+    };
+    const float panelX = (scr.getWidth() - 256.0F) * 0.5F;
+    const float panelY = (scr.getHeight() - 128.0F) * 0.5F - 24.0F;
+    setupSprite(saveMenuSprite, "hud/save-menu.png", 256, 128, panelX, panelY);
+    // slot rows are baked into save-menu.png at y = 40 + slot * 24
+    setupSprite(saveCursorSprite, "hud/save-cursor.png", 16, 16, panelX + 32.0F,
+                panelY + 41.0F);
+    setupSprite(saveUsedSprite, "hud/save-used.png", 64, 16, panelX + 152.0F,
+                panelY + 42.0F);
+    const float fbX = (scr.getWidth() - 128.0F) * 0.5F;
+    const float fbY = panelY + 136.0F;
+    setupSprite(saveFeedbackSprites[0], "hud/save-saved.png", 128, 32, fbX, fbY);
+    setupSprite(saveFeedbackSprites[1], "hud/save-loaded.png", 128, 32, fbX, fbY);
+    setupSprite(saveFeedbackSprites[2], "hud/save-error.png", 128, 32, fbX, fbY);
+
+    // Game menus: one baked panel sprite each (menu_data.gen.hpp) + a
+    // shared cursor. The panel center sits at the menu's normalized screen
+    // position (only the drawn contentH counts - the canvas slack is air).
+    menuSprites.clear();
+    menuSprites.reserve(MENU_COUNT);
+    for (int i = 0; i < MENU_COUNT; ++i) {
+      const MenuData& m = MENUS[i];
+      Sprite s;
+      s.mode = SpriteMode::MODE_STRETCH;
+      s.size = Vec2((float)m.panelW, (float)m.panelH);
+      s.position = Vec2(m.screenX * scr.getWidth() - m.panelW * 0.5F,
+                        m.screenY * scr.getHeight() - m.contentH * 0.5F);
+      menuSprites.push_back(s);
+      auto* t = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd(m.panel));
+      t->addLink(menuSprites.back().id);
+    }
+    setupSprite(menuCursorSprite, "hud/save-cursor.png", 16, 16, 0.0F, 0.0F);
+    setupSprite(menuDimSprite, "hud/menu-dim.png", scr.getWidth(),
+                scr.getHeight(), 0.0F, 0.0F);
+    if (TITLE_MENU >= 0) {
+      gameMenuIndex = TITLE_MENU;
+      gameMenuCursor = 0;
+      // The pad reconfigures for ~3.5s after boot and reports garbage
+      // clicks - one of those must not press a title entry.
+      gameMenuGrace = 200;
+    }
+  }
 
   loadScene(0);
 }
@@ -944,6 +1088,10 @@ void TerrainGame::loadScene(int sceneIndex) {
   // ADPCM sample can't be stopped - it plays out, but silently).
   sndTimers.assign(runtimeObjects.size(), 0);
   for (int ch = 16; ch < 24; ++ch) engine->audio.adpcm.setVolume(0, (s8)ch);
+
+  // A loaded save targeting this scene: apply the stored object state now
+  if (pendingObjScene == sceneIndex && !pendingObjState.empty())
+    applySavedObjects();
 }
 
 // --- Sound emitters ----------------------------------------------------
@@ -1158,6 +1306,277 @@ void TerrainGame::updateUseTarget() {
 
   if (useTargetIndex >= 0 && engine->pad.getClicked().BTN_USE)
     scriptCtx.usedObject = useTargetIndex;
+
+  // Using a save point (type 10) opens the save menu next frame; the
+  // "On Used" trigger still fires for its flow graph this frame.
+  if (scriptCtx.usedObject >= 0 &&
+      SCENE_OBJECTS[scriptCtx.usedObject].type == 10)
+    scriptCtx.openSaveMenu = true;
+}
+
+// --- Memory card save menu ----------------------------------------------
+// Dpad picks a slot, Cross saves, Circle loads, Triangle closes. Returns
+// true while the menu owns the pad - loop() then skips player movement,
+// the use target, scripts and object physics (a straight pause).
+bool TerrainGame::updateSaveMenu() {
+  if (saveFeedbackFrames > 0) --saveFeedbackFrames;
+
+  if (scriptCtx.openSaveMenu) {
+    scriptCtx.openSaveMenu = false;
+    if (!saveMenuOpen) {
+      saveMenuOpen = true;
+      saveMenuSlot = 0;
+      // The pad reports garbage transitions while it (re)configures -
+      // swallow clicks briefly so opening the menu can't instantly save.
+      saveMenuGrace = 15;
+      useTargetIndex = -1;  // drop the USE prompt while the menu is up
+      refreshSlotStates();
+      return true;
+    }
+  }
+  if (!saveMenuOpen) return false;
+  if (saveMenuGrace > 0) {
+    --saveMenuGrace;
+    return true;
+  }
+
+  const auto& clicked = engine->pad.getClicked();
+  if (clicked.DpadUp)
+    saveMenuSlot = (saveMenuSlot + SAVE_SLOTS - 1) % SAVE_SLOTS;
+  if (clicked.DpadDown) saveMenuSlot = (saveMenuSlot + 1) % SAVE_SLOTS;
+  if (clicked.Triangle) {
+    saveMenuOpen = false;
+    return true;
+  }
+  if (clicked.Cross) doSave(saveMenuSlot);
+  if (clicked.Circle && slotUsed[saveMenuSlot]) doLoad(saveMenuSlot);
+  return true;
+}
+
+void TerrainGame::refreshSlotStates() {
+  for (int i = 0; i < SAVE_SLOTS; ++i) slotUsed[i] = saveSlotUsed(i);
+}
+
+void TerrainGame::doSave(int slot) {
+  static SaveGameData d;  // the payload can be a few KB - keep it off the stack
+  d = SaveGameData();
+  d.magic = SAVE_MAGIC;
+  d.version = SAVE_VERSION;
+  d.scene = currentScene;
+  // Feet position + facing: the Player entity when the scene has one,
+  // otherwise derived from the camera (the FPP template player; the orbit
+  // camera simply ignores the restore).
+  if (PLAYER_INDEX >= 0) {
+    d.playerPos[0] = entX;
+    d.playerPos[1] = entY;
+    d.playerPos[2] = entZ;
+    d.playerYaw = entYaw * 180.0F / PI;
+  } else {
+    d.playerPos[0] = cameraPosition.x;
+    d.playerPos[1] = cameraPosition.y - EYE_HEIGHT;
+    d.playerPos[2] = cameraPosition.z;
+    const Vec4 dir = cameraLookAt - cameraPosition;
+    d.playerYaw = atan2f(dir.x, dir.z) * 180.0F / PI;
+  }
+  d.valueCount = SAVE_VALUE_COUNT;
+  for (int i = 0; i < SAVE_VALUE_COUNT; ++i) d.values[i] = saveValues[i];
+  d.objectCount = 0;
+  for (int i = 0;
+       i < (int)runtimeObjects.size() && d.objectCount < SAVE_OBJECT_MAX; ++i) {
+    if (!SCENE_OBJECTS[i].saveState) continue;
+    SaveObjectState& st = d.objects[d.objectCount++];
+    st.index = i;
+    for (int a = 0; a < 3; ++a) st.position[a] = runtimeObjects[i].data.position[a];
+    for (int a = 0; a < 3; ++a) st.color[a] = runtimeObjects[i].data.color[a];
+    st.visible = runtimeObjects[i].visible ? 1 : 0;
+  }
+  const bool ok = saveWrite(slot, d);
+  if (ok) slotUsed[slot] = true;
+  saveFeedback = ok ? 1 : 3;
+  saveFeedbackFrames = 90;  // 1.8 s at 50 FPS
+}
+
+void TerrainGame::doLoad(int slot) {
+  static SaveGameData d;
+  if (!saveRead(slot, d)) {
+    saveFeedback = 3;
+    saveFeedbackFrames = 90;
+    return;
+  }
+  for (int i = 0; i < d.valueCount && i < SAVE_VALUE_COUNT; ++i)
+    saveValues[i] = d.values[i];
+  pendingObjState.assign(d.objects, d.objects + d.objectCount);
+  pendingObjScene = d.scene;
+  // Restore the player through the teleport request - the flag survives a
+  // scene switch and covers both player kinds.
+  scriptCtx.teleport = true;
+  scriptCtx.teleportPos = Vec4(d.playerPos[0], d.playerPos[1], d.playerPos[2]);
+  scriptCtx.teleportYaw = d.playerYaw;
+  if (d.scene != currentScene)
+    scriptCtx.requestScene = d.scene;  // object state applies after the load
+  else
+    applySavedObjects();
+  saveMenuOpen = false;
+  saveFeedback = 2;
+  saveFeedbackFrames = 90;
+}
+
+void TerrainGame::applySavedObjects() {
+  for (const SaveObjectState& st : pendingObjState) {
+    if (st.index < 0 || st.index >= (int)runtimeObjects.size()) continue;
+    RuntimeObject& o = runtimeObjects[st.index];
+    for (int a = 0; a < 3; ++a) o.data.position[a] = st.position[a];
+    for (int a = 0; a < 3; ++a) o.data.color[a] = st.color[a];
+    o.visible = st.visible != 0;
+    o.velocityY = 0.0F;
+    o.dirty = true;
+  }
+  pendingObjState.clear();
+  pendingObjScene = -1;
+}
+
+void TerrainGame::renderSaveMenu() {
+  if (saveMenuOpen) {
+    engine->renderer.renderer2D.render(menuDimSprite);
+    engine->renderer.renderer2D.render(saveMenuSprite);
+    // slot rows sit at y = 40 + slot * 24 inside the panel sprite
+    const float baseY = saveMenuSprite.position.y;
+    saveCursorSprite.position.y = baseY + 41.0F + saveMenuSlot * 24.0F;
+    engine->renderer.renderer2D.render(saveCursorSprite);
+    for (int i = 0; i < SAVE_SLOTS; ++i) {
+      if (!slotUsed[i]) continue;
+      saveUsedSprite.position.y = baseY + 42.0F + i * 24.0F;
+      engine->renderer.renderer2D.render(saveUsedSprite);
+    }
+  }
+  if (saveFeedbackFrames > 0 && saveFeedback >= 1 && saveFeedback <= 3)
+    engine->renderer.renderer2D.render(saveFeedbackSprites[saveFeedback - 1]);
+}
+
+// --- Game menus (menu_data.gen.hpp) ---------------------------------------
+// Panels are baked by the editor; the runtime only moves a cursor and runs
+// entry actions. Dpad picks a row, Cross selects, Triangle pops the submenu
+// stack (or closes; a title screen's root cannot be dismissed with Back).
+// The Start button opens/closes the designated pause menu (PAUSE_MENU).
+// Returns true while an open menu PAUSES gameplay - menus with the pause
+// flag off float over the running game (pad presses reach both).
+bool TerrainGame::updateGameMenu() {
+  scriptCtx.menuEvent = -1;
+  auto pausing = [&] {
+    return gameMenuIndex >= 0 && MENUS[gameMenuIndex].pause != 0;
+  };
+
+  if (scriptCtx.openMenu >= 0) {
+    const int target = scriptCtx.openMenu;
+    scriptCtx.openMenu = -1;
+    if (target < MENU_COUNT && !saveMenuOpen && gameMenuIndex < 0) {
+      gameMenuIndex = target;
+      gameMenuCursor = 0;
+      gameMenuStackDepth = 0;
+      gameMenuGrace = 15;  // pad-garbage grace (see updateSaveMenu)
+      useTargetIndex = -1;
+      return pausing();
+    }
+  }
+
+  // Start toggles the pause menu: opens it during gameplay, closes it again
+  // while its root is showing (submenus first go back with Triangle).
+  if (PAUSE_MENU >= 0 && !saveMenuOpen && engine->pad.getClicked().Start) {
+    if (gameMenuIndex < 0) {
+      gameMenuIndex = PAUSE_MENU;
+      gameMenuCursor = 0;
+      gameMenuStackDepth = 0;
+      gameMenuGrace = 15;
+      useTargetIndex = -1;
+      return pausing();
+    }
+    if (gameMenuIndex == PAUSE_MENU && gameMenuStackDepth == 0 &&
+        gameMenuGrace == 0) {
+      gameMenuIndex = -1;
+      return false;
+    }
+  }
+
+  if (gameMenuIndex < 0) return false;
+  if (saveMenuOpen) return pausing();  // save menu on top - hold, no pad
+  if (gameMenuGrace > 0) {
+    --gameMenuGrace;
+    return pausing();
+  }
+
+  const MenuData& m = MENUS[gameMenuIndex];
+  const auto& clicked = engine->pad.getClicked();
+  if (clicked.DpadUp && m.entryCount > 0)
+    gameMenuCursor = (gameMenuCursor + m.entryCount - 1) % m.entryCount;
+  if (clicked.DpadDown && m.entryCount > 0)
+    gameMenuCursor = (gameMenuCursor + 1) % m.entryCount;
+
+  if (clicked.Triangle) {
+    if (gameMenuStackDepth > 0) {
+      gameMenuIndex = gameMenuStack[--gameMenuStackDepth];
+      gameMenuCursor = 0;
+    } else if (!m.titleScreen) {
+      gameMenuIndex = -1;
+    }
+    return pausing();
+  }
+
+  if (clicked.Cross && gameMenuCursor >= 0 && gameMenuCursor < m.entryCount) {
+    const MenuEntryData& e = m.entries[gameMenuCursor];
+    switch (e.action) {
+      case 0:  // close
+        gameMenuIndex = -1;
+        gameMenuStackDepth = 0;
+        break;
+      case 1:  // switch scene
+        if (e.param >= 0) {
+          scriptCtx.requestScene = e.param;
+          gameMenuIndex = -1;
+          gameMenuStackDepth = 0;
+        }
+        break;
+      case 2:  // open save menu (replaces this menu next frame)
+        gameMenuIndex = -1;
+        gameMenuStackDepth = 0;
+        scriptCtx.openSaveMenu = true;
+        break;
+      case 3:  // open submenu
+        if (e.param >= 0 && e.param < MENU_COUNT &&
+            gameMenuStackDepth < (int)(sizeof(gameMenuStack) / sizeof(int))) {
+          gameMenuStack[gameMenuStackDepth++] = gameMenuIndex;
+          gameMenuIndex = e.param;
+          gameMenuCursor = 0;
+        }
+        break;
+      case 4:  // set save value (menu stays open)
+        if (e.param >= 0 && e.param < SAVE_VALUE_COUNT)
+          saveValues[e.param] = e.amount;
+        break;
+      case 5:  // add to save value
+        if (e.param >= 0 && e.param < SAVE_VALUE_COUNT)
+          saveValues[e.param] += e.amount;
+        break;
+      case 6:  // flow event: scripts run this frame to catch it
+        scriptCtx.menuEvent = e.param;
+        break;
+    }
+  }
+  return pausing();
+}
+
+void TerrainGame::renderGameMenu() {
+  if (gameMenuIndex < 0 || gameMenuIndex >= (int)menuSprites.size()) return;
+  if (saveMenuOpen) return;  // the save menu draws on top instead
+  const MenuData& m = MENUS[gameMenuIndex];
+  Sprite& panel = menuSprites[gameMenuIndex];
+  if (m.pause) engine->renderer.renderer2D.render(menuDimSprite);
+  engine->renderer.renderer2D.render(panel);
+  if (m.entryCount > 0) {
+    menuCursorSprite.position =
+        Vec2(panel.position.x + 32.0F,
+             panel.position.y + m.row0Y + gameMenuCursor * m.rowH + 1.0F);
+    engine->renderer.renderer2D.render(menuCursorSprite);
+  }
 }
 
 bool TerrainGame::updatePlayerEntity() {
@@ -1718,12 +2137,20 @@ void TerrainGame::init() {
 }
 
 void TerrainGame::loop() {
-  if (!updatePlayerEntity()) updatePlayer();
-
-  updateUseTarget();
+  const bool saveMenuActive = updateSaveMenu();
+  const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
+  const bool menuActive = saveMenuActive || gameMenuPausing;
+  if (!menuActive) {
+    if (!updatePlayerEntity()) updatePlayer();
+    updateUseTarget();
+  }
 
   scriptCtx.playerPosition = cameraPosition;
-  for (Script* script : getScripts()) script->update(scriptCtx);
+  if (menuActive) scriptCtx.usedObject = -1;
+  // Menus pause scripts - except the frame a menu entry fires a flow event,
+  // which must reach the On Menu Event triggers.
+  if (!menuActive || scriptCtx.menuEvent >= 0)
+    for (Script* script : getScripts()) script->update(scriptCtx);
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
 
   // Scene switch requested by the flow graph / scripts. The built-in FPP
@@ -1790,7 +2217,7 @@ void TerrainGame::loop() {
     }
   }
 
-  updateObjectPhysics();
+  if (!menuActive) updateObjectPhysics();
   updateParticles();
   updateSoundEmitters();
 
@@ -1801,6 +2228,8 @@ void TerrainGame::loop() {
     if (scriptCtx.hudVisible)
       for (auto& sprite : hudSprites) engine->renderer.renderer2D.render(sprite);
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
+    renderGameMenu();
+    renderSaveMenu();
   }
   engine->renderer.endFrame();
 }
@@ -2384,6 +2813,21 @@ struct ScriptContext {
   // Write to show/hide all HUD images (the USE prompt is unaffected).
   bool hudVisible = true;
 
+  // Save data: named values persisted in memory card slots (SAVE_VALUE_NAMES
+  // order, scene_data.hpp). Set openSaveMenu = true to open the in-game
+  // save/load menu (also opened by using a Save point object); the game
+  // applies and clears it.
+  float* saveValues = nullptr;
+  int saveValueCount = 0;
+  bool openSaveMenu = false;
+
+  // Game menus (menu_data.gen.hpp order). Write a menu index into openMenu
+  // to open it (the game applies and clears it). menuEvent holds the index
+  // of the "Flow event" a menu entry fired this frame (-1 = none) - it
+  // drives the "On Menu Event" trigger.
+  int openMenu = -1;
+  int menuEvent = -1;
+
   // Scenes: `scene` is the active scene index (scene_data.hpp order),
   // `sceneGeneration` bumps on every (re)load - scripts use it to reset
   // their state. Write a scene index into `requestScene` to switch after
@@ -2649,6 +3093,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  float sndInterval; // sound emitters: retrigger period (s), 0 = loop\n"
            "  float lightBright; // point lights (type 9): baked intensity\n"
            "  float lightRadius; // point lights (type 9): falloff radius\n"
+           "  int saveState;  // 1 = position/color/visibility persisted in saves\n"
            "};\n"
            "\n";
 
@@ -2665,7 +3110,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << (objs.empty() ? (size_t)1 : objs.size()) << "] = {\n";
         if (objs.empty()) {
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
-                   "0, 0, 0.0F, -1, 0, 15.0F, 0.0F, 1.0F, 8.0F},\n";
+                   "0, 0, 0.0F, -1, 0, 15.0F, 0.0F, 1.0F, 8.0F, 0},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
                 for (size_t i = 0; i < p.sounds.size(); ++i)
@@ -2677,12 +3122,16 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << vec3Init(o.rotation) << ", " << vec3Init(o.scale) << ", "
                     << vec3Init(o.color) << ", " << (o.physics ? 1 : 0) << ", "
                     << modelIndexOf(p, o) << ", " << textureIndexOf(p, o.texturePath)
-                    << ", " << (o.usable ? 1 : 0) << ", " << o.emitterKind << ", "
+                    << ", "
+                    // save points are always usable - USE is how they open
+                    << ((o.usable || o.type == PrimitiveType::SavePoint) ? 1 : 0)
+                    << ", " << o.emitterKind << ", "
                     << o.emitterCount << ", " << floatLit(o.emitterSize) << ", "
                     << soundIndexOf(o.soundPath) << ", " << (o.soundAuto ? 1 : 0)
                     << ", " << floatLit(o.soundRange) << ", "
                     << floatLit(o.soundInterval) << ", " << floatLit(o.lightBright)
-                    << ", " << floatLit(o.lightRadius) << "},  // " << o.name << "\n";
+                    << ", " << floatLit(o.lightRadius) << ", " << (o.saveState ? 1 : 0)
+                    << "},  // " << o.name << "\n";
             }
         }
         out << "};\n";
@@ -2791,6 +3240,33 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     sceneFloats("SCENE_BRIGHTNESSES",
                 [&](int si) { return floatLit(p.scenes[si].brightness); });
 
+    // Save system: custom values (Project panel, Save data) and the largest
+    // scene object count - sizes the fixed save-slot payload at compile time.
+    const size_t valueCount = p.saveValues.size();
+    out << "\nconstexpr int SAVE_VALUE_COUNT = " << valueCount << ";\n"
+        << "inline const char* SAVE_VALUE_NAMES[SAVE_VALUE_COUNT > 0 ? "
+           "SAVE_VALUE_COUNT : 1] = {";
+    if (valueCount == 0) {
+        out << "\"\"";
+    } else {
+        for (size_t i = 0; i < valueCount; ++i)
+            out << (i ? ", " : "") << "\"" << p.saveValues[i].name << "\"";
+    }
+    out << "};\n"
+        << "constexpr float SAVE_VALUE_DEFAULTS[SAVE_VALUE_COUNT > 0 ? "
+           "SAVE_VALUE_COUNT : 1] = {";
+    if (valueCount == 0) {
+        out << "0.0F";
+    } else {
+        for (size_t i = 0; i < valueCount; ++i)
+            out << (i ? ", " : "") << floatLit(p.saveValues[i].value);
+    }
+    out << "};\n";
+    size_t maxObjects = 1;
+    for (const SceneData& sc : p.scenes)
+        if (sc.objects.size() > maxObjects) maxObjects = sc.objects.size();
+    out << "constexpr int SAVE_OBJECT_MAX = " << maxObjects << ";\n";
+
     out << "\n}  // namespace " << ns << "\n";
     return out.str();
 }
@@ -2893,6 +3369,23 @@ std::string flowGraphScript(const Project& p) {
     auto sceneIndexOf = [&](const std::string& name) {
         for (size_t i = 0; i < p.scenes.size(); ++i)
             if (p.scenes[i].name == name) return (int)i;
+        return -1;
+    };
+    auto saveValueIndex = [&](const std::string& name) {
+        for (size_t i = 0; i < p.saveValues.size(); ++i)
+            if (p.saveValues[i].name == name) return (int)i;
+        return -1;
+    };
+    auto menuIndexOf = [&](const std::string& name) {
+        for (size_t i = 0; i < p.menus.size(); ++i)
+            if (p.menus[i].name == name) return (int)i;
+        return -1;
+    };
+    // Same list as menu_data.gen.hpp MENU_EVENTS - indices must agree.
+    const std::vector<std::string> menuEvents = collectMenuEvents(p);
+    auto menuEventIndex = [&](const std::string& name) {
+        for (size_t i = 0; i < menuEvents.size(); ++i)
+            if (menuEvents[i] == name) return (int)i;
         return -1;
     };
 
@@ -3024,6 +3517,17 @@ std::string flowGraphScript(const Project& p) {
                 int frames = (int)(n.num[0] * 50.0f);
                 if (frames < 1) frames = 1;
                 return "(frame % " + std::to_string(frames) + " == 0)";
+            }
+            if (n.type == "ValueAtLeast") {
+                const int vi = saveValueIndex(n.str);
+                if (vi < 0) return "false";
+                return "(ctx.saveValues[" + std::to_string(vi) +
+                       "] >= " + floatLit(n.num[0]) + ")";
+            }
+            if (n.type == "OnMenuEvent") {
+                const int ei = menuEventIndex(n.str);
+                if (ei < 0) return "false";  // no menu entry fires this event
+                return "(ctx.menuEvent == " + std::to_string(ei) + ")";
             }
             return "false";
         };
@@ -3231,6 +3735,27 @@ std::string flowGraphScript(const Project& p) {
                 if (vol < 0) vol = 0;
                 if (vol > 100) vol = 100;
                 c << pad << "ctx.engine->audio.song.setVolume(" << vol << ");\n";
+            } else if (n.type == "SetValue" || n.type == "AddValue") {
+                const int vi = saveValueIndex(n.str);
+                if (vi < 0) {
+                    c << pad << "// node " << n.id << " (" << n.type
+                      << "): unknown save value '" << n.str << "'\n";
+                } else {
+                    c << pad << "ctx.saveValues[" << vi << "] "
+                      << (n.type == "SetValue" ? "=" : "+=") << " "
+                      << floatLit(n.num[0]) << ";  // \"" << n.str << "\"\n";
+                }
+            } else if (n.type == "OpenSaveMenu") {
+                c << pad << "ctx.openSaveMenu = true;\n";
+            } else if (n.type == "OpenMenu") {
+                const int mi = menuIndexOf(n.str);
+                if (mi < 0) {
+                    c << pad << "// node " << n.id << " (OpenMenu): unknown menu '"
+                      << n.str << "'\n";
+                } else {
+                    c << pad << "ctx.openMenu = " << mi << ";  // \"" << n.str
+                      << "\"\n";
+                }
             }
             return c.str();
         };
@@ -3314,6 +3839,16 @@ std::string flowGraphScript(const Project& p) {
                 int frames = (int)(n.num[0] * 50.0f);
                 if (frames < 1) frames = 1;
                 clsOut << "    if (frame % " << frames << " == 0) {\n" << body << "    }\n";
+            } else if (n.type == "OnMenuEvent") {
+                const int ei = menuEventIndex(n.str);
+                if (ei < 0) {
+                    clsOut << "    // node " << n.id
+                        << " (OnMenuEvent): no menu entry fires event '" << n.str
+                        << "'\n";
+                    continue;
+                }
+                clsOut << "    if (ctx.menuEvent == " << ei << ") {  // \"" << n.str
+                    << "\"\n" << body << "    }\n";
             } else if (n.type == "OnCondition") {
                 // bridge bool -> exec: fire on the rising edge of the input
                 const std::string expr = boolInputsOr(n);
@@ -3564,6 +4099,398 @@ static std::string hudDataHeader(const Project& p) {
     return out.str();
 }
 
+// Distinct "Flow event" names across all menu entries, first-seen order -
+// the contract between menu_data.gen.hpp and the flow-graph codegen (the
+// On Menu Event trigger resolves its name to an index in this list).
+static std::vector<std::string> collectMenuEvents(const Project& p) {
+    std::vector<std::string> events;
+    for (const GameMenu& m : p.menus)
+        for (const MenuEntry& e : m.entries) {
+            if (e.action != MenuEntry::FlowEvent || e.param.empty()) continue;
+            bool seen = false;
+            for (const auto& s : events) seen |= (s == e.param);
+            if (!seen) events.push_back(e.param);
+        }
+    return events;
+}
+
+// inc/menu_data.gen.hpp - the game-side mirror of Project::menus. Panels are
+// baked to res/menus/*.png by the editor (menubake.cpp); entry params are
+// resolved to indices here at codegen time.
+static std::string menuDataHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    const auto events = collectMenuEvents(p);
+    auto sceneIndexOf = [&](const std::string& name) {
+        for (size_t i = 0; i < p.scenes.size(); ++i)
+            if (p.scenes[i].name == name) return (int)i;
+        return -1;
+    };
+    auto menuIndexOf = [&](const std::string& name) {
+        for (size_t i = 0; i < p.menus.size(); ++i)
+            if (p.menus[i].name == name) return (int)i;
+        return -1;
+    };
+    auto valueIndexOf = [&](const std::string& name) {
+        for (size_t i = 0; i < p.saveValues.size(); ++i)
+            if (p.saveValues[i].name == name) return (int)i;
+        return -1;
+    };
+    auto eventIndexOf = [&](const std::string& name) {
+        for (size_t i = 0; i < events.size(); ++i)
+            if (events[i] == name) return (int)i;
+        return -1;
+    };
+
+    std::ostringstream out;
+    out << "// Generated by tyra-editor. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\nnamespace "
+        << ns
+        << " {\n\n"
+           "// Menu entry actions: 0 close, 1 switch scene, 2 open save menu,\n"
+           "// 3 open menu (submenu), 4 set save value, 5 add to save value,\n"
+           "// 6 fire flow event. param = resolved index, -1 = unknown target.\n"
+           "struct MenuEntryData {\n"
+           "  int action;\n"
+           "  int param;\n"
+           "  float amount;\n"
+           "};\n\n"
+           "struct MenuData {\n"
+           "  const char* panel;  // baked panel sprite, relative to the ELF\n"
+           "  int panelW, panelH; // sprite/texture size (pow2 canvas)\n"
+           "  int contentH;       // drawn panel part (vertical centering)\n"
+           "  int row0Y, rowH;    // cursor row geometry (baked into the panel)\n"
+           "  int entryCount;\n"
+           "  const MenuEntryData* entries;\n"
+           "  int titleScreen;    // 1 = opens at game start\n"
+           "  int pause;          // 1 = gameplay freezes + dim overlay\n"
+           "  float screenX, screenY;  // normalized panel-center position\n"
+           "};\n\n"
+        << "constexpr int MENU_COUNT = " << p.menus.size() << ";\n\n";
+
+    for (size_t mi = 0; mi < p.menus.size(); ++mi) {
+        const GameMenu& m = p.menus[mi];
+        const int entries = (int)m.entries.size() > menubake::kMaxEntries
+                                ? menubake::kMaxEntries
+                                : (int)m.entries.size();
+        out << "// menu \"" << m.name << "\"\n"
+            << "constexpr MenuEntryData MENU_" << mi << "_ENTRIES["
+            << (entries > 0 ? entries : 1) << "] = {\n";
+        if (entries == 0) {
+            out << "    {0, -1, 0.0F},\n";
+        } else {
+            for (int e = 0; e < entries; ++e) {
+                const MenuEntry& en = m.entries[e];
+                int param = -1;
+                switch (en.action) {
+                    case MenuEntry::SwitchScene: param = sceneIndexOf(en.param); break;
+                    case MenuEntry::OpenMenu: param = menuIndexOf(en.param); break;
+                    case MenuEntry::SetValue:
+                    case MenuEntry::AddValue: param = valueIndexOf(en.param); break;
+                    case MenuEntry::FlowEvent: param = eventIndexOf(en.param); break;
+                    default: break;
+                }
+                out << "    {" << en.action << ", " << param << ", "
+                    << floatLit(en.amount) << "},  // " << en.label << "\n";
+            }
+        }
+        out << "};\n";
+    }
+    if (p.menus.empty())
+        out << "constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F}};\n";
+
+    int titleMenu = -1;
+    for (size_t mi = 0; mi < p.menus.size(); ++mi)
+        if (p.menus[mi].titleScreen && titleMenu < 0) titleMenu = (int)mi;
+
+    int pauseMenu = -1;
+    for (size_t mi = 0; mi < p.menus.size(); ++mi)
+        if (p.menus[mi].pauseMenu && pauseMenu < 0) pauseMenu = (int)mi;
+
+    out << "\ninline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {\n";
+    if (p.menus.empty()) {
+        out << "    {\"\", 0, 0, 0, 0, 0, 0, MENU_0_ENTRIES, 0, 0, 0.5F, 0.45F},\n";
+        // (unreachable - MENU_COUNT is 0; the dummy keeps the array valid)
+    } else {
+        for (size_t mi = 0; mi < p.menus.size(); ++mi) {
+            const GameMenu& m = p.menus[mi];
+            const int entries = (int)m.entries.size() > menubake::kMaxEntries
+                                    ? menubake::kMaxEntries
+                                    : (int)m.entries.size();
+            // Layout depends on the custom images (flow blocks push the
+            // cursor rows down) - the baker is the single source of truth.
+            const menubake::PanelLayout l = menubake::panelLayout(m, p.dir);
+            out << "    {\"menus/" << menubake::panelFileName(m.name) << "\", "
+                << l.panelW << ", " << l.canvasH << ", " << l.contentH << ", "
+                << l.row0Y << ", " << menubake::kRowH << ", " << entries
+                << ", MENU_" << mi << "_ENTRIES, " << (m.titleScreen ? 1 : 0)
+                << ", " << (m.pauseGame ? 1 : 0) << ", " << floatLit(m.screenPos[0])
+                << ", " << floatLit(m.screenPos[1]) << "},  // " << m.name << "\n";
+        }
+    }
+    out << "};\n\n"
+        << "constexpr int TITLE_MENU = " << titleMenu << ";\n"
+        << "// The Start button opens/closes this menu in-game (-1 = none)\n"
+        << "constexpr int PAUSE_MENU = " << pauseMenu << ";\n\n"
+        << "constexpr int MENU_EVENT_COUNT = " << events.size() << ";\n"
+        << "// Names of the \"Flow event\" entry actions (menuEvent indexes this)\n"
+        << "inline const char* MENU_EVENTS[MENU_EVENT_COUNT > 0 ? "
+           "MENU_EVENT_COUNT : 1] = {";
+    if (events.empty()) {
+        out << "\"\"";
+    } else {
+        for (size_t i = 0; i < events.size(); ++i)
+            out << (i ? ", " : "") << "\"" << events[i] << "\"";
+    }
+    out << "};\n\n}  // namespace " << ns << "\n";
+    return out.str();
+}
+
+// Memory card directory for this game's saves ("TYRA-" + sanitized project
+// name; libmc paths are card-root-relative, so no mc0: prefix. Card names
+// allow up to 31 chars, keep well under).
+static std::string saveGameDir(const Project& p) {
+    std::string id;
+    for (char c : p.name) {
+        if (isalnum((unsigned char)c)) id += (char)toupper((unsigned char)c);
+        if (id.size() >= 16) break;
+    }
+    if (id.empty()) id = "GAME";
+    return "/TYRA-" + id;
+}
+
+// inc/save_system.gen.hpp - memory card save slots (fixed-size payload)
+static std::string saveSystemHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    std::ostringstream out;
+    out << "// Generated by tyra-editor. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\n#include \"scene_data.hpp\"\n\nnamespace "
+        << ns
+        << " {\n\n"
+           "// Memory card save system: fixed slots under SAVE_MC_DIR on card 1\n"
+           "// (libmc, card-root-relative path). When the BIOS mc modules cannot\n"
+           "// be loaded or no formatted PS2 card responds, the slots fall back\n"
+           "// to save<n>.sav next to the ELF (host: under PCSX2).\n"
+           "constexpr int SAVE_SLOTS = 3;\n"
+        << "constexpr const char* SAVE_MC_DIR = \"" << saveGameDir(p)
+        << "\";\n"
+           "constexpr unsigned int SAVE_MAGIC = 0x56535954u;  // \"TYSV\"\n"
+           "constexpr int SAVE_VERSION = 1;\n"
+           "\n"
+           "// Runtime state of one save-flagged object (SceneObjectData.saveState).\n"
+           "struct SaveObjectState {\n"
+           "  int index;  // object index in the saved scene\n"
+           "  float position[3];\n"
+           "  float color[3];\n"
+           "  int visible;\n"
+           "};\n"
+           "\n"
+           "// One slot's payload, written/read as a single fixed-size block\n"
+           "// (64-byte aligned - the libmc RPC transfers it by DMA).\n"
+           "struct alignas(64) SaveGameData {\n"
+           "  unsigned int magic;\n"
+           "  int version;\n"
+           "  int scene;\n"
+           "  float playerPos[3];  // feet position\n"
+           "  float playerYaw;     // degrees\n"
+           "  int valueCount;\n"
+           "  float values[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1];\n"
+           "  int objectCount;\n"
+           "  SaveObjectState objects[SAVE_OBJECT_MAX];\n"
+           "};\n"
+           "\n"
+           "// Loads the BIOS memory card modules once (sio2man is already\n"
+           "// resident - the engine loads it for the pads).\n"
+           "bool saveInit();\n"
+           "bool saveMcReady();\n"
+           "// Why the card is (un)available: [xmcman, mcman, xmcserv, mcserv]\n"
+           "// SifLoadModule codes, then [mcInit, getInfo, probeOpen, formatResult,\n"
+           "// probeOpen-after-format] (-999 = not attempted).\n"
+           "const int* saveInitCodes();\n"
+           "bool saveSlotUsed(int slot);\n"
+           "bool saveWrite(int slot, const SaveGameData& data);\n"
+           "bool saveRead(int slot, SaveGameData& out);\n"
+           "\n}  // namespace "
+        << ns << "\n";
+    return out.str();
+}
+
+// src/save_system.gen.cpp - plain POSIX/stdio IO on both paths: the ps2sdk
+// newlib port routes device-prefixed paths (mc0:, host:) through fio itself
+// and forbids calling fio directly (#error in <fileio.h>). Host fallback
+// resolves through FileUtils::fromCwd (lands next to the ELF).
+static std::string saveSystemSource(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    std::ostringstream out;
+    out << "// Generated by tyra-editor. Do not edit - regenerated on every build.\n"
+           "#include \"save_system.gen.hpp\"\n"
+           "\n"
+           "#include <tyra>\n"
+           "#include <libmc.h>\n"
+           "#include <loadfile.h>\n"
+           "#include <stdio.h>\n"
+           "#include <string>\n"
+           "\n"
+           "namespace "
+        << ns
+        << R"( {
+
+static bool mcTried = false;
+static bool mcReady = false;
+// [xmcman, mcman, xmcserv, mcserv] SifLoadModule codes + [mcInit, getInfo,
+// probeOpen, formatResult, probeOpen-after-format]
+static int initCodes[9] = {-999, -999, -999, -999, -999, -999, -999, -999, -999};
+
+// ioman-style open flags understood by mcserv
+static const int kMcRdonly = 0x0001, kMcWronly = 0x0002, kMcCreat = 0x0200;
+
+// Judges card health by doing exactly what saves do: ensure the save dir
+// and open/close/delete a probe file. Returns the mcOpen result; -2 is
+// sceMcResNoFormat (a virgin card).
+static int probeCard() {
+  int r = -100;
+  mcMkDir(0, 0, SAVE_MC_DIR);
+  mcSync(MC_WAIT, nullptr, &r);  // "already exists" is fine - the open decides
+  std::string probe = std::string(SAVE_MC_DIR) + "/probe.tmp";
+  int fd = -100;
+  mcOpen(0, 0, probe.c_str(), kMcWronly | kMcCreat);
+  mcSync(MC_WAIT, nullptr, &fd);
+  if (fd >= 0) {
+    mcClose(fd);
+    mcSync(MC_WAIT, nullptr, &r);
+    mcDelete(0, 0, probe.c_str());
+    mcSync(MC_WAIT, nullptr, &r);
+  }
+  return fd;
+}
+
+bool saveInit() {
+  if (mcTried) return mcReady;
+  mcTried = true;
+  // BIOS ROM modules - nothing to embed. The X variants pair with the
+  // ps2sdk sio2man the engine already loaded; plain MCMAN/MCSERV are the
+  // fallback for early BIOSes. Never load a variant twice - a second
+  // instance over a resident one hangs the IOP.
+  initCodes[0] = SifLoadModule("rom0:XMCMAN", 0, nullptr);
+  if (initCodes[0] < 0) initCodes[1] = SifLoadModule("rom0:MCMAN", 0, nullptr);
+  const bool useX = initCodes[0] >= 0;
+  const bool mcman = useX || initCodes[1] >= 0;
+  bool mcserv = false;
+  if (mcman) {
+    if (useX) {
+      initCodes[2] = SifLoadModule("rom0:XMCSERV", 0, nullptr);
+      mcserv = initCodes[2] >= 0;
+    } else {
+      initCodes[3] = SifLoadModule("rom0:MCSERV", 0, nullptr);
+      mcserv = initCodes[3] >= 0;
+    }
+  }
+  if (mcman && mcserv) {
+    initCodes[4] = mcInit(useX ? MC_TYPE_XMC : MC_TYPE_MC);
+    if (initCodes[4] >= 0) {
+      // Clear the "card changed" latch (the first query after boot always
+      // reports a change). The out params are unreliable across module
+      // variants, so card health is judged by a real probe write instead.
+      int type = 0, freeSpace = 0, format = 0, ret = -100;
+      mcGetInfo(0, 0, &type, &freeSpace, &format);
+      mcSync(MC_WAIT, nullptr, &ret);
+      initCodes[5] = ret;
+      int fd = probeCard();
+      if (fd == -1) fd = probeCard();  // -1 = changed-card latch; retry once
+      initCodes[6] = fd;
+      if (fd == -2) {
+        // sceMcResNoFormat: a virgin card (PCSX2 images start unformatted)
+        // holds no data, so formatting it destroys nothing. Formatted
+        // cards never return this code.
+        int fr = -100;
+        mcFormat(0, 0);
+        mcSync(MC_WAIT, nullptr, &fr);
+        initCodes[7] = fr;
+        fd = probeCard();
+        if (fd == -1) fd = probeCard();
+        initCodes[8] = fd;
+      }
+      mcReady = fd >= 0;
+    }
+  }
+  TYRA_LOG("Save system: ", mcReady ? "memory card ready"
+                                    : "no memory card - using host files");
+  return mcReady;
+}
+
+bool saveMcReady() { return mcReady; }
+
+const int* saveInitCodes() { return initCodes; }
+
+static std::string mcSlotName(int slot) {
+  char buf[96];
+  snprintf(buf, sizeof(buf), "%s/save%d.sav", SAVE_MC_DIR, slot);
+  return std::string(buf);
+}
+
+static std::string hostSlotPath(int slot) {
+  char buf[32];
+  snprintf(buf, sizeof(buf), "save%d.sav", slot);  // next to the ELF
+  return Tyra::FileUtils::fromCwd(buf);
+}
+
+bool saveWrite(int slot, const SaveGameData& data) {
+  if (slot < 0 || slot >= SAVE_SLOTS) return false;
+  if (mcReady) {
+    int fd = -1;
+    mcOpen(0, 0, mcSlotName(slot).c_str(), kMcWronly | kMcCreat);
+    mcSync(MC_WAIT, nullptr, &fd);
+    if (fd < 0) return false;
+    int wrote = -1, ret = 0;
+    mcWrite(fd, &data, sizeof(data));
+    mcSync(MC_WAIT, nullptr, &wrote);
+    mcClose(fd);
+    mcSync(MC_WAIT, nullptr, &ret);
+    return wrote == (int)sizeof(data);
+  }
+  FILE* f = fopen(hostSlotPath(slot).c_str(), "wb");
+  if (!f) return false;
+  const size_t written = fwrite(&data, 1, sizeof(data), f);
+  fclose(f);
+  return written == sizeof(data);
+}
+
+bool saveRead(int slot, SaveGameData& out) {
+  if (slot < 0 || slot >= SAVE_SLOTS) return false;
+  int got = -1;
+  if (mcReady) {
+    int fd = -1;
+    mcOpen(0, 0, mcSlotName(slot).c_str(), kMcRdonly);
+    mcSync(MC_WAIT, nullptr, &fd);
+    if (fd < 0) return false;
+    int ret = 0;
+    mcRead(fd, &out, sizeof(out));
+    mcSync(MC_WAIT, nullptr, &got);
+    mcClose(fd);
+    mcSync(MC_WAIT, nullptr, &ret);
+  } else {
+    FILE* f = fopen(hostSlotPath(slot).c_str(), "rb");
+    if (!f) return false;
+    got = (int)fread(&out, 1, sizeof(out), f);
+    fclose(f);
+  }
+  if (got != (int)sizeof(out)) return false;
+  if (out.magic != SAVE_MAGIC || out.version != SAVE_VERSION) return false;
+  if (out.scene < 0 || out.scene >= SCENE_COUNT) return false;
+  if (out.valueCount < 0 || out.valueCount > SAVE_VALUE_COUNT) return false;
+  if (out.objectCount < 0 || out.objectCount > SAVE_OBJECT_MAX) return false;
+  return true;
+}
+
+bool saveSlotUsed(int slot) {
+  static SaveGameData probe;  // static - the payload can be a few KB
+  return saveRead(slot, probe);
+}
+
+}  // namespace )"
+        << ns << "\n";
+    return out.str();
+}
+
 std::string scriptStub(const Project& p, const std::string& className,
                        const std::string& fileName) {
     std::string s = fillTemplate(p, TPL_SCRIPT_STUB);
@@ -3647,6 +4574,9 @@ std::vector<File> generate(const Project& p) {
         {"inc\\hud_data.gen.hpp", hudDataHeader(p)},
         {"inc\\terrain_heights.gen.hpp", terrainHeightsHeader(p)},
         {"inc\\texture_data.gen.hpp", textureDataHeader(p)},
+        {"inc\\save_system.gen.hpp", saveSystemHeader(p)},
+        {"src\\save_system.gen.cpp", saveSystemSource(p)},
+        {"inc\\menu_data.gen.hpp", menuDataHeader(p)},
         {"inc\\scripts\\script.hpp", fill(TPL_SCRIPT_HPP)},
         {"src\\scripts\\flow_graph.gen.cpp", flowGraphScript(p)},
         {"src\\scripts\\example_interaction.cpp",

@@ -10,6 +10,7 @@
 #include <fstream>
 
 #include "gl_loader.h"
+#include "menubake.hpp"
 #include "templates.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -17,6 +18,8 @@
 #include <stb_image.h>
 
 #include <GLFW/glfw3.h>
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <imgui_impl_glfw.h>
@@ -26,6 +29,7 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <commdlg.h>
 #include <shobjidl.h>
 
 // ---------------------------------------------------------------------------
@@ -34,8 +38,64 @@
 // ---------------------------------------------------------------------------
 enum class PickKind { Folder, Solution, ObjModel, Png, Wav };
 
+// Owner window for the native dialogs. An unowned modal (Show(nullptr))
+// leaves the frozen GLFW window active behind it - Windows then wedges the
+// dialog when it interacts with the non-pumping app (grayed Open button).
+static HWND g_dialogOwner = nullptr;
+
+static std::string wideToUtf8(const wchar_t* path) {
+    std::string result;
+    const int len = WideCharToMultiByte(CP_UTF8, 0, path, -1, nullptr, 0, nullptr, nullptr);
+    if (len > 1) {
+        result.resize(len - 1);
+        WideCharToMultiByte(CP_UTF8, 0, path, -1, result.data(), len, nullptr, nullptr);
+    }
+    return result;
+}
+
+// Classic comdlg32 file dialog. The shell-based IFileOpenDialog wedges on
+// this setup (grayed Open button, dialog never returns) - the legacy dialog
+// carries far less shell machinery. filter is the double-NUL comdlg format.
+static std::string pickFileLegacy(const wchar_t* filter, const wchar_t* title) {
+    wchar_t buf[MAX_PATH] = L"";
+    OPENFILENAMEW ofn = {};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = g_dialogOwner;
+    ofn.lpstrFilter = filter;
+    ofn.nFilterIndex = 1;
+    ofn.lpstrFile = buf;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrTitle = title;
+    ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST |
+                OFN_NOCHANGEDIR | OFN_HIDEREADONLY;
+    if (!GetOpenFileNameW(&ofn)) return "";
+    return wideToUtf8(buf);
+}
+
 static std::string pickPath(PickKind kind) {
-    const bool folder = kind == PickKind::Folder;
+    switch (kind) {
+        case PickKind::Solution:
+            return pickFileLegacy(
+                L"Tyra project (*.tyra, project.json)\0*.tyra;project.json\0"
+                L"All files (*.*)\0*.*\0",
+                L"Open Tyra project");
+        case PickKind::ObjModel:
+            return pickFileLegacy(
+                L"Wavefront model (*.obj)\0*.obj\0All files (*.*)\0*.*\0",
+                L"Import 3D model");
+        case PickKind::Png:
+            return pickFileLegacy(
+                L"PNG image (*.png)\0*.png\0All files (*.*)\0*.*\0",
+                L"Import PNG image");
+        case PickKind::Wav:
+            return pickFileLegacy(
+                L"WAV audio (*.wav)\0*.wav\0All files (*.*)\0*.*\0",
+                L"Import WAV (16-bit 22kHz recommended)");
+        case PickKind::Folder:
+            break;  // folders need the shell dialog below
+    }
+
+    const bool folder = true;
     std::string result;
     HRESULT hrInit = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     IFileOpenDialog* dialog = nullptr;
@@ -44,47 +104,12 @@ static std::string pickPath(PickKind kind) {
         DWORD options = 0;
         dialog->GetOptions(&options);
         dialog->SetOptions(options | (folder ? FOS_PICKFOLDERS : 0) | FOS_FORCEFILESYSTEM);
-        if (kind == PickKind::Solution) {
-            static const COMDLG_FILTERSPEC filters[] = {
-                {L"Tyra project (*.tyra, project.json)", L"*.tyra;project.json"},
-                {L"All files (*.*)", L"*.*"},
-            };
-            dialog->SetFileTypes(2, filters);
-            dialog->SetTitle(L"Open Tyra project");
-        } else if (kind == PickKind::ObjModel) {
-            static const COMDLG_FILTERSPEC filters[] = {
-                {L"Wavefront model (*.obj)", L"*.obj"},
-                {L"All files (*.*)", L"*.*"},
-            };
-            dialog->SetFileTypes(2, filters);
-            dialog->SetTitle(L"Import 3D model");
-        } else if (kind == PickKind::Png) {
-            static const COMDLG_FILTERSPEC filters[] = {
-                {L"PNG image (*.png)", L"*.png"},
-                {L"All files (*.*)", L"*.*"},
-            };
-            dialog->SetFileTypes(2, filters);
-            dialog->SetTitle(L"Import HUD image");
-        } else if (kind == PickKind::Wav) {
-            static const COMDLG_FILTERSPEC filters[] = {
-                {L"WAV audio (*.wav)", L"*.wav"},
-                {L"All files (*.*)", L"*.*"},
-            };
-            dialog->SetFileTypes(2, filters);
-            dialog->SetTitle(L"Import music track (16-bit 22kHz stereo WAV)");
-        }
-        if (SUCCEEDED(dialog->Show(nullptr))) {
+        if (SUCCEEDED(dialog->Show(g_dialogOwner))) {
             IShellItem* item = nullptr;
             if (SUCCEEDED(dialog->GetResult(&item))) {
                 PWSTR path = nullptr;
                 if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
-                    int len = WideCharToMultiByte(CP_UTF8, 0, path, -1, nullptr, 0, nullptr,
-                                                  nullptr);
-                    if (len > 1) {
-                        result.resize(len - 1);
-                        WideCharToMultiByte(CP_UTF8, 0, path, -1, result.data(), len, nullptr,
-                                            nullptr);
-                    }
+                    result = wideToUtf8(path);
                     CoTaskMemFree(path);
                 }
                 item->Release();
@@ -150,6 +175,7 @@ int App::run(const std::string& initialProjectDir) {
     glfwWindowHint(GLFW_SAMPLES, 4);
 
     window_ = glfwCreateWindow(1600, 900, "Tyra Editor", nullptr, nullptr);
+    if (window_) g_dialogOwner = glfwGetWin32Window(window_);
     if (!window_) {
         glfwTerminate();
         return 1;
@@ -172,6 +198,13 @@ int App::run(const std::string& initialProjectDir) {
     ImGui_ImplGlfw_InitForOpenGL(window_, true);
     ImGui_ImplOpenGL3_Init("#version 330 core");
     ImNodes::CreateContext();
+
+    // Drag & drop from Explorer: the dialog-free import path (PNGs land in
+    // res/hud and attach to the selected menu when the Menu Editor is open).
+    glfwSetWindowUserPointer(window_, this);
+    glfwSetDropCallback(window_, [](GLFWwindow* w, int count, const char** paths) {
+        static_cast<App*>(glfwGetWindowUserPointer(w))->handleFileDrop(count, paths);
+    });
 
     if (!viewport_.init()) {
         std::fprintf(stderr, "Failed to init viewport renderer\n");
@@ -260,6 +293,7 @@ void App::drawUI() {
     drawFlowGraphWindow();
     drawOutputWindow();
     drawDiscLayoutWindow();
+    drawMenusWindow();
     drawNewProjectModal();
     drawPreferencesModal();
     drawNewScriptModal();
@@ -336,6 +370,11 @@ void App::drawMenuBar() {
                 showDiscLayout_ = true;
                 discPlanDirty_ = true;
             }
+            ImGui::EndMenu();
+        }
+
+        if (hasProject_ && ImGui::BeginMenu("Tools")) {
+            if (ImGui::MenuItem("Menu Editor...")) showMenusEditor_ = true;
             ImGui::EndMenu();
         }
 
@@ -737,6 +776,7 @@ void App::drawProjectWindow() {
     drawHudSection();
     drawMusicSection();
     drawSoundsSection();
+    drawSaveDataSection();
     drawScriptsSection();
 
     ImGui::SeparatorText("Build");
@@ -884,6 +924,16 @@ void App::addPointLight() {
     o.lightRadius = 8.0f;
     saveAll("Saved");
 }
+void App::addSavePoint() {
+    addObject(PrimitiveType::SavePoint);
+    SceneObject& o = project_.objects().back();
+    // a slim cyan pillar - reads as a save terminal, box collision in game
+    o.position[1] = 0.75f;
+    o.scale[0] = 0.8f, o.scale[1] = 1.5f, o.scale[2] = 0.8f;
+    o.color[0] = 0.25f, o.color[1] = 0.85f, o.color[2] = 0.95f;
+    o.usable = true;  // implicit in the game; mirrored here for the viewport
+    saveAll("Saved");
+}
 void App::addObject(PrimitiveType type) {
     // Unique default name: box-1, box-2, ...
     int counter = 0;
@@ -963,6 +1013,7 @@ void App::drawAddObjectMenu() {
     if (ImGui::BeginMenu("Gameplay")) {
         if (ImGui::MenuItem("Player")) addObject(PrimitiveType::Player);
         if (ImGui::MenuItem("Spawn point")) addObject(PrimitiveType::SpawnPoint);
+        if (ImGui::MenuItem("Save point")) addSavePoint();
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Effects")) {
@@ -1042,8 +1093,15 @@ void App::drawSceneSection() {
     committed |= ImGui::IsItemDeactivatedAfterEdit();
 
     if (ImGui::Checkbox("Physics (falls with gravity)", &o.physics)) committed = true;
-    if (o.type != PrimitiveType::SpawnPoint && o.type != PrimitiveType::Player) {
+    if (o.type == PrimitiveType::SavePoint) {
+        ImGui::TextDisabled("Always usable - USE opens the save menu.");
+    } else if (o.type != PrimitiveType::SpawnPoint && o.type != PrimitiveType::Player) {
         if (ImGui::Checkbox("Usable (USE prompt + On Used trigger)", &o.usable))
+            committed = true;
+    }
+    if (o.type != PrimitiveType::SpawnPoint && o.type != PrimitiveType::Player) {
+        if (ImGui::Checkbox("Save state (position/color/visibility in saves)",
+                            &o.saveState))
             committed = true;
     }
 
@@ -1100,6 +1158,14 @@ void App::drawSceneSection() {
         ImGui::TextDisabled("Previewed live in the viewport; in the game it is\n"
                             "baked into nearby terrain & object vertex colors\n"
                             "at build (static light, zero runtime cost).");
+    }
+
+    if (o.type == PrimitiveType::SavePoint) {
+        ImGui::SeparatorText("Save point");
+        ImGui::TextDisabled("Renders as a solid box in the game. Pressing USE\n"
+                            "on it opens the save menu: 3 slots on the memory\n"
+                            "card (mc0:), saving flagged objects, custom save\n"
+                            "values, the player position and the scene.");
     }
 
     if (o.type == PrimitiveType::Player) {
@@ -1379,6 +1445,30 @@ void App::drawFlowGraphWindow() {
                         changed = true;
                     }
                 }
+                ImGui::EndCombo();
+            }
+        } else if (t->strKind == FlowParamKind::SaveValue) {
+            if (ImGui::BeginCombo("Value", n.str.empty() ? "<none>" : n.str.c_str())) {
+                for (const SaveValue& v : project_.saveValues) {
+                    if (ImGui::Selectable(v.name.c_str(), v.name == n.str)) {
+                        n.str = v.name;
+                        changed = true;
+                    }
+                }
+                if (project_.saveValues.empty())
+                    ImGui::TextDisabled("Add values in the\nProject panel (Save data).");
+                ImGui::EndCombo();
+            }
+        } else if (t->strKind == FlowParamKind::MenuName) {
+            if (ImGui::BeginCombo("Menu", n.str.empty() ? "<none>" : n.str.c_str())) {
+                for (const GameMenu& gm : project_.menus) {
+                    if (ImGui::Selectable(gm.name.c_str(), gm.name == n.str)) {
+                        n.str = gm.name;
+                        changed = true;
+                    }
+                }
+                if (project_.menus.empty())
+                    ImGui::TextDisabled("Add menus in the\nProject panel (Menus).");
                 ImGui::EndCombo();
             }
         }
@@ -1936,6 +2026,613 @@ void App::drawSoundsSection() {
         ImGui::PopID();
     }
     if (project_.sounds.empty()) ImGui::TextDisabled("No sound effects.");
+    if (changed) commitChange();
+}
+
+// Custom values persisted in memory card save slots. Flow graph "Save"
+// nodes (Set/Add/Value At Least) reference them by name; the defaults are
+// the fresh-game state.
+void App::drawSaveDataSection() {
+    ImGui::SeparatorText("Save data");
+
+    if (ImGui::SmallButton("+ Value")) {
+        // unique default name: value-1, value-2, ...
+        int counter = 0;
+        std::string name;
+        for (;;) {
+            name = "value-" + std::to_string(++counter);
+            bool taken = false;
+            for (const auto& v : project_.saveValues) taken |= (v.name == name);
+            if (!taken) break;
+        }
+        project_.saveValues.push_back(SaveValue{name, 0.0f});
+        saveAll("Saved");
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Named values stored in every memory card save slot\n"
+                          "(coins, progress flags...). Read/write them with the\n"
+                          "Flow Graph \"Save\" nodes; the default is the value\n"
+                          "a fresh game starts with.");
+
+    bool changed = false;
+    for (int i = 0; i < (int)project_.saveValues.size(); ++i) {
+        SaveValue& v = project_.saveValues[i];
+        ImGui::PushID(i + 2000);
+        char nameBuf[64];
+        std::snprintf(nameBuf, sizeof(nameBuf), "%s", v.name.c_str());
+        ImGui::SetNextItemWidth(140.0f);
+        if (ImGui::InputText("##name", nameBuf, sizeof(nameBuf))) {
+            // keep flow nodes pointing at the renamed value
+            for (SceneData& sc : project_.scenes)
+                for (SceneObject& o : sc.objects)
+                    for (FlowNode& fn : o.flowGraph.nodes) {
+                        const FlowNodeType* ft = flowNodeType(fn.type);
+                        if (ft && ft->strKind == FlowParamKind::SaveValue &&
+                            fn.str == v.name)
+                            fn.str = nameBuf;
+                    }
+            v.name = nameBuf;
+        }
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(90.0f);
+        ImGui::DragFloat("##default", &v.value, 0.1f, 0.0f, 0.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SameLine();
+        if (ImGui::SmallButton("x")) {
+            // clear flow nodes that referenced the removed value
+            for (SceneData& sc : project_.scenes)
+                for (SceneObject& o : sc.objects)
+                    for (FlowNode& fn : o.flowGraph.nodes) {
+                        const FlowNodeType* ft = flowNodeType(fn.type);
+                        if (ft && ft->strKind == FlowParamKind::SaveValue &&
+                            fn.str == v.name)
+                            fn.str.clear();
+                    }
+            project_.saveValues.erase(project_.saveValues.begin() + i);
+            changed = true;
+            ImGui::PopID();
+            break;
+        }
+        ImGui::PopID();
+    }
+    if (project_.saveValues.empty()) ImGui::TextDisabled("No save values.");
+    // commitChange: renames/deletes touch flow graphs (part of undo snapshots)
+    if (changed) commitChange();
+}
+
+// Files dropped from Explorer onto the editor window. PNGs are copied into
+// res/hud; with the Menu Editor open they also attach to the selected menu
+// (the dialog-free import path - native file dialogs wedge on some setups).
+void App::handleFileDrop(int count, const char** paths) {
+    if (!hasProject_) return;
+
+    int copied = 0, attached = 0, skipped = 0;
+    for (int i = 0; i < count; ++i) {
+        const std::filesystem::path src(paths[i]);
+        std::string ext = src.extension().string();
+        for (char& c : ext) c = (char)tolower((unsigned char)c);
+        if (ext != ".png") {
+            ++skipped;
+            continue;
+        }
+        const std::filesystem::path destDir =
+            std::filesystem::path(project_.dir) / "res" / "hud";
+        std::error_code ec;
+        std::filesystem::create_directories(destDir, ec);
+        std::filesystem::copy_file(src, destDir / src.filename(),
+                                   std::filesystem::copy_options::overwrite_existing,
+                                   ec);
+        if (ec) {
+            statusMessage_ = "Drop import failed: " + ec.message();
+            continue;
+        }
+        ++copied;
+        if (showMenusEditor_ && selectedMenu_ >= 0 &&
+            selectedMenu_ < (int)project_.menus.size()) {
+            MenuImage img;
+            img.path = "res/hud/" + src.filename().string();
+            project_.menus[selectedMenu_].images.push_back(std::move(img));
+            ++attached;
+        }
+    }
+
+    if (attached > 0) {
+        commitChange();
+        statusMessage_ = "Added " + std::to_string(attached) + " image(s) to menu \"" +
+                         project_.menus[selectedMenu_].name + "\"";
+    } else if (copied > 0) {
+        statusMessage_ = "Copied " + std::to_string(copied) +
+                         " PNG(s) into res/hud - attach them in the Menu Editor "
+                         "or the HUD section";
+    } else if (skipped > 0) {
+        statusMessage_ = "Drop: only PNG files are handled here";
+    }
+}
+
+// Menu Editor window: menu list on the left, the selected menu's properties,
+// entries and a live baked-panel preview (the exact pixels the PS2 will
+// draw) on the right.
+void App::drawMenusWindow() {
+    if (!showMenusEditor_ || !hasProject_) return;
+
+    ImGui::SetNextWindowSize(ImVec2(680, 540), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Menu Editor", &showMenusEditor_)) {
+        ImGui::End();
+        return;
+    }
+
+    bool changed = false;
+
+    // --- left: menu list -------------------------------------------------
+    ImGui::BeginChild("##menu_list", ImVec2(170, 0), ImGuiChildFlags_Borders);
+    if (ImGui::Button("+ New menu", ImVec2(-1, 0))) {
+        int counter = 0;
+        std::string name;
+        for (;;) {
+            name = "menu-" + std::to_string(++counter);
+            bool taken = false;
+            for (const auto& m : project_.menus) taken |= (m.name == name);
+            if (!taken) break;
+        }
+        GameMenu m;
+        m.name = name;
+        m.title = "MENU";
+        m.entries.push_back(MenuEntry{"Continue", MenuEntry::Close, "", 0.0f});
+        project_.menus.push_back(std::move(m));
+        selectedMenu_ = (int)project_.menus.size() - 1;
+        changed = true;
+    }
+    ImGui::Separator();
+    for (int i = 0; i < (int)project_.menus.size(); ++i) {
+        ImGui::PushID(i);
+        std::string tag;
+        if (project_.menus[i].titleScreen) tag += "  [title]";
+        if (project_.menus[i].pauseMenu) tag += "  [start]";
+        if (ImGui::Selectable((project_.menus[i].name + tag).c_str(),
+                              selectedMenu_ == i))
+            selectedMenu_ = i;
+        ImGui::PopID();
+    }
+    if (project_.menus.empty())
+        ImGui::TextDisabled("No menus yet.\nEvery menu becomes a\nbaked panel sprite.");
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    // --- right: selected menu editor -------------------------------------
+    ImGui::BeginChild("##menu_edit", ImVec2(0, 0));
+    if (selectedMenu_ < 0 || selectedMenu_ >= (int)project_.menus.size()) {
+        ImGui::TextDisabled("Select a menu on the left (or create one).");
+        ImGui::TextDisabled("\nOpen menus in the game with:");
+        ImGui::BulletText("the Open Menu flow node (category \"Menus\")");
+        ImGui::BulletText("a menu entry (\"Open menu\" action = submenus)");
+        ImGui::BulletText("the Start button (\"pause menu\" checkbox)");
+        ImGui::BulletText("game start (\"title screen\" checkbox)");
+        ImGui::EndChild();
+        ImGui::End();
+        return;
+    }
+    GameMenu& m = project_.menus[selectedMenu_];
+
+    char nameBuf[64];
+    std::snprintf(nameBuf, sizeof(nameBuf), "%s", m.name.c_str());
+    ImGui::SetNextItemWidth(180.0f);
+    if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
+        // keep references (flow OpenMenu nodes, submenu entries) pointing here
+        for (SceneData& sc : project_.scenes)
+            for (SceneObject& o : sc.objects)
+                for (FlowNode& fn : o.flowGraph.nodes) {
+                    const FlowNodeType* ft = flowNodeType(fn.type);
+                    if (ft && ft->strKind == FlowParamKind::MenuName &&
+                        fn.str == m.name)
+                        fn.str = nameBuf;
+                }
+        for (GameMenu& other : project_.menus)
+            for (MenuEntry& en : other.entries)
+                if (en.action == MenuEntry::OpenMenu && en.param == m.name)
+                    en.param = nameBuf;
+        m.name = nameBuf;
+    }
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Duplicate")) {
+        GameMenu copy = m;
+        copy.titleScreen = false;  // the boot/Start slots stay unique
+        copy.pauseMenu = false;
+        std::string base = copy.name;
+        for (int n = 2;; ++n) {
+            copy.name = base + "-" + std::to_string(n);
+            bool taken = false;
+            for (const auto& other : project_.menus) taken |= (other.name == copy.name);
+            if (!taken) break;
+        }
+        project_.menus.push_back(std::move(copy));
+        selectedMenu_ = (int)project_.menus.size() - 1;
+        changed = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Delete")) {
+        for (SceneData& sc : project_.scenes)
+            for (SceneObject& o : sc.objects)
+                for (FlowNode& fn : o.flowGraph.nodes) {
+                    const FlowNodeType* ft = flowNodeType(fn.type);
+                    if (ft && ft->strKind == FlowParamKind::MenuName &&
+                        fn.str == m.name)
+                        fn.str.clear();
+                }
+        project_.menus.erase(project_.menus.begin() + selectedMenu_);
+        selectedMenu_ = -1;
+        commitChange();
+        ImGui::EndChild();
+        ImGui::End();
+        return;
+    }
+
+    char titleBuf[64];
+    std::snprintf(titleBuf, sizeof(titleBuf), "%s", m.title.c_str());
+    ImGui::SetNextItemWidth(180.0f);
+    if (ImGui::InputText("Title", titleBuf, sizeof(titleBuf))) m.title = titleBuf;
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SameLine();
+    ImGui::ColorEdit3("Accent", m.accent, ImGuiColorEditFlags_NoInputs);
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+
+    if (ImGui::Checkbox("Title screen (opens at game start)", &m.titleScreen)) {
+        if (m.titleScreen)  // only one menu can own the boot slot
+            for (int i = 0; i < (int)project_.menus.size(); ++i)
+                if (i != selectedMenu_) project_.menus[i].titleScreen = false;
+        changed = true;
+    }
+    if (ImGui::Checkbox("Open on Start button (pause menu)", &m.pauseMenu)) {
+        if (m.pauseMenu)  // only one menu answers the Start button
+            for (int i = 0; i < (int)project_.menus.size(); ++i)
+                if (i != selectedMenu_) project_.menus[i].pauseMenu = false;
+        changed = true;
+    }
+    if (ImGui::Checkbox("Pauses the game", &m.pauseGame)) changed = true;
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("On: gameplay freezes under a dim overlay while the\n"
+                          "menu is open. Off: the menu floats over the running\n"
+                          "game - note that pad presses then reach both the\n"
+                          "menu and the game (X also jumps etc.).");
+
+    // --- panel geometry: width, screen position, presets ------------------
+    ImGui::SeparatorText("Layout");
+    struct LayoutPreset {
+        const char* name;
+        int panelW;
+        float x, y;
+    };
+    static const LayoutPreset kPresets[] = {
+        {"Centered dialog", 256, 0.5f, 0.45f},
+        {"Title at the bottom", 256, 0.5f, 0.72f},
+        {"Corner card", 256, 0.78f, 0.74f},
+        {"Wide banner", 512, 0.5f, 0.5f},
+    };
+    ImGui::SetNextItemWidth(180.0f);
+    if (ImGui::BeginCombo("Preset", "apply a preset...")) {
+        for (const LayoutPreset& pr : kPresets) {
+            if (ImGui::Selectable(pr.name)) {
+                m.panelW = pr.panelW;
+                m.screenPos[0] = pr.x;
+                m.screenPos[1] = pr.y;
+                changed = true;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Presets only set the width and screen position -\n"
+                          "images and entries stay. Fine-tune below.");
+    {
+        int wIdx = m.panelW == 128 ? 0 : m.panelW == 512 ? 2 : 1;
+        ImGui::SetNextItemWidth(100.0f);
+        if (ImGui::Combo("Panel width", &wIdx, "128 px\000256 px\000512 px\000")) {
+            m.panelW = wIdx == 0 ? 128 : wIdx == 2 ? 512 : 256;
+            changed = true;
+        }
+    }
+    ImGui::SetNextItemWidth(180.0f);
+    ImGui::DragFloat2("Screen position", m.screenPos, 0.005f, 0.0f, 1.0f, "%.3f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::Checkbox("Show title", &m.showTitle)) changed = true;
+    if (menuPreviewClipped_)
+        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f),
+                           "Panel taller than 512 px - the bottom gets clipped."
+                           " Shrink or remove images.");
+
+    // --- images composited into the panel ---------------------------------
+    ImGui::SeparatorText("Images");
+    static const char* kSlotNames[] = {"Above title", "Above entries",
+                                       "Below entries", "Background", "Overlay"};
+    for (int i = 0; i < (int)m.images.size(); ++i) {
+        MenuImage& img = m.images[i];
+        ImGui::PushID(i);
+        const bool canUp = i > 0;
+        const bool canDown = i + 1 < (int)m.images.size();
+        ImGui::BeginDisabled(!canUp);
+        if (ImGui::ArrowButton("##imgup", ImGuiDir_Up)) {
+            std::swap(m.images[i], m.images[i - 1]);
+            changed = true;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine(0.0f, 2.0f);
+        ImGui::BeginDisabled(!canDown);
+        if (ImGui::ArrowButton("##imgdown", ImGuiDir_Down)) {
+            std::swap(m.images[i], m.images[i + 1]);
+            changed = true;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        const std::string fileName =
+            std::filesystem::path(img.path).filename().string();
+        ImGui::TextUnformatted(fileName.c_str());
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", img.path.c_str());
+        ImGui::SameLine(190.0f);
+        ImGui::SetNextItemWidth(120.0f);
+        if (ImGui::Combo("##slot", &img.slot,
+                         "Above title\0Above entries\0Below entries\0"
+                         "Background\0Overlay\0"))
+            changed = true;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("x##imgdel")) {
+            m.images.erase(m.images.begin() + i);
+            changed = true;
+            ImGui::PopID();
+            break;
+        }
+        // second row: size + position nudge (Background stretches, no knobs)
+        if (img.slot != MenuImage::Background) {
+            ImGui::Indent(46.0f);
+            ImGui::SetNextItemWidth(90.0f);
+            ImGui::DragFloat("scale##img", &img.scale, 0.02f, 0.05f, 4.0f, "%.2fx");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(120.0f);
+            ImGui::DragFloat2("offset##img", img.offset, 1.0f, -512.0f, 512.0f,
+                              "%.0f px");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(img.slot == MenuImage::Overlay
+                                      ? "Top-left position inside the panel."
+                                      : "Nudge from the centered flow position.");
+            ImGui::Unindent(46.0f);
+        }
+        ImGui::PopID();
+    }
+    if (ImGui::SmallButton("+ Image (PNG)...")) {
+        const std::string src = pickPngFile();
+        if (!src.empty()) {
+            const std::filesystem::path srcPath(src);
+            const std::filesystem::path destDir =
+                std::filesystem::path(project_.dir) / "res" / "hud";
+            std::error_code ec;
+            std::filesystem::create_directories(destDir, ec);
+            std::filesystem::copy_file(srcPath, destDir / srcPath.filename(),
+                                       std::filesystem::copy_options::overwrite_existing,
+                                       ec);
+            if (!ec) {
+                MenuImage img;
+                img.path = "res/hud/" + srcPath.filename().string();
+                m.images.push_back(std::move(img));
+                changed = true;
+            }
+        }
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Baked into the panel sprite - free at runtime.\n"
+                          "Flow slots stack in list order and push the text\n"
+                          "down; Background stretches under everything;\n"
+                          "Overlay draws over the text at its offset.");
+
+    ImGui::SeparatorText("Entries (dpad rows)");
+    static const char* kActionNames[] = {
+        "Close menu",     "Switch scene",      "Open save menu", "Open menu",
+        "Set save value", "Add to save value", "Flow event"};
+    for (int e = 0; e < (int)m.entries.size(); ++e) {
+        MenuEntry& en = m.entries[e];
+        ImGui::PushID(e);
+
+        // reorder arrows (rows = dpad order in the game)
+        const bool canUp = e > 0;
+        const bool canDown = e + 1 < (int)m.entries.size();
+        ImGui::BeginDisabled(!canUp);
+        if (ImGui::ArrowButton("##up", ImGuiDir_Up)) {
+            std::swap(m.entries[e], m.entries[e - 1]);
+            changed = true;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine(0.0f, 2.0f);
+        ImGui::BeginDisabled(!canDown);
+        if (ImGui::ArrowButton("##down", ImGuiDir_Down)) {
+            std::swap(m.entries[e], m.entries[e + 1]);
+            changed = true;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+
+        char labelBuf[64];
+        std::snprintf(labelBuf, sizeof(labelBuf), "%s", en.label.c_str());
+        ImGui::SetNextItemWidth(140.0f);
+        if (ImGui::InputText("##label", labelBuf, sizeof(labelBuf))) en.label = labelBuf;
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(150.0f);
+        if (ImGui::Combo("##action", &en.action, kActionNames, 7)) {
+            en.param.clear();
+            changed = true;
+        }
+        ImGui::SameLine();
+
+        // Action target inline (scene / menu / value / event)
+        auto paramCombo = [&](const char* comboId, const char* hint, auto&& items,
+                              auto&& nameOf) {
+            ImGui::SetNextItemWidth(120.0f);
+            if (ImGui::BeginCombo(comboId,
+                                  en.param.empty() ? hint : en.param.c_str())) {
+                for (const auto& item : items) {
+                    const std::string& n = nameOf(item);
+                    if (ImGui::Selectable(n.c_str(), n == en.param)) {
+                        en.param = n;
+                        changed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+        };
+        if (en.action == MenuEntry::SwitchScene) {
+            paramCombo("##scene", "<scene>", project_.scenes,
+                       [](const SceneData& s) -> const std::string& { return s.name; });
+        } else if (en.action == MenuEntry::OpenMenu) {
+            paramCombo("##menu", "<menu>", project_.menus,
+                       [](const GameMenu& gm) -> const std::string& { return gm.name; });
+        } else if (en.action == MenuEntry::SetValue ||
+                   en.action == MenuEntry::AddValue) {
+            paramCombo("##value", "<value>", project_.saveValues,
+                       [](const SaveValue& v) -> const std::string& { return v.name; });
+            ImGui::SetNextItemWidth(70.0f);
+            ImGui::DragFloat("##amount", &en.amount, 0.1f, 0.0f, 0.0f, "%.2f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::SameLine();
+        } else if (en.action == MenuEntry::FlowEvent) {
+            char eventBuf[64];
+            std::snprintf(eventBuf, sizeof(eventBuf), "%s", en.param.c_str());
+            ImGui::SetNextItemWidth(120.0f);
+            if (ImGui::InputText("##event", eventBuf, sizeof(eventBuf)))
+                en.param = eventBuf;
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Event name for the On Menu Event flow trigger.");
+            ImGui::SameLine();
+        }
+
+        if (ImGui::SmallButton("x##delete")) {
+            m.entries.erase(m.entries.begin() + e);
+            changed = true;
+            ImGui::PopID();
+            break;
+        }
+        ImGui::PopID();
+    }
+    if ((int)m.entries.size() < menubake::kMaxEntries) {
+        if (ImGui::SmallButton("+ Entry")) {
+            m.entries.push_back(MenuEntry{});
+            changed = true;
+        }
+    } else {
+        ImGui::TextDisabled("Max %d entries per menu.", menubake::kMaxEntries);
+    }
+
+    // Live preview: the exact panel the build will bake, either 1:1 or
+    // composited onto a mock TV screen (the 512x448 buffer stretched to the
+    // PAL / NTSC display aspect, with the pause dim when it applies).
+    ImGui::SeparatorText("Preview");
+    ImGui::SetNextItemWidth(140.0f);
+    ImGui::Combo("##previewmode", &menuPreviewMode_,
+                 "Panel (1:1)\0TV PAL\0TV NTSC\0");
+    {
+        std::string key = m.name + "\x1f" + m.title + "\x1f" +
+                          std::to_string(m.panelW) + "\x1f" +
+                          std::to_string(m.showTitle) + "\x1f" +
+                          std::to_string(m.accent[0]) + "," +
+                          std::to_string(m.accent[1]) + "," +
+                          std::to_string(m.accent[2]);
+        for (const MenuImage& img : m.images)
+            key += "\x1f" + img.path + "|" + std::to_string(img.slot) + "|" +
+                   std::to_string(img.scale) + "|" + std::to_string(img.offset[0]) +
+                   "," + std::to_string(img.offset[1]);
+        for (const MenuEntry& en : m.entries)
+            key += "\x1f" + en.label + "|" + std::to_string(en.action);
+        if (key != menuPreviewKey_) {
+            std::vector<unsigned char> rgba;
+            int w = 0, h = 0;
+            if (menubake::bakePanelRGBA(m, project_.dir, rgba, w, h)) {
+                if (!menuPreviewTex_) glGenTextures(1, &menuPreviewTex_);
+                glBindTexture(GL_TEXTURE_2D, menuPreviewTex_);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA,
+                             GL_UNSIGNED_BYTE, rgba.data());
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                menuPreviewW_ = w;
+                menuPreviewH_ = h;
+                const menubake::PanelLayout lay =
+                    menubake::panelLayout(m, project_.dir);
+                menuPreviewContentH_ = lay.contentH;
+                menuPreviewClipped_ = lay.clipped;
+            }
+            menuPreviewKey_ = key;
+        }
+        if (menuPreviewTex_ && menuPreviewMode_ == 0) {
+            ImGui::Image((ImTextureID)(intptr_t)menuPreviewTex_,
+                         ImVec2((float)menuPreviewW_, (float)menuPreviewContentH_),
+                         ImVec2(0, 0),
+                         ImVec2(1.0f, (float)menuPreviewContentH_ /
+                                          (float)menuPreviewH_));
+        } else if (menuPreviewTex_) {
+            // What a TV shows of the 512x448 buffer: PAL fills 4:3 exactly,
+            // NTSC has fewer active lines so the picture is a touch wider
+            // (same approximations as the viewport TV frames).
+            const float aspect = menuPreviewMode_ == 1
+                                     ? 4.0f / 3.0f
+                                     : 480.0f / 448.0f * 4.0f / 3.0f;
+            float sw = ImGui::GetContentRegionAvail().x - 8.0f;
+            if (sw > 460.0f) sw = 460.0f;
+            if (sw < 200.0f) sw = 200.0f;
+            const float sh = sw / aspect;
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec2 p0 = ImGui::GetCursorScreenPos();
+            const ImVec2 p1(p0.x + sw, p0.y + sh);
+            // mock scene behind the menu: project sky over terrain green
+            const float* sc = project_.settings.skyColor;
+            dl->AddRectFilledMultiColor(
+                p0, ImVec2(p1.x, p0.y + sh * 0.55f),
+                IM_COL32((int)(project_.settings.skyTopColor[0] * 255),
+                         (int)(project_.settings.skyTopColor[1] * 255),
+                         (int)(project_.settings.skyTopColor[2] * 255), 255),
+                IM_COL32((int)(project_.settings.skyTopColor[0] * 255),
+                         (int)(project_.settings.skyTopColor[1] * 255),
+                         (int)(project_.settings.skyTopColor[2] * 255), 255),
+                IM_COL32((int)(sc[0] * 255), (int)(sc[1] * 255),
+                         (int)(sc[2] * 255), 255),
+                IM_COL32((int)(sc[0] * 255), (int)(sc[1] * 255),
+                         (int)(sc[2] * 255), 255));
+            dl->AddRectFilled(ImVec2(p0.x, p0.y + sh * 0.55f), p1,
+                              IM_COL32(96, 150, 72, 255));
+            if (m.pauseGame)  // the in-game dim overlay under pausing menus
+                dl->AddRectFilled(p0, p1, IM_COL32(0, 0, 0, 115));
+            // panel mapped from buffer coordinates (same math as buildScene)
+            const float sx = sw / 512.0f, sy = sh / 448.0f;
+            const float panelX = m.screenPos[0] * 512.0f - menuPreviewW_ * 0.5f;
+            const float panelY =
+                m.screenPos[1] * 448.0f - menuPreviewContentH_ * 0.5f;
+            const ImVec2 m0(p0.x + panelX * sx, p0.y + panelY * sy);
+            const ImVec2 m1(m0.x + menuPreviewW_ * sx,
+                            m0.y + menuPreviewContentH_ * sy);
+            dl->AddImage((ImTextureID)(intptr_t)menuPreviewTex_, m0, m1,
+                         ImVec2(0, 0),
+                         ImVec2(1.0f, (float)menuPreviewContentH_ /
+                                          (float)menuPreviewH_));
+            dl->AddRect(p0, p1, IM_COL32(255, 255, 255, 120));
+            dl->AddText(ImVec2(p0.x + 4, p1.y - 18), IM_COL32(255, 255, 255, 160),
+                        menuPreviewMode_ == 1 ? "PAL 4:3" : "NTSC");
+            ImGui::Dummy(ImVec2(sw, sh + 4.0f));
+        }
+    }
+
+    ImGui::EndChild();
+    ImGui::End();
+
+    // commitChange: renames/deletes touch flow graphs (part of undo snapshots)
     if (changed) commitChange();
 }
 

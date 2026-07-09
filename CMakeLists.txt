@@ -34,8 +34,10 @@ add_executable(tyra-editor
     src/objparser.cpp
     src/iso9660.cpp
     src/isoexport.cpp
+    src/menubake.cpp
     src/pcsx2_config.cpp
     src/project.cpp
+    src/save_assets.cpp
     src/templates.cpp
     src/viewport.cpp
     src/runner.cpp

@@ -30,6 +30,15 @@ const unsigned char* usePromptPng(size_t& size);
 // black during scene switches when the loading screen is enabled.
 const unsigned char* loadingPng(size_t& size);
 
+// Built-in save-menu sprites (res/hud/save-*.png), written when missing.
+// The engine has no text rendering - the menu text is baked into these.
+struct BuiltinAsset {
+    const char* fileName;  // name inside res/hud/
+    const unsigned char* data;
+    size_t size;
+};
+const std::vector<BuiltinAsset>& saveMenuAssets();
+
 // Content of a new user script created from the "New script..." action.
 std::string scriptStub(const Project& p, const std::string& className,
                        const std::string& fileName);

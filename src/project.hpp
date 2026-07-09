@@ -33,6 +33,9 @@ enum class PrimitiveType {
     // color/brightness are baked into nearby terrain and object vertex colors
     // with a linear distance falloff (static lighting - no runtime cost).
     PointLight = 9,
+    // Save point: a solid box that is implicitly usable; pressing USE on it
+    // in the game opens the memory card save menu (3 slots on mc0:).
+    SavePoint = 10,
 };
 
 // Unit primitives fit a 1x1x1 cube centered at origin and are transformed by
@@ -46,6 +49,7 @@ struct SceneObject {
     float color[3] = {0.8f, 0.35f, 0.25f};
     bool physics = false;     // falls with gravity in the game
     bool usable = false;      // shows the USE prompt up close; BTN_USE fires On Used
+    bool saveState = false;   // position/color/visibility persisted in save slots
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     std::string texturePath;  // PNG, e.g. "res/textures/bricks.png" (empty = color only)
 
@@ -86,7 +90,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
     };
     return a.name == b.name && a.type == b.type && eq3(a.position, b.position) &&
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
-           a.physics == b.physics && a.usable == b.usable && a.modelPath == b.modelPath &&
+           a.physics == b.physics && a.usable == b.usable &&
+           a.saveState == b.saveState && a.modelPath == b.modelPath &&
            a.texturePath == b.texturePath && a.playerMode == b.playerMode &&
            a.playerWalkSpeed == b.playerWalkSpeed &&
            a.playerLookSpeed == b.playerLookSpeed &&
@@ -201,6 +206,100 @@ inline bool operator==(const SceneData& a, const SceneData& b) {
            eq3(a.lightColor, b.lightColor) && a.brightness == b.brightness;
 }
 
+// One selectable row of a generated in-game menu.
+struct MenuEntry {
+    std::string label = "New entry";
+    // What Cross does on this row. Close/scene/save-menu also dismiss the
+    // menu; set/add value and events keep it open (add a Close entry).
+    enum Action {
+        Close = 0,       // dismiss the menu (a title screen's "Start")
+        SwitchScene = 1, // param = scene name
+        OpenSaveMenu = 2,
+        OpenMenu = 3,    // param = menu name (submenu; Triangle goes back)
+        SetValue = 4,    // param = save value name, amount = new value
+        AddValue = 5,    // param = save value name, amount = delta
+        FlowEvent = 6,   // param = event name (fires On Menu Event triggers)
+    };
+    int action = Close;
+    std::string param;
+    float amount = 0.0f;
+};
+
+inline bool operator==(const MenuEntry& a, const MenuEntry& b) {
+    return a.label == b.label && a.action == b.action && a.param == b.param &&
+           a.amount == b.amount;
+}
+
+// One image composited into a menu's baked panel (see GameMenu::images).
+struct MenuImage {
+    std::string path;  // PNG, e.g. "res/hud/logo.png"
+    enum Slot {
+        AboveTitle = 0,   // block in the vertical flow, above the title
+        AboveEntries = 1, // between the title and the entry rows
+        BelowEntries = 2, // under the entry rows, above the button hints
+        Background = 3,   // stretched under everything (dark wash on top)
+        Overlay = 4,      // in front of the text, freeform offset position
+    };
+    int slot = AboveTitle;
+    float scale = 1.0f;              // on top of the fit-to-panel size
+    float offset[2] = {0.0f, 0.0f};  // px nudge; Overlay: top-left position
+};
+
+inline bool operator==(const MenuImage& a, const MenuImage& b) {
+    return a.path == b.path && a.slot == b.slot && a.scale == b.scale &&
+           a.offset[0] == b.offset[0] && a.offset[1] == b.offset[1];
+}
+
+// A generated in-game menu. The editor bakes the whole panel (title, entry
+// labels, button hints - the engine has no font) into res/menus/<name>.png
+// on every build; the game pauses while one is open. Navigation: dpad,
+// Cross = select, Triangle = back/close.
+struct GameMenu {
+    std::string name = "menu";
+    std::string title = "MENU";
+    bool titleScreen = false;  // opens automatically at game start
+    // Gameplay freezes while the menu is open (plus a dim overlay). false =
+    // the menu floats over the running game; pad presses reach both.
+    bool pauseGame = true;
+    // The Start button opens this menu in-game and closes it again (the
+    // classic pause menu; one per project).
+    bool pauseMenu = false;
+    float accent[3] = {0.47f, 0.82f, 1.0f};  // border/title tint
+    // Images composited into the baked panel. Flow slots (AboveTitle /
+    // AboveEntries / BelowEntries) are blocks in the panel's vertical flow -
+    // list order = stacking order within a slot; Background stretches under
+    // everything (with a dark wash); Overlay draws in front of the text at
+    // a freeform offset.
+    std::vector<MenuImage> images;
+    // Panel placement: texture width (pow2 - PS2 requirement) and the
+    // normalized screen position of the panel center (like HUD images).
+    int panelW = 256;  // 128 / 256 / 512
+    float screenPos[2] = {0.5f, 0.45f};
+    bool showTitle = true;  // off = logo-only menus (skips title + separator)
+    std::vector<MenuEntry> entries;
+};
+
+inline bool operator==(const GameMenu& a, const GameMenu& b) {
+    return a.name == b.name && a.title == b.title &&
+           a.titleScreen == b.titleScreen && a.pauseGame == b.pauseGame &&
+           a.pauseMenu == b.pauseMenu && a.accent[0] == b.accent[0] &&
+           a.accent[1] == b.accent[1] && a.accent[2] == b.accent[2] &&
+           a.images == b.images && a.panelW == b.panelW &&
+           a.screenPos[0] == b.screenPos[0] && a.screenPos[1] == b.screenPos[1] &&
+           a.showTitle == b.showTitle && a.entries == b.entries;
+}
+
+// A named value persisted on the memory card (project-wide, not per scene).
+// Flow graph Save nodes read/write these; every save slot stores a snapshot.
+struct SaveValue {
+    std::string name;
+    float value = 0.0f;  // starting value on a fresh game
+};
+
+inline bool operator==(const SaveValue& a, const SaveValue& b) {
+    return a.name == b.name && a.value == b.value;
+}
+
 struct Project {
     std::string name;
     std::string dir;  // absolute path to project root
@@ -229,6 +328,11 @@ struct Project {
     // Sound effects (16-bit 22kHz WAV in res/sfx/, converted to ADPCM by the
     // toolchain at build). One-shots via the flow graph Play Sound action.
     std::vector<std::string> sounds;
+    // Custom values persisted in memory card saves (Project panel, Save data).
+    std::vector<SaveValue> saveValues;
+    // In-game menus (Project panel, Menus): panels baked at build, opened by
+    // the Open Menu flow node, menu entries, or at boot (titleScreen).
+    std::vector<GameMenu> menus;
 
     bool valid() const { return !name.empty() && !dir.empty(); }
     std::string elfName() const { return name + ".elf"; }

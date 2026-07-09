@@ -39,6 +39,7 @@ private:
     void addEmitter(int kind);  // Effects menu presets (fire/smoke/fog/sparks)
     void addSoundEmitter();
     void addPointLight();
+    void addSavePoint();
     void drawAddObjectMenu();
     void importModel();
     void drawHudSection();
@@ -47,6 +48,9 @@ private:
     void importMusicTrack();
     void drawSoundsSection();
     void importSoundEffect();
+    void drawSaveDataSection();
+    void drawMenusWindow();
+    void handleFileDrop(int count, const char** paths);
     void saveProject();
 
     // Editing model: mutate project_ freely, then commitChange() once per
@@ -95,6 +99,17 @@ private:
 
     // HUD editing
     int selectedHud_ = -1;
+
+    // Menus editing (Menu Editor window): selected menu + a live preview of
+    // the baked panel (re-baked whenever the menu's content changes)
+    bool showMenusEditor_ = false;
+    int selectedMenu_ = -1;
+    unsigned menuPreviewTex_ = 0;
+    int menuPreviewW_ = 0, menuPreviewH_ = 0;
+    int menuPreviewContentH_ = 0;  // drawn part (layout cached at bake time)
+    bool menuPreviewClipped_ = false;  // content hit the 512px texture cap
+    int menuPreviewMode_ = 0;      // 0 = panel 1:1, 1 = TV PAL, 2 = TV NTSC
+    std::string menuPreviewKey_;  // serialized menu the texture was baked from
     struct HudTexture {
         unsigned tex = 0;
         int w = 0, h = 0;

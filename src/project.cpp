@@ -8,6 +8,7 @@
 
 #include "history.hpp"
 #include "json.hpp"
+#include "menubake.hpp"
 #include "templates.hpp"
 
 namespace fs = std::filesystem;
@@ -24,6 +25,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Emitter: return "emitter";
         case PrimitiveType::SoundEmitter: return "sound";
         case PrimitiveType::PointLight: return "point-light";
+        case PrimitiveType::SavePoint: return "save-point";
     }
     return "box";
 }
@@ -38,6 +40,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "emitter") return PrimitiveType::Emitter;
     if (s == "sound") return PrimitiveType::SoundEmitter;
     if (s == "point-light") return PrimitiveType::PointLight;
+    if (s == "save-point") return PrimitiveType::SavePoint;
     return PrimitiveType::Box;
 }
 
@@ -135,6 +138,7 @@ static std::string objectJson(const SceneObject& o) {
         ", \"color\": " + fmtVec3(o.color) +
         ", \"physics\": " + (o.physics ? "true" : "false") +
         (o.usable ? ", \"usable\": true" : "") +
+        (o.saveState ? ", \"saveState\": true" : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + o.modelPath + "\"") +
         (o.texturePath.empty() ? "" : ", \"texture\": \"" + o.texturePath + "\"");
     if (o.type == PrimitiveType::Player) {
@@ -246,6 +250,60 @@ std::string save(const Project& p) {
     for (size_t i = 0; i < p.sounds.size(); ++i)
         json << (i ? ", " : "") << "\"" << p.sounds[i] << "\"";
     json << "]";
+    json << ",\n  \"saveValues\": [";
+    for (size_t i = 0; i < p.saveValues.size(); ++i)
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << p.saveValues[i].name
+             << "\", \"default\": " << fmtFloat(p.saveValues[i].value) << " }";
+    json << (p.saveValues.empty() ? "]" : "\n  ]");
+    json << ",\n  \"menus\": [";
+    static const char* kMenuActions[] = {"close",     "scene",     "save-menu",
+                                         "menu",      "set-value", "add-value",
+                                         "event"};
+    for (size_t i = 0; i < p.menus.size(); ++i) {
+        const GameMenu& m = p.menus[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << m.name
+             << "\", \"title\": \"" << m.title << "\""
+             << (m.titleScreen ? ", \"titleScreen\": true" : "")
+             << (m.pauseGame ? "" : ", \"pause\": false")
+             << (m.pauseMenu ? ", \"pauseMenu\": true" : "")
+             << (m.panelW != 256 ? ", \"panelW\": " + std::to_string(m.panelW) : "")
+             << (m.showTitle ? "" : ", \"showTitle\": false")
+             << ", \"screenPos\": [" << fmtFloat(m.screenPos[0]) << ", "
+             << fmtFloat(m.screenPos[1]) << "]"
+             << ", \"accent\": " << fmtVec3(m.accent);
+        static const char* kImageSlots[] = {"above-title", "above-entries",
+                                            "below-entries", "background",
+                                            "overlay"};
+        if (!m.images.empty()) {
+            json << ",\n      \"images\": [";
+            for (size_t im = 0; im < m.images.size(); ++im) {
+                const MenuImage& img = m.images[im];
+                const int s = (img.slot >= 0 && img.slot <= 4) ? img.slot : 0;
+                json << (im ? ",\n        " : "\n        ") << "{ \"path\": \""
+                     << img.path << "\", \"slot\": \"" << kImageSlots[s] << "\""
+                     << (img.scale != 1.0f ? ", \"scale\": " + fmtFloat(img.scale)
+                                           : "")
+                     << ((img.offset[0] != 0.0f || img.offset[1] != 0.0f)
+                             ? ", \"offset\": [" + fmtFloat(img.offset[0]) + ", " +
+                                   fmtFloat(img.offset[1]) + "]"
+                             : "")
+                     << " }";
+            }
+            json << "\n      ]";
+        }
+        json << ",\n      \"entries\": [";
+        for (size_t e = 0; e < m.entries.size(); ++e) {
+            const MenuEntry& en = m.entries[e];
+            const int a = (en.action >= 0 && en.action <= 6) ? en.action : 0;
+            json << (e ? ",\n        " : "\n        ") << "{ \"label\": \""
+                 << en.label << "\", \"action\": \"" << kMenuActions[a] << "\""
+                 << (en.param.empty() ? "" : ", \"param\": \"" + en.param + "\"")
+                 << (en.amount != 0.0f ? ", \"amount\": " + fmtFloat(en.amount) : "")
+                 << " }";
+        }
+        json << (m.entries.empty() ? "]" : "\n      ]") << " }";
+    }
+    json << (p.menus.empty() ? "]" : "\n  ]");
     json << "\n}\n";
     return writeFile(fs::path(p.dir) / "project.json", json.str());
 }
@@ -565,6 +623,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             o.physics = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = jo.find("usable"))
             o.usable = v->type == json::Value::Type::Bool && v->boolean;
+        if (const auto* v = jo.find("saveState"))
+            o.saveState = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("texture")) o.texturePath = v->stringOr("");
         if (const auto* pl = jo.find("player")) {
@@ -787,6 +847,100 @@ std::string load(Project& out, const std::string& projectDir) {
         }
     }
 
+    if (const auto* values = root.find("saveValues");
+        values && values->type == json::Value::Type::Array) {
+        for (const auto& jv : values->arr) {
+            SaveValue v;
+            if (const auto* n = jv.find("name")) v.name = n->stringOr("");
+            if (const auto* d = jv.find("default")) v.value = (float)d->numberOr(0.0);
+            if (!v.name.empty()) out.saveValues.push_back(std::move(v));
+        }
+    }
+
+    if (const auto* menus = root.find("menus");
+        menus && menus->type == json::Value::Type::Array) {
+        for (const auto& jm : menus->arr) {
+            GameMenu m;
+            if (const auto* v = jm.find("name")) m.name = v->stringOr("menu");
+            if (const auto* v = jm.find("title")) m.title = v->stringOr("MENU");
+            if (const auto* v = jm.find("titleScreen"))
+                m.titleScreen = v->type == json::Value::Type::Bool && v->boolean;
+            if (const auto* v = jm.find("pause"))
+                m.pauseGame = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (const auto* v = jm.find("pauseMenu"))
+                m.pauseMenu = v->type == json::Value::Type::Bool && v->boolean;
+            if (const auto* v = jm.find("panelW")) {
+                const int w = (int)v->numberOr(256);
+                m.panelW = (w == 128 || w == 512) ? w : 256;
+            }
+            if (const auto* v = jm.find("showTitle"))
+                m.showTitle = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (const auto* v = jm.find("screenPos");
+                v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                m.screenPos[0] = (float)v->arr[0].numberOr(0.5);
+                m.screenPos[1] = (float)v->arr[1].numberOr(0.45);
+            }
+            if (const auto* imgs = jm.find("images");
+                imgs && imgs->type == json::Value::Type::Array) {
+                for (const auto& ji : imgs->arr) {
+                    MenuImage img;
+                    if (const auto* v = ji.find("path")) img.path = v->stringOr("");
+                    if (const auto* v = ji.find("slot")) {
+                        const std::string s = v->stringOr("above-title");
+                        img.slot = s == "above-entries" ? MenuImage::AboveEntries
+                                   : s == "below-entries" ? MenuImage::BelowEntries
+                                   : s == "background"    ? MenuImage::Background
+                                   : s == "overlay"       ? MenuImage::Overlay
+                                                          : MenuImage::AboveTitle;
+                    }
+                    if (const auto* v = ji.find("scale"))
+                        img.scale = (float)v->numberOr(1.0);
+                    if (img.scale < 0.05f) img.scale = 0.05f;
+                    if (img.scale > 4.0f) img.scale = 4.0f;
+                    if (const auto* v = ji.find("offset");
+                        v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                        img.offset[0] = (float)v->arr[0].numberOr(0.0);
+                        img.offset[1] = (float)v->arr[1].numberOr(0.0);
+                    }
+                    if (!img.path.empty()) m.images.push_back(std::move(img));
+                }
+            }
+            // Legacy single-image fields (pre image list)
+            if (const auto* v = jm.find("image")) {
+                MenuImage img;
+                img.path = v->stringOr("");
+                if (const auto* mode = jm.find("imageMode"))
+                    img.slot = mode->stringOr("top") == "background"
+                                   ? MenuImage::Background
+                                   : MenuImage::AboveTitle;
+                if (!img.path.empty()) m.images.push_back(std::move(img));
+            }
+            readVec3(jm.find("accent"), m.accent);
+            if (const auto* entries = jm.find("entries");
+                entries && entries->type == json::Value::Type::Array) {
+                for (const auto& je : entries->arr) {
+                    MenuEntry en;
+                    if (const auto* v = je.find("label")) en.label = v->stringOr("Entry");
+                    if (const auto* v = je.find("action")) {
+                        const std::string a = v->stringOr("close");
+                        en.action = a == "scene"       ? MenuEntry::SwitchScene
+                                    : a == "save-menu" ? MenuEntry::OpenSaveMenu
+                                    : a == "menu"      ? MenuEntry::OpenMenu
+                                    : a == "set-value" ? MenuEntry::SetValue
+                                    : a == "add-value" ? MenuEntry::AddValue
+                                    : a == "event"     ? MenuEntry::FlowEvent
+                                                       : MenuEntry::Close;
+                    }
+                    if (const auto* v = je.find("param")) en.param = v->stringOr("");
+                    if (const auto* v = je.find("amount"))
+                        en.amount = (float)v->numberOr(0.0);
+                    m.entries.push_back(std::move(en));
+                }
+            }
+            if (!m.name.empty()) out.menus.push_back(std::move(m));
+        }
+    }
+
     loadHeights(out);
     ensureHeightmap(out);
 
@@ -946,7 +1100,10 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\model_data.gen.hpp" ||
             f.relativePath == "inc\\hud_data.gen.hpp" ||
             f.relativePath == "inc\\terrain_heights.gen.hpp" ||
-            f.relativePath == "inc\\texture_data.gen.hpp") {
+            f.relativePath == "inc\\texture_data.gen.hpp" ||
+            f.relativePath == "inc\\save_system.gen.hpp" ||
+            f.relativePath == "src\\save_system.gen.cpp" ||
+            f.relativePath == "inc\\menu_data.gen.hpp") {
             write = true;  // editor-owned, always in sync with project data
         } else if (f.relativePath == "src\\terrain_game.cpp" ||
                    f.relativePath == "inc\\terrain_game.hpp" ||
@@ -994,6 +1151,29 @@ std::string refreshGenerated(const Project& p) {
             std::ofstream f(loadPng, std::ios::binary);
             if (f) f.write(reinterpret_cast<const char*>(png), (std::streamsize)n);
         }
+    }
+    for (const templates::BuiltinAsset& a : templates::saveMenuAssets()) {
+        const fs::path png = fs::path(p.dir) / "res" / "hud" / a.fileName;
+        std::error_code ec;
+        if (fs::exists(png, ec)) continue;
+        fs::create_directories(png.parent_path(), ec);
+        std::ofstream f(png, std::ios::binary);
+        if (f) f.write(reinterpret_cast<const char*>(a.data), (std::streamsize)a.size);
+    }
+
+    // Game menu panels: derived from project data (labels, colors), so
+    // ALWAYS rebaked - unlike the replaceable save-menu sprites above.
+    for (const GameMenu& m : p.menus) {
+        std::vector<unsigned char> png;
+        if (!menubake::bakePanelPNG(m, p.dir, png))
+            return "Menu bake failed (no usable TTF font found in Windows\\Fonts)";
+        const fs::path path =
+            fs::path(p.dir) / "res" / "menus" / menubake::panelFileName(m.name);
+        std::error_code ec;
+        fs::create_directories(path.parent_path(), ec);
+        std::ofstream f(path, std::ios::binary);
+        if (!f) return "Cannot write menu panel: " + path.string();
+        f.write(reinterpret_cast<const char*>(png.data()), (std::streamsize)png.size());
     }
     return "";
 }
