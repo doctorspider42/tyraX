@@ -919,6 +919,42 @@ Each finished feature lands as its own commit.
   layout with the Properties section stripped re-docks it under Project on
   load. Sections collapse/expand state confirmed in the same screenshots.
 
+- (55) **Flow graph: Self node + typed variables (Set/Get Int, Bool,
+  Position)** - "Self" is a pure data node exposing the graph's owner as an
+  object output; object params already defaulted to self when empty, this
+  makes the reference explicit and wireable (it needed zero codegen changes -
+  resolveTarget's chain walk ends on a node with no object input and no
+  explicit name, which is exactly self). New "Variables" node category:
+  named game-global values in three separate namespaces (int / bool /
+  position), zeroed at boot, kept across scene switches, NOT saved to the
+  memory card (Save values remain the persistent store). Setters (Set Int,
+  Set Bool, Set Position) run on exec; Set Position accepts a position link
+  that overrides its X/Y/Z params (so Get Position on an object -> Set
+  Position stores a live object position). Readers are pure data sources in
+  the house style: Get Bool -> bool output for logic gates / On Condition,
+  Get Position -> position output for Set Object Position / Spawn Player At,
+  Int At Least -> bool (mirrors the save Value At Least). A variable exists
+  by being named on any node - codegen collects names across every scene's
+  graphs into static flowInt/flowBool/flowPos arrays at the top of
+  flow_graph.gen.cpp (statics, not ScriptContext - script.hpp is
+  user-ownable, so adding context fields would break owned copies). Editor:
+  VarName params are free text + a "Pick..." popup of same-type names used
+  anywhere in the project (typo guard); Set Bool renders a checkbox; the
+  node registry drives pins/serialization so project.cpp needed no changes.
+  Verified: editor builds clean; a graph exercising every new node (Self ->
+  Get Position -> Set Position "home" on On Start, Set Bool/Set Int, Get
+  Bool + Int At Least OR-folded into On Condition -> Hide Object, Every N
+  Seconds -> Set Object Position fed by Get Position "home") was injected
+  into a scratch project's .tyra; the generated flow_graph.gen.cpp is
+  exactly right (statics with name comments, self resolves to the owner
+  index, rising-edge OnCondition folds both variable reads) and the full
+  Docker PS2 build compiled it clean (bin/propwin.elf linked). GUI
+  screenshot confirms the nodes render with pins/params (Flow Graph tab
+  forced via the layout ini's Selected TabId - ImHashStr("#TAB", seed =
+  ImHashStr(name)), CRC32c in this imgui). Not boot-tested in PCSX2; the
+  generated code paths are the same ctx.objects/flag mechanics as existing
+  nodes.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

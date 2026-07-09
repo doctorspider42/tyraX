@@ -28,6 +28,9 @@ private:
     void drawNewSceneModal();
     void drawDeleteSceneModal();
     void drawFlowGraphWindow();
+    // Names used by same-type "Variables" nodes across every scene's graphs
+    // (the int / bool / position namespaces are separate).
+    std::vector<std::string> flowVarNames(const std::string& nodeType) const;
     void openInVSCode();
     void drawOutputWindow();
     void drawDebugWindow();

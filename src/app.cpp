@@ -1380,6 +1380,28 @@ void App::drawPropertiesWindow() {
     ImGui::End();
 }
 
+std::vector<std::string> App::flowVarNames(const std::string& nodeType) const {
+    // int / bool / position variables live in separate namespaces
+    auto ns = [](const std::string& t) {
+        if (t == "SetVarInt" || t == "VarAtLeast") return 0;
+        if (t == "SetVarBool" || t == "GetVarBool") return 1;
+        if (t == "SetVarPos" || t == "GetVarPos") return 2;
+        return -1;
+    };
+    const int want = ns(nodeType);
+    std::vector<std::string> names;
+    if (want < 0) return names;
+    for (const SceneData& sc : project_.scenes)
+        for (const SceneObject& o : sc.objects)
+            for (const FlowNode& n : o.flowGraph.nodes) {
+                if (ns(n.type) != want || n.str.empty()) continue;
+                bool seen = false;
+                for (const std::string& e : names) seen |= (e == n.str);
+                if (!seen) names.push_back(n.str);
+            }
+    return names;
+}
+
 void App::drawFlowGraphWindow() {
     ImGui::Begin("Flow Graph");
     if (!hasProject_) {
@@ -1624,12 +1646,40 @@ void App::drawFlowGraphWindow() {
                     ImGui::TextDisabled("Add menus in the\nProject panel (Menus).");
                 ImGui::EndCombo();
             }
+        } else if (t->strKind == FlowParamKind::VarName) {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "%s", n.str.c_str());
+            if (ImGui::InputText("Variable", buf, sizeof(buf))) n.str = buf;
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            // Same-type variable names already used anywhere in the project
+            // (variables are game-global; picking beats retyping/typos).
+            const std::vector<std::string> known = flowVarNames(n.type);
+            if (!known.empty()) {
+                if (ImGui::SmallButton("Pick...")) ImGui::OpenPopup("##pickvar");
+                if (ImGui::BeginPopup("##pickvar")) {
+                    for (const std::string& name : known) {
+                        if (ImGui::Selectable(name.c_str(), name == n.str)) {
+                            n.str = name;
+                            changed = true;
+                        }
+                    }
+                    ImGui::EndPopup();
+                }
+            }
         }
+
+        if (n.type == "Self") ImGui::TextDisabled("(%s)", owner.name.c_str());
 
         // numeric params
         if (posLinked && t->posIn && t->numCount == 3) {
             // X/Y/Z come from the position link, the node's own params rest
             ImGui::TextDisabled("Position: from link");
+        } else if (n.type == "SetVarBool") {
+            bool v = n.num[0] != 0.0f;
+            if (ImGui::Checkbox("Value", &v)) {
+                n.num[0] = v ? 1.0f : 0.0f;
+                changed = true;
+            }
         } else if (t->numKind == FlowParamKind::Color) {
             ImGui::ColorEdit3("Color", n.num, ImGuiColorEditFlags_NoInputs);
             changed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -1890,6 +1940,7 @@ void App::drawFlowGraphWindow() {
                         if (!project_.music.empty()) n.str = project_.music.front();
                     }
                     if (std::string(t.key) == "SetMusicVolume") n.num[0] = 80.0f;
+                    if (std::string(t.key) == "SetVarBool") n.num[0] = 1.0f;
                     if (std::string(t.key) == "PlaySound") {
                         n.num[0] = 100.0f;  // volume
                         n.num[1] = -1.0f;   // channel: auto
