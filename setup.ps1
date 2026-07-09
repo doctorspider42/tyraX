@@ -18,3 +18,15 @@ foreach ($d in $deps) {
         git clone --depth 1 --branch $d.Branch $d.Url $d.Dir
     }
 }
+
+# Ensure the stb single-headers we #include are present, even when vendor/stb
+# is a stale/partial directory that predates the full clone above (no .git,
+# so the clone step skips it). Back-fill any missing header directly.
+$stbHeaders = @('stb_image.h', 'stb_truetype.h', 'stb_image_write.h')
+foreach ($h in $stbHeaders) {
+    $path = "vendor/stb/$h"
+    if (-not (Test-Path $path)) {
+        Write-Host "Fetching $h"
+        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/nothings/stb/master/$h" -OutFile $path
+    }
+}

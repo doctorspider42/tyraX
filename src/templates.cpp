@@ -54,7 +54,8 @@ static std::vector<std::string> collectTexturePaths(const Project& p) {
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects)
             if (o.type != PrimitiveType::SpawnPoint) add(o.texturePath);
-    for (const SceneData& sc : p.scenes) add(sc.terrainTexture);
+    for (const SceneData& sc : p.scenes)
+        add(project::resolvedSettings(p, sc).terrainTexture);
     return paths;
 }
 
@@ -159,39 +160,19 @@ static const char* TPL_TERRAIN_CONFIG_HPP =
 namespace {{NAME_UPPER_NS}} {
 
 // Terrain size and lighting are per scene - see scene_data.hpp arrays and
-// the TERRAIN_*/SCENE_* accessor macros in the game cpp.
+// the TERRAIN_*/SCENE_* accessor macros defined there.
 
-// Project preferences (Project > Preferences in the editor)
+// Project preferences (Project > Preferences in the editor). These are
+// project-wide; sky, clipping, post-FX and the usable-highlight can be
+// overridden per scene and live as SCENE_COUNT arrays in scene_data.hpp
+// (reached through the accessor macros defined in scene_data.hpp).
 constexpr int TERRAIN_MAX_CELLS = {{DETAIL}};
-constexpr bool CLIP_PRECISE = {{CLIP_PRECISE}};
-constexpr float SKY_R = {{SKY_R}};  // 0-255
-constexpr float SKY_G = {{SKY_G}};
-constexpr float SKY_B = {{SKY_B}};
 constexpr float EYE_HEIGHT = {{EYE_HEIGHT}};
 constexpr float WALK_SPEED = {{WALK_SPEED}};
 constexpr float LOOK_SPEED = {{LOOK_SPEED}};    // multiplier
 constexpr float ORBIT_SPEED = {{ORBIT_SPEED}};  // multiplier
 constexpr float GRAVITY = {{GRAVITY}};          // units/s^2
 constexpr float JUMP_SPEED = {{JUMP_SPEED}};    // units/s
-constexpr bool SKY_DOME = {{SKY_DOME}};
-constexpr float SKY_TOP_R = {{SKY_TOP_R}};  // 0-255, dome zenith color
-constexpr float SKY_TOP_G = {{SKY_TOP_G}};
-constexpr float SKY_TOP_B = {{SKY_TOP_B}};
-  // 0..1
-
-// Post effects, 0 (off) .. 128 (see RendererCorePostFx in the engine)
-constexpr int POSTFX_BLOOM = {{POSTFX_BLOOM}};
-constexpr int POSTFX_GRAIN = {{POSTFX_GRAIN}};
-
-// Usable-object highlight: outline drawn around objects marked usable while
-// the player is within HIGHLIGHT_DISTANCE of them
-constexpr bool HIGHLIGHT_USABLE = {{HIGHLIGHT_USABLE}};
-constexpr float HIGHLIGHT_DISTANCE = {{HIGHLIGHT_DISTANCE}};  // world units
-constexpr float HIGHLIGHT_R = {{HIGHLIGHT_R}};  // 0-255
-constexpr float HIGHLIGHT_G = {{HIGHLIGHT_G}};
-constexpr float HIGHLIGHT_B = {{HIGHLIGHT_B}};
-constexpr float HIGHLIGHT_WIDTH = {{HIGHLIGHT_WIDTH}};  // total rim, world units
-constexpr int HIGHLIGHT_STEPS = {{HIGHLIGHT_STEPS}};    // blur shells, 1 = sharp
 
 // Scene switches show res/hud/loading.png on black for a moment
 constexpr bool LOADING_SCREEN = {{LOADING_SCREEN}};
@@ -520,36 +501,9 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "texture_data.gen.hpp"
 #include <math.h>
 
-// Active-scene accessors: scene_data.hpp holds one table per scene, indexed
-// by g_activeScene (mirrors TerrainGame::currentScene; a file-scope variable
-// so free functions like shadeOf see the active scene too).
-static int g_activeScene = 0;
-#define SCENE_OBJECT_COUNT SCENE_OBJECT_COUNTS[g_activeScene]
-#define SCENE_OBJECTS SCENE_OBJECT_TABLES[g_activeScene]
-#define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
-#define PLAYER_MODE PLAYER_MODES[g_activeScene]
-#define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[g_activeScene]
-#define PLAYER_LOOK_SPEED PLAYER_LOOK_SPEEDS[g_activeScene]
-#define PLAYER_EYE_HEIGHT PLAYER_EYE_HEIGHTS[g_activeScene]
-#define PLAYER_JUMP_SPEED PLAYER_JUMP_SPEEDS[g_activeScene]
-#define PLAYER_CAN_JUMP PLAYER_CAN_JUMPS[g_activeScene]
-#define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
-#define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
-#define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]
-#define SCENE_LIGHT_Y SCENE_LIGHT_YS[g_activeScene]
-#define SCENE_LIGHT_Z SCENE_LIGHT_ZS[g_activeScene]
-#define SCENE_AMBIENT SCENE_AMBIENTS[g_activeScene]
-#define SCENE_DIFFUSE SCENE_DIFFUSES[g_activeScene]
-#define SCENE_LIGHT_COL_R SCENE_LIGHT_COL_RS[g_activeScene]
-#define SCENE_LIGHT_COL_G SCENE_LIGHT_COL_GS[g_activeScene]
-#define SCENE_LIGHT_COL_B SCENE_LIGHT_COL_BS[g_activeScene]
-#define SCENE_BRIGHTNESS SCENE_BRIGHTNESSES[g_activeScene]
-#define HM_W HM_WS[g_activeScene]
-#define HM_D HM_DS[g_activeScene]
-#define TERRAIN_HEIGHTS TERRAIN_HEIGHTS_TABLES[g_activeScene]
-#define TERRAIN_TEXTURE TERRAIN_TEXTURES[g_activeScene]
-#define TERRAIN_TEX_SCALE TERRAIN_TEX_SCALES[g_activeScene]
-#define terrainHeightAt(x, z) terrainHeightAtScene(g_activeScene, (x), (z))
+// Definition of the active-scene index declared in scene_data.hpp (which also
+// defines the SCENE_*/SKY_*/... accessor macros so scripts see them too).
+int g_activeScene = 0;
 
 namespace {{NAME_UPPER_NS}} {
 
@@ -1033,8 +987,9 @@ void TerrainGame::loadScene(int sceneIndex) {
   g_activeScene = sceneIndex;
   sceneGeneration++;  // scene scripts see this and reset their state
 
-  // Terrain and lighting are per scene - rebuild the terrain mesh and the
-  // sky dome (its radius follows the terrain size). Vectors are reused.
+  // Terrain, lighting, sky, clipping and post-FX are per scene (Scene >
+  // Preferences overrides) - rebuild the terrain mesh + sky dome and re-apply
+  // the scene's render settings. Vectors and bags are reused.
   if (bag) {
     vertices.clear();
     colors.clear();
@@ -1051,8 +1006,16 @@ void TerrainGame::loadScene(int sceneIndex) {
     } else {
       bag->texture = nullptr;
     }
+    infoBag->fullClipChecks = CLIP_PRECISE;
+    skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
     buildSkyDome();
   }
+  // Per-scene sky color (the loop paints the clear screen from ctx.skyColor)
+  // and post effects.
+  scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
+  engine->renderer.setClearScreenColor(scriptCtx.skyColor);
+  engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
+  engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
 
   runtimeObjects.assign(SCENE_OBJECT_COUNT, RuntimeObject());
   objectGeometry.clear();
@@ -3208,19 +3171,42 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << (!players[si] || players[si]->playerCanJump ? "true" : "false");
     out << "};\n\n";
 
-    // Per-scene terrain size and lighting (accessor macros in the game cpp)
+    // Per-scene settings: the project defaults with each scene's active
+    // override categories applied (see project::resolvedSettings). Lighting,
+    // sky, clipping, post-FX and the usable-highlight are per scene; the game
+    // reads them through the SCENE_*/SKY_*/... accessor macros in the game cpp.
+    std::vector<ProjectSettings> rs;
+    rs.reserve(sceneCount);
+    for (int si = 0; si < sceneCount; ++si)
+        rs.push_back(project::resolvedSettings(p, p.scenes[si]));
+
     auto sceneFloats = [&](const char* name, auto get) {
         out << "constexpr float " << name << "[SCENE_COUNT] = {";
         for (int si = 0; si < sceneCount; ++si) out << (si ? ", " : "") << get(si);
         out << "};\n";
     };
+    auto sceneInts = [&](const char* name, auto get) {
+        out << "constexpr int " << name << "[SCENE_COUNT] = {";
+        for (int si = 0; si < sceneCount; ++si) out << (si ? ", " : "") << get(si);
+        out << "};\n";
+    };
+    auto sceneBools = [&](const char* name, auto get) {
+        out << "constexpr bool " << name << "[SCENE_COUNT] = {";
+        for (int si = 0; si < sceneCount; ++si)
+            out << (si ? ", " : "") << (get(si) ? "true" : "false");
+        out << "};\n";
+    };
+    auto fx128 = [](float v) {
+        int n = (int)(v * 128.0f + 0.5f);
+        return n < 0 ? 0 : (n > 128 ? 128 : n);
+    };
+
     sceneFloats("TERRAIN_WIDTHS",
                 [&](int si) { return floatLit((float)p.scenes[si].terrain.width); });
     sceneFloats("TERRAIN_DEPTHS",
                 [&](int si) { return floatLit((float)p.scenes[si].terrain.depth); });
     auto lightOf = [&](int si, int axis) {
-        const SceneData& sc = p.scenes[si];
-        float lx = sc.lightDir[0], ly = sc.lightDir[1], lz = sc.lightDir[2];
+        float lx = rs[si].lightDir[0], ly = rs[si].lightDir[1], lz = rs[si].lightDir[2];
         const float len = std::sqrt(lx * lx + ly * ly + lz * lz);
         if (len > 1e-5f) lx /= len, ly /= len, lz /= len;
         else lx = 0, ly = 1, lz = 0;
@@ -3229,16 +3215,32 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     sceneFloats("SCENE_LIGHT_XS", [&](int si) { return lightOf(si, 0); });
     sceneFloats("SCENE_LIGHT_YS", [&](int si) { return lightOf(si, 1); });
     sceneFloats("SCENE_LIGHT_ZS", [&](int si) { return lightOf(si, 2); });
-    sceneFloats("SCENE_AMBIENTS", [&](int si) { return floatLit(p.scenes[si].ambient); });
-    sceneFloats("SCENE_DIFFUSES", [&](int si) { return floatLit(p.scenes[si].diffuse); });
-    sceneFloats("SCENE_LIGHT_COL_RS",
-                [&](int si) { return floatLit(p.scenes[si].lightColor[0]); });
-    sceneFloats("SCENE_LIGHT_COL_GS",
-                [&](int si) { return floatLit(p.scenes[si].lightColor[1]); });
-    sceneFloats("SCENE_LIGHT_COL_BS",
-                [&](int si) { return floatLit(p.scenes[si].lightColor[2]); });
-    sceneFloats("SCENE_BRIGHTNESSES",
-                [&](int si) { return floatLit(p.scenes[si].brightness); });
+    sceneFloats("SCENE_AMBIENTS", [&](int si) { return floatLit(rs[si].ambient); });
+    sceneFloats("SCENE_DIFFUSES", [&](int si) { return floatLit(rs[si].diffuse); });
+    sceneFloats("SCENE_LIGHT_COL_RS", [&](int si) { return floatLit(rs[si].lightColor[0]); });
+    sceneFloats("SCENE_LIGHT_COL_GS", [&](int si) { return floatLit(rs[si].lightColor[1]); });
+    sceneFloats("SCENE_LIGHT_COL_BS", [&](int si) { return floatLit(rs[si].lightColor[2]); });
+    sceneFloats("SCENE_BRIGHTNESSES", [&](int si) { return floatLit(rs[si].brightness); });
+
+    // Per-scene sky, clipping, post-FX and usable-highlight (Scene > Preferences
+    // overrides of Project > Preferences). Accessor macros drop the trailing S.
+    sceneBools("CLIP_PRECISES", [&](int si) { return rs[si].clipping != "fast"; });
+    sceneFloats("SKY_RS", [&](int si) { return floatLit(rs[si].skyColor[0] * 255.0f); });
+    sceneFloats("SKY_GS", [&](int si) { return floatLit(rs[si].skyColor[1] * 255.0f); });
+    sceneFloats("SKY_BS", [&](int si) { return floatLit(rs[si].skyColor[2] * 255.0f); });
+    sceneBools("SKY_DOMES", [&](int si) { return rs[si].skyDome; });
+    sceneFloats("SKY_TOP_RS", [&](int si) { return floatLit(rs[si].skyTopColor[0] * 255.0f); });
+    sceneFloats("SKY_TOP_GS", [&](int si) { return floatLit(rs[si].skyTopColor[1] * 255.0f); });
+    sceneFloats("SKY_TOP_BS", [&](int si) { return floatLit(rs[si].skyTopColor[2] * 255.0f); });
+    sceneInts("POSTFX_BLOOMS", [&](int si) { return fx128(rs[si].bloom); });
+    sceneInts("POSTFX_GRAINS", [&](int si) { return fx128(rs[si].grain); });
+    sceneBools("HIGHLIGHT_USABLES", [&](int si) { return rs[si].highlightUsable; });
+    sceneFloats("HIGHLIGHT_DISTANCES", [&](int si) { return floatLit(rs[si].highlightDistance); });
+    sceneFloats("HIGHLIGHT_RS", [&](int si) { return floatLit(rs[si].highlightColor[0] * 255.0f); });
+    sceneFloats("HIGHLIGHT_GS", [&](int si) { return floatLit(rs[si].highlightColor[1] * 255.0f); });
+    sceneFloats("HIGHLIGHT_BS", [&](int si) { return floatLit(rs[si].highlightColor[2] * 255.0f); });
+    sceneFloats("HIGHLIGHT_WIDTHS", [&](int si) { return floatLit(rs[si].highlightWidth); });
+    sceneInts("HIGHLIGHT_STEPS_S", [&](int si) { return rs[si].highlightSteps; });
 
     // Save system: custom values (Project panel, Save data) and the largest
     // scene object count - sizes the fixed save-slot payload at compile time.
@@ -3268,6 +3270,60 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     out << "constexpr int SAVE_OBJECT_MAX = " << maxObjects << ";\n";
 
     out << "\n}  // namespace " << ns << "\n";
+
+    // Active-scene accessors. g_activeScene is defined in the generated game
+    // cpp; every TU that includes scene_data.hpp (the game cpp AND user scripts
+    // via script.hpp) reads the per-scene tables through these macros. They
+    // expand at the use site, which is inside `namespace " << ns << "` where
+    // the tables above are visible.
+    out << R"(
+// Index of the scene the game is currently in (defined in the game cpp).
+extern int g_activeScene;
+#define SCENE_OBJECT_COUNT SCENE_OBJECT_COUNTS[g_activeScene]
+#define SCENE_OBJECTS SCENE_OBJECT_TABLES[g_activeScene]
+#define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
+#define PLAYER_MODE PLAYER_MODES[g_activeScene]
+#define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[g_activeScene]
+#define PLAYER_LOOK_SPEED PLAYER_LOOK_SPEEDS[g_activeScene]
+#define PLAYER_EYE_HEIGHT PLAYER_EYE_HEIGHTS[g_activeScene]
+#define PLAYER_JUMP_SPEED PLAYER_JUMP_SPEEDS[g_activeScene]
+#define PLAYER_CAN_JUMP PLAYER_CAN_JUMPS[g_activeScene]
+#define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
+#define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
+#define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]
+#define SCENE_LIGHT_Y SCENE_LIGHT_YS[g_activeScene]
+#define SCENE_LIGHT_Z SCENE_LIGHT_ZS[g_activeScene]
+#define SCENE_AMBIENT SCENE_AMBIENTS[g_activeScene]
+#define SCENE_DIFFUSE SCENE_DIFFUSES[g_activeScene]
+#define SCENE_LIGHT_COL_R SCENE_LIGHT_COL_RS[g_activeScene]
+#define SCENE_LIGHT_COL_G SCENE_LIGHT_COL_GS[g_activeScene]
+#define SCENE_LIGHT_COL_B SCENE_LIGHT_COL_BS[g_activeScene]
+#define SCENE_BRIGHTNESS SCENE_BRIGHTNESSES[g_activeScene]
+#define HM_W HM_WS[g_activeScene]
+#define HM_D HM_DS[g_activeScene]
+#define TERRAIN_HEIGHTS TERRAIN_HEIGHTS_TABLES[g_activeScene]
+#define TERRAIN_TEXTURE TERRAIN_TEXTURES[g_activeScene]
+#define TERRAIN_TEX_SCALE TERRAIN_TEX_SCALES[g_activeScene]
+// Per-scene sky / clipping / post-FX / usable-highlight (Scene > Preferences)
+#define CLIP_PRECISE CLIP_PRECISES[g_activeScene]
+#define SKY_R SKY_RS[g_activeScene]
+#define SKY_G SKY_GS[g_activeScene]
+#define SKY_B SKY_BS[g_activeScene]
+#define SKY_DOME SKY_DOMES[g_activeScene]
+#define SKY_TOP_R SKY_TOP_RS[g_activeScene]
+#define SKY_TOP_G SKY_TOP_GS[g_activeScene]
+#define SKY_TOP_B SKY_TOP_BS[g_activeScene]
+#define POSTFX_BLOOM POSTFX_BLOOMS[g_activeScene]
+#define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
+#define HIGHLIGHT_USABLE HIGHLIGHT_USABLES[g_activeScene]
+#define HIGHLIGHT_DISTANCE HIGHLIGHT_DISTANCES[g_activeScene]
+#define HIGHLIGHT_R HIGHLIGHT_RS[g_activeScene]
+#define HIGHLIGHT_G HIGHLIGHT_GS[g_activeScene]
+#define HIGHLIGHT_B HIGHLIGHT_BS[g_activeScene]
+#define HIGHLIGHT_WIDTH HIGHLIGHT_WIDTHS[g_activeScene]
+#define HIGHLIGHT_STEPS HIGHLIGHT_STEPS_S[g_activeScene]
+#define terrainHeightAt(x, z) terrainHeightAtScene(g_activeScene, (x), (z))
+)";
     return out.str();
 }
 
@@ -3299,51 +3355,18 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{WIDTH}}", std::to_string(p.scenes[0].terrain.width));
     s = replaceAll(s, "{{DEPTH}}", std::to_string(p.scenes[0].terrain.depth));
 
+    // Project-wide constants baked into terrain_config.hpp. Sky, clipping,
+    // post-FX, usable-highlight and lighting are per scene now (scene_data.hpp
+    // arrays via project::resolvedSettings), so no scalar tokens for them here.
     const ProjectSettings& st = p.settings;
     s = replaceAll(s, "{{DETAIL}}", std::to_string(st.terrainDetail));
-    s = replaceAll(s, "{{CLIP_PRECISE}}", st.clipping == "fast" ? "false" : "true");
-    s = replaceAll(s, "{{SKY_R}}", floatLit(st.skyColor[0] * 255.0f));
-    s = replaceAll(s, "{{SKY_G}}", floatLit(st.skyColor[1] * 255.0f));
-    s = replaceAll(s, "{{SKY_B}}", floatLit(st.skyColor[2] * 255.0f));
     s = replaceAll(s, "{{EYE_HEIGHT}}", floatLit(st.eyeHeight));
     s = replaceAll(s, "{{WALK_SPEED}}", floatLit(st.walkSpeed));
     s = replaceAll(s, "{{LOOK_SPEED}}", floatLit(st.lookSpeed));
     s = replaceAll(s, "{{ORBIT_SPEED}}", floatLit(st.orbitSpeed));
     s = replaceAll(s, "{{GRAVITY}}", floatLit(st.gravity));
     s = replaceAll(s, "{{JUMP_SPEED}}", floatLit(st.jumpSpeed));
-    s = replaceAll(s, "{{SKY_DOME}}", st.skyDome ? "true" : "false");
-    s = replaceAll(s, "{{SKY_TOP_R}}", floatLit(st.skyTopColor[0] * 255.0f));
-    s = replaceAll(s, "{{SKY_TOP_G}}", floatLit(st.skyTopColor[1] * 255.0f));
-    s = replaceAll(s, "{{SKY_TOP_B}}", floatLit(st.skyTopColor[2] * 255.0f));
-    auto fx128 = [](float v) {
-        int n = (int)(v * 128.0f + 0.5f);
-        return std::to_string(n < 0 ? 0 : (n > 128 ? 128 : n));
-    };
-    s = replaceAll(s, "{{POSTFX_BLOOM}}", fx128(st.bloom));
-    s = replaceAll(s, "{{POSTFX_GRAIN}}", fx128(st.grain));
     s = replaceAll(s, "{{LOADING_SCREEN}}", st.loadingScreen ? "true" : "false");
-    s = replaceAll(s, "{{HIGHLIGHT_USABLE}}", st.highlightUsable ? "true" : "false");
-    s = replaceAll(s, "{{HIGHLIGHT_DISTANCE}}", floatLit(st.highlightDistance));
-    s = replaceAll(s, "{{HIGHLIGHT_R}}", floatLit(st.highlightColor[0] * 255.0f));
-    s = replaceAll(s, "{{HIGHLIGHT_G}}", floatLit(st.highlightColor[1] * 255.0f));
-    s = replaceAll(s, "{{HIGHLIGHT_B}}", floatLit(st.highlightColor[2] * 255.0f));
-    s = replaceAll(s, "{{HIGHLIGHT_WIDTH}}", floatLit(st.highlightWidth));
-    s = replaceAll(s, "{{HIGHLIGHT_STEPS}}", std::to_string(st.highlightSteps));
-    {
-        float lx = st.lightDir[0], ly = st.lightDir[1], lz = st.lightDir[2];
-        const float len = std::sqrt(lx * lx + ly * ly + lz * lz);
-        if (len > 1e-5f) lx /= len, ly /= len, lz /= len;
-        else lx = 0, ly = 1, lz = 0;
-        s = replaceAll(s, "{{LIGHT_X}}", floatLit(lx));
-        s = replaceAll(s, "{{LIGHT_Y}}", floatLit(ly));
-        s = replaceAll(s, "{{LIGHT_Z}}", floatLit(lz));
-    }
-    s = replaceAll(s, "{{AMBIENT}}", floatLit(st.ambient));
-    s = replaceAll(s, "{{DIFFUSE}}", floatLit(st.diffuse));
-    s = replaceAll(s, "{{LIGHT_COL_R}}", floatLit(st.lightColor[0]));
-    s = replaceAll(s, "{{LIGHT_COL_G}}", floatLit(st.lightColor[1]));
-    s = replaceAll(s, "{{LIGHT_COL_B}}", floatLit(st.lightColor[2]));
-    s = replaceAll(s, "{{BRIGHTNESS}}", floatLit(st.brightness));
     s = replaceAll(s, "{{ENGINE_SRC}}", engineSourceDir());
     return s;
 }
@@ -4059,11 +4082,13 @@ static std::string textureDataHeader(const Project& p) {
     out << "};\n\n"
         << "constexpr int TERRAIN_TEXTURES[" << p.scenes.size() << "] = {";
     for (size_t si = 0; si < p.scenes.size(); ++si)
-        out << (si ? ", " : "") << textureIndexOf(p, p.scenes[si].terrainTexture);
+        out << (si ? ", " : "")
+            << textureIndexOf(p, project::resolvedSettings(p, p.scenes[si]).terrainTexture);
     out << "};\n"
         << "constexpr float TERRAIN_TEX_SCALES[" << p.scenes.size() << "] = {";
     for (size_t si = 0; si < p.scenes.size(); ++si)
-        out << (si ? ", " : "") << floatLit(p.scenes[si].terrainTexScale);
+        out << (si ? ", " : "")
+            << floatLit(project::resolvedSettings(p, p.scenes[si]).terrainTexScale);
     out << "};\n\n}  // namespace " << ns << "\n";
     return out.str();
 }

@@ -32,9 +32,10 @@ private:
     void drawDiscLayoutWindow();
     void drawNewProjectModal();
     void drawPreferencesModal();
+    void drawScenePreferencesModal();
+    void openScenePreferences();  // stage the active scene into scenePref* + open
     void openProjectDialog();
     void applyProjectToViewport();
-    void stageSceneIntoPrefs();  // active-scene terrain/light -> pref staging
     void addObject(PrimitiveType type);
     void addEmitter(int kind);  // Effects menu presets (fire/smoke/fog/sparks)
     void addSoundEmitter();
@@ -127,7 +128,7 @@ private:
     char newLocation_[512] = "";
     int newWidth_ = 64;
     int newDepth_ = 64;
-    int newTemplate_ = 0;  // 0 = orbit, 1 = fpp
+    int newTemplate_ = 0;  // 0 = empty, 1 = fpp
     std::string newProjectError_;
 
     // "New script" modal state
@@ -152,11 +153,19 @@ private:
     int discSelected_ = -1;   // index into discPlan_.items (list <-> disc sync)
     int discCapacity_ = 2;    // 0 = fit to data, 1 = CD-R 700 MB, 2 = DVD-5
 
-    // "Preferences" modal staging (applied on OK)
+    // "Project Preferences" modal staging (applied on OK). Edits project-wide
+    // defaults only (project_.settings + terrain + game template).
     bool openPreferencesPopup_ = false;
     TerrainConfig prefTerrain_;
     int prefTemplate_ = 0;
     ProjectSettings prefSettings_;
+
+    // "Scene Preferences" modal staging (applied on OK): the active scene's
+    // per-category overrides of the project defaults.
+    bool openScenePrefsPopup_ = false;
+    int scenePrefScene_ = -1;  // scene index the staging belongs to
+    ProjectSettings scenePrefSettings_;
+    SceneOverrides scenePrefOverrides_;
 
     std::string statusMessage_;
 };

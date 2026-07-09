@@ -9,6 +9,51 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (17) **Two project presets + per-scene override of scene-visual settings** —
+  tidy-up of project creation and preferences. **New project presets** cut from
+  three (orbit / fpp / showcase) to two: `empty` (orbit camera, no objects) and
+  `fpp` (FPP game template + a single Player entity, nothing else). `create()`'s
+  `gameTemplate` arg became `preset`; the showcase content (house/pillar/HUD/two
+  flow graphs), the FPP spawn+box+ball seed and the CLI `[orbit|fpp|showcase]`
+  are gone (`--new ... [empty|fpp]`). **Per-scene overrides**: the scene-visual
+  half of `ProjectSettings` (lighting, sky, clipping, terrain texture, post-FX,
+  usable-highlight) can now be overridden per scene. `SceneData` dropped its
+  loose lighting/terrainTexture fields for a full `ProjectSettings settings` +
+  `SceneOverrides overrides` (one bool per category, all off by default);
+  `project::resolvedSettings(p, scene)` returns the project defaults with each
+  active category swapped for the scene's values. Everything downstream reads
+  through it: the viewport (`applyProjectToViewport`), ISO export, and codegen.
+  A new **Scene > Scene Preferences** dialog mirrors Project Preferences with an
+  "Override project settings" checkbox per category — off = the widgets are
+  grayed and preview the inherited project value, on = editable from that value.
+  Project Preferences now edits only the project-wide defaults (it no longer
+  writes lighting into the active scene, which also fixed a latent bug where the
+  loader unconditionally overwrote every scene's lighting from the project
+  settings, so per-scene lighting never survived a reload).
+
+  Codegen: sky/clipping/post-FX/highlight moved from scalar `constexpr` in
+  `terrain_config.hpp` to `SCENE_COUNT` arrays in `scene_data.hpp` (like the
+  existing per-scene lighting), reached through `SKY_R = SKY_RS[g_activeScene]`
+  style accessor macros. Those macros (and the whole SCENE_*/TERRAIN_* set)
+  moved out of the game-cpp prolog into `scene_data.hpp`, and `g_activeScene`
+  became a real extern global (defined once in the game cpp) — so user scripts,
+  which include `scene_data.hpp` via `script.hpp`, keep seeing `SKY_R` etc.
+  (the first Docker build caught this: the example script failed to compile
+  until the macros were visible to its TU). `loadScene` now re-applies the
+  scene's clip mode, sky horizon/clear color and bloom/grain on every switch,
+  not just at boot.
+
+  Verified: editor builds clean; headless `--new` gives empty (0 objects) and
+  fpp (1 player) as expected; the `.tyra` round-trips the new `settings` +
+  `overrides` blocks (load exercised by `--build`). Docker-built both variants
+  to an ELF. A hand-authored 2-scene project (scene 1 overriding sky black +
+  highlight on, scene 0 inheriting) generated the right split arrays
+  (`SKY_RS = {63.75, 5.1}`, `HIGHLIGHT_USABLES = {false, true}`, while
+  un-overridden `CLIP_PRECISES`/`SCENE_BRIGHTNESSES` stay equal) and still
+  compiled + linked. Not yet booted in PCSX2: the runtime *visual* effect of a
+  per-scene switch (loadScene re-application) and the Scene Preferences dialog's
+  graying are the standard hands-on human checks.
+
 - (16) **Single `.tyra` project file + per-project window layout** — normalized
   the on-disk project. Previously a project was `project.json` (game data,
   tracked) plus a gitignored `<name>.tyra` solution (editor state + undo) plus

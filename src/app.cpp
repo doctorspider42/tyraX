@@ -325,6 +325,7 @@ void App::drawUI() {
     drawMenusWindow();
     drawNewProjectModal();
     drawPreferencesModal();
+    drawScenePreferencesModal();
     drawNewScriptModal();
     drawNewSceneModal();
     drawDeleteSceneModal();
@@ -341,7 +342,6 @@ void App::drawUI() {
             prefTerrain_ = project_.active().terrain;
             prefTemplate_ = project_.gameTemplate == "fpp" ? 1 : 0;
             prefSettings_ = project_.settings;
-            stageSceneIntoPrefs();
             openPreferencesPopup_ = true;
         }
         if (!io.WantTextInput) {
@@ -375,6 +375,8 @@ void App::drawMenuBar() {
         }
         if (ImGui::BeginMenu("Scene", hasProject_)) {
             drawAddObjectMenu();
+            ImGui::Separator();
+            if (ImGui::MenuItem("Scene Preferences...")) openScenePreferences();
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Project", hasProject_)) {
@@ -774,6 +776,8 @@ void App::drawProjectWindow() {
         openNewScenePopup_ = true;
         newSceneError_.clear();
     }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Preferences...")) openScenePreferences();
     ImGui::SameLine();
     ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered())
@@ -3390,17 +3394,16 @@ void App::drawNewProjectModal() {
         if (newWidth_ > 4096) newWidth_ = 4096;
         if (newDepth_ > 4096) newDepth_ = 4096;
 
-        ImGui::SeparatorText("Game template");
-        const char* templateNames[] = {
-            "Terrain orbit (camera circles the terrain)",
-            "FPP walkthrough (left stick walk, right stick look)",
-            "FPP showcase (all features: model, physics, HUD, flow graph)"};
-        ImGui::Combo("Template", &newTemplate_, templateNames, 3);
+        ImGui::SeparatorText("Preset");
+        const char* presetNames[] = {
+            "Empty (orbit camera, no objects)",
+            "FPP (a single player entity)"};
+        ImGui::Combo("Preset", &newTemplate_, presetNames, 2);
 
         ImGui::TextDisabled("Creates: %s\\%s", newLocation_, newName_);
         ImGui::TextDisabled("Default scene \"main\" with a flat %d x %d terrain.%s", newWidth_,
                             newDepth_,
-                            newTemplate_ == 1 ? " Includes a spawn point." : "");
+                            newTemplate_ == 1 ? " Adds a player entity." : "");
 
         if (!newProjectError_.empty())
             ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", newProjectError_.c_str());
@@ -3409,10 +3412,8 @@ void App::drawNewProjectModal() {
         if (ImGui::Button("Create", ImVec2(120, 0))) {
             Project p;
             TerrainConfig t{newWidth_, newDepth_};
-            const char* tpl = newTemplate_ == 2 ? "showcase"
-                              : newTemplate_ == 1 ? "fpp"
-                                                  : "orbit";
-            std::string err = project::create(p, newName_, newLocation_, t, tpl);
+            const char* preset = newTemplate_ == 1 ? "fpp" : "empty";
+            std::string err = project::create(p, newName_, newLocation_, t, preset);
             if (err.empty()) {
                 project_ = p;
                 hasProject_ = true;
@@ -3431,32 +3432,18 @@ void App::drawNewProjectModal() {
     }
 }
 
-void App::stageSceneIntoPrefs() {
-    const SceneData& sc = project_.active();
-    for (int i = 0; i < 3; ++i) {
-        prefSettings_.lightDir[i] = sc.lightDir[i];
-        prefSettings_.lightColor[i] = sc.lightColor[i];
-    }
-    prefSettings_.ambient = sc.ambient;
-    prefSettings_.diffuse = sc.diffuse;
-    prefSettings_.brightness = sc.brightness;
-    prefSettings_.terrainTexture = sc.terrainTexture;
-    prefSettings_.terrainTexScale = sc.terrainTexScale;
-}
-
 void App::applyProjectToViewport() {
     project::ensureHeightmap(project_);
     const SceneData& sc = project_.active();
+    // Scene-visual settings resolve project defaults + this scene's overrides.
+    const ProjectSettings rs = project::resolvedSettings(project_, sc);
     viewport_.setProjectDir(project_.dir);
-    viewport_.setTerrainTexture(sc.terrainTexture, sc.terrainTexScale);
+    viewport_.setTerrainTexture(rs.terrainTexture, rs.terrainTexScale);
     viewport_.setTerrain(sc.terrain, project_.settings.terrainDetail, sc.heights, sc.hmW,
                          sc.hmD);
-    viewport_.setSky(project_.settings.skyColor, project_.settings.skyTopColor,
-                     project_.settings.skyDome);
-    viewport_.setUsableHighlight(project_.settings.highlightUsable,
-                                 project_.settings.highlightColor);
-    viewport_.setLighting(sc.lightDir, sc.ambient, sc.diffuse, sc.lightColor,
-                          sc.brightness);
+    viewport_.setSky(rs.skyColor, rs.skyTopColor, rs.skyDome);
+    viewport_.setUsableHighlight(rs.highlightUsable, rs.highlightColor);
+    viewport_.setLighting(rs.lightDir, rs.ambient, rs.diffuse, rs.lightColor, rs.brightness);
 }
 
 void App::drawPreferencesModal() {
@@ -3581,20 +3568,139 @@ void App::drawPreferencesModal() {
     ImGui::TextDisabled("Objects with the 'Physics' flag fall; the FPP player jumps with X.");
 
     ImGui::Separator();
+    ImGui::TextDisabled(
+        "These are project-wide defaults. Scenes inherit them unless a\n"
+        "category is overridden in Scene > Scene Preferences.");
     if (ImGui::Button("OK", ImVec2(120, 0))) {
         project_.gameTemplate = prefTemplate_ == 1 ? "fpp" : "orbit";
         project_.settings = prefSettings_;
-        SceneData& sc = project_.active();
-        sc.terrain = prefTerrain_;
-        for (int i = 0; i < 3; ++i) {
-            sc.lightDir[i] = prefSettings_.lightDir[i];
-            sc.lightColor[i] = prefSettings_.lightColor[i];
+        project_.active().terrain = prefTerrain_;
+        applyProjectToViewport();  // scenes that inherit follow the new defaults
+        commitChange();
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+}
+
+void App::openScenePreferences() {
+    if (!hasProject_) return;
+    scenePrefScene_ = project_.activeScene;
+    // Stage the scene's *resolved* settings: overridden categories show the
+    // scene's own values, inherited categories show the project defaults - so
+    // a grayed-out category previews exactly what the scene inherits, and
+    // ticking its override starts editing from that value with no jump.
+    scenePrefSettings_ = project::resolvedSettings(project_, project_.active());
+    scenePrefOverrides_ = project_.active().overrides;
+    openScenePrefsPopup_ = true;
+}
+
+void App::drawScenePreferencesModal() {
+    if (openScenePrefsPopup_) {
+        ImGui::OpenPopup("Scene Preferences");
+        openScenePrefsPopup_ = false;
+    }
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(560, 0), ImGuiCond_Appearing);
+
+    if (!ImGui::BeginPopupModal("Scene Preferences", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+    if (scenePrefScene_ < 0 || scenePrefScene_ >= (int)project_.scenes.size()) {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+
+    ProjectSettings& s = scenePrefSettings_;
+    SceneOverrides& ov = scenePrefOverrides_;
+    ImGui::Text("Scene: %s", project_.scenes[scenePrefScene_].name.c_str());
+    ImGui::TextDisabled(
+        "Each category inherits Project > Preferences until you tick\n"
+        "\"Override project settings\" for it.");
+
+    // One category: a header, an override toggle, then its widgets disabled
+    // (grayed, previewing the inherited value) until the toggle is on.
+    auto category = [&](const char* title, bool& flag, auto widgets) {
+        ImGui::SeparatorText(title);
+        ImGui::PushID(title);
+        ImGui::Checkbox("Override project settings", &flag);
+        ImGui::BeginDisabled(!flag);
+        widgets();
+        ImGui::EndDisabled();
+        ImGui::PopID();
+    };
+
+    category("Lighting", ov.lighting, [&] {
+        ImGui::DragFloat3("Light direction", s.lightDir, 0.02f, -1.0f, 1.0f, "%.2f");
+        ImGui::ColorEdit3("Light color", s.lightColor);
+        ImGui::SliderFloat("Brightness", &s.brightness, 0.0f, 2.0f, "%.2f");
+        ImGui::SliderFloat("Ambient", &s.ambient, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("Diffuse", &s.diffuse, 0.0f, 1.0f, "%.2f");
+    });
+
+    category("Sky", ov.sky, [&] {
+        ImGui::ColorEdit3("Sky horizon color", s.skyColor);
+        ImGui::ColorEdit3("Sky zenith color", s.skyTopColor);
+        ImGui::Checkbox("Gradient sky dome", &s.skyDome);
+    });
+
+    category("Clipping", ov.clipping, [&] {
+        int clipMode = s.clipping == "fast" ? 1 : 0;
+        const char* clipNames[] = {
+            "Precise clipping (no holes at screen edges, costs EE time)",
+            "Fast culling (fastest; big near triangles may vanish)"};
+        if (ImGui::Combo("Triangles", &clipMode, clipNames, 2))
+            s.clipping = clipMode == 1 ? "fast" : "precise";
+    });
+
+    category("Terrain texture", ov.terrainTex, [&] {
+        ImGui::TextDisabled("Texture: %s",
+                            s.terrainTexture.empty() ? "<none>" : s.terrainTexture.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Set...")) {
+            const std::string src = pickPngFile();
+            if (!src.empty()) {
+                const std::filesystem::path srcPath(src);
+                const std::filesystem::path destDir =
+                    std::filesystem::path(project_.dir) / "res" / "textures";
+                std::error_code ec;
+                std::filesystem::create_directories(destDir, ec);
+                std::filesystem::copy_file(srcPath, destDir / srcPath.filename(),
+                                           std::filesystem::copy_options::overwrite_existing, ec);
+                if (!ec)
+                    s.terrainTexture = "res/textures/" + srcPath.filename().string();
+            }
         }
-        sc.ambient = prefSettings_.ambient;
-        sc.diffuse = prefSettings_.diffuse;
-        sc.brightness = prefSettings_.brightness;
-        sc.terrainTexture = prefSettings_.terrainTexture;
-        sc.terrainTexScale = prefSettings_.terrainTexScale;
+        if (!s.terrainTexture.empty()) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Clear")) s.terrainTexture.clear();
+            ImGui::DragFloat("Texture tile (units)", &s.terrainTexScale, 0.25f, 0.25f, 64.0f,
+                             "%.2f");
+        }
+    });
+
+    category("Post effects", ov.postFx, [&] {
+        ImGui::SliderFloat("Bloom", &s.bloom, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("Film grain", &s.grain, 0.0f, 1.0f, "%.2f");
+    });
+
+    category("Usable objects", ov.highlight, [&] {
+        ImGui::Checkbox("Highlight usable objects", &s.highlightUsable);
+        ImGui::DragFloat("Proximity (units)", &s.highlightDistance, 0.1f, 0.5f, 1000.0f, "%.1f");
+        ImGui::ColorEdit3("Highlight color", s.highlightColor);
+        ImGui::DragFloat("Blur width (units)", &s.highlightWidth, 0.01f, 0.05f, 2.0f, "%.2f");
+        ImGui::SliderInt("Blur steps", &s.highlightSteps, 1, 8);
+    });
+
+    ImGui::Separator();
+    if (ImGui::Button("OK", ImVec2(120, 0))) {
+        SceneData& sc = project_.scenes[scenePrefScene_];
+        sc.settings = scenePrefSettings_;
+        sc.overrides = scenePrefOverrides_;
         applyProjectToViewport();
         commitChange();
         ImGui::CloseCurrentPopup();

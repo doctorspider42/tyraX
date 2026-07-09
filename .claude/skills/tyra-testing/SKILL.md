@@ -34,14 +34,14 @@ everything under `src/` — warnings matter, the build is expected to be clean.
 ## Layer 1 — headless CLI (no GUI needed)
 
 ```powershell
-build\tyra-editor.exe --new <name> <parentDir> [width] [depth] [orbit|fpp|showcase]
+build\tyra-editor.exe --new <name> <parentDir> [width] [depth] [empty|fpp]
 build\tyra-editor.exe --build <projectDir> [--run]   # exit code 0 = success
 build\tyra-editor.exe <projectDir|project.tyra>      # open GUI on a project
 ```
 
 - `--new` scaffolds a complete game project (all generated sources, Makefile,
-  Dockerfile) **without Docker** — instant way to get a fixture. Use the
-  `showcase` template when you need every feature present in one scene.
+  Dockerfile) **without Docker** — instant way to get a fixture. `fpp` seeds a
+  single Player entity; `empty` is an orbit-camera scene with no objects.
 - `--build` streams the whole Docker build log to stdout and returns a real
   exit code — the backbone of scripted e2e runs.
 - Create scratch projects in the session scratchpad directory, not in the repo.

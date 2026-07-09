@@ -73,7 +73,8 @@ static std::string orderFiles(const Project& p, std::vector<OrderedFile>& out,
     for (const std::string& s : p.sounds) take(adpcmPathOf(s), "startup");
     for (const SceneData& s : p.scenes) {
         const std::string group = "scene:" + s.name;
-        if (!s.terrainTexture.empty()) take(binPathOf(s.terrainTexture), group);
+        const std::string terrainTex = project::resolvedSettings(p, s).terrainTexture;
+        if (!terrainTex.empty()) take(binPathOf(terrainTex), group);
         for (const SceneObject& o : s.objects) {
             if (!o.texturePath.empty()) take(binPathOf(o.texturePath), group);
             if (!o.modelPath.empty()) take(binPathOf(o.modelPath), group);

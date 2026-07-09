@@ -159,6 +159,47 @@ struct ProjectSettings {
     int highlightSteps = 4;        // blur shells; 1 = sharp outline
 };
 
+inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
+    auto eq3 = [](const float* x, const float* y) {
+        return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
+    };
+    return a.clipping == b.clipping && a.terrainDetail == b.terrainDetail &&
+           eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
+           a.skyDome == b.skyDome && a.eyeHeight == b.eyeHeight &&
+           a.walkSpeed == b.walkSpeed && a.lookSpeed == b.lookSpeed &&
+           a.orbitSpeed == b.orbitSpeed && a.gravity == b.gravity &&
+           a.jumpSpeed == b.jumpSpeed && eq3(a.lightDir, b.lightDir) &&
+           a.ambient == b.ambient && a.diffuse == b.diffuse &&
+           eq3(a.lightColor, b.lightColor) && a.brightness == b.brightness &&
+           a.terrainTexture == b.terrainTexture &&
+           a.terrainTexScale == b.terrainTexScale && a.bloom == b.bloom &&
+           a.grain == b.grain && a.loadingScreen == b.loadingScreen &&
+           a.highlightUsable == b.highlightUsable &&
+           a.highlightDistance == b.highlightDistance &&
+           eq3(a.highlightColor, b.highlightColor) &&
+           a.highlightWidth == b.highlightWidth &&
+           a.highlightSteps == b.highlightSteps;
+}
+
+// Per-scene override switches (Scene > Preferences). Each "scene-visual"
+// category can override the project defaults; when a flag is off, the scene
+// inherits Project::settings for that category (see project::resolvedSettings).
+// Camera, physics, terrain detail and the game template stay project-wide.
+struct SceneOverrides {
+    bool lighting = false;    // lightDir, ambient, diffuse, lightColor, brightness
+    bool sky = false;         // skyColor, skyTopColor, skyDome
+    bool clipping = false;    // clipping mode
+    bool terrainTex = false;  // terrainTexture, terrainTexScale
+    bool postFx = false;      // bloom, grain
+    bool highlight = false;   // highlightUsable + distance/color/width/steps
+};
+
+inline bool operator==(const SceneOverrides& a, const SceneOverrides& b) {
+    return a.lighting == b.lighting && a.sky == b.sky && a.clipping == b.clipping &&
+           a.terrainTex == b.terrainTex && a.postFx == b.postFx &&
+           a.highlight == b.highlight;
+}
+
 class History;
 
 // A HUD image (PNG sprite) drawn on top of the 3D scene.
@@ -182,28 +223,21 @@ struct SceneData {
     // Empty = flat. Persisted in <project>/terrain-<scene>.heights.
     std::vector<float> heights;
     int hmW = 0, hmD = 0;
-    std::string terrainTexture;    // PNG, tiled; empty = checker colors
-    float terrainTexScale = 4.0f;  // world units per texture tile
 
-    // Lighting (baked into vertex colors)
-    float lightDir[3] = {0.37f, 0.82f, 0.44f};  // direction TO the light
-    float ambient = 0.55f;                      // 0..1
-    float diffuse = 0.45f;                      // 0..1
-    float lightColor[3] = {1.0f, 1.0f, 1.0f};   // tints the diffuse term
-    float brightness = 1.0f;                    // global multiplier (0..2)
+    // Per-scene overrides of the project's scene-visual settings. `settings`
+    // holds this scene's values; `overrides` says which categories are active.
+    // Inactive categories inherit Project::settings - resolve with
+    // project::resolvedSettings(); never read these fields directly for the
+    // final value (an inactive category's stored values are stale).
+    ProjectSettings settings;
+    SceneOverrides overrides;
 };
 
 inline bool operator==(const SceneData& a, const SceneData& b) {
-    auto eq3 = [](const float* x, const float* y) {
-        return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
-    };
     return a.name == b.name && a.objects == b.objects &&
            a.terrain.width == b.terrain.width && a.terrain.depth == b.terrain.depth &&
            a.heights == b.heights && a.hmW == b.hmW && a.hmD == b.hmD &&
-           a.terrainTexture == b.terrainTexture &&
-           a.terrainTexScale == b.terrainTexScale && eq3(a.lightDir, b.lightDir) &&
-           a.ambient == b.ambient && a.diffuse == b.diffuse &&
-           eq3(a.lightColor, b.lightColor) && a.brightness == b.brightness;
+           a.overrides == b.overrides && a.settings == b.settings;
 }
 
 // One selectable row of a generated in-game menu.
@@ -357,11 +391,18 @@ struct Project {
 namespace project {
 
 // Creates the project directory, generates all Tyra game sources / build files
-// and the <name>.tyra project file. gameTemplate: "orbit" (camera circles) or
-// "fpp" (walk with the left stick, look with the right; seeds a spawn point).
+// and the <name>.tyra project file. `preset` picks the starting content:
+//   "empty" - orbit camera, no objects.
+//   "fpp"   - FPP game template with a single Player entity in the center.
 // Returns empty string on success, error message otherwise.
 std::string create(Project& out, const std::string& name, const std::string& parentDir,
-                   const TerrainConfig& terrain, const std::string& gameTemplate = "orbit");
+                   const TerrainConfig& terrain, const std::string& preset = "empty");
+
+// The effective settings for a scene: the project defaults with each scene
+// category (lighting, sky, clipping, terrain texture, post-FX, highlight)
+// replaced by the scene's own values where its override flag is set. All
+// codegen and viewport code reads scene-visual settings through this.
+ProjectSettings resolvedSettings(const Project& p, const SceneData& s);
 
 // Loads the single <name>.tyra project file from an existing project
 // directory (game data + editor-side state + window layout).

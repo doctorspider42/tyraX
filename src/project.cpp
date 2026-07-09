@@ -214,6 +214,135 @@ static void writeObjectsArray(std::ostringstream& json, const std::vector<SceneO
     json << "]";
 }
 
+// A scene's "settings" + "overrides" blocks (shared by the project file and
+// the history file). `settings` carries the scene's own scene-visual values;
+// `overrides` says which categories are active. Emitted without surrounding
+// braces or leading comma - the caller places them inside the scene object.
+static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
+    const ProjectSettings& s = sc.settings;
+    j << "\"settings\": { \"lighting\": { \"dir\": " << fmtVec3(s.lightDir)
+      << ", \"ambient\": " << fmtFloat(s.ambient) << ", \"diffuse\": " << fmtFloat(s.diffuse)
+      << ", \"color\": " << fmtVec3(s.lightColor) << ", \"brightness\": "
+      << fmtFloat(s.brightness) << " }, \"sky\": { \"color\": " << fmtVec3(s.skyColor)
+      << ", \"topColor\": " << fmtVec3(s.skyTopColor) << ", \"dome\": "
+      << (s.skyDome ? "true" : "false") << " }, \"clipping\": \"" << s.clipping
+      << "\", \"terrainTexture\": \"" << s.terrainTexture << "\", \"terrainTexScale\": "
+      << fmtFloat(s.terrainTexScale) << ", \"postfx\": { \"bloom\": " << fmtFloat(s.bloom)
+      << ", \"grain\": " << fmtFloat(s.grain) << " }, \"highlight\": { \"usable\": "
+      << (s.highlightUsable ? "true" : "false") << ", \"distance\": "
+      << fmtFloat(s.highlightDistance) << ", \"color\": " << fmtVec3(s.highlightColor)
+      << ", \"width\": " << fmtFloat(s.highlightWidth) << ", \"steps\": " << s.highlightSteps
+      << " } }";
+    const SceneOverrides& o = sc.overrides;
+    j << ", \"overrides\": { \"lighting\": " << (o.lighting ? "true" : "false")
+      << ", \"sky\": " << (o.sky ? "true" : "false") << ", \"clipping\": "
+      << (o.clipping ? "true" : "false") << ", \"terrainTex\": "
+      << (o.terrainTex ? "true" : "false") << ", \"postFx\": " << (o.postFx ? "true" : "false")
+      << ", \"highlight\": " << (o.highlight ? "true" : "false") << " }";
+}
+
+// Reads a scene's scene-visual settings + override flags. New files carry an
+// "overrides" object; older files carried a top-level "lighting"/"terrainTexture"
+// per scene (always-active) - migrate those with the two flags on.
+static void readSceneVisuals(const json::Value& js, SceneData& sc) {
+    ProjectSettings& s = sc.settings;
+    auto clamp01 = [](float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
+    if (const auto* ov = js.find("overrides")) {
+        if (const auto* st = js.find("settings")) {
+            if (const auto* li = st->find("lighting")) {
+                readVec3(li->find("dir"), s.lightDir);
+                if (const auto* v = li->find("ambient")) s.ambient = (float)v->numberOr(0.55);
+                if (const auto* v = li->find("diffuse")) s.diffuse = (float)v->numberOr(0.45);
+                readVec3(li->find("color"), s.lightColor);
+                if (const auto* v = li->find("brightness"))
+                    s.brightness = (float)v->numberOr(1.0);
+            }
+            if (const auto* sk = st->find("sky")) {
+                readVec3(sk->find("color"), s.skyColor);
+                readVec3(sk->find("topColor"), s.skyTopColor);
+                if (const auto* v = sk->find("dome")) s.skyDome = v->boolOr(true);
+            }
+            if (const auto* v = st->find("clipping"))
+                s.clipping = v->stringOr("precise") == "fast" ? "fast" : "precise";
+            if (const auto* v = st->find("terrainTexture")) s.terrainTexture = v->stringOr("");
+            if (const auto* v = st->find("terrainTexScale"))
+                s.terrainTexScale = (float)v->numberOr(4.0);
+            if (const auto* pf = st->find("postfx")) {
+                if (const auto* v = pf->find("bloom")) s.bloom = clamp01((float)v->numberOr(0.0));
+                if (const auto* v = pf->find("grain")) s.grain = clamp01((float)v->numberOr(0.0));
+            }
+            if (const auto* hl = st->find("highlight")) {
+                if (const auto* v = hl->find("usable")) s.highlightUsable = v->boolOr(false);
+                if (const auto* v = hl->find("distance"))
+                    s.highlightDistance = (float)v->numberOr(6.0);
+                readVec3(hl->find("color"), s.highlightColor);
+                if (const auto* v = hl->find("width"))
+                    s.highlightWidth = (float)v->numberOr(0.35);
+                if (const auto* v = hl->find("steps")) s.highlightSteps = (int)v->numberOr(4);
+            }
+        }
+        sc.overrides.lighting = ov->find("lighting") ? ov->find("lighting")->boolOr(false) : false;
+        sc.overrides.sky = ov->find("sky") ? ov->find("sky")->boolOr(false) : false;
+        sc.overrides.clipping = ov->find("clipping") ? ov->find("clipping")->boolOr(false) : false;
+        sc.overrides.terrainTex =
+            ov->find("terrainTex") ? ov->find("terrainTex")->boolOr(false) : false;
+        sc.overrides.postFx = ov->find("postFx") ? ov->find("postFx")->boolOr(false) : false;
+        sc.overrides.highlight =
+            ov->find("highlight") ? ov->find("highlight")->boolOr(false) : false;
+    } else {
+        // Legacy per-scene lighting + terrain texture were always active.
+        if (const auto* li = js.find("lighting")) {
+            readVec3(li->find("dir"), s.lightDir);
+            if (const auto* v = li->find("ambient")) s.ambient = (float)v->numberOr(0.55);
+            if (const auto* v = li->find("diffuse")) s.diffuse = (float)v->numberOr(0.45);
+            readVec3(li->find("color"), s.lightColor);
+            if (const auto* v = li->find("brightness")) s.brightness = (float)v->numberOr(1.0);
+            sc.overrides.lighting = true;
+        }
+        if (const auto* v = js.find("terrainTexture")) {
+            s.terrainTexture = v->stringOr("");
+            sc.overrides.terrainTex = true;
+        }
+        if (const auto* v = js.find("terrainTexScale"))
+            s.terrainTexScale = (float)v->numberOr(4.0);
+    }
+    if (s.terrainTexScale < 0.25f) s.terrainTexScale = 0.25f;
+    if (s.brightness < 0.0f) s.brightness = 0.0f;
+    if (s.brightness > 2.0f) s.brightness = 2.0f;
+    if (s.highlightSteps < 1) s.highlightSteps = 1;
+    if (s.highlightSteps > 8) s.highlightSteps = 8;
+}
+
+ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
+    ProjectSettings r = p.settings;
+    const ProjectSettings& o = s.settings;
+    if (s.overrides.lighting) {
+        for (int i = 0; i < 3; ++i) r.lightDir[i] = o.lightDir[i], r.lightColor[i] = o.lightColor[i];
+        r.ambient = o.ambient, r.diffuse = o.diffuse, r.brightness = o.brightness;
+    }
+    if (s.overrides.sky) {
+        for (int i = 0; i < 3; ++i) r.skyColor[i] = o.skyColor[i], r.skyTopColor[i] = o.skyTopColor[i];
+        r.skyDome = o.skyDome;
+    }
+    if (s.overrides.clipping) r.clipping = o.clipping;
+    if (s.overrides.terrainTex) {
+        r.terrainTexture = o.terrainTexture;
+        r.terrainTexScale = o.terrainTexScale;
+    }
+    if (s.overrides.postFx) {
+        r.bloom = o.bloom;
+        r.grain = o.grain;
+    }
+    if (s.overrides.highlight) {
+        r.highlightUsable = o.highlightUsable;
+        r.highlightDistance = o.highlightDistance;
+        for (int i = 0; i < 3; ++i) r.highlightColor[i] = o.highlightColor[i];
+        r.highlightWidth = o.highlightWidth;
+        r.highlightSteps = o.highlightSteps;
+    }
+    return r;
+}
+
 std::string save(const Project& p) {
     std::ostringstream json;
     json << "{\n"
@@ -255,13 +384,9 @@ std::string save(const Project& p) {
         const SceneData& sc = p.scenes[i];
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << sc.name
              << "\",\n      \"terrain\": { \"width\": " << sc.terrain.width
-             << ", \"depth\": " << sc.terrain.depth << " },\n      \"lighting\": {"
-             << " \"dir\": " << fmtVec3(sc.lightDir) << ", \"ambient\": "
-             << fmtFloat(sc.ambient) << ", \"diffuse\": " << fmtFloat(sc.diffuse)
-             << ", \"color\": " << fmtVec3(sc.lightColor) << ", \"brightness\": "
-             << fmtFloat(sc.brightness) << " },\n      \"terrainTexture\": \""
-             << sc.terrainTexture << "\", \"terrainTexScale\": "
-             << fmtFloat(sc.terrainTexScale) << ",\n      \"objects\": ";
+             << ", \"depth\": " << sc.terrain.depth << " },\n      ";
+        writeSceneVisuals(json, sc);
+        json << ",\n      \"objects\": ";
         writeObjectsArray(json, sc.objects, "      ");
         json << " }";
     }
@@ -351,7 +476,7 @@ std::string save(const Project& p) {
 }
 
 std::string create(Project& out, const std::string& name, const std::string& parentDir,
-                   const TerrainConfig& terrain, const std::string& gameTemplate) {
+                   const TerrainConfig& terrain, const std::string& preset) {
     if (name.empty()) return "Project name is empty";
     for (char c : name) {
         if (!isalnum((unsigned char)c) && c != '-' && c != '_')
@@ -370,125 +495,23 @@ std::string create(Project& out, const std::string& name, const std::string& par
     out.name = name;
     out.dir = root.string();
     out.scenes[0].terrain = terrain;
-    // "showcase" is a content preset on top of the FPP game template
-    const bool showcase = gameTemplate == "showcase";
-    out.gameTemplate = (gameTemplate == "fpp" || showcase) ? "fpp" : "orbit";
 
-    if (out.gameTemplate == "fpp") {
-        // FPP scenes need a player start - seed one in the terrain center.
-        SceneObject spawn;
-        spawn.name = "spawn-1";
-        spawn.type = PrimitiveType::SpawnPoint;
-        spawn.position[1] = 0.0f;
-        spawn.color[0] = 0.15f, spawn.color[1] = 0.9f, spawn.color[2] = 0.9f;
-        out.scenes[0].objects.push_back(spawn);
+    // Two presets: "fpp" (FPP game template with a single player entity) and
+    // "empty" (orbit camera, no objects). Anything else is treated as empty.
+    const bool fpp = preset == "fpp";
+    out.gameTemplate = fpp ? "fpp" : "orbit";
 
-        // ...and a box in front of the player, so the example script
-        // (walk close + press X) has something to interact with.
-        SceneObject box;
-        box.name = "box-1";
-        box.position[0] = 0.0f, box.position[1] = 1.0f, box.position[2] = 6.0f;
-        box.scale[0] = box.scale[1] = box.scale[2] = 2.0f;
-        out.scenes[0].objects.push_back(box);
-
-        // ...and a physics demo: a sphere that drops from the sky at start.
-        SceneObject ball;
-        ball.name = "ball-1";
-        ball.type = PrimitiveType::Sphere;
-        ball.position[0] = 3.0f, ball.position[1] = 10.0f, ball.position[2] = 6.0f;
-        ball.color[0] = 0.25f, ball.color[1] = 0.45f, ball.color[2] = 0.9f;
-        ball.physics = true;
-        out.scenes[0].objects.push_back(ball);
+    if (fpp) {
+        // The player entity: the camera becomes this player at game start.
+        SceneObject player;
+        player.name = "player-1";
+        player.type = PrimitiveType::Player;
+        player.position[0] = 0.0f, player.position[1] = 0.0f, player.position[2] = 0.0f;
+        player.color[0] = 0.15f, player.color[1] = 0.9f, player.color[2] = 0.9f;
+        out.scenes[0].objects.push_back(player);
     }
 
     ensureHeightmap(out);
-
-    if (showcase) {
-        // Built-in assets (written before generate(): model codegen reads them)
-        if (auto err = writeFile(root / "res" / "models" / "house.obj",
-                                 templates::houseObjText());
-            !err.empty())
-            return err;
-        {
-            size_t pngSize = 0;
-            const unsigned char* png = templates::crosshairPng(pngSize);
-            std::error_code ec;
-            fs::create_directories(root / "res" / "hud", ec);
-            std::ofstream f(root / "res" / "hud" / "crosshair.png", std::ios::binary);
-            if (!f) return "Cannot write crosshair.png";
-            f.write((const char*)png, (std::streamsize)pngSize);
-        }
-
-        // A house model...
-        SceneObject house;
-        house.name = "house-1";
-        house.type = PrimitiveType::Model;
-        house.modelPath = "res/models/house.obj";
-        house.position[0] = -7.0f, house.position[1] = 0.0f, house.position[2] = 9.0f;
-        house.rotation[1] = 30.0f;
-        house.scale[0] = house.scale[1] = house.scale[2] = 2.5f;
-        house.color[0] = 0.9f, house.color[1] = 0.85f, house.color[2] = 0.7f;
-        out.scenes[0].objects.push_back(house);
-
-        // ...a pillar to jump on...
-        SceneObject pillar;
-        pillar.name = "pillar-1";
-        pillar.type = PrimitiveType::Cylinder;
-        pillar.position[0] = 5.0f, pillar.position[1] = 0.5f, pillar.position[2] = 10.0f;
-        pillar.scale[0] = 2.0f, pillar.scale[1] = 1.0f, pillar.scale[2] = 2.0f;
-        pillar.color[0] = 0.7f, pillar.color[1] = 0.7f, pillar.color[2] = 0.75f;
-        out.scenes[0].objects.push_back(pillar);
-
-        // ...a HUD crosshair...
-        HudImage crosshair;
-        crosshair.name = "crosshair";
-        crosshair.imagePath = "res/hud/crosshair.png";
-        crosshair.size[0] = crosshair.size[1] = 40.0f;
-        out.hud.push_back(crosshair);
-
-        // ...and two small per-object flow graphs. Object params are left
-        // empty = "self", so both graphs survive copy-paste unchanged.
-        // box-1: Circle toggles the box.
-        for (SceneObject& obj : out.scenes[0].objects) {
-            if (obj.name == "box-1") {
-                FlowGraph& fg = obj.flowGraph;
-                FlowNode onButton;
-                onButton.id = fg.nextId++;
-                onButton.type = "OnButton";
-                onButton.str = "Circle";
-                onButton.pos[0] = 40, onButton.pos[1] = 40;
-                FlowNode toggle;
-                toggle.id = fg.nextId++;
-                toggle.type = "ToggleObject";  // str empty = self
-                toggle.pos[0] = 300, toggle.pos[1] = 40;
-                fg.nodes = {onButton, toggle};
-                FlowLink l1;
-                l1.id = fg.nextId++;
-                l1.fromNode = onButton.id;
-                l1.toNode = toggle.id;
-                fg.links = {l1};
-            } else if (obj.name == "house-1") {
-                // house-1: walking up to it greets you in the log.
-                FlowGraph& fg = obj.flowGraph;
-                FlowNode near;
-                near.id = fg.nextId++;
-                near.type = "NearObject";  // str empty = self
-                near.num[0] = 6.0f;
-                near.pos[0] = 40, near.pos[1] = 40;
-                FlowNode log;
-                log.id = fg.nextId++;
-                log.type = "Log";
-                log.str = "Welcome home!";
-                log.pos[0] = 300, log.pos[1] = 40;
-                fg.nodes = {near, log};
-                FlowLink l2;
-                l2.id = fg.nextId++;
-                l2.fromNode = near.id;
-                l2.toNode = log.id;
-                fg.links = {l2};
-            }
-        }
-    }
 
     for (const auto& f : templates::generate(out)) {
         if (auto err = writeFile(root / f.relativePath, f.content); !err.empty()) return err;
@@ -813,20 +836,7 @@ std::string load(Project& out, const std::string& projectDir) {
                     if (const auto* v = t->find("depth"))
                         sc.terrain.depth = (int)v->numberOr(64);
                 }
-                if (const auto* li = js.find("lighting")) {
-                    readVec3(li->find("dir"), sc.lightDir);
-                    if (const auto* v = li->find("ambient"))
-                        sc.ambient = (float)v->numberOr(0.55);
-                    if (const auto* v = li->find("diffuse"))
-                        sc.diffuse = (float)v->numberOr(0.45);
-                    readVec3(li->find("color"), sc.lightColor);
-                    if (const auto* v = li->find("brightness"))
-                        sc.brightness = (float)v->numberOr(1.0);
-                }
-                if (const auto* v = js.find("terrainTexture"))
-                    sc.terrainTexture = v->stringOr("");
-                if (const auto* v = js.find("terrainTexScale"))
-                    sc.terrainTexScale = (float)v->numberOr(4.0);
+                readSceneVisuals(js, sc);
                 out.scenes.push_back(std::move(sc));
             }
         } else {
@@ -837,27 +847,15 @@ std::string load(Project& out, const std::string& projectDir) {
     }
     if (out.scenes.empty()) out.scenes.push_back(SceneData{});
 
-    // Legacy project-level terrain size + lighting + terrain texture: copy
-    // into every scene that did not carry its own values.
+    // Legacy project-level terrain size: copy into every scene. Legacy
+    // project-level lighting / terrain texture live in out.settings (read
+    // above) and reach scenes through inheritance (project::resolvedSettings),
+    // so no per-scene copy is needed here.
     if (const auto* terrain = root.find("terrain")) {
         TerrainConfig t;
         if (const auto* v = terrain->find("width")) t.width = (int)v->numberOr(64);
         if (const auto* v = terrain->find("depth")) t.depth = (int)v->numberOr(64);
         for (SceneData& sc : out.scenes) sc.terrain = t;
-    }
-    if (const auto* s = root.find("settings")) {
-        for (SceneData& sc : out.scenes) {
-            readVec3(s->find("lightDir"), sc.lightDir);
-            if (const auto* v = s->find("ambient")) sc.ambient = (float)v->numberOr(0.55);
-            if (const auto* v = s->find("diffuse")) sc.diffuse = (float)v->numberOr(0.45);
-            readVec3(s->find("lightColor"), sc.lightColor);
-            if (const auto* v = s->find("brightness"))
-                sc.brightness = (float)v->numberOr(1.0);
-            if (const auto* v = s->find("terrainTexture"))
-                sc.terrainTexture = v->stringOr("");
-            if (const auto* v = s->find("terrainTexScale"))
-                sc.terrainTexScale = (float)v->numberOr(4.0);
-        }
     }
 
     if (const auto* objects = root.find("objects");
@@ -1046,13 +1044,9 @@ std::string saveHistory(const Project& p, const History& h) {
             const SceneData& sc = s.scenes[k];
             json << (k ? ", " : "") << "{ \"name\": \"" << sc.name
                  << "\", \"terrain\": { \"width\": " << sc.terrain.width
-                 << ", \"depth\": " << sc.terrain.depth << " }, \"lighting\": {"
-                 << " \"dir\": " << fmtVec3(sc.lightDir) << ", \"ambient\": "
-                 << fmtFloat(sc.ambient) << ", \"diffuse\": " << fmtFloat(sc.diffuse)
-                 << ", \"color\": " << fmtVec3(sc.lightColor) << ", \"brightness\": "
-                 << fmtFloat(sc.brightness) << " }, \"terrainTexture\": \""
-                 << sc.terrainTexture << "\", \"terrainTexScale\": "
-                 << fmtFloat(sc.terrainTexScale) << ", \"objects\": ";
+                 << ", \"depth\": " << sc.terrain.depth << " }, ";
+            writeSceneVisuals(json, sc);
+            json << ", \"objects\": ";
             writeObjectsArray(json, sc.objects, "        ");
             json << " }";
         }
@@ -1094,20 +1088,7 @@ std::string loadHistory(const Project& p, History& h) {
                     if (const auto* v = t->find("depth"))
                         sc.terrain.depth = (int)v->numberOr(64);
                 }
-                if (const auto* li = js.find("lighting")) {
-                    readVec3(li->find("dir"), sc.lightDir);
-                    if (const auto* v = li->find("ambient"))
-                        sc.ambient = (float)v->numberOr(0.55);
-                    if (const auto* v = li->find("diffuse"))
-                        sc.diffuse = (float)v->numberOr(0.45);
-                    readVec3(li->find("color"), sc.lightColor);
-                    if (const auto* v = li->find("brightness"))
-                        sc.brightness = (float)v->numberOr(1.0);
-                }
-                if (const auto* v = js.find("terrainTexture"))
-                    sc.terrainTexture = v->stringOr("");
-                if (const auto* v = js.find("terrainTexScale"))
-                    sc.terrainTexScale = (float)v->numberOr(4.0);
+                readSceneVisuals(js, sc);
                 s.scenes.push_back(std::move(sc));
             }
         }
