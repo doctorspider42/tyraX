@@ -10,6 +10,13 @@ call :clone "https://github.com/Nelarius/imnodes.git"       master  vendor\imnod
 call :clone "https://github.com/nothings/stb.git"           master  vendor\stb
 call :clone "https://github.com/h4570/tyra.git"             master  vendor\tyra
 
+REM Ensure the stb single-headers we #include are present, even when vendor\stb
+REM is a stale/partial directory that predates the full clone above (no .git,
+REM so the clone step skips it). Back-fill any missing header directly.
+call :stbhdr stb_image.h
+call :stbhdr stb_truetype.h
+call :stbhdr stb_image_write.h
+
 endlocal
 exit /b 0
 
@@ -20,4 +27,11 @@ if exist "%~3\.git" (
     exit /b 0
 )
 git clone --depth 1 --branch %2 %1 "%~3"
+exit /b 0
+
+:stbhdr
+REM %1 = header filename
+if exist "vendor\stb\%~1" exit /b 0
+echo Fetching %~1
+curl -sSL -o "vendor\stb\%~1" "https://raw.githubusercontent.com/nothings/stb/master/%~1"
 exit /b 0
