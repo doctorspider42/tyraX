@@ -973,6 +973,31 @@ Each finished feature lands as its own commit.
   hidden Range and swapped help text (load path of the flag proven by the
   ticked box). Not ear-tested; the playback path below the vol/pan values
   is unchanged from (53).
+- (57) **Window docking lost when opening a project mid-session** - user
+  report: docking didn't seem to persist and panels scattered after loading a
+  project. Root cause: `attachProject()` called
+  `ImGui::LoadIniSettingsFromMemory` mid-frame (File > Open / Ctrl+O fire from
+  inside drawUI), which imgui explicitly does not support between
+  NewFrame/EndFrame (commented-out assert in imgui.cpp) - the dock settings
+  handler clears and rebuilds all dock nodes while the current frame's windows
+  still reference the old ones, so the layout applied half-broken. ~5 s later
+  the `io.WantSaveIniSettings` autosave then wrote that mangled layout back
+  into the freshly opened project's .tyra, destroying its good saved docking
+  (hence "doesn't save"). Second overwrite path: a WantSave pending from
+  before the open captured the *previous* project's on-screen layout into the
+  new project's file in the same frame. Fix: `attachProject()` only sets
+  `layoutLoadPending_`; the run() loop applies the layout at the frame
+  boundary (before NewFrame), where imgui's ApplyAll handlers re-dock existing
+  windows properly; `saveProject()` keeps the stored layout string while a
+  load is pending instead of capturing the stale screen. The startup path
+  (project dir on the command line) goes through the same deferred path.
+  Verified: clean build; scratch project run 1 saves a layout with
+  `[Docking][Data]` into the .tyra on exit, run 2 restores it through the
+  deferred path (screenshot: Project left, Viewport/Flow Graph center,
+  Output/Debug bottom) and the layout string round-trips byte-identical. The
+  mid-session File > Open path needs a hands-on mouse test (no synthetic
+  input from automation), but it now runs the exact same deferred code path
+  as the verified startup load.
 
 ## Backlog (rough order)
 

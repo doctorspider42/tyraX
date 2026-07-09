@@ -74,6 +74,9 @@ private:
 
     Project project_;
     bool hasProject_ = false;
+    // Set by attachProject(): apply project_.windowLayout at the next frame
+    // boundary (ImGui cannot reload settings between NewFrame and EndFrame).
+    bool layoutLoadPending_ = false;
     int selectedObject_ = -1;
 
     // Layouts saved before the Properties window existed lack a slot for it;

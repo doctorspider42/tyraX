@@ -271,6 +271,14 @@ int App::run(const std::string& initialProjectDir) {
     while (!glfwWindowShouldClose(window_)) {
         glfwPollEvents();
 
+        // Deferred from attachProject(): the saved window layout can only be
+        // (re)applied between frames - existing windows get re-docked here.
+        if (layoutLoadPending_) {
+            layoutLoadPending_ = false;
+            ImGui::LoadIniSettingsFromMemory(project_.windowLayout.c_str(),
+                                             project_.windowLayout.size());
+        }
+
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
@@ -881,7 +889,11 @@ void App::saveProject() {
     project_.selectedObject = selectedObject_;
     project_.gizmoOp = gizmoOp_;
     project_.viewMode = (int)viewport_.viewMode();
-    project_.windowLayout = ImGui::SaveIniSettingsToMemory();  // clears WantSave
+    // While a layout load is pending, the on-screen layout still belongs to
+    // the previously shown project - keep the stored one instead of clobbering
+    // the freshly opened project's docking with it.
+    if (!layoutLoadPending_)
+        project_.windowLayout = ImGui::SaveIniSettingsToMemory();  // clears WantSave
     if (auto err = project::save(project_); !err.empty())
         MessageBoxA(nullptr, err.c_str(), "Save Project", MB_ICONERROR | MB_OK);
 }
@@ -964,12 +976,16 @@ void App::attachProject() {
     const int viewMode =
         (project_.viewMode >= 0 && project_.viewMode <= 2) ? project_.viewMode : 0;
     viewport_.setViewMode((Viewport::ViewMode)viewMode);
-    if (!project_.windowLayout.empty()) {
-        ImGui::LoadIniSettingsFromMemory(project_.windowLayout.c_str(),
-                                         project_.windowLayout.size());
-        dockPropertiesPending_ =
-            project_.windowLayout.find("[Window][Properties]") == std::string::npos;
-    }
+    // Loading ImGui settings mid-frame is unsupported (the dock nodes rebuild
+    // while this frame's windows still reference the old ones, scattering the
+    // layout) - defer to the frame boundary in run().
+    layoutLoadPending_ = !project_.windowLayout.empty();
+    // Layouts saved before the Properties window existed: dock it under the
+    // Project panel once the deferred load has settled (drawUI waits for the
+    // Project window's dock node to be valid again).
+    dockPropertiesPending_ =
+        layoutLoadPending_ &&
+        project_.windowLayout.find("[Window][Properties]") == std::string::npos;
     flowPositionsApplied_ = false;
     statusMessage_.clear();
 }
