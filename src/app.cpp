@@ -185,6 +185,17 @@ static bool readWavFormat(const std::string& path, int& audioFormat, int& channe
     return false;
 }
 
+// PS2 SPU2 has ~2 MB of sample RAM. Sound emitters load every sfx into it at
+// scene start (audsrv ADPCM one-shots), so the whole set must fit - a sample
+// too big just fails to load and plays nothing. adpenc packs 28 samples into
+// 16 bytes, so ADPCM is ~2/7 of the 16-bit PCM data; that lets us estimate the
+// SPU2 footprint from the WAV file size and warn before a build silently drops
+// it. Budget left a little under 2 MB for audsrv's own reverb/stream buffers.
+static constexpr uintmax_t kSpu2SampleBudgetBytes = 2u * 1024 * 1024;
+static uintmax_t estimateAdpcmBytes(uintmax_t wavFileBytes) {
+    return wavFileBytes * 2 / 7;
+}
+
 // ---------------------------------------------------------------------------
 
 int App::run(const std::string& initialProjectDir) {
@@ -2021,11 +2032,24 @@ void App::importSoundEffect() {
         statusMessage_ = "Sound import failed: not a readable WAV file";
         return;
     }
+    std::string warning;
     if (audioFormat != 1 || rate != 22050 || bits != 16) {
-        statusMessage_ = "Sound import: adpenc expects 16-bit PCM 22050 Hz, got " +
-                         std::string(audioFormat != 1 ? "non-PCM " : "") +
-                         std::to_string(bits) + "-bit " + std::to_string(rate) +
-                         " Hz (imported anyway - may convert wrong)";
+        warning = "adpenc expects 16-bit PCM 22050 Hz, got " +
+                  std::string(audioFormat != 1 ? "non-PCM " : "") +
+                  std::to_string(bits) + "-bit " + std::to_string(rate) +
+                  " Hz (may convert wrong)";
+    }
+
+    // Warn if the sample cannot fit SPU2's sample RAM - sound emitters load it
+    // there whole, so an oversized one-shot silently plays nothing in-game.
+    std::error_code szEc;
+    const uintmax_t wavBytes = std::filesystem::file_size(std::filesystem::path(src), szEc);
+    if (!szEc && estimateAdpcmBytes(wavBytes) > kSpu2SampleBudgetBytes) {
+        const std::string tooBig =
+            "~" + std::to_string(estimateAdpcmBytes(wavBytes) / (1024 * 1024)) +
+            " MB ADPCM exceeds SPU2's ~2 MB - too long for a sound emitter; use a "
+            "short clip (mono 22050 Hz) or the Music system for full tracks";
+        warning = warning.empty() ? tooBig : warning + "; " + tooBig;
     }
 
     const std::filesystem::path srcPath(src);
@@ -2044,9 +2068,9 @@ void App::importSoundEffect() {
     bool exists = false;
     for (const std::string& s : project_.sounds) exists |= (s == relPath);
     if (!exists) project_.sounds.push_back(relPath);
-    const std::string status = (audioFormat == 1 && rate == 22050 && bits == 16)
-                                   ? "Imported " + fileName
-                                   : statusMessage_;
+    const std::string status =
+        warning.empty() ? "Imported " + fileName
+                        : "Imported " + fileName + " - WARNING: " + warning;
     saveAll(status.c_str());
 }
 
@@ -2057,18 +2081,38 @@ void App::drawSoundsSection() {
     ImGui::SameLine();
     ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("16-bit 22050 Hz WAV one-shots, converted to ADPCM\n"
-                          "at build. Play via Flow Graph: e.g. On Button -> Play Sound.");
+        ImGui::SetTooltip("Short one-shot SFX for sound emitters and the Flow Graph\n"
+                          "Play Sound node. Best as mono 16-bit 22050 Hz WAV.\n"
+                          "All sounds are loaded into SPU2's ~2 MB sample RAM at\n"
+                          "scene start, so keep them short - use Music for full tracks.");
 
     bool changed = false;
+    uintmax_t totalAdpcm = 0;
     for (int i = 0; i < (int)project_.sounds.size(); ++i) {
         const std::string name =
             std::filesystem::path(project_.sounds[i]).filename().string();
+        std::error_code ec;
+        const uintmax_t wavBytes = std::filesystem::file_size(
+            std::filesystem::path(project_.dir) / project_.sounds[i], ec);
+        const uintmax_t adpcm = ec ? 0 : estimateAdpcmBytes(wavBytes);
+        totalAdpcm += adpcm;
+
         ImGui::PushID(i + 1000);
         ImGui::Bullet();
         ImGui::SameLine();
         ImGui::TextUnformatted(name.c_str());
         ImGui::SameLine();
+        if (!ec) {
+            const bool big = adpcm > kSpu2SampleBudgetBytes;
+            const char* fmt = adpcm >= 1024 * 1024 ? "(~%.1f MB)" : "(~%.0f KB)";
+            const double val = adpcm >= 1024 * 1024 ? adpcm / (1024.0 * 1024.0)
+                                                    : adpcm / 1024.0;
+            if (big)
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), fmt, val);
+            else
+                ImGui::TextDisabled(fmt, val);
+            ImGui::SameLine();
+        }
         if (ImGui::SmallButton("x")) {
             removeAudioTrack(project_, project_.sounds[i], false);
             project_.sounds.erase(project_.sounds.begin() + i);
@@ -2078,7 +2122,17 @@ void App::drawSoundsSection() {
         }
         ImGui::PopID();
     }
-    if (project_.sounds.empty()) ImGui::TextDisabled("No sound effects.");
+    if (project_.sounds.empty()) {
+        ImGui::TextDisabled("No sound effects.");
+    } else {
+        const double totalMb = totalAdpcm / (1024.0 * 1024.0);
+        if (totalAdpcm > kSpu2SampleBudgetBytes)
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                               "SPU2 sample RAM: ~%.1f / 2.0 MB - over budget, some "
+                               "sounds will not play", totalMb);
+        else
+            ImGui::TextDisabled("SPU2 sample RAM: ~%.1f / 2.0 MB", totalMb);
+    }
     if (changed) commitChange();
 }
 

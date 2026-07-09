@@ -828,6 +828,30 @@ Each finished feature lands as its own commit.
   so the host-fs write is expected to work where asset *reads* already do
   (HostFs is read-write), but it wants a hands-on run to confirm end to end.
 
+- (52) **Sound emitters: oversized samples crash/silent - safe load + SPU2
+  budget guard** - after (49)/(50) fixed the spaced-filename conversion, a
+  reimported sound still played nothing. Root cause was the sample itself: a
+  ~5 min stereo 44.1 kHz WAV (56 MB) becomes ~16 MB ADPCM, but sound emitters
+  are audsrv one-shots loaded whole into SPU2's ~2 MB sample RAM, so it can
+  never fit. Worse, the engine's `AudioAdpcm::load` read the file into a
+  variable-length array on the EE stack (`u8 data[size]`) sized via fseek/ftell
+  (unreliable over host fs) - a guaranteed stack overflow / bogus size for
+  anything large, and it ignored the audsrv load result. Three changes:
+  (a) engine `audio_adpcm.cpp` - read incrementally into a heap buffer (no
+  fseek/ftell, no stack VLA), check the audsrv result, and return nullptr on
+  any failure; `tryPlay` treats null as a benign no-op. (b) codegen - the
+  emitter update loop skips null samples. (c) editor - import estimates the
+  ADPCM footprint (~2/7 of the WAV) and warns when a single sound exceeds the
+  ~2 MB SPU2 budget, and the Sounds panel shows each sound's estimated size and
+  a running "SPU2 sample RAM: ~X / 2.0 MB" total that turns red over budget.
+  Verified end-to-end: built a scratch fpp project with a short mono 22050 Hz
+  tone on an autoplay emitter; libtyra rebuilt with the engine change (clean
+  compile + link in Docker), beep.wav -> 5 KB adpcm, game boots at 50 FPS, and
+  the WASAPI render-endpoint peak meter read a sustained 0.44 while running and
+  0.00 after quit - i.e. the emitter is audible. The oversized new-new-york
+  sample now degrades to silence without crashing (game boots fine). Editor UI
+  warning path is compile-verified (native file dialog can't be driven headless).
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

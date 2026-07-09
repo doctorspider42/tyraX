@@ -1076,6 +1076,7 @@ void TerrainGame::updateSoundEmitters() {
     const RuntimeObject& o = runtimeObjects[i];
     if (o.data.type != 8 || !o.data.sndAuto) continue;
     if (o.data.snd < 0 || o.data.snd >= (int)sndSamples.size()) continue;
+    if (!sndSamples[o.data.snd]) continue;  // sample failed to load (too big for SPU2?)
     const s8 ch = (s8)(16 + (i & 7));  // emitters own channels 16-23
     if (!o.visible) {
       engine->audio.adpcm.setVolume(0, ch);
