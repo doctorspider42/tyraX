@@ -108,6 +108,15 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
 // General project preferences (Project > Preferences in the editor).
 // Baked into the generated terrain_config.hpp on every build.
 struct ProjectSettings {
+    // Build target. videoSystem: "auto" follows the console region, "ntsc"
+    // forces 60 Hz, "pal" forces 50 Hz (game logic is per-frame, so PAL runs
+    // ~17% slower). The "debug" profile unlocks the on-screen FPS / free-RAM
+    // overlays; "release" strips them from the build.
+    std::string videoSystem = "auto";      // "auto" | "ntsc" | "pal"
+    std::string buildProfile = "release";  // "release" | "debug"
+    bool showFps = false;     // debug profile only: on-screen FPS counter
+    bool showMemory = false;  // debug profile only: on-screen free-RAM readout
+
     // "precise": real per-triangle clipping - no holes at screen edges, but
     // costs EE time. "fast": VU1 cull only - fastest, may drop triangles
     // that extend far beyond the screen.
@@ -163,7 +172,9 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
     auto eq3 = [](const float* x, const float* y) {
         return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
     };
-    return a.clipping == b.clipping && a.terrainDetail == b.terrainDetail &&
+    return a.videoSystem == b.videoSystem && a.buildProfile == b.buildProfile &&
+           a.showFps == b.showFps && a.showMemory == b.showMemory &&
+           a.clipping == b.clipping && a.terrainDetail == b.terrainDetail &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.eyeHeight == b.eyeHeight &&
            a.walkSpeed == b.walkSpeed && a.lookSpeed == b.lookSpeed &&

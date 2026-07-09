@@ -349,6 +349,11 @@ std::string save(const Project& p) {
          << "  \"name\": \"" << p.name << "\",\n"
          << "  \"template\": \"" << p.gameTemplate << "\",\n"
          << "  \"settings\": {\n"
+         << "    \"videoSystem\": \"" << p.settings.videoSystem << "\",\n"
+         << "    \"buildProfile\": \"" << p.settings.buildProfile << "\",\n"
+         << "    \"showFps\": " << (p.settings.showFps ? "true" : "false") << ",\n"
+         << "    \"showMemory\": " << (p.settings.showMemory ? "true" : "false")
+         << ",\n"
          << "    \"clipping\": \"" << p.settings.clipping << "\",\n"
          << "    \"terrainDetail\": " << p.settings.terrainDetail << ",\n"
          << "    \"skyColor\": " << fmtVec3(p.settings.skyColor) << ",\n"
@@ -771,6 +776,14 @@ std::string load(Project& out, const std::string& projectDir) {
 
     if (const auto* s = root.find("settings")) {
         ProjectSettings& st = out.settings;
+        if (const auto* v = s->find("videoSystem")) {
+            const std::string sys = v->stringOr("auto");
+            st.videoSystem = (sys == "pal" || sys == "ntsc") ? sys : "auto";
+        }
+        if (const auto* v = s->find("buildProfile"))
+            st.buildProfile = v->stringOr("release") == "debug" ? "debug" : "release";
+        if (const auto* v = s->find("showFps")) st.showFps = v->boolOr(false);
+        if (const auto* v = s->find("showMemory")) st.showMemory = v->boolOr(false);
         if (const auto* v = s->find("clipping"))
             st.clipping = v->stringOr("precise") == "fast" ? "fast" : "precise";
         if (const auto* v = s->find("terrainDetail"))
@@ -1188,6 +1201,20 @@ std::string refreshGenerated(const Project& p) {
             fs::create_directories(loadPng.parent_path(), ec);
             std::ofstream f(loadPng, std::ios::binary);
             if (f) f.write(reinterpret_cast<const char*>(png), (std::streamsize)n);
+        }
+    }
+    // Debug-HUD glyph strip, needed only when a debug-profile overlay is on.
+    if (p.settings.buildProfile == "debug" &&
+        (p.settings.showFps || p.settings.showMemory)) {
+        const fs::path fontPng = fs::path(p.dir) / "res" / "hud" / "debugfont.png";
+        std::error_code ec;
+        if (!fs::exists(fontPng, ec)) {
+            const auto& png = templates::debugFontPng();
+            fs::create_directories(fontPng.parent_path(), ec);
+            std::ofstream f(fontPng, std::ios::binary);
+            if (f)
+                f.write(reinterpret_cast<const char*>(png.data()),
+                        (std::streamsize)png.size());
         }
     }
     for (const templates::BuiltinAsset& a : templates::saveMenuAssets()) {

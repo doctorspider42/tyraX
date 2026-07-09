@@ -893,6 +893,40 @@ Each finished feature lands as its own commit.
   TYRA_LOG confirmed dist/vol/pan). Diagnostic logging removed after
   verification; editor + game build clean.
 
+- (54) **Target system (PAL/NTSC) + debug/release build profiles** - Project >
+  Preferences grew a "Build" section: **Target system** (Auto / NTSC 60 Hz /
+  PAL 50 Hz) and **Profile** (Release / Debug) with "Show FPS" and "Show memory
+  usage" checkboxes that are grayed out unless the profile is Debug. All four
+  live in `ProjectSettings` (saved in the `.tyra` `settings` block, defaults
+  `auto`/`release`/off - old projects load unchanged). Engine: new
+  `Tyra::VideoMode` enum threaded `EngineOptions.videoMode` -> `Renderer::init`
+  -> `RendererSettings`; `RendererCoreGS::allocateBuffers` keeps
+  `graph_initialize` (region auto-detect) for Auto and otherwise runs the same
+  ps2sdk call sequence with a forced `GRAPH_MODE_PAL/NTSC` (verified identical
+  by disassembling libgraph's `graph_initialize`; the 512x448 framebuffer is
+  kept for both signals). Generated `main.cpp` passes the mode via
+  `EngineOptions` - and must also set `options.writeLogsToFile = true`, because
+  the options ctor re-applies that flag and silently reset the static set the
+  line before (log.txt vanished until this was spotted). Debug HUD: constexpr
+  `DEBUG_SHOW_FPS/MEM` in `terrain_config.hpp` (forced false in release, so the
+  overlay folds away), a `drawDebugHud()` helper in the game-cpp prolog drawing
+  `FPS n` / `MEM n.n MB` (from `Info::getFps()` / `getAvailableRAM()`, the
+  latter sampled every ~2s - it malloc-probes the heap) with an 8x8 CP437-style
+  glyph strip the editor bakes into `res/hud/debugfont.png` (glyphs on a 16px
+  stride so bilinear sampling can't bleed neighbors; written by
+  `refreshGenerated` only when a debug overlay is on). Verified e2e in PCSX2
+  (software renderer, Europe/PAL BIOS): forced PAL -> status bar PAL, 50 VPS,
+  overlay reads "FPS 50 / MEM 27.9 MB"; forced NTSC on the same PAL BIOS ->
+  NTSC, 60 VPS, "FPS 59" (proves the force, not region detect); release
+  profile -> overlay gone, still forced NTSC. **Testing pitfall that cost an
+  hour**: the first e2e ran the project from the session scratchpad whose path
+  is ~185 chars - PS2 `loadelf` truncates the `host:` path (emulog showed a
+  mangled `secname`) and the ELF jumped to null before the banner; looked
+  exactly like an engine-ABI bug. Scratch projects for PCSX2 must live in a
+  short path (e.g. `%TEMP%\tyra-editor-test\`). The Preferences graying uses
+  the standard staged-copy + `BeginDisabled` pattern; the modal itself wasn't
+  exercised by hand (no input injection) - one human click-through pending.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

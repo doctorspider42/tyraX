@@ -11,6 +11,8 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include <stb_image_write.h>  // implementation lives in menubake.cpp
+
 #include "menubake.hpp"
 #include "objparser.hpp"
 #include "project.hpp"
@@ -152,7 +154,14 @@ int main() {
   // hit the file). No cost in a release (NDEBUG) build - the macros compile out.
   Tyra::Info::writeLogsToFile = true;
 
-  Tyra::Engine engine;
+  Tyra::EngineOptions options;
+  // The Engine(options) ctor re-applies this flag, so it must be set here
+  // too or the static above gets reset to the default (console logging).
+  options.writeLogsToFile = true;
+  // Target system (Project > Preferences > Build): Auto follows the console
+  // region, NTSC forces 60 Hz, PAL forces 50 Hz.
+  options.videoMode = Tyra::VideoMode::{{VIDEO_MODE}};
+  Tyra::Engine engine(options);
   {{NAME_UPPER_NS}}::TerrainGame game(&engine);
   engine.run(&game);
   SleepThread();
@@ -183,6 +192,11 @@ constexpr float JUMP_SPEED = {{JUMP_SPEED}};    // units/s
 
 // Scene switches show res/hud/loading.png on black for a moment
 constexpr bool LOADING_SCREEN = {{LOADING_SCREEN}};
+
+// Debug-profile HUD (Project > Preferences > Build). Both are forced false
+// in a release-profile build, which folds the overlay code away entirely.
+constexpr bool DEBUG_SHOW_FPS = {{DEBUG_SHOW_FPS}};
+constexpr bool DEBUG_SHOW_MEM = {{DEBUG_SHOW_MEM}};
 
 }  // namespace {{NAME_UPPER_NS}}
 )";
@@ -507,6 +521,8 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
 #include <math.h>
+#include <stdio.h>
+#include <string.h>
 
 // Definition of the active-scene index declared in scene_data.hpp (which also
 // defines the SCENE_*/SKY_*/... accessor macros so scripts see them too).
@@ -725,6 +741,58 @@ void addModel(std::vector<Vec4>& verts, std::vector<Color>& cols,
   }
 }
 
+/** Debug-profile HUD (Project > Preferences > Build): FPS and free-EE-RAM
+ * readouts in the top-left corner, drawn from the 8x8 glyph strip
+ * res/hud/debugfont.png. Compiles to nothing in a release build (the
+ * DEBUG_SHOW_* constants in terrain_config.hpp fold the calls away). */
+void drawDebugHud(Engine* engine) {
+  if (!DEBUG_SHOW_FPS && !DEBUG_SHOW_MEM) return;
+  static Sprite glyph;
+  static bool glyphReady = false;
+  static int memRefresh = 0;
+  static float memFreeMB = 0.0F;
+  if (!glyphReady) {
+    glyph.mode = SpriteMode::MODE_REPEAT;
+    glyph.size = Vec2(8.0F, 8.0F);  // one atlas cell
+    glyph.scale = 2.0F;
+    auto* texture = engine->renderer.getTextureRepository().add(
+        FileUtils::fromCwd("hud/debugfont.png"));
+    texture->addLink(glyph.id);
+    glyphReady = true;
+  }
+  // Glyph order in the atlas - must match the editor's debugFontPng().
+  // Cells are 16px apart: the glyph sits in the left 8px, the right 8px are
+  // transparent padding so bilinear sampling never bleeds the next glyph.
+  static const char* atlas = "0123456789.FPSMBE";
+  auto drawText = [&](const char* s, float x, float y) {
+    for (; *s; ++s, x += 14.0F) {
+      if (*s == ' ') continue;
+      const char* hit = strchr(atlas, *s);
+      if (!hit) continue;
+      glyph.offset = Vec2((float)(hit - atlas) * 16.0F, 0.0F);
+      glyph.position = Vec2(x, y);
+      engine->renderer.renderer2D.render(glyph);
+    }
+  };
+  char line[32];
+  float y = 16.0F;
+  if (DEBUG_SHOW_FPS) {
+    snprintf(line, sizeof(line), "FPS %d", (int)engine->info.getFps());
+    drawText(line, 16.0F, y);
+    y += 20.0F;
+  }
+  if (DEBUG_SHOW_MEM) {
+    // getAvailableRAM() probes the heap with mallocs - too expensive to run
+    // every frame, so the readout refreshes every ~2 seconds.
+    if (memRefresh-- <= 0) {
+      memFreeMB = engine->info.getAvailableRAM();
+      memRefresh = 120;
+    }
+    snprintf(line, sizeof(line), "MEM %.1f MB", memFreeMB);
+    drawText(line, 16.0F, y);
+  }
+}
+
 }  // namespace
 )";
 
@@ -868,6 +936,7 @@ void TerrainGame::loop() {
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
     renderGameMenu();
     renderSaveMenu();
+    drawDebugHud(engine);
   }
   engine->renderer.endFrame();
 }
@@ -2222,6 +2291,7 @@ void TerrainGame::loop() {
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
     renderGameMenu();
     renderSaveMenu();
+    drawDebugHud(engine);
   }
   engine->renderer.endFrame();
 }
@@ -2475,6 +2545,54 @@ const unsigned char* usePromptPng(size_t& size) {
     };
     size = sizeof(data);
     return data;
+}
+
+// 512x8 glyph strip for the debug-profile HUD, rendered from an embedded
+// 8x8 pixel font and encoded on first use. 17 glyphs ("0123456789.FPSMBE"),
+// one per 16px cell; the right half of each cell stays transparent so the
+// GS's bilinear filter never samples the neighboring glyph.
+const std::vector<unsigned char>& debugFontPng() {
+    static std::vector<unsigned char> png = [] {
+        // Classic CP437-style 8x8 glyphs, one byte per row, MSB = left pixel.
+        static const unsigned char rows[17][8] = {
+            {0x7C, 0xC6, 0xCE, 0xDE, 0xF6, 0xE6, 0x7C, 0x00},  // 0
+            {0x30, 0x70, 0x30, 0x30, 0x30, 0x30, 0xFC, 0x00},  // 1
+            {0x78, 0xCC, 0x0C, 0x38, 0x60, 0xCC, 0xFC, 0x00},  // 2
+            {0x78, 0xCC, 0x0C, 0x38, 0x0C, 0xCC, 0x78, 0x00},  // 3
+            {0x1C, 0x3C, 0x6C, 0xCC, 0xFE, 0x0C, 0x1E, 0x00},  // 4
+            {0xFC, 0xC0, 0xF8, 0x0C, 0x0C, 0xCC, 0x78, 0x00},  // 5
+            {0x38, 0x60, 0xC0, 0xF8, 0xCC, 0xCC, 0x78, 0x00},  // 6
+            {0xFC, 0xCC, 0x0C, 0x18, 0x30, 0x30, 0x30, 0x00},  // 7
+            {0x78, 0xCC, 0xCC, 0x78, 0xCC, 0xCC, 0x78, 0x00},  // 8
+            {0x78, 0xCC, 0xCC, 0x7C, 0x0C, 0x18, 0x70, 0x00},  // 9
+            {0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x30, 0x00},  // .
+            {0xFE, 0x62, 0x68, 0x78, 0x68, 0x60, 0xF0, 0x00},  // F
+            {0xFC, 0x66, 0x66, 0x7C, 0x60, 0x60, 0xF0, 0x00},  // P
+            {0x78, 0xCC, 0xE0, 0x70, 0x1C, 0xCC, 0x78, 0x00},  // S
+            {0xC6, 0xEE, 0xFE, 0xFE, 0xD6, 0xC6, 0xC6, 0x00},  // M
+            {0xFC, 0x66, 0x66, 0x7C, 0x66, 0x66, 0xFC, 0x00},  // B
+            {0xFE, 0x62, 0x68, 0x78, 0x68, 0x62, 0xFE, 0x00},  // E
+        };
+        const int w = 512, h = 8;  // PS2 textures need power-of-two sizes
+        std::vector<unsigned char> rgba(w * h * 4, 0);
+        for (int g = 0; g < 17; ++g)
+            for (int y = 0; y < 8; ++y)
+                for (int x = 0; x < 8; ++x) {
+                    if (!(rows[g][y] & (0x80 >> x))) continue;
+                    unsigned char* px = &rgba[(y * w + g * 16 + x) * 4];
+                    px[0] = px[1] = px[2] = px[3] = 255;
+                }
+        std::vector<unsigned char> out;
+        stbi_write_png_to_func(
+            [](void* ctx, void* data, int size) {
+                auto* v = static_cast<std::vector<unsigned char>*>(ctx);
+                v->insert(v->end(), static_cast<unsigned char*>(data),
+                          static_cast<unsigned char*>(data) + size);
+            },
+            &out, w, h, 4, rgba.data(), w * 4);
+        return out;
+    }();
+    return png;
 }
 
 // 256x64 "LOADING..." sprite, PNG - written into res/hud/loading.png of
@@ -3396,6 +3514,14 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{GRAVITY}}", floatLit(st.gravity));
     s = replaceAll(s, "{{JUMP_SPEED}}", floatLit(st.jumpSpeed));
     s = replaceAll(s, "{{LOADING_SCREEN}}", st.loadingScreen ? "true" : "false");
+    s = replaceAll(s, "{{VIDEO_MODE}}", st.videoSystem == "pal"    ? "PAL"
+                                        : st.videoSystem == "ntsc" ? "NTSC"
+                                                                   : "Auto");
+    const bool debugProfile = st.buildProfile == "debug";
+    s = replaceAll(s, "{{DEBUG_SHOW_FPS}}",
+                   debugProfile && st.showFps ? "true" : "false");
+    s = replaceAll(s, "{{DEBUG_SHOW_MEM}}",
+                   debugProfile && st.showMemory ? "true" : "false");
     s = replaceAll(s, "{{ENGINE_SRC}}", engineSourceDir());
     return s;
 }

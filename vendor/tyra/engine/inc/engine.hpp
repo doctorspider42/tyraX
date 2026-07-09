@@ -28,6 +28,9 @@ struct EngineOptions {
   bool writeLogsToFile = false;
 
   bool loadUsbDriver = false;
+
+  /** Forced output video signal; Auto follows the console region. */
+  VideoMode videoMode = VideoMode::Auto;
 };
 
 class Engine {
@@ -50,7 +53,7 @@ class Engine {
   Banner banner;
 
   void realLoop();
-  void initAll(const bool& loadUsbDriver);
+  void initAll(const EngineOptions& options);
 };
 
 }  // namespace Tyra
