@@ -3665,14 +3665,15 @@ void App::drawScenePreferencesModal() {
             const std::string src = pickPngFile();
             if (!src.empty()) {
                 const std::filesystem::path srcPath(src);
+                const std::string fileName = sanitizeAssetName(srcPath.filename().string());
                 const std::filesystem::path destDir =
                     std::filesystem::path(project_.dir) / "res" / "textures";
                 std::error_code ec;
                 std::filesystem::create_directories(destDir, ec);
-                std::filesystem::copy_file(srcPath, destDir / srcPath.filename(),
+                std::filesystem::copy_file(srcPath, destDir / fileName,
                                            std::filesystem::copy_options::overwrite_existing, ec);
                 if (!ec)
-                    s.terrainTexture = "res/textures/" + srcPath.filename().string();
+                    s.terrainTexture = "res/textures/" + fileName;
             }
         }
         if (!s.terrainTexture.empty()) {
