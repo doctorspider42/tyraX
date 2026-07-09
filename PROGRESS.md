@@ -707,6 +707,40 @@ Each finished feature lands as its own commit.
   Verified: clean build; behavior matches ImGui's official log-autoscroll
   example (live confirmation needs an interactive editor run).
 
+- (49) **Sound emitters silent for filenames with spaces** - an autoplay sound
+  emitter with a sound whose file had a space in the name (e.g. "Norwegian
+  Horror Saga.wav") produced no audio in-game. Root cause was the wav->adpcm
+  conversion loop in runner.cpp: `$f`/`$o` were unquoted, so a spaced filename
+  word-split into multiple arguments - `basename` errored ("extra operand"),
+  `[ ! $o -nt $f ]` errored ("too many arguments") which the `if` read as false,
+  and adpenc was silently skipped. No `.adpcm` was produced, so at runtime
+  `audio.adpcm.load` failed and the emitter played nothing. Inner double-quotes
+  around the variables would be the obvious fix but cannot survive the
+  cmd.exe /S + docker.exe argv unquoting layers (see Runner::exec), and single
+  quotes would block expansion - so the loop now sets an empty `IFS`, which
+  disables word splitting on the unquoted expansions while leaving the `*.wav`
+  glob (pathname expansion, IFS-independent) intact. Verified: reproduced the
+  broken loop locally to confirm the skip; editor rebuilt; `--build` on
+  F:\Tyra-Projects\new-new-york now runs adpenc on the spaced file and produces
+  bin/sfx/"Norwegian Horror Saga.adpcm" (16 MB) next to the ELF where before
+  only the raw .wav was present.
+
+- (50) **Sanitize asset filenames on import** - belt-and-suspenders for (49):
+  every asset copied into res/ now runs its filename through
+  `sanitizeAssetName` (app.cpp), which folds anything outside [A-Za-z0-9._-] to
+  '_'. Applied at all import sites - models, object/terrain textures, HUD
+  images, music, sound effects, menu fonts/images, and the Explorer drag-drop
+  handler - so both the copied file and the relative path stored in the model
+  use the same pipeline-safe name. This keeps spaces (and shell/ISO-special
+  chars) out of the adpenc loop, Makefiles and the ISO9660 writer, which stores
+  identifiers verbatim and so relies on clean input (sanitizing inside the ISO
+  writer instead would desync the on-disc names from the paths baked into the
+  game). Note: only affects newly imported assets - a project that already
+  references a spaced file keeps that name until re-imported (runtime still
+  works via the (49) hostfs fix). Verified: editor rebuilds clean; each import
+  site audited to use the sanitized name for both the copy destination and the
+  stored path.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)
