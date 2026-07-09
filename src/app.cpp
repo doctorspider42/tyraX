@@ -131,6 +131,21 @@ static std::string pickPngFile() { return pickPath(PickKind::Png); }
 static std::string pickWavFile() { return pickPath(PickKind::Wav); }
 static std::string pickTtfFile() { return pickPath(PickKind::Ttf); }
 
+// Asset filenames flow into shell command lines (e.g. the adpenc wav->adpcm
+// loop in runner.cpp), Makefiles and ISO9660 paths - none of which reliably
+// tolerate spaces or shell-special characters. Fold anything outside
+// [A-Za-z0-9._-] to '_' at import time so the file we copy into res/ and the
+// relative path we store always match and stay pipeline-safe.
+static std::string sanitizeAssetName(const std::string& fileName) {
+    std::string out = fileName;
+    for (char& c : out) {
+        const bool safe = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                          (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
+        if (!safe) c = '_';
+    }
+    return out;
+}
+
 // Reads the fmt chunk of a WAV file. Returns false when the file is not a
 // parseable RIFF/WAVE. audioFormat: 1 = integer PCM (the only thing the PS2
 // side streams), 3 = float, others = compressed.
@@ -992,7 +1007,7 @@ void App::importModel() {
     if (src.empty()) return;
 
     const std::filesystem::path srcPath(src);
-    const std::string fileName = srcPath.filename().string();
+    const std::string fileName = sanitizeAssetName(srcPath.filename().string());
     const std::filesystem::path destDir = std::filesystem::path(project_.dir) / "res" / "models";
     std::error_code ec;
     std::filesystem::create_directories(destDir, ec);
@@ -1221,15 +1236,16 @@ void App::drawSceneSection() {
         const std::string src = pickPngFile();
         if (!src.empty()) {
             const std::filesystem::path srcPath(src);
+            const std::string fileName = sanitizeAssetName(srcPath.filename().string());
             const std::filesystem::path destDir =
                 std::filesystem::path(project_.dir) / "res" / "textures";
             std::error_code ec;
             std::filesystem::create_directories(destDir, ec);
-            std::filesystem::copy_file(srcPath, destDir / srcPath.filename(),
+            std::filesystem::copy_file(srcPath, destDir / fileName,
                                        std::filesystem::copy_options::overwrite_existing,
                                        ec);
             if (!ec) {
-                o.texturePath = "res/textures/" + srcPath.filename().string();
+                o.texturePath = "res/textures/" + fileName;
                 committed = true;
             } else {
                 statusMessage_ = "Texture import failed: " + ec.message();
@@ -1826,7 +1842,7 @@ void App::importHudImage() {
     if (src.empty()) return;
 
     const std::filesystem::path srcPath(src);
-    const std::string fileName = srcPath.filename().string();
+    const std::string fileName = sanitizeAssetName(srcPath.filename().string());
     const std::filesystem::path destDir = std::filesystem::path(project_.dir) / "res" / "hud";
     std::error_code ec;
     std::filesystem::create_directories(destDir, ec);
@@ -1909,7 +1925,7 @@ void App::importMusicTrack() {
     }
 
     const std::filesystem::path srcPath(src);
-    const std::string fileName = srcPath.filename().string();
+    const std::string fileName = sanitizeAssetName(srcPath.filename().string());
     const std::filesystem::path destDir =
         std::filesystem::path(project_.dir) / "res" / "audio";
     std::error_code ec;
@@ -2002,7 +2018,7 @@ void App::importSoundEffect() {
     }
 
     const std::filesystem::path srcPath(src);
-    const std::string fileName = srcPath.filename().string();
+    const std::string fileName = sanitizeAssetName(srcPath.filename().string());
     const std::filesystem::path destDir = std::filesystem::path(project_.dir) / "res" / "sfx";
     std::error_code ec;
     std::filesystem::create_directories(destDir, ec);
@@ -2148,11 +2164,12 @@ void App::handleFileDrop(int count, const char** paths) {
             ++skipped;
             continue;
         }
+        const std::string fileName = sanitizeAssetName(src.filename().string());
         const std::filesystem::path destDir =
             std::filesystem::path(project_.dir) / "res" / (isFont ? "fonts" : "hud");
         std::error_code ec;
         std::filesystem::create_directories(destDir, ec);
-        std::filesystem::copy_file(src, destDir / src.filename(),
+        std::filesystem::copy_file(src, destDir / fileName,
                                    std::filesystem::copy_options::overwrite_existing,
                                    ec);
         if (ec) {
@@ -2163,14 +2180,14 @@ void App::handleFileDrop(int count, const char** paths) {
             ++fonts;
             if (menuTarget) {
                 project_.menus[selectedMenu_].fontPath =
-                    "res/fonts/" + src.filename().string();
+                    "res/fonts/" + fileName;
             }
             continue;
         }
         ++copied;
         if (menuTarget) {
             MenuImage img;
-            img.path = "res/hud/" + src.filename().string();
+            img.path = "res/hud/" + fileName;
             project_.menus[selectedMenu_].images.push_back(std::move(img));
             ++attached;
         }
@@ -2448,12 +2465,14 @@ void App::drawMenusWindow() {
                 const std::string src = pickTtfFile();
                 if (!src.empty()) {
                     const std::filesystem::path srcPath(src);
+                    const std::string fileName =
+                        sanitizeAssetName(srcPath.filename().string());
                     std::filesystem::create_directories(fontsDir, ec);
                     std::filesystem::copy_file(
-                        srcPath, fontsDir / srcPath.filename(),
+                        srcPath, fontsDir / fileName,
                         std::filesystem::copy_options::overwrite_existing, ec);
                     if (!ec) {
-                        m.fontPath = "res/fonts/" + srcPath.filename().string();
+                        m.fontPath = "res/fonts/" + fileName;
                         changed = true;
                     }
                 }
@@ -2546,16 +2565,17 @@ void App::drawMenusWindow() {
         const std::string src = pickPngFile();
         if (!src.empty()) {
             const std::filesystem::path srcPath(src);
+            const std::string fileName = sanitizeAssetName(srcPath.filename().string());
             const std::filesystem::path destDir =
                 std::filesystem::path(project_.dir) / "res" / "hud";
             std::error_code ec;
             std::filesystem::create_directories(destDir, ec);
-            std::filesystem::copy_file(srcPath, destDir / srcPath.filename(),
+            std::filesystem::copy_file(srcPath, destDir / fileName,
                                        std::filesystem::copy_options::overwrite_existing,
                                        ec);
             if (!ec) {
                 MenuImage img;
-                img.path = "res/hud/" + srcPath.filename().string();
+                img.path = "res/hud/" + fileName;
                 m.images.push_back(std::move(img));
                 changed = true;
             }
@@ -3471,14 +3491,15 @@ void App::drawPreferencesModal() {
         const std::string src = pickPngFile();
         if (!src.empty()) {
             const std::filesystem::path srcPath(src);
+            const std::string fileName = sanitizeAssetName(srcPath.filename().string());
             const std::filesystem::path destDir =
                 std::filesystem::path(project_.dir) / "res" / "textures";
             std::error_code ec;
             std::filesystem::create_directories(destDir, ec);
-            std::filesystem::copy_file(srcPath, destDir / srcPath.filename(),
+            std::filesystem::copy_file(srcPath, destDir / fileName,
                                        std::filesystem::copy_options::overwrite_existing, ec);
             if (!ec)
-                prefSettings_.terrainTexture = "res/textures/" + srcPath.filename().string();
+                prefSettings_.terrainTexture = "res/textures/" + fileName;
         }
     }
     if (!prefSettings_.terrainTexture.empty()) {
@@ -3644,14 +3665,15 @@ void App::drawScenePreferencesModal() {
             const std::string src = pickPngFile();
             if (!src.empty()) {
                 const std::filesystem::path srcPath(src);
+                const std::string fileName = sanitizeAssetName(srcPath.filename().string());
                 const std::filesystem::path destDir =
                     std::filesystem::path(project_.dir) / "res" / "textures";
                 std::error_code ec;
                 std::filesystem::create_directories(destDir, ec);
-                std::filesystem::copy_file(srcPath, destDir / srcPath.filename(),
+                std::filesystem::copy_file(srcPath, destDir / fileName,
                                            std::filesystem::copy_options::overwrite_existing, ec);
                 if (!ec)
-                    s.terrainTexture = "res/textures/" + srcPath.filename().string();
+                    s.terrainTexture = "res/textures/" + fileName;
             }
         }
         if (!s.terrainTexture.empty()) {
