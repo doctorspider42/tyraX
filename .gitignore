@@ -13,5 +13,8 @@ vendor/tyra/*
 !vendor/tyra/engine/
 !vendor/tyra/Makefile.base
 !vendor/tyra/README.MD
+# Prebuilt audsrv with L/R panning, overlaid onto the container's PS2SDK at
+# build time (see vendor/tyra/audsrv-pan/README.md).
+!vendor/tyra/audsrv-pan/
 vendor/tyra/engine/obj/
 vendor/tyra/engine/bin/

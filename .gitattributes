@@ -4,3 +4,8 @@ engine-patches/** text eol=lf
 # ("Preprocessor directive inside macro block: '#endmacro'"), so keep LF
 # regardless of the checkout's core.autocrlf setting.
 vendor/tyra/** text=auto eol=lf
+
+# Prebuilt audsrv artifacts (custom IRX + EE lib with per-channel L/R panning,
+# see vendor/tyra/audsrv-pan/README.md) - never treat as text.
+vendor/tyra/audsrv-pan/*.irx binary
+vendor/tyra/audsrv-pan/*.a binary
