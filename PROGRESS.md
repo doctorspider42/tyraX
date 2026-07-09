@@ -955,6 +955,25 @@ Each finished feature lands as its own commit.
   generated code paths are the same ctx.objects/flag mechanics as existing
   nodes.
 
+- (56) **Sound emitters: "Play on player" (2D stereo) property** - for
+  dialogs/narration: a sound that always plays "on the player" at full
+  volume, centered, regardless of the emitter's position. New
+  `SceneObject::soundOnPlayer` (saved as `"onPlayer"` in the sound block,
+  defaults false on old projects), `SceneObjectData::sndOnPlayer` in the
+  always-regenerated scene_data.hpp, and a branch in the terrain_game
+  template's updateSoundEmitters that skips the whole distance/range/pan
+  computation (vol=100, pan=0) when set - visibility mute and the
+  interval/loop retrigger logic still apply. Properties UI: checkbox under
+  Autoplay; Range is hidden while it's on (no falloff to range) and the help
+  text switches to the dialog wording. Verified: editor builds clean;
+  `onPlayer: true` set on a scratch project's emitter produces a `1` in the
+  right SceneObjectData slot (neighbors 0), the generated
+  updateSoundEmitters carries the sndOnPlayer branch, and the full Docker
+  PS2 build compiled + linked. GUI screenshot shows the ticked checkbox,
+  hidden Range and swapped help text (load path of the flag proven by the
+  ticked box). Not ear-tested; the playback path below the vol/pan values
+  is unchanged from (53).
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

@@ -1321,13 +1321,24 @@ void App::drawPropertiesWindow() {
         }
         if (ImGui::Checkbox("Autoplay (while the player is in range)", &o.soundAuto))
             committed = true;
-        ImGui::DragFloat("Range", &o.soundRange, 0.5f, 0.5f, 200.0f, "%.1f units");
-        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::Checkbox("Play on player (plain stereo, ignores position)",
+                            &o.soundOnPlayer))
+            committed = true;
+        if (!o.soundOnPlayer) {
+            ImGui::DragFloat("Range", &o.soundRange, 0.5f, 0.5f, 200.0f, "%.1f units");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
         ImGui::DragFloat("Interval", &o.soundInterval, 0.1f, 0.0f, 60.0f, "%.1f s");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::TextDisabled("Volume fades with distance to the player.\n"
-                            "Interval 0 loops the sample seamlessly; > 0\n"
-                            "retriggers it every N seconds. Hide Object mutes.");
+        if (o.soundOnPlayer) {
+            ImGui::TextDisabled("Plays centered at full volume everywhere -\n"
+                                "no distance falloff, no panning (dialogs,\n"
+                                "narration). Hide Object mutes.");
+        } else {
+            ImGui::TextDisabled("Volume fades with distance to the player.\n"
+                                "Interval 0 loops the sample seamlessly; > 0\n"
+                                "retriggers it every N seconds. Hide Object mutes.");
+        }
     }
 
     if (o.type == PrimitiveType::PointLight) {
