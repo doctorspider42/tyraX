@@ -6,11 +6,13 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by tyra-editor: render() no longer emits a FINISH giftag.
 */
 
 #include "renderer/core/2d/renderer_core_2d.hpp"
 #include <dma.h>
 #include <draw.h>
+#include <gif_tags.h>
 
 namespace Tyra {
 
@@ -125,7 +127,23 @@ void RendererCore2D::render(const Sprite& sprite,
                              SCREEN_CENTER - (settings->getWidth() / 2.0F),
                              SCREEN_CENTER - (settings->getHeight() / 2.0F)));
   draw_disable_blending();
-  packet2_update(packet, draw_finish(packet->next));
+  // Upstream ended this packet with draw_finish(), which does two distinct
+  // jobs: its giftag carries EOP=1 (terminates the PATH3 stream at the GIF -
+  // without it PATH1/XGKICK starves at GIF arbitration and the GS deadlocks
+  // on the first 3D frame), and it writes the FINISH register. The FINISH
+  // write is the harmful part: the GS FINISH flag is shared by every path,
+  // and a stray un-consumed sprite FINISH landing inside the window where
+  // RendererCoreSync::align3D() spin-waits released the post fx barrier
+  // early, letting late scene triangles erase the film grain. So terminate
+  // the stream with a data-less EOP giftag and skip the FINISH write -
+  // FINISH stays exclusive to handshakes that consume it (align3D/align2D,
+  // flip, post fx).
+  {
+    qword_t* q = packet->next;
+    PACK_GIFTAG(q, GIF_SET_TAG(0, 1, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+    q++;
+    packet2_update(packet, q);
+  }
 
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);

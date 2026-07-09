@@ -6,6 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by tyra-editor: setDoubleBuffer() records that VU1 is configured.
 */
 
 #include "renderer/core/paths/path1/path1.hpp"
@@ -16,6 +17,7 @@ extern u32 VU1DrawFinish_CodeEnd __attribute__((section(".vudata")));
 namespace Tyra {
 
 Path1::Path1() {
+  vu1Configured = false;
   doubleBufferPacket = packet2_create(2, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
   drawFinishPacket = packet2_create(10, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
   uploadDrawFinishProgram();
@@ -135,6 +137,10 @@ void Path1::setDoubleBuffer(const u16& startingAddress, const u16& bufferSize) {
 
   packet2_utils_vu_add_end_tag(doubleBufferPacket);
   dma_channel_send_packet2(doubleBufferPacket, DMA_CHANNEL_VIF1, true);
+  // Modified by tyra-editor: pipelines call this when they bring VU1 up
+  // (after their own dma_channel_initialize(VIF1)) - from here on the PATH1
+  // draw-finish handshake is functional and endFrame() may arm its barrier.
+  vu1Configured = true;
 }
 
 }  // namespace Tyra

@@ -153,11 +153,28 @@ void RendererCorePostFx::apply() {
   // Mask z writes for the whole pass. Tyra never clears the z buffer (the
   // scene re-passes with GEQUAL every frame), so a stray z=max written by
   // these sprites would lock those pixels against all future drawing.
+  //
+  // Also pin RGBAQ and disable the alpha test for the pass. The blits below
+  // send only UV+XYZ, so their vertex alpha is whatever RGBAQ the scene left
+  // behind - and the drawing environment's alpha test rejects alpha==0
+  // fragments. Fading particles end on exactly alpha 0, and on frames where
+  // such a vertex was the last thing drawn, BOTH grain blits were discarded
+  // whole ("film grain off for a few frames" whenever emitter fade cycles
+  // aligned). Found via a same-packet untextured marker sprite that survived
+  // the dropout frames while the grain didn't.
   const int zbp = static_cast<int>(gs->zBuffer.address) >> 11;
   const int zsm = static_cast<int>(gs->zBuffer.zsm);
-  PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  PACK_GIFTAG(q, GIF_SET_TAG(3, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
   q++;
   PACK_GIFTAG(q, GS_SET_ZBUF(zbp, zsm, 1), GS_REG_ZBUF_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_RGBAQ(0x80, 0x80, 0x80, 0x80, 0x3F800000),
+              GS_REG_RGBAQ);
+  q++;
+  PACK_GIFTAG(q,
+              GS_SET_TEST(0, 0, 0, 0, 0, 0, 1,
+                          static_cast<int>(gs->zBuffer.method)),
+              GS_REG_TEST_1);
   q++;
 
   if (bloom > 0) {
@@ -215,6 +232,8 @@ void RendererCorePostFx::apply() {
   q++;
   PACK_GIFTAG(q, GS_SET_ALPHA(0, 1, 0, 1, 0), GS_REG_ALPHA_1);
   q++;
+  // Re-enable the alpha test exactly as the drawing environment configures it.
+  q = draw_enable_tests(q, 0, &gs->zBuffer);
 
   packet2_update(packet, q);
   // The VU1 3D pipeline expects the window-centered raster offset - put it

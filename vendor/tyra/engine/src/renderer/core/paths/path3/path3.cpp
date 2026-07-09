@@ -6,8 +6,10 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by tyra-editor: clearScreen() no longer emits a FINISH giftag.
 */
 
+#include <gif_tags.h>
 #include "renderer/core/paths/path3/path3.hpp"
 
 namespace Tyra {
@@ -55,7 +57,18 @@ void Path3::clearScreen(zbuffer_t* z, const Color& color) {
                  static_cast<int>(color.g), static_cast<int>(color.b)));
   packet2_update(clearScreenPacket,
                  draw_enable_tests(clearScreenPacket->next, 0, z));
-  packet2_update(clearScreenPacket, draw_finish(clearScreenPacket->next));
+  // Terminate the PATH3 stream with a data-less EOP giftag instead of
+  // upstream's draw_finish(): the EOP bit is load-bearing (without it the
+  // GIF never releases PATH3 and PATH1/XGKICK deadlocks on the first 3D
+  // frame), but the FINISH register write is a stray nobody consumes and it
+  // can release RendererCoreSync::align3D()'s barrier early (the GS FINISH
+  // flag is shared by every path). See renderer_core_2d.cpp for the story.
+  {
+    qword_t* q = clearScreenPacket->next;
+    PACK_GIFTAG(q, GIF_SET_TAG(0, 1, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+    q++;
+    packet2_update(clearScreenPacket, q);
+  }
   packet2_chain_close_tag(clearScreenPacket);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   dma_channel_send_packet2(clearScreenPacket, DMA_CHANNEL_GIF, true);

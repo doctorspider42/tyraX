@@ -6,6 +6,9 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by tyra-editor: track whether the VU1 double buffer was configured,
+# so RendererCore::endFrame() only arms the PATH1 drain barrier once the VU1
+# side (VIF1 DMA init + BASE/OFST) exists - see renderer_core.cpp.
 */
 
 #pragma once
@@ -33,6 +36,9 @@ class Path1 {
 
   void setDoubleBuffer(const u16& startingAddress, const u16& bufferSize);
 
+  /** True once any 3D pipeline configured the VU1 double buffer. */
+  bool isVU1Configured() const { return vu1Configured; }
+
  private:
   void uploadDrawFinishProgram();
   void prepareDrawFinishPacket();
@@ -40,6 +46,7 @@ class Path1 {
   packet2_t* doubleBufferPacket;
   packet2_t* drawFinishPacket;
   u32 drawFinishAddr;
+  bool vu1Configured;
 };
 
 }  // namespace Tyra

@@ -9,6 +9,30 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (15) **Film grain dropout root-caused: alpha test vs stale RGBAQ** — the
+  real mechanism behind "grain vanishes for a few frames when looking at the
+  fog": post fx blits send only UV+XYZ, so their vertex alpha is whatever
+  RGBAQ the scene left in the GS - and the drawing environment's alpha test
+  rejects alpha==0 fragments. Particles render last and fade to exactly
+  alpha 0, so on frames where a fully-faded fog vertex was the last thing
+  drawn, BOTH grain blits were discarded whole. Diagnosed by measurement:
+  ~6 fps native-F8 screenshot bursts (300 shots via PostMessage, no window
+  focus needed) scored by mean horizontal gradient in the sky region - 10/175
+  frames at near-zero grain pre-fix; an untextured same-packet marker sprite
+  survived those frames, proving the packet ran and pinpointing sampling/test
+  state. Fix in renderer_core_postfx: pin RGBAQ (0x80) and disable the alpha
+  test for the pass, restore via draw_enable_tests() after. Post-fix burst:
+  316/316 frames with grain (min 3.50 vs median 3.69). Along the way two more
+  fixes in vendor/tyra: (a) 2D sprites and clearScreen end their PATH3 stream
+  with a data-less EOP giftag instead of draw_finish() - keeps the un-consumed
+  FINISH writes (which could release align3D's barrier early) out of the GS
+  while preserving the EOP bit, which is load-bearing: dropping the whole tag
+  deadlocked the GIF (PATH3 never terminated, PATH1/XGKICK starved, first 3D
+  frame froze at the TYRA banner; found via host-fs marker files); (b)
+  endFrame arms the post fx barrier only once a pipeline configured VU1
+  (Path1::isVU1Configured), so pure-2D loading frames never handshake a VU1
+  that can't answer. All verified in PCSX2 SW renderer at steady 50 FPS.
+
 - (14) **Outline close-up fixes** — two artifacts visible when standing next to a
   usable object: (a) no bottom rim - grounded objects' shells dip below the terrain
   and the ground in front z-rejects them from a low camera; shell vertices are now

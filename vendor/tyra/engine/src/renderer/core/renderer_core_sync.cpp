@@ -20,6 +20,12 @@ void RendererCoreSync::init(Path3* t_path3, Path1* t_path1) {
   path1 = t_path1;
 }
 
+// Modified by tyra-editor (comment only): these barriers spin-wait on the GS
+// FINISH flag, a single event bit shared by every path. Any FINISH giftag
+// that nothing consumes (there used to be one per 2D sprite and one in the
+// screen clear) can land after clear() and release the wait before the real
+// drain - which let late scene triangles erase the post fx film grain. Keep
+// FINISH exclusive to send-then-wait handshakes.
 void RendererCoreSync::align3D() {
   clear();
   sendPath1Req();

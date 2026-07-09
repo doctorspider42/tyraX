@@ -50,8 +50,12 @@ void RendererCore::endFrame() {
   // triangles the GS is still rasterizing would draw back over the grain/bloom
   // (they pass the GEQUAL z-test) and erase it - a few frames every so often,
   // exactly when VU1 lags. Drain PATH1 first so we composite over a finished
-  // frame. Only pay the barrier when an effect is actually on.
-  if (postFx.isEnabled()) sync.align3D();
+  // frame. Only pay the barrier when an effect is actually on, and only once
+  // a 3D pipeline has brought VU1 up (VIF1 DMA init + double buffer): before
+  // that - e.g. the pure-2D loading screen - there is nothing on PATH1 to
+  // drain and the draw-finish handshake would spin forever waiting for a
+  // FINISH that VU1 can't deliver yet.
+  if (postFx.isEnabled() && path1.isVU1Configured()) sync.align3D();
   postFx.apply();
   if (isFrameLimitOn) graph_wait_vsync();
   gs.flipBuffers();
