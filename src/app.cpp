@@ -34,7 +34,7 @@
 
 // ---------------------------------------------------------------------------
 // Native pickers (IFileOpenDialog). pickFolder: FOS_PICKFOLDERS;
-// pickSolutionFile: file dialog filtered to *.tyra solution files.
+// pickSolutionFile: file dialog filtered to *.tyra project files.
 // ---------------------------------------------------------------------------
 enum class PickKind { Folder, Solution, ObjModel, Png, Wav, Ttf };
 
@@ -76,8 +76,7 @@ static std::string pickPath(PickKind kind) {
     switch (kind) {
         case PickKind::Solution:
             return pickFileLegacy(
-                L"Tyra project (*.tyra, project.json)\0*.tyra;project.json\0"
-                L"All files (*.*)\0*.*\0",
+                L"Tyra project (*.tyra)\0*.tyra\0All files (*.*)\0*.*\0",
                 L"Open Tyra project");
         case PickKind::ObjModel:
             return pickFileLegacy(
@@ -198,6 +197,9 @@ int App::run(const std::string& initialProjectDir) {
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    // The window layout lives inside the project's .tyra file, not a global
+    // imgui.ini - we load/save it via ImGui's in-memory settings API.
+    io.IniFilename = nullptr;
     ImGui::StyleColorsDark();
 
     ImGui_ImplGlfw_InitForOpenGL(window_, true);
@@ -221,7 +223,7 @@ int App::run(const std::string& initialProjectDir) {
         std::snprintf(newLocation_, sizeof(newLocation_), "%s\\TyraProjects", home);
 
     if (!initialProjectDir.empty()) {
-        // Accept both a project directory and a <name>.tyra solution file
+        // Accept both a project directory and a <name>.tyra project file
         std::string dir = initialProjectDir;
         if (std::filesystem::path(dir).extension() == ".tyra")
             dir = std::filesystem::path(dir).parent_path().string();
@@ -244,6 +246,10 @@ int App::run(const std::string& initialProjectDir) {
 
         drawUI();
 
+        // Window layout is part of the project: whenever ImGui settles a
+        // layout change (docking, resizes), fold it into the .tyra file.
+        if (hasProject_ && io.WantSaveIniSettings) saveProject();
+
         ImGui::Render();
         int w, h;
         glfwGetFramebufferSize(window_, &w, &h);
@@ -254,6 +260,9 @@ int App::run(const std::string& initialProjectDir) {
 
         glfwSwapBuffers(window_);
     }
+
+    // Flush any layout change that has not hit the save timer yet.
+    if (hasProject_) saveProject();
 
     viewport_.shutdown();
     ImNodes::DestroyContext();
@@ -631,7 +640,7 @@ void App::drawViewportWindow() {
             if (active) ImGui::PopStyleColor();
         }
 
-        // View mode switch (persisted in the solution file via saveAll)
+        // View mode switch (persisted in the .tyra project file via saveAll)
         ImGui::SameLine(0.0f, 24.0f);
         const char* modeNames[] = {"Solid", "Wire", "Wire+Solid"};
         for (int i = 0; i < 3; ++i) {
@@ -642,7 +651,7 @@ void App::drawViewportWindow() {
                                       ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
             if (ImGui::SmallButton(modeNames[i]) && !active) {
                 viewport_.setViewMode((Viewport::ViewMode)i);
-                saveAll("Saved");  // persist the view mode in the solution file
+                saveAll("Saved");  // persist the view mode in the project file
             }
             if (active) ImGui::PopStyleColor();
         }
@@ -807,16 +816,19 @@ void App::drawProjectWindow() {
 }
 
 void App::saveProject() {
+    // The .tyra file carries the editor-side state and window layout too.
+    project_.selectedObject = selectedObject_;
+    project_.gizmoOp = gizmoOp_;
+    project_.viewMode = (int)viewport_.viewMode();
+    project_.windowLayout = ImGui::SaveIniSettingsToMemory();  // clears WantSave
     if (auto err = project::save(project_); !err.empty())
         MessageBoxA(nullptr, err.c_str(), "Save Project", MB_ICONERROR | MB_OK);
 }
 
 void App::saveAll(const char* status) {
     saveProject();
-    if (auto err = project::saveSolution(project_, history_, selectedObject_, gizmoOp_,
-                                         (int)viewport_.viewMode());
-        !err.empty())
-        MessageBoxA(nullptr, err.c_str(), "Save Solution", MB_ICONERROR | MB_OK);
+    if (auto err = project::saveHistory(project_, history_); !err.empty())
+        MessageBoxA(nullptr, err.c_str(), "Save History", MB_ICONERROR | MB_OK);
     statusMessage_ = status;
 }
 
@@ -875,20 +887,25 @@ void App::pasteObject() {
 }
 
 void App::attachProject() {
-    selectedObject_ = -1;
     flowGraphObject_ = -1;
     flowPositionsApplied_ = false;
     history_.reset({project_.scenes});
-    // Solution file restores undo history + editor state when it is in sync
-    // with project.json; otherwise we start fresh (and write a new one).
-    int viewMode = 0;
-    if (auto err =
-            project::loadSolution(project_, history_, selectedObject_, gizmoOp_, viewMode);
-        !err.empty()) {
+    // The history file restores the undo stack when it is in sync with the
+    // project file; otherwise we start fresh (and write a new one).
+    if (auto err = project::loadHistory(project_, history_); !err.empty()) {
         history_.reset({project_.scenes});
-        project::saveSolution(project_, history_, selectedObject_, gizmoOp_, viewMode);
+        project::saveHistory(project_, history_);
     }
+    // Editor-side state + window layout came in with the .tyra project file.
+    selectedObject_ = project_.selectedObject;
+    if (selectedObject_ >= (int)project_.objects().size()) selectedObject_ = -1;
+    gizmoOp_ = (project_.gizmoOp >= 0 && project_.gizmoOp <= 2) ? project_.gizmoOp : 0;
+    const int viewMode =
+        (project_.viewMode >= 0 && project_.viewMode <= 2) ? project_.viewMode : 0;
     viewport_.setViewMode((Viewport::ViewMode)viewMode);
+    if (!project_.windowLayout.empty())
+        ImGui::LoadIniSettingsFromMemory(project_.windowLayout.c_str(),
+                                         project_.windowLayout.size());
     flowPositionsApplied_ = false;
     statusMessage_.clear();
 }
@@ -3561,7 +3578,7 @@ void App::drawPreferencesModal() {
 }
 
 void App::openProjectDialog() {
-    // Projects are opened through their solution file (<name>.tyra).
+    // Projects are opened through their project file (<name>.tyra).
     std::string solutionFile = pickSolutionFile();
     if (solutionFile.empty()) return;
     const std::string dir = std::filesystem::path(solutionFile).parent_path().string();

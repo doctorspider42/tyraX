@@ -23,12 +23,12 @@ Then in the editor:
 
 ## Features (MVP)
 
-- **New project** (`File > New Project`, `Ctrl+N`) — name, location, flat terrain size (width × depth in world units) and a game template: **Terrain orbit** (camera circles the terrain), **FPP walkthrough** (walk with the left analog stick, look around with the right one; the scene starts with a spawn point) or **FPP showcase** — a fresh copy of every feature in one scene: a .obj house, a physics ball, a pillar to jump on, a HUD crosshair and a starter flow graph (Circle toggles the box, walking up to the house logs a greeting). Use showcase for experiments instead of wrecking a shared sample. Generates a complete Tyra game project: `Makefile`, `Dockerfile`, `docker-compose.yml`, C++ sources rendering the scene (StaticPipeline, no asset files needed), `project.json` and the `<name>.tyra` solution file.
-- **Open project** (`Ctrl+O`) — pick the project's `<name>.tyra` solution file.
+- **New project** (`File > New Project`, `Ctrl+N`) — name, location, flat terrain size (width × depth in world units) and a game template: **Terrain orbit** (camera circles the terrain), **FPP walkthrough** (walk with the left analog stick, look around with the right one; the scene starts with a spawn point) or **FPP showcase** — a fresh copy of every feature in one scene: a .obj house, a physics ball, a pillar to jump on, a HUD crosshair and a starter flow graph (Circle toggles the box, walking up to the house logs a greeting). Use showcase for experiments instead of wrecking a shared sample. Generates a complete Tyra game project: `Makefile`, `Dockerfile`, `docker-compose.yml`, C++ sources rendering the scene (StaticPipeline, no asset files needed) and the single `<name>.tyra` project file.
+- **Open project** (`Ctrl+O`) — pick the project's `<name>.tyra` file.
 - **Spawn point** — a special scene object (marker with a direction arrow, no geometry in the game). In the FPP template the player starts at the first spawn point, facing its Y rotation.
-- **Scene objects** — insert simple 3D primitives (box, sphere, cylinder, cone) via the *Scene* menu or the buttons in the *Project* panel. Each object has a name, position, rotation, scale and color, editable in the *Project* panel and saved to `project.json`. Objects render both in the editor viewport and on the PS2 (scene data is regenerated into `inc/scene_data.hpp` on every build).
+- **Scene objects** — insert simple 3D primitives (box, sphere, cylinder, cone) via the *Scene* menu or the buttons in the *Project* panel. Each object has a name, position, rotation, scale and color, editable in the *Project* panel and saved to the `<name>.tyra` project file. Objects render both in the editor viewport and on the PS2 (scene data is regenerated into `inc/scene_data.hpp` on every build).
 - **Transform gizmos** (ImGuizmo) — click an object in the viewport to select it, then drag the gizmo to move / rotate / scale it. Switch tools with the buttons in the viewport corner or the `W` / `E` / `R` keys; `Delete` removes the selected object. Left-drag on empty space or right-drag orbits the camera, wheel zooms.
-- **Solution file & undo history** — editor state lives in `<name>.tyra` next to `project.json`: selection, active tool and the undo history (up to 100 snapshots), so undo/redo survives editor restarts. `project.json` stays the source of truth — if it is edited outside the editor, the stored history is discarded automatically.
+- **Project file, window layout & undo history** — the whole project is a single `<name>.tyra` file: game data plus editor-side state (selection, active tool, view mode) and the ImGui window layout (docking, panel sizes), so your window arrangement is restored per project. The undo history (up to 100 snapshots) lives in a sidecar `<name>.history` file next to it, so undo/redo survives editor restarts; it is gitignored in generated projects. The `<name>.tyra` file is the source of truth — if it is edited outside the editor, the stored history is discarded automatically.
 - **Copy/paste** — duplicate scene objects with `Ctrl+C` / `Ctrl+V` (the copy lands next to the original with a unique name).
 
 ## Shortcuts
@@ -44,7 +44,7 @@ Then in the editor:
 - **3D terrain preview** — *Viewport* window with a checkerboard terrain grid (matching what the PS2 renders), scene objects with a selection outline, world axes and an orbit camera (mouse drag = rotate, wheel = zoom).
 - **Textures (PNG)** — per-object textures (*Set...* in object properties; the object color modulates the texture, white = plain) and a tiled terrain texture (*Preferences > Rendering*). UVs are generated for all primitives, `vt` is read from .obj models. Tyra loads PNG natively: 32/24bpp or palletized 8/4bpp (fastest on the PS2); keep sizes power-of-two.
 - **Terraforming** — *Sculpt (T)* mode in the viewport: paint the terrain with a smooth brush (LMB raises, Shift+LMB lowers, RMB orbits; radius/strength sliders). The heightmap is stored in `terrain.heights`, compiled into the game, and everything follows the relief: FPP walking, object physics, shading.
-- **View modes** — *Solid*, *Wire* (colored wireframe) and *Wire+Solid* (solid shading with a wireframe overlay); buttons in the viewport corner, the choice is persisted in the solution file.
+- **View modes** — *Solid*, *Wire* (colored wireframe) and *Wire+Solid* (solid shading with a wireframe overlay); buttons in the viewport corner, the choice is persisted in the `<name>.tyra` project file.
 - **Scripts** — user C++ scripts live in `src/scripts/` and are compiled into the game by the normal build. A script derives from `Script` (see the generated `inc/scripts/script.hpp`), overrides `init`/`update` and registers itself with `TYRA_SCRIPT(MyScript);` — the editor never parses or regenerates your script files. The *Scripts* section in the *Project* panel lists them, creates new ones from a stub (**New script...**) and opens the project in VS Code (**Open in VS Code**) with working IntelliSense — the generated `.vscode/c_cpp_properties.json` points at the bundled Tyra engine headers and the PS2SDK headers exported from the docker toolchain on first build. Each `ScriptContext` gives access to the engine (pad!), player/camera position, scene objects and the sky color. New FPP projects include an example: walk up to the box and press X — the sky changes color and a message lands in the PCSX2 log.
 - **Flow graph** — visual logic (CryEngine-style): wire triggers (On Start, On Button, Near Object, Every N Seconds) to actions (Set Sky Color, Show/Hide/Toggle/Move/Recolor Object, Log) in the *Flow Graph* tab; the graph compiles into `src/scripts/flow_graph.gen.cpp` on every build.
 - **Physics** — per-object gravity (*Physics* checkbox) and FPP player physics: gravity, jumping on X, collision with scene objects, walking on top of them.
@@ -53,7 +53,7 @@ Then in the editor:
 - **Sky** — gradient dome (horizon/zenith colors) or flat clear color; scripts can retint it at runtime.
 - **HUD from images** — `+ Image (PNG)` imports into `res/hud/`; position/size editable with a live preview over the viewport; rendered in-game as 2D sprites.
 - **Runtime scene** — scripts receive mutable `RuntimeObject`s (move/hide/recolor objects every frame); geometry rebuilds automatically.
-- **Project preferences** (`Project > Preferences`, `Ctrl+,`) — game template, terrain size and detail (max grid cells), **triangle handling** (*Precise clipping* — no holes at screen edges but costs EE time, vs *Fast culling* — fastest, large near triangles may vanish), sky color, FPP camera (eye height, walk/look speed) and orbit speed. Stored in `project.json` and baked into the generated `terrain_config.hpp` on every build; the viewport reflects sky color and terrain detail immediately.
+- **Project preferences** (`Project > Preferences`, `Ctrl+,`) — game template, terrain size and detail (max grid cells), **triangle handling** (*Precise clipping* — no holes at screen edges but costs EE time, vs *Fast culling* — fastest, large near triangles may vanish), sky color, FPP camera (eye height, walk/look speed) and orbit speed. Stored in the `<name>.tyra` project file and baked into the generated `terrain_config.hpp` on every build; the viewport reflects sky color and terrain detail immediately.
 - **Build & Run in PCSX2** (`F5`) — builds the ELF inside a Docker container (the `h4570/tyra` image with the PS2DEV toolchain) and launches it in PCSX2. Build logs stream into the *Output* window.
 
 ## Requirements
@@ -68,7 +68,7 @@ Projects can also be created and built headlessly:
 ```powershell
 tyra-editor.exe --new <name> <parentDir> [width] [depth] [orbit|fpp]
 tyra-editor.exe --build <projectDir> [--run]
-tyra-editor.exe <projectDir|solution.tyra>   # open GUI with a project loaded
+tyra-editor.exe <projectDir|project.tyra>    # open GUI with a project loaded
 ```
 
 ## How Build & Run works
@@ -97,7 +97,7 @@ Before each build the editor refreshes its generated files: `Dockerfile`, `docke
 
 ## Sample project
 
-[samples/script-demo](samples/script-demo) is a complete FPP project with the example script: walk up to the box and press X — the sky changes color. Open it via `File > Open Project` and pick its `project.json` (the `.tyra` solution file and `.vscode/` IntelliSense config are local state — the editor recreates them on open/build). Then just Build & Run.
+[samples/script-demo](samples/script-demo) is a complete FPP project with the example script: walk up to the box and press X — the sky changes color. Open it via `File > Open Project` and pick its `script-demo.tyra` (the `.history` undo file and `.vscode/` IntelliSense config are local state — the editor recreates them on open/build). Then just Build & Run.
 
 ## Structure
 

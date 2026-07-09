@@ -45,7 +45,7 @@ public:
     bool empty() const { return entries_.empty(); }
     const SceneSnapshot& current() const { return entries_[index_]; }
 
-    // Persistence (solution file)
+    // Persistence (history file)
     const std::vector<SceneSnapshot>& entries() const { return entries_; }
     int index() const { return index_; }
     void restore(std::vector<SceneSnapshot> entries, int index) {

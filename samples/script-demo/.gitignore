@@ -1,4 +1,4 @@
 obj/
 bin/*.elf
-*.tyra
+*.history
 .vscode/

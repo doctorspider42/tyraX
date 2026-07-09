@@ -9,6 +9,32 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (16) **Single `.tyra` project file + per-project window layout** — normalized
+  the on-disk project. Previously a project was `project.json` (game data,
+  tracked) plus a gitignored `<name>.tyra` solution (editor state + undo) plus
+  binary `terrain-*.heights`, and the ImGui window layout lived in a global
+  `imgui.ini` in the cwd (shared across all projects). Now the whole project is
+  one `<name>.tyra` file: game data + editor-side state (selection, gizmo, view
+  mode) + the ImGui docking layout, so the window arrangement is restored per
+  project. `project.json` is gone (no backward compat); `load()` finds the
+  single `*.tyra` in the dir. The undo history moved to a sidecar
+  `<name>.history` (JSON, gitignored — churny, rewritten on every edit); heights
+  stay binary sidecars as before. `io.IniFilename` is nulled so ImGui never
+  writes `imgui.ini`; the layout is captured via `SaveIniSettingsToMemory` into
+  the `.tyra` whenever ImGui settles a layout change (and on graceful exit), and
+  applied via `LoadIniSettingsFromMemory` in `attachProject`. Generated
+  `.gitignore` drops `*.tyra` (now the tracked source) and adds `*.history`.
+  `saveSolution/loadSolution` → `saveHistory/loadHistory`; a `jsonEscape` helper
+  handles the layout's newlines/brackets. Sample migrated (`project.json` →
+  `script-demo.tyra`, pure rename). Verified headless (`--new showcase`: exactly
+  one `.tyra` + one `.history`, no `project.json`, `.gitignore` correct) and in
+  the GUI: opened the project (loads fine), the live layout autosaved into the
+  `.tyra` (`"layout"` grew 14→1036 chars, no `imgui.ini` written anywhere), then
+  hand-widened the stored Project panel (383→700), reopened, and the wider panel
+  was honored — proving the load→apply→save→reload round-trip. Migrated sample
+  also opens correctly (title, objects, viewport). Interactive drag-to-rearrange
+  feel is the standard human check; the persistence mechanism is verified.
+
 - (15) **Film grain dropout root-caused: alpha test vs stale RGBAQ** — the
   real mechanism behind "grain vanishes for a few frames when looking at the
   fog": post fx blits send only UV+XYZ, so their vertex alpha is whatever

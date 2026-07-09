@@ -341,6 +341,14 @@ struct Project {
     // the Open Menu flow node, menu entries, or at boot (titleScreen).
     std::vector<GameMenu> menus;
 
+    // --- Editor-side state, persisted in the .tyra project file ------------
+    // Not game data and not part of undo/redo (undo lives in the history
+    // file). Restores the editing session on reopen.
+    int selectedObject = -1;   // selected object in the active scene (-1 none)
+    int gizmoOp = 0;           // transform gizmo: 0 move, 1 rotate, 2 scale
+    int viewMode = 0;          // viewport shading: 0 solid, 1 wire, 2 wire+solid
+    std::string windowLayout;  // ImGui docking layout (SaveIniSettingsToMemory)
+
     bool valid() const { return !name.empty() && !dir.empty(); }
     std::string elfName() const { return name + ".elf"; }
     std::string elfPath() const { return dir + "\\bin\\" + elfName(); }
@@ -349,15 +357,18 @@ struct Project {
 namespace project {
 
 // Creates the project directory, generates all Tyra game sources / build files
-// and project.json. gameTemplate: "orbit" (camera circles the terrain) or
+// and the <name>.tyra project file. gameTemplate: "orbit" (camera circles) or
 // "fpp" (walk with the left stick, look with the right; seeds a spawn point).
 // Returns empty string on success, error message otherwise.
 std::string create(Project& out, const std::string& name, const std::string& parentDir,
                    const TerrainConfig& terrain, const std::string& gameTemplate = "orbit");
 
-// Loads project.json from an existing project directory.
+// Loads the single <name>.tyra project file from an existing project
+// directory (game data + editor-side state + window layout).
 std::string load(Project& out, const std::string& projectDir);
 
+// Writes the single <name>.tyra project file. Editor-side state (selection,
+// gizmo, view mode) and the window layout are taken from the Project fields.
 std::string save(const Project& p);
 
 // --- Terrain heightmap -------------------------------------------------------
@@ -382,17 +393,16 @@ void flattenHeightmap(Project& p, float worldX, float worldZ, float radius, floa
 std::string saveHeights(const Project& p);
 void loadHeights(Project& p);  // silent no-op when the file is absent
 
-// --- Solution file (<name>.tyra) --------------------------------------------
-// Editor-side state next to project.json: selection, active gizmo tool and
-// the undo history (up to History::kMaxEntries snapshots).
+// --- History file (<name>.history) ------------------------------------------
+// The undo history (up to History::kMaxEntries scene snapshots), kept next to
+// the project file. Churny disposable editor state - gitignored in generated
+// projects; the .tyra project file is the tracked source of truth.
 
-std::string saveSolution(const Project& p, const History& h, int selectedObject, int gizmoOp,
-                         int viewMode);
+std::string saveHistory(const Project& p, const History& h);
 
-// Restores history + editor state. Returns an error string when the file is
+// Restores the undo history. Returns an error string when the file is
 // missing/malformed/stale - the caller should then start a fresh history.
-std::string loadSolution(const Project& p, History& h, int& selectedObject, int& gizmoOp,
-                         int& viewMode);
+std::string loadHistory(const Project& p, History& h);
 
 // Rewrites editor-owned files from the current templates and project data:
 // docker infra (Dockerfile, docker-compose.yml) and generated headers

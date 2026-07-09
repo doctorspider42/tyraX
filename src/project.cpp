@@ -55,6 +55,15 @@ static std::string writeFile(const fs::path& path, const std::string& content) {
     return "";
 }
 
+// The single project file (game data + editor state + layout) and the
+// sidecar undo-history file, both next to each other in the project dir.
+static fs::path projectPath(const Project& p) {
+    return fs::path(p.dir) / (p.name + ".tyra");
+}
+static fs::path historyPath(const Project& p) {
+    return fs::path(p.dir) / (p.name + ".history");
+}
+
 static std::string fmtFloat(float v) {
     char buf[32];
     std::snprintf(buf, sizeof(buf), "%.6g", (double)v);
@@ -63,6 +72,30 @@ static std::string fmtFloat(float v) {
 
 static std::string fmtVec3(const float* v) {
     return "[" + fmtFloat(v[0]) + ", " + fmtFloat(v[1]) + ", " + fmtFloat(v[2]) + "]";
+}
+
+// JSON-escape an arbitrary string. Needed for the ImGui window layout, which
+// carries newlines and brackets (our JSON parser decodes the same escapes).
+static std::string jsonEscape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 16);
+    for (char c : s) {
+        switch (c) {
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            case '\b': out += "\\b"; break;
+            case '\f': out += "\\f"; break;
+            default:
+                if ((unsigned char)c < 0x20)
+                    out += ' ';  // other control chars never appear in our data
+                else
+                    out += c;
+        }
+    }
+    return out;
 }
 
 static void readVec3(const json::Value* v, float* out);
@@ -309,8 +342,12 @@ std::string save(const Project& p) {
         json << (m.entries.empty() ? "]" : "\n      ]") << " }";
     }
     json << (p.menus.empty() ? "]" : "\n  ]");
+    // Editor-side state + window layout: the .tyra file is the whole project.
+    json << ",\n  \"editor\": { \"selectedObject\": " << p.selectedObject
+         << ", \"gizmo\": " << p.gizmoOp << ", \"viewMode\": " << p.viewMode << " }";
+    json << ",\n  \"layout\": \"" << jsonEscape(p.windowLayout) << "\"";
     json << "\n}\n";
-    return writeFile(fs::path(p.dir) / "project.json", json.str());
+    return writeFile(projectPath(p), json.str());
 }
 
 std::string create(Project& out, const std::string& name, const std::string& parentDir,
@@ -458,11 +495,11 @@ std::string create(Project& out, const std::string& name, const std::string& par
     }
     if (auto err = save(out); !err.empty()) return err;
 
-    // Every project is born with its solution file (projects are opened
-    // through it) and a single-entry history.
+    // Every project is born with its history file (a single-entry undo stack)
+    // next to the .tyra project file.
     History h;
     h.reset({out.scenes});
-    return saveSolution(out, h, -1, 0, 0);
+    return saveHistory(out, h);
 }
 
 // --- Terrain heightmap -------------------------------------------------------
@@ -679,20 +716,31 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
 }
 
 std::string load(Project& out, const std::string& projectDir) {
-    fs::path jsonPath = fs::path(projectDir) / "project.json";
-    std::ifstream f(jsonPath, std::ios::binary);
-    if (!f) return "Not a tyra-editor project (missing project.json): " + projectDir;
+    // The project is defined by a single <name>.tyra file in the directory.
+    fs::path tyraPath;
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(projectDir, ec)) {
+        if (entry.is_regular_file(ec) && entry.path().extension() == ".tyra") {
+            tyraPath = entry.path();
+            break;
+        }
+    }
+    if (tyraPath.empty())
+        return "Not a tyra-editor project (no .tyra file): " + projectDir;
+    std::ifstream f(tyraPath, std::ios::binary);
+    if (!f) return "Cannot open project file: " + tyraPath.string();
     std::stringstream ss;
     ss << f.rdbuf();
 
     json::Value root;
     if (!json::parse(ss.str(), root) || root.type != json::Value::Type::Object)
-        return "project.json is malformed";
+        return tyraPath.filename().string() + " is malformed";
 
     out = Project{};
     out.dir = fs::path(projectDir).string();
     if (const auto* v = root.find("name")) out.name = v->stringOr("");
-    if (out.name.empty()) return "project.json is malformed (no name)";
+    if (out.name.empty())
+        return tyraPath.filename().string() + " is malformed (no name)";
 
     if (const auto* v = root.find("template"))
         out.gameTemplate = v->stringOr("orbit") == "fpp" ? "fpp" : "orbit";
@@ -967,23 +1015,26 @@ std::string load(Project& out, const std::string& projectDir) {
         if (!legacy.empty() && out.scenes[0].objects[0].flowGraph.empty())
             out.scenes[0].objects[0].flowGraph = std::move(legacy);
     }
+
+    // Editor-side state + window layout (the .tyra file holds the whole
+    // project). All are clamped/validated where they are applied.
+    if (const auto* ed = root.find("editor")) {
+        if (const auto* v = ed->find("selectedObject"))
+            out.selectedObject = (int)v->numberOr(-1);
+        if (const auto* v = ed->find("gizmo")) out.gizmoOp = (int)v->numberOr(0);
+        if (const auto* v = ed->find("viewMode")) out.viewMode = (int)v->numberOr(0);
+    }
+    if (const auto* v = root.find("layout")) out.windowLayout = v->stringOr("");
+
     return "";
 }
 
-// --- solution file (<name>.tyra) --------------------------------------------
+// --- history file (<name>.history) ------------------------------------------
 
-static fs::path solutionPath(const Project& p) {
-    return fs::path(p.dir) / (p.name + ".tyra");
-}
-
-std::string saveSolution(const Project& p, const History& h, int selectedObject, int gizmoOp,
-                         int viewMode) {
+std::string saveHistory(const Project& p, const History& h) {
     std::ostringstream json;
     json << "{\n"
-         << "  \"version\": 2,\n"
-         << "  \"project\": \"project.json\",\n"
-         << "  \"editor\": { \"selectedObject\": " << selectedObject
-         << ", \"gizmo\": " << gizmoOp << ", \"viewMode\": " << viewMode << " },\n"
+         << "  \"version\": 3,\n"
          << "  \"history\": {\n"
          << "    \"index\": " << h.index() << ",\n"
          << "    \"entries\": [";
@@ -1008,25 +1059,24 @@ std::string saveSolution(const Project& p, const History& h, int selectedObject,
         json << "] }";
     }
     json << (entries.empty() ? "]\n" : "\n    ]\n") << "  }\n}\n";
-    return writeFile(solutionPath(p), json.str());
+    return writeFile(historyPath(p), json.str());
 }
 
-std::string loadSolution(const Project& p, History& h, int& selectedObject, int& gizmoOp,
-                         int& viewMode) {
-    std::ifstream f(solutionPath(p), std::ios::binary);
-    if (!f) return "no solution file";
+std::string loadHistory(const Project& p, History& h) {
+    std::ifstream f(historyPath(p), std::ios::binary);
+    if (!f) return "no history file";
     std::stringstream ss;
     ss << f.rdbuf();
 
     json::Value root;
     if (!json::parse(ss.str(), root) || root.type != json::Value::Type::Object)
-        return "solution file is malformed";
+        return "history file is malformed";
 
     const auto* hist = root.find("history");
-    if (!hist) return "solution file has no history";
+    if (!hist) return "history file has no history";
     const auto* entriesVal = hist->find("entries");
     if (!entriesVal || entriesVal->type != json::Value::Type::Array || entriesVal->arr.empty())
-        return "solution history is empty";
+        return "history is empty";
 
     std::vector<SceneSnapshot> entries;
     for (const auto& je : entriesVal->arr) {
@@ -1064,7 +1114,7 @@ std::string loadSolution(const Project& p, History& h, int& selectedObject, int&
         entries.push_back(std::move(s));
     }
 
-    // Heightmaps are not persisted in the solution (they would balloon it);
+    // Heightmaps are not persisted in the history (they would balloon it);
     // adopt the current per-scene heights into every entry, so the stale
     // check below passes and in-session undo of sculpting works from here.
     for (SceneSnapshot& e : entries)
@@ -1079,25 +1129,15 @@ std::string loadSolution(const Project& p, History& h, int& selectedObject, int&
 
     int index = 0;
     if (const auto* v = hist->find("index")) index = (int)v->numberOr(0);
-    if (index < 0 || index >= (int)entries.size()) return "solution history index is invalid";
+    if (index < 0 || index >= (int)entries.size()) return "history index is invalid";
 
-    // Stale check: project.json is the source of truth for the current state.
-    // If it was edited outside the editor, the persisted history no longer applies.
-    // (Old solution formats fail this too and simply start a fresh history.)
+    // Stale check: the .tyra project file is the source of truth for the
+    // current state. If it was edited outside the editor, the persisted
+    // history no longer applies and we start fresh.
     if (!(entries[index] == SceneSnapshot{p.scenes}))
-        return "solution history is stale (project.json changed outside the editor)";
+        return "history is stale (project file changed outside the editor)";
 
     h.restore(std::move(entries), index);
-
-    if (const auto* editor = root.find("editor")) {
-        if (const auto* v = editor->find("selectedObject"))
-            selectedObject = (int)v->numberOr(-1);
-        if (const auto* v = editor->find("gizmo")) gizmoOp = (int)v->numberOr(0);
-        if (const auto* v = editor->find("viewMode")) viewMode = (int)v->numberOr(0);
-    }
-    if (selectedObject >= (int)p.objects().size()) selectedObject = -1;
-    if (gizmoOp < 0 || gizmoOp > 2) gizmoOp = 0;
-    if (viewMode < 0 || viewMode > 2) viewMode = 0;
     return "";
 }
 

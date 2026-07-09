@@ -20,8 +20,8 @@ description: >
 An editor for the [Tyra](https://github.com/h4570/tyra) PlayStation 2 game engine.
 The editor itself is a Windows desktop app (C++20, Dear ImGui docking + GLFW +
 OpenGL 3.3). It edits a **data model** (scenes, objects, terrain heightmaps, flow
-graphs, preferences) stored in `project.json`, and on every build **generates a
-complete PS2 game project** (C++ sources, Makefile, Dockerfile) from that data.
+graphs, preferences) stored in a single `<name>.tyra` file, and on every build
+**generates a complete PS2 game project** (C++ sources, Makefile, Dockerfile).
 The game is compiled inside a Docker container (`h4570/tyra` image, PS2DEV
 `mips64r5900el-ps2-elf-g++` toolchain) and launched in the PCSX2 emulator.
 
@@ -31,7 +31,7 @@ The one-line pipeline to keep in your head:
 ImGui UI (app.cpp) ──edits──> Project model (project.hpp)
         │ commitChange()              │ save()/load()
         ▼                             ▼
-  undo history (history.hpp)     project.json  +  terrain-*.heights
+  undo history (history.hpp)     <name>.tyra + <name>.history + terrain-*.heights
                                       │ refreshGenerated() at build start
                                       ▼
                 templates::generate() (templates.cpp) → game sources
@@ -51,14 +51,14 @@ Two sibling skills cover the rest of the system:
 |---|---|---|
 | `main.cpp` | 76 | Entry point. GUI by default; headless `--new <name> <dir> [w] [d] [orbit\|fpp\|showcase]` and `--build <projectDir> [--run]`. |
 | `app.cpp/.hpp` | 2751 | The whole ImGui shell: menus, all panels (Project, Scene, Scripts, HUD, Music, Sounds, Output, Disc Layout, Flow Graph), modals, gizmo + sculpt input, undo/redo, clipboard, wiring viewport ↔ project ↔ runner. |
-| `project.cpp/.hpp` | 979 | **Data model + JSON (de)serialization + generated-file refresh.** `Project`, `SceneData`, `SceneObject`, `TerrainConfig`, `ProjectSettings`. `save()`, `load()`, `create()`, `saveHeights()/loadHeights()`, `saveSolution()/loadSolution()` (editor state: selection, undo history), `refreshGenerated()`. |
+| `project.cpp/.hpp` | 979 | **Data model + JSON (de)serialization + generated-file refresh.** `Project`, `SceneData`, `SceneObject`, `TerrainConfig`, `ProjectSettings`. `save()`/`load()` (the single `<name>.tyra`: game data + editor state + window layout), `create()`, `saveHeights()/loadHeights()`, `saveHistory()/loadHistory()` (`<name>.history` undo stack), `refreshGenerated()`. |
 | `templates.cpp/.hpp` | 3522 | **All code generation.** `templates::generate(Project)` returns `vector<File>` (relativePath + content). Scene tables, terrain game sources, flow-graph compilation, Dockerfile/Makefile/compose, VS Code IntelliSense config. |
-| `flowgraph.hpp` | 216 | Flow-graph data model: `FlowNode`, `FlowLink` (exec / object-id / position / bool link kinds), `FlowGraph`. Per-object graphs, stored inside objects in project.json. |
+| `flowgraph.hpp` | 216 | Flow-graph data model: `FlowNode`, `FlowLink` (exec / object-id / position / bool link kinds), `FlowGraph`. Per-object graphs, stored inside objects in the `.tyra` file. |
 | `viewport.cpp/.hpp` | 1184 | Offscreen GL 3.3 preview: unit-primitive meshes, terrain grid + heightmap, sky dome, selection outline, live point-light shader, sculpt-brush raycast, orbit/pan camera. |
 | `runner.cpp/.hpp` | 301 | Docker + PCSX2 pipeline on a worker thread (states Idle/Running/Success/Failed). `buildAndRun()`, `runEmulatorOnly()`, `exportIso()`. |
 | `pcsx2_config.cpp` | 86 | Finds PCSX2.ini (portable dir first, then the Documents known folder — beware OneDrive redirection) and force-enables `HostFs = true` before launch. |
 | `iso9660.cpp`, `isoexport.cpp` | 379+264 | In-tree ISO9660 writer + disc layout planning (`Project > Export PS2 ISO`, Disc Layout window). |
-| `json.cpp/.hpp` | 158 | Tiny standalone JSON parser used for reading project.json. |
+| `json.cpp/.hpp` | 158 | Tiny standalone JSON parser used for reading the `.tyra` project file. |
 | `objparser.cpp` | 109 | Wavefront .obj importer for custom models. |
 | `history.hpp` | 59 | Undo/redo snapshot stack. |
 | `gl_loader.h/.cpp` | 137 | Minimal hand-rolled GL 3.3 loader (only what the viewport needs). |

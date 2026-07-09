@@ -36,7 +36,7 @@ everything under `src/` — warnings matter, the build is expected to be clean.
 ```powershell
 build\tyra-editor.exe --new <name> <parentDir> [width] [depth] [orbit|fpp|showcase]
 build\tyra-editor.exe --build <projectDir> [--run]   # exit code 0 = success
-build\tyra-editor.exe <projectDir|solution.tyra>     # open GUI on a project
+build\tyra-editor.exe <projectDir|project.tyra>      # open GUI on a project
 ```
 
 - `--new` scaffolds a complete game project (all generated sources, Makefile,
@@ -63,9 +63,9 @@ without building:
   `terrain_game.cpp` / `controls.hpp` / `script.hpp` regenerate only while their
   marker line is intact, so a stale-looking file there may be user-owned by
   design, not a codegen bug.
-- To test a specific graph/scene shape, edit the project's `project.json`
+- To test a specific graph/scene shape, edit the project's `<name>.tyra` file
   directly (it is the source of truth; the editor tolerates external edits and
-  discards stale undo history), then refresh and inspect.
+  discards the stale undo history in `<name>.history`), then refresh and inspect.
 - `samples/script-demo/` is a checked-in generated project — a useful diff
   baseline, but only as fresh as its last regeneration. If codegen changed
   since, regenerate the sample first (its files drift silently); don't treat a
@@ -143,7 +143,7 @@ Notes:
 | Change | Minimum honest verification |
 |---|---|
 | Editor UI / viewport | Layer 0 + run GUI + screenshot of the affected panel |
-| Serialization (project.json) | Layer 1 `--new` + reopen; round-trip save/load diff |
+| Serialization (`.tyra`) | Layer 1 `--new` + reopen; round-trip save/load diff |
 | Codegen / templates | Layer 2 grep or harness, then one Layer 3 boot |
 | Engine (`vendor/tyra`) | Layer 3 always — compile happens only in Docker; SW-renderer screenshot for anything visual |
 | Audio | Layer 3 + peak-meter check |
