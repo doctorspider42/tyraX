@@ -21,6 +21,7 @@ private:
     void drawMenuBar();
     void drawViewportWindow();
     void drawProjectWindow();
+    void drawPropertiesWindow();
     void drawSceneSection();
     void drawScriptsSection();
     void drawNewScriptModal();
@@ -71,6 +72,10 @@ private:
     Project project_;
     bool hasProject_ = false;
     int selectedObject_ = -1;
+
+    // Layouts saved before the Properties window existed lack a slot for it;
+    // when set, the next frame docks it under the Project panel.
+    bool dockPropertiesPending_ = false;
 
     // Transform gizmo: 0 = move, 1 = rotate, 2 = scale
     int gizmoOp_ = 0;

@@ -893,6 +893,32 @@ Each finished feature lands as its own commit.
   TYRA_LOG confirmed dist/vol/pan). Diagnostic logging removed after
   verification; editor + game build clean.
 
+- (54) **Properties window + per-type property cleanup + collapsible Project
+  sections** - object properties moved out of the Project panel into a new
+  "Properties" dock window (default layout: below Project in the left column;
+  projects saved before this change get it docked there automatically - a
+  pending-dock pass splits the Project node when the stored layout ini has no
+  `[Window][Properties]` section). The properties themselves are now gated by
+  what the game actually reads per type (matrix derived from the generated
+  runtime: geometry build, collision, use-target and physics loops all skip
+  marker types): sound emitters/point lights/spawn points/player no longer
+  offer texture, rotation, scale, physics or "usable" (e.g. a texture set on a
+  sound emitter was a dead setting - only geometry types 0-3/5/10 ever bind
+  textures); color hidden for pure markers (sound/spawn/player) since they
+  draw in fixed editor colors; "save state" limited to solids + emitters +
+  sound emitters (lights are baked at build time); the Type combo now only
+  converts between the four primitive shapes instead of also offering
+  spawn-point/model/player conversions that silently produced misconfigured
+  objects (it also indexed past its 7-name array for types 7-10). Project
+  panel sections (Scenes, Scene objects, HUD, Music, Sounds, Save data,
+  Scripts) are CollapsingHeaders now - Scenes + Scene objects default open,
+  the rest collapsed. Verified: editor built clean; scratch project with a
+  player + injected sound emitter + box (`.tyra` edited directly, selection
+  preset) screenshotted per case - sound emitter shows only
+  name/type/position/save-state/sound params, box shows the full set, and a
+  layout with the Properties section stripped re-docks it under Project on
+  load. Sections collapse/expand state confirmed in the same screenshots.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)
