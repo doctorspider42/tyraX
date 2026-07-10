@@ -9,6 +9,22 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (22) **Missing textures fail soft + are visible in the editor** — a model
+  whose .mtl referenced a texture that never made it into the project used to
+  kill the game at boot ("Failed to load ... png_loader.cpp:39" assert - the
+  texture repository trusts its callers). The generated game now probes every
+  texture file first (models AND the scene TEXTURE_PATHS): a missing one logs
+  a TYRA_WARN and the affected part draws in its Kd/object color. The editor
+  surfaces the problem instead of hiding it: the Properties material summary
+  paints missing textures red ("walls (textures/t.png) - MISSING" + a hint
+  that paths resolve relative to the .obj), and the Assets section flags such
+  models with a "missing textures!" marker (tooltip lists the paths).
+  Texture rows in Assets also got a hover thumbnail (PNG preview + size,
+  reusing the HUD texture cache). Verified: reproduced the crash scenario
+  (res/models/tower/tower.obj with map_Kd textures/t_C_3.png, no such file) -
+  the game now boots at 50 FPS with "Model texture missing:
+  models/tower/textures/t_C_3.png" in the game log; editor builds clean.
+
 - (21) **Sibling-.mtl matching, asset subfolders, Add-menu restructure** —
   three usability follow-ups. **Implicit MTL**: a `.mtl` named like the `.obj`
   next to it is picked up even without a `mtllib` line (the common exporter

@@ -554,6 +554,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
 #include <math.h>
+#include <stdio.h>
 #include <map>
 #include <string>
 
@@ -568,6 +569,14 @@ using namespace Tyra;
 namespace {
 
 constexpr float PI = 3.14159265358979F;
+
+/** The texture repository asserts (crashes) on a missing file - probe first
+ * so a missing PNG degrades to an untextured draw with a warning. */
+bool assetFileExists(const std::string& cwdRel) {
+  FILE* f = fopen(FileUtils::fromCwd(cwdRel).c_str(), "rb");
+  if (f) fclose(f);
+  return f != nullptr;
+}
 
 struct V3 {
   float x, y, z;
@@ -946,9 +955,14 @@ static const char* TPL_GAME_CPP_SCENE = R"(
 void TerrainGame::buildScene() {
   // Load all scene textures once (paths in texture_data.gen.hpp)
   loadedTextures.assign(TEXTURE_COUNT, nullptr);
-  for (int i = 0; i < TEXTURE_COUNT; ++i)
+  for (int i = 0; i < TEXTURE_COUNT; ++i) {
+    if (!assetFileExists(TEXTURE_PATHS[i])) {
+      TYRA_WARN("Scene texture missing: ", TEXTURE_PATHS[i]);
+      continue;  // objects fall back to their plain color
+    }
     loadedTextures[i] =
         engine->renderer.getTextureRepository().add(FileUtils::fromCwd(TEXTURE_PATHS[i]));
+  }
 
   loadModels();
 
@@ -1083,8 +1097,14 @@ void TerrainGame::loadModels() {
         const std::string path = dir + mat.textureName;
         auto it = textureByPath.find(path);
         if (it == textureByPath.end()) {
-          Texture* t = engine->renderer.getTextureRepository().add(
-              FileUtils::fromCwd(path));
+          Texture* t = nullptr;
+          // a texture the .mtl wants but the project lacks degrades the part
+          // to its Kd color instead of an assert at boot
+          if (assetFileExists(path))
+            t = engine->renderer.getTextureRepository().add(
+                FileUtils::fromCwd(path));
+          else
+            TYRA_WARN("Model texture missing: ", path.c_str());
           it = textureByPath.emplace(path, t).first;
         }
         part.texture = it->second;

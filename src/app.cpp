@@ -1217,14 +1217,26 @@ const App::ModelInfo& App::modelInfo(const std::string& relPath) {
 
     ModelInfo info;
     objparser::Model model;
-    if (objparser::load((std::filesystem::path(project_.dir) / relPath).string(),
-                        model)) {
+    const std::filesystem::path full = std::filesystem::path(project_.dir) / relPath;
+    if (objparser::load(full.string(), model)) {
         info.ok = true;
         info.tris = model.vertexCount() / 3;
         for (const objparser::Submesh& s : model.submeshes) {
             const std::string name = s.material.empty() ? "(default)" : s.material;
-            info.materials.push_back(
-                name + (s.texture.empty() ? " (color)" : " (" + s.texture + ")"));
+            ModelInfo::MaterialLine line;
+            if (s.texture.empty()) {
+                line.text = name + " (color)";
+            } else {
+                // texture paths resolve relative to the .obj - flag the ones
+                // that are not actually inside the project (the game would
+                // draw those parts untextured and warn)
+                std::error_code ec;
+                line.missing =
+                    !std::filesystem::exists(full.parent_path() / s.texture, ec);
+                line.text = name + " (" + s.texture + ")";
+                info.anyMissing |= line.missing;
+            }
+            info.materials.push_back(std::move(line));
         }
     }
     return modelInfoCache_.emplace(relPath, std::move(info)).first->second;
@@ -1250,6 +1262,17 @@ void App::drawAssetsSection() {
             ImGui::SameLine();
             ImGui::TextDisabled("(%d tris, %d mat)", info.tris,
                                 (int)info.materials.size());
+            if (info.anyMissing) {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "missing textures!");
+                if (ImGui::IsItemHovered()) {
+                    ImGui::BeginTooltip();
+                    for (const ModelInfo::MaterialLine& line : info.materials)
+                        if (line.missing)
+                            ImGui::TextUnformatted((line.text + " - not found next to the .obj").c_str());
+                    ImGui::EndTooltip();
+                }
+            }
         }
     }
     if (models.empty()) ImGui::TextDisabled("  none - Import or drop .obj files there.");
@@ -1262,6 +1285,17 @@ void App::drawAssetsSection() {
         ImGui::Bullet();
         ImGui::SameLine();
         ImGui::TextUnformatted(t.c_str());
+        // hover thumbnail (same PNG cache the HUD preview uses)
+        if (ImGui::IsItemHovered()) {
+            if (const HudTexture* tex = hudTexture("res/textures/" + t)) {
+                ImGui::BeginTooltip();
+                const float scale = 128.0f / (float)(tex->w > tex->h ? tex->w : tex->h);
+                ImGui::Image((ImTextureID)(intptr_t)tex->tex,
+                             ImVec2(tex->w * scale, tex->h * scale));
+                ImGui::TextDisabled("%d x %d", tex->w, tex->h);
+                ImGui::EndTooltip();
+            }
+        }
     }
     if (textures.empty())
         ImGui::TextDisabled("  none - Import or drop PNG files there.");
@@ -1457,8 +1491,17 @@ void App::drawPropertiesWindow() {
         const ModelInfo& info = modelInfo(o.modelPath);
         if (info.ok) {
             ImGui::TextDisabled("%d triangles, materials (from .mtl):", info.tris);
-            for (const std::string& m : info.materials)
-                ImGui::TextDisabled("  - %s", m.c_str());
+            for (const ModelInfo::MaterialLine& m : info.materials) {
+                if (m.missing)
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                       "  - %s - MISSING", m.text.c_str());
+                else
+                    ImGui::TextDisabled("  - %s", m.text.c_str());
+            }
+            if (info.anyMissing)
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                   "Missing textures render as plain color - put the\n"
+                                   "files next to the .obj (paths are relative to it).");
         } else if (!o.modelPath.empty()) {
             ImGui::TextDisabled("Model file missing/unparseable - renders as a box.");
         }

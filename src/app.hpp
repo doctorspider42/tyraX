@@ -67,7 +67,12 @@ private:
     struct ModelInfo {
         bool ok = false;
         int tris = 0;
-        std::vector<std::string> materials;  // "name (texture.png)" / "name (color)"
+        struct MaterialLine {
+            std::string text;      // "name (texture.png)" / "name (color)"
+            bool missing = false;  // the referenced texture file is absent
+        };
+        std::vector<MaterialLine> materials;
+        bool anyMissing = false;
     };
     std::map<std::string, ModelInfo> modelInfoCache_;
     const ModelInfo& modelInfo(const std::string& relPath);
