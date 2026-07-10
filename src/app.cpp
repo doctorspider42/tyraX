@@ -363,6 +363,9 @@ void App::drawUI() {
     if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_O)) openProjectDialog();
     if (hasProject_ && !runner_.busy() && ImGui::IsKeyPressed(ImGuiKey_F5))
         runner_.buildAndRun(project_, true);
+    if (hasProject_ && !runner_.busy() && !project_.ps2LinkIp.empty() &&
+        ImGui::IsKeyPressed(ImGuiKey_F6))
+        runner_.buildAndRunPs2(project_, true);
     if (hasProject_) {
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S)) saveAll("Saved");
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Comma)) {
@@ -371,6 +374,7 @@ void App::drawUI() {
             prefSettings_ = project_.settings;
             snprintf(prefEmulatorPath_, sizeof(prefEmulatorPath_), "%s",
                      project_.emulatorPath.c_str());
+            snprintf(prefPs2Ip_, sizeof(prefPs2Ip_), "%s", project_.ps2LinkIp.c_str());
             openPreferencesPopup_ = true;
         }
         if (!io.WantTextInput) {
@@ -419,6 +423,7 @@ void App::drawMenuBar() {
                 prefSettings_ = project_.settings;
                 snprintf(prefEmulatorPath_, sizeof(prefEmulatorPath_), "%s",
                          project_.emulatorPath.c_str());
+                snprintf(prefPs2Ip_, sizeof(prefPs2Ip_), "%s", project_.ps2LinkIp.c_str());
                 openPreferencesPopup_ = true;
             }
             ImGui::Separator();
@@ -428,6 +433,14 @@ void App::drawMenuBar() {
                 runner_.buildAndRun(project_, true);
             if (ImGui::MenuItem("Run in PCSX2 (no build)", nullptr, false, !busy))
                 runner_.runEmulatorOnly(project_);
+            ImGui::Separator();
+            const bool ps2Ready = !project_.ps2LinkIp.empty();
+            if (ImGui::MenuItem("Build && Run on PS2", "F6", false, !busy && ps2Ready))
+                runner_.buildAndRunPs2(project_, true);
+            if (ImGui::MenuItem("Run on PS2 (no build)", nullptr, false, !busy && ps2Ready))
+                runner_.buildAndRunPs2(project_, false);
+            if (!ps2Ready && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Set 'PS2 (ps2link) IP' in Project > Preferences first.");
             ImGui::Separator();
             if (ImGui::MenuItem("Export PS2 ISO", nullptr, false, !busy))
                 runner_.exportIso(project_);
@@ -857,6 +870,16 @@ void App::drawProjectWindow() {
     ImGui::SameLine();
     if (ImGui::Button("Run", ImVec2(80, 0))) runner_.runEmulatorOnly(project_);
     ImGui::EndDisabled();
+    ImGui::BeginDisabled(busy || project_.ps2LinkIp.empty());
+    if (ImGui::Button("Build & Run on PS2", ImVec2(160, 0)))
+        runner_.buildAndRunPs2(project_, true);
+    ImGui::SameLine();
+    if (ImGui::Button("Run on PS2", ImVec2(100, 0)))
+        runner_.buildAndRunPs2(project_, false);
+    ImGui::EndDisabled();
+    if (project_.ps2LinkIp.empty() &&
+        ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Set 'PS2 (ps2link) IP' in Project > Preferences first.");
 
     if (busy) {
         ImGui::SameLine();
@@ -4477,6 +4500,13 @@ void App::drawPreferencesModal() {
         ImGui::DragFloat("Orbit speed", &prefSettings_.orbitSpeed, 0.05f, 0.0f, 10.0f, "%.2f");
     }
 
+    ImGui::SeparatorText("Input");
+    ImGui::SliderFloat("Stick deadzone", &prefSettings_.stickDeadzone, 0.0f, 0.9f, "%.2f");
+    ImGui::TextDisabled(
+        "Analog stick offsets below this fraction read as zero. Raise it when\n"
+        "a worn pad drifts (camera moves by itself); motion above the deadzone\n"
+        "ramps smoothly, so higher values only cost stick range, not control.");
+
     ImGui::SeparatorText("Physics");
     ImGui::DragFloat("Gravity (units/s^2)", &prefSettings_.gravity, 0.1f, 0.0f, 100.0f,
                      "%.1f");
@@ -4501,6 +4531,13 @@ void App::drawPreferencesModal() {
         "Path to pcsx2-qt.exe used by Build && Run. Leave empty to auto-detect\n"
         "under Program Files. The emulator's log appears in the Debug window.");
 
+    ImGui::SeparatorText("Real PS2 (network deploy)");
+    ImGui::InputText("PS2 (ps2link) IP", prefPs2Ip_, sizeof(prefPs2Ip_));
+    ImGui::TextDisabled(
+        "IP of a PS2 on the LAN running PS2LINK.ELF. Enables Project > Build &&\n"
+        "Run on PS2 (F6): the game boots on the console over ethernet with its\n"
+        "assets served from this PC - no ISO, no SMB. Leave empty to disable.");
+
     ImGui::Separator();
     ImGui::TextDisabled(
         "These are project-wide defaults. Scenes inherit them unless a\n"
@@ -4509,6 +4546,7 @@ void App::drawPreferencesModal() {
         project_.gameTemplate = prefTemplate_ == 1 ? "fpp" : "orbit";
         project_.settings = prefSettings_;
         project_.emulatorPath = prefEmulatorPath_;
+        project_.ps2LinkIp = prefPs2Ip_;
         project_.active().terrain = prefTerrain_;
         applyProjectToViewport();  // scenes that inherit follow the new defaults
         commitChange();

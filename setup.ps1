@@ -30,3 +30,26 @@ foreach ($h in $stbHeaders) {
         Invoke-WebRequest -Uri "https://raw.githubusercontent.com/nothings/stb/master/$h" -OutFile $path
     }
 }
+
+# Real-PS2 network deploy tools ("Run on PS2" in the editor): ps2client.exe
+# talks to a console running ps2link. The Runner looks for it in
+# tools/ps2client/bin; ps2link goes onto the console's memory card once
+# (edit IPCONFIG.DAT for your LAN - format: "ip netmask gateway").
+$ps2Tools = @(
+    @{ Url = 'https://github.com/ps2dev/ps2client/releases/download/v1.3.0/ps2client-211df54b-windows-latest.tar.gz'
+       Dir = 'tools/ps2client'; Probe = 'tools/ps2client/bin/ps2client.exe' },
+    @{ Url = 'https://github.com/ps2dev/ps2link/releases/download/RenameMe/ps2link-0269a955-highloading.tar.gz'
+       Dir = 'tools/ps2link';   Probe = 'tools/ps2link/ps2link/PS2LINK.ELF' }
+)
+foreach ($t in $ps2Tools) {
+    if (Test-Path $t.Probe) {
+        Write-Host "OK: $($t.Dir) already present"
+        continue
+    }
+    Write-Host "Fetching $($t.Url)"
+    New-Item -ItemType Directory -Force $t.Dir | Out-Null
+    $tarball = Join-Path $t.Dir 'download.tar.gz'
+    Invoke-WebRequest -Uri $t.Url -OutFile $tarball
+    tar -xzf $tarball -C $t.Dir
+    Remove-Item $tarball
+}

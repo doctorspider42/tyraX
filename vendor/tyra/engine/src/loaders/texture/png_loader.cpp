@@ -6,6 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by tyra-editor: decode from a whole-file memory buffer
 */
 
 #include "debug/debug.hpp"
@@ -14,6 +15,7 @@
 #include <malloc.h>
 #include <png.h>
 #include <string>
+#include <vector>
 #include <draw_buffers.h>
 #include "loaders/texture/png_loader.hpp"
 #include "file/file_utils.hpp"
@@ -28,6 +30,26 @@ struct PngClut {
   u8 r, g, b, a;
 };
 
+// libpng pulls the file in many small reads; over ps2link's network host:
+// each one is a full EE->IOP->TCP round trip and a 400 KB texture takes
+// minutes. Read the whole file up front with large sequential freads (no
+// fseek - it is unreliable over the PS2 host fs) and let libpng decode
+// from memory.
+struct PngMemorySource {
+  const u8* data;
+  size_t size;
+  size_t offset;
+};
+
+static void pngReadFromMemory(png_structp pngPtr, png_bytep out,
+                              png_size_t count) {
+  auto* src = static_cast<PngMemorySource*>(png_get_io_ptr(pngPtr));
+  if (src->offset + count > src->size)
+    png_error(pngPtr, "PNG read past end of file");
+  memcpy(out, src->data + src->offset, count);
+  src->offset += count;
+}
+
 /** Based on GsKit texture loading - thank you guys! */
 TextureBuilderData* PngLoader::load(const char* fullPath) {
   std::string path = fullPath;
@@ -37,6 +59,22 @@ TextureBuilderData* PngLoader::load(const char* fullPath) {
 
   FILE* file = fopen(fullPath, "rb");
   TYRA_ASSERT(file != nullptr, "Failed to load ", fullPath);
+
+  std::vector<u8> fileData;
+  {
+    const size_t chunk = 64 * 1024;
+    size_t used = 0;
+    for (;;) {
+      fileData.resize(used + chunk);
+      const size_t got = fread(fileData.data() + used, 1, chunk, file);
+      used += got;
+      if (got < chunk) break;
+    }
+    fileData.resize(used);
+  }
+  fclose(file);
+  TYRA_ASSERT(!fileData.empty(), "Empty texture file: ", fullPath);
+  PngMemorySource source{fileData.data(), fileData.size(), 0};
 
   png_structp pngPtr;
   png_infop infoPtr;
@@ -55,7 +93,7 @@ TextureBuilderData* PngLoader::load(const char* fullPath) {
 
   TYRA_ASSERT(!setjmp(png_jmpbuf(pngPtr)), "PNG read error for: ", filename);
 
-  png_init_io(pngPtr, file);
+  png_set_read_fn(pngPtr, &source, pngReadFromMemory);
   png_set_sig_bytes(pngPtr, sigRead);
   png_read_info(pngPtr, infoPtr);
   png_get_IHDR(pngPtr, infoPtr, &width, &height, &bitDepth, &colorType,
@@ -86,7 +124,6 @@ TextureBuilderData* PngLoader::load(const char* fullPath) {
 
   png_read_end(pngPtr, nullptr);
   png_destroy_read_struct(&pngPtr, &infoPtr, nullptr);
-  fclose(file);
 
   return result;
 }

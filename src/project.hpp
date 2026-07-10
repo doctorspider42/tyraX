@@ -145,6 +145,11 @@ struct ProjectSettings {
     float walkSpeed = 0.4f;
     float lookSpeed = 1.0f;  // multiplier
 
+    // Analog sticks: offsets below this fraction of full deflection read as
+    // zero (real DualShock sticks rest off-center); motion rescales smoothly
+    // from the deadzone edge. Applies to both sticks in generated games.
+    float stickDeadzone = 0.2f;  // 0..0.9
+
     // Orbit template
     float orbitSpeed = 1.0f;  // multiplier
 
@@ -191,6 +196,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.eyeHeight == b.eyeHeight &&
            a.walkSpeed == b.walkSpeed && a.lookSpeed == b.lookSpeed &&
+           a.stickDeadzone == b.stickDeadzone &&
            a.orbitSpeed == b.orbitSpeed && a.gravity == b.gravity &&
            a.jumpSpeed == b.jumpSpeed && eq3(a.lightDir, b.lightDir) &&
            a.ambient == b.ambient && a.diffuse == b.diffuse &&
@@ -409,6 +415,9 @@ struct Project {
     // Absolute path to the PCSX2 executable to launch (Project > Preferences).
     // Empty = auto-detect under Program Files. Editor-side, not game data.
     std::string emulatorPath;
+    // IP of a PS2 running ps2link, for "Run on PS2" network deploys
+    // (Project > Preferences). Empty = the menu entries stay disabled.
+    std::string ps2LinkIp;
 
     bool valid() const { return !name.empty() && !dir.empty(); }
     std::string elfName() const { return name + ".elf"; }

@@ -366,6 +366,7 @@ std::string save(const Project& p) {
          << "    \"eyeHeight\": " << fmtFloat(p.settings.eyeHeight) << ",\n"
          << "    \"walkSpeed\": " << fmtFloat(p.settings.walkSpeed) << ",\n"
          << "    \"lookSpeed\": " << fmtFloat(p.settings.lookSpeed) << ",\n"
+         << "    \"stickDeadzone\": " << fmtFloat(p.settings.stickDeadzone) << ",\n"
          << "    \"orbitSpeed\": " << fmtFloat(p.settings.orbitSpeed) << ",\n"
          << "    \"gravity\": " << fmtFloat(p.settings.gravity) << ",\n"
          << "    \"jumpSpeed\": " << fmtFloat(p.settings.jumpSpeed) << ",\n"
@@ -479,7 +480,8 @@ std::string save(const Project& p) {
     // Editor-side state + window layout: the .tyra file is the whole project.
     json << ",\n  \"editor\": { \"selectedObject\": " << p.selectedObject
          << ", \"gizmo\": " << p.gizmoOp << ", \"viewMode\": " << p.viewMode
-         << ", \"emulatorPath\": \"" << jsonEscape(p.emulatorPath) << "\" }";
+         << ", \"emulatorPath\": \"" << jsonEscape(p.emulatorPath) << "\""
+         << ", \"ps2LinkIp\": \"" << jsonEscape(p.ps2LinkIp) << "\" }";
     json << ",\n  \"layout\": \"" << jsonEscape(p.windowLayout) << "\"";
     json << "\n}\n";
     return writeFile(projectPath(p), json.str());
@@ -808,6 +810,8 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = s->find("eyeHeight")) st.eyeHeight = (float)v->numberOr(1.8);
         if (const auto* v = s->find("walkSpeed")) st.walkSpeed = (float)v->numberOr(0.4);
         if (const auto* v = s->find("lookSpeed")) st.lookSpeed = (float)v->numberOr(1.0);
+        if (const auto* v = s->find("stickDeadzone"))
+            st.stickDeadzone = (float)v->numberOr(0.2);
         if (const auto* v = s->find("orbitSpeed")) st.orbitSpeed = (float)v->numberOr(1.0);
         if (const auto* v = s->find("gravity")) st.gravity = (float)v->numberOr(9.8);
         if (const auto* v = s->find("jumpSpeed")) st.jumpSpeed = (float)v->numberOr(4.5);
@@ -1047,6 +1051,7 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = ed->find("gizmo")) out.gizmoOp = (int)v->numberOr(0);
         if (const auto* v = ed->find("viewMode")) out.viewMode = (int)v->numberOr(0);
         if (const auto* v = ed->find("emulatorPath")) out.emulatorPath = v->stringOr("");
+        if (const auto* v = ed->find("ps2LinkIp")) out.ps2LinkIp = v->stringOr("");
     }
     if (const auto* v = root.find("layout")) out.windowLayout = v->stringOr("");
 

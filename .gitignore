@@ -3,6 +3,9 @@ build/
 *.user
 imgui.ini
 
+# PS2 network-deploy tools, fetched by setup.ps1 (ps2client + ps2link)
+tools/
+
 # Vendored dependencies are fetched separately (see README)...
 vendor/*
 # ...except the Tyra engine, which is maintained in-tree: the editor edits

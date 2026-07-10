@@ -6,6 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Wellington Carvalho <wellcoj@gmail.com>
+# Modified by tyra-editor: keepIopResident flag (run under ps2link)
 */
 
 #include "irx/irx_loader.hpp"
@@ -38,16 +39,22 @@ EXTERN_IRX(usbmass_bd_irx);
 namespace Tyra {
 
 bool IrxLoader::isLoaded = false;
+bool IrxLoader::keepIopResident = false;
 
 IrxLoader::IrxLoader() {
   SifInitRpc(0);
 
-  while (!SifIopReset("", 0)) {
-  };
-  while (!SifIopSync()) {
-  };
+  // Under ps2link the IOP must not be reset: ps2link lives there and serves
+  // the host: filesystem the game is about to load everything from. Loading
+  // our modules on top of its IOP state is the standard ps2link dev flow.
+  if (!keepIopResident) {
+    while (!SifIopReset("", 0)) {
+    };
+    while (!SifIopSync()) {
+    };
 
-  SifInitRpc(0);
+    SifInitRpc(0);
+  }
 
   this->applyRpcPatches();
 }
@@ -60,7 +67,13 @@ void IrxLoader::loadAll(const bool& withUsb, const bool& isLoggingToFile) {
     return;
   }
 
-  loadIO(!isLoggingToFile);
+  // ps2link's IOP already runs iomanX (with the host: device registered in
+  // ITS table) - loading a second iomanX re-hooks ioman onto an empty device
+  // table and host: vanishes: the ELF loads, then the first asset fopen
+  // fails. Verified on real hardware (rom0: kept working - legacy ioman -
+  // while every host: open silently died). fileXio rides along: ps2link
+  // provides it and no EE code calls it.
+  if (!keepIopResident) loadIO(!isLoggingToFile);
   loadSio2man(!isLoggingToFile);
   loadPadman(!isLoggingToFile);
   loadLibsd(!isLoggingToFile);
@@ -91,8 +104,19 @@ int IrxLoader::applyRpcPatches() {
       ret >= 0,
       "Failed to load Applying SBV Patches sbv_patch_disable_prefix_check");
 
-  ret = sbv_patch_fileio();
-  TYRA_ASSERT(ret >= 0, "Failed to load Applying SBV Patches sbv_patch_fileio");
+  // sbv_patch_fileio pokes jumps at fixed offsets valid for Sony's ROM
+  // FILEIO module. ps2link's environment runs PS2SDK's own FILEIO_service,
+  // which reports the same 1.1 version (the patch's only guard) but has a
+  // different code layout - the blind pokes corrupt its RPC dispatcher and
+  // every EE open() dies from then on. Seen on real hardware: libc's boot
+  // rom0:ROMVER open succeeded, every host: open after this patch vanished.
+  // The bugs it fixes (fioRemove/mkdir fallthrough, Getstat DMA race) are
+  // irrelevant for a dev run, so skip it when ps2link stays resident.
+  if (!keepIopResident) {
+    ret = sbv_patch_fileio();
+    TYRA_ASSERT(ret >= 0,
+                "Failed to load Applying SBV Patches sbv_patch_fileio");
+  }
 
   return ret;
 }

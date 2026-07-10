@@ -9,6 +9,90 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (26) **Real-pad feedback round: stick deadzone, HUD/particle race fix, PS2
+  buttons in the Project panel** — three findings from playing on the real
+  console. **Deadzone**: the hardcoded 0.20 stick deadzone becomes
+  Preferences > Input > "Stick deadzone" (0-0.9, ANALOG_DEADZONE in
+  terrain_config.hpp); motion above the threshold now rescales from zero
+  instead of stepping at the edge, so raising it for a drifting pad only
+  costs stick range. Applied in both player paths (walk/noclip); verified:
+  codegen emits the constant and the game compiles on the PS2 toolchain.
+  **HUD/particle race** (engine): on real hardware particles flickered out
+  in a rectangle around the HUD crosshair every few frames. Sprites go out
+  over PATH3 with only a GIF-channel wait, racing the tail of the async
+  PATH1/VU1 scene; when the sprite won, it stamped z=max across its whole
+  rect (transparent margins included) and the late particle quads z-failed
+  inside it. Renderer2D now drains PATH1 once per frame before the first
+  sprite (new RendererCore::drained3DFor2D, reset in beginFrame), gated on
+  Path1::isVU1Configured like the post fx barrier so pure-2D frames (loading
+  screen) cannot spin on a FINISH that VU1 never delivers. Verified in PCSX2
+  SW renderer: fire emitter + centered HUD sprite, steady 50 FPS, no
+  dropouts; the actual race needs a re-check on the console. **UI**: Build &
+  Run on PS2 / Run on PS2 buttons in the Project panel's Build row (disabled
+  with a tooltip until the ps2link IP is set), matching the Project-menu F6
+  entries.
+
+- (25) **Run on PS2 — real-hardware fixes (game verified running on a PS2)** —
+  the first live deploys surfaced four independent landmines, each verified on
+  the actual console:
+  (a) **execee arguments never arrive** — ps2link passes args in a
+  non-standard way that needs a newer newlib crt0 than the `h4570/tyra`
+  toolchain image ships, so `-ps2link` silently never reached main() and the
+  game reset the IOP, killing ps2link (symptom: rom0:ROMVER opened, every
+  host: open dead). Detection now uses a `bin/ps2link.run` marker: written by
+  the PS2 deploy, deleted by PCSX2 launches, probed by the game over host:
+  BEFORE the engine boots (argv stays as a fallback). Excluded from ISOs.
+  (b) **sbv_patch_fileio corrupts ps2link's fileio** — it pokes jumps at
+  fixed offsets valid for Sony's ROM FILEIO; ps2link's environment runs
+  PS2SDK's FILEIO_service reporting the same 1.1 version (the patch's only
+  guard) with a different code layout. Skipped under keepIopResident, as are
+  iomanX/fileXio loads (ps2link provides both; a second iomanX re-hooks ioman
+  onto an empty device table).
+  (c) **libpng's chunked freads over the network** made a 400 KB texture take
+  minutes (every small read is an EE->IOP->TCP round trip): png_loader now
+  reads the whole file with large sequential freads (no fseek - unreliable on
+  host fs) and decodes from memory; verified in PCSX2 after the change.
+  (d) **the shared engine volume races parallel checkouts** — every git
+  worktree (parallel Claude sessions) rsyncs its own vendor/tyra over
+  `tyra-engine-shared`, endlessly rolling back other checkouts' engine fixes
+  (one game even compiled against headers another session had reverted
+  seconds earlier). The volume name now carries an FNV-1a hash of the engine
+  source path: same checkout shares, parallel checkouts isolate.
+  QoL from the same session: Output-panel lines are timestamped (profiling
+  slow console boots), TYRA_LOG streams live into the Output panel under
+  ps2link (writeLogsToFile off - ps2link forwards EE printf over UDP), the
+  post-build step drops stale bin/sfx WAV copies host-side (they shipped in
+  ISOs) and warns when an sfx .adpcm exceeds 1 MB (SPU RAM is 2 MB; a 15 MB
+  song imported as a sound effect was most of a 10-minute network boot).
+
+- (24) **Run on PS2 — network deploy to a real console (ps2link)** — the game
+  boots on a physical PS2 over ethernet straight from the editor: no ISO, no
+  SMB/OPL. The console runs ps2link (one-time memory-card install; package +
+  IPCONFIG.DAT prepared under F:\PS2\ps2link-mc for this machine) and the
+  editor drives it with ps2client (`tools/ps2client`, fetched by setup.ps1
+  alongside a ps2link release). Runner gains `buildAndRunPs2`: the usual
+  Docker build, then `ps2client reset` + 3s + `execee host:<name>.elf
+  -ps2link` with **cwd = bin/**, so the game's `host:` cwd maps to bin/
+  exactly like a PCSX2 run and every asset is served from this PC over the
+  network (the PS2 connects back to TCP 18193; logs arrive over UDP 18194 —
+  both firewall rules created, Private profile, program-scoped). The execee
+  process IS the file server, so it stays alive across the session (killed on
+  the next deploy/exit; its output streams into the Output panel as "[ps2]"
+  lines, giving live console logs in the editor). Engine:
+  `IrxLoader::keepIopResident` skips the boot-time `SifIopReset` that would
+  unload ps2link mid-boot; generated main.cpp sets it only when launched with
+  `-ps2link`, so PCSX2 boots keep the stock reset path (zero regression
+  surface). UI: Project > Build && Run on PS2 (F6) / Run on PS2 (no build),
+  gated on a new editor-side pref "PS2 (ps2link) IP" (Preferences > Real PS2;
+  persisted in the .tyra editor block); CLI: `--build <dir> --run-ps2 [ip]`
+  (stays alive relaying console logs while the file server runs). Liveness
+  gotcha: ps2link commands are UDP fire-and-forget — reset/execee "succeed"
+  against a dead IP — so success is declared only when the console's first
+  log line arrives (15s window), verified both ways: offline IP now fails
+  with a helpful message (was a false "Game running"); PCSX2 path re-verified
+  end-to-end after the engine change (SW renderer, 50 FPS). Real-hardware
+  run pending the one-time ps2link memory-card install.
+
 - (23) **Materials replace per-object textures** — the loose "slap a PNG on
   an object" texture is gone; .mtl material libraries are the one texturing
   mechanism. Every solid object gets a **Material combo** in Properties

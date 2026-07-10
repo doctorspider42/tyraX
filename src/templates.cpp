@@ -145,11 +145,16 @@ CMD ["/bin/bash"]
 // projects). The Tyra engine sources are maintained inside the editor repo
 // (vendor/tyra) and bind-mounted read-only; the shared volume holds the
 // compiled engine, synced+rebuilt by the Runner whenever the sources change.
+// The volume name carries a hash of the engine source path: projects built
+// from the same editor checkout share one compiled engine, while parallel
+// checkouts (git worktrees, second clones) get their own - two checkouts
+// sharing a volume rsync their diverging engines over each other on every
+// build, endlessly rebuilding libtyra and racing mid-compile.
 static const char* TPL_COMPOSE = R"(name: {{NAME_LOWER}}
 volumes:
   tyra-game-volume:
   tyra-engine:
-    name: tyra-engine-shared
+    name: tyra-engine-{{ENGINE_HASH}}
 services:
   compiler:
     environment:
@@ -167,20 +172,43 @@ services:
 )";
 
 static const char* TPL_MAIN_CPP = R"(#include <tyra>
+#include <cstdio>
+#include <cstring>
 #include "terrain_game.hpp"
 
-int main() {
+int main(int argc, char** argv) {
+  // "Run on PS2" launches this game over the network (ps2client execee).
+  // ps2link stays resident on the IOP serving the host: filesystem, so the
+  // Engine must not reset the IOP - that would kill it. Detection is
+  // two-fold: the "-ps2link" execee argument (only delivered by toolchains
+  // with a current crt0 - ps2link passes args in a non-standard way), plus
+  // a "ps2link.run" marker the editor writes next to the ELF on PS2 deploys
+  // and deletes on PCSX2 launches. The marker is read over host: BEFORE the
+  // Engine boots: on a real PS2 host: only exists while ps2link is alive.
+  bool ps2link = false;
+  for (int i = 1; i < argc; i++)
+    if (std::strcmp(argv[i], "-ps2link") == 0) ps2link = true;
+  if (!ps2link) {
+    if (FILE* marker = fopen(Tyra::FileUtils::fromCwd("ps2link.run").c_str(), "rb")) {
+      fclose(marker);
+      ps2link = true;
+    }
+  }
+  Tyra::IrxLoader::keepIopResident = ps2link;
+
   // Route TYRA_LOG / TYRA_WARN / TYRA_ERROR and assertion dumps to a host-side
   // "log.txt" (next to the ELF) instead of the EE console, which does not
   // reach PCSX2's emulog. The tyra-editor Debug window tails that file. Must
   // be set before the Engine is constructed (its init logging is the first to
   // hit the file). No cost in a release (NDEBUG) build - the macros compile out.
-  Tyra::Info::writeLogsToFile = true;
+  // Under ps2link the EE console is BETTER than the file: ps2link forwards
+  // printf over the network and the editor shows it live in the Output panel.
+  Tyra::Info::writeLogsToFile = !ps2link;
 
   Tyra::EngineOptions options;
   // The Engine(options) ctor re-applies this flag, so it must be set here
   // too or the static above gets reset to the default (console logging).
-  options.writeLogsToFile = true;
+  options.writeLogsToFile = !ps2link;
   // Target system (Project > Preferences > Build): Auto follows the console
   // region, NTSC forces 60 Hz, PAL forces 50 Hz.
   options.videoMode = Tyra::VideoMode::{{VIDEO_MODE}};
@@ -209,6 +237,9 @@ constexpr int TERRAIN_MAX_CELLS = {{DETAIL}};
 constexpr float EYE_HEIGHT = {{EYE_HEIGHT}};
 constexpr float WALK_SPEED = {{WALK_SPEED}};
 constexpr float LOOK_SPEED = {{LOOK_SPEED}};    // multiplier
+// Stick offsets below this fraction of full deflection read as zero
+// (worn pads rest off-center); motion rescales smoothly above it.
+constexpr float ANALOG_DEADZONE = {{DEADZONE}};
 constexpr float ORBIT_SPEED = {{ORBIT_SPEED}};  // multiplier
 constexpr float GRAVITY = {{GRAVITY}};          // units/s^2
 constexpr float JUMP_SPEED = {{JUMP_SPEED}};    // units/s
@@ -1990,9 +2021,14 @@ bool TerrainGame::updatePlayerEntity() {
 
   const auto& leftJoy = engine->pad.getLeftJoyPad();
   const auto& rightJoy = engine->pad.getRightJoyPad();
+  // ANALOG_DEADZONE (Preferences > Input) zeroes resting drift; above it the
+  // value rescales from 0 so the deadzone edge does not step.
   auto axis = [](const u8& raw) {
     const float v = (raw - 128.0F) / 128.0F;
-    return (v > -0.20F && v < 0.20F) ? 0.0F : v;  // deadzone
+    const float mag = v < 0.0F ? -v : v;
+    if (mag <= ANALOG_DEADZONE) return 0.0F;
+    const float scaled = (mag - ANALOG_DEADZONE) / (1.0F - ANALOG_DEADZONE);
+    return v < 0.0F ? -scaled : scaled;
   };
 
   // Right stick: look around (stick right = turn right)
@@ -2671,9 +2707,14 @@ void TerrainGame::loop() {
 static const char* TPL_GAME_CPP_FPP_TAIL = R"(
 namespace {
 
+// ANALOG_DEADZONE (Preferences > Input) zeroes resting drift; above it the
+// value rescales from 0 so the deadzone edge does not step.
 float axisValue(const u8& raw) {
   const float v = (raw - 128.0F) / 128.0F;
-  return (v > -0.20F && v < 0.20F) ? 0.0F : v;  // deadzone
+  const float mag = v < 0.0F ? -v : v;
+  if (mag <= ANALOG_DEADZONE) return 0.0F;
+  const float scaled = (mag - ANALOG_DEADZONE) / (1.0F - ANALOG_DEADZONE);
+  return v < 0.0F ? -scaled : scaled;
 }
 
 }  // namespace
@@ -3513,6 +3554,20 @@ static std::string engineSourceDir() {
     return ".";  // wrong on purpose - the engine sync fails with a clear error
 }
 
+// Short stable hash of the engine source path for the compiled-engine volume
+// name (see TPL_COMPOSE). FNV-1a over the forward-slash path, hex-encoded.
+static std::string engineSourceHash() {
+    const std::string src = engineSourceDir();
+    unsigned long long h = 1469598103934665603ULL;
+    for (unsigned char c : src) {
+        h ^= c;
+        h *= 1099511628211ULL;
+    }
+    char buf[20];
+    std::snprintf(buf, sizeof(buf), "%08x", (unsigned)(h ^ (h >> 32)));
+    return buf;
+}
+
 static std::string vec3Init(const float* v) {
     return "{" + floatLit(v[0]) + ", " + floatLit(v[1]) + ", " + floatLit(v[2]) + "}";
 }
@@ -3871,6 +3926,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{EYE_HEIGHT}}", floatLit(st.eyeHeight));
     s = replaceAll(s, "{{WALK_SPEED}}", floatLit(st.walkSpeed));
     s = replaceAll(s, "{{LOOK_SPEED}}", floatLit(st.lookSpeed));
+    s = replaceAll(s, "{{DEADZONE}}", floatLit(st.stickDeadzone));
     s = replaceAll(s, "{{ORBIT_SPEED}}", floatLit(st.orbitSpeed));
     s = replaceAll(s, "{{GRAVITY}}", floatLit(st.gravity));
     s = replaceAll(s, "{{JUMP_SPEED}}", floatLit(st.jumpSpeed));
@@ -3884,6 +3940,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{DEBUG_SHOW_MEM}}",
                    debugProfile && st.showMemory ? "true" : "false");
     s = replaceAll(s, "{{ENGINE_SRC}}", engineSourceDir());
+    s = replaceAll(s, "{{ENGINE_HASH}}", engineSourceHash());
     return s;
 }
 
