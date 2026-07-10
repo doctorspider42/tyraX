@@ -991,11 +991,12 @@ void App::addEmitter(int kind) {
     SceneObject& o = project_.objects().back();
     o.emitterKind = kind;
     // preset tints (the color tints the particles / their texture)
-    const float presets[5][3] = {{1.0f, 0.6f, 0.2f},    // fire
-                                 {0.5f, 0.5f, 0.5f},    // smoke
-                                 {0.8f, 0.85f, 0.9f},   // fog
-                                 {1.0f, 0.9f, 0.4f},    // sparks
-                                 {0.65f, 0.75f, 0.95f}};  // rain
+    const float presets[6][3] = {{1.0f, 0.6f, 0.2f},     // fire
+                                 {0.5f, 0.5f, 0.5f},     // smoke
+                                 {0.8f, 0.85f, 0.9f},    // fog
+                                 {1.0f, 0.9f, 0.4f},     // sparks
+                                 {0.65f, 0.75f, 0.95f},  // rain
+                                 {0.55f, 0.7f, 0.95f}};  // custom (water-ish)
     for (int i = 0; i < 3; ++i) o.color[i] = presets[kind][i];
     if (kind == 2) {  // fog: wide footprint, big lazy puffs
         o.scale[0] = o.scale[2] = 8.0f;
@@ -1007,6 +1008,12 @@ void App::addEmitter(int kind) {
         o.scale[0] = o.scale[2] = 20.0f;
         o.emitterCount = 96;
         o.emitterSize = 1.0f;
+    }
+    if (kind == 5) {  // custom: a small water-like jet as the starting point
+        o.position[1] = 2.0f;
+        o.scale[0] = o.scale[2] = 0.5f;
+        o.emitterCount = 64;
+        o.emitterSize = 0.3f;
     }
     saveAll("Saved");
 }
@@ -1665,6 +1672,7 @@ void App::drawAddObjectMenu() {
         if (ImGui::MenuItem("Fog")) addEmitter(2);
         if (ImGui::MenuItem("Sparks")) addEmitter(3);
         if (ImGui::MenuItem("Rain")) addEmitter(4);
+        if (ImGui::MenuItem("Custom")) addEmitter(5);
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Audio")) {
@@ -1868,7 +1876,9 @@ void App::drawPropertiesWindow() {
 
     ImGui::DragFloat3("Position", o.position, 0.1f);
     committed |= ImGui::IsItemDeactivatedAfterEdit();
-    if (isSolid) {
+    // custom emitters rotate too - the rotation aims the emission direction
+    if (isSolid ||
+        (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
         ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
@@ -1952,14 +1962,42 @@ void App::drawPropertiesWindow() {
 
     if (o.type == PrimitiveType::Emitter) {
         ImGui::SeparatorText("Particle emitter");
-        const char* kinds[] = {"Fire", "Smoke", "Fog", "Sparks", "Rain"};
-        if (ImGui::Combo("Effect", &o.emitterKind, kinds, 5)) committed = true;
+        const char* kinds[] = {"Fire", "Smoke", "Fog", "Sparks", "Rain", "Custom"};
+        if (ImGui::Combo("Effect", &o.emitterKind, kinds, 6)) committed = true;
         if (ImGui::DragInt("Density (count)", &o.emitterCount, 1.0f, 1, 256)) {}
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::DragFloat("Particle size", &o.emitterSize, 0.02f, 0.05f, 8.0f, "%.2f");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         // optional texture: the material's map_Kd, tinted by the color
         if (drawMaterialCombo(o)) committed = true;
+        if (o.emitterKind == 5) {  // custom physics knobs
+            ImGui::DragFloat("Speed", &o.emitterSpeed, 0.05f, 0.0f, 50.0f,
+                             "%.2f u/s");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Spread", &o.emitterSpread, 0.5f, 0.0f, 90.0f,
+                             "%.0f deg");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Gravity", &o.emitterGravity, 0.1f, -30.0f, 50.0f,
+                             "%.1f u/s2");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Weight", &o.emitterWeight, 0.02f, 0.05f, 10.0f,
+                             "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Lifetime", &o.emitterLife, 0.05f, 0.1f, 10.0f,
+                             "%.2f s");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Grow", &o.emitterGrow, 0.02f, 0.1f, 4.0f, "%.2f x");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Opacity", &o.emitterOpacity, 0.01f, 0.0f, 1.0f,
+                             "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::Checkbox("Die on terrain", &o.emitterDieOnGround))
+                committed = true;
+            ImGui::TextDisabled(
+                "Particles shoot along the emitter's +Y axis - use\n"
+                "Rotation to aim (90 deg X = a horizontal pipe leak).\n"
+                "Negative gravity rises (steam); low weight = air drag.");
+        }
         if (ImGui::Checkbox("Enabled", &o.emitterEnabled)) committed = true;
         if (ImGui::Checkbox("Follow player", &o.emitterFollowPlayer)) committed = true;
         if (o.emitterFollowPlayer)

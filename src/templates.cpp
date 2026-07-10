@@ -1940,6 +1940,24 @@ void TerrainGame::updateParticles() {
       bz += cameraPosition.z;
     }
 
+    // Custom kind: emission direction = the object's +Y axis rotated by the
+    // object rotation (tilt the emitter for a horizontal pipe leak), plus an
+    // orthonormal tangent basis for the spread cone.
+    V3 edir = {0.0F, 1.0F, 0.0F}, et1 = {1.0F, 0.0F, 0.0F},
+       et2 = {0.0F, 0.0F, 1.0F};
+    if (kind == 5) {
+      edir = rotated({0.0F, 1.0F, 0.0F}, d.rotation);
+      const V3 seed =
+          fabsf(edir.y) < 0.9F ? V3{0.0F, 1.0F, 0.0F} : V3{1.0F, 0.0F, 0.0F};
+      et1 = {seed.y * edir.z - seed.z * edir.y, seed.z * edir.x - seed.x * edir.z,
+             seed.x * edir.y - seed.y * edir.x};
+      const float tl =
+          sqrtf(et1.x * et1.x + et1.y * et1.y + et1.z * et1.z);
+      if (tl > 0.0001F) et1.x /= tl, et1.y /= tl, et1.z /= tl;
+      et2 = {edir.y * et1.z - edir.z * et1.y, edir.z * et1.x - edir.x * et1.z,
+             edir.x * et1.y - edir.y * et1.x};
+    }
+
     for (int i = 0; i < n; ++i) {
       ps.life[i] -= dt;
       if (ps.life[i] <= 0.0F) {
@@ -1962,6 +1980,17 @@ void TerrainGame::updateParticles() {
           float drop = by - terrainHeightAt(sx, sz);
           if (drop < 0.5F) drop = 0.5F;
           ps.maxLife[i] = drop / fall;
+        } else if (kind == 5) {  // custom: cone jet, physics from the knobs
+          const float th = d.emitSpread * (PI / 180.0F) * prand(ps.rng);
+          const float ph = 2.0F * PI * prand(ps.rng);
+          const float ct = cosf(th), st = sinf(th);
+          const float cp = cosf(ph), sp = sinf(ph);
+          const float spd = d.emitSpeed * (0.8F + 0.4F * r2);
+          ps.vel[i] = Vec4((edir.x * ct + (et1.x * cp + et2.x * sp) * st) * spd,
+                           (edir.y * ct + (et1.y * cp + et2.y * sp) * st) * spd,
+                           (edir.z * ct + (et1.z * cp + et2.z * sp) * st) * spd,
+                           0.0F);
+          ps.maxLife[i] = d.emitLife * (0.75F + 0.5F * r1);
         } else {  // sparks: radial burst pulled down by gravity
           ps.vel[i] = Vec4((r1 - 0.5F) * 5.0F, 1.5F + r2 * 2.5F, (r3 - 0.5F) * 5.0F, 0.0F);
           ps.maxLife[i] = 0.35F + r2 * 0.5F;
@@ -1969,9 +1998,26 @@ void TerrainGame::updateParticles() {
         ps.life[i] = ps.maxLife[i] * (0.05F + 0.95F * prand(ps.rng));  // stagger
       }
       if (kind == 3) ps.vel[i].y -= 6.0F * dt;
+      if (kind == 5) {
+        // gravity + air drag ~ 1/weight: applied after the pull, so heavy
+        // particles keep falling while light ones reach a slow terminal
+        // drift (steam) - a natural terminal velocity
+        ps.vel[i].y -= d.emitGravity * dt;
+        const float w = d.emitWeight < 0.05F ? 0.05F : d.emitWeight;
+        float damp = 1.0F - (0.6F / w) * dt;
+        if (damp < 0.0F) damp = 0.0F;
+        ps.vel[i].x *= damp;
+        ps.vel[i].y *= damp;
+        ps.vel[i].z *= damp;
+      }
       ps.pos[i].x += ps.vel[i].x * dt;
       ps.pos[i].y += ps.vel[i].y * dt;
       ps.pos[i].z += ps.vel[i].z * dt;
+      // custom + Die on terrain: the particle vanishes this frame (alpha 0)
+      // and respawns next - water soaks into the ground instead of clipping
+      if (kind == 5 && d.emitDieGround &&
+          ps.pos[i].y <= terrainHeightAt(ps.pos[i].x, ps.pos[i].z))
+        ps.life[i] = 0.0F;
 
       // life fraction drives size, alpha (0-128) and the color ramp
       const float t = ps.life[i] / ps.maxLife[i];
@@ -1994,6 +2040,9 @@ void TerrainGame::updateParticles() {
         sizeUp = size * 0.5F;  // size = streak length
         size *= 0.06F;         // thin
         alpha = 70.0F * (t < 0.15F ? t * (1.0F / 0.15F) : 1.0F);  // fade at impact
+      } else if (kind == 5) {
+        size *= 1.0F + (d.emitGrow - 1.0F) * (1.0F - t);  // 1 -> Grow over life
+        alpha = d.emitOpacity * 128.0F * (t < 0.25F ? t * 4.0F : 1.0F);
       } else {
         size *= 0.35F;
         alpha = 110.0F * t;
@@ -3950,11 +3999,20 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int model;    // index into MODEL_PATHS / gameModels, -1 = none\n"
            "  int material; // primitives: index into MATERIAL_PATHS, -1 = plain color\n"
            "  int usable;   // 1 = shows the USE prompt up close (see controls.hpp)\n"
-           "  int emitKind;   // emitters: 0 fire, 1 smoke, 2 fog, 3 sparks, 4 rain\n"
+           "  int emitKind;   // emitters: 0 fire, 1 smoke, 2 fog, 3 sparks, 4 rain,\n"
+           "                  // 5 custom (physics below)\n"
            "  int emitCount;  // emitters: particle pool size (density)\n"
            "  float emitSize; // emitters: base particle size\n"
            "  int emitEnabled; // emitters: 0 = starts disabled (Show Object enables)\n"
            "  int emitFollow;  // emitters: 1 = position is an offset from the player\n"
+           "  float emitSpeed;   // custom: emission speed along rotated +Y, units/s\n"
+           "  float emitSpread;  // custom: cone half-angle, degrees\n"
+           "  float emitGravity; // custom: units/s^2, negative = rises\n"
+           "  float emitWeight;  // custom: air drag ~ 1/weight\n"
+           "  float emitLife;    // custom: particle lifetime, seconds\n"
+           "  float emitGrow;    // custom: size multiplier at end of life\n"
+           "  float emitOpacity; // custom: base alpha 0..1\n"
+           "  int emitDieGround; // custom: 1 = particle dies on the terrain\n"
            "  int snd;        // sound emitters: index into SND_PATHS, -1 = none\n"
            "  int sndAuto;    // sound emitters: 1 = plays while in range\n"
            "  float sndRange;    // sound emitters: audible distance\n"
@@ -3986,8 +4044,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << (objs.empty() ? (size_t)1 : objs.size()) << "] = {\n";
         if (objs.empty()) {
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
-                   "0, 0, 0.0F, 1, 0, -1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, -1, "
-                   "\"\", 1, 1, 1.0F},\n";
+                   "0, 0, 0.0F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, "
+                   "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, -1, \"\", 1, 1, 1.0F},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
                 for (size_t i = 0; i < p.sounds.size(); ++i)
@@ -4006,6 +4064,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << o.emitterCount << ", " << floatLit(o.emitterSize) << ", "
                     << (o.emitterEnabled ? 1 : 0) << ", "
                     << (o.emitterFollowPlayer ? 1 : 0) << ", "
+                    << floatLit(o.emitterSpeed) << ", "
+                    << floatLit(o.emitterSpread) << ", "
+                    << floatLit(o.emitterGravity) << ", "
+                    << floatLit(o.emitterWeight) << ", "
+                    << floatLit(o.emitterLife) << ", " << floatLit(o.emitterGrow)
+                    << ", " << floatLit(o.emitterOpacity) << ", "
+                    << (o.emitterDieOnGround ? 1 : 0) << ", "
                     << soundIndexOf(o.soundPath) << ", " << (o.soundAuto ? 1 : 0)
                     << ", " << floatLit(o.soundRange) << ", "
                     << floatLit(o.soundInterval) << ", " << (o.soundOnPlayer ? 1 : 0)

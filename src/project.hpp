@@ -74,13 +74,26 @@ struct SceneObject {
     // Particle emitter parameters (used when type == Emitter). The particle
     // texture comes from the shared materialPath (first material's map_Kd);
     // scale X/Z = spawn area, color = tint.
-    int emitterKind = 0;      // 0 fire, 1 smoke, 2 fog, 3 sparks, 4 rain
+    int emitterKind = 0;      // 0 fire, 1 smoke, 2 fog, 3 sparks, 4 rain, 5 custom
     int emitterCount = 24;    // particle pool size = density (compiled in)
     float emitterSize = 0.5f; // base particle size in world units
     bool emitterEnabled = true;       // off = starts disabled; Show/Hide Object
                                       // flow nodes switch it at runtime
     bool emitterFollowPlayer = false; // position becomes an offset from the
                                       // player (rain that tracks the camera)
+    // Custom kind (5) physics. Particles shoot along the object's +Y axis
+    // rotated by the object rotation (tilt the emitter 90 deg = a horizontal
+    // pipe leak), inside a cone of emitterSpread degrees.
+    float emitterSpeed = 3.0f;    // emission speed, units/s (+-20% jitter)
+    float emitterSpread = 20.0f;  // cone half-angle, degrees (0 = jet)
+    float emitterGravity = 9.8f;  // units/s^2; negative = buoyant (steam)
+    float emitterWeight = 1.0f;   // air drag ~ 1/weight: light particles brake
+                                  // and drift, heavy ones keep their velocity
+    float emitterLife = 1.5f;     // particle lifetime, seconds (+-25% jitter)
+    float emitterGrow = 1.0f;     // size multiplier reached at end of life
+    float emitterOpacity = 0.6f;  // base alpha 0..1 (fades out near death)
+    bool emitterDieOnGround = false;  // particle dies when it hits the terrain
+                                      // (water soaking in instead of clipping)
 
     // Sound emitter parameters (used when type == SoundEmitter)
     std::string soundPath;      // one of Project::sounds ("res/sfx/x.wav")
@@ -133,6 +146,11 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.emitterCount == b.emitterCount && a.emitterSize == b.emitterSize &&
            a.emitterEnabled == b.emitterEnabled &&
            a.emitterFollowPlayer == b.emitterFollowPlayer &&
+           a.emitterSpeed == b.emitterSpeed && a.emitterSpread == b.emitterSpread &&
+           a.emitterGravity == b.emitterGravity &&
+           a.emitterWeight == b.emitterWeight && a.emitterLife == b.emitterLife &&
+           a.emitterGrow == b.emitterGrow && a.emitterOpacity == b.emitterOpacity &&
+           a.emitterDieOnGround == b.emitterDieOnGround &&
            a.soundPath == b.soundPath && a.soundAuto == b.soundAuto &&
            a.soundRange == b.soundRange && a.soundInterval == b.soundInterval &&
            a.soundOnPlayer == b.soundOnPlayer &&

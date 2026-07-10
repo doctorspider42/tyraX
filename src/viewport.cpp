@@ -861,6 +861,28 @@ void Viewport::ensureFramebuffer(int width, int height) {
 
 namespace {
 
+// Forward euler rotation (X, then Y, then Z) - matches the generated game's
+// rotated() and the model matrix composition.
+Vec3 rotateEuler(Vec3 v, const float* rotDeg) {
+    const float d2r = kPi / 180.0f;
+    {
+        const float c = std::cos(rotDeg[0] * d2r), s = std::sin(rotDeg[0] * d2r);
+        const float y = v.y * c - v.z * s, z = v.y * s + v.z * c;
+        v.y = y, v.z = z;
+    }
+    {
+        const float c = std::cos(rotDeg[1] * d2r), s = std::sin(rotDeg[1] * d2r);
+        const float x = v.x * c + v.z * s, z = -v.x * s + v.z * c;
+        v.x = x, v.z = z;
+    }
+    {
+        const float c = std::cos(rotDeg[2] * d2r), s = std::sin(rotDeg[2] * d2r);
+        const float x = v.x * c - v.y * s, y = v.x * s + v.y * c;
+        v.x = x, v.y = y;
+    }
+    return v;
+}
+
 // Applies the inverse of the object's euler rotation (rotZ, rotY, rotX with
 // negated angles - the reverse of the model matrix composition).
 Vec3 rotateInverse(Vec3 v, const float* rotDeg) {
@@ -1367,9 +1389,15 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             // the scene pass they only get a small fixed-size cone marker so
             // the gizmo has something to grab. Dimmed when disabled.
             if (o.type == PrimitiveType::Emitter) {
-                const Mat4 marker =
-                    mul(translation(o.position[0], o.position[1], o.position[2]),
-                        scaleM(0.7f, 0.7f, 0.7f));
+                // rotation aims the cone with the emission direction (custom)
+                const float d2r = kPi / 180.0f;
+                Mat4 marker = scaleM(0.7f, 0.7f, 0.7f);
+                marker = mul(rotX(o.rotation[0] * d2r), marker);
+                marker = mul(rotY(o.rotation[1] * d2r), marker);
+                marker = mul(rotZ(o.rotation[2] * d2r), marker);
+                marker = mul(
+                    translation(o.position[0], o.position[1], o.position[2]),
+                    marker);
                 const float dim = o.emitterEnabled ? 1.0f : 0.35f;
                 draw(cone_, GL_TRIANGLES, mul(viewProj, marker),
                      o.color[0] * dim * tintScale, o.color[1] * dim * tintScale,
@@ -1542,6 +1570,18 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
         // world origin).
         const float bx = o.position[0], by = o.position[1], bz = o.position[2];
 
+        // Custom kind: emission direction = the object's +Y axis rotated by
+        // the object rotation + a tangent basis for the spread cone (same
+        // construction as the game)
+        Vec3 edir{0, 1, 0}, et1{1, 0, 0}, et2{0, 0, 1};
+        if (kind == 5) {
+            edir = rotateEuler({0, 1, 0}, o.rotation);
+            const Vec3 seed =
+                std::fabs(edir.y) < 0.9f ? Vec3{0, 1, 0} : Vec3{1, 0, 0};
+            et1 = normalize(cross(seed, edir));
+            et2 = cross(edir, et1);
+        }
+
         buf.clear();
         buf.reserve(ep.parts.size() * 6 * 9);
         for (PreviewParticle& p : ep.parts) {
@@ -1575,6 +1615,17 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
                     float drop = by - terrainHeight(sx, sz);
                     if (drop < 0.5f) drop = 0.5f;
                     p.maxLife = drop / fall;
+                } else if (kind == 5) {  // custom: cone jet from the knobs
+                    const float th =
+                        o.emitterSpread * (kPi / 180.0f) * prand(ep.rng);
+                    const float ph = 2.0f * kPi * prand(ep.rng);
+                    const float ct = std::cos(th), st = std::sin(th);
+                    const float cp = std::cos(ph), sp = std::sin(ph);
+                    const float spd = o.emitterSpeed * (0.8f + 0.4f * r2);
+                    p.vel[0] = (edir.x * ct + (et1.x * cp + et2.x * sp) * st) * spd;
+                    p.vel[1] = (edir.y * ct + (et1.y * cp + et2.y * sp) * st) * spd;
+                    p.vel[2] = (edir.z * ct + (et1.z * cp + et2.z * sp) * st) * spd;
+                    p.maxLife = o.emitterLife * (0.75f + 0.5f * r1);
                 } else {  // sparks: radial burst pulled down by gravity
                     p.vel[0] = (r1 - 0.5f) * 5.0f;
                     p.vel[1] = 1.5f + r2 * 2.5f;
@@ -1584,9 +1635,25 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
                 p.life = p.maxLife * (0.05f + 0.95f * prand(ep.rng));  // stagger
             }
             if (kind == 3) p.vel[1] -= 6.0f * dt;
+            if (kind == 5) {
+                // gravity + air drag ~ 1/weight (same terminal-velocity
+                // behavior as the game)
+                p.vel[1] -= o.emitterGravity * dt;
+                const float w =
+                    o.emitterWeight < 0.05f ? 0.05f : o.emitterWeight;
+                float damp = 1.0f - (0.6f / w) * dt;
+                if (damp < 0.0f) damp = 0.0f;
+                p.vel[0] *= damp;
+                p.vel[1] *= damp;
+                p.vel[2] *= damp;
+            }
             p.pos[0] += p.vel[0] * dt;
             p.pos[1] += p.vel[1] * dt;
             p.pos[2] += p.vel[2] * dt;
+            // custom + Die on terrain: vanish this frame, respawn next
+            if (kind == 5 && o.emitterDieOnGround &&
+                p.pos[1] <= terrainHeight(p.pos[0], p.pos[2]))
+                p.life = 0.0f;
 
             // life fraction drives size, alpha and the color ramp (the game's
             // 0-128 alpha maps to 0-1 here)
@@ -1610,6 +1677,9 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
                 sizeUp = size * 0.5f;  // size = streak length
                 size *= 0.06f;         // thin
                 alpha = 70.0f * (t < 0.15f ? t * (1.0f / 0.15f) : 1.0f) / 128.0f;
+            } else if (kind == 5) {
+                size *= 1.0f + (o.emitterGrow - 1.0f) * (1.0f - t);
+                alpha = o.emitterOpacity * (t < 0.25f ? t * 4.0f : 1.0f);
             } else {
                 size *= 0.35f;
                 alpha = 110.0f * t / 128.0f;

@@ -187,14 +187,25 @@ static std::string objectJson(const SceneObject& o) {
                 ", \"canJump\": " + (o.playerCanJump ? "true" : "false") + " }";
     }
     if (o.type == PrimitiveType::Emitter) {
-        static const char* kinds[] = {"fire", "smoke", "fog", "sparks", "rain"};
-        const int k = (o.emitterKind >= 0 && o.emitterKind < 5) ? o.emitterKind : 0;
+        static const char* kinds[] = {"fire", "smoke", "fog", "sparks", "rain",
+                                      "custom"};
+        const int k = (o.emitterKind >= 0 && o.emitterKind < 6) ? o.emitterKind : 0;
         json += ", \"emitter\": { \"kind\": \"" + std::string(kinds[k]) +
                 "\", \"count\": " + std::to_string(o.emitterCount) +
                 ", \"size\": " + fmtFloat(o.emitterSize) +
                 ", \"enabled\": " + (o.emitterEnabled ? "true" : "false") +
-                ", \"followPlayer\": " + (o.emitterFollowPlayer ? "true" : "false") +
-                " }";
+                ", \"followPlayer\": " + (o.emitterFollowPlayer ? "true" : "false");
+        if (k == 5) {  // custom physics block only where it means something
+            json += ", \"speed\": " + fmtFloat(o.emitterSpeed) +
+                    ", \"spread\": " + fmtFloat(o.emitterSpread) +
+                    ", \"gravity\": " + fmtFloat(o.emitterGravity) +
+                    ", \"weight\": " + fmtFloat(o.emitterWeight) +
+                    ", \"life\": " + fmtFloat(o.emitterLife) +
+                    ", \"grow\": " + fmtFloat(o.emitterGrow) +
+                    ", \"opacity\": " + fmtFloat(o.emitterOpacity) +
+                    ", \"dieOnGround\": " + (o.emitterDieOnGround ? "true" : "false");
+        }
+        json += " }";
     }
     if (o.type == PrimitiveType::SoundEmitter) {
         json += ", \"sound\": { \"path\": \"" + o.soundPath +
@@ -746,7 +757,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 o.emitterKind = k == "smoke" ? 1
                                 : k == "fog" ? 2
                                 : k == "sparks" ? 3
-                                : k == "rain" ? 4 : 0;
+                                : k == "rain" ? 4
+                                : k == "custom" ? 5 : 0;
             }
             if (const auto* v = em->find("count")) o.emitterCount = (int)v->numberOr(24);
             if (o.emitterCount < 1) o.emitterCount = 1;
@@ -756,6 +768,21 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 o.emitterEnabled = !(v->type == json::Value::Type::Bool && !v->boolean);
             if (const auto* v = em->find("followPlayer"))
                 o.emitterFollowPlayer = v->type == json::Value::Type::Bool && v->boolean;
+            if (const auto* v = em->find("speed")) o.emitterSpeed = (float)v->numberOr(3);
+            if (const auto* v = em->find("spread"))
+                o.emitterSpread = (float)v->numberOr(20);
+            if (const auto* v = em->find("gravity"))
+                o.emitterGravity = (float)v->numberOr(9.8);
+            if (const auto* v = em->find("weight"))
+                o.emitterWeight = (float)v->numberOr(1);
+            if (o.emitterWeight < 0.05f) o.emitterWeight = 0.05f;
+            if (const auto* v = em->find("life")) o.emitterLife = (float)v->numberOr(1.5);
+            if (o.emitterLife < 0.1f) o.emitterLife = 0.1f;
+            if (const auto* v = em->find("grow")) o.emitterGrow = (float)v->numberOr(1);
+            if (const auto* v = em->find("opacity"))
+                o.emitterOpacity = (float)v->numberOr(0.6);
+            if (const auto* v = em->find("dieOnGround"))
+                o.emitterDieOnGround = v->type == json::Value::Type::Bool && v->boolean;
         }
         if (const auto* sn = jo.find("sound")) {
             if (const auto* v = sn->find("path")) o.soundPath = v->stringOr("");
