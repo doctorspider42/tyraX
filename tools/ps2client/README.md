@@ -1,8 +1,11 @@
 # ps2client (patched)
 
 `bin/ps2client.exe` is [ps2dev/ps2client](https://github.com/ps2dev/ps2client)
-(AFL 2.0) built from v1.3.0-era sources with `nodelay.patch` applied:
-`TCP_NODELAY` on the ps2link request socket.
+by the [ps2dev project](https://ps2dev.github.io/) contributors, built from
+v1.3.0-era sources with `nodelay.patch` applied: `TCP_NODELAY` on the ps2link
+request socket. All credit for the tool goes to its ps2dev authors; upstream
+carries no explicit license file, so the binary is redistributed here in the
+spirit of the ps2dev homebrew SDK, unmodified except for the vendored patch.
 
 Without it, ps2link's synchronous request/response fileio collides with
 Nagle + the PS2's delayed ACKs and every exchange stalls ~200 ms - measured
