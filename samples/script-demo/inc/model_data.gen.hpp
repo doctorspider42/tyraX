@@ -7,6 +7,16 @@ constexpr int MODEL_COUNT = 1;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "models/house.obj",
 };
+// per-model .mtl override ("" = the model's own material libraries)
+inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
+    "",
+};
 constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false};
+
+// .mtl libraries assigned to primitives (first material = surface)
+constexpr int MATERIAL_COUNT = 0;
+inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {
+    "",
+};
 
 }  // namespace Script_demo

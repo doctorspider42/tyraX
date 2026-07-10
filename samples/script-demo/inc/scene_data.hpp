@@ -11,7 +11,7 @@ struct SceneObjectData {
   float color[3];  // 0..1
   int physics;  // 1 = falls with gravity
   int model;    // index into MODEL_PATHS / gameModels, -1 = none
-  int texture;  // index into TEXTURE_PATHS (texture_data.gen.hpp), -1 = none
+  int material; // primitives: index into MATERIAL_PATHS, -1 = plain color
   int usable;   // 1 = shows the USE prompt up close (see controls.hpp)
   int emitKind;   // emitters: 0 fire, 1 smoke, 2 fog, 3 sparks
   int emitCount;  // emitters: particle pool size

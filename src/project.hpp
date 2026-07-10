@@ -54,7 +54,12 @@ struct SceneObject {
     // (models only: per-triangle - ramps/stairs are walkable), 2 = none
     int collisionMode = 0;
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
-    std::string texturePath;  // PNG, e.g. "res/textures/bricks.png" (empty = color only)
+    // Material library (.mtl) assigned to the object, e.g.
+    // "res/materials/walls.mtl". Primitives take the file's FIRST material
+    // (Kd + map_Kd applied on their UVs); models use it as an override that
+    // replaces their own mtl (usemtl names resolve against it). Empty =
+    // plain color (primitives) / the model's own materials.
+    std::string materialPath;
 
     // Player entity parameters (used when type == Player)
     int playerMode = 0;            // 0 = walk (FPP), 1 = noclip (fly)
@@ -98,7 +103,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.physics == b.physics && a.usable == b.usable &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
            a.modelPath == b.modelPath &&
-           a.texturePath == b.texturePath && a.playerMode == b.playerMode &&
+           a.materialPath == b.materialPath && a.playerMode == b.playerMode &&
            a.playerWalkSpeed == b.playerWalkSpeed &&
            a.playerLookSpeed == b.playerLookSpeed &&
            a.playerEyeHeight == b.playerEyeHeight &&

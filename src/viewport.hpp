@@ -129,9 +129,19 @@ private:
     struct ModelDraw {
         std::vector<ModelPart> parts;  // empty = missing/unparseable model
     };
-    std::map<std::string, ModelDraw> modelCache_;  // by relative path
-    const ModelDraw* modelDraw(const std::string& relPath);
+    // keyed by "<modelPath>|<materialPath>" - an .mtl override changes the draw
+    std::map<std::string, ModelDraw> modelCache_;
+    const ModelDraw* modelDraw(const std::string& relPath,
+                               const std::string& materialRel);
     void clearModelCache();
+
+    // Primitive materials: first entry of an assigned .mtl (Kd tint + map_Kd)
+    struct MaterialDraw {
+        uint32_t tex = 0;
+        float kd[3] = {1.0f, 1.0f, 1.0f};
+    };
+    std::map<std::string, MaterialDraw> materialCache_;  // by relative path
+    const MaterialDraw* materialDraw(const std::string& relPath);
 
     std::map<std::string, uint32_t> texCache_;  // GL textures by relative path
     uint32_t glTexture(const std::string& relPath);

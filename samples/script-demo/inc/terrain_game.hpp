@@ -74,6 +74,14 @@ class TerrainGame : public Tyra::Game {
   };
   std::vector<GameModel> gameModels;
   void loadModels();
+  // Primitive materials: .mtl assigned to a box/sphere/... - the file's
+  // first material supplies the color (kd) and optional texture.
+  struct GameMaterial {
+    Tyra::Texture* texture = nullptr;
+    float kd[3] = {1.0F, 1.0F, 1.0F};
+  };
+  std::vector<GameMaterial> gameMaterials;
+  void loadMaterials();
   std::vector<Tyra::Texture*> loadedTextures;
   std::vector<Tyra::Vec4> terrainSts;
   Tyra::StaPipTextureBag terrainTexBag;

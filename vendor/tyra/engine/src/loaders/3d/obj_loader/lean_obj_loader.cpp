@@ -41,8 +41,10 @@ struct MtlEntry {
   std::string texture;
 };
 
-/** newmtl/Kd/map_Kd from one .mtl buffer (map_Kd: last token of the line). */
-void parseMtl(const std::string& text, std::map<std::string, MtlEntry>& out) {
+/** newmtl/Kd/map_Kd from one .mtl buffer (map_Kd: last token of the line).
+ * order (optional) records material names in file order. */
+void parseMtl(const std::string& text, std::map<std::string, MtlEntry>& out,
+              std::vector<std::string>* order = nullptr) {
   std::istringstream file(text);
   std::string line, current;
   while (std::getline(file, line)) {
@@ -51,7 +53,8 @@ void parseMtl(const std::string& text, std::map<std::string, MtlEntry>& out) {
     ss >> tag;
     if (tag == "newmtl") {
       ss >> current;
-      out.emplace(current, MtlEntry{});
+      if (out.emplace(current, MtlEntry{}).second && order)
+        order->push_back(current);
     } else if (tag == "Kd" && !current.empty()) {
       MtlEntry& m = out[current];
       ss >> m.kd[0] >> m.kd[1] >> m.kd[2];
@@ -67,8 +70,31 @@ void parseMtl(const std::string& text, std::map<std::string, MtlEntry>& out) {
 
 }  // namespace
 
-std::unique_ptr<LeanObjMesh> LeanObjLoader::load(
+std::vector<LeanMtlMaterial> LeanObjLoader::loadMtl(
     const std::string& relativePath) {
+  std::vector<LeanMtlMaterial> result;
+  std::string text;
+  if (!readWholeFile(FileUtils::fromCwd(relativePath), text)) {
+    TYRA_WARN("LeanObjLoader: cannot read mtl ", relativePath.c_str());
+    return result;
+  }
+  std::map<std::string, MtlEntry> materials;
+  std::vector<std::string> order;
+  parseMtl(text, materials, &order);
+  for (const auto& name : order) {
+    LeanMtlMaterial m;
+    m.name = name;
+    m.textureName = materials[name].texture;
+    m.kd[0] = materials[name].kd[0];
+    m.kd[1] = materials[name].kd[1];
+    m.kd[2] = materials[name].kd[2];
+    result.push_back(m);
+  }
+  return result;
+}
+
+std::unique_ptr<LeanObjMesh> LeanObjLoader::load(
+    const std::string& relativePath, const std::string& overrideMtl) {
   std::string text;
   if (!readWholeFile(FileUtils::fromCwd(relativePath), text)) {
     TYRA_WARN("LeanObjLoader: cannot read ", relativePath.c_str());
@@ -86,11 +112,19 @@ std::unique_ptr<LeanObjMesh> LeanObjLoader::load(
   std::vector<float> texcoords;  // u,v pairs
   std::map<std::string, MtlEntry> materials;
 
-  // Implicit material library: a sibling .mtl named like the .obj is loaded
-  // even without a mtllib line (mirrors the editor parser - many exporters
-  // rely on that convention). Explicit mtllib files parse later and win on
-  // name clashes.
-  {
+  if (!overrideMtl.empty()) {
+    // A material override replaces the model's own libraries entirely -
+    // usemtl names resolve against it (universal .mtl shared by many models).
+    std::string mtlText;
+    if (readWholeFile(FileUtils::fromCwd(overrideMtl), mtlText))
+      parseMtl(mtlText, materials);
+    else
+      TYRA_WARN("LeanObjLoader: missing override mtl ", overrideMtl.c_str());
+  } else {
+    // Implicit material library: a sibling .mtl named like the .obj is loaded
+    // even without a mtllib line (mirrors the editor parser - many exporters
+    // rely on that convention). Explicit mtllib files parse later and win on
+    // name clashes.
     std::string stem = relativePath;
     const size_t dot = stem.find_last_of('.');
     if (dot != std::string::npos) stem = stem.substr(0, dot);
@@ -172,7 +206,7 @@ std::unique_ptr<LeanObjMesh> LeanObjLoader::load(
       ss >> u >> v;
       texcoords.push_back(u);
       texcoords.push_back(v);
-    } else if (tag == "mtllib") {
+    } else if (tag == "mtllib" && overrideMtl.empty()) {
       std::string name;
       while (ss >> name) {
         std::string mtlText;

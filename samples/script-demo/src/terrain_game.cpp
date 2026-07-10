@@ -9,6 +9,7 @@
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
 #include <math.h>
+#include <stdio.h>
 #include <map>
 #include <string>
 
@@ -23,6 +24,14 @@ using namespace Tyra;
 namespace {
 
 constexpr float PI = 3.14159265358979F;
+
+/** The texture repository asserts (crashes) on a missing file - probe first
+ * so a missing PNG degrades to an untextured draw with a warning. */
+bool assetFileExists(const std::string& cwdRel) {
+  FILE* f = fopen(FileUtils::fromCwd(cwdRel).c_str(), "rb");
+  if (f) fclose(f);
+  return f != nullptr;
+}
 
 struct V3 {
   float x, y, z;
@@ -118,13 +127,22 @@ V3 pointLightAt(const V3& wp, const V3& n) {
   return add;
 }
 
+// Material context for the primitive builders: addBox & co call pushVert
+// without material args, so rebuildObjectGeometry stages the object's
+// assigned material here before dispatching. Model parts pass theirs
+// explicitly via the kd/textured parameters instead.
+const float* g_primKd = nullptr;
+bool g_primTextured = false;
+
 // kd: material diffuse (MTL) multiplied into the object color, null = white.
-// textured: this batch gets a texture even when o.texture is -1 (a model
-// part's own map_Kd) - switches the color to modulation scale (128 = 1.0).
+// textured: this batch draws with a texture (a model part's map_Kd or a
+// primitive material's) - switches the color to modulation scale (128 = 1.0).
 void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
               std::vector<Vec4>& sts, const SceneObjectData& o, V3 p, V3 n,
-              float u, float v, const float* kd = nullptr,
-              bool textured = false) {
+              float u, float v, const float* kdArg = nullptr,
+              bool texturedArg = false) {
+  const float* kd = kdArg ? kdArg : g_primKd;
+  const bool textured = texturedArg || g_primTextured;
   p.x *= o.scale[0], p.y *= o.scale[1], p.z *= o.scale[2];
   p = rotated(p, o.rotation);
   n = rotated(n, o.rotation);
@@ -138,7 +156,7 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   if (kd) shade.x *= kd[0], shade.y *= kd[1], shade.z *= kd[2];
   verts.push_back(Vec4(wp.x, wp.y, wp.z, 1.0F));
   // In textured mode the color modulates the texture (128 = 1.0)
-  const float scale = (textured || o.texture >= 0) ? 128.0F : 255.0F;
+  const float scale = textured ? 128.0F : 255.0F;
   cols.push_back(Color(o.color[0] * scale * shade.x, o.color[1] * scale * shade.y,
                        o.color[2] * scale * shade.z, 128.0F));
   sts.push_back(Vec4(u, v, 1.0F, 0.0F));
@@ -439,11 +457,17 @@ void TerrainGame::loop() {
 void TerrainGame::buildScene() {
   // Load all scene textures once (paths in texture_data.gen.hpp)
   loadedTextures.assign(TEXTURE_COUNT, nullptr);
-  for (int i = 0; i < TEXTURE_COUNT; ++i)
+  for (int i = 0; i < TEXTURE_COUNT; ++i) {
+    if (!assetFileExists(TEXTURE_PATHS[i])) {
+      TYRA_WARN("Scene texture missing: ", TEXTURE_PATHS[i]);
+      continue;  // objects fall back to their plain color
+    }
     loadedTextures[i] =
         engine->renderer.getTextureRepository().add(FileUtils::fromCwd(TEXTURE_PATHS[i]));
+  }
 
   loadModels();
+  loadMaterials();
 
   vertices.clear();
   colors.clear();
@@ -555,15 +579,17 @@ void TerrainGame::loadModels() {
   gameModels.assign(MODEL_COUNT > 0 ? MODEL_COUNT : 0, GameModel());
   std::map<std::string, Texture*> textureByPath;
   for (int i = 0; i < MODEL_COUNT; ++i) {
-    auto mesh = LeanObjLoader::load(MODEL_PATHS[i]);
+    const std::string overrideMtl = MODEL_MTLS[i];
+    auto mesh = LeanObjLoader::load(MODEL_PATHS[i], overrideMtl);
     if (!mesh) continue;  // stays empty - objects using it render nothing
     GameModel& gm = gameModels[i];
     for (int k = 0; k < 3; ++k) {
       gm.mn[k] = mesh->min[k];
       gm.mx[k] = mesh->max[k];
     }
-    // map_Kd texture names resolve relative to the model's directory
-    std::string dir = MODEL_PATHS[i];
+    // map_Kd texture names resolve relative to the file that defined them:
+    // the override .mtl when one is assigned, the model otherwise
+    std::string dir = overrideMtl.empty() ? MODEL_PATHS[i] : overrideMtl;
     const size_t slash = dir.find_last_of('/');
     dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
     for (auto& mat : mesh->materials) {
@@ -576,8 +602,14 @@ void TerrainGame::loadModels() {
         const std::string path = dir + mat.textureName;
         auto it = textureByPath.find(path);
         if (it == textureByPath.end()) {
-          Texture* t = engine->renderer.getTextureRepository().add(
-              FileUtils::fromCwd(path));
+          Texture* t = nullptr;
+          // a texture the .mtl wants but the project lacks degrades the part
+          // to its Kd color instead of an assert at boot
+          if (assetFileExists(path))
+            t = engine->renderer.getTextureRepository().add(
+                FileUtils::fromCwd(path));
+          else
+            TYRA_WARN("Model texture missing: ", path.c_str());
           it = textureByPath.emplace(path, t).first;
         }
         part.texture = it->second;
@@ -590,6 +622,38 @@ void TerrainGame::loadModels() {
         all.insert(all.end(), part.verts.begin(), part.verts.end());
       gm.collider.build(all.data(), (u32)(all.size() / 8), 8);
     }
+  }
+}
+
+// Primitive materials: each MATERIAL_PATHS entry is a .mtl whose FIRST
+// material becomes the surface of the primitives it is assigned to
+// (Kd color + optional map_Kd texture, resolved relative to the .mtl).
+void TerrainGame::loadMaterials() {
+  gameMaterials.assign(MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 0, GameMaterial());
+  std::map<std::string, Texture*> textureByPath;
+  for (int i = 0; i < MATERIAL_COUNT; ++i) {
+    const auto materials = LeanObjLoader::loadMtl(MATERIAL_PATHS[i]);
+    if (materials.empty()) continue;  // stays white - plain object color
+    const auto& mat = materials.front();
+    GameMaterial& gmat = gameMaterials[i];
+    gmat.kd[0] = mat.kd[0];
+    gmat.kd[1] = mat.kd[1];
+    gmat.kd[2] = mat.kd[2];
+    if (mat.textureName.empty()) continue;
+    std::string dir = MATERIAL_PATHS[i];
+    const size_t slash = dir.find_last_of('/');
+    dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
+    const std::string path = dir + mat.textureName;
+    auto it = textureByPath.find(path);
+    if (it == textureByPath.end()) {
+      Texture* t = nullptr;
+      if (assetFileExists(path))
+        t = engine->renderer.getTextureRepository().add(FileUtils::fromCwd(path));
+      else
+        TYRA_WARN("Material texture missing: ", path.c_str());
+      it = textureByPath.emplace(path, t).first;
+    }
+    gmat.texture = it->second;
   }
 }
 
@@ -1442,6 +1506,13 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     part.sts.clear();
   }
 
+  // primitives: the assigned material (first entry of its .mtl) supplies
+  // the surface color/texture - staged for the builders via g_prim*
+  const GameMaterial* gmat = nullptr;
+  if (o.data.type != 5 && o.data.material >= 0 &&
+      o.data.material < (int)gameMaterials.size())
+    gmat = &gameMaterials[o.data.material];
+
   if (o.data.type == 5) {
     for (int pi = 0; pi < partCount; ++pi) {
       const GameModelPart& src = gm->parts[pi];
@@ -1455,6 +1526,8 @@ void TerrainGame::rebuildObjectGeometry(int index) {
       }
     }
   } else {
+    g_primKd = gmat ? gmat->kd : nullptr;
+    g_primTextured = gmat && gmat->texture;
     GeoPart& p0 = g.parts[0];
     switch (o.data.type) {
       case 1: addSphere(p0.vertices, p0.colors, p0.sts, o.data); break;
@@ -1467,6 +1540,8 @@ void TerrainGame::rebuildObjectGeometry(int index) {
       case 9: break;  // point light - invisible source, no geometry
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
+    g_primKd = nullptr;
+    g_primTextured = false;
   }
 
   for (int pi = 0; pi < partCount; ++pi) {
@@ -1497,13 +1572,9 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     part.bag->count = static_cast<u32>(part.vertices.size());
     part.bag->bboxVersion++;  // geometry changed - refresh the bbox cache
 
-    // an object texture (Set... in the editor) overrides the part's map_Kd
-    Texture* tex = nullptr;
-    if (o.data.texture >= 0 && o.data.texture < TEXTURE_COUNT &&
-        loadedTextures[o.data.texture])
-      tex = loadedTextures[o.data.texture];
-    else if (o.data.type == 5)
-      tex = gm->parts[pi].texture;
+    // models: the part's own map_Kd; primitives: the assigned material's
+    Texture* tex =
+        o.data.type == 5 ? gm->parts[pi].texture : (gmat ? gmat->texture : nullptr);
     if (tex) {
       if (!part.texBag) part.texBag = std::make_unique<StaPipTextureBag>();
       part.texBag->texture = tex;

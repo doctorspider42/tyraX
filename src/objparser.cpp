@@ -13,16 +13,18 @@ namespace {
 
 struct Material {
     float kd[3] = {1.0f, 1.0f, 1.0f};
-    std::string texture;  // map_Kd, relative to the .obj directory
+    std::string texture;  // map_Kd, relative to its .mtl's directory
 };
 
 // Parses newmtl/Kd/map_Kd from one .mtl file. Texture paths keep any relative
 // subdirectories (normalized to forward slashes); options of map_Kd (rare
 // "-s 1 1 tex.png" forms) are skipped by taking the last token.
-void parseMtl(const std::filesystem::path& path,
-              std::map<std::string, Material>& materials) {
+// order (optional) records material names in file order.
+bool parseMtl(const std::filesystem::path& path,
+              std::map<std::string, Material>& materials,
+              std::vector<std::string>* order = nullptr) {
     std::ifstream f(path);
-    if (!f) return;
+    if (!f) return false;
 
     std::string line, current;
     while (std::getline(f, line)) {
@@ -31,7 +33,8 @@ void parseMtl(const std::filesystem::path& path,
         ss >> tag;
         if (tag == "newmtl") {
             ss >> current;
-            materials.emplace(current, Material{});
+            if (materials.emplace(current, Material{}).second && order)
+                order->push_back(current);
         } else if (tag == "Kd" && !current.empty()) {
             Material& m = materials[current];
             ss >> m.kd[0] >> m.kd[1] >> m.kd[2];
@@ -43,11 +46,29 @@ void parseMtl(const std::filesystem::path& path,
             materials[current].texture = last;
         }
     }
+    return true;
 }
 
 }  // namespace
 
-bool load(const std::string& path, Model& out) {
+bool loadMtl(const std::string& path, std::vector<MtlMaterial>& out) {
+    out.clear();
+    std::map<std::string, Material> materials;
+    std::vector<std::string> order;
+    if (!parseMtl(path, materials, &order)) return false;
+    for (const std::string& name : order) {
+        MtlMaterial m;
+        m.name = name;
+        m.texture = materials[name].texture;
+        m.kd[0] = materials[name].kd[0];
+        m.kd[1] = materials[name].kd[1];
+        m.kd[2] = materials[name].kd[2];
+        out.push_back(std::move(m));
+    }
+    return !out.empty();
+}
+
+bool load(const std::string& path, Model& out, const std::string& overrideMtl) {
     std::ifstream f(path);
     if (!f) return false;
 
@@ -58,10 +79,15 @@ bool load(const std::string& path, Model& out) {
     std::vector<float> texcoords;  // u,v pairs
     std::map<std::string, Material> materials;
 
-    // Implicit material library: a sibling .mtl named like the .obj is loaded
-    // even without a mtllib line (many exporters rely on that convention).
-    // Explicit mtllib files parse later and win on name clashes.
-    {
+    // A material override replaces the model's own libraries entirely -
+    // usemtl names resolve against it (universal .mtl shared by many models).
+    if (!overrideMtl.empty()) {
+        parseMtl(overrideMtl, materials);
+        out.mtlLibs.push_back(overrideMtl);
+    } else {
+        // Implicit material library: a sibling .mtl named like the .obj is
+        // loaded even without a mtllib line (many exporters rely on that
+        // convention). Explicit mtllib files parse later and win on clashes.
         const std::string sibling =
             std::filesystem::path(path).stem().string() + ".mtl";
         std::error_code ec;
@@ -142,7 +168,7 @@ bool load(const std::string& path, Model& out) {
             ss >> u >> v;
             texcoords.push_back(u);
             texcoords.push_back(v);
-        } else if (tag == "mtllib") {
+        } else if (tag == "mtllib" && overrideMtl.empty()) {
             std::string name;
             while (ss >> name) {
                 out.mtlLibs.push_back(name);

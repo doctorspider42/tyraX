@@ -9,6 +9,36 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (23) **Materials replace per-object textures** — the loose "slap a PNG on
+  an object" texture is gone; .mtl material libraries are the one texturing
+  mechanism. Every solid object gets a **Material combo** in Properties
+  listing the project's .mtl assets (a new `res/materials` folder for
+  universal libraries + the models' own mtls under `res/models`):
+  primitives take the file's FIRST material (Kd tint + map_Kd on their UVs,
+  still modulated by the object color), models use the assigned .mtl as an
+  **override** that replaces their own libraries (usemtl names resolve
+  against it) - one "walls" library can repaint/retexture many objects.
+  Data model: `SceneObject.texturePath` -> `materialPath` (old "texture"
+  keys are dropped on load). Codegen: models are keyed by the (obj, mtl)
+  PAIR (`MODEL_PATHS` + `MODEL_MTLS`), primitives get `MATERIAL_PATHS` +
+  `SceneObjectData.material`, and the game grew `loadMaterials()` (first
+  material of each library: Kd + probed map_Kd via the texture repository).
+  Engine: `LeanObjLoader::load` takes an optional override .mtl (replaces
+  mtllib/sibling; textures then resolve relative to the override) and a new
+  `LeanObjLoader::loadMtl` parses standalone libraries - both mirrored in
+  the editor's objparser. Editor: viewport draws primitive materials and
+  model overrides identically to the game; the Assets section swaps its
+  Textures list for **Materials** (res/materials, per-file material summary
+  + missing-texture flags, `Import .mtl...` copies the library with its
+  textures, references rewritten); `res/textures` survives only for the
+  tiled terrain texture (its Pick... popup gained the Import PNG... item).
+  Verified in PCSX2 (SW renderer, 50 FPS): a box assigned `walls.mtl`
+  renders brick-textured, and a model assigned `repaint.mtl` switches from
+  brick walls + dark roof to green walls + yellow roof (usemtl-name match);
+  the editor viewport shows the identical result, the Material combo and
+  the red MISSING flags in Properties. fpp + empty presets rebuilt clean in
+  Docker; sample regenerated.
+
 - (22) **Missing textures fail soft + are visible in the editor** — a model
   whose .mtl referenced a texture that never made it into the project used to
   kill the game at boot ("Failed to load ... png_loader.cpp:39" assert - the

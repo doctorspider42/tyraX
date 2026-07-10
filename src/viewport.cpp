@@ -948,18 +948,50 @@ void Viewport::clearModelCache() {
     for (auto& [path, draw] : modelCache_)
         for (auto& part : draw.parts) destroyMesh(part.mesh);
     modelCache_.clear();
+    materialCache_.clear();  // GL textures are owned by texCache_
 }
 
-const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath) {
+// First material of an assigned .mtl - the surface of a primitive.
+const Viewport::MaterialDraw* Viewport::materialDraw(const std::string& relPath) {
     if (relPath.empty()) return nullptr;
-    auto it = modelCache_.find(relPath);
+    auto it = materialCache_.find(relPath);
+    if (it != materialCache_.end()) return &it->second;
+
+    MaterialDraw draw;  // stays white on failure - plain object color
+    std::vector<objparser::MtlMaterial> materials;
+    if (objparser::loadMtl((std::filesystem::path(projectDir_) / relPath).string(),
+                           materials)) {
+        const objparser::MtlMaterial& m = materials.front();
+        draw.kd[0] = m.kd[0];
+        draw.kd[1] = m.kd[1];
+        draw.kd[2] = m.kd[2];
+        if (!m.texture.empty())
+            draw.tex = glTexture((std::filesystem::path(relPath).parent_path() /
+                                  m.texture)
+                                     .generic_string());
+    }
+    return &materialCache_.emplace(relPath, draw).first->second;
+}
+
+const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
+                                               const std::string& materialRel) {
+    if (relPath.empty()) return nullptr;
+    const std::string key = relPath + "|" + materialRel;
+    auto it = modelCache_.find(key);
     if (it != modelCache_.end()) return it->second.parts.empty() ? nullptr : &it->second;
 
     objparser::Model model;
     ModelDraw draw;  // stays empty on failure - negative result is cached too
-    if (objparser::load((std::filesystem::path(projectDir_) / relPath).string(), model)) {
+    if (objparser::load(
+            (std::filesystem::path(projectDir_) / relPath).string(), model,
+            materialRel.empty()
+                ? ""
+                : (std::filesystem::path(projectDir_) / materialRel).string())) {
+        // map_Kd paths resolve relative to the file that defined them: the
+        // override .mtl when one is assigned, the model otherwise
         const std::filesystem::path modelDir =
-            std::filesystem::path(relPath).parent_path();
+            std::filesystem::path(materialRel.empty() ? relPath : materialRel)
+                .parent_path();
         for (const objparser::Submesh& sub : model.submeshes) {
             std::vector<float> interleaved;
             interleaved.reserve(sub.verts.size());
@@ -981,8 +1013,8 @@ const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath) {
             draw.parts.push_back(part);
         }
     }
-    modelCache_[relPath] = draw;
-    return modelCache_[relPath].parts.empty() ? nullptr : &modelCache_[relPath];
+    modelCache_[key] = draw;
+    return modelCache_[key].parts.empty() ? nullptr : &modelCache_[key];
 }
 
 void Viewport::setSky(const float* horizonRgb, const float* topRgb, bool gradient) {
@@ -1154,23 +1186,29 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         for (const SceneObject& o : objects) {
             const Mat4 model = modelMatrix(o);
             const Mat4 mvp = mul(viewProj, model);
-            const uint32_t tex = asLines ? 0 : glTexture(o.texturePath);
             // the bulb gizmo stays emissive - everything else receives light
             const bool lit = !asLines && o.type != PrimitiveType::PointLight;
-            // .obj models draw one part per MTL material; the object texture,
-            // when set, overrides every part's map_Kd (same rule as the game)
-            const ModelDraw* md =
-                o.type == PrimitiveType::Model ? modelDraw(o.modelPath) : nullptr;
+            // .obj models draw one part per MTL material (an assigned .mtl
+            // overrides the model's own libraries - same rule as the game)
+            const ModelDraw* md = o.type == PrimitiveType::Model
+                                      ? modelDraw(o.modelPath, o.materialPath)
+                                      : nullptr;
             if (md) {
                 for (const ModelPart& part : md->parts)
                     draw(part.mesh, GL_TRIANGLES, mvp, o.color[0] * tintScale,
                          o.color[1] * tintScale, o.color[2] * tintScale,
-                         asLines ? 0 : (tex ? tex : part.tex), lit ? &model : nullptr);
+                         asLines ? 0 : part.tex, lit ? &model : nullptr);
                 continue;
             }
-            draw(*meshFor(o), GL_TRIANGLES, mvp, o.color[0] * tintScale,
-                 o.color[1] * tintScale, o.color[2] * tintScale, tex,
-                 lit ? &model : nullptr);
+            // primitives: the assigned material's first entry = Kd tint + map_Kd
+            const MaterialDraw* mat =
+                o.type == PrimitiveType::Model ? nullptr : materialDraw(o.materialPath);
+            const float kr = mat ? mat->kd[0] : 1.0f;
+            const float kg = mat ? mat->kd[1] : 1.0f;
+            const float kb = mat ? mat->kd[2] : 1.0f;
+            draw(*meshFor(o), GL_TRIANGLES, mvp, o.color[0] * kr * tintScale,
+                 o.color[1] * kg * tintScale, o.color[2] * kb * tintScale,
+                 (asLines || !mat) ? 0 : mat->tex, lit ? &model : nullptr);
         }
         if (!asLines) glDisable(GL_POLYGON_OFFSET_FILL);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);

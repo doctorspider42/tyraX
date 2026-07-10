@@ -40,7 +40,7 @@
 // Native pickers (IFileOpenDialog). pickFolder: FOS_PICKFOLDERS;
 // pickSolutionFile: file dialog filtered to *.tyra project files.
 // ---------------------------------------------------------------------------
-enum class PickKind { Folder, Solution, ObjModel, Png, Wav, Ttf, Executable };
+enum class PickKind { Folder, Solution, ObjModel, Mtl, Png, Wav, Ttf, Executable };
 
 // Owner window for the native dialogs. An unowned modal (Show(nullptr))
 // leaves the frozen GLFW window active behind it - Windows then wedges the
@@ -86,6 +86,10 @@ static std::string pickPath(PickKind kind) {
             return pickFileLegacy(
                 L"Wavefront model (*.obj)\0*.obj\0All files (*.*)\0*.*\0",
                 L"Import 3D model");
+        case PickKind::Mtl:
+            return pickFileLegacy(
+                L"Material library (*.mtl)\0*.mtl\0All files (*.*)\0*.*\0",
+                L"Import material library");
         case PickKind::Png:
             return pickFileLegacy(
                 L"PNG image (*.png)\0*.png\0All files (*.*)\0*.*\0",
@@ -135,6 +139,7 @@ static std::string pickPath(PickKind kind) {
 static std::string pickFolder() { return pickPath(PickKind::Folder); }
 static std::string pickSolutionFile() { return pickPath(PickKind::Solution); }
 static std::string pickModelFile() { return pickPath(PickKind::ObjModel); }
+static std::string pickMtlFile() { return pickPath(PickKind::Mtl); }
 static std::string pickPngFile() { return pickPath(PickKind::Png); }
 static std::string pickWavFile() { return pickPath(PickKind::Wav); }
 static std::string pickTtfFile() { return pickPath(PickKind::Ttf); }
@@ -1174,6 +1179,75 @@ std::string App::importTextureAsset() {
     return "res/textures/" + fileName;
 }
 
+// Imports a universal .mtl into res/materials: copies the library and every
+// map_Kd texture next to it, rewriting the references to the sanitized
+// (flattened) names - mirrors the model import.
+std::string App::importMaterialAsset() {
+    const std::string src = pickMtlFile();
+    if (src.empty()) return "";
+
+    const std::filesystem::path srcPath(src);
+    const std::filesystem::path srcDir = srcPath.parent_path();
+    const std::string fileName = sanitizeAssetName(srcPath.filename().string());
+    const std::filesystem::path destDir =
+        std::filesystem::path(project_.dir) / "res" / "materials";
+    std::error_code ec;
+    std::filesystem::create_directories(destDir, ec);
+
+    std::vector<objparser::MtlMaterial> parsed;
+    objparser::loadMtl(src, parsed);
+    std::map<std::string, std::string> textureNames;
+    for (const objparser::MtlMaterial& m : parsed)
+        if (!m.texture.empty())
+            textureNames.emplace(
+                m.texture,
+                sanitizeAssetName(std::filesystem::path(m.texture).filename().string()));
+
+    int missing = 0;
+    {
+        std::ifstream in(srcPath);
+        std::ofstream out(destDir / fileName, std::ios::trunc);
+        if (!in || !out) {
+            statusMessage_ = "Material import failed: cannot copy " + fileName;
+            return "";
+        }
+        std::string line;
+        while (std::getline(in, line)) {
+            std::istringstream ss(line);
+            std::string tag;
+            ss >> tag;
+            if (tag == "map_Kd") {
+                std::string tok, last;
+                while (ss >> tok) last = tok;
+                for (char& c : last)
+                    if (c == '\\') c = '/';
+                auto it = textureNames.find(last);
+                out << "map_Kd " << (it != textureNames.end() ? it->second : last)
+                    << "\n";
+            } else {
+                out << line << "\n";
+            }
+        }
+    }
+    for (const auto& [texRef, texDest] : textureNames) {
+        std::filesystem::copy_file(srcDir / texRef, destDir / texDest,
+                                   std::filesystem::copy_options::overwrite_existing, ec);
+        if (ec) {
+            ++missing;
+            ec.clear();
+        }
+    }
+
+    modelInfoCache_.clear();  // material summaries may change
+    statusMessage_ = "Imported " + fileName + " (" +
+                     std::to_string(parsed.size()) + " material(s), " +
+                     std::to_string(textureNames.size()) + " texture(s))";
+    if (missing > 0)
+        statusMessage_ += " - " + std::to_string(missing) +
+                          " texture(s) missing next to the .mtl";
+    return "res/materials/" + fileName;
+}
+
 std::vector<std::string> App::listAssetFiles(const char* subdir, const char* ext) {
     std::vector<std::string> files;
     std::error_code ec;
@@ -1190,9 +1264,9 @@ std::vector<std::string> App::listAssetFiles(const char* subdir, const char* ext
     return files;
 }
 
-// "Pick..." + popup over the PNGs already in res/textures. The only way to
-// put a texture on something is to pick a project asset - importing lives in
-// the Assets section, so paths on disk and in the project never diverge.
+// "Pick..." + popup over the PNGs in res/textures (terrain tiling textures -
+// objects are textured through materials instead). The Import item at the
+// bottom is the only file dialog for these.
 bool App::pickProjectTexture(const char* popupId, std::string& path) {
     bool changed = false;
     if (ImGui::SmallButton((std::string("Pick...##") + popupId).c_str()))
@@ -1204,42 +1278,125 @@ bool App::pickProjectTexture(const char* popupId, std::string& path) {
                 path = "res/textures/" + name;
                 changed = true;
             }
-        if (textures.empty())
-            ImGui::TextDisabled("No textures - Import one in Project > Assets.");
+        if (textures.empty()) ImGui::TextDisabled("No textures in res/textures yet.");
+        ImGui::Separator();
+        if (ImGui::MenuItem("Import PNG...")) {
+            const std::string imported = importTextureAsset();
+            if (!imported.empty()) {
+                path = imported;
+                changed = true;
+            }
+        }
         ImGui::EndPopup();
     }
     return changed;
 }
 
-const App::ModelInfo& App::modelInfo(const std::string& relPath) {
-    auto it = modelInfoCache_.find(relPath);
+const App::ModelInfo& App::modelInfo(const std::string& relPath,
+                                     const std::string& materialRel) {
+    const std::string key = relPath + "|" + materialRel;
+    auto it = modelInfoCache_.find(key);
     if (it != modelInfoCache_.end()) return it->second;
 
     ModelInfo info;
     objparser::Model model;
     const std::filesystem::path full = std::filesystem::path(project_.dir) / relPath;
-    if (objparser::load(full.string(), model)) {
+    const std::string overrideMtl =
+        materialRel.empty()
+            ? ""
+            : (std::filesystem::path(project_.dir) / materialRel).string();
+    if (objparser::load(full.string(), model, overrideMtl)) {
         info.ok = true;
         info.tris = model.vertexCount() / 3;
+        // texture paths resolve relative to the file that defined them: the
+        // override .mtl when one is assigned, the model otherwise
+        const std::filesystem::path texBase =
+            materialRel.empty()
+                ? full.parent_path()
+                : (std::filesystem::path(project_.dir) / materialRel).parent_path();
         for (const objparser::Submesh& s : model.submeshes) {
             const std::string name = s.material.empty() ? "(default)" : s.material;
             ModelInfo::MaterialLine line;
             if (s.texture.empty()) {
                 line.text = name + " (color)";
             } else {
-                // texture paths resolve relative to the .obj - flag the ones
-                // that are not actually inside the project (the game would
-                // draw those parts untextured and warn)
+                // flag textures that are not actually inside the project (the
+                // game would draw those parts untextured and warn)
                 std::error_code ec;
-                line.missing =
-                    !std::filesystem::exists(full.parent_path() / s.texture, ec);
+                line.missing = !std::filesystem::exists(texBase / s.texture, ec);
                 line.text = name + " (" + s.texture + ")";
                 info.anyMissing |= line.missing;
             }
             info.materials.push_back(std::move(line));
         }
     }
-    return modelInfoCache_.emplace(relPath, std::move(info)).first->second;
+    return modelInfoCache_.emplace(key, std::move(info)).first->second;
+}
+
+// Summary of a standalone .mtl asset (Assets section / material combos).
+const App::ModelInfo& App::materialInfo(const std::string& relPath) {
+    const std::string key = "mtl:" + relPath;
+    auto it = modelInfoCache_.find(key);
+    if (it != modelInfoCache_.end()) return it->second;
+
+    ModelInfo info;
+    std::vector<objparser::MtlMaterial> materials;
+    const std::filesystem::path full = std::filesystem::path(project_.dir) / relPath;
+    if (objparser::loadMtl(full.string(), materials)) {
+        info.ok = true;
+        for (const objparser::MtlMaterial& m : materials) {
+            ModelInfo::MaterialLine line;
+            if (m.texture.empty()) {
+                line.text = m.name + " (color)";
+            } else {
+                std::error_code ec;
+                line.missing =
+                    !std::filesystem::exists(full.parent_path() / m.texture, ec);
+                line.text = m.name + " (" + m.texture + ")";
+                info.anyMissing |= line.missing;
+            }
+            info.materials.push_back(std::move(line));
+        }
+    }
+    return modelInfoCache_.emplace(key, std::move(info)).first->second;
+}
+
+std::vector<std::string> App::listMaterialAssets() {
+    std::vector<std::string> result;
+    for (const std::string& m : listAssetFiles("materials", ".mtl"))
+        result.push_back("res/materials/" + m);
+    for (const std::string& m : listAssetFiles("models", ".mtl"))
+        result.push_back("res/models/" + m);
+    return result;
+}
+
+// Material combo shared by every solid object. Lists the project's .mtl
+// assets (res/materials + the models' own libraries); primitives take the
+// file's first material, models use it as an override.
+bool App::drawMaterialCombo(SceneObject& o) {
+    const bool isModel = o.type == PrimitiveType::Model;
+    const char* noneLabel = isModel ? "(model's own)" : "<none - plain color>";
+    std::string current = o.materialPath.empty() ? noneLabel : o.materialPath;
+    if (current.rfind("res/", 0) == 0) current = current.substr(4);
+
+    bool changed = false;
+    if (ImGui::BeginCombo("Material", current.c_str())) {
+        if (ImGui::Selectable(noneLabel, o.materialPath.empty()) &&
+            !o.materialPath.empty()) {
+            o.materialPath.clear();
+            changed = true;
+        }
+        for (const std::string& rel : listMaterialAssets()) {
+            const std::string label = rel.substr(4);  // drop "res/"
+            if (ImGui::Selectable(label.c_str(), rel == o.materialPath) &&
+                rel != o.materialPath) {
+                o.materialPath = rel;
+                changed = true;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    return changed;
 }
 
 // Project-wide asset lists (models + textures), mirrored straight from res/
@@ -1277,28 +1434,38 @@ void App::drawAssetsSection() {
     }
     if (models.empty()) ImGui::TextDisabled("  none - Import or drop .obj files there.");
 
-    ImGui::TextDisabled("Textures (res/textures)");
+    ImGui::TextDisabled("Materials (res/materials)");
     ImGui::SameLine();
-    if (ImGui::SmallButton("Import PNG...")) importTextureAsset();
-    const std::vector<std::string> textures = listAssetFiles("textures", ".png");
-    for (const std::string& t : textures) {
+    if (ImGui::SmallButton("Import .mtl...")) importMaterialAsset();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Universal material libraries: assign one to many\n"
+                          "objects (primitives use the first material, models\n"
+                          "override their own mtl). Textures are copied along.");
+    const std::vector<std::string> materials = listAssetFiles("materials", ".mtl");
+    for (const std::string& m : materials) {
         ImGui::Bullet();
         ImGui::SameLine();
-        ImGui::TextUnformatted(t.c_str());
-        // hover thumbnail (same PNG cache the HUD preview uses)
-        if (ImGui::IsItemHovered()) {
-            if (const HudTexture* tex = hudTexture("res/textures/" + t)) {
+        ImGui::TextUnformatted(m.c_str());
+        const ModelInfo& info = materialInfo("res/materials/" + m);
+        if (info.ok) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("(%d material(s))", (int)info.materials.size());
+            if (ImGui::IsItemHovered()) {
                 ImGui::BeginTooltip();
-                const float scale = 128.0f / (float)(tex->w > tex->h ? tex->w : tex->h);
-                ImGui::Image((ImTextureID)(intptr_t)tex->tex,
-                             ImVec2(tex->w * scale, tex->h * scale));
-                ImGui::TextDisabled("%d x %d", tex->w, tex->h);
+                for (const ModelInfo::MaterialLine& line : info.materials)
+                    ImGui::TextUnformatted(
+                        (line.text + (line.missing ? " - texture MISSING" : ""))
+                            .c_str());
                 ImGui::EndTooltip();
+            }
+            if (info.anyMissing) {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "missing textures!");
             }
         }
     }
-    if (textures.empty())
-        ImGui::TextDisabled("  none - Import or drop PNG files there.");
+    if (materials.empty())
+        ImGui::TextDisabled("  none - Import or drop .mtl files there.");
 }
 
 // Creates a scene object for a model that is already inside the project
@@ -1487,8 +1654,9 @@ void App::drawPropertiesWindow() {
                 ImGui::TextDisabled("No models - Import one in Project > Assets.");
             ImGui::EndCombo();
         }
-        // materials come from the .obj's MTL file - read-only summary
-        const ModelInfo& info = modelInfo(o.modelPath);
+        // materials come from the .obj's MTL file (or the assigned override)
+        // - read-only summary
+        const ModelInfo& info = modelInfo(o.modelPath, o.materialPath);
         if (info.ok) {
             ImGui::TextDisabled("%d triangles, materials (from .mtl):", info.tris);
             for (const ModelInfo::MaterialLine& m : info.materials) {
@@ -1526,18 +1694,22 @@ void App::drawPropertiesWindow() {
     }
 
     if (isSolid) {
-        // Texture (PNG modulated by the object color; white color = plain
-        // texture). Picks a project asset; importing lives in the Assets
-        // section. For models it overrides every material's map_Kd.
-        ImGui::TextDisabled("Texture: %s",
-                            o.texturePath.empty() ? "<none>" : o.texturePath.c_str());
-        ImGui::SameLine();
-        if (pickProjectTexture("##pick_obj_texture", o.texturePath)) committed = true;
-        if (!o.texturePath.empty()) {
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Clear##tex")) {
-                o.texturePath.clear();
-                committed = true;
+        // Material (.mtl asset): primitives take the file's first material
+        // (Kd + map_Kd on their UVs, modulated by the object color), models
+        // use it as an override replacing their own libraries.
+        if (drawMaterialCombo(o)) committed = true;
+        if (!o.materialPath.empty() && o.type != PrimitiveType::Model) {
+            const ModelInfo& mat = materialInfo(o.materialPath);
+            if (mat.ok && !mat.materials.empty()) {
+                const ModelInfo::MaterialLine& line = mat.materials.front();
+                if (line.missing)
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                       "%s - texture MISSING", line.text.c_str());
+                else
+                    ImGui::TextDisabled("%s", line.text.c_str());
+            } else {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                   "Material file missing/empty - plain color.");
             }
         }
 

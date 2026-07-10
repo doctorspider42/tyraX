@@ -39,6 +39,13 @@ struct LeanObjMesh {
   }
 };
 
+/** One material of a standalone .mtl library (loadMtl). */
+struct LeanMtlMaterial {
+  std::string name;
+  std::string textureName;  // map_Kd, relative to the .mtl directory ("" = none)
+  float kd[3] = {1.0F, 1.0F, 1.0F};
+};
+
 /**
  * Lightweight Wavefront .obj + .mtl loader.
  *
@@ -57,9 +64,20 @@ class LeanObjLoader {
  public:
   /**
    * @param relativePath path relative to the ELF cwd, e.g. "models/tree.obj"
+   * @param overrideMtl optional path (relative to the cwd) to a material
+   *        library that REPLACES the model's own mtllib/sibling libraries -
+   *        usemtl names resolve against it and the returned textureName
+   *        paths are then relative to that file's directory
    * @return parsed mesh, or nullptr when the file is missing/has no triangles
    */
-  static std::unique_ptr<LeanObjMesh> load(const std::string& relativePath);
+  static std::unique_ptr<LeanObjMesh> load(const std::string& relativePath,
+                                           const std::string& overrideMtl = "");
+
+  /**
+   * Parses a standalone .mtl library (newmtl/Kd/map_Kd), file order.
+   * @return materials, empty when the file is missing or defines none
+   */
+  static std::vector<LeanMtlMaterial> loadMtl(const std::string& relativePath);
 };
 
 }  // namespace Tyra

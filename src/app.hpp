@@ -51,8 +51,17 @@ private:
     // the sanitized names) into res/models. Returns the project-relative path
     // of the model, or "" when cancelled/failed. Does NOT create an object.
     std::string importModelAsset();
-    // Copies a picked PNG into res/textures; "" when cancelled/failed.
+    // Copies a picked PNG into res/textures (terrain tiling); "" on cancel.
     std::string importTextureAsset();
+    // Copies a picked .mtl (with its map_Kd textures, references rewritten to
+    // the sanitized names) into res/materials; "" when cancelled/failed.
+    std::string importMaterialAsset();
+    // All .mtl assets an object can use: res/materials + res/models, as
+    // project-relative paths ("res/materials/walls.mtl")
+    std::vector<std::string> listMaterialAssets();
+    // Combo picking an .mtl for the object (primitives: surface; models:
+    // override). Returns true when materialPath changed.
+    bool drawMaterialCombo(SceneObject& o);
     // Creates a scene object for a model already in res/models (no copying)
     void addModelObject(const std::string& relPath);
     // Project-panel section listing res/models + res/textures with the
@@ -75,7 +84,11 @@ private:
         bool anyMissing = false;
     };
     std::map<std::string, ModelInfo> modelInfoCache_;
-    const ModelInfo& modelInfo(const std::string& relPath);
+    // materialRel: .mtl override applied to the model ("" = its own)
+    const ModelInfo& modelInfo(const std::string& relPath,
+                               const std::string& materialRel = "");
+    // Summary of a standalone .mtl (material lines + missing-texture flags)
+    const ModelInfo& materialInfo(const std::string& relPath);
     // Mirrors res/audio + res/sfx into the music/sounds lists (manual drops
     // are picked up, vanished files are dropped). announce: status even when
     // nothing changed.

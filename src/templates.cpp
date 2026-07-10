@@ -18,30 +18,57 @@ namespace templates {
 
 static std::vector<std::string> collectMenuEvents(const Project& p);
 
-// Unique model paths referenced by the scene, in first-use order.
-// The index in this list == SceneObjectData::model in the generated code.
-static std::vector<std::string> collectModelPaths(const Project& p) {
-    std::vector<std::string> paths;
+// Unique (modelPath, material override) pairs referenced by model objects,
+// in first-use order. A material override changes what gets loaded, so the
+// PAIR is the model identity: the index in this list ==
+// SceneObjectData::model in the generated code.
+static std::vector<std::pair<std::string, std::string>> collectModelKeys(
+    const Project& p) {
+    std::vector<std::pair<std::string, std::string>> keys;
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects) {
             if (o.type != PrimitiveType::Model || o.modelPath.empty()) continue;
+            const std::pair<std::string, std::string> key{o.modelPath, o.materialPath};
             bool seen = false;
-            for (const auto& e : paths) seen |= (e == o.modelPath);
-            if (!seen) paths.push_back(o.modelPath);
+            for (const auto& e : keys) seen |= (e == key);
+            if (!seen) keys.push_back(key);
         }
-    return paths;
+    return keys;
 }
 
 static int modelIndexOf(const Project& p, const SceneObject& o) {
     if (o.type != PrimitiveType::Model || o.modelPath.empty()) return -1;
-    const auto paths = collectModelPaths(p);
-    for (size_t i = 0; i < paths.size(); ++i)
-        if (paths[i] == o.modelPath) return (int)i;
+    const auto keys = collectModelKeys(p);
+    for (size_t i = 0; i < keys.size(); ++i)
+        if (keys[i].first == o.modelPath && keys[i].second == o.materialPath)
+            return (int)i;
     return -1;
 }
 
-// Unique texture paths (objects + terrain), first-use order. The index in
-// this list == SceneObjectData::texture / TERRAIN_TEXTURE in generated code.
+// Unique .mtl paths assigned to non-model solid objects (primitives take the
+// file's first material). The index == SceneObjectData::material.
+static std::vector<std::string> collectMaterialPaths(const Project& p) {
+    std::vector<std::string> paths;
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects) {
+            if (o.type == PrimitiveType::Model || o.materialPath.empty()) continue;
+            bool seen = false;
+            for (const auto& e : paths) seen |= (e == o.materialPath);
+            if (!seen) paths.push_back(o.materialPath);
+        }
+    return paths;
+}
+
+static int materialIndexOf(const Project& p, const SceneObject& o) {
+    if (o.type == PrimitiveType::Model || o.materialPath.empty()) return -1;
+    const auto paths = collectMaterialPaths(p);
+    for (size_t i = 0; i < paths.size(); ++i)
+        if (paths[i] == o.materialPath) return (int)i;
+    return -1;
+}
+
+// Unique texture paths (terrain only - objects are textured via materials),
+// first-use order. The index == TERRAIN_TEXTURE in generated code.
 static std::vector<std::string> collectTexturePaths(const Project& p) {
     std::vector<std::string> paths;
     auto add = [&](const std::string& t) {
@@ -50,9 +77,6 @@ static std::vector<std::string> collectTexturePaths(const Project& p) {
             if (e == t) return;
         paths.push_back(t);
     };
-    for (const SceneData& sc : p.scenes)
-        for (const SceneObject& o : sc.objects)
-            if (o.type != PrimitiveType::SpawnPoint) add(o.texturePath);
     for (const SceneData& sc : p.scenes)
         add(project::resolvedSettings(p, sc).terrainTexture);
     return paths;
@@ -262,6 +286,14 @@ class TerrainGame : public Tyra::Game {
   };
   std::vector<GameModel> gameModels;
   void loadModels();
+  // Primitive materials: .mtl assigned to a box/sphere/... - the file's
+  // first material supplies the color (kd) and optional texture.
+  struct GameMaterial {
+    Tyra::Texture* texture = nullptr;
+    float kd[3] = {1.0F, 1.0F, 1.0F};
+  };
+  std::vector<GameMaterial> gameMaterials;
+  void loadMaterials();
   std::vector<Tyra::Texture*> loadedTextures;
   std::vector<Tyra::Vec4> terrainSts;
   Tyra::StaPipTextureBag terrainTexBag;
@@ -440,6 +472,14 @@ class TerrainGame : public Tyra::Game {
   };
   std::vector<GameModel> gameModels;
   void loadModels();
+  // Primitive materials: .mtl assigned to a box/sphere/... - the file's
+  // first material supplies the color (kd) and optional texture.
+  struct GameMaterial {
+    Tyra::Texture* texture = nullptr;
+    float kd[3] = {1.0F, 1.0F, 1.0F};
+  };
+  std::vector<GameMaterial> gameMaterials;
+  void loadMaterials();
   std::vector<Tyra::Texture*> loadedTextures;
   std::vector<Tyra::Vec4> terrainSts;
   Tyra::StaPipTextureBag terrainTexBag;
@@ -672,13 +712,22 @@ V3 pointLightAt(const V3& wp, const V3& n) {
   return add;
 }
 
+// Material context for the primitive builders: addBox & co call pushVert
+// without material args, so rebuildObjectGeometry stages the object's
+// assigned material here before dispatching. Model parts pass theirs
+// explicitly via the kd/textured parameters instead.
+const float* g_primKd = nullptr;
+bool g_primTextured = false;
+
 // kd: material diffuse (MTL) multiplied into the object color, null = white.
-// textured: this batch gets a texture even when o.texture is -1 (a model
-// part's own map_Kd) - switches the color to modulation scale (128 = 1.0).
+// textured: this batch draws with a texture (a model part's map_Kd or a
+// primitive material's) - switches the color to modulation scale (128 = 1.0).
 void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
               std::vector<Vec4>& sts, const SceneObjectData& o, V3 p, V3 n,
-              float u, float v, const float* kd = nullptr,
-              bool textured = false) {
+              float u, float v, const float* kdArg = nullptr,
+              bool texturedArg = false) {
+  const float* kd = kdArg ? kdArg : g_primKd;
+  const bool textured = texturedArg || g_primTextured;
   p.x *= o.scale[0], p.y *= o.scale[1], p.z *= o.scale[2];
   p = rotated(p, o.rotation);
   n = rotated(n, o.rotation);
@@ -692,7 +741,7 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   if (kd) shade.x *= kd[0], shade.y *= kd[1], shade.z *= kd[2];
   verts.push_back(Vec4(wp.x, wp.y, wp.z, 1.0F));
   // In textured mode the color modulates the texture (128 = 1.0)
-  const float scale = (textured || o.texture >= 0) ? 128.0F : 255.0F;
+  const float scale = textured ? 128.0F : 255.0F;
   cols.push_back(Color(o.color[0] * scale * shade.x, o.color[1] * scale * shade.y,
                        o.color[2] * scale * shade.z, 128.0F));
   sts.push_back(Vec4(u, v, 1.0F, 0.0F));
@@ -965,6 +1014,7 @@ void TerrainGame::buildScene() {
   }
 
   loadModels();
+  loadMaterials();
 
   vertices.clear();
   colors.clear();
@@ -1076,15 +1126,17 @@ void TerrainGame::loadModels() {
   gameModels.assign(MODEL_COUNT > 0 ? MODEL_COUNT : 0, GameModel());
   std::map<std::string, Texture*> textureByPath;
   for (int i = 0; i < MODEL_COUNT; ++i) {
-    auto mesh = LeanObjLoader::load(MODEL_PATHS[i]);
+    const std::string overrideMtl = MODEL_MTLS[i];
+    auto mesh = LeanObjLoader::load(MODEL_PATHS[i], overrideMtl);
     if (!mesh) continue;  // stays empty - objects using it render nothing
     GameModel& gm = gameModels[i];
     for (int k = 0; k < 3; ++k) {
       gm.mn[k] = mesh->min[k];
       gm.mx[k] = mesh->max[k];
     }
-    // map_Kd texture names resolve relative to the model's directory
-    std::string dir = MODEL_PATHS[i];
+    // map_Kd texture names resolve relative to the file that defined them:
+    // the override .mtl when one is assigned, the model otherwise
+    std::string dir = overrideMtl.empty() ? MODEL_PATHS[i] : overrideMtl;
     const size_t slash = dir.find_last_of('/');
     dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
     for (auto& mat : mesh->materials) {
@@ -1117,6 +1169,38 @@ void TerrainGame::loadModels() {
         all.insert(all.end(), part.verts.begin(), part.verts.end());
       gm.collider.build(all.data(), (u32)(all.size() / 8), 8);
     }
+  }
+}
+
+// Primitive materials: each MATERIAL_PATHS entry is a .mtl whose FIRST
+// material becomes the surface of the primitives it is assigned to
+// (Kd color + optional map_Kd texture, resolved relative to the .mtl).
+void TerrainGame::loadMaterials() {
+  gameMaterials.assign(MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 0, GameMaterial());
+  std::map<std::string, Texture*> textureByPath;
+  for (int i = 0; i < MATERIAL_COUNT; ++i) {
+    const auto materials = LeanObjLoader::loadMtl(MATERIAL_PATHS[i]);
+    if (materials.empty()) continue;  // stays white - plain object color
+    const auto& mat = materials.front();
+    GameMaterial& gmat = gameMaterials[i];
+    gmat.kd[0] = mat.kd[0];
+    gmat.kd[1] = mat.kd[1];
+    gmat.kd[2] = mat.kd[2];
+    if (mat.textureName.empty()) continue;
+    std::string dir = MATERIAL_PATHS[i];
+    const size_t slash = dir.find_last_of('/');
+    dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
+    const std::string path = dir + mat.textureName;
+    auto it = textureByPath.find(path);
+    if (it == textureByPath.end()) {
+      Texture* t = nullptr;
+      if (assetFileExists(path))
+        t = engine->renderer.getTextureRepository().add(FileUtils::fromCwd(path));
+      else
+        TYRA_WARN("Material texture missing: ", path.c_str());
+      it = textureByPath.emplace(path, t).first;
+    }
+    gmat.texture = it->second;
   }
 }
 
@@ -1969,6 +2053,13 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     part.sts.clear();
   }
 
+  // primitives: the assigned material (first entry of its .mtl) supplies
+  // the surface color/texture - staged for the builders via g_prim*
+  const GameMaterial* gmat = nullptr;
+  if (o.data.type != 5 && o.data.material >= 0 &&
+      o.data.material < (int)gameMaterials.size())
+    gmat = &gameMaterials[o.data.material];
+
   if (o.data.type == 5) {
     for (int pi = 0; pi < partCount; ++pi) {
       const GameModelPart& src = gm->parts[pi];
@@ -1982,6 +2073,8 @@ void TerrainGame::rebuildObjectGeometry(int index) {
       }
     }
   } else {
+    g_primKd = gmat ? gmat->kd : nullptr;
+    g_primTextured = gmat && gmat->texture;
     GeoPart& p0 = g.parts[0];
     switch (o.data.type) {
       case 1: addSphere(p0.vertices, p0.colors, p0.sts, o.data); break;
@@ -1994,6 +2087,8 @@ void TerrainGame::rebuildObjectGeometry(int index) {
       case 9: break;  // point light - invisible source, no geometry
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
+    g_primKd = nullptr;
+    g_primTextured = false;
   }
 
   for (int pi = 0; pi < partCount; ++pi) {
@@ -2024,13 +2119,9 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     part.bag->count = static_cast<u32>(part.vertices.size());
     part.bag->bboxVersion++;  // geometry changed - refresh the bbox cache
 
-    // an object texture (Set... in the editor) overrides the part's map_Kd
-    Texture* tex = nullptr;
-    if (o.data.texture >= 0 && o.data.texture < TEXTURE_COUNT &&
-        loadedTextures[o.data.texture])
-      tex = loadedTextures[o.data.texture];
-    else if (o.data.type == 5)
-      tex = gm->parts[pi].texture;
+    // models: the part's own map_Kd; primitives: the assigned material's
+    Texture* tex =
+        o.data.type == 5 ? gm->parts[pi].texture : (gmat ? gmat->texture : nullptr);
     if (tex) {
       if (!part.texBag) part.texBag = std::make_unique<StaPipTextureBag>();
       part.texBag->texture = tex;
@@ -3306,7 +3397,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  float color[3];  // 0..1\n"
            "  int physics;  // 1 = falls with gravity\n"
            "  int model;    // index into MODEL_PATHS / gameModels, -1 = none\n"
-           "  int texture;  // index into TEXTURE_PATHS (texture_data.gen.hpp), -1 = none\n"
+           "  int material; // primitives: index into MATERIAL_PATHS, -1 = plain color\n"
            "  int usable;   // 1 = shows the USE prompt up close (see controls.hpp)\n"
            "  int emitKind;   // emitters: 0 fire, 1 smoke, 2 fog, 3 sparks\n"
            "  int emitCount;  // emitters: particle pool size\n"
@@ -3348,7 +3439,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 out << "    {" << (int)o.type << ", " << vec3Init(o.position) << ", "
                     << vec3Init(o.rotation) << ", " << vec3Init(o.scale) << ", "
                     << vec3Init(o.color) << ", " << (o.physics ? 1 : 0) << ", "
-                    << modelIndexOf(p, o) << ", " << textureIndexOf(p, o.texturePath)
+                    << modelIndexOf(p, o) << ", " << materialIndexOf(p, o)
                     << ", "
                     // save points are always usable - USE is how they open
                     << ((o.usable || o.type == PrimitiveType::SavePoint) ? 1 : 0)
@@ -4287,47 +4378,69 @@ std::string flowGraphScript(const Project& p) {
     return out.str();
 }
 
-// inc/model_data.gen.hpp - .obj model paths. Models are no longer baked into
-// the ELF: the game loads them (with their .mtl materials and textures) at
-// startup through the engine's LeanObjLoader, from bin/models/ (the Makefile
-// copies res/ next to the ELF).
+// inc/model_data.gen.hpp - .obj model paths (+ optional per-object .mtl
+// overrides) and the primitive material libraries. Nothing is baked into the
+// ELF: the game loads everything at startup through the engine's
+// LeanObjLoader, from bin/ (the Makefile copies res/ next to the ELF).
 static std::string modelDataHeader(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
-    const auto paths = collectModelPaths(p);
+    const auto keys = collectModelKeys(p);
+    const auto materials = collectMaterialPaths(p);
+
+    auto binPathOf = [](std::string path) {
+        // res/models/x.obj on the host lands as models/x.obj in bin/
+        if (path.rfind("res/", 0) == 0) path = path.substr(4);
+        return path;
+    };
 
     // A CollisionMesh is only built for models some object collides with in
     // mesh mode - box-only models skip the memory and build time.
-    std::vector<bool> needsCollider(paths.size(), false);
+    std::vector<bool> needsCollider(keys.size(), false);
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects) {
             if (o.type != PrimitiveType::Model || o.collisionMode != 1) continue;
-            for (size_t m = 0; m < paths.size(); ++m)
-                if (paths[m] == o.modelPath) needsCollider[m] = true;
+            for (size_t m = 0; m < keys.size(); ++m)
+                if (keys[m].first == o.modelPath && keys[m].second == o.materialPath)
+                    needsCollider[m] = true;
         }
 
     std::ostringstream out;
     out << "// Generated by tyra-editor. Do not edit - regenerated on every build.\n"
            "#pragma once\n\nnamespace "
         << ns << " {\n\n"
-        << "constexpr int MODEL_COUNT = " << paths.size() << ";\n"
+        << "constexpr int MODEL_COUNT = " << keys.size() << ";\n"
         << "inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {\n";
-    if (paths.empty()) {
+    if (keys.empty()) {
         out << "    \"\",\n";
     } else {
-        for (const auto& path : paths) {
-            // res/models/x.obj on the host lands as models/x.obj in bin/
-            std::string binPath = path;
-            if (binPath.rfind("res/", 0) == 0) binPath = binPath.substr(4);
-            out << "    \"" << binPath << "\",\n";
-        }
+        for (const auto& key : keys) out << "    \"" << binPathOf(key.first) << "\",\n";
+    }
+    out << "};\n"
+           "// per-model .mtl override (\"\" = the model's own material libraries)\n"
+           "inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {\n";
+    if (keys.empty()) {
+        out << "    \"\",\n";
+    } else {
+        for (const auto& key : keys)
+            out << "    \"" << (key.second.empty() ? "" : binPathOf(key.second))
+                << "\",\n";
     }
     out << "};\n"
            "constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {";
-    if (paths.empty()) {
+    if (keys.empty()) {
         out << "false";
     } else {
-        for (size_t m = 0; m < paths.size(); ++m)
+        for (size_t m = 0; m < keys.size(); ++m)
             out << (m ? ", " : "") << (needsCollider[m] ? "true" : "false");
+    }
+    out << "};\n\n"
+        << "// .mtl libraries assigned to primitives (first material = surface)\n"
+        << "constexpr int MATERIAL_COUNT = " << materials.size() << ";\n"
+        << "inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {\n";
+    if (materials.empty()) {
+        out << "    \"\",\n";
+    } else {
+        for (const auto& path : materials) out << "    \"" << binPathOf(path) << "\",\n";
     }
     out << "};\n\n}  // namespace " << ns << "\n";
     return out.str();

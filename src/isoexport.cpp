@@ -78,7 +78,7 @@ static std::string orderFiles(const Project& p, std::vector<OrderedFile>& out,
         const std::string terrainTex = project::resolvedSettings(p, s).terrainTexture;
         if (!terrainTex.empty()) take(binPathOf(terrainTex), group);
         for (const SceneObject& o : s.objects) {
-            if (!o.texturePath.empty()) take(binPathOf(o.texturePath), group);
+            if (!o.materialPath.empty()) take(binPathOf(o.materialPath), group);
             if (!o.modelPath.empty()) take(binPathOf(o.modelPath), group);
         }
     }
