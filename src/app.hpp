@@ -47,9 +47,30 @@ private:
     void addPointLight();
     void addSavePoint();
     void drawAddObjectMenu();
-    void importModel();
+    // Copies a picked .obj (with its .mtl + textures, references rewritten to
+    // the sanitized names) into res/models. Returns the project-relative path
+    // of the model, or "" when cancelled/failed. Does NOT create an object.
+    std::string importModelAsset();
+    // Copies a picked PNG into res/textures; "" when cancelled/failed.
+    std::string importTextureAsset();
     // Creates a scene object for a model already in res/models (no copying)
     void addModelObject(const std::string& relPath);
+    // Project-panel section listing res/models + res/textures with the
+    // Import... buttons (the object pickers only offer what is listed here)
+    void drawAssetsSection();
+    // Files directly under res/<subdir> with the given extension (lowercase
+    // compare), names only, sorted by the directory iteration order
+    std::vector<std::string> listAssetFiles(const char* subdir, const char* ext);
+    // "Pick..." button + popup listing res/textures; true when path changed
+    bool pickProjectTexture(const char* popupId, std::string& path);
+    // Cached objparser summary of a model (for the properties panel)
+    struct ModelInfo {
+        bool ok = false;
+        int tris = 0;
+        std::vector<std::string> materials;  // "name (texture.png)" / "name (color)"
+    };
+    std::map<std::string, ModelInfo> modelInfoCache_;
+    const ModelInfo& modelInfo(const std::string& relPath);
     // Mirrors res/audio + res/sfx into the music/sounds lists (manual drops
     // are picked up, vanished files are dropped). announce: status even when
     // nothing changed.

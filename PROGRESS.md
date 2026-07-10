@@ -9,6 +9,25 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (20) **Pick-from-project asset flow + Assets section + MTL visibility** —
+  the object/terrain pickers no longer open file dialogs: textures pick from
+  `res/textures` (object texture, Project Preferences and Scene Preferences
+  terrain texture - all through one `pickProjectTexture()` popup), model
+  objects get a **Model combo** over `res/models`, sounds already picked from
+  the project list. Importing moved to one place: a new **Assets** section in
+  the Project panel lists `res/models` (with tri/material counts) and
+  `res/textures` straight from disk, with `Import .obj...` / `Import PNG...`
+  buttons (model import copies the .mtl + textures as before but no longer
+  auto-creates an object - add it from the Add menu's Model submenu, which now
+  only lists project models). The Music/Sounds/HUD import buttons are renamed
+  `Import...` so it is obvious they copy into the project. Since materials are
+  a property of the .obj/.mtl file (not of the object), the Properties panel
+  now shows a read-only summary for models: triangle count + each MTL material
+  with its map_Kd texture or "(color)". Verified: editor builds clean; GUI
+  screenshot shows the Assets section, the Model combo, the materials summary
+  ("walls (bricks.png), roof (color)" for the test house) and the Pick...
+  texture flow on the mtltest project.
+
 - (19) **Asset import rework: drop-into-res + rescan, in-editor WAV converter** —
   assets no longer have to go through the import dialogs. WAVs dropped by hand
   into `res/audio` / `res/sfx` are picked up by a rescan (runs on project open

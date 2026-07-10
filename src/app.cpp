@@ -833,6 +833,7 @@ void App::drawProjectWindow() {
     }
 
     drawSceneSection();
+    drawAssetsSection();
     drawHudSection();
     drawMusicSection();
     drawSoundsSection();
@@ -966,6 +967,7 @@ void App::attachProject() {
     flowPositionsApplied_ = false;
     statusMessage_.clear();
     wavIssueCache_.clear();
+    modelInfoCache_.clear();
     // Pick up assets dropped into res/ by hand while the project was closed.
     rescanAssets(false);
 }
@@ -1043,9 +1045,9 @@ void App::addObject(PrimitiveType type) {
     commitChange();
 }
 
-void App::importModel() {
+std::string App::importModelAsset() {
     const std::string src = pickModelFile();
-    if (src.empty()) return;
+    if (src.empty()) return "";
 
     const std::filesystem::path srcPath(src);
     const std::filesystem::path srcDir = srcPath.parent_path();
@@ -1081,7 +1083,7 @@ void App::importModel() {
         std::ofstream out(destDir / fileName, std::ios::trunc);
         if (!in || !out) {
             statusMessage_ = "Model import failed: cannot copy " + fileName;
-            return;
+            return "";
         }
         std::string line;
         while (std::getline(in, line)) {
@@ -1137,7 +1139,7 @@ void App::importModel() {
         }
     }
 
-    addModelObject("res/models/" + fileName);
+    modelInfoCache_.erase("res/models/" + fileName);
     statusMessage_ = "Imported " + fileName;
     if (!parseOk)
         statusMessage_ += " (unparseable - it will render as a placeholder box)";
@@ -1147,6 +1149,117 @@ void App::importModel() {
     if (missing > 0)
         statusMessage_ += " - " + std::to_string(missing) +
                           " referenced file(s) missing next to the .obj";
+    return "res/models/" + fileName;
+}
+
+std::string App::importTextureAsset() {
+    const std::string src = pickPngFile();
+    if (src.empty()) return "";
+    const std::filesystem::path srcPath(src);
+    const std::string fileName = sanitizeAssetName(srcPath.filename().string());
+    const std::filesystem::path destDir =
+        std::filesystem::path(project_.dir) / "res" / "textures";
+    std::error_code ec;
+    std::filesystem::create_directories(destDir, ec);
+    std::filesystem::copy_file(srcPath, destDir / fileName,
+                               std::filesystem::copy_options::overwrite_existing, ec);
+    if (ec) {
+        statusMessage_ = "Texture import failed: " + ec.message();
+        return "";
+    }
+    statusMessage_ = "Imported " + fileName;
+    return "res/textures/" + fileName;
+}
+
+std::vector<std::string> App::listAssetFiles(const char* subdir, const char* ext) {
+    std::vector<std::string> files;
+    std::error_code ec;
+    const std::filesystem::path dir = std::filesystem::path(project_.dir) / "res" / subdir;
+    if (!std::filesystem::exists(dir, ec)) return files;
+    for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
+        if (!e.is_regular_file()) continue;
+        std::string fileExt = e.path().extension().string();
+        for (char& c : fileExt) c = (char)tolower((unsigned char)c);
+        if (fileExt == ext) files.push_back(e.path().filename().string());
+    }
+    return files;
+}
+
+// "Pick..." + popup over the PNGs already in res/textures. The only way to
+// put a texture on something is to pick a project asset - importing lives in
+// the Assets section, so paths on disk and in the project never diverge.
+bool App::pickProjectTexture(const char* popupId, std::string& path) {
+    bool changed = false;
+    if (ImGui::SmallButton((std::string("Pick...##") + popupId).c_str()))
+        ImGui::OpenPopup(popupId);
+    if (ImGui::BeginPopup(popupId)) {
+        const std::vector<std::string> textures = listAssetFiles("textures", ".png");
+        for (const std::string& name : textures)
+            if (ImGui::MenuItem(name.c_str())) {
+                path = "res/textures/" + name;
+                changed = true;
+            }
+        if (textures.empty())
+            ImGui::TextDisabled("No textures - Import one in Project > Assets.");
+        ImGui::EndPopup();
+    }
+    return changed;
+}
+
+const App::ModelInfo& App::modelInfo(const std::string& relPath) {
+    auto it = modelInfoCache_.find(relPath);
+    if (it != modelInfoCache_.end()) return it->second;
+
+    ModelInfo info;
+    objparser::Model model;
+    if (objparser::load((std::filesystem::path(project_.dir) / relPath).string(),
+                        model)) {
+        info.ok = true;
+        info.tris = model.vertexCount() / 3;
+        for (const objparser::Submesh& s : model.submeshes) {
+            const std::string name = s.material.empty() ? "(default)" : s.material;
+            info.materials.push_back(
+                name + (s.texture.empty() ? " (color)" : " (" + s.texture + ")"));
+        }
+    }
+    return modelInfoCache_.emplace(relPath, std::move(info)).first->second;
+}
+
+// Project-wide asset lists (models + textures), mirrored straight from res/
+// on every draw - hand-dropped files show up without any bookkeeping. The
+// Import... buttons are the only file dialogs; everything else picks from
+// these lists.
+void App::drawAssetsSection() {
+    if (!ImGui::CollapsingHeader("Assets")) return;
+
+    ImGui::TextDisabled("Models (res/models)");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Import .obj...")) importModelAsset();
+    const std::vector<std::string> models = listAssetFiles("models", ".obj");
+    for (const std::string& m : models) {
+        ImGui::Bullet();
+        ImGui::SameLine();
+        ImGui::TextUnformatted(m.c_str());
+        const ModelInfo& info = modelInfo("res/models/" + m);
+        if (info.ok) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("(%d tris, %d mat)", info.tris,
+                                (int)info.materials.size());
+        }
+    }
+    if (models.empty()) ImGui::TextDisabled("  none - Import or drop .obj files there.");
+
+    ImGui::TextDisabled("Textures (res/textures)");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Import PNG...")) importTextureAsset();
+    const std::vector<std::string> textures = listAssetFiles("textures", ".png");
+    for (const std::string& t : textures) {
+        ImGui::Bullet();
+        ImGui::SameLine();
+        ImGui::TextUnformatted(t.c_str());
+    }
+    if (textures.empty())
+        ImGui::TextDisabled("  none - Import or drop PNG files there.");
 }
 
 // Creates a scene object for a model that is already inside the project
@@ -1206,27 +1319,14 @@ void App::drawAddObjectMenu() {
         if (ImGui::MenuItem("Point light")) addPointLight();
         ImGui::EndMenu();
     }
-    if (ImGui::BeginMenu("Custom")) {
-        if (ImGui::MenuItem("Import 3D model (.obj)...")) importModel();
-        // Models already inside the project (imported earlier or dropped by
-        // hand into res/models/) - added without copying anything.
-        std::vector<std::string> models;
-        std::error_code ec;
-        const std::filesystem::path dir =
-            std::filesystem::path(project_.dir) / "res" / "models";
-        if (std::filesystem::exists(dir, ec))
-            for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
-                if (!e.is_regular_file()) continue;
-                std::string ext = e.path().extension().string();
-                for (char& c : ext) c = (char)tolower((unsigned char)c);
-                if (ext == ".obj") models.push_back(e.path().filename().string());
-            }
-        if (!models.empty()) {
-            ImGui::Separator();
-            ImGui::TextDisabled("From res/models:");
-            for (const std::string& m : models)
-                if (ImGui::MenuItem(m.c_str())) addModelObject("res/models/" + m);
-        }
+    if (ImGui::BeginMenu("Model")) {
+        // Only models already inside the project (res/models) - importing
+        // new ones lives in Project > Assets.
+        const std::vector<std::string> models = listAssetFiles("models", ".obj");
+        for (const std::string& m : models)
+            if (ImGui::MenuItem(m.c_str())) addModelObject("res/models/" + m);
+        if (models.empty())
+            ImGui::TextDisabled("No models - Import one in Project > Assets.");
         ImGui::EndMenu();
     }
 }
@@ -1325,7 +1425,35 @@ void App::drawPropertiesWindow() {
         ImGui::TextUnformatted(typeLabel(o.type));
     }
     if (o.type == PrimitiveType::Model) {
-        ImGui::TextDisabled("Model: %s", o.modelPath.empty() ? "<none>" : o.modelPath.c_str());
+        // model file: pick among the project's res/models assets
+        const std::string current = o.modelPath.empty()
+                                        ? "<none>"
+                                        : std::filesystem::path(o.modelPath)
+                                              .filename()
+                                              .string();
+        if (ImGui::BeginCombo("Model", current.c_str())) {
+            const std::vector<std::string> models = listAssetFiles("models", ".obj");
+            for (const std::string& m : models) {
+                const std::string rel = "res/models/" + m;
+                if (ImGui::Selectable(m.c_str(), rel == o.modelPath) &&
+                    rel != o.modelPath) {
+                    o.modelPath = rel;
+                    committed = true;
+                }
+            }
+            if (models.empty())
+                ImGui::TextDisabled("No models - Import one in Project > Assets.");
+            ImGui::EndCombo();
+        }
+        // materials come from the .obj's MTL file - read-only summary
+        const ModelInfo& info = modelInfo(o.modelPath);
+        if (info.ok) {
+            ImGui::TextDisabled("%d triangles, materials (from .mtl):", info.tris);
+            for (const std::string& m : info.materials)
+                ImGui::TextDisabled("  - %s", m.c_str());
+        } else if (!o.modelPath.empty()) {
+            ImGui::TextDisabled("Model file missing/unparseable - renders as a box.");
+        }
     }
 
     ImGui::DragFloat3("Position", o.position, 0.1f);
@@ -1347,54 +1475,13 @@ void App::drawPropertiesWindow() {
     }
 
     if (isSolid) {
-        // Texture (PNG modulated by the object color; white color = plain texture)
+        // Texture (PNG modulated by the object color; white color = plain
+        // texture). Picks a project asset; importing lives in the Assets
+        // section. For models it overrides every material's map_Kd.
         ImGui::TextDisabled("Texture: %s",
                             o.texturePath.empty() ? "<none>" : o.texturePath.c_str());
         ImGui::SameLine();
-        if (ImGui::SmallButton("Set...")) {
-            const std::string src = pickPngFile();
-            if (!src.empty()) {
-                const std::filesystem::path srcPath(src);
-                const std::string fileName = sanitizeAssetName(srcPath.filename().string());
-                const std::filesystem::path destDir =
-                    std::filesystem::path(project_.dir) / "res" / "textures";
-                std::error_code ec;
-                std::filesystem::create_directories(destDir, ec);
-                std::filesystem::copy_file(srcPath, destDir / fileName,
-                                           std::filesystem::copy_options::overwrite_existing,
-                                           ec);
-                if (!ec) {
-                    o.texturePath = "res/textures/" + fileName;
-                    committed = true;
-                } else {
-                    statusMessage_ = "Texture import failed: " + ec.message();
-                }
-            }
-        }
-        // pick a texture that is already in the project (no copying)
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Project...##tex")) ImGui::OpenPopup("##pick_texture");
-        if (ImGui::BeginPopup("##pick_texture")) {
-            std::error_code ec;
-            const std::filesystem::path dir =
-                std::filesystem::path(project_.dir) / "res" / "textures";
-            int shown = 0;
-            if (std::filesystem::exists(dir, ec))
-                for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
-                    if (!e.is_regular_file()) continue;
-                    std::string ext = e.path().extension().string();
-                    for (char& c : ext) c = (char)tolower((unsigned char)c);
-                    if (ext != ".png") continue;
-                    ++shown;
-                    const std::string name = e.path().filename().string();
-                    if (ImGui::MenuItem(name.c_str())) {
-                        o.texturePath = "res/textures/" + name;
-                        committed = true;
-                    }
-                }
-            if (!shown) ImGui::TextDisabled("No PNGs in res/textures.");
-            ImGui::EndPopup();
-        }
+        if (pickProjectTexture("##pick_obj_texture", o.texturePath)) committed = true;
         if (!o.texturePath.empty()) {
             ImGui::SameLine();
             if (ImGui::SmallButton("Clear##tex")) {
@@ -2192,7 +2279,7 @@ void App::importHudImage() {
 void App::drawHudSection() {
     if (!ImGui::CollapsingHeader("HUD")) return;
 
-    if (ImGui::SmallButton("+ Image (PNG)")) importHudImage();
+    if (ImGui::SmallButton("Import image (PNG)...")) importHudImage();
     ImGui::SameLine();
     ImGui::Checkbox("Show in viewport", &showHudInEditor_);
 
@@ -2378,7 +2465,7 @@ const std::string& App::wavIssue(const std::string& relPath, bool sfx) {
 void App::drawMusicSection() {
     if (!ImGui::CollapsingHeader("Music")) return;
 
-    if (ImGui::SmallButton("+ Track (WAV)")) importMusicTrack();
+    if (ImGui::SmallButton("Import WAV...##music")) importMusicTrack();
     ImGui::SameLine();
     if (ImGui::SmallButton("Rescan##music")) rescanAssets(true);
     if (ImGui::IsItemHovered())
@@ -2489,7 +2576,7 @@ void App::importSoundEffect() {
 void App::drawSoundsSection() {
     if (!ImGui::CollapsingHeader("Sounds")) return;
 
-    if (ImGui::SmallButton("+ Sound (WAV)")) importSoundEffect();
+    if (ImGui::SmallButton("Import WAV...##sfx")) importSoundEffect();
     ImGui::SameLine();
     if (ImGui::SmallButton("Rescan##sfx")) rescanAssets(true);
     if (ImGui::IsItemHovered())
@@ -4083,21 +4170,7 @@ void App::drawPreferencesModal() {
         "Terrain texture: %s",
         prefSettings_.terrainTexture.empty() ? "<none>" : prefSettings_.terrainTexture.c_str());
     ImGui::SameLine();
-    if (ImGui::SmallButton("Set...##terrtex")) {
-        const std::string src = pickPngFile();
-        if (!src.empty()) {
-            const std::filesystem::path srcPath(src);
-            const std::string fileName = sanitizeAssetName(srcPath.filename().string());
-            const std::filesystem::path destDir =
-                std::filesystem::path(project_.dir) / "res" / "textures";
-            std::error_code ec;
-            std::filesystem::create_directories(destDir, ec);
-            std::filesystem::copy_file(srcPath, destDir / fileName,
-                                       std::filesystem::copy_options::overwrite_existing, ec);
-            if (!ec)
-                prefSettings_.terrainTexture = "res/textures/" + fileName;
-        }
-    }
+    pickProjectTexture("##pick_terrain_texture", prefSettings_.terrainTexture);
     if (!prefSettings_.terrainTexture.empty()) {
         ImGui::SameLine();
         if (ImGui::SmallButton("Clear##terrtex")) prefSettings_.terrainTexture.clear();
@@ -4274,21 +4347,7 @@ void App::drawScenePreferencesModal() {
         ImGui::TextDisabled("Texture: %s",
                             s.terrainTexture.empty() ? "<none>" : s.terrainTexture.c_str());
         ImGui::SameLine();
-        if (ImGui::SmallButton("Set...")) {
-            const std::string src = pickPngFile();
-            if (!src.empty()) {
-                const std::filesystem::path srcPath(src);
-                const std::string fileName = sanitizeAssetName(srcPath.filename().string());
-                const std::filesystem::path destDir =
-                    std::filesystem::path(project_.dir) / "res" / "textures";
-                std::error_code ec;
-                std::filesystem::create_directories(destDir, ec);
-                std::filesystem::copy_file(srcPath, destDir / fileName,
-                                           std::filesystem::copy_options::overwrite_existing, ec);
-                if (!ec)
-                    s.terrainTexture = "res/textures/" + fileName;
-            }
-        }
+        pickProjectTexture("##pick_scene_terrain_texture", s.terrainTexture);
         if (!s.terrainTexture.empty()) {
             ImGui::SameLine();
             if (ImGui::SmallButton("Clear")) s.terrainTexture.clear();
