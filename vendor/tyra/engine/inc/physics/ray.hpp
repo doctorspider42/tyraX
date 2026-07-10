@@ -51,6 +51,15 @@ class Ray {
   bool intersectBox(const Vec4& minCorner, const Vec4& maxCorner,
                     float* outputDistance = nullptr) const;
 
+  /**
+   * Added by tyra-editor. Moller-Trumbore ray/triangle test, both faces.
+   * @param a,b,c triangle corners
+   * @param outputDistance optional - distance along the ray to the hit.
+   * @return true when the ray hits the triangle
+   */
+  bool intersectTriangle(const Vec4& a, const Vec4& b, const Vec4& c,
+                         float* outputDistance = nullptr) const;
+
   /** Returns inverse direction */
   Vec4 invDir() const;
 

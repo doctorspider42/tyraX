@@ -73,6 +73,32 @@ bool Ray::intersectBox(const Vec4& minCorner, const Vec4& maxCorner,
   return true;
 }
 
+// Added by tyra-editor. Moller-Trumbore, both faces.
+bool Ray::intersectTriangle(const Vec4& a, const Vec4& b, const Vec4& c,
+                            float* outputDistance) const {
+  const Vec4 e1 = b - a;
+  const Vec4 e2 = c - a;
+  const float px = direction.y * e2.z - direction.z * e2.y;
+  const float py = direction.z * e2.x - direction.x * e2.z;
+  const float pz = direction.x * e2.y - direction.y * e2.x;
+  const float det = e1.x * px + e1.y * py + e1.z * pz;
+  if (det > -1e-8F && det < 1e-8F) return false;
+  const float invDet = 1.0F / det;
+  const Vec4 t = origin - a;
+  const float u = (t.x * px + t.y * py + t.z * pz) * invDet;
+  if (u < 0.0F || u > 1.0F) return false;
+  const float qx = t.y * e1.z - t.z * e1.y;
+  const float qy = t.z * e1.x - t.x * e1.z;
+  const float qz = t.x * e1.y - t.y * e1.x;
+  const float v =
+      (direction.x * qx + direction.y * qy + direction.z * qz) * invDet;
+  if (v < 0.0F || u + v > 1.0F) return false;
+  const float dist = (e2.x * qx + e2.y * qy + e2.z * qz) * invDet;
+  if (dist < 0.0F) return false;
+  if (outputDistance != nullptr) *outputDistance = dist;
+  return true;
+}
+
 Vec4 Ray::invDir() const {
   return Vec4(1 / this->direction.x, 1 / this->direction.y,
               1 / this->direction.z, 1);
