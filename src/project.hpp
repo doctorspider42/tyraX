@@ -170,8 +170,9 @@ struct ProjectSettings {
 
     // Analog sticks: offsets below this fraction of full deflection read as
     // zero (real DualShock sticks rest off-center); motion rescales smoothly
-    // from the deadzone edge. Applies to both sticks in generated games.
-    float stickDeadzone = 0.2f;  // 0..0.9
+    // from the deadzone edge. Per stick - worn pads rarely drift equally.
+    float stickDeadzoneL = 0.2f;  // 0..0.9, left stick (movement)
+    float stickDeadzoneR = 0.2f;  // 0..0.9, right stick (camera)
 
     // Orbit template
     float orbitSpeed = 1.0f;  // multiplier
@@ -219,7 +220,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.eyeHeight == b.eyeHeight &&
            a.walkSpeed == b.walkSpeed && a.lookSpeed == b.lookSpeed &&
-           a.stickDeadzone == b.stickDeadzone &&
+           a.stickDeadzoneL == b.stickDeadzoneL &&
+           a.stickDeadzoneR == b.stickDeadzoneR &&
            a.orbitSpeed == b.orbitSpeed && a.gravity == b.gravity &&
            a.jumpSpeed == b.jumpSpeed && eq3(a.lightDir, b.lightDir) &&
            a.ambient == b.ambient && a.diffuse == b.diffuse &&

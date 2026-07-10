@@ -284,7 +284,9 @@ constexpr float WALK_SPEED = {{WALK_SPEED}};
 constexpr float LOOK_SPEED = {{LOOK_SPEED}};    // multiplier
 // Stick offsets below this fraction of full deflection read as zero
 // (worn pads rest off-center); motion rescales smoothly above it.
-constexpr float ANALOG_DEADZONE = {{DEADZONE}};
+// Per stick: left drives movement, right drives the camera.
+constexpr float ANALOG_DEADZONE_L = {{DEADZONE_L}};
+constexpr float ANALOG_DEADZONE_R = {{DEADZONE_R}};
 constexpr float ORBIT_SPEED = {{ORBIT_SPEED}};  // multiplier
 constexpr float GRAVITY = {{GRAVITY}};          // units/s^2
 constexpr float JUMP_SPEED = {{JUMP_SPEED}};    // units/s
@@ -2320,26 +2322,27 @@ bool TerrainGame::updatePlayerEntity() {
 
   const auto& leftJoy = engine->pad.getLeftJoyPad();
   const auto& rightJoy = engine->pad.getRightJoyPad();
-  // ANALOG_DEADZONE (Preferences > Input) zeroes resting drift; above it the
-  // value rescales from 0 so the deadzone edge does not step.
-  auto axis = [](const u8& raw) {
+  // ANALOG_DEADZONE_L/_R (Preferences > Input) zero resting drift per stick;
+  // above the deadzone the value rescales from 0 so the edge does not step.
+  auto axis = [](const u8& raw, const float dz) {
     const float v = (raw - 128.0F) / 128.0F;
     const float mag = v < 0.0F ? -v : v;
-    if (mag <= ANALOG_DEADZONE) return 0.0F;
-    const float scaled = (mag - ANALOG_DEADZONE) / (1.0F - ANALOG_DEADZONE);
+    if (mag <= dz) return 0.0F;
+    const float scaled = (mag - dz) / (1.0F - dz);
     return v < 0.0F ? -scaled : scaled;
   };
 
   // Right stick: look around (stick right = turn right)
-  entYaw -= axis(rightJoy.h) * 0.05F * PLAYER_LOOK_SPEED * g_frameScale;
-  entPitch -= axis(rightJoy.v) * 0.035F * PLAYER_LOOK_SPEED * g_frameScale;
+  entYaw -= axis(rightJoy.h, ANALOG_DEADZONE_R) * 0.05F * PLAYER_LOOK_SPEED * g_frameScale;
+  entPitch -=
+      axis(rightJoy.v, ANALOG_DEADZONE_R) * 0.035F * PLAYER_LOOK_SPEED * g_frameScale;
   if (entPitch > 1.35F) entPitch = 1.35F;
   if (entPitch < -1.35F) entPitch = -1.35F;
 
   const float fx = sinf(entYaw);
   const float fz = cosf(entYaw);
-  const float forward = -axis(leftJoy.v);
-  const float strafe = axis(leftJoy.h);
+  const float forward = -axis(leftJoy.v, ANALOG_DEADZONE_L);
+  const float strafe = axis(leftJoy.h, ANALOG_DEADZONE_L);
 
   if (PLAYER_MODE == 1) {
     // Noclip: fly where the camera looks; X up, Square down.
@@ -3015,13 +3018,13 @@ void TerrainGame::loop() {
 static const char* TPL_GAME_CPP_FPP_TAIL = R"(
 namespace {
 
-// ANALOG_DEADZONE (Preferences > Input) zeroes resting drift; above it the
-// value rescales from 0 so the deadzone edge does not step.
-float axisValue(const u8& raw) {
+// ANALOG_DEADZONE_L/_R (Preferences > Input) zero resting drift per stick;
+// above the deadzone the value rescales from 0 so the edge does not step.
+float axisValue(const u8& raw, const float dz) {
   const float v = (raw - 128.0F) / 128.0F;
   const float mag = v < 0.0F ? -v : v;
-  if (mag <= ANALOG_DEADZONE) return 0.0F;
-  const float scaled = (mag - ANALOG_DEADZONE) / (1.0F - ANALOG_DEADZONE);
+  if (mag <= dz) return 0.0F;
+  const float scaled = (mag - dz) / (1.0F - dz);
   return v < 0.0F ? -scaled : scaled;
 }
 
@@ -3032,16 +3035,16 @@ void TerrainGame::updatePlayer() {
   const auto& rightJoy = engine->pad.getRightJoyPad();
 
   // Right stick: look around (stick right = turn right)
-  yaw -= axisValue(rightJoy.h) * 0.05F * LOOK_SPEED * g_frameScale;
-  pitch -= axisValue(rightJoy.v) * 0.035F * LOOK_SPEED * g_frameScale;
+  yaw -= axisValue(rightJoy.h, ANALOG_DEADZONE_R) * 0.05F * LOOK_SPEED * g_frameScale;
+  pitch -= axisValue(rightJoy.v, ANALOG_DEADZONE_R) * 0.035F * LOOK_SPEED * g_frameScale;
   if (pitch > 1.2F) pitch = 1.2F;
   if (pitch < -1.2F) pitch = -1.2F;
 
   // Left stick: walk. Forward is where the camera looks (flat).
   const float fx = sinf(yaw);
   const float fz = cosf(yaw);
-  const float forward = -axisValue(leftJoy.v);
-  const float strafe = axisValue(leftJoy.h);
+  const float forward = -axisValue(leftJoy.v, ANALOG_DEADZONE_L);
+  const float strafe = axisValue(leftJoy.h, ANALOG_DEADZONE_L);
   float nextX = playerX + (fx * forward - fz * strafe) * WALK_SPEED * g_frameScale;
   float nextZ = playerZ + (fz * forward + fx * strafe) * WALK_SPEED * g_frameScale;
 
@@ -4292,7 +4295,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{EYE_HEIGHT}}", floatLit(st.eyeHeight));
     s = replaceAll(s, "{{WALK_SPEED}}", floatLit(st.walkSpeed));
     s = replaceAll(s, "{{LOOK_SPEED}}", floatLit(st.lookSpeed));
-    s = replaceAll(s, "{{DEADZONE}}", floatLit(st.stickDeadzone));
+    s = replaceAll(s, "{{DEADZONE_L}}", floatLit(st.stickDeadzoneL));
+    s = replaceAll(s, "{{DEADZONE_R}}", floatLit(st.stickDeadzoneR));
     s = replaceAll(s, "{{ORBIT_SPEED}}", floatLit(st.orbitSpeed));
     s = replaceAll(s, "{{GRAVITY}}", floatLit(st.gravity));
     s = replaceAll(s, "{{JUMP_SPEED}}", floatLit(st.jumpSpeed));

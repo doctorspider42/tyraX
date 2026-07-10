@@ -9,6 +9,17 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (31) **Per-stick deadzones + Project panel cleanup** — the Input deadzone
+  splits into "Left stick deadzone" (movement) and "Right stick deadzone"
+  (camera): worn pads rarely drift equally, and one shared value forced the
+  healthy stick to pay for the drifting one. ANALOG_DEADZONE ->
+  ANALOG_DEADZONE_L/_R in terrain_config.hpp, axis helpers take the deadzone
+  per call site; a legacy "stickDeadzone" key in old .tyra files seeds both.
+  The Project panel's Build button row is gone (superseded by the top-level
+  Build menu) - the panel keeps only a build-progress/failure line. Verified:
+  codegen emits both constants, game compiles on the PS2 toolchain, editor
+  builds clean.
+
 - (30) **ps2client TCP_NODELAY (~100x host: throughput), Build menu + Clean,
   orphaned-adpcm sweep** — three fixes from the second real-hardware session.
   **TCP_NODELAY**: file serving to the console ran at ~4 KB/s (424 KB texture

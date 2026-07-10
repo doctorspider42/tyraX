@@ -880,33 +880,15 @@ void App::drawProjectWindow() {
     drawSaveDataSection();
     drawScriptsSection();
 
-    ImGui::SeparatorText("Build");
-    const bool busy = runner_.busy();
-    ImGui::BeginDisabled(busy);
-    if (ImGui::Button("Build", ImVec2(100, 0))) runner_.buildAndRun(project_, false);
-    ImGui::SameLine();
-    if (ImGui::Button("Build & Run", ImVec2(120, 0))) runner_.buildAndRun(project_, true);
-    ImGui::SameLine();
-    if (ImGui::Button("Run", ImVec2(80, 0))) runner_.runEmulatorOnly(project_);
-    ImGui::EndDisabled();
-    ImGui::BeginDisabled(busy || project_.ps2LinkIp.empty());
-    if (ImGui::Button("Build & Run on PS2", ImVec2(160, 0)))
-        runner_.buildAndRunPs2(project_, true);
-    ImGui::SameLine();
-    if (ImGui::Button("Run on PS2", ImVec2(100, 0)))
-        runner_.buildAndRunPs2(project_, false);
-    ImGui::EndDisabled();
-    if (project_.ps2LinkIp.empty() &&
-        ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("Set 'PS2 (ps2link) IP' in Project > Preferences first.");
-
-    if (busy) {
-        ImGui::SameLine();
-        ImGui::Text("Working... %c", "|/-\\"[(int)(ImGui::GetTime() * 8) & 3]);
+    // Building lives in the top-level Build menu (F5 / F6 / Ctrl+Shift+B);
+    // the panel only mirrors the runner state so a build's progress is
+    // visible without the Output window.
+    if (runner_.busy()) {
+        ImGui::Separator();
+        ImGui::Text("Building... %c", "|/-\\"[(int)(ImGui::GetTime() * 8) & 3]);
     } else if (runner_.state() == Runner::State::Failed) {
+        ImGui::Separator();
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Last build failed - see Output.");
-    } else if (runner_.state() == Runner::State::Success) {
-        ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Done.");
     }
 
     ImGui::End();
@@ -4729,11 +4711,14 @@ void App::drawPreferencesModal() {
     }
 
     ImGui::SeparatorText("Input");
-    ImGui::SliderFloat("Stick deadzone", &prefSettings_.stickDeadzone, 0.0f, 0.9f, "%.2f");
+    ImGui::SliderFloat("Left stick deadzone", &prefSettings_.stickDeadzoneL, 0.0f, 0.9f,
+                       "%.2f");
+    ImGui::SliderFloat("Right stick deadzone", &prefSettings_.stickDeadzoneR, 0.0f, 0.9f,
+                       "%.2f");
     ImGui::TextDisabled(
         "Analog stick offsets below this fraction read as zero. Raise it when\n"
-        "a worn pad drifts (camera moves by itself); motion above the deadzone\n"
-        "ramps smoothly, so higher values only cost stick range, not control.");
+        "a worn pad drifts (left = movement, right = camera); motion above the\n"
+        "deadzone ramps smoothly, so higher values only cost range, not control.");
 
     ImGui::SeparatorText("Physics");
     ImGui::DragFloat("Gravity (units/s^2)", &prefSettings_.gravity, 0.1f, 0.0f, 100.0f,
