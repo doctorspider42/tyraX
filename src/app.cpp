@@ -1090,11 +1090,18 @@ std::string App::importModelAsset() {
                          std::to_string(baked.clips.size()) + " clip(s), " +
                          std::to_string(baked.totalVertexCount()) + " verts, " +
                          std::to_string(baked.frameCount) + " baked frames)";
-        // Rough PS2 memory estimate: pos+normal (+uv) Vec4s per vert per frame
-        const size_t bytes = (size_t)baked.totalVertexCount() * baked.frameCount * 48;
+        // Rough PS2 memory estimate: the skeletal runtime keeps one bind-pose
+        // mesh + keyframe tracks (+ per-instance skinned buffers), not baked
+        // frames - parseSkel knows the actual footprint.
+        glbparser::Skel skel;
+        std::string skelError;
+        const size_t bytes = glbparser::parseSkel((destDir / fileName).string(),
+                                                  skel, skelError)
+                                 ? skel.ps2Bytes()
+                                 : 0;
         if (bytes > 8u * 1024 * 1024)
             statusMessage_ += " - WARNING: ~" + std::to_string(bytes >> 20) +
-                              " MB on the PS2 (32 MB total) - reduce clips/mesh";
+                              " MB on the PS2 (32 MB total) - reduce the mesh";
         if (!baked.warnings.empty())
             statusMessage_ += " - " + baked.warnings.front() +
                               (baked.warnings.size() > 1

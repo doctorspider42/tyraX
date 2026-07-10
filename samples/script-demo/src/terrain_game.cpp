@@ -741,22 +741,21 @@ void TerrainGame::loadMaterials() {
   }
 }
 
-// Animated models: .glb files baked by the editor into .tanm morph frames
-// (TanmLoader builds the DynamicMesh "mother"; every scene object gets a
-// lightweight copy sharing the frame data). Textures ship as PNGs next to
-// the .tanm and link to mesh materials by id.
+// Animated models: .glb files serialized by the editor into .tskl skeletal
+// files (TsklLoader). The model data is shared; every scene object gets a
+// SkelInstance (own playback state + skinned output mesh). Textures ship as
+// PNGs next to the .tskl and link to each instance's materials by id.
 void TerrainGame::loadAnimModels() {
   gameAnimModels.clear();
   gameAnimModels.resize(ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 0);
   std::map<std::string, Texture*> textureByPath;
   for (int i = 0; i < ANIM_MODEL_COUNT; ++i) {
-    auto model = TanmLoader::load(ANIM_MODEL_PATHS[i]);
+    auto model = TsklLoader::load(ANIM_MODEL_PATHS[i]);
     if (!model) continue;  // stays empty - objects using it render nothing
     GameAnimModel& gam = gameAnimModels[i];
-    gam.mother = std::make_unique<DynamicMesh>(model->data.get());
-    for (size_t m = 0; m < gam.mother->materials.size(); ++m) {
-      if (m >= model->texturePaths.size()) break;
-      const std::string& path = model->texturePaths[m];
+    gam.textures.assign(model->parts.size(), nullptr);
+    for (size_t m = 0; m < model->parts.size(); ++m) {
+      const std::string& path = model->parts[m].texturePath;
       if (path.empty()) continue;
       auto it = textureByPath.find(path);
       if (it == textureByPath.end()) {
@@ -768,11 +767,10 @@ void TerrainGame::loadAnimModels() {
         it = textureByPath.emplace(path, t).first;
       }
       if (it->second)
-        it->second->addLink(gam.mother->materials[m]->id);
-      else  // missing texture degrades the material to its plain color
-        gam.mother->materials[m]->textureName.reset();
+        gam.textures[m] = it->second;
+      else  // missing texture degrades the part to its plain color
+        model->parts[m].texturePath.clear();
     }
-    model->data.reset();  // frame arrays now belong to the mother mesh
     gam.src = std::move(model);
   }
 }
@@ -790,31 +788,30 @@ int TerrainGame::resolveClipIndex(int objectIndex, const char* clipName) const {
   return -1;
 }
 
-// Creates this object's DynamicMesh instance and resets its playback state
+// Creates this object's skeletal instance and resets its playback state
 // to the object's authored defaults. Called for every object on scene load.
 void TerrainGame::setupAnimObject(int index) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
-  g.animMesh.reset();
+  g.animInst.reset();
   if (o.data.type != 5 || o.data.animModel < 0 ||
       o.data.animModel >= (int)gameAnimModels.size())
     return;
   GameAnimModel& gam = gameAnimModels[o.data.animModel];
-  if (!gam.mother || !gam.src) return;
+  if (!gam.src) return;
 
-  g.animMesh = std::make_unique<DynamicMesh>(*gam.mother);
-  for (size_t m = 0; m < g.animMesh->materials.size(); ++m) {
-    MeshMaterial* mat = g.animMesh->materials[m];
-    // texture links are per material id and the copy got fresh ids
-    if (mat->textureName.has_value()) {
-      Texture* t = engine->renderer.getTextureRepository().getByMeshMaterialId(
-          gam.mother->materials[m]->id);
-      if (t) t->addLink(mat->id);
-    }
+  g.animInst = std::make_unique<SkelInstance>(gam.src.get());
+  DynamicMesh* mesh = g.animInst->mesh.get();
+  for (size_t m = 0; m < mesh->materials.size(); ++m) {
+    MeshMaterial* mat = mesh->materials[m];
+    // texture links are per material id and every instance has fresh ids
+    if (m < gam.textures.size() && gam.textures[m])
+      gam.textures[m]->addLink(mat->id);
     // per-instance tint: object color multiplies the material base color
-    const Color& base = gam.mother->materials[m]->ambient;
-    mat->ambient.set(base.r * o.data.color[0], base.g * o.data.color[1],
-                     base.b * o.data.color[2], 128.0F);
+    const float* base = gam.src->parts[m].color;
+    mat->ambient.set(base[0] * 128.0F * o.data.color[0],
+                     base[1] * 128.0F * o.data.color[1],
+                     base[2] * 128.0F * o.data.color[2], 128.0F);
   }
 
   o.animClip = resolveClipIndex(index, o.data.animClip);
@@ -826,28 +823,21 @@ void TerrainGame::setupAnimObject(int index) {
   o.animLoop = o.data.animLoop != 0;
   o.animSpeed = o.data.animSpeed;
   o.animPlaying = o.data.animAutoplay != 0;
-  o.animRestart = true;  // sequence applied on the first anim update
+  o.animRestart = true;  // clip applied on the first anim update
   o.animFinished = false;
-
-  // "clip reached its last frame" flag driving On Animation Finished:
-  // End fires once for one-shot clips, Loop fires on every wrap.
-  g.animMesh->animation.setCallback(
-      [this, index](const AnimationSequenceCallback& kind) {
-        if (kind == AnimationSequenceCallback_End ||
-            kind == AnimationSequenceCallback_Loop)
-          runtimeObjects[index].animFinished = true;
-      });
+  o.animFade = 0.0F;
 }
 
 // The dynamic-pipeline pass at the end of the scene render: applies pending
-// playback state, advances every visible animated mesh and renders it with
-// a directional light matching the baked static lighting (point lights are
-// baked into static vertex colors and cannot follow animated meshes).
+// playback state, advances/poses/skins every visible instance on the EE and
+// renders it with a directional light matching the baked static lighting
+// (point lights are baked into static vertex colors and cannot follow
+// animated meshes).
 void TerrainGame::updateAndRenderAnimObjects() {
   if (gameAnimModels.empty()) return;
   bool any = false;
   for (int i = 0; i < (int)runtimeObjects.size() && !any; ++i)
-    any = runtimeObjects[i].visible && objectGeometry[i].animMesh != nullptr;
+    any = runtimeObjects[i].visible && objectGeometry[i].animInst != nullptr;
   if (!any) return;
 
   animAmbient.set(128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT,
@@ -878,8 +868,8 @@ void TerrainGame::updateAndRenderAnimObjects() {
 
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     RuntimeObject& o = runtimeObjects[i];
-    DynamicMesh* mesh = objectGeometry[i].animMesh.get();
-    if (!mesh || !o.visible) continue;
+    SkelInstance* inst = objectGeometry[i].animInst.get();
+    if (!inst || !o.visible) continue;
     const GameAnimModel& gam = gameAnimModels[o.data.animModel];
 
     if (o.animClip < 0 || o.animClip >= (int)gam.src->clips.size())
@@ -887,23 +877,18 @@ void TerrainGame::updateAndRenderAnimObjects() {
     if (o.animRestart) {
       o.animRestart = false;
       o.animFinished = false;
-      const TanmClip& clip = gam.src->clips[o.animClip];
-      if (mesh->frames.size() > 1) {
-        std::vector<u32> seq;
-        seq.reserve(clip.frameCount);
-        for (u32 f = 0; f < clip.frameCount; ++f)
-          seq.push_back(clip.firstFrame + f);
-        mesh->animation.setSequence(seq);
-      }
+      // animFade > 0 crossfades from the pose currently showing
+      inst->play((u32)o.animClip, o.animLoop, o.animFade);
+      o.animFade = 0.0F;  // consumed by this restart
     }
-    mesh->animation.loop = o.animLoop;
-    // interpolation advances one baked frame every 1/fps wall-clock seconds
-    mesh->animation.speed = gam.src->fps * o.animSpeed * g_frameDt;
-    o.animFinished = false;  // set again by the End/Loop callback below
-    if (o.animPlaying && mesh->frames.size() > 1) mesh->update();
+    inst->setLoop(o.animLoop);
+    // the pose advances by wall-clock seconds; speed scales the step
+    const float step = o.animPlaying ? g_frameDt * o.animSpeed : 0.0F;
+    o.animFinished = inst->update(step);
 
     // model matrix straight from the object data: T * R(X,Y,Z) * S, the
     // same transform the static path bakes through pushVert()/rotated()
+    DynamicMesh* mesh = inst->mesh.get();
     const V3 bx = rotated({o.data.scale[0], 0.0F, 0.0F}, o.data.rotation);
     const V3 by = rotated({0.0F, o.data.scale[1], 0.0F}, o.data.rotation);
     const V3 bz = rotated({0.0F, 0.0F, o.data.scale[2]}, o.data.rotation);
@@ -996,7 +981,7 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     // --- box mode --- (models: real mesh AABB; primitives: unit scale box;
     // animated models: the baked frame-0 AABB - mesh mode is a static-model
     // feature, so .glb objects always collide as boxes)
-    const TanmModel* anim = nullptr;
+    const SkelModel* anim = nullptr;
     if (o.data.type == 5 && o.data.animModel >= 0 &&
         o.data.animModel < (int)gameAnimModels.size())
       anim = gameAnimModels[o.data.animModel].src.get();
