@@ -88,6 +88,10 @@ constexpr int HIGHLIGHT_STEPS_S[SCENE_COUNT] = {4};
 constexpr int SAVE_VALUE_COUNT = 0;
 inline const char* SAVE_VALUE_NAMES[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {""};
 constexpr float SAVE_VALUE_DEFAULTS[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {0.0F};
+constexpr int SAVE_TEXT_COUNT = 0;
+constexpr int SAVE_TEXT_LEN = 32;  // incl. the terminating NUL
+inline const char* SAVE_TEXT_NAMES[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
+inline const char* SAVE_TEXT_DEFAULTS[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
 constexpr int SAVE_OBJECT_MAX = 3;
 
 }  // namespace Script_demo

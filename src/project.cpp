@@ -108,8 +108,10 @@ static std::string flowGraphJson(const FlowGraph& fg) {
         const FlowNode& n = fg.nodes[i];
         json += std::string(i ? ", " : "") + "{ \"id\": " + std::to_string(n.id) +
                 ", \"type\": \"" + n.type + "\", \"pos\": [" + fmtFloat(n.pos[0]) + ", " +
-                fmtFloat(n.pos[1]) + "], \"str\": \"" + n.str +
-                "\", \"num\": " + fmtVec3(n.num) + " }";
+                fmtFloat(n.pos[1]) + "], \"str\": \"" + jsonEscape(n.str) + "\"" +
+                (n.str2.empty() ? "" : ", \"str2\": \"" + jsonEscape(n.str2) + "\"") +
+                ", \"num\": [" + fmtFloat(n.num[0]) + ", " + fmtFloat(n.num[1]) +
+                ", " + fmtFloat(n.num[2]) + ", " + fmtFloat(n.num[3]) + "] }";
     }
     json += "], \"links\": [";
     for (size_t i = 0; i < fg.links.size(); ++i) {
@@ -119,7 +121,8 @@ static std::string flowGraphJson(const FlowGraph& fg) {
                 ", \"to\": " + std::to_string(l.toNode) +
                 (l.kind == FlowLinkObject ? ", \"data\": true" : "") +
                 (l.kind == FlowLinkPos ? ", \"pos\": true" : "") +
-                (l.kind == FlowLinkBool ? ", \"bool\": true" : "") + " }";
+                (l.kind == FlowLinkBool ? ", \"bool\": true" : "") +
+                (l.kind == FlowLinkText ? ", \"text\": true" : "") + " }";
     }
     return json + "] }";
 }
@@ -138,7 +141,11 @@ static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
                 n.pos[1] = (float)v->arr[1].numberOr(0);
             }
             if (const auto* v = jn.find("str")) n.str = v->stringOr("");
-            readVec3(jn.find("num"), n.num);
+            if (const auto* v = jn.find("str2")) n.str2 = v->stringOr("");
+            if (const auto* v = jn.find("num");
+                v && v->type == json::Value::Type::Array)
+                for (size_t i = 0; i < 4 && i < v->arr.size(); ++i)
+                    n.num[i] = (float)v->arr[i].numberOr(0);
             if (n.id > 0 && flowNodeType(n.type)) fg.nodes.push_back(n);
         }
     }
@@ -158,6 +165,9 @@ static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
             if (const auto* v = jl.find("bool");
                 v && v->type == json::Value::Type::Bool && v->boolean)
                 l.kind = FlowLinkBool;
+            if (const auto* v = jl.find("text");
+                v && v->type == json::Value::Type::Bool && v->boolean)
+                l.kind = FlowLinkText;
             if (l.id > 0) fg.links.push_back(l);
         }
     }
@@ -451,6 +461,12 @@ std::string save(const Project& p) {
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << p.saveValues[i].name
              << "\", \"default\": " << fmtFloat(p.saveValues[i].value) << " }";
     json << (p.saveValues.empty() ? "]" : "\n  ]");
+    json << ",\n  \"saveTexts\": [";
+    for (size_t i = 0; i < p.saveTexts.size(); ++i)
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \""
+             << jsonEscape(p.saveTexts[i].name) << "\", \"default\": \""
+             << jsonEscape(p.saveTexts[i].value) << "\" }";
+    json << (p.saveTexts.empty() ? "]" : "\n  ]");
     json << ",\n  \"menus\": [";
     static const char* kMenuActions[] = {"close",     "scene",     "save-menu",
                                          "menu",      "set-value", "add-value",
@@ -1007,6 +1023,16 @@ std::string load(Project& out, const std::string& projectDir) {
             if (const auto* n = jv.find("name")) v.name = n->stringOr("");
             if (const auto* d = jv.find("default")) v.value = (float)d->numberOr(0.0);
             if (!v.name.empty()) out.saveValues.push_back(std::move(v));
+        }
+    }
+
+    if (const auto* texts = root.find("saveTexts");
+        texts && texts->type == json::Value::Type::Array) {
+        for (const auto& jv : texts->arr) {
+            SaveTextValue v;
+            if (const auto* n = jv.find("name")) v.name = n->stringOr("");
+            if (const auto* d = jv.find("default")) v.value = d->stringOr("");
+            if (!v.name.empty()) out.saveTexts.push_back(std::move(v));
         }
     }
 

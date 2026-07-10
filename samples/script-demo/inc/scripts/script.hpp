@@ -58,6 +58,10 @@ struct ScriptContext {
   // applies and clears it.
   float* saveValues = nullptr;
   int saveValueCount = 0;
+  // Text values: saveTextCount slots of SAVE_TEXT_LEN bytes each
+  // (SAVE_TEXT_NAMES order, scene_data.hpp), always NUL-terminated.
+  char* saveTexts = nullptr;
+  int saveTextCount = 0;
   bool openSaveMenu = false;
 
   // Game menus (menu_data.gen.hpp order). Write a menu index into openMenu
