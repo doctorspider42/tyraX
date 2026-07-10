@@ -413,7 +413,8 @@ class TerrainGame : public Tyra::Game {
   unsigned int sceneGeneration = 0;
 
   // Particle emitters (type 7): fixed pools sized at scene load, zero
-  // per-frame allocations; camera-facing color quads, one bag per emitter.
+  // per-frame allocations; camera-facing quads (textured when the emitter
+  // has a material with a map_Kd), one bag per emitter.
   struct ParticleSystem {
     int objectIndex = -1;
     unsigned int rng = 1;
@@ -421,9 +422,11 @@ class TerrainGame : public Tyra::Game {
     std::vector<float> life, maxLife;
     std::vector<Tyra::Vec4> verts;
     std::vector<Tyra::Color> cols;
+    std::vector<Tyra::Vec4> sts;  // fixed per-quad UVs (textured emitters)
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
   };
   std::vector<ParticleSystem> particles;
   void buildParticles();
@@ -628,7 +631,8 @@ class TerrainGame : public Tyra::Game {
   unsigned int sceneGeneration = 0;
 
   // Particle emitters (type 7): fixed pools sized at scene load, zero
-  // per-frame allocations; camera-facing color quads, one bag per emitter.
+  // per-frame allocations; camera-facing quads (textured when the emitter
+  // has a material with a map_Kd), one bag per emitter.
   struct ParticleSystem {
     int objectIndex = -1;
     unsigned int rng = 1;
@@ -636,9 +640,11 @@ class TerrainGame : public Tyra::Game {
     std::vector<float> life, maxLife;
     std::vector<Tyra::Vec4> verts;
     std::vector<Tyra::Color> cols;
+    std::vector<Tyra::Vec4> sts;  // fixed per-quad UVs (textured emitters)
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
   };
   std::vector<ParticleSystem> particles;
   void buildParticles();
@@ -1735,9 +1741,11 @@ void TerrainGame::loadScene(int sceneIndex) {
   objectGeometry.resize(SCENE_OBJECT_COUNT);
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     runtimeObjects[i].data = SCENE_OBJECTS[i];
-    // spawn points and the player are editor markers, not geometry
+    // spawn points and the player are editor markers, not geometry; emitters
+    // honor their Enabled flag (Show/Hide Object flips visible at runtime)
     runtimeObjects[i].visible =
-        SCENE_OBJECTS[i].type != 4 && SCENE_OBJECTS[i].type != 6;
+        SCENE_OBJECTS[i].type != 4 && SCENE_OBJECTS[i].type != 6 &&
+        !(SCENE_OBJECTS[i].type == 7 && !SCENE_OBJECTS[i].emitEnabled);
     runtimeObjects[i].dirty = true;
   }
   // Animated models: fresh per-object mesh instances + playback defaults
@@ -1836,7 +1844,10 @@ void TerrainGame::updateSoundEmitters() {
 // --- Particle emitters ------------------------------------------------
 // 2002-style particles: fixed pools sized at scene load, one cheap LCG,
 // no trig and no allocations in the per-frame path. Camera-facing quads
-// colored per vertex (no textures) - alpha does the softness.
+// colored per vertex; an emitter with a material carrying a map_Kd draws
+// its quads with that texture (the color then modulates it).
+// The editor viewport mirrors this simulation (viewport.cpp,
+// simulateEmitter) - keep the per-kind formulas in sync.
 static float prand(unsigned int& s) {  // 0..1
   s = s * 1664525u + 1013904223u;
   return (float)(s >> 8) * (1.0F / 16777216.0F);
@@ -1851,7 +1862,7 @@ void TerrainGame::buildParticles() {
     ps.rng = 12345u + (unsigned int)i * 7919u;
     int n = SCENE_OBJECTS[i].emitCount;
     if (n < 1) n = 1;
-    if (n > 128) n = 128;
+    if (n > 256) n = 256;
     ps.pos.assign(n, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
     ps.vel.assign(n, Vec4(0.0F, 0.0F, 0.0F, 0.0F));
     ps.life.assign(n, 0.0F);  // dead -> staggered respawn over the first frames
@@ -1870,6 +1881,25 @@ void TerrainGame::buildParticles() {
     ps.bag->texture = nullptr;
     ps.bag->lighting = nullptr;
     ps.bag->count = 0;
+    // Textured particles: the emitter's material supplies the map (its Kd is
+    // ignored - the emitter color is the tint). UVs are fixed per quad in the
+    // v0,v1,v2 / v0,v2,v3 vertex order used by updateParticles().
+    const int mi = SCENE_OBJECTS[i].material;
+    if (mi >= 0 && mi < (int)gameMaterials.size() && gameMaterials[mi].texture) {
+      ps.sts.reserve((size_t)n * 6);
+      for (int q = 0; q < n; ++q) {
+        ps.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
+        ps.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
+        ps.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
+        ps.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
+        ps.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
+        ps.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+      }
+      ps.texBag = std::make_unique<StaPipTextureBag>();
+      ps.texBag->texture = gameMaterials[mi].texture;
+      ps.texBag->coordinates = ps.sts.data();
+      ps.bag->texture = ps.texBag.get();
+    }
     particles.push_back(std::move(ps));
   }
 }
@@ -1900,12 +1930,23 @@ void TerrainGame::updateParticles() {
     const int kind = d.emitKind;
     const int n = (int)ps.life.size();
 
+    // Follow player: the emitter position becomes an offset from the camera
+    // (place it at X=0/Z=0 and the height above the player's head) - rain
+    // that tracks the player instead of soaking the whole map.
+    float bx = d.position[0], by = d.position[1], bz = d.position[2];
+    if (d.emitFollow) {
+      bx += cameraPosition.x;
+      by += cameraPosition.y;
+      bz += cameraPosition.z;
+    }
+
     for (int i = 0; i < n; ++i) {
       ps.life[i] -= dt;
       if (ps.life[i] <= 0.0F) {
         const float r1 = prand(ps.rng), r2 = prand(ps.rng), r3 = prand(ps.rng);
-        ps.pos[i] = Vec4(d.position[0] + (r1 - 0.5F) * d.scale[0], d.position[1],
-                         d.position[2] + (r3 - 0.5F) * d.scale[2], 1.0F);
+        const float sx = bx + (r1 - 0.5F) * d.scale[0];
+        const float sz = bz + (r3 - 0.5F) * d.scale[2];
+        ps.pos[i] = Vec4(sx, by, sz, 1.0F);
         if (kind == 0) {  // fire: rises and flickers
           ps.vel[i] = Vec4((r1 - 0.5F) * 0.8F, 1.2F + r2 * 1.2F, (r3 - 0.5F) * 0.8F, 0.0F);
           ps.maxLife[i] = 0.5F + r2 * 0.6F;
@@ -1915,6 +1956,12 @@ void TerrainGame::updateParticles() {
         } else if (kind == 2) {  // fog: big lazy puffs hugging the ground
           ps.vel[i] = Vec4((r1 - 0.5F) * 0.25F, 0.02F, (r3 - 0.5F) * 0.25F, 0.0F);
           ps.maxLife[i] = 3.0F + r2 * 3.0F;
+        } else if (kind == 4) {  // rain: fast streaks, die on the terrain
+          const float fall = 14.0F + r2 * 6.0F;
+          ps.vel[i] = Vec4((r1 - 0.5F) * 0.6F, -fall, (r3 - 0.5F) * 0.6F, 0.0F);
+          float drop = by - terrainHeightAt(sx, sz);
+          if (drop < 0.5F) drop = 0.5F;
+          ps.maxLife[i] = drop / fall;
         } else {  // sparks: radial burst pulled down by gravity
           ps.vel[i] = Vec4((r1 - 0.5F) * 5.0F, 1.5F + r2 * 2.5F, (r3 - 0.5F) * 5.0F, 0.0F);
           ps.maxLife[i] = 0.35F + r2 * 0.5F;
@@ -1929,6 +1976,7 @@ void TerrainGame::updateParticles() {
       // life fraction drives size, alpha (0-128) and the color ramp
       const float t = ps.life[i] / ps.maxLife[i];
       float size = d.emitSize;
+      float sizeUp = 0.0F;  // rain: extra world-up half-height (streaks)
       float alpha;
       float cr = d.color[0] * 128.0F, cg = d.color[1] * 128.0F, cb = d.color[2] * 128.0F;
       if (kind == 0) {
@@ -1942,13 +1990,21 @@ void TerrainGame::updateParticles() {
       } else if (kind == 2) {
         size *= 3.0F;
         alpha = 18.0F * (t < 0.5F ? t * 2.0F : (1.0F - t) * 2.0F);  // fade in+out
+      } else if (kind == 4) {
+        sizeUp = size * 0.5F;  // size = streak length
+        size *= 0.06F;         // thin
+        alpha = 70.0F * (t < 0.15F ? t * (1.0F / 0.15F) : 1.0F);  // fade at impact
       } else {
         size *= 0.35F;
         alpha = 110.0F * t;
       }
 
+      // rain streaks stay vertical (world-up quads); everything else is a
+      // full camera-facing billboard
       const float Rx = rx * size, Rz = rz * size;
-      const float Ux = ux * size, Uy = uy * size, Uz = uz * size;
+      const float Ux = sizeUp > 0.0F ? 0.0F : ux * size;
+      const float Uy = sizeUp > 0.0F ? sizeUp : uy * size;
+      const float Uz = sizeUp > 0.0F ? 0.0F : uz * size;
       const Vec4& P = ps.pos[i];
       const Vec4 v0(P.x - Rx - Ux, P.y - Uy, P.z - Rz - Uz, 1.0F);
       const Vec4 v1(P.x + Rx - Ux, P.y - Uy, P.z + Rz - Uz, 1.0F);
@@ -3894,9 +3950,11 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int model;    // index into MODEL_PATHS / gameModels, -1 = none\n"
            "  int material; // primitives: index into MATERIAL_PATHS, -1 = plain color\n"
            "  int usable;   // 1 = shows the USE prompt up close (see controls.hpp)\n"
-           "  int emitKind;   // emitters: 0 fire, 1 smoke, 2 fog, 3 sparks\n"
-           "  int emitCount;  // emitters: particle pool size\n"
+           "  int emitKind;   // emitters: 0 fire, 1 smoke, 2 fog, 3 sparks, 4 rain\n"
+           "  int emitCount;  // emitters: particle pool size (density)\n"
            "  float emitSize; // emitters: base particle size\n"
+           "  int emitEnabled; // emitters: 0 = starts disabled (Show Object enables)\n"
+           "  int emitFollow;  // emitters: 1 = position is an offset from the player\n"
            "  int snd;        // sound emitters: index into SND_PATHS, -1 = none\n"
            "  int sndAuto;    // sound emitters: 1 = plays while in range\n"
            "  float sndRange;    // sound emitters: audible distance\n"
@@ -3928,8 +3986,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << (objs.empty() ? (size_t)1 : objs.size()) << "] = {\n";
         if (objs.empty()) {
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
-                   "0, 0, 0.0F, -1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, -1, \"\", 1, "
-                   "1, 1.0F},\n";
+                   "0, 0, 0.0F, 1, 0, -1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, -1, "
+                   "\"\", 1, 1, 1.0F},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
                 for (size_t i = 0; i < p.sounds.size(); ++i)
@@ -3946,6 +4004,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << ((o.usable || o.type == PrimitiveType::SavePoint) ? 1 : 0)
                     << ", " << o.emitterKind << ", "
                     << o.emitterCount << ", " << floatLit(o.emitterSize) << ", "
+                    << (o.emitterEnabled ? 1 : 0) << ", "
+                    << (o.emitterFollowPlayer ? 1 : 0) << ", "
                     << soundIndexOf(o.soundPath) << ", " << (o.soundAuto ? 1 : 0)
                     << ", " << floatLit(o.soundRange) << ", "
                     << floatLit(o.soundInterval) << ", " << (o.soundOnPlayer ? 1 : 0)

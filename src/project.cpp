@@ -187,11 +187,14 @@ static std::string objectJson(const SceneObject& o) {
                 ", \"canJump\": " + (o.playerCanJump ? "true" : "false") + " }";
     }
     if (o.type == PrimitiveType::Emitter) {
-        static const char* kinds[] = {"fire", "smoke", "fog", "sparks"};
-        const int k = (o.emitterKind >= 0 && o.emitterKind < 4) ? o.emitterKind : 0;
+        static const char* kinds[] = {"fire", "smoke", "fog", "sparks", "rain"};
+        const int k = (o.emitterKind >= 0 && o.emitterKind < 5) ? o.emitterKind : 0;
         json += ", \"emitter\": { \"kind\": \"" + std::string(kinds[k]) +
                 "\", \"count\": " + std::to_string(o.emitterCount) +
-                ", \"size\": " + fmtFloat(o.emitterSize) + " }";
+                ", \"size\": " + fmtFloat(o.emitterSize) +
+                ", \"enabled\": " + (o.emitterEnabled ? "true" : "false") +
+                ", \"followPlayer\": " + (o.emitterFollowPlayer ? "true" : "false") +
+                " }";
     }
     if (o.type == PrimitiveType::SoundEmitter) {
         json += ", \"sound\": { \"path\": \"" + o.soundPath +
@@ -740,12 +743,19 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* em = jo.find("emitter")) {
             if (const auto* v = em->find("kind")) {
                 const std::string k = v->stringOr("fire");
-                o.emitterKind = k == "smoke" ? 1 : k == "fog" ? 2 : k == "sparks" ? 3 : 0;
+                o.emitterKind = k == "smoke" ? 1
+                                : k == "fog" ? 2
+                                : k == "sparks" ? 3
+                                : k == "rain" ? 4 : 0;
             }
             if (const auto* v = em->find("count")) o.emitterCount = (int)v->numberOr(24);
             if (o.emitterCount < 1) o.emitterCount = 1;
-            if (o.emitterCount > 128) o.emitterCount = 128;
+            if (o.emitterCount > 256) o.emitterCount = 256;
             if (const auto* v = em->find("size")) o.emitterSize = (float)v->numberOr(0.5);
+            if (const auto* v = em->find("enabled"))
+                o.emitterEnabled = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (const auto* v = em->find("followPlayer"))
+                o.emitterFollowPlayer = v->type == json::Value::Type::Bool && v->boolean;
         }
         if (const auto* sn = jo.find("sound")) {
             if (const auto* v = sn->find("path")) o.soundPath = v->stringOr("");

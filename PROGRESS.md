@@ -9,6 +9,41 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (27) **Particle emitters v2: live viewport preview, rain, textures,
+  enabled + follow-player** — emitters no longer render as scaled cones in
+  the editor: the viewport now runs the same per-kind particle simulation as
+  the generated game (spawn/velocity/size/alpha formulas copied from
+  `updateParticles()` — the twin-formula comment marks both sides) on
+  per-emitter CPU pools, drawn as alpha-blended camera-facing quads through a
+  new small shader (pos + RGBA + UV dynamic buffer, depth-test on / z-write
+  off, drawn last like the game). A fixed-size cone marker remains for
+  selection/gizmo (dimmed when the emitter is disabled); picking still uses
+  the scale box = spawn area. New **Rain** kind (4): thin world-up streaks
+  (size = streak length) falling 14-20 u/s from the emitter height and dying
+  exactly on the terrain (`terrainHeightAt` per drop), preset under the
+  Effects add-menu (area 20x20 at y=12, count 96). New per-emitter options:
+  **texture** via the shared Material combo (first material's map_Kd on
+  fixed per-quad UVs through a StaPipTextureBag; color tints the texture,
+  same in the viewport), **Density (count)** cap raised 128 -> 256,
+  **Enabled** (off = starts invisible; the existing Show/Hide/Toggle Object
+  flow nodes enable/disable emitters at runtime — that mapping is the
+  documented on/off switch), and **Follow player** (the emitter position
+  becomes an offset from the camera — rain that tracks the player instead of
+  covering the map; editor previews it in place). Data model: emitterEnabled
+  / emitterFollowPlayer (+ operator==), `"enabled"`/`"followPlayer"` in the
+  emitter JSON block, `emitEnabled`/`emitFollow` columns in
+  SceneObjectData. gl_loader grew glDepthMask. Verified: editor builds
+  clean; scratch fpp project with a follow-player rain emitter + a disabled
+  fire emitter carrying a material — generated scene_data.hpp row checked
+  (kind 4, count 96, enabled/follow flags, material index resolved), full
+  Docker build to ELF OK; GUI screenshots show animated rain streaks in the
+  viewport, the dimmed disabled-fire marker and the new Properties fields;
+  `.tyra` round-trips the new keys on reopen+resave; PCSX2 (SW renderer,
+  50 FPS) shows rain falling around the FPP camera and the disabled emitter
+  correctly absent. Hands-on pass left for a human: checkbox/combo feel and
+  a textured emitter in-game (codegen + texture-bag path compiled and
+  mirrors the terrain texturing, but no PNG-textured emitter was booted).
+
 - (26) **Animated models stage 2: true skeletal runtime (.tskl) + crossfade
   blending** — the baked-morph-frame backend from (25) is replaced by a real
   skeletal one; the entire authoring surface (.glb import, clip names,

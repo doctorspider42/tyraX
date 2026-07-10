@@ -24,8 +24,9 @@ enum class PrimitiveType {
     // Player entity: marker in the editor; in the game the camera becomes
     // this player (walk FPP or noclip), regardless of the project template.
     Player = 6,
-    // Particle emitter (fire/smoke/fog/sparks): cone marker in the editor,
-    // camera-facing color quads simulated on a fixed pool in the game.
+    // Particle emitter (fire/smoke/fog/sparks/rain): live animated preview in
+    // the editor viewport; camera-facing quads (optionally textured via the
+    // assigned material) simulated on a fixed pool in the game.
     Emitter = 7,
     // Sound emitter: sphere marker in the editor; in the game it plays an
     // imported sound effect with distance-attenuated (spatial) volume.
@@ -70,10 +71,16 @@ struct SceneObject {
     float playerJumpSpeed = 4.5f;  // units/s (walk mode, X button)
     bool playerCanJump = true;     // walk mode: X jumps
 
-    // Particle emitter parameters (used when type == Emitter)
-    int emitterKind = 0;      // 0 fire, 1 smoke, 2 fog, 3 sparks
-    int emitterCount = 24;    // particle pool size (compiled in, no runtime alloc)
+    // Particle emitter parameters (used when type == Emitter). The particle
+    // texture comes from the shared materialPath (first material's map_Kd);
+    // scale X/Z = spawn area, color = tint.
+    int emitterKind = 0;      // 0 fire, 1 smoke, 2 fog, 3 sparks, 4 rain
+    int emitterCount = 24;    // particle pool size = density (compiled in)
     float emitterSize = 0.5f; // base particle size in world units
+    bool emitterEnabled = true;       // off = starts disabled; Show/Hide Object
+                                      // flow nodes switch it at runtime
+    bool emitterFollowPlayer = false; // position becomes an offset from the
+                                      // player (rain that tracks the camera)
 
     // Sound emitter parameters (used when type == SoundEmitter)
     std::string soundPath;      // one of Project::sounds ("res/sfx/x.wav")
@@ -124,6 +131,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.playerJumpSpeed == b.playerJumpSpeed &&
            a.playerCanJump == b.playerCanJump && a.emitterKind == b.emitterKind &&
            a.emitterCount == b.emitterCount && a.emitterSize == b.emitterSize &&
+           a.emitterEnabled == b.emitterEnabled &&
+           a.emitterFollowPlayer == b.emitterFollowPlayer &&
            a.soundPath == b.soundPath && a.soundAuto == b.soundAuto &&
            a.soundRange == b.soundRange && a.soundInterval == b.soundInterval &&
            a.soundOnPlayer == b.soundOnPlayer &&
