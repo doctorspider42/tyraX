@@ -3,6 +3,7 @@
 #include "isoexport.hpp"
 #include "pcsx2_config.hpp"
 #include "texbake.hpp"
+#include "wavconvert.hpp"
 
 #include <cstdlib>
 #include <filesystem>
@@ -344,6 +345,27 @@ void Runner::killPs2Client() {
     if (ps2Pump_.joinable()) ps2Pump_.join();
 }
 
+void Runner::stopPs2(const Project& p) {
+    if (busy()) return;
+    join();
+    cancelRequested_ = false;
+    state_ = State::Running;
+    thread_ = std::thread([this, p] {
+        appendLine("[editor] Stopping the game on the PS2...");
+        // Kill the file server (ours by handle, strays by name) - the game
+        // loses host: - then reset ps2link so the console reboots back into
+        // its listening state instead of hanging on dead file handles.
+        killPs2Client();
+        exec("taskkill /F /IM ps2client.exe 2>nul & exit 0", "");
+        if (!p.ps2LinkIp.empty()) {
+            const std::string client = findPs2Client();
+            exec("\"" + client + "\" -h " + p.ps2LinkIp + " -t 10 reset", "");
+            appendLine("[editor] ps2link reset - the console is listening again.");
+        }
+        state_ = State::Success;
+    });
+}
+
 bool Runner::deployToPs2(const Project& p) {
     if (p.ps2LinkIp.empty()) {
         appendLine("[editor] No PS2 address configured - set 'PS2 (ps2link) IP' in "
@@ -631,6 +653,30 @@ void Runner::worker(Project p, bool build, bool run, bool ps2) {
             ok = exec(dc + "\"rsync -zac --include=*/ --include=bin/** --exclude=* "
                            "/src/ /host/\"",
                       p.dir) == 0;
+        }
+
+        // Per-track music build conversion (Music panel "PS2 build"): the
+        // copy-back just refreshed bin/audio from the untouched res/ source,
+        // so re-convert the copy the game actually streams. Lower rate/mono
+        // halve the byte rate - the levers when a track stutters on a real
+        // console over the network deploy.
+        if (ok) {
+            for (const auto& [rel, opt] : p.musicBuild) {
+                if (opt.rate == 0 && !opt.mono) continue;
+                std::string binRel = rel;
+                if (binRel.rfind("res/", 0) == 0) binRel = binRel.substr(4);
+                const fs::path wav = fs::path(p.dir) / "bin" / fs::path(binRel);
+                std::error_code ec;
+                if (!fs::exists(wav, ec)) continue;
+                std::string err;
+                if (wavconvert::convertTo16(wav, opt.rate, err, opt.mono))
+                    appendLine("[editor] music: " + binRel + " -> 16-bit " +
+                               (opt.rate ? std::to_string(opt.rate) + " Hz" : "source rate") +
+                               (opt.mono ? " mono" : "") + " (build copy only)");
+                else
+                    appendLine("[editor] WARNING: music build conversion failed for " +
+                               binRel + ": " + err);
+            }
         }
 
         if (ok) {

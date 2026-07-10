@@ -422,6 +422,17 @@ std::string save(const Project& p) {
     for (size_t i = 0; i < p.music.size(); ++i)
         json << (i ? ", " : "") << "\"" << p.music[i] << "\"";
     json << "]";
+    {
+        bool first = true;
+        for (const auto& [path, opt] : p.musicBuild) {
+            if (opt.rate == 0 && !opt.mono) continue;  // default = as-is
+            json << (first ? ",\n  \"musicBuild\": [\n    " : ",\n    ")
+                 << "{ \"path\": \"" << jsonEscape(path) << "\", \"rate\": " << opt.rate
+                 << ", \"mono\": " << (opt.mono ? "true" : "false") << " }";
+            first = false;
+        }
+        if (!first) json << "\n  ]";
+    }
     json << ",\n  \"sounds\": [";
     for (size_t i = 0; i < p.sounds.size(); ++i)
         json << (i ? ", " : "") << "\"" << p.sounds[i] << "\"";
@@ -956,6 +967,19 @@ std::string load(Project& out, const std::string& projectDir) {
         for (const auto& m : music->arr) {
             const std::string path = m.stringOr("");
             if (!path.empty()) out.music.push_back(path);
+        }
+    }
+
+    if (const auto* mb = root.find("musicBuild");
+        mb && mb->type == json::Value::Type::Array) {
+        for (const auto& jo : mb->arr) {
+            std::string path;
+            Project::MusicBuildOpt opt;
+            if (const auto* v = jo.find("path")) path = v->stringOr("");
+            if (const auto* v = jo.find("rate")) opt.rate = (int)v->numberOr(0);
+            if (const auto* v = jo.find("mono"))
+                opt.mono = v->type == json::Value::Type::Bool && v->boolean;
+            if (!path.empty() && (opt.rate != 0 || opt.mono)) out.musicBuild[path] = opt;
         }
     }
 

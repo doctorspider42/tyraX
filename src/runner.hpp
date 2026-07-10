@@ -28,6 +28,9 @@ public:
     // or editor exit - the game on the console dies with it) and its output,
     // including the console's printf log, streams into the Output panel.
     void buildAndRunPs2(const Project& p, bool build);
+    // Stops the game running on the console: kills the ps2client file server
+    // and resets ps2link, so the PS2 reboots back into its listening state.
+    void stopPs2(const Project& p);
     // Builds <project>/<name>.iso from bin/ (see isoexport.hpp for layout).
     void exportIso(const Project& p);
     // VS-style Clean: wipes the build products - obj/ and bin/ in the

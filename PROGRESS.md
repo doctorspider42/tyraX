@@ -9,6 +9,22 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (33) **Per-track music build conversion + Stop on PS2** — the experiment
+  window for network music: every Music-panel track gets "PS2 build"
+  controls (rate: keep/22050/16000/11025 + mono). The res/audio source
+  stays untouched; after every build the Runner re-converts the bin/audio
+  copy the game actually streams (wavconvert grew a mono downmix - channel
+  average before resampling), so PCSX2, PS2 deploys and exported ISOs all
+  hear the downgraded version and each step halves the streamed byte rate.
+  Stored as a path-keyed map in the .tyra (absent = ship as-is). Verified:
+  a 22050 stereo tone with rate=11025+mono builds a bin copy exactly 1/4
+  the size (mono, 11025 Hz per the WAV header) with the source untouched,
+  and PCSX2 plays it with a steady WASAPI peak - the low-byte-rate
+  small-chunk path works with the read-ahead stage. **Stop on PS2** (Build
+  menu): kills the ps2client file server and resets ps2link, so the console
+  reboots back into its listening state instead of hanging on dead file
+  handles when you just want the game gone.
+
 - (32) **Song read-ahead stage (network music without hiccups)** — feeding
   audsrv straight from per-chunk freads gives every read a hard deadline of
   one chunk of audio (46 ms at 22 kHz stereo); over ps2link any latency

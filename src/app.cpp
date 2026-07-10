@@ -463,6 +463,11 @@ void App::drawMenuBar() {
                 runner_.buildAndRunPs2(project_, false);
             if (!ps2Ready && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Set 'PS2 (ps2link) IP' in Project > Preferences first.");
+            if (ImGui::MenuItem("Stop on PS2", nullptr, false, !busy && ps2Ready))
+                runner_.stopPs2(project_);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Kills the file server and resets ps2link - the "
+                                  "console reboots back to its listening state.");
             ImGui::Separator();
             if (ImGui::MenuItem("Cancel Build", nullptr, false, busy)) runner_.cancel();
             if (ImGui::MenuItem("Clean", nullptr, false, !busy))
@@ -2958,10 +2963,46 @@ void App::drawMusicSection() {
         ImGui::SameLine();
         if (ImGui::SmallButton("x")) {
             removeAudioTrack(project_, project_.music[i], true);
+            project_.musicBuild.erase(project_.music[i]);
             project_.music.erase(project_.music.begin() + i);
             changed = true;
             ImGui::PopID();
             break;
+        }
+
+        // Build-time conversion knobs: applied to the bin/audio copy after
+        // every build (the res/ source stays untouched). Lower rate / mono
+        // are the levers when music snags on a real console over the network
+        // deploy - each halves the streamed byte rate.
+        {
+            auto it = project_.musicBuild.find(project_.music[i]);
+            Project::MusicBuildOpt opt =
+                it != project_.musicBuild.end() ? it->second : Project::MusicBuildOpt{};
+            int rateIdx = opt.rate == 22050 ? 1 : opt.rate == 16000 ? 2
+                          : opt.rate == 11025 ? 3 : 0;
+            const char* rateNames[] = {"keep rate", "22050 Hz", "16000 Hz", "11025 Hz"};
+            ImGui::Indent();
+            ImGui::TextDisabled("PS2 build:");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(110.0f);
+            bool edited = ImGui::Combo("##mbrate", &rateIdx, rateNames, 4);
+            ImGui::SameLine();
+            edited |= ImGui::Checkbox("mono##mb", &opt.mono);
+            if (ImGui::IsItemHovered() || (ImGui::IsItemHovered(ImGuiHoveredFlags_None)))
+                ImGui::SetTooltip(
+                    "Converts the bin\\ copy after every build (source WAV stays\n"
+                    "untouched). Try lower rates or mono when the track stutters\n"
+                    "on a real PS2 over the network deploy.");
+            ImGui::Unindent();
+            if (edited) {
+                opt.rate = rateIdx == 1 ? 22050 : rateIdx == 2 ? 16000
+                           : rateIdx == 3 ? 11025 : 0;
+                if (opt.rate == 0 && !opt.mono)
+                    project_.musicBuild.erase(project_.music[i]);
+                else
+                    project_.musicBuild[project_.music[i]] = opt;
+                saveAll("Music build settings saved - rebuild to apply");
+            }
         }
         ImGui::PopID();
     }
