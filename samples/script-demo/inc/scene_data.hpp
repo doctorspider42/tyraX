@@ -20,6 +20,8 @@ struct SceneObjectData {
   int sndAuto;    // sound emitters: 1 = plays while in range
   float sndRange;    // sound emitters: audible distance
   float sndInterval; // sound emitters: retrigger period (s), 0 = loop
+  int sndOnPlayer;   // sound emitters: 1 = centered on the player
+                     // (plain stereo, full volume, no distance/pan)
   float lightBright; // point lights (type 9): baked intensity
   float lightRadius; // point lights (type 9): falloff radius
   int saveState;  // 1 = position/color/visibility persisted in saves
@@ -30,9 +32,9 @@ constexpr int SCENE_COUNT = 1;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[3] = {
-    {4, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, -1, 1, 15.0F, 0.0F, 1.0F, 8.0F, 0, 0},  // spawn-1
-    {0, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.8F, 0.35F, 0.25F}, 0, -1, -1, 0, 0, 24, 0.5F, -1, 1, 15.0F, 0.0F, 1.0F, 8.0F, 0, 0},  // box-1
-    {5, {-7.0F, 0.0F, 9.0F}, {0.0F, 30.0F, 0.0F}, {2.5F, 2.5F, 2.5F}, {0.9F, 0.85F, 0.7F}, 0, 0, -1, 0, 0, 24, 0.5F, -1, 1, 15.0F, 0.0F, 1.0F, 8.0F, 0, 0},  // house-1
+    {4, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0},  // spawn-1
+    {0, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.8F, 0.35F, 0.25F}, 0, -1, -1, 0, 0, 24, 0.5F, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0},  // box-1
+    {5, {-7.0F, 0.0F, 9.0F}, {0.0F, 30.0F, 0.0F}, {2.5F, 2.5F, 2.5F}, {0.9F, 0.85F, 0.7F}, 0, 0, -1, 0, 0, 24, 0.5F, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0},  // house-1
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {3};

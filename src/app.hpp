@@ -21,12 +21,16 @@ private:
     void drawMenuBar();
     void drawViewportWindow();
     void drawProjectWindow();
+    void drawPropertiesWindow();
     void drawSceneSection();
     void drawScriptsSection();
     void drawNewScriptModal();
     void drawNewSceneModal();
     void drawDeleteSceneModal();
     void drawFlowGraphWindow();
+    // Names used by same-type "Variables" nodes across every scene's graphs
+    // (the int / bool / position namespaces are separate).
+    std::vector<std::string> flowVarNames(const std::string& nodeType) const;
     void openInVSCode();
     void drawOutputWindow();
     void drawDebugWindow();
@@ -84,6 +88,10 @@ private:
     // boundary (ImGui cannot reload settings between NewFrame and EndFrame).
     bool layoutLoadPending_ = false;
     int selectedObject_ = -1;
+
+    // Layouts saved before the Properties window existed lack a slot for it;
+    // when set, the next frame docks it under the Project panel.
+    bool dockPropertiesPending_ = false;
 
     // Transform gizmo: 0 = move, 1 = rotate, 2 = scale
     int gizmoOp_ = 0;

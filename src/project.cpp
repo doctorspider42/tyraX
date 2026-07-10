@@ -197,7 +197,8 @@ static std::string objectJson(const SceneObject& o) {
         json += ", \"sound\": { \"path\": \"" + o.soundPath +
                 "\", \"autoplay\": " + (o.soundAuto ? "true" : "false") +
                 ", \"range\": " + fmtFloat(o.soundRange) +
-                ", \"interval\": " + fmtFloat(o.soundInterval) + " }";
+                ", \"interval\": " + fmtFloat(o.soundInterval) +
+                ", \"onPlayer\": " + (o.soundOnPlayer ? "true" : "false") + " }";
     }
     if (o.type == PrimitiveType::PointLight) {
         json += ", \"light\": { \"brightness\": " + fmtFloat(o.lightBright) +
@@ -733,6 +734,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (const auto* v = sn->find("interval"))
                 o.soundInterval = (float)v->numberOr(0.0);
             if (o.soundInterval < 0.0f) o.soundInterval = 0.0f;
+            if (const auto* v = sn->find("onPlayer"))
+                o.soundOnPlayer = v->type == json::Value::Type::Bool && v->boolean;
         }
         if (const auto* lt = jo.find("light")) {
             if (const auto* v = lt->find("brightness"))
