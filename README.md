@@ -80,6 +80,19 @@ tyra-editor.exe <projectDir|project.tyra>    # open GUI with a project loaded
 5. `rsync` the `bin/` directory back to the host.
 6. Launch `pcsx2-qt.exe -elf <project>\bin\<name>.elf`.
 
+## Run on a real PS2 (network deploy)
+
+With a PS2 connected to the LAN and running [ps2link](https://github.com/ps2dev/ps2link)
+(one-time memory-card install), **Build > Build && Run on PS2** (`F6`) boots the
+game on the console over ethernet: the ELF and every asset are served straight
+from the project's `bin\` on this PC (no ISO, no SMB), and the console's log
+streams live into the *Output* window as `[ps2]` lines. Set the console's IP
+under `Project > Preferences > Real PS2`; headless: `--build <projectDir>
+--run-ps2 [ip]`. The editor drives the console with a patched
+[ps2client](https://github.com/ps2dev/ps2client) shipped in `tools/ps2client`
+(see the README there — the patch fixes a Nagle/delayed-ACK stall that made
+file serving ~100x slower).
+
 ## The in-tree Tyra engine
 
 `vendor/tyra/engine` is a fork of the [Tyra engine](https://github.com/h4570/tyra) (Apache License 2.0, forked at `9273416`), maintained directly in this repo — edit it and the next Build & Run picks the change up automatically. The editor's modifications over upstream (marked `Modified by tyra-editor` / `tyra-editor guard band` in the sources):
@@ -105,3 +118,32 @@ Before each build the editor refreshes its generated files: `Dockerfile`, `docke
 - `samples/` — example projects.
 - `vendor/tyra/engine` — the in-tree Tyra engine fork (versioned; Apache License 2.0).
 - `vendor/` (rest) — editor dependencies (not versioned; see `setup.ps1`).
+- `tools/` — PS2 network-deploy tools (`ps2client` versioned, the rest fetched by `setup.ps1`).
+
+## Credits
+
+This project stands on the shoulders of the PS2 homebrew community:
+
+- **[Tyra engine](https://github.com/h4570/tyra)** by Sandro Sobczyński (h4570)
+  and contributors — Apache License 2.0. `vendor/tyra/engine` is an in-tree
+  fork; every departure from upstream is marked `Modified by tyra-editor` in
+  the sources. The `h4570/tyra` Docker image provides the PS2 toolchain.
+- **[ps2client](https://github.com/ps2dev/ps2client)** and
+  **[ps2link](https://github.com/ps2dev/ps2link)** by the
+  [ps2dev project](https://ps2dev.github.io/) contributors — the network link
+  that "Run on PS2" is built on. `tools/ps2client/bin/ps2client.exe` is their
+  work built from source with one local patch
+  ([`tools/ps2client/nodelay.patch`](tools/ps2client/nodelay.patch),
+  `TCP_NODELAY` on the request socket); upstream declares no explicit license
+  file, so it is redistributed here in the spirit of the ps2dev homebrew SDK
+  with full credit to its authors. `ps2link` is downloaded unmodified from
+  upstream releases by `setup.ps1`.
+- **[PS2SDK](https://github.com/ps2dev/ps2sdk)** (ps2dev) — the SDK every
+  generated game links against; the custom `audsrv` build in
+  `vendor/tyra/audsrv-pan` derives from its audsrv module.
+- Editor dependencies fetched by `setup.ps1`: [Dear ImGui](https://github.com/ocornut/imgui)
+  (MIT), [GLFW](https://www.glfw.org/) (zlib/libpng),
+  [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo) (MIT),
+  [imnodes](https://github.com/Nelarius/imnodes) (MIT),
+  [stb](https://github.com/nothings/stb) (public domain / MIT).
+- **[PCSX2](https://pcsx2.net/)** — the emulator behind every `F5`.

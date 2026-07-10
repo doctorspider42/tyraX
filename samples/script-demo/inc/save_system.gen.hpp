@@ -12,7 +12,8 @@ namespace Script_demo {
 constexpr int SAVE_SLOTS = 3;
 constexpr const char* SAVE_MC_DIR = "/TYRA-SCRIPTDEMO";
 constexpr unsigned int SAVE_MAGIC = 0x56535954u;  // "TYSV"
-constexpr int SAVE_VERSION = 1;
+// v2: SaveGameData gained the text-value block (SAVE_TEXT_*)
+constexpr int SAVE_VERSION = 2;
 
 // Runtime state of one save-flagged object (SceneObjectData.saveState).
 struct SaveObjectState {
@@ -32,6 +33,8 @@ struct alignas(64) SaveGameData {
   float playerYaw;     // degrees
   int valueCount;
   float values[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1];
+  int textCount;
+  char texts[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1][SAVE_TEXT_LEN];
   int objectCount;
   SaveObjectState objects[SAVE_OBJECT_MAX];
 };

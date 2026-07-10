@@ -108,8 +108,10 @@ static std::string flowGraphJson(const FlowGraph& fg) {
         const FlowNode& n = fg.nodes[i];
         json += std::string(i ? ", " : "") + "{ \"id\": " + std::to_string(n.id) +
                 ", \"type\": \"" + n.type + "\", \"pos\": [" + fmtFloat(n.pos[0]) + ", " +
-                fmtFloat(n.pos[1]) + "], \"str\": \"" + n.str +
-                "\", \"num\": " + fmtVec3(n.num) + " }";
+                fmtFloat(n.pos[1]) + "], \"str\": \"" + jsonEscape(n.str) + "\"" +
+                (n.str2.empty() ? "" : ", \"str2\": \"" + jsonEscape(n.str2) + "\"") +
+                ", \"num\": [" + fmtFloat(n.num[0]) + ", " + fmtFloat(n.num[1]) +
+                ", " + fmtFloat(n.num[2]) + ", " + fmtFloat(n.num[3]) + "] }";
     }
     json += "], \"links\": [";
     for (size_t i = 0; i < fg.links.size(); ++i) {
@@ -119,7 +121,8 @@ static std::string flowGraphJson(const FlowGraph& fg) {
                 ", \"to\": " + std::to_string(l.toNode) +
                 (l.kind == FlowLinkObject ? ", \"data\": true" : "") +
                 (l.kind == FlowLinkPos ? ", \"pos\": true" : "") +
-                (l.kind == FlowLinkBool ? ", \"bool\": true" : "") + " }";
+                (l.kind == FlowLinkBool ? ", \"bool\": true" : "") +
+                (l.kind == FlowLinkText ? ", \"text\": true" : "") + " }";
     }
     return json + "] }";
 }
@@ -138,7 +141,11 @@ static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
                 n.pos[1] = (float)v->arr[1].numberOr(0);
             }
             if (const auto* v = jn.find("str")) n.str = v->stringOr("");
-            readVec3(jn.find("num"), n.num);
+            if (const auto* v = jn.find("str2")) n.str2 = v->stringOr("");
+            if (const auto* v = jn.find("num");
+                v && v->type == json::Value::Type::Array)
+                for (size_t i = 0; i < 4 && i < v->arr.size(); ++i)
+                    n.num[i] = (float)v->arr[i].numberOr(0);
             if (n.id > 0 && flowNodeType(n.type)) fg.nodes.push_back(n);
         }
     }
@@ -158,6 +165,9 @@ static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
             if (const auto* v = jl.find("bool");
                 v && v->type == json::Value::Type::Bool && v->boolean)
                 l.kind = FlowLinkBool;
+            if (const auto* v = jl.find("text");
+                v && v->type == json::Value::Type::Bool && v->boolean)
+                l.kind = FlowLinkText;
             if (l.id > 0) fg.links.push_back(l);
         }
     }
@@ -373,6 +383,8 @@ std::string save(const Project& p) {
          << "    \"eyeHeight\": " << fmtFloat(p.settings.eyeHeight) << ",\n"
          << "    \"walkSpeed\": " << fmtFloat(p.settings.walkSpeed) << ",\n"
          << "    \"lookSpeed\": " << fmtFloat(p.settings.lookSpeed) << ",\n"
+         << "    \"stickDeadzoneL\": " << fmtFloat(p.settings.stickDeadzoneL) << ",\n"
+         << "    \"stickDeadzoneR\": " << fmtFloat(p.settings.stickDeadzoneR) << ",\n"
          << "    \"orbitSpeed\": " << fmtFloat(p.settings.orbitSpeed) << ",\n"
          << "    \"gravity\": " << fmtFloat(p.settings.gravity) << ",\n"
          << "    \"jumpSpeed\": " << fmtFloat(p.settings.jumpSpeed) << ",\n"
@@ -438,6 +450,12 @@ std::string save(const Project& p) {
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << p.saveValues[i].name
              << "\", \"default\": " << fmtFloat(p.saveValues[i].value) << " }";
     json << (p.saveValues.empty() ? "]" : "\n  ]");
+    json << ",\n  \"saveTexts\": [";
+    for (size_t i = 0; i < p.saveTexts.size(); ++i)
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \""
+             << jsonEscape(p.saveTexts[i].name) << "\", \"default\": \""
+             << jsonEscape(p.saveTexts[i].value) << "\" }";
+    json << (p.saveTexts.empty() ? "]" : "\n  ]");
     json << ",\n  \"menus\": [";
     static const char* kMenuActions[] = {"close",     "scene",     "save-menu",
                                          "menu",      "set-value", "add-value",
@@ -495,7 +513,8 @@ std::string save(const Project& p) {
     // Editor-side state + window layout: the .tyra file is the whole project.
     json << ",\n  \"editor\": { \"selectedObject\": " << p.selectedObject
          << ", \"gizmo\": " << p.gizmoOp << ", \"viewMode\": " << p.viewMode
-         << ", \"emulatorPath\": \"" << jsonEscape(p.emulatorPath) << "\" }";
+         << ", \"emulatorPath\": \"" << jsonEscape(p.emulatorPath) << "\""
+         << ", \"ps2LinkIp\": \"" << jsonEscape(p.ps2LinkIp) << "\" }";
     json << ",\n  \"layout\": \"" << jsonEscape(p.windowLayout) << "\"";
     json << "\n}\n";
     return writeFile(projectPath(p), json.str());
@@ -840,6 +859,15 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = s->find("eyeHeight")) st.eyeHeight = (float)v->numberOr(1.8);
         if (const auto* v = s->find("walkSpeed")) st.walkSpeed = (float)v->numberOr(0.4);
         if (const auto* v = s->find("lookSpeed")) st.lookSpeed = (float)v->numberOr(1.0);
+        // Legacy single-value key seeds both sticks; per-stick keys override.
+        if (const auto* v = s->find("stickDeadzone")) {
+            st.stickDeadzoneL = (float)v->numberOr(0.2);
+            st.stickDeadzoneR = st.stickDeadzoneL;
+        }
+        if (const auto* v = s->find("stickDeadzoneL"))
+            st.stickDeadzoneL = (float)v->numberOr(0.2);
+        if (const auto* v = s->find("stickDeadzoneR"))
+            st.stickDeadzoneR = (float)v->numberOr(0.2);
         if (const auto* v = s->find("orbitSpeed")) st.orbitSpeed = (float)v->numberOr(1.0);
         if (const auto* v = s->find("gravity")) st.gravity = (float)v->numberOr(9.8);
         if (const auto* v = s->find("jumpSpeed")) st.jumpSpeed = (float)v->numberOr(4.5);
@@ -974,6 +1002,16 @@ std::string load(Project& out, const std::string& projectDir) {
         }
     }
 
+    if (const auto* texts = root.find("saveTexts");
+        texts && texts->type == json::Value::Type::Array) {
+        for (const auto& jv : texts->arr) {
+            SaveTextValue v;
+            if (const auto* n = jv.find("name")) v.name = n->stringOr("");
+            if (const auto* d = jv.find("default")) v.value = d->stringOr("");
+            if (!v.name.empty()) out.saveTexts.push_back(std::move(v));
+        }
+    }
+
     if (const auto* menus = root.find("menus");
         menus && menus->type == json::Value::Type::Array) {
         for (const auto& jm : menus->arr) {
@@ -1088,6 +1126,7 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = ed->find("gizmo")) out.gizmoOp = (int)v->numberOr(0);
         if (const auto* v = ed->find("viewMode")) out.viewMode = (int)v->numberOr(0);
         if (const auto* v = ed->find("emulatorPath")) out.emulatorPath = v->stringOr("");
+        if (const auto* v = ed->find("ps2LinkIp")) out.ps2LinkIp = v->stringOr("");
     }
     if (const auto* v = root.find("layout")) out.windowLayout = v->stringOr("");
 
