@@ -74,7 +74,14 @@ void Runner::clean(const Project& p) {
     state_ = State::Running;
     thread_ = std::thread([this, p] {
         appendLine("[editor] === Clean: " + p.name + " ===");
-        killPs2Client();  // it serves files out of the bin/ we are deleting
+        // bin\ is locked by anything running out of it: ps2client keeps it as
+        // its cwd (file server), PCSX2 holds the ELF. Kill ours by handle AND
+        // strays by name - an orphan from a previous editor instance survives
+        // killPs2Client() and made remove_all fail with "Access is denied".
+        killPs2Client();
+        exec("taskkill /F /IM ps2client.exe 2>nul & taskkill /F /IM pcsx2-qt.exe 2>nul & "
+             "taskkill /F /IM pcsx2.exe 2>nul & exit 0",
+             "");
         // Container game volume (obj + bin). Failure is fine - a stopped
         // container just means there is nothing cached there to clean.
         if (exec("docker compose exec -T compiler sh -c \"rm -rf /src/obj /src/bin\"",
