@@ -113,7 +113,10 @@ SRCDIR      := src
 INCDIR      := inc
 BUILDDIR    := obj
 TARGETDIR   := bin
-RESDIR      := res
+# .res-baked is the texture-quantized mirror of res/ the editor writes at the
+# start of every build (see Project > Preferences > Textures); sources in
+# res/ stay full quality.
+RESDIR      := .res-baked
 SRCEXT      := cpp
 VSMEXT		:= vsm
 VCLEXT		:= vcl
@@ -3480,6 +3483,7 @@ static const char* TPL_GITIGNORE = R"(obj/
 bin/*.elf
 *.history
 .vscode/
+.res-baked/
 )";
 
 static const char* TPL_DIR_KEEP = "*\n!.gitignore\n";

@@ -355,6 +355,7 @@ std::string save(const Project& p) {
          << "  \"settings\": {\n"
          << "    \"videoSystem\": \"" << p.settings.videoSystem << "\",\n"
          << "    \"buildProfile\": \"" << p.settings.buildProfile << "\",\n"
+         << "    \"textureQuant\": \"" << p.settings.textureQuant << "\",\n"
          << "    \"showFps\": " << (p.settings.showFps ? "true" : "false") << ",\n"
          << "    \"showMemory\": " << (p.settings.showMemory ? "true" : "false")
          << ",\n"
@@ -417,6 +418,15 @@ std::string save(const Project& p) {
     for (size_t i = 0; i < p.sounds.size(); ++i)
         json << (i ? ", " : "") << "\"" << p.sounds[i] << "\"";
     json << "]";
+    if (!p.textureQuality.empty()) {
+        json << ",\n  \"textureQuality\": {";
+        bool first = true;
+        for (const auto& [asset, q] : p.textureQuality) {
+            json << (first ? " " : ", ") << "\"" << asset << "\": \"" << q << "\"";
+            first = false;
+        }
+        json << " }";
+    }
     json << ",\n  \"saveValues\": [";
     for (size_t i = 0; i < p.saveValues.size(); ++i)
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << p.saveValues[i].name
@@ -793,6 +803,12 @@ std::string load(Project& out, const std::string& projectDir) {
         }
         if (const auto* v = s->find("buildProfile"))
             st.buildProfile = v->stringOr("release") == "debug" ? "debug" : "release";
+        // pre-quantization projects keep their full-color output
+        st.textureQuant = "none";
+        if (const auto* v = s->find("textureQuant")) {
+            const std::string q = v->stringOr("none");
+            st.textureQuant = (q == "8bit" || q == "4bit") ? q : "none";
+        }
         if (const auto* v = s->find("showFps")) st.showFps = v->boolOr(false);
         if (const auto* v = s->find("showMemory")) st.showMemory = v->boolOr(false);
         if (const auto* v = s->find("clipping"))
@@ -920,6 +936,15 @@ std::string load(Project& out, const std::string& projectDir) {
         for (const auto& s : sounds->arr) {
             const std::string path = s.stringOr("");
             if (!path.empty()) out.sounds.push_back(path);
+        }
+    }
+
+    if (const auto* tq = root.find("textureQuality");
+        tq && tq->type == json::Value::Type::Object) {
+        for (const auto& [asset, v] : tq->obj) {
+            const std::string q = v.stringOr("");
+            if (q == "none" || q == "8bit" || q == "4bit")
+                out.textureQuality[asset] = q;
         }
     }
 

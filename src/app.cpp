@@ -1406,6 +1406,30 @@ bool App::drawMaterialCombo(SceneObject& o) {
 void App::drawAssetsSection() {
     if (!ImGui::CollapsingHeader("Assets")) return;
 
+    // Per-asset texture-quality override of Preferences > Textures. Textures
+    // shared by several assets take the highest requested quality.
+    auto qualityCombo = [&](const std::string& assetRel) {
+        auto it = project_.textureQuality.find(assetRel);
+        int cur = it == project_.textureQuality.end() ? 0
+                  : it->second == "none"              ? 1
+                  : it->second == "8bit"              ? 2
+                                                      : 3;
+        const char* labels[] = {"(project)", "Full", "8-bit", "4-bit"};
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(90.0f);
+        if (ImGui::Combo(("##tq" + assetRel).c_str(), &cur, labels, 4)) {
+            if (cur == 0)
+                project_.textureQuality.erase(assetRel);
+            else
+                project_.textureQuality[assetRel] =
+                    cur == 1 ? "none" : cur == 2 ? "8bit" : "4bit";
+            saveAll("Saved");
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Texture quality of this asset's textures\n"
+                              "(overrides Preferences > Textures).");
+    };
+
     ImGui::TextDisabled("Models (res/models)");
     ImGui::SameLine();
     if (ImGui::SmallButton("Import .obj...")) importModelAsset();
@@ -1414,6 +1438,7 @@ void App::drawAssetsSection() {
         ImGui::Bullet();
         ImGui::SameLine();
         ImGui::TextUnformatted(m.c_str());
+        qualityCombo("res/models/" + m);
         const ModelInfo& info = modelInfo("res/models/" + m);
         if (info.ok) {
             ImGui::SameLine();
@@ -1446,6 +1471,7 @@ void App::drawAssetsSection() {
         ImGui::Bullet();
         ImGui::SameLine();
         ImGui::TextUnformatted(m.c_str());
+        qualityCombo("res/materials/" + m);
         const ModelInfo& info = materialInfo("res/materials/" + m);
         if (info.ok) {
             ImGui::SameLine();
@@ -4415,6 +4441,25 @@ void App::drawPreferencesModal() {
         "Fast culling (fastest; big near triangles may vanish)"};
     if (ImGui::Combo("Triangles", &clipMode, clipNames, 2))
         prefSettings_.clipping = clipMode == 1 ? "fast" : "precise";
+
+    // Texture quantization - the PS2-native "compression" (palettized
+    // PSMT8/PSMT4 textures). Applied at build time into .res-baked; per
+    // model/material overrides live in the Assets section.
+    int quantMode = prefSettings_.textureQuant == "none" ? 0
+                    : prefSettings_.textureQuant == "8bit" ? 1
+                                                           : 2;
+    const char* quantNames[] = {
+        "Full color (32-bit - heavy on the 4 MB VRAM)",
+        "256 colors (8-bit palette)",
+        "16 colors (4-bit palette - the PS2-era default)"};
+    if (ImGui::Combo("Textures", &quantMode, quantNames, 3))
+        prefSettings_.textureQuant =
+            quantMode == 0 ? "none" : quantMode == 1 ? "8bit" : "4bit";
+    ImGui::TextDisabled(
+        "Quantized at build (sources in res/ stay untouched). Override per\n"
+        "model/material in the Assets section - e.g. keep the hero's textures\n"
+        "full color while everything else goes 4-bit.");
+
     ImGui::TextDisabled(
         "Terrain texture: %s",
         prefSettings_.terrainTexture.empty() ? "<none>" : prefSettings_.terrainTexture.c_str());
