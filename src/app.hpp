@@ -232,6 +232,7 @@ private:
     int prefTemplate_ = 0;
     ProjectSettings prefSettings_;
     char prefEmulatorPath_[512] = "";  // PCSX2 exe path (editor-side, not baked)
+    char prefPs2Ip_[64] = "";          // ps2link IP for Run on PS2 (editor-side)
 
     // "Debug" window: tails a log from disk (reloaded, throttled). Source 0 is
     // the game's own log (bin/log.txt, written by TYRA_LOG); source 1 is the

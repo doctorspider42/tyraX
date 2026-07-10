@@ -6,13 +6,17 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
 namespace fs = std::filesystem;
 
-Runner::~Runner() { join(); }
+Runner::~Runner() {
+    join();
+    killPs2Client();
+}
 
 void Runner::join() {
     if (thread_.joinable()) thread_.join();
@@ -29,7 +33,16 @@ void Runner::clearLog() {
 }
 
 void Runner::appendLine(const std::string& line) {
+    // Timestamp every line - over the network host: filesystem load times are
+    // dominated by asset sizes, and the [ps2] log stream is the only way to
+    // profile where a slow console boot actually spends its time.
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    char stamp[16];
+    snprintf(stamp, sizeof(stamp), "%02d:%02d:%02d ", st.wHour, st.wMinute,
+             st.wSecond);
     std::lock_guard<std::mutex> lock(logMutex_);
+    log_ += stamp;
     log_ += line;
     log_ += '\n';
 }
@@ -37,15 +50,81 @@ void Runner::appendLine(const std::string& line) {
 void Runner::buildAndRun(const Project& p, bool runEmulator) {
     if (busy()) return;
     join();
+    cancelRequested_ = false;
     state_ = State::Running;
-    thread_ = std::thread(&Runner::worker, this, p, true, runEmulator);
+    thread_ = std::thread(&Runner::worker, this, p, true, runEmulator, false);
 }
 
 void Runner::runEmulatorOnly(const Project& p) {
     if (busy()) return;
     join();
+    cancelRequested_ = false;
     state_ = State::Running;
-    thread_ = std::thread(&Runner::worker, this, p, false, true);
+    thread_ = std::thread(&Runner::worker, this, p, false, true, false);
+}
+
+void Runner::buildAndRunPs2(const Project& p, bool build) {
+    if (busy()) return;
+    join();
+    cancelRequested_ = false;
+    state_ = State::Running;
+    thread_ = std::thread(&Runner::worker, this, p, build, true, true);
+}
+
+void Runner::clean(const Project& p) {
+    if (busy()) return;
+    join();
+    cancelRequested_ = false;
+    state_ = State::Running;
+    thread_ = std::thread([this, p] {
+        appendLine("[editor] === Clean: " + p.name + " ===");
+        // bin\ is locked by anything running out of it: ps2client keeps it as
+        // its cwd (file server), PCSX2 holds the ELF. Kill ours by handle AND
+        // strays by name - an orphan from a previous editor instance survives
+        // killPs2Client() and made remove_all fail with "Access is denied".
+        killPs2Client();
+        exec("taskkill /F /IM ps2client.exe 2>nul & taskkill /F /IM pcsx2-qt.exe 2>nul & "
+             "taskkill /F /IM pcsx2.exe 2>nul & exit 0",
+             "");
+        // Container game volume (obj + bin). Failure is fine - a stopped
+        // container just means there is nothing cached there to clean.
+        if (exec("docker compose exec -T compiler sh -c \"rm -rf /src/obj /src/bin\"",
+                 p.dir) != 0)
+            appendLine("[editor] Container not running - cleaned the host side only.");
+
+        // Host bin\: per-file, clearing read-only first (remove_all refuses
+        // those on Windows), retrying a few times (taskkill returns before
+        // the killed process actually releases its handles), and naming the
+        // file that stays locked - "Access is denied" alone is undebuggable.
+        const fs::path bin = fs::path(p.dir) / "bin";
+        std::string stuck;
+        for (int attempt = 0; attempt < 4; attempt++) {
+            if (attempt) Sleep(500);
+            stuck.clear();
+            std::error_code ec;
+            for (fs::recursive_directory_iterator it(bin, ec), end; it != end;
+                 it.increment(ec)) {
+                if (it->is_regular_file(ec)) {
+                    fs::permissions(it->path(), fs::perms::owner_write,
+                                    fs::perm_options::add, ec);
+                    fs::remove(it->path(), ec);
+                    if (ec && stuck.empty()) stuck = it->path().string();
+                }
+            }
+            std::error_code rmEc;
+            fs::remove_all(bin, rmEc);  // now-empty tree (dirs + leftovers)
+            if (!rmEc && !fs::exists(bin, rmEc)) {
+                appendLine("[editor] Removed bin\\ - run a Build to regenerate.");
+                state_ = State::Success;
+                return;
+            }
+        }
+        appendLine("[editor] Clean failed - still locked: " +
+                   (stuck.empty() ? bin.string() : stuck) +
+                   " (which program has it open? Explorer preview, an audio "
+                   "player, the Debug window of another editor instance...)");
+        state_ = State::Failed;
+    });
 }
 
 void Runner::exportIso(const Project& p) {
@@ -61,7 +140,16 @@ void Runner::exportIso(const Project& p) {
     });
 }
 
+void Runner::cancel() {
+    if (!busy()) return;
+    cancelRequested_ = true;
+    appendLine("[editor] Cancelling...");
+    std::lock_guard<std::mutex> lock(execProcMutex_);
+    if (execProc_) TerminateProcess((HANDLE)execProc_, 1);
+}
+
 int Runner::exec(const std::string& cmdline, const std::string& cwd) {
+    if (cancelRequested_) return -1;
     appendLine("> " + cmdline);
 
     SECURITY_ATTRIBUTES sa{};
@@ -95,6 +183,10 @@ int Runner::exec(const std::string& cmdline, const std::string& cwd) {
         appendLine("[editor] Failed to start: " + cmdline);
         return -1;
     }
+    {
+        std::lock_guard<std::mutex> lock(execProcMutex_);
+        execProc_ = pi.hProcess;
+    }
 
     std::string pending;
     char buf[4096];
@@ -115,6 +207,10 @@ int Runner::exec(const std::string& cmdline, const std::string& cwd) {
     WaitForSingleObject(pi.hProcess, INFINITE);
     DWORD code = 0;
     GetExitCodeProcess(pi.hProcess, &code);
+    {
+        std::lock_guard<std::mutex> lock(execProcMutex_);
+        execProc_ = nullptr;
+    }
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
     return (int)code;
@@ -175,9 +271,12 @@ bool Runner::launchPCSX2(const Project& p) {
     exec("taskkill /F /IM pcsx2-qt.exe 2>nul & taskkill /F /IM pcsx2.exe 2>nul & exit 0", "");
 
     // The game appends its TYRA_LOG output to bin/log.txt (host fs); drop the
-    // stale file so the Debug window shows only this run's log.
+    // stale file so the Debug window shows only this run's log. The
+    // ps2link.run marker must go too - a leftover from a PS2 deploy would
+    // make this PCSX2 boot skip the IOP reset (see the generated main.cpp).
     std::error_code logEc;
     fs::remove(fs::path(p.dir) / "bin" / "log.txt", logEc);
+    fs::remove(fs::path(p.dir) / "bin" / "ps2link.run", logEc);
 
     // Without "Host Filesystem" the ELF boots but every host: fopen fails,
     // so Tyra asserts on the first asset load. PCSX2 rewrites its ini on
@@ -218,7 +317,172 @@ bool Runner::launchPCSX2(const Project& p) {
     return true;
 }
 
-void Runner::worker(Project p, bool build, bool run) {
+// ps2client.exe ships in the repo (tools/ps2client/bin); the editor exe lives
+// in build/, so probe upward from the exe for the tools folder. Falls back to
+// PATH so a system-wide install also works.
+static std::string findPs2Client() {
+    char exe[MAX_PATH];
+    if (GetModuleFileNameA(nullptr, exe, MAX_PATH)) {
+        fs::path dir = fs::path(exe).parent_path();
+        for (int up = 0; up < 3; up++) {
+            fs::path candidate = dir / "tools" / "ps2client" / "bin" / "ps2client.exe";
+            std::error_code ec;
+            if (fs::exists(candidate, ec)) return candidate.string();
+            dir = dir.parent_path();
+        }
+    }
+    return "ps2client.exe";
+}
+
+void Runner::killPs2Client() {
+    if (HANDLE h = (HANDLE)ps2ClientProc_) {
+        ps2ClientProc_ = nullptr;  // before closing - ps2ClientAlive() polls it
+        TerminateProcess(h, 1);
+        CloseHandle(h);
+    }
+    // The pump exits once the process (and thus its pipe) is gone.
+    if (ps2Pump_.joinable()) ps2Pump_.join();
+}
+
+bool Runner::deployToPs2(const Project& p) {
+    if (p.ps2LinkIp.empty()) {
+        appendLine("[editor] No PS2 address configured - set 'PS2 (ps2link) IP' in "
+                   "Project > Preferences.");
+        return false;
+    }
+    std::error_code ec;
+    if (!fs::exists(p.elfPath(), ec)) {
+        appendLine("[editor] ELF not found: " + p.elfPath() + " - build the project first.");
+        return false;
+    }
+    const std::string client = findPs2Client();
+    const std::string binDir = (fs::path(p.dir) / "bin").string();
+
+    // One file server at a time: kill the previous deploy's ps2client (ours
+    // by handle, strays by name - a leftover from a crashed editor would hold
+    // the TCP 18193 listener and starve this one).
+    killPs2Client();
+    exec("taskkill /F /IM ps2client.exe 2>nul & exit 0", "");
+
+    // Same as the PCSX2 path: the game appends TYRA_LOG to bin/log.txt over
+    // host: (here: over the network); drop the stale file for the Debug window.
+    std::error_code logEc;
+    fs::remove(fs::path(binDir) / "log.txt", logEc);
+
+    // ps2link passes execee arguments in a non-standard way that the game's
+    // toolchain crt0 does not deliver, so "-ps2link" alone cannot be relied
+    // on. This marker is the deploy signal instead: the game probes it over
+    // host: before booting the engine (launchPCSX2 deletes it, so emulator
+    // runs keep the stock IOP-reset path).
+    if (std::ofstream marker(fs::path(binDir) / "ps2link.run"); marker)
+        marker << "deployed by tyra-editor\n";
+    else
+        appendLine("[editor] Warning: could not write bin/ps2link.run marker.");
+
+    appendLine("[editor] Resetting ps2link at " + p.ps2LinkIp + "...");
+    if (exec("\"" + client + "\" -h " + p.ps2LinkIp + " -t 10 reset", binDir) != 0) {
+        appendLine("[editor] Could not reach ps2link at " + p.ps2LinkIp +
+                   " - is the PS2 on and running PS2LINK.ELF? (Check the IP in "
+                   "Project > Preferences.)");
+        return false;
+    }
+    // ps2link reboots the IOP and reloads itself; give it a moment before the
+    // execee connect, or the command lands on a half-initialized listener.
+    for (int i = 0; i < 12 && !cancelRequested_; i++) Sleep(250);
+    if (cancelRequested_) return false;
+
+    // The execee process is the host: file server for the whole game session -
+    // it must outlive this build. -ps2link tells the game to skip the IOP
+    // reset that would unload ps2link (see the generated main.cpp). cwd is
+    // bin/, so the game's "host:" cwd maps to bin/ exactly like a PCSX2 run.
+    appendLine("[editor] Launching on PS2: host:" + p.elfName() + " (assets served from " +
+               binDir + ")");
+
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    HANDLE readPipe = nullptr, writePipe = nullptr;
+    if (!CreatePipe(&readPipe, &writePipe, &sa, 0)) {
+        appendLine("[editor] Failed to create pipe");
+        return false;
+    }
+    SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = writePipe;
+    si.hStdError = writePipe;
+    si.hStdInput = INVALID_HANDLE_VALUE;
+    PROCESS_INFORMATION pi{};
+    std::string cmd = "\"" + client + "\" -h " + p.ps2LinkIp + " execee host:" +
+                      p.elfName() + " -ps2link";
+    BOOL ok = CreateProcessA(nullptr, cmd.data(), nullptr, nullptr, TRUE,
+                             CREATE_NO_WINDOW, nullptr, binDir.c_str(), &si, &pi);
+    CloseHandle(writePipe);
+    if (!ok) {
+        CloseHandle(readPipe);
+        appendLine("[editor] Failed to start: " + cmd);
+        return false;
+    }
+    CloseHandle(pi.hThread);
+    ps2ClientProc_ = pi.hProcess;
+    ps2Lines_ = 0;
+
+    // Pump ps2client's output - including the console's printf/TYRA log
+    // arriving over UDP 18194 - into the Output panel for the session's
+    // lifetime. Reads block until the process dies and the pipe breaks.
+    ps2Pump_ = std::thread([this, readPipe] {
+        std::string pending;
+        char buf[4096];
+        DWORD n = 0;
+        while (ReadFile(readPipe, buf, sizeof(buf), &n, nullptr) && n > 0) {
+            pending.append(buf, n);
+            size_t nl;
+            while ((nl = pending.find('\n')) != std::string::npos) {
+                std::string line = pending.substr(0, nl);
+                if (!line.empty() && line.back() == '\r') line.pop_back();
+                appendLine("[ps2] " + line);
+                ps2Lines_++;
+                pending.erase(0, nl + 1);
+            }
+        }
+        if (!pending.empty()) {
+            appendLine("[ps2] " + pending);
+            ps2Lines_++;
+        }
+        CloseHandle(readPipe);
+    });
+
+    // ps2link commands are UDP fire-and-forget: against a dead IP both reset
+    // and execee "succeed" and ps2client waits forever. The only real
+    // liveness signal is the console's log output (ps2link narrates every
+    // execee over UDP), so wait for the first line before claiming success.
+    for (int waited = 0; ps2Lines_ == 0; waited += 250) {
+        if (cancelRequested_) {
+            killPs2Client();
+            return false;
+        }
+        if (WaitForSingleObject(pi.hProcess, 0) != WAIT_TIMEOUT) {
+            appendLine("[editor] ps2client exited during startup - see its output above.");
+            killPs2Client();
+            return false;
+        }
+        if (waited >= 15000) {
+            appendLine("[editor] No response from " + p.ps2LinkIp + " within 15s - is "
+                       "the PS2 on and running PS2LINK.ELF? (Check the IP in Project > "
+                       "Preferences and the firewall rules for ps2client.exe.)");
+            killPs2Client();
+            return false;
+        }
+        Sleep(250);
+    }
+    appendLine("[editor] Game running on PS2. Keep the editor open - it is "
+               "serving the game's files over the network.");
+    return true;
+}
+
+void Runner::worker(Project p, bool build, bool run, bool ps2) {
     bool ok = true;
 
     if (build) {
@@ -350,10 +614,16 @@ void Runner::worker(Project p, bool build, bool run) {
         // The Makefile's resources step (`cp -r res/*`) also drops the source
         // WAVs into bin/sfx next to the adpenc output. The game only loads
         // the .adpcm, so the WAV copies are dead weight that would bloat the
-        // exported ISO - drop them.
+        // exported ISO - drop them. Orphaned .adpcm (source WAV deleted from
+        // res/sfx, e.g. removed in the Sounds panel) must go too: the game
+        // volume keeps them forever otherwise and the copy-back rsync
+        // resurrects them on the host after every build.
         if (ok)
             exec(dc + "\"cd /src && rm -f bin/sfx/*.wav bin/sfx/*/*.wav "
-                      "bin/sfx/*/*/*.wav\"",
+                      "bin/sfx/*/*/*.wav; IFS= && for o in bin/sfx/*.adpcm "
+                      "bin/sfx/*/*.adpcm bin/sfx/*/*/*.adpcm; do "
+                      "[ -e $o ] || continue; s=res/${o#bin/} && "
+                      "s=${s%.adpcm}.wav; [ -e $s ] || rm -f $o; done\"",
                  p.dir);
 
         if (ok) {
@@ -363,10 +633,45 @@ void Runner::worker(Project p, bool build, bool run) {
                       p.dir) == 0;
         }
 
-        appendLine(ok ? "[editor] === Build OK ===" : "[editor] === Build FAILED ===");
+        if (ok) {
+            // The in-container rm of the copied source WAVs never reaches the
+            // host (the copy-back rsync has no --delete), so stale WAVs pile
+            // up in bin/sfx and would ship in exported ISOs - drop them here.
+            // While at it, flag ADPCM one-shots that cannot work: sound
+            // effects load whole into the 2 MB SPU RAM at boot (music belongs
+            // in res/audio, which streams), and over a network PS2 deploy
+            // every extra megabyte is roughly a minute of boot time.
+            std::error_code ec;
+            const fs::path sfx = fs::path(p.dir) / "bin" / "sfx";
+            for (fs::recursive_directory_iterator it(sfx, ec), end; it != end;
+                 it.increment(ec)) {
+                if (!it->is_regular_file(ec)) continue;
+                const fs::path& f = it->path();
+                if (f.extension() == ".wav") {
+                    fs::remove(f, ec);
+                } else if (f.extension() == ".adpcm" &&
+                           it->file_size(ec) > 1024 * 1024) {
+                    appendLine("[editor] WARNING: " +
+                               fs::relative(f, p.dir, ec).string() + " is " +
+                               std::to_string(it->file_size(ec) / (1024 * 1024)) +
+                               " MB - sound effects load whole into the 2 MB "
+                               "SPU RAM and slow every PS2 network boot. Long "
+                               "tracks belong in Music (streamed), not Sounds.");
+                }
+            }
+        }
+
+        appendLine(ok ? "[editor] === Build OK ==="
+                   : cancelRequested_ ? "[editor] === Build CANCELLED ==="
+                                      : "[editor] === Build FAILED ===");
     }
 
-    if (ok && run) ok = launchPCSX2(p);
+    if (ok && run && !cancelRequested_) ok = ps2 ? deployToPs2(p) : launchPCSX2(p);
 
-    state_ = ok ? State::Success : State::Failed;
+    state_ = (ok && !cancelRequested_) ? State::Success : State::Failed;
+}
+
+bool Runner::ps2ClientAlive() const {
+    return ps2ClientProc_ &&
+           WaitForSingleObject((HANDLE)ps2ClientProc_, 0) == WAIT_TIMEOUT;
 }
