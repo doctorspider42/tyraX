@@ -165,6 +165,32 @@ private:
     std::map<std::string, uint32_t> texCache_;  // GL textures by relative path
     uint32_t glTexture(const std::string& relPath);
     void clearTexCache();
+
+    // Live particle-emitter preview. The simulation mirrors the generated
+    // game's updateParticles() per-kind formulas (templates.cpp) - keep them
+    // in sync. Alpha-blended camera-facing quads on a shared dynamic buffer,
+    // one pool per emitter keyed by object index (reset when the emitter's
+    // kind or count changes; a removed/retyped object drops its pool).
+    struct PreviewParticle {
+        float pos[3] = {0, 0, 0};
+        float vel[3] = {0, 0, 0};
+        float life = 0.0f, maxLife = 1.0f;
+    };
+    struct EmitterPreview {
+        unsigned rng = 1;
+        int kind = -1;
+        int count = 0;
+        std::vector<PreviewParticle> parts;
+    };
+    std::map<int, EmitterPreview> emitterPreviews_;
+    double particleClock_ = 0.0;  // last sim time (advances with animClock_)
+    uint32_t particleProgram_ = 0;
+    int uPartMvp_ = -1, uPartUseTex_ = -1;
+    uint32_t particleVao_ = 0, particleVbo_ = 0;  // pos3 + rgba4 + uv2, dynamic
+    // Simulates and draws every enabled emitter (called once per render).
+    void drawEmitterPreviews(const std::vector<SceneObject>& objects,
+                             const float* viewProj, const float* eye,
+                             const float* fwd);
     std::string terrainTexture_;
     float terrainTexScale_ = 4.0f;
     Mesh wireCube_;  // selection outline (unit cube edges)

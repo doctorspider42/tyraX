@@ -9,6 +9,69 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (33) **Custom particle kind: full physics knobs (jets, leaks, steam)** —
+  sixth emitter kind "Custom" exposes the simulation instead of a preset:
+  **Speed** (u/s, +-20% jitter) along the emitter's **+Y axis rotated by the
+  object rotation** (emitters gained the Rotation field for this - tilt 90
+  deg = a horizontal pipe leak; the viewport cone marker rotates with it),
+  **Spread** (cone half-angle built from a per-emitter orthonormal tangent
+  basis), **Gravity** (u/s^2, negative = buoyant steam), **Weight** (air
+  drag ~ 1/weight applied after the pull, so a natural terminal velocity
+  emerges - heavy water keeps falling, light steam brakes to a drift),
+  **Lifetime** (+-25% jitter), **Grow** (size multiplier reached at death),
+  **Opacity** (base alpha, fades in the last quarter of life) and **Die on
+  terrain** (per-frame terrainHeightAt check; the particle vanishes and
+  respawns - water soaks into the ground instead of clipping through).
+  Serialized inside the emitter JSON block only for kind "custom" (8 new
+  SceneObjectData columns emitted for every object; defaults keep old
+  projects identical); the editor preview runs the same math (shared
+  rotateEuler matching the game's rotated()). Add-menu preset: a small
+  water-like jet. Verified: editor builds clean; fixture got a "pipe-leak"
+  (rot 90 deg X, speed 7, weight 3, die-on-terrain) and a "steam-1"
+  (gravity -1.5, weight 0.25, grow 3, opacity 0.35) - generated
+  scene_data.hpp rows checked column-by-column, full Docker build to ELF
+  OK; editor screenshots show the water arc bending down onto the terrain
+  and the growing translucent steam plume, plus the new Properties knobs
+  (Speed/Spread/Gravity/Weight/Lifetime/Grow/Opacity + Rotation); PCSX2 SW
+  renderer at 50 FPS renders both (240 live particles with the rain from
+  (32)); a zoomed pixel check confirmed the steam stays neutral gray (a
+  suspected color bug was a contrast illusion against the sky). Hands-on
+  pass left for a human: knob feel while watching the live preview.
+
+- (32) **Particle emitters v2: live viewport preview, rain, textures,
+  enabled + follow-player** — emitters no longer render as scaled cones in
+  the editor: the viewport now runs the same per-kind particle simulation as
+  the generated game (spawn/velocity/size/alpha formulas copied from
+  `updateParticles()` — the twin-formula comment marks both sides) on
+  per-emitter CPU pools, drawn as alpha-blended camera-facing quads through a
+  new small shader (pos + RGBA + UV dynamic buffer, depth-test on / z-write
+  off, drawn last like the game). A fixed-size cone marker remains for
+  selection/gizmo (dimmed when the emitter is disabled); picking still uses
+  the scale box = spawn area. New **Rain** kind (4): thin world-up streaks
+  (size = streak length) falling 14-20 u/s from the emitter height and dying
+  exactly on the terrain (`terrainHeightAt` per drop), preset under the
+  Effects add-menu (area 20x20 at y=12, count 96). New per-emitter options:
+  **texture** via the shared Material combo (first material's map_Kd on
+  fixed per-quad UVs through a StaPipTextureBag; color tints the texture,
+  same in the viewport), **Density (count)** cap raised 128 -> 256,
+  **Enabled** (off = starts invisible; the existing Show/Hide/Toggle Object
+  flow nodes enable/disable emitters at runtime — that mapping is the
+  documented on/off switch), and **Follow player** (the emitter position
+  becomes an offset from the camera — rain that tracks the player instead of
+  covering the map; editor previews it in place). Data model: emitterEnabled
+  / emitterFollowPlayer (+ operator==), `"enabled"`/`"followPlayer"` in the
+  emitter JSON block, `emitEnabled`/`emitFollow` columns in
+  SceneObjectData. gl_loader grew glDepthMask. Verified: editor builds
+  clean; scratch fpp project with a follow-player rain emitter + a disabled
+  fire emitter carrying a material — generated scene_data.hpp row checked
+  (kind 4, count 96, enabled/follow flags, material index resolved), full
+  Docker build to ELF OK; GUI screenshots show animated rain streaks in the
+  viewport, the dimmed disabled-fire marker and the new Properties fields;
+  `.tyra` round-trips the new keys on reopen+resave; PCSX2 (SW renderer,
+  50 FPS) shows rain falling around the FPP camera and the disabled emitter
+  correctly absent. Hands-on pass left for a human: checkbox/combo feel and
+  a textured emitter in-game (codegen + texture-bag path compiled and
+  mirrors the terrain texturing, but no PNG-textured emitter was booted).
 - (32) **Flow graph node overhaul** — one batch of user-requested block fixes.
   **Trimmed pins**: On Start / On Button / Every N Seconds lose their object
   and bool outputs, Near Object / On Used / On Animation Finished lose the
