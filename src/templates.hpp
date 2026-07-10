@@ -30,6 +30,11 @@ const unsigned char* usePromptPng(size_t& size);
 // black during scene switches when the loading screen is enabled.
 const unsigned char* loadingPng(size_t& size);
 
+// 8x8 glyph strip for the debug-profile HUD (res/hud/debugfont.png),
+// written when the debug profile enables an overlay. Glyph order
+// "0123456789.FPSMBE", one glyph per 16px cell (right half transparent).
+const std::vector<unsigned char>& debugFontPng();
+
 // Built-in save-menu sprites (res/hud/save-*.png), written when missing.
 // The engine has no text rendering - the menu text is baked into these.
 struct BuiltinAsset {

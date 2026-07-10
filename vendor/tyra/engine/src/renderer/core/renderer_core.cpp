@@ -16,7 +16,8 @@ namespace Tyra {
 RendererCore::RendererCore() { isFrameLimitOn = true; }
 RendererCore::~RendererCore() {}
 
-void RendererCore::init() {
+void RendererCore::init(VideoMode videoMode) {
+  settings.setVideoMode(videoMode);
   path3.init(&settings);
   sync.init(&path3, &path1);
   gs.init(&settings);

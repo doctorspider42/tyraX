@@ -3796,6 +3796,30 @@ void App::drawPreferencesModal() {
     ImGui::Combo("Template", &prefTemplate_, templateNames, 2);
     ImGui::TextDisabled("Applies to generated sources (files with the editor marker).");
 
+    ImGui::SeparatorText("Build");
+    int videoSys = prefSettings_.videoSystem == "pal"    ? 2
+                   : prefSettings_.videoSystem == "ntsc" ? 1
+                                                         : 0;
+    const char* videoSysNames[] = {"Auto (console region)", "NTSC (60 Hz)",
+                                   "PAL (50 Hz)"};
+    if (ImGui::Combo("Target system", &videoSys, videoSysNames, 3))
+        prefSettings_.videoSystem = videoSys == 2 ? "pal" : videoSys == 1 ? "ntsc" : "auto";
+    ImGui::TextDisabled(
+        "Video signal of the built game (also on exported ISOs). Auto follows\n"
+        "the console region. Game speed is normalized - PAL (50 Hz) and NTSC\n"
+        "(60 Hz) play at the same wall-clock speed.");
+    int profile = prefSettings_.buildProfile == "debug" ? 1 : 0;
+    const char* profileNames[] = {"Release", "Debug"};
+    if (ImGui::Combo("Profile", &profile, profileNames, 2))
+        prefSettings_.buildProfile = profile == 1 ? "debug" : "release";
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Show FPS", &prefSettings_.showFps);
+    ImGui::Checkbox("Show memory usage", &prefSettings_.showMemory);
+    ImGui::EndDisabled();
+    ImGui::TextDisabled(
+        "Debug-profile overlays drawn in the top-left corner of the game:\n"
+        "frames per second and free EE RAM. Stripped from release builds.");
+
     ImGui::SeparatorText("Terrain");
     ImGui::InputInt("Width (units)", &prefTerrain_.width);
     ImGui::InputInt("Depth (units)", &prefTerrain_.depth);

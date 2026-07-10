@@ -23,6 +23,7 @@ void RendererSettings::copy(RendererSettings* out, const RendererSettings* in) {
   out->aspectRatio = in->aspectRatio;
   out->interlacedHeightF = in->interlacedHeightF;
   out->interlacedHeightUI = in->interlacedHeightUI;
+  out->videoMode = in->videoMode;
 }
 
 void RendererSettings::set(const RendererSettings& v) { copy(this, &v); }

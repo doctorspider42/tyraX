@@ -44,7 +44,12 @@ build\tyra-editor.exe <projectDir|project.tyra>      # open GUI on a project
   single Player entity; `empty` is an orbit-camera scene with no objects.
 - `--build` streams the whole Docker build log to stdout and returns a real
   exit code — the backbone of scripted e2e runs.
-- Create scratch projects in the session scratchpad directory, not in the repo.
+- Create scratch projects in a **short** path outside the repo — the
+  convention is `%TEMP%\tyra-editor-test\<name>`. Do NOT use the session
+  scratchpad for anything that will boot in PCSX2: its path is ~180+ chars
+  and PS2 `loadelf` truncates long `host:` ELF paths (emulog shows a mangled
+  `secname ...`), crashing to a null PC before the Tyra banner — which looks
+  exactly like an engine bug and is not one.
 
 ## Layer 2 — codegen checks without Docker
 
