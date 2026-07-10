@@ -229,6 +229,34 @@ void main() {
 }
 )";
 
+// Particle-preview shader: unlit, per-vertex RGBA (alpha-blended quads),
+// optional texture modulation - matches how the PS2 draws emitter quads.
+const char* PART_VS = R"(#version 330 core
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec4 aColor;
+layout(location = 2) in vec2 aUV;
+uniform mat4 uMvp;
+out vec4 vColor;
+out vec2 vUV;
+void main() {
+    vColor = aColor;
+    vUV = aUV;
+    gl_Position = uMvp * vec4(aPos, 1.0);
+}
+)";
+
+const char* PART_FS = R"(#version 330 core
+in vec4 vColor;
+in vec2 vUV;
+uniform int uUseTex;
+uniform sampler2D uTex;
+out vec4 FragColor;
+void main() {
+    vec4 tex = uUseTex != 0 ? texture(uTex, vUV) : vec4(1.0);
+    FragColor = vColor * tex;
+}
+)";
+
 GLuint compile(GLenum type, const char* src) {
     GLuint sh = glCreateShader(type);
     glShaderSource(sh, 1, &src, nullptr);
@@ -596,6 +624,39 @@ bool Viewport::init() {
     uGradeMixAmt_ = glGetUniformLocation(gradeProgram_, "uMixAmt");
     glGenVertexArrays(1, &gradeVao_);  // empty VAO; vertices from gl_VertexID
 
+    // Particle-preview program + shared dynamic buffer (pos3 + rgba4 + uv2)
+    GLuint pvs = compile(GL_VERTEX_SHADER, PART_VS);
+    GLuint pfs = compile(GL_FRAGMENT_SHADER, PART_FS);
+    if (!pvs || !pfs) return false;
+    particleProgram_ = glCreateProgram();
+    glAttachShader(particleProgram_, pvs);
+    glAttachShader(particleProgram_, pfs);
+    glLinkProgram(particleProgram_);
+    glDeleteShader(pvs);
+    glDeleteShader(pfs);
+    glGetProgramiv(particleProgram_, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char log[1024];
+        glGetProgramInfoLog(particleProgram_, sizeof(log), nullptr, log);
+        std::fprintf(stderr, "particle program link error: %s\n", log);
+        return false;
+    }
+    uPartMvp_ = glGetUniformLocation(particleProgram_, "uMvp");
+    uPartUseTex_ = glGetUniformLocation(particleProgram_, "uUseTex");
+    glGenVertexArrays(1, &particleVao_);
+    glGenBuffers(1, &particleVbo_);
+    glBindVertexArray(particleVao_);
+    glBindBuffer(GL_ARRAY_BUFFER, particleVbo_);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 9 * sizeof(float),
+                          (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 9 * sizeof(float),
+                          (void*)(7 * sizeof(float)));
+    glBindVertexArray(0);
+
     buildTerrainMesh();
     buildPrimitiveMeshes();
     return true;
@@ -603,6 +664,9 @@ bool Viewport::init() {
 
 void Viewport::shutdown() {
     if (program_) glDeleteProgram(program_);
+    if (particleProgram_) glDeleteProgram(particleProgram_);
+    if (particleVbo_) glDeleteBuffers(1, &particleVbo_);
+    if (particleVao_) glDeleteVertexArrays(1, &particleVao_);
     destroyMesh(terrain_mesh_);
     destroyMesh(lines_);
     destroyMesh(box_);
@@ -874,6 +938,28 @@ void Viewport::ensureFramebuffer(int width, int height) {
 }
 
 namespace {
+
+// Forward euler rotation (X, then Y, then Z) - matches the generated game's
+// rotated() and the model matrix composition.
+Vec3 rotateEuler(Vec3 v, const float* rotDeg) {
+    const float d2r = kPi / 180.0f;
+    {
+        const float c = std::cos(rotDeg[0] * d2r), s = std::sin(rotDeg[0] * d2r);
+        const float y = v.y * c - v.z * s, z = v.y * s + v.z * c;
+        v.y = y, v.z = z;
+    }
+    {
+        const float c = std::cos(rotDeg[1] * d2r), s = std::sin(rotDeg[1] * d2r);
+        const float x = v.x * c + v.z * s, z = -v.x * s + v.z * c;
+        v.x = x, v.z = z;
+    }
+    {
+        const float c = std::cos(rotDeg[2] * d2r), s = std::sin(rotDeg[2] * d2r);
+        const float x = v.x * c - v.y * s, y = v.x * s + v.y * c;
+        v.x = x, v.y = y;
+    }
+    return v;
+}
 
 // Applies the inverse of the object's euler rotation (rotZ, rotY, rotX with
 // negated angles - the reverse of the model matrix composition).
@@ -1356,7 +1442,6 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             case PrimitiveType::Cone: return &cone_;
             case PrimitiveType::SpawnPoint: return &spawnMarker_;
             case PrimitiveType::Player: return &playerMarker_;
-            case PrimitiveType::Emitter: return &cone_;  // flame-ish marker
             case PrimitiveType::SoundEmitter: return &sphere_;  // speaker-ish marker
             case PrimitiveType::PointLight: return &lightGizmo_;  // glowing bulb
             case PrimitiveType::Model: return &box_;  // placeholder (see model path below)
@@ -1378,6 +1463,25 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         draw(terrain_mesh_, GL_TRIANGLES, viewProj, tintScale, tintScale, tintScale,
              terrainTex, asLines ? nullptr : &identityM);
         for (const SceneObject& o : objects) {
+            // Emitters preview as live particles (drawn after the scene); in
+            // the scene pass they only get a small fixed-size cone marker so
+            // the gizmo has something to grab. Dimmed when disabled.
+            if (o.type == PrimitiveType::Emitter) {
+                // rotation aims the cone with the emission direction (custom)
+                const float d2r = kPi / 180.0f;
+                Mat4 marker = scaleM(0.7f, 0.7f, 0.7f);
+                marker = mul(rotX(o.rotation[0] * d2r), marker);
+                marker = mul(rotY(o.rotation[1] * d2r), marker);
+                marker = mul(rotZ(o.rotation[2] * d2r), marker);
+                marker = mul(
+                    translation(o.position[0], o.position[1], o.position[2]),
+                    marker);
+                const float dim = o.emitterEnabled ? 1.0f : 0.35f;
+                draw(cone_, GL_TRIANGLES, mul(viewProj, marker),
+                     o.color[0] * dim * tintScale, o.color[1] * dim * tintScale,
+                     o.color[2] * dim * tintScale);
+                continue;
+            }
             const Mat4 model = modelMatrix(o);
             const Mat4 mvp = mul(viewProj, model);
             // the bulb gizmo stays emissive - everything else receives light
@@ -1460,6 +1564,13 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         draw(wireCube_, GL_LINES, mvp, 1.0f, 0.6f, 0.1f);
     }
 
+    // Particle emitters last - alpha blended over the scene (same order as
+    // the generated game's renderScene()).
+    {
+        const Vec3 fwd = normalize(sub(tgt, eye));
+        drawEmitterPreviews(objects, viewProj.m, &eye.x, &fwd.x);
+    }
+
     glBindVertexArray(0);
 
     // Color grading preview: full-screen pass colorTex_ -> gradeTex_ with
@@ -1494,4 +1605,230 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     return colorTex_;
+}
+
+// Live preview of every enabled particle emitter. The per-kind spawn /
+// velocity / size / color-ramp formulas are copied from the generated game's
+// updateParticles() (templates.cpp, TPL_GAME_CPP_SCENE) with the PS2's 0-128
+// color scale mapped to 0-1 - when you change one side, change the other.
+void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
+                                   const float* viewProj, const float* eyeP,
+                                   const float* fwdP) {
+    (void)eyeP;
+    if (!particleProgram_) return;
+
+    // Sim step from the shared wall clock, clamped so a stalled frame (modal
+    // dialogs, window drags) doesn't teleport the particles.
+    float dt = (float)(animClock_ - particleClock_);
+    particleClock_ = animClock_;
+    if (dt < 0.0f) dt = 0.0f;
+    if (dt > 0.05f) dt = 0.05f;
+
+    // Drop pools of removed / retyped / disabled emitters (indices shift on
+    // delete; a mismatched pool also resets below via the kind/count check).
+    std::erase_if(emitterPreviews_, [&](const auto& kv) {
+        return kv.first >= (int)objects.size() ||
+               objects[(size_t)kv.first].type != PrimitiveType::Emitter ||
+               !objects[(size_t)kv.first].emitterEnabled;
+    });
+
+    bool any = false;
+    for (const SceneObject& o : objects)
+        any |= (o.type == PrimitiveType::Emitter && o.emitterEnabled);
+    if (!any) return;
+
+    // Camera right/up shared by every billboard (same construction as the game)
+    const Vec3 fwd{fwdP[0], fwdP[1], fwdP[2]};
+    float rx = fwd.z, rz = -fwd.x;
+    const float rl = std::sqrt(rx * rx + rz * rz);
+    if (rl > 0.0001f) rx /= rl, rz /= rl;
+    else rx = 1.0f, rz = 0.0f;
+    const float ux = -rz * fwd.y;
+    const float uy = rz * fwd.x - rx * fwd.z;
+    const float uz = rx * fwd.y;
+
+    auto prand = [](unsigned& s) {  // 0..1, same LCG as the game
+        s = s * 1664525u + 1013904223u;
+        return (float)(s >> 8) * (1.0f / 16777216.0f);
+    };
+
+    glUseProgram(particleProgram_);
+    glUniformMatrix4fv(uPartMvp_, 1, GL_FALSE, viewProj);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE);  // blend over the scene, never punch the z-buffer
+    glBindVertexArray(particleVao_);
+    glBindBuffer(GL_ARRAY_BUFFER, particleVbo_);
+
+    std::vector<float> buf;
+    for (size_t oi = 0; oi < objects.size(); ++oi) {
+        const SceneObject& o = objects[oi];
+        if (o.type != PrimitiveType::Emitter || !o.emitterEnabled) continue;
+        const int count =
+            o.emitterCount < 1 ? 1 : o.emitterCount > 256 ? 256 : o.emitterCount;
+        EmitterPreview& ep = emitterPreviews_[(int)oi];
+        if (ep.kind != o.emitterKind || ep.count != count) {
+            ep.kind = o.emitterKind;
+            ep.count = count;
+            ep.rng = 12345u + (unsigned)oi * 7919u;
+            ep.parts.assign((size_t)count, PreviewParticle{});
+        }
+        const int kind = o.emitterKind;
+        // Follow-player emitters have no player in the editor: they preview
+        // around their own position (= the offset applied to a player at the
+        // world origin).
+        const float bx = o.position[0], by = o.position[1], bz = o.position[2];
+
+        // Custom kind: emission direction = the object's +Y axis rotated by
+        // the object rotation + a tangent basis for the spread cone (same
+        // construction as the game)
+        Vec3 edir{0, 1, 0}, et1{1, 0, 0}, et2{0, 0, 1};
+        if (kind == 5) {
+            edir = rotateEuler({0, 1, 0}, o.rotation);
+            const Vec3 seed =
+                std::fabs(edir.y) < 0.9f ? Vec3{0, 1, 0} : Vec3{1, 0, 0};
+            et1 = normalize(cross(seed, edir));
+            et2 = cross(edir, et1);
+        }
+
+        buf.clear();
+        buf.reserve(ep.parts.size() * 6 * 9);
+        for (PreviewParticle& p : ep.parts) {
+            p.life -= dt;
+            if (p.life <= 0.0f) {
+                const float r1 = prand(ep.rng), r2 = prand(ep.rng),
+                            r3 = prand(ep.rng);
+                const float sx = bx + (r1 - 0.5f) * o.scale[0];
+                const float sz = bz + (r3 - 0.5f) * o.scale[2];
+                p.pos[0] = sx, p.pos[1] = by, p.pos[2] = sz;
+                if (kind == 0) {  // fire: rises and flickers
+                    p.vel[0] = (r1 - 0.5f) * 0.8f;
+                    p.vel[1] = 1.2f + r2 * 1.2f;
+                    p.vel[2] = (r3 - 0.5f) * 0.8f;
+                    p.maxLife = 0.5f + r2 * 0.6f;
+                } else if (kind == 1) {  // smoke: slow rise with drift
+                    p.vel[0] = (r1 - 0.5f) * 0.5f;
+                    p.vel[1] = 0.5f + r2 * 0.5f;
+                    p.vel[2] = (r3 - 0.5f) * 0.5f;
+                    p.maxLife = 2.0f + r2 * 1.5f;
+                } else if (kind == 2) {  // fog: big lazy puffs hugging the ground
+                    p.vel[0] = (r1 - 0.5f) * 0.25f;
+                    p.vel[1] = 0.02f;
+                    p.vel[2] = (r3 - 0.5f) * 0.25f;
+                    p.maxLife = 3.0f + r2 * 3.0f;
+                } else if (kind == 4) {  // rain: fast streaks, die on the terrain
+                    const float fall = 14.0f + r2 * 6.0f;
+                    p.vel[0] = (r1 - 0.5f) * 0.6f;
+                    p.vel[1] = -fall;
+                    p.vel[2] = (r3 - 0.5f) * 0.6f;
+                    float drop = by - terrainHeight(sx, sz);
+                    if (drop < 0.5f) drop = 0.5f;
+                    p.maxLife = drop / fall;
+                } else if (kind == 5) {  // custom: cone jet from the knobs
+                    const float th =
+                        o.emitterSpread * (kPi / 180.0f) * prand(ep.rng);
+                    const float ph = 2.0f * kPi * prand(ep.rng);
+                    const float ct = std::cos(th), st = std::sin(th);
+                    const float cp = std::cos(ph), sp = std::sin(ph);
+                    const float spd = o.emitterSpeed * (0.8f + 0.4f * r2);
+                    p.vel[0] = (edir.x * ct + (et1.x * cp + et2.x * sp) * st) * spd;
+                    p.vel[1] = (edir.y * ct + (et1.y * cp + et2.y * sp) * st) * spd;
+                    p.vel[2] = (edir.z * ct + (et1.z * cp + et2.z * sp) * st) * spd;
+                    p.maxLife = o.emitterLife * (0.75f + 0.5f * r1);
+                } else {  // sparks: radial burst pulled down by gravity
+                    p.vel[0] = (r1 - 0.5f) * 5.0f;
+                    p.vel[1] = 1.5f + r2 * 2.5f;
+                    p.vel[2] = (r3 - 0.5f) * 5.0f;
+                    p.maxLife = 0.35f + r2 * 0.5f;
+                }
+                p.life = p.maxLife * (0.05f + 0.95f * prand(ep.rng));  // stagger
+            }
+            if (kind == 3) p.vel[1] -= 6.0f * dt;
+            if (kind == 5) {
+                // gravity + air drag ~ 1/weight (same terminal-velocity
+                // behavior as the game)
+                p.vel[1] -= o.emitterGravity * dt;
+                const float w =
+                    o.emitterWeight < 0.05f ? 0.05f : o.emitterWeight;
+                float damp = 1.0f - (0.6f / w) * dt;
+                if (damp < 0.0f) damp = 0.0f;
+                p.vel[0] *= damp;
+                p.vel[1] *= damp;
+                p.vel[2] *= damp;
+            }
+            p.pos[0] += p.vel[0] * dt;
+            p.pos[1] += p.vel[1] * dt;
+            p.pos[2] += p.vel[2] * dt;
+            // custom + Die on terrain: vanish this frame, respawn next
+            if (kind == 5 && o.emitterDieOnGround &&
+                p.pos[1] <= terrainHeight(p.pos[0], p.pos[2]))
+                p.life = 0.0f;
+
+            // life fraction drives size, alpha and the color ramp (the game's
+            // 0-128 alpha maps to 0-1 here)
+            const float t = p.life / p.maxLife;
+            float size = o.emitterSize;
+            float sizeUp = 0.0f;  // rain: extra world-up half-height (streaks)
+            float alpha;
+            float cr = o.color[0], cg = o.color[1], cb = o.color[2];
+            if (kind == 0) {
+                size *= 0.5f + 0.8f * t;
+                alpha = 90.0f * t / 128.0f;
+                cg *= 0.35f + 0.65f * t;  // orange cools to red as it dies
+                cb *= 0.25f * t;
+            } else if (kind == 1) {
+                size *= 1.6f - t;  // smoke grows while fading
+                alpha = 40.0f * t / 128.0f;
+            } else if (kind == 2) {
+                size *= 3.0f;
+                alpha = 18.0f * (t < 0.5f ? t * 2.0f : (1.0f - t) * 2.0f) / 128.0f;
+            } else if (kind == 4) {
+                sizeUp = size * 0.5f;  // size = streak length
+                size *= 0.06f;         // thin
+                alpha = 70.0f * (t < 0.15f ? t * (1.0f / 0.15f) : 1.0f) / 128.0f;
+            } else if (kind == 5) {
+                size *= 1.0f + (o.emitterGrow - 1.0f) * (1.0f - t);
+                alpha = o.emitterOpacity * (t < 0.25f ? t * 4.0f : 1.0f);
+            } else {
+                size *= 0.35f;
+                alpha = 110.0f * t / 128.0f;
+            }
+
+            // rain streaks stay vertical (world-up quads); everything else is
+            // a full camera-facing billboard
+            const float Rx = rx * size, Rz = rz * size;
+            const float Ux = sizeUp > 0.0f ? 0.0f : ux * size;
+            const float Uy = sizeUp > 0.0f ? sizeUp : uy * size;
+            const float Uz = sizeUp > 0.0f ? 0.0f : uz * size;
+            const float X = p.pos[0], Y = p.pos[1], Z = p.pos[2];
+            const float v0[3] = {X - Rx - Ux, Y - Uy, Z - Rz - Uz};
+            const float v1[3] = {X + Rx - Ux, Y - Uy, Z + Rz - Uz};
+            const float v2[3] = {X + Rx + Ux, Y + Uy, Z + Rz + Uz};
+            const float v3[3] = {X - Rx + Ux, Y + Uy, Z - Rz + Uz};
+            auto vert = [&](const float* v, float tu, float tv) {
+                buf.insert(buf.end(),
+                           {v[0], v[1], v[2], cr, cg, cb, alpha, tu, tv});
+            };
+            vert(v0, 0, 1);
+            vert(v1, 1, 1);
+            vert(v2, 1, 0);
+            vert(v0, 0, 1);
+            vert(v2, 1, 0);
+            vert(v3, 0, 0);
+        }
+
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(buf.size() * sizeof(float)),
+                     buf.data(), GL_DYNAMIC_DRAW);
+        // texture: the material's map_Kd, tinted by the particle color (the
+        // material Kd is ignored - same rule as the game)
+        const MaterialDraw* mat = materialDraw(o.materialPath);
+        const uint32_t tex = mat ? mat->tex : 0;
+        glUniform1i(uPartUseTex_, tex ? 1 : 0);
+        if (tex) glBindTexture(GL_TEXTURE_2D, tex);
+        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(buf.size() / 9));
+    }
+
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glUseProgram(program_);
 }

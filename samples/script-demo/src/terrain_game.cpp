@@ -1079,9 +1079,11 @@ void TerrainGame::loadScene(int sceneIndex) {
   objectGeometry.resize(SCENE_OBJECT_COUNT);
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     runtimeObjects[i].data = SCENE_OBJECTS[i];
-    // spawn points and the player are editor markers, not geometry
+    // spawn points and the player are editor markers, not geometry; emitters
+    // honor their Enabled flag (Show/Hide Object flips visible at runtime)
     runtimeObjects[i].visible =
-        SCENE_OBJECTS[i].type != 4 && SCENE_OBJECTS[i].type != 6;
+        SCENE_OBJECTS[i].type != 4 && SCENE_OBJECTS[i].type != 6 &&
+        !(SCENE_OBJECTS[i].type == 7 && !SCENE_OBJECTS[i].emitEnabled);
     runtimeObjects[i].dirty = true;
   }
   // Animated models: fresh per-object mesh instances + playback defaults
@@ -1180,7 +1182,10 @@ void TerrainGame::updateSoundEmitters() {
 // --- Particle emitters ------------------------------------------------
 // 2002-style particles: fixed pools sized at scene load, one cheap LCG,
 // no trig and no allocations in the per-frame path. Camera-facing quads
-// colored per vertex (no textures) - alpha does the softness.
+// colored per vertex; an emitter with a material carrying a map_Kd draws
+// its quads with that texture (the color then modulates it).
+// The editor viewport mirrors this simulation (viewport.cpp,
+// simulateEmitter) - keep the per-kind formulas in sync.
 static float prand(unsigned int& s) {  // 0..1
   s = s * 1664525u + 1013904223u;
   return (float)(s >> 8) * (1.0F / 16777216.0F);
@@ -1195,7 +1200,7 @@ void TerrainGame::buildParticles() {
     ps.rng = 12345u + (unsigned int)i * 7919u;
     int n = SCENE_OBJECTS[i].emitCount;
     if (n < 1) n = 1;
-    if (n > 128) n = 128;
+    if (n > 256) n = 256;
     ps.pos.assign(n, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
     ps.vel.assign(n, Vec4(0.0F, 0.0F, 0.0F, 0.0F));
     ps.life.assign(n, 0.0F);  // dead -> staggered respawn over the first frames
@@ -1214,6 +1219,25 @@ void TerrainGame::buildParticles() {
     ps.bag->texture = nullptr;
     ps.bag->lighting = nullptr;
     ps.bag->count = 0;
+    // Textured particles: the emitter's material supplies the map (its Kd is
+    // ignored - the emitter color is the tint). UVs are fixed per quad in the
+    // v0,v1,v2 / v0,v2,v3 vertex order used by updateParticles().
+    const int mi = SCENE_OBJECTS[i].material;
+    if (mi >= 0 && mi < (int)gameMaterials.size() && gameMaterials[mi].texture) {
+      ps.sts.reserve((size_t)n * 6);
+      for (int q = 0; q < n; ++q) {
+        ps.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
+        ps.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
+        ps.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
+        ps.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
+        ps.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
+        ps.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+      }
+      ps.texBag = std::make_unique<StaPipTextureBag>();
+      ps.texBag->texture = gameMaterials[mi].texture;
+      ps.texBag->coordinates = ps.sts.data();
+      ps.bag->texture = ps.texBag.get();
+    }
     particles.push_back(std::move(ps));
   }
 }
@@ -1244,12 +1268,41 @@ void TerrainGame::updateParticles() {
     const int kind = d.emitKind;
     const int n = (int)ps.life.size();
 
+    // Follow player: the emitter position becomes an offset from the camera
+    // (place it at X=0/Z=0 and the height above the player's head) - rain
+    // that tracks the player instead of soaking the whole map.
+    float bx = d.position[0], by = d.position[1], bz = d.position[2];
+    if (d.emitFollow) {
+      bx += cameraPosition.x;
+      by += cameraPosition.y;
+      bz += cameraPosition.z;
+    }
+
+    // Custom kind: emission direction = the object's +Y axis rotated by the
+    // object rotation (tilt the emitter for a horizontal pipe leak), plus an
+    // orthonormal tangent basis for the spread cone.
+    V3 edir = {0.0F, 1.0F, 0.0F}, et1 = {1.0F, 0.0F, 0.0F},
+       et2 = {0.0F, 0.0F, 1.0F};
+    if (kind == 5) {
+      edir = rotated({0.0F, 1.0F, 0.0F}, d.rotation);
+      const V3 seed =
+          fabsf(edir.y) < 0.9F ? V3{0.0F, 1.0F, 0.0F} : V3{1.0F, 0.0F, 0.0F};
+      et1 = {seed.y * edir.z - seed.z * edir.y, seed.z * edir.x - seed.x * edir.z,
+             seed.x * edir.y - seed.y * edir.x};
+      const float tl =
+          sqrtf(et1.x * et1.x + et1.y * et1.y + et1.z * et1.z);
+      if (tl > 0.0001F) et1.x /= tl, et1.y /= tl, et1.z /= tl;
+      et2 = {edir.y * et1.z - edir.z * et1.y, edir.z * et1.x - edir.x * et1.z,
+             edir.x * et1.y - edir.y * et1.x};
+    }
+
     for (int i = 0; i < n; ++i) {
       ps.life[i] -= dt;
       if (ps.life[i] <= 0.0F) {
         const float r1 = prand(ps.rng), r2 = prand(ps.rng), r3 = prand(ps.rng);
-        ps.pos[i] = Vec4(d.position[0] + (r1 - 0.5F) * d.scale[0], d.position[1],
-                         d.position[2] + (r3 - 0.5F) * d.scale[2], 1.0F);
+        const float sx = bx + (r1 - 0.5F) * d.scale[0];
+        const float sz = bz + (r3 - 0.5F) * d.scale[2];
+        ps.pos[i] = Vec4(sx, by, sz, 1.0F);
         if (kind == 0) {  // fire: rises and flickers
           ps.vel[i] = Vec4((r1 - 0.5F) * 0.8F, 1.2F + r2 * 1.2F, (r3 - 0.5F) * 0.8F, 0.0F);
           ps.maxLife[i] = 0.5F + r2 * 0.6F;
@@ -1259,6 +1312,23 @@ void TerrainGame::updateParticles() {
         } else if (kind == 2) {  // fog: big lazy puffs hugging the ground
           ps.vel[i] = Vec4((r1 - 0.5F) * 0.25F, 0.02F, (r3 - 0.5F) * 0.25F, 0.0F);
           ps.maxLife[i] = 3.0F + r2 * 3.0F;
+        } else if (kind == 4) {  // rain: fast streaks, die on the terrain
+          const float fall = 14.0F + r2 * 6.0F;
+          ps.vel[i] = Vec4((r1 - 0.5F) * 0.6F, -fall, (r3 - 0.5F) * 0.6F, 0.0F);
+          float drop = by - terrainHeightAt(sx, sz);
+          if (drop < 0.5F) drop = 0.5F;
+          ps.maxLife[i] = drop / fall;
+        } else if (kind == 5) {  // custom: cone jet, physics from the knobs
+          const float th = d.emitSpread * (PI / 180.0F) * prand(ps.rng);
+          const float ph = 2.0F * PI * prand(ps.rng);
+          const float ct = cosf(th), st = sinf(th);
+          const float cp = cosf(ph), sp = sinf(ph);
+          const float spd = d.emitSpeed * (0.8F + 0.4F * r2);
+          ps.vel[i] = Vec4((edir.x * ct + (et1.x * cp + et2.x * sp) * st) * spd,
+                           (edir.y * ct + (et1.y * cp + et2.y * sp) * st) * spd,
+                           (edir.z * ct + (et1.z * cp + et2.z * sp) * st) * spd,
+                           0.0F);
+          ps.maxLife[i] = d.emitLife * (0.75F + 0.5F * r1);
         } else {  // sparks: radial burst pulled down by gravity
           ps.vel[i] = Vec4((r1 - 0.5F) * 5.0F, 1.5F + r2 * 2.5F, (r3 - 0.5F) * 5.0F, 0.0F);
           ps.maxLife[i] = 0.35F + r2 * 0.5F;
@@ -1266,13 +1336,31 @@ void TerrainGame::updateParticles() {
         ps.life[i] = ps.maxLife[i] * (0.05F + 0.95F * prand(ps.rng));  // stagger
       }
       if (kind == 3) ps.vel[i].y -= 6.0F * dt;
+      if (kind == 5) {
+        // gravity + air drag ~ 1/weight: applied after the pull, so heavy
+        // particles keep falling while light ones reach a slow terminal
+        // drift (steam) - a natural terminal velocity
+        ps.vel[i].y -= d.emitGravity * dt;
+        const float w = d.emitWeight < 0.05F ? 0.05F : d.emitWeight;
+        float damp = 1.0F - (0.6F / w) * dt;
+        if (damp < 0.0F) damp = 0.0F;
+        ps.vel[i].x *= damp;
+        ps.vel[i].y *= damp;
+        ps.vel[i].z *= damp;
+      }
       ps.pos[i].x += ps.vel[i].x * dt;
       ps.pos[i].y += ps.vel[i].y * dt;
       ps.pos[i].z += ps.vel[i].z * dt;
+      // custom + Die on terrain: the particle vanishes this frame (alpha 0)
+      // and respawns next - water soaks into the ground instead of clipping
+      if (kind == 5 && d.emitDieGround &&
+          ps.pos[i].y <= terrainHeightAt(ps.pos[i].x, ps.pos[i].z))
+        ps.life[i] = 0.0F;
 
       // life fraction drives size, alpha (0-128) and the color ramp
       const float t = ps.life[i] / ps.maxLife[i];
       float size = d.emitSize;
+      float sizeUp = 0.0F;  // rain: extra world-up half-height (streaks)
       float alpha;
       float cr = d.color[0] * 128.0F, cg = d.color[1] * 128.0F, cb = d.color[2] * 128.0F;
       if (kind == 0) {
@@ -1286,13 +1374,24 @@ void TerrainGame::updateParticles() {
       } else if (kind == 2) {
         size *= 3.0F;
         alpha = 18.0F * (t < 0.5F ? t * 2.0F : (1.0F - t) * 2.0F);  // fade in+out
+      } else if (kind == 4) {
+        sizeUp = size * 0.5F;  // size = streak length
+        size *= 0.06F;         // thin
+        alpha = 70.0F * (t < 0.15F ? t * (1.0F / 0.15F) : 1.0F);  // fade at impact
+      } else if (kind == 5) {
+        size *= 1.0F + (d.emitGrow - 1.0F) * (1.0F - t);  // 1 -> Grow over life
+        alpha = d.emitOpacity * 128.0F * (t < 0.25F ? t * 4.0F : 1.0F);
       } else {
         size *= 0.35F;
         alpha = 110.0F * t;
       }
 
+      // rain streaks stay vertical (world-up quads); everything else is a
+      // full camera-facing billboard
       const float Rx = rx * size, Rz = rz * size;
-      const float Ux = ux * size, Uy = uy * size, Uz = uz * size;
+      const float Ux = sizeUp > 0.0F ? 0.0F : ux * size;
+      const float Uy = sizeUp > 0.0F ? sizeUp : uy * size;
+      const float Uz = sizeUp > 0.0F ? 0.0F : uz * size;
       const Vec4& P = ps.pos[i];
       const Vec4 v0(P.x - Rx - Ux, P.y - Uy, P.z - Rz - Uz, 1.0F);
       const Vec4 v1(P.x + Rx - Ux, P.y - Uy, P.z + Rz - Uz, 1.0F);
