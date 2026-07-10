@@ -9,6 +9,44 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (32) **Flow graph node overhaul** — one batch of user-requested block fixes.
+  **Trimmed pins**: On Start / On Button / Every N Seconds lose their object
+  and bool outputs, Near Object / On Used / On Animation Finished lose the
+  bool output (the logic-gate plane keeps its pure sources: Value At Least,
+  Get Bool, Int At Least, the new Is Visible); stale links whose pins no
+  longer exist are pruned when a graph is opened - imnodes must never see a
+  link to an unsubmitted pin. **On Button** now offers all 16 pad buttons
+  (D-pad, L1-L3/R1-R3, Start, Select - codegen uses the PadButtons field name
+  as-is). **Delay** (new "Time" category): exec-through action, fires its
+  "after >" output N seconds later (fractions fine, everyFrames-based
+  countdown member per node; re-trigger restarts). **Move Object To**: glides
+  the target toward X/Y/Z or a live position link at Speed units/s
+  (g_frameDt-based per-frame step; FlowNode::num grew to 4 floats for the
+  Speed slot). **Play Animation clip picker**: the node resolves its target
+  like codegen (object link chain > name > self) and offers the .glb's clip
+  list from glbInfo instead of free text. **Object getters**: new pure
+  Is Visible bool source; Self exposes a position output. **Save texts**:
+  Project::saveTexts (name + default, "Save data" panel), stored in fixed
+  32-byte slots in SaveGameData (SAVE_VERSION 2 - old card saves are
+  rejected), zeroed/defaulted at boot, Set/Get Save Text flow nodes,
+  ScriptContext::saveTexts. **Text link plane** (cyan pins, pin ids widened
+  to 16 slots per node - never persisted, so safe): Log Message takes any
+  number of text inputs (appended space-separated after its static text);
+  pure text sources Get Save Value, Get Save Text, Get Int As Text, and a
+  "Convert" category with Position To Text / Bool To Text. **Fixes**: Set
+  Save Value's combo and drag were both labeled "Value" in one ID scope
+  (ImGui conflict error) - numeric params now live in their own PushID;
+  Value At Least / Int At Least explain in-node that they are per-frame bool
+  sources for On Condition / gates; flow node str/str2 are JSON-escaped on
+  save (quotes in Log messages used to corrupt the .tyra). Verified: editor
+  builds clean; a scratch project exercising every new node round-trips
+  through save/load (host harness incl. escaped quotes), generates the
+  expected flow_graph.gen.cpp (inspected: delay countdown, mover blocks,
+  TYRA_LOG concatenation, snprintf into saveTexts) and compiles+links on the
+  PS2 toolchain in Docker; Flow Graph panel screenshot shows the new
+  nodes/pins; samples/script-demo regenerated. In-game behavior (delay
+  timing, mover feel, pad buttons) still needs a human PCSX2/pad pass.
+
 - (31) **Per-stick deadzones + Project panel cleanup** — the Input deadzone
   splits into "Left stick deadzone" (movement) and "Right stick deadzone"
   (camera): worn pads rarely drift equally, and one shared value forced the

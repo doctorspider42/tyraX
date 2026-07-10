@@ -597,6 +597,12 @@ void TerrainGame::buildScene() {
   for (int i = 0; i < SAVE_VALUE_COUNT; ++i) saveValues[i] = SAVE_VALUE_DEFAULTS[i];
   scriptCtx.saveValues = saveValues.data();
   scriptCtx.saveValueCount = SAVE_VALUE_COUNT;
+  saveTexts.assign((SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1) * SAVE_TEXT_LEN, '\0');
+  for (int i = 0; i < SAVE_TEXT_COUNT; ++i)
+    snprintf(&saveTexts[i * SAVE_TEXT_LEN], SAVE_TEXT_LEN, "%s",
+             SAVE_TEXT_DEFAULTS[i]);
+  scriptCtx.saveTexts = saveTexts.data();
+  scriptCtx.saveTextCount = SAVE_TEXT_COUNT;
   saveInit();
   {
     const auto& scr = engine->renderer.core.getSettings();
@@ -1420,6 +1426,9 @@ void TerrainGame::doSave(int slot) {
   }
   d.valueCount = SAVE_VALUE_COUNT;
   for (int i = 0; i < SAVE_VALUE_COUNT; ++i) d.values[i] = saveValues[i];
+  d.textCount = SAVE_TEXT_COUNT;
+  for (int i = 0; i < SAVE_TEXT_COUNT; ++i)
+    snprintf(d.texts[i], SAVE_TEXT_LEN, "%s", &saveTexts[i * SAVE_TEXT_LEN]);
   d.objectCount = 0;
   for (int i = 0;
        i < (int)runtimeObjects.size() && d.objectCount < SAVE_OBJECT_MAX; ++i) {
@@ -1445,6 +1454,10 @@ void TerrainGame::doLoad(int slot) {
   }
   for (int i = 0; i < d.valueCount && i < SAVE_VALUE_COUNT; ++i)
     saveValues[i] = d.values[i];
+  for (int i = 0; i < d.textCount && i < SAVE_TEXT_COUNT; ++i) {
+    d.texts[i][SAVE_TEXT_LEN - 1] = '\0';  // corrupted cards happen
+    snprintf(&saveTexts[i * SAVE_TEXT_LEN], SAVE_TEXT_LEN, "%s", d.texts[i]);
+  }
   pendingObjState.assign(d.objects, d.objects + d.objectCount);
   pendingObjScene = d.scene;
   // Restore the player through the teleport request - the flag survives a
@@ -1624,21 +1637,27 @@ bool TerrainGame::updatePlayerEntity() {
 
   const auto& leftJoy = engine->pad.getLeftJoyPad();
   const auto& rightJoy = engine->pad.getRightJoyPad();
-  auto axis = [](const u8& raw) {
+  // ANALOG_DEADZONE_L/_R (Preferences > Input) zero resting drift per stick;
+  // above the deadzone the value rescales from 0 so the edge does not step.
+  auto axis = [](const u8& raw, const float dz) {
     const float v = (raw - 128.0F) / 128.0F;
-    return (v > -0.20F && v < 0.20F) ? 0.0F : v;  // deadzone
+    const float mag = v < 0.0F ? -v : v;
+    if (mag <= dz) return 0.0F;
+    const float scaled = (mag - dz) / (1.0F - dz);
+    return v < 0.0F ? -scaled : scaled;
   };
 
   // Right stick: look around (stick right = turn right)
-  entYaw -= axis(rightJoy.h) * 0.05F * PLAYER_LOOK_SPEED * g_frameScale;
-  entPitch -= axis(rightJoy.v) * 0.035F * PLAYER_LOOK_SPEED * g_frameScale;
+  entYaw -= axis(rightJoy.h, ANALOG_DEADZONE_R) * 0.05F * PLAYER_LOOK_SPEED * g_frameScale;
+  entPitch -=
+      axis(rightJoy.v, ANALOG_DEADZONE_R) * 0.035F * PLAYER_LOOK_SPEED * g_frameScale;
   if (entPitch > 1.35F) entPitch = 1.35F;
   if (entPitch < -1.35F) entPitch = -1.35F;
 
   const float fx = sinf(entYaw);
   const float fz = cosf(entYaw);
-  const float forward = -axis(leftJoy.v);
-  const float strafe = axis(leftJoy.h);
+  const float forward = -axis(leftJoy.v, ANALOG_DEADZONE_L);
+  const float strafe = axis(leftJoy.h, ANALOG_DEADZONE_L);
 
   if (PLAYER_MODE == 1) {
     // Noclip: fly where the camera looks; X up, Square down.
@@ -2096,9 +2115,14 @@ void TerrainGame::generateTerrainGrid() {
 
 namespace {
 
-float axisValue(const u8& raw) {
+// ANALOG_DEADZONE_L/_R (Preferences > Input) zero resting drift per stick;
+// above the deadzone the value rescales from 0 so the edge does not step.
+float axisValue(const u8& raw, const float dz) {
   const float v = (raw - 128.0F) / 128.0F;
-  return (v > -0.20F && v < 0.20F) ? 0.0F : v;  // deadzone
+  const float mag = v < 0.0F ? -v : v;
+  if (mag <= dz) return 0.0F;
+  const float scaled = (mag - dz) / (1.0F - dz);
+  return v < 0.0F ? -scaled : scaled;
 }
 
 }  // namespace
@@ -2108,16 +2132,16 @@ void TerrainGame::updatePlayer() {
   const auto& rightJoy = engine->pad.getRightJoyPad();
 
   // Right stick: look around (stick right = turn right)
-  yaw -= axisValue(rightJoy.h) * 0.05F * LOOK_SPEED * g_frameScale;
-  pitch -= axisValue(rightJoy.v) * 0.035F * LOOK_SPEED * g_frameScale;
+  yaw -= axisValue(rightJoy.h, ANALOG_DEADZONE_R) * 0.05F * LOOK_SPEED * g_frameScale;
+  pitch -= axisValue(rightJoy.v, ANALOG_DEADZONE_R) * 0.035F * LOOK_SPEED * g_frameScale;
   if (pitch > 1.2F) pitch = 1.2F;
   if (pitch < -1.2F) pitch = -1.2F;
 
   // Left stick: walk. Forward is where the camera looks (flat).
   const float fx = sinf(yaw);
   const float fz = cosf(yaw);
-  const float forward = -axisValue(leftJoy.v);
-  const float strafe = axisValue(leftJoy.h);
+  const float forward = -axisValue(leftJoy.v, ANALOG_DEADZONE_L);
+  const float strafe = axisValue(leftJoy.h, ANALOG_DEADZONE_L);
   float nextX = playerX + (fx * forward - fz * strafe) * WALK_SPEED * g_frameScale;
   float nextZ = playerZ + (fz * forward + fx * strafe) * WALK_SPEED * g_frameScale;
 

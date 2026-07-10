@@ -2,6 +2,11 @@
 // edit - regenerated on every build. Edit the graphs in the editor.
 #include "scripts/script.hpp"
 
+#include <math.h>
+#include <stdio.h>
+
+#include <string>
+
 namespace Script_demo {
 
 // Scene "main": graph of "spawn-1" (object 0)

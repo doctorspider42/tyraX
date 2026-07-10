@@ -2072,7 +2072,7 @@ void App::drawPropertiesWindow() {
 std::vector<std::string> App::flowVarNames(const std::string& nodeType) const {
     // int / bool / position variables live in separate namespaces
     auto ns = [](const std::string& t) {
-        if (t == "SetVarInt" || t == "VarAtLeast") return 0;
+        if (t == "SetVarInt" || t == "VarAtLeast" || t == "GetVarIntText") return 0;
         if (t == "SetVarBool" || t == "GetVarBool") return 1;
         if (t == "SetVarPos" || t == "GetVarPos") return 2;
         return -1;
@@ -2141,6 +2141,72 @@ void App::drawFlowGraphWindow() {
     SceneObject& owner = project_.objects()[flowGraphObject_];
     FlowGraph& fg = owner.flowGraph;
     bool changed = false;
+
+    // Drop links whose pins no longer exist (nodes deleted from the registry
+    // or outputs removed in newer editor versions) - imnodes must never be
+    // handed a link to a pin that was not submitted.
+    {
+        auto typeOf = [&](int nodeId) -> const FlowNodeType* {
+            for (const FlowNode& n : fg.nodes)
+                if (n.id == nodeId) return flowNodeType(n.type);
+            return nullptr;
+        };
+        for (size_t i = fg.links.size(); i-- > 0;) {
+            const FlowLink& l = fg.links[i];
+            const FlowNodeType* from = typeOf(l.fromNode);
+            const FlowNodeType* to = typeOf(l.toNode);
+            bool ok = from && to;
+            if (ok) {
+                switch (l.kind) {
+                    case FlowLinkExec:
+                        ok = (from->trigger || from->execThrough) && !to->trigger &&
+                             !to->pure;
+                        break;
+                    case FlowLinkObject: ok = from->idOut && to->idIn; break;
+                    case FlowLinkPos: ok = from->posOut && to->posIn; break;
+                    case FlowLinkBool: ok = from->boolOut && to->boolIn; break;
+                    case FlowLinkText: ok = from->textOut && to->textIn; break;
+                    default: ok = false; break;
+                }
+            }
+            if (!ok) {
+                fg.links.erase(fg.links.begin() + i);
+                changed = true;
+            }
+        }
+    }
+
+    // Which object a node's target resolves to in the editor, mirroring the
+    // codegen order: incoming object link chain > explicit name > the graph
+    // owner ("self"). Used by the Play Animation clip picker.
+    auto uiResolveTarget = [&](const FlowNode& start) -> int {
+        const FlowNode* cur = &start;
+        std::vector<int> visited;
+        for (;;) {
+            bool seen = false;
+            for (int id : visited) seen |= (id == cur->id);
+            if (seen) break;  // cycle guard
+            visited.push_back(cur->id);
+            const FlowNodeType* ct = flowNodeType(cur->type);
+            if (!ct || !ct->idIn) break;
+            const FlowNode* src = nullptr;
+            for (const FlowLink& l : fg.links) {
+                if (l.kind != FlowLinkObject || l.toNode != cur->id) continue;
+                for (const FlowNode& m : fg.nodes)
+                    if (m.id == l.fromNode) src = &m;
+                break;
+            }
+            if (!src) break;
+            cur = src;
+        }
+        const FlowNodeType* ct = flowNodeType(cur->type);
+        if (ct && ct->strKind == FlowParamKind::ObjectName && !cur->str.empty()) {
+            for (int i = 0; i < (int)project_.objects().size(); ++i)
+                if (project_.objects()[i].name == cur->str) return i;
+            return -1;
+        }
+        return flowGraphObject_;  // self
+    };
 
     ImGui::TextDisabled(
         "Right-click: add node. Mouse wheel: zoom (%.0f%%). Round pins: execution, "
@@ -2254,7 +2320,12 @@ void App::drawFlowGraphWindow() {
                 }
             }
         } else if (t->strKind == FlowParamKind::Button) {
-            const char* buttons[] = {"Cross", "Circle", "Square", "Triangle"};
+            // every PadButtons field (pad.hpp) - the codegen uses the name as-is
+            const char* buttons[] = {"Cross",    "Circle",   "Square", "Triangle",
+                                     "DpadUp",   "DpadDown", "DpadLeft",
+                                     "DpadRight", "L1",      "L2",     "L3",
+                                     "R1",       "R2",       "R3",     "Start",
+                                     "Select"};
             if (ImGui::BeginCombo("Button", n.str.empty() ? "Cross" : n.str.c_str())) {
                 for (const char* b : buttons) {
                     if (ImGui::Selectable(b, n.str == b)) {
@@ -2263,6 +2334,40 @@ void App::drawFlowGraphWindow() {
                     }
                 }
                 ImGui::EndCombo();
+            }
+        } else if (n.type == "PlayAnimation") {
+            // Clip picker when the resolved target is an animated .glb model
+            // (explicit object wired/named, or self); free text otherwise.
+            const int target = uiResolveTarget(n);
+            bool picker = false;
+            if (target >= 0 && target < (int)project_.objects().size() &&
+                isAnimatedModelPath(project_.objects()[target].modelPath)) {
+                const GlbInfo& info = glbInfo(project_.objects()[target].modelPath);
+                if (info.ok && !info.clips.empty()) {
+                    picker = true;
+                    const std::string label =
+                        n.str.empty() ? info.clips.front() + " (first)" : n.str;
+                    if (ImGui::BeginCombo("Clip", label.c_str())) {
+                        for (const std::string& c : info.clips) {
+                            const bool selected =
+                                c == n.str ||
+                                (n.str.empty() && c == info.clips.front());
+                            if (ImGui::Selectable(c.c_str(), selected) &&
+                                n.str != c) {
+                                n.str = c;
+                                changed = true;
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+                }
+            }
+            if (!picker) {
+                char buf[128];
+                std::snprintf(buf, sizeof(buf), "%s", n.str.c_str());
+                if (ImGui::InputText("Clip", buf, sizeof(buf))) n.str = buf;
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                ImGui::TextDisabled("Target is not an animated\n.glb - type the clip name.");
             }
         } else if (t->strKind == FlowParamKind::Text) {
             char buf[128];
@@ -2323,6 +2428,31 @@ void App::drawFlowGraphWindow() {
                     ImGui::TextDisabled("Add values in the\nProject panel (Save data).");
                 ImGui::EndCombo();
             }
+        } else if (t->strKind == FlowParamKind::SaveText) {
+            if (ImGui::BeginCombo("Value", n.str.empty() ? "<none>" : n.str.c_str())) {
+                for (const SaveTextValue& v : project_.saveTexts) {
+                    if (ImGui::Selectable(v.name.c_str(), v.name == n.str)) {
+                        n.str = v.name;
+                        changed = true;
+                    }
+                }
+                if (project_.saveTexts.empty())
+                    ImGui::TextDisabled("Add text values in the\nProject panel (Save data).");
+                ImGui::EndCombo();
+            }
+            if (n.type == "SetSaveText") {
+                bool textLinked = false;
+                for (const FlowLink& l : fg.links)
+                    textLinked |= (l.kind == FlowLinkText && l.toNode == n.id);
+                if (textLinked) {
+                    ImGui::TextDisabled("Text: from link");
+                } else {
+                    char buf[64];
+                    std::snprintf(buf, sizeof(buf), "%s", n.str2.c_str());
+                    if (ImGui::InputText("Text", buf, sizeof(buf))) n.str2 = buf;
+                    changed |= ImGui::IsItemDeactivatedAfterEdit();
+                }
+            }
         } else if (t->strKind == FlowParamKind::MenuName) {
             if (ImGui::BeginCombo("Menu", n.str.empty() ? "<none>" : n.str.c_str())) {
                 for (const GameMenu& gm : project_.menus) {
@@ -2359,11 +2489,16 @@ void App::drawFlowGraphWindow() {
 
         if (n.type == "Self") ImGui::TextDisabled("(%s)", owner.name.c_str());
 
-        // numeric params
-        if (posLinked && t->posIn && t->numCount == 3) {
-            // X/Y/Z come from the position link, the node's own params rest
+        // numeric params (own ID scope - a num label may repeat the string
+        // param's label, e.g. Set Save Value's combo and drag are both "Value")
+        ImGui::PushID("params");
+        // X/Y/Z come from the position link; params past them (Speed) stay
+        int firstNum = 0;
+        if (posLinked && t->posIn && t->numCount >= 3) {
             ImGui::TextDisabled("Position: from link");
-        } else if (n.type == "SetVarBool") {
+            firstNum = 3;
+        }
+        if (n.type == "SetVarBool") {
             bool v = n.num[0] != 0.0f;
             if (ImGui::Checkbox("Value", &v)) {
                 n.num[0] = v ? 1.0f : 0.0f;
@@ -2373,7 +2508,7 @@ void App::drawFlowGraphWindow() {
             ImGui::ColorEdit3("Color", n.num, ImGuiColorEditFlags_NoInputs);
             changed |= ImGui::IsItemDeactivatedAfterEdit();
         } else {
-            for (int a = 0; a < t->numCount; ++a) {
+            for (int a = firstNum; a < t->numCount; ++a) {
                 const bool isLoop = std::strcmp(t->numLabels[a], "Loop") == 0;
                 const bool isVolume = std::strcmp(t->numLabels[a], "Volume") == 0;
                 const bool isChannel = std::strcmp(t->numLabels[a], "Channel") == 0;
@@ -2398,15 +2533,20 @@ void App::drawFlowGraphWindow() {
                 }
             }
         }
+        ImGui::PopID();  // "params"
+        if (n.type == "ValueAtLeast" || n.type == "VarAtLeast")
+            ImGui::TextDisabled("Checked every frame - wire the\nbool into On Condition or a gate.");
         ImGui::PopItemWidth();
         ImGui::PopID();
 
         // pins: exec flow (round) + object id (square, amber) + position
-        // (triangle, green) + bool value (circle, violet). Pure data nodes
-        // have no exec pins; the bool-in pin accepts several links (folded).
+        // (triangle, green) + bool value (circle, violet) + text (circle,
+        // cyan). Pure data nodes have no exec pins; bool-in and text-in pins
+        // accept several links (folded / concatenated).
         const unsigned idPinCol = IM_COL32(222, 170, 60, 255);
         const unsigned posPinCol = IM_COL32(110, 200, 120, 255);
         const unsigned boolPinCol = IM_COL32(180, 120, 220, 255);
+        const unsigned textPinCol = IM_COL32(90, 190, 210, 255);
         if (t->idIn) {
             ImNodes::PushColorStyle(ImNodesCol_Pin, idPinCol);
             ImNodes::BeginInputAttribute(flowIdInPin(n.id), ImNodesPinShape_QuadFilled);
@@ -2429,6 +2569,13 @@ void App::drawFlowGraphWindow() {
             ImNodes::EndInputAttribute();
             ImNodes::PopColorStyle();
         }
+        if (t->textIn) {
+            ImNodes::PushColorStyle(ImNodesCol_Pin, textPinCol);
+            ImNodes::BeginInputAttribute(flowTextInPin(n.id), ImNodesPinShape_CircleFilled);
+            ImGui::TextDisabled("text");
+            ImNodes::EndInputAttribute();
+            ImNodes::PopColorStyle();
+        }
         if (!t->pure) {
             if (t->trigger) {
                 ImNodes::BeginOutputAttribute(flowOutPin(n.id));
@@ -2438,6 +2585,12 @@ void App::drawFlowGraphWindow() {
                 ImNodes::BeginInputAttribute(flowInPin(n.id));
                 ImGui::TextUnformatted("> do");
                 ImNodes::EndInputAttribute();
+                if (t->execThrough) {
+                    // action that fires its own exec pulse later (Delay)
+                    ImNodes::BeginOutputAttribute(flowOutPin(n.id));
+                    rightLabel("after >", false);
+                    ImNodes::EndOutputAttribute();
+                }
             }
         }
         if (t->idOut) {
@@ -2463,6 +2616,14 @@ void App::drawFlowGraphWindow() {
             ImNodes::EndOutputAttribute();
             ImNodes::PopColorStyle();
         }
+        if (t->textOut) {
+            ImNodes::PushColorStyle(ImNodesCol_Pin, textPinCol);
+            ImNodes::BeginOutputAttribute(flowTextOutPin(n.id),
+                                          ImNodesPinShape_CircleFilled);
+            rightLabel("text >", true);
+            ImNodes::EndOutputAttribute();
+            ImNodes::PopColorStyle();
+        }
 
         ImNodes::EndNode();
         ImNodes::PopColorStyle();
@@ -2481,6 +2642,10 @@ void App::drawFlowGraphWindow() {
         } else if (l.kind == FlowLinkBool) {
             ImNodes::PushColorStyle(ImNodesCol_Link, IM_COL32(180, 120, 220, 255));
             ImNodes::Link(l.id, flowBoolOutPin(l.fromNode), flowBoolInPin(l.toNode));
+            ImNodes::PopColorStyle();
+        } else if (l.kind == FlowLinkText) {
+            ImNodes::PushColorStyle(ImNodesCol_Link, IM_COL32(90, 190, 210, 255));
+            ImNodes::Link(l.id, flowTextOutPin(l.fromNode), flowTextInPin(l.toNode));
             ImNodes::PopColorStyle();
         } else {
             ImNodes::Link(l.id, flowOutPin(l.fromNode), flowInPin(l.toNode));
@@ -2523,12 +2688,13 @@ void App::drawFlowGraphWindow() {
         }
     }
 
-    // New link dragged between pins. Pin kinds by id (pin % 8): 0 = object
+    // New link dragged between pins. Pin kinds by id (pin % 16): 0 = object
     // in, 1 = exec out, 2 = exec in, 3 = object out, 4 = position in,
-    // 5 = position out, 6 = bool in, 7 = bool out; node = pin / 8.
+    // 5 = position out, 6 = bool in, 7 = bool out, 8 = text in,
+    // 9 = text out; node = pin / 16.
     int startPin = 0, endPin = 0;
     if (ImNodes::IsLinkCreated(&startPin, &endPin)) {
-        const int a = startPin % 8, b = endPin % 8;
+        const int a = startPin % 16, b = endPin % 16;
         int outPin = -1, inPin = -1;
         int kind = FlowLinkExec;
         if ((a == 1 && b == 2) || (a == 2 && b == 1)) {
@@ -2546,15 +2712,19 @@ void App::drawFlowGraphWindow() {
             outPin = a == 7 ? startPin : endPin;
             inPin = a == 6 ? startPin : endPin;
             kind = FlowLinkBool;
+        } else if ((a == 9 && b == 8) || (a == 8 && b == 9)) {
+            outPin = a == 9 ? startPin : endPin;
+            inPin = a == 8 ? startPin : endPin;
+            kind = FlowLinkText;
         }
-        if (outPin >= 0 && outPin / 8 != inPin / 8) {
+        if (outPin >= 0 && outPin / 16 != inPin / 16) {
             FlowLink l;
-            l.fromNode = outPin / 8;
-            l.toNode = inPin / 8;
+            l.fromNode = outPin / 16;
+            l.toNode = inPin / 16;
             l.kind = kind;
             if (kind == FlowLinkObject || kind == FlowLinkPos) {
                 // a node takes its object/position from at most one link
-                // (bool-in pins fold over several links, so keep them all)
+                // (bool-in and text-in pins fold over several links - keep them)
                 for (size_t i = fg.links.size(); i-- > 0;)
                     if (fg.links[i].kind == kind && fg.links[i].toNode == l.toNode)
                         fg.links.erase(fg.links.begin() + i);
@@ -2623,6 +2793,8 @@ void App::drawFlowGraphWindow() {
                         n.num[0] = n.num[1] = n.num[2] = 1.0f;
                     if (std::string(t.key) == "NearObject") n.num[0] = 4.0f;
                     if (std::string(t.key) == "EverySeconds") n.num[0] = 1.0f;
+                    if (std::string(t.key) == "Delay") n.num[0] = 1.0f;  // seconds
+                    if (std::string(t.key) == "MoveObjectTo") n.num[3] = 2.0f;  // speed
                     if (std::string(t.key) == "PlayAnimation") n.num[1] = 1.0f;  // speed
                     if (std::string(t.key) == "PlayMusic") {
                         n.num[0] = 80.0f;  // volume
@@ -3179,6 +3351,72 @@ void App::drawSaveDataSection() {
         ImGui::PopID();
     }
     if (project_.saveValues.empty()) ImGui::TextDisabled("No save values.");
+
+    // Text values (fixed 32-byte slots in the save payload - keep them short)
+    ImGui::Separator();
+    if (ImGui::SmallButton("+ Text")) {
+        int counter = 0;
+        std::string name;
+        for (;;) {
+            name = "text-" + std::to_string(++counter);
+            bool taken = false;
+            for (const auto& v : project_.saveTexts) taken |= (v.name == name);
+            if (!taken) break;
+        }
+        project_.saveTexts.push_back(SaveTextValue{name, ""});
+        saveAll("Saved");
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Named texts stored in every memory card save slot\n"
+                          "(player name, chosen path...). Read/write them with\n"
+                          "the Flow Graph \"Save\" nodes (Set/Get Save Text);\n"
+                          "31 characters fit in a slot.");
+    for (int i = 0; i < (int)project_.saveTexts.size(); ++i) {
+        SaveTextValue& v = project_.saveTexts[i];
+        ImGui::PushID(i + 3000);
+        char nameBuf[64];
+        std::snprintf(nameBuf, sizeof(nameBuf), "%s", v.name.c_str());
+        ImGui::SetNextItemWidth(140.0f);
+        if (ImGui::InputText("##name", nameBuf, sizeof(nameBuf))) {
+            // keep flow nodes pointing at the renamed value
+            for (SceneData& sc : project_.scenes)
+                for (SceneObject& o : sc.objects)
+                    for (FlowNode& fn : o.flowGraph.nodes) {
+                        const FlowNodeType* ft = flowNodeType(fn.type);
+                        if (ft && ft->strKind == FlowParamKind::SaveText &&
+                            fn.str == v.name)
+                            fn.str = nameBuf;
+                    }
+            v.name = nameBuf;
+        }
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(90.0f);
+        char valBuf[32];  // SAVE_TEXT_LEN - what a save slot can hold
+        std::snprintf(valBuf, sizeof(valBuf), "%s", v.value.c_str());
+        if (ImGui::InputText("##default", valBuf, sizeof(valBuf))) v.value = valBuf;
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SameLine();
+        if (ImGui::SmallButton("x")) {
+            // clear flow nodes that referenced the removed value
+            for (SceneData& sc : project_.scenes)
+                for (SceneObject& o : sc.objects)
+                    for (FlowNode& fn : o.flowGraph.nodes) {
+                        const FlowNodeType* ft = flowNodeType(fn.type);
+                        if (ft && ft->strKind == FlowParamKind::SaveText &&
+                            fn.str == v.name)
+                            fn.str.clear();
+                    }
+            project_.saveTexts.erase(project_.saveTexts.begin() + i);
+            changed = true;
+            ImGui::PopID();
+            break;
+        }
+        ImGui::PopID();
+    }
+    if (project_.saveTexts.empty()) ImGui::TextDisabled("No save texts.");
     // commitChange: renames/deletes touch flow graphs (part of undo snapshots)
     if (changed) commitChange();
 }
