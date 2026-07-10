@@ -196,7 +196,9 @@ int App::run(const std::string& initialProjectDir) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_SAMPLES, 4);
+    glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
 
+    // Size is the restore-size when the user un-maximizes.
     window_ = glfwCreateWindow(1600, 900, "Tyra Editor", nullptr, nullptr);
     if (window_) g_dialogOwner = glfwGetWin32Window(window_);
     if (!window_) {
@@ -369,6 +371,12 @@ void App::drawUI() {
     if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_O)) openProjectDialog();
     if (hasProject_ && !runner_.busy() && ImGui::IsKeyPressed(ImGuiKey_F5))
         runner_.buildAndRun(project_, true);
+    if (hasProject_ && !runner_.busy() && !project_.ps2LinkIp.empty() &&
+        ImGui::IsKeyPressed(ImGuiKey_F6))
+        runner_.buildAndRunPs2(project_, true);
+    if (hasProject_ && !runner_.busy() &&
+        ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_B))
+        runner_.buildAndRun(project_, false);
     if (hasProject_) {
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S)) saveAll("Saved");
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Comma)) {
@@ -377,6 +385,7 @@ void App::drawUI() {
             prefSettings_ = project_.settings;
             snprintf(prefEmulatorPath_, sizeof(prefEmulatorPath_), "%s",
                      project_.emulatorPath.c_str());
+            snprintf(prefPs2Ip_, sizeof(prefPs2Ip_), "%s", project_.ps2LinkIp.c_str());
             openPreferencesPopup_ = true;
         }
         if (!io.WantTextInput) {
@@ -425,15 +434,9 @@ void App::drawMenuBar() {
                 prefSettings_ = project_.settings;
                 snprintf(prefEmulatorPath_, sizeof(prefEmulatorPath_), "%s",
                          project_.emulatorPath.c_str());
+                snprintf(prefPs2Ip_, sizeof(prefPs2Ip_), "%s", project_.ps2LinkIp.c_str());
                 openPreferencesPopup_ = true;
             }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Build", nullptr, false, !busy))
-                runner_.buildAndRun(project_, false);
-            if (ImGui::MenuItem("Build && Run in PCSX2", "F5", false, !busy))
-                runner_.buildAndRun(project_, true);
-            if (ImGui::MenuItem("Run in PCSX2 (no build)", nullptr, false, !busy))
-                runner_.runEmulatorOnly(project_);
             ImGui::Separator();
             if (ImGui::MenuItem("Export PS2 ISO", nullptr, false, !busy))
                 runner_.exportIso(project_);
@@ -441,6 +444,32 @@ void App::drawMenuBar() {
                 showDiscLayout_ = true;
                 discPlanDirty_ = true;
             }
+            ImGui::EndMenu();
+        }
+        // VS-style top-level Build menu (the Project panel keeps its buttons)
+        if (ImGui::BeginMenu("Build", hasProject_)) {
+            const bool busy = runner_.busy();
+            if (ImGui::MenuItem("Build", "Ctrl+Shift+B", false, !busy))
+                runner_.buildAndRun(project_, false);
+            if (ImGui::MenuItem("Build && Run in PCSX2", "F5", false, !busy))
+                runner_.buildAndRun(project_, true);
+            if (ImGui::MenuItem("Run in PCSX2 (no build)", nullptr, false, !busy))
+                runner_.runEmulatorOnly(project_);
+            ImGui::Separator();
+            const bool ps2Ready = !project_.ps2LinkIp.empty();
+            if (ImGui::MenuItem("Build && Run on PS2", "F6", false, !busy && ps2Ready))
+                runner_.buildAndRunPs2(project_, true);
+            if (ImGui::MenuItem("Run on PS2 (no build)", nullptr, false, !busy && ps2Ready))
+                runner_.buildAndRunPs2(project_, false);
+            if (!ps2Ready && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Set 'PS2 (ps2link) IP' in Project > Preferences first.");
+            ImGui::Separator();
+            if (ImGui::MenuItem("Cancel Build", nullptr, false, busy)) runner_.cancel();
+            if (ImGui::MenuItem("Clean", nullptr, false, !busy))
+                runner_.clean(project_);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Deletes bin\\ and the container build cache "
+                                  "(obj) - the next build starts from scratch.");
             ImGui::EndMenu();
         }
 
@@ -854,23 +883,17 @@ void App::drawProjectWindow() {
     drawSaveDataSection();
     drawScriptsSection();
 
-    ImGui::SeparatorText("Build");
-    const bool busy = runner_.busy();
-    ImGui::BeginDisabled(busy);
-    if (ImGui::Button("Build", ImVec2(100, 0))) runner_.buildAndRun(project_, false);
-    ImGui::SameLine();
-    if (ImGui::Button("Build & Run", ImVec2(120, 0))) runner_.buildAndRun(project_, true);
-    ImGui::SameLine();
-    if (ImGui::Button("Run", ImVec2(80, 0))) runner_.runEmulatorOnly(project_);
-    ImGui::EndDisabled();
-
-    if (busy) {
+    // Building lives in the top-level Build menu (F5 / F6 / Ctrl+Shift+B);
+    // the panel only mirrors the runner state so a build's progress is
+    // visible without the Output window.
+    if (runner_.busy()) {
+        ImGui::Separator();
+        ImGui::Text("Building... %c", "|/-\\"[(int)(ImGui::GetTime() * 8) & 3]);
         ImGui::SameLine();
-        ImGui::Text("Working... %c", "|/-\\"[(int)(ImGui::GetTime() * 8) & 3]);
+        if (ImGui::SmallButton("Cancel")) runner_.cancel();
     } else if (runner_.state() == Runner::State::Failed) {
+        ImGui::Separator();
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Last build failed - see Output.");
-    } else if (runner_.state() == Runner::State::Success) {
-        ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Done.");
     }
 
     ImGui::End();
@@ -2791,7 +2814,11 @@ void App::importMusicTrack() {
         return;
     }
     // Formats the song player cannot stream (float/24/32-bit, compressed,
-    // out-of-range rates) are converted in place after the copy.
+    // out-of-range rates) are converted in place after the copy. Rates above
+    // 22050 Hz stream fine in PCSX2 but starve on a real console over the
+    // network deploy (the byte rate doubles the per-chunk fread budget AND
+    // the 36 MHz IOP resampler load, which shares the CPU with ps2link's
+    // network stack) - playback drags into slow motion. Convert those too.
     std::string formatWarning;
     if (audioFormat != 1) {
         formatWarning = audioFormat == 3 ? "32-bit float WAV" : "compressed WAV";
@@ -2801,6 +2828,8 @@ void App::importMusicTrack() {
         formatWarning = std::to_string(channels) + "-channel WAV";
     } else if (rate < 11025 || rate > 48000) {
         formatWarning = std::to_string(rate) + " Hz sample rate";
+    } else if (rate > 22050) {
+        formatWarning = std::to_string(rate) + " Hz (too heavy for a real PS2)";
     }
 
     const std::filesystem::path srcPath(src);
@@ -2820,7 +2849,7 @@ void App::importMusicTrack() {
                        "-bit " + (channels == 1 ? "mono" : "stereo") + ")";
     if (!formatWarning.empty()) {
         std::string convErr;
-        const int targetRate = (rate >= 11025 && rate <= 48000) ? rate : 22050;
+        const int targetRate = (rate >= 11025 && rate <= 22050) ? rate : 22050;
         if (wavconvert::convertTo16(destDir / fileName, targetRate, convErr))
             note = " - " + formatWarning + ", converted to 16-bit PCM " +
                    std::to_string(targetRate) + " Hz";
@@ -2933,6 +2962,10 @@ const std::string& App::wavIssue(const std::string& relPath, bool sfx) {
         if (audioFormat != 1 || (bits != 8 && bits != 16) || channels > 2 ||
             rate < 11025 || rate > 48000)
             issue = "not streamable (needs 8/16-bit PCM, mono/stereo, 11-48 kHz)";
+        else if (rate > 22050)
+            issue = std::to_string(rate) +
+                    " Hz - streams in PCSX2 but starves into slow motion on a "
+                    "real PS2 over the network; Convert resamples to 22050 Hz";
     }
     return wavIssueCache_.emplace(key, std::move(issue)).first->second;
 }
@@ -4746,6 +4779,16 @@ void App::drawPreferencesModal() {
         ImGui::DragFloat("Orbit speed", &prefSettings_.orbitSpeed, 0.05f, 0.0f, 10.0f, "%.2f");
     }
 
+    ImGui::SeparatorText("Input");
+    ImGui::SliderFloat("Left stick deadzone", &prefSettings_.stickDeadzoneL, 0.0f, 0.9f,
+                       "%.2f");
+    ImGui::SliderFloat("Right stick deadzone", &prefSettings_.stickDeadzoneR, 0.0f, 0.9f,
+                       "%.2f");
+    ImGui::TextDisabled(
+        "Analog stick offsets below this fraction read as zero. Raise it when\n"
+        "a worn pad drifts (left = movement, right = camera); motion above the\n"
+        "deadzone ramps smoothly, so higher values only cost range, not control.");
+
     ImGui::SeparatorText("Physics");
     ImGui::DragFloat("Gravity (units/s^2)", &prefSettings_.gravity, 0.1f, 0.0f, 100.0f,
                      "%.1f");
@@ -4770,6 +4813,13 @@ void App::drawPreferencesModal() {
         "Path to pcsx2-qt.exe used by Build && Run. Leave empty to auto-detect\n"
         "under Program Files. The emulator's log appears in the Debug window.");
 
+    ImGui::SeparatorText("Real PS2 (network deploy)");
+    ImGui::InputText("PS2 (ps2link) IP", prefPs2Ip_, sizeof(prefPs2Ip_));
+    ImGui::TextDisabled(
+        "IP of a PS2 on the LAN running PS2LINK.ELF. Enables Project > Build &&\n"
+        "Run on PS2 (F6): the game boots on the console over ethernet with its\n"
+        "assets served from this PC - no ISO, no SMB. Leave empty to disable.");
+
     ImGui::Separator();
     ImGui::TextDisabled(
         "These are project-wide defaults. Scenes inherit them unless a\n"
@@ -4778,6 +4828,7 @@ void App::drawPreferencesModal() {
         project_.gameTemplate = prefTemplate_ == 1 ? "fpp" : "orbit";
         project_.settings = prefSettings_;
         project_.emulatorPath = prefEmulatorPath_;
+        project_.ps2LinkIp = prefPs2Ip_;
         project_.active().terrain = prefTerrain_;
         applyProjectToViewport();  // scenes that inherit follow the new defaults
         commitChange();
