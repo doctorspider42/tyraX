@@ -60,7 +60,11 @@ static/dynamic pipelines, core GS/VU1 code), `thread`, `time`; plus
 Editor-specific engine additions so far: Cohen–Sutherland outcodes in the EE
 clipper, static pools in `stapip_clipper.cpp` / `stapip_qbuffer.cpp`,
 `RendererCorePostFx` (bloom + film grain via GS blits), WAV-header-aware song
-player, `bboxVersion` on `StaPipBag` for moving geometry.
+player, `bboxVersion` on `StaPipBag` for moving geometry, `LeanObjLoader`
+(OBJ+MTL, host:/cdrom0:-safe; parsing semantics mirror the editor's
+`src/objparser.cpp` — keep the two in sync), `physics/CollisionMesh` (XZ-grid
+triangle collider) + `Ray::intersectTriangle`, and a guard in `debug.cpp` so
+TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot).
 
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 

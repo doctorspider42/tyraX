@@ -4,6 +4,7 @@
 #include <tyra>
 #include <memory>
 #include <vector>
+#include "save_system.gen.hpp"
 #include "scripts/script.hpp"
 
 namespace Script_demo {
@@ -36,8 +37,9 @@ class TerrainGame : public Tyra::Game {
   std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
   std::unique_ptr<Tyra::StaPipColorBag> colorBag;
 
-  // Scene objects at runtime (mutable by scripts/physics); geometry per object
-  struct ObjectGeometry {
+  // Scene objects at runtime (mutable by scripts/physics); geometry per
+  // object, one draw part per model material (primitives use parts[0])
+  struct GeoPart {
     std::vector<Tyra::Vec4> vertices;
     std::vector<Tyra::Color> colors;
     std::vector<Tyra::Vec4> sts;  // texture coordinates
@@ -45,6 +47,9 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+  };
+  struct ObjectGeometry {
+    std::vector<GeoPart> parts;
     // Usable-object highlight: fading shells grown around the object
     // center, drawn after the scene (see renderHighlightHull)
     std::vector<Tyra::Vec4> hullVerts;
@@ -53,17 +58,45 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
     std::unique_ptr<Tyra::StaPipColorBag> hullColorBag;
   };
+  // Custom .obj models, loaded once at startup (paths in model_data.gen.hpp):
+  // geometry split per MTL material with optional per-material textures, the
+  // real mesh AABB for box collision, a CollisionMesh for mesh collision.
+  struct GameModelPart {
+    std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
+    Tyra::Texture* texture = nullptr;
+    float kd[3] = {1.0F, 1.0F, 1.0F};
+  };
+  struct GameModel {
+    std::vector<GameModelPart> parts;  // empty = missing/unparseable model
+    float mn[3] = {-0.5F, -0.5F, -0.5F};
+    float mx[3] = {0.5F, 0.5F, 0.5F};
+    Tyra::CollisionMesh collider;  // built only when a scene needs mesh mode
+  };
+  std::vector<GameModel> gameModels;
+  void loadModels();
+  // Primitive materials: .mtl assigned to a box/sphere/... - the file's
+  // first material supplies the color (kd) and optional texture.
+  struct GameMaterial {
+    Tyra::Texture* texture = nullptr;
+    float kd[3] = {1.0F, 1.0F, 1.0F};
+  };
+  std::vector<GameMaterial> gameMaterials;
+  void loadMaterials();
   std::vector<Tyra::Texture*> loadedTextures;
   std::vector<Tyra::Vec4> terrainSts;
   Tyra::StaPipTextureBag terrainTexBag;
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
-  ObjectGeometry skyDome;
+  GeoPart skyDome;
   float skyHorizonR = 0, skyHorizonG = 0, skyHorizonB = 0;
   std::vector<Tyra::Sprite> hudSprites;
 
   void buildSkyDome();
   void rebuildObjectGeometry(int index);
+  // Player-vs-objects collision shared by both walkers: box (scale box or
+  // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision
+  void collidePlayer(float prevX, float prevZ, float* nextX, float* nextZ,
+                     float feetY, float eyeHeight, float* ground);
   void updateObjectPhysics();
   void renderScene();
   void renderHighlightHull(int index);
@@ -109,6 +142,40 @@ class TerrainGame : public Tyra::Game {
   void updateUseTarget();
   int useTargetIndex = -1;
   Tyra::Sprite usePromptSprite;
+
+  // Memory card save menu (save_system.gen.hpp): opened by using a Save
+  // point object or the Open Save Menu flow node; gameplay pauses while
+  // open. updateSaveMenu() returns true while it owns the pad.
+  bool updateSaveMenu();
+  void renderSaveMenu();
+  void doSave(int slot);
+  void doLoad(int slot);
+  void applySavedObjects();
+  void refreshSlotStates();
+  std::vector<float> saveValues;
+  std::vector<SaveObjectState> pendingObjState;  // applied after a scene load
+  int pendingObjScene = -1;
+  bool saveMenuOpen = false;
+  int saveMenuSlot = 0;
+  int saveMenuGrace = 0;  // frames to ignore pad input after opening
+  bool slotUsed[SAVE_SLOTS] = {};
+  int saveFeedback = 0, saveFeedbackFrames = 0;  // 1 saved, 2 loaded, 3 error
+  Tyra::Sprite saveMenuSprite, saveCursorSprite, saveUsedSprite;
+  Tyra::Sprite saveFeedbackSprites[3];  // saved / loaded / error
+
+  // Game menus (menu_data.gen.hpp): panels baked by the editor, opened by
+  // the Open Menu flow node, a menu entry, or at boot (title screen).
+  // Gameplay pauses while one is open; Triangle walks the submenu stack.
+  bool updateGameMenu();
+  void renderGameMenu();
+  std::vector<Tyra::Sprite> menuSprites;
+  Tyra::Sprite menuCursorSprite;
+  Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
+  int gameMenuIndex = -1;
+  int gameMenuCursor = 0;
+  int gameMenuGrace = 0;
+  int gameMenuStack[4] = {};
+  int gameMenuStackDepth = 0;
 
   ScriptContext scriptCtx;
 };

@@ -47,7 +47,56 @@ private:
     void addPointLight();
     void addSavePoint();
     void drawAddObjectMenu();
-    void importModel();
+    // Copies a picked .obj (with its .mtl + textures, references rewritten to
+    // the sanitized names) into res/models. Returns the project-relative path
+    // of the model, or "" when cancelled/failed. Does NOT create an object.
+    std::string importModelAsset();
+    // Copies a picked PNG into res/textures (terrain tiling); "" on cancel.
+    std::string importTextureAsset();
+    // Copies a picked .mtl (with its map_Kd textures, references rewritten to
+    // the sanitized names) into res/materials; "" when cancelled/failed.
+    std::string importMaterialAsset();
+    // All .mtl assets an object can use: res/materials + res/models, as
+    // project-relative paths ("res/materials/walls.mtl")
+    std::vector<std::string> listMaterialAssets();
+    // Combo picking an .mtl for the object (primitives: surface; models:
+    // override). Returns true when materialPath changed.
+    bool drawMaterialCombo(SceneObject& o);
+    // Creates a scene object for a model already in res/models (no copying)
+    void addModelObject(const std::string& relPath);
+    // Project-panel section listing res/models + res/textures with the
+    // Import... buttons (the object pickers only offer what is listed here)
+    void drawAssetsSection();
+    // Files directly under res/<subdir> with the given extension (lowercase
+    // compare), names only, sorted by the directory iteration order
+    std::vector<std::string> listAssetFiles(const char* subdir, const char* ext);
+    // "Pick..." button + popup listing res/textures; true when path changed
+    bool pickProjectTexture(const char* popupId, std::string& path);
+    // Cached objparser summary of a model (for the properties panel)
+    struct ModelInfo {
+        bool ok = false;
+        int tris = 0;
+        struct MaterialLine {
+            std::string text;      // "name (texture.png)" / "name (color)"
+            bool missing = false;  // the referenced texture file is absent
+        };
+        std::vector<MaterialLine> materials;
+        bool anyMissing = false;
+    };
+    std::map<std::string, ModelInfo> modelInfoCache_;
+    // materialRel: .mtl override applied to the model ("" = its own)
+    const ModelInfo& modelInfo(const std::string& relPath,
+                               const std::string& materialRel = "");
+    // Summary of a standalone .mtl (material lines + missing-texture flags)
+    const ModelInfo& materialInfo(const std::string& relPath);
+    // Mirrors res/audio + res/sfx into the music/sounds lists (manual drops
+    // are picked up, vanished files are dropped). announce: status even when
+    // nothing changed.
+    void rescanAssets(bool announce);
+    // Cached format problem of a project WAV ("" = fine). sfx = adpenc rules
+    // (16-bit PCM 22050 Hz); music = the song player rules.
+    const std::string& wavIssue(const std::string& relPath, bool sfx);
+    std::map<std::string, std::string> wavIssueCache_;
     void drawHudSection();
     void importHudImage();
     void drawMusicSection();

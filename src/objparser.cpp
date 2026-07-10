@@ -2,18 +2,119 @@
 
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
+#include <map>
 #include <sstream>
 
 namespace objparser {
 
-bool load(const std::string& path, std::vector<float>& out) {
+namespace {
+
+struct Material {
+    float kd[3] = {1.0f, 1.0f, 1.0f};
+    std::string texture;  // map_Kd, relative to its .mtl's directory
+};
+
+// Parses newmtl/Kd/map_Kd from one .mtl file. Texture paths keep any relative
+// subdirectories (normalized to forward slashes); options of map_Kd (rare
+// "-s 1 1 tex.png" forms) are skipped by taking the last token.
+// order (optional) records material names in file order.
+bool parseMtl(const std::filesystem::path& path,
+              std::map<std::string, Material>& materials,
+              std::vector<std::string>* order = nullptr) {
     std::ifstream f(path);
     if (!f) return false;
 
+    std::string line, current;
+    while (std::getline(f, line)) {
+        std::istringstream ss(line);
+        std::string tag;
+        ss >> tag;
+        if (tag == "newmtl") {
+            ss >> current;
+            if (materials.emplace(current, Material{}).second && order)
+                order->push_back(current);
+        } else if (tag == "Kd" && !current.empty()) {
+            Material& m = materials[current];
+            ss >> m.kd[0] >> m.kd[1] >> m.kd[2];
+        } else if (tag == "map_Kd" && !current.empty()) {
+            std::string tok, last;
+            while (ss >> tok) last = tok;
+            for (char& c : last)
+                if (c == '\\') c = '/';
+            materials[current].texture = last;
+        }
+    }
+    return true;
+}
+
+}  // namespace
+
+bool loadMtl(const std::string& path, std::vector<MtlMaterial>& out) {
+    out.clear();
+    std::map<std::string, Material> materials;
+    std::vector<std::string> order;
+    if (!parseMtl(path, materials, &order)) return false;
+    for (const std::string& name : order) {
+        MtlMaterial m;
+        m.name = name;
+        m.texture = materials[name].texture;
+        m.kd[0] = materials[name].kd[0];
+        m.kd[1] = materials[name].kd[1];
+        m.kd[2] = materials[name].kd[2];
+        out.push_back(std::move(m));
+    }
+    return !out.empty();
+}
+
+bool load(const std::string& path, Model& out, const std::string& overrideMtl) {
+    std::ifstream f(path);
+    if (!f) return false;
+
+    out = Model{};
+    const std::filesystem::path dir = std::filesystem::path(path).parent_path();
+
     std::vector<float> positions;  // x,y,z triples
     std::vector<float> texcoords;  // u,v pairs
-    out.clear();
+    std::map<std::string, Material> materials;
+
+    // A material override replaces the model's own libraries entirely -
+    // usemtl names resolve against it (universal .mtl shared by many models).
+    if (!overrideMtl.empty()) {
+        parseMtl(overrideMtl, materials);
+        out.mtlLibs.push_back(overrideMtl);
+    } else {
+        // Implicit material library: a sibling .mtl named like the .obj is
+        // loaded even without a mtllib line (many exporters rely on that
+        // convention). Explicit mtllib files parse later and win on clashes.
+        const std::string sibling =
+            std::filesystem::path(path).stem().string() + ".mtl";
+        std::error_code ec;
+        if (std::filesystem::exists(dir / sibling, ec)) {
+            parseMtl(dir / sibling, materials);
+            out.mtlLibs.push_back(sibling);
+        }
+    }
+
+    // submesh lookup by material name; "" = the default white submesh
+    std::map<std::string, int> submeshIndex;
+    int current = -1;
+    auto submeshFor = [&](const std::string& matName) {
+        auto it = submeshIndex.find(matName);
+        if (it != submeshIndex.end()) return it->second;
+        Submesh s;
+        s.material = matName;
+        if (auto m = materials.find(matName); m != materials.end()) {
+            s.kd[0] = m->second.kd[0];
+            s.kd[1] = m->second.kd[1];
+            s.kd[2] = m->second.kd[2];
+            s.texture = m->second.texture;
+        }
+        out.submeshes.push_back(std::move(s));
+        submeshIndex[matName] = (int)out.submeshes.size() - 1;
+        return (int)out.submeshes.size() - 1;
+    };
 
     auto vertexAt = [&](int objIndex, float* xyz) {
         // obj indices are 1-based; negative = relative to the end
@@ -36,6 +137,19 @@ bool load(const std::string& path, std::vector<float>& out) {
         uv[1] = 1.0f - texcoords[i * 2 + 1];  // flip to image space (like Tyra)
     };
 
+    bool anyVertex = false;
+    auto grow = [&](const float* p) {
+        if (!anyVertex) {
+            anyVertex = true;
+            for (int i = 0; i < 3; ++i) out.min[i] = out.max[i] = p[i];
+            return;
+        }
+        for (int i = 0; i < 3; ++i) {
+            if (p[i] < out.min[i]) out.min[i] = p[i];
+            if (p[i] > out.max[i]) out.max[i] = p[i];
+        }
+    };
+
     std::string line;
     while (std::getline(f, line)) {
         if (line.size() < 2) continue;
@@ -54,6 +168,16 @@ bool load(const std::string& path, std::vector<float>& out) {
             ss >> u >> v;
             texcoords.push_back(u);
             texcoords.push_back(v);
+        } else if (tag == "mtllib" && overrideMtl.empty()) {
+            std::string name;
+            while (ss >> name) {
+                out.mtlLibs.push_back(name);
+                parseMtl(dir / name, materials);
+            }
+        } else if (tag == "usemtl") {
+            std::string name;
+            ss >> name;
+            current = submeshFor(name);
         } else if (tag == "f") {
             // face vertex tokens: "7", "7/1", "7//2", "7/1/2", negatives
             std::vector<int> vIdx, tIdx;
@@ -67,6 +191,9 @@ bool load(const std::string& path, std::vector<float>& out) {
                     t = std::atoi(part.c_str() + slash + 1);
                 tIdx.push_back(t);
             }
+
+            if (current < 0) current = submeshFor("");
+            std::vector<float>& outVerts = out.submeshes[current].verts;
 
             for (size_t k = 2; k < vIdx.size(); ++k) {
                 float a[3], b[3], c[3];
@@ -91,18 +218,34 @@ bool load(const std::string& path, std::vector<float>& out) {
                 const float* pts[3] = {a, b, c};
                 const float* uvs[3] = {uva, uvb, uvc};
                 for (int i = 0; i < 3; ++i) {
-                    out.push_back(pts[i][0]);
-                    out.push_back(pts[i][1]);
-                    out.push_back(pts[i][2]);
-                    out.push_back(nx);
-                    out.push_back(ny);
-                    out.push_back(nz);
-                    out.push_back(uvs[i][0]);
-                    out.push_back(uvs[i][1]);
+                    grow(pts[i]);
+                    outVerts.push_back(pts[i][0]);
+                    outVerts.push_back(pts[i][1]);
+                    outVerts.push_back(pts[i][2]);
+                    outVerts.push_back(nx);
+                    outVerts.push_back(ny);
+                    outVerts.push_back(nz);
+                    outVerts.push_back(uvs[i][0]);
+                    outVerts.push_back(uvs[i][1]);
                 }
             }
         }
     }
+
+    // drop submeshes that got no faces (usemtl with nothing after it)
+    for (size_t i = out.submeshes.size(); i-- > 0;)
+        if (out.submeshes[i].verts.empty())
+            out.submeshes.erase(out.submeshes.begin() + i);
+
+    return !out.submeshes.empty();
+}
+
+bool load(const std::string& path, std::vector<float>& out) {
+    Model model;
+    if (!load(path, model)) return false;
+    out.clear();
+    for (const Submesh& s : model.submeshes)
+        out.insert(out.end(), s.verts.begin(), s.verts.end());
     return !out.empty();
 }
 

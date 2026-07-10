@@ -14,37 +14,63 @@
 #include <stb_image_write.h>  // implementation lives in menubake.cpp
 
 #include "menubake.hpp"
-#include "objparser.hpp"
 #include "project.hpp"
 
 namespace templates {
 
 static std::vector<std::string> collectMenuEvents(const Project& p);
 
-// Unique model paths referenced by the scene, in first-use order.
-// The index in this list == SceneObjectData::model in the generated code.
-static std::vector<std::string> collectModelPaths(const Project& p) {
-    std::vector<std::string> paths;
+// Unique (modelPath, material override) pairs referenced by model objects,
+// in first-use order. A material override changes what gets loaded, so the
+// PAIR is the model identity: the index in this list ==
+// SceneObjectData::model in the generated code.
+static std::vector<std::pair<std::string, std::string>> collectModelKeys(
+    const Project& p) {
+    std::vector<std::pair<std::string, std::string>> keys;
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects) {
             if (o.type != PrimitiveType::Model || o.modelPath.empty()) continue;
+            const std::pair<std::string, std::string> key{o.modelPath, o.materialPath};
             bool seen = false;
-            for (const auto& e : paths) seen |= (e == o.modelPath);
-            if (!seen) paths.push_back(o.modelPath);
+            for (const auto& e : keys) seen |= (e == key);
+            if (!seen) keys.push_back(key);
         }
-    return paths;
+    return keys;
 }
 
 static int modelIndexOf(const Project& p, const SceneObject& o) {
     if (o.type != PrimitiveType::Model || o.modelPath.empty()) return -1;
-    const auto paths = collectModelPaths(p);
-    for (size_t i = 0; i < paths.size(); ++i)
-        if (paths[i] == o.modelPath) return (int)i;
+    const auto keys = collectModelKeys(p);
+    for (size_t i = 0; i < keys.size(); ++i)
+        if (keys[i].first == o.modelPath && keys[i].second == o.materialPath)
+            return (int)i;
     return -1;
 }
 
-// Unique texture paths (objects + terrain), first-use order. The index in
-// this list == SceneObjectData::texture / TERRAIN_TEXTURE in generated code.
+// Unique .mtl paths assigned to non-model solid objects (primitives take the
+// file's first material). The index == SceneObjectData::material.
+static std::vector<std::string> collectMaterialPaths(const Project& p) {
+    std::vector<std::string> paths;
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects) {
+            if (o.type == PrimitiveType::Model || o.materialPath.empty()) continue;
+            bool seen = false;
+            for (const auto& e : paths) seen |= (e == o.materialPath);
+            if (!seen) paths.push_back(o.materialPath);
+        }
+    return paths;
+}
+
+static int materialIndexOf(const Project& p, const SceneObject& o) {
+    if (o.type == PrimitiveType::Model || o.materialPath.empty()) return -1;
+    const auto paths = collectMaterialPaths(p);
+    for (size_t i = 0; i < paths.size(); ++i)
+        if (paths[i] == o.materialPath) return (int)i;
+    return -1;
+}
+
+// Unique texture paths (terrain only - objects are textured via materials),
+// first-use order. The index == TERRAIN_TEXTURE in generated code.
 static std::vector<std::string> collectTexturePaths(const Project& p) {
     std::vector<std::string> paths;
     auto add = [&](const std::string& t) {
@@ -53,9 +79,6 @@ static std::vector<std::string> collectTexturePaths(const Project& p) {
             if (e == t) return;
         paths.push_back(t);
     };
-    for (const SceneData& sc : p.scenes)
-        for (const SceneObject& o : sc.objects)
-            if (o.type != PrimitiveType::SpawnPoint) add(o.texturePath);
     for (const SceneData& sc : p.scenes)
         add(project::resolvedSettings(p, sc).terrainTexture);
     return paths;
@@ -240,8 +263,9 @@ class TerrainGame : public Tyra::Game {
   std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
   std::unique_ptr<Tyra::StaPipColorBag> colorBag;
 
-  // Scene objects at runtime (mutable by scripts/physics); geometry per object
-  struct ObjectGeometry {
+  // Scene objects at runtime (mutable by scripts/physics); geometry per
+  // object, one draw part per model material (primitives use parts[0])
+  struct GeoPart {
     std::vector<Tyra::Vec4> vertices;
     std::vector<Tyra::Color> colors;
     std::vector<Tyra::Vec4> sts;  // texture coordinates
@@ -249,6 +273,9 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+  };
+  struct ObjectGeometry {
+    std::vector<GeoPart> parts;
     // Usable-object highlight: fading shells grown around the object
     // center, drawn after the scene (see renderHighlightHull)
     std::vector<Tyra::Vec4> hullVerts;
@@ -257,17 +284,45 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
     std::unique_ptr<Tyra::StaPipColorBag> hullColorBag;
   };
+  // Custom .obj models, loaded once at startup (paths in model_data.gen.hpp):
+  // geometry split per MTL material with optional per-material textures, the
+  // real mesh AABB for box collision, a CollisionMesh for mesh collision.
+  struct GameModelPart {
+    std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
+    Tyra::Texture* texture = nullptr;
+    float kd[3] = {1.0F, 1.0F, 1.0F};
+  };
+  struct GameModel {
+    std::vector<GameModelPart> parts;  // empty = missing/unparseable model
+    float mn[3] = {-0.5F, -0.5F, -0.5F};
+    float mx[3] = {0.5F, 0.5F, 0.5F};
+    Tyra::CollisionMesh collider;  // built only when a scene needs mesh mode
+  };
+  std::vector<GameModel> gameModels;
+  void loadModels();
+  // Primitive materials: .mtl assigned to a box/sphere/... - the file's
+  // first material supplies the color (kd) and optional texture.
+  struct GameMaterial {
+    Tyra::Texture* texture = nullptr;
+    float kd[3] = {1.0F, 1.0F, 1.0F};
+  };
+  std::vector<GameMaterial> gameMaterials;
+  void loadMaterials();
   std::vector<Tyra::Texture*> loadedTextures;
   std::vector<Tyra::Vec4> terrainSts;
   Tyra::StaPipTextureBag terrainTexBag;
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
-  ObjectGeometry skyDome;
+  GeoPart skyDome;
   float skyHorizonR = 0, skyHorizonG = 0, skyHorizonB = 0;
   std::vector<Tyra::Sprite> hudSprites;
 
   void buildSkyDome();
   void rebuildObjectGeometry(int index);
+  // Player-vs-objects collision shared by both walkers: box (scale box or
+  // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision
+  void collidePlayer(float prevX, float prevZ, float* nextX, float* nextZ,
+                     float feetY, float eyeHeight, float* ground);
   void updateObjectPhysics();
   void renderScene();
   void renderHighlightHull(int index);
@@ -394,8 +449,9 @@ class TerrainGame : public Tyra::Game {
   std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
   std::unique_ptr<Tyra::StaPipColorBag> colorBag;
 
-  // Scene objects at runtime (mutable by scripts/physics); geometry per object
-  struct ObjectGeometry {
+  // Scene objects at runtime (mutable by scripts/physics); geometry per
+  // object, one draw part per model material (primitives use parts[0])
+  struct GeoPart {
     std::vector<Tyra::Vec4> vertices;
     std::vector<Tyra::Color> colors;
     std::vector<Tyra::Vec4> sts;  // texture coordinates
@@ -403,6 +459,9 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+  };
+  struct ObjectGeometry {
+    std::vector<GeoPart> parts;
     // Usable-object highlight: fading shells grown around the object
     // center, drawn after the scene (see renderHighlightHull)
     std::vector<Tyra::Vec4> hullVerts;
@@ -411,17 +470,45 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
     std::unique_ptr<Tyra::StaPipColorBag> hullColorBag;
   };
+  // Custom .obj models, loaded once at startup (paths in model_data.gen.hpp):
+  // geometry split per MTL material with optional per-material textures, the
+  // real mesh AABB for box collision, a CollisionMesh for mesh collision.
+  struct GameModelPart {
+    std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
+    Tyra::Texture* texture = nullptr;
+    float kd[3] = {1.0F, 1.0F, 1.0F};
+  };
+  struct GameModel {
+    std::vector<GameModelPart> parts;  // empty = missing/unparseable model
+    float mn[3] = {-0.5F, -0.5F, -0.5F};
+    float mx[3] = {0.5F, 0.5F, 0.5F};
+    Tyra::CollisionMesh collider;  // built only when a scene needs mesh mode
+  };
+  std::vector<GameModel> gameModels;
+  void loadModels();
+  // Primitive materials: .mtl assigned to a box/sphere/... - the file's
+  // first material supplies the color (kd) and optional texture.
+  struct GameMaterial {
+    Tyra::Texture* texture = nullptr;
+    float kd[3] = {1.0F, 1.0F, 1.0F};
+  };
+  std::vector<GameMaterial> gameMaterials;
+  void loadMaterials();
   std::vector<Tyra::Texture*> loadedTextures;
   std::vector<Tyra::Vec4> terrainSts;
   Tyra::StaPipTextureBag terrainTexBag;
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
-  ObjectGeometry skyDome;
+  GeoPart skyDome;
   float skyHorizonR = 0, skyHorizonG = 0, skyHorizonB = 0;
   std::vector<Tyra::Sprite> hudSprites;
 
   void buildSkyDome();
   void rebuildObjectGeometry(int index);
+  // Player-vs-objects collision shared by both walkers: box (scale box or
+  // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision
+  void collidePlayer(float prevX, float prevZ, float* nextX, float* nextZ,
+                     float feetY, float eyeHeight, float* ground);
   void updateObjectPhysics();
   void renderScene();
   void renderHighlightHull(int index);
@@ -523,6 +610,8 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <map>
+#include <string>
 
 // Definition of the active-scene index declared in scene_data.hpp (which also
 // defines the SCENE_*/SKY_*/... accessor macros so scripts see them too).
@@ -542,6 +631,14 @@ using namespace Tyra;
 namespace {
 
 constexpr float PI = 3.14159265358979F;
+
+/** The texture repository asserts (crashes) on a missing file - probe first
+ * so a missing PNG degrades to an untextured draw with a warning. */
+bool assetFileExists(const std::string& cwdRel) {
+  FILE* f = fopen(FileUtils::fromCwd(cwdRel).c_str(), "rb");
+  if (f) fclose(f);
+  return f != nullptr;
+}
 
 struct V3 {
   float x, y, z;
@@ -567,6 +664,30 @@ V3 rotated(const V3& v, const float* rotDeg) {
     const float c = cosf(rz), s = sinf(rz);
     const float x = r.x * c - r.y * s, y = r.x * s + r.y * c;
     r.x = x, r.y = y;
+  }
+  return r;
+}
+
+/** Inverse of rotated(): -Z, then -Y, then -X (world -> object local). */
+V3 invRotated(const V3& v, const float* rotDeg) {
+  V3 r = v;
+  const float rx = rotDeg[0] * PI / 180.0F;
+  const float ry = rotDeg[1] * PI / 180.0F;
+  const float rz = rotDeg[2] * PI / 180.0F;
+  {
+    const float c = cosf(rz), s = -sinf(rz);
+    const float x = r.x * c - r.y * s, y = r.x * s + r.y * c;
+    r.x = x, r.y = y;
+  }
+  {
+    const float c = cosf(ry), s = -sinf(ry);
+    const float x = r.x * c + r.z * s, z = -r.x * s + r.z * c;
+    r.x = x, r.z = z;
+  }
+  {
+    const float c = cosf(rx), s = -sinf(rx);
+    const float y = r.y * c - r.z * s, z = r.y * s + r.z * c;
+    r.y = y, r.z = z;
   }
   return r;
 }
@@ -613,9 +734,22 @@ V3 pointLightAt(const V3& wp, const V3& n) {
   return add;
 }
 
+// Material context for the primitive builders: addBox & co call pushVert
+// without material args, so rebuildObjectGeometry stages the object's
+// assigned material here before dispatching. Model parts pass theirs
+// explicitly via the kd/textured parameters instead.
+const float* g_primKd = nullptr;
+bool g_primTextured = false;
+
+// kd: material diffuse (MTL) multiplied into the object color, null = white.
+// textured: this batch draws with a texture (a model part's map_Kd or a
+// primitive material's) - switches the color to modulation scale (128 = 1.0).
 void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
               std::vector<Vec4>& sts, const SceneObjectData& o, V3 p, V3 n,
-              float u, float v) {
+              float u, float v, const float* kdArg = nullptr,
+              bool texturedArg = false) {
+  const float* kd = kdArg ? kdArg : g_primKd;
+  const bool textured = texturedArg || g_primTextured;
   p.x *= o.scale[0], p.y *= o.scale[1], p.z *= o.scale[2];
   p = rotated(p, o.rotation);
   n = rotated(n, o.rotation);
@@ -626,9 +760,10 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   if (shade.x > 1.0F) shade.x = 1.0F;
   if (shade.y > 1.0F) shade.y = 1.0F;
   if (shade.z > 1.0F) shade.z = 1.0F;
+  if (kd) shade.x *= kd[0], shade.y *= kd[1], shade.z *= kd[2];
   verts.push_back(Vec4(wp.x, wp.y, wp.z, 1.0F));
   // In textured mode the color modulates the texture (128 = 1.0)
-  const float scale = o.texture >= 0 ? 128.0F : 255.0F;
+  const float scale = textured ? 128.0F : 255.0F;
   cols.push_back(Color(o.color[0] * scale * shade.x, o.color[1] * scale * shade.y,
                        o.color[2] * scale * shade.z, 128.0F));
   sts.push_back(Vec4(u, v, 1.0F, 0.0F));
@@ -735,16 +870,6 @@ void addCone(std::vector<Vec4>& verts, std::vector<Color>& cols,
     pushVert(verts, cols, sts, o, {0, -h, 0}, {0, -1, 0}, 0.5F, 0.5F);
     pushVert(verts, cols, sts, o, {x0, -h, z0}, {0, -1, 0}, x0 + 0.5F, z0 + 0.5F);
     pushVert(verts, cols, sts, o, {x1, -h, z1}, {0, -1, 0}, x1 + 0.5F, z1 + 0.5F);
-  }
-}
-
-void addModel(std::vector<Vec4>& verts, std::vector<Color>& cols,
-              std::vector<Vec4>& sts, const SceneObjectData& o) {
-  if (o.model < 0 || o.model >= MODEL_COUNT) return;
-  const ModelData& m = MODELS[o.model];
-  for (int i = 0; i < m.vertexCount; ++i) {
-    const float* v = m.verts + i * 8;
-    pushVert(verts, cols, sts, o, {v[0], v[1], v[2]}, {v[3], v[4], v[5]}, v[6], v[7]);
   }
 }
 
@@ -961,9 +1086,17 @@ static const char* TPL_GAME_CPP_SCENE = R"(
 void TerrainGame::buildScene() {
   // Load all scene textures once (paths in texture_data.gen.hpp)
   loadedTextures.assign(TEXTURE_COUNT, nullptr);
-  for (int i = 0; i < TEXTURE_COUNT; ++i)
+  for (int i = 0; i < TEXTURE_COUNT; ++i) {
+    if (!assetFileExists(TEXTURE_PATHS[i])) {
+      TYRA_WARN("Scene texture missing: ", TEXTURE_PATHS[i]);
+      continue;  // objects fall back to their plain color
+    }
     loadedTextures[i] =
         engine->renderer.getTextureRepository().add(FileUtils::fromCwd(TEXTURE_PATHS[i]));
+  }
+
+  loadModels();
+  loadMaterials();
 
   vertices.clear();
   colors.clear();
@@ -1065,6 +1198,200 @@ void TerrainGame::buildScene() {
   }
 
   loadScene(0);
+}
+
+// Loads every custom .obj once at startup through the engine's LeanObjLoader:
+// geometry split per MTL material, map_Kd textures through the texture
+// repository (de-duplicated by path), the real mesh AABB for box collision
+// and a CollisionMesh where some scene object collides in mesh mode.
+void TerrainGame::loadModels() {
+  gameModels.assign(MODEL_COUNT > 0 ? MODEL_COUNT : 0, GameModel());
+  std::map<std::string, Texture*> textureByPath;
+  for (int i = 0; i < MODEL_COUNT; ++i) {
+    const std::string overrideMtl = MODEL_MTLS[i];
+    auto mesh = LeanObjLoader::load(MODEL_PATHS[i], overrideMtl);
+    if (!mesh) continue;  // stays empty - objects using it render nothing
+    GameModel& gm = gameModels[i];
+    for (int k = 0; k < 3; ++k) {
+      gm.mn[k] = mesh->min[k];
+      gm.mx[k] = mesh->max[k];
+    }
+    // map_Kd texture names resolve relative to the file that defined them:
+    // the override .mtl when one is assigned, the model otherwise
+    std::string dir = overrideMtl.empty() ? MODEL_PATHS[i] : overrideMtl;
+    const size_t slash = dir.find_last_of('/');
+    dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
+    for (auto& mat : mesh->materials) {
+      GameModelPart part;
+      part.verts.swap(mat.vertices);
+      part.kd[0] = mat.kd[0];
+      part.kd[1] = mat.kd[1];
+      part.kd[2] = mat.kd[2];
+      if (!mat.textureName.empty()) {
+        const std::string path = dir + mat.textureName;
+        auto it = textureByPath.find(path);
+        if (it == textureByPath.end()) {
+          Texture* t = nullptr;
+          // a texture the .mtl wants but the project lacks degrades the part
+          // to its Kd color instead of an assert at boot
+          if (assetFileExists(path))
+            t = engine->renderer.getTextureRepository().add(
+                FileUtils::fromCwd(path));
+          else
+            TYRA_WARN("Model texture missing: ", path.c_str());
+          it = textureByPath.emplace(path, t).first;
+        }
+        part.texture = it->second;
+      }
+      gm.parts.push_back(std::move(part));
+    }
+    if (MODEL_NEEDS_COLLIDER[i]) {
+      std::vector<float> all;  // the collider spans every material part
+      for (const auto& part : gm.parts)
+        all.insert(all.end(), part.verts.begin(), part.verts.end());
+      gm.collider.build(all.data(), (u32)(all.size() / 8), 8);
+    }
+  }
+}
+
+// Primitive materials: each MATERIAL_PATHS entry is a .mtl whose FIRST
+// material becomes the surface of the primitives it is assigned to
+// (Kd color + optional map_Kd texture, resolved relative to the .mtl).
+void TerrainGame::loadMaterials() {
+  gameMaterials.assign(MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 0, GameMaterial());
+  std::map<std::string, Texture*> textureByPath;
+  for (int i = 0; i < MATERIAL_COUNT; ++i) {
+    const auto materials = LeanObjLoader::loadMtl(MATERIAL_PATHS[i]);
+    if (materials.empty()) continue;  // stays white - plain object color
+    const auto& mat = materials.front();
+    GameMaterial& gmat = gameMaterials[i];
+    gmat.kd[0] = mat.kd[0];
+    gmat.kd[1] = mat.kd[1];
+    gmat.kd[2] = mat.kd[2];
+    if (mat.textureName.empty()) continue;
+    std::string dir = MATERIAL_PATHS[i];
+    const size_t slash = dir.find_last_of('/');
+    dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
+    const std::string path = dir + mat.textureName;
+    auto it = textureByPath.find(path);
+    if (it == textureByPath.end()) {
+      Texture* t = nullptr;
+      if (assetFileExists(path))
+        t = engine->renderer.getTextureRepository().add(FileUtils::fromCwd(path));
+      else
+        TYRA_WARN("Material texture missing: ", path.c_str());
+      it = textureByPath.emplace(path, t).first;
+    }
+    gmat.texture = it->second;
+  }
+}
+
+// Shared player-vs-scene collision (both walkers). Box mode reproduces the
+// classic behavior (XZ box + stand-on-top + step up 0.5), with models sized
+// by their real mesh AABB instead of the unit scale box. Mesh mode collides
+// with the model's triangles in object-local space: a downward ray finds the
+// walkable ground (ramps/stairs work) and steep faces push the player out
+// like walls. Rotation is honored in mesh mode and ignored in box mode.
+void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
+                                float* nextZ, float feetY, float eyeHeight,
+                                float* ground) {
+  const float playerRadius = 0.35F;
+  for (const RuntimeObject& o : runtimeObjects) {
+    if (!o.visible || o.data.type == 4 || o.data.type == 6 ||
+        o.data.type == 7 || o.data.type == 8 || o.data.type == 9)
+      continue;
+    if (o.data.collision == 2) continue;  // none
+
+    const GameModel* gm = nullptr;
+    if (o.data.type == 5 && o.data.model >= 0 &&
+        o.data.model < (int)gameModels.size())
+      gm = &gameModels[o.data.model];
+
+    if (o.data.collision == 1 && gm && !gm->collider.empty()) {
+      // --- mesh mode ---
+      const float sx = o.data.scale[0] > 0.0001F ? o.data.scale[0] : 0.0001F;
+      const float sy = o.data.scale[1] > 0.0001F ? o.data.scale[1] : 0.0001F;
+      const float sz = o.data.scale[2] > 0.0001F ? o.data.scale[2] : 0.0001F;
+      auto toLocal = [&](float wx, float wy, float wz) {
+        V3 p = {wx - o.data.position[0], wy - o.data.position[1],
+                wz - o.data.position[2]};
+        p = invRotated(p, o.data.rotation);
+        return V3{p.x / sx, p.y / sy, p.z / sz};
+      };
+      auto toWorld = [&](const V3& l) {
+        V3 p = {l.x * sx, l.y * sy, l.z * sz};
+        p = rotated(p, o.data.rotation);
+        return V3{p.x + o.data.position[0], p.y + o.data.position[1],
+                  p.z + o.data.position[2]};
+      };
+
+      // walls: push a chest-height sphere out of steep triangles (the radius
+      // is approximated by the average XZ scale - exact for uniform scales)
+      const V3 c = toLocal(*nextX, feetY + eyeHeight * 0.5F, *nextZ);
+      Vec4 center(c.x, c.y, c.z, 1.0F);
+      const float sAvg = (sx + sz) * 0.5F;
+      if (gm->collider.resolveSphere(&center, playerRadius / sAvg, 0.7F)) {
+        const V3 w = toWorld({center.x, center.y, center.z});
+        *nextX = w.x;
+        *nextZ = w.z;
+      }
+
+      // ground: a ray from step height (0.5 above the feet) straight down,
+      // transformed into local space so rotated/scaled models stay exact
+      const V3 ro = toLocal(*nextX, feetY + 0.5F, *nextZ);
+      const V3 rq = toLocal(*nextX, feetY - 100.0F, *nextZ);
+      V3 rd = {rq.x - ro.x, rq.y - ro.y, rq.z - ro.z};
+      const float rl = sqrtf(rd.x * rd.x + rd.y * rd.y + rd.z * rd.z);
+      if (rl > 0.0001F) {
+        rd.x /= rl, rd.y /= rl, rd.z /= rl;
+        float t;
+        if (gm->collider.raycast(Vec4(ro.x, ro.y, ro.z, 1.0F),
+                                 Vec4(rd.x, rd.y, rd.z, 0.0F), rl, &t)) {
+          const V3 hit =
+              toWorld({ro.x + rd.x * t, ro.y + rd.y * t, ro.z + rd.z * t});
+          if (hit.y > *ground) *ground = hit.y;
+        }
+      }
+      continue;
+    }
+
+    // --- box mode --- (models: real mesh AABB; primitives: unit scale box)
+    float cx = o.data.position[0], cy = o.data.position[1],
+          cz = o.data.position[2];
+    float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
+          ez = 0.5F * o.data.scale[2];
+    if (gm) {
+      cx += 0.5F * (gm->mn[0] + gm->mx[0]) * o.data.scale[0];
+      cy += 0.5F * (gm->mn[1] + gm->mx[1]) * o.data.scale[1];
+      cz += 0.5F * (gm->mn[2] + gm->mx[2]) * o.data.scale[2];
+      ex = 0.5F * (gm->mx[0] - gm->mn[0]) * o.data.scale[0];
+      ey = 0.5F * (gm->mx[1] - gm->mn[1]) * o.data.scale[1];
+      ez = 0.5F * (gm->mx[2] - gm->mn[2]) * o.data.scale[2];
+    }
+    const float hx = ex + playerRadius;
+    const float hz = ez + playerRadius;
+    const float top = cy + ey;
+    const float bottom = cy - ey;
+
+    const bool nextInside = *nextX > cx - hx && *nextX < cx + hx &&
+                            *nextZ > cz - hz && *nextZ < cz + hz;
+    if (!nextInside) continue;
+
+    if (feetY + 0.5F >= top) {
+      // low enough to walk onto - candidate floor
+      if (top > *ground) *ground = top;
+    } else if (feetY < top && feetY + eyeHeight > bottom) {
+      // blocked - cancel the axes that entered the box this frame
+      const bool wasInsideX = prevX > cx - hx && prevX < cx + hx;
+      const bool wasInsideZ = prevZ > cz - hz && prevZ < cz + hz;
+      if (!wasInsideX) *nextX = prevX;
+      if (!wasInsideZ) *nextZ = prevZ;
+      if (wasInsideX && wasInsideZ) {
+        *nextX = prevX;
+        *nextZ = prevZ;
+      }
+    }
+  }
 }
 
 // Switches the runtime state to a scene from scene_data.hpp. Assets
@@ -1705,36 +2032,8 @@ bool TerrainGame::updatePlayerEntity() {
   if (nextZ > limZ) nextZ = limZ;
   if (nextZ < -limZ) nextZ = -limZ;
 
-  const float playerRadius = 0.35F;
   float ground = terrainHeightAt(nextX, nextZ);
-  for (const RuntimeObject& o : runtimeObjects) {
-    if (!o.visible || o.data.type == 4 || o.data.type == 6 ||
-        o.data.type == 7 || o.data.type == 8 || o.data.type == 9)
-      continue;
-    const float ox = o.data.position[0];
-    const float oz = o.data.position[2];
-    const float hx = 0.5F * o.data.scale[0] + playerRadius;
-    const float hz = 0.5F * o.data.scale[2] + playerRadius;
-    const float top = o.data.position[1] + 0.5F * o.data.scale[1];
-    const float bottom = o.data.position[1] - 0.5F * o.data.scale[1];
-
-    const bool nextInside =
-        nextX > ox - hx && nextX < ox + hx && nextZ > oz - hz && nextZ < oz + hz;
-    if (!nextInside) continue;
-
-    if (entY + 0.5F >= top) {
-      if (top > ground) ground = top;
-    } else if (entY < top && entY + PLAYER_EYE_HEIGHT > bottom) {
-      const bool wasInsideX = entX > ox - hx && entX < ox + hx;
-      const bool wasInsideZ = entZ > oz - hz && entZ < oz + hz;
-      if (!wasInsideX) nextX = entX;
-      if (!wasInsideZ) nextZ = entZ;
-      if (wasInsideX && wasInsideZ) {
-        nextX = entX;
-        nextZ = entZ;
-      }
-    }
-  }
+  collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground);
   entX = nextX;
   entZ = nextZ;
 
@@ -1822,56 +2121,98 @@ void TerrainGame::rebuildObjectGeometry(int index) {
   ObjectGeometry& g = objectGeometry[index];
   o.dirty = false;
 
-  g.vertices.clear();
-  g.colors.clear();
-  g.sts.clear();
-  switch (o.data.type) {
-    case 1: addSphere(g.vertices, g.colors, g.sts, o.data); break;
-    case 2: addCylinder(g.vertices, g.colors, g.sts, o.data); break;
-    case 3: addCone(g.vertices, g.colors, g.sts, o.data); break;
-    case 4: break;  // spawn point - marker only
-    case 5: addModel(g.vertices, g.colors, g.sts, o.data); break;
-    case 6: break;  // player - marker only
-    case 7: break;  // emitter - particles are built by updateParticles()
-    case 8: break;  // sound emitter - marker only, no geometry
-    case 9: break;  // point light - invisible source, no geometry
-    default: addBox(g.vertices, g.colors, g.sts, o.data); break;
-  }
-  if (g.vertices.empty()) {
-    g.bag.reset();
-    return;
+  // models: one draw part per MTL material; everything else fills parts[0]
+  const GameModel* gm = nullptr;
+  if (o.data.type == 5 && o.data.model >= 0 &&
+      o.data.model < (int)gameModels.size())
+    gm = &gameModels[o.data.model];
+  const int partCount = o.data.type == 5 ? (gm ? (int)gm->parts.size() : 0) : 1;
+  if ((int)g.parts.size() != partCount) g.parts.resize(partCount);
+
+  for (int pi = 0; pi < partCount; ++pi) {
+    GeoPart& part = g.parts[pi];
+    part.vertices.clear();
+    part.colors.clear();
+    part.sts.clear();
   }
 
-  if (!g.bag) {
-    g.infoBag = std::make_unique<StaPipInfoBag>();
-    g.infoBag->model = &model;
-    g.infoBag->shadingType = TyraShadingFlat;
-    // Objects go through frustum classification too - raw submission (None)
-    // wraps the GS raster window for anything behind/off-screen. The bbox
-    // cache is keyed by pointer + bboxVersion, bumped on every rebuild, so
-    // moving objects never reuse a stale box.
-    g.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
-    g.infoBag->fullClipChecks = true;
-    g.colorBag = std::make_unique<StaPipColorBag>();
-    g.bag = std::make_unique<StaPipBag>();
-    g.bag->info = g.infoBag.get();
-    g.bag->color = g.colorBag.get();
-    g.bag->texture = nullptr;
-    g.bag->lighting = nullptr;
-  }
-  g.colorBag->many = g.colors.data();
-  g.bag->vertices = g.vertices.data();
-  g.bag->count = static_cast<u32>(g.vertices.size());
-  g.bag->bboxVersion++;  // geometry changed - refresh the frustum bbox cache
+  // primitives: the assigned material (first entry of its .mtl) supplies
+  // the surface color/texture - staged for the builders via g_prim*
+  const GameMaterial* gmat = nullptr;
+  if (o.data.type != 5 && o.data.material >= 0 &&
+      o.data.material < (int)gameMaterials.size())
+    gmat = &gameMaterials[o.data.material];
 
-  if (o.data.texture >= 0 && o.data.texture < TEXTURE_COUNT &&
-      loadedTextures[o.data.texture]) {
-    if (!g.texBag) g.texBag = std::make_unique<StaPipTextureBag>();
-    g.texBag->texture = loadedTextures[o.data.texture];
-    g.texBag->coordinates = g.sts.data();
-    g.bag->texture = g.texBag.get();
+  if (o.data.type == 5) {
+    for (int pi = 0; pi < partCount; ++pi) {
+      const GameModelPart& src = gm->parts[pi];
+      GeoPart& part = g.parts[pi];
+      const bool textured = src.texture != nullptr;
+      for (size_t i = 0; i + 7 < src.verts.size(); i += 8) {
+        const float* v = &src.verts[i];
+        pushVert(part.vertices, part.colors, part.sts, o.data,
+                 {v[0], v[1], v[2]}, {v[3], v[4], v[5]}, v[6], v[7], src.kd,
+                 textured);
+      }
+    }
   } else {
-    g.bag->texture = nullptr;
+    g_primKd = gmat ? gmat->kd : nullptr;
+    g_primTextured = gmat && gmat->texture;
+    GeoPart& p0 = g.parts[0];
+    switch (o.data.type) {
+      case 1: addSphere(p0.vertices, p0.colors, p0.sts, o.data); break;
+      case 2: addCylinder(p0.vertices, p0.colors, p0.sts, o.data); break;
+      case 3: addCone(p0.vertices, p0.colors, p0.sts, o.data); break;
+      case 4: break;  // spawn point - marker only
+      case 6: break;  // player - marker only
+      case 7: break;  // emitter - particles are built by updateParticles()
+      case 8: break;  // sound emitter - marker only, no geometry
+      case 9: break;  // point light - invisible source, no geometry
+      default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
+    }
+    g_primKd = nullptr;
+    g_primTextured = false;
+  }
+
+  for (int pi = 0; pi < partCount; ++pi) {
+    GeoPart& part = g.parts[pi];
+    if (part.vertices.empty()) {
+      part.bag.reset();
+      continue;
+    }
+    if (!part.bag) {
+      part.infoBag = std::make_unique<StaPipInfoBag>();
+      part.infoBag->model = &model;
+      part.infoBag->shadingType = TyraShadingFlat;
+      // Objects go through frustum classification too - raw submission (None)
+      // wraps the GS raster window for anything behind/off-screen. The bbox
+      // cache is keyed by pointer + bboxVersion, bumped on every rebuild, so
+      // moving objects never reuse a stale box.
+      part.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+      part.infoBag->fullClipChecks = true;
+      part.colorBag = std::make_unique<StaPipColorBag>();
+      part.bag = std::make_unique<StaPipBag>();
+      part.bag->info = part.infoBag.get();
+      part.bag->color = part.colorBag.get();
+      part.bag->texture = nullptr;
+      part.bag->lighting = nullptr;
+    }
+    part.colorBag->many = part.colors.data();
+    part.bag->vertices = part.vertices.data();
+    part.bag->count = static_cast<u32>(part.vertices.size());
+    part.bag->bboxVersion++;  // geometry changed - refresh the bbox cache
+
+    // models: the part's own map_Kd; primitives: the assigned material's
+    Texture* tex =
+        o.data.type == 5 ? gm->parts[pi].texture : (gmat ? gmat->texture : nullptr);
+    if (tex) {
+      if (!part.texBag) part.texBag = std::make_unique<StaPipTextureBag>();
+      part.texBag->texture = tex;
+      part.texBag->coordinates = part.sts.data();
+      part.bag->texture = part.texBag.get();
+    } else {
+      part.bag->texture = nullptr;
+    }
   }
 }
 
@@ -1909,8 +2250,9 @@ void TerrainGame::renderScene() {
   stapip.core.render(bag.get());
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
-    if (runtimeObjects[i].visible && objectGeometry[i].bag)
-      stapip.core.render(objectGeometry[i].bag.get());
+    if (!runtimeObjects[i].visible) continue;
+    for (GeoPart& part : objectGeometry[i].parts)
+      if (part.bag) stapip.core.render(part.bag.get());
   }
   // Highlight rims after every object so their depth is in the z-buffer:
   // the rim is depth-tested against the finished scene and can no longer be
@@ -1918,7 +2260,7 @@ void TerrainGame::renderScene() {
   if (HIGHLIGHT_USABLE)
     for (int i = 0; i < (int)runtimeObjects.size(); ++i)
       if (runtimeObjects[i].visible && runtimeObjects[i].data.usable &&
-          objectGeometry[i].bag)
+          !objectGeometry[i].parts.empty())
         renderHighlightHull(i);  // proximity-checked inside; no-op when far
   // particles last - alpha blended over the scene
   for (ParticleSystem& ps : particles)
@@ -1937,7 +2279,9 @@ void TerrainGame::renderScene() {
 void TerrainGame::renderHighlightHull(int index) {
   const RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
-  if (g.vertices.empty()) return;
+  size_t n = 0;  // hull spans every draw part of the object
+  for (const GeoPart& part : g.parts) n += part.vertices.size();
+  if (n == 0) return;
 
   float half = o.data.scale[0];
   if (o.data.scale[1] > half) half = o.data.scale[1];
@@ -1964,7 +2308,6 @@ void TerrainGame::renderHighlightHull(int index) {
   float behind = dist - half;
   if (behind < 0.5F) behind = 0.5F;
 
-  const size_t n = g.vertices.size();
   g.hullVerts.resize(n * HIGHLIGHT_STEPS);
   g.hullCols.resize(n * HIGHLIGHT_STEPS);
   // One pushback for all shells (sized for the widest) - per-shell depths
@@ -1981,23 +2324,25 @@ void TerrainGame::renderHighlightHull(int index) {
     const float f = 1.0F + grow;
     const Color c(HIGHLIGHT_R, HIGHLIGHT_G, HIGHLIGHT_B, alpha);
     alpha *= 0.55F;
-    for (size_t v = 0; v < n; ++v) {
-      const Vec4& p = g.vertices[v];
-      float hx = cx + (p.x - cx) * f;
-      float hy = cy + (p.y - cy) * f;
-      float hz = cz + (p.z - cz) * f;
-      hx = cameraPosition.x + (hx - cameraPosition.x) * k;
-      hy = cameraPosition.y + (hy - cameraPosition.y) * k;
-      hz = cameraPosition.z + (hz - cameraPosition.z) * k;
-      // Shell parts of grounded objects dip below the terrain and the
-      // ground in front z-rejects them (no bottom rim from a low camera).
-      // Lift them just above the surface - the bottom rim becomes a glow
-      // apron hugging the ground around the base.
-      const float ground = terrainHeightAt(hx, hz) + 0.02F;
-      if (hy < ground) hy = ground;
-      g.hullVerts[s * n + v] = Vec4(hx, hy, hz, 1.0F);
-      g.hullCols[s * n + v] = c;
-    }
+    size_t v = 0;
+    for (const GeoPart& part : g.parts)
+      for (const Vec4& p : part.vertices) {
+        float hx = cx + (p.x - cx) * f;
+        float hy = cy + (p.y - cy) * f;
+        float hz = cz + (p.z - cz) * f;
+        hx = cameraPosition.x + (hx - cameraPosition.x) * k;
+        hy = cameraPosition.y + (hy - cameraPosition.y) * k;
+        hz = cameraPosition.z + (hz - cameraPosition.z) * k;
+        // Shell parts of grounded objects dip below the terrain and the
+        // ground in front z-rejects them (no bottom rim from a low camera).
+        // Lift them just above the surface - the bottom rim becomes a glow
+        // apron hugging the ground around the base.
+        const float ground = terrainHeightAt(hx, hz) + 0.02F;
+        if (hy < ground) hy = ground;
+        g.hullVerts[s * n + v] = Vec4(hx, hy, hz, 1.0F);
+        g.hullCols[s * n + v] = c;
+        ++v;
+      }
   }
 
   if (!g.hullBag) {
@@ -2023,7 +2368,8 @@ void TerrainGame::renderHighlightHull(int index) {
   // faces - shells still blend over those at glancing angles. Repainting
   // the object wins the equal-depth test (GEQUAL) and erases the wash
   // without touching the rim outside the silhouette.
-  stapip.core.render(g.bag.get());
+  for (GeoPart& part : g.parts)
+    if (part.bag) stapip.core.render(part.bag.get());
 }
 
 void TerrainGame::generateTerrainGrid() {
@@ -2358,39 +2704,11 @@ void TerrainGame::updatePlayer() {
   if (nextZ > limZ) nextZ = limZ;
   if (nextZ < -limZ) nextZ = -limZ;
 
-  // Collision with scene objects (XZ, boxes expanded by the player radius)
+  // Collision with scene objects (collidePlayer: box/mesh/none per object)
   // + standing on top of them. Player can step ~0.5 units up.
   // The floor is the sculpted terrain.
-  const float playerRadius = 0.35F;
   float ground = terrainHeightAt(nextX, nextZ);
-  for (const RuntimeObject& o : runtimeObjects) {
-    if (!o.visible || o.data.type == 4 || o.data.type == 9) continue;
-    const float ox = o.data.position[0];
-    const float oz = o.data.position[2];
-    const float hx = 0.5F * o.data.scale[0] + playerRadius;
-    const float hz = 0.5F * o.data.scale[2] + playerRadius;
-    const float top = o.data.position[1] + 0.5F * o.data.scale[1];
-    const float bottom = o.data.position[1] - 0.5F * o.data.scale[1];
-
-    const bool nextInside =
-        nextX > ox - hx && nextX < ox + hx && nextZ > oz - hz && nextZ < oz + hz;
-    if (!nextInside) continue;
-
-    if (playerY + 0.5F >= top) {
-      // Low enough to walk onto - candidate floor
-      if (top > ground) ground = top;
-    } else if (playerY < top && playerY + EYE_HEIGHT > bottom) {
-      // Blocked - cancel the axes that entered the box this frame
-      const bool wasInsideX = playerX > ox - hx && playerX < ox + hx;
-      const bool wasInsideZ = playerZ > oz - hz && playerZ < oz + hz;
-      if (!wasInsideX) nextX = playerX;
-      if (!wasInsideZ) nextZ = playerZ;
-      if (wasInsideX && wasInsideZ) {
-        nextX = playerX;
-        nextZ = playerZ;
-      }
-    }
-  }
+  collidePlayer(playerX, playerZ, &nextX, &nextZ, playerY, EYE_HEIGHT, &ground);
   playerX = nextX;
   playerZ = nextZ;
 
@@ -3216,8 +3534,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  float scale[3];\n"
            "  float color[3];  // 0..1\n"
            "  int physics;  // 1 = falls with gravity\n"
-           "  int model;    // index into MODELS (model_data.gen.hpp), -1 = none\n"
-           "  int texture;  // index into TEXTURE_PATHS (texture_data.gen.hpp), -1 = none\n"
+           "  int model;    // index into MODEL_PATHS / gameModels, -1 = none\n"
+           "  int material; // primitives: index into MATERIAL_PATHS, -1 = plain color\n"
            "  int usable;   // 1 = shows the USE prompt up close (see controls.hpp)\n"
            "  int emitKind;   // emitters: 0 fire, 1 smoke, 2 fog, 3 sparks\n"
            "  int emitCount;  // emitters: particle pool size\n"
@@ -3231,6 +3549,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  float lightBright; // point lights (type 9): baked intensity\n"
            "  float lightRadius; // point lights (type 9): falloff radius\n"
            "  int saveState;  // 1 = position/color/visibility persisted in saves\n"
+           "  int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none\n"
            "};\n"
            "\n";
 
@@ -3247,7 +3566,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << (objs.empty() ? (size_t)1 : objs.size()) << "] = {\n";
         if (objs.empty()) {
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
-                   "0, 0, 0.0F, -1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0},\n";
+                   "0, 0, 0.0F, -1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
                 for (size_t i = 0; i < p.sounds.size(); ++i)
@@ -3258,7 +3577,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 out << "    {" << (int)o.type << ", " << vec3Init(o.position) << ", "
                     << vec3Init(o.rotation) << ", " << vec3Init(o.scale) << ", "
                     << vec3Init(o.color) << ", " << (o.physics ? 1 : 0) << ", "
-                    << modelIndexOf(p, o) << ", " << textureIndexOf(p, o.texturePath)
+                    << modelIndexOf(p, o) << ", " << materialIndexOf(p, o)
                     << ", "
                     // save points are always usable - USE is how they open
                     << ((o.usable || o.type == PrimitiveType::SavePoint) ? 1 : 0)
@@ -3269,7 +3588,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << floatLit(o.soundInterval) << ", " << (o.soundOnPlayer ? 1 : 0)
                     << ", " << floatLit(o.lightBright)
                     << ", " << floatLit(o.lightRadius) << ", " << (o.saveState ? 1 : 0)
-                    << "},  // " << o.name << "\n";
+                    << ", " << o.collisionMode << "},  // " << o.name << "\n";
             }
         }
         out << "};\n";
@@ -4219,50 +4538,69 @@ std::string flowGraphScript(const Project& p) {
     return out.str();
 }
 
-// inc/model_data.gen.hpp - .obj meshes compiled into the game (pos + normal,
-// 6 floats per vertex). Capped per model to stay PS2-friendly.
+// inc/model_data.gen.hpp - .obj model paths (+ optional per-object .mtl
+// overrides) and the primitive material libraries. Nothing is baked into the
+// ELF: the game loads everything at startup through the engine's
+// LeanObjLoader, from bin/ (the Makefile copies res/ next to the ELF).
 static std::string modelDataHeader(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
-    const auto paths = collectModelPaths(p);
-    constexpr int kMaxTris = 3000;
+    const auto keys = collectModelKeys(p);
+    const auto materials = collectMaterialPaths(p);
+
+    auto binPathOf = [](std::string path) {
+        // res/models/x.obj on the host lands as models/x.obj in bin/
+        if (path.rfind("res/", 0) == 0) path = path.substr(4);
+        return path;
+    };
+
+    // A CollisionMesh is only built for models some object collides with in
+    // mesh mode - box-only models skip the memory and build time.
+    std::vector<bool> needsCollider(keys.size(), false);
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects) {
+            if (o.type != PrimitiveType::Model || o.collisionMode != 1) continue;
+            for (size_t m = 0; m < keys.size(); ++m)
+                if (keys[m].first == o.modelPath && keys[m].second == o.materialPath)
+                    needsCollider[m] = true;
+        }
 
     std::ostringstream out;
     out << "// Generated by tyra-editor. Do not edit - regenerated on every build.\n"
            "#pragma once\n\nnamespace "
-        << ns
-        << " {\n\n"
-           "struct ModelData {\n"
-           "  const float* verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v\n"
-           "  int vertexCount;\n"
-           "};\n\n"
-        << "constexpr int MODEL_COUNT = " << paths.size() << ";\n\n";
-
-    for (size_t m = 0; m < paths.size(); ++m) {
-        std::vector<float> data;
-        const bool ok =
-            objparser::load((std::filesystem::path(p.dir) / paths[m]).string(), data);
-        int vertexCount = ok ? (int)(data.size() / 8) : 0;
-        if (vertexCount > kMaxTris * 3) {
-            out << "// " << paths[m] << ": truncated from " << vertexCount / 3 << " to "
-                << kMaxTris << " triangles\n";
-            vertexCount = kMaxTris * 3;
-        }
-        out << "// " << paths[m] << (ok ? "" : " (missing or unparseable)") << "\n";
-        out << "constexpr float MODEL_" << m << "_VERTS[] = {";
-        for (int i = 0; i < vertexCount * 8; ++i) {
-            if (i % 8 == 0) out << "\n    ";
-            out << floatLit(data[i]) << ",";
-        }
-        if (vertexCount == 0) out << "0.0F";  // avoid empty array
-        out << "\n};\nconstexpr int MODEL_" << m << "_COUNT = " << vertexCount << ";\n\n";
-    }
-
-    out << "inline const ModelData MODELS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {\n";
-    if (paths.empty()) {
-        out << "    {nullptr, 0},\n";
+        << ns << " {\n\n"
+        << "constexpr int MODEL_COUNT = " << keys.size() << ";\n"
+        << "inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {\n";
+    if (keys.empty()) {
+        out << "    \"\",\n";
     } else {
-        for (size_t m = 0; m < paths.size(); ++m)
-            out << "    {MODEL_" << m << "_VERTS, MODEL_" << m << "_COUNT},\n";
+        for (const auto& key : keys) out << "    \"" << binPathOf(key.first) << "\",\n";
+    }
+    out << "};\n"
+           "// per-model .mtl override (\"\" = the model's own material libraries)\n"
+           "inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {\n";
+    if (keys.empty()) {
+        out << "    \"\",\n";
+    } else {
+        for (const auto& key : keys)
+            out << "    \"" << (key.second.empty() ? "" : binPathOf(key.second))
+                << "\",\n";
+    }
+    out << "};\n"
+           "constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {";
+    if (keys.empty()) {
+        out << "false";
+    } else {
+        for (size_t m = 0; m < keys.size(); ++m)
+            out << (m ? ", " : "") << (needsCollider[m] ? "true" : "false");
+    }
+    out << "};\n\n"
+        << "// .mtl libraries assigned to primitives (first material = surface)\n"
+        << "constexpr int MATERIAL_COUNT = " << materials.size() << ";\n"
+        << "inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {\n";
+    if (materials.empty()) {
+        out << "    \"\",\n";
+    } else {
+        for (const auto& path : materials) out << "    \"" << binPathOf(path) << "\",\n";
     }
     out << "};\n\n}  // namespace " << ns << "\n";
     return out.str();

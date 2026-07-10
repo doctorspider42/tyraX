@@ -10,8 +10,8 @@ struct SceneObjectData {
   float scale[3];
   float color[3];  // 0..1
   int physics;  // 1 = falls with gravity
-  int model;    // index into MODELS (model_data.gen.hpp), -1 = none
-  int texture;  // index into TEXTURE_PATHS (texture_data.gen.hpp), -1 = none
+  int model;    // index into MODEL_PATHS / gameModels, -1 = none
+  int material; // primitives: index into MATERIAL_PATHS, -1 = plain color
   int usable;   // 1 = shows the USE prompt up close (see controls.hpp)
   int emitKind;   // emitters: 0 fire, 1 smoke, 2 fog, 3 sparks
   int emitCount;  // emitters: particle pool size
@@ -20,17 +20,21 @@ struct SceneObjectData {
   int sndAuto;    // sound emitters: 1 = plays while in range
   float sndRange;    // sound emitters: audible distance
   float sndInterval; // sound emitters: retrigger period (s), 0 = loop
+  int sndOnPlayer;   // sound emitters: 1 = centered on the player
+                     // (plain stereo, full volume, no distance/pan)
   float lightBright; // point lights (type 9): baked intensity
   float lightRadius; // point lights (type 9): falloff radius
+  int saveState;  // 1 = position/color/visibility persisted in saves
+  int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none
 };
 
 constexpr int SCENE_COUNT = 1;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[3] = {
-    {4, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, -1, 1, 15.0F, 0.0F, 1.0F, 8.0F},  // spawn-1
-    {0, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.8F, 0.35F, 0.25F}, 0, -1, -1, 0, 0, 24, 0.5F, -1, 1, 15.0F, 0.0F, 1.0F, 8.0F},  // box-1
-    {5, {-7.0F, 0.0F, 9.0F}, {0.0F, 30.0F, 0.0F}, {2.5F, 2.5F, 2.5F}, {0.9F, 0.85F, 0.7F}, 0, 0, -1, 0, 0, 24, 0.5F, -1, 1, 15.0F, 0.0F, 1.0F, 8.0F},  // house-1
+    {4, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0},  // spawn-1
+    {0, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.8F, 0.35F, 0.25F}, 0, -1, -1, 0, 0, 24, 0.5F, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0},  // box-1
+    {5, {-7.0F, 0.0F, 9.0F}, {0.0F, 30.0F, 0.0F}, {2.5F, 2.5F, 2.5F}, {0.9F, 0.85F, 0.7F}, 0, 0, -1, 0, 0, 24, 0.5F, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0},  // house-1
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {3};
@@ -58,5 +62,88 @@ constexpr float SCENE_LIGHT_COL_RS[SCENE_COUNT] = {1.0F};
 constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {1.0F};
 constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {1.0F};
 constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {1.0F};
+constexpr bool CLIP_PRECISES[SCENE_COUNT] = {true};
+constexpr float SKY_RS[SCENE_COUNT] = {63.75F};
+constexpr float SKY_GS[SCENE_COUNT] = {140.25F};
+constexpr float SKY_BS[SCENE_COUNT] = {198.9F};
+constexpr bool SKY_DOMES[SCENE_COUNT] = {true};
+constexpr float SKY_TOP_RS[SCENE_COUNT] = {20.4F};
+constexpr float SKY_TOP_GS[SCENE_COUNT] = {76.5F};
+constexpr float SKY_TOP_BS[SCENE_COUNT] = {165.75F};
+constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {0};
+constexpr int POSTFX_GRAINS[SCENE_COUNT] = {0};
+constexpr bool HIGHLIGHT_USABLES[SCENE_COUNT] = {false};
+constexpr float HIGHLIGHT_DISTANCES[SCENE_COUNT] = {6.0F};
+constexpr float HIGHLIGHT_RS[SCENE_COUNT] = {255.0F};
+constexpr float HIGHLIGHT_GS[SCENE_COUNT] = {216.75F};
+constexpr float HIGHLIGHT_BS[SCENE_COUNT] = {38.25F};
+constexpr float HIGHLIGHT_WIDTHS[SCENE_COUNT] = {0.35F};
+constexpr int HIGHLIGHT_STEPS_S[SCENE_COUNT] = {4};
+
+constexpr int SAVE_VALUE_COUNT = 0;
+inline const char* SAVE_VALUE_NAMES[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {""};
+constexpr float SAVE_VALUE_DEFAULTS[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {0.0F};
+constexpr int SAVE_OBJECT_MAX = 3;
 
 }  // namespace Script_demo
+
+// Index of the scene the game is currently in (defined in the game cpp).
+extern int g_activeScene;
+
+// Wall-clock normalization (defined in the game cpp, set at init from the
+// video mode): the game logic is tuned per-frame at PAL's 50 Hz, so on a
+// 60 Hz NTSC signal every per-frame step is multiplied by g_frameScale
+// (50/60) to cover the same distance per real second. g_frameDt is the real
+// seconds-per-frame for code that works in units/s.
+extern float g_frameRate;   // vsync rate: 50 (PAL) or 60 (NTSC)
+extern float g_frameDt;     // 1 / g_frameRate
+extern float g_frameScale;  // 50 / g_frameRate
+// Frames per `seconds` of wall-clock time (>= 1), for frame-counter timers.
+inline int everyFrames(float seconds) {
+  const int f = (int)(seconds * g_frameRate);
+  return f < 1 ? 1 : f;
+}
+#define SCENE_OBJECT_COUNT SCENE_OBJECT_COUNTS[g_activeScene]
+#define SCENE_OBJECTS SCENE_OBJECT_TABLES[g_activeScene]
+#define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
+#define PLAYER_MODE PLAYER_MODES[g_activeScene]
+#define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[g_activeScene]
+#define PLAYER_LOOK_SPEED PLAYER_LOOK_SPEEDS[g_activeScene]
+#define PLAYER_EYE_HEIGHT PLAYER_EYE_HEIGHTS[g_activeScene]
+#define PLAYER_JUMP_SPEED PLAYER_JUMP_SPEEDS[g_activeScene]
+#define PLAYER_CAN_JUMP PLAYER_CAN_JUMPS[g_activeScene]
+#define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
+#define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
+#define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]
+#define SCENE_LIGHT_Y SCENE_LIGHT_YS[g_activeScene]
+#define SCENE_LIGHT_Z SCENE_LIGHT_ZS[g_activeScene]
+#define SCENE_AMBIENT SCENE_AMBIENTS[g_activeScene]
+#define SCENE_DIFFUSE SCENE_DIFFUSES[g_activeScene]
+#define SCENE_LIGHT_COL_R SCENE_LIGHT_COL_RS[g_activeScene]
+#define SCENE_LIGHT_COL_G SCENE_LIGHT_COL_GS[g_activeScene]
+#define SCENE_LIGHT_COL_B SCENE_LIGHT_COL_BS[g_activeScene]
+#define SCENE_BRIGHTNESS SCENE_BRIGHTNESSES[g_activeScene]
+#define HM_W HM_WS[g_activeScene]
+#define HM_D HM_DS[g_activeScene]
+#define TERRAIN_HEIGHTS TERRAIN_HEIGHTS_TABLES[g_activeScene]
+#define TERRAIN_TEXTURE TERRAIN_TEXTURES[g_activeScene]
+#define TERRAIN_TEX_SCALE TERRAIN_TEX_SCALES[g_activeScene]
+// Per-scene sky / clipping / post-FX / usable-highlight (Scene > Preferences)
+#define CLIP_PRECISE CLIP_PRECISES[g_activeScene]
+#define SKY_R SKY_RS[g_activeScene]
+#define SKY_G SKY_GS[g_activeScene]
+#define SKY_B SKY_BS[g_activeScene]
+#define SKY_DOME SKY_DOMES[g_activeScene]
+#define SKY_TOP_R SKY_TOP_RS[g_activeScene]
+#define SKY_TOP_G SKY_TOP_GS[g_activeScene]
+#define SKY_TOP_B SKY_TOP_BS[g_activeScene]
+#define POSTFX_BLOOM POSTFX_BLOOMS[g_activeScene]
+#define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
+#define HIGHLIGHT_USABLE HIGHLIGHT_USABLES[g_activeScene]
+#define HIGHLIGHT_DISTANCE HIGHLIGHT_DISTANCES[g_activeScene]
+#define HIGHLIGHT_R HIGHLIGHT_RS[g_activeScene]
+#define HIGHLIGHT_G HIGHLIGHT_GS[g_activeScene]
+#define HIGHLIGHT_B HIGHLIGHT_BS[g_activeScene]
+#define HIGHLIGHT_WIDTH HIGHLIGHT_WIDTHS[g_activeScene]
+#define HIGHLIGHT_STEPS HIGHLIGHT_STEPS_S[g_activeScene]
+#define terrainHeightAt(x, z) terrainHeightAtScene(g_activeScene, (x), (z))

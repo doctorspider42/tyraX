@@ -8,10 +8,14 @@
 
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <sstream>
 
 #include "gl_loader.h"
 #include "menubake.hpp"
+#include "objparser.hpp"
 #include "templates.hpp"
+#include "wavconvert.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_PNG
@@ -36,7 +40,7 @@
 // Native pickers (IFileOpenDialog). pickFolder: FOS_PICKFOLDERS;
 // pickSolutionFile: file dialog filtered to *.tyra project files.
 // ---------------------------------------------------------------------------
-enum class PickKind { Folder, Solution, ObjModel, Png, Wav, Ttf, Executable };
+enum class PickKind { Folder, Solution, ObjModel, Mtl, Png, Wav, Ttf, Executable };
 
 // Owner window for the native dialogs. An unowned modal (Show(nullptr))
 // leaves the frozen GLFW window active behind it - Windows then wedges the
@@ -82,6 +86,10 @@ static std::string pickPath(PickKind kind) {
             return pickFileLegacy(
                 L"Wavefront model (*.obj)\0*.obj\0All files (*.*)\0*.*\0",
                 L"Import 3D model");
+        case PickKind::Mtl:
+            return pickFileLegacy(
+                L"Material library (*.mtl)\0*.mtl\0All files (*.*)\0*.*\0",
+                L"Import material library");
         case PickKind::Png:
             return pickFileLegacy(
                 L"PNG image (*.png)\0*.png\0All files (*.*)\0*.*\0",
@@ -131,6 +139,7 @@ static std::string pickPath(PickKind kind) {
 static std::string pickFolder() { return pickPath(PickKind::Folder); }
 static std::string pickSolutionFile() { return pickPath(PickKind::Solution); }
 static std::string pickModelFile() { return pickPath(PickKind::ObjModel); }
+static std::string pickMtlFile() { return pickPath(PickKind::Mtl); }
 static std::string pickPngFile() { return pickPath(PickKind::Png); }
 static std::string pickWavFile() { return pickPath(PickKind::Wav); }
 static std::string pickTtfFile() { return pickPath(PickKind::Ttf); }
@@ -151,38 +160,11 @@ static std::string sanitizeAssetName(const std::string& fileName) {
     return out;
 }
 
-// Reads the fmt chunk of a WAV file. Returns false when the file is not a
-// parseable RIFF/WAVE. audioFormat: 1 = integer PCM (the only thing the PS2
-// side streams), 3 = float, others = compressed.
+// WAV format inspection + in-place 16-bit conversion live in wavconvert.*.
 static bool readWavFormat(const std::string& path, int& audioFormat, int& channels,
                           int& sampleRate, int& bitsPerSample) {
-    std::ifstream f(path, std::ios::binary);
-    if (!f) return false;
-    char riff[12] = {};
-    if (!f.read(riff, 12) || std::memcmp(riff, "RIFF", 4) != 0 ||
-        std::memcmp(riff + 8, "WAVE", 4) != 0)
-        return false;
-    char header[8];
-    while (f.read(header, 8)) {
-        const uint32_t size = (uint8_t)header[4] | ((uint8_t)header[5] << 8) |
-                              ((uint8_t)header[6] << 16) | ((uint8_t)header[7] << 24);
-        if (std::memcmp(header, "fmt ", 4) == 0 && size >= 16) {
-            char fmt[40] = {};
-            const uint32_t want = size < sizeof(fmt) ? size : (uint32_t)sizeof(fmt);
-            if (!f.read(fmt, want)) return false;
-            audioFormat = (uint8_t)fmt[0] | ((uint8_t)fmt[1] << 8);
-            channels = (uint8_t)fmt[2] | ((uint8_t)fmt[3] << 8);
-            sampleRate = (uint8_t)fmt[4] | ((uint8_t)fmt[5] << 8) | ((uint8_t)fmt[6] << 16) |
-                         ((uint8_t)fmt[7] << 24);
-            bitsPerSample = (uint8_t)fmt[14] | ((uint8_t)fmt[15] << 8);
-            // WAVE_FORMAT_EXTENSIBLE: real format tag leads the sub-format GUID
-            if (audioFormat == 0xFFFE && size >= 40)
-                audioFormat = (uint8_t)fmt[24] | ((uint8_t)fmt[25] << 8);
-            return true;
-        }
-        f.seekg(size + (size & 1), std::ios::cur);
-    }
-    return false;
+    return wavconvert::readFormat(path, audioFormat, channels, sampleRate,
+                                  bitsPerSample);
 }
 
 // PS2 SPU2 has ~2 MB of sample RAM. Sound emitters load every sfx into it at
@@ -421,7 +403,10 @@ void App::drawMenuBar() {
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Scene", hasProject_)) {
-            drawAddObjectMenu();
+            if (ImGui::BeginMenu("Add")) {
+                drawAddObjectMenu();
+                ImGui::EndMenu();
+            }
             ImGui::Separator();
             if (ImGui::MenuItem("Scene Preferences...")) openScenePreferences();
             ImGui::EndMenu();
@@ -856,6 +841,7 @@ void App::drawProjectWindow() {
     }
 
     drawSceneSection();
+    drawAssetsSection();
     drawHudSection();
     drawMusicSection();
     drawSoundsSection();
@@ -988,6 +974,10 @@ void App::attachProject() {
         project_.windowLayout.find("[Window][Properties]") == std::string::npos;
     flowPositionsApplied_ = false;
     statusMessage_.clear();
+    wavIssueCache_.clear();
+    modelInfoCache_.clear();
+    // Pick up assets dropped into res/ by hand while the project was closed.
+    rescanAssets(false);
 }
 
 void App::addEmitter(int kind) {
@@ -1063,30 +1053,433 @@ void App::addObject(PrimitiveType type) {
     commitChange();
 }
 
-void App::importModel() {
+std::string App::importModelAsset() {
     const std::string src = pickModelFile();
-    if (src.empty()) return;
+    if (src.empty()) return "";
 
     const std::filesystem::path srcPath(src);
+    const std::filesystem::path srcDir = srcPath.parent_path();
     const std::string fileName = sanitizeAssetName(srcPath.filename().string());
     const std::filesystem::path destDir = std::filesystem::path(project_.dir) / "res" / "models";
+    std::error_code ec;
+    std::filesystem::create_directories(destDir, ec);
+
+    // Parse the source model to find its material libraries and textures -
+    // they get flattened next to the .obj in res/models/. Sanitized names may
+    // differ from the originals, so the mtllib/map_Kd references are rewritten
+    // while copying instead of copying the files verbatim.
+    objparser::Model parsed;
+    const bool parseOk = objparser::load(src, parsed);
+
+    // texture file (relative to the .obj) -> sanitized basename in res/models
+    std::map<std::string, std::string> textureNames;
+    for (const objparser::Submesh& s : parsed.submeshes)
+        if (!s.texture.empty())
+            textureNames.emplace(
+                s.texture,
+                sanitizeAssetName(std::filesystem::path(s.texture).filename().string()));
+    std::map<std::string, std::string> mtlNames;
+    for (const std::string& m : parsed.mtlLibs)
+        mtlNames.emplace(
+            m, sanitizeAssetName(std::filesystem::path(m).filename().string()));
+
+    int missing = 0;
+
+    // .obj: rewrite mtllib lines to the sanitized library names
+    {
+        std::ifstream in(srcPath);
+        std::ofstream out(destDir / fileName, std::ios::trunc);
+        if (!in || !out) {
+            statusMessage_ = "Model import failed: cannot copy " + fileName;
+            return "";
+        }
+        std::string line;
+        while (std::getline(in, line)) {
+            std::istringstream ss(line);
+            std::string tag;
+            ss >> tag;
+            if (tag == "mtllib") {
+                out << "mtllib";
+                std::string name;
+                while (ss >> name) out << " " << mtlNames[name];
+                out << "\n";
+            } else {
+                out << line << "\n";
+            }
+        }
+    }
+
+    // .mtl libraries: rewrite map_Kd to the sanitized (flattened) texture names
+    for (const auto& [mtlRef, mtlDest] : mtlNames) {
+        std::ifstream in(srcDir / mtlRef);
+        if (!in) {
+            ++missing;
+            continue;
+        }
+        std::ofstream out(destDir / mtlDest, std::ios::trunc);
+        if (!out) continue;
+        std::string line;
+        while (std::getline(in, line)) {
+            std::istringstream ss(line);
+            std::string tag;
+            ss >> tag;
+            if (tag == "map_Kd") {
+                std::string tok, last;
+                while (ss >> tok) last = tok;
+                for (char& c : last)
+                    if (c == '\\') c = '/';
+                auto it = textureNames.find(last);
+                out << "map_Kd " << (it != textureNames.end() ? it->second : last)
+                    << "\n";
+            } else {
+                out << line << "\n";
+            }
+        }
+    }
+
+    // referenced textures, flattened into res/models/
+    for (const auto& [texRef, texDest] : textureNames) {
+        std::filesystem::copy_file(srcDir / texRef, destDir / texDest,
+                                   std::filesystem::copy_options::overwrite_existing, ec);
+        if (ec) {
+            ++missing;
+            ec.clear();
+        }
+    }
+
+    modelInfoCache_.erase("res/models/" + fileName);
+    statusMessage_ = "Imported " + fileName;
+    if (!parseOk)
+        statusMessage_ += " (unparseable - it will render as a placeholder box)";
+    else if (!mtlNames.empty())
+        statusMessage_ += " + " + std::to_string(mtlNames.size()) + " mtl, " +
+                          std::to_string(textureNames.size()) + " texture(s)";
+    if (missing > 0)
+        statusMessage_ += " - " + std::to_string(missing) +
+                          " referenced file(s) missing next to the .obj";
+    return "res/models/" + fileName;
+}
+
+std::string App::importTextureAsset() {
+    const std::string src = pickPngFile();
+    if (src.empty()) return "";
+    const std::filesystem::path srcPath(src);
+    const std::string fileName = sanitizeAssetName(srcPath.filename().string());
+    const std::filesystem::path destDir =
+        std::filesystem::path(project_.dir) / "res" / "textures";
     std::error_code ec;
     std::filesystem::create_directories(destDir, ec);
     std::filesystem::copy_file(srcPath, destDir / fileName,
                                std::filesystem::copy_options::overwrite_existing, ec);
     if (ec) {
-        statusMessage_ = "Model import failed: " + ec.message();
-        return;
+        statusMessage_ = "Texture import failed: " + ec.message();
+        return "";
+    }
+    statusMessage_ = "Imported " + fileName;
+    return "res/textures/" + fileName;
+}
+
+// Imports a universal .mtl into res/materials: copies the library and every
+// map_Kd texture next to it, rewriting the references to the sanitized
+// (flattened) names - mirrors the model import.
+std::string App::importMaterialAsset() {
+    const std::string src = pickMtlFile();
+    if (src.empty()) return "";
+
+    const std::filesystem::path srcPath(src);
+    const std::filesystem::path srcDir = srcPath.parent_path();
+    const std::string fileName = sanitizeAssetName(srcPath.filename().string());
+    const std::filesystem::path destDir =
+        std::filesystem::path(project_.dir) / "res" / "materials";
+    std::error_code ec;
+    std::filesystem::create_directories(destDir, ec);
+
+    std::vector<objparser::MtlMaterial> parsed;
+    objparser::loadMtl(src, parsed);
+    std::map<std::string, std::string> textureNames;
+    for (const objparser::MtlMaterial& m : parsed)
+        if (!m.texture.empty())
+            textureNames.emplace(
+                m.texture,
+                sanitizeAssetName(std::filesystem::path(m.texture).filename().string()));
+
+    int missing = 0;
+    {
+        std::ifstream in(srcPath);
+        std::ofstream out(destDir / fileName, std::ios::trunc);
+        if (!in || !out) {
+            statusMessage_ = "Material import failed: cannot copy " + fileName;
+            return "";
+        }
+        std::string line;
+        while (std::getline(in, line)) {
+            std::istringstream ss(line);
+            std::string tag;
+            ss >> tag;
+            if (tag == "map_Kd") {
+                std::string tok, last;
+                while (ss >> tok) last = tok;
+                for (char& c : last)
+                    if (c == '\\') c = '/';
+                auto it = textureNames.find(last);
+                out << "map_Kd " << (it != textureNames.end() ? it->second : last)
+                    << "\n";
+            } else {
+                out << line << "\n";
+            }
+        }
+    }
+    for (const auto& [texRef, texDest] : textureNames) {
+        std::filesystem::copy_file(srcDir / texRef, destDir / texDest,
+                                   std::filesystem::copy_options::overwrite_existing, ec);
+        if (ec) {
+            ++missing;
+            ec.clear();
+        }
     }
 
+    modelInfoCache_.clear();  // material summaries may change
+    statusMessage_ = "Imported " + fileName + " (" +
+                     std::to_string(parsed.size()) + " material(s), " +
+                     std::to_string(textureNames.size()) + " texture(s))";
+    if (missing > 0)
+        statusMessage_ += " - " + std::to_string(missing) +
+                          " texture(s) missing next to the .mtl";
+    return "res/materials/" + fileName;
+}
+
+std::vector<std::string> App::listAssetFiles(const char* subdir, const char* ext) {
+    std::vector<std::string> files;
+    std::error_code ec;
+    const std::filesystem::path dir = std::filesystem::path(project_.dir) / "res" / subdir;
+    if (!std::filesystem::exists(dir, ec)) return files;
+    // recursive: assets may be organized into subfolders (res/models/props/...)
+    for (const auto& e : std::filesystem::recursive_directory_iterator(dir, ec)) {
+        if (!e.is_regular_file()) continue;
+        std::string fileExt = e.path().extension().string();
+        for (char& c : fileExt) c = (char)tolower((unsigned char)c);
+        if (fileExt == ext)
+            files.push_back(std::filesystem::relative(e.path(), dir, ec).generic_string());
+    }
+    return files;
+}
+
+// "Pick..." + popup over the PNGs in res/textures (terrain tiling textures -
+// objects are textured through materials instead). The Import item at the
+// bottom is the only file dialog for these.
+bool App::pickProjectTexture(const char* popupId, std::string& path) {
+    bool changed = false;
+    if (ImGui::SmallButton((std::string("Pick...##") + popupId).c_str()))
+        ImGui::OpenPopup(popupId);
+    if (ImGui::BeginPopup(popupId)) {
+        const std::vector<std::string> textures = listAssetFiles("textures", ".png");
+        for (const std::string& name : textures)
+            if (ImGui::MenuItem(name.c_str())) {
+                path = "res/textures/" + name;
+                changed = true;
+            }
+        if (textures.empty()) ImGui::TextDisabled("No textures in res/textures yet.");
+        ImGui::Separator();
+        if (ImGui::MenuItem("Import PNG...")) {
+            const std::string imported = importTextureAsset();
+            if (!imported.empty()) {
+                path = imported;
+                changed = true;
+            }
+        }
+        ImGui::EndPopup();
+    }
+    return changed;
+}
+
+const App::ModelInfo& App::modelInfo(const std::string& relPath,
+                                     const std::string& materialRel) {
+    const std::string key = relPath + "|" + materialRel;
+    auto it = modelInfoCache_.find(key);
+    if (it != modelInfoCache_.end()) return it->second;
+
+    ModelInfo info;
+    objparser::Model model;
+    const std::filesystem::path full = std::filesystem::path(project_.dir) / relPath;
+    const std::string overrideMtl =
+        materialRel.empty()
+            ? ""
+            : (std::filesystem::path(project_.dir) / materialRel).string();
+    if (objparser::load(full.string(), model, overrideMtl)) {
+        info.ok = true;
+        info.tris = model.vertexCount() / 3;
+        // texture paths resolve relative to the file that defined them: the
+        // override .mtl when one is assigned, the model otherwise
+        const std::filesystem::path texBase =
+            materialRel.empty()
+                ? full.parent_path()
+                : (std::filesystem::path(project_.dir) / materialRel).parent_path();
+        for (const objparser::Submesh& s : model.submeshes) {
+            const std::string name = s.material.empty() ? "(default)" : s.material;
+            ModelInfo::MaterialLine line;
+            if (s.texture.empty()) {
+                line.text = name + " (color)";
+            } else {
+                // flag textures that are not actually inside the project (the
+                // game would draw those parts untextured and warn)
+                std::error_code ec;
+                line.missing = !std::filesystem::exists(texBase / s.texture, ec);
+                line.text = name + " (" + s.texture + ")";
+                info.anyMissing |= line.missing;
+            }
+            info.materials.push_back(std::move(line));
+        }
+    }
+    return modelInfoCache_.emplace(key, std::move(info)).first->second;
+}
+
+// Summary of a standalone .mtl asset (Assets section / material combos).
+const App::ModelInfo& App::materialInfo(const std::string& relPath) {
+    const std::string key = "mtl:" + relPath;
+    auto it = modelInfoCache_.find(key);
+    if (it != modelInfoCache_.end()) return it->second;
+
+    ModelInfo info;
+    std::vector<objparser::MtlMaterial> materials;
+    const std::filesystem::path full = std::filesystem::path(project_.dir) / relPath;
+    if (objparser::loadMtl(full.string(), materials)) {
+        info.ok = true;
+        for (const objparser::MtlMaterial& m : materials) {
+            ModelInfo::MaterialLine line;
+            if (m.texture.empty()) {
+                line.text = m.name + " (color)";
+            } else {
+                std::error_code ec;
+                line.missing =
+                    !std::filesystem::exists(full.parent_path() / m.texture, ec);
+                line.text = m.name + " (" + m.texture + ")";
+                info.anyMissing |= line.missing;
+            }
+            info.materials.push_back(std::move(line));
+        }
+    }
+    return modelInfoCache_.emplace(key, std::move(info)).first->second;
+}
+
+std::vector<std::string> App::listMaterialAssets() {
+    std::vector<std::string> result;
+    for (const std::string& m : listAssetFiles("materials", ".mtl"))
+        result.push_back("res/materials/" + m);
+    for (const std::string& m : listAssetFiles("models", ".mtl"))
+        result.push_back("res/models/" + m);
+    return result;
+}
+
+// Material combo shared by every solid object. Lists the project's .mtl
+// assets (res/materials + the models' own libraries); primitives take the
+// file's first material, models use it as an override.
+bool App::drawMaterialCombo(SceneObject& o) {
+    const bool isModel = o.type == PrimitiveType::Model;
+    const char* noneLabel = isModel ? "(model's own)" : "<none - plain color>";
+    std::string current = o.materialPath.empty() ? noneLabel : o.materialPath;
+    if (current.rfind("res/", 0) == 0) current = current.substr(4);
+
+    bool changed = false;
+    if (ImGui::BeginCombo("Material", current.c_str())) {
+        if (ImGui::Selectable(noneLabel, o.materialPath.empty()) &&
+            !o.materialPath.empty()) {
+            o.materialPath.clear();
+            changed = true;
+        }
+        for (const std::string& rel : listMaterialAssets()) {
+            const std::string label = rel.substr(4);  // drop "res/"
+            if (ImGui::Selectable(label.c_str(), rel == o.materialPath) &&
+                rel != o.materialPath) {
+                o.materialPath = rel;
+                changed = true;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    return changed;
+}
+
+// Project-wide asset lists (models + textures), mirrored straight from res/
+// on every draw - hand-dropped files show up without any bookkeeping. The
+// Import... buttons are the only file dialogs; everything else picks from
+// these lists.
+void App::drawAssetsSection() {
+    if (!ImGui::CollapsingHeader("Assets")) return;
+
+    ImGui::TextDisabled("Models (res/models)");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Import .obj...")) importModelAsset();
+    const std::vector<std::string> models = listAssetFiles("models", ".obj");
+    for (const std::string& m : models) {
+        ImGui::Bullet();
+        ImGui::SameLine();
+        ImGui::TextUnformatted(m.c_str());
+        const ModelInfo& info = modelInfo("res/models/" + m);
+        if (info.ok) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("(%d tris, %d mat)", info.tris,
+                                (int)info.materials.size());
+            if (info.anyMissing) {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "missing textures!");
+                if (ImGui::IsItemHovered()) {
+                    ImGui::BeginTooltip();
+                    for (const ModelInfo::MaterialLine& line : info.materials)
+                        if (line.missing)
+                            ImGui::TextUnformatted((line.text + " - not found next to the .obj").c_str());
+                    ImGui::EndTooltip();
+                }
+            }
+        }
+    }
+    if (models.empty()) ImGui::TextDisabled("  none - Import or drop .obj files there.");
+
+    ImGui::TextDisabled("Materials (res/materials)");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Import .mtl...")) importMaterialAsset();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Universal material libraries: assign one to many\n"
+                          "objects (primitives use the first material, models\n"
+                          "override their own mtl). Textures are copied along.");
+    const std::vector<std::string> materials = listAssetFiles("materials", ".mtl");
+    for (const std::string& m : materials) {
+        ImGui::Bullet();
+        ImGui::SameLine();
+        ImGui::TextUnformatted(m.c_str());
+        const ModelInfo& info = materialInfo("res/materials/" + m);
+        if (info.ok) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("(%d material(s))", (int)info.materials.size());
+            if (ImGui::IsItemHovered()) {
+                ImGui::BeginTooltip();
+                for (const ModelInfo::MaterialLine& line : info.materials)
+                    ImGui::TextUnformatted(
+                        (line.text + (line.missing ? " - texture MISSING" : ""))
+                            .c_str());
+                ImGui::EndTooltip();
+            }
+            if (info.anyMissing) {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "missing textures!");
+            }
+        }
+    }
+    if (materials.empty())
+        ImGui::TextDisabled("  none - Import or drop .mtl files there.");
+}
+
+// Creates a scene object for a model that is already inside the project
+// (res/models/...) - the "no-copy" path used by the From-project menu and
+// after an import has placed the files.
+void App::addModelObject(const std::string& relPath) {
     SceneObject o;
     o.type = PrimitiveType::Model;
-    o.modelPath = "res/models/" + fileName;
+    o.modelPath = relPath;
     o.color[0] = o.color[1] = o.color[2] = 0.85f;
     o.position[1] = 0.0f;
 
     // unique name from the file name
-    std::string base = srcPath.stem().string();
+    std::string base = std::filesystem::path(relPath).stem().string();
     std::string name = base;
     for (int n = 2;; ++n) {
         bool taken = false;
@@ -1099,17 +1492,29 @@ void App::importModel() {
     project_.objects().push_back(std::move(o));
     selectedObject_ = (int)project_.objects().size() - 1;
     commitChange();
-    statusMessage_ = "Imported " + fileName;
 }
 
 // Categorized object palette, shared by the Scene menu and the "+ Add"
 // button in the Project panel.
 void App::drawAddObjectMenu() {
-    if (ImGui::BeginMenu("Simple")) {
-        if (ImGui::MenuItem("Box")) addObject(PrimitiveType::Box);
-        if (ImGui::MenuItem("Sphere")) addObject(PrimitiveType::Sphere);
-        if (ImGui::MenuItem("Cylinder")) addObject(PrimitiveType::Cylinder);
-        if (ImGui::MenuItem("Cone")) addObject(PrimitiveType::Cone);
+    if (ImGui::BeginMenu("Object")) {
+        if (ImGui::BeginMenu("Simple")) {
+            if (ImGui::MenuItem("Box")) addObject(PrimitiveType::Box);
+            if (ImGui::MenuItem("Sphere")) addObject(PrimitiveType::Sphere);
+            if (ImGui::MenuItem("Cylinder")) addObject(PrimitiveType::Cylinder);
+            if (ImGui::MenuItem("Cone")) addObject(PrimitiveType::Cone);
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Model")) {
+            // Only models already inside the project (res/models) - importing
+            // new ones lives in Project > Assets.
+            const std::vector<std::string> models = listAssetFiles("models", ".obj");
+            for (const std::string& m : models)
+                if (ImGui::MenuItem(m.c_str())) addModelObject("res/models/" + m);
+            if (models.empty())
+                ImGui::TextDisabled("No models - Import one in Project > Assets.");
+            ImGui::EndMenu();
+        }
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Gameplay")) {
@@ -1131,10 +1536,6 @@ void App::drawAddObjectMenu() {
     }
     if (ImGui::BeginMenu("Lighting")) {
         if (ImGui::MenuItem("Point light")) addPointLight();
-        ImGui::EndMenu();
-    }
-    if (ImGui::BeginMenu("Custom")) {
-        if (ImGui::MenuItem("3D model (.obj)...")) importModel();
         ImGui::EndMenu();
     }
 }
@@ -1233,7 +1634,45 @@ void App::drawPropertiesWindow() {
         ImGui::TextUnformatted(typeLabel(o.type));
     }
     if (o.type == PrimitiveType::Model) {
-        ImGui::TextDisabled("Model: %s", o.modelPath.empty() ? "<none>" : o.modelPath.c_str());
+        // model file: pick among the project's res/models assets
+        const std::string current = o.modelPath.empty()
+                                        ? "<none>"
+                                        : std::filesystem::path(o.modelPath)
+                                              .filename()
+                                              .string();
+        if (ImGui::BeginCombo("Model", current.c_str())) {
+            const std::vector<std::string> models = listAssetFiles("models", ".obj");
+            for (const std::string& m : models) {
+                const std::string rel = "res/models/" + m;
+                if (ImGui::Selectable(m.c_str(), rel == o.modelPath) &&
+                    rel != o.modelPath) {
+                    o.modelPath = rel;
+                    committed = true;
+                }
+            }
+            if (models.empty())
+                ImGui::TextDisabled("No models - Import one in Project > Assets.");
+            ImGui::EndCombo();
+        }
+        // materials come from the .obj's MTL file (or the assigned override)
+        // - read-only summary
+        const ModelInfo& info = modelInfo(o.modelPath, o.materialPath);
+        if (info.ok) {
+            ImGui::TextDisabled("%d triangles, materials (from .mtl):", info.tris);
+            for (const ModelInfo::MaterialLine& m : info.materials) {
+                if (m.missing)
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                       "  - %s - MISSING", m.text.c_str());
+                else
+                    ImGui::TextDisabled("  - %s", m.text.c_str());
+            }
+            if (info.anyMissing)
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                   "Missing textures render as plain color - put the\n"
+                                   "files next to the .obj (paths are relative to it).");
+        } else if (!o.modelPath.empty()) {
+            ImGui::TextDisabled("Model file missing/unparseable - renders as a box.");
+        }
     }
 
     ImGui::DragFloat3("Position", o.position, 0.1f);
@@ -1255,35 +1694,22 @@ void App::drawPropertiesWindow() {
     }
 
     if (isSolid) {
-        // Texture (PNG modulated by the object color; white color = plain texture)
-        ImGui::TextDisabled("Texture: %s",
-                            o.texturePath.empty() ? "<none>" : o.texturePath.c_str());
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Set...")) {
-            const std::string src = pickPngFile();
-            if (!src.empty()) {
-                const std::filesystem::path srcPath(src);
-                const std::string fileName = sanitizeAssetName(srcPath.filename().string());
-                const std::filesystem::path destDir =
-                    std::filesystem::path(project_.dir) / "res" / "textures";
-                std::error_code ec;
-                std::filesystem::create_directories(destDir, ec);
-                std::filesystem::copy_file(srcPath, destDir / fileName,
-                                           std::filesystem::copy_options::overwrite_existing,
-                                           ec);
-                if (!ec) {
-                    o.texturePath = "res/textures/" + fileName;
-                    committed = true;
-                } else {
-                    statusMessage_ = "Texture import failed: " + ec.message();
-                }
-            }
-        }
-        if (!o.texturePath.empty()) {
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Clear##tex")) {
-                o.texturePath.clear();
-                committed = true;
+        // Material (.mtl asset): primitives take the file's first material
+        // (Kd + map_Kd on their UVs, modulated by the object color), models
+        // use it as an override replacing their own libraries.
+        if (drawMaterialCombo(o)) committed = true;
+        if (!o.materialPath.empty() && o.type != PrimitiveType::Model) {
+            const ModelInfo& mat = materialInfo(o.materialPath);
+            if (mat.ok && !mat.materials.empty()) {
+                const ModelInfo::MaterialLine& line = mat.materials.front();
+                if (line.missing)
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                       "%s - texture MISSING", line.text.c_str());
+                else
+                    ImGui::TextDisabled("%s", line.text.c_str());
+            } else {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                   "Material file missing/empty - plain color.");
             }
         }
 
@@ -1301,6 +1727,24 @@ void App::drawPropertiesWindow() {
         if (ImGui::Checkbox("Save state (position/color/visibility in saves)",
                             &o.saveState))
             committed = true;
+    }
+
+    // Player collision. Solid geometry only - markers/emitters never collide.
+    if (isSolid) {
+        if (o.type == PrimitiveType::Model) {
+            const char* modes[] = {"Box (mesh AABB)", "Mesh (walkable triangles)",
+                                   "None"};
+            if (ImGui::Combo("Collision", &o.collisionMode, modes, 3)) committed = true;
+            if (o.collisionMode == 1)
+                ImGui::TextDisabled("Player walks the model's surface (ramps, stairs).");
+        } else {
+            // primitives collide as their scale box or not at all
+            bool solid = o.collisionMode != 2;
+            if (ImGui::Checkbox("Collision (blocks the player)", &solid)) {
+                o.collisionMode = solid ? 0 : 2;
+                committed = true;
+            }
+        }
     }
 
     if (o.type == PrimitiveType::Emitter) {
@@ -2058,7 +2502,7 @@ void App::importHudImage() {
 void App::drawHudSection() {
     if (!ImGui::CollapsingHeader("HUD")) return;
 
-    if (ImGui::SmallButton("+ Image (PNG)")) importHudImage();
+    if (ImGui::SmallButton("Import image (PNG)...")) importHudImage();
     ImGui::SameLine();
     ImGui::Checkbox("Show in viewport", &showHudInEditor_);
 
@@ -2096,6 +2540,8 @@ void App::importMusicTrack() {
         statusMessage_ = "Music import failed: not a readable WAV file";
         return;
     }
+    // Formats the song player cannot stream (float/24/32-bit, compressed,
+    // out-of-range rates) are converted in place after the copy.
     std::string formatWarning;
     if (audioFormat != 1) {
         formatWarning = audioFormat == 3 ? "32-bit float WAV" : "compressed WAV";
@@ -2105,12 +2551,6 @@ void App::importMusicTrack() {
         formatWarning = std::to_string(channels) + "-channel WAV";
     } else if (rate < 11025 || rate > 48000) {
         formatWarning = std::to_string(rate) + " Hz sample rate";
-    }
-    if (!formatWarning.empty()) {
-        statusMessage_ = "Music import: " + formatWarning +
-                         " is not supported on PS2 - export the track as 16-bit PCM WAV, "
-                         "mono/stereo, 11-48 kHz (22050 Hz stereo recommended). "
-                         "Imported anyway, but it will play as noise.";
     }
 
     const std::filesystem::path srcPath(src);
@@ -2126,16 +2566,25 @@ void App::importMusicTrack() {
         return;
     }
 
+    std::string note = " (" + std::to_string(rate) + " Hz " + std::to_string(bits) +
+                       "-bit " + (channels == 1 ? "mono" : "stereo") + ")";
+    if (!formatWarning.empty()) {
+        std::string convErr;
+        const int targetRate = (rate >= 11025 && rate <= 48000) ? rate : 22050;
+        if (wavconvert::convertTo16(destDir / fileName, targetRate, convErr))
+            note = " - " + formatWarning + ", converted to 16-bit PCM " +
+                   std::to_string(targetRate) + " Hz";
+        else
+            note = " - WARNING: " + formatWarning + " is not playable on PS2 and the "
+                   "converter failed (" + convErr + "); it will play as noise";
+    }
+    wavIssueCache_.clear();
+
     const std::string relPath = "res/audio/" + fileName;
     bool exists = false;
     for (const std::string& m : project_.music) exists |= (m == relPath);
     if (!exists) project_.music.push_back(relPath);
-    const std::string status =
-        formatWarning.empty()
-            ? "Imported " + fileName + " (" + std::to_string(rate) + " Hz " +
-                  std::to_string(bits) + "-bit " + (channels == 1 ? "mono" : "stereo") + ")"
-            : statusMessage_;
-    saveAll(status.c_str());
+    saveAll(("Imported " + fileName + note).c_str());
 }
 
 // Removing an audio track: clear every flow node that referenced it (in all
@@ -2156,16 +2605,103 @@ static void removeAudioTrack(Project& p, const std::string& relPath, bool music)
     std::filesystem::remove(std::filesystem::path(p.dir) / relPath, ec);
 }
 
+// Mirrors res/audio and res/sfx into the project lists, so assets can be
+// dropped into the folders by hand (Explorer) instead of going through the
+// import dialogs. New files are added, entries whose file vanished are
+// removed like a manual delete (flow-node references cleared). Runs on
+// project open and from the Rescan buttons.
+void App::rescanAssets(bool announce) {
+    if (!hasProject_) return;
+    int added = 0, removed = 0;
+
+    auto scan = [&](const char* sub, std::vector<std::string>& list, bool music) {
+        for (size_t i = list.size(); i-- > 0;) {
+            std::error_code ec;
+            if (!std::filesystem::exists(std::filesystem::path(project_.dir) / list[i],
+                                         ec)) {
+                removeAudioTrack(project_, list[i], music);
+                list.erase(list.begin() + i);
+                ++removed;
+            }
+        }
+        std::error_code ec;
+        const std::filesystem::path dir =
+            std::filesystem::path(project_.dir) / "res" / sub;
+        if (!std::filesystem::exists(dir, ec)) return;
+        // recursive: subfolders are fine (res/sfx/steps/wood.wav)
+        for (const auto& e : std::filesystem::recursive_directory_iterator(dir, ec)) {
+            if (!e.is_regular_file()) continue;
+            std::string ext = e.path().extension().string();
+            for (char& c : ext) c = (char)tolower((unsigned char)c);
+            if (ext != ".wav") continue;
+            const std::string rel =
+                std::string("res/") + sub + "/" +
+                std::filesystem::relative(e.path(), dir, ec).generic_string();
+            bool known = false;
+            for (const std::string& s : list) known |= (s == rel);
+            if (!known) {
+                list.push_back(rel);
+                ++added;
+            }
+        }
+    };
+    scan("audio", project_.music, true);
+    scan("sfx", project_.sounds, false);
+    wavIssueCache_.clear();
+
+    if (added || removed) {
+        const std::string status = "Assets rescan: " + std::to_string(added) +
+                                   " added, " + std::to_string(removed) + " removed";
+        commitChange();
+        statusMessage_ = status;
+    } else if (announce) {
+        statusMessage_ = "Assets rescan: no changes";
+    }
+}
+
+// Cached WAV-format check for the Music/Sounds lists (file IO once per file,
+// not every frame). Returns "" when the file is fine for its purpose.
+const std::string& App::wavIssue(const std::string& relPath, bool sfx) {
+    const std::string key = (sfx ? "s:" : "m:") + relPath;
+    auto it = wavIssueCache_.find(key);
+    if (it != wavIssueCache_.end()) return it->second;
+
+    std::string issue;
+    int audioFormat = 0, channels = 0, rate = 0, bits = 0;
+    const std::string full =
+        (std::filesystem::path(project_.dir) / relPath).string();
+    if (!readWavFormat(full, audioFormat, channels, rate, bits)) {
+        issue = "unreadable WAV";
+    } else if (sfx) {
+        if (audioFormat != 1 || rate != 22050 || bits != 16)
+            issue = std::string(audioFormat != 1 ? "non-PCM" : "") +
+                    (audioFormat == 1 ? std::to_string(bits) + "-bit " +
+                                            std::to_string(rate) + " Hz"
+                                      : "") +
+                    " - adpenc needs 16-bit 22050 Hz";
+    } else {
+        if (audioFormat != 1 || (bits != 8 && bits != 16) || channels > 2 ||
+            rate < 11025 || rate > 48000)
+            issue = "not streamable (needs 8/16-bit PCM, mono/stereo, 11-48 kHz)";
+    }
+    return wavIssueCache_.emplace(key, std::move(issue)).first->second;
+}
+
 void App::drawMusicSection() {
     if (!ImGui::CollapsingHeader("Music")) return;
 
-    if (ImGui::SmallButton("+ Track (WAV)")) importMusicTrack();
+    if (ImGui::SmallButton("Import WAV...##music")) importMusicTrack();
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Rescan##music")) rescanAssets(true);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Pick up WAVs dropped by hand into res/audio and res/sfx.");
     ImGui::SameLine();
     ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("16-bit PCM WAV, mono or stereo, 11-48 kHz\n"
-                          "(22050 Hz stereo recommended; float/24-bit will not play).\n"
-                          "Play via Flow Graph: On Start -> Play Music.");
+                          "(22050 Hz stereo recommended). Unplayable formats are\n"
+                          "converted at import; hand-dropped files get a Convert\n"
+                          "button. Play via Flow Graph: On Start -> Play Music.");
 
     bool changed = false;
     for (int i = 0; i < (int)project_.music.size(); ++i) {
@@ -2174,6 +2710,22 @@ void App::drawMusicSection() {
         ImGui::Bullet();
         ImGui::SameLine();
         ImGui::TextUnformatted(name.c_str());
+        const std::string& issue = wavIssue(project_.music[i], false);
+        if (!issue.empty()) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f), "!");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", issue.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Convert")) {
+                std::string err;
+                const std::filesystem::path full =
+                    std::filesystem::path(project_.dir) / project_.music[i];
+                statusMessage_ = wavconvert::convertTo16(full, 22050, err)
+                                     ? name + " converted to 16-bit PCM 22050 Hz"
+                                     : name + ": conversion failed - " + err;
+                wavIssueCache_.clear();
+            }
+        }
         ImGui::SameLine();
         if (ImGui::SmallButton("x")) {
             removeAudioTrack(project_, project_.music[i], true);
@@ -2193,30 +2745,11 @@ void App::importSoundEffect() {
     if (src.empty()) return;
 
     // adpenc (runs in the toolchain container at build) expects 16-bit PCM
-    // 22 kHz; it accepts mono and stereo.
+    // 22 kHz. Anything else is converted in place right after the copy.
     int audioFormat = 0, channels = 0, rate = 0, bits = 0;
     if (!readWavFormat(src, audioFormat, channels, rate, bits)) {
         statusMessage_ = "Sound import failed: not a readable WAV file";
         return;
-    }
-    std::string warning;
-    if (audioFormat != 1 || rate != 22050 || bits != 16) {
-        warning = "adpenc expects 16-bit PCM 22050 Hz, got " +
-                  std::string(audioFormat != 1 ? "non-PCM " : "") +
-                  std::to_string(bits) + "-bit " + std::to_string(rate) +
-                  " Hz (may convert wrong)";
-    }
-
-    // Warn if the sample cannot fit SPU2's sample RAM - sound emitters load it
-    // there whole, so an oversized one-shot silently plays nothing in-game.
-    std::error_code szEc;
-    const uintmax_t wavBytes = std::filesystem::file_size(std::filesystem::path(src), szEc);
-    if (!szEc && estimateAdpcmBytes(wavBytes) > kSpu2SampleBudgetBytes) {
-        const std::string tooBig =
-            "~" + std::to_string(estimateAdpcmBytes(wavBytes) / (1024 * 1024)) +
-            " MB ADPCM exceeds SPU2's ~2 MB - too long for a sound emitter; use a "
-            "short clip (mono 22050 Hz) or the Music system for full tracks";
-        warning = warning.empty() ? tooBig : warning + "; " + tooBig;
     }
 
     const std::filesystem::path srcPath(src);
@@ -2231,20 +2764,48 @@ void App::importSoundEffect() {
         return;
     }
 
+    std::string warning;
+    if (audioFormat != 1 || rate != 22050 || bits != 16) {
+        std::string convErr;
+        if (!wavconvert::convertTo16(destDir / fileName, 22050, convErr))
+            warning = "adpenc expects 16-bit PCM 22050 Hz and the converter "
+                      "failed (" + convErr + ") - the sound may play wrong";
+    }
+    wavIssueCache_.clear();
+
+    // Warn if the sample cannot fit SPU2's sample RAM - sound emitters load it
+    // there whole, so an oversized one-shot silently plays nothing in-game.
+    // Sized from the converted file, not the source.
+    std::error_code szEc;
+    const uintmax_t wavBytes = std::filesystem::file_size(destDir / fileName, szEc);
+    if (!szEc && estimateAdpcmBytes(wavBytes) > kSpu2SampleBudgetBytes) {
+        const std::string tooBig =
+            "~" + std::to_string(estimateAdpcmBytes(wavBytes) / (1024 * 1024)) +
+            " MB ADPCM exceeds SPU2's ~2 MB - too long for a sound emitter; use a "
+            "short clip (mono 22050 Hz) or the Music system for full tracks";
+        warning = warning.empty() ? tooBig : warning + "; " + tooBig;
+    }
+
     const std::string relPath = "res/sfx/" + fileName;
     bool exists = false;
     for (const std::string& s : project_.sounds) exists |= (s == relPath);
     if (!exists) project_.sounds.push_back(relPath);
     const std::string status =
-        warning.empty() ? "Imported " + fileName
-                        : "Imported " + fileName + " - WARNING: " + warning;
+        (audioFormat != 1 || rate != 22050 || bits != 16) && warning.empty()
+            ? "Imported " + fileName + " - converted to 16-bit PCM 22050 Hz"
+        : warning.empty() ? "Imported " + fileName
+                          : "Imported " + fileName + " - WARNING: " + warning;
     saveAll(status.c_str());
 }
 
 void App::drawSoundsSection() {
     if (!ImGui::CollapsingHeader("Sounds")) return;
 
-    if (ImGui::SmallButton("+ Sound (WAV)")) importSoundEffect();
+    if (ImGui::SmallButton("Import WAV...##sfx")) importSoundEffect();
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Rescan##sfx")) rescanAssets(true);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Pick up WAVs dropped by hand into res/audio and res/sfx.");
     ImGui::SameLine();
     ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered())
@@ -2268,6 +2829,22 @@ void App::drawSoundsSection() {
         ImGui::Bullet();
         ImGui::SameLine();
         ImGui::TextUnformatted(name.c_str());
+        const std::string& issue = wavIssue(project_.sounds[i], true);
+        if (!issue.empty()) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f), "!");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", issue.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Convert")) {
+                std::string err;
+                const std::filesystem::path full =
+                    std::filesystem::path(project_.dir) / project_.sounds[i];
+                statusMessage_ = wavconvert::convertTo16(full, 22050, err)
+                                     ? name + " converted to 16-bit PCM 22050 Hz"
+                                     : name + ": conversion failed - " + err;
+                wavIssueCache_.clear();
+            }
+        }
         ImGui::SameLine();
         if (!ec) {
             const bool big = adpcm > kSpu2SampleBudgetBytes;
@@ -3842,21 +4419,7 @@ void App::drawPreferencesModal() {
         "Terrain texture: %s",
         prefSettings_.terrainTexture.empty() ? "<none>" : prefSettings_.terrainTexture.c_str());
     ImGui::SameLine();
-    if (ImGui::SmallButton("Set...##terrtex")) {
-        const std::string src = pickPngFile();
-        if (!src.empty()) {
-            const std::filesystem::path srcPath(src);
-            const std::string fileName = sanitizeAssetName(srcPath.filename().string());
-            const std::filesystem::path destDir =
-                std::filesystem::path(project_.dir) / "res" / "textures";
-            std::error_code ec;
-            std::filesystem::create_directories(destDir, ec);
-            std::filesystem::copy_file(srcPath, destDir / fileName,
-                                       std::filesystem::copy_options::overwrite_existing, ec);
-            if (!ec)
-                prefSettings_.terrainTexture = "res/textures/" + fileName;
-        }
-    }
+    pickProjectTexture("##pick_terrain_texture", prefSettings_.terrainTexture);
     if (!prefSettings_.terrainTexture.empty()) {
         ImGui::SameLine();
         if (ImGui::SmallButton("Clear##terrtex")) prefSettings_.terrainTexture.clear();
@@ -4033,21 +4596,7 @@ void App::drawScenePreferencesModal() {
         ImGui::TextDisabled("Texture: %s",
                             s.terrainTexture.empty() ? "<none>" : s.terrainTexture.c_str());
         ImGui::SameLine();
-        if (ImGui::SmallButton("Set...")) {
-            const std::string src = pickPngFile();
-            if (!src.empty()) {
-                const std::filesystem::path srcPath(src);
-                const std::string fileName = sanitizeAssetName(srcPath.filename().string());
-                const std::filesystem::path destDir =
-                    std::filesystem::path(project_.dir) / "res" / "textures";
-                std::error_code ec;
-                std::filesystem::create_directories(destDir, ec);
-                std::filesystem::copy_file(srcPath, destDir / fileName,
-                                           std::filesystem::copy_options::overwrite_existing, ec);
-                if (!ec)
-                    s.terrainTexture = "res/textures/" + fileName;
-            }
-        }
+        pickProjectTexture("##pick_scene_terrain_texture", s.terrainTexture);
         if (!s.terrainTexture.empty()) {
             ImGui::SameLine();
             if (ImGui::SmallButton("Clear")) s.terrainTexture.clear();

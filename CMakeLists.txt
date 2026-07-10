@@ -40,6 +40,7 @@ add_executable(tyra-editor
     src/save_assets.cpp
     src/templates.cpp
     src/viewport.cpp
+    src/wavconvert.cpp
     src/runner.cpp
     vendor/imguizmo/src/ImGuizmo.cpp
     vendor/imnodes/imnodes.cpp

@@ -172,8 +172,11 @@ static std::string objectJson(const SceneObject& o) {
         ", \"physics\": " + (o.physics ? "true" : "false") +
         (o.usable ? ", \"usable\": true" : "") +
         (o.saveState ? ", \"saveState\": true" : "") +
+        // collision: box is the default and stays implicit
+        (o.collisionMode == 1 ? ", \"collision\": \"mesh\""
+                              : o.collisionMode == 2 ? ", \"collision\": \"none\"" : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + o.modelPath + "\"") +
-        (o.texturePath.empty() ? "" : ", \"texture\": \"" + o.texturePath + "\"");
+        (o.materialPath.empty() ? "" : ", \"material\": \"" + o.materialPath + "\"");
     if (o.type == PrimitiveType::Player) {
         json += ", \"player\": { \"mode\": \"" +
                 std::string(o.playerMode == 1 ? "noclip" : "walk") +
@@ -697,8 +700,13 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             o.usable = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = jo.find("saveState"))
             o.saveState = v->type == json::Value::Type::Bool && v->boolean;
+        if (const auto* v = jo.find("collision")) {
+            const std::string mode = v->stringOr("box");
+            o.collisionMode = mode == "mesh" ? 1 : mode == "none" ? 2 : 0;
+        }
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
-        if (const auto* v = jo.find("texture")) o.texturePath = v->stringOr("");
+        if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
+        // pre-materials projects had a per-object "texture" PNG - dropped
         if (const auto* pl = jo.find("player")) {
             if (const auto* v = pl->find("mode"))
                 o.playerMode = v->stringOr("walk") == "noclip" ? 1 : 0;

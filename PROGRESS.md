@@ -9,6 +9,152 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (23) **Materials replace per-object textures** — the loose "slap a PNG on
+  an object" texture is gone; .mtl material libraries are the one texturing
+  mechanism. Every solid object gets a **Material combo** in Properties
+  listing the project's .mtl assets (a new `res/materials` folder for
+  universal libraries + the models' own mtls under `res/models`):
+  primitives take the file's FIRST material (Kd tint + map_Kd on their UVs,
+  still modulated by the object color), models use the assigned .mtl as an
+  **override** that replaces their own libraries (usemtl names resolve
+  against it) - one "walls" library can repaint/retexture many objects.
+  Data model: `SceneObject.texturePath` -> `materialPath` (old "texture"
+  keys are dropped on load). Codegen: models are keyed by the (obj, mtl)
+  PAIR (`MODEL_PATHS` + `MODEL_MTLS`), primitives get `MATERIAL_PATHS` +
+  `SceneObjectData.material`, and the game grew `loadMaterials()` (first
+  material of each library: Kd + probed map_Kd via the texture repository).
+  Engine: `LeanObjLoader::load` takes an optional override .mtl (replaces
+  mtllib/sibling; textures then resolve relative to the override) and a new
+  `LeanObjLoader::loadMtl` parses standalone libraries - both mirrored in
+  the editor's objparser. Editor: viewport draws primitive materials and
+  model overrides identically to the game; the Assets section swaps its
+  Textures list for **Materials** (res/materials, per-file material summary
+  + missing-texture flags, `Import .mtl...` copies the library with its
+  textures, references rewritten); `res/textures` survives only for the
+  tiled terrain texture (its Pick... popup gained the Import PNG... item).
+  Verified in PCSX2 (SW renderer, 50 FPS): a box assigned `walls.mtl`
+  renders brick-textured, and a model assigned `repaint.mtl` switches from
+  brick walls + dark roof to green walls + yellow roof (usemtl-name match);
+  the editor viewport shows the identical result, the Material combo and
+  the red MISSING flags in Properties. fpp + empty presets rebuilt clean in
+  Docker; sample regenerated.
+
+- (22) **Missing textures fail soft + are visible in the editor** — a model
+  whose .mtl referenced a texture that never made it into the project used to
+  kill the game at boot ("Failed to load ... png_loader.cpp:39" assert - the
+  texture repository trusts its callers). The generated game now probes every
+  texture file first (models AND the scene TEXTURE_PATHS): a missing one logs
+  a TYRA_WARN and the affected part draws in its Kd/object color. The editor
+  surfaces the problem instead of hiding it: the Properties material summary
+  paints missing textures red ("walls (textures/t.png) - MISSING" + a hint
+  that paths resolve relative to the .obj), and the Assets section flags such
+  models with a "missing textures!" marker (tooltip lists the paths).
+  Texture rows in Assets also got a hover thumbnail (PNG preview + size,
+  reusing the HUD texture cache). Verified: reproduced the crash scenario
+  (res/models/tower/tower.obj with map_Kd textures/t_C_3.png, no such file) -
+  the game now boots at 50 FPS with "Model texture missing:
+  models/tower/textures/t_C_3.png" in the game log; editor builds clean.
+
+- (21) **Sibling-.mtl matching, asset subfolders, Add-menu restructure** —
+  three usability follow-ups. **Implicit MTL**: a `.mtl` named like the `.obj`
+  next to it is picked up even without a `mtllib` line (the common exporter
+  convention); explicit mtllib files still parse afterwards and win on name
+  clashes. Implemented in BOTH parsers (editor `objparser` + engine
+  `LeanObjLoader` - they must stay in sync) and the import copies the implicit
+  library like an explicit one (sanitized stems keep matching). **Subfolders**:
+  asset listing/pickers (`listAssetFiles`) and the audio rescan are recursive,
+  so `res/models/props/tree.obj` or `res/sfx/steps/wood.wav` just work; the
+  Runner's adpenc loop covers two levels of sfx subfolders (glob fan-out - the
+  quoting-hostile docker/cmd pipeline rules out find) and the bin/sfx WAV
+  cleanup follows. Codegen/ISO paths already carried full relative paths.
+  **Menus**: the add palette starts with `Object -> Simple / Model` (instead
+  of a top-level Simple and a separate Model menu), and the top-bar Scene
+  menu nests everything under `Scene > Add`. Verified: parser host test (obj
+  without mtllib gets both materials from the sibling); PCSX2 run at 50 FPS
+  with mtllib stripped from the test house (bricks still textured = engine
+  sibling matching) plus a model under `res/models/props/` with its own
+  mtl+texture (loads clean - no LeanObjLoader warnings in the game log);
+  editor builds clean.
+
+- (20) **Pick-from-project asset flow + Assets section + MTL visibility** —
+  the object/terrain pickers no longer open file dialogs: textures pick from
+  `res/textures` (object texture, Project Preferences and Scene Preferences
+  terrain texture - all through one `pickProjectTexture()` popup), model
+  objects get a **Model combo** over `res/models`, sounds already picked from
+  the project list. Importing moved to one place: a new **Assets** section in
+  the Project panel lists `res/models` (with tri/material counts) and
+  `res/textures` straight from disk, with `Import .obj...` / `Import PNG...`
+  buttons (model import copies the .mtl + textures as before but no longer
+  auto-creates an object - add it from the Add menu's Model submenu, which now
+  only lists project models). The Music/Sounds/HUD import buttons are renamed
+  `Import...` so it is obvious they copy into the project. Since materials are
+  a property of the .obj/.mtl file (not of the object), the Properties panel
+  now shows a read-only summary for models: triangle count + each MTL material
+  with its map_Kd texture or "(color)". Verified: editor builds clean; GUI
+  screenshot shows the Assets section, the Model combo, the materials summary
+  ("walls (bricks.png), roof (color)" for the test house) and the Pick...
+  texture flow on the mtltest project.
+
+- (19) **Asset import rework: drop-into-res + rescan, in-editor WAV converter** —
+  assets no longer have to go through the import dialogs. WAVs dropped by hand
+  into `res/audio` / `res/sfx` are picked up by a rescan (runs on project open
+  + Rescan buttons in the Music/Sounds sections); entries whose file vanished
+  are removed like a manual delete (flow-node references cleared). The Add
+  palette's Custom menu lists `.obj` files already in `res/models` ("From
+  res/models", no copy), and the object Texture row gets a "Project..." picker
+  over `res/textures`. **WAV converter** (`src/wavconvert.cpp`): rewrites any
+  readable WAV (integer PCM 8/16/24/32-bit + 32-bit float, mono/stereo, box
+  low-pass on downsample) as 16-bit PCM **in place** - the project keeps one
+  copy of each asset instead of source+converted pairs. Sfx imports convert to
+  22050 Hz automatically; music converts only unplayable formats (float/24-bit
+  / out-of-range rates); hand-dropped files get a warning marker + Convert
+  button (format checks cached per file, not per frame). Also stopped shipping
+  dead weight: the Runner deletes `bin/sfx/*.wav` after adpenc (the Makefile's
+  `cp -r res/*` used to leave source WAVs next to the .adpcm, tripling each
+  sfx and landing on the ISO), and the ISO exporter skips `bin/log.txt`.
+  Verified: converter round-trips checked by a host harness (44.1k float
+  stereo, 8-bit 11k mono upsample, 24-bit 48k downsample - format + RMS of a
+  sine preserved; garbage rejected, original untouched); editor builds clean;
+  Rescan buttons + pickers visible in the GUI. Hands-on drop-a-file-and-rescan
+  pass left for a human.
+
+- (18) **MTL materials, runtime model loading and mesh collision** — models
+  went from "baked gray blob" to the full 2002 experience. **Engine** (new,
+  marked "Added by tyra-editor"): `LeanObjLoader` - a lightweight OBJ+MTL
+  loader (per-material split, Kd + map_Kd, flat per-face normals and V-flip
+  matching the editor parser 1:1, sequential reads - no fseek, all paths
+  through `FileUtils::fromCwd` so host: and cdrom0: both work);
+  `CollisionMesh` - triangle-soup collider with an XZ uniform grid
+  (raycast + resolveSphere with a walkable-slope filter); `Ray::intersectTriangle`
+  (Moller-Trumbore). Plus a real bug fix: `TyraDebug::writeInLogFile` opened
+  `cdrom0:LOG.TXT;1` for WRITE on every TYRA_LOG when booted from a disc image,
+  wedging the CDVD driver before the first frame - guarded to skip read-only
+  media (this had silently broken every ISO boot of a logging game).
+  **Editor**: `objparser` now reads mtllib/usemtl/Kd/map_Kd into per-material
+  submeshes + model AABB; the viewport renders one part per material (map_Kd
+  textures, Kd baked into vertex colors); model import copies the .mtl and its
+  textures next to the .obj, rewriting references to the sanitized names.
+  **Codegen**: `model_data.gen.hpp` no longer bakes vertices into the ELF
+  (3000-tri cap gone) - it emits `MODEL_PATHS` and the game loads models once
+  at startup via LeanObjLoader, one StaPip bag per material part (object
+  texture still overrides all parts), per-material textures de-duplicated
+  through the TextureRepository. **Collision modes** per object ("collision"
+  in the .tyra, combo/checkbox in properties): Box (default; models now use
+  their real mesh AABB instead of the unit scale box), Mesh (models: the
+  player walks the triangles - ground by a local-space downward raycast,
+  steep faces push a chest-height sphere out; honors full rotation + scale),
+  None (decoration). Both walkers (FPP template + Player entity) share one
+  `collidePlayer()`; emitters/markers no longer block the FPP player.
+  Verified: CollisionMesh host tests (12 asserts: ramp heights, wall push,
+  slope threshold, 2048-tri grid); editor + PCSX2 SW renderer at 50 FPS - two
+  houses with brick map_Kd walls + dark red Kd roof, one rotated 30 deg,
+  identical in the viewport; mesh collision proven numerically via TYRA_LOG
+  (teleport above the rotated house -> rests at exactly y=2 = roof; spawn
+  0.05 into a wall -> pushed out to the analytically predicted XZ to 5
+  decimals); ISO export boots from cdrom0: and renders (models + MTL + PNG
+  loaded from the disc). Interactive walk-into-walls pad feel left for a
+  human.
+
 - (17) **Two project presets + per-scene override of scene-visual settings** —
   tidy-up of project creation and preferences. **New project presets** cut from
   three (orbit / fpp / showcase) to two: `empty` (orbit camera, no objects) and
@@ -1061,9 +1207,9 @@ Each finished feature lands as its own commit.
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)
 - Object physics vs objects (stacking), player physics polish (pad feel)
-- Model picking uses the unit-box approximation (big models pick imprecisely)
+- Model picking uses the unit-box approximation (big models pick imprecisely -
+  the parser now exposes the real AABB, the viewport pick could use it)
 - HUD images draggable directly in the viewport
-- Textured models (.mtl/PNG) and textured terrain
 - Positional audio (volume falloff by distance to an object)
 - Compressed music streaming (SPU2-native ADPCM/VAG, ~3.5:1 vs 16-bit PCM) -
   needs a custom double-buffered SPU RAM streamer in the engine; audsrv only
