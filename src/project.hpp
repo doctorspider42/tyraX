@@ -71,6 +71,8 @@ struct SceneObject {
     bool soundAuto = true;      // play automatically while the player is in range
     float soundRange = 15.0f;   // world units; volume fades linearly to 0
     float soundInterval = 0.0f; // seconds between retriggers; 0 = loop seamlessly
+    bool soundOnPlayer = false; // plays centered on the player (plain stereo,
+                                // full volume, no distance/pan) - e.g. dialogs
 
     // Point light parameters (used when type == PointLight). The light color
     // is the shared `color` field above.
@@ -101,6 +103,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.emitterCount == b.emitterCount && a.emitterSize == b.emitterSize &&
            a.soundPath == b.soundPath && a.soundAuto == b.soundAuto &&
            a.soundRange == b.soundRange && a.soundInterval == b.soundInterval &&
+           a.soundOnPlayer == b.soundOnPlayer &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
            a.flowGraph == b.flowGraph;
 }

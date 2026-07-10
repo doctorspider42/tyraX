@@ -78,6 +78,7 @@ enum class FlowParamKind {
     SceneName,
     SaveValue,  // name of a Project::saveValues entry
     MenuName,   // name of a Project::menus entry
+    VarName,    // name of a flow variable (free text; created on first use)
 };
 
 struct FlowNodeType {
@@ -114,6 +115,11 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          FlowParamKind::None, true, true, false, false, false, false, true},
         {"EverySeconds", "Every N Seconds", "Triggers", true, FlowParamKind::None, 1,
          {"Seconds"}, FlowParamKind::None, false, true, false, false, false, false, true},
+        // Self: pure data node exposing the graph's owner as an object output.
+        // Object params already default to self when empty; this makes the
+        // reference explicit and wireable into any object pin.
+        {"Self", "Self", "Object", false, FlowParamKind::None, 0, {},
+         FlowParamKind::None, false, true, false, false, true},
         // Object actions (id in = target, id out = the same target)
         {"ShowObject", "Show Object", "Object", false, FlowParamKind::ObjectName, 0, {},
          FlowParamKind::None, true, true},
@@ -176,6 +182,26 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          true},
         {"OpenSaveMenu", "Open Save Menu", "Save", false, FlowParamKind::None, 0, {},
          FlowParamKind::None, false, false},
+        // Variables: named game-global values (one namespace per type - int,
+        // bool, position), zeroed at boot, kept across scene switches, NOT
+        // saved to the memory card (use Save data for persistence). Setters
+        // run on exec; Get Bool / Int At Least are pure bool sources for the
+        // logic gates, Get Position is a pure position source. A position
+        // link into Set Position overrides its X/Y/Z params (e.g. store an
+        // object's position via Get Position on it).
+        {"SetVarInt", "Set Int", "Variables", false, FlowParamKind::VarName, 1,
+         {"Value"}, FlowParamKind::None, false, false},
+        {"SetVarBool", "Set Bool", "Variables", false, FlowParamKind::VarName, 1,
+         {"Value"}, FlowParamKind::None, false, false},
+        {"SetVarPos", "Set Position", "Variables", false, FlowParamKind::VarName, 3,
+         {"X", "Y", "Z"}, FlowParamKind::None, false, false, true},
+        {"GetVarBool", "Get Bool", "Variables", false, FlowParamKind::VarName, 0, {},
+         FlowParamKind::None, false, false, false, false, true, false, true},
+        {"GetVarPos", "Get Position", "Variables", false, FlowParamKind::VarName, 0, {},
+         FlowParamKind::None, false, false, false, true, true},
+        {"VarAtLeast", "Int At Least", "Variables", false, FlowParamKind::VarName, 1,
+         {"Threshold"}, FlowParamKind::None, false, false, false, false, true, false,
+         true},
         // Menus (Project panel, "Menus"): open a baked menu from logic, and
         // react to menu entries with the "Flow event" action - On Menu Event
         // fires the frame such an entry is selected (also a bool source).

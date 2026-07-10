@@ -1152,7 +1152,8 @@ void TerrainGame::loadScene(int sceneIndex) {
 // panned left/right by the emitter's position relative to where the camera
 // faces (positional stereo). Interval 0 retriggers every frame: tryPlay() is
 // skipped while the channel is still busy, so the sample loops seamlessly.
-// Hide Object mutes the emitter.
+// sndOnPlayer emitters skip all of that: full volume, centered - they play
+// "on the player" wherever they are (dialogs, narration). Hide Object mutes.
 void TerrainGame::updateSoundEmitters() {
   if (sndSamples.empty()) return;
   if (sndTimers.size() != runtimeObjects.size())
@@ -1167,29 +1168,32 @@ void TerrainGame::updateSoundEmitters() {
       engine->audio.adpcm.setVolume(0, ch);
       continue;
     }
-    const float dx = o.data.position[0] - scriptCtx.playerPosition.x;
-    const float dy = o.data.position[1] - scriptCtx.playerPosition.y;
-    const float dz = o.data.position[2] - scriptCtx.playerPosition.z;
-    const float dist = sqrtf(dx * dx + dy * dy + dz * dz);
-    const float range = o.data.sndRange > 0.5F ? o.data.sndRange : 0.5F;
-    const int vol = dist >= range ? 0 : (int)(100.0F * (1.0F - dist / range));
-    // Pan: project the horizontal direction to the emitter onto the camera's
-    // screen-right axis; -100 = full left, +100 = full right. Screen-right is
-    // fwd x up = (-fwd.z, fwd.x) in this right-handed Y-up world - NOT the
-    // particle billboards' (fwd.z, -fwd.x), which is mirrored (billboard quads
-    // are symmetric so the sign never mattered there; ears notice).
-    Vec4 fwd = cameraLookAt - cameraPosition;
-    float rx = -fwd.z, rz = fwd.x;
-    const float rl = sqrtf(rx * rx + rz * rz);
+    int vol = 100;
     int pan = 0;
-    if (rl > 0.0001F) {
-      rx /= rl; rz /= rl;
-      const float ex = o.data.position[0] - cameraPosition.x;
-      const float ez = o.data.position[2] - cameraPosition.z;
-      const float el = sqrtf(ex * ex + ez * ez);
-      if (el > 0.0001F) {
-        pan = (int)(((ex * rx + ez * rz) / el) * 100.0F);
-        if (pan > 100) pan = 100; else if (pan < -100) pan = -100;
+    if (!o.data.sndOnPlayer) {
+      const float dx = o.data.position[0] - scriptCtx.playerPosition.x;
+      const float dy = o.data.position[1] - scriptCtx.playerPosition.y;
+      const float dz = o.data.position[2] - scriptCtx.playerPosition.z;
+      const float dist = sqrtf(dx * dx + dy * dy + dz * dz);
+      const float range = o.data.sndRange > 0.5F ? o.data.sndRange : 0.5F;
+      vol = dist >= range ? 0 : (int)(100.0F * (1.0F - dist / range));
+      // Pan: project the horizontal direction to the emitter onto the camera's
+      // screen-right axis; -100 = full left, +100 = full right. Screen-right is
+      // fwd x up = (-fwd.z, fwd.x) in this right-handed Y-up world - NOT the
+      // particle billboards' (fwd.z, -fwd.x), which is mirrored (billboard quads
+      // are symmetric so the sign never mattered there; ears notice).
+      Vec4 fwd = cameraLookAt - cameraPosition;
+      float rx = -fwd.z, rz = fwd.x;
+      const float rl = sqrtf(rx * rx + rz * rz);
+      if (rl > 0.0001F) {
+        rx /= rl; rz /= rl;
+        const float ex = o.data.position[0] - cameraPosition.x;
+        const float ez = o.data.position[2] - cameraPosition.z;
+        const float el = sqrtf(ex * ex + ez * ez);
+        if (el > 0.0001F) {
+          pan = (int)(((ex * rx + ez * rz) / el) * 100.0F);
+          if (pan > 100) pan = 100; else if (pan < -100) pan = -100;
+        }
       }
     }
     engine->audio.adpcm.setVolumeAndPan((u8)vol, (s8)pan, ch);
@@ -3222,6 +3226,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int sndAuto;    // sound emitters: 1 = plays while in range\n"
            "  float sndRange;    // sound emitters: audible distance\n"
            "  float sndInterval; // sound emitters: retrigger period (s), 0 = loop\n"
+           "  int sndOnPlayer;   // sound emitters: 1 = centered on the player\n"
+           "                     // (plain stereo, full volume, no distance/pan)\n"
            "  float lightBright; // point lights (type 9): baked intensity\n"
            "  float lightRadius; // point lights (type 9): falloff radius\n"
            "  int saveState;  // 1 = position/color/visibility persisted in saves\n"
@@ -3241,7 +3247,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << (objs.empty() ? (size_t)1 : objs.size()) << "] = {\n";
         if (objs.empty()) {
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
-                   "0, 0, 0.0F, -1, 0, 15.0F, 0.0F, 1.0F, 8.0F, 0},\n";
+                   "0, 0, 0.0F, -1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
                 for (size_t i = 0; i < p.sounds.size(); ++i)
@@ -3260,7 +3266,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << o.emitterCount << ", " << floatLit(o.emitterSize) << ", "
                     << soundIndexOf(o.soundPath) << ", " << (o.soundAuto ? 1 : 0)
                     << ", " << floatLit(o.soundRange) << ", "
-                    << floatLit(o.soundInterval) << ", " << floatLit(o.lightBright)
+                    << floatLit(o.soundInterval) << ", " << (o.soundOnPlayer ? 1 : 0)
+                    << ", " << floatLit(o.lightBright)
                     << ", " << floatLit(o.lightRadius) << ", " << (o.saveState ? 1 : 0)
                     << "},  // " << o.name << "\n";
             }
@@ -3602,12 +3609,62 @@ std::string flowGraphScript(const Project& p) {
         return -1;
     };
 
+    // Flow variables ("Variables" nodes): one shared namespace per type
+    // across every scene's graphs. Names resolve to indices into the
+    // flowInt/flowBool/flowPos arrays emitted below - a variable exists by
+    // being named on any Set/Get node.
+    std::vector<std::string> intVars, boolVars, posVars;
+    {
+        auto collect = [](std::vector<std::string>& v, const std::string& name) {
+            if (name.empty()) return;
+            for (const std::string& e : v)
+                if (e == name) return;
+            v.push_back(name);
+        };
+        for (const SceneData& sc : p.scenes)
+            for (const SceneObject& o : sc.objects)
+                for (const FlowNode& n : o.flowGraph.nodes) {
+                    if (n.type == "SetVarInt" || n.type == "VarAtLeast")
+                        collect(intVars, n.str);
+                    else if (n.type == "SetVarBool" || n.type == "GetVarBool")
+                        collect(boolVars, n.str);
+                    else if (n.type == "SetVarPos" || n.type == "GetVarPos")
+                        collect(posVars, n.str);
+                }
+    }
+    auto varIndex = [](const std::vector<std::string>& v, const std::string& name) {
+        for (size_t i = 0; i < v.size(); ++i)
+            if (v[i] == name) return (int)i;
+        return -1;
+    };
+    auto intLit = [](float f) { return std::to_string((long)std::lround(f)); };
+
     std::ostringstream out;
     out << "// Generated by tyra-editor from the per-object Flow Graphs. Do not\n"
            "// edit - regenerated on every build. Edit the graphs in the editor.\n"
            "#include \"scripts/script.hpp\"\n\n"
            "namespace "
         << ns << " {\n";
+
+    if (!intVars.empty() || !boolVars.empty() || !posVars.empty()) {
+        auto names = [](const std::vector<std::string>& v) {
+            std::string s;
+            for (size_t i = 0; i < v.size(); ++i) s += (i ? ", " : "") + v[i];
+            return s;
+        };
+        out << "\n// Flow variables (\"Variables\" nodes): shared by every graph,\n"
+               "// zeroed at boot, kept across scene switches, not saved to the\n"
+               "// memory card (use Save values for persistence).\n";
+        if (!intVars.empty())
+            out << "static int flowInt[" << intVars.size() << "] = {};  // "
+                << names(intVars) << "\n";
+        if (!boolVars.empty())
+            out << "static bool flowBool[" << boolVars.size() << "] = {};  // "
+                << names(boolVars) << "\n";
+        if (!posVars.empty())
+            out << "static float flowPos[" << posVars.size() << "][3] = {};  // "
+                << names(posVars) << "\n";
+    }
 
     std::ostringstream registrations;
     bool anyGraph = false;
@@ -3688,7 +3745,13 @@ std::string flowGraphScript(const Project& p) {
                     }
                 }
             }
-            if (n.type == "SetPosition")
+            if (n.type == "GetVarPos") {
+                const int vi = varIndex(posVars, n.str);
+                if (vi < 0) return {"0.0F", "0.0F", "0.0F"};
+                const std::string base = "flowPos[" + std::to_string(vi) + "][";
+                return {base + "0]", base + "1]", base + "2]"};
+            }
+            if (n.type == "SetPosition" || n.type == "SetVarPos")
                 return {floatLit(n.num[0]), floatLit(n.num[1]), floatLit(n.num[2])};
             const int idx = resolveTarget(n);
             if (idx < 0) return {"0.0F", "0.0F", "0.0F"};
@@ -3737,6 +3800,17 @@ std::string flowGraphScript(const Project& p) {
                 if (vi < 0) return "false";
                 return "(ctx.saveValues[" + std::to_string(vi) +
                        "] >= " + floatLit(n.num[0]) + ")";
+            }
+            if (n.type == "GetVarBool") {
+                const int vi = varIndex(boolVars, n.str);
+                if (vi < 0) return "false";
+                return "flowBool[" + std::to_string(vi) + "]";
+            }
+            if (n.type == "VarAtLeast") {
+                const int vi = varIndex(intVars, n.str);
+                if (vi < 0) return "false";
+                return "(flowInt[" + std::to_string(vi) + "] >= " + intLit(n.num[0]) +
+                       ")";
             }
             if (n.type == "OnMenuEvent") {
                 const int ei = menuEventIndex(n.str);
@@ -3961,6 +4035,33 @@ std::string flowGraphScript(const Project& p) {
                 }
             } else if (n.type == "OpenSaveMenu") {
                 c << pad << "ctx.openSaveMenu = true;\n";
+            } else if (n.type == "SetVarInt") {
+                const int vi = varIndex(intVars, n.str);
+                if (vi < 0) {
+                    c << pad << "// node " << n.id << " (SetVarInt): unnamed variable\n";
+                } else {
+                    c << pad << "flowInt[" << vi << "] = " << intLit(n.num[0])
+                      << ";  // \"" << n.str << "\"\n";
+                }
+            } else if (n.type == "SetVarBool") {
+                const int vi = varIndex(boolVars, n.str);
+                if (vi < 0) {
+                    c << pad << "// node " << n.id << " (SetVarBool): unnamed variable\n";
+                } else {
+                    c << pad << "flowBool[" << vi << "] = "
+                      << (n.num[0] != 0.0f ? "true" : "false") << ";  // \"" << n.str
+                      << "\"\n";
+                }
+            } else if (n.type == "SetVarPos") {
+                const int vi = varIndex(posVars, n.str);
+                if (vi < 0) {
+                    c << pad << "// node " << n.id << " (SetVarPos): unnamed variable\n";
+                } else {
+                    const auto e = posExpr(n);  // position link beats X/Y/Z params
+                    for (int a = 0; a < 3; ++a)
+                        c << pad << "flowPos[" << vi << "][" << a << "] = " << e[a]
+                          << ";" << (a == 0 ? "  // \"" + n.str + "\"" : "") << "\n";
+                }
             } else if (n.type == "OpenMenu") {
                 const int mi = menuIndexOf(n.str);
                 if (mi < 0) {

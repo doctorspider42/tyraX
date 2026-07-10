@@ -271,6 +271,14 @@ int App::run(const std::string& initialProjectDir) {
     while (!glfwWindowShouldClose(window_)) {
         glfwPollEvents();
 
+        // Deferred from attachProject(): the saved window layout can only be
+        // (re)applied between frames - existing windows get re-docked here.
+        if (layoutLoadPending_) {
+            layoutLoadPending_ = false;
+            ImGui::LoadIniSettingsFromMemory(project_.windowLayout.c_str(),
+                                             project_.windowLayout.size());
+        }
+
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
@@ -322,9 +330,12 @@ void App::drawUI() {
             ImGuiID center = dockspace;
             ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.24f, nullptr,
                                                        &center);
+            ImGuiID leftBottom = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.5f,
+                                                             nullptr, &left);
             ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.26f, nullptr,
                                                          &center);
             ImGui::DockBuilderDockWindow("Project", left);
+            ImGui::DockBuilderDockWindow("Properties", leftBottom);
             ImGui::DockBuilderDockWindow("Output", bottom);
             ImGui::DockBuilderDockWindow("Debug", bottom);
             ImGui::DockBuilderDockWindow("Flow Graph", center);
@@ -333,9 +344,25 @@ void App::drawUI() {
         }
     }
 
+    // Layouts saved before the Properties window existed: carve a slot for it
+    // under the Project panel once that panel has settled into its dock node.
+    if (dockPropertiesPending_) {
+        if (ImGuiWindow* proj = ImGui::FindWindowByName("Project")) {
+            if (proj->DockId != 0 && ImGui::DockBuilderGetNode(proj->DockId)) {
+                ImGuiID top = proj->DockId;
+                ImGuiID slot = ImGui::DockBuilderSplitNode(top, ImGuiDir_Down, 0.5f,
+                                                           nullptr, &top);
+                ImGui::DockBuilderDockWindow("Properties", slot);
+                ImGui::DockBuilderFinish(dockspace);
+            }
+            dockPropertiesPending_ = false;  // Project floating -> Properties floats too
+        }
+    }
+
     drawMenuBar();
     drawViewportWindow();
     drawProjectWindow();
+    drawPropertiesWindow();
     drawFlowGraphWindow();
     drawOutputWindow();
     drawDebugWindow();
@@ -793,38 +820,39 @@ void App::drawProjectWindow() {
     ImGui::SameLine(110);
     ImGui::TextUnformatted(project_.elfName().c_str());
 
-    ImGui::SeparatorText("Scenes");
-    if (ImGui::SmallButton("+ Scene")) {
-        openNewScenePopup_ = true;
-        newSceneError_.clear();
-    }
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Preferences...")) openScenePreferences();
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Each scene has its own objects and flow graphs.\n"
-                          "The game starts in the first scene; switch with the\n"
-                          "Switch Scene flow node. Terrain, HUD and audio are shared.");
-    for (int i = 0; i < (int)project_.scenes.size(); ++i) {
-        ImGui::PushID(i + 3000);
-        const std::string label =
-            project_.scenes[i].name + (i == 0 ? "  (start)" : "") + "##scene";
-        if (ImGui::Selectable(label.c_str(), project_.activeScene == i,
-                              ImGuiSelectableFlags_AllowOverlap) &&
-            project_.activeScene != i) {
-            project_.activeScene = i;
-            selectedObject_ = -1;
-            flowGraphObject_ = -1;
-            flowPositionsApplied_ = false;
-            applyProjectToViewport();  // terrain/lighting are per scene
+    if (ImGui::CollapsingHeader("Scenes", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (ImGui::SmallButton("+ Scene")) {
+            openNewScenePopup_ = true;
+            newSceneError_.clear();
         }
-        if (project_.scenes.size() > 1) {
-            ImGui::SameLine(ImGui::GetContentRegionMax().x - 22.0f);
-            // deletion is confirmed in a modal (objects + graphs go with it)
-            if (ImGui::SmallButton("x")) deleteScenePending_ = i;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Preferences...")) openScenePreferences();
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Each scene has its own objects and flow graphs.\n"
+                              "The game starts in the first scene; switch with the\n"
+                              "Switch Scene flow node. Terrain, HUD and audio are shared.");
+        for (int i = 0; i < (int)project_.scenes.size(); ++i) {
+            ImGui::PushID(i + 3000);
+            const std::string label =
+                project_.scenes[i].name + (i == 0 ? "  (start)" : "") + "##scene";
+            if (ImGui::Selectable(label.c_str(), project_.activeScene == i,
+                                  ImGuiSelectableFlags_AllowOverlap) &&
+                project_.activeScene != i) {
+                project_.activeScene = i;
+                selectedObject_ = -1;
+                flowGraphObject_ = -1;
+                flowPositionsApplied_ = false;
+                applyProjectToViewport();  // terrain/lighting are per scene
+            }
+            if (project_.scenes.size() > 1) {
+                ImGui::SameLine(ImGui::GetContentRegionMax().x - 22.0f);
+                // deletion is confirmed in a modal (objects + graphs go with it)
+                if (ImGui::SmallButton("x")) deleteScenePending_ = i;
+            }
+            ImGui::PopID();
         }
-        ImGui::PopID();
     }
 
     drawSceneSection();
@@ -861,7 +889,11 @@ void App::saveProject() {
     project_.selectedObject = selectedObject_;
     project_.gizmoOp = gizmoOp_;
     project_.viewMode = (int)viewport_.viewMode();
-    project_.windowLayout = ImGui::SaveIniSettingsToMemory();  // clears WantSave
+    // While a layout load is pending, the on-screen layout still belongs to
+    // the previously shown project - keep the stored one instead of clobbering
+    // the freshly opened project's docking with it.
+    if (!layoutLoadPending_)
+        project_.windowLayout = ImGui::SaveIniSettingsToMemory();  // clears WantSave
     if (auto err = project::save(project_); !err.empty())
         MessageBoxA(nullptr, err.c_str(), "Save Project", MB_ICONERROR | MB_OK);
 }
@@ -944,9 +976,16 @@ void App::attachProject() {
     const int viewMode =
         (project_.viewMode >= 0 && project_.viewMode <= 2) ? project_.viewMode : 0;
     viewport_.setViewMode((Viewport::ViewMode)viewMode);
-    if (!project_.windowLayout.empty())
-        ImGui::LoadIniSettingsFromMemory(project_.windowLayout.c_str(),
-                                         project_.windowLayout.size());
+    // Loading ImGui settings mid-frame is unsupported (the dock nodes rebuild
+    // while this frame's windows still reference the old ones, scattering the
+    // layout) - defer to the frame boundary in run().
+    layoutLoadPending_ = !project_.windowLayout.empty();
+    // Layouts saved before the Properties window existed: dock it under the
+    // Project panel once the deferred load has settled (drawUI waits for the
+    // Project window's dock node to be valid again).
+    dockPropertiesPending_ =
+        layoutLoadPending_ &&
+        project_.windowLayout.find("[Window][Properties]") == std::string::npos;
     flowPositionsApplied_ = false;
     statusMessage_.clear();
 }
@@ -1101,7 +1140,7 @@ void App::drawAddObjectMenu() {
 }
 
 void App::drawSceneSection() {
-    ImGui::SeparatorText("Scene objects");
+    if (!ImGui::CollapsingHeader("Scene objects", ImGuiTreeNodeFlags_DefaultOpen)) return;
 
     if (ImGui::Button("+ Add object"))
         ImGui::OpenPopup("##add_object");
@@ -1123,24 +1162,75 @@ void App::drawSceneSection() {
         ImGui::EndChild();
     }
 
-    if (selectedObject_ < 0 || selectedObject_ >= (int)project_.objects().size()) return;
+    if (selectedObject_ >= 0 && selectedObject_ < (int)project_.objects().size())
+        ImGui::TextDisabled("Edit the selection in the Properties window.");
+}
+
+// Display names for the Type field (primitiveTypeName() is the serialized
+// lowercase form, e.g. "spawn-point").
+static const char* typeLabel(PrimitiveType t) {
+    switch (t) {
+        case PrimitiveType::Box: return "Box";
+        case PrimitiveType::Sphere: return "Sphere";
+        case PrimitiveType::Cylinder: return "Cylinder";
+        case PrimitiveType::Cone: return "Cone";
+        case PrimitiveType::SpawnPoint: return "Spawn point";
+        case PrimitiveType::Model: return "3D model";
+        case PrimitiveType::Player: return "Player";
+        case PrimitiveType::Emitter: return "Particle emitter";
+        case PrimitiveType::SoundEmitter: return "Sound emitter";
+        case PrimitiveType::PointLight: return "Point light";
+        case PrimitiveType::SavePoint: return "Save point";
+    }
+    return "Object";
+}
+
+// Edits the object selected in the Project panel / viewport. Only fields the
+// game actually reads for the object's type are shown: markers (spawn point,
+// player, emitters, lights) have no geometry in the game, so texture,
+// rotation, physics and "usable" would be dead settings on them.
+void App::drawPropertiesWindow() {
+    ImGui::Begin("Properties");
+    if (!hasProject_) {
+        ImGui::TextDisabled("No project open.");
+        ImGui::End();
+        return;
+    }
+    if (selectedObject_ < 0 || selectedObject_ >= (int)project_.objects().size()) {
+        ImGui::TextDisabled("No object selected.\nPick one in the Project panel or in "
+                            "the viewport.");
+        ImGui::End();
+        return;
+    }
     SceneObject& o = project_.objects()[selectedObject_];
 
     // Edits apply live; a history snapshot is committed once per finished
     // interaction (slider released, text field defocused...).
     bool committed = false;
 
+    // Real geometry in the game: rendered, collidable, texturable.
+    const bool isShape =
+        o.type == PrimitiveType::Box || o.type == PrimitiveType::Sphere ||
+        o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone;
+    const bool isSolid =
+        isShape || o.type == PrimitiveType::Model || o.type == PrimitiveType::SavePoint;
+
     char nameBuf[128];
     std::snprintf(nameBuf, sizeof(nameBuf), "%s", o.name.c_str());
     if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) o.name = nameBuf;
     committed |= ImGui::IsItemDeactivatedAfterEdit();
 
-    int typeIdx = (int)o.type;
-    const char* typeNames[] = {"Box",         "Sphere", "Cylinder", "Cone",
-                               "Spawn point", "Model",  "Player"};
-    if (ImGui::Combo("Type", &typeIdx, typeNames, 7)) {
-        o.type = (PrimitiveType)typeIdx;
-        committed = true;
+    if (isShape) {
+        int typeIdx = (int)o.type;
+        const char* typeNames[] = {"Box", "Sphere", "Cylinder", "Cone"};
+        if (ImGui::Combo("Type", &typeIdx, typeNames, 4)) {
+            o.type = (PrimitiveType)typeIdx;
+            committed = true;
+        }
+    } else {
+        ImGui::Text("Type:");
+        ImGui::SameLine();
+        ImGui::TextUnformatted(typeLabel(o.type));
     }
     if (o.type == PrimitiveType::Model) {
         ImGui::TextDisabled("Model: %s", o.modelPath.empty() ? "<none>" : o.modelPath.c_str());
@@ -1148,21 +1238,66 @@ void App::drawSceneSection() {
 
     ImGui::DragFloat3("Position", o.position, 0.1f);
     committed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
-    committed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::DragFloat3("Scale", o.scale, 0.05f, 0.01f, 1000.0f);
-    committed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::ColorEdit3("Color", o.color);
-    committed |= ImGui::IsItemDeactivatedAfterEdit();
-
-    if (ImGui::Checkbox("Physics (falls with gravity)", &o.physics)) committed = true;
-    if (o.type == PrimitiveType::SavePoint) {
-        ImGui::TextDisabled("Always usable - USE opens the save menu.");
-    } else if (o.type != PrimitiveType::SpawnPoint && o.type != PrimitiveType::Player) {
-        if (ImGui::Checkbox("Usable (USE prompt + On Used trigger)", &o.usable))
-            committed = true;
+    if (isSolid) {
+        ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
-    if (o.type != PrimitiveType::SpawnPoint && o.type != PrimitiveType::Player) {
+    if (isSolid || o.type == PrimitiveType::Emitter) {
+        ImGui::DragFloat3("Scale", o.scale, 0.05f, 0.01f, 1000.0f);
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+    }
+    // Color: mesh tint for solids, particle tint for emitters, light color
+    // for point lights. Markers draw in fixed editor colors.
+    if (isSolid || o.type == PrimitiveType::Emitter ||
+        o.type == PrimitiveType::PointLight) {
+        ImGui::ColorEdit3("Color", o.color);
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+    }
+
+    if (isSolid) {
+        // Texture (PNG modulated by the object color; white color = plain texture)
+        ImGui::TextDisabled("Texture: %s",
+                            o.texturePath.empty() ? "<none>" : o.texturePath.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Set...")) {
+            const std::string src = pickPngFile();
+            if (!src.empty()) {
+                const std::filesystem::path srcPath(src);
+                const std::string fileName = sanitizeAssetName(srcPath.filename().string());
+                const std::filesystem::path destDir =
+                    std::filesystem::path(project_.dir) / "res" / "textures";
+                std::error_code ec;
+                std::filesystem::create_directories(destDir, ec);
+                std::filesystem::copy_file(srcPath, destDir / fileName,
+                                           std::filesystem::copy_options::overwrite_existing,
+                                           ec);
+                if (!ec) {
+                    o.texturePath = "res/textures/" + fileName;
+                    committed = true;
+                } else {
+                    statusMessage_ = "Texture import failed: " + ec.message();
+                }
+            }
+        }
+        if (!o.texturePath.empty()) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Clear##tex")) {
+                o.texturePath.clear();
+                committed = true;
+            }
+        }
+
+        if (ImGui::Checkbox("Physics (falls with gravity)", &o.physics)) committed = true;
+        if (o.type == PrimitiveType::SavePoint) {
+            ImGui::TextDisabled("Always usable - USE opens the save menu.");
+        } else if (ImGui::Checkbox("Usable (USE prompt + On Used trigger)", &o.usable)) {
+            committed = true;
+        }
+    }
+    // Show/Hide Object nodes toggle emitters/sounds too - their on/off state
+    // is worth saving; lights are baked at build, markers have no game state.
+    if (isSolid || o.type == PrimitiveType::Emitter ||
+        o.type == PrimitiveType::SoundEmitter) {
         if (ImGui::Checkbox("Save state (position/color/visibility in saves)",
                             &o.saveState))
             committed = true;
@@ -1202,13 +1337,24 @@ void App::drawSceneSection() {
         }
         if (ImGui::Checkbox("Autoplay (while the player is in range)", &o.soundAuto))
             committed = true;
-        ImGui::DragFloat("Range", &o.soundRange, 0.5f, 0.5f, 200.0f, "%.1f units");
-        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::Checkbox("Play on player (plain stereo, ignores position)",
+                            &o.soundOnPlayer))
+            committed = true;
+        if (!o.soundOnPlayer) {
+            ImGui::DragFloat("Range", &o.soundRange, 0.5f, 0.5f, 200.0f, "%.1f units");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
         ImGui::DragFloat("Interval", &o.soundInterval, 0.1f, 0.0f, 60.0f, "%.1f s");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::TextDisabled("Volume fades with distance to the player.\n"
-                            "Interval 0 loops the sample seamlessly; > 0\n"
-                            "retriggers it every N seconds. Hide Object mutes.");
+        if (o.soundOnPlayer) {
+            ImGui::TextDisabled("Plays centered at full volume everywhere -\n"
+                                "no distance falloff, no panning (dialogs,\n"
+                                "narration). Hide Object mutes.");
+        } else {
+            ImGui::TextDisabled("Volume fades with distance to the player.\n"
+                                "Interval 0 loops the sample seamlessly; > 0\n"
+                                "retriggers it every N seconds. Hide Object mutes.");
+        }
     }
 
     if (o.type == PrimitiveType::PointLight) {
@@ -1250,38 +1396,7 @@ void App::drawSceneSection() {
         ImGui::TextDisabled("Noclip: X up, Square down. Walk: X jumps.");
     }
 
-    // Texture (PNG modulated by the object color; white color = plain texture)
-    ImGui::TextDisabled("Texture: %s",
-                        o.texturePath.empty() ? "<none>" : o.texturePath.c_str());
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Set...")) {
-        const std::string src = pickPngFile();
-        if (!src.empty()) {
-            const std::filesystem::path srcPath(src);
-            const std::string fileName = sanitizeAssetName(srcPath.filename().string());
-            const std::filesystem::path destDir =
-                std::filesystem::path(project_.dir) / "res" / "textures";
-            std::error_code ec;
-            std::filesystem::create_directories(destDir, ec);
-            std::filesystem::copy_file(srcPath, destDir / fileName,
-                                       std::filesystem::copy_options::overwrite_existing,
-                                       ec);
-            if (!ec) {
-                o.texturePath = "res/textures/" + fileName;
-                committed = true;
-            } else {
-                statusMessage_ = "Texture import failed: " + ec.message();
-            }
-        }
-    }
-    if (!o.texturePath.empty()) {
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Clear##tex")) {
-            o.texturePath.clear();
-            committed = true;
-        }
-    }
-
+    ImGui::Separator();
     if (ImGui::Button("Delete object")) {
         project_.objects().erase(project_.objects().begin() + selectedObject_);
         selectedObject_ = -1;
@@ -1289,6 +1404,29 @@ void App::drawSceneSection() {
     }
 
     if (committed) commitChange();
+    ImGui::End();
+}
+
+std::vector<std::string> App::flowVarNames(const std::string& nodeType) const {
+    // int / bool / position variables live in separate namespaces
+    auto ns = [](const std::string& t) {
+        if (t == "SetVarInt" || t == "VarAtLeast") return 0;
+        if (t == "SetVarBool" || t == "GetVarBool") return 1;
+        if (t == "SetVarPos" || t == "GetVarPos") return 2;
+        return -1;
+    };
+    const int want = ns(nodeType);
+    std::vector<std::string> names;
+    if (want < 0) return names;
+    for (const SceneData& sc : project_.scenes)
+        for (const SceneObject& o : sc.objects)
+            for (const FlowNode& n : o.flowGraph.nodes) {
+                if (ns(n.type) != want || n.str.empty()) continue;
+                bool seen = false;
+                for (const std::string& e : names) seen |= (e == n.str);
+                if (!seen) names.push_back(n.str);
+            }
+    return names;
 }
 
 void App::drawFlowGraphWindow() {
@@ -1535,12 +1673,40 @@ void App::drawFlowGraphWindow() {
                     ImGui::TextDisabled("Add menus in the\nProject panel (Menus).");
                 ImGui::EndCombo();
             }
+        } else if (t->strKind == FlowParamKind::VarName) {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "%s", n.str.c_str());
+            if (ImGui::InputText("Variable", buf, sizeof(buf))) n.str = buf;
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            // Same-type variable names already used anywhere in the project
+            // (variables are game-global; picking beats retyping/typos).
+            const std::vector<std::string> known = flowVarNames(n.type);
+            if (!known.empty()) {
+                if (ImGui::SmallButton("Pick...")) ImGui::OpenPopup("##pickvar");
+                if (ImGui::BeginPopup("##pickvar")) {
+                    for (const std::string& name : known) {
+                        if (ImGui::Selectable(name.c_str(), name == n.str)) {
+                            n.str = name;
+                            changed = true;
+                        }
+                    }
+                    ImGui::EndPopup();
+                }
+            }
         }
+
+        if (n.type == "Self") ImGui::TextDisabled("(%s)", owner.name.c_str());
 
         // numeric params
         if (posLinked && t->posIn && t->numCount == 3) {
             // X/Y/Z come from the position link, the node's own params rest
             ImGui::TextDisabled("Position: from link");
+        } else if (n.type == "SetVarBool") {
+            bool v = n.num[0] != 0.0f;
+            if (ImGui::Checkbox("Value", &v)) {
+                n.num[0] = v ? 1.0f : 0.0f;
+                changed = true;
+            }
         } else if (t->numKind == FlowParamKind::Color) {
             ImGui::ColorEdit3("Color", n.num, ImGuiColorEditFlags_NoInputs);
             changed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -1801,6 +1967,7 @@ void App::drawFlowGraphWindow() {
                         if (!project_.music.empty()) n.str = project_.music.front();
                     }
                     if (std::string(t.key) == "SetMusicVolume") n.num[0] = 80.0f;
+                    if (std::string(t.key) == "SetVarBool") n.num[0] = 1.0f;
                     if (std::string(t.key) == "PlaySound") {
                         n.num[0] = 100.0f;  // volume
                         n.num[1] = -1.0f;   // channel: auto
@@ -1889,7 +2056,7 @@ void App::importHudImage() {
 }
 
 void App::drawHudSection() {
-    ImGui::SeparatorText("HUD");
+    if (!ImGui::CollapsingHeader("HUD")) return;
 
     if (ImGui::SmallButton("+ Image (PNG)")) importHudImage();
     ImGui::SameLine();
@@ -1990,7 +2157,7 @@ static void removeAudioTrack(Project& p, const std::string& relPath, bool music)
 }
 
 void App::drawMusicSection() {
-    ImGui::SeparatorText("Music");
+    if (!ImGui::CollapsingHeader("Music")) return;
 
     if (ImGui::SmallButton("+ Track (WAV)")) importMusicTrack();
     ImGui::SameLine();
@@ -2075,7 +2242,7 @@ void App::importSoundEffect() {
 }
 
 void App::drawSoundsSection() {
-    ImGui::SeparatorText("Sounds");
+    if (!ImGui::CollapsingHeader("Sounds")) return;
 
     if (ImGui::SmallButton("+ Sound (WAV)")) importSoundEffect();
     ImGui::SameLine();
@@ -2140,7 +2307,7 @@ void App::drawSoundsSection() {
 // nodes (Set/Add/Value At Least) reference them by name; the defaults are
 // the fresh-game state.
 void App::drawSaveDataSection() {
-    ImGui::SeparatorText("Save data");
+    if (!ImGui::CollapsingHeader("Save data")) return;
 
     if (ImGui::SmallButton("+ Value")) {
         // unique default name: value-1, value-2, ...
@@ -2859,7 +3026,7 @@ void App::drawMenusWindow() {
 }
 
 void App::drawScriptsSection() {
-    ImGui::SeparatorText("Scripts");
+    if (!ImGui::CollapsingHeader("Scripts")) return;
 
     if (ImGui::SmallButton("New script...")) {
         openNewScriptPopup_ = true;
