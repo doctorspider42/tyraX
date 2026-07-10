@@ -15,6 +15,19 @@ struct RuntimeObject {
   bool visible = true;
   float velocityY = 0.0F;  // vertical velocity (object physics)
   bool dirty = true;
+
+  // Animated models (.glb) playback state; ignored on everything else.
+  // To switch clips set animClip (resolve names with ctx.resolveClip or the
+  // playAnimation() helper below) and animRestart = true; the game applies
+  // it during the render pass.
+  int animClip = 0;          // active clip index (model's clip table order)
+  bool animPlaying = false;  // false = frozen on the current pose
+  bool animLoop = true;
+  float animSpeed = 1.0F;    // multiplier on the authored playback speed
+  bool animRestart = false;  // (re)start animClip on the next frame
+  float animFade = 0.0F;     // crossfade seconds for that restart (0 = pop)
+  bool animFinished = false; // one frame: the clip reached its last frame
+                             // (one-shots: once; looping: every wrap)
 };
 
 /** Everything a script can see and touch each frame. */
@@ -61,7 +74,42 @@ struct ScriptContext {
   int scene = 0;
   unsigned int sceneGeneration = 0;
   int requestScene = -1;
+
+  // Animated models: clip-name -> clip-index lookup for an object (-1 =
+  // unknown clip / not an animated model). Set by the game at startup.
+  int (*resolveClip)(int objectIndex, const char* clipName) = nullptr;
 };
+
+/** Plays a named clip on an animated model object ("" = its first clip).
+ * fade > 0 crossfades from the current pose over that many seconds instead
+ * of snapping. No-op on objects that are not animated models. */
+inline void playAnimation(ScriptContext& ctx, int objectIndex,
+                          const char* clip = "", bool loop = true,
+                          float speed = 1.0F, float fade = 0.0F) {
+  if (objectIndex < 0 || objectIndex >= ctx.objectCount) return;
+  const int index = ctx.resolveClip ? ctx.resolveClip(objectIndex, clip) : -1;
+  if (index < 0) return;
+  RuntimeObject& o = ctx.objects[objectIndex];
+  o.animClip = index;
+  o.animLoop = loop;
+  o.animSpeed = speed;
+  o.animFade = fade > 0.0F ? fade : 0.0F;
+  o.animPlaying = true;
+  o.animRestart = true;
+}
+
+/** Freezes an animated model object on its current pose. */
+inline void stopAnimation(ScriptContext& ctx, int objectIndex) {
+  if (objectIndex < 0 || objectIndex >= ctx.objectCount) return;
+  ctx.objects[objectIndex].animPlaying = false;
+}
+
+/** True the frame an object's clip reached its last frame (one-shots: once;
+ * looping clips: every wrap). */
+inline bool animationFinished(const ScriptContext& ctx, int objectIndex) {
+  if (objectIndex < 0 || objectIndex >= ctx.objectCount) return false;
+  return ctx.objects[objectIndex].animFinished;
+}
 
 /** Base class for game scripts. Put .cpp files in src/scripts/. */
 class Script {

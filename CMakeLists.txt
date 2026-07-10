@@ -30,13 +30,16 @@ add_executable(tyra-editor
     src/main.cpp
     src/app.cpp
     src/gl_loader.cpp
+    src/glbparser.cpp
     src/json.cpp
     src/objparser.cpp
     src/iso9660.cpp
     src/isoexport.cpp
     src/menubake.cpp
     src/pcsx2_config.cpp
+    src/pngquant.cpp
     src/project.cpp
+    src/texbake.cpp
     src/save_assets.cpp
     src/templates.cpp
     src/viewport.cpp

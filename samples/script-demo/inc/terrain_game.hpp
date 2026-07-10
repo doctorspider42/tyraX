@@ -50,6 +50,9 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    // Animated models (.glb): this object's skeletal instance (own
+    // playback state + skinned output mesh, samples the shared SkelModel).
+    std::unique_ptr<Tyra::SkelInstance> animInst;
     // Usable-object highlight: fading shells grown around the object
     // center, drawn after the scene (see renderHighlightHull)
     std::vector<Tyra::Vec4> hullVerts;
@@ -74,6 +77,32 @@ class TerrainGame : public Tyra::Game {
   };
   std::vector<GameModel> gameModels;
   void loadModels();
+  // Animated .glb models: serialized by the editor to .tskl skeletal files
+  // (paths in model_data.gen.hpp) - bone keyframe tracks + bind-pose mesh.
+  // Poses are evaluated and skinned on the EE per frame (SkelInstance) and
+  // rendered through the dynamic pipeline. Both pipelines stay initialized
+  // side by side; renderScene() re-uploads the right VU1 programs when it
+  // switches passes (renderer3D.usePipeline would reallocate every buffer
+  // on every switch instead).
+  Tyra::DynamicPipeline dynpip;
+  struct GameAnimModel {
+    std::unique_ptr<Tyra::SkelModel> src;   // skeleton + mesh + clip tracks
+    std::vector<Tyra::Texture*> textures;   // per part, nullptr = untextured
+  };
+  std::vector<GameAnimModel> gameAnimModels;
+  void loadAnimModels();
+  void setupAnimObject(int index);  // per-object instance + playback state
+  void updateAndRenderAnimObjects();
+  // Directional light for the dynamic pass, mirroring the baked static look
+  Tyra::Color animAmbient;
+  Tyra::Color animDirColors[3];
+  Tyra::Vec4 animDirDirs[3];
+
+ public:
+  // Clip-name lookup for scripts/flow graph (ScriptContext::resolveClip).
+  int resolveClipIndex(int objectIndex, const char* clipName) const;
+
+ private:
   // Primitive materials: .mtl assigned to a box/sphere/... - the file's
   // first material supplies the color (kd) and optional texture.
   struct GameMaterial {

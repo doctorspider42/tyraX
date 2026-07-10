@@ -9,7 +9,7 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (26) **Real-pad feedback round: stick deadzone, HUD/particle race fix, PS2
+- (29) **Real-pad feedback round: stick deadzone, HUD/particle race fix, PS2
   buttons in the Project panel** — three findings from playing on the real
   console. **Deadzone**: the hardcoded 0.20 stick deadzone becomes
   Preferences > Input > "Stick deadzone" (0-0.9, ANALOG_DEADZONE in
@@ -32,7 +32,7 @@ Each finished feature lands as its own commit.
   with a tooltip until the ps2link IP is set), matching the Project-menu F6
   entries.
 
-- (25) **Run on PS2 — real-hardware fixes (game verified running on a PS2)** —
+- (28) **Run on PS2 — real-hardware fixes (game verified running on a PS2)** —
   the first live deploys surfaced four independent landmines, each verified on
   the actual console:
   (a) **execee arguments never arrive** — ps2link passes args in a
@@ -65,7 +65,7 @@ Each finished feature lands as its own commit.
   ISOs) and warns when an sfx .adpcm exceeds 1 MB (SPU RAM is 2 MB; a 15 MB
   song imported as a sound effect was most of a 10-minute network boot).
 
-- (24) **Run on PS2 — network deploy to a real console (ps2link)** — the game
+- (27) **Run on PS2 — network deploy to a real console (ps2link)** — the game
   boots on a physical PS2 over ethernet straight from the editor: no ISO, no
   SMB/OPL. The console runs ps2link (one-time memory-card install; package +
   IPCONFIG.DAT prepared under F:\PS2\ps2link-mc for this machine) and the
@@ -92,6 +92,126 @@ Each finished feature lands as its own commit.
   with a helpful message (was a false "Game running"); PCSX2 path re-verified
   end-to-end after the engine change (SW renderer, 50 FPS). Real-hardware
   run pending the one-time ps2link memory-card install.
+
+- (26) **Animated models stage 2: true skeletal runtime (.tskl) + crossfade
+  blending** — the baked-morph-frame backend from (25) is replaced by a real
+  skeletal one; the entire authoring surface (.glb import, clip names,
+  Properties fields, flow nodes, script API, RuntimeObject anim fields and
+  animFinished semantics) is unchanged. The editor now serializes what
+  `glbparser` always parsed instead of sampling it: the .glb parse was
+  split into a shared `parseGlb` (used by both `bake()` - still the
+  viewport-preview/import-validation path - and the new `parseSkel`), and
+  `writeTskl` emits a `.tskl` binary: node hierarchy with bind-pose TRS,
+  matrix palette (skin joints with IBMs; rigidly-animated mesh nodes become
+  weight-255 identity-IBM slots, so rigid + skinned share ONE runtime path
+  and .tanm writing is gone), keyframe tracks (times f32, rotations
+  16-bit-quantized quats, constant tracks collapsed to 1 key, CUBICSPLINE
+  degraded to linear like stage 1, times rebased per clip) and the expanded
+  bind-pose triangle lists with u8 joints/weights (sum-normalized to 255,
+  max 256 palette slots). Engine fork additions: `TsklLoader` (whole-file
+  read, bounds-checked, validates hierarchy/palette/joints once at load) and
+  `SkelInstance` — per-object playback (current + fading layer, per-channel
+  O(1) key cursors), EE pose evaluation (slerp/step sampling identical to
+  the editor's math, parents-first hierarchy walk, palette = global x IBM),
+  crossfade as a local-TRS blend (lerp T/S, sign-fixed nlerp R) before one
+  hierarchy walk, and EE skinning of positions + normals into an owned
+  single-frame DynamicMesh that DynPip renders as verticesFrom==verticesTo
+  (interpolation 0) — zero new VU1 code, stage-1 lighting/tint/texture
+  plumbing reused, frame bboxes refreshed from the skinned AABB every skin.
+  Codegen: `GameAnimModel` holds the shared SkelModel + per-part textures,
+  `setupAnimObject` builds a SkelInstance per object (fresh material ids
+  re-linked, ambient = part color x object color), the render pass applies
+  animRestart via `play(clip, loop, fade)` and advances by `g_frameDt *
+  animSpeed` (wall-clock, PAL/NTSC-safe); collision still uses the clip-0
+  frame-0 AABB (now stored in the .tskl). New surface (M2): optional
+  **Fade** param on Play Animation (seconds, 0 = instant), `playAnimation(
+  ..., fade)` default arg + `RuntimeObject::animFade` — both backward
+  compatible; docs/animated-models.md rewritten for the skeletal pipeline.
+  Import status now reports the skeletal RAM estimate. Verified: host
+  harness + python cross-checker re-evaluates the .tskl pose/skinning math
+  at every stage-1 baked frame time and compares vertices (generated
+  skinned+rigid 2-clip .glb: 180 comparisons, and a 1440-vert 4-bone 2-clip
+  character: 89 280 comparisons; worst pos err 9.5e-4 = quat quantization);
+  e2e in Docker+PCSX2 SW renderer: frozen-pose scene rendered by stage-1
+  (.tanm, editor built from origin/main) vs stage-2 (.tskl) differs in 17
+  of 580 800 pixels (0.003%, sub-pixel silhouette shifts); 3 animated
+  1440-vert characters hold 50 FPS / 100% speed (3 samples, EE 34-37% vs
+  stage-1's 40%); debug free-RAM overlay: 27.7 MB free vs 23.8 MB stage-1
+  (+3.9 MB from one character model; .tanm 2.15 MB -> .tskl 60 KB on disk);
+  crossfade: flow graph EverySeconds -> Play Animation(fade 2s) captured in
+  0.4s-burst screenshots shows a smooth twist->wave blend with consecutive-
+  frame pixel deltas in the same band as normal playback (no pop; fade
+  codegen inspected in flow_graph.gen.cpp). Sample regenerated + rebuilt in
+  Docker. VU1 skinning (M3) stays in the backlog — EE headroom says it is
+  not yet the bottleneck.
+
+- (25) **Animated models: .glb import baked to PS2 morph frames (stage 1)** —
+  the engine's dormant dynamic pipeline (DynPip: MD2-style two-frame VU1
+  interpolation) is now wired end to end. OBJ has no animation, so animated
+  models come in as **.glb** (Blender: glTF Binary export): the new
+  `src/glbparser.cpp` (hand-rolled on top of json.cpp, no new deps) parses
+  the GLB container, samples every named clip at 12 fps, CPU-skins the
+  vertices (4-joint matrix palette, rigid node animation too, LINEAR/STEP +
+  CUBICSPLINE fallback) and, at every build, `refreshGenerated` writes a
+  compact `.tanm` binary + extracted PNG textures (JPEG transcoded) next to
+  the source. Engine grew `TanmLoader` (fork addition; whole-file read, no
+  fseek) building a `DynamicMesh`, and a fix for upstream's out-of-bounds
+  `DynamicMeshAnimation::restart()` (double-indexed the sequence - crashed
+  for any clip not starting at frame 0). The generated game keeps StaPip and
+  DynPip initialized side by side and swaps VU1 programs per frame
+  (`reinitVU1Programs`; `usePipeline` would reallocate everything), renders
+  animated objects with per-instance DynamicMesh copies (shared frames, own
+  clip state, object-color tint via the copy's material ambient) and a
+  directional light matching the baked static look (point lights stay
+  baked-only). Per-object data: start clip / autoplay / loop / speed
+  (serialized under `"anim"`); collision uses the baked frame-0 AABB (box
+  only). Scripts get `playAnimation/stopAnimation/animationFinished` +
+  `ctx.resolveClip`; the flow graph gets **Play Animation**, **Stop
+  Animation** and the **On Animation Finished** trigger (End + every loop
+  wrap, via the engine callback). The editor previews clips in the viewport
+  (CPU lerp into dynamic VBOs, same math as VU1) and shows clips/warnings in
+  Assets + Properties (memory estimate warns above ~8 MB baked).
+  Verified: glbparser unit-tested against a generated skinned+rigid 2-clip
+  .glb (frame counts, AABB, skinning spot-checks); full e2e in Docker+PCSX2
+  (SW renderer, 50 FPS steady): two textured animated objects play different
+  clips ("bend" visibly bends between screenshots), flow-graph
+  Play/Stop/OnFinished compile into flow_graph.gen.cpp and run without
+  crashing, editor viewport plays the same clips with textures. Hands-on
+  pass still worth doing: Properties clip combo + gizmo feel on animated
+  objects (screenshots could not click the UI). Stage 2 (true skeletal
+  runtime) is specced in the Backlog.
+
+- (24) **Texture quantization: project-wide palette textures + per-asset
+  quality override** — the PS2-native "texture compression". The GS has no
+  DXT-style format; era games shipped palettized PSMT8/PSMT4 textures, and
+  the engine's PNG loader already eats indexed PNGs directly - so the editor
+  now produces them. **Preferences > Rendering > Textures** picks the
+  project-wide quality (full 32-bit / 256 colors / 16 colors - new projects
+  default to 4-bit, existing ones load as "none" so their output never
+  changes silently), and every model/material row in **Assets** gets a
+  quality combo override; when several assets share a texture the HIGHEST
+  requested quality wins - "everything 4-bit, but the hero stays full color"
+  works per design. Non-destructive: sources in res/ are never touched; a
+  build-time bake (runner, before the docker sync) mirrors res/ into
+  `.res-baked/` quantizing PNGs per policy (hud/fonts exempt - UI
+  legibility), and the generated Makefile's RESDIR now points at the mirror.
+  New `src/pngquant.cpp`: median-cut over RGBA (pixel-weighted, alpha
+  counted double), Floyd-Steinberg dithering when lossy, lossless
+  pass-through for images already within the palette budget, and a
+  hand-rolled indexed PNG writer (PLTE + tRNS, deflate via stb's zlib)
+  matching what the engine's 4/8bpp paths expect (even width required for
+  4bpp). `src/texbake.cpp` resolves the per-PNG policy by parsing every
+  .obj/.mtl asset (objparser), mirrors/cleans the bake dir and reports
+  counts to the build log. Verified: pngquant host tests (16 asserts: IHDR
+  depth/type, palette bounds, alpha hole survives, opaque stays opaque,
+  2-color image lossless); e2e in PCSX2 (SW renderer, 50 FPS): global 4-bit
+  + walls.mtl pinned to full - .res-baked shows models/bricks.png as
+  depth-4 type-3 (623 -> 136 B) while the pinned material stays 32-bit, HUD
+  untouched, and two boxes side by side (4-bit palette vs full color)
+  render identically from the GS's PSMT4 and 32-bit paths. Editor viewport
+  still previews the full sources (quantized preview = follow-up; the
+  Preferences/Assets combos need a hands-on GUI pass). Sample regenerated
+  (Makefile RESDIR + .gitignore .res-baked).
 
 - (23) **Materials replace per-object textures** — the loose "slap a PNG on
   an object" texture is gone; .mtl material libraries are the one texturing
@@ -1299,6 +1419,11 @@ Each finished feature lands as its own commit.
   needs a custom double-buffered SPU RAM streamer in the engine; audsrv only
   streams PCM and plays ADPCM one-shots
 - Flow graph: more nodes (timers with reset, variables)
+- Animations stage 3 (optional) - VU1 skinning microprogram: matrix palette
+  in VU memory, weights in the vertex stream, new VCL program (respect the
+  vcl_sml.i history first). Measure EE headroom before starting - after
+  stage 2 (entry 26) the EE skins 3 characters at 34-37% load, so it is not
+  the bottleneck yet. Palette per batch limited by VU memory (~24-32 bones).
 - Engine perf, next targets: packager allocates its package array per frame
   (poolable); the real endgame is the engine author's own TODO in
   stapip_clipper.hpp - move clipping to VU1 entirely ("too much time")

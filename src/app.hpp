@@ -87,6 +87,17 @@ private:
     // materialRel: .mtl override applied to the model ("" = its own)
     const ModelInfo& modelInfo(const std::string& relPath,
                                const std::string& materialRel = "");
+    // Cached summary of an animated .glb (clip names for the properties
+    // panel; a fresh bake without keeping the geometry)
+    struct GlbInfo {
+        bool ok = false;
+        std::string error;
+        std::vector<std::string> clips;
+        int vertexCount = 0, frameCount = 0;
+        std::vector<std::string> warnings;
+    };
+    std::map<std::string, GlbInfo> glbInfoCache_;
+    const GlbInfo& glbInfo(const std::string& relPath);
     // Summary of a standalone .mtl (material lines + missing-texture flags)
     const ModelInfo& materialInfo(const std::string& relPath);
     // Mirrors res/audio + res/sfx into the music/sounds lists (manual drops
