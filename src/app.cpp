@@ -196,7 +196,9 @@ int App::run(const std::string& initialProjectDir) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_SAMPLES, 4);
+    glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
 
+    // Size is the restore-size when the user un-maximizes.
     window_ = glfwCreateWindow(1600, 900, "Tyra Editor", nullptr, nullptr);
     if (window_) g_dialogOwner = glfwGetWin32Window(window_);
     if (!window_) {
