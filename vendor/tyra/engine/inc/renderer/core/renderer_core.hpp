@@ -6,6 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by tyra-editor: drained3DFor2D flag (PATH1 drain before 2D sprites)
 */
 
 #pragma once
@@ -44,6 +45,11 @@ class RendererCore {
 
   /** EE <-> VU1 synchronization */
   RendererCoreSync sync;
+
+  // Set once Renderer2D has drained PATH1 this frame (sprites race the tail
+  // of the async 3D stream otherwise - see Renderer2D::render). Reset by
+  // beginFrame.
+  bool drained3DFor2D = false;
 
   /** Called by renderer */
   void init(VideoMode videoMode = VideoMode::Auto);
