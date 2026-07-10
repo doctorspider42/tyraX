@@ -3567,6 +3567,102 @@ void App::handleFileDrop(int count, const char** paths) {
     }
 }
 
+// Resolve-style color wheel (trackball). The puck edits the zero-mean part
+// of the three channels around their common level: hue direction = which
+// channels move apart, radius = how far. The common (master) level is NOT on
+// the wheel - the caller pairs it with a master slider - so puck <-> rgb is
+// an exact roundtrip (a zero-mean 3-vector has exactly the wheel's 2 DOF).
+// Mutates rgb live while dragging; returns true when an edit FINISHED
+// (release / double-click reset) so the caller commits once per gesture.
+static bool gradingWheel(const char* id, float* rgb, float lo, float hi,
+                         float wheelRange) {
+    constexpr float kTau = 6.28318530f;
+    const float radius = 54.0f;
+    ImGui::PushID(id);
+
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const ImVec2 c(p.x + radius, p.y + radius);
+    ImGui::InvisibleButton("wheel", ImVec2(radius * 2, radius * 2));
+    bool finished = ImGui::IsItemDeactivated();
+
+    // Channel directions on the disc: R up, G lower-left, B lower-right
+    // (vectorscope-like). u/v are a linear basis for zero-mean offsets.
+    const float ang[3] = {0.25f * kTau, 0.5833333f * kTau, 0.9166667f * kTau};
+    float u[3], v[3];
+    for (int i = 0; i < 3; ++i) {
+        u[i] = std::cos(ang[i]);
+        v[i] = std::sin(ang[i]);
+    }
+    auto clampf = [](float x, float a, float b) {
+        return x < a ? a : (x > b ? b : x);
+    };
+
+    float master = (rgb[0] + rgb[1] + rgb[2]) / 3.0f;
+    if (ImGui::IsItemActive()) {
+        const ImVec2 m = ImGui::GetIO().MousePos;
+        const float reach = radius - 8.0f;
+        float px = (m.x - c.x) / reach;
+        float py = -(m.y - c.y) / reach;  // screen y is down
+        const float r = std::sqrt(px * px + py * py);
+        if (r > 1.0f) px /= r, py /= r;
+        for (int i = 0; i < 3; ++i)
+            rgb[i] = clampf(master + wheelRange * (px * u[i] + py * v[i]), lo, hi);
+    } else if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+        for (int i = 0; i < 3; ++i) rgb[i] = clampf(master, lo, hi);
+        finished = true;
+    }
+
+    // Puck position from the current value (inverse of the mapping above;
+    // sum(u^2) = sum(v^2) = 3/2 and the u/v bases are orthogonal).
+    float px = 0.0f, py = 0.0f;
+    master = (rgb[0] + rgb[1] + rgb[2]) / 3.0f;
+    for (int i = 0; i < 3; ++i) {
+        px += (rgb[i] - master) * u[i];
+        py += (rgb[i] - master) * v[i];
+    }
+    px *= (2.0f / 3.0f) / wheelRange;
+    py *= (2.0f / 3.0f) / wheelRange;
+    const float pr = std::sqrt(px * px + py * py);
+    if (pr > 1.0f) px /= pr, py /= pr;
+
+    // Hue disc: triangle fan with a dark neutral center fading to the hue at
+    // the rim (per-vertex colors - ImDrawList prims, white-pixel UV).
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const int SEG = 48;
+    const ImVec2 uvWhite = ImGui::GetFontTexUvWhitePixel();
+    const ImU32 colCenter = IM_COL32(48, 48, 52, 255);
+    dl->PrimReserve(SEG * 3, SEG * 3);
+    for (int i = 0; i < SEG; ++i) {
+        const float a0 = (float)i / SEG * kTau, a1 = (float)(i + 1) / SEG * kTau;
+        auto rim = [&](float a) {
+            // hue 0 (red) at the R direction, increasing toward G then B
+            float hue = a / kTau - 0.25f;
+            hue -= std::floor(hue);
+            float r, g, b;
+            ImGui::ColorConvertHSVtoRGB(hue, 0.8f, 0.85f, r, g, b);
+            return IM_COL32((int)(r * 255), (int)(g * 255), (int)(b * 255), 255);
+        };
+        const ImVec2 p0(c.x + radius * std::cos(a0), c.y - radius * std::sin(a0));
+        const ImVec2 p1(c.x + radius * std::cos(a1), c.y - radius * std::sin(a1));
+        dl->PrimVtx(c, uvWhite, colCenter);
+        dl->PrimVtx(p0, uvWhite, rim(a0));
+        dl->PrimVtx(p1, uvWhite, rim(a1));
+    }
+    dl->AddCircle(c, radius, IM_COL32(0, 0, 0, 110), 0, 1.5f);
+    dl->AddCircleFilled(c, 2.0f, IM_COL32(160, 160, 160, 160));
+
+    // Puck: white dot with a dark outline (like Resolve's trackball)
+    const ImVec2 puck(c.x + px * (radius - 8.0f), c.y - py * (radius - 8.0f));
+    dl->AddCircleFilled(puck, 6.0f, IM_COL32(235, 235, 235, 255));
+    dl->AddCircle(puck, 6.5f, IM_COL32(20, 20, 20, 200), 0, 1.5f);
+
+    if (ImGui::IsItemHovered() && !ImGui::IsItemActive())
+        ImGui::SetTooltip("Drag to tint, double-click to reset");
+
+    ImGui::PopID();
+    return finished;
+}
+
 // Color Grading window (Tools > Color Grading): preset list on the left,
 // DaVinci-style controls for the selected preset on the right. The viewport
 // previews the selected preset live with the same quantized math the PS2 GS
@@ -3737,11 +3833,41 @@ void App::drawGradingWindow() {
     ImGui::SliderFloat("Amount", &g.tintAmount, 0.0f, 1.0f, "%.2f");
     changed |= ImGui::IsItemDeactivatedAfterEdit();
 
-    ImGui::SeparatorText("Color wheels (per channel R/G/B)");
-    ImGui::SliderFloat3("Lift (shadows)", g.lift, -0.5f, 0.5f, "%.2f");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::SliderFloat3("Gain (highlights)", g.gain, 0.0f, 2.0f, "%.2f");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SeparatorText("Color wheels");
+    // Two Resolve-style trackballs: the wheel carries the between-channel
+    // tint, the slider under it the common (master) level, the drag row the
+    // exact numbers. All three edit the same lift/gain floats.
+    auto wheelColumn = [&](const char* label, float* rgb, float lo, float hi,
+                           float wheelRange) {
+        const float width = 108.0f;
+        ImGui::BeginGroup();
+        ImGui::PushID(label);
+        const float tw = ImGui::CalcTextSize(label).x;
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
+                             (width - (tw < width ? tw : width)) * 0.5f);
+        ImGui::TextUnformatted(label);
+        changed |= gradingWheel(label, rgb, lo, hi, wheelRange);
+        float master = (rgb[0] + rgb[1] + rgb[2]) / 3.0f;
+        ImGui::SetNextItemWidth(width);
+        if (ImGui::SliderFloat("##master", &master, lo, hi, "%.2f")) {
+            const float old = (rgb[0] + rgb[1] + rgb[2]) / 3.0f;
+            for (int i = 0; i < 3; ++i) {
+                rgb[i] += master - old;
+                rgb[i] = rgb[i] < lo ? lo : (rgb[i] > hi ? hi : rgb[i]);
+            }
+        }
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Master: all three channels together");
+        ImGui::SetNextItemWidth(width);
+        ImGui::DragFloat3("##rgb", rgb, 0.005f, lo, hi, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::PopID();
+        ImGui::EndGroup();
+    };
+    wheelColumn("Lift (shadows)", g.lift, -0.5f, 0.5f, 0.35f);
+    ImGui::SameLine(0.0f, 28.0f);
+    wheelColumn("Gain (highlights)", g.gain, 0.0f, 2.0f, 0.75f);
 
     // The exact GS numbers this preset compiles to (scene_data.hpp /
     // RendererCorePostFx::setGrading) - also what the viewport previews.

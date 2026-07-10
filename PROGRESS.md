@@ -42,9 +42,17 @@ Each finished feature lands as its own commit.
   boot applying the sepia default (sky measured (157,156,148) vs computed
   (151,148,145)) and an Every-6s -> Set Color Grading("night") graph
   switching the frame to the night look at runtime; viewport A/B
-  screenshots confirm the editor preview matches. The Color Grading window
-  itself still needs a quick human open-and-drag pass (no safe way to
-  drive ImGui menus unattended).
+  screenshots confirm the editor preview matches. **Color wheels**: Lift and
+  Gain are edited through Resolve-style trackballs (custom ImDrawList
+  widget: hue disc, draggable puck, double-click reset) - the puck carries
+  the zero-mean between-channel tint (exactly the wheel's 2 DOF, so
+  puck <-> rgb roundtrips), a master slider under each wheel carries the
+  common level, and a compact drag row shows the numbers; commits once per
+  gesture (live mutation while dragging, commitChange on release). Window
+  rendering verified via a temporary auto-open build + GDI screenshot
+  (presets, quick looks, sliders, both wheels and the GS readout all
+  render); the drag FEEL still needs a quick human pass (no safe way to
+  drive ImGui with synthetic input while the user works the machine).
 
 - (33) **Custom particle kind: full physics knobs (jets, leaks, steam)** —
   sixth emitter kind "Custom" exposes the simulation instead of a preset:
