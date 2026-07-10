@@ -115,6 +115,12 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          FlowParamKind::None, true, true, false, false, false, false, true},
         {"EverySeconds", "Every N Seconds", "Triggers", true, FlowParamKind::None, 1,
          {"Seconds"}, FlowParamKind::None, false, true, false, false, false, false, true},
+        // Fires the frame the watched object's animation clip reaches its
+        // last frame (one-shot clips: once; looping clips: every wrap).
+        // Only animated (.glb) model objects ever fire it.
+        {"OnAnimFinished", "On Animation Finished", "Triggers", true,
+         FlowParamKind::ObjectName, 0, {}, FlowParamKind::None, true, true, false,
+         false, false, false, true},
         // Self: pure data node exposing the graph's owner as an object output.
         // Object params already default to self when empty; this makes the
         // reference explicit and wireable into any object pin.
@@ -138,6 +144,16 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          FlowParamKind::None, true, true, false, true, true},
         {"SetPosition", "Set Object Position", "Object", false, FlowParamKind::ObjectName,
          3, {"X", "Y", "Z"}, FlowParamKind::None, true, true, true, true, false},
+        // Animation (animated .glb model objects; no-ops on anything else).
+        // Play Animation: str = clip name ("" = the model's first clip); the
+        // target object comes from an object link or defaults to self (the
+        // str slot holds the clip, not an object name). Loop: 1 = loop,
+        // 0 = play once. Speed: playback multiplier (0 = authored default).
+        {"PlayAnimation", "Play Animation", "Animation", false, FlowParamKind::Text,
+         2, {"Loop", "Speed"}, FlowParamKind::None, true, true},
+        // Freezes the target's animation on its current pose.
+        {"StopAnimation", "Stop Animation", "Animation", false, FlowParamKind::None,
+         0, {}, FlowParamKind::None, true, true},
         // Player
         // Teleports the player (entity or FPP template player) to the target
         // object's position - e.g. respawn at a spawn point. A position link

@@ -87,12 +87,25 @@ struct SceneObject {
     float lightBright = 1.0f;   // intensity added on top of the scene ambient
     float lightRadius = 8.0f;   // world units; contribution fades linearly to 0
 
+    // Animated model parameters (Model objects whose modelPath ends in .glb;
+    // the editor bakes the file's clips to morph frames - see glbparser.hpp).
+    std::string animClip;       // starting clip name ("" = the file's first)
+    bool animAutoplay = true;   // play the starting clip at scene start
+    bool animLoop = true;       // starting clip loops
+    float animSpeed = 1.0f;     // playback speed multiplier
+
     // Per-object logic. Object-referencing nodes default to this object
     // ("self"), so a copied object brings a working copy of its behavior.
     FlowGraph flowGraph;
 };
 
 const char* primitiveTypeName(PrimitiveType t);
+
+// Animated models are .glb files (baked to morph frames at build); static
+// models are .obj. Decides which import/render/codegen path an object takes.
+inline bool isAnimatedModelPath(const std::string& path) {
+    return path.size() > 4 && path.compare(path.size() - 4, 4, ".glb") == 0;
+}
 
 inline bool operator==(const SceneObject& a, const SceneObject& b) {
     auto eq3 = [](const float* x, const float* y) {
@@ -114,6 +127,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.soundRange == b.soundRange && a.soundInterval == b.soundInterval &&
            a.soundOnPlayer == b.soundOnPlayer &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
+           a.animClip == b.animClip && a.animAutoplay == b.animAutoplay &&
+           a.animLoop == b.animLoop && a.animSpeed == b.animSpeed &&
            a.flowGraph == b.flowGraph;
 }
 

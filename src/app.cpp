@@ -12,6 +12,7 @@
 #include <sstream>
 
 #include "gl_loader.h"
+#include "glbparser.hpp"
 #include "menubake.hpp"
 #include "objparser.hpp"
 #include "templates.hpp"
@@ -19,6 +20,9 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_PNG
+// JPEG too: .glb files often embed JPEG textures - the importer transcodes
+// them to PNG for the PS2 (see glbparser.cpp). Viewport/game stay PNG-only.
+#define STBI_ONLY_JPEG
 #include <stb_image.h>
 
 #include <GLFW/glfw3.h>
@@ -84,8 +88,10 @@ static std::string pickPath(PickKind kind) {
                 L"Open Tyra project");
         case PickKind::ObjModel:
             return pickFileLegacy(
-                L"Wavefront model (*.obj)\0*.obj\0All files (*.*)\0*.*\0",
-                L"Import 3D model");
+                L"3D model (*.obj, *.glb)\0*.obj;*.glb\0"
+                L"Wavefront model (*.obj)\0*.obj\0"
+                L"Animated glTF binary (*.glb)\0*.glb\0All files (*.*)\0*.*\0",
+                L"Import 3D model (.glb = animated)");
         case PickKind::Mtl:
             return pickFileLegacy(
                 L"Material library (*.mtl)\0*.mtl\0All files (*.*)\0*.*\0",
@@ -1064,6 +1070,41 @@ std::string App::importModelAsset() {
     std::error_code ec;
     std::filesystem::create_directories(destDir, ec);
 
+    // Animated models (.glb) are self-contained (geometry, clips, textures in
+    // one file): plain copy, then a validation bake for early feedback. The
+    // .tanm the game loads is baked from it on every build.
+    if (isAnimatedModelPath(fileName)) {
+        std::filesystem::copy_file(srcPath, destDir / fileName,
+                                   std::filesystem::copy_options::overwrite_existing, ec);
+        if (ec) {
+            statusMessage_ = "Model import failed: " + ec.message();
+            return "";
+        }
+        glbparser::Baked baked;
+        std::string error;
+        if (!glbparser::bake((destDir / fileName).string(), 12.0f, baked, error)) {
+            statusMessage_ = "Imported " + fileName + " - UNUSABLE: " + error;
+            return "res/models/" + fileName;
+        }
+        statusMessage_ = "Imported " + fileName + " (" +
+                         std::to_string(baked.clips.size()) + " clip(s), " +
+                         std::to_string(baked.totalVertexCount()) + " verts, " +
+                         std::to_string(baked.frameCount) + " baked frames)";
+        // Rough PS2 memory estimate: pos+normal (+uv) Vec4s per vert per frame
+        const size_t bytes = (size_t)baked.totalVertexCount() * baked.frameCount * 48;
+        if (bytes > 8u * 1024 * 1024)
+            statusMessage_ += " - WARNING: ~" + std::to_string(bytes >> 20) +
+                              " MB on the PS2 (32 MB total) - reduce clips/mesh";
+        if (!baked.warnings.empty())
+            statusMessage_ += " - " + baked.warnings.front() +
+                              (baked.warnings.size() > 1
+                                   ? " (+" + std::to_string(baked.warnings.size() - 1) +
+                                         " more warning(s), see build log)"
+                                   : "");
+        glbInfoCache_.erase("res/models/" + fileName);
+        return "res/models/" + fileName;
+    }
+
     // Parse the source model to find its material libraries and textures -
     // they get flattened next to the .obj in res/models/. Sanitized names may
     // differ from the originals, so the mtllib/map_Kd references are rewritten
@@ -1333,6 +1374,24 @@ const App::ModelInfo& App::modelInfo(const std::string& relPath,
     return modelInfoCache_.emplace(key, std::move(info)).first->second;
 }
 
+// Summary of an animated .glb (clip names + stats for the properties panel).
+const App::GlbInfo& App::glbInfo(const std::string& relPath) {
+    auto it = glbInfoCache_.find(relPath);
+    if (it != glbInfoCache_.end()) return it->second;
+
+    GlbInfo info;
+    glbparser::Baked baked;
+    const std::filesystem::path full = std::filesystem::path(project_.dir) / relPath;
+    if (glbparser::bake(full.string(), 12.0f, baked, info.error)) {
+        info.ok = true;
+        for (const auto& c : baked.clips) info.clips.push_back(c.name);
+        info.vertexCount = baked.totalVertexCount();
+        info.frameCount = baked.frameCount;
+        info.warnings = baked.warnings;
+    }
+    return glbInfoCache_.emplace(relPath, std::move(info)).first->second;
+}
+
 // Summary of a standalone .mtl asset (Assets section / material combos).
 const App::ModelInfo& App::materialInfo(const std::string& relPath) {
     const std::string key = "mtl:" + relPath;
@@ -1408,7 +1467,11 @@ void App::drawAssetsSection() {
 
     ImGui::TextDisabled("Models (res/models)");
     ImGui::SameLine();
-    if (ImGui::SmallButton("Import .obj...")) importModelAsset();
+    if (ImGui::SmallButton("Import model...")) importModelAsset();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(".obj = static geometry (+ .mtl/textures)\n"
+                          ".glb = animated model (Blender glTF Binary export;\n"
+                          "clips are baked to PS2 morph frames at build)");
     const std::vector<std::string> models = listAssetFiles("models", ".obj");
     for (const std::string& m : models) {
         ImGui::Bullet();
@@ -1432,7 +1495,36 @@ void App::drawAssetsSection() {
             }
         }
     }
-    if (models.empty()) ImGui::TextDisabled("  none - Import or drop .obj files there.");
+    const std::vector<std::string> animModels = listAssetFiles("models", ".glb");
+    for (const std::string& m : animModels) {
+        ImGui::Bullet();
+        ImGui::SameLine();
+        ImGui::TextUnformatted(m.c_str());
+        const GlbInfo& info = glbInfo("res/models/" + m);
+        if (info.ok) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("(animated: %d clip(s), %d verts)",
+                                (int)info.clips.size(), info.vertexCount);
+            if (ImGui::IsItemHovered()) {
+                ImGui::BeginTooltip();
+                for (const std::string& c : info.clips)
+                    ImGui::TextUnformatted(c.c_str());
+                for (const std::string& w : info.warnings)
+                    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s", w.c_str());
+                ImGui::EndTooltip();
+            }
+            if (!info.warnings.empty()) {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "warnings");
+            }
+        } else {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "unusable: %s",
+                               info.error.c_str());
+        }
+    }
+    if (models.empty() && animModels.empty())
+        ImGui::TextDisabled("  none - Import or drop .obj/.glb files there.");
 
     ImGui::TextDisabled("Materials (res/materials)");
     ImGui::SameLine();
@@ -1511,7 +1603,11 @@ void App::drawAddObjectMenu() {
             const std::vector<std::string> models = listAssetFiles("models", ".obj");
             for (const std::string& m : models)
                 if (ImGui::MenuItem(m.c_str())) addModelObject("res/models/" + m);
-            if (models.empty())
+            const std::vector<std::string> anim = listAssetFiles("models", ".glb");
+            for (const std::string& m : anim)
+                if (ImGui::MenuItem((m + " (animated)").c_str()))
+                    addModelObject("res/models/" + m);
+            if (models.empty() && anim.empty())
                 ImGui::TextDisabled("No models - Import one in Project > Assets.");
             ImGui::EndMenu();
         }
@@ -1650,10 +1746,63 @@ void App::drawPropertiesWindow() {
                     committed = true;
                 }
             }
-            if (models.empty())
+            const std::vector<std::string> anim = listAssetFiles("models", ".glb");
+            for (const std::string& m : anim) {
+                const std::string rel = "res/models/" + m;
+                if (ImGui::Selectable((m + " (animated)").c_str(),
+                                      rel == o.modelPath) &&
+                    rel != o.modelPath) {
+                    o.modelPath = rel;
+                    o.animClip.clear();  // clip names belong to the old file
+                    committed = true;
+                }
+            }
+            if (models.empty() && anim.empty())
                 ImGui::TextDisabled("No models - Import one in Project > Assets.");
             ImGui::EndCombo();
         }
+        if (isAnimatedModelPath(o.modelPath)) {
+            const GlbInfo& info = glbInfo(o.modelPath);
+            if (info.ok) {
+                ImGui::TextDisabled("%d verts, %d baked frames, %d clip(s)",
+                                    info.vertexCount, info.frameCount,
+                                    (int)info.clips.size());
+                for (const std::string& w : info.warnings)
+                    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s",
+                                       w.c_str());
+                ImGui::SeparatorText("Animation");
+                const std::string clipLabel =
+                    o.animClip.empty()
+                        ? (info.clips.empty() ? "<none>"
+                                              : info.clips.front() + " (first)")
+                        : o.animClip;
+                if (ImGui::BeginCombo("Start clip", clipLabel.c_str())) {
+                    for (const std::string& c : info.clips) {
+                        const bool selected =
+                            c == o.animClip ||
+                            (o.animClip.empty() && c == info.clips.front());
+                        if (ImGui::Selectable(c.c_str(), selected) &&
+                            o.animClip != c) {
+                            o.animClip = c;
+                            committed = true;
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                if (ImGui::Checkbox("Autoplay at scene start", &o.animAutoplay))
+                    committed = true;
+                if (ImGui::Checkbox("Loop", &o.animLoop)) committed = true;
+                ImGui::DragFloat("Speed", &o.animSpeed, 0.02f, 0.05f, 10.0f,
+                                 "%.2fx");
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                ImGui::TextDisabled(
+                    "Scripts/flow graph: Play Animation, Stop Animation,\n"
+                    "On Animation Finished.");
+            } else if (!o.modelPath.empty()) {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                   "Unusable .glb: %s", info.error.c_str());
+            }
+        } else {
         // materials come from the .obj's MTL file (or the assigned override)
         // - read-only summary
         const ModelInfo& info = modelInfo(o.modelPath, o.materialPath);
@@ -1672,6 +1821,7 @@ void App::drawPropertiesWindow() {
                                    "files next to the .obj (paths are relative to it).");
         } else if (!o.modelPath.empty()) {
             ImGui::TextDisabled("Model file missing/unparseable - renders as a box.");
+        }
         }
     }
 
@@ -1693,11 +1843,14 @@ void App::drawPropertiesWindow() {
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
 
+    const bool animatedModel =
+        o.type == PrimitiveType::Model && isAnimatedModelPath(o.modelPath);
     if (isSolid) {
         // Material (.mtl asset): primitives take the file's first material
         // (Kd + map_Kd on their UVs, modulated by the object color), models
-        // use it as an override replacing their own libraries.
-        if (drawMaterialCombo(o)) committed = true;
+        // use it as an override replacing their own libraries. Animated .glb
+        // models carry their own materials - no override.
+        if (!animatedModel && drawMaterialCombo(o)) committed = true;
         if (!o.materialPath.empty() && o.type != PrimitiveType::Model) {
             const ModelInfo& mat = materialInfo(o.materialPath);
             if (mat.ok && !mat.materials.empty()) {
@@ -1731,7 +1884,16 @@ void App::drawPropertiesWindow() {
 
     // Player collision. Solid geometry only - markers/emitters never collide.
     if (isSolid) {
-        if (o.type == PrimitiveType::Model) {
+        if (animatedModel) {
+            // mesh collision is a static-model feature; animated models
+            // collide as their baked frame-0 AABB or not at all
+            bool solid = o.collisionMode != 2;
+            if (ImGui::Checkbox("Collision (blocks the player, frame-0 AABB)",
+                                &solid)) {
+                o.collisionMode = solid ? 0 : 2;
+                committed = true;
+            }
+        } else if (o.type == PrimitiveType::Model) {
             const char* modes[] = {"Box (mesh AABB)", "Mesh (walkable triangles)",
                                    "None"};
             if (ImGui::Combo("Collision", &o.collisionMode, modes, 3)) committed = true;
@@ -2405,6 +2567,7 @@ void App::drawFlowGraphWindow() {
                         n.num[0] = n.num[1] = n.num[2] = 1.0f;
                     if (std::string(t.key) == "NearObject") n.num[0] = 4.0f;
                     if (std::string(t.key) == "EverySeconds") n.num[0] = 1.0f;
+                    if (std::string(t.key) == "PlayAnimation") n.num[1] = 1.0f;  // speed
                     if (std::string(t.key) == "PlayMusic") {
                         n.num[0] = 80.0f;  // volume
                         n.num[1] = 1.0f;   // loop
