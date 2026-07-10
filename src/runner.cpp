@@ -2,6 +2,7 @@
 
 #include "isoexport.hpp"
 #include "pcsx2_config.hpp"
+#include "texbake.hpp"
 
 #include <cstdlib>
 #include <filesystem>
@@ -227,6 +228,12 @@ void Runner::worker(Project p, bool build, bool run) {
         // data (also migrates projects created with older editor versions).
         if (auto err = project::refreshGenerated(p); !err.empty())
             appendLine("[editor] Warning: could not refresh generated files: " + err);
+
+        // Texture bake: res/ -> .res-baked/ (PNG quantization per the project
+        // policy; the generated Makefile copies .res-baked next to the ELF).
+        if (auto err = texbake::bake(p, [this](const std::string& l) { appendLine(l); });
+            !err.empty())
+            appendLine("[editor] Warning: texture bake failed: " + err);
 
         // Old template used a fixed container name shared by all projects;
         // remove such a leftover so `compose up` cannot hit a name conflict.

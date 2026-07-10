@@ -9,7 +9,7 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (24) **Animated models: .glb import baked to PS2 morph frames (stage 1)** —
+- (25) **Animated models: .glb import baked to PS2 morph frames (stage 1)** —
   the engine's dormant dynamic pipeline (DynPip: MD2-style two-frame VU1
   interpolation) is now wired end to end. OBJ has no animation, so animated
   models come in as **.glb** (Blender: glTF Binary export): the new
@@ -44,6 +44,38 @@ Each finished feature lands as its own commit.
   pass still worth doing: Properties clip combo + gizmo feel on animated
   objects (screenshots could not click the UI). Stage 2 (true skeletal
   runtime) is specced in the Backlog.
+
+- (24) **Texture quantization: project-wide palette textures + per-asset
+  quality override** — the PS2-native "texture compression". The GS has no
+  DXT-style format; era games shipped palettized PSMT8/PSMT4 textures, and
+  the engine's PNG loader already eats indexed PNGs directly - so the editor
+  now produces them. **Preferences > Rendering > Textures** picks the
+  project-wide quality (full 32-bit / 256 colors / 16 colors - new projects
+  default to 4-bit, existing ones load as "none" so their output never
+  changes silently), and every model/material row in **Assets** gets a
+  quality combo override; when several assets share a texture the HIGHEST
+  requested quality wins - "everything 4-bit, but the hero stays full color"
+  works per design. Non-destructive: sources in res/ are never touched; a
+  build-time bake (runner, before the docker sync) mirrors res/ into
+  `.res-baked/` quantizing PNGs per policy (hud/fonts exempt - UI
+  legibility), and the generated Makefile's RESDIR now points at the mirror.
+  New `src/pngquant.cpp`: median-cut over RGBA (pixel-weighted, alpha
+  counted double), Floyd-Steinberg dithering when lossy, lossless
+  pass-through for images already within the palette budget, and a
+  hand-rolled indexed PNG writer (PLTE + tRNS, deflate via stb's zlib)
+  matching what the engine's 4/8bpp paths expect (even width required for
+  4bpp). `src/texbake.cpp` resolves the per-PNG policy by parsing every
+  .obj/.mtl asset (objparser), mirrors/cleans the bake dir and reports
+  counts to the build log. Verified: pngquant host tests (16 asserts: IHDR
+  depth/type, palette bounds, alpha hole survives, opaque stays opaque,
+  2-color image lossless); e2e in PCSX2 (SW renderer, 50 FPS): global 4-bit
+  + walls.mtl pinned to full - .res-baked shows models/bricks.png as
+  depth-4 type-3 (623 -> 136 B) while the pinned material stays 32-bit, HUD
+  untouched, and two boxes side by side (4-bit palette vs full color)
+  render identically from the GS's PSMT4 and 32-bit paths. Editor viewport
+  still previews the full sources (quantized preview = follow-up; the
+  Preferences/Assets combos need a hands-on GUI pass). Sample regenerated
+  (Makefile RESDIR + .gitignore .res-baked).
 
 - (23) **Materials replace per-object textures** — the loose "slap a PNG on
   an object" texture is gone; .mtl material libraries are the one texturing

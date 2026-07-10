@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -142,6 +143,13 @@ struct ProjectSettings {
     // overlays; "release" strips them from the build.
     std::string videoSystem = "auto";      // "auto" | "ntsc" | "pal"
     std::string buildProfile = "release";  // "release" | "debug"
+
+    // Texture quantization at build (the PS2-native "compression": palettized
+    // PSMT8/PSMT4 textures). Applied to res/models|materials|textures PNGs
+    // when baking res/ -> .res-baked/; sources stay untouched. Per-asset
+    // overrides live in Project::textureQuality. "none" = full color,
+    // "8bit" = 256 colors, "4bit" = 16 colors (default - era-correct).
+    std::string textureQuant = "4bit";
     bool showFps = false;     // debug profile only: on-screen FPS counter
     bool showMemory = false;  // debug profile only: on-screen free-RAM readout
 
@@ -410,6 +418,12 @@ struct Project {
     std::vector<std::string> sounds;
     // Custom values persisted in memory card saves (Project panel, Save data).
     std::vector<SaveValue> saveValues;
+    // Per-asset texture-quality overrides of ProjectSettings::textureQuant,
+    // keyed by asset path (a res/models .obj or a .mtl library): "none" /
+    // "8bit" / "4bit". Textures referenced by several assets take the
+    // HIGHEST requested quality - e.g. everything 4-bit, but the hero model
+    // pinned to "none" keeps its textures full color.
+    std::map<std::string, std::string> textureQuality;
     // In-game menus (Project panel, Menus): panels baked at build, opened by
     // the Open Menu flow node, menu entries, or at boot (titleScreen).
     std::vector<GameMenu> menus;
