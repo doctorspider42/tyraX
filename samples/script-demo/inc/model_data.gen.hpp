@@ -13,6 +13,11 @@ inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
 };
 constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false};
 
+constexpr int ANIM_MODEL_COUNT = 0;
+inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {
+    "",
+};
+
 // .mtl libraries assigned to primitives (first material = surface)
 constexpr int MATERIAL_COUNT = 0;
 inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {

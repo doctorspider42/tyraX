@@ -204,6 +204,12 @@ static std::string objectJson(const SceneObject& o) {
         json += ", \"light\": { \"brightness\": " + fmtFloat(o.lightBright) +
                 ", \"radius\": " + fmtFloat(o.lightRadius) + " }";
     }
+    if (o.type == PrimitiveType::Model && isAnimatedModelPath(o.modelPath)) {
+        json += ", \"anim\": { \"clip\": \"" + o.animClip +
+                "\", \"autoplay\": " + (o.animAutoplay ? "true" : "false") +
+                ", \"loop\": " + (o.animLoop ? "true" : "false") +
+                ", \"speed\": " + fmtFloat(o.animSpeed) + " }";
+    }
     if (!o.flowGraph.empty()) json += ", \"flowGraph\": " + flowGraphJson(o.flowGraph);
     return json + " }";
 }
@@ -760,6 +766,16 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 o.lightRadius = (float)v->numberOr(8.0);
             if (o.lightRadius < 0.1f) o.lightRadius = 0.1f;
         }
+        if (const auto* an = jo.find("anim")) {
+            if (const auto* v = an->find("clip")) o.animClip = v->stringOr("");
+            if (const auto* v = an->find("autoplay"))
+                o.animAutoplay = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (const auto* v = an->find("loop"))
+                o.animLoop = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (const auto* v = an->find("speed")) o.animSpeed = (float)v->numberOr(1.0);
+            if (o.animSpeed < 0.05f) o.animSpeed = 0.05f;
+            if (o.animSpeed > 10.0f) o.animSpeed = 10.0f;
+        }
         if (const auto* fg = jo.find("flowGraph")) readFlowGraph(*fg, o.flowGraph);
         out.push_back(std::move(o));
     }
@@ -1213,6 +1229,20 @@ std::string refreshGenerated(const Project& p) {
         if (write) {
             if (auto err = writeFile(path, f.content); !err.empty()) return err;
         }
+    }
+
+    // Animated models: re-bake every referenced .glb into its .tanm (+
+    // extracted PNG textures) so the game assets always match the sources.
+    // Bake problems fail soft - the build proceeds, the game skips the model.
+    {
+        std::vector<std::string> warnings;
+        for (const auto& f : templates::bakeAnimAssets(p, &warnings)) {
+            if (auto err = writeFile(fs::path(p.dir) / f.relativePath, f.content);
+                !err.empty())
+                return err;
+        }
+        for (const auto& w : warnings)
+            printf("[anim bake] %s\n", w.c_str());
     }
 
     // Built-in HUD assets shipped into every project, written only when

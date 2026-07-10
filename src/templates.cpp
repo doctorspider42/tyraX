@@ -13,6 +13,7 @@
 
 #include <stb_image_write.h>  // implementation lives in menubake.cpp
 
+#include "glbparser.hpp"
 #include "menubake.hpp"
 #include "project.hpp"
 
@@ -20,16 +21,19 @@ namespace templates {
 
 static std::vector<std::string> collectMenuEvents(const Project& p);
 
-// Unique (modelPath, material override) pairs referenced by model objects,
-// in first-use order. A material override changes what gets loaded, so the
-// PAIR is the model identity: the index in this list ==
-// SceneObjectData::model in the generated code.
+// Unique (modelPath, material override) pairs referenced by static .obj
+// model objects, in first-use order. A material override changes what gets
+// loaded, so the PAIR is the model identity: the index in this list ==
+// SceneObjectData::model in the generated code. Animated .glb models take
+// the separate ANIM_MODEL path (collectAnimModelPaths).
 static std::vector<std::pair<std::string, std::string>> collectModelKeys(
     const Project& p) {
     std::vector<std::pair<std::string, std::string>> keys;
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects) {
-            if (o.type != PrimitiveType::Model || o.modelPath.empty()) continue;
+            if (o.type != PrimitiveType::Model || o.modelPath.empty() ||
+                isAnimatedModelPath(o.modelPath))
+                continue;
             const std::pair<std::string, std::string> key{o.modelPath, o.materialPath};
             bool seen = false;
             for (const auto& e : keys) seen |= (e == key);
@@ -39,12 +43,50 @@ static std::vector<std::pair<std::string, std::string>> collectModelKeys(
 }
 
 static int modelIndexOf(const Project& p, const SceneObject& o) {
-    if (o.type != PrimitiveType::Model || o.modelPath.empty()) return -1;
+    if (o.type != PrimitiveType::Model || o.modelPath.empty() ||
+        isAnimatedModelPath(o.modelPath))
+        return -1;
     const auto keys = collectModelKeys(p);
     for (size_t i = 0; i < keys.size(); ++i)
         if (keys[i].first == o.modelPath && keys[i].second == o.materialPath)
             return (int)i;
     return -1;
+}
+
+// Unique .glb paths referenced by animated model objects, first-use order.
+// The index == SceneObjectData::animModel == the ANIM_MODEL_PATHS slot of
+// the baked .tanm. Identity is the path alone (no .mtl overrides for .glb -
+// materials come from the file itself).
+static std::vector<std::string> collectAnimModelPaths(const Project& p) {
+    std::vector<std::string> paths;
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects) {
+            if (o.type != PrimitiveType::Model || !isAnimatedModelPath(o.modelPath))
+                continue;
+            bool seen = false;
+            for (const auto& e : paths) seen |= (e == o.modelPath);
+            if (!seen) paths.push_back(o.modelPath);
+        }
+    return paths;
+}
+
+static int animModelIndexOf(const Project& p, const SceneObject& o) {
+    if (o.type != PrimitiveType::Model || !isAnimatedModelPath(o.modelPath))
+        return -1;
+    const auto paths = collectAnimModelPaths(p);
+    for (size_t i = 0; i < paths.size(); ++i)
+        if (paths[i] == o.modelPath) return (int)i;
+    return -1;
+}
+
+// C string literal escaping for clip names baked into scene_data.hpp.
+static std::string escapeCString(const std::string& s) {
+    std::string out;
+    for (char c : s) {
+        if (c == '"' || c == '\\') out += '\\';
+        if ((unsigned char)c >= 0x20) out += c;
+    }
+    return out;
 }
 
 // Unique .mtl paths assigned to non-model solid objects (primitives take the
@@ -279,6 +321,9 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    // Animated models (.glb): this object's DynamicMesh instance - a copy
+    // of the model's mother mesh (shared frames, own animation state).
+    std::unique_ptr<Tyra::DynamicMesh> animMesh;
     // Usable-object highlight: fading shells grown around the object
     // center, drawn after the scene (see renderHighlightHull)
     std::vector<Tyra::Vec4> hullVerts;
@@ -303,6 +348,30 @@ class TerrainGame : public Tyra::Game {
   };
   std::vector<GameModel> gameModels;
   void loadModels();
+  // Animated .glb models: baked by the editor to .tanm morph-frame files
+  // (paths in model_data.gen.hpp), rendered through the dynamic pipeline.
+  // Both pipelines stay initialized side by side; renderScene() re-uploads
+  // the right VU1 programs when it switches passes (renderer3D.usePipeline
+  // would reallocate every buffer on every switch instead).
+  Tyra::DynamicPipeline dynpip;
+  struct GameAnimModel {
+    std::unique_ptr<Tyra::TanmModel> src;       // clip table + AABB
+    std::unique_ptr<Tyra::DynamicMesh> mother;  // owns the frame data
+  };
+  std::vector<GameAnimModel> gameAnimModels;
+  void loadAnimModels();
+  void setupAnimObject(int index);  // per-object mesh copy + playback state
+  void updateAndRenderAnimObjects();
+  // Directional light for the dynamic pass, mirroring the baked static look
+  Tyra::Color animAmbient;
+  Tyra::Color animDirColors[3];
+  Tyra::Vec4 animDirDirs[3];
+
+ public:
+  // Clip-name lookup for scripts/flow graph (ScriptContext::resolveClip).
+  int resolveClipIndex(int objectIndex, const char* clipName) const;
+
+ private:
   // Primitive materials: .mtl assigned to a box/sphere/... - the file's
   // first material supplies the color (kd) and optional texture.
   struct GameMaterial {
@@ -465,6 +534,9 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    // Animated models (.glb): this object's DynamicMesh instance - a copy
+    // of the model's mother mesh (shared frames, own animation state).
+    std::unique_ptr<Tyra::DynamicMesh> animMesh;
     // Usable-object highlight: fading shells grown around the object
     // center, drawn after the scene (see renderHighlightHull)
     std::vector<Tyra::Vec4> hullVerts;
@@ -489,6 +561,30 @@ class TerrainGame : public Tyra::Game {
   };
   std::vector<GameModel> gameModels;
   void loadModels();
+  // Animated .glb models: baked by the editor to .tanm morph-frame files
+  // (paths in model_data.gen.hpp), rendered through the dynamic pipeline.
+  // Both pipelines stay initialized side by side; renderScene() re-uploads
+  // the right VU1 programs when it switches passes (renderer3D.usePipeline
+  // would reallocate every buffer on every switch instead).
+  Tyra::DynamicPipeline dynpip;
+  struct GameAnimModel {
+    std::unique_ptr<Tyra::TanmModel> src;       // clip table + AABB
+    std::unique_ptr<Tyra::DynamicMesh> mother;  // owns the frame data
+  };
+  std::vector<GameAnimModel> gameAnimModels;
+  void loadAnimModels();
+  void setupAnimObject(int index);  // per-object mesh copy + playback state
+  void updateAndRenderAnimObjects();
+  // Directional light for the dynamic pass, mirroring the baked static look
+  Tyra::Color animAmbient;
+  Tyra::Color animDirColors[3];
+  Tyra::Vec4 animDirDirs[3];
+
+ public:
+  // Clip-name lookup for scripts/flow graph (ScriptContext::resolveClip).
+  int resolveClipIndex(int objectIndex, const char* clipName) const;
+
+ private:
   // Primitive materials: .mtl assigned to a box/sphere/... - the file's
   // first material supplies the color (kd) and optional texture.
   struct GameMaterial {
@@ -744,6 +840,14 @@ V3 pointLightAt(const V3& wp, const V3& n) {
 const float* g_primKd = nullptr;
 bool g_primTextured = false;
 
+// Clip-name resolution for scripts/flow graph: ScriptContext carries a plain
+// function pointer (script.hpp must stay engine-agnostic), so the game
+// instance is reached through this file-static (set in buildScene).
+TerrainGame* g_animGame = nullptr;
+int animResolveClipThunk(int objectIndex, const char* clipName) {
+  return g_animGame ? g_animGame->resolveClipIndex(objectIndex, clipName) : -1;
+}
+
 // kd: material diffuse (MTL) multiplied into the object color, null = white.
 // textured: this batch draws with a texture (a model part's map_Kd or a
 // primitive material's) - switches the color to modulation scale (128 = 1.0).
@@ -953,6 +1057,12 @@ void TerrainGame::init() {
   g_frameScale = 50.0F / g_frameRate;
 
   stapip.setRenderer(&engine->renderer.core);
+  if (ANIM_MODEL_COUNT > 0) {
+    // Dynamic pipeline for animated models, initialized once next to the
+    // static one - renderScene() swaps VU1 programs between the passes.
+    dynpip.setRenderer(&engine->renderer.core);
+    dynpip.onUse();
+  }
 
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
@@ -1100,6 +1210,9 @@ void TerrainGame::buildScene() {
 
   loadModels();
   loadMaterials();
+  loadAnimModels();
+  g_animGame = this;
+  scriptCtx.resolveClip = &animResolveClipThunk;
 
   vertices.clear();
   colors.clear();
@@ -1289,6 +1402,189 @@ void TerrainGame::loadMaterials() {
   }
 }
 
+// Animated models: .glb files baked by the editor into .tanm morph frames
+// (TanmLoader builds the DynamicMesh "mother"; every scene object gets a
+// lightweight copy sharing the frame data). Textures ship as PNGs next to
+// the .tanm and link to mesh materials by id.
+void TerrainGame::loadAnimModels() {
+  gameAnimModels.clear();
+  gameAnimModels.resize(ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 0);
+  std::map<std::string, Texture*> textureByPath;
+  for (int i = 0; i < ANIM_MODEL_COUNT; ++i) {
+    auto model = TanmLoader::load(ANIM_MODEL_PATHS[i]);
+    if (!model) continue;  // stays empty - objects using it render nothing
+    GameAnimModel& gam = gameAnimModels[i];
+    gam.mother = std::make_unique<DynamicMesh>(model->data.get());
+    for (size_t m = 0; m < gam.mother->materials.size(); ++m) {
+      if (m >= model->texturePaths.size()) break;
+      const std::string& path = model->texturePaths[m];
+      if (path.empty()) continue;
+      auto it = textureByPath.find(path);
+      if (it == textureByPath.end()) {
+        Texture* t = nullptr;
+        if (assetFileExists(path))
+          t = engine->renderer.getTextureRepository().add(FileUtils::fromCwd(path));
+        else
+          TYRA_WARN("Model texture missing: ", path.c_str());
+        it = textureByPath.emplace(path, t).first;
+      }
+      if (it->second)
+        it->second->addLink(gam.mother->materials[m]->id);
+      else  // missing texture degrades the material to its plain color
+        gam.mother->materials[m]->textureName.reset();
+    }
+    model->data.reset();  // frame arrays now belong to the mother mesh
+    gam.src = std::move(model);
+  }
+}
+
+int TerrainGame::resolveClipIndex(int objectIndex, const char* clipName) const {
+  if (objectIndex < 0 || objectIndex >= (int)runtimeObjects.size()) return -1;
+  const RuntimeObject& o = runtimeObjects[objectIndex];
+  if (o.data.animModel < 0 || o.data.animModel >= (int)gameAnimModels.size())
+    return -1;
+  const GameAnimModel& gam = gameAnimModels[o.data.animModel];
+  if (!gam.src) return -1;
+  if (!clipName || !clipName[0]) return 0;  // "" = the file's first clip
+  for (size_t c = 0; c < gam.src->clips.size(); ++c)
+    if (gam.src->clips[c].name == clipName) return (int)c;
+  return -1;
+}
+
+// Creates this object's DynamicMesh instance and resets its playback state
+// to the object's authored defaults. Called for every object on scene load.
+void TerrainGame::setupAnimObject(int index) {
+  RuntimeObject& o = runtimeObjects[index];
+  ObjectGeometry& g = objectGeometry[index];
+  g.animMesh.reset();
+  if (o.data.type != 5 || o.data.animModel < 0 ||
+      o.data.animModel >= (int)gameAnimModels.size())
+    return;
+  GameAnimModel& gam = gameAnimModels[o.data.animModel];
+  if (!gam.mother || !gam.src) return;
+
+  g.animMesh = std::make_unique<DynamicMesh>(*gam.mother);
+  for (size_t m = 0; m < g.animMesh->materials.size(); ++m) {
+    MeshMaterial* mat = g.animMesh->materials[m];
+    // texture links are per material id and the copy got fresh ids
+    if (mat->textureName.has_value()) {
+      Texture* t = engine->renderer.getTextureRepository().getByMeshMaterialId(
+          gam.mother->materials[m]->id);
+      if (t) t->addLink(mat->id);
+    }
+    // per-instance tint: object color multiplies the material base color
+    const Color& base = gam.mother->materials[m]->ambient;
+    mat->ambient.set(base.r * o.data.color[0], base.g * o.data.color[1],
+                     base.b * o.data.color[2], 128.0F);
+  }
+
+  o.animClip = resolveClipIndex(index, o.data.animClip);
+  if (o.animClip < 0) {
+    if (o.data.animClip && o.data.animClip[0])
+      TYRA_WARN("Unknown animation clip: ", o.data.animClip);
+    o.animClip = 0;
+  }
+  o.animLoop = o.data.animLoop != 0;
+  o.animSpeed = o.data.animSpeed;
+  o.animPlaying = o.data.animAutoplay != 0;
+  o.animRestart = true;  // sequence applied on the first anim update
+  o.animFinished = false;
+
+  // "clip reached its last frame" flag driving On Animation Finished:
+  // End fires once for one-shot clips, Loop fires on every wrap.
+  g.animMesh->animation.setCallback(
+      [this, index](const AnimationSequenceCallback& kind) {
+        if (kind == AnimationSequenceCallback_End ||
+            kind == AnimationSequenceCallback_Loop)
+          runtimeObjects[index].animFinished = true;
+      });
+}
+
+// The dynamic-pipeline pass at the end of the scene render: applies pending
+// playback state, advances every visible animated mesh and renders it with
+// a directional light matching the baked static lighting (point lights are
+// baked into static vertex colors and cannot follow animated meshes).
+void TerrainGame::updateAndRenderAnimObjects() {
+  if (gameAnimModels.empty()) return;
+  bool any = false;
+  for (int i = 0; i < (int)runtimeObjects.size() && !any; ++i)
+    any = runtimeObjects[i].visible && objectGeometry[i].animMesh != nullptr;
+  if (!any) return;
+
+  animAmbient.set(128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT,
+                  128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT,
+                  128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT, 128.0F);
+  const float dif = 128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE;
+  animDirColors[0].set(dif * SCENE_LIGHT_COL_R, dif * SCENE_LIGHT_COL_G,
+                       dif * SCENE_LIGHT_COL_B, 1.0F);
+  animDirColors[1].set(0.0F, 0.0F, 0.0F, 1.0F);
+  animDirColors[2].set(0.0F, 0.0F, 0.0F, 1.0F);
+  animDirDirs[0].set(SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z, 1.0F);
+  animDirDirs[1].set(0.0F, 0.0F, 0.0F, 1.0F);
+  animDirDirs[2].set(0.0F, 0.0F, 0.0F, 1.0F);
+
+  PipelineLightingOptions lighting;
+  lighting.ambientColor = &animAmbient;
+  lighting.directionalColors = animDirColors;
+  lighting.directionalDirections = animDirDirs;
+
+  DynPipOptions options;
+  options.frustumCulling = PipelineFrustumCulling_Precise;
+  options.shadingType = TyraShadingGouraud;
+  options.blendingEnabled = true;
+  options.antiAliasingEnabled = false;
+  options.lighting = &lighting;
+
+  dynpip.core.reinitVU1Programs();  // swap VU1 to the dynamic programs
+
+  for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
+    RuntimeObject& o = runtimeObjects[i];
+    DynamicMesh* mesh = objectGeometry[i].animMesh.get();
+    if (!mesh || !o.visible) continue;
+    const GameAnimModel& gam = gameAnimModels[o.data.animModel];
+
+    if (o.animClip < 0 || o.animClip >= (int)gam.src->clips.size())
+      o.animClip = 0;
+    if (o.animRestart) {
+      o.animRestart = false;
+      o.animFinished = false;
+      const TanmClip& clip = gam.src->clips[o.animClip];
+      if (mesh->frames.size() > 1) {
+        std::vector<u32> seq;
+        seq.reserve(clip.frameCount);
+        for (u32 f = 0; f < clip.frameCount; ++f)
+          seq.push_back(clip.firstFrame + f);
+        mesh->animation.setSequence(seq);
+      }
+    }
+    mesh->animation.loop = o.animLoop;
+    // interpolation advances one baked frame every 1/fps wall-clock seconds
+    mesh->animation.speed = gam.src->fps * o.animSpeed * g_frameDt;
+    o.animFinished = false;  // set again by the End/Loop callback below
+    if (o.animPlaying && mesh->frames.size() > 1) mesh->update();
+
+    // model matrix straight from the object data: T * R(X,Y,Z) * S, the
+    // same transform the static path bakes through pushVert()/rotated()
+    const V3 bx = rotated({o.data.scale[0], 0.0F, 0.0F}, o.data.rotation);
+    const V3 by = rotated({0.0F, o.data.scale[1], 0.0F}, o.data.rotation);
+    const V3 bz = rotated({0.0F, 0.0F, o.data.scale[2]}, o.data.rotation);
+    mesh->translation.identity();
+    mesh->scale.identity();
+    M4x4& m = mesh->rotation;  // carries the full model matrix
+    m.identity();
+    m.data[0] = bx.x, m.data[1] = bx.y, m.data[2] = bx.z;
+    m.data[4] = by.x, m.data[5] = by.y, m.data[6] = by.z;
+    m.data[8] = bz.x, m.data[9] = bz.y, m.data[10] = bz.z;
+    m.data[12] = o.data.position[0];
+    m.data[13] = o.data.position[1];
+    m.data[14] = o.data.position[2];
+
+    dynpip.render(mesh, &options);
+  }
+
+  stapip.core.reinitVU1Programs();  // restore the static programs
+}
+
 // Shared player-vs-scene collision (both walkers). Box mode reproduces the
 // classic behavior (XZ box + stand-on-top + step up 0.5), with models sized
 // by their real mesh AABB instead of the unit scale box. Mesh mode collides
@@ -1358,18 +1654,26 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
       continue;
     }
 
-    // --- box mode --- (models: real mesh AABB; primitives: unit scale box)
+    // --- box mode --- (models: real mesh AABB; primitives: unit scale box;
+    // animated models: the baked frame-0 AABB - mesh mode is a static-model
+    // feature, so .glb objects always collide as boxes)
+    const TanmModel* anim = nullptr;
+    if (o.data.type == 5 && o.data.animModel >= 0 &&
+        o.data.animModel < (int)gameAnimModels.size())
+      anim = gameAnimModels[o.data.animModel].src.get();
     float cx = o.data.position[0], cy = o.data.position[1],
           cz = o.data.position[2];
     float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
           ez = 0.5F * o.data.scale[2];
-    if (gm) {
-      cx += 0.5F * (gm->mn[0] + gm->mx[0]) * o.data.scale[0];
-      cy += 0.5F * (gm->mn[1] + gm->mx[1]) * o.data.scale[1];
-      cz += 0.5F * (gm->mn[2] + gm->mx[2]) * o.data.scale[2];
-      ex = 0.5F * (gm->mx[0] - gm->mn[0]) * o.data.scale[0];
-      ey = 0.5F * (gm->mx[1] - gm->mn[1]) * o.data.scale[1];
-      ez = 0.5F * (gm->mx[2] - gm->mn[2]) * o.data.scale[2];
+    const float* mn = gm ? gm->mn : (anim ? anim->min : nullptr);
+    const float* mx = gm ? gm->mx : (anim ? anim->max : nullptr);
+    if (mn && mx) {
+      cx += 0.5F * (mn[0] + mx[0]) * o.data.scale[0];
+      cy += 0.5F * (mn[1] + mx[1]) * o.data.scale[1];
+      cz += 0.5F * (mn[2] + mx[2]) * o.data.scale[2];
+      ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
+      ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
+      ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
     }
     const float hx = ex + playerRadius;
     const float hz = ez + playerRadius;
@@ -1447,6 +1751,9 @@ void TerrainGame::loadScene(int sceneIndex) {
         SCENE_OBJECTS[i].type != 4 && SCENE_OBJECTS[i].type != 6;
     runtimeObjects[i].dirty = true;
   }
+  // Animated models: fresh per-object mesh instances + playback defaults
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) setupAnimObject(i);
+
   scriptCtx.objects = runtimeObjects.data();
   scriptCtx.objectCount = (int)runtimeObjects.size();
   scriptCtx.scene = currentScene;
@@ -2257,6 +2564,9 @@ void TerrainGame::renderScene() {
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag) stapip.core.render(part.bag.get());
   }
+  // Animated models: the dynamic-pipeline pass (advances + draws them; a
+  // no-op without visible animated objects, so the VU1 programs stay put)
+  updateAndRenderAnimObjects();
   // Highlight rims after every object so their depth is in the z-buffer:
   // the rim is depth-tested against the finished scene and can no longer be
   // punched through by an object drawn later in the loop.
@@ -2504,6 +2814,12 @@ void TerrainGame::init() {
   g_frameScale = 50.0F / g_frameRate;
 
   stapip.setRenderer(&engine->renderer.core);
+  if (ANIM_MODEL_COUNT > 0) {
+    // Dynamic pipeline for animated models, initialized once next to the
+    // static one - renderScene() swaps VU1 programs between the passes.
+    dynpip.setRenderer(&engine->renderer.core);
+    dynpip.onUse();
+  }
 
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
@@ -3245,6 +3561,18 @@ struct RuntimeObject {
   bool visible = true;
   float velocityY = 0.0F;  // vertical velocity (object physics)
   bool dirty = true;
+
+  // Animated models (.glb) playback state; ignored on everything else.
+  // To switch clips set animClip (resolve names with ctx.resolveClip or the
+  // playAnimation() helper below) and animRestart = true; the game applies
+  // it during the render pass.
+  int animClip = 0;          // active clip index (model's clip table order)
+  bool animPlaying = false;  // false = frozen on the current pose
+  bool animLoop = true;
+  float animSpeed = 1.0F;    // multiplier on the authored playback speed
+  bool animRestart = false;  // (re)start animClip on the next frame
+  bool animFinished = false; // one frame: the clip reached its last frame
+                             // (one-shots: once; looping: every wrap)
 };
 
 /** Everything a script can see and touch each frame. */
@@ -3291,7 +3619,40 @@ struct ScriptContext {
   int scene = 0;
   unsigned int sceneGeneration = 0;
   int requestScene = -1;
+
+  // Animated models: clip-name -> clip-index lookup for an object (-1 =
+  // unknown clip / not an animated model). Set by the game at startup.
+  int (*resolveClip)(int objectIndex, const char* clipName) = nullptr;
 };
+
+/** Plays a named clip on an animated model object ("" = its first clip).
+ * No-op on objects that are not animated models. */
+inline void playAnimation(ScriptContext& ctx, int objectIndex,
+                          const char* clip = "", bool loop = true,
+                          float speed = 1.0F) {
+  if (objectIndex < 0 || objectIndex >= ctx.objectCount) return;
+  const int index = ctx.resolveClip ? ctx.resolveClip(objectIndex, clip) : -1;
+  if (index < 0) return;
+  RuntimeObject& o = ctx.objects[objectIndex];
+  o.animClip = index;
+  o.animLoop = loop;
+  o.animSpeed = speed;
+  o.animPlaying = true;
+  o.animRestart = true;
+}
+
+/** Freezes an animated model object on its current pose. */
+inline void stopAnimation(ScriptContext& ctx, int objectIndex) {
+  if (objectIndex < 0 || objectIndex >= ctx.objectCount) return;
+  ctx.objects[objectIndex].animPlaying = false;
+}
+
+/** True the frame an object's clip reached its last frame (one-shots: once;
+ * looping clips: every wrap). */
+inline bool animationFinished(const ScriptContext& ctx, int objectIndex) {
+  if (objectIndex < 0 || objectIndex >= ctx.objectCount) return false;
+  return ctx.objects[objectIndex].animFinished;
+}
 
 /** Base class for game scripts. Put .cpp files in src/scripts/. */
 class Script {
@@ -3554,6 +3915,11 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  float lightRadius; // point lights (type 9): falloff radius\n"
            "  int saveState;  // 1 = position/color/visibility persisted in saves\n"
            "  int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none\n"
+           "  int animModel;  // animated models: index into ANIM_MODEL_PATHS, -1 = none\n"
+           "  const char* animClip;  // animated models: starting clip (\"\" = first)\n"
+           "  int animAutoplay;      // animated models: 1 = play at scene start\n"
+           "  int animLoop;          // animated models: 1 = starting clip loops\n"
+           "  float animSpeed;       // animated models: playback speed multiplier\n"
            "};\n"
            "\n";
 
@@ -3570,7 +3936,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << (objs.empty() ? (size_t)1 : objs.size()) << "] = {\n";
         if (objs.empty()) {
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
-                   "0, 0, 0.0F, -1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0},\n";
+                   "0, 0, 0.0F, -1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, -1, \"\", 1, "
+                   "1, 1.0F},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
                 for (size_t i = 0; i < p.sounds.size(); ++i)
@@ -3592,7 +3959,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << floatLit(o.soundInterval) << ", " << (o.soundOnPlayer ? 1 : 0)
                     << ", " << floatLit(o.lightBright)
                     << ", " << floatLit(o.lightRadius) << ", " << (o.saveState ? 1 : 0)
-                    << ", " << o.collisionMode << "},  // " << o.name << "\n";
+                    << ", " << o.collisionMode << ", " << animModelIndexOf(p, o)
+                    << ", \"" << escapeCString(o.animClip) << "\", "
+                    << (o.animAutoplay ? 1 : 0) << ", " << (o.animLoop ? 1 : 0)
+                    << ", " << floatLit(o.animSpeed) << "},  // " << o.name << "\n";
             }
         }
         out << "};\n";
@@ -4112,6 +4482,11 @@ std::string flowGraphScript(const Project& p) {
                 if (idx < 0) return "false";
                 return "(ctx.usedObject == " + std::to_string(idx) + ")";
             }
+            if (n.type == "OnAnimFinished") {
+                const int idx = resolveTarget(n);
+                if (idx < 0) return "false";
+                return "(ctx.objects[" + std::to_string(idx) + "].animFinished)";
+            }
             if (n.type == "EverySeconds") {
                 // everyFrames (scene_data.hpp) converts to frames at the
                 // actual refresh rate, so the cadence is wall-clock on both
@@ -4394,6 +4769,16 @@ std::string flowGraphScript(const Project& p) {
                     c << pad << "ctx.openMenu = " << mi << ";  // \"" << n.str
                       << "\"\n";
                 }
+            } else if (n.type == "PlayAnimation") {
+                // str = clip name ("" = the model's first clip); Loop 1 = loop,
+                // Speed <= 0 = the authored default (1.0)
+                const float speed = n.num[1] > 0.001f ? n.num[1] : 1.0f;
+                c << pad << "playAnimation(ctx, " << idx << ", \""
+                  << escapeCString(n.str) << "\", "
+                  << (n.num[0] != 0.0f ? "true" : "false") << ", "
+                  << floatLit(speed) << ");\n";
+            } else if (n.type == "StopAnimation") {
+                c << pad << "stopAnimation(ctx, " << idx << ");\n";
             }
             return c.str();
         };
@@ -4476,6 +4861,15 @@ std::string flowGraphScript(const Project& p) {
             } else if (n.type == "EverySeconds") {
                 clsOut << "    if (frame % everyFrames(" << floatLit(n.num[0])
                        << ") == 0) {\n" << body << "    }\n";
+            } else if (n.type == "OnAnimFinished") {
+                const int idx = resolveTarget(n);
+                if (idx < 0) {
+                    clsOut << "    // node " << n.id
+                           << " (OnAnimFinished): unknown object '" << n.str << "'\n";
+                    continue;
+                }
+                clsOut << "    if (ctx.objects[" << idx << "].animFinished) {\n"
+                       << body << "    }\n";
             } else if (n.type == "OnMenuEvent") {
                 const int ei = menuEventIndex(n.str);
                 if (ei < 0) {
@@ -4596,6 +4990,23 @@ static std::string modelDataHeader(const Project& p) {
     } else {
         for (size_t m = 0; m < keys.size(); ++m)
             out << (m ? ", " : "") << (needsCollider[m] ? "true" : "false");
+    }
+    out << "};\n\n";
+
+    // Animated models: .glb sources baked to .tanm (morph frames + clips)
+    // at build time; the game loads them through the engine's TanmLoader.
+    const auto animPaths = collectAnimModelPaths(p);
+    out << "constexpr int ANIM_MODEL_COUNT = " << animPaths.size() << ";\n"
+        << "inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? "
+           "ANIM_MODEL_COUNT : 1] = {\n";
+    if (animPaths.empty()) {
+        out << "    \"\",\n";
+    } else {
+        for (std::string path : animPaths) {
+            if (const size_t dot = path.rfind('.'); dot != std::string::npos)
+                path = path.substr(0, dot) + ".tanm";
+            out << "    \"" << binPathOf(path) << "\",\n";
+        }
     }
     out << "};\n\n"
         << "// .mtl libraries assigned to primitives (first material = surface)\n"
@@ -5204,6 +5615,56 @@ static std::string vscodeCppProperties() {
            "  \"version\": 4\n"
            "}\n";
     return out.str();
+}
+
+std::vector<File> bakeAnimAssets(const Project& p,
+                                 std::vector<std::string>* warnings) {
+    std::vector<File> files;
+    auto warn = [&](const std::string& msg) {
+        if (warnings) warnings->push_back(msg);
+    };
+    for (const std::string& relPath : collectAnimModelPaths(p)) {
+        const std::string full = p.dir + "\\" + replaceAll(relPath, "/", "\\");
+        // "res/models/sub/x.glb" -> dir "res/models/sub/", stem "x"
+        std::string dir = relPath, stem = relPath;
+        if (const size_t slash = relPath.find_last_of('/');
+            slash != std::string::npos) {
+            dir = relPath.substr(0, slash + 1);
+            stem = relPath.substr(slash + 1);
+        } else {
+            dir = "";
+        }
+        if (const size_t dot = stem.rfind('.'); dot != std::string::npos)
+            stem = stem.substr(0, dot);
+        // the game's cwd-relative directory ("res/" is copied next to the ELF)
+        std::string binDir = dir;
+        if (binDir.rfind("res/", 0) == 0) binDir = binDir.substr(4);
+
+        glbparser::Baked baked;
+        std::string error;
+        if (!glbparser::bake(full, 12.0f, baked, error)) {
+            warn(relPath + ": " + error);
+            continue;
+        }
+        for (const std::string& w : baked.warnings) warn(relPath + ": " + w);
+
+        // Extracted textures land next to the .tanm, prefixed with the model
+        // stem so two models' equally-named images cannot collide. The game
+        // loads them by these bin/-relative paths (baked into the .tanm).
+        std::vector<std::string> textureNames;
+        for (size_t i = 0; i < baked.images.size(); ++i) {
+            const std::string png = stem + "_" + baked.images[i].name;
+            textureNames.push_back(binDir + png);
+            files.push_back(
+                {replaceAll(dir, "/", "\\") + png,
+                 std::string(
+                     reinterpret_cast<const char*>(baked.images[i].png.data()),
+                     baked.images[i].png.size())});
+        }
+        files.push_back({replaceAll(dir + stem, "/", "\\") + ".tanm",
+                         glbparser::writeTanm(baked, textureNames)});
+    }
+    return files;
 }
 
 std::vector<File> generate(const Project& p) {

@@ -19,6 +19,14 @@ std::vector<File> generate(const Project& p);
 // Compiles the project flow graph into a C++ script (flow_graph.gen.cpp).
 std::string flowGraphScript(const Project& p);
 
+// Bakes every animated model (.glb) referenced by the project into the
+// .tanm morph-frame binaries + extracted PNG textures the game loads
+// (res/models/<stem>.tanm, res/models/<stem>_<image>.png). Bake failures
+// are reported in `warnings` and the model is skipped (the game warns and
+// renders nothing for it - same soft-fail as missing textures).
+std::vector<File> bakeAnimAssets(const Project& p,
+                                 std::vector<std::string>* warnings = nullptr);
+
 // Built-in assets for the "FPP showcase" template.
 const char* houseObjText();
 const unsigned char* crosshairPng(size_t& size);
