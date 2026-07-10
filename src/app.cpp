@@ -2760,7 +2760,11 @@ void App::importMusicTrack() {
         return;
     }
     // Formats the song player cannot stream (float/24/32-bit, compressed,
-    // out-of-range rates) are converted in place after the copy.
+    // out-of-range rates) are converted in place after the copy. Rates above
+    // 22050 Hz stream fine in PCSX2 but starve on a real console over the
+    // network deploy (the byte rate doubles the per-chunk fread budget AND
+    // the 36 MHz IOP resampler load, which shares the CPU with ps2link's
+    // network stack) - playback drags into slow motion. Convert those too.
     std::string formatWarning;
     if (audioFormat != 1) {
         formatWarning = audioFormat == 3 ? "32-bit float WAV" : "compressed WAV";
@@ -2770,6 +2774,8 @@ void App::importMusicTrack() {
         formatWarning = std::to_string(channels) + "-channel WAV";
     } else if (rate < 11025 || rate > 48000) {
         formatWarning = std::to_string(rate) + " Hz sample rate";
+    } else if (rate > 22050) {
+        formatWarning = std::to_string(rate) + " Hz (too heavy for a real PS2)";
     }
 
     const std::filesystem::path srcPath(src);
@@ -2789,7 +2795,7 @@ void App::importMusicTrack() {
                        "-bit " + (channels == 1 ? "mono" : "stereo") + ")";
     if (!formatWarning.empty()) {
         std::string convErr;
-        const int targetRate = (rate >= 11025 && rate <= 48000) ? rate : 22050;
+        const int targetRate = (rate >= 11025 && rate <= 22050) ? rate : 22050;
         if (wavconvert::convertTo16(destDir / fileName, targetRate, convErr))
             note = " - " + formatWarning + ", converted to 16-bit PCM " +
                    std::to_string(targetRate) + " Hz";
@@ -2902,6 +2908,10 @@ const std::string& App::wavIssue(const std::string& relPath, bool sfx) {
         if (audioFormat != 1 || (bits != 8 && bits != 16) || channels > 2 ||
             rate < 11025 || rate > 48000)
             issue = "not streamable (needs 8/16-bit PCM, mono/stereo, 11-48 kHz)";
+        else if (rate > 22050)
+            issue = std::to_string(rate) +
+                    " Hz - streams in PCSX2 but starves into slow motion on a "
+                    "real PS2 over the network; Convert resamples to 22050 Hz";
     }
     return wavIssueCache_.emplace(key, std::move(issue)).first->second;
 }
