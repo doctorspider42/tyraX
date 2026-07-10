@@ -489,6 +489,7 @@ class TerrainGame : public Tyra::Game {
   void applySavedObjects();
   void refreshSlotStates();
   std::vector<float> saveValues;
+  std::vector<char> saveTexts;  // SAVE_TEXT_COUNT slots of SAVE_TEXT_LEN bytes
   std::vector<SaveObjectState> pendingObjState;  // applied after a scene load
   int pendingObjScene = -1;
   bool saveMenuOpen = false;
@@ -707,6 +708,7 @@ class TerrainGame : public Tyra::Game {
   void applySavedObjects();
   void refreshSlotStates();
   std::vector<float> saveValues;
+  std::vector<char> saveTexts;  // SAVE_TEXT_COUNT slots of SAVE_TEXT_LEN bytes
   std::vector<SaveObjectState> pendingObjState;  // applied after a scene load
   int pendingObjScene = -1;
   bool saveMenuOpen = false;
@@ -1301,6 +1303,12 @@ void TerrainGame::buildScene() {
   for (int i = 0; i < SAVE_VALUE_COUNT; ++i) saveValues[i] = SAVE_VALUE_DEFAULTS[i];
   scriptCtx.saveValues = saveValues.data();
   scriptCtx.saveValueCount = SAVE_VALUE_COUNT;
+  saveTexts.assign((SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1) * SAVE_TEXT_LEN, '\0');
+  for (int i = 0; i < SAVE_TEXT_COUNT; ++i)
+    snprintf(&saveTexts[i * SAVE_TEXT_LEN], SAVE_TEXT_LEN, "%s",
+             SAVE_TEXT_DEFAULTS[i]);
+  scriptCtx.saveTexts = saveTexts.data();
+  scriptCtx.saveTextCount = SAVE_TEXT_COUNT;
   saveInit();
   {
     const auto& scr = engine->renderer.core.getSettings();
@@ -2223,6 +2231,9 @@ void TerrainGame::doSave(int slot) {
   }
   d.valueCount = SAVE_VALUE_COUNT;
   for (int i = 0; i < SAVE_VALUE_COUNT; ++i) d.values[i] = saveValues[i];
+  d.textCount = SAVE_TEXT_COUNT;
+  for (int i = 0; i < SAVE_TEXT_COUNT; ++i)
+    snprintf(d.texts[i], SAVE_TEXT_LEN, "%s", &saveTexts[i * SAVE_TEXT_LEN]);
   d.objectCount = 0;
   for (int i = 0;
        i < (int)runtimeObjects.size() && d.objectCount < SAVE_OBJECT_MAX; ++i) {
@@ -2248,6 +2259,10 @@ void TerrainGame::doLoad(int slot) {
   }
   for (int i = 0; i < d.valueCount && i < SAVE_VALUE_COUNT; ++i)
     saveValues[i] = d.values[i];
+  for (int i = 0; i < d.textCount && i < SAVE_TEXT_COUNT; ++i) {
+    d.texts[i][SAVE_TEXT_LEN - 1] = '\0';  // corrupted cards happen
+    snprintf(&saveTexts[i * SAVE_TEXT_LEN], SAVE_TEXT_LEN, "%s", d.texts[i]);
+  }
   pendingObjState.assign(d.objects, d.objects + d.objectCount);
   pendingObjScene = d.scene;
   // Restore the player through the teleport request - the flag survives a
@@ -3742,6 +3757,10 @@ struct ScriptContext {
   // applies and clears it.
   float* saveValues = nullptr;
   int saveValueCount = 0;
+  // Text values: saveTextCount slots of SAVE_TEXT_LEN bytes each
+  // (SAVE_TEXT_NAMES order, scene_data.hpp), always NUL-terminated.
+  char* saveTexts = nullptr;
+  int saveTextCount = 0;
   bool openSaveMenu = false;
 
   // Game menus (menu_data.gen.hpp order). Write a menu index into openMenu
@@ -4307,6 +4326,30 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             out << (i ? ", " : "") << floatLit(p.saveValues[i].value);
     }
     out << "};\n";
+    // Text values: fixed SAVE_TEXT_LEN-byte slots in the save payload
+    const size_t textCount = p.saveTexts.size();
+    out << "constexpr int SAVE_TEXT_COUNT = " << textCount << ";\n"
+        << "constexpr int SAVE_TEXT_LEN = 32;  // incl. the terminating NUL\n"
+        << "inline const char* SAVE_TEXT_NAMES[SAVE_TEXT_COUNT > 0 ? "
+           "SAVE_TEXT_COUNT : 1] = {";
+    if (textCount == 0) {
+        out << "\"\"";
+    } else {
+        for (size_t i = 0; i < textCount; ++i)
+            out << (i ? ", " : "") << "\"" << escapeCString(p.saveTexts[i].name)
+                << "\"";
+    }
+    out << "};\n"
+        << "inline const char* SAVE_TEXT_DEFAULTS[SAVE_TEXT_COUNT > 0 ? "
+           "SAVE_TEXT_COUNT : 1] = {";
+    if (textCount == 0) {
+        out << "\"\"";
+    } else {
+        for (size_t i = 0; i < textCount; ++i)
+            out << (i ? ", " : "") << "\"" << escapeCString(p.saveTexts[i].value)
+                << "\"";
+    }
+    out << "};\n";
     size_t maxObjects = 1;
     for (const SceneData& sc : p.scenes)
         if (sc.objects.size() > maxObjects) maxObjects = sc.objects.size();
@@ -4467,6 +4510,11 @@ std::string flowGraphScript(const Project& p) {
             if (p.saveValues[i].name == name) return (int)i;
         return -1;
     };
+    auto saveTextIndex = [&](const std::string& name) {
+        for (size_t i = 0; i < p.saveTexts.size(); ++i)
+            if (p.saveTexts[i].name == name) return (int)i;
+        return -1;
+    };
     auto menuIndexOf = [&](const std::string& name) {
         for (size_t i = 0; i < p.menus.size(); ++i)
             if (p.menus[i].name == name) return (int)i;
@@ -4495,7 +4543,8 @@ std::string flowGraphScript(const Project& p) {
         for (const SceneData& sc : p.scenes)
             for (const SceneObject& o : sc.objects)
                 for (const FlowNode& n : o.flowGraph.nodes) {
-                    if (n.type == "SetVarInt" || n.type == "VarAtLeast")
+                    if (n.type == "SetVarInt" || n.type == "VarAtLeast" ||
+                        n.type == "GetVarIntText")
                         collect(intVars, n.str);
                     else if (n.type == "SetVarBool" || n.type == "GetVarBool")
                         collect(boolVars, n.str);
@@ -4510,12 +4559,39 @@ std::string flowGraphScript(const Project& p) {
     };
     auto intLit = [](float f) { return std::to_string((long)std::lround(f)); };
 
+    // Text plane (Log inputs, Convert nodes, save texts) only when used -
+    // keeps graphs without text nodes free of the string helpers.
+    bool anyTextNode = false;
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            for (const FlowNode& n : o.flowGraph.nodes)
+                if (const FlowNodeType* t = flowNodeType(n.type))
+                    anyTextNode |= (t->textIn || t->textOut);
+
     std::ostringstream out;
     out << "// Generated by tyra-editor from the per-object Flow Graphs. Do not\n"
            "// edit - regenerated on every build. Edit the graphs in the editor.\n"
            "#include \"scripts/script.hpp\"\n\n"
+           "#include <math.h>\n"
+           "#include <stdio.h>\n\n"
+           "#include <string>\n\n"
            "namespace "
         << ns << " {\n";
+
+    if (anyTextNode) {
+        out << "\n// Text-plane helpers (Convert nodes / Get Save Value)\n"
+               "static inline std::string flowNumText(float v) {\n"
+               "  char b[32];\n"
+               "  snprintf(b, sizeof(b), \"%g\", (double)v);\n"
+               "  return std::string(b);\n"
+               "}\n"
+               "static inline std::string flowPosText(float x, float y, float z) {\n"
+               "  char b[64];\n"
+               "  snprintf(b, sizeof(b), \"(%g, %g, %g)\", (double)x, (double)y, "
+               "(double)z);\n"
+               "  return std::string(b);\n"
+               "}\n";
+    }
 
     if (!intVars.empty() || !boolVars.empty() || !posVars.empty()) {
         auto names = [](const std::vector<std::string>& v) {
@@ -4622,7 +4698,8 @@ std::string flowGraphScript(const Project& p) {
                 const std::string base = "flowPos[" + std::to_string(vi) + "][";
                 return {base + "0]", base + "1]", base + "2]"};
             }
-            if (n.type == "SetPosition" || n.type == "SetVarPos")
+            if (n.type == "SetPosition" || n.type == "SetVarPos" ||
+                n.type == "MoveObjectTo")
                 return {floatLit(n.num[0]), floatLit(n.num[1]), floatLit(n.num[2])};
             const int idx = resolveTarget(n);
             if (idx < 0) return {"0.0F", "0.0F", "0.0F"};
@@ -4638,38 +4715,10 @@ std::string flowGraphScript(const Project& p) {
         // back into an exec pulse. Every bool is a self-contained C++
         // expression evaluated fresh from ctx, so it inlines anywhere.
         auto sourceCondition = [&](const FlowNode& n) -> std::string {
-            if (n.type == "OnStart") return "started";
-            if (n.type == "OnButton") {
-                const std::string btn = n.str.empty() ? "Cross" : n.str;
-                return "(ctx.engine->pad.getPressed()." + btn + ")";
-            }
-            if (n.type == "NearObject") {
+            if (n.type == "IsVisible") {
                 const int idx = resolveTarget(n);
                 if (idx < 0) return "false";
-                const std::string oi = std::to_string(idx);
-                const std::string dx =
-                    "(ctx.playerPosition.x - ctx.objects[" + oi + "].data.position[0])";
-                const std::string dz =
-                    "(ctx.playerPosition.z - ctx.objects[" + oi + "].data.position[2])";
-                const float r = n.num[0] > 0.01f ? n.num[0] : 3.0f;
-                return "(" + dx + " * " + dx + " + " + dz + " * " + dz + " < " +
-                       floatLit(r * r) + ")";
-            }
-            if (n.type == "OnUsed") {
-                const int idx = resolveTarget(n);
-                if (idx < 0) return "false";
-                return "(ctx.usedObject == " + std::to_string(idx) + ")";
-            }
-            if (n.type == "OnAnimFinished") {
-                const int idx = resolveTarget(n);
-                if (idx < 0) return "false";
-                return "(ctx.objects[" + std::to_string(idx) + "].animFinished)";
-            }
-            if (n.type == "EverySeconds") {
-                // everyFrames (scene_data.hpp) converts to frames at the
-                // actual refresh rate, so the cadence is wall-clock on both
-                // PAL and NTSC.
-                return "(frame % everyFrames(" + floatLit(n.num[0]) + ") == 0)";
+                return "(ctx.objects[" + std::to_string(idx) + "].visible)";
             }
             if (n.type == "ValueAtLeast") {
                 const int vi = saveValueIndex(n.str);
@@ -4767,6 +4816,52 @@ std::string flowGraphScript(const Project& p) {
             return s + ")";
         };
 
+        // Text plane: a text-out node's std::string expression. Chains are
+        // one level deep (only Log / Set Save Text consume text), so no
+        // recursion is needed.
+        auto textExpr = [&](const FlowNode& n) -> std::string {
+            if (n.type == "GetSaveValue") {
+                const int vi = saveValueIndex(n.str);
+                if (vi < 0) return "std::string(\"?\")";
+                return "flowNumText(ctx.saveValues[" + std::to_string(vi) + "])";
+            }
+            if (n.type == "GetSaveText") {
+                const int ti = saveTextIndex(n.str);
+                if (ti < 0) return "std::string(\"?\")";
+                return "std::string(&ctx.saveTexts[" + std::to_string(ti) +
+                       " * SAVE_TEXT_LEN])";
+            }
+            if (n.type == "GetVarIntText") {
+                const int vi = varIndex(intVars, n.str);
+                if (vi < 0) return "std::string(\"?\")";
+                return "std::to_string(flowInt[" + std::to_string(vi) + "])";
+            }
+            if (n.type == "PosToText") {
+                const auto e = posExpr(n);
+                return "flowPosText(" + e[0] + ", " + e[1] + ", " + e[2] + ")";
+            }
+            if (n.type == "BoolToText") {
+                std::string expr = boolInputsOr(n);
+                if (expr.empty()) expr = "false";
+                return "std::string(" + expr + " ? \"true\" : \"false\")";
+            }
+            return "std::string()";
+        };
+
+        // Text expressions wired into a node's text-in pin (link order)
+        auto textInputs = [&](const FlowNode& n) -> std::vector<std::string> {
+            std::vector<std::string> es;
+            for (const FlowLink& l : fg.links) {
+                if (l.kind != FlowLinkText || l.toNode != n.id) continue;
+                const FlowNode* src = nodeById(l.fromNode);
+                if (!src) continue;
+                const FlowNodeType* st = flowNodeType(src->type);
+                if (!st || !st->textOut) continue;
+                es.push_back(textExpr(*src));
+            }
+            return es;
+        };
+
         // Sounds referenced by this graph's Play Sound nodes become sfx<i>
         // members loaded once in init().
         std::vector<std::string> usedSounds;
@@ -4834,10 +4929,46 @@ std::string flowGraphScript(const Project& p) {
                   << e[2] << ");\n"
                   << pad << "ctx.teleportYaw = " << obj << ".data.rotation[1];\n";
             } else if (n.type == "Log") {
-                std::string text = n.str;
-                text = replaceAll(text, "\\", "\\\\");
-                text = replaceAll(text, "\"", "\\\"");
-                c << pad << "TYRA_LOG(\"" << text << "\");\n";
+                // static text first, then every wired text input (link
+                // order), space-separated. TYRA_LOG streams its args.
+                const auto es = textInputs(n);
+                c << pad << "TYRA_LOG(";
+                bool first = true;
+                if (!n.str.empty() || es.empty()) {
+                    c << "\"" << escapeCString(n.str) << "\"";
+                    first = false;
+                }
+                for (const std::string& e : es) {
+                    c << (first ? "" : ", \" \", ") << e;
+                    first = false;
+                }
+                c << ");\n";
+            } else if (n.type == "Delay") {
+                // arm (or restart) the countdown; the per-frame block at the
+                // top of update() fires the linked actions when it hits 0
+                c << pad << "delay" << n.id << " = everyFrames("
+                  << floatLit(n.num[0]) << ");\n";
+            } else if (n.type == "MoveObjectTo") {
+                c << pad << "move" << n.id << " = true;\n";
+            } else if (n.type == "SetSaveText") {
+                const int ti = saveTextIndex(n.str);
+                if (ti < 0) {
+                    c << pad << "// node " << n.id
+                      << " (SetSaveText): unknown save text '" << n.str << "'\n";
+                } else {
+                    const auto es = textInputs(n);
+                    std::string val;
+                    if (es.empty()) {
+                        val = "std::string(\"" + escapeCString(n.str2) + "\")";
+                    } else {
+                        for (size_t i = 0; i < es.size(); ++i)
+                            val += (i ? " + \" \" + " : "") + es[i];
+                        if (es.size() > 1) val = "(" + val + ")";
+                    }
+                    c << pad << "snprintf(&ctx.saveTexts[" << ti
+                      << " * SAVE_TEXT_LEN], SAVE_TEXT_LEN, \"%s\", (" << val
+                      << ").c_str());  // \"" << n.str << "\"\n";
+                }
             } else if (n.type == "PlayMusic") {
                 bool knownTrack = false;
                 for (const std::string& m : p.music) knownTrack |= (m == n.str);
@@ -4999,6 +5130,57 @@ std::string flowGraphScript(const Project& p) {
 
         std::ostringstream members;
         std::ostringstream flagResets;
+
+        // Per-frame node state, ticked before the trigger scans so anything
+        // armed this frame starts counting/moving on the NEXT frame:
+        //  - Delay: countdown armed by its exec input; fires its "after"
+        //    actions the frame it reaches 0.
+        //  - Move Object To: glides the target toward the (live) goal at
+        //    Speed units/s until it arrives.
+        for (const FlowNode& n : fg.nodes) {
+            if (n.type == "Delay") {
+                const std::string var = "delay" + std::to_string(n.id);
+                members << "  int " << var << " = 0;\n";
+                flagResets << "      " << var << " = 0;\n";
+                clsOut << "    if (" << var << " > 0 && --" << var << " == 0) {\n"
+                       << linkedActions(n.id, "      ") << "    }\n";
+            } else if (n.type == "MoveObjectTo") {
+                const int idx = resolveTarget(n);
+                if (idx < 0) {
+                    clsOut << "    // node " << n.id
+                           << " (MoveObjectTo): unknown object '" << n.str << "'\n";
+                    continue;
+                }
+                const std::string var = "move" + std::to_string(n.id);
+                members << "  bool " << var << " = false;\n";
+                flagResets << "      " << var << " = false;\n";
+                const auto e = posExpr(n);
+                const float speed = n.num[3] > 0.001f ? n.num[3] : 2.0f;
+                const std::string obj = "ctx.objects[" + std::to_string(idx) + "]";
+                clsOut << "    if (" << var << ") {\n"
+                       << "      float* pos = " << obj << ".data.position;\n"
+                       << "      const float tx = " << e[0] << ";\n"
+                       << "      const float ty = " << e[1] << ";\n"
+                       << "      const float tz = " << e[2] << ";\n"
+                       << "      const float dx = tx - pos[0];\n"
+                       << "      const float dy = ty - pos[1];\n"
+                       << "      const float dz = tz - pos[2];\n"
+                       << "      const float dist = sqrtf(dx * dx + dy * dy + dz * dz);\n"
+                       << "      const float step = " << floatLit(speed)
+                       << " * g_frameDt;\n"
+                       << "      if (dist <= step) {\n"
+                       << "        pos[0] = tx; pos[1] = ty; pos[2] = tz;\n"
+                       << "        " << var << " = false;\n"
+                       << "      } else {\n"
+                       << "        pos[0] += dx / dist * step;\n"
+                       << "        pos[1] += dy / dist * step;\n"
+                       << "        pos[2] += dz / dist * step;\n"
+                       << "      }\n"
+                       << "      " << obj << ".dirty = true;\n"
+                       << "    }\n";
+            }
+        }
+
         for (const FlowNode& n : fg.nodes) {
             const FlowNodeType* t = flowNodeType(n.type);
             if (!t || !t->trigger) continue;
@@ -5524,7 +5706,8 @@ static std::string saveSystemHeader(const Project& p) {
         << "constexpr const char* SAVE_MC_DIR = \"" << saveGameDir(p)
         << "\";\n"
            "constexpr unsigned int SAVE_MAGIC = 0x56535954u;  // \"TYSV\"\n"
-           "constexpr int SAVE_VERSION = 1;\n"
+           "// v2: SaveGameData gained the text-value block (SAVE_TEXT_*)\n"
+           "constexpr int SAVE_VERSION = 2;\n"
            "\n"
            "// Runtime state of one save-flagged object (SceneObjectData.saveState).\n"
            "struct SaveObjectState {\n"
@@ -5544,6 +5727,8 @@ static std::string saveSystemHeader(const Project& p) {
            "  float playerYaw;     // degrees\n"
            "  int valueCount;\n"
            "  float values[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1];\n"
+           "  int textCount;\n"
+           "  char texts[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1][SAVE_TEXT_LEN];\n"
            "  int objectCount;\n"
            "  SaveObjectState objects[SAVE_OBJECT_MAX];\n"
            "};\n"

@@ -14,6 +14,11 @@ constexpr int TERRAIN_MAX_CELLS = 32;
 constexpr float EYE_HEIGHT = 1.8F;
 constexpr float WALK_SPEED = 0.4F;
 constexpr float LOOK_SPEED = 1.0F;    // multiplier
+// Stick offsets below this fraction of full deflection read as zero
+// (worn pads rest off-center); motion rescales smoothly above it.
+// Per stick: left drives movement, right drives the camera.
+constexpr float ANALOG_DEADZONE_L = 0.2F;
+constexpr float ANALOG_DEADZONE_R = 0.2F;
 constexpr float ORBIT_SPEED = 1.0F;  // multiplier
 constexpr float GRAVITY = 9.8F;          // units/s^2
 constexpr float JUMP_SPEED = 4.5F;    // units/s

@@ -182,6 +182,7 @@ class TerrainGame : public Tyra::Game {
   void applySavedObjects();
   void refreshSlotStates();
   std::vector<float> saveValues;
+  std::vector<char> saveTexts;  // SAVE_TEXT_COUNT slots of SAVE_TEXT_LEN bytes
   std::vector<SaveObjectState> pendingObjState;  // applied after a scene load
   int pendingObjScene = -1;
   bool saveMenuOpen = false;
