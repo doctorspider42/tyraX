@@ -11,7 +11,14 @@ Each finished feature lands as its own commit.
 
 - (34) **Per-track music build conversion + Stop on PS2** — the experiment
   window for network music: every Music-panel track gets "PS2 build"
-  controls (rate: keep/22050/16000/11025 + mono). The res/audio source
+  controls (rate: keep/48000/32000/22050/11025 + mono; only rates audsrv has
+  an upsampler for - a first cut offered 16000, which audsrv does NOT
+  support). Key insight from audsrv sources: 48000 Hz 16-bit is SPU2-native
+  and its "upsampler" is a plain channel demux with zero arithmetic - after
+  TCP_NODELAY the bottleneck is the 36 MHz IOP (which also runs the ps2link
+  network stack and answers the main thread's per-frame pad/audsrv RPCs -
+  the observed "FPS drops when music starts"), so upsampling ON THE PC to
+  48 kHz and streaming more bytes is the win, not less. The res/audio source
   stays untouched; after every build the Runner re-converts the bin/audio
   copy the game actually streams (wavconvert grew a mono downmix - channel
   average before resampling), so PCSX2, PS2 deploys and exported ISOs all

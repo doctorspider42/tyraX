@@ -2951,8 +2951,6 @@ void App::importMusicTrack() {
         formatWarning = std::to_string(channels) + "-channel WAV";
     } else if (rate < 11025 || rate > 48000) {
         formatWarning = std::to_string(rate) + " Hz sample rate";
-    } else if (rate > 22050) {
-        formatWarning = std::to_string(rate) + " Hz (too heavy for a real PS2)";
     }
 
     const std::filesystem::path srcPath(src);
@@ -3085,10 +3083,12 @@ const std::string& App::wavIssue(const std::string& relPath, bool sfx) {
         if (audioFormat != 1 || (bits != 8 && bits != 16) || channels > 2 ||
             rate < 11025 || rate > 48000)
             issue = "not streamable (needs 8/16-bit PCM, mono/stereo, 11-48 kHz)";
-        else if (rate > 22050)
+        else if (rate != 11025 && rate != 12000 && rate != 22050 && rate != 24000 &&
+                 rate != 32000 && rate != 44100 && rate != 48000)
             issue = std::to_string(rate) +
-                    " Hz - streams in PCSX2 but starves into slow motion on a "
-                    "real PS2 over the network; Convert resamples to 22050 Hz";
+                    " Hz - audsrv has no upsampler for this rate (supported: "
+                    "11025/12000/22050/24000/32000/44100/48000); use the PS2 "
+                    "build controls below or Convert";
     }
     return wavIssueCache_.emplace(key, std::move(issue)).first->second;
 }
@@ -3143,32 +3143,39 @@ void App::drawMusicSection() {
         }
 
         // Build-time conversion knobs: applied to the bin/audio copy after
-        // every build (the res/ source stays untouched). Lower rate / mono
-        // are the levers when music snags on a real console over the network
-        // deploy - each halves the streamed byte rate.
+        // every build (the res/ source stays untouched). Only rates audsrv
+        // has an upsampler for (find_upsampler fails on anything else -
+        // 16000 was offered here once and is NOT supported). 48000 is
+        // special: SPU2-native, the IOP does a plain channel demux with zero
+        // resampling arithmetic - the lever when the 36 MHz IOP is the
+        // bottleneck (network deploys share it with the ps2link stack);
+        // lower rates are the lever when the network itself cannot keep up.
         {
             auto it = project_.musicBuild.find(project_.music[i]);
             Project::MusicBuildOpt opt =
                 it != project_.musicBuild.end() ? it->second : Project::MusicBuildOpt{};
-            int rateIdx = opt.rate == 22050 ? 1 : opt.rate == 16000 ? 2
-                          : opt.rate == 11025 ? 3 : 0;
-            const char* rateNames[] = {"keep rate", "22050 Hz", "16000 Hz", "11025 Hz"};
+            int rateIdx = opt.rate == 48000 ? 1 : opt.rate == 32000 ? 2
+                          : opt.rate == 22050 ? 3 : opt.rate == 11025 ? 4 : 0;
+            const char* rateNames[] = {"keep rate", "48000 Hz (no IOP resample)",
+                                       "32000 Hz", "22050 Hz", "11025 Hz"};
             ImGui::Indent();
             ImGui::TextDisabled("PS2 build:");
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(110.0f);
-            bool edited = ImGui::Combo("##mbrate", &rateIdx, rateNames, 4);
+            ImGui::SetNextItemWidth(200.0f);
+            bool edited = ImGui::Combo("##mbrate", &rateIdx, rateNames, 5);
             ImGui::SameLine();
             edited |= ImGui::Checkbox("mono##mb", &opt.mono);
             if (ImGui::IsItemHovered() || (ImGui::IsItemHovered(ImGuiHoveredFlags_None)))
                 ImGui::SetTooltip(
                     "Converts the bin\\ copy after every build (source WAV stays\n"
-                    "untouched). Try lower rates or mono when the track stutters\n"
-                    "on a real PS2 over the network deploy.");
+                    "untouched). For network deploys try 48000 Hz stereo first:\n"
+                    "SPU2-native, so the IOP skips resampling entirely (that CPU\n"
+                    "also runs the ps2link network stack). Drop the rate only\n"
+                    "when the network itself cannot keep up.");
             ImGui::Unindent();
             if (edited) {
-                opt.rate = rateIdx == 1 ? 22050 : rateIdx == 2 ? 16000
-                           : rateIdx == 3 ? 11025 : 0;
+                opt.rate = rateIdx == 1 ? 48000 : rateIdx == 2 ? 32000
+                           : rateIdx == 3 ? 22050 : rateIdx == 4 ? 11025 : 0;
                 if (opt.rate == 0 && !opt.mono)
                     project_.musicBuild.erase(project_.music[i]);
                 else
