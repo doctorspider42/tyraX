@@ -85,6 +85,25 @@ constexpr float HIGHLIGHT_BS[SCENE_COUNT] = {38.25F};
 constexpr float HIGHLIGHT_WIDTHS[SCENE_COUNT] = {0.35F};
 constexpr int HIGHLIGHT_STEPS_S[SCENE_COUNT] = {4};
 
+constexpr int GRADING_COUNT = 0;
+inline const char* GRADING_NAMES[GRADING_COUNT > 0 ? GRADING_COUNT : 1] = {""};
+constexpr unsigned char GRADING_GAINS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
+constexpr short GRADING_LIFTS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
+constexpr unsigned char GRADING_MIX_COLORS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
+constexpr unsigned char GRADING_MIX_AMTS[GRADING_COUNT > 0 ? GRADING_COUNT : 1] = {0};
+constexpr int GRADING_DEFAULT = -1;
+
+// Template so this header stays engine-include-free; instantiated
+// where Tyra::Engine is complete. index -1 (or any out of range)
+// is a no-op.
+template <typename TEngine>
+inline void applySceneGrading(TEngine* engine, int index) {
+  if (index < 0 || index >= GRADING_COUNT) return;
+  engine->renderer.core.postFx.setGrading(
+      GRADING_GAINS[index], GRADING_LIFTS[index],
+      GRADING_MIX_COLORS[index], GRADING_MIX_AMTS[index]);
+}
+
 constexpr int SAVE_VALUE_COUNT = 0;
 inline const char* SAVE_VALUE_NAMES[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {""};
 constexpr float SAVE_VALUE_DEFAULTS[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {0.0F};

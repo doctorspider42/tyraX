@@ -358,6 +358,7 @@ void App::drawUI() {
     drawDebugWindow();
     drawDiscLayoutWindow();
     drawMenusWindow();
+    drawGradingWindow();
     drawNewProjectModal();
     drawPreferencesModal();
     drawScenePreferencesModal();
@@ -475,6 +476,7 @@ void App::drawMenuBar() {
 
         if (hasProject_ && ImGui::BeginMenu("Tools")) {
             if (ImGui::MenuItem("Menu Editor...")) showMenusEditor_ = true;
+            if (ImGui::MenuItem("Color Grading...")) showGradingEditor_ = true;
             ImGui::EndMenu();
         }
 
@@ -504,6 +506,16 @@ void App::drawViewportWindow() {
 
     ImVec2 avail = ImGui::GetContentRegionAvail();
     if (avail.x >= 8 && avail.y >= 8) {
+        // Color grading preview: the preset selected in the Color Grading
+        // window wins over the project default while that window is open.
+        {
+            int gi = project_.defaultGrading;
+            if (showGradingEditor_ && selectedGrading_ >= 0) gi = selectedGrading_;
+            const bool on =
+                gradingPreview_ && gi >= 0 && gi < (int)project_.gradings.size();
+            viewport_.setGrading(
+                on, on ? compileGrading(project_.gradings[gi]) : CompiledGrading{});
+        }
         uint32_t tex =
             viewport_.render((int)avail.x, (int)avail.y, project_.objects(), selectedObject_);
         // Flip vertically: GL texture origin is bottom-left
@@ -2453,6 +2465,22 @@ void App::drawFlowGraphWindow() {
                     changed |= ImGui::IsItemDeactivatedAfterEdit();
                 }
             }
+        } else if (t->strKind == FlowParamKind::GradingName) {
+            if (ImGui::BeginCombo("Preset", n.str.empty() ? "<none>" : n.str.c_str())) {
+                if (ImGui::Selectable("<none>", n.str.empty())) {
+                    n.str.clear();
+                    changed = true;
+                }
+                for (const ColorGradingPreset& g : project_.gradings) {
+                    if (ImGui::Selectable(g.name.c_str(), g.name == n.str)) {
+                        n.str = g.name;
+                        changed = true;
+                    }
+                }
+                if (project_.gradings.empty())
+                    ImGui::TextDisabled("Add presets in\nTools > Color Grading.");
+                ImGui::EndCombo();
+            }
         } else if (t->strKind == FlowParamKind::MenuName) {
             if (ImGui::BeginCombo("Menu", n.str.empty() ? "<none>" : n.str.c_str())) {
                 for (const GameMenu& gm : project_.menus) {
@@ -3483,6 +3511,199 @@ void App::handleFileDrop(int count, const char** paths) {
     } else if (skipped > 0) {
         statusMessage_ = "Drop: PNG images and TTF/OTF fonts are handled here";
     }
+}
+
+// Color Grading window (Tools > Color Grading): preset list on the left,
+// DaVinci-style controls for the selected preset on the right. The viewport
+// previews the selected preset live with the same quantized math the PS2 GS
+// runs, so what you see is what the console draws.
+void App::drawGradingWindow() {
+    if (!showGradingEditor_ || !hasProject_) return;
+
+    ImGui::SetNextWindowSize(ImVec2(560, 520), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Color Grading", &showGradingEditor_)) {
+        ImGui::End();
+        return;
+    }
+
+    bool changed = false;
+
+    // --- left: preset list -------------------------------------------------
+    ImGui::BeginChild("##grading_list", ImVec2(170, 0), ImGuiChildFlags_Borders);
+    if (ImGui::Button("+ New preset", ImVec2(-1, 0))) {
+        int counter = 0;
+        std::string name;
+        for (;;) {
+            name = "look-" + std::to_string(++counter);
+            bool taken = false;
+            for (const auto& g : project_.gradings) taken |= (g.name == name);
+            if (!taken) break;
+        }
+        ColorGradingPreset g;
+        g.name = name;
+        project_.gradings.push_back(std::move(g));
+        selectedGrading_ = (int)project_.gradings.size() - 1;
+        changed = true;
+    }
+    ImGui::Separator();
+    for (int i = 0; i < (int)project_.gradings.size(); ++i) {
+        ImGui::PushID(i);
+        std::string tag = project_.gradings[i].name;
+        if (project_.defaultGrading == i) tag += "  [default]";
+        if (ImGui::Selectable(tag.c_str(), selectedGrading_ == i))
+            selectedGrading_ = i;
+        ImGui::PopID();
+    }
+    if (project_.gradings.empty())
+        ImGui::TextDisabled("No presets yet.\nA preset is a full-screen\n"
+                            "look (a few GS sprites\nper frame - no EE cost).");
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    // --- right: selected preset editor --------------------------------------
+    ImGui::BeginChild("##grading_edit", ImVec2(0, 0));
+    if (selectedGrading_ < 0 || selectedGrading_ >= (int)project_.gradings.size()) {
+        ImGui::TextDisabled("Select a preset on the left (or create one).");
+        ImGui::TextDisabled("\nApply presets in the game with:");
+        ImGui::BulletText("\"Default at game start\" on a preset");
+        ImGui::BulletText("the Set Color Grading flow node (category \"Scene\")");
+        ImGui::EndChild();
+        ImGui::End();
+        return;
+    }
+    ColorGradingPreset& g = project_.gradings[selectedGrading_];
+
+    char nameBuf[64];
+    std::snprintf(nameBuf, sizeof(nameBuf), "%s", g.name.c_str());
+    ImGui::SetNextItemWidth(180.0f);
+    if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
+        // keep Set Color Grading flow nodes pointing here
+        for (SceneData& sc : project_.scenes)
+            for (SceneObject& o : sc.objects)
+                for (FlowNode& fn : o.flowGraph.nodes) {
+                    const FlowNodeType* ft = flowNodeType(fn.type);
+                    if (ft && ft->strKind == FlowParamKind::GradingName &&
+                        fn.str == g.name)
+                        fn.str = nameBuf;
+                }
+        g.name = nameBuf;
+    }
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Duplicate")) {
+        ColorGradingPreset copy = g;
+        std::string base = copy.name;
+        for (int n = 2;; ++n) {
+            copy.name = base + "-" + std::to_string(n);
+            bool taken = false;
+            for (const auto& other : project_.gradings)
+                taken |= (other.name == copy.name);
+            if (!taken) break;
+        }
+        project_.gradings.push_back(std::move(copy));
+        selectedGrading_ = (int)project_.gradings.size() - 1;
+        changed = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Delete")) {
+        for (SceneData& sc : project_.scenes)
+            for (SceneObject& o : sc.objects)
+                for (FlowNode& fn : o.flowGraph.nodes) {
+                    const FlowNodeType* ft = flowNodeType(fn.type);
+                    if (ft && ft->strKind == FlowParamKind::GradingName &&
+                        fn.str == g.name)
+                        fn.str.clear();
+                }
+        if (project_.defaultGrading == selectedGrading_) project_.defaultGrading = -1;
+        else if (project_.defaultGrading > selectedGrading_) --project_.defaultGrading;
+        project_.gradings.erase(project_.gradings.begin() + selectedGrading_);
+        selectedGrading_ = -1;
+        commitChange();
+        ImGui::EndChild();
+        ImGui::End();
+        return;
+    }
+
+    bool isDefault = project_.defaultGrading == selectedGrading_;
+    if (ImGui::Checkbox("Default at game start", &isDefault)) {
+        project_.defaultGrading = isDefault ? selectedGrading_ : -1;
+        changed = true;
+    }
+    ImGui::SameLine(0.0f, 24.0f);
+    ImGui::Checkbox("Preview in viewport", &gradingPreview_);
+
+    ImGui::SeparatorText("Quick looks");
+    auto quick = [&](const char* label, float bright, float contrast, float sat,
+                     float temp, float tr, float tg, float tb, float tintAmt) {
+        if (ImGui::SmallButton(label)) {
+            g.brightness = bright;
+            g.contrast = contrast;
+            g.saturation = sat;
+            g.temperature = temp;
+            g.tint[0] = tr, g.tint[1] = tg, g.tint[2] = tb;
+            g.tintAmount = tintAmt;
+            for (int c = 0; c < 3; ++c) g.lift[c] = 0.0f, g.gain[c] = 1.0f;
+            changed = true;
+        }
+    };
+    quick("Warm", 1.05f, 1.05f, 1.0f, 0.45f, 1.0f, 0.75f, 0.45f, 0.10f);
+    ImGui::SameLine();
+    quick("Cool night", 0.85f, 1.10f, 0.85f, -0.45f, 0.15f, 0.25f, 0.60f, 0.22f);
+    ImGui::SameLine();
+    quick("Sepia", 1.0f, 1.0f, 0.30f, 0.10f, 1.0f, 0.84f, 0.62f, 0.35f);
+    ImGui::SameLine();
+    quick("Faded", 1.10f, 0.80f, 0.70f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f);
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Neutral")) {
+        const std::string keep = g.name;
+        g = ColorGradingPreset{};
+        g.name = keep;
+        changed = true;
+    }
+
+    ImGui::SeparatorText("Look");
+    ImGui::SliderFloat("Brightness", &g.brightness, 0.0f, 2.0f, "%.2f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Contrast", &g.contrast, 0.0f, 2.0f, "%.2f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Saturation", &g.saturation, 0.0f, 1.0f, "%.2f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Approximation: the GS has no per-pixel luma, so\n"
+                          "desaturation mixes toward mid-gray (flattens a bit).");
+    ImGui::SliderFloat("Temperature", &g.temperature, -1.0f, 1.0f, "%.2f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+
+    ImGui::SeparatorText("Tint");
+    ImGui::ColorEdit3("Color", g.tint, ImGuiColorEditFlags_NoInputs);
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(160.0f);
+    ImGui::SliderFloat("Amount", &g.tintAmount, 0.0f, 1.0f, "%.2f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+
+    ImGui::SeparatorText("Color wheels (per channel R/G/B)");
+    ImGui::SliderFloat3("Lift (shadows)", g.lift, -0.5f, 0.5f, "%.2f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat3("Gain (highlights)", g.gain, 0.0f, 2.0f, "%.2f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+
+    // The exact GS numbers this preset compiles to (scene_data.hpp /
+    // RendererCorePostFx::setGrading) - also what the viewport previews.
+    const CompiledGrading cg = compileGrading(g);
+    ImGui::Spacing();
+    ImGui::TextDisabled("GS pass: gain %d/%d/%d  lift %+d/%+d/%+d  mix %d%% -> "
+                        "(%d,%d,%d)  |  %s",
+                        cg.gain[0], cg.gain[1], cg.gain[2], cg.lift[0], cg.lift[1],
+                        cg.lift[2], cg.mixAmt * 100 / 128, cg.mixColor[0],
+                        cg.mixColor[1], cg.mixColor[2],
+                        cg.neutral() ? "neutral (skipped)" : "3-6 sprites, GS only");
+
+    ImGui::EndChild();
+    ImGui::End();
+
+    if (changed) commitChange();
 }
 
 // Menu Editor window: menu list on the left, the selected menu's properties,

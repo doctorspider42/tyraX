@@ -372,6 +372,9 @@ void TerrainGame::init() {
 
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  // Default color grading look (Tools > Color Grading); no-op when -1.
+  // Grading is global - scene switches keep whatever preset is active.
+  applySceneGrading(engine, GRADING_DEFAULT);
 
   engine->renderer.setClearScreenColor(Color(SKY_R, SKY_G, SKY_B));
 

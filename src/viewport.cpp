@@ -197,6 +197,38 @@ void main() {
 }
 )";
 
+// Color grading post pass: the editor twin of the PS2 GS grading sprites
+// (RendererCorePostFx::gradingQuads). Works on 0..255 integers with a clamp
+// after every step, exactly like the GS blender, so the preview and the
+// console output match. Fullscreen triangle from gl_VertexID (no VBO).
+const char* GRADE_VS = R"(#version 330 core
+out vec2 vUV;
+void main() {
+    vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
+    vUV = p;
+    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}
+)";
+
+const char* GRADE_FS = R"(#version 330 core
+in vec2 vUV;
+uniform sampler2D uSrc;
+uniform vec3 uGain;      // 0..255, 128 = 1x (GS: Cd * FIX >> 7)
+uniform vec3 uLiftPos;   // 0..255 added
+uniform vec3 uLiftNeg;   // 0..255 subtracted
+uniform vec3 uMixColor;  // 0..255 mix target
+uniform float uMixAmt;   // 0..128, 128 = full replace
+out vec4 FragColor;
+void main() {
+    vec3 c = floor(texture(uSrc, vUV).rgb * 255.0 + 0.5);
+    c = clamp(floor(c * uGain / 128.0), 0.0, 255.0);
+    c = clamp(c + uLiftPos, 0.0, 255.0);
+    c = clamp(c - uLiftNeg, 0.0, 255.0);
+    c = clamp(c + floor((uMixColor - c) * uMixAmt / 128.0), 0.0, 255.0);
+    FragColor = vec4(c / 255.0, 1.0);
+}
+)";
+
 GLuint compile(GLenum type, const char* src) {
     GLuint sh = glCreateShader(type);
     glShaderSource(sh, 1, &src, nullptr);
@@ -540,6 +572,30 @@ bool Viewport::init() {
     uLightPos_ = glGetUniformLocation(program_, "uLightPos");
     uLightCol_ = glGetUniformLocation(program_, "uLightCol");
 
+    GLuint gvs = compile(GL_VERTEX_SHADER, GRADE_VS);
+    GLuint gfs = compile(GL_FRAGMENT_SHADER, GRADE_FS);
+    if (!gvs || !gfs) return false;
+    gradeProgram_ = glCreateProgram();
+    glAttachShader(gradeProgram_, gvs);
+    glAttachShader(gradeProgram_, gfs);
+    glLinkProgram(gradeProgram_);
+    glDeleteShader(gvs);
+    glDeleteShader(gfs);
+    glGetProgramiv(gradeProgram_, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char log[1024];
+        glGetProgramInfoLog(gradeProgram_, sizeof(log), nullptr, log);
+        std::fprintf(stderr, "grading program link error: %s\n", log);
+        return false;
+    }
+    uGradeSrc_ = glGetUniformLocation(gradeProgram_, "uSrc");
+    uGradeGain_ = glGetUniformLocation(gradeProgram_, "uGain");
+    uGradeLiftPos_ = glGetUniformLocation(gradeProgram_, "uLiftPos");
+    uGradeLiftNeg_ = glGetUniformLocation(gradeProgram_, "uLiftNeg");
+    uGradeMixCol_ = glGetUniformLocation(gradeProgram_, "uMixColor");
+    uGradeMixAmt_ = glGetUniformLocation(gradeProgram_, "uMixAmt");
+    glGenVertexArrays(1, &gradeVao_);  // empty VAO; vertices from gl_VertexID
+
     buildTerrainMesh();
     buildPrimitiveMeshes();
     return true;
@@ -564,6 +620,15 @@ void Viewport::shutdown() {
     if (fbo_) glDeleteFramebuffers(1, &fbo_);
     if (colorTex_) glDeleteTextures(1, &colorTex_);
     if (depthRbo_) glDeleteRenderbuffers(1, &depthRbo_);
+    if (gradeProgram_) glDeleteProgram(gradeProgram_);
+    if (gradeFbo_) glDeleteFramebuffers(1, &gradeFbo_);
+    if (gradeTex_) glDeleteTextures(1, &gradeTex_);
+    if (gradeVao_) glDeleteVertexArrays(1, &gradeVao_);
+}
+
+void Viewport::setGrading(bool enabled, const CompiledGrading& g) {
+    gradingOn_ = enabled && !g.neutral();
+    grading_ = g;
 }
 
 void Viewport::setTerrain(const TerrainConfig& terrain, int maxCells,
@@ -777,6 +842,8 @@ void Viewport::ensureFramebuffer(int width, int height) {
     if (!fbo_) glGenFramebuffers(1, &fbo_);
     if (!colorTex_) glGenTextures(1, &colorTex_);
     if (!depthRbo_) glGenRenderbuffers(1, &depthRbo_);
+    if (!gradeFbo_) glGenFramebuffers(1, &gradeFbo_);
+    if (!gradeTex_) glGenTextures(1, &gradeTex_);
 
     glBindTexture(GL_TEXTURE_2D, colorTex_);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
@@ -792,6 +859,17 @@ void Viewport::ensureFramebuffer(int width, int height) {
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthRbo_);
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
         std::fprintf(stderr, "viewport framebuffer incomplete\n");
+
+    // Grading post-pass target (colorTex_ -> gradeTex_, no depth needed)
+    glBindTexture(GL_TEXTURE_2D, gradeTex_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glBindFramebuffer(GL_FRAMEBUFFER, gradeFbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, gradeTex_, 0);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::fprintf(stderr, "grading framebuffer incomplete\n");
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
@@ -1383,6 +1461,37 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     }
 
     glBindVertexArray(0);
+
+    // Color grading preview: full-screen pass colorTex_ -> gradeTex_ with
+    // the PS2 GS math (see GRADE_FS). Skipped entirely when neutral.
+    if (gradingOn_ && gradeProgram_) {
+        glBindFramebuffer(GL_FRAMEBUFFER, gradeFbo_);
+        glViewport(0, 0, width, height);
+        glDisable(GL_DEPTH_TEST);
+        glUseProgram(gradeProgram_);
+        glBindTexture(GL_TEXTURE_2D, colorTex_);
+        glUniform1i(uGradeSrc_, 0);
+        glUniform3f(uGradeGain_, (float)grading_.gain[0], (float)grading_.gain[1],
+                    (float)grading_.gain[2]);
+        auto liftPart = [&](int c, bool positive) {
+            const int l = grading_.lift[c];
+            return (float)(positive ? (l > 0 ? l : 0) : (l < 0 ? -l : 0));
+        };
+        glUniform3f(uGradeLiftPos_, liftPart(0, true), liftPart(1, true),
+                    liftPart(2, true));
+        glUniform3f(uGradeLiftNeg_, liftPart(0, false), liftPart(1, false),
+                    liftPart(2, false));
+        glUniform3f(uGradeMixCol_, (float)grading_.mixColor[0],
+                    (float)grading_.mixColor[1], (float)grading_.mixColor[2]);
+        glUniform1f(uGradeMixAmt_, (float)grading_.mixAmt);
+        glBindVertexArray(gradeVao_);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        glBindVertexArray(0);
+        glEnable(GL_DEPTH_TEST);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return gradeTex_;
+    }
+
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     return colorTex_;
 }

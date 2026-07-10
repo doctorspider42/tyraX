@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "flowgraph.hpp"
+#include "grading.hpp"
 
 struct TerrainConfig {
     int width = 64;   // world units, X axis
@@ -448,6 +449,12 @@ struct Project {
     // In-game menus (Project panel, Menus): panels baked at build, opened by
     // the Open Menu flow node, menu entries, or at boot (titleScreen).
     std::vector<GameMenu> menus;
+    // Color grading presets (Tools > Color Grading): project-wide looks
+    // applied as GS full-screen passes. defaultGrading is the index applied
+    // at game boot (-1 = none); the Set Color Grading flow node switches
+    // presets at runtime (the switch persists across scene changes).
+    std::vector<ColorGradingPreset> gradings;
+    int defaultGrading = -1;
 
     // --- Editor-side state, persisted in the .tyra project file ------------
     // Not game data and not part of undo/redo (undo lives in the history
