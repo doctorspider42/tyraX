@@ -3,8 +3,17 @@ build/
 *.user
 imgui.ini
 
-# PS2 network-deploy tools, fetched by setup.ps1 (ps2client + ps2link)
-tools/
+# PS2 network-deploy tools, fetched by setup.ps1 (ps2client + ps2link)...
+tools/*
+!tools/ps2client/
+tools/ps2client/*
+!tools/ps2client/bin/
+tools/ps2client/bin/*
+# ...except the patched ps2client (TCP_NODELAY - see tools/ps2client/README.md;
+# without it host: file serving to a real console runs at ~4 KB/s)
+!tools/ps2client/bin/ps2client.exe
+!tools/ps2client/nodelay.patch
+!tools/ps2client/README.md
 
 # Vendored dependencies are fetched separately (see README)...
 vendor/*

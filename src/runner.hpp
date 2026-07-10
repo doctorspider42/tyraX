@@ -30,6 +30,10 @@ public:
     void buildAndRunPs2(const Project& p, bool build);
     // Builds <project>/<name>.iso from bin/ (see isoexport.hpp for layout).
     void exportIso(const Project& p);
+    // VS-style Clean: wipes the build products - obj/ and bin/ in the
+    // container's game volume plus the host bin/ mirror. The next build
+    // recompiles the game from scratch (the shared engine volume stays).
+    void clean(const Project& p);
 
     State state() const { return state_.load(); }
     bool busy() const { return state_.load() == State::Running; }

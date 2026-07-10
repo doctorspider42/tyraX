@@ -372,6 +372,9 @@ void App::drawUI() {
     if (hasProject_ && !runner_.busy() && !project_.ps2LinkIp.empty() &&
         ImGui::IsKeyPressed(ImGuiKey_F6))
         runner_.buildAndRunPs2(project_, true);
+    if (hasProject_ && !runner_.busy() &&
+        ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_B))
+        runner_.buildAndRun(project_, false);
     if (hasProject_) {
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S)) saveAll("Saved");
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Comma)) {
@@ -433,7 +436,18 @@ void App::drawMenuBar() {
                 openPreferencesPopup_ = true;
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Build", nullptr, false, !busy))
+            if (ImGui::MenuItem("Export PS2 ISO", nullptr, false, !busy))
+                runner_.exportIso(project_);
+            if (ImGui::MenuItem("Disc Layout...")) {
+                showDiscLayout_ = true;
+                discPlanDirty_ = true;
+            }
+            ImGui::EndMenu();
+        }
+        // VS-style top-level Build menu (the Project panel keeps its buttons)
+        if (ImGui::BeginMenu("Build", hasProject_)) {
+            const bool busy = runner_.busy();
+            if (ImGui::MenuItem("Build", "Ctrl+Shift+B", false, !busy))
                 runner_.buildAndRun(project_, false);
             if (ImGui::MenuItem("Build && Run in PCSX2", "F5", false, !busy))
                 runner_.buildAndRun(project_, true);
@@ -448,12 +462,11 @@ void App::drawMenuBar() {
             if (!ps2Ready && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Set 'PS2 (ps2link) IP' in Project > Preferences first.");
             ImGui::Separator();
-            if (ImGui::MenuItem("Export PS2 ISO", nullptr, false, !busy))
-                runner_.exportIso(project_);
-            if (ImGui::MenuItem("Disc Layout...")) {
-                showDiscLayout_ = true;
-                discPlanDirty_ = true;
-            }
+            if (ImGui::MenuItem("Clean", nullptr, false, !busy))
+                runner_.clean(project_);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Deletes bin\\ and the container build cache "
+                                  "(obj) - the next build starts from scratch.");
             ImGui::EndMenu();
         }
 

@@ -9,6 +9,30 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (30) **ps2client TCP_NODELAY (~100x host: throughput), Build menu + Clean,
+  orphaned-adpcm sweep** — three fixes from the second real-hardware session.
+  **TCP_NODELAY**: file serving to the console ran at ~4 KB/s (424 KB texture
+  = 106 s, boot = 10 minutes, streamed music sounded like a crashed GameBoy -
+  the audsrv ring starved at 44.1 kHz stereo needing 176 KB/s). Root cause:
+  ps2client sets no socket options and ps2link fileio is synchronous small
+  request/response exchanges - Nagle on the PC side colliding with the PS2's
+  delayed ACKs stalls every exchange ~200 ms. `tools/ps2client` now ships a
+  patched binary (TCP_NODELAY on the request socket; nodelay.patch + README
+  vendored, stock binary kept for comparison, .gitignore whitelists it).
+  Measured on the console: the same texture in ~1 s, the same obj 59 s -> 1 s,
+  full boot ~30 s. Music needs an ear re-check but now has ~10x bandwidth
+  headroom. **Build menu**: VS-style top-level Build menu in the menu bar
+  (Build Ctrl+Shift+B / F5 / F6 variants moved out of the Project dropdown;
+  Project keeps Preferences + ISO/disc entries; the Project-panel buttons
+  stay) plus **Clean** - wipes host bin\ and the container game volume's
+  obj+bin, next build starts from scratch. **Orphan sweep**: .adpcm whose
+  source WAV vanished from res/sfx (sound removed in the editor) lived
+  forever in the container volume and the copy-back rsync resurrected them
+  on the host every build - the sfx step now deletes them in-container.
+  Verified: menu screenshot (entries, shortcuts, disabled-without-IP PS2
+  items), deploy to the real console with the patched ps2client (timestamped
+  logs above), editor + Docker game build clean after all changes.
+
 - (29) **Real-pad feedback round: stick deadzone, HUD/particle race fix, PS2
   buttons in the Project panel** — three findings from playing on the real
   console. **Deadzone**: the hardcoded 0.20 stick deadzone becomes

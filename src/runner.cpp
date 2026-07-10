@@ -68,6 +68,26 @@ void Runner::buildAndRunPs2(const Project& p, bool build) {
     thread_ = std::thread(&Runner::worker, this, p, build, true, true);
 }
 
+void Runner::clean(const Project& p) {
+    if (busy()) return;
+    join();
+    state_ = State::Running;
+    thread_ = std::thread([this, p] {
+        appendLine("[editor] === Clean: " + p.name + " ===");
+        killPs2Client();  // it serves files out of the bin/ we are deleting
+        // Container game volume (obj + bin). Failure is fine - a stopped
+        // container just means there is nothing cached there to clean.
+        if (exec("docker compose exec -T compiler sh -c \"rm -rf /src/obj /src/bin\"",
+                 p.dir) != 0)
+            appendLine("[editor] Container not running - cleaned the host side only.");
+        std::error_code ec;
+        fs::remove_all(fs::path(p.dir) / "bin", ec);
+        appendLine(ec ? "[editor] Could not fully remove bin\\: " + ec.message()
+                      : "[editor] Removed bin\\ - run a Build to regenerate.");
+        state_ = ec ? State::Failed : State::Success;
+    });
+}
+
 void Runner::exportIso(const Project& p) {
     if (busy()) return;
     join();
@@ -533,10 +553,16 @@ void Runner::worker(Project p, bool build, bool run, bool ps2) {
         // The Makefile's resources step (`cp -r res/*`) also drops the source
         // WAVs into bin/sfx next to the adpenc output. The game only loads
         // the .adpcm, so the WAV copies are dead weight that would bloat the
-        // exported ISO - drop them.
+        // exported ISO - drop them. Orphaned .adpcm (source WAV deleted from
+        // res/sfx, e.g. removed in the Sounds panel) must go too: the game
+        // volume keeps them forever otherwise and the copy-back rsync
+        // resurrects them on the host after every build.
         if (ok)
             exec(dc + "\"cd /src && rm -f bin/sfx/*.wav bin/sfx/*/*.wav "
-                      "bin/sfx/*/*/*.wav\"",
+                      "bin/sfx/*/*/*.wav; IFS= && for o in bin/sfx/*.adpcm "
+                      "bin/sfx/*/*.adpcm bin/sfx/*/*/*.adpcm; do "
+                      "[ -e $o ] || continue; s=res/${o#bin/} && "
+                      "s=${s%.adpcm}.wav; [ -e $s ] || rm -f $o; done\"",
                  p.dir);
 
         if (ok) {
