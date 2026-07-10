@@ -9,6 +9,25 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (33) **UI (DPI) scaling** — the editor was near-unreadable on high-DPI small
+  screens (a 4K laptop). On startup it now auto-matches the monitor's content
+  scale via `ImGui_ImplGlfw_GetContentScaleForWindow` (a 4K laptop reports e.g.
+  2.0-2.5x), so it "just works" with zero config. A new always-available
+  **View** menu (plus `Ctrl+=` / `Ctrl+-` zoom and `Ctrl+0` for auto) lets the
+  user override: presets 100-300% or auto. `applyUiScale()` resets the style to
+  a `baseStyle_` captured once at init, then `ScaleAllSizes(scale)` +
+  `FontScaleMain = scale` - resetting from the base each time means repeated
+  changes never compound. Fonts stay crisp because this ImGui (1.92) rasterizes
+  dynamically and the GL3 backend advertises `RendererHasTextures` (rebuilds the
+  atlas on scale change). The override is machine-level, not project data, so it
+  lives in a tiny global config `%LOCALAPPDATA%\tyra-editor\editor.ini`
+  (`uiScale=<float>`, 0 == auto) - the same editor-owned dir already used for the
+  PS2SDK IntelliSense cache; the per-project `.tyra` format is untouched.
+  Verified: editor builds clean; launched and screenshotted at forced 100% and
+  200% (UI visibly doubles, text stays crisp) and with no config (auto detected
+  this machine's ~2.5x DPI and scaled accordingly) - all without crashing.
+  Gizmo/ImNodes use screen/clip-space sizing so they were already DPI-neutral.
+
 - (32) **Flow graph node overhaul** — one batch of user-requested block fixes.
   **Trimmed pins**: On Start / On Button / Every N Seconds lose their object
   and bool outputs, Near Object / On Used / On Animation Finished lose the
