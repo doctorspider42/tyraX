@@ -44,6 +44,16 @@ private:
     void addSavePoint();
     void drawAddObjectMenu();
     void importModel();
+    // Creates a scene object for a model already in res/models (no copying)
+    void addModelObject(const std::string& relPath);
+    // Mirrors res/audio + res/sfx into the music/sounds lists (manual drops
+    // are picked up, vanished files are dropped). announce: status even when
+    // nothing changed.
+    void rescanAssets(bool announce);
+    // Cached format problem of a project WAV ("" = fine). sfx = adpenc rules
+    // (16-bit PCM 22050 Hz); music = the song player rules.
+    const std::string& wavIssue(const std::string& relPath, bool sfx);
+    std::map<std::string, std::string> wavIssueCache_;
     void drawHudSection();
     void importHudImage();
     void drawMusicSection();

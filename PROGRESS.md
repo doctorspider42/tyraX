@@ -9,6 +9,66 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (19) **Asset import rework: drop-into-res + rescan, in-editor WAV converter** —
+  assets no longer have to go through the import dialogs. WAVs dropped by hand
+  into `res/audio` / `res/sfx` are picked up by a rescan (runs on project open
+  + Rescan buttons in the Music/Sounds sections); entries whose file vanished
+  are removed like a manual delete (flow-node references cleared). The Add
+  palette's Custom menu lists `.obj` files already in `res/models` ("From
+  res/models", no copy), and the object Texture row gets a "Project..." picker
+  over `res/textures`. **WAV converter** (`src/wavconvert.cpp`): rewrites any
+  readable WAV (integer PCM 8/16/24/32-bit + 32-bit float, mono/stereo, box
+  low-pass on downsample) as 16-bit PCM **in place** - the project keeps one
+  copy of each asset instead of source+converted pairs. Sfx imports convert to
+  22050 Hz automatically; music converts only unplayable formats (float/24-bit
+  / out-of-range rates); hand-dropped files get a warning marker + Convert
+  button (format checks cached per file, not per frame). Also stopped shipping
+  dead weight: the Runner deletes `bin/sfx/*.wav` after adpenc (the Makefile's
+  `cp -r res/*` used to leave source WAVs next to the .adpcm, tripling each
+  sfx and landing on the ISO), and the ISO exporter skips `bin/log.txt`.
+  Verified: converter round-trips checked by a host harness (44.1k float
+  stereo, 8-bit 11k mono upsample, 24-bit 48k downsample - format + RMS of a
+  sine preserved; garbage rejected, original untouched); editor builds clean;
+  Rescan buttons + pickers visible in the GUI. Hands-on drop-a-file-and-rescan
+  pass left for a human.
+
+- (18) **MTL materials, runtime model loading and mesh collision** — models
+  went from "baked gray blob" to the full 2002 experience. **Engine** (new,
+  marked "Added by tyra-editor"): `LeanObjLoader` - a lightweight OBJ+MTL
+  loader (per-material split, Kd + map_Kd, flat per-face normals and V-flip
+  matching the editor parser 1:1, sequential reads - no fseek, all paths
+  through `FileUtils::fromCwd` so host: and cdrom0: both work);
+  `CollisionMesh` - triangle-soup collider with an XZ uniform grid
+  (raycast + resolveSphere with a walkable-slope filter); `Ray::intersectTriangle`
+  (Moller-Trumbore). Plus a real bug fix: `TyraDebug::writeInLogFile` opened
+  `cdrom0:LOG.TXT;1` for WRITE on every TYRA_LOG when booted from a disc image,
+  wedging the CDVD driver before the first frame - guarded to skip read-only
+  media (this had silently broken every ISO boot of a logging game).
+  **Editor**: `objparser` now reads mtllib/usemtl/Kd/map_Kd into per-material
+  submeshes + model AABB; the viewport renders one part per material (map_Kd
+  textures, Kd baked into vertex colors); model import copies the .mtl and its
+  textures next to the .obj, rewriting references to the sanitized names.
+  **Codegen**: `model_data.gen.hpp` no longer bakes vertices into the ELF
+  (3000-tri cap gone) - it emits `MODEL_PATHS` and the game loads models once
+  at startup via LeanObjLoader, one StaPip bag per material part (object
+  texture still overrides all parts), per-material textures de-duplicated
+  through the TextureRepository. **Collision modes** per object ("collision"
+  in the .tyra, combo/checkbox in properties): Box (default; models now use
+  their real mesh AABB instead of the unit scale box), Mesh (models: the
+  player walks the triangles - ground by a local-space downward raycast,
+  steep faces push a chest-height sphere out; honors full rotation + scale),
+  None (decoration). Both walkers (FPP template + Player entity) share one
+  `collidePlayer()`; emitters/markers no longer block the FPP player.
+  Verified: CollisionMesh host tests (12 asserts: ramp heights, wall push,
+  slope threshold, 2048-tri grid); editor + PCSX2 SW renderer at 50 FPS - two
+  houses with brick map_Kd walls + dark red Kd roof, one rotated 30 deg,
+  identical in the viewport; mesh collision proven numerically via TYRA_LOG
+  (teleport above the rotated house -> rests at exactly y=2 = roof; spawn
+  0.05 into a wall -> pushed out to the analytically predicted XZ to 5
+  decimals); ISO export boots from cdrom0: and renders (models + MTL + PNG
+  loaded from the disc). Interactive walk-into-walls pad feel left for a
+  human.
+
 - (17) **Two project presets + per-scene override of scene-visual settings** —
   tidy-up of project creation and preferences. **New project presets** cut from
   three (orbit / fpp / showcase) to two: `empty` (orbit camera, no objects) and
@@ -923,9 +983,9 @@ Each finished feature lands as its own commit.
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)
 - Object physics vs objects (stacking), player physics polish (pad feel)
-- Model picking uses the unit-box approximation (big models pick imprecisely)
+- Model picking uses the unit-box approximation (big models pick imprecisely -
+  the parser now exposes the real AABB, the viewport pick could use it)
 - HUD images draggable directly in the viewport
-- Textured models (.mtl/PNG) and textured terrain
 - Positional audio (volume falloff by distance to an object)
 - Compressed music streaming (SPU2-native ADPCM/VAG, ~3.5:1 vs 16-bit PCM) -
   needs a custom double-buffered SPU RAM streamer in the engine; audsrv only

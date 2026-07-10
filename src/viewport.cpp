@@ -945,32 +945,44 @@ uint32_t Viewport::glTexture(const std::string& relPath) {
 }
 
 void Viewport::clearModelCache() {
-    for (auto& [path, mesh] : modelCache_) destroyMesh(mesh);
+    for (auto& [path, draw] : modelCache_)
+        for (auto& part : draw.parts) destroyMesh(part.mesh);
     modelCache_.clear();
 }
 
-const Viewport::Mesh* Viewport::modelMesh(const std::string& relPath) {
+const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath) {
     if (relPath.empty()) return nullptr;
     auto it = modelCache_.find(relPath);
-    if (it != modelCache_.end()) return it->second.vao ? &it->second : nullptr;
+    if (it != modelCache_.end()) return it->second.parts.empty() ? nullptr : &it->second;
 
-    std::vector<float> posNormalUv;
-    Mesh mesh;  // stays empty on failure - negative result is cached too
-    if (objparser::load((std::filesystem::path(projectDir_) / relPath).string(),
-                        posNormalUv)) {
-        std::vector<float> interleaved;
-        interleaved.reserve(posNormalUv.size());
-        for (size_t i = 0; i + 7 < posNormalUv.size(); i += 8) {
-            const Vec3 s =
-                shadeOf({posNormalUv[i + 3], posNormalUv[i + 4], posNormalUv[i + 5]});
-            interleaved.insert(interleaved.end(),
-                               {posNormalUv[i], posNormalUv[i + 1], posNormalUv[i + 2], s.x,
-                                s.y, s.z, posNormalUv[i + 6], posNormalUv[i + 7]});
+    objparser::Model model;
+    ModelDraw draw;  // stays empty on failure - negative result is cached too
+    if (objparser::load((std::filesystem::path(projectDir_) / relPath).string(), model)) {
+        const std::filesystem::path modelDir =
+            std::filesystem::path(relPath).parent_path();
+        for (const objparser::Submesh& sub : model.submeshes) {
+            std::vector<float> interleaved;
+            interleaved.reserve(sub.verts.size());
+            for (size_t i = 0; i + 7 < sub.verts.size(); i += 8) {
+                // Kd is baked into the vertex colors (the object color still
+                // modulates on top via the tint uniform - same as the game).
+                const Vec3 s =
+                    shadeOf({sub.verts[i + 3], sub.verts[i + 4], sub.verts[i + 5]});
+                interleaved.insert(
+                    interleaved.end(),
+                    {sub.verts[i], sub.verts[i + 1], sub.verts[i + 2],
+                     s.x * sub.kd[0], s.y * sub.kd[1], s.z * sub.kd[2],
+                     sub.verts[i + 6], sub.verts[i + 7]});
+            }
+            ModelPart part;
+            part.mesh = uploadMesh(interleaved);
+            if (!sub.texture.empty())
+                part.tex = glTexture((modelDir / sub.texture).generic_string());
+            draw.parts.push_back(part);
         }
-        mesh = uploadMesh(interleaved);
     }
-    modelCache_[relPath] = mesh;
-    return mesh.vao ? &modelCache_[relPath] : nullptr;
+    modelCache_[relPath] = draw;
+    return modelCache_[relPath].parts.empty() ? nullptr : &modelCache_[relPath];
 }
 
 void Viewport::setSky(const float* horizonRgb, const float* topRgb, bool gradient) {
@@ -1121,10 +1133,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             case PrimitiveType::Emitter: return &cone_;  // flame-ish marker
             case PrimitiveType::SoundEmitter: return &sphere_;  // speaker-ish marker
             case PrimitiveType::PointLight: return &lightGizmo_;  // glowing bulb
-            case PrimitiveType::Model: {
-                const Mesh* m = modelMesh(o.modelPath);
-                return m ? m : &box_;  // missing model -> placeholder box
-            }
+            case PrimitiveType::Model: return &box_;  // placeholder (see model path below)
             default: return &box_;
         }
     };
@@ -1148,6 +1157,17 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             const uint32_t tex = asLines ? 0 : glTexture(o.texturePath);
             // the bulb gizmo stays emissive - everything else receives light
             const bool lit = !asLines && o.type != PrimitiveType::PointLight;
+            // .obj models draw one part per MTL material; the object texture,
+            // when set, overrides every part's map_Kd (same rule as the game)
+            const ModelDraw* md =
+                o.type == PrimitiveType::Model ? modelDraw(o.modelPath) : nullptr;
+            if (md) {
+                for (const ModelPart& part : md->parts)
+                    draw(part.mesh, GL_TRIANGLES, mvp, o.color[0] * tintScale,
+                         o.color[1] * tintScale, o.color[2] * tintScale,
+                         asLines ? 0 : (tex ? tex : part.tex), lit ? &model : nullptr);
+                continue;
+            }
             draw(*meshFor(o), GL_TRIANGLES, mvp, o.color[0] * tintScale,
                  o.color[1] * tintScale, o.color[2] * tintScale, tex,
                  lit ? &model : nullptr);

@@ -16,4 +16,4 @@ services:
       - tyra-game-volume:/src
       - tyra-engine:/tyra
       - ./:/host
-      - "D:/tyra-editor/vendor/tyra:/engine-src:ro"
+      - "F:/Projects/tyra-editor/.claude/worktrees/emulator-logs-debug-window-8b0d88/vendor/tyra:/engine-src:ro"

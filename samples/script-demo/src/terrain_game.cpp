@@ -5,40 +5,16 @@
 #include "scene_data.hpp"
 #include "model_data.gen.hpp"
 #include "hud_data.gen.hpp"
+#include "menu_data.gen.hpp"
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
 #include <math.h>
+#include <map>
+#include <string>
 
-// Active-scene accessors: scene_data.hpp holds one table per scene, indexed
-// by g_activeScene (mirrors TerrainGame::currentScene; a file-scope variable
-// so free functions like shadeOf see the active scene too).
-static int g_activeScene = 0;
-#define SCENE_OBJECT_COUNT SCENE_OBJECT_COUNTS[g_activeScene]
-#define SCENE_OBJECTS SCENE_OBJECT_TABLES[g_activeScene]
-#define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
-#define PLAYER_MODE PLAYER_MODES[g_activeScene]
-#define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[g_activeScene]
-#define PLAYER_LOOK_SPEED PLAYER_LOOK_SPEEDS[g_activeScene]
-#define PLAYER_EYE_HEIGHT PLAYER_EYE_HEIGHTS[g_activeScene]
-#define PLAYER_JUMP_SPEED PLAYER_JUMP_SPEEDS[g_activeScene]
-#define PLAYER_CAN_JUMP PLAYER_CAN_JUMPS[g_activeScene]
-#define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
-#define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
-#define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]
-#define SCENE_LIGHT_Y SCENE_LIGHT_YS[g_activeScene]
-#define SCENE_LIGHT_Z SCENE_LIGHT_ZS[g_activeScene]
-#define SCENE_AMBIENT SCENE_AMBIENTS[g_activeScene]
-#define SCENE_DIFFUSE SCENE_DIFFUSES[g_activeScene]
-#define SCENE_LIGHT_COL_R SCENE_LIGHT_COL_RS[g_activeScene]
-#define SCENE_LIGHT_COL_G SCENE_LIGHT_COL_GS[g_activeScene]
-#define SCENE_LIGHT_COL_B SCENE_LIGHT_COL_BS[g_activeScene]
-#define SCENE_BRIGHTNESS SCENE_BRIGHTNESSES[g_activeScene]
-#define HM_W HM_WS[g_activeScene]
-#define HM_D HM_DS[g_activeScene]
-#define TERRAIN_HEIGHTS TERRAIN_HEIGHTS_TABLES[g_activeScene]
-#define TERRAIN_TEXTURE TERRAIN_TEXTURES[g_activeScene]
-#define TERRAIN_TEX_SCALE TERRAIN_TEX_SCALES[g_activeScene]
-#define terrainHeightAt(x, z) terrainHeightAtScene(g_activeScene, (x), (z))
+// Definition of the active-scene index declared in scene_data.hpp (which also
+// defines the SCENE_*/SKY_*/... accessor macros so scripts see them too).
+int g_activeScene = 0;
 
 namespace Script_demo {
 
@@ -72,6 +48,30 @@ V3 rotated(const V3& v, const float* rotDeg) {
     const float c = cosf(rz), s = sinf(rz);
     const float x = r.x * c - r.y * s, y = r.x * s + r.y * c;
     r.x = x, r.y = y;
+  }
+  return r;
+}
+
+/** Inverse of rotated(): -Z, then -Y, then -X (world -> object local). */
+V3 invRotated(const V3& v, const float* rotDeg) {
+  V3 r = v;
+  const float rx = rotDeg[0] * PI / 180.0F;
+  const float ry = rotDeg[1] * PI / 180.0F;
+  const float rz = rotDeg[2] * PI / 180.0F;
+  {
+    const float c = cosf(rz), s = -sinf(rz);
+    const float x = r.x * c - r.y * s, y = r.x * s + r.y * c;
+    r.x = x, r.y = y;
+  }
+  {
+    const float c = cosf(ry), s = -sinf(ry);
+    const float x = r.x * c + r.z * s, z = -r.x * s + r.z * c;
+    r.x = x, r.z = z;
+  }
+  {
+    const float c = cosf(rx), s = -sinf(rx);
+    const float y = r.y * c - r.z * s, z = r.y * s + r.z * c;
+    r.y = y, r.z = z;
   }
   return r;
 }
@@ -118,9 +118,13 @@ V3 pointLightAt(const V3& wp, const V3& n) {
   return add;
 }
 
+// kd: material diffuse (MTL) multiplied into the object color, null = white.
+// textured: this batch gets a texture even when o.texture is -1 (a model
+// part's own map_Kd) - switches the color to modulation scale (128 = 1.0).
 void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
               std::vector<Vec4>& sts, const SceneObjectData& o, V3 p, V3 n,
-              float u, float v) {
+              float u, float v, const float* kd = nullptr,
+              bool textured = false) {
   p.x *= o.scale[0], p.y *= o.scale[1], p.z *= o.scale[2];
   p = rotated(p, o.rotation);
   n = rotated(n, o.rotation);
@@ -131,9 +135,10 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   if (shade.x > 1.0F) shade.x = 1.0F;
   if (shade.y > 1.0F) shade.y = 1.0F;
   if (shade.z > 1.0F) shade.z = 1.0F;
+  if (kd) shade.x *= kd[0], shade.y *= kd[1], shade.z *= kd[2];
   verts.push_back(Vec4(wp.x, wp.y, wp.z, 1.0F));
   // In textured mode the color modulates the texture (128 = 1.0)
-  const float scale = o.texture >= 0 ? 128.0F : 255.0F;
+  const float scale = (textured || o.texture >= 0) ? 128.0F : 255.0F;
   cols.push_back(Color(o.color[0] * scale * shade.x, o.color[1] * scale * shade.y,
                        o.color[2] * scale * shade.z, 128.0F));
   sts.push_back(Vec4(u, v, 1.0F, 0.0F));
@@ -243,16 +248,6 @@ void addCone(std::vector<Vec4>& verts, std::vector<Color>& cols,
   }
 }
 
-void addModel(std::vector<Vec4>& verts, std::vector<Color>& cols,
-              std::vector<Vec4>& sts, const SceneObjectData& o) {
-  if (o.model < 0 || o.model >= MODEL_COUNT) return;
-  const ModelData& m = MODELS[o.model];
-  for (int i = 0; i < m.vertexCount; ++i) {
-    const float* v = m.verts + i * 8;
-    pushVert(verts, cols, sts, o, {v[0], v[1], v[2]}, {v[3], v[4], v[5]}, v[6], v[7]);
-  }
-}
-
 }  // namespace
 
 TerrainGame::TerrainGame(Engine* t_engine)
@@ -344,12 +339,20 @@ void TerrainGame::init() {
 }
 
 void TerrainGame::loop() {
-  if (!updatePlayerEntity()) updatePlayer();
-
-  updateUseTarget();
+  const bool saveMenuActive = updateSaveMenu();
+  const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
+  const bool menuActive = saveMenuActive || gameMenuPausing;
+  if (!menuActive) {
+    if (!updatePlayerEntity()) updatePlayer();
+    updateUseTarget();
+  }
 
   scriptCtx.playerPosition = cameraPosition;
-  for (Script* script : getScripts()) script->update(scriptCtx);
+  if (menuActive) scriptCtx.usedObject = -1;
+  // Menus pause scripts - except the frame a menu entry fires a flow event,
+  // which must reach the On Menu Event triggers.
+  if (!menuActive || scriptCtx.menuEvent >= 0)
+    for (Script* script : getScripts()) script->update(scriptCtx);
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
 
   // Scene switch requested by the flow graph / scripts. The built-in FPP
@@ -416,7 +419,7 @@ void TerrainGame::loop() {
     }
   }
 
-  updateObjectPhysics();
+  if (!menuActive) updateObjectPhysics();
   updateParticles();
   updateSoundEmitters();
 
@@ -427,6 +430,8 @@ void TerrainGame::loop() {
     if (scriptCtx.hudVisible)
       for (auto& sprite : hudSprites) engine->renderer.renderer2D.render(sprite);
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
+    renderGameMenu();
+    renderSaveMenu();
   }
   engine->renderer.endFrame();
 }
@@ -437,6 +442,8 @@ void TerrainGame::buildScene() {
   for (int i = 0; i < TEXTURE_COUNT; ++i)
     loadedTextures[i] =
         engine->renderer.getTextureRepository().add(FileUtils::fromCwd(TEXTURE_PATHS[i]));
+
+  loadModels();
 
   vertices.clear();
   colors.clear();
@@ -477,7 +484,221 @@ void TerrainGame::buildScene() {
   skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
   buildSkyDome();
 
+  // Save system: BIOS mc modules, custom values, menu sprites (hud/save-*.png)
+  saveValues.assign(SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1, 0.0F);
+  for (int i = 0; i < SAVE_VALUE_COUNT; ++i) saveValues[i] = SAVE_VALUE_DEFAULTS[i];
+  scriptCtx.saveValues = saveValues.data();
+  scriptCtx.saveValueCount = SAVE_VALUE_COUNT;
+  saveInit();
+  {
+    const auto& scr = engine->renderer.core.getSettings();
+    auto setupSprite = [&](Sprite& s, const char* path, float w, float h,
+                           float x, float y) {
+      s.mode = SpriteMode::MODE_STRETCH;
+      s.size = Vec2(w, h);
+      s.position = Vec2(x, y);
+      auto* t =
+          engine->renderer.getTextureRepository().add(FileUtils::fromCwd(path));
+      t->addLink(s.id);
+    };
+    const float panelX = (scr.getWidth() - 256.0F) * 0.5F;
+    const float panelY = (scr.getHeight() - 128.0F) * 0.5F - 24.0F;
+    setupSprite(saveMenuSprite, "hud/save-menu.png", 256, 128, panelX, panelY);
+    // slot rows are baked into save-menu.png at y = 40 + slot * 24
+    setupSprite(saveCursorSprite, "hud/save-cursor.png", 16, 16, panelX + 32.0F,
+                panelY + 41.0F);
+    setupSprite(saveUsedSprite, "hud/save-used.png", 64, 16, panelX + 152.0F,
+                panelY + 42.0F);
+    const float fbX = (scr.getWidth() - 128.0F) * 0.5F;
+    const float fbY = panelY + 136.0F;
+    setupSprite(saveFeedbackSprites[0], "hud/save-saved.png", 128, 32, fbX, fbY);
+    setupSprite(saveFeedbackSprites[1], "hud/save-loaded.png", 128, 32, fbX, fbY);
+    setupSprite(saveFeedbackSprites[2], "hud/save-error.png", 128, 32, fbX, fbY);
+
+    // Game menus: one baked panel sprite each (menu_data.gen.hpp) + a
+    // shared cursor. The panel center sits at the menu's normalized screen
+    // position (only the drawn contentH counts - the canvas slack is air).
+    menuSprites.clear();
+    menuSprites.reserve(MENU_COUNT);
+    for (int i = 0; i < MENU_COUNT; ++i) {
+      const MenuData& m = MENUS[i];
+      Sprite s;
+      s.mode = SpriteMode::MODE_STRETCH;
+      s.size = Vec2((float)m.panelW, (float)m.panelH);
+      s.position = Vec2(m.screenX * scr.getWidth() - m.panelW * 0.5F,
+                        m.screenY * scr.getHeight() - m.contentH * 0.5F);
+      menuSprites.push_back(s);
+      auto* t = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd(m.panel));
+      t->addLink(menuSprites.back().id);
+    }
+    setupSprite(menuCursorSprite, "hud/save-cursor.png", 16, 16, 0.0F, 0.0F);
+    setupSprite(menuDimSprite, "hud/menu-dim.png", scr.getWidth(),
+                scr.getHeight(), 0.0F, 0.0F);
+    if (TITLE_MENU >= 0) {
+      gameMenuIndex = TITLE_MENU;
+      gameMenuCursor = 0;
+      // The pad reconfigures for ~3.5s after boot and reports garbage
+      // clicks - one of those must not press a title entry.
+      gameMenuGrace = 200;
+    }
+  }
+
   loadScene(0);
+}
+
+// Loads every custom .obj once at startup through the engine's LeanObjLoader:
+// geometry split per MTL material, map_Kd textures through the texture
+// repository (de-duplicated by path), the real mesh AABB for box collision
+// and a CollisionMesh where some scene object collides in mesh mode.
+void TerrainGame::loadModels() {
+  gameModels.assign(MODEL_COUNT > 0 ? MODEL_COUNT : 0, GameModel());
+  std::map<std::string, Texture*> textureByPath;
+  for (int i = 0; i < MODEL_COUNT; ++i) {
+    auto mesh = LeanObjLoader::load(MODEL_PATHS[i]);
+    if (!mesh) continue;  // stays empty - objects using it render nothing
+    GameModel& gm = gameModels[i];
+    for (int k = 0; k < 3; ++k) {
+      gm.mn[k] = mesh->min[k];
+      gm.mx[k] = mesh->max[k];
+    }
+    // map_Kd texture names resolve relative to the model's directory
+    std::string dir = MODEL_PATHS[i];
+    const size_t slash = dir.find_last_of('/');
+    dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
+    for (auto& mat : mesh->materials) {
+      GameModelPart part;
+      part.verts.swap(mat.vertices);
+      part.kd[0] = mat.kd[0];
+      part.kd[1] = mat.kd[1];
+      part.kd[2] = mat.kd[2];
+      if (!mat.textureName.empty()) {
+        const std::string path = dir + mat.textureName;
+        auto it = textureByPath.find(path);
+        if (it == textureByPath.end()) {
+          Texture* t = engine->renderer.getTextureRepository().add(
+              FileUtils::fromCwd(path));
+          it = textureByPath.emplace(path, t).first;
+        }
+        part.texture = it->second;
+      }
+      gm.parts.push_back(std::move(part));
+    }
+    if (MODEL_NEEDS_COLLIDER[i]) {
+      std::vector<float> all;  // the collider spans every material part
+      for (const auto& part : gm.parts)
+        all.insert(all.end(), part.verts.begin(), part.verts.end());
+      gm.collider.build(all.data(), (u32)(all.size() / 8), 8);
+    }
+  }
+}
+
+// Shared player-vs-scene collision (both walkers). Box mode reproduces the
+// classic behavior (XZ box + stand-on-top + step up 0.5), with models sized
+// by their real mesh AABB instead of the unit scale box. Mesh mode collides
+// with the model's triangles in object-local space: a downward ray finds the
+// walkable ground (ramps/stairs work) and steep faces push the player out
+// like walls. Rotation is honored in mesh mode and ignored in box mode.
+void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
+                                float* nextZ, float feetY, float eyeHeight,
+                                float* ground) {
+  const float playerRadius = 0.35F;
+  for (const RuntimeObject& o : runtimeObjects) {
+    if (!o.visible || o.data.type == 4 || o.data.type == 6 ||
+        o.data.type == 7 || o.data.type == 8 || o.data.type == 9)
+      continue;
+    if (o.data.collision == 2) continue;  // none
+
+    const GameModel* gm = nullptr;
+    if (o.data.type == 5 && o.data.model >= 0 &&
+        o.data.model < (int)gameModels.size())
+      gm = &gameModels[o.data.model];
+
+    if (o.data.collision == 1 && gm && !gm->collider.empty()) {
+      // --- mesh mode ---
+      const float sx = o.data.scale[0] > 0.0001F ? o.data.scale[0] : 0.0001F;
+      const float sy = o.data.scale[1] > 0.0001F ? o.data.scale[1] : 0.0001F;
+      const float sz = o.data.scale[2] > 0.0001F ? o.data.scale[2] : 0.0001F;
+      auto toLocal = [&](float wx, float wy, float wz) {
+        V3 p = {wx - o.data.position[0], wy - o.data.position[1],
+                wz - o.data.position[2]};
+        p = invRotated(p, o.data.rotation);
+        return V3{p.x / sx, p.y / sy, p.z / sz};
+      };
+      auto toWorld = [&](const V3& l) {
+        V3 p = {l.x * sx, l.y * sy, l.z * sz};
+        p = rotated(p, o.data.rotation);
+        return V3{p.x + o.data.position[0], p.y + o.data.position[1],
+                  p.z + o.data.position[2]};
+      };
+
+      // walls: push a chest-height sphere out of steep triangles (the radius
+      // is approximated by the average XZ scale - exact for uniform scales)
+      const V3 c = toLocal(*nextX, feetY + eyeHeight * 0.5F, *nextZ);
+      Vec4 center(c.x, c.y, c.z, 1.0F);
+      const float sAvg = (sx + sz) * 0.5F;
+      if (gm->collider.resolveSphere(&center, playerRadius / sAvg, 0.7F)) {
+        const V3 w = toWorld({center.x, center.y, center.z});
+        *nextX = w.x;
+        *nextZ = w.z;
+      }
+
+      // ground: a ray from step height (0.5 above the feet) straight down,
+      // transformed into local space so rotated/scaled models stay exact
+      const V3 ro = toLocal(*nextX, feetY + 0.5F, *nextZ);
+      const V3 rq = toLocal(*nextX, feetY - 100.0F, *nextZ);
+      V3 rd = {rq.x - ro.x, rq.y - ro.y, rq.z - ro.z};
+      const float rl = sqrtf(rd.x * rd.x + rd.y * rd.y + rd.z * rd.z);
+      if (rl > 0.0001F) {
+        rd.x /= rl, rd.y /= rl, rd.z /= rl;
+        float t;
+        if (gm->collider.raycast(Vec4(ro.x, ro.y, ro.z, 1.0F),
+                                 Vec4(rd.x, rd.y, rd.z, 0.0F), rl, &t)) {
+          const V3 hit =
+              toWorld({ro.x + rd.x * t, ro.y + rd.y * t, ro.z + rd.z * t});
+          if (hit.y > *ground) *ground = hit.y;
+        }
+      }
+      continue;
+    }
+
+    // --- box mode --- (models: real mesh AABB; primitives: unit scale box)
+    float cx = o.data.position[0], cy = o.data.position[1],
+          cz = o.data.position[2];
+    float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
+          ez = 0.5F * o.data.scale[2];
+    if (gm) {
+      cx += 0.5F * (gm->mn[0] + gm->mx[0]) * o.data.scale[0];
+      cy += 0.5F * (gm->mn[1] + gm->mx[1]) * o.data.scale[1];
+      cz += 0.5F * (gm->mn[2] + gm->mx[2]) * o.data.scale[2];
+      ex = 0.5F * (gm->mx[0] - gm->mn[0]) * o.data.scale[0];
+      ey = 0.5F * (gm->mx[1] - gm->mn[1]) * o.data.scale[1];
+      ez = 0.5F * (gm->mx[2] - gm->mn[2]) * o.data.scale[2];
+    }
+    const float hx = ex + playerRadius;
+    const float hz = ez + playerRadius;
+    const float top = cy + ey;
+    const float bottom = cy - ey;
+
+    const bool nextInside = *nextX > cx - hx && *nextX < cx + hx &&
+                            *nextZ > cz - hz && *nextZ < cz + hz;
+    if (!nextInside) continue;
+
+    if (feetY + 0.5F >= top) {
+      // low enough to walk onto - candidate floor
+      if (top > *ground) *ground = top;
+    } else if (feetY < top && feetY + eyeHeight > bottom) {
+      // blocked - cancel the axes that entered the box this frame
+      const bool wasInsideX = prevX > cx - hx && prevX < cx + hx;
+      const bool wasInsideZ = prevZ > cz - hz && prevZ < cz + hz;
+      if (!wasInsideX) *nextX = prevX;
+      if (!wasInsideZ) *nextZ = prevZ;
+      if (wasInsideX && wasInsideZ) {
+        *nextX = prevX;
+        *nextZ = prevZ;
+      }
+    }
+  }
 }
 
 // Switches the runtime state to a scene from scene_data.hpp. Assets
@@ -490,8 +711,9 @@ void TerrainGame::loadScene(int sceneIndex) {
   g_activeScene = sceneIndex;
   sceneGeneration++;  // scene scripts see this and reset their state
 
-  // Terrain and lighting are per scene - rebuild the terrain mesh and the
-  // sky dome (its radius follows the terrain size). Vectors are reused.
+  // Terrain, lighting, sky, clipping and post-FX are per scene (Scene >
+  // Preferences overrides) - rebuild the terrain mesh + sky dome and re-apply
+  // the scene's render settings. Vectors and bags are reused.
   if (bag) {
     vertices.clear();
     colors.clear();
@@ -508,8 +730,16 @@ void TerrainGame::loadScene(int sceneIndex) {
     } else {
       bag->texture = nullptr;
     }
+    infoBag->fullClipChecks = CLIP_PRECISE;
+    skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
     buildSkyDome();
   }
+  // Per-scene sky color (the loop paints the clear screen from ctx.skyColor)
+  // and post effects.
+  scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
+  engine->renderer.setClearScreenColor(scriptCtx.skyColor);
+  engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
+  engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
 
   runtimeObjects.assign(SCENE_OBJECT_COUNT, RuntimeObject());
   objectGeometry.clear();
@@ -545,12 +775,18 @@ void TerrainGame::loadScene(int sceneIndex) {
   // ADPCM sample can't be stopped - it plays out, but silently).
   sndTimers.assign(runtimeObjects.size(), 0);
   for (int ch = 16; ch < 24; ++ch) engine->audio.adpcm.setVolume(0, (s8)ch);
+
+  // A loaded save targeting this scene: apply the stored object state now
+  if (pendingObjScene == sceneIndex && !pendingObjState.empty())
+    applySavedObjects();
 }
 
 // --- Sound emitters ----------------------------------------------------
-// Volume falls off linearly with the distance to the player. Interval 0
-// retriggers every frame: tryPlay() is skipped while the channel is still
-// busy, so the sample loops seamlessly. Hide Object mutes the emitter.
+// Volume falls off linearly with the distance to the player; the sound is
+// panned left/right by the emitter's position relative to where the camera
+// faces (positional stereo). Interval 0 retriggers every frame: tryPlay() is
+// skipped while the channel is still busy, so the sample loops seamlessly.
+// Hide Object mutes the emitter.
 void TerrainGame::updateSoundEmitters() {
   if (sndSamples.empty()) return;
   if (sndTimers.size() != runtimeObjects.size())
@@ -559,6 +795,7 @@ void TerrainGame::updateSoundEmitters() {
     const RuntimeObject& o = runtimeObjects[i];
     if (o.data.type != 8 || !o.data.sndAuto) continue;
     if (o.data.snd < 0 || o.data.snd >= (int)sndSamples.size()) continue;
+    if (!sndSamples[o.data.snd]) continue;  // sample failed to load (too big for SPU2?)
     const s8 ch = (s8)(16 + (i & 7));  // emitters own channels 16-23
     if (!o.visible) {
       engine->audio.adpcm.setVolume(0, ch);
@@ -570,7 +807,26 @@ void TerrainGame::updateSoundEmitters() {
     const float dist = sqrtf(dx * dx + dy * dy + dz * dz);
     const float range = o.data.sndRange > 0.5F ? o.data.sndRange : 0.5F;
     const int vol = dist >= range ? 0 : (int)(100.0F * (1.0F - dist / range));
-    engine->audio.adpcm.setVolume((u8)vol, ch);
+    // Pan: project the horizontal direction to the emitter onto the camera's
+    // screen-right axis; -100 = full left, +100 = full right. Screen-right is
+    // fwd x up = (-fwd.z, fwd.x) in this right-handed Y-up world - NOT the
+    // particle billboards' (fwd.z, -fwd.x), which is mirrored (billboard quads
+    // are symmetric so the sign never mattered there; ears notice).
+    Vec4 fwd = cameraLookAt - cameraPosition;
+    float rx = -fwd.z, rz = fwd.x;
+    const float rl = sqrtf(rx * rx + rz * rz);
+    int pan = 0;
+    if (rl > 0.0001F) {
+      rx /= rl; rz /= rl;
+      const float ex = o.data.position[0] - cameraPosition.x;
+      const float ez = o.data.position[2] - cameraPosition.z;
+      const float el = sqrtf(ex * ex + ez * ez);
+      if (el > 0.0001F) {
+        pan = (int)(((ex * rx + ez * rz) / el) * 100.0F);
+        if (pan > 100) pan = 100; else if (pan < -100) pan = -100;
+      }
+    }
+    engine->audio.adpcm.setVolumeAndPan((u8)vol, (s8)pan, ch);
     if (vol <= 0) continue;
     if (sndTimers[i] > 0) {
       --sndTimers[i];
@@ -759,6 +1015,277 @@ void TerrainGame::updateUseTarget() {
 
   if (useTargetIndex >= 0 && engine->pad.getClicked().BTN_USE)
     scriptCtx.usedObject = useTargetIndex;
+
+  // Using a save point (type 10) opens the save menu next frame; the
+  // "On Used" trigger still fires for its flow graph this frame.
+  if (scriptCtx.usedObject >= 0 &&
+      SCENE_OBJECTS[scriptCtx.usedObject].type == 10)
+    scriptCtx.openSaveMenu = true;
+}
+
+// --- Memory card save menu ----------------------------------------------
+// Dpad picks a slot, Cross saves, Circle loads, Triangle closes. Returns
+// true while the menu owns the pad - loop() then skips player movement,
+// the use target, scripts and object physics (a straight pause).
+bool TerrainGame::updateSaveMenu() {
+  if (saveFeedbackFrames > 0) --saveFeedbackFrames;
+
+  if (scriptCtx.openSaveMenu) {
+    scriptCtx.openSaveMenu = false;
+    if (!saveMenuOpen) {
+      saveMenuOpen = true;
+      saveMenuSlot = 0;
+      // The pad reports garbage transitions while it (re)configures -
+      // swallow clicks briefly so opening the menu can't instantly save.
+      saveMenuGrace = 15;
+      useTargetIndex = -1;  // drop the USE prompt while the menu is up
+      refreshSlotStates();
+      return true;
+    }
+  }
+  if (!saveMenuOpen) return false;
+  if (saveMenuGrace > 0) {
+    --saveMenuGrace;
+    return true;
+  }
+
+  const auto& clicked = engine->pad.getClicked();
+  if (clicked.DpadUp)
+    saveMenuSlot = (saveMenuSlot + SAVE_SLOTS - 1) % SAVE_SLOTS;
+  if (clicked.DpadDown) saveMenuSlot = (saveMenuSlot + 1) % SAVE_SLOTS;
+  if (clicked.Triangle) {
+    saveMenuOpen = false;
+    return true;
+  }
+  if (clicked.Cross) doSave(saveMenuSlot);
+  if (clicked.Circle && slotUsed[saveMenuSlot]) doLoad(saveMenuSlot);
+  return true;
+}
+
+void TerrainGame::refreshSlotStates() {
+  for (int i = 0; i < SAVE_SLOTS; ++i) slotUsed[i] = saveSlotUsed(i);
+}
+
+void TerrainGame::doSave(int slot) {
+  static SaveGameData d;  // the payload can be a few KB - keep it off the stack
+  d = SaveGameData();
+  d.magic = SAVE_MAGIC;
+  d.version = SAVE_VERSION;
+  d.scene = currentScene;
+  // Feet position + facing: the Player entity when the scene has one,
+  // otherwise derived from the camera (the FPP template player; the orbit
+  // camera simply ignores the restore).
+  if (PLAYER_INDEX >= 0) {
+    d.playerPos[0] = entX;
+    d.playerPos[1] = entY;
+    d.playerPos[2] = entZ;
+    d.playerYaw = entYaw * 180.0F / PI;
+  } else {
+    d.playerPos[0] = cameraPosition.x;
+    d.playerPos[1] = cameraPosition.y - EYE_HEIGHT;
+    d.playerPos[2] = cameraPosition.z;
+    const Vec4 dir = cameraLookAt - cameraPosition;
+    d.playerYaw = atan2f(dir.x, dir.z) * 180.0F / PI;
+  }
+  d.valueCount = SAVE_VALUE_COUNT;
+  for (int i = 0; i < SAVE_VALUE_COUNT; ++i) d.values[i] = saveValues[i];
+  d.objectCount = 0;
+  for (int i = 0;
+       i < (int)runtimeObjects.size() && d.objectCount < SAVE_OBJECT_MAX; ++i) {
+    if (!SCENE_OBJECTS[i].saveState) continue;
+    SaveObjectState& st = d.objects[d.objectCount++];
+    st.index = i;
+    for (int a = 0; a < 3; ++a) st.position[a] = runtimeObjects[i].data.position[a];
+    for (int a = 0; a < 3; ++a) st.color[a] = runtimeObjects[i].data.color[a];
+    st.visible = runtimeObjects[i].visible ? 1 : 0;
+  }
+  const bool ok = saveWrite(slot, d);
+  if (ok) slotUsed[slot] = true;
+  saveFeedback = ok ? 1 : 3;
+  saveFeedbackFrames = 90;  // 1.8 s at 50 FPS
+}
+
+void TerrainGame::doLoad(int slot) {
+  static SaveGameData d;
+  if (!saveRead(slot, d)) {
+    saveFeedback = 3;
+    saveFeedbackFrames = 90;
+    return;
+  }
+  for (int i = 0; i < d.valueCount && i < SAVE_VALUE_COUNT; ++i)
+    saveValues[i] = d.values[i];
+  pendingObjState.assign(d.objects, d.objects + d.objectCount);
+  pendingObjScene = d.scene;
+  // Restore the player through the teleport request - the flag survives a
+  // scene switch and covers both player kinds.
+  scriptCtx.teleport = true;
+  scriptCtx.teleportPos = Vec4(d.playerPos[0], d.playerPos[1], d.playerPos[2]);
+  scriptCtx.teleportYaw = d.playerYaw;
+  if (d.scene != currentScene)
+    scriptCtx.requestScene = d.scene;  // object state applies after the load
+  else
+    applySavedObjects();
+  saveMenuOpen = false;
+  saveFeedback = 2;
+  saveFeedbackFrames = 90;
+}
+
+void TerrainGame::applySavedObjects() {
+  for (const SaveObjectState& st : pendingObjState) {
+    if (st.index < 0 || st.index >= (int)runtimeObjects.size()) continue;
+    RuntimeObject& o = runtimeObjects[st.index];
+    for (int a = 0; a < 3; ++a) o.data.position[a] = st.position[a];
+    for (int a = 0; a < 3; ++a) o.data.color[a] = st.color[a];
+    o.visible = st.visible != 0;
+    o.velocityY = 0.0F;
+    o.dirty = true;
+  }
+  pendingObjState.clear();
+  pendingObjScene = -1;
+}
+
+void TerrainGame::renderSaveMenu() {
+  if (saveMenuOpen) {
+    engine->renderer.renderer2D.render(menuDimSprite);
+    engine->renderer.renderer2D.render(saveMenuSprite);
+    // slot rows sit at y = 40 + slot * 24 inside the panel sprite
+    const float baseY = saveMenuSprite.position.y;
+    saveCursorSprite.position.y = baseY + 41.0F + saveMenuSlot * 24.0F;
+    engine->renderer.renderer2D.render(saveCursorSprite);
+    for (int i = 0; i < SAVE_SLOTS; ++i) {
+      if (!slotUsed[i]) continue;
+      saveUsedSprite.position.y = baseY + 42.0F + i * 24.0F;
+      engine->renderer.renderer2D.render(saveUsedSprite);
+    }
+  }
+  if (saveFeedbackFrames > 0 && saveFeedback >= 1 && saveFeedback <= 3)
+    engine->renderer.renderer2D.render(saveFeedbackSprites[saveFeedback - 1]);
+}
+
+// --- Game menus (menu_data.gen.hpp) ---------------------------------------
+// Panels are baked by the editor; the runtime only moves a cursor and runs
+// entry actions. Dpad picks a row, Cross selects, Triangle pops the submenu
+// stack (or closes; a title screen's root cannot be dismissed with Back).
+// The Start button opens/closes the designated pause menu (PAUSE_MENU).
+// Returns true while an open menu PAUSES gameplay - menus with the pause
+// flag off float over the running game (pad presses reach both).
+bool TerrainGame::updateGameMenu() {
+  scriptCtx.menuEvent = -1;
+  auto pausing = [&] {
+    return gameMenuIndex >= 0 && MENUS[gameMenuIndex].pause != 0;
+  };
+
+  if (scriptCtx.openMenu >= 0) {
+    const int target = scriptCtx.openMenu;
+    scriptCtx.openMenu = -1;
+    if (target < MENU_COUNT && !saveMenuOpen && gameMenuIndex < 0) {
+      gameMenuIndex = target;
+      gameMenuCursor = 0;
+      gameMenuStackDepth = 0;
+      gameMenuGrace = 15;  // pad-garbage grace (see updateSaveMenu)
+      useTargetIndex = -1;
+      return pausing();
+    }
+  }
+
+  // Start toggles the pause menu: opens it during gameplay, closes it again
+  // while its root is showing (submenus first go back with Triangle).
+  if (PAUSE_MENU >= 0 && !saveMenuOpen && engine->pad.getClicked().Start) {
+    if (gameMenuIndex < 0) {
+      gameMenuIndex = PAUSE_MENU;
+      gameMenuCursor = 0;
+      gameMenuStackDepth = 0;
+      gameMenuGrace = 15;
+      useTargetIndex = -1;
+      return pausing();
+    }
+    if (gameMenuIndex == PAUSE_MENU && gameMenuStackDepth == 0 &&
+        gameMenuGrace == 0) {
+      gameMenuIndex = -1;
+      return false;
+    }
+  }
+
+  if (gameMenuIndex < 0) return false;
+  if (saveMenuOpen) return pausing();  // save menu on top - hold, no pad
+  if (gameMenuGrace > 0) {
+    --gameMenuGrace;
+    return pausing();
+  }
+
+  const MenuData& m = MENUS[gameMenuIndex];
+  const auto& clicked = engine->pad.getClicked();
+  if (clicked.DpadUp && m.entryCount > 0)
+    gameMenuCursor = (gameMenuCursor + m.entryCount - 1) % m.entryCount;
+  if (clicked.DpadDown && m.entryCount > 0)
+    gameMenuCursor = (gameMenuCursor + 1) % m.entryCount;
+
+  if (clicked.Triangle) {
+    if (gameMenuStackDepth > 0) {
+      gameMenuIndex = gameMenuStack[--gameMenuStackDepth];
+      gameMenuCursor = 0;
+    } else if (!m.titleScreen) {
+      gameMenuIndex = -1;
+    }
+    return pausing();
+  }
+
+  if (clicked.Cross && gameMenuCursor >= 0 && gameMenuCursor < m.entryCount) {
+    const MenuEntryData& e = m.entries[gameMenuCursor];
+    switch (e.action) {
+      case 0:  // close
+        gameMenuIndex = -1;
+        gameMenuStackDepth = 0;
+        break;
+      case 1:  // switch scene
+        if (e.param >= 0) {
+          scriptCtx.requestScene = e.param;
+          gameMenuIndex = -1;
+          gameMenuStackDepth = 0;
+        }
+        break;
+      case 2:  // open save menu (replaces this menu next frame)
+        gameMenuIndex = -1;
+        gameMenuStackDepth = 0;
+        scriptCtx.openSaveMenu = true;
+        break;
+      case 3:  // open submenu
+        if (e.param >= 0 && e.param < MENU_COUNT &&
+            gameMenuStackDepth < (int)(sizeof(gameMenuStack) / sizeof(int))) {
+          gameMenuStack[gameMenuStackDepth++] = gameMenuIndex;
+          gameMenuIndex = e.param;
+          gameMenuCursor = 0;
+        }
+        break;
+      case 4:  // set save value (menu stays open)
+        if (e.param >= 0 && e.param < SAVE_VALUE_COUNT)
+          saveValues[e.param] = e.amount;
+        break;
+      case 5:  // add to save value
+        if (e.param >= 0 && e.param < SAVE_VALUE_COUNT)
+          saveValues[e.param] += e.amount;
+        break;
+      case 6:  // flow event: scripts run this frame to catch it
+        scriptCtx.menuEvent = e.param;
+        break;
+    }
+  }
+  return pausing();
+}
+
+void TerrainGame::renderGameMenu() {
+  if (gameMenuIndex < 0 || gameMenuIndex >= (int)menuSprites.size()) return;
+  if (saveMenuOpen) return;  // the save menu draws on top instead
+  const MenuData& m = MENUS[gameMenuIndex];
+  Sprite& panel = menuSprites[gameMenuIndex];
+  if (m.pause) engine->renderer.renderer2D.render(menuDimSprite);
+  engine->renderer.renderer2D.render(panel);
+  if (m.entryCount > 0) {
+    menuCursorSprite.position =
+        Vec2(panel.position.x + 32.0F,
+             panel.position.y + m.row0Y + gameMenuCursor * m.rowH + 1.0F);
+    engine->renderer.renderer2D.render(menuCursorSprite);
+  }
 }
 
 bool TerrainGame::updatePlayerEntity() {
@@ -807,36 +1334,8 @@ bool TerrainGame::updatePlayerEntity() {
   if (nextZ > limZ) nextZ = limZ;
   if (nextZ < -limZ) nextZ = -limZ;
 
-  const float playerRadius = 0.35F;
   float ground = terrainHeightAt(nextX, nextZ);
-  for (const RuntimeObject& o : runtimeObjects) {
-    if (!o.visible || o.data.type == 4 || o.data.type == 6 ||
-        o.data.type == 7 || o.data.type == 8 || o.data.type == 9)
-      continue;
-    const float ox = o.data.position[0];
-    const float oz = o.data.position[2];
-    const float hx = 0.5F * o.data.scale[0] + playerRadius;
-    const float hz = 0.5F * o.data.scale[2] + playerRadius;
-    const float top = o.data.position[1] + 0.5F * o.data.scale[1];
-    const float bottom = o.data.position[1] - 0.5F * o.data.scale[1];
-
-    const bool nextInside =
-        nextX > ox - hx && nextX < ox + hx && nextZ > oz - hz && nextZ < oz + hz;
-    if (!nextInside) continue;
-
-    if (entY + 0.5F >= top) {
-      if (top > ground) ground = top;
-    } else if (entY < top && entY + PLAYER_EYE_HEIGHT > bottom) {
-      const bool wasInsideX = entX > ox - hx && entX < ox + hx;
-      const bool wasInsideZ = entZ > oz - hz && entZ < oz + hz;
-      if (!wasInsideX) nextX = entX;
-      if (!wasInsideZ) nextZ = entZ;
-      if (wasInsideX && wasInsideZ) {
-        nextX = entX;
-        nextZ = entZ;
-      }
-    }
-  }
+  collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground);
   entX = nextX;
   entZ = nextZ;
 
@@ -924,56 +1423,91 @@ void TerrainGame::rebuildObjectGeometry(int index) {
   ObjectGeometry& g = objectGeometry[index];
   o.dirty = false;
 
-  g.vertices.clear();
-  g.colors.clear();
-  g.sts.clear();
-  switch (o.data.type) {
-    case 1: addSphere(g.vertices, g.colors, g.sts, o.data); break;
-    case 2: addCylinder(g.vertices, g.colors, g.sts, o.data); break;
-    case 3: addCone(g.vertices, g.colors, g.sts, o.data); break;
-    case 4: break;  // spawn point - marker only
-    case 5: addModel(g.vertices, g.colors, g.sts, o.data); break;
-    case 6: break;  // player - marker only
-    case 7: break;  // emitter - particles are built by updateParticles()
-    case 8: break;  // sound emitter - marker only, no geometry
-    case 9: break;  // point light - invisible source, no geometry
-    default: addBox(g.vertices, g.colors, g.sts, o.data); break;
-  }
-  if (g.vertices.empty()) {
-    g.bag.reset();
-    return;
+  // models: one draw part per MTL material; everything else fills parts[0]
+  const GameModel* gm = nullptr;
+  if (o.data.type == 5 && o.data.model >= 0 &&
+      o.data.model < (int)gameModels.size())
+    gm = &gameModels[o.data.model];
+  const int partCount = o.data.type == 5 ? (gm ? (int)gm->parts.size() : 0) : 1;
+  if ((int)g.parts.size() != partCount) g.parts.resize(partCount);
+
+  for (int pi = 0; pi < partCount; ++pi) {
+    GeoPart& part = g.parts[pi];
+    part.vertices.clear();
+    part.colors.clear();
+    part.sts.clear();
   }
 
-  if (!g.bag) {
-    g.infoBag = std::make_unique<StaPipInfoBag>();
-    g.infoBag->model = &model;
-    g.infoBag->shadingType = TyraShadingFlat;
-    // Objects go through frustum classification too - raw submission (None)
-    // wraps the GS raster window for anything behind/off-screen. The bbox
-    // cache is keyed by pointer + bboxVersion, bumped on every rebuild, so
-    // moving objects never reuse a stale box.
-    g.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
-    g.infoBag->fullClipChecks = true;
-    g.colorBag = std::make_unique<StaPipColorBag>();
-    g.bag = std::make_unique<StaPipBag>();
-    g.bag->info = g.infoBag.get();
-    g.bag->color = g.colorBag.get();
-    g.bag->texture = nullptr;
-    g.bag->lighting = nullptr;
-  }
-  g.colorBag->many = g.colors.data();
-  g.bag->vertices = g.vertices.data();
-  g.bag->count = static_cast<u32>(g.vertices.size());
-  g.bag->bboxVersion++;  // geometry changed - refresh the frustum bbox cache
-
-  if (o.data.texture >= 0 && o.data.texture < TEXTURE_COUNT &&
-      loadedTextures[o.data.texture]) {
-    if (!g.texBag) g.texBag = std::make_unique<StaPipTextureBag>();
-    g.texBag->texture = loadedTextures[o.data.texture];
-    g.texBag->coordinates = g.sts.data();
-    g.bag->texture = g.texBag.get();
+  if (o.data.type == 5) {
+    for (int pi = 0; pi < partCount; ++pi) {
+      const GameModelPart& src = gm->parts[pi];
+      GeoPart& part = g.parts[pi];
+      const bool textured = src.texture != nullptr;
+      for (size_t i = 0; i + 7 < src.verts.size(); i += 8) {
+        const float* v = &src.verts[i];
+        pushVert(part.vertices, part.colors, part.sts, o.data,
+                 {v[0], v[1], v[2]}, {v[3], v[4], v[5]}, v[6], v[7], src.kd,
+                 textured);
+      }
+    }
   } else {
-    g.bag->texture = nullptr;
+    GeoPart& p0 = g.parts[0];
+    switch (o.data.type) {
+      case 1: addSphere(p0.vertices, p0.colors, p0.sts, o.data); break;
+      case 2: addCylinder(p0.vertices, p0.colors, p0.sts, o.data); break;
+      case 3: addCone(p0.vertices, p0.colors, p0.sts, o.data); break;
+      case 4: break;  // spawn point - marker only
+      case 6: break;  // player - marker only
+      case 7: break;  // emitter - particles are built by updateParticles()
+      case 8: break;  // sound emitter - marker only, no geometry
+      case 9: break;  // point light - invisible source, no geometry
+      default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
+    }
+  }
+
+  for (int pi = 0; pi < partCount; ++pi) {
+    GeoPart& part = g.parts[pi];
+    if (part.vertices.empty()) {
+      part.bag.reset();
+      continue;
+    }
+    if (!part.bag) {
+      part.infoBag = std::make_unique<StaPipInfoBag>();
+      part.infoBag->model = &model;
+      part.infoBag->shadingType = TyraShadingFlat;
+      // Objects go through frustum classification too - raw submission (None)
+      // wraps the GS raster window for anything behind/off-screen. The bbox
+      // cache is keyed by pointer + bboxVersion, bumped on every rebuild, so
+      // moving objects never reuse a stale box.
+      part.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+      part.infoBag->fullClipChecks = true;
+      part.colorBag = std::make_unique<StaPipColorBag>();
+      part.bag = std::make_unique<StaPipBag>();
+      part.bag->info = part.infoBag.get();
+      part.bag->color = part.colorBag.get();
+      part.bag->texture = nullptr;
+      part.bag->lighting = nullptr;
+    }
+    part.colorBag->many = part.colors.data();
+    part.bag->vertices = part.vertices.data();
+    part.bag->count = static_cast<u32>(part.vertices.size());
+    part.bag->bboxVersion++;  // geometry changed - refresh the bbox cache
+
+    // an object texture (Set... in the editor) overrides the part's map_Kd
+    Texture* tex = nullptr;
+    if (o.data.texture >= 0 && o.data.texture < TEXTURE_COUNT &&
+        loadedTextures[o.data.texture])
+      tex = loadedTextures[o.data.texture];
+    else if (o.data.type == 5)
+      tex = gm->parts[pi].texture;
+    if (tex) {
+      if (!part.texBag) part.texBag = std::make_unique<StaPipTextureBag>();
+      part.texBag->texture = tex;
+      part.texBag->coordinates = part.sts.data();
+      part.bag->texture = part.texBag.get();
+    } else {
+      part.bag->texture = nullptr;
+    }
   }
 }
 
@@ -1011,8 +1545,9 @@ void TerrainGame::renderScene() {
   stapip.core.render(bag.get());
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
-    if (runtimeObjects[i].visible && objectGeometry[i].bag)
-      stapip.core.render(objectGeometry[i].bag.get());
+    if (!runtimeObjects[i].visible) continue;
+    for (GeoPart& part : objectGeometry[i].parts)
+      if (part.bag) stapip.core.render(part.bag.get());
   }
   // Highlight rims after every object so their depth is in the z-buffer:
   // the rim is depth-tested against the finished scene and can no longer be
@@ -1020,7 +1555,7 @@ void TerrainGame::renderScene() {
   if (HIGHLIGHT_USABLE)
     for (int i = 0; i < (int)runtimeObjects.size(); ++i)
       if (runtimeObjects[i].visible && runtimeObjects[i].data.usable &&
-          objectGeometry[i].bag)
+          !objectGeometry[i].parts.empty())
         renderHighlightHull(i);  // proximity-checked inside; no-op when far
   // particles last - alpha blended over the scene
   for (ParticleSystem& ps : particles)
@@ -1039,7 +1574,9 @@ void TerrainGame::renderScene() {
 void TerrainGame::renderHighlightHull(int index) {
   const RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
-  if (g.vertices.empty()) return;
+  size_t n = 0;  // hull spans every draw part of the object
+  for (const GeoPart& part : g.parts) n += part.vertices.size();
+  if (n == 0) return;
 
   float half = o.data.scale[0];
   if (o.data.scale[1] > half) half = o.data.scale[1];
@@ -1066,7 +1603,6 @@ void TerrainGame::renderHighlightHull(int index) {
   float behind = dist - half;
   if (behind < 0.5F) behind = 0.5F;
 
-  const size_t n = g.vertices.size();
   g.hullVerts.resize(n * HIGHLIGHT_STEPS);
   g.hullCols.resize(n * HIGHLIGHT_STEPS);
   // One pushback for all shells (sized for the widest) - per-shell depths
@@ -1083,23 +1619,25 @@ void TerrainGame::renderHighlightHull(int index) {
     const float f = 1.0F + grow;
     const Color c(HIGHLIGHT_R, HIGHLIGHT_G, HIGHLIGHT_B, alpha);
     alpha *= 0.55F;
-    for (size_t v = 0; v < n; ++v) {
-      const Vec4& p = g.vertices[v];
-      float hx = cx + (p.x - cx) * f;
-      float hy = cy + (p.y - cy) * f;
-      float hz = cz + (p.z - cz) * f;
-      hx = cameraPosition.x + (hx - cameraPosition.x) * k;
-      hy = cameraPosition.y + (hy - cameraPosition.y) * k;
-      hz = cameraPosition.z + (hz - cameraPosition.z) * k;
-      // Shell parts of grounded objects dip below the terrain and the
-      // ground in front z-rejects them (no bottom rim from a low camera).
-      // Lift them just above the surface - the bottom rim becomes a glow
-      // apron hugging the ground around the base.
-      const float ground = terrainHeightAt(hx, hz) + 0.02F;
-      if (hy < ground) hy = ground;
-      g.hullVerts[s * n + v] = Vec4(hx, hy, hz, 1.0F);
-      g.hullCols[s * n + v] = c;
-    }
+    size_t v = 0;
+    for (const GeoPart& part : g.parts)
+      for (const Vec4& p : part.vertices) {
+        float hx = cx + (p.x - cx) * f;
+        float hy = cy + (p.y - cy) * f;
+        float hz = cz + (p.z - cz) * f;
+        hx = cameraPosition.x + (hx - cameraPosition.x) * k;
+        hy = cameraPosition.y + (hy - cameraPosition.y) * k;
+        hz = cameraPosition.z + (hz - cameraPosition.z) * k;
+        // Shell parts of grounded objects dip below the terrain and the
+        // ground in front z-rejects them (no bottom rim from a low camera).
+        // Lift them just above the surface - the bottom rim becomes a glow
+        // apron hugging the ground around the base.
+        const float ground = terrainHeightAt(hx, hz) + 0.02F;
+        if (hy < ground) hy = ground;
+        g.hullVerts[s * n + v] = Vec4(hx, hy, hz, 1.0F);
+        g.hullCols[s * n + v] = c;
+        ++v;
+      }
   }
 
   if (!g.hullBag) {
@@ -1125,7 +1663,8 @@ void TerrainGame::renderHighlightHull(int index) {
   // faces - shells still blend over those at glancing angles. Repainting
   // the object wins the equal-depth test (GEQUAL) and erases the wash
   // without touching the rim outside the silhouette.
-  stapip.core.render(g.bag.get());
+  for (GeoPart& part : g.parts)
+    if (part.bag) stapip.core.render(part.bag.get());
 }
 
 void TerrainGame::generateTerrainGrid() {
@@ -1248,39 +1787,11 @@ void TerrainGame::updatePlayer() {
   if (nextZ > limZ) nextZ = limZ;
   if (nextZ < -limZ) nextZ = -limZ;
 
-  // Collision with scene objects (XZ, boxes expanded by the player radius)
+  // Collision with scene objects (collidePlayer: box/mesh/none per object)
   // + standing on top of them. Player can step ~0.5 units up.
   // The floor is the sculpted terrain.
-  const float playerRadius = 0.35F;
   float ground = terrainHeightAt(nextX, nextZ);
-  for (const RuntimeObject& o : runtimeObjects) {
-    if (!o.visible || o.data.type == 4 || o.data.type == 9) continue;
-    const float ox = o.data.position[0];
-    const float oz = o.data.position[2];
-    const float hx = 0.5F * o.data.scale[0] + playerRadius;
-    const float hz = 0.5F * o.data.scale[2] + playerRadius;
-    const float top = o.data.position[1] + 0.5F * o.data.scale[1];
-    const float bottom = o.data.position[1] - 0.5F * o.data.scale[1];
-
-    const bool nextInside =
-        nextX > ox - hx && nextX < ox + hx && nextZ > oz - hz && nextZ < oz + hz;
-    if (!nextInside) continue;
-
-    if (playerY + 0.5F >= top) {
-      // Low enough to walk onto - candidate floor
-      if (top > ground) ground = top;
-    } else if (playerY < top && playerY + EYE_HEIGHT > bottom) {
-      // Blocked - cancel the axes that entered the box this frame
-      const bool wasInsideX = playerX > ox - hx && playerX < ox + hx;
-      const bool wasInsideZ = playerZ > oz - hz && playerZ < oz + hz;
-      if (!wasInsideX) nextX = playerX;
-      if (!wasInsideZ) nextZ = playerZ;
-      if (wasInsideX && wasInsideZ) {
-        nextX = playerX;
-        nextZ = playerZ;
-      }
-    }
-  }
+  collidePlayer(playerX, playerZ, &nextX, &nextZ, playerY, EYE_HEIGHT, &ground);
   playerX = nextX;
   playerZ = nextZ;
 

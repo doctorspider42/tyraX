@@ -3,20 +3,10 @@
 
 namespace Script_demo {
 
-struct ModelData {
-  const float* verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
-  int vertexCount;
-};
-
 constexpr int MODEL_COUNT = 1;
-
-// res/models/house.obj (missing or unparseable)
-constexpr float MODEL_0_VERTS[] = {0.0F
+inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
+    "models/house.obj",
 };
-constexpr int MODEL_0_COUNT = 0;
-
-inline const ModelData MODELS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
-    {MODEL_0_VERTS, MODEL_0_COUNT},
-};
+constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false};
 
 }  // namespace Script_demo

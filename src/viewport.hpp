@@ -120,8 +120,17 @@ private:
     Mesh lightGizmo_;  // small unshaded bulb marking a point light
     Mesh wireSphere_;  // unit-radius ring sphere, scaled to a light's radius
     std::string projectDir_;
-    std::map<std::string, Mesh> modelCache_;  // .obj meshes by relative path
-    const Mesh* modelMesh(const std::string& relPath);
+    // .obj models split per material (MTL): each part carries its own GL mesh
+    // (Kd baked into the vertex colors) and map_Kd texture.
+    struct ModelPart {
+        Mesh mesh;
+        uint32_t tex = 0;  // GL texture from map_Kd (0 = untextured)
+    };
+    struct ModelDraw {
+        std::vector<ModelPart> parts;  // empty = missing/unparseable model
+    };
+    std::map<std::string, ModelDraw> modelCache_;  // by relative path
+    const ModelDraw* modelDraw(const std::string& relPath);
     void clearModelCache();
 
     std::map<std::string, uint32_t> texCache_;  // GL textures by relative path

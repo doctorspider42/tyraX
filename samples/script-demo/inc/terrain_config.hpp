@@ -4,39 +4,19 @@
 namespace Script_demo {
 
 // Terrain size and lighting are per scene - see scene_data.hpp arrays and
-// the TERRAIN_*/SCENE_* accessor macros in the game cpp.
+// the TERRAIN_*/SCENE_* accessor macros defined there.
 
-// Project preferences (Project > Preferences in the editor)
+// Project preferences (Project > Preferences in the editor). These are
+// project-wide; sky, clipping, post-FX and the usable-highlight can be
+// overridden per scene and live as SCENE_COUNT arrays in scene_data.hpp
+// (reached through the accessor macros defined in scene_data.hpp).
 constexpr int TERRAIN_MAX_CELLS = 32;
-constexpr bool CLIP_PRECISE = true;
-constexpr float SKY_R = 63.75F;  // 0-255
-constexpr float SKY_G = 140.25F;
-constexpr float SKY_B = 198.9F;
 constexpr float EYE_HEIGHT = 1.8F;
 constexpr float WALK_SPEED = 0.4F;
 constexpr float LOOK_SPEED = 1.0F;    // multiplier
 constexpr float ORBIT_SPEED = 1.0F;  // multiplier
 constexpr float GRAVITY = 9.8F;          // units/s^2
 constexpr float JUMP_SPEED = 4.5F;    // units/s
-constexpr bool SKY_DOME = true;
-constexpr float SKY_TOP_R = 20.4F;  // 0-255, dome zenith color
-constexpr float SKY_TOP_G = 76.5F;
-constexpr float SKY_TOP_B = 165.75F;
-  // 0..1
-
-// Post effects, 0 (off) .. 128 (see RendererCorePostFx in the engine)
-constexpr int POSTFX_BLOOM = 0;
-constexpr int POSTFX_GRAIN = 0;
-
-// Usable-object highlight: outline drawn around objects marked usable while
-// the player is within HIGHLIGHT_DISTANCE of them
-constexpr bool HIGHLIGHT_USABLE = false;
-constexpr float HIGHLIGHT_DISTANCE = 6.0F;  // world units
-constexpr float HIGHLIGHT_R = 255.0F;  // 0-255
-constexpr float HIGHLIGHT_G = 216.75F;
-constexpr float HIGHLIGHT_B = 38.25F;
-constexpr float HIGHLIGHT_WIDTH = 0.35F;  // total rim, world units
-constexpr int HIGHLIGHT_STEPS = 4;    // blur shells, 1 = sharp
 
 // Scene switches show res/hud/loading.png on black for a moment
 constexpr bool LOADING_SCREEN = true;

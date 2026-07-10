@@ -39,6 +39,21 @@ struct ScriptContext {
   // Write to show/hide all HUD images (the USE prompt is unaffected).
   bool hudVisible = true;
 
+  // Save data: named values persisted in memory card slots (SAVE_VALUE_NAMES
+  // order, scene_data.hpp). Set openSaveMenu = true to open the in-game
+  // save/load menu (also opened by using a Save point object); the game
+  // applies and clears it.
+  float* saveValues = nullptr;
+  int saveValueCount = 0;
+  bool openSaveMenu = false;
+
+  // Game menus (menu_data.gen.hpp order). Write a menu index into openMenu
+  // to open it (the game applies and clears it). menuEvent holds the index
+  // of the "Flow event" a menu entry fired this frame (-1 = none) - it
+  // drives the "On Menu Event" trigger.
+  int openMenu = -1;
+  int menuEvent = -1;
+
   // Scenes: `scene` is the active scene index (scene_data.hpp order),
   // `sceneGeneration` bumps on every (re)load - scripts use it to reset
   // their state. Write a scene index into `requestScene` to switch after
