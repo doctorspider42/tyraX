@@ -53,6 +53,8 @@ static std::string orderFiles(const Project& p, std::vector<OrderedFile>& out,
         std::string rel = fs::relative(e.path(), bin, ec).generic_string();
         if (rel.empty() || fs::path(rel).filename().string().front() == '.') continue;
         if (fs::path(rel).extension() == ".iso") continue;
+        // runtime artifacts of previous host runs - never ship them
+        if (rel == "log.txt") continue;
         remaining.insert(rel);
     }
     if (remaining.empty()) return "bin/ is empty - build the project first.";

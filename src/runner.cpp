@@ -336,6 +336,12 @@ void Runner::worker(Project p, bool build, bool run) {
             if (!ok) appendLine("[editor] Sound conversion (adpenc) failed.");
         }
 
+        // The Makefile's resources step (`cp -r res/*`) also drops the source
+        // WAVs into bin/sfx next to the adpenc output. The game only loads
+        // the .adpcm, so the WAV copies are dead weight that would bloat the
+        // exported ISO - drop them.
+        if (ok) exec(dc + "\"cd /src && rm -f bin/sfx/*.wav\"", p.dir);
+
         if (ok) {
             appendLine("[editor] Copying binaries back to host...");
             ok = exec(dc + "\"rsync -zac --include=*/ --include=bin/** --exclude=* "
