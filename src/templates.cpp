@@ -1737,6 +1737,12 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
   }
 }
 
+// Last volume/pan sent to each emitter channel (16-23). audsrv RPCs are
+// synchronous and share one client lock with the music stream, so
+// updateSoundEmitters only issues an RPC when the quantized value changes.
+static int sndChVol[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+static int sndChPan[8] = {-999, -999, -999, -999, -999, -999, -999, -999};
+
 // Switches the runtime state to a scene from scene_data.hpp. Assets
 // (textures, models) are loaded once for all scenes at startup, so this
 // only rebuilds the runtime objects: vectors and per-object bags are
@@ -1815,7 +1821,10 @@ void TerrainGame::loadScene(int sceneIndex) {
   // Sound emitters: fresh retrigger state; mute the emitter channels (an
   // ADPCM sample can't be stopped - it plays out, but silently).
   sndTimers.assign(runtimeObjects.size(), 0);
-  for (int ch = 16; ch < 24; ++ch) engine->audio.adpcm.setVolume(0, (s8)ch);
+  for (int ch = 16; ch < 24; ++ch) {
+    engine->audio.adpcm.setVolume(0, (s8)ch);
+    sndChVol[ch - 16] = 0;  // keep the RPC cache in sync with the mute
+  }
 
   // A loaded save targeting this scene: apply the stored object state now
   if (pendingObjScene == sceneIndex && !pendingObjState.empty())
@@ -1839,8 +1848,12 @@ void TerrainGame::updateSoundEmitters() {
     if (o.data.snd < 0 || o.data.snd >= (int)sndSamples.size()) continue;
     if (!sndSamples[o.data.snd]) continue;  // sample failed to load (too big for SPU2?)
     const s8 ch = (s8)(16 + (i & 7));  // emitters own channels 16-23
+    const int chIdx = i & 7;
     if (!o.visible) {
-      engine->audio.adpcm.setVolume(0, ch);
+      if (sndChVol[chIdx] != 0) {
+        engine->audio.adpcm.setVolume(0, ch);
+        sndChVol[chIdx] = 0;
+      }
       continue;
     }
     int vol = 100;
@@ -1871,7 +1884,19 @@ void TerrainGame::updateSoundEmitters() {
         }
       }
     }
-    engine->audio.adpcm.setVolumeAndPan((u8)vol, (s8)pan, ch);
+    // audsrv RPCs are synchronous and share one client lock with the music
+    // stream - an RPC per emitter per frame stalls the main thread whenever
+    // the song thread holds the lock (measured 50 -> 42 FPS in PCSX2 with
+    // one emitter + music). Quantize and only send real changes; a static
+    // player near a static emitter then costs zero RPCs per frame.
+    vol = ((vol + 2) / 5) * 5;
+    if (vol > 100) vol = 100;
+    pan = pan >= 0 ? ((pan + 5) / 10) * 10 : -(((-pan + 5) / 10) * 10);
+    if (vol != sndChVol[chIdx] || pan != sndChPan[chIdx]) {
+      engine->audio.adpcm.setVolumeAndPan((u8)vol, (s8)pan, ch);
+      sndChVol[chIdx] = vol;
+      sndChPan[chIdx] = pan;
+    }
     if (vol <= 0) continue;
     if (sndTimers[i] > 0) {
       --sndTimers[i];

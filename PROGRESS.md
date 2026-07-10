@@ -9,6 +9,22 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (37) **Music + sound emitters = FPS drop: audsrv RPC contention fix** —
+  reproduced in PCSX2 (finally an EE-side bug, not the network): a scene
+  with one sound emitter ran 50 FPS silent but 42 FPS with music playing,
+  while a scene with music and NO emitters held 50. Mechanism:
+  updateSoundEmitters issued a synchronous audsrv RPC per emitter per frame
+  (setVolumeAndPan, even when nothing changed), and every audsrv call
+  shares one client-side completion semaphore with the music thread's
+  wait_audio/play_audio transactions - the main thread queued behind the
+  stream several times a second. The generated game now caches the last
+  volume/pan per channel (quantized 5/10 steps so a moving player does not
+  defeat the cache) and only issues the RPC on a real change; the
+  scene-switch mute keeps the cache in sync. Verified in PCSX2: the same
+  emitter+music scene is back to 50 FPS. Also confirmed the debug FPS/MEM
+  overlay has no emulator gate - it renders on real hardware too (the "not
+  on the console" report was a stale pre-debug-profile deploy).
+
 - (36) **Per-track music build conversion + Stop on PS2** — the experiment
   window for network music: every Music-panel track gets "PS2 build"
   controls (rate: keep/48000/32000/22050/11025 + mono; only rates audsrv has
