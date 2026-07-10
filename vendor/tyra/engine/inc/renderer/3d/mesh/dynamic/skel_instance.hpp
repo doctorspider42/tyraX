@@ -5,7 +5,8 @@
 #-----------------------------------------------------------------------
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
-# Added by tyra-editor: per-object skeletal playback + EE skinning.
+# Added by tyra-editor: per-object skeletal playback; pose evaluation on
+# the EE, vertex skinning on VU0 in macro mode.
 */
 
 #pragma once
@@ -20,7 +21,8 @@ namespace Tyra {
 
 /**
  * One scene object's view of a SkelModel: playback state (with crossfade),
- * per-frame pose evaluation and EE matrix-palette skinning.
+ * per-frame pose evaluation (EE) and matrix-palette skinning (VU0 macro
+ * mode - runs on COP2 next to the EE, no microprogram involved).
  *
  * The skinned result lives in an owned single-frame DynamicMesh whose
  * vertex/normal arrays are overwritten in place every update - render it
@@ -81,6 +83,17 @@ class SkelInstance {
   std::vector<M4x4> globals;                 // per node
   std::vector<M4x4> palette;                 // per palette slot
   std::vector<Vec4*> outVertices, outNormals;  // per part, into mesh frame 0
+
+  // bind-pose data repacked per part into 16-byte-aligned qwords for the
+  // VU0 skinning loop: positions carry w = 1, normals w = 0 (so the
+  // translation column drops out of the transform), and weights are
+  // pre-normalized to sum 1 (all-zero rows stay zero - the vertex collapses
+  // to the origin exactly like the EE loop used to produce). Joints and
+  // weights are re-sorted per vertex by descending weight with the nonzero
+  // count in `influences`, so skinParts dispatches to a blend of exactly
+  // 0, 1, 2 or 4 matrices instead of always paying for 4.
+  std::vector<std::vector<Vec4>> bindPositions, bindNormals, skinWeights;
+  std::vector<std::vector<u8>> sortedJoints, influences;
 
   void advanceLayer(Layer& layer, float dt);
   void evalLocals(Layer& layer, std::vector<float>& locals,

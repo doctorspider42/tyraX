@@ -5,14 +5,18 @@
 #-----------------------------------------------------------------------
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
-# Added by tyra-editor: per-object skeletal playback + EE skinning.
+# Added by tyra-editor: per-object skeletal playback; pose evaluation on
+# the EE, vertex skinning on VU0 in macro mode (COP2 inline asm).
 # The sampling/pose math mirrors the editor's src/glbparser.cpp (the
 # viewport preview and the stage-1 baker) - keep the formulas in sync so
-# what the editor shows is what the console computes.
+# what the editor shows is what the console computes. The vertex loop is
+# the one part that does NOT keep bit-parity: VU0 rounding differs from
+# the EE FPU by ~1 ulp, verified by screenshot parity against the EE loop.
 */
 
 #include "renderer/3d/mesh/dynamic/skel_instance.hpp"
 
+#include <float.h>
 #include <math.h>
 #include <string.h>
 
@@ -182,6 +186,45 @@ SkelInstance::SkelInstance(const SkelModel* t_model) : model(t_model) {
     }
     outVertices.push_back(frame->vertices);
     outNormals.push_back(frame->normals);
+
+    // repack the bind pose for the VU0 skinning loop (see the header): the
+    // weight normalization and the sort-by-weight move here, out of the
+    // per-frame hot path
+    std::vector<Vec4> bp(part.vertexCount), bn(part.vertexCount),
+        bw(part.vertexCount);
+    std::vector<u8> js((size_t)part.vertexCount * 4), nf(part.vertexCount);
+    for (u32 v = 0; v < part.vertexCount; v++) {
+      bp[v].set(part.positions[(size_t)v * 3],
+                part.positions[(size_t)v * 3 + 1],
+                part.positions[(size_t)v * 3 + 2], 1.0F);
+      bn[v].set(part.normals[(size_t)v * 3], part.normals[(size_t)v * 3 + 1],
+                part.normals[(size_t)v * 3 + 2], 0.0F);
+      const u8* jj = &part.joints[(size_t)v * 4];
+      const u8* ww = &part.weights[(size_t)v * 4];
+      u8 idx[4] = {0, 1, 2, 3};  // slot order by descending weight
+      for (int a = 1; a < 4; a++)
+        for (int b = a; b > 0 && ww[idx[b]] > ww[idx[b - 1]]; b--) {
+          const u8 t = idx[b];
+          idx[b] = idx[b - 1];
+          idx[b - 1] = t;
+        }
+      const u32 wsum = (u32)ww[0] + ww[1] + ww[2] + ww[3];
+      const float inv = wsum > 0 ? 1.0F / (float)wsum : 0.0F;
+      float wf[4];
+      u8 n = 0;
+      for (int k = 0; k < 4; k++) {
+        wf[k] = (float)ww[idx[k]] * inv;
+        js[(size_t)v * 4 + k] = jj[idx[k]];
+        if (ww[idx[k]] > 0) n++;
+      }
+      bw[v].set(wf[0], wf[1], wf[2], wf[3]);
+      nf[v] = n;
+    }
+    bindPositions.push_back(std::move(bp));
+    bindNormals.push_back(std::move(bn));
+    skinWeights.push_back(std::move(bw));
+    sortedJoints.push_back(std::move(js));
+    influences.push_back(std::move(nf));
   }
   mesh = std::make_unique<DynamicMesh>(&data);
 
@@ -344,87 +387,184 @@ void SkelInstance::evalPose() {
 }
 
 void SkelInstance::skinParts() {
-  float minX = 0.0F, minY = 0.0F, minZ = 0.0F;
-  float maxX = 0.0F, maxY = 0.0F, maxZ = 0.0F;
-  bool first = true;
+  // The whole per-vertex job runs on VU0 in macro mode (the era-correct
+  // split: animation on VU0, 3D on VU1, game code on EE): build the blended
+  // palette matrix in $vf5-$vf8 - dispatching on the vertex's influence
+  // count so 1- and 2-bone vertices (the vast majority) pay for exactly
+  // that many matrix loads - then transform position and normal, normalize
+  // the normal with vrsqrt, and fold the skinned AABB with vmini/vmax.
+  //
+  // VU0 register state deliberately spans the asm blocks below: $vf5-$vf8
+  // carry the matrix from the blend block into the shared tail, and
+  // $vf20/$vf21 hold the running AABB across the whole loop ($vf20.w
+  // carries the epsilon added to squared normal lengths, so a degenerate
+  // zero normal divides by sqrt(eps) and comes out ~0 instead of blowing
+  // up - the EE loop's `len > 1e-6` guard). That is safe for the same
+  // reason every M4x4/Vec4 helper is: GCC never emits COP2 code of its
+  // own, and nothing else in the engine runs VU0 concurrently. Don't call
+  // anything between these blocks.
+  float bmin[4] alignas(16) = {FLT_MAX, FLT_MAX, FLT_MAX, 1e-12F};
+  float bmax[4] alignas(16) = {-FLT_MAX, -FLT_MAX, -FLT_MAX, 0.0F};
+  asm volatile(
+      "lqc2         $vf20, 0x00(%[bmin])     \n\t"
+      "lqc2         $vf21, 0x00(%[bmax])     \n\t"
+      :
+      : [bmin] "r"(bmin), [bmax] "r"(bmax));
 
+  const M4x4* pal = palette.data();
   for (size_t pi = 0; pi < model->parts.size(); pi++) {
     const SkelPart& part = model->parts[pi];
     Vec4* outV = outVertices[pi];
     Vec4* outN = outNormals[pi];
-    const float* srcP = part.positions.data();
-    const float* srcN = part.normals.data();
-    const u8* joints = part.joints.data();
-    const u8* weights = part.weights.data();
+    const Vec4* srcP = bindPositions[pi].data();
+    const Vec4* srcN = bindNormals[pi].data();
+    const Vec4* wq = skinWeights[pi].data();
+    const u8* joints = sortedJoints[pi].data();
+    const u8* infl = influences[pi].data();
 
     for (u32 v = 0; v < part.vertexCount; v++) {
-      // blended 3x4 palette matrix (bottom row is constant 0 0 0 1)
-      float m[12] = {0.0F};
       const u8* j = &joints[(size_t)v * 4];
-      const u8* w = &weights[(size_t)v * 4];
-      const u32 wsum = (u32)w[0] + w[1] + w[2] + w[3];
-      if (wsum > 0) {
-        const float invSum = 1.0F / (float)wsum;
-        for (int k = 0; k < 4; k++) {
-          if (w[k] == 0) continue;
-          const float wk = (float)w[k] * invSum;
-          const float* p = palette[j[k]].data;
-          m[0] += p[0] * wk;
-          m[1] += p[1] * wk;
-          m[2] += p[2] * wk;
-          m[3] += p[4] * wk;
-          m[4] += p[5] * wk;
-          m[5] += p[6] * wk;
-          m[6] += p[8] * wk;
-          m[7] += p[9] * wk;
-          m[8] += p[10] * wk;
-          m[9] += p[12] * wk;
-          m[10] += p[13] * wk;
-          m[11] += p[14] * wk;
-        }
+      const u8 n = infl[v];
+
+      if (n == 2) {
+        // two influences - the common case for smooth skinning
+        const float* p0 = pal[j[0]].data;
+        const float* p1 = pal[j[1]].data;
+        asm volatile(
+            "lqc2         $vf9, 0x00(%[wgt])       \n\t"
+            "lqc2         $vf1, 0x00(%[p0])        \n\t"
+            "lqc2         $vf2, 0x00(%[p1])        \n\t"
+            "vmulax.xyzw  $ACC, $vf1, $vf9         \n\t"
+            "vmaddy.xyzw  $vf5, $vf2, $vf9         \n\t"
+            "lqc2         $vf1, 0x10(%[p0])        \n\t"
+            "lqc2         $vf2, 0x10(%[p1])        \n\t"
+            "vmulax.xyzw  $ACC, $vf1, $vf9         \n\t"
+            "vmaddy.xyzw  $vf6, $vf2, $vf9         \n\t"
+            "lqc2         $vf1, 0x20(%[p0])        \n\t"
+            "lqc2         $vf2, 0x20(%[p1])        \n\t"
+            "vmulax.xyzw  $ACC, $vf1, $vf9         \n\t"
+            "vmaddy.xyzw  $vf7, $vf2, $vf9         \n\t"
+            "lqc2         $vf1, 0x30(%[p0])        \n\t"
+            "lqc2         $vf2, 0x30(%[p1])        \n\t"
+            "vmulax.xyzw  $ACC, $vf1, $vf9         \n\t"
+            "vmaddy.xyzw  $vf8, $vf2, $vf9         \n\t"
+            :
+            : [wgt] "r"(wq + v), [p0] "r"(p0), [p1] "r"(p1)
+            : "memory");
+      } else if (n == 1) {
+        // single influence - weight is exactly 1, use the matrix as-is
+        const float* p0 = pal[j[0]].data;
+        asm volatile(
+            "lqc2         $vf5, 0x00(%[p0])        \n\t"
+            "lqc2         $vf6, 0x10(%[p0])        \n\t"
+            "lqc2         $vf7, 0x20(%[p0])        \n\t"
+            "lqc2         $vf8, 0x30(%[p0])        \n\t"
+            :
+            : [p0] "r"(p0)
+            : "memory");
+      } else if (n >= 3) {
+        // 3 or 4 influences - blend all four slots (a 0-weight 4th slot
+        // contributes exactly 0; the loader validated every index)
+        const float* p0 = pal[j[0]].data;
+        const float* p1 = pal[j[1]].data;
+        const float* p2 = pal[j[2]].data;
+        const float* p3 = pal[j[3]].data;
+        asm volatile(
+            "lqc2         $vf9, 0x00(%[wgt])       \n\t"
+            "lqc2         $vf1, 0x00(%[p0])        \n\t"
+            "lqc2         $vf2, 0x00(%[p1])        \n\t"
+            "lqc2         $vf3, 0x00(%[p2])        \n\t"
+            "lqc2         $vf4, 0x00(%[p3])        \n\t"
+            "vmulax.xyzw  $ACC, $vf1, $vf9         \n\t"
+            "vmadday.xyzw $ACC, $vf2, $vf9         \n\t"
+            "vmaddaz.xyzw $ACC, $vf3, $vf9         \n\t"
+            "vmaddw.xyzw  $vf5, $vf4, $vf9         \n\t"
+            "lqc2         $vf1, 0x10(%[p0])        \n\t"
+            "lqc2         $vf2, 0x10(%[p1])        \n\t"
+            "lqc2         $vf3, 0x10(%[p2])        \n\t"
+            "lqc2         $vf4, 0x10(%[p3])        \n\t"
+            "vmulax.xyzw  $ACC, $vf1, $vf9         \n\t"
+            "vmadday.xyzw $ACC, $vf2, $vf9         \n\t"
+            "vmaddaz.xyzw $ACC, $vf3, $vf9         \n\t"
+            "vmaddw.xyzw  $vf6, $vf4, $vf9         \n\t"
+            "lqc2         $vf1, 0x20(%[p0])        \n\t"
+            "lqc2         $vf2, 0x20(%[p1])        \n\t"
+            "lqc2         $vf3, 0x20(%[p2])        \n\t"
+            "lqc2         $vf4, 0x20(%[p3])        \n\t"
+            "vmulax.xyzw  $ACC, $vf1, $vf9         \n\t"
+            "vmadday.xyzw $ACC, $vf2, $vf9         \n\t"
+            "vmaddaz.xyzw $ACC, $vf3, $vf9         \n\t"
+            "vmaddw.xyzw  $vf7, $vf4, $vf9         \n\t"
+            "lqc2         $vf1, 0x30(%[p0])        \n\t"
+            "lqc2         $vf2, 0x30(%[p1])        \n\t"
+            "lqc2         $vf3, 0x30(%[p2])        \n\t"
+            "lqc2         $vf4, 0x30(%[p3])        \n\t"
+            "vmulax.xyzw  $ACC, $vf1, $vf9         \n\t"
+            "vmadday.xyzw $ACC, $vf2, $vf9         \n\t"
+            "vmaddaz.xyzw $ACC, $vf3, $vf9         \n\t"
+            "vmaddw.xyzw  $vf8, $vf4, $vf9         \n\t"
+            :
+            : [wgt] "r"(wq + v), [p0] "r"(p0), [p1] "r"(p1), [p2] "r"(p2),
+              [p3] "r"(p3)
+            : "memory");
+      } else {
+        // all-zero weights - zero matrix collapses the vertex to the
+        // origin, the same degenerate result the stage-1 baker produced
+        asm volatile(
+            "vsub.xyzw    $vf5, $vf0, $vf0         \n\t"
+            "vsub.xyzw    $vf6, $vf0, $vf0         \n\t"
+            "vsub.xyzw    $vf7, $vf0, $vf0         \n\t"
+            "vsub.xyzw    $vf8, $vf0, $vf0         \n\t" ::);
       }
-      // else: all-zero weights collapse the vertex to the origin, the same
-      // degenerate result the stage-1 baker produced for such data
 
-      const float px = srcP[(size_t)v * 3];
-      const float py = srcP[(size_t)v * 3 + 1];
-      const float pz = srcP[(size_t)v * 3 + 2];
-      const float ox = m[0] * px + m[3] * py + m[6] * pz + m[9];
-      const float oy = m[1] * px + m[4] * py + m[7] * pz + m[10];
-      const float oz = m[2] * px + m[5] * py + m[8] * pz + m[11];
-      outV[v].set(ox, oy, oz, 1.0F);
-
-      const float nx = srcN[(size_t)v * 3];
-      const float ny = srcN[(size_t)v * 3 + 1];
-      const float nz = srcN[(size_t)v * 3 + 2];
-      float tx = m[0] * nx + m[3] * ny + m[6] * nz;
-      float ty = m[1] * nx + m[4] * ny + m[7] * nz;
-      float tz = m[2] * nx + m[5] * ny + m[8] * nz;
-      const float len = sqrtf(tx * tx + ty * ty + tz * tz);
-      if (len > 1e-6F) {
-        const float inv = 1.0F / len;
-        tx *= inv;
-        ty *= inv;
-        tz *= inv;
-      }
-      outN[v].set(tx, ty, tz, 1.0F);
-
-      if (first || ox < minX) minX = ox;
-      if (first || oy < minY) minY = oy;
-      if (first || oz < minZ) minZ = oz;
-      if (first || ox > maxX) maxX = ox;
-      if (first || oy > maxY) maxY = oy;
-      if (first || oz > maxZ) maxZ = oz;
-      first = false;
+      // shared tail: transform by $vf5-$vf8, normalize, fold the AABB
+      asm volatile(
+          // position (x, y, z, 1) -> $vf11, force w = 1
+          "lqc2         $vf10, 0x00(%[pos])      \n\t"
+          "vmulax.xyzw  $ACC, $vf5, $vf10        \n\t"
+          "vmadday.xyzw $ACC, $vf6, $vf10        \n\t"
+          "vmaddaz.xyzw $ACC, $vf7, $vf10        \n\t"
+          "vmaddw.xyzw  $vf11, $vf8, $vf10       \n\t"
+          "vmulw.w      $vf11, $vf0, $vf0        \n\t"
+          // normal (nx, ny, nz, 0) -> $vf12 (w = 0 drops the translation)
+          "lqc2         $vf12, 0x00(%[nrm])      \n\t"
+          "vmulax.xyzw  $ACC, $vf5, $vf12        \n\t"
+          "vmadday.xyzw $ACC, $vf6, $vf12        \n\t"
+          "vmaddaz.xyzw $ACC, $vf7, $vf12        \n\t"
+          "vmaddw.xyzw  $vf12, $vf8, $vf12       \n\t"
+          // 1 / sqrt(len^2 + eps); AABB fold hides the vrsqrt latency
+          "vmul.xyz     $vf13, $vf12, $vf12      \n\t"
+          "vaddy.x      $vf13, $vf13, $vf13      \n\t"
+          "vaddz.x      $vf13, $vf13, $vf13      \n\t"
+          "vaddw.x      $vf13, $vf13, $vf20      \n\t"
+          "vrsqrt       $Q, $vf0w, $vf13x        \n\t"
+          "vmini.xyz    $vf20, $vf20, $vf11      \n\t"
+          "vmax.xyz     $vf21, $vf21, $vf11      \n\t"
+          "sqc2         $vf11, 0x00(%[outv])     \n\t"
+          "vwaitq                                \n\t"
+          "vmulq.xyz    $vf12, $vf12, $Q         \n\t"
+          "vmulw.w      $vf12, $vf0, $vf0        \n\t"
+          "sqc2         $vf12, 0x00(%[outn])     \n\t"
+          :
+          : [outv] "r"(outV + v), [outn] "r"(outN + v), [pos] "r"(srcP + v),
+            [nrm] "r"(srcN + v)
+          : "memory");
     }
   }
+
+  asm volatile(
+      "sqc2         $vf20, 0x00(%[bmin])     \n\t"
+      "sqc2         $vf21, 0x00(%[bmax])     \n\t"
+      :
+      : [bmin] "r"(bmin), [bmax] "r"(bmax)
+      : "memory");
 
   // Refresh the frame bboxes from the skinned result - the bbox cache is
   // keyed by frame data and would otherwise stay at the bind pose (matters
   // for anything that culls by mesh bbox).
   Vec4 corners[2];
-  corners[0].set(minX, minY, minZ, 1.0F);
-  corners[1].set(maxX, maxY, maxZ, 1.0F);
+  corners[0].set(bmin[0], bmin[1], bmin[2], 1.0F);
+  corners[1].set(bmax[0], bmax[1], bmax[2], 1.0F);
   const BBox box(corners, 2);
   if (!mesh->frames.empty() && mesh->frames[0]->bbox)
     *mesh->frames[0]->bbox = box;
