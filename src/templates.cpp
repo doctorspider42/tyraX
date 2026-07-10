@@ -321,9 +321,9 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
-    // Animated models (.glb): this object's DynamicMesh instance - a copy
-    // of the model's mother mesh (shared frames, own animation state).
-    std::unique_ptr<Tyra::DynamicMesh> animMesh;
+    // Animated models (.glb): this object's skeletal instance (own
+    // playback state + skinned output mesh, samples the shared SkelModel).
+    std::unique_ptr<Tyra::SkelInstance> animInst;
     // Usable-object highlight: fading shells grown around the object
     // center, drawn after the scene (see renderHighlightHull)
     std::vector<Tyra::Vec4> hullVerts;
@@ -348,19 +348,21 @@ class TerrainGame : public Tyra::Game {
   };
   std::vector<GameModel> gameModels;
   void loadModels();
-  // Animated .glb models: baked by the editor to .tanm morph-frame files
-  // (paths in model_data.gen.hpp), rendered through the dynamic pipeline.
-  // Both pipelines stay initialized side by side; renderScene() re-uploads
-  // the right VU1 programs when it switches passes (renderer3D.usePipeline
-  // would reallocate every buffer on every switch instead).
+  // Animated .glb models: serialized by the editor to .tskl skeletal files
+  // (paths in model_data.gen.hpp) - bone keyframe tracks + bind-pose mesh.
+  // Poses are evaluated and skinned on the EE per frame (SkelInstance) and
+  // rendered through the dynamic pipeline. Both pipelines stay initialized
+  // side by side; renderScene() re-uploads the right VU1 programs when it
+  // switches passes (renderer3D.usePipeline would reallocate every buffer
+  // on every switch instead).
   Tyra::DynamicPipeline dynpip;
   struct GameAnimModel {
-    std::unique_ptr<Tyra::TanmModel> src;       // clip table + AABB
-    std::unique_ptr<Tyra::DynamicMesh> mother;  // owns the frame data
+    std::unique_ptr<Tyra::SkelModel> src;   // skeleton + mesh + clip tracks
+    std::vector<Tyra::Texture*> textures;   // per part, nullptr = untextured
   };
   std::vector<GameAnimModel> gameAnimModels;
   void loadAnimModels();
-  void setupAnimObject(int index);  // per-object mesh copy + playback state
+  void setupAnimObject(int index);  // per-object instance + playback state
   void updateAndRenderAnimObjects();
   // Directional light for the dynamic pass, mirroring the baked static look
   Tyra::Color animAmbient;
@@ -534,9 +536,9 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
-    // Animated models (.glb): this object's DynamicMesh instance - a copy
-    // of the model's mother mesh (shared frames, own animation state).
-    std::unique_ptr<Tyra::DynamicMesh> animMesh;
+    // Animated models (.glb): this object's skeletal instance (own
+    // playback state + skinned output mesh, samples the shared SkelModel).
+    std::unique_ptr<Tyra::SkelInstance> animInst;
     // Usable-object highlight: fading shells grown around the object
     // center, drawn after the scene (see renderHighlightHull)
     std::vector<Tyra::Vec4> hullVerts;
@@ -561,19 +563,21 @@ class TerrainGame : public Tyra::Game {
   };
   std::vector<GameModel> gameModels;
   void loadModels();
-  // Animated .glb models: baked by the editor to .tanm morph-frame files
-  // (paths in model_data.gen.hpp), rendered through the dynamic pipeline.
-  // Both pipelines stay initialized side by side; renderScene() re-uploads
-  // the right VU1 programs when it switches passes (renderer3D.usePipeline
-  // would reallocate every buffer on every switch instead).
+  // Animated .glb models: serialized by the editor to .tskl skeletal files
+  // (paths in model_data.gen.hpp) - bone keyframe tracks + bind-pose mesh.
+  // Poses are evaluated and skinned on the EE per frame (SkelInstance) and
+  // rendered through the dynamic pipeline. Both pipelines stay initialized
+  // side by side; renderScene() re-uploads the right VU1 programs when it
+  // switches passes (renderer3D.usePipeline would reallocate every buffer
+  // on every switch instead).
   Tyra::DynamicPipeline dynpip;
   struct GameAnimModel {
-    std::unique_ptr<Tyra::TanmModel> src;       // clip table + AABB
-    std::unique_ptr<Tyra::DynamicMesh> mother;  // owns the frame data
+    std::unique_ptr<Tyra::SkelModel> src;   // skeleton + mesh + clip tracks
+    std::vector<Tyra::Texture*> textures;   // per part, nullptr = untextured
   };
   std::vector<GameAnimModel> gameAnimModels;
   void loadAnimModels();
-  void setupAnimObject(int index);  // per-object mesh copy + playback state
+  void setupAnimObject(int index);  // per-object instance + playback state
   void updateAndRenderAnimObjects();
   // Directional light for the dynamic pass, mirroring the baked static look
   Tyra::Color animAmbient;
@@ -1402,22 +1406,21 @@ void TerrainGame::loadMaterials() {
   }
 }
 
-// Animated models: .glb files baked by the editor into .tanm morph frames
-// (TanmLoader builds the DynamicMesh "mother"; every scene object gets a
-// lightweight copy sharing the frame data). Textures ship as PNGs next to
-// the .tanm and link to mesh materials by id.
+// Animated models: .glb files serialized by the editor into .tskl skeletal
+// files (TsklLoader). The model data is shared; every scene object gets a
+// SkelInstance (own playback state + skinned output mesh). Textures ship as
+// PNGs next to the .tskl and link to each instance's materials by id.
 void TerrainGame::loadAnimModels() {
   gameAnimModels.clear();
   gameAnimModels.resize(ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 0);
   std::map<std::string, Texture*> textureByPath;
   for (int i = 0; i < ANIM_MODEL_COUNT; ++i) {
-    auto model = TanmLoader::load(ANIM_MODEL_PATHS[i]);
+    auto model = TsklLoader::load(ANIM_MODEL_PATHS[i]);
     if (!model) continue;  // stays empty - objects using it render nothing
     GameAnimModel& gam = gameAnimModels[i];
-    gam.mother = std::make_unique<DynamicMesh>(model->data.get());
-    for (size_t m = 0; m < gam.mother->materials.size(); ++m) {
-      if (m >= model->texturePaths.size()) break;
-      const std::string& path = model->texturePaths[m];
+    gam.textures.assign(model->parts.size(), nullptr);
+    for (size_t m = 0; m < model->parts.size(); ++m) {
+      const std::string& path = model->parts[m].texturePath;
       if (path.empty()) continue;
       auto it = textureByPath.find(path);
       if (it == textureByPath.end()) {
@@ -1429,11 +1432,10 @@ void TerrainGame::loadAnimModels() {
         it = textureByPath.emplace(path, t).first;
       }
       if (it->second)
-        it->second->addLink(gam.mother->materials[m]->id);
-      else  // missing texture degrades the material to its plain color
-        gam.mother->materials[m]->textureName.reset();
+        gam.textures[m] = it->second;
+      else  // missing texture degrades the part to its plain color
+        model->parts[m].texturePath.clear();
     }
-    model->data.reset();  // frame arrays now belong to the mother mesh
     gam.src = std::move(model);
   }
 }
@@ -1451,31 +1453,30 @@ int TerrainGame::resolveClipIndex(int objectIndex, const char* clipName) const {
   return -1;
 }
 
-// Creates this object's DynamicMesh instance and resets its playback state
+// Creates this object's skeletal instance and resets its playback state
 // to the object's authored defaults. Called for every object on scene load.
 void TerrainGame::setupAnimObject(int index) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
-  g.animMesh.reset();
+  g.animInst.reset();
   if (o.data.type != 5 || o.data.animModel < 0 ||
       o.data.animModel >= (int)gameAnimModels.size())
     return;
   GameAnimModel& gam = gameAnimModels[o.data.animModel];
-  if (!gam.mother || !gam.src) return;
+  if (!gam.src) return;
 
-  g.animMesh = std::make_unique<DynamicMesh>(*gam.mother);
-  for (size_t m = 0; m < g.animMesh->materials.size(); ++m) {
-    MeshMaterial* mat = g.animMesh->materials[m];
-    // texture links are per material id and the copy got fresh ids
-    if (mat->textureName.has_value()) {
-      Texture* t = engine->renderer.getTextureRepository().getByMeshMaterialId(
-          gam.mother->materials[m]->id);
-      if (t) t->addLink(mat->id);
-    }
+  g.animInst = std::make_unique<SkelInstance>(gam.src.get());
+  DynamicMesh* mesh = g.animInst->mesh.get();
+  for (size_t m = 0; m < mesh->materials.size(); ++m) {
+    MeshMaterial* mat = mesh->materials[m];
+    // texture links are per material id and every instance has fresh ids
+    if (m < gam.textures.size() && gam.textures[m])
+      gam.textures[m]->addLink(mat->id);
     // per-instance tint: object color multiplies the material base color
-    const Color& base = gam.mother->materials[m]->ambient;
-    mat->ambient.set(base.r * o.data.color[0], base.g * o.data.color[1],
-                     base.b * o.data.color[2], 128.0F);
+    const float* base = gam.src->parts[m].color;
+    mat->ambient.set(base[0] * 128.0F * o.data.color[0],
+                     base[1] * 128.0F * o.data.color[1],
+                     base[2] * 128.0F * o.data.color[2], 128.0F);
   }
 
   o.animClip = resolveClipIndex(index, o.data.animClip);
@@ -1487,28 +1488,21 @@ void TerrainGame::setupAnimObject(int index) {
   o.animLoop = o.data.animLoop != 0;
   o.animSpeed = o.data.animSpeed;
   o.animPlaying = o.data.animAutoplay != 0;
-  o.animRestart = true;  // sequence applied on the first anim update
+  o.animRestart = true;  // clip applied on the first anim update
   o.animFinished = false;
-
-  // "clip reached its last frame" flag driving On Animation Finished:
-  // End fires once for one-shot clips, Loop fires on every wrap.
-  g.animMesh->animation.setCallback(
-      [this, index](const AnimationSequenceCallback& kind) {
-        if (kind == AnimationSequenceCallback_End ||
-            kind == AnimationSequenceCallback_Loop)
-          runtimeObjects[index].animFinished = true;
-      });
+  o.animFade = 0.0F;
 }
 
 // The dynamic-pipeline pass at the end of the scene render: applies pending
-// playback state, advances every visible animated mesh and renders it with
-// a directional light matching the baked static lighting (point lights are
-// baked into static vertex colors and cannot follow animated meshes).
+// playback state, advances/poses/skins every visible instance on the EE and
+// renders it with a directional light matching the baked static lighting
+// (point lights are baked into static vertex colors and cannot follow
+// animated meshes).
 void TerrainGame::updateAndRenderAnimObjects() {
   if (gameAnimModels.empty()) return;
   bool any = false;
   for (int i = 0; i < (int)runtimeObjects.size() && !any; ++i)
-    any = runtimeObjects[i].visible && objectGeometry[i].animMesh != nullptr;
+    any = runtimeObjects[i].visible && objectGeometry[i].animInst != nullptr;
   if (!any) return;
 
   animAmbient.set(128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT,
@@ -1539,8 +1533,8 @@ void TerrainGame::updateAndRenderAnimObjects() {
 
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     RuntimeObject& o = runtimeObjects[i];
-    DynamicMesh* mesh = objectGeometry[i].animMesh.get();
-    if (!mesh || !o.visible) continue;
+    SkelInstance* inst = objectGeometry[i].animInst.get();
+    if (!inst || !o.visible) continue;
     const GameAnimModel& gam = gameAnimModels[o.data.animModel];
 
     if (o.animClip < 0 || o.animClip >= (int)gam.src->clips.size())
@@ -1548,23 +1542,18 @@ void TerrainGame::updateAndRenderAnimObjects() {
     if (o.animRestart) {
       o.animRestart = false;
       o.animFinished = false;
-      const TanmClip& clip = gam.src->clips[o.animClip];
-      if (mesh->frames.size() > 1) {
-        std::vector<u32> seq;
-        seq.reserve(clip.frameCount);
-        for (u32 f = 0; f < clip.frameCount; ++f)
-          seq.push_back(clip.firstFrame + f);
-        mesh->animation.setSequence(seq);
-      }
+      // animFade > 0 crossfades from the pose currently showing
+      inst->play((u32)o.animClip, o.animLoop, o.animFade);
+      o.animFade = 0.0F;  // consumed by this restart
     }
-    mesh->animation.loop = o.animLoop;
-    // interpolation advances one baked frame every 1/fps wall-clock seconds
-    mesh->animation.speed = gam.src->fps * o.animSpeed * g_frameDt;
-    o.animFinished = false;  // set again by the End/Loop callback below
-    if (o.animPlaying && mesh->frames.size() > 1) mesh->update();
+    inst->setLoop(o.animLoop);
+    // the pose advances by wall-clock seconds; speed scales the step
+    const float step = o.animPlaying ? g_frameDt * o.animSpeed : 0.0F;
+    o.animFinished = inst->update(step);
 
     // model matrix straight from the object data: T * R(X,Y,Z) * S, the
     // same transform the static path bakes through pushVert()/rotated()
+    DynamicMesh* mesh = inst->mesh.get();
     const V3 bx = rotated({o.data.scale[0], 0.0F, 0.0F}, o.data.rotation);
     const V3 by = rotated({0.0F, o.data.scale[1], 0.0F}, o.data.rotation);
     const V3 bz = rotated({0.0F, 0.0F, o.data.scale[2]}, o.data.rotation);
@@ -1657,7 +1646,7 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     // --- box mode --- (models: real mesh AABB; primitives: unit scale box;
     // animated models: the baked frame-0 AABB - mesh mode is a static-model
     // feature, so .glb objects always collide as boxes)
-    const TanmModel* anim = nullptr;
+    const SkelModel* anim = nullptr;
     if (o.data.type == 5 && o.data.animModel >= 0 &&
         o.data.animModel < (int)gameAnimModels.size())
       anim = gameAnimModels[o.data.animModel].src.get();
@@ -3571,6 +3560,7 @@ struct RuntimeObject {
   bool animLoop = true;
   float animSpeed = 1.0F;    // multiplier on the authored playback speed
   bool animRestart = false;  // (re)start animClip on the next frame
+  float animFade = 0.0F;     // crossfade seconds for that restart (0 = pop)
   bool animFinished = false; // one frame: the clip reached its last frame
                              // (one-shots: once; looping: every wrap)
 };
@@ -3626,10 +3616,11 @@ struct ScriptContext {
 };
 
 /** Plays a named clip on an animated model object ("" = its first clip).
- * No-op on objects that are not animated models. */
+ * fade > 0 crossfades from the current pose over that many seconds instead
+ * of snapping. No-op on objects that are not animated models. */
 inline void playAnimation(ScriptContext& ctx, int objectIndex,
                           const char* clip = "", bool loop = true,
-                          float speed = 1.0F) {
+                          float speed = 1.0F, float fade = 0.0F) {
   if (objectIndex < 0 || objectIndex >= ctx.objectCount) return;
   const int index = ctx.resolveClip ? ctx.resolveClip(objectIndex, clip) : -1;
   if (index < 0) return;
@@ -3637,6 +3628,7 @@ inline void playAnimation(ScriptContext& ctx, int objectIndex,
   o.animClip = index;
   o.animLoop = loop;
   o.animSpeed = speed;
+  o.animFade = fade > 0.0F ? fade : 0.0F;
   o.animPlaying = true;
   o.animRestart = true;
 }
@@ -4771,12 +4763,14 @@ std::string flowGraphScript(const Project& p) {
                 }
             } else if (n.type == "PlayAnimation") {
                 // str = clip name ("" = the model's first clip); Loop 1 = loop,
-                // Speed <= 0 = the authored default (1.0)
+                // Speed <= 0 = the authored default (1.0); Fade = crossfade
+                // seconds (0 = instant switch)
                 const float speed = n.num[1] > 0.001f ? n.num[1] : 1.0f;
+                const float fade = n.num[2] > 0.0f ? n.num[2] : 0.0f;
                 c << pad << "playAnimation(ctx, " << idx << ", \""
                   << escapeCString(n.str) << "\", "
                   << (n.num[0] != 0.0f ? "true" : "false") << ", "
-                  << floatLit(speed) << ");\n";
+                  << floatLit(speed) << ", " << floatLit(fade) << ");\n";
             } else if (n.type == "StopAnimation") {
                 c << pad << "stopAnimation(ctx, " << idx << ");\n";
             }
@@ -4993,8 +4987,9 @@ static std::string modelDataHeader(const Project& p) {
     }
     out << "};\n\n";
 
-    // Animated models: .glb sources baked to .tanm (morph frames + clips)
-    // at build time; the game loads them through the engine's TanmLoader.
+    // Animated models: .glb sources serialized to .tskl (skeleton, bind
+    // mesh, keyframe tracks) at build time; loaded by the engine's
+    // TsklLoader and skinned on the EE at runtime.
     const auto animPaths = collectAnimModelPaths(p);
     out << "constexpr int ANIM_MODEL_COUNT = " << animPaths.size() << ";\n"
         << "inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? "
@@ -5004,7 +4999,7 @@ static std::string modelDataHeader(const Project& p) {
     } else {
         for (std::string path : animPaths) {
             if (const size_t dot = path.rfind('.'); dot != std::string::npos)
-                path = path.substr(0, dot) + ".tanm";
+                path = path.substr(0, dot) + ".tskl";
             out << "    \"" << binPathOf(path) << "\",\n";
         }
     }
@@ -5640,29 +5635,29 @@ std::vector<File> bakeAnimAssets(const Project& p,
         std::string binDir = dir;
         if (binDir.rfind("res/", 0) == 0) binDir = binDir.substr(4);
 
-        glbparser::Baked baked;
+        glbparser::Skel skel;
         std::string error;
-        if (!glbparser::bake(full, 12.0f, baked, error)) {
+        if (!glbparser::parseSkel(full, skel, error)) {
             warn(relPath + ": " + error);
             continue;
         }
-        for (const std::string& w : baked.warnings) warn(relPath + ": " + w);
+        for (const std::string& w : skel.warnings) warn(relPath + ": " + w);
 
-        // Extracted textures land next to the .tanm, prefixed with the model
+        // Extracted textures land next to the .tskl, prefixed with the model
         // stem so two models' equally-named images cannot collide. The game
-        // loads them by these bin/-relative paths (baked into the .tanm).
+        // loads them by these bin/-relative paths (stored in the .tskl).
         std::vector<std::string> textureNames;
-        for (size_t i = 0; i < baked.images.size(); ++i) {
-            const std::string png = stem + "_" + baked.images[i].name;
+        for (size_t i = 0; i < skel.images.size(); ++i) {
+            const std::string png = stem + "_" + skel.images[i].name;
             textureNames.push_back(binDir + png);
             files.push_back(
                 {replaceAll(dir, "/", "\\") + png,
                  std::string(
-                     reinterpret_cast<const char*>(baked.images[i].png.data()),
-                     baked.images[i].png.size())});
+                     reinterpret_cast<const char*>(skel.images[i].png.data()),
+                     skel.images[i].png.size())});
         }
-        files.push_back({replaceAll(dir + stem, "/", "\\") + ".tanm",
-                         glbparser::writeTanm(baked, textureNames)});
+        files.push_back({replaceAll(dir + stem, "/", "\\") + ".tskl",
+                         glbparser::writeTskl(skel, textureNames)});
     }
     return files;
 }

@@ -346,12 +346,54 @@ void stbWriteToVector(void* context, void* data, int size) {
     vec->insert(vec->end(), p, p + size);
 }
 
-}  // namespace
+// ---------------------------------------------------------------------------
+// Shared .glb parse - everything bake() (morph frames) and parseSkel()
+// (skeletal serialization) both need, extracted once per file.
 
-bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
-    out = Baked();
-    out.fps = fps > 1.0f ? fps : 1.0f;
+struct Skin {
+    std::vector<int> joints;
+    std::vector<float> ibm;  // joints * 16
+};
 
+// A PrimRef is one glTF primitive bound to the scene node that draws it,
+// with its bind-pose attributes decoded up front.
+struct PrimRef {
+    int node = -1, skin = -1, part = -1;
+    std::vector<float> pos, nrm, uv;   // bind pose, indexed
+    std::vector<float> joints, weights;
+    std::vector<uint32_t> indices;     // expanded triangle order
+};
+
+// Per-part (per glTF material) constants; geometry is expanded from prims.
+struct PartMeta {
+    std::string material;
+    float baseColor[4] = {1, 1, 1, 1};
+    int image = -1;
+};
+
+struct ParsedGlb {
+    std::vector<Node> nodes;
+    std::vector<int> parent;  // per node, -1 = root
+    std::vector<int> order;   // parents-first traversal order
+    std::vector<Skin> skins;
+    std::vector<PrimRef> prims;
+    std::vector<PartMeta> parts;  // prims reference these via PrimRef::part
+    std::vector<ClipSrc> clips;
+};
+
+// Local matrices composed parents-first into global (scene-space) matrices.
+void computeGlobals(const std::vector<Node>& pose, const std::vector<int>& order,
+                    const std::vector<int>& parent, std::vector<M16>& globals) {
+    globals.resize(pose.size());
+    for (int i : order) {
+        const Node& n = pose[i];
+        const M16 local = n.hasMatrix ? n.matrix : fromTrs(n.t, n.r, n.s);
+        globals[i] = parent[i] >= 0 ? mul(globals[parent[i]], local) : local;
+    }
+}
+
+bool parseGlb(const std::string& path, ParsedGlb& P, std::vector<Image>& images,
+              std::vector<std::string>& warnings, std::string& error) {
     // --- GLB container -----------------------------------------------------
     std::ifstream in(path, std::ios::binary);
     if (!in) {
@@ -392,7 +434,7 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
     }
 
     // --- nodes ---------------------------------------------------------------
-    std::vector<Node> nodes;
+    std::vector<Node>& nodes = P.nodes;
     if (const json::Value* arr = doc.array("nodes")) {
         nodes.resize(arr->arr.size());
         for (size_t i = 0; i < arr->arr.size(); ++i) {
@@ -427,7 +469,8 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
     }
 
     // Roots: nodes of the default scene, or every unparented node.
-    std::vector<int> parent(nodes.size(), -1);
+    P.parent.assign(nodes.size(), -1);
+    std::vector<int>& parent = P.parent;
     for (size_t i = 0; i < nodes.size(); ++i)
         for (int c : nodes[i].children)
             if (c >= 0 && c < (int)nodes.size()) parent[c] = (int)i;
@@ -443,7 +486,7 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
             if (parent[i] < 0) roots.push_back((int)i);
 
     // Parents-first traversal order for global matrix computation.
-    std::vector<int> order;
+    std::vector<int>& order = P.order;
     order.reserve(nodes.size());
     {
         std::vector<int> stack(roots.rbegin(), roots.rend());
@@ -461,11 +504,7 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
     }
 
     // --- skins -----------------------------------------------------------
-    struct Skin {
-        std::vector<int> joints;
-        std::vector<float> ibm;  // joints * 16
-    };
-    std::vector<Skin> skins;
+    std::vector<Skin>& skins = P.skins;
     if (const json::Value* arr = doc.array("skins")) {
         skins.resize(arr->arr.size());
         for (size_t i = 0; i < arr->arr.size(); ++i) {
@@ -501,7 +540,7 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
         if (!img) return -1;
         const json::Value* bv = doc.at("bufferViews", intOr(img, "bufferView", -1));
         if (!bv || intOr(bv, "buffer", 0) != 0 || !doc.bin) {
-            out.warnings.push_back("texture image is not embedded - skipped");
+            warnings.push_back("texture image is not embedded - skipped");
             return -1;
         }
         const size_t o = (size_t)intOr(bv, "byteOffset", 0);
@@ -519,13 +558,13 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
             unsigned char* pixels = stbi_load_from_memory(doc.bin + o, (int)len,
                                                           &w, &h, &comp, 4);
             if (!pixels) {
-                out.warnings.push_back("undecodable embedded texture - skipped");
+                warnings.push_back("undecodable embedded texture - skipped");
                 return -1;
             }
             stbi_write_png_to_func(stbWriteToVector, &baked.png, w, h, 4, pixels,
                                    w * 4);
             stbi_image_free(pixels);
-            out.warnings.push_back("embedded " + (mime.empty() ? "image" : mime) +
+            warnings.push_back("embedded " + (mime.empty() ? "image" : mime) +
                                    " transcoded to PNG");
         }
         {
@@ -534,7 +573,7 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
                                       &h, &comp)) {
                 const bool pot = w > 0 && h > 0 && !(w & (w - 1)) && !(h & (h - 1));
                 if (!pot)
-                    out.warnings.push_back(
+                    warnings.push_back(
                         "texture " + std::to_string(w) + "x" + std::to_string(h) +
                         " is not power-of-two - the PS2 cannot load it");
             }
@@ -542,28 +581,19 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
         std::string base = img->find("name") ? img->find("name")->stringOr("") : "";
         baked.name = sanitizePngName(base.empty() ? "tex" + std::to_string(imgIndex)
                                                   : base);
-        for (const Image& other : out.images)
+        for (const Image& other : images)
             if (other.name == baked.name + ".png") {
                 baked.name += "_" + std::to_string(imgIndex);
                 break;
             }
         baked.name += ".png";
-        out.images.push_back(std::move(baked));
-        imageSlot[imgIndex] = (int)out.images.size() - 1;
+        images.push_back(std::move(baked));
+        imageSlot[imgIndex] = (int)images.size() - 1;
         return imageSlot[imgIndex];
     };
 
     // --- mesh primitives, expanded to flat triangle lists -------------------
-    // A PrimRef is one glTF primitive bound to the scene node that draws it;
-    // per baked frame its bind-pose data is re-transformed and appended to the
-    // owning Part, so the per-part vertex layout repeats identically.
-    struct PrimRef {
-        int node = -1, skin = -1, part = -1;
-        std::vector<float> pos, nrm, uv;   // bind pose, indexed
-        std::vector<float> joints, weights;
-        std::vector<uint32_t> indices;     // expanded triangle order
-    };
-    std::vector<PrimRef> prims;
+    std::vector<PrimRef>& prims = P.prims;
     std::map<int, int> partOfMaterial;  // glTF material index (-1 ok) -> part
 
     for (int oi : order) {
@@ -576,7 +606,7 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
         for (const json::Value& prim : primsV->arr) {
             const int mode = intOr(&prim, "mode", 4);
             if (mode != 4) {
-                out.warnings.push_back("non-triangle primitive skipped");
+                warnings.push_back("non-triangle primitive skipped");
                 continue;
             }
             const json::Value* attrs = prim.find("attributes");
@@ -612,7 +642,7 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
             const int materialIndex = intOr(&prim, "material", -1);
             auto it = partOfMaterial.find(materialIndex);
             if (it == partOfMaterial.end()) {
-                Part part;
+                PartMeta part;
                 const json::Value* mat = doc.at("materials", materialIndex);
                 part.material =
                     mat && mat->find("name") ? mat->find("name")->stringOr("") : "";
@@ -625,13 +655,13 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
                             part.baseColor[c] = (float)bc->arr[c].number;
                 }
                 part.image = imageFor(materialIndex);
-                out.parts.push_back(std::move(part));
-                it = partOfMaterial.emplace(materialIndex, (int)out.parts.size() - 1)
+                P.parts.push_back(std::move(part));
+                it = partOfMaterial.emplace(materialIndex, (int)P.parts.size() - 1)
                          .first;
             }
             ref.part = it->second;
-            if (out.parts[ref.part].image >= 0 && ref.uv.size() < vertCount * 2) {
-                out.warnings.push_back(
+            if (P.parts[ref.part].image >= 0 && ref.uv.size() < vertCount * 2) {
+                warnings.push_back(
                     "primitive without TEXCOORD_0 uses a textured material");
                 ref.uv.assign(vertCount * 2, 0.0f);
             }
@@ -644,7 +674,7 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
     }
 
     // --- animation clips ----------------------------------------------------
-    std::vector<ClipSrc> clipSrcs;
+    std::vector<ClipSrc>& clipSrcs = P.clips;
     if (const json::Value* arr = doc.array("animations")) {
         for (size_t ai = 0; ai < arr->arr.size(); ++ai) {
             const json::Value& anim = arr->arr[ai];
@@ -667,7 +697,7 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
                 else if (pathStr == "scale") ch.path = 2;
                 else {
                     if (pathStr == "weights")
-                        out.warnings.push_back(
+                        warnings.push_back(
                             "morph-target channel skipped (not supported)");
                     continue;
                 }
@@ -695,20 +725,34 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
         }
     }
 
-    // --- bake ---------------------------------------------------------------
-    std::vector<M16> globals(nodes.size());
-    // Working TRS copies - channels overwrite these per sample.
-    std::vector<Node> pose = nodes;
+    return true;
+}
 
-    auto computeGlobals = [&]() {
-        for (int i : order) {
-            const Node& n = pose[i];
-            const M16 local =
-                n.hasMatrix ? n.matrix : fromTrs(n.t, n.r, n.s);
-            globals[i] =
-                parent[i] >= 0 ? mul(globals[parent[i]], local) : local;
-        }
-    };
+}  // namespace
+
+bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
+    out = Baked();
+    out.fps = fps > 1.0f ? fps : 1.0f;
+
+    ParsedGlb P;
+    if (!parseGlb(path, P, out.images, out.warnings, error)) return false;
+
+    out.parts.reserve(P.parts.size());
+    for (const PartMeta& meta : P.parts) {
+        Part part;
+        part.material = meta.material;
+        std::memcpy(part.baseColor, meta.baseColor, sizeof(part.baseColor));
+        part.image = meta.image;
+        out.parts.push_back(std::move(part));
+    }
+    std::vector<PrimRef>& prims = P.prims;
+    std::vector<Skin>& skins = P.skins;
+    std::vector<ClipSrc>& clipSrcs = P.clips;
+
+    // --- bake ---------------------------------------------------------------
+    std::vector<M16> globals(P.nodes.size());
+    // Working TRS copies - channels overwrite these per sample.
+    std::vector<Node> pose = P.nodes;
 
     auto appendFrame = [&](bool wantUv) {
         for (PrimRef& ref : prims) {
@@ -725,7 +769,7 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
                     M16 ibm;
                     std::memcpy(ibm.m, &skin.ibm[j * 16], sizeof(ibm.m));
                     const int jn = skin.joints[j];
-                    palette[j] = jn >= 0 && jn < (int)nodes.size()
+                    palette[j] = jn >= 0 && jn < (int)P.nodes.size()
                                      ? mul(globals[jn], ibm)
                                      : identity();
                 }
@@ -816,7 +860,7 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
 
     int framesBaked = 0;
     if (clipSrcs.empty()) {
-        computeGlobals();
+        computeGlobals(pose, P.order, P.parent, globals);
         appendFrame(true);
         out.clips.push_back({"default", 0, 1});
         framesBaked = 1;
@@ -838,7 +882,7 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
                     samples > 1
                         ? clip.start + duration * ((float)f / (samples - 1))
                         : clip.start;
-                pose = nodes;
+                pose = P.nodes;
                 for (const Channel& ch : clip.channels) {
                     Node& n = pose[ch.node];
                     n.hasMatrix = false;  // animated nodes always compose TRS
@@ -846,7 +890,7 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
                     else if (ch.path == 1) sampleChannel(ch, t, n.r);
                     else sampleChannel(ch, t, n.s);
                 }
-                computeGlobals();
+                computeGlobals(pose, P.order, P.parent, globals);
                 appendFrame(framesBaked + f == 0);
             }
             std::string name = clip.name;
@@ -932,6 +976,392 @@ std::string writeTanm(const Baked& baked,
             appendBytes(out, &part.positions[f * stride], stride * sizeof(float));
             appendBytes(out, &part.normals[f * stride], stride * sizeof(float));
         }
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// Stage 2: skeletal serialization
+
+size_t Skel::ps2Bytes() const {
+    // Model data as the engine keeps it in RAM (SkelModel: nodes ~120 B,
+    // palette slots ~72 B, tracks) plus one instance's Vec4 output buffers.
+    size_t bytes = nodes.size() * 120 + palette.size() * 72;
+    for (const SkelClip& clip : clips)
+        for (const SkelChannel& ch : clip.channels)
+            bytes += ch.times.size() * (4 + (ch.path == 1 ? 8 : 12)) + 48;
+    for (const SkelPart& part : parts) {
+        const bool textured = part.image >= 0;
+        bytes += (size_t)part.vertexCount * (12 + 12 + (textured ? 8 : 0) + 8);
+        bytes += (size_t)part.vertexCount * (16 + 16 + (textured ? 16 : 0));
+    }
+    return bytes;
+}
+
+bool parseSkel(const std::string& path, Skel& out, std::string& error) {
+    out = Skel();
+    ParsedGlb P;
+    if (!parseGlb(path, P, out.images, out.warnings, error)) return false;
+
+    // --- node hierarchy with bind-pose locals --------------------------------
+    out.nodes.resize(P.nodes.size());
+    for (size_t i = 0; i < P.nodes.size(); ++i) {
+        const Node& src = P.nodes[i];
+        SkelNode& dst = out.nodes[i];
+        dst.parent = P.parent[i];
+        dst.hasMatrix = src.hasMatrix;
+        std::memcpy(dst.matrix, src.matrix.m, sizeof(dst.matrix));
+        std::memcpy(dst.t, src.t, sizeof(dst.t));
+        std::memcpy(dst.r, src.r, sizeof(dst.r));
+        std::memcpy(dst.s, src.s, sizeof(dst.s));
+    }
+
+    // --- matrix palette ------------------------------------------------------
+    // Skins referenced by prims contribute their joint lists (with IBMs);
+    // rigid mesh nodes get one identity-IBM slot each - both cases skin the
+    // same way at runtime, so the engine has a single path.
+    std::map<int, int> skinBase;   // glTF skin index -> first palette slot
+    std::map<int, int> rigidSlot;  // node index -> palette slot
+    for (const PrimRef& ref : P.prims) {
+        if (ref.skin >= 0 && ref.skin < (int)P.skins.size()) {
+            if (skinBase.count(ref.skin)) continue;
+            skinBase[ref.skin] = (int)out.palette.size();
+            const Skin& skin = P.skins[ref.skin];
+            for (size_t j = 0; j < skin.joints.size(); ++j) {
+                SkelJoint joint;
+                const int jn = skin.joints[j];
+                joint.node = jn >= 0 && jn < (int)P.nodes.size() ? jn : 0;
+                std::memcpy(joint.ibm, &skin.ibm[j * 16], sizeof(joint.ibm));
+                out.palette.push_back(joint);
+            }
+        } else if (!rigidSlot.count(ref.node)) {
+            rigidSlot[ref.node] = (int)out.palette.size();
+            SkelJoint joint;
+            joint.node = ref.node;
+            const M16 id = identity();
+            std::memcpy(joint.ibm, id.m, sizeof(joint.ibm));
+            out.palette.push_back(joint);
+        }
+    }
+    if (out.palette.size() > 256) {
+        error = "model needs " + std::to_string(out.palette.size()) +
+                " matrix-palette slots (bones + rigid mesh nodes) - the "
+                "runtime supports 256";
+        return false;
+    }
+
+    // --- parts: bind-pose mesh expanded to flat triangle lists ---------------
+    // Prim iteration and index expansion mirror bake()'s appendFrame exactly,
+    // so the per-part vertex order (and UV stream) matches stage 1.
+    out.parts.resize(P.parts.size());
+    for (size_t pi = 0; pi < P.parts.size(); ++pi) {
+        out.parts[pi].material = P.parts[pi].material;
+        std::memcpy(out.parts[pi].baseColor, P.parts[pi].baseColor,
+                    sizeof(out.parts[pi].baseColor));
+        out.parts[pi].image = P.parts[pi].image;
+    }
+    for (const PrimRef& ref : P.prims) {
+        SkelPart& part = out.parts[ref.part];
+        const size_t vertCount = ref.pos.size() / 3;
+        const bool hasNrm = ref.nrm.size() >= vertCount * 3;
+        const bool skinned = ref.skin >= 0 && ref.skin < (int)P.skins.size();
+        const int skinJoints =
+            skinned ? (int)P.skins[ref.skin].joints.size() : 0;
+        const int base = skinned ? skinBase[ref.skin] : rigidSlot[ref.node];
+
+        const size_t triCount = ref.indices.size() / 3;
+        for (size_t tri = 0; tri < triCount; ++tri) {
+            float faceN[3] = {0, 1, 0};
+            if (!hasNrm) {
+                // Flat normal from the BIND-pose triangle. Skinning bends it
+                // per vertex at runtime - only exact for rigid triangles, but
+                // files without normals are rare (Blender always writes them).
+                const float* a = &ref.pos[ref.indices[tri * 3] * 3];
+                const float* b = &ref.pos[ref.indices[tri * 3 + 1] * 3];
+                const float* c = &ref.pos[ref.indices[tri * 3 + 2] * 3];
+                const float e1[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+                const float e2[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+                faceN[0] = e1[1] * e2[2] - e1[2] * e2[1];
+                faceN[1] = e1[2] * e2[0] - e1[0] * e2[2];
+                faceN[2] = e1[0] * e2[1] - e1[1] * e2[0];
+                const float len = std::sqrt(faceN[0] * faceN[0] +
+                                            faceN[1] * faceN[1] +
+                                            faceN[2] * faceN[2]);
+                if (len > 1e-6f)
+                    for (float& f : faceN) f /= len;
+            }
+            for (int k = 0; k < 3; ++k) {
+                const uint32_t idx = ref.indices[tri * 3 + k];
+                part.positions.insert(part.positions.end(), &ref.pos[idx * 3],
+                                      &ref.pos[idx * 3] + 3);
+                if (hasNrm)
+                    part.normals.insert(part.normals.end(), &ref.nrm[idx * 3],
+                                        &ref.nrm[idx * 3] + 3);
+                else
+                    part.normals.insert(part.normals.end(), faceN, faceN + 3);
+                const bool hasUv = ref.uv.size() >= (idx + 1) * 2;
+                part.uvs.push_back(hasUv ? ref.uv[idx * 2] : 0.0f);
+                part.uvs.push_back(hasUv ? ref.uv[idx * 2 + 1] : 0.0f);
+
+                unsigned char joints[4] = {0, 0, 0, 0};
+                unsigned char weights[4] = {0, 0, 0, 0};
+                if (!skinned) {
+                    joints[0] = (unsigned char)base;
+                    weights[0] = 255;
+                } else {
+                    // Quantize the 4 influences so they sum to exactly 255
+                    // (the runtime divides by the actual sum, but an exact
+                    // sum keeps single-influence verts bit-stable).
+                    const float* w = &ref.weights[idx * 4];
+                    const float* j = &ref.joints[idx * 4];
+                    float wsum = 0.0f;
+                    for (int i = 0; i < 4; ++i)
+                        if (w[i] > 0.0f) wsum += w[i];
+                    if (wsum > 1e-5f) {
+                        int total = 0, biggest = 0;
+                        for (int i = 0; i < 4; ++i) {
+                            const int joint = (int)(j[i] + 0.5f);
+                            if (w[i] <= 0.0f || joint < 0 ||
+                                joint >= skinJoints)
+                                continue;  // same skips as bake()
+                            joints[i] = (unsigned char)(base + joint);
+                            weights[i] = (unsigned char)std::lround(
+                                w[i] / wsum * 255.0f);
+                            total += weights[i];
+                            if (weights[i] > weights[biggest]) biggest = i;
+                        }
+                        weights[biggest] =
+                            (unsigned char)(weights[biggest] + (255 - total));
+                    }
+                }
+                part.joints.insert(part.joints.end(), joints, joints + 4);
+                part.weights.insert(part.weights.end(), weights, weights + 4);
+            }
+        }
+    }
+    for (SkelPart& part : out.parts)
+        part.vertexCount = (int)(part.positions.size() / 3);
+    out.parts.erase(
+        std::remove_if(out.parts.begin(), out.parts.end(),
+                       [](const SkelPart& p) { return p.vertexCount == 0; }),
+        out.parts.end());
+    if (out.parts.empty()) {
+        error = "no triangles found";
+        return false;
+    }
+
+    // --- clips: keyframe tracks, times rebased to clip start ----------------
+    for (const ClipSrc& src : P.clips) {
+        SkelClip clip;
+        clip.name = src.name;
+        for (const SkelClip& other : out.clips)
+            if (other.name == clip.name) {  // same de-dup rule as bake()
+                clip.name += "_2";
+                break;
+            }
+        clip.duration = src.end > src.start ? src.end - src.start : 0.0f;
+        for (const Channel& ch : src.channels) {
+            const int comps = ch.path == 1 ? 4 : 3;
+            const size_t keyStride =
+                ch.interpolation == 2 ? (size_t)comps * 3 : (size_t)comps;
+            const size_t valueOff = ch.interpolation == 2 ? (size_t)comps : 0;
+            const size_t n = ch.times.size();
+            // sampleChannel() ignores short-value channels; mirror that.
+            if (n == 0 || ch.values.size() < n * keyStride) continue;
+
+            SkelChannel dst;
+            dst.node = ch.node;
+            dst.path = ch.path;
+            // CUBICSPLINE degrades to linear through its keyframe values,
+            // exactly like the stage-1 sampler.
+            dst.step = ch.interpolation == 1 ? 1 : 0;
+            dst.times.reserve(n);
+            dst.values.reserve(n * comps);
+            for (size_t k = 0; k < n; ++k) {
+                dst.times.push_back(ch.times[k] - src.start);
+                const float* v = &ch.values[k * keyStride + valueOff];
+                dst.values.insert(dst.values.end(), v, v + comps);
+            }
+            // Constant tracks collapse to one key (Blender exports plenty).
+            bool constant = true;
+            for (size_t k = 1; k < n && constant; ++k)
+                for (int c = 0; c < comps; ++c)
+                    if (dst.values[k * comps + c] != dst.values[c]) {
+                        constant = false;
+                        break;
+                    }
+            if (constant && n > 1) {
+                dst.times.resize(1);
+                dst.times[0] = 0.0f;
+                dst.values.resize(comps);
+            }
+            clip.channels.push_back(std::move(dst));
+        }
+        out.clips.push_back(std::move(clip));
+    }
+    if (out.clips.empty()) out.clips.push_back({"default", 0.0f, {}});
+
+    // --- AABB of clip 0 at t=0 (matches bake()'s frame-0 box) ----------------
+    {
+        std::vector<Node> pose = P.nodes;
+        if (!P.clips.empty()) {
+            const ClipSrc& clip = P.clips[0];
+            for (const Channel& ch : clip.channels) {
+                Node& n = pose[ch.node];
+                n.hasMatrix = false;
+                if (ch.path == 0) sampleChannel(ch, clip.start, n.t);
+                else if (ch.path == 1) sampleChannel(ch, clip.start, n.r);
+                else sampleChannel(ch, clip.start, n.s);
+            }
+        }
+        std::vector<M16> globals;
+        computeGlobals(pose, P.order, P.parent, globals);
+        bool first = true;
+        for (const PrimRef& ref : P.prims) {
+            // per-vertex blended matrix, same math as bake()'s appendFrame
+            std::vector<M16> palette;
+            if (ref.skin >= 0 && ref.skin < (int)P.skins.size()) {
+                const Skin& skin = P.skins[ref.skin];
+                palette.resize(skin.joints.size());
+                for (size_t j = 0; j < skin.joints.size(); ++j) {
+                    M16 ibm;
+                    std::memcpy(ibm.m, &skin.ibm[j * 16], sizeof(ibm.m));
+                    const int jn = skin.joints[j];
+                    palette[j] = jn >= 0 && jn < (int)P.nodes.size()
+                                     ? mul(globals[jn], ibm)
+                                     : identity();
+                }
+            }
+            const M16 rigid = globals[ref.node];
+            for (uint32_t idx : ref.indices) {
+                M16 blended;
+                const float* src = &ref.pos[idx * 3];
+                if (!palette.empty()) {
+                    std::memset(blended.m, 0, sizeof(blended.m));
+                    const float* w = &ref.weights[idx * 4];
+                    const float* j = &ref.joints[idx * 4];
+                    float wsum = w[0] + w[1] + w[2] + w[3];
+                    if (wsum < 1e-5f) wsum = 1.0f;
+                    for (int k = 0; k < 4; ++k) {
+                        const int joint = (int)(j[k] + 0.5f);
+                        if (w[k] <= 0.0f || joint < 0 ||
+                            joint >= (int)palette.size())
+                            continue;
+                        const float wk = w[k] / wsum;
+                        for (int c = 0; c < 16; ++c)
+                            blended.m[c] += palette[joint].m[c] * wk;
+                    }
+                } else {
+                    blended = rigid;
+                }
+                const float* m = blended.m;
+                const float p[3] = {
+                    m[0] * src[0] + m[4] * src[1] + m[8] * src[2] + m[12],
+                    m[1] * src[0] + m[5] * src[1] + m[9] * src[2] + m[13],
+                    m[2] * src[0] + m[6] * src[1] + m[10] * src[2] + m[14]};
+                for (int c = 0; c < 3; ++c) {
+                    if (first || p[c] < out.min[c]) out.min[c] = p[c];
+                    if (first || p[c] > out.max[c]) out.max[c] = p[c];
+                }
+                first = false;
+            }
+        }
+    }
+
+    return true;
+}
+
+// Layout (little-endian; keep in sync with the engine's tskl_loader.cpp):
+//   "TSKL" u32(version=1)
+//   u32 nodeCount, u32 paletteCount, u32 partCount, u32 clipCount
+//   f32 min[3], f32 max[3]                      (clip-0 t=0 pose AABB)
+//   nodeCount * { s32 parent; u32 flags(bit0 = hasMatrix);
+//                 f32 t[3]; f32 r[4]; f32 s[3]; f32 matrix[16] }
+//   paletteCount * { u32 node; f32 ibm[16] }
+//   clipCount * {
+//     char name[32]; f32 duration; u32 channelCount;
+//     channelCount * { u32 node; u8 path; u8 step; u8 pad[2]; u32 keyCount;
+//                      f32 times[keyCount];
+//                      path==1 ? s16 quat[keyCount*4] (x/32767)
+//                              : f32 v[keyCount*3] }
+//   }
+//   partCount * {
+//     char name[32]; char texture[64]; f32 color[4]; u32 vertexCount;
+//     if (texture[0]) f32 uv[vertexCount*2]
+//     f32 pos[vertexCount*3]; f32 nrm[vertexCount*3];
+//     u8 joints[vertexCount*4]; u8 weights[vertexCount*4]
+//   }
+std::string writeTskl(const Skel& skel,
+                      const std::vector<std::string>& textureNames) {
+    std::string out;
+    out.reserve(4096 + (size_t)skel.totalVertexCount() * 40);
+    out += "TSKL";
+    appendU32(out, 1);
+    appendU32(out, (uint32_t)skel.nodes.size());
+    appendU32(out, (uint32_t)skel.palette.size());
+    appendU32(out, (uint32_t)skel.parts.size());
+    appendU32(out, (uint32_t)skel.clips.size());
+    for (int c = 0; c < 3; ++c) appendF32(out, skel.min[c]);
+    for (int c = 0; c < 3; ++c) appendF32(out, skel.max[c]);
+
+    for (const SkelNode& node : skel.nodes) {
+        appendU32(out, (uint32_t)node.parent);  // -1 round-trips through u32
+        appendU32(out, node.hasMatrix ? 1u : 0u);
+        for (int c = 0; c < 3; ++c) appendF32(out, node.t[c]);
+        for (int c = 0; c < 4; ++c) appendF32(out, node.r[c]);
+        for (int c = 0; c < 3; ++c) appendF32(out, node.s[c]);
+        for (int c = 0; c < 16; ++c) appendF32(out, node.matrix[c]);
+    }
+    for (const SkelJoint& joint : skel.palette) {
+        appendU32(out, (uint32_t)joint.node);
+        for (int c = 0; c < 16; ++c) appendF32(out, joint.ibm[c]);
+    }
+    for (const SkelClip& clip : skel.clips) {
+        appendFixedString(out, clip.name, 32);
+        appendF32(out, clip.duration);
+        appendU32(out, (uint32_t)clip.channels.size());
+        for (const SkelChannel& ch : clip.channels) {
+            appendU32(out, (uint32_t)ch.node);
+            out.push_back((char)ch.path);
+            out.push_back((char)ch.step);
+            out.push_back(0);
+            out.push_back(0);
+            const uint32_t keyCount = (uint32_t)ch.times.size();
+            appendU32(out, keyCount);
+            appendBytes(out, ch.times.data(), keyCount * sizeof(float));
+            if (ch.path == 1) {
+                for (uint32_t k = 0; k < keyCount * 4; ++k) {
+                    float v = ch.values[k];
+                    if (v > 1.0f) v = 1.0f;
+                    if (v < -1.0f) v = -1.0f;
+                    const int16_t q = (int16_t)std::lround(v * 32767.0f);
+                    appendBytes(out, &q, 2);
+                }
+            } else {
+                appendBytes(out, ch.values.data(),
+                            (size_t)keyCount * 3 * sizeof(float));
+            }
+        }
+    }
+    for (const SkelPart& part : skel.parts) {
+        appendFixedString(out, part.material.empty() ? "mat" : part.material,
+                          32);
+        const std::string tex =
+            part.image >= 0 && part.image < (int)textureNames.size()
+                ? textureNames[part.image]
+                : "";
+        appendFixedString(out, tex, 64);
+        for (int c = 0; c < 4; ++c) appendF32(out, part.baseColor[c]);
+        appendU32(out, (uint32_t)part.vertexCount);
+        if (!tex.empty())
+            appendBytes(out, part.uvs.data(),
+                        (size_t)part.vertexCount * 2 * sizeof(float));
+        appendBytes(out, part.positions.data(),
+                    (size_t)part.vertexCount * 3 * sizeof(float));
+        appendBytes(out, part.normals.data(),
+                    (size_t)part.vertexCount * 3 * sizeof(float));
+        appendBytes(out, part.joints.data(), (size_t)part.vertexCount * 4);
+        appendBytes(out, part.weights.data(), (size_t)part.vertexCount * 4);
     }
     return out;
 }

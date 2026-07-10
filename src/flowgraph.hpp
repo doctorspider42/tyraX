@@ -149,8 +149,9 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // target object comes from an object link or defaults to self (the
         // str slot holds the clip, not an object name). Loop: 1 = loop,
         // 0 = play once. Speed: playback multiplier (0 = authored default).
+        // Fade: crossfade seconds from the current pose (0 = instant).
         {"PlayAnimation", "Play Animation", "Animation", false, FlowParamKind::Text,
-         2, {"Loop", "Speed"}, FlowParamKind::None, true, true},
+         3, {"Loop", "Speed", "Fade"}, FlowParamKind::None, true, true},
         // Freezes the target's animation on its current pose.
         {"StopAnimation", "Stop Animation", "Animation", false, FlowParamKind::None,
          0, {}, FlowParamKind::None, true, true},

@@ -25,6 +25,7 @@ struct RuntimeObject {
   bool animLoop = true;
   float animSpeed = 1.0F;    // multiplier on the authored playback speed
   bool animRestart = false;  // (re)start animClip on the next frame
+  float animFade = 0.0F;     // crossfade seconds for that restart (0 = pop)
   bool animFinished = false; // one frame: the clip reached its last frame
                              // (one-shots: once; looping: every wrap)
 };
@@ -80,10 +81,11 @@ struct ScriptContext {
 };
 
 /** Plays a named clip on an animated model object ("" = its first clip).
- * No-op on objects that are not animated models. */
+ * fade > 0 crossfades from the current pose over that many seconds instead
+ * of snapping. No-op on objects that are not animated models. */
 inline void playAnimation(ScriptContext& ctx, int objectIndex,
                           const char* clip = "", bool loop = true,
-                          float speed = 1.0F) {
+                          float speed = 1.0F, float fade = 0.0F) {
   if (objectIndex < 0 || objectIndex >= ctx.objectCount) return;
   const int index = ctx.resolveClip ? ctx.resolveClip(objectIndex, clip) : -1;
   if (index < 0) return;
@@ -91,6 +93,7 @@ inline void playAnimation(ScriptContext& ctx, int objectIndex,
   o.animClip = index;
   o.animLoop = loop;
   o.animSpeed = speed;
+  o.animFade = fade > 0.0F ? fade : 0.0F;
   o.animPlaying = true;
   o.animRestart = true;
 }
