@@ -58,6 +58,19 @@ bool load(const std::string& path, Model& out) {
     std::vector<float> texcoords;  // u,v pairs
     std::map<std::string, Material> materials;
 
+    // Implicit material library: a sibling .mtl named like the .obj is loaded
+    // even without a mtllib line (many exporters rely on that convention).
+    // Explicit mtllib files parse later and win on name clashes.
+    {
+        const std::string sibling =
+            std::filesystem::path(path).stem().string() + ".mtl";
+        std::error_code ec;
+        if (std::filesystem::exists(dir / sibling, ec)) {
+            parseMtl(dir / sibling, materials);
+            out.mtlLibs.push_back(sibling);
+        }
+    }
+
     // submesh lookup by material name; "" = the default white submesh
     std::map<std::string, int> submeshIndex;
     int current = -1;

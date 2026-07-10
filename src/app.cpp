@@ -398,7 +398,10 @@ void App::drawMenuBar() {
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Scene", hasProject_)) {
-            drawAddObjectMenu();
+            if (ImGui::BeginMenu("Add")) {
+                drawAddObjectMenu();
+                ImGui::EndMenu();
+            }
             ImGui::Separator();
             if (ImGui::MenuItem("Scene Preferences...")) openScenePreferences();
             ImGui::EndMenu();
@@ -1176,11 +1179,13 @@ std::vector<std::string> App::listAssetFiles(const char* subdir, const char* ext
     std::error_code ec;
     const std::filesystem::path dir = std::filesystem::path(project_.dir) / "res" / subdir;
     if (!std::filesystem::exists(dir, ec)) return files;
-    for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
+    // recursive: assets may be organized into subfolders (res/models/props/...)
+    for (const auto& e : std::filesystem::recursive_directory_iterator(dir, ec)) {
         if (!e.is_regular_file()) continue;
         std::string fileExt = e.path().extension().string();
         for (char& c : fileExt) c = (char)tolower((unsigned char)c);
-        if (fileExt == ext) files.push_back(e.path().filename().string());
+        if (fileExt == ext)
+            files.push_back(std::filesystem::relative(e.path(), dir, ec).generic_string());
     }
     return files;
 }
@@ -1291,11 +1296,24 @@ void App::addModelObject(const std::string& relPath) {
 // Categorized object palette, shared by the Scene menu and the "+ Add"
 // button in the Project panel.
 void App::drawAddObjectMenu() {
-    if (ImGui::BeginMenu("Simple")) {
-        if (ImGui::MenuItem("Box")) addObject(PrimitiveType::Box);
-        if (ImGui::MenuItem("Sphere")) addObject(PrimitiveType::Sphere);
-        if (ImGui::MenuItem("Cylinder")) addObject(PrimitiveType::Cylinder);
-        if (ImGui::MenuItem("Cone")) addObject(PrimitiveType::Cone);
+    if (ImGui::BeginMenu("Object")) {
+        if (ImGui::BeginMenu("Simple")) {
+            if (ImGui::MenuItem("Box")) addObject(PrimitiveType::Box);
+            if (ImGui::MenuItem("Sphere")) addObject(PrimitiveType::Sphere);
+            if (ImGui::MenuItem("Cylinder")) addObject(PrimitiveType::Cylinder);
+            if (ImGui::MenuItem("Cone")) addObject(PrimitiveType::Cone);
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Model")) {
+            // Only models already inside the project (res/models) - importing
+            // new ones lives in Project > Assets.
+            const std::vector<std::string> models = listAssetFiles("models", ".obj");
+            for (const std::string& m : models)
+                if (ImGui::MenuItem(m.c_str())) addModelObject("res/models/" + m);
+            if (models.empty())
+                ImGui::TextDisabled("No models - Import one in Project > Assets.");
+            ImGui::EndMenu();
+        }
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Gameplay")) {
@@ -1317,16 +1335,6 @@ void App::drawAddObjectMenu() {
     }
     if (ImGui::BeginMenu("Lighting")) {
         if (ImGui::MenuItem("Point light")) addPointLight();
-        ImGui::EndMenu();
-    }
-    if (ImGui::BeginMenu("Model")) {
-        // Only models already inside the project (res/models) - importing
-        // new ones lives in Project > Assets.
-        const std::vector<std::string> models = listAssetFiles("models", ".obj");
-        for (const std::string& m : models)
-            if (ImGui::MenuItem(m.c_str())) addModelObject("res/models/" + m);
-        if (models.empty())
-            ImGui::TextDisabled("No models - Import one in Project > Assets.");
         ImGui::EndMenu();
     }
 }
@@ -2405,13 +2413,15 @@ void App::rescanAssets(bool announce) {
         const std::filesystem::path dir =
             std::filesystem::path(project_.dir) / "res" / sub;
         if (!std::filesystem::exists(dir, ec)) return;
-        for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
+        // recursive: subfolders are fine (res/sfx/steps/wood.wav)
+        for (const auto& e : std::filesystem::recursive_directory_iterator(dir, ec)) {
             if (!e.is_regular_file()) continue;
             std::string ext = e.path().extension().string();
             for (char& c : ext) c = (char)tolower((unsigned char)c);
             if (ext != ".wav") continue;
             const std::string rel =
-                std::string("res/") + sub + "/" + e.path().filename().string();
+                std::string("res/") + sub + "/" +
+                std::filesystem::relative(e.path(), dir, ec).generic_string();
             bool known = false;
             for (const std::string& s : list) known |= (s == rel);
             if (!known) {

@@ -27,7 +27,8 @@ struct Model {
 };
 
 // Loads a Wavefront .obj (+ its .mtl material libraries, resolved relative to
-// the .obj) split into per-material submeshes. Faces are fan-triangulated,
+// the .obj) split into per-material submeshes. A sibling .mtl named like the
+// .obj is picked up implicitly, even without a mtllib line. Faces are fan-triangulated,
 // normals are computed per face, `vt` texture coordinates are used when
 // present (v is flipped to image space, missing = 0,0). Materials carry the
 // Kd diffuse color and the map_Kd texture path; faces before any usemtl (or

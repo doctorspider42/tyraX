@@ -86,6 +86,19 @@ std::unique_ptr<LeanObjMesh> LeanObjLoader::load(
   std::vector<float> texcoords;  // u,v pairs
   std::map<std::string, MtlEntry> materials;
 
+  // Implicit material library: a sibling .mtl named like the .obj is loaded
+  // even without a mtllib line (mirrors the editor parser - many exporters
+  // rely on that convention). Explicit mtllib files parse later and win on
+  // name clashes.
+  {
+    std::string stem = relativePath;
+    const size_t dot = stem.find_last_of('.');
+    if (dot != std::string::npos) stem = stem.substr(0, dot);
+    std::string mtlText;
+    if (readWholeFile(FileUtils::fromCwd(stem + ".mtl"), mtlText))
+      parseMtl(mtlText, materials);
+  }
+
   std::map<std::string, int> materialIndex;
   int current = -1;
   auto materialFor = [&](const std::string& name) {

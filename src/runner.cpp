@@ -325,13 +325,17 @@ void Runner::worker(Project p, bool build, bool run) {
         // per-file loop. Inner double-quotes around $f/$o would be cleaner but
         // cannot survive the cmd.exe /S + docker.exe argv unquoting (see exec);
         // single quotes would block the expansion we need, so empty IFS it is.
+        // Globs cover two levels of sfx subfolders (res/sfx/steps/wood.wav);
+        // an unmatched glob stays a literal word, which the -e test skips.
         if (ok) {
-            ok = exec(dc + "\"cd /src && IFS= && if ls res/sfx/*.wav >/dev/null 2>&1; then "
-                           "mkdir -p bin/sfx && for f in res/sfx/*.wav; do "
-                           "o=bin/sfx/$(basename $f .wav).adpcm; "
+            ok = exec(dc + "\"cd /src && IFS= && for f in res/sfx/*.wav "
+                           "res/sfx/*/*.wav res/sfx/*/*/*.wav; do "
+                           "[ -e $f ] || continue; "
+                           "o=${f%.wav}.adpcm && o=bin/${o#res/} && "
+                           "mkdir -p $(dirname $o); "
                            "if [ ! $o -nt $f ]; then "
                            "echo [editor] adpenc $f && adpenc $f $o || exit 1; "
-                           "fi; done; fi\"",
+                           "fi; done\"",
                       p.dir) == 0;
             if (!ok) appendLine("[editor] Sound conversion (adpenc) failed.");
         }
@@ -340,7 +344,10 @@ void Runner::worker(Project p, bool build, bool run) {
         // WAVs into bin/sfx next to the adpenc output. The game only loads
         // the .adpcm, so the WAV copies are dead weight that would bloat the
         // exported ISO - drop them.
-        if (ok) exec(dc + "\"cd /src && rm -f bin/sfx/*.wav\"", p.dir);
+        if (ok)
+            exec(dc + "\"cd /src && rm -f bin/sfx/*.wav bin/sfx/*/*.wav "
+                      "bin/sfx/*/*/*.wav\"",
+                 p.dir);
 
         if (ok) {
             appendLine("[editor] Copying binaries back to host...");

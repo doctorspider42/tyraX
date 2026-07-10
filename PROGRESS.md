@@ -9,6 +9,27 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (21) **Sibling-.mtl matching, asset subfolders, Add-menu restructure** —
+  three usability follow-ups. **Implicit MTL**: a `.mtl` named like the `.obj`
+  next to it is picked up even without a `mtllib` line (the common exporter
+  convention); explicit mtllib files still parse afterwards and win on name
+  clashes. Implemented in BOTH parsers (editor `objparser` + engine
+  `LeanObjLoader` - they must stay in sync) and the import copies the implicit
+  library like an explicit one (sanitized stems keep matching). **Subfolders**:
+  asset listing/pickers (`listAssetFiles`) and the audio rescan are recursive,
+  so `res/models/props/tree.obj` or `res/sfx/steps/wood.wav` just work; the
+  Runner's adpenc loop covers two levels of sfx subfolders (glob fan-out - the
+  quoting-hostile docker/cmd pipeline rules out find) and the bin/sfx WAV
+  cleanup follows. Codegen/ISO paths already carried full relative paths.
+  **Menus**: the add palette starts with `Object -> Simple / Model` (instead
+  of a top-level Simple and a separate Model menu), and the top-bar Scene
+  menu nests everything under `Scene > Add`. Verified: parser host test (obj
+  without mtllib gets both materials from the sibling); PCSX2 run at 50 FPS
+  with mtllib stripped from the test house (bricks still textured = engine
+  sibling matching) plus a model under `res/models/props/` with its own
+  mtl+texture (loads clean - no LeanObjLoader warnings in the game log);
+  editor builds clean.
+
 - (20) **Pick-from-project asset flow + Assets section + MTL visibility** —
   the object/terrain pickers no longer open file dialogs: textures pick from
   `res/textures` (object texture, Project Preferences and Scene Preferences
