@@ -396,6 +396,17 @@ inline bool operator==(const SaveValue& a, const SaveValue& b) {
     return a.name == b.name && a.value == b.value;
 }
 
+// A named text persisted on the memory card (same lifecycle as SaveValue;
+// stored in fixed 32-byte slots in the save payload, so keep them short).
+struct SaveTextValue {
+    std::string name;
+    std::string value;  // starting text on a fresh game
+};
+
+inline bool operator==(const SaveTextValue& a, const SaveTextValue& b) {
+    return a.name == b.name && a.value == b.value;
+}
+
 struct Project {
     std::string name;
     std::string dir;  // absolute path to project root
@@ -426,6 +437,8 @@ struct Project {
     std::vector<std::string> sounds;
     // Custom values persisted in memory card saves (Project panel, Save data).
     std::vector<SaveValue> saveValues;
+    // Custom text values persisted in memory card saves (same panel).
+    std::vector<SaveTextValue> saveTexts;
     // Per-asset texture-quality overrides of ProjectSettings::textureQuant,
     // keyed by asset path (a res/models .obj or a .mtl library): "none" /
     // "8bit" / "4bit". Textures referenced by several assets take the
