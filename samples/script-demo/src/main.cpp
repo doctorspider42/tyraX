@@ -9,7 +9,14 @@ int main() {
   // hit the file). No cost in a release (NDEBUG) build - the macros compile out.
   Tyra::Info::writeLogsToFile = true;
 
-  Tyra::Engine engine;
+  Tyra::EngineOptions options;
+  // The Engine(options) ctor re-applies this flag, so it must be set here
+  // too or the static above gets reset to the default (console logging).
+  options.writeLogsToFile = true;
+  // Target system (Project > Preferences > Build): Auto follows the console
+  // region, NTSC forces 60 Hz, PAL forces 50 Hz.
+  options.videoMode = Tyra::VideoMode::Auto;
+  Tyra::Engine engine(options);
   Script_demo::TerrainGame game(&engine);
   engine.run(&game);
   SleepThread();

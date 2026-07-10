@@ -46,7 +46,7 @@ class RendererCore {
   RendererCoreSync sync;
 
   /** Called by renderer */
-  void init();
+  void init(VideoMode videoMode = VideoMode::Auto);
 
   /** World background color */
   void setClearScreenColor(const Color& color);

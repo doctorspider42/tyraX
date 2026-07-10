@@ -15,6 +15,11 @@
 
 namespace Tyra {
 
+/** Output video signal. Auto follows the console region (ps2sdk
+ * graph_get_region), the other two force a 60 Hz NTSC / 50 Hz PAL mode
+ * regardless of region (tyra-editor fork). */
+enum class VideoMode { Auto, NTSC, PAL };
+
 class RendererSettings {
  public:
   RendererSettings()
@@ -25,11 +30,19 @@ class RendererSettings {
         far(51200.0F),
         projectionScale(4096.0F),
         aspectRatio(width / height),
-        interlacedHeightUI(static_cast<unsigned int>(interlacedHeightF)) {}
+        interlacedHeightUI(static_cast<unsigned int>(interlacedHeightF)),
+        videoMode(VideoMode::Auto) {}
   ~RendererSettings();
 
   const float& getWidth() const { return width; }
   const float& getHeight() const { return height; }
+  const VideoMode& getVideoMode() const { return videoMode; }
+  void setVideoMode(const VideoMode& mode) { videoMode = mode; }
+  /** Vertical refresh in Hz (PAL 50 / NTSC 60). Valid after renderer init -
+   * GS init resolves an Auto mode to the console's actual region first. */
+  float getRefreshRate() const {
+    return videoMode == VideoMode::PAL ? 50.0F : 60.0F;
+  }
   const float& getNear() const { return near; }
   const float& getFar() const { return far; }
   const float& getProjectionScale() const { return projectionScale; }
@@ -49,6 +62,7 @@ class RendererSettings {
   float width, height, interlacedHeightF, near, far, projectionScale,
       aspectRatio;
   unsigned int interlacedHeightUI;
+  VideoMode videoMode;
 };
 
 }  // namespace Tyra

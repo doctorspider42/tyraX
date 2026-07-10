@@ -10,12 +10,20 @@
 #include "texture_data.gen.hpp"
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 #include <map>
 #include <string>
 
 // Definition of the active-scene index declared in scene_data.hpp (which also
 // defines the SCENE_*/SKY_*/... accessor macros so scripts see them too).
 int g_activeScene = 0;
+
+// Wall-clock normalization globals declared in scene_data.hpp; set in
+// TerrainGame::init() from the resolved video mode (PAL 50 / NTSC 60), so
+// the game plays at the same real-time speed on both.
+float g_frameRate = 50.0F;
+float g_frameDt = 1.0F / 50.0F;
+float g_frameScale = 1.0F;
 
 namespace Script_demo {
 
@@ -266,6 +274,58 @@ void addCone(std::vector<Vec4>& verts, std::vector<Color>& cols,
   }
 }
 
+/** Debug-profile HUD (Project > Preferences > Build): FPS and free-EE-RAM
+ * readouts in the top-left corner, drawn from the 8x8 glyph strip
+ * res/hud/debugfont.png. Compiles to nothing in a release build (the
+ * DEBUG_SHOW_* constants in terrain_config.hpp fold the calls away). */
+void drawDebugHud(Engine* engine) {
+  if (!DEBUG_SHOW_FPS && !DEBUG_SHOW_MEM) return;
+  static Sprite glyph;
+  static bool glyphReady = false;
+  static int memRefresh = 0;
+  static float memFreeMB = 0.0F;
+  if (!glyphReady) {
+    glyph.mode = SpriteMode::MODE_REPEAT;
+    glyph.size = Vec2(8.0F, 8.0F);  // one atlas cell
+    glyph.scale = 2.0F;
+    auto* texture = engine->renderer.getTextureRepository().add(
+        FileUtils::fromCwd("hud/debugfont.png"));
+    texture->addLink(glyph.id);
+    glyphReady = true;
+  }
+  // Glyph order in the atlas - must match the editor's debugFontPng().
+  // Cells are 16px apart: the glyph sits in the left 8px, the right 8px are
+  // transparent padding so bilinear sampling never bleeds the next glyph.
+  static const char* atlas = "0123456789.FPSMBE";
+  auto drawText = [&](const char* s, float x, float y) {
+    for (; *s; ++s, x += 14.0F) {
+      if (*s == ' ') continue;
+      const char* hit = strchr(atlas, *s);
+      if (!hit) continue;
+      glyph.offset = Vec2((float)(hit - atlas) * 16.0F, 0.0F);
+      glyph.position = Vec2(x, y);
+      engine->renderer.renderer2D.render(glyph);
+    }
+  };
+  char line[32];
+  float y = 16.0F;
+  if (DEBUG_SHOW_FPS) {
+    snprintf(line, sizeof(line), "FPS %d", (int)engine->info.getFps());
+    drawText(line, 16.0F, y);
+    y += 20.0F;
+  }
+  if (DEBUG_SHOW_MEM) {
+    // getAvailableRAM() probes the heap with mallocs - too expensive to run
+    // every frame, so the readout refreshes every ~2 seconds.
+    if (memRefresh-- <= 0) {
+      memFreeMB = engine->info.getAvailableRAM();
+      memRefresh = everyFrames(2.0F);
+    }
+    snprintf(line, sizeof(line), "MEM %.1f MB", memFreeMB);
+    drawText(line, 16.0F, y);
+  }
+}
+
 }  // namespace
 
 TerrainGame::TerrainGame(Engine* t_engine)
@@ -287,6 +347,12 @@ void TerrainGame::init() {
   // (read by the clipper during setRenderer below)
   PlanesClipAlgorithm::clipMargin =
       -(engine->renderer.core.getSettings().getNear() + 0.5F);
+
+  // Wall-clock normalization: per-frame steps below are tuned for 50 Hz;
+  // g_frameScale stretches them so NTSC's 60 Hz plays at the same speed.
+  g_frameRate = engine->renderer.core.getSettings().getRefreshRate();
+  g_frameDt = 1.0F / g_frameRate;
+  g_frameScale = 50.0F / g_frameRate;
 
   stapip.setRenderer(&engine->renderer.core);
 
@@ -381,7 +447,7 @@ void TerrainGame::loop() {
     scriptCtx.requestScene = -1;
     if (LOADING_SCREEN) {
       loadingTarget = target;
-      loadingFrames = 35;  // 0.7s at 50 FPS
+      loadingFrames = everyFrames(0.7F);  // ~0.7s hold
     } else {
       loadScene(target);
       fppSpawnPending = true;
@@ -393,7 +459,7 @@ void TerrainGame::loop() {
     engine->renderer.renderer2D.render(loadingSprite);
     engine->renderer.endFrame();
     --loadingFrames;
-    if (loadingFrames == 30) {  // a few frames shown before the actual load
+    if (loadingFrames == everyFrames(0.7F) - 5) {  // a few frames shown first
       loadScene(loadingTarget);
       fppSpawnPending = true;
     }
@@ -450,6 +516,7 @@ void TerrainGame::loop() {
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
     renderGameMenu();
     renderSaveMenu();
+    drawDebugHud(engine);
   }
   engine->renderer.endFrame();
 }
@@ -901,7 +968,7 @@ void TerrainGame::updateSoundEmitters() {
       continue;
     }
     engine->audio.adpcm.tryPlay(sndSamples[o.data.snd], ch);
-    sndTimers[i] = (int)(o.data.sndInterval * 50.0F);
+    sndTimers[i] = everyFrames(o.data.sndInterval);
   }
 }
 
@@ -948,7 +1015,7 @@ void TerrainGame::buildParticles() {
 
 void TerrainGame::updateParticles() {
   if (particles.empty()) return;
-  const float dt = 1.0F / 50.0F;
+  const float dt = g_frameDt;
 
   // camera right/up shared by every billboard this frame
   Vec4 fwd = cameraLookAt - cameraPosition;
@@ -1170,14 +1237,14 @@ void TerrainGame::doSave(int slot) {
   const bool ok = saveWrite(slot, d);
   if (ok) slotUsed[slot] = true;
   saveFeedback = ok ? 1 : 3;
-  saveFeedbackFrames = 90;  // 1.8 s at 50 FPS
+  saveFeedbackFrames = everyFrames(1.8F);  // ~1.8 s
 }
 
 void TerrainGame::doLoad(int slot) {
   static SaveGameData d;
   if (!saveRead(slot, d)) {
     saveFeedback = 3;
-    saveFeedbackFrames = 90;
+    saveFeedbackFrames = everyFrames(1.8F);
     return;
   }
   for (int i = 0; i < d.valueCount && i < SAVE_VALUE_COUNT; ++i)
@@ -1367,8 +1434,8 @@ bool TerrainGame::updatePlayerEntity() {
   };
 
   // Right stick: look around (stick right = turn right)
-  entYaw -= axis(rightJoy.h) * 0.05F * PLAYER_LOOK_SPEED;
-  entPitch -= axis(rightJoy.v) * 0.035F * PLAYER_LOOK_SPEED;
+  entYaw -= axis(rightJoy.h) * 0.05F * PLAYER_LOOK_SPEED * g_frameScale;
+  entPitch -= axis(rightJoy.v) * 0.035F * PLAYER_LOOK_SPEED * g_frameScale;
   if (entPitch > 1.35F) entPitch = 1.35F;
   if (entPitch < -1.35F) entPitch = -1.35F;
 
@@ -1380,11 +1447,12 @@ bool TerrainGame::updatePlayerEntity() {
   if (PLAYER_MODE == 1) {
     // Noclip: fly where the camera looks; X up, Square down.
     const float cp = cosf(entPitch);
-    entX += (fx * cp * forward - fz * strafe) * PLAYER_WALK_SPEED;
-    entZ += (fz * cp * forward + fx * strafe) * PLAYER_WALK_SPEED;
-    entY += sinf(entPitch) * forward * PLAYER_WALK_SPEED;
-    if (engine->pad.getPressed().BTN_FLY_UP) entY += PLAYER_WALK_SPEED;
-    if (engine->pad.getPressed().BTN_FLY_DOWN) entY -= PLAYER_WALK_SPEED;
+    const float step = PLAYER_WALK_SPEED * g_frameScale;
+    entX += (fx * cp * forward - fz * strafe) * step;
+    entZ += (fz * cp * forward + fx * strafe) * step;
+    entY += sinf(entPitch) * forward * step;
+    if (engine->pad.getPressed().BTN_FLY_UP) entY += step;
+    if (engine->pad.getPressed().BTN_FLY_DOWN) entY -= step;
 
     cameraPosition = Vec4(entX, entY, entZ);
     cameraLookAt = Vec4(entX + fx * cp, entY + sinf(entPitch), entZ + fz * cp);
@@ -1392,8 +1460,8 @@ bool TerrainGame::updatePlayerEntity() {
   }
 
   // Walk mode: terrain bounds, object collision, gravity + jump.
-  float nextX = entX + (fx * forward - fz * strafe) * PLAYER_WALK_SPEED;
-  float nextZ = entZ + (fz * forward + fx * strafe) * PLAYER_WALK_SPEED;
+  float nextX = entX + (fx * forward - fz * strafe) * PLAYER_WALK_SPEED * g_frameScale;
+  float nextZ = entZ + (fz * forward + fx * strafe) * PLAYER_WALK_SPEED * g_frameScale;
 
   const float limX = TERRAIN_WIDTH * 0.5F - 1.0F;
   const float limZ = TERRAIN_DEPTH * 0.5F - 1.0F;
@@ -1407,13 +1475,13 @@ bool TerrainGame::updatePlayerEntity() {
   entX = nextX;
   entZ = nextZ;
 
-  entVelY -= GRAVITY / (50.0F * 50.0F);
+  entVelY -= GRAVITY * g_frameDt * g_frameDt;  // GRAVITY is units/s^2
   entY += entVelY;
   if (entY <= ground) {
     entY = ground;
     entVelY = 0.0F;
     if (PLAYER_CAN_JUMP && engine->pad.getClicked().BTN_JUMP)
-      entVelY = PLAYER_JUMP_SPEED / 50.0F;
+      entVelY = PLAYER_JUMP_SPEED * g_frameDt;  // units/s
   }
 
   const float eyeY = entY + PLAYER_EYE_HEIGHT;
@@ -1587,8 +1655,8 @@ void TerrainGame::rebuildObjectGeometry(int index) {
 }
 
 void TerrainGame::updateObjectPhysics() {
-  // GRAVITY is units/s^2; the game runs at 50 FPS
-  const float gravityPerFrame = GRAVITY / (50.0F * 50.0F);
+  // GRAVITY is units/s^2
+  const float gravityPerFrame = GRAVITY * g_frameDt * g_frameDt;
   for (RuntimeObject& o : runtimeObjects) {
     if (!o.data.physics) continue;
     const float half = 0.5F * o.data.scale[1];
@@ -1841,8 +1909,8 @@ void TerrainGame::updatePlayer() {
   const auto& rightJoy = engine->pad.getRightJoyPad();
 
   // Right stick: look around (stick right = turn right)
-  yaw -= axisValue(rightJoy.h) * 0.05F * LOOK_SPEED;
-  pitch -= axisValue(rightJoy.v) * 0.035F * LOOK_SPEED;
+  yaw -= axisValue(rightJoy.h) * 0.05F * LOOK_SPEED * g_frameScale;
+  pitch -= axisValue(rightJoy.v) * 0.035F * LOOK_SPEED * g_frameScale;
   if (pitch > 1.2F) pitch = 1.2F;
   if (pitch < -1.2F) pitch = -1.2F;
 
@@ -1851,8 +1919,8 @@ void TerrainGame::updatePlayer() {
   const float fz = cosf(yaw);
   const float forward = -axisValue(leftJoy.v);
   const float strafe = axisValue(leftJoy.h);
-  float nextX = playerX + (fx * forward - fz * strafe) * WALK_SPEED;
-  float nextZ = playerZ + (fz * forward + fx * strafe) * WALK_SPEED;
+  float nextX = playerX + (fx * forward - fz * strafe) * WALK_SPEED * g_frameScale;
+  float nextZ = playerZ + (fz * forward + fx * strafe) * WALK_SPEED * g_frameScale;
 
   // Keep the player on the terrain
   const float limX = TERRAIN_WIDTH * 0.5F - 1.0F;
@@ -1870,13 +1938,13 @@ void TerrainGame::updatePlayer() {
   playerX = nextX;
   playerZ = nextZ;
 
-  // Gravity & jumping (X). GRAVITY: units/s^2, JUMP_SPEED: units/s, 50 FPS.
-  playerVelY -= GRAVITY / (50.0F * 50.0F);
+  // Gravity & jumping (X). GRAVITY: units/s^2, JUMP_SPEED: units/s.
+  playerVelY -= GRAVITY * g_frameDt * g_frameDt;
   playerY += playerVelY;
   if (playerY <= ground) {
     playerY = ground;
     playerVelY = 0.0F;
-    if (engine->pad.getClicked().BTN_JUMP) playerVelY = JUMP_SPEED / 50.0F;
+    if (engine->pad.getClicked().BTN_JUMP) playerVelY = JUMP_SPEED * g_frameDt;
   }
 
   const float eyeY = playerY + EYE_HEIGHT;

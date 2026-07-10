@@ -89,6 +89,20 @@ constexpr int SAVE_OBJECT_MAX = 3;
 
 // Index of the scene the game is currently in (defined in the game cpp).
 extern int g_activeScene;
+
+// Wall-clock normalization (defined in the game cpp, set at init from the
+// video mode): the game logic is tuned per-frame at PAL's 50 Hz, so on a
+// 60 Hz NTSC signal every per-frame step is multiplied by g_frameScale
+// (50/60) to cover the same distance per real second. g_frameDt is the real
+// seconds-per-frame for code that works in units/s.
+extern float g_frameRate;   // vsync rate: 50 (PAL) or 60 (NTSC)
+extern float g_frameDt;     // 1 / g_frameRate
+extern float g_frameScale;  // 50 / g_frameRate
+// Frames per `seconds` of wall-clock time (>= 1), for frame-counter timers.
+inline int everyFrames(float seconds) {
+  const int f = (int)(seconds * g_frameRate);
+  return f < 1 ? 1 : f;
+}
 #define SCENE_OBJECT_COUNT SCENE_OBJECT_COUNTS[g_activeScene]
 #define SCENE_OBJECTS SCENE_OBJECT_TABLES[g_activeScene]
 #define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
