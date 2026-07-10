@@ -34,6 +34,11 @@ public:
     // container's game volume plus the host bin/ mirror. The next build
     // recompiles the game from scratch (the shared engine volume stays).
     void clean(const Project& p);
+    // VS-style Cancel: kills the currently running build step and stops the
+    // worker at the next step boundary. A compile already dispatched into
+    // the container may finish there in the background - harmless, the next
+    // build just finds warm objects.
+    void cancel();
 
     State state() const { return state_.load(); }
     bool busy() const { return state_.load() == State::Running; }
@@ -65,6 +70,12 @@ private:
     std::atomic<State> state_{State::Idle};
     mutable std::mutex logMutex_;
     std::string log_;
+
+    // Cancel support: exec() parks the running child's HANDLE here so
+    // cancel() can terminate it; the mutex orders terminate vs CloseHandle.
+    std::atomic<bool> cancelRequested_{false};
+    std::mutex execProcMutex_;
+    void* execProc_ = nullptr;  // HANDLE of the exec() child (guarded above)
 
     // The long-lived `ps2client execee` file server of the last PS2 deploy
     // (see buildAndRunPs2) and the thread pumping its output into the log.

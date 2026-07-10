@@ -50,6 +50,7 @@ void Runner::appendLine(const std::string& line) {
 void Runner::buildAndRun(const Project& p, bool runEmulator) {
     if (busy()) return;
     join();
+    cancelRequested_ = false;
     state_ = State::Running;
     thread_ = std::thread(&Runner::worker, this, p, true, runEmulator, false);
 }
@@ -57,6 +58,7 @@ void Runner::buildAndRun(const Project& p, bool runEmulator) {
 void Runner::runEmulatorOnly(const Project& p) {
     if (busy()) return;
     join();
+    cancelRequested_ = false;
     state_ = State::Running;
     thread_ = std::thread(&Runner::worker, this, p, false, true, false);
 }
@@ -64,6 +66,7 @@ void Runner::runEmulatorOnly(const Project& p) {
 void Runner::buildAndRunPs2(const Project& p, bool build) {
     if (busy()) return;
     join();
+    cancelRequested_ = false;
     state_ = State::Running;
     thread_ = std::thread(&Runner::worker, this, p, build, true, true);
 }
@@ -71,6 +74,7 @@ void Runner::buildAndRunPs2(const Project& p, bool build) {
 void Runner::clean(const Project& p) {
     if (busy()) return;
     join();
+    cancelRequested_ = false;
     state_ = State::Running;
     thread_ = std::thread([this, p] {
         appendLine("[editor] === Clean: " + p.name + " ===");
@@ -87,11 +91,39 @@ void Runner::clean(const Project& p) {
         if (exec("docker compose exec -T compiler sh -c \"rm -rf /src/obj /src/bin\"",
                  p.dir) != 0)
             appendLine("[editor] Container not running - cleaned the host side only.");
-        std::error_code ec;
-        fs::remove_all(fs::path(p.dir) / "bin", ec);
-        appendLine(ec ? "[editor] Could not fully remove bin\\: " + ec.message()
-                      : "[editor] Removed bin\\ - run a Build to regenerate.");
-        state_ = ec ? State::Failed : State::Success;
+
+        // Host bin\: per-file, clearing read-only first (remove_all refuses
+        // those on Windows), retrying a few times (taskkill returns before
+        // the killed process actually releases its handles), and naming the
+        // file that stays locked - "Access is denied" alone is undebuggable.
+        const fs::path bin = fs::path(p.dir) / "bin";
+        std::string stuck;
+        for (int attempt = 0; attempt < 4; attempt++) {
+            if (attempt) Sleep(500);
+            stuck.clear();
+            std::error_code ec;
+            for (fs::recursive_directory_iterator it(bin, ec), end; it != end;
+                 it.increment(ec)) {
+                if (it->is_regular_file(ec)) {
+                    fs::permissions(it->path(), fs::perms::owner_write,
+                                    fs::perm_options::add, ec);
+                    fs::remove(it->path(), ec);
+                    if (ec && stuck.empty()) stuck = it->path().string();
+                }
+            }
+            std::error_code rmEc;
+            fs::remove_all(bin, rmEc);  // now-empty tree (dirs + leftovers)
+            if (!rmEc && !fs::exists(bin, rmEc)) {
+                appendLine("[editor] Removed bin\\ - run a Build to regenerate.");
+                state_ = State::Success;
+                return;
+            }
+        }
+        appendLine("[editor] Clean failed - still locked: " +
+                   (stuck.empty() ? bin.string() : stuck) +
+                   " (which program has it open? Explorer preview, an audio "
+                   "player, the Debug window of another editor instance...)");
+        state_ = State::Failed;
     });
 }
 
@@ -108,7 +140,16 @@ void Runner::exportIso(const Project& p) {
     });
 }
 
+void Runner::cancel() {
+    if (!busy()) return;
+    cancelRequested_ = true;
+    appendLine("[editor] Cancelling...");
+    std::lock_guard<std::mutex> lock(execProcMutex_);
+    if (execProc_) TerminateProcess((HANDLE)execProc_, 1);
+}
+
 int Runner::exec(const std::string& cmdline, const std::string& cwd) {
+    if (cancelRequested_) return -1;
     appendLine("> " + cmdline);
 
     SECURITY_ATTRIBUTES sa{};
@@ -142,6 +183,10 @@ int Runner::exec(const std::string& cmdline, const std::string& cwd) {
         appendLine("[editor] Failed to start: " + cmdline);
         return -1;
     }
+    {
+        std::lock_guard<std::mutex> lock(execProcMutex_);
+        execProc_ = pi.hProcess;
+    }
 
     std::string pending;
     char buf[4096];
@@ -162,6 +207,10 @@ int Runner::exec(const std::string& cmdline, const std::string& cwd) {
     WaitForSingleObject(pi.hProcess, INFINITE);
     DWORD code = 0;
     GetExitCodeProcess(pi.hProcess, &code);
+    {
+        std::lock_guard<std::mutex> lock(execProcMutex_);
+        execProc_ = nullptr;
+    }
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
     return (int)code;
@@ -339,7 +388,8 @@ bool Runner::deployToPs2(const Project& p) {
     }
     // ps2link reboots the IOP and reloads itself; give it a moment before the
     // execee connect, or the command lands on a half-initialized listener.
-    Sleep(3000);
+    for (int i = 0; i < 12 && !cancelRequested_; i++) Sleep(250);
+    if (cancelRequested_) return false;
 
     // The execee process is the host: file server for the whole game session -
     // it must outlive this build. -ps2link tells the game to skip the IOP
@@ -409,6 +459,10 @@ bool Runner::deployToPs2(const Project& p) {
     // liveness signal is the console's log output (ps2link narrates every
     // execee over UDP), so wait for the first line before claiming success.
     for (int waited = 0; ps2Lines_ == 0; waited += 250) {
+        if (cancelRequested_) {
+            killPs2Client();
+            return false;
+        }
         if (WaitForSingleObject(pi.hProcess, 0) != WAIT_TIMEOUT) {
             appendLine("[editor] ps2client exited during startup - see its output above.");
             killPs2Client();
@@ -607,12 +661,14 @@ void Runner::worker(Project p, bool build, bool run, bool ps2) {
             }
         }
 
-        appendLine(ok ? "[editor] === Build OK ===" : "[editor] === Build FAILED ===");
+        appendLine(ok ? "[editor] === Build OK ==="
+                   : cancelRequested_ ? "[editor] === Build CANCELLED ==="
+                                      : "[editor] === Build FAILED ===");
     }
 
-    if (ok && run) ok = ps2 ? deployToPs2(p) : launchPCSX2(p);
+    if (ok && run && !cancelRequested_) ok = ps2 ? deployToPs2(p) : launchPCSX2(p);
 
-    state_ = ok ? State::Success : State::Failed;
+    state_ = (ok && !cancelRequested_) ? State::Success : State::Failed;
 }
 
 bool Runner::ps2ClientAlive() const {

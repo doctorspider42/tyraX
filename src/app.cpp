@@ -464,6 +464,7 @@ void App::drawMenuBar() {
             if (!ps2Ready && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Set 'PS2 (ps2link) IP' in Project > Preferences first.");
             ImGui::Separator();
+            if (ImGui::MenuItem("Cancel Build", nullptr, false, busy)) runner_.cancel();
             if (ImGui::MenuItem("Clean", nullptr, false, !busy))
                 runner_.clean(project_);
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -888,6 +889,8 @@ void App::drawProjectWindow() {
     if (runner_.busy()) {
         ImGui::Separator();
         ImGui::Text("Building... %c", "|/-\\"[(int)(ImGui::GetTime() * 8) & 3]);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Cancel")) runner_.cancel();
     } else if (runner_.state() == Runner::State::Failed) {
         ImGui::Separator();
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Last build failed - see Output.");
