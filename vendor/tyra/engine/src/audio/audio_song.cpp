@@ -12,6 +12,13 @@
 # rate audsrv accepts - it resamples to 48kHz on the IOP) and the data chunk
 # gives the real sample offset and byte count, so playback starts at the
 # samples and stops before any trailing metadata.
+#
+# Also added: a read-ahead stage between the file and the audsrv feed. Over
+# a network host: (ps2link dev deploys) every fread is a round trip; feeding
+# audsrv straight from 4 KB freads gives each read a hard deadline of one
+# chunk of audio and any latency outlier is an audible hiccup. The stage
+# turns that into one ~24 KB fread every few chunks, amortized against the
+# audsrv ring (~1/9th s), so only sustained-throughput loss can starve it.
 */
 
 #include "audio/audio_song.hpp"
@@ -41,6 +48,19 @@ u32 songBytesLeft = 0xFFFFFFFF;
 // callback never fires and playback stays silent. Small formats stream in
 // smaller chunks with a matching threshold instead.
 s32 songChunkBytes = 4 * 1024;
+
+// Read-ahead stage (see the header comment): file bytes are pulled in large
+// sequential freads and the audsrv chunks are cut from memory. stageBuf
+// must stay comfortably larger than any songChunkBytes; the refill fread
+// must stay shorter than the audsrv ring (~1/9th of the byte rate) so the
+// feed pause it causes is inaudible.
+constexpr u32 kStageSize = 24 * 1024;
+char* stageBuf = nullptr;
+u32 stageFill = 0;
+u32 stagePos = 0;
+// Data bytes not yet pulled from the file. 0xFFFFFFFF = unknown (legacy
+// headerless path) - read until a short fread signals EOF.
+u32 fileBytesLeft = 0xFFFFFFFF;
 
 u32 readU16(const u8* p) { return p[0] | (p[1] << 8); }
 u32 readU32(const u8* p) {
@@ -120,6 +140,7 @@ AudioSong::~AudioSong() {
 
 void AudioSong::init() {
   chunk = static_cast<char*>(memalign(sizeof(char), chunkSize));
+  stageBuf = static_cast<char*>(memalign(sizeof(char), kStageSize));
 
   initSema();
   initAUDSRV();
@@ -227,6 +248,8 @@ void AudioSong::unloadSong() {
 void AudioSong::rewindSongToStart() {
   if (wav != nullptr) fseek(wav, songDataStart, SEEK_SET);
   songBytesLeft = songDataBytes;
+  fileBytesLeft = songDataBytes;
+  stageFill = stagePos = 0;
   chunkReadStatus = 0;
   songFinished = false;
 }
@@ -277,7 +300,28 @@ void AudioSong::work() {
   // (LIST/INFO/id3) must not be fed to the speakers.
   const u32 want =
       songBytesLeft < (u32)songChunkBytes ? songBytesLeft : (u32)songChunkBytes;
-  chunkReadStatus = want > 0 ? fread(chunk, 1, want, wav) : 0;
+
+  // Refill the read-ahead stage with one large sequential fread when it can
+  // no longer cover the next chunk. A short fread means EOF on the legacy
+  // (unknown-length) path.
+  u32 staged = stageFill - stagePos;
+  if (staged < want && fileBytesLeft > 0) {
+    if (staged > 0 && stagePos > 0) memmove(stageBuf, stageBuf + stagePos, staged);
+    stageFill = staged;
+    stagePos = 0;
+    u32 room = kStageSize - stageFill;
+    if (room > fileBytesLeft) room = fileBytesLeft;
+    const u32 got = room > 0 ? (u32)fread(stageBuf + stageFill, 1, room, wav) : 0;
+    stageFill += got;
+    if (fileBytesLeft != 0xFFFFFFFF) fileBytesLeft -= got;
+    if (got < room) fileBytesLeft = 0;
+    staged = stageFill - stagePos;
+  }
+
+  const u32 take = staged < want ? staged : want;
+  if (take > 0) memcpy(chunk, stageBuf + stagePos, take);
+  stagePos += take;
+  chunkReadStatus = (s32)take;
   if (chunkReadStatus > 0) songBytesLeft -= (u32)chunkReadStatus;
 
   // 8-bit WAV stores unsigned samples (0x80 = silence) but audsrv mixes

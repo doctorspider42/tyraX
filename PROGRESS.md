@@ -9,6 +9,21 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (32) **Song read-ahead stage (network music without hiccups)** — feeding
+  audsrv straight from per-chunk freads gives every read a hard deadline of
+  one chunk of audio (46 ms at 22 kHz stereo); over ps2link any latency
+  outlier is an audible hiccup ("almost right, still snags" on the real
+  console after the 22 kHz conversion). AudioSong now pulls the file through
+  a 24 KB read-ahead stage - one large sequential fread every ~6 chunks,
+  amortized against the audsrv ring (~1/9th s) - so only a sustained
+  throughput drop below the byte rate can starve playback, not a single slow
+  round trip. Loop/rewind resets the stage; the legacy headerless path keeps
+  its read-until-EOF semantics (short fread ends the stream). Verified in
+  PCSX2 with a generated 440 Hz 22 kHz stereo tone wired OnStart -> PlayMusic:
+  WASAPI peak meter shows a rock-steady level for the whole window (a
+  starving stream shows dropouts); real-console listen pending. Also
+  upstreamed the ps2client TCP_NODELAY fix as ps2dev/ps2client#25.
+
 - (31) **Per-stick deadzones + Project panel cleanup** — the Input deadzone
   splits into "Left stick deadzone" (movement) and "Right stick deadzone"
   (camera): worn pads rarely drift equally, and one shared value forced the
