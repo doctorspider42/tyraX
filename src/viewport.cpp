@@ -1,5 +1,6 @@
 #include "viewport.hpp"
 
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <utility>
@@ -949,6 +950,12 @@ void Viewport::clearModelCache() {
         for (auto& part : draw.parts) destroyMesh(part.mesh);
     modelCache_.clear();
     materialCache_.clear();  // GL textures are owned by texCache_
+    for (auto& [path, draw] : animModelCache_)
+        for (auto& part : draw.parts) {
+            destroyMesh(part.mesh);
+            if (part.tex) glDeleteTextures(1, &part.tex);  // embedded, not texCache_
+        }
+    animModelCache_.clear();
 }
 
 // First material of an assigned .mtl - the surface of a primitive.
@@ -1017,6 +1024,109 @@ const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
     return modelCache_[key].parts.empty() ? nullptr : &modelCache_[key];
 }
 
+// Animated .glb model: bake once (CPU-side clips kept for the playback
+// preview), upload frame 0 into dynamic per-part meshes, decode embedded
+// textures. Failures cache as !ok and the caller falls back to the box.
+Viewport::AnimModelDraw* Viewport::animModelDraw(const std::string& relPath) {
+    if (relPath.empty()) return nullptr;
+    auto it = animModelCache_.find(relPath);
+    if (it != animModelCache_.end()) return &it->second;
+
+    AnimModelDraw draw;
+    std::string error;
+    const std::string full = (std::filesystem::path(projectDir_) / relPath).string();
+    if (glbparser::bake(full, 12.0f, draw.baked, error)) {
+        draw.ok = true;
+        std::vector<uint32_t> imageTex(draw.baked.images.size(), 0);
+        for (size_t i = 0; i < draw.baked.images.size(); ++i) {
+            int w = 0, h = 0, comp = 0;
+            unsigned char* pixels = stbi_load_from_memory(
+                draw.baked.images[i].png.data(),
+                (int)draw.baked.images[i].png.size(), &w, &h, &comp, 4);
+            if (!pixels) continue;
+            glGenTextures(1, &imageTex[i]);
+            glBindTexture(GL_TEXTURE_2D, imageTex[i]);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA,
+                         GL_UNSIGNED_BYTE, pixels);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            stbi_image_free(pixels);
+        }
+        for (size_t pi = 0; pi < draw.baked.parts.size(); ++pi) {
+            const glbparser::Part& src = draw.baked.parts[pi];
+            AnimModelDraw::Part part;
+            if (src.image >= 0 && src.image < (int)imageTex.size())
+                part.tex = imageTex[src.image];
+            // frame-0 upload sizes the (dynamic) buffer; poses overwrite it
+            std::vector<float> interleaved((size_t)src.vertexCount * 8, 0.0f);
+            part.mesh = uploadMesh(interleaved);
+            draw.parts.push_back(part);
+        }
+    }
+    return &animModelCache_.emplace(relPath, std::move(draw)).first->second;
+}
+
+// Interpolates the object's current pose (start clip + preview clock, the
+// same frame lerp the PS2 does on VU1) into the part VBOs.
+void Viewport::updateAnimPose(AnimModelDraw& draw, const SceneObject& o) {
+    const glbparser::Baked& b = draw.baked;
+    if (b.clips.empty()) return;
+    const glbparser::Clip* clip = &b.clips.front();
+    if (!o.animClip.empty())
+        for (const glbparser::Clip& c : b.clips)
+            if (c.name == o.animClip) {
+                clip = &c;
+                break;
+            }
+
+    // Fractional frame inside the clip. The preview always loops - a frozen
+    // one-shot tells the user nothing about the motion.
+    float pos = 0.0f;
+    if (o.animAutoplay && clip->frameCount > 1) {
+        const float speed = o.animSpeed > 0.01f ? o.animSpeed : 1.0f;
+        pos = std::fmod((float)(animClock_ * b.fps * speed), (float)clip->frameCount);
+    }
+    const int local0 = (int)pos;
+    const float alpha = pos - (float)local0;
+    const int f0 = clip->firstFrame + local0;
+    // looping wraps last -> first, like the engine's loop state
+    const int f1 = clip->firstFrame + (local0 + 1) % clip->frameCount;
+
+    std::vector<float> interleaved;
+    for (size_t pi = 0; pi < draw.parts.size() && pi < b.parts.size(); ++pi) {
+        const glbparser::Part& src = b.parts[pi];
+        const size_t stride = (size_t)src.vertexCount * 3;
+        const float* p0 = &src.positions[f0 * stride];
+        const float* p1 = &src.positions[f1 * stride];
+        const float* n0 = &src.normals[f0 * stride];
+        const float* n1 = &src.normals[f1 * stride];
+        interleaved.clear();
+        interleaved.reserve((size_t)src.vertexCount * 8);
+        for (int v = 0; v < src.vertexCount; ++v) {
+            const float px = p0[v * 3] + (p1[v * 3] - p0[v * 3]) * alpha;
+            const float py = p0[v * 3 + 1] + (p1[v * 3 + 1] - p0[v * 3 + 1]) * alpha;
+            const float pz = p0[v * 3 + 2] + (p1[v * 3 + 2] - p0[v * 3 + 2]) * alpha;
+            const Vec3 n = {n0[v * 3] + (n1[v * 3] - n0[v * 3]) * alpha,
+                            n0[v * 3 + 1] + (n1[v * 3 + 1] - n0[v * 3 + 1]) * alpha,
+                            n0[v * 3 + 2] + (n1[v * 3 + 2] - n0[v * 3 + 2]) * alpha};
+            const Vec3 s = shadeOf(n);
+            const bool hasUv = src.uvs.size() >= (size_t)(v + 1) * 2;
+            interleaved.insert(
+                interleaved.end(),
+                {px, py, pz, s.x * src.baseColor[0], s.y * src.baseColor[1],
+                 s.z * src.baseColor[2], hasUv ? src.uvs[v * 2] : 0.0f,
+                 hasUv ? src.uvs[v * 2 + 1] : 0.0f});
+        }
+        glBindBuffer(GL_ARRAY_BUFFER, draw.parts[pi].mesh.vbo);
+        glBufferData(GL_ARRAY_BUFFER,
+                     (GLsizeiptr)(interleaved.size() * sizeof(float)),
+                     interleaved.data(), GL_DYNAMIC_DRAW);
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
 void Viewport::setSky(const float* horizonRgb, const float* topRgb, bool gradient) {
     for (int i = 0; i < 3; ++i) {
         sky_[i] = horizonRgb[i];
@@ -1070,6 +1180,12 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     if (width < 1) width = 1;
     if (height < 1) height = 1;
     ensureFramebuffer(width, height);
+
+    // Preview clock for animated models (wall time; the editor redraws
+    // continuously, so clips play at their real speed).
+    animClock_ = std::chrono::duration<double>(
+                     std::chrono::steady_clock::now().time_since_epoch())
+                     .count();
 
     glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
     glViewport(0, 0, width, height);
@@ -1188,6 +1304,19 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             const Mat4 mvp = mul(viewProj, model);
             // the bulb gizmo stays emissive - everything else receives light
             const bool lit = !asLines && o.type != PrimitiveType::PointLight;
+            // animated .glb models: dynamic meshes re-lerped this frame
+            if (o.type == PrimitiveType::Model && isAnimatedModelPath(o.modelPath)) {
+                AnimModelDraw* ad = animModelDraw(o.modelPath);
+                if (ad && ad->ok) {
+                    updateAnimPose(*ad, o);
+                    for (const AnimModelDraw::Part& part : ad->parts)
+                        draw(part.mesh, GL_TRIANGLES, mvp, o.color[0] * tintScale,
+                             o.color[1] * tintScale, o.color[2] * tintScale,
+                             asLines ? 0 : part.tex, lit ? &model : nullptr);
+                    continue;
+                }
+                // unusable .glb falls through to the placeholder box
+            }
             // .obj models draw one part per MTL material (an assigned .mtl
             // overrides the model's own libraries - same rule as the game)
             const ModelDraw* md = o.type == PrimitiveType::Model

@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "glbparser.hpp"
 #include "project.hpp"
 
 // 3D preview of the project terrain and scene objects, rendered into an
@@ -134,6 +135,24 @@ private:
     const ModelDraw* modelDraw(const std::string& relPath,
                                const std::string& materialRel);
     void clearModelCache();
+
+    // Animated .glb models: the baked clips stay CPU-side and each part owns
+    // a dynamic VBO that is re-lerped per frame for the playback preview
+    // (same morph-frame interpolation the PS2 does on VU1).
+    struct AnimModelDraw {
+        bool ok = false;
+        glbparser::Baked baked;
+        struct Part {
+            Mesh mesh;
+            uint32_t tex = 0;
+        };
+        std::vector<Part> parts;  // parallel to baked.parts
+    };
+    std::map<std::string, AnimModelDraw> animModelCache_;
+    AnimModelDraw* animModelDraw(const std::string& relPath);
+    // Uploads the object's current pose (clip + preview clock) into the VBOs.
+    void updateAnimPose(AnimModelDraw& draw, const SceneObject& o);
+    double animClock_ = 0.0;  // preview time in seconds (advanced per render)
 
     // Primitive materials: first entry of an assigned .mtl (Kd tint + map_Kd)
     struct MaterialDraw {
