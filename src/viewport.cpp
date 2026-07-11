@@ -327,9 +327,11 @@ std::vector<float> unitBox() {
     return v;
 }
 
-std::vector<float> unitSphere() {
+// detail = radial segment count; see project.hpp for the shared tessellation
+// formulas (kept in sync with the PS2 runtime in templates.cpp addSphere).
+std::vector<float> unitSphere(int detail = kDefaultPrimDetail) {
     std::vector<float> v;
-    const int stacks = 12, slices = 18;
+    const int slices = clampPrimDetail(detail), stacks = primSphereStacks(slices);
     const float r = 0.5f;
     auto at = [&](float t, float p) -> Vec3 {
         return {r * std::sin(t) * std::cos(p), r * std::cos(t), r * std::sin(t) * std::sin(p)};
@@ -353,9 +355,9 @@ std::vector<float> unitSphere() {
     return v;
 }
 
-std::vector<float> unitCylinder() {
+std::vector<float> unitCylinder(int detail = kDefaultPrimDetail) {
     std::vector<float> v;
-    const int seg = 24;
+    const int seg = clampPrimDetail(detail);
     const float r = 0.5f, h = 0.5f;
     for (int i = 0; i < seg; ++i) {
         const float a0 = 2 * kPi * i / seg, a1 = 2 * kPi * (i + 1) / seg;
@@ -380,9 +382,9 @@ std::vector<float> unitCylinder() {
     return v;
 }
 
-std::vector<float> unitCone() {
+std::vector<float> unitCone(int detail = kDefaultPrimDetail) {
     std::vector<float> v;
-    const int seg = 24;
+    const int seg = clampPrimDetail(detail);
     const float r = 0.5f, h = 0.5f;
     const float nl = 0.894f, ny = 0.447f;
     for (int i = 0; i < seg; ++i) {
@@ -678,6 +680,7 @@ void Viewport::shutdown() {
     destroyMesh(wireCube_);
     destroyMesh(lightGizmo_);
     destroyMesh(wireSphere_);
+    clearPrimMeshCache();
     destroyMesh(skyQuad_);
     destroyMesh(prevBg_);
     destroyMesh(prevFloor_);
@@ -807,6 +810,29 @@ void Viewport::buildPrimitiveMeshes() {
     wireCube_ = uploadMesh(unitWireCube());
     lightGizmo_ = uploadMesh(unitLightBulb());
     wireSphere_ = uploadMesh(unitWireSphere());
+}
+
+const Viewport::Mesh& Viewport::primMesh(PrimitiveType type, int detail) {
+    const int d = clampPrimDetail(detail);
+    std::map<int, Mesh>* cache;
+    switch (type) {
+        case PrimitiveType::Sphere: cache = &sphereMeshes_; break;
+        case PrimitiveType::Cylinder: cache = &cylinderMeshes_; break;
+        case PrimitiveType::Cone: cache = &coneMeshes_; break;
+        default: return box_;
+    }
+    if (auto it = cache->find(d); it != cache->end()) return it->second;
+    const Mesh m = type == PrimitiveType::Sphere     ? uploadMesh(unitSphere(d))
+                   : type == PrimitiveType::Cylinder ? uploadMesh(unitCylinder(d))
+                                                     : uploadMesh(unitCone(d));
+    return cache->emplace(d, m).first->second;
+}
+
+void Viewport::clearPrimMeshCache() {
+    for (std::map<int, Mesh>* c : {&sphereMeshes_, &cylinderMeshes_, &coneMeshes_}) {
+        for (auto& [detail, m] : *c) destroyMesh(m);
+        c->clear();
+    }
 }
 
 void Viewport::buildTerrainMesh() {
@@ -1485,9 +1511,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     auto meshFor = [&](const SceneObject& o) -> const Mesh* {
         switch (o.type) {
-            case PrimitiveType::Sphere: return &sphere_;
-            case PrimitiveType::Cylinder: return &cylinder_;
-            case PrimitiveType::Cone: return &cone_;
+            case PrimitiveType::Sphere:
+            case PrimitiveType::Cylinder:
+            case PrimitiveType::Cone: return &primMesh(o.type, o.primDetail);
             case PrimitiveType::SpawnPoint: return &spawnMarker_;
             case PrimitiveType::Player: return &playerMarker_;
             case PrimitiveType::SoundEmitter: return &sphere_;  // speaker-ish marker

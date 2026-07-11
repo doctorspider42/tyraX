@@ -44,6 +44,33 @@ enum class PrimitiveType {
     Empty = 11,
 };
 
+// Tessellation detail for curved primitives (Sphere, Cylinder, Cone): the
+// number of radial segments the mesh is built from. Higher = more triangles =
+// smoother, at PS2 vertex cost. Box is always 12 triangles (detail ignored).
+// The same formulas run in three places that must stay in sync: the editor
+// viewport (viewport.cpp unitSphere/unitCylinder/unitCone), the generated PS2
+// runtime (templates.cpp addSphere/addCylinder/addCone) and primTriangleCount
+// below.
+constexpr int kDefaultPrimDetail = 16;
+inline int clampPrimDetail(int d) { return d < 3 ? 3 : (d > 64 ? 64 : d); }
+// Sphere vertical rings derived from the radial segment count (~5:7 ratio).
+inline int primSphereStacks(int detail) {
+    const int s = detail * 5 / 7;
+    return s < 2 ? 2 : s;
+}
+// Triangles a primitive tessellates to at the given detail - for the UI
+// readout. Marker/geometry-less types report 0; Box is a fixed 12.
+inline int primTriangleCount(PrimitiveType type, int detail) {
+    const int d = clampPrimDetail(detail);
+    switch (type) {
+        case PrimitiveType::Sphere: return primSphereStacks(d) * d * 2;
+        case PrimitiveType::Cylinder: return d * 4;  // side (2/seg) + 2 caps
+        case PrimitiveType::Cone: return d * 2;      // side + base (1/seg each)
+        case PrimitiveType::Box: return 12;
+        default: return 0;
+    }
+}
+
 // Unit primitives fit a 1x1x1 cube centered at origin and are transformed by
 // scale -> rotation (X, then Y, then Z) -> translation.
 struct SceneObject {
@@ -59,6 +86,10 @@ struct SceneObject {
     // Player collision: 0 = box (models use their real mesh AABB), 1 = mesh
     // (models only: per-triangle - ramps/stairs are walkable), 2 = none
     int collisionMode = 0;
+    // Tessellation detail for curved primitives (Sphere/Cylinder/Cone): radial
+    // segment count. More = smoother + more triangles; Box ignores it. See
+    // kDefaultPrimDetail / primTriangleCount.
+    int primDetail = kDefaultPrimDetail;
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     // Material library (.mtl) assigned to the object, e.g.
     // "res/materials/walls.mtl". Primitives take the file's FIRST material
@@ -146,7 +177,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
            a.physics == b.physics && a.usable == b.usable &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
-           a.modelPath == b.modelPath &&
+           a.primDetail == b.primDetail && a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.playerMode == b.playerMode &&
            a.playerWalkSpeed == b.playerWalkSpeed &&
            a.playerLookSpeed == b.playerLookSpeed &&

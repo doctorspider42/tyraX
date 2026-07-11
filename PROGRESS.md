@@ -1958,6 +1958,39 @@ Each finished feature lands as its own commit.
   their 1/2/3/5 hotkeys, so nothing is lost. Verified: forced arrow mode in
   editor.ini, focused the viewport, sent 6x Down + 6x Right - the tool stayed on
   Move (no focus migration), screenshot-confirmed.
+- (61) **Per-object triangle detail for curved primitives** - Sphere, Cylinder
+  and Cone were tessellated at fixed hard-coded segment counts (sphere 10x14,
+  cyl/cone 16 in the game; 12x18 / 24 in the viewport), so the poly budget of a
+  primitive was not authorable. Added a single `SceneObject::primDetail` field
+  (radial segment count, default `kDefaultPrimDetail = 16`, clamped 3..64) that
+  drives the tessellation. The mapping lives once in `project.hpp`
+  (`clampPrimDetail`, `primSphereStacks` = ~5:7 of the segment count,
+  `primTriangleCount` for the UI readout) and is mirrored in the two generators
+  that can't share it across the editor/game boundary: `viewport.cpp`
+  `unitSphere/unitCylinder/unitCone` now take a detail arg, and the generated PS2
+  runtime `addSphere/addCylinder/addCone` (templates.cpp `TPL_GAME_CPP_PROLOG`)
+  read `o.primDetail` with an inline clamp. Box keeps its fixed 12 tris (detail
+  hidden for it). **Data model**: field + `operator==` (undo), JSON save
+  (`"detail": N`, emitted only for curved primitives at a non-default value -
+  same implicit-default style as `collision`) and load (clamped) in project.cpp,
+  and a new trailing `primDetail` column in the generated `SceneObjectData`
+  table (struct decl + empty-scene initializer + per-object emission). **UI**: a
+  "Detail" DragInt (3..64 segments) with a live `(N tris)` readout in the
+  Properties panel, shown only for Sphere/Cylinder/Cone, committing one undo
+  step per edit. **Viewport**: curved primitives no longer share one static
+  mesh - a per-detail `std::map<int,Mesh>` cache (one per shape) builds meshes
+  lazily and shares them across objects at the same detail; the fixed
+  `sphere_`/`cylinder_`/`cone_` stay at the default for markers and the Material
+  Editor preview. Verified: clean editor build; a scratch project with spheres
+  at detail 5/6/40/48, a default (16) cone and a detail-5 cylinder round-tripped
+  through the .tyra loader into `inc/scene_data.hpp` with the exact trailing
+  counts (`..., 1.0F, 6}`, `40`, `16`, `5`); a full Docker PS2 build of that
+  project returned `=== Build OK ===`, so the generated per-object tessellation
+  compiles and links on the mips64r5900 toolchain. In-editor visual diff of a
+  chunky vs smooth sphere and an in-PCSX2 side-by-side still want a human
+  eyeball - the GDI window capture only grabbed a fixed strip of the 4K editor
+  window (Project panel) and the top sky band of the PCSX2 output, so neither
+  framed the objects.
 
 
 ## Backlog (rough order)

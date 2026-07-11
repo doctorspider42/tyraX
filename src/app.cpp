@@ -2132,6 +2132,16 @@ void App::drawPropertiesWindow() {
         ImGui::SameLine();
         ImGui::TextUnformatted(typeLabel(o.type));
     }
+    // Curved primitives: how many radial segments (= triangles) build the mesh.
+    if (o.type == PrimitiveType::Sphere || o.type == PrimitiveType::Cylinder ||
+        o.type == PrimitiveType::Cone) {
+        int detail = o.primDetail;
+        if (ImGui::DragInt("Detail", &detail, 0.2f, 3, 64, "%d segments"))
+            o.primDetail = clampPrimDetail(detail);
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SameLine();
+        ImGui::TextDisabled("(%d tris)", primTriangleCount(o.type, o.primDetail));
+    }
     if (o.type == PrimitiveType::Model) {
         // model file: pick among the project's res/models assets
         const std::string current = o.modelPath.empty()

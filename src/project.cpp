@@ -187,6 +187,12 @@ static std::string objectJson(const SceneObject& o) {
         // collision: box is the default and stays implicit
         (o.collisionMode == 1 ? ", \"collision\": \"mesh\""
                               : o.collisionMode == 2 ? ", \"collision\": \"none\"" : "") +
+        // curved primitives only; the default segment count stays implicit
+        (((o.type == PrimitiveType::Sphere || o.type == PrimitiveType::Cylinder ||
+           o.type == PrimitiveType::Cone) &&
+          o.primDetail != kDefaultPrimDetail)
+             ? ", \"detail\": " + std::to_string(o.primDetail)
+             : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + o.modelPath + "\"") +
         (o.materialPath.empty() ? "" : ", \"material\": \"" + o.materialPath + "\"");
     if (o.type == PrimitiveType::Player) {
@@ -790,6 +796,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             const std::string mode = v->stringOr("box");
             o.collisionMode = mode == "mesh" ? 1 : mode == "none" ? 2 : 0;
         }
+        if (const auto* v = jo.find("detail"))
+            o.primDetail = clampPrimDetail((int)v->numberOr(kDefaultPrimDetail));
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
         // pre-materials projects had a per-object "texture" PNG - dropped
