@@ -146,6 +146,7 @@ private:
     int uMvp_ = -1;
     int uTint_ = -1;
     int uUseTex_ = -1;
+    int uAlpha_ = -1;  // decal cutout/blend toggle
     // Live point-light preview (fragment shader, world-space)
     int uModel_ = -1;
     int uLit_ = -1;
@@ -167,7 +168,7 @@ private:
 
     Mesh terrain_mesh_;
     Mesh lines_;  // terrain grid + axes
-    Mesh box_, sphere_, cylinder_, cone_, spawnMarker_, playerMarker_;
+    Mesh box_, sphere_, cylinder_, cone_, plane_, decal_, spawnMarker_, playerMarker_;
     Mesh lightGizmo_;  // small unshaded bulb marking a point light
     Mesh wireSphere_;  // unit-radius ring sphere, scaled to a light's radius
     // Per-detail primitive meshes (Box/Sphere/Cylinder/Cone), built lazily and

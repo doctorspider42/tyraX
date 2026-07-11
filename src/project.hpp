@@ -42,6 +42,14 @@ enum class PrimitiveType {
     // Empty: a pure transform with no geometry in the game (sphere marker in
     // the editor). Anchor for attached scripts, waypoints, flow-graph logic.
     Empty = 11,
+    // Plane: a flat unit square in the XZ plane (a floor/wall tile). Rendered
+    // double-sided so it is visible from both faces.
+    Plane = 12,
+    // Decal: a flat unit quad in the XY plane facing +Z, textured through the
+    // assigned material's map_Kd with transparency (cutout + alpha blend). Sits
+    // slightly in front of its origin along +Z to avoid z-fighting the surface
+    // it is stuck on. Never collides. For signs, posters, text on walls.
+    Decal = 13,
 };
 
 // Tessellation detail for the geometry primitives, stored per object in
@@ -91,7 +99,7 @@ struct SceneObject {
     float position[3] = {0.0f, 0.5f, 0.0f};
     float rotation[3] = {0.0f, 0.0f, 0.0f};  // degrees
     float scale[3] = {1.0f, 1.0f, 1.0f};
-    float color[3] = {0.8f, 0.35f, 0.25f};
+    float color[3] = {0.6f, 0.6f, 0.6f};  // neutral gray (specialized types override)
     bool physics = false;     // falls with gravity in the game
     bool usable = false;      // shows the USE prompt up close; BTN_USE fires On Used
     bool saveState = false;   // position/color/visibility persisted in save slots
