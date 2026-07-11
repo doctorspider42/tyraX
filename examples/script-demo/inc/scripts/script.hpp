@@ -63,6 +63,14 @@ struct ScriptContext {
   // applies and resets it. The optional toggle button still gates the beam.
   int flashlight = -1;
 
+  // Runtime graphics switches (Set Fog / Set Bloom / Set Grain / Set Particles
+  // flow nodes). fog / particles: -1 = leave, 0 = off, 1 = on. bloom / grain:
+  // -1 = leave, else a 0..128 fixed-point amount. The game applies and resets.
+  int fog = -1;
+  int bloom = -1;
+  int grain = -1;
+  int particles = -1;
+
   // Save data: named values persisted in memory card slots (SAVE_VALUE_NAMES
   // order, scene_data.hpp). Set openSaveMenu = true to open the in-game
   // save/load menu (also opened by using a Save point object); the game
