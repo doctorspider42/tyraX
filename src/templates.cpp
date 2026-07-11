@@ -969,10 +969,14 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   if (shade.z > 1.0F) shade.z = 1.0F;
   if (kd) shade.x *= kd[0], shade.y *= kd[1], shade.z *= kd[2];
   verts.push_back(Vec4(wp.x, wp.y, wp.z, 1.0F));
-  // In textured mode the color modulates the texture (128 = 1.0)
+  // In textured mode the color modulates the texture (128 = 1.0). Kd may
+  // exceed 1 (material brightness) - cap at the GS's 255 so untextured
+  // colors cannot wrap.
   const float scale = textured ? 128.0F : 255.0F;
-  cols.push_back(Color(o.color[0] * scale * shade.x, o.color[1] * scale * shade.y,
-                       o.color[2] * scale * shade.z, 128.0F));
+  auto c255 = [](float v) { return v > 255.0F ? 255.0F : v; };
+  cols.push_back(Color(c255(o.color[0] * scale * shade.x),
+                       c255(o.color[1] * scale * shade.y),
+                       c255(o.color[2] * scale * shade.z), 128.0F));
   sts.push_back(Vec4(u, v, 1.0F, 0.0F));
 }
 

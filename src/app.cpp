@@ -440,6 +440,7 @@ void App::drawUI() {
     drawDiscLayoutWindow();
     drawMenusWindow();
     drawGradingWindow();
+    drawMaterialEditorWindow();
     drawNewProjectModal();
     drawPreferencesModal();
     drawNavigationModal();
@@ -613,6 +614,7 @@ void App::drawMenuBar() {
         }
 
         if (hasProject_ && ImGui::BeginMenu("Tools")) {
+            if (ImGui::MenuItem("Material Editor...")) showMaterialEditor_ = true;
             if (ImGui::MenuItem("Menu Editor...")) showMenusEditor_ = true;
             if (ImGui::MenuItem("Color Grading...")) showGradingEditor_ = true;
             ImGui::EndMenu();
@@ -1910,6 +1912,15 @@ void App::drawAssetsSection() {
 
     ImGui::TextDisabled("Materials (res/materials)");
     ImGui::SameLine();
+    if (ImGui::SmallButton("New...")) {
+        showMaterialEditor_ = true;
+        openNewMaterialPopup_ = true;
+        matEdNewError_.clear();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Create a material in the Material Editor\n"
+                          "(color, brightness, texture - live preview).");
+    ImGui::SameLine();
     if (ImGui::SmallButton("Import .mtl...")) importMaterialAsset();
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Universal material libraries: assign one to many\n"
@@ -1920,6 +1931,9 @@ void App::drawAssetsSection() {
         ImGui::Bullet();
         ImGui::SameLine();
         ImGui::TextUnformatted(m.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton(("Edit##mat" + m).c_str()))
+            openMaterialEditor("res/materials/" + m);
         qualityCombo("res/materials/" + m);
         const ModelInfo& info = materialInfo("res/materials/" + m);
         if (info.ok) {
@@ -2247,6 +2261,10 @@ void App::drawPropertiesWindow() {
         // use it as an override replacing their own libraries. Animated .glb
         // models carry their own materials - no override.
         if (!animatedModel && drawMaterialCombo(o)) committed = true;
+        if (!animatedModel && !o.materialPath.empty()) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Edit...")) openMaterialEditor(o.materialPath);
+        }
         if (!o.materialPath.empty() && o.type != PrimitiveType::Model) {
             const ModelInfo& mat = materialInfo(o.materialPath);
             if (mat.ok && !mat.materials.empty()) {
@@ -2316,6 +2334,10 @@ void App::drawPropertiesWindow() {
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         // optional texture: the material's map_Kd, tinted by the color
         if (drawMaterialCombo(o)) committed = true;
+        if (!o.materialPath.empty()) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Edit...")) openMaterialEditor(o.materialPath);
+        }
         if (o.emitterKind == 5) {  // custom physics knobs
             ImGui::DragFloat("Speed", &o.emitterSpeed, 0.05f, 0.0f, 50.0f,
                              "%.2f u/s");
@@ -4354,6 +4376,412 @@ void App::drawGradingWindow() {
     ImGui::End();
 
     if (changed) commitChange();
+}
+
+// --- Material Editor ---------------------------------------------------------
+// Materials are the project's plain Wavefront .mtl asset files - the same
+// files objects reference via materialPath and the PS2 runtime parses with
+// LeanObjLoader. The editor reads/writes the subset the whole pipeline
+// understands (newmtl / Kd / map_Kd) plus a "# tyra-brightness" hint line so
+// the color x brightness split survives a round trip (both multiply into the
+// written Kd; every parser ignores comments). Unrecognized lines of
+// hand-imported files are preserved verbatim. Edits are saved straight to
+// disk on commit - assets are not project data, so no undo (same as imports).
+
+bool App::loadMaterialFile(const std::string& relPath) {
+    matEdMats_.clear();
+    matEdSel_ = 0;
+    std::ifstream in(std::filesystem::path(project_.dir) / relPath);
+    if (!in) return false;
+
+    std::vector<char> gotHint;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        std::istringstream ss(line);
+        std::string tag;
+        ss >> tag;
+        if (tag == "newmtl") {
+            MatEdEntry e;
+            ss >> e.name;
+            matEdMats_.push_back(std::move(e));
+            gotHint.push_back(0);
+            continue;
+        }
+        if (matEdMats_.empty()) continue;  // stray header lines
+        MatEdEntry& e = matEdMats_.back();
+        if (tag == "Kd") {
+            ss >> e.color[0] >> e.color[1] >> e.color[2];
+        } else if (tag == "map_Kd") {
+            std::string tok, last;  // options of map_Kd (rare) are dropped
+            while (ss >> tok) last = tok;
+            for (char& c : last)
+                if (c == '\\') c = '/';
+            e.texture = last;
+        } else if (tag == "#") {
+            std::string what;
+            ss >> what;
+            if (what == "tyra-brightness") {
+                ss >> e.brightness;
+                gotHint.back() = 1;
+            }
+            // other comments are dropped - saveMaterialFile rewrites its own
+        } else if (!tag.empty()) {
+            e.extra.push_back(line);
+        }
+    }
+    if (matEdMats_.empty()) {  // readable but no materials - start a fresh one
+        MatEdEntry e;
+        e.name = std::filesystem::path(relPath).stem().string();
+        matEdMats_.push_back(std::move(e));
+        gotHint.push_back(1);
+    }
+
+    // The file's Kd = color x brightness; split them back for the UI. Without
+    // a hint the split is ambiguous - treat Kd as the color (brightness 1),
+    // except components > 1 which can only come from brightness.
+    for (size_t i = 0; i < matEdMats_.size(); ++i) {
+        MatEdEntry& e = matEdMats_[i];
+        float b = e.brightness;
+        if (!gotHint[i]) {
+            b = std::max(e.color[0], std::max(e.color[1], e.color[2]));
+            if (b <= 1.0f) b = 1.0f;
+        }
+        b = b < 0.0f ? 0.0f : b > 2.0f ? 2.0f : b;
+        for (float& c : e.color) {
+            c = b > 0.01f ? c / b : 1.0f;
+            c = c < 0.0f ? 0.0f : c > 1.0f ? 1.0f : c;
+        }
+        e.brightness = b;
+    }
+    return true;
+}
+
+void App::saveMaterialFile() {
+    if (matEdPath_.empty()) return;
+    const std::filesystem::path full = std::filesystem::path(project_.dir) / matEdPath_;
+    std::error_code ec;
+    std::filesystem::create_directories(full.parent_path(), ec);
+    std::ofstream out(full, std::ios::trunc);
+    if (!out) {
+        statusMessage_ = "Cannot write " + matEdPath_;
+        return;
+    }
+    char buf[128];
+    for (const MatEdEntry& e : matEdMats_) {
+        out << "newmtl " << e.name << "\n";
+        std::snprintf(buf, sizeof(buf), "# tyra-brightness %.4g", e.brightness);
+        out << buf << "\n";
+        // Kd = color x brightness, capped at 1.99: the PS2 texture-modulate
+        // color tops out at 255 where 128 = 1.0 (untextured draws clamp in
+        // the generated pushVert)
+        auto kd = [&](int i) {
+            const float v = e.color[i] * e.brightness;
+            return v < 0.0f ? 0.0f : v > 1.99f ? 1.99f : v;
+        };
+        std::snprintf(buf, sizeof(buf), "Kd %.4f %.4f %.4f", kd(0), kd(1), kd(2));
+        out << buf << "\n";
+        if (!e.texture.empty()) out << "map_Kd " << e.texture << "\n";
+        for (const std::string& x : e.extra) out << x << "\n";
+        out << "\n";
+    }
+    out.close();
+    // every consumer caches the parsed file - drop them so the scene viewport
+    // and the properties panel pick the change up next frame
+    viewport_.invalidateAssets();
+    modelInfoCache_.clear();
+    statusMessage_ = "Saved " + matEdPath_;
+}
+
+void App::openMaterialEditor(const std::string& relPath) {
+    showMaterialEditor_ = true;
+    if (relPath.empty() || relPath == matEdPath_) return;  // keep staged edits
+    if (loadMaterialFile(relPath)) {
+        matEdPath_ = relPath;
+    } else {
+        matEdPath_.clear();
+        statusMessage_ = "Cannot read " + relPath;
+    }
+}
+
+void App::drawMaterialEditorWindow() {
+    if (!showMaterialEditor_ || !hasProject_) return;
+
+    ImGui::SetNextWindowSize(ImVec2(780, 460), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Material Editor", &showMaterialEditor_)) {
+        ImGui::End();
+        return;
+    }
+
+    // --- left: .mtl asset list ----------------------------------------------
+    ImGui::BeginChild("##mat_list", ImVec2(190, 0), ImGuiChildFlags_Borders);
+    if (ImGui::Button("+ New material...", ImVec2(-1, 0))) {
+        openNewMaterialPopup_ = true;
+        matEdNewError_.clear();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Creates a .mtl in res/materials - assign it to any\n"
+                          "object in Properties > Material.");
+    ImGui::Separator();
+    for (const std::string& rel : listMaterialAssets()) {
+        if (ImGui::Selectable(rel.substr(4).c_str(), rel == matEdPath_))
+            openMaterialEditor(rel);
+    }
+    if (listMaterialAssets().empty())
+        ImGui::TextDisabled("No materials yet.\nA material is a color +\n"
+                            "optional texture shared\nby any number of objects.");
+    ImGui::EndChild();
+
+    // --- "New material" modal ------------------------------------------------
+    if (openNewMaterialPopup_) {
+        ImGui::OpenPopup("New material");
+        openNewMaterialPopup_ = false;
+    }
+    if (ImGui::BeginPopupModal("New material", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::SetNextItemWidth(220.0f);
+        ImGui::InputText("Name", matEdNewName_, sizeof(matEdNewName_));
+        if (!matEdNewError_.empty())
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%s",
+                               matEdNewError_.c_str());
+        if (ImGui::Button("Create", ImVec2(120, 0))) {
+            const std::string base =
+                sanitizeAssetName(std::string(matEdNewName_).empty() ? "material"
+                                                                     : matEdNewName_);
+            const std::string rel = "res/materials/" + base + ".mtl";
+            std::error_code ec;
+            if (std::filesystem::exists(std::filesystem::path(project_.dir) / rel, ec)) {
+                matEdNewError_ = base + ".mtl already exists.";
+            } else {
+                matEdPath_ = rel;
+                matEdMats_.clear();
+                MatEdEntry e;
+                e.name = base;
+                e.color[0] = 0.8f, e.color[1] = 0.8f, e.color[2] = 0.8f;
+                matEdMats_.push_back(std::move(e));
+                matEdSel_ = 0;
+                saveMaterialFile();
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    ImGui::SameLine();
+
+    if (matEdPath_.empty()) {
+        ImGui::BeginChild("##mat_edit");
+        ImGui::TextDisabled("Select a material on the left (or create one).");
+        ImGui::TextDisabled("\nMaterials are .mtl files under res/ - primitives use the");
+        ImGui::TextDisabled("file's first entry, models override their own libraries");
+        ImGui::TextDisabled("(usemtl names resolve against it), emitters take the");
+        ImGui::TextDisabled("first entry's texture for their particles.");
+        ImGui::EndChild();
+        ImGui::End();
+        return;
+    }
+
+    if (matEdSel_ < 0 || matEdSel_ >= (int)matEdMats_.size()) matEdSel_ = 0;
+    bool committed = false;
+
+    // --- middle: the selected entry's properties ------------------------------
+    const float previewW = 240.0f;
+    ImGui::BeginChild("##mat_edit",
+                      ImVec2(ImGui::GetContentRegionAvail().x - previewW - 8.0f, 0));
+    ImGui::TextDisabled("%s", matEdPath_.c_str());
+
+    // entry list within the file (universal libraries hold several; the FIRST
+    // one is what primitives and emitters use)
+    if (matEdMats_.size() > 1) {
+        ImGui::SetNextItemWidth(180.0f);
+        if (ImGui::BeginCombo("Entry", matEdMats_[matEdSel_].name.c_str())) {
+            for (int i = 0; i < (int)matEdMats_.size(); ++i) {
+                ImGui::PushID(i);
+                std::string label = matEdMats_[i].name;
+                if (i == 0) label += "  [primitives use this]";
+                if (ImGui::Selectable(label.c_str(), i == matEdSel_)) matEdSel_ = i;
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+    }
+    if (ImGui::SmallButton("+ Add")) {
+        MatEdEntry e;
+        std::string base = "mat";
+        for (int n = 1;; ++n) {
+            e.name = base + "-" + std::to_string(n);
+            bool taken = false;
+            for (const auto& other : matEdMats_) taken |= (other.name == e.name);
+            if (!taken) break;
+        }
+        matEdMats_.push_back(std::move(e));
+        matEdSel_ = (int)matEdMats_.size() - 1;
+        committed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Another material in the same file. Only universal\n"
+                          "model libraries need this - usemtl names resolve\n"
+                          "against the file. Primitives always use the first.");
+    if (matEdMats_.size() > 1) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Remove")) {
+            matEdMats_.erase(matEdMats_.begin() + matEdSel_);
+            if (matEdSel_ >= (int)matEdMats_.size())
+                matEdSel_ = (int)matEdMats_.size() - 1;
+            committed = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Up") && matEdSel_ > 0) {
+            std::swap(matEdMats_[matEdSel_], matEdMats_[matEdSel_ - 1]);
+            --matEdSel_;
+            committed = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Down") && matEdSel_ + 1 < (int)matEdMats_.size()) {
+            std::swap(matEdMats_[matEdSel_], matEdMats_[matEdSel_ + 1]);
+            ++matEdSel_;
+            committed = true;
+        }
+    }
+
+    MatEdEntry& e = matEdMats_[matEdSel_];
+    ImGui::Separator();
+
+    char nameBuf[64];
+    std::snprintf(nameBuf, sizeof(nameBuf), "%s", e.name.c_str());
+    ImGui::SetNextItemWidth(180.0f);
+    if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
+        // .mtl names are whitespace-delimited tokens - keep them pipeline-safe
+        e.name = sanitizeAssetName(nameBuf);
+        if (e.name.empty()) e.name = "material";
+    }
+    committed |= ImGui::IsItemDeactivatedAfterEdit();
+
+    ImGui::ColorEdit3("Color", e.color);
+    committed |= ImGui::IsItemDeactivatedAfterEdit();
+
+    ImGui::SliderFloat("Brightness", &e.brightness, 0.0f, 2.0f, "%.2f");
+    committed |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Multiplies the color. Above 1.0 a textured material\n"
+                          "over-brightens its texture (PS2 modulation goes up\n"
+                          "to 2x); plain colors clamp at full white.");
+
+    // texture: PNGs living next to the .mtl (map_Kd resolves relative to it -
+    // the game copies that rule)
+    const std::filesystem::path mtlDirAbs =
+        (std::filesystem::path(project_.dir) / matEdPath_).parent_path();
+    {
+        const char* noneLabel = "<none - plain color>";
+        ImGui::SetNextItemWidth(240.0f);
+        if (ImGui::BeginCombo("Texture",
+                              e.texture.empty() ? noneLabel : e.texture.c_str())) {
+            if (ImGui::Selectable(noneLabel, e.texture.empty()) && !e.texture.empty()) {
+                e.texture.clear();
+                committed = true;
+            }
+            std::error_code ec;
+            for (const auto& f :
+                 std::filesystem::recursive_directory_iterator(mtlDirAbs, ec)) {
+                if (!f.is_regular_file()) continue;
+                std::string ext = f.path().extension().string();
+                for (char& c : ext) c = (char)tolower((unsigned char)c);
+                if (ext != ".png") continue;
+                const std::string rel =
+                    std::filesystem::relative(f.path(), mtlDirAbs, ec).generic_string();
+                if (ImGui::Selectable(rel.c_str(), rel == e.texture) &&
+                    rel != e.texture) {
+                    e.texture = rel;
+                    committed = true;
+                }
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Import PNG...")) {
+                const std::string src = pickPngFile();
+                if (!src.empty()) {
+                    const std::string fileName = sanitizeAssetName(
+                        std::filesystem::path(src).filename().string());
+                    std::error_code cec;
+                    std::filesystem::copy_file(
+                        src, mtlDirAbs / fileName,
+                        std::filesystem::copy_options::overwrite_existing, cec);
+                    if (cec) {
+                        statusMessage_ = "Texture import failed: " + cec.message();
+                    } else {
+                        e.texture = fileName;
+                        committed = true;
+                    }
+                }
+            }
+            ImGui::EndCombo();
+        }
+    }
+    if (!e.texture.empty()) {
+        const std::filesystem::path texAbs = mtlDirAbs / e.texture;
+        std::error_code ec;
+        if (!std::filesystem::exists(texAbs, ec)) {
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                               "Texture missing - renders as plain color.");
+        } else {
+            int tw = 0, th = 0, comp = 0;
+            if (stbi_info(texAbs.string().c_str(), &tw, &th, &comp)) {
+                const bool pow2 = tw > 0 && th > 0 && (tw & (tw - 1)) == 0 &&
+                                  (th & (th - 1)) == 0;
+                if (!pow2)
+                    ImGui::TextColored(
+                        ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                        "%dx%d - not power-of-two; the PS2 GS needs\n"
+                        "pow2 texture sizes (e.g. 128x128, 256x256).", tw, th);
+                else
+                    ImGui::TextDisabled("%dx%d", tw, th);
+            }
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("Saved to the file on every change. The object's own\n"
+                        "Color multiplies on top per object.");
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    // --- right: live preview ---------------------------------------------------
+    ImGui::BeginChild("##mat_preview", ImVec2(previewW, 0));
+    {
+        const char* shapes[] = {"Box", "Sphere", "Cylinder", "Cone"};
+        ImGui::SetNextItemWidth(100.0f);
+        ImGui::Combo("##mat_shape", &matEdShape_, shapes, 4);
+        ImGui::SameLine();
+        ImGui::Checkbox("Spin", &matEdSpin_);
+        if (matEdSpin_) matEdAngle_ += ImGui::GetIO().DeltaTime * 24.0f;
+
+        const MatEdEntry& sel = matEdMats_[matEdSel_];
+        float kd[3];
+        for (int i = 0; i < 3; ++i) {
+            kd[i] = sel.color[i] * sel.brightness;
+            if (kd[i] > 1.99f) kd[i] = 1.99f;
+        }
+        const std::string texRel =
+            sel.texture.empty()
+                ? ""
+                : (std::filesystem::path(matEdPath_).parent_path() / sel.texture)
+                      .generic_string();
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
+        const int pw = (int)avail.x, ph = (int)avail.y;
+        const uint32_t tex =
+            viewport_.renderMaterialPreview(pw, ph, kd, texRel, matEdShape_, matEdAngle_);
+        if (tex)
+            ImGui::Image((ImTextureID)(intptr_t)tex, ImVec2((float)pw, (float)ph),
+                         ImVec2(0, 1), ImVec2(1, 0));
+    }
+    ImGui::EndChild();
+
+    ImGui::End();
+
+    if (committed) saveMaterialFile();
 }
 
 // Menu Editor window: menu list on the left, the selected menu's properties,
