@@ -201,7 +201,8 @@ void StaPipCore::render(StaPipBag* bag) {
       renderPkgs(packages, doClip, packagesCount);
       delete[] packages;
     } else {
-      auto subpkgs = packager.create(&packagesCount, bag, maxVertCount / 3);
+      auto subpkgs =
+          packager.create(&packagesCount, bag, maxVertCount / clipDivisor());
       Verbose("Material - partial. Subpackages: ", packagesCount);
       renderSubpkgs(subpkgs, packagesCount);
       delete[] subpkgs;
@@ -228,8 +229,8 @@ void StaPipCore::renderPkgs(StaPipBagPackage* packages, const bool& doClip,
       qbufferRenderer.cull(buffer);
     } else if (doSubpkgs) {
       u16 subpkgsSize = 0;
-      auto packages1By3 =
-          packager.create(&subpkgsSize, packages[i], maxVertCount / 3);
+      auto packages1By3 = packager.create(&subpkgsSize, packages[i],
+                                          maxVertCount / clipDivisor());
       Verbose(i, " - partial package. Created subpkgs: ", subpkgsSize);
 
       renderSubpkgs(packages1By3, subpkgsSize);
@@ -300,6 +301,15 @@ void StaPipCore::setMaxVertCount(const u32& count) {
   maxVertCount = count;
   packager.setMaxVertCount(count);
   qbufferRenderer.setMaxVertCount(count);
+}
+
+// Modified by tyra-editor: occupancy cap for clip-classified packages.
+// EE clipper: 1/3 of a VU1 buffer (its fan-out is drained in chunks on the
+// EE). VU1 clipping: 1/5, so the worst-case Sutherland-Hodgman fan-out
+// (7 output triangles per input triangle across 6 planes) still fits in the
+// output area of one VU1 double-buffer half for every program variant.
+u32 StaPipCore::clipDivisor() const {
+  return qbufferRenderer.isVU1ClippingEnabled() ? 5 : 3;
 }
 
 }  // namespace Tyra

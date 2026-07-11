@@ -355,8 +355,12 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
                 readVec3(sk->find("topColor"), s.skyTopColor);
                 if (const auto* v = sk->find("dome")) s.skyDome = v->boolOr(true);
             }
-            if (const auto* v = st->find("clipping"))
-                s.clipping = v->stringOr("precise") == "fast" ? "fast" : "precise";
+            if (const auto* v = st->find("clipping")) {
+                // "vu1" is a hidden third mode (no UI): precise per-package
+                // classification + clipping on VU1 instead of the EE.
+                const std::string c = v->stringOr("precise");
+                s.clipping = (c == "fast" || c == "vu1") ? c : "precise";
+            }
             if (const auto* v = st->find("terrainMaterial")) s.terrainMaterial = v->stringOr("");
             if (const auto* pf = st->find("postfx")) {
                 if (const auto* v = pf->find("bloom")) s.bloom = clamp01((float)v->numberOr(0.0));
@@ -1042,8 +1046,12 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = s->find("showMemory")) st.showMemory = v->boolOr(false);
         if (const auto* v = s->find("disableVsync"))
             st.disableVsync = v->boolOr(false);
-        if (const auto* v = s->find("clipping"))
-            st.clipping = v->stringOr("precise") == "fast" ? "fast" : "precise";
+        if (const auto* v = s->find("clipping")) {
+            // "vu1" is a hidden third mode (no UI): precise per-package
+            // classification + clipping on VU1 instead of the EE.
+            const std::string c = v->stringOr("precise");
+            st.clipping = (c == "fast" || c == "vu1") ? c : "precise";
+        }
         if (const auto* v = s->find("animLodDistance")) {
             st.animLodDistance = (float)v->numberOr(0.0);
             if (st.animLodDistance < 0.0f) st.animLodDistance = 0.0f;
