@@ -30,6 +30,12 @@ public:
     void setTerrain(const TerrainConfig& terrain, int maxCells = 32,
                     const std::vector<float>& heights = {}, int hmW = 0, int hmD = 0);
 
+    // Sculpt fast path: takes the freshly brushed heightmap (same dims as the
+    // last setTerrain) and rebuilds only the terrain chunks under the brush
+    // circle - a stroke on a large map stays interactive.
+    void updateTerrainRegion(const std::vector<float>& heights, float worldX,
+                             float worldZ, float radius);
+
     // Casts a ray through normalized image coords onto the terrain surface.
     // Returns false when the ray misses; used by the sculpting brush.
     bool terrainRaycast(float u, float v, float& outX, float& outZ) const;
@@ -181,8 +187,19 @@ private:
     float flashColor_[3] = {0.75f, 0.75f, 0.62f};
     float flashRange_ = 30.0f, flashAngle_ = 20.0f;
 
-    Mesh terrain_mesh_;
-    Mesh lines_;  // terrain grid + axes
+    // Terrain in chunks of kTerrainChunkCells^2 cells (mesh + grid lines per
+    // chunk) so sculpting rebuilds only the chunks under the brush. Grid
+    // lines drop to chunk borders only above kTerrainFullGridCells total
+    // cells - a full per-cell grid on a 512x512 map is solid noise (and tens
+    // of MB of line vertices).
+    static constexpr int kTerrainChunkCells = 64;
+    static constexpr int kTerrainFullGridCells = 128 * 128;
+    std::vector<Mesh> terrainChunkMeshes_;  // tcChunksX_ * tcChunksZ_, row-major
+    std::vector<Mesh> terrainLineMeshes_;
+    int tcChunksX_ = 0, tcChunksZ_ = 0;
+    int tcCellsX_ = 0, tcCellsZ_ = 0;
+    void buildTerrainChunkMesh(int cx, int cz);
+    Mesh axes_;  // world axes
     Mesh box_, sphere_, cylinder_, cone_, plane_, decal_, spawnMarker_, playerMarker_;
     Mesh lightGizmo_;  // small unshaded bulb marking a point light
     Mesh wireSphere_;  // unit-radius ring sphere, scaled to a light's radius
