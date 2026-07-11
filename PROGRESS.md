@@ -23,6 +23,43 @@ Each finished feature lands as its own commit.
   game build clean; PCSX2 boot of a 15-spider scene with `drawDistance = 8`
   on every second spider shows exactly the near ones (screenshot), 50 FPS.
 
+- (45) **Material Editor (Tools > Material Editor) with a live preview** —
+  create/edit the `.mtl` materials the pipeline already consumes, without
+  leaving the editor. **No new data model**: materials stay plain Wavefront
+  files under `res/` (the same files `SceneObject::materialPath` references
+  and the PS2 `LeanObjLoader` parses), edited in place; the editor reads and
+  writes the pipeline subset (`newmtl`/`Kd`/`map_Kd`) and preserves unknown
+  lines of hand-imported files verbatim. **Brightness**: a 0-2 slider
+  multiplied into the written `Kd` (so both the game and the viewport pick it
+  up with zero runtime changes) plus a `# tyra-brightness` comment hint so
+  the color x brightness split round-trips exactly; parsers all ignore
+  comments. Kd is capped at 1.99 (PS2 texture modulation tops out at
+  255/128 = ~2x) and the generated `pushVert` now clamps the final vertex
+  color at 255 so a bright material cannot wrap the GS color on untextured
+  primitives. **Window**: file list + "New material..." (also reachable from
+  Project > Assets and an "Edit..." button next to every Material combo in
+  Properties), per-file entry management (add/remove/reorder - first entry =
+  what primitives/emitters use), name/color/brightness/texture editing that
+  saves to disk on every committed change and invalidates the caches
+  (`Viewport::invalidateAssets` + modelInfoCache), so the scene viewport
+  updates live. Texture combo lists PNGs next to the `.mtl` (map_Kd resolves
+  relative to it - same rule as the game), offers Import PNG, and warns on
+  non-power-of-two sizes. **Preview** (`Viewport::renderMaterialPreview`):
+  own FBO + gradient backdrop + checker floor + a turntable
+  box/sphere/cylinder/cone drawn with the shared scene shader and unit
+  meshes, camera orbiting (not the mesh spinning - the directional shade is
+  baked into the vertex colors). Verified: clean build; a scratch project
+  with a hand-written `rusty.mtl` (`# tyra-brightness 1.5`,
+  `Kd 1.35 0.9 0.525`, 64x64 checker map_Kd) opened in the GUI - the window
+  screenshot shows color decomposed back to (230,153,89) + brightness 1.50,
+  the "64x64" size line, the lit textured preview sphere, and the crate in
+  the scene viewport textured by the same material; a second shot shows the
+  turntable advanced and a "Saved res/materials/rusty.mtl" status from a
+  live edit, with the on-disk file byte-identical on reload. Full Docker
+  build of the scratch project: `=== Build OK ===`, generated
+  `terrain_game.cpp` carries the `c255` clamp, `scene_data.hpp` the
+  MATERIAL_PATHS entry, and `bin/materials/rusty.mtl` ships. In-game visuals
+  of a >1-brightness material on a real console still merit a human eyeball.
 - (46) **Frame drops no longer halve gameplay speed + "Disable VSync
   (experimental)" preference** — with double-buffered vsync a PAL game is
   quantized to 50/25/16.7 FPS (a 20.1 ms frame waits for the next vblank),

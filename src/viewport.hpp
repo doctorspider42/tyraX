@@ -63,6 +63,21 @@ public:
     uint32_t render(int width, int height, const std::vector<SceneObject>& objects,
                     int selectedIndex);
 
+    // Material Editor live preview: a lit turntable primitive over a checker
+    // floor, rendered into its own framebuffer (render() resizes the main one
+    // to the viewport every frame). kd = diffuse tint (channels may exceed 1 -
+    // material brightness), texRel = map_Kd as a project-relative path
+    // ("" = untextured), shape: 0 box, 1 sphere, 2 cylinder, 3 cone,
+    // angleDeg = turntable rotation. Returns the GL texture id.
+    uint32_t renderMaterialPreview(int width, int height, const float* kd,
+                                   const std::string& texRel, int shape,
+                                   float angleDeg);
+
+    // Drops every disk-derived cache (models, materials, GL textures). Call
+    // after an asset file changed on disk (e.g. the Material Editor saved a
+    // .mtl) so the next frame re-reads it.
+    void invalidateAssets();
+
     // Camera controls, driven by the UI layer. The camera orbits a movable
     // target point: pan slides it in the view plane (middle mouse drag),
     // fly moves it on the horizontal plane along the view direction (WASD).
@@ -208,6 +223,12 @@ private:
 
     uint32_t fbo_ = 0, colorTex_ = 0, depthRbo_ = 0;
     int fbWidth_ = 0, fbHeight_ = 0;
+
+    // Material Editor preview target + fixed backdrop meshes
+    void ensurePreviewFramebuffer(int width, int height);
+    uint32_t prevFbo_ = 0, prevTex_ = 0, prevDepth_ = 0;
+    int prevW_ = 0, prevH_ = 0;
+    Mesh prevBg_, prevFloor_;  // vertical gradient + checker floor
 
     // Color grading post pass (grading preview): colorTex_ -> gradeTex_
     bool gradingOn_ = false;
