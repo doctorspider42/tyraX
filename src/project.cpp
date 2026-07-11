@@ -27,6 +27,8 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::PointLight: return "point-light";
         case PrimitiveType::SavePoint: return "save-point";
         case PrimitiveType::Empty: return "empty";
+        case PrimitiveType::Plane: return "plane";
+        case PrimitiveType::Decal: return "decal";
     }
     return "box";
 }
@@ -43,6 +45,8 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "point-light") return PrimitiveType::PointLight;
     if (s == "save-point") return PrimitiveType::SavePoint;
     if (s == "empty") return PrimitiveType::Empty;
+    if (s == "plane") return PrimitiveType::Plane;
+    if (s == "decal") return PrimitiveType::Decal;
     return PrimitiveType::Box;
 }
 

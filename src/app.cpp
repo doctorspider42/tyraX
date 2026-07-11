@@ -1583,6 +1583,15 @@ void App::addEmpty() {
     o.collisionMode = 2;  // pure transform - never blocks the player
     saveAll("Saved");
 }
+void App::addDecal() {
+    addObject(PrimitiveType::Decal);
+    SceneObject& o = project_.objects().back();
+    o.position[1] = 1.5f;  // eye height on a wall
+    // white so the texture shows untinted (color modulates the map_Kd)
+    o.color[0] = o.color[1] = o.color[2] = 1.0f;
+    o.collisionMode = 2;  // visual overlay - never blocks the player
+    saveAll("Saved");
+}
 void App::addSavePoint() {
     addObject(PrimitiveType::SavePoint);
     SceneObject& o = project_.objects().back();
@@ -2205,6 +2214,7 @@ void App::drawAddObjectMenu() {
             if (ImGui::MenuItem("Sphere")) addObject(PrimitiveType::Sphere);
             if (ImGui::MenuItem("Cylinder")) addObject(PrimitiveType::Cylinder);
             if (ImGui::MenuItem("Cone")) addObject(PrimitiveType::Cone);
+            if (ImGui::MenuItem("Plane")) addObject(PrimitiveType::Plane);
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Model")) {
@@ -2221,6 +2231,9 @@ void App::drawAddObjectMenu() {
                 ImGui::TextDisabled("No models - Import one in Project > Assets.");
             ImGui::EndMenu();
         }
+        // Textured quad with transparency (sign/poster/text on a wall). Assign
+        // a material whose map_Kd PNG has an alpha channel in the Properties.
+        if (ImGui::MenuItem("Decal")) addDecal();
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Gameplay")) {
@@ -2290,6 +2303,8 @@ static const char* typeLabel(PrimitiveType t) {
         case PrimitiveType::Sphere: return "Sphere";
         case PrimitiveType::Cylinder: return "Cylinder";
         case PrimitiveType::Cone: return "Cone";
+        case PrimitiveType::Plane: return "Plane";
+        case PrimitiveType::Decal: return "Decal";
         case PrimitiveType::SpawnPoint: return "Spawn point";
         case PrimitiveType::Model: return "3D model";
         case PrimitiveType::Player: return "Player";
@@ -2333,7 +2348,8 @@ void App::drawPropertiesWindow() {
     // Real geometry in the game: rendered, collidable, texturable.
     const bool isShape =
         o.type == PrimitiveType::Box || o.type == PrimitiveType::Sphere ||
-        o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone;
+        o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone ||
+        o.type == PrimitiveType::Plane;
     const bool isSolid =
         isShape || o.type == PrimitiveType::Model || o.type == PrimitiveType::SavePoint;
 
@@ -2343,10 +2359,17 @@ void App::drawPropertiesWindow() {
     committed |= ImGui::IsItemDeactivatedAfterEdit();
 
     if (isShape) {
-        int typeIdx = (int)o.type;
-        const char* typeNames[] = {"Box", "Sphere", "Cylinder", "Cone"};
-        if (ImGui::Combo("Type", &typeIdx, typeNames, 4)) {
-            o.type = (PrimitiveType)typeIdx;
+        // Plane's enum value isn't contiguous with the other shapes, so map
+        // combo indices through an explicit list instead of casting directly.
+        static const PrimitiveType kShapeTypes[] = {
+            PrimitiveType::Box, PrimitiveType::Sphere, PrimitiveType::Cylinder,
+            PrimitiveType::Cone, PrimitiveType::Plane};
+        const char* typeNames[] = {"Box", "Sphere", "Cylinder", "Cone", "Plane"};
+        int typeIdx = 0;
+        for (int i = 0; i < IM_ARRAYSIZE(kShapeTypes); ++i)
+            if (kShapeTypes[i] == o.type) typeIdx = i;
+        if (ImGui::Combo("Type", &typeIdx, typeNames, IM_ARRAYSIZE(typeNames))) {
+            o.type = kShapeTypes[typeIdx];
             // Detail means different things (segments vs box subdivisions) and
             // has different ranges per shape - re-fit the value to the new one.
             o.primDetail = clampPrimDetail(o.type, o.primDetail);
@@ -2470,23 +2493,26 @@ void App::drawPropertiesWindow() {
     // Empties are pure transforms - scripts read the whole transform (and the
     // color, as a free per-object parameter), so every field stays editable.
     const bool isEmpty = o.type == PrimitiveType::Empty;
+    // Decal: a textured quad. Transform + color + material stay editable, but
+    // it carries no physics/collision/usable game state (pure visual overlay).
+    const bool isDecal = o.type == PrimitiveType::Decal;
 
     ImGui::DragFloat3("Position", o.position, 0.1f);
     committed |= ImGui::IsItemDeactivatedAfterEdit();
     // custom emitters rotate too - the rotation aims the emission direction
-    if (isSolid || isEmpty ||
+    if (isSolid || isEmpty || isDecal ||
         (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
         ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
-    if (isSolid || isEmpty || o.type == PrimitiveType::Emitter) {
+    if (isSolid || isEmpty || isDecal || o.type == PrimitiveType::Emitter) {
         ImGui::DragFloat3("Scale", o.scale, 0.05f, 0.01f, 1000.0f);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
     // Color: mesh tint for solids, particle tint for emitters, light color
-    // for point lights, marker tint + free script parameter for empties.
-    // The remaining markers draw in fixed editor colors.
-    if (isSolid || isEmpty || o.type == PrimitiveType::Emitter ||
+    // for point lights, marker tint + free script parameter for empties,
+    // texture tint for decals. The remaining markers draw in fixed colors.
+    if (isSolid || isEmpty || isDecal || o.type == PrimitiveType::Emitter ||
         o.type == PrimitiveType::PointLight) {
         ImGui::ColorEdit3("Color", o.color);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -2494,7 +2520,9 @@ void App::drawPropertiesWindow() {
 
     const bool animatedModel =
         o.type == PrimitiveType::Model && isAnimatedModelPath(o.modelPath);
-    if (isSolid) {
+    // Material picker: solids texture their surface with it; a decal uses its
+    // map_Kd (with alpha) as the decal image.
+    if (isSolid || isDecal) {
         // Material (.mtl asset): primitives take the file's first material
         // (Kd + map_Kd on their UVs, modulated by the object color), models
         // use it as an override replacing their own libraries. Animated .glb
@@ -2518,7 +2546,12 @@ void App::drawPropertiesWindow() {
                                    "Material file missing/empty - plain color.");
             }
         }
-
+        if (isDecal)
+            ImGui::TextDisabled(
+                "Assign a material whose map_Kd PNG has transparency.\n"
+                "Sits just in front of its origin; place it on a surface.");
+    }
+    if (isSolid) {
         if (ImGui::Checkbox("Physics (falls with gravity)", &o.physics)) committed = true;
         if (o.type == PrimitiveType::SavePoint) {
             ImGui::TextDisabled("Always usable - USE opens the save menu.");
@@ -2830,28 +2863,40 @@ void App::drawMultiProperties() {
     ImGui::Separator();
 
     // Which field groups apply = the intersection over the whole selection.
+    // Same type predicates the single-object view uses (isShape includes Plane;
+    // Decal is a textured quad with transform/color/material but no game state).
     bool allShape = true, allSolid = true, allSaveable = true, allRot = true,
          allScale = true, allColor = true, allSameType = true, allModel = true,
-         allEmitter = true, allLight = true, anyModel = false, anySavePoint = false;
+         allEmitter = true, allLight = true, allDetail = true, anyModel = false,
+         anySavePoint = false;
     for (auto* p : objs) {
         const SceneObject& o = *p;
         const bool shape = o.type == PrimitiveType::Box || o.type == PrimitiveType::Sphere ||
-                           o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone;
+                           o.type == PrimitiveType::Cylinder ||
+                           o.type == PrimitiveType::Cone || o.type == PrimitiveType::Plane;
         const bool solid =
             shape || o.type == PrimitiveType::Model || o.type == PrimitiveType::SavePoint;
         const bool empty = o.type == PrimitiveType::Empty;
+        const bool decal = o.type == PrimitiveType::Decal;
+        // Detail (segments/subdivisions) exists for the curved/box primitives,
+        // not for the flat Plane.
+        const bool hasDetail = o.type == PrimitiveType::Box ||
+                               o.type == PrimitiveType::Sphere ||
+                               o.type == PrimitiveType::Cylinder ||
+                               o.type == PrimitiveType::Cone;
         allShape = allShape && shape;
         allSolid = allSolid && solid;
+        allDetail = allDetail && hasDetail;
         allSameType = allSameType && (o.type == primary.type);
         allModel = allModel && (o.type == PrimitiveType::Model);
         allEmitter = allEmitter && (o.type == PrimitiveType::Emitter);
         allLight = allLight && (o.type == PrimitiveType::PointLight);
         anyModel = anyModel || (o.type == PrimitiveType::Model);
         anySavePoint = anySavePoint || (o.type == PrimitiveType::SavePoint);
-        allRot = allRot &&
-                 (solid || empty || (o.type == PrimitiveType::Emitter && o.emitterKind == 5));
-        allScale = allScale && (solid || empty || o.type == PrimitiveType::Emitter);
-        allColor = allColor && (solid || empty || o.type == PrimitiveType::Emitter ||
+        allRot = allRot && (solid || empty || decal ||
+                            (o.type == PrimitiveType::Emitter && o.emitterKind == 5));
+        allScale = allScale && (solid || empty || decal || o.type == PrimitiveType::Emitter);
+        allColor = allColor && (solid || empty || decal || o.type == PrimitiveType::Emitter ||
                                 o.type == PrimitiveType::PointLight);
         allSaveable = allSaveable && (solid || empty || o.type == PrimitiveType::Emitter ||
                                       o.type == PrimitiveType::SoundEmitter);
@@ -2947,16 +2992,23 @@ void App::drawMultiProperties() {
 
     // --- shape type / detail ---
     if (allShape) {
-        const char* typeNames[] = {"Box", "Sphere", "Cylinder", "Cone"};
-        const int t0 = (int)primary.type;
+        // Shape enum values aren't contiguous (Plane = 12), so map combo indices
+        // through an explicit list - same as the single-object view.
+        static const PrimitiveType kShapeTypes[] = {
+            PrimitiveType::Box, PrimitiveType::Sphere, PrimitiveType::Cylinder,
+            PrimitiveType::Cone, PrimitiveType::Plane};
+        const char* typeNames[] = {"Box", "Sphere", "Cylinder", "Cone", "Plane"};
+        int t0 = 0;
+        for (int i = 0; i < IM_ARRAYSIZE(kShapeTypes); ++i)
+            if (kShapeTypes[i] == primary.type) t0 = i;
         bool mixedT = false;
-        for (auto* p : objs) mixedT = mixedT || (int)p->type != t0;
+        for (auto* p : objs) mixedT = mixedT || p->type != primary.type;
         const char* preview = mixedT ? "(multiple)" : typeNames[t0];
         if (ImGui::BeginCombo("Type", preview)) {
-            for (int i = 0; i < 4; ++i)
+            for (int i = 0; i < IM_ARRAYSIZE(kShapeTypes); ++i)
                 if (ImGui::Selectable(typeNames[i], !mixedT && t0 == i)) {
                     for (auto* p : objs) {
-                        p->type = (PrimitiveType)i;
+                        p->type = kShapeTypes[i];
                         p->primDetail = clampPrimDetail(p->type, p->primDetail);
                     }
                     committed = true;
@@ -2964,7 +3016,7 @@ void App::drawMultiProperties() {
             ImGui::EndCombo();
         }
     }
-    if (allShape && allSameType) {
+    if (allDetail && allSameType) {
         const bool box = primary.type == PrimitiveType::Box;
         int d = primary.primDetail;
         bool mixedD = false;
