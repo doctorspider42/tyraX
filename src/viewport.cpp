@@ -1509,7 +1509,7 @@ void Viewport::fly(float forward, float strafe, float dt) {
 }
 
 uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>& objects,
-                          int selectedIndex) {
+                          const std::vector<int>& selection, int primary) {
     if (width < 1) width = 1;
     if (height < 1) height = 1;
     ensureFramebuffer(width, height);
@@ -1754,9 +1754,13 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         }
     }
 
-    if (selectedIndex >= 0 && selectedIndex < (int)objects.size()) {
-        const Mat4 mvp = mul(viewProj, modelMatrix(objects[selectedIndex]));
-        draw(wireCube_, GL_LINES, mvp, 1.0f, 0.6f, 0.1f);
+    // Every selected object gets an amber outline; the primary is drawn in a
+    // brighter yellow so it's clear which object's values seed the multi-editor.
+    for (int idx : selection) {
+        if (idx < 0 || idx >= (int)objects.size()) continue;
+        const Mat4 mvp = mul(viewProj, modelMatrix(objects[idx]));
+        if (idx == primary) draw(wireCube_, GL_LINES, mvp, 1.0f, 0.85f, 0.35f);
+        else draw(wireCube_, GL_LINES, mvp, 1.0f, 0.6f, 0.1f);
     }
 
     // Particle emitters last - alpha blended over the scene (same order as

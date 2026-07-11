@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <map>
 #include <string>
+#include <vector>
 
 #include <imgui.h>  // ImGuiStyle baseStyle_ member (UI scaling)
 
@@ -56,6 +57,9 @@ private:
     void drawViewportWindow();
     void drawProjectWindow();
     void drawPropertiesWindow();
+    // Properties panel body when more than one object is selected: only the
+    // fields common to every selected object, edited in one pass.
+    void drawMultiProperties();
     void drawSceneSection();
     void drawScriptsSection();
     void drawNewScriptModal();
@@ -171,6 +175,19 @@ private:
     void redo();
     void copyObject();
     void pasteObject();
+
+    // Selection set helpers. selectedObject_ stays the "primary" (anchor) of
+    // the set - always selection_.back() (or -1) - so the many single-select
+    // reads keep working; selection_ carries the full multi-selection.
+    void selectOnly(int i);     // replace the selection with {i} (i<0 clears)
+    void toggleSelect(int i);   // add/remove i (no-op for i<0)
+    void clearSelection();
+    bool isSelected(int i) const;
+    void pruneSelection();      // drop indices past the object count (after undo/load)
+    // Select every object whose screen bounds overlap the marquee rect (image
+    // corners a..b). add = extend the current selection instead of replacing.
+    void selectObjectsInBox(ImVec2 a, ImVec2 b, ImVec2 imgPos, ImVec2 avail, bool add);
+    void deleteSelectedObjects();  // erase every selected object (one undo step)
     void attachProject();  // post-open: history + solution state
 
     GLFWwindow* window_ = nullptr;
@@ -196,6 +213,11 @@ private:
     // boundary (ImGui cannot reload settings between NewFrame and EndFrame).
     bool layoutLoadPending_ = false;
     int selectedObject_ = -1;
+    // Full multi-selection (indices into the active scene's objects, in click
+    // order). selectedObject_ == (selection_.empty() ? -1 : selection_.back()).
+    std::vector<int> selection_;
+    // Rubber-band box select in progress (anchor = io.MouseClickedPos[0]).
+    bool boxSelecting_ = false;
 
     // Layouts saved before the Properties window existed lack a slot for it;
     // when set, the next frame docks it under the Project panel.
@@ -219,8 +241,7 @@ private:
     float flattenHeight_ = 0.0f;   // flatten target height (world units)
 
     History history_;
-    SceneObject clipboard_;
-    bool hasClipboard_ = false;
+    std::vector<SceneObject> clipboard_;  // copy/paste a whole selection at once
 
     // Flow graph editor state
     int flowGraphObject_ = -1;           // object whose graph is open in the editor

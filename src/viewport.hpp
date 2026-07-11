@@ -69,9 +69,10 @@ public:
     void setGrading(bool enabled, const CompiledGrading& g);
 
     // Renders terrain + objects at the given pixel size, returns GL texture id.
-    // selectedIndex: index into objects highlighted with an outline (-1 = none).
+    // selection: indices outlined; primary (the anchor, usually selection.back())
+    // is outlined brighter so it reads as the value source for the multi-editor.
     uint32_t render(int width, int height, const std::vector<SceneObject>& objects,
-                    int selectedIndex);
+                    const std::vector<int>& selection, int primary);
 
     // Material Editor live preview: a lit turntable primitive over a checker
     // floor, rendered into its own framebuffer (render() resizes the main one
