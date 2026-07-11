@@ -1025,10 +1025,17 @@ void addCone(std::vector<Vec4>& verts, std::vector<Color>& cols,
   }
 }
 
-/** Debug-profile HUD (Project > Preferences > Build): FPS and free-EE-RAM
- * readouts in the top-left corner, drawn from the 8x8 glyph strip
- * res/hud/debugfont.png. Compiles to nothing in a release build (the
- * DEBUG_SHOW_* constants in terrain_config.hpp fold the calls away). */
+// EE load: ticks (T3, BUSCLK/256 = 576 kHz) spent between the frame's update
+// start and the pre-endFrame mark, as a percentage of the frame budget.
+// Measured on real hardware and in PCSX2 alike - unlike the emulator's own
+// EE% overlay this is the game's actual main-thread occupancy.
+Timer g_eeTimer;
+int g_eeLoadPct = 0;
+
+/** Debug-profile HUD (Project > Preferences > Build): FPS, EE main-thread
+ * load and free-EE-RAM readouts in the top-left corner, drawn from the 8x8
+ * glyph strip res/hud/debugfont.png. Compiles to nothing in a release build
+ * (the DEBUG_SHOW_* constants in terrain_config.hpp fold the calls away). */
 void drawDebugHud(Engine* engine) {
   if (!DEBUG_SHOW_FPS && !DEBUG_SHOW_MEM) return;
   static Sprite glyph;
@@ -1061,7 +1068,12 @@ void drawDebugHud(Engine* engine) {
   char line[32];
   float y = 16.0F;
   if (DEBUG_SHOW_FPS) {
-    snprintf(line, sizeof(line), "FPS %d", (int)engine->info.getFps());
+    // T3 runs at BUSCLK/256 = 576 kHz -> frame budget = 576000/g_frameRate
+    // ticks; drawDebugHud is the last thing before endFrame, so the delta
+    // since loop() primed the timer is the frame's busy portion.
+    g_eeLoadPct = (int)(g_eeTimer.getTimeDelta() * g_frameRate / 5760.0F);
+    snprintf(line, sizeof(line), "FPS %d  EE %d", (int)engine->info.getFps(),
+             g_eeLoadPct);
     drawText(line, 16.0F, y);
     y += 20.0F;
   }
@@ -1167,6 +1179,7 @@ void TerrainGame::init() {
 }
 
 void TerrainGame::loop() {
+  g_eeTimer.prime();  // EE-load measurement window: loop entry -> drawDebugHud
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
   const bool menuActive = saveMenuActive || gameMenuPausing;
@@ -3061,6 +3074,7 @@ void TerrainGame::init() {
 }
 
 void TerrainGame::loop() {
+  g_eeTimer.prime();  // EE-load measurement window: loop entry -> drawDebugHud
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
   const bool menuActive = saveMenuActive || gameMenuPausing;

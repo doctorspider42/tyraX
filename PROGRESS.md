@@ -9,6 +9,27 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (38) **Song streamer thread + EE-load overlay** — the last structural fix
+  for network music: the fillbuf callback fires when the audsrv ring is
+  nearly EMPTY, so any file read on the audio thread races a ring holding
+  under ~1/9th s of audio - one slow network round trip at that moment is a
+  guaranteed audible underrun (the remaining "skipping slow-mo" after the
+  RPC fix). AudioSong now runs a dedicated streamer thread (priority 0x6,
+  16 KB stack) that keeps a 96 KB single-producer/single-consumer ring
+  topped up with 16 KB freads in the background; work() only memcpys from
+  memory and never blocks on IO. Wrap-safe u32 produced/consumed counters
+  (EE is single-core, aligned word writes are atomic); load/rewind/unload
+  reposition the FILE through a generation handshake (the streamer owns all
+  file access while active, so an in-flight fread of stale data is simply
+  discarded); transient starvation feeds a short chunk and retries without
+  waiting for a fillbuf signal that would never come; songFinished now
+  requires true end-of-data. Verified in PCSX2: OnStart tone plays with a
+  flat WASAPI peak across the loop point. **EE-load overlay**: the debug
+  FPS line gains "EE nn" - T3 ticks (576 kHz) between loop() entry and
+  drawDebugHud as a percentage of the frame budget, i.e. the game's
+  main-thread work before it starts waiting on the GS; works on real
+  hardware (unlike PCSX2's emulator-side EE% readout).
+
 - (37) **Music + sound emitters = FPS drop: audsrv RPC contention fix** —
   reproduced in PCSX2 (finally an EE-side bug, not the network): a scene
   with one sound emitter ran 50 FPS silent but 42 FPS with music playing,
