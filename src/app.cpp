@@ -3337,12 +3337,15 @@ void App::drawMusicSection() {
                 it != project_.musicBuild.end() ? it->second : Project::MusicBuildOpt{};
             int rateIdx = opt.rate == 48000 ? 1 : opt.rate == 32000 ? 2
                           : opt.rate == 22050 ? 3 : opt.rate == 11025 ? 4 : 0;
-            const char* rateNames[] = {"keep rate", "48000 Hz (no IOP resample)",
-                                       "32000 Hz", "22050 Hz", "11025 Hz"};
+            // Labels stay short so the mono checkbox on the same line fits
+            // inside the (narrow) Project panel - a wider combo pushed it
+            // past the clip rect and it silently disappeared.
+            const char* rateNames[] = {"keep rate", "48000 Hz", "32000 Hz",
+                                       "22050 Hz", "11025 Hz"};
             ImGui::Indent();
             ImGui::TextDisabled("PS2 build:");
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(200.0f);
+            ImGui::SetNextItemWidth(110.0f);
             bool edited = ImGui::Combo("##mbrate", &rateIdx, rateNames, 5);
             ImGui::SameLine();
             edited |= ImGui::Checkbox("mono##mb", &opt.mono);
