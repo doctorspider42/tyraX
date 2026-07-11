@@ -250,6 +250,19 @@ struct ProjectSettings {
     // that extend far beyond the screen.
     std::string clipping = "precise";
 
+    // Animation LOD: animated-model instances farther than this from the
+    // camera refresh their pose/skinning every 2nd frame (every 4th beyond
+    // twice the distance), staggered across objects so the cost spreads.
+    // Playback time is unaffected - the pose catches up on the next
+    // refresh. 0 = off (every instance skins every frame).
+    float animLodDistance = 0.0f;
+
+    // Mesh LOD: the build bakes decimated variants (~50% and ~25% vertices,
+    // quadric-error collapse) of every animated model into the .tskl;
+    // instances farther than this render the 50% mesh, beyond twice the
+    // distance the 25% one. 0 = off (no LODs baked or kept in RAM).
+    float meshLodDistance = 0.0f;
+
     int terrainDetail = 32;  // max terrain grid cells per axis (quality vs perf)
     float skyColor[3] = {0.25f, 0.55f, 0.78f};   // horizon / clear color
     float skyTopColor[3] = {0.08f, 0.3f, 0.65f};  // zenith (gradient dome)
@@ -309,7 +322,9 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
     return a.videoSystem == b.videoSystem && a.buildProfile == b.buildProfile &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.disableVsync == b.disableVsync &&
-           a.clipping == b.clipping && a.terrainDetail == b.terrainDetail &&
+           a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
+           a.meshLodDistance == b.meshLodDistance &&
+           a.terrainDetail == b.terrainDetail &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.eyeHeight == b.eyeHeight &&
            a.walkSpeed == b.walkSpeed && a.lookSpeed == b.lookSpeed &&

@@ -79,9 +79,9 @@ std::unique_ptr<SkelModel> TsklLoader::load(const std::string& relativePath) {
       clipCount = 0;
   auto model = std::make_unique<SkelModel>();
   if (!in.bytes(magic, 4) || memcmp(magic, "TSKL", 4) != 0 ||
-      !in.u32le(&version) || version != 1 || !in.u32le(&nodeCount) ||
-      !in.u32le(&paletteCount) || !in.u32le(&partCount) ||
-      !in.u32le(&clipCount)) {
+      !in.u32le(&version) || version < 1 || version > 2 ||
+      !in.u32le(&nodeCount) || !in.u32le(&paletteCount) ||
+      !in.u32le(&partCount) || !in.u32le(&clipCount)) {
     TYRA_WARN("TsklLoader: bad header in ", relativePath.c_str());
     return nullptr;
   }
@@ -207,6 +207,32 @@ std::unique_ptr<SkelModel> TsklLoader::load(const std::string& relativePath) {
         TYRA_WARN("TsklLoader: joint out of range in ", relativePath.c_str());
         return nullptr;  // validated once here - the skinning loop trusts it
       }
+    // v2: baked distance LODs (Preferences > Rendering > Mesh LOD)
+    if (version >= 2) {
+      u32 lodCount = 0;
+      if (!in.u32le(&lodCount) || lodCount > 4) {
+        TYRA_WARN("TsklLoader: bad lod count in ", relativePath.c_str());
+        return nullptr;
+      }
+      for (u32 l = 0; l < lodCount; l++) {
+        SkelLod lod;
+        if (!in.u32le(&lod.vertexCount) || lod.vertexCount == 0) return nullptr;
+        const size_t lc = lod.vertexCount;
+        if (!part.texturePath.empty() && !in.floats(&lod.uvs, lc * 2))
+          return nullptr;
+        if (!in.floats(&lod.positions, lc * 3) ||
+            !in.floats(&lod.normals, lc * 3))
+          return nullptr;
+        lod.joints.resize(lc * 4);
+        lod.weights.resize(lc * 4);
+        if (!in.bytes(lod.joints.data(), lc * 4) ||
+            !in.bytes(lod.weights.data(), lc * 4))
+          return nullptr;
+        for (u8 joint : lod.joints)
+          if (joint >= paletteCount) return nullptr;
+        part.lods.push_back(std::move(lod));
+      }
+    }
     if (!part.texturePath.empty() &&
         part.texturePath.find('/') == std::string::npos)
       part.texturePath = dir + part.texturePath;
@@ -229,6 +255,35 @@ std::unique_ptr<SkelModel> TsklLoader::load(const std::string& relativePath) {
         ++b;
         continue;
       }
+      // merge the LOD chains first (base arrays stand in for a missing
+      // level, so a small un-decimated part never vanishes at distance)
+      const size_t lodLevels =
+          dst.lods.size() > src.lods.size() ? dst.lods.size()
+                                            : src.lods.size();
+      std::vector<SkelLod> merged(lodLevels);
+      for (size_t l = 0; l < lodLevels; l++) {
+        SkelLod& m = merged[l];
+        const SkelPart* sides[2] = {&dst, &src};
+        for (const SkelPart* side : sides) {
+          const bool haveLod = l < side->lods.size();
+          const SkelLod* sl = haveLod ? &side->lods[l] : nullptr;
+          const u32 count = haveLod ? sl->vertexCount : side->vertexCount;
+          const std::vector<float>& pos =
+              haveLod ? sl->positions : side->positions;
+          const std::vector<float>& nrm =
+              haveLod ? sl->normals : side->normals;
+          const std::vector<float>& uv = haveLod ? sl->uvs : side->uvs;
+          const std::vector<u8>& jnt = haveLod ? sl->joints : side->joints;
+          const std::vector<u8>& wgt = haveLod ? sl->weights : side->weights;
+          m.vertexCount += count;
+          m.positions.insert(m.positions.end(), pos.begin(), pos.end());
+          m.normals.insert(m.normals.end(), nrm.begin(), nrm.end());
+          m.uvs.insert(m.uvs.end(), uv.begin(), uv.end());
+          m.joints.insert(m.joints.end(), jnt.begin(), jnt.end());
+          m.weights.insert(m.weights.end(), wgt.begin(), wgt.end());
+        }
+      }
+      dst.lods = std::move(merged);
       dst.positions.insert(dst.positions.end(), src.positions.begin(),
                            src.positions.end());
       dst.normals.insert(dst.normals.end(), src.normals.begin(),
