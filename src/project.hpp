@@ -425,8 +425,30 @@ struct HudImage {
     std::string name;
     std::string imagePath;      // e.g. "res/hud/crosshair.png"
     float pos[2] = {0.5f, 0.5f};   // normalized screen position (center anchor)
-    float size[2] = {64.0f, 64.0f};  // pixels (PS2 screen is 512x448)
+    float size[2] = {64.0f, 64.0f};  // on-screen draw size in pixels (PS2 screen
+                                     // is 512x448); independent of the texture
+                                     // resolution below (the sprite is stretched)
+
+    // Build-time bake: the PS2 rejects textures that are not 8/16/32/64/128/
+    // 256/512 in each dimension (a runtime assert), so the editor resizes the
+    // imported PNG into .res-baked before it reaches the game. 0 = auto (the
+    // nearest valid power-of-two of the source); otherwise a chosen valid size.
+    int texW = 0;
+    int texH = 0;
+    // Palette quantization, like the per-asset material texture quality:
+    // "" = follow the project default (ProjectSettings::textureQuant),
+    // "none" = full color (32-bit) override, "8bit" = 256-color, "4bit" =
+    // 16-color. Lets an important HUD element keep full color while the rest
+    // of the project runs quantized (or vice versa).
+    std::string texQuant;
 };
+
+inline bool operator==(const HudImage& a, const HudImage& b) {
+    return a.name == b.name && a.imagePath == b.imagePath &&
+           a.pos[0] == b.pos[0] && a.pos[1] == b.pos[1] &&
+           a.size[0] == b.size[0] && a.size[1] == b.size[1] &&
+           a.texW == b.texW && a.texH == b.texH && a.texQuant == b.texQuant;
+}
 
 // A streaming layer: a named group of scene objects that the game can load
 // into / evict from memory at runtime (Load Layer / Unload Layer flow nodes)
@@ -608,6 +630,16 @@ struct Project {
     const std::vector<SceneObject>& objects() const { return active().objects; }
 
     std::vector<HudImage> hud;
+    // Where the full-screen post effects sit in the screen stack (Tools > UI
+    // Editor). Bloom (with color grading) and film grain are placed
+    // independently: the effect applies right before the HUD sprite at that
+    // index, so sprites with a lower index get the effect and higher ones draw
+    // crisp on top. -1 = apply at the very end of the frame, over everything
+    // including menus (the classic behavior, and the default). Typical split:
+    // bloom under the HUD so it does not blur the crosshair, grain at -1 as a
+    // filmic overlay over the whole screen. Grading rides with bloom.
+    int hudBloomLayer = -1;
+    int hudGrainLayer = -1;
     // Music tracks (16-bit 22kHz stereo WAV in res/audio/), played via the
     // flow graph (Play Music / Stop Music / Set Music Volume actions).
     std::vector<std::string> music;

@@ -82,6 +82,8 @@ void RendererCore::setSpotLight(const Color& color, const Vec4& position,
 void RendererCore::beginFrame() {
   renderer3D.update();
   drained3DFor2D = false;
+  postFxAppliedMask = 0;
+  postFxDrained = false;
   Threading::switchThread();
   path3.clearScreen(&gs.zBuffer, bgColor);
 }
@@ -89,8 +91,27 @@ void RendererCore::beginFrame() {
 void RendererCore::beginFrame(const CameraInfo3D& cameraInfo) {
   renderer3D.update(cameraInfo);
   drained3DFor2D = false;
+  postFxAppliedMask = 0;
+  postFxDrained = false;
   Threading::switchThread();
   path3.clearScreen(&gs.zBuffer, bgColor);
+}
+
+// Modified by tyra-editor: mid-frame post fx (Tools > UI Editor screen stack).
+// Applies only the not-yet-applied selected passes; the PATH1 drain barrier
+// (endFrame's) runs once, before the first pass that actually draws - after
+// that no more 3D is submitted this frame, so later passes composite safely
+// over a finished frame (and over any HUD sprites drawn in between).
+void RendererCore::applyPostFx(int passes) {
+  passes &= ~postFxAppliedMask;
+  if (passes == 0) return;
+  postFxAppliedMask |= passes;
+  if (!postFx.isEnabled(passes)) return;
+  if (!postFxDrained && path1.isVU1Configured()) {
+    sync.align3D();
+    postFxDrained = true;
+  }
+  postFx.apply(passes);
 }
 
 void RendererCore::endFrame() {
@@ -106,8 +127,7 @@ void RendererCore::endFrame() {
   // that - e.g. the pure-2D loading screen - there is nothing on PATH1 to
   // drain and the draw-finish handshake would spin forever waiting for a
   // FINISH that VU1 can't deliver yet.
-  if (postFx.isEnabled() && path1.isVU1Configured()) sync.align3D();
-  postFx.apply();
+  applyPostFx();
   if (isFrameLimitOn) graph_wait_vsync();
   gs.flipBuffers();
 }

@@ -449,6 +449,7 @@ void App::drawUI() {
     drawMenusWindow();
     drawGradingWindow();
     drawMaterialEditorWindow();
+    drawUiEditorWindow();
     drawNewProjectModal();
     drawPreferencesModal();
     drawNavigationModal();
@@ -654,6 +655,7 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Material Editor...")) showMaterialEditor_ = true;
             if (ImGui::MenuItem("Menu Editor...")) showMenusEditor_ = true;
             if (ImGui::MenuItem("Color Grading...")) showGradingEditor_ = true;
+            if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
             ImGui::EndMenu();
         }
 
@@ -1216,8 +1218,9 @@ void App::drawViewportWindow() {
         }
 
         // --- HUD preview overlay (matches the PS2 512x448 screen mapping;
-        // hidden by default - toggle in the HUD section) ---
-        if (showHudInEditor_ && !project_.hud.empty()) {
+        // hidden by default - toggle in the UI Editor, which also shows it
+        // while open) ---
+        if ((showHudInEditor_ || showUiEditor_) && !project_.hud.empty()) {
             ImDrawList* dl = ImGui::GetWindowDrawList();
             for (int i = 0; i < (int)project_.hud.size(); ++i) {
                 const HudImage& hi = project_.hud[i];
@@ -1231,7 +1234,7 @@ void App::drawViewportWindow() {
                     dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax);
                 else
                     dl->AddRect(pMin, pMax, IM_COL32(255, 100, 100, 200));
-                if (i == selectedHud_)
+                if (showUiEditor_ && uiFxSel_ == 0 && i == selectedHud_)
                     dl->AddRect(pMin, pMax, IM_COL32(255, 160, 30, 255), 0.0f, 0, 2.0f);
             }
         }
@@ -1422,7 +1425,6 @@ void App::drawProjectWindow() {
     drawSceneSection();
     drawLayersSection();
     drawAssetsSection();
-    drawHudSection();
     drawMusicSection();
     drawSoundsSection();
     drawSaveDataSection();
@@ -4687,33 +4689,265 @@ void App::importHudImage() {
     }
     project_.hud.push_back(std::move(h));
     selectedHud_ = (int)project_.hud.size() - 1;
+    uiFxSel_ = 0;
     saveAll("Saved");
 }
 
-void App::drawHudSection() {
-    if (!ImGui::CollapsingHeader("HUD")) return;
+// UI Editor window (Tools > UI Editor): everything composited over the 3D
+// scene, as one reorderable "screen stack" - the HUD images plus two effect
+// layers (bloom+grading, and film grain). The stack order is the game's draw
+// order: entries above an effect layer stay crisp (e.g. the crosshair over the
+// bloom), entries below are composited with it. Bloom and grain are separate
+// entries so, say, bloom can sit under the HUD while grain overlays the whole
+// screen.
+namespace {
+constexpr int kBloomMark = -2;
+constexpr int kGrainMark = -3;
+}  // namespace
 
-    if (ImGui::SmallButton("Import image (PNG)...")) importHudImage();
-    ImGui::SameLine();
-    ImGui::Checkbox("Show in viewport", &showHudInEditor_);
+void App::drawUiEditorWindow() {
+    if (!showUiEditor_ || !hasProject_) return;
+
+    ImGui::SetNextWindowSize(
+        ImVec2(560 * uiScaleApplied_, 420 * uiScaleApplied_),
+        ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("UI Editor", &showUiEditor_)) {
+        ImGui::End();
+        return;
+    }
 
     bool changed = false;
-    for (int i = 0; i < (int)project_.hud.size(); ++i) {
-        std::string label = project_.hud[i].name + "##hud" + std::to_string(i);
-        if (ImGui::Selectable(label.c_str(), selectedHud_ == i)) selectedHud_ = i;
-    }
-    if (project_.hud.empty()) ImGui::TextDisabled("No HUD images.");
+    const int n = (int)project_.hud.size();
 
-    if (selectedHud_ >= 0 && selectedHud_ < (int)project_.hud.size()) {
+    // Render-order stack (bottom of the screen list = drawn first): hud indices
+    // plus the two effect markers. A marker at layer L renders right before hud
+    // sprite L; layer -1 (or >= n) renders after every sprite (topmost). Bloom
+    // before grain when they share a slot (grain composites over the graded,
+    // bloomed image - the fixed internal order).
+    auto buildStack = [&]() {
+        std::vector<int> s;
+        s.reserve(n + 2);
+        for (int i = 0; i < n; ++i) {
+            if (project_.hudBloomLayer == i) s.push_back(kBloomMark);
+            if (project_.hudGrainLayer == i) s.push_back(kGrainMark);
+            s.push_back(i);
+        }
+        if (project_.hudBloomLayer < 0 || project_.hudBloomLayer >= n)
+            s.push_back(kBloomMark);
+        if (project_.hudGrainLayer < 0 || project_.hudGrainLayer >= n)
+            s.push_back(kGrainMark);
+        return s;
+    };
+    // Rebuild the model from a render-order stack: hud array is reordered to
+    // match, each layer = number of hud sprites before its marker (n = -1).
+    auto rebuild = [&](const std::vector<int>& s) {
+        std::vector<HudImage> newHud;
+        newHud.reserve(n);
+        int before = 0, bl = -1, gr = -1;
+        for (int e : s) {
+            if (e == kBloomMark) bl = before;
+            else if (e == kGrainMark) gr = before;
+            else { newHud.push_back(project_.hud[e]); ++before; }
+        }
+        project_.hudBloomLayer = bl >= n ? -1 : bl;
+        project_.hudGrainLayer = gr >= n ? -1 : gr;
+        project_.hud = std::move(newHud);
+    };
+
+    // Display order: top of the screen (drawn last) first = reversed stack.
+    std::vector<int> order = buildStack();
+    std::reverse(order.begin(), order.end());
+
+    // --- left: the screen stack ---------------------------------------------
+    ImGui::BeginChild("##ui_stack", ImVec2(230 * uiScaleApplied_, 0),
+                      ImGuiChildFlags_Borders);
+    if (ImGui::Button("Import image (PNG)...", ImVec2(-1, 0))) importHudImage();
+    ImGui::Checkbox("Show in viewport", &showHudInEditor_);
+    ImGui::SeparatorText("Screen stack");
+    ImGui::TextDisabled("Top entry draws last (on top).\nDrag to reorder.");
+    for (int r = 0; r < (int)order.size(); ++r) {
+        const int id = order[r];
+        ImGui::PushID(r);
+        bool isSel;
+        const char* label;
+        if (id == kBloomMark) {
+            isSel = uiFxSel_ == 1;
+            label = "[ Bloom + color grading ]";
+        } else if (id == kGrainMark) {
+            isSel = uiFxSel_ == 2;
+            label = "[ Film grain ]";
+        } else {
+            isSel = uiFxSel_ == 0 && selectedHud_ == id;
+            label = project_.hud[id].name.c_str();
+        }
+        if (ImGui::Selectable(label, isSel)) {
+            if (id == kBloomMark) uiFxSel_ = 1;
+            else if (id == kGrainMark) uiFxSel_ = 2;
+            else { uiFxSel_ = 0; selectedHud_ = id; }
+        }
+        // Drag to reorder: swap with the neighbor the cursor moved towards,
+        // then rebuild the model from the new order.
+        if (ImGui::IsItemActive() && !ImGui::IsItemHovered()) {
+            const int dst = r + (ImGui::GetMouseDragDelta(0).y < 0.0f ? -1 : 1);
+            if (dst >= 0 && dst < (int)order.size()) {
+                // Remember the selected image so its selection survives the
+                // reorder (indices shift; identity does not).
+                const bool hadHud =
+                    uiFxSel_ == 0 && selectedHud_ >= 0 && selectedHud_ < n;
+                HudImage selHud;
+                if (hadHud) selHud = project_.hud[selectedHud_];
+
+                std::swap(order[r], order[dst]);
+                std::vector<int> s(order.rbegin(), order.rend());
+                rebuild(s);
+
+                if (hadHud)
+                    for (int i = 0; i < (int)project_.hud.size(); ++i)
+                        if (project_.hud[i] == selHud) { selectedHud_ = i; break; }
+                ImGui::ResetMouseDragDelta();
+                changed = true;
+            }
+        }
+        ImGui::PopID();
+    }
+    if (project_.hud.empty())
+        ImGui::TextDisabled("No HUD images yet.\nImport a PNG above.");
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    // --- right: selected entry ------------------------------------------------
+    ImGui::BeginChild("##ui_props", ImVec2(0, 0));
+    if (uiFxSel_ == 1) {
+        ImGui::SeparatorText("Bloom + color grading");
+        ImGui::SliderFloat("Bloom", &project_.settings.bloom, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::TextDisabled(
+            "GS framebuffer trick - no pixel shaders on the PS2. Quarter-res\n"
+            "blur re-added over the frame (soft glow).");
+        ImGui::Spacing();
+        ImGui::TextWrapped(
+            "Stack entries above this layer draw crisp on top of the bloom - "
+            "put the crosshair or text there so the glow does not blur them. "
+            "At the very top the bloom applies at the end of the frame, over "
+            "everything including menus.");
+        ImGui::Spacing();
+        ImGui::TextDisabled(
+            "Color grading applies with this layer. Author presets in\n"
+            "Tools > Color Grading. Per-scene bloom strength: Scene > Scene\n"
+            "Preferences > Post effects.");
+    } else if (uiFxSel_ == 2) {
+        ImGui::SeparatorText("Film grain");
+        ImGui::SliderFloat("Film grain", &project_.settings.grain, 0.0f, 1.0f,
+                           "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::TextDisabled(
+            "Animated noise overlay (GS blits). Subtle values work best.");
+        ImGui::Spacing();
+        ImGui::TextWrapped(
+            "As a separate layer the grain can sit above the bloom and the "
+            "HUD - a filmic overlay over the whole screen - while the bloom "
+            "stays underneath so it does not smear the UI.");
+        ImGui::Spacing();
+        ImGui::TextDisabled(
+            "Per-scene grain strength: Scene > Scene Preferences > Post "
+            "effects.");
+    } else if (selectedHud_ >= 0 && selectedHud_ < n) {
         HudImage& h = project_.hud[selectedHud_];
+        ImGui::SeparatorText(h.name.c_str());
         ImGui::DragFloat2("Position##hud", h.pos, 0.005f, 0.0f, 1.0f, "%.3f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::DragFloat2("Size (px)##hud", h.size, 1.0f, 1.0f, 512.0f, "%.0f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
+
+        // --- Texture bake ----------------------------------------------------
+        // The PS2 only accepts 8/16/32/64/128/256/512-sized textures; the build
+        // resizes the imported PNG into .res-baked to that. "Auto" picks the
+        // nearest valid size, so a mis-sized import just works.
+        auto nearestValid = [](int v) {
+            static const int V[] = {8, 16, 32, 64, 128, 256, 512};
+            int best = V[0], bd = 1 << 30;
+            for (int d : V) {
+                const int dd = v > d ? v - d : d - v;
+                if (dd < bd) { bd = dd; best = d; }
+            }
+            return best;
+        };
+        auto isValid = [&](int v) { return v > 0 && v == nearestValid(v); };
+        auto dimCombo = [&](const char* label, int& dim) {
+            static const int vals[] = {0, 8, 16, 32, 64, 128, 256, 512};
+            static const char* names[] = {"Auto", "8",   "16",  "32",
+                                          "64",   "128", "256", "512"};
+            int cur = 0;
+            for (int i = 0; i < 8; ++i)
+                if (vals[i] == dim) { cur = i; break; }
+            if (ImGui::Combo(label, &cur, names, 8)) {
+                dim = vals[cur];
+                changed = true;
+            }
+        };
+
+        ImGui::SeparatorText("Texture (baked for PS2)");
+        int sw = 0, sh = 0;
+        if (const HudTexture* t = hudTexture(h.imagePath)) { sw = t->w; sh = t->h; }
+        if (sw > 0) {
+            const bool bad = !isValid(sw) || !isValid(sh);
+            if (bad)
+                ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f),
+                                   "Source %dx%d is not a PS2 size", sw, sh);
+            else
+                ImGui::TextDisabled("Source: %dx%d px", sw, sh);
+        }
+        ImGui::PushItemWidth(90.0f * uiScaleApplied_);
+        dimCombo("Width##texw", h.texW);
+        ImGui::SameLine();
+        dimCombo("Height##texh", h.texH);
+        ImGui::PopItemWidth();
+
+        // Colors: like the per-asset material quality, "(project default)"
+        // follows Preferences > Textures; the others override - e.g. keep an
+        // important element full color while the rest of the HUD is quantized.
+        int q = h.texQuant == "none" ? 1
+                : h.texQuant == "8bit" ? 2
+                : h.texQuant == "4bit" ? 3
+                                       : 0;
+        const char* qn[] = {"Project default", "Full color (32-bit)",
+                            "256 colors (8-bit)", "16 colors (4-bit)"};
+        if (ImGui::Combo("Colors##hudq", &q, qn, 4)) {
+            h.texQuant = q == 1 ? "none" : q == 2 ? "8bit" : q == 3 ? "4bit" : "";
+            changed = true;
+        }
+
+        // Resolve "(project default)" for the baked readout.
+        auto colorLabel = [](const std::string& qv) {
+            return qv == "8bit"   ? "256 colors (8-bit)"
+                   : qv == "4bit" ? "16 colors (4-bit)"
+                                  : "Full color (32-bit)";
+        };
+        const std::string effQ =
+            h.texQuant.empty() ? project_.settings.textureQuant : h.texQuant;
+        const int bw = h.texW > 0 ? h.texW : (sw > 0 ? nearestValid(sw) : 0);
+        const int bh = h.texH > 0 ? h.texH : (sh > 0 ? nearestValid(sh) : 0);
+        if (h.texQuant.empty())
+            ImGui::TextDisabled("Baked: %dx%d, %s (from project)", bw, bh,
+                                colorLabel(effQ));
+        else
+            ImGui::TextDisabled("Baked: %dx%d, %s", bw, bh, colorLabel(effQ));
+        ImGui::TextDisabled(
+            "Resized at build (source in res/hud stays untouched). The\n"
+            "on-screen size above is separate - the sprite is stretched.");
+
+        ImGui::Spacing();
         if (ImGui::Button("Delete HUD image"))
-            requestAssetDelete(PendingAssetDelete::Hud, h.imagePath, h.name, selectedHud_);
+            requestAssetDelete(PendingAssetDelete::Hud, h.imagePath, h.name,
+                               selectedHud_);
+    } else {
+        ImGui::TextDisabled("Select an entry on the left.");
     }
-    if (changed) saveAll("Saved");
+    ImGui::EndChild();
+
+    if (changed) saveAll("Saved");  // UI edits are not on the undo stack
+    ImGui::End();
 }
 
 void App::importMusicTrack() {
@@ -5307,7 +5541,7 @@ void App::handleFileDrop(int count, const char** paths) {
                          project_.menus[selectedMenu_].name + "\"";
     } else if (copied > 0 || fonts > 0) {
         statusMessage_ = "Copied into res/ - attach in the Menu Editor (images: "
-                         "Images list, fonts: Font combo) or the HUD section";
+                         "Images list, fonts: Font combo) or Tools > UI Editor";
     } else if (skipped > 0) {
         statusMessage_ = "Drop: PNG images and TTF/OTF fonts are handled here";
     }
@@ -6987,8 +7221,17 @@ void App::performAssetDelete(const PendingAssetDelete& d) {
         case PendingAssetDelete::Hud: {
             // Drop the list entry first; delete the file only if no other HUD
             // entry still references it (imports can duplicate a path).
-            if (d.hudIndex >= 0 && d.hudIndex < (int)project_.hud.size())
+            if (d.hudIndex >= 0 && d.hudIndex < (int)project_.hud.size()) {
                 project_.hud.erase(project_.hud.begin() + d.hudIndex);
+                // Keep the effect layers where they were in the stack: entries
+                // above the erased one shift down by one.
+                auto fixLayer = [&](int& L) {
+                    if (L > d.hudIndex) --L;
+                    if (L >= (int)project_.hud.size()) L = -1;
+                };
+                fixLayer(project_.hudBloomLayer);
+                fixLayer(project_.hudGrainLayer);
+            }
             selectedHud_ = -1;
             bool stillUsed = false;
             for (const HudImage& h : project_.hud)
@@ -7802,12 +8045,10 @@ void App::drawPreferencesModal() {
     ImGui::Checkbox("Gradient sky dome", &prefSettings_.skyDome);
 
     ImGui::SeparatorText("Post effects");
-    ImGui::SliderFloat("Bloom", &prefSettings_.bloom, 0.0f, 1.0f, "%.2f");
-    ImGui::SliderFloat("Film grain", &prefSettings_.grain, 0.0f, 1.0f, "%.2f");
     ImGui::TextDisabled(
-        "GS framebuffer tricks, applied in-game at the end of every frame.\n"
-        "Bloom: quarter-res blur re-added over the frame (soft glow).\n"
-        "Film grain: animated noise overlay. Subtle values work best.");
+        "Bloom and film grain moved to Tools > UI Editor, where their\n"
+        "on-screen layer is also set (e.g. bloom under the HUD, so it\n"
+        "does not blur the crosshair or text).");
 
     ImGui::SeparatorText("Distance fog");
     ImGui::Checkbox("Enable fog", &prefSettings_.fogEnabled);
