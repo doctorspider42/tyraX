@@ -9,6 +9,36 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (34) **Skeletal animation skinning moved from the EE FPU to VU0 (macro
+  mode)** — the backlog's era-correct split (animation on VU0, 3D on VU1,
+  game code on EE), engine-fork only, zero authoring/codegen changes. The
+  `SkelInstance::skinParts` vertex loop is now COP2 inline asm (the
+  `M4x4::cross` lqc2/vmadda pattern, no microprogram): matrix-palette blend,
+  position+normal transform, vrsqrt normal normalization and the skinned
+  AABB (vmini/vmax, kept resident in $vf20/$vf21 across the loop; the
+  min.w slot carries the epsilon that replaces the old `len > 1e-6` guard).
+  The constructor repacks bind data into 16-byte-aligned qwords (positions
+  w=1, normals w=0 so the translation column drops out), prenormalizes the
+  u8 weights to floats summing 1, and sorts each vertex's joints by
+  descending weight so the loop dispatches on influence count: 1 bone = 4
+  matrix loads and no blend, 2 bones = 2-matrix blend (the hot case: 95% of
+  the test character), 3-4 = full blend, 0 = zero matrix (vertex collapses
+  to the origin exactly like the EE loop). A first, dispatch-less version
+  that always blended 4 matrices measured *slower* than the EE loop in
+  PCSX2 (median EE 38.7% vs ~37%) - PCSX2's EE JIT prices a COP2 op like an
+  FPU op, so op count is everything there; the dispatch version restored
+  parity. Pose evaluation (mulM4/fromTrs/slerp) deliberately stays plain C
+  for bit-parity with the editor's preview math. Verified (Docker + PCSX2
+  SW renderer): skelpar frozen-pose scene (skinned char x2 poses + rigid
+  flag, tint) pixel-compared EE vs VU0 - **548 900 game-area pixels, 0
+  differ** (both the naive and the dispatch version); skelperf (3 animated
+  1440-vert characters, 1368 verts with 2 influences / 72 with 1) holds 50
+  FPS with EE median 37.0% (6 samples) vs EE-loop baseline 37.2% (6
+  samples, range 34-41%) - emulator parity, the real win is expected on
+  hardware where one COP2 FMAC does 4 lanes (real-HW run still pending the
+  ps2link memory-card install). The 0- and >=3-influence paths compile but
+  no test asset exercises them (the >=3 block is the pixel-verified naive
+  blend with sorted slots). Docs updated (animated-models.md).
 - (34) **Color grading** — DaVinci-style per-project looks, applied as a GS
   post pass (zero EE cost, like bloom/grain). **Engine**:
   `RendererCorePostFx::setGrading/clearGrading` draws flat full-screen
@@ -1619,23 +1649,15 @@ Each finished feature lands as its own commit.
   needs a custom double-buffered SPU RAM streamer in the engine; audsrv only
   streams PCM and plays ADPCM one-shots
 - Flow graph: more nodes (timers with reset, variables)
-- Animations: VU0 macro-mode skinning (cheap intermediate step before any
-  VU1 work). The Tyra author points out the era-correct split: animation on
-  VU0, 3D on VU1, game code on EE - stage 2 (entry 26) runs pose eval AND
-  vertex skinning on the EE FPU instead. The skinning inner loop in
-  SkelInstance::skinParts (palette blend + position/normal transform) maps
-  directly onto VU0 macro-mode inline asm (lqc2/vmadda - the same pattern
-  as M4x4::cross); no separate microprogram, no architecture change, frees
-  EE cycles that run in parallel with COP2. Keep the plain-C pose math
-  (mulM4/fromTrs) as-is - it exists for bit-parity with the editor, and the
-  vertex loop dominates anyway. Verify with before/after EE% + screenshot
-  parity like entry 26.
+- Animations: measure VU0 skinning (entry 34) on real hardware once ps2link
+  is installed - PCSX2 prices COP2 ops like FPU ops so it can only show
+  parity; the SIMD win (one FMAC = 4 lanes) is a hardware-only effect.
 - Animations stage 3 (optional) - VU1 skinning microprogram: matrix palette
   in VU memory, weights in the vertex stream, new VCL program (respect the
-  vcl_sml.i history first). Measure EE headroom before starting - after
-  stage 2 (entry 26) the EE skins 3 characters at 34-37% load, so it is not
-  the bottleneck yet (consider the VU0 macro-mode step above first).
-  Palette per batch limited by VU memory (~24-32 bones).
+  vcl_sml.i history first). Measure EE headroom before starting - skinning
+  now runs on VU0 in macro mode (entry 34) at ~37% EE load for 3 characters
+  in PCSX2, so the EE is not the bottleneck yet. Palette per batch limited
+  by VU memory (~24-32 bones).
 - Engine perf, next targets: packager allocates its package array per frame
   (poolable); the real endgame is the engine author's own TODO in
   stapip_clipper.hpp - move clipping to VU1 entirely ("too much time")

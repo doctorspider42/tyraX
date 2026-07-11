@@ -6,8 +6,9 @@ model's node hierarchy, skin (inverse bind matrices, per-vertex joints and
 weights), bind-pose mesh and raw keyframe tracks are serialized to a compact
 `.tskl` file. The game evaluates the pose on the EE every frame (keyframe
 interpolation at authored fidelity, crossfade blending between clips), skins
-the vertices through the matrix palette and renders the result through the
-engine's dynamic pipeline. You get smooth, named, scriptable, *blendable*
+the vertices through the matrix palette on **VU0 in macro mode** (the
+era-correct split: animation on VU0, 3D on VU1, game code on EE) and renders
+the result through the engine's dynamic pipeline. You get smooth, named, scriptable, *blendable*
 clips at a fraction of the memory the old baked-frame path needed.
 
 ```
@@ -20,7 +21,7 @@ res/models/character.glb          ← the imported source asset
 res/models/character.tskl (+ extracted PNG textures)
    │  loaded by the engine's TsklLoader
    ▼
-SkelInstance (EE pose evaluation + skinning) → DynPip (VU1 transform/light)
+SkelInstance (EE pose evaluation + VU0 skinning) → DynPip (VU1 transform/light)
 ```
 
 (Stage 1 of this feature baked clips into MD2-style morph frames - `.tanm`
@@ -57,7 +58,7 @@ Practical guidance:
 
 - **Textures must be power-of-two** (PS2 requirement) and ideally ≤ 256 px.
   The importer warns about non-POT textures; the game cannot load them.
-- **Keep meshes lean.** Every visible instance is skinned on the EE each
+- **Keep meshes lean.** Every visible instance is skinned on VU0 each
   frame, so vertex count is now a CPU budget, not a memory one. A few
   hundred to ~2k triangles per character is the era-correct ballpark
   (3 × 1.5k-vertex characters hold a full 50 FPS with plenty of headroom).
