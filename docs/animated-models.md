@@ -18,14 +18,9 @@ whose conservative all-clips AABB is outside the frustum skip pose
 evaluation, skinning and submission entirely (playback time still advances),
 and instances striking the identical pose - the same clip autoplaying in
 lockstep, the usual ambient-prop or enemy-pack setup - share one skinned
-mesh. Two optional distance LODs stack on top (Preferences > Rendering):
-**Animation LOD distance** makes far instances refresh their pose every
-2nd/4th frame (playback time unaffected), and **Mesh LOD distance** bakes
-~50% and ~25%-vertex variants of every part into the `.tskl`
-(quadric-error collapse; attributes and skin bindings ride along
-unchanged) and renders them beyond the distance. Expect visible
-simplification on the reduced meshes - pick a distance at which the
-model is already small on screen. You get smooth, named, scriptable, *blendable* clips at a fraction of
+mesh. Two optional distance LODs stack on top - see
+[Performance: draw distance and LOD](#performance-draw-distance-and-lod).
+You get smooth, named, scriptable, *blendable* clips at a fraction of
 the memory the old baked-frame path needed.
 
 ```
@@ -135,6 +130,44 @@ Vertices here are *expanded triangle-list* vertices (the PS2 pipelines have
 no index buffers), so the editor's reported count is higher than Blender's.
 The "baked frames" number in the Assets/Properties panels describes the
 editor's 12 fps viewport preview, not what the console stores.
+
+## Performance: draw distance and LOD
+
+Every **visible** animated instance costs real EE time each frame (pose
+evaluation + VU0 skinning + submission - roughly 2 ms per 1 000-vertex
+instance on hardware; emulators hide it). Instances outside the camera
+frustum are already free, and instances playing the same clip in lockstep
+(autoplayed props/packs) share one skinning automatically. When a scene
+still gets heavy, three stacking tools bring it back under the 20 ms PAL
+budget - two are **per-project preferences**, one is **per object**:
+
+| Setting | Where | Scope | What it does |
+|---|---|---|---|
+| **Draw distance** | Properties panel of the selected object | per object | Farther than this from the camera the object is not drawn at all. Collision, sounds, scripts and animation time keep running. `0` = always drawn. Works on static objects too. |
+| **Animation LOD distance** | Project > Preferences > **Rendering** | per project | Instances farther than this refresh their pose/skinning every 2nd frame, beyond twice the distance every 4th (staggered across objects). Playback time is unaffected - the pose catches up on the next refresh. `off` (0) = every instance skins every frame. |
+| **Mesh LOD distance** | Project > Preferences > **Rendering** | per project | The build bakes ~50% and ~25%-vertex variants of every animated model into the `.tskl` (quadric-error decimation; skin weights and uvs are preserved, never blended). Instances render the 50% mesh beyond the distance and the 25% one beyond twice the distance. `off` (0) = no LODs baked or kept in RAM. |
+
+Both preferences live in the project file (`.tyra`), so every project tunes
+its own values; there are no per-scene overrides. Distances are world units
+from the camera to the object center, the same units as object positions.
+
+Tuning guidance:
+
+- Start with **Draw distance** on scenery that genuinely disappears at
+  range - it is free and exact.
+- **Animation LOD** is safe to enable broadly: at distance a 25 Hz pose
+  refresh is invisible. It pays off most with *desynchronized* crowds
+  (instances triggered at different times) - synced ones already share a
+  skinning.
+- **Mesh LOD** trades visual fidelity for the biggest submission savings.
+  The reduced meshes are visibly simpler, so pick a distance at which the
+  model is already small on screen - if you can see the difference from
+  gameplay camera positions, the distance is too short. It also costs RAM
+  and `.tskl` size (about +75% of the mesh data per model), which is why
+  `off` bakes no chains at all.
+- Numbers from the stress scene that drove this feature (15 desynchronized
+  1 092-vertex spiders, 12 on screen at once): the animated pass went from
+  22.9 ms (a hard 25 FPS) to 11.1 ms with both LODs enabled.
 
 ## Triggering from the Flow Graph
 
