@@ -86,6 +86,30 @@ Each finished feature lands as its own commit.
   code review + compile only, while the selection→highlight→panel pipeline they
   feed is confirmed working.
 
+- (65) **Scene objects list groups by layer, with drag-and-drop assignment** —
+  the "Scene objects" section in the Project panel used to be one flat list of
+  every object. When the active scene has layers it now renders a tree: one
+  collapsible node per layer (header shows the layer name, its object count and
+  a `[hidden]` tag / dimmed text when the layer's editor eye is off), then an
+  **Unassigned** group for objects with no layer (or a stale name left by a
+  deleted layer). Each layer node expands/collapses to show only its objects.
+  Scenes without layers keep the old flat list unchanged. **Assigning is now
+  drag-and-drop**: drag any object row (or, if it is part of the current
+  selection, the whole selection — the drag tooltip reads "Move N objects")
+  onto a layer header to set `SceneObject::layer`, or onto Unassigned to clear
+  it; the drop is deferred until after the child so the render loop stays
+  stable, and applies as a single `commitChange()` undo step. The existing
+  Properties `Layer` combo still works. Object rows keep their multi-select
+  clicks (Ctrl/Shift) and hidden-layer dimming. Only `drawSceneSection()` in
+  `app.cpp` changed — the data model, serialization and codegen are untouched
+  (layers already carried `SceneObject::layer`). Verified: editor builds clean;
+  launched on `examples/layer-streaming` and confirmed via screenshot that the
+  two building layers render as collapsible nodes with their walls nested
+  underneath and the drag hint showing. The drag *gesture* itself wants a
+  hands-on human pass — synthetic mouse input does not reach the GLFW window in
+  this environment (see entry 64) — but the tree/grouping/drop-target wiring is
+  standard ImGui and confirmed compiling + rendering.
+
 - (63) **Delete assets from the editor (with confirmation)** — until now the
   only way to remove a model, material, texture or HUD image was to delete the
   file by hand in Explorer, and the Music/Sounds `x` deleted the file instantly
