@@ -51,7 +51,7 @@ Then in the editor:
 - **Physics** — per-object gravity (*Physics* checkbox) and FPP player physics: gravity, jumping on X, collision with scene objects, walking on top of them.
 - **Custom .obj models** — `+ Model` imports a mesh into `res/models/`; it renders in the viewport and is compiled into the game (≤3000 tris per model). Models behave like any scene object (gizmos, physics, scripts, lighting).
 - **Directional lighting** — light direction + ambient/diffuse in preferences, baked into vertex colors; identical shading in the viewport and on the PS2.
-- **Sky** — gradient dome (horizon/zenith colors) or flat clear color; scripts can retint it at runtime.
+- **Sky** — gradient dome (horizon/zenith colors) or flat clear color; scripts can retint it at runtime. The dome re-centers on the camera every frame, so even a huge map never lets the player travel out from under the sky.
 - **HUD from images** — `+ Image (PNG)` imports into `res/hud/`; position/size editable with a live preview over the viewport; rendered in-game as 2D sprites.
 - **Runtime scene** — scripts receive mutable `RuntimeObject`s (move/hide/recolor objects every frame); geometry rebuilds automatically.
 - **Project preferences** (`Project > Preferences`, `Ctrl+,`) — game template, terrain size and detail (max grid cells), **triangle handling** (*Precise clipping* — no holes at screen edges but costs EE time, vs *Fast culling* — fastest, large near triangles may vanish), sky color, FPP camera (eye height, walk/look speed) and orbit speed. Stored in the `<name>.tyra` project file and baked into the generated `terrain_config.hpp` on every build; the viewport reflects sky color and terrain detail immediately.
