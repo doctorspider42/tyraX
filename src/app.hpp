@@ -14,6 +14,31 @@
 
 struct GLFWwindow;
 
+// Viewport navigation preferences. These are a machine/muscle-memory property,
+// not project data, so they live in the global editor config (editor.ini in
+// %LOCALAPPDATA%), never in the per-project .tyra. See NavConfig persistence in
+// app.cpp.
+enum class NavScheme {
+    Default = 0,  // tyra: LMB/RMB orbit, MMB pan
+    Blender = 1,  // MMB orbit, Shift+MMB pan (LMB stays free for selection)
+    Maya = 2,     // Alt+LMB orbit, Alt+MMB pan, Alt+RMB dolly
+    Unity = 3,    // RMB orbit, MMB pan
+};
+enum class NavMoveKeys {
+    WASD = 0,
+    Arrows = 1,
+};
+struct NavConfig {
+    NavScheme scheme = NavScheme::Default;
+    NavMoveKeys moveKeys = NavMoveKeys::WASD;
+    float orbitSensitivity = 1.0f;  // 0.2 .. 3.0, multiplies pixel deltas
+    float panSensitivity = 1.0f;
+    float zoomSensitivity = 1.0f;
+    bool invertX = false;  // reverse horizontal orbit direction
+    bool invertY = false;  // reverse vertical orbit direction
+    bool orbitAroundSelection = true;  // pivot snaps to the selected object
+};
+
 class App {
 public:
     // initialProjectDir: optional project to open on startup (may be empty)
@@ -46,6 +71,7 @@ private:
     void drawDiscLayoutWindow();
     void drawNewProjectModal();
     void drawPreferencesModal();
+    void drawNavigationModal();  // global viewport-navigation settings
     void drawScenePreferencesModal();
     void openScenePreferences();  // stage the active scene into scenePref* + open
     void openProjectDialog();
@@ -127,6 +153,12 @@ private:
     void drawSaveDataSection();
     void drawMenusWindow();
     void drawGradingWindow();
+    // Material Editor (Tools > Material Editor): authors the .mtl files the
+    // whole pipeline already consumes (newmtl/Kd/map_Kd) with a live preview.
+    void drawMaterialEditorWindow();
+    void openMaterialEditor(const std::string& relPath);  // load + show
+    bool loadMaterialFile(const std::string& relPath);    // disk -> matEd* staging
+    void saveMaterialFile();  // matEd* staging -> disk + cache invalidation
     void handleFileDrop(int count, const char** paths);
     void saveProject();
 
@@ -150,6 +182,13 @@ private:
     float uiScaleUser_ = 0.0f;     // 0 == auto (match display DPI)
     float uiScaleApplied_ = 1.0f;  // effective scale currently in effect
     ImGuiStyle baseStyle_;
+
+    // Viewport navigation (global editor config, see editor.ini persistence).
+    NavConfig nav_;
+    bool openNavigationPopup_ = false;
+    // Selection index the orbit pivot was last snapped to; -1 = none. Lets
+    // "orbit around selection" re-center only when the selection changes.
+    int navFocusedIndex_ = -1;
 
     Project project_;
     bool hasProject_ = false;
@@ -213,6 +252,29 @@ private:
     bool showGradingEditor_ = false;
     int selectedGrading_ = -1;
     bool gradingPreview_ = true;
+
+    // Material Editor (Tools > Material Editor). Materials are the project's
+    // .mtl asset files, edited in place: matEdMats_ stages the open file's
+    // entries (color/brightness split out of Kd for the UI), every committed
+    // edit rewrites the file and invalidates the caches - the scene viewport
+    // updates live. Not project data, so no undo history (same as imports).
+    bool showMaterialEditor_ = false;
+    std::string matEdPath_;  // project-relative path of the open .mtl ("" = none)
+    struct MatEdEntry {
+        std::string name;
+        float color[3] = {1.0f, 1.0f, 1.0f};
+        float brightness = 1.0f;  // folded into Kd on save (see saveMaterialFile)
+        std::string texture;      // map_Kd, relative to the .mtl dir ("" = none)
+        std::vector<std::string> extra;  // unrecognized lines, preserved verbatim
+    };
+    std::vector<MatEdEntry> matEdMats_;
+    int matEdSel_ = 0;         // selected entry within the file
+    int matEdShape_ = 1;       // preview: 0 box, 1 sphere, 2 cylinder, 3 cone
+    bool matEdSpin_ = true;    // turntable
+    float matEdAngle_ = 40.0f;
+    bool openNewMaterialPopup_ = false;
+    char matEdNewName_[64] = "my-material";
+    std::string matEdNewError_;
     struct HudTexture {
         unsigned tex = 0;
         int w = 0, h = 0;

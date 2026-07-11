@@ -1,4 +1,4 @@
-# Progress log
+﻿# Progress log
 
 Living document: what is being worked on right now, what is done, what is queued.
 Each finished feature lands as its own commit.
@@ -9,11 +9,11 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (46) **Camera flashlight (Silent Hill spot light)** — dynamic spot light
+- (48) **Camera flashlight (Silent Hill spot light)** â€” dynamic spot light
   computed per vertex on VU1 in the StaPip color programs (cull C/TC), the
   paths every editor-generated game renders through. No N.L term (the color
   paths carry no normals - the same flat cone + distance falloff trick the
-  SH era used): `I = clamp((t²-cos²θ·dist²)·invSoft) · clamp(1-dist²/range²)`
+  SH era used): `I = clamp((tÂ˛-cosÂ˛Î¸Â·distÂ˛)Â·invSoft) Â· clamp(1-distÂ˛/rangeÂ˛)`
   where t is the distance along the beam - no sqrt and no extra DIV on VU1
   (the cone test compares squares). The world light is transformed per mesh
   into object space on the EE via a new affine inverse in
@@ -34,7 +34,7 @@ Each finished feature lands as its own commit.
   yet; single-color bags only get it on the cull path (all editor bags are
   multicolor); non-uniform mesh scale distorts the cone slightly.
 
-- (45) **GS hardware distance fog (Silent Hill style)** — per-vertex fog
+- (47) **GS hardware distance fog (Silent Hill style)** â€” per-vertex fog
   coefficient computed on VU1, blended by the GS toward `FOGCOL` for free at
   the pixel level. Engine (`vendor/tyra`): all 8 StaPip + 4 DynPip VU1
   programs now send packed **XYZF2** instead of XYZ2 (new
@@ -61,27 +61,123 @@ Each finished feature lands as its own commit.
   fade to fog gray, sky stays blue, 50 FPS steady, both cull and as_is
   paths exercised (precise clipping); pixel-sampled the gradient. DynPip
   fog compiles but needs an animated-model scene for a visual pass.
+- (45) **Material Editor (Tools > Material Editor) with a live preview** â€”
+  create/edit the `.mtl` materials the pipeline already consumes, without
+  leaving the editor. **No new data model**: materials stay plain Wavefront
+  files under `res/` (the same files `SceneObject::materialPath` references
+  and the PS2 `LeanObjLoader` parses), edited in place; the editor reads and
+  writes the pipeline subset (`newmtl`/`Kd`/`map_Kd`) and preserves unknown
+  lines of hand-imported files verbatim. **Brightness**: a 0-2 slider
+  multiplied into the written `Kd` (so both the game and the viewport pick it
+  up with zero runtime changes) plus a `# tyra-brightness` comment hint so
+  the color x brightness split round-trips exactly; parsers all ignore
+  comments. Kd is capped at 1.99 (PS2 texture modulation tops out at
+  255/128 = ~2x) and the generated `pushVert` now clamps the final vertex
+  color at 255 so a bright material cannot wrap the GS color on untextured
+  primitives. **Window**: file list + "New material..." (also reachable from
+  Project > Assets and an "Edit..." button next to every Material combo in
+  Properties), per-file entry management (add/remove/reorder - first entry =
+  what primitives/emitters use), name/color/brightness/texture editing that
+  saves to disk on every committed change and invalidates the caches
+  (`Viewport::invalidateAssets` + modelInfoCache), so the scene viewport
+  updates live. Texture combo lists PNGs next to the `.mtl` (map_Kd resolves
+  relative to it - same rule as the game), offers Import PNG, and warns on
+  non-power-of-two sizes. **Preview** (`Viewport::renderMaterialPreview`):
+  own FBO + gradient backdrop + checker floor + a turntable
+  box/sphere/cylinder/cone drawn with the shared scene shader and unit
+  meshes, camera orbiting (not the mesh spinning - the directional shade is
+  baked into the vertex colors). Verified: clean build; a scratch project
+  with a hand-written `rusty.mtl` (`# tyra-brightness 1.5`,
+  `Kd 1.35 0.9 0.525`, 64x64 checker map_Kd) opened in the GUI - the window
+  screenshot shows color decomposed back to (230,153,89) + brightness 1.50,
+  the "64x64" size line, the lit textured preview sphere, and the crate in
+  the scene viewport textured by the same material; a second shot shows the
+  turntable advanced and a "Saved res/materials/rusty.mtl" status from a
+  live edit, with the on-disk file byte-identical on reload. Full Docker
+  build of the scratch project: `=== Build OK ===`, generated
+  `terrain_game.cpp` carries the `c255` clamp, `scene_data.hpp` the
+  MATERIAL_PATHS entry, and `bin/materials/rusty.mtl` ships. In-game visuals
+  of a >1-brightness material on a real console still merit a human eyeball.
+- (46) **Frame drops no longer halve gameplay speed + "Disable VSync
+  (experimental)" preference** â€” with double-buffered vsync a PAL game is
+  quantized to 50/25/16.7 FPS (a 20.1 ms frame waits for the next vblank),
+  and the generated games set `g_frameDt`/`g_frameScale` once at init
+  assuming full rate - so dropping to 25 FPS also meant *half-speed*
+  gameplay. Now `updateFrameClock()` (generated prolog, called first thing
+  in both loop() variants) measures the real frame time (EE COP0 Count,
+  wrap-safe) and refreshes dt/scale every frame: within Â±10% of the nominal
+  vsync step it snaps to exactly nominal (full-rate behavior stays
+  bit-identical), longer/shorter frames pass through clamped to [1/4, 4x]
+  nominal (a scene load is a hitch, not a gameplay leap). Known gap,
+  documented: frame-counter timers (`everyFrames` - flow-graph Every N
+  Seconds, sound-emitter intervals, HUD holds) still count rendered frames
+  and stretch at 25 FPS. Second half: **Project > Preferences > Build >
+  "Disable VSync (experimental)"** (`ProjectSettings::disableVsync`, saved
+  to .tyra, baked as `FRAME_LIMIT` into terrain_config.hpp; init calls
+  `setFrameLimit(false)`) - skips the vsync wait before the flip, making
+  the frame rate continuous instead of snapping 50 -> 25, at the cost of
+  tearing. Verified on the real PS2 (15-spider scene, PERF telemetry,
+  full sweeps): vsync ON - 50 FPS up to 11 spiders in view, 25 FPS zone at
+  14-15 with `dtus` flipping 19999 -> 40000 exactly when frames double
+  (compensation active); vsync OFF - endFrame wait collapses ~12 ms ->
+  0.53 ms and frame times go continuous: 7.1 ms empty view (~140 FPS),
+  15.8 ms at 11 spiders (~63), 23.2 ms at 15 (~43 FPS instead of a hard
+  25). A by-eye TV check of tearing severity stays with a human.
+
+- (45) **Animated models: 50 FPS on real hardware (was 25 at most camera
+  angles)** â€” the anim-test-many scene (7 skeletal 1092-vert spiders) halved
+  to exactly 25 FPS whenever several were on screen, PCSX2 never showed it.
+  Diagnosed with a throwaway instrumented build (COP0 frame-phase timers +
+  auto-spinning camera, PERF lines over ps2link): the frame was **EE-bound**
+  â€” every instance paid ~0.9 ms pose+skin plus ~1 ms DynPip submit every
+  frame, visible or not (~9.6 ms with zero spiders on screen), and with 7 in
+  view the busy time alone crossed the 20 ms PAL budget. (An earlier
+  guard-band-raster theory did not survive measurement: exact EE clipping
+  changed nothing at the bad angles - the "skip one spider" experiment had
+  merely removed ~1.5 ms of EE work.) Fix, all four parts measured on the
+  console: **(a)** skinned meshes render through **StaPip** instead of
+  DynPip - one vertex upload (DynPip sends from/to pairs and lerps them for
+  nothing on single-frame skeletal meshes), no VU1 program swap mid-frame,
+  EE clipping, per-package culling; **(b)** whole-instance frustum culling
+  with the .tskl AABB (now baked as a sampled union over every clip - the
+  runtime pads it 10%/axis; also fattens the collision box of clips that
+  reach out) - culled instances only advance playback time
+  (`SkelInstance::advance()/ensurePose()` split, engine); **(c)** instances
+  striking the identical pose (same clip advanced in lockstep - autoplayed
+  packs/props) share one skinned mesh via `SkelInstance::poseEquals`;
+  **(d)** TsklLoader merges parts with equal texture+color (fewer bags =
+  fewer object-data DMAs/packager runs), and the StaPip bbox cacher
+  recomputes version-bumped entries **in place** (per-frame `bboxVersion`
+  bumps used to pile up 250-frame-retention cache entries). Verified on the
+  real PS2 (360Â° sweeps, PERF telemetry): 50 FPS at every angle (worst
+  angle was 39.6 ms/frame, now 19.99 ms with ~7 ms vsync idle); offscreen
+  anim cost 9.6 ms -> ~6 us; 7 synced spiders skin once (anim 6.0 ms ->
+  0.86 ms); a mixed-clip variant (5 synced + 1 stand + 1 slow) shows exactly
+  3x the single-skin cost - groups split correctly - still 50 FPS. PCSX2 SW
+  renderer: spiders at the old worst angle render identically to the DynPip
+  path (lighting formula and light-data layout are shared between the
+  pipelines). Docs updated (animated-models.md).
 
 - (44) **PS2 deploy: Stop / second launch hung the console (thread-priority
-  regression)** — first network deploy worked, but Stop on PS2 and every
+  regression)** â€” first network deploy worked, but Stop on PS2 and every
   redeploy left the console frozen on the old game. Root cause: entry (40)'s
   audio work demoted the game's main thread to priority 0x10 so the audio
-  threads (0x5/0x6) could preempt it — but ps2link's EE command thread (the
+  threads (0x5/0x6) could preempt it â€” but ps2link's EE command thread (the
   one that services `ps2client reset`/`execee` while a game runs, verified
   in ps2link's `ee/cmdHandler.c`) runs at priority 20, and the EE scheduler
   is strictly priority-based. Since the engine's GS/vsync waits are
   busy-spins that never block, a priority-16 game starved ps2link forever
   and the reset UDP command was received (IOP side) but never processed
   (EE side). Fix (`vendor/tyra/engine/src/engine.cpp`): demote to 0x40
-  instead — identical to ps2link's own user-program priority, so audio
+  instead â€” identical to ps2link's own user-program priority, so audio
   (0x5/0x6) and ps2link (20) both preempt the render loop; PCSX2/ISO boots
   keep the same audio-over-game ordering as before. Verified: engine +
   game rebuild clean (libtyra re-archived, ps2net relinked); the actual
-  stop → redeploy cycle on the real console needs a hands-on test. Note:
+  stop â†’ redeploy cycle on the real console needs a hands-on test. Note:
   a console already stuck with the old ELF must be power-cycled back into
-  PS2LINK once — the fix rides in the game binary.
+  PS2LINK once â€” the fix rides in the game binary.
 
-- (43) **Viewport wire boxes rendered as garbage lines** — the selection
+- (43) **Viewport wire boxes rendered as garbage lines** â€” the selection
   outline and the "Highlight usable objects" boxes drew as random
   criss-crossing lines instead of cubes: `unitWireCube()` (viewport.cpp)
   emitted 6 floats per vertex (pos+color) while `uploadMesh()` reads the
@@ -95,7 +191,7 @@ Each finished feature lands as its own commit.
   the GDI screenshot shows proper yellow highlight cubes hugging each
   usable object (rotation/scale respected) and the orange selection box
   around the sphere, instead of the previous line spray.
-- (35) **Unity-style object scripts + the Empty object type** — scripts are
+- (35) **Unity-style object scripts + the Empty object type** â€” scripts are
   now attachable components instead of always-running globals. **Model**:
   `SceneObject::scripts` (list of class names; part of `operator==`, undo,
   copy/paste and the `.tyra` round-trip - `"scripts": [...]` emitted only
@@ -141,7 +237,7 @@ Each finished feature lands as its own commit.
   reference, Empty objects, performance, troubleshooting).
 - (34) **Skeletal animation skinning moved from the EE FPU to VU0 (macro
 - (42) **Main thread demoted below the audio threads (music dragged at low
-  FPS)** — music played cleanly at 50 FPS but audibly slowed when a heavy
+  FPS)** â€” music played cleanly at 50 FPS but audibly slowed when a heavy
   scene dropped the game to 25: the EE is one core, the engine's GS waits
   are busy-spins that never yield, and depending on the boot path the main
   thread arrives at priority 0 - so a compute-bound frame starved the audio
@@ -152,7 +248,7 @@ Each finished feature lands as its own commit.
   real console. Also: MEM reads used/total, the music PS2-build row fits
   the mono checkbox again (a wide combo pushed it out of the panel).
 
-- (41) **Song streamer thread + EE-load overlay** — the last structural fix
+- (41) **Song streamer thread + EE-load overlay** â€” the last structural fix
   for network music: the fillbuf callback fires when the audsrv ring is
   nearly EMPTY, so any file read on the audio thread races a ring holding
   under ~1/9th s of audio - one slow network round trip at that moment is a
@@ -173,7 +269,7 @@ Each finished feature lands as its own commit.
   main-thread work before it starts waiting on the GS; works on real
   hardware (unlike PCSX2's emulator-side EE% readout).
 
-- (40) **Music + sound emitters = FPS drop: audsrv RPC contention fix** —
+- (40) **Music + sound emitters = FPS drop: audsrv RPC contention fix** â€”
   reproduced in PCSX2 (finally an EE-side bug, not the network): a scene
   with one sound emitter ran 50 FPS silent but 42 FPS with music playing,
   while a scene with music and NO emitters held 50. Mechanism:
@@ -189,7 +285,7 @@ Each finished feature lands as its own commit.
   overlay has no emulator gate - it renders on real hardware too (the "not
   on the console" report was a stale pre-debug-profile deploy).
 
-- (39) **Per-track music build conversion + Stop on PS2** — the experiment
+- (39) **Per-track music build conversion + Stop on PS2** â€” the experiment
   window for network music: every Music-panel track gets "PS2 build"
   controls (rate: keep/48000/32000/22050/11025 + mono; only rates audsrv has
   an upsampler for - a first cut offered 16000, which audsrv does NOT
@@ -212,7 +308,7 @@ Each finished feature lands as its own commit.
   reboots back into its listening state instead of hanging on dead file
   handles when you just want the game gone.
 
-- (38) **Song read-ahead stage (network music without hiccups)** — feeding
+- (38) **Song read-ahead stage (network music without hiccups)** â€” feeding
   audsrv straight from per-chunk freads gives every read a hard deadline of
   one chunk of audio (46 ms at 22 kHz stereo); over ps2link any latency
   outlier is an audible hiccup ("almost right, still snags" on the real
@@ -228,7 +324,7 @@ Each finished feature lands as its own commit.
   upstreamed the ps2client TCP_NODELAY fix as ps2dev/ps2client#25.
 
 - (37) **Skeletal animation skinning moved from the EE FPU to VU0 (macro
-  mode)** — the backlog's era-correct split (animation on VU0, 3D on VU1,
+  mode)** â€” the backlog's era-correct split (animation on VU0, 3D on VU1,
   game code on EE), engine-fork only, zero authoring/codegen changes. The
   `SkelInstance::skinParts` vertex loop is now COP2 inline asm (the
   `M4x4::cross` lqc2/vmadda pattern, no microprogram): matrix-palette blend,
@@ -257,19 +353,19 @@ Each finished feature lands as its own commit.
   ps2link memory-card install). The 0- and >=3-influence paths compile but
   no test asset exercises them (the >=3 block is the pixel-verified naive
   blend with sorted slots). Docs updated (animated-models.md).
-- (36) **Color grading** — DaVinci-style per-project looks, applied as a GS
+- (36) **Color grading** â€” DaVinci-style per-project looks, applied as a GS
   post pass (zero EE cost, like bloom/grain). **Engine**:
   `RendererCorePostFx::setGrading/clearGrading` draws flat full-screen
-  sprites between bloom and grain — per-channel gain via FBMSK-masked
+  sprites between bloom and grain â€” per-channel gain via FBMSK-masked
   `(Cd-0)*FIX` sprites (equal gains collapse to one), per-channel lift as
   additive/subtractive flat colors, and one alpha-blend sprite mixing toward
   a constant color (tint + the saturation approximation; two lerps toward
   constants fold into one). Worst case 6 extra sprites, alpha byte always
   FBMSK-protected, z writes stay masked; postfx packet grew 160 -> 224 qw.
   **Model**: `ColorGradingPreset` (brightness/contrast/saturation/
-  temperature/tint/lift/gain) + `compileGrading()` in the new grading.hpp —
+  temperature/tint/lift/gain) + `compileGrading()` in the new grading.hpp â€”
   the ONE place that folds the friendly controls into quantized GS numbers
-  (contrast pivot into gain+lift, saturation as a mix toward mid-gray — the
+  (contrast pivot into gain+lift, saturation as a mix toward mid-gray â€” the
   GS has no per-pixel luma, documented as an approximation);
   `Project::gradings` + `defaultGrading`, saved/loaded with defaults for old
   projects (not part of undo snapshots, same as menus). **UI**: Tools >
@@ -280,13 +376,13 @@ Each finished feature lands as its own commit.
   open, else the project default (gl_loader gained Uniform1f). **Codegen**:
   GRADING_* tables + templated `applySceneGrading()` in scene_data.hpp
   (header stays engine-include-free), `applySceneGrading(engine,
-  GRADING_DEFAULT)` in both game templates' init (grading is global —
+  GRADING_DEFAULT)` in both game templates' init (grading is global â€”
   scene switches keep the active preset), new **Set Color Grading** flow
   node (Scene category, preset picker, "<none>" = clearGrading). Verified:
   editor builds clean; scratch fpp project with two presets round-trips the
   JSON; generated tables hand-checked against compileGrading math; Docker
   build OK (engine + empty- and 2-preset tables compile on the PS2
-  toolchain); PCSX2 e2e on the software renderer — timed screenshots show
+  toolchain); PCSX2 e2e on the software renderer â€” timed screenshots show
   boot applying the sepia default (sky measured (157,156,148) vs computed
   (151,148,145)) and an Every-6s -> Set Color Grading("night") graph
   switching the frame to the night look at runtime; viewport A/B
@@ -301,7 +397,7 @@ Each finished feature lands as its own commit.
   (presets, quick looks, sliders, both wheels and the GS readout all
   render); the drag FEEL still needs a quick human pass (no safe way to
   drive ImGui with synthetic input while the user works the machine).
-- (35) **UI (DPI) scaling** — the editor was near-unreadable on high-DPI small
+- (35) **UI (DPI) scaling** â€” the editor was near-unreadable on high-DPI small
   screens (a 4K laptop). On startup it now auto-matches the monitor's content
   scale via `ImGui_ImplGlfw_GetContentScaleForWindow` (a 4K laptop reports e.g.
   2.0-2.5x), so it "just works" with zero config. A new always-available
@@ -320,7 +416,7 @@ Each finished feature lands as its own commit.
   this machine's ~2.5x DPI and scaled accordingly) - all without crashing.
   Gizmo/ImNodes use screen/clip-space sizing so they were already DPI-neutral.
 
-- (34) **Custom particle kind: full physics knobs (jets, leaks, steam)** —
+- (34) **Custom particle kind: full physics knobs (jets, leaks, steam)** â€”
   sixth emitter kind "Custom" exposes the simulation instead of a preset:
   **Speed** (u/s, +-20% jitter) along the emitter's **+Y axis rotated by the
   object rotation** (emitters gained the Rotation field for this - tilt 90
@@ -350,10 +446,10 @@ Each finished feature lands as its own commit.
   pass left for a human: knob feel while watching the live preview.
 
 - (33) **Particle emitters v2: live viewport preview, rain, textures,
-  enabled + follow-player** — emitters no longer render as scaled cones in
+  enabled + follow-player** â€” emitters no longer render as scaled cones in
   the editor: the viewport now runs the same per-kind particle simulation as
   the generated game (spawn/velocity/size/alpha formulas copied from
-  `updateParticles()` — the twin-formula comment marks both sides) on
+  `updateParticles()` â€” the twin-formula comment marks both sides) on
   per-emitter CPU pools, drawn as alpha-blended camera-facing quads through a
   new small shader (pos + RGBA + UV dynamic buffer, depth-test on / z-write
   off, drawn last like the game). A fixed-size cone marker remains for
@@ -366,15 +462,15 @@ Each finished feature lands as its own commit.
   fixed per-quad UVs through a StaPipTextureBag; color tints the texture,
   same in the viewport), **Density (count)** cap raised 128 -> 256,
   **Enabled** (off = starts invisible; the existing Show/Hide/Toggle Object
-  flow nodes enable/disable emitters at runtime — that mapping is the
+  flow nodes enable/disable emitters at runtime â€” that mapping is the
   documented on/off switch), and **Follow player** (the emitter position
-  becomes an offset from the camera — rain that tracks the player instead of
+  becomes an offset from the camera â€” rain that tracks the player instead of
   covering the map; editor previews it in place). Data model: emitterEnabled
   / emitterFollowPlayer (+ operator==), `"enabled"`/`"followPlayer"` in the
   emitter JSON block, `emitEnabled`/`emitFollow` columns in
   SceneObjectData. gl_loader grew glDepthMask. Verified: editor builds
   clean; scratch fpp project with a follow-player rain emitter + a disabled
-  fire emitter carrying a material — generated scene_data.hpp row checked
+  fire emitter carrying a material â€” generated scene_data.hpp row checked
   (kind 4, count 96, enabled/follow flags, material index resolved), full
   Docker build to ELF OK; GUI screenshots show animated rain streaks in the
   viewport, the dimmed disabled-fire marker and the new Properties fields;
@@ -384,7 +480,7 @@ Each finished feature lands as its own commit.
   a textured emitter in-game (codegen + texture-bag path compiled and
   mirrors the terrain texturing, but no PNG-textured emitter was booted).
 
-- (32) **Flow graph node overhaul** — one batch of user-requested block fixes.
+- (32) **Flow graph node overhaul** â€” one batch of user-requested block fixes.
   **Trimmed pins**: On Start / On Button / Every N Seconds lose their object
   and bool outputs, Near Object / On Used / On Animation Finished lose the
   bool output (the logic-gate plane keeps its pure sources: Value At Least,
@@ -422,7 +518,7 @@ Each finished feature lands as its own commit.
   nodes/pins; samples/script-demo regenerated. In-game behavior (delay
   timing, mover feel, pad buttons) still needs a human PCSX2/pad pass.
 
-- (31) **Per-stick deadzones + Project panel cleanup** — the Input deadzone
+- (31) **Per-stick deadzones + Project panel cleanup** â€” the Input deadzone
   splits into "Left stick deadzone" (movement) and "Right stick deadzone"
   (camera): worn pads rarely drift equally, and one shared value forced the
   healthy stick to pay for the drifting one. ANALOG_DEADZONE ->
@@ -434,7 +530,7 @@ Each finished feature lands as its own commit.
   builds clean.
 
 - (30) **ps2client TCP_NODELAY (~100x host: throughput), Build menu + Clean,
-  orphaned-adpcm sweep** — three fixes from the second real-hardware session.
+  orphaned-adpcm sweep** â€” three fixes from the second real-hardware session.
   **TCP_NODELAY**: file serving to the console ran at ~4 KB/s (424 KB texture
   = 106 s, boot = 10 minutes, streamed music sounded like a crashed GameBoy -
   the audsrv ring starved at 44.1 kHz stereo needing 176 KB/s). Root cause:
@@ -458,7 +554,7 @@ Each finished feature lands as its own commit.
   logs above), editor + Docker game build clean after all changes.
 
 - (29) **Real-pad feedback round: stick deadzone, HUD/particle race fix, PS2
-  buttons in the Project panel** — three findings from playing on the real
+  buttons in the Project panel** â€” three findings from playing on the real
   console. **Deadzone**: the hardcoded 0.20 stick deadzone becomes
   Preferences > Input > "Stick deadzone" (0-0.9, ANALOG_DEADZONE in
   terrain_config.hpp); motion above the threshold now rescales from zero
@@ -480,17 +576,17 @@ Each finished feature lands as its own commit.
   with a tooltip until the ps2link IP is set), matching the Project-menu F6
   entries.
 
-- (28) **Run on PS2 — real-hardware fixes (game verified running on a PS2)** —
+- (28) **Run on PS2 â€” real-hardware fixes (game verified running on a PS2)** â€”
   the first live deploys surfaced four independent landmines, each verified on
   the actual console:
-  (a) **execee arguments never arrive** — ps2link passes args in a
+  (a) **execee arguments never arrive** â€” ps2link passes args in a
   non-standard way that needs a newer newlib crt0 than the `h4570/tyra`
   toolchain image ships, so `-ps2link` silently never reached main() and the
   game reset the IOP, killing ps2link (symptom: rom0:ROMVER opened, every
   host: open dead). Detection now uses a `bin/ps2link.run` marker: written by
   the PS2 deploy, deleted by PCSX2 launches, probed by the game over host:
   BEFORE the engine boots (argv stays as a fallback). Excluded from ISOs.
-  (b) **sbv_patch_fileio corrupts ps2link's fileio** — it pokes jumps at
+  (b) **sbv_patch_fileio corrupts ps2link's fileio** â€” it pokes jumps at
   fixed offsets valid for Sony's ROM FILEIO; ps2link's environment runs
   PS2SDK's FILEIO_service reporting the same 1.1 version (the patch's only
   guard) with a different code layout. Skipped under keepIopResident, as are
@@ -500,7 +596,7 @@ Each finished feature lands as its own commit.
   minutes (every small read is an EE->IOP->TCP round trip): png_loader now
   reads the whole file with large sequential freads (no fseek - unreliable on
   host fs) and decodes from memory; verified in PCSX2 after the change.
-  (d) **the shared engine volume races parallel checkouts** — every git
+  (d) **the shared engine volume races parallel checkouts** â€” every git
   worktree (parallel Claude sessions) rsyncs its own vendor/tyra over
   `tyra-engine-shared`, endlessly rolling back other checkouts' engine fixes
   (one game even compiled against headers another session had reverted
@@ -513,7 +609,7 @@ Each finished feature lands as its own commit.
   ISOs) and warns when an sfx .adpcm exceeds 1 MB (SPU RAM is 2 MB; a 15 MB
   song imported as a sound effect was most of a 10-minute network boot).
 
-- (27) **Run on PS2 — network deploy to a real console (ps2link)** — the game
+- (27) **Run on PS2 â€” network deploy to a real console (ps2link)** â€” the game
   boots on a physical PS2 over ethernet straight from the editor: no ISO, no
   SMB/OPL. The console runs ps2link (one-time memory-card install; package +
   IPCONFIG.DAT prepared under F:\PS2\ps2link-mc for this machine) and the
@@ -522,7 +618,7 @@ Each finished feature lands as its own commit.
   Docker build, then `ps2client reset` + 3s + `execee host:<name>.elf
   -ps2link` with **cwd = bin/**, so the game's `host:` cwd maps to bin/
   exactly like a PCSX2 run and every asset is served from this PC over the
-  network (the PS2 connects back to TCP 18193; logs arrive over UDP 18194 —
+  network (the PS2 connects back to TCP 18193; logs arrive over UDP 18194 â€”
   both firewall rules created, Private profile, program-scoped). The execee
   process IS the file server, so it stays alive across the session (killed on
   the next deploy/exit; its output streams into the Output panel as "[ps2]"
@@ -534,15 +630,15 @@ Each finished feature lands as its own commit.
   gated on a new editor-side pref "PS2 (ps2link) IP" (Preferences > Real PS2;
   persisted in the .tyra editor block); CLI: `--build <dir> --run-ps2 [ip]`
   (stays alive relaying console logs while the file server runs). Liveness
-  gotcha: ps2link commands are UDP fire-and-forget — reset/execee "succeed"
-  against a dead IP — so success is declared only when the console's first
+  gotcha: ps2link commands are UDP fire-and-forget â€” reset/execee "succeed"
+  against a dead IP â€” so success is declared only when the console's first
   log line arrives (15s window), verified both ways: offline IP now fails
   with a helpful message (was a false "Game running"); PCSX2 path re-verified
   end-to-end after the engine change (SW renderer, 50 FPS). Real-hardware
   run pending the one-time ps2link memory-card install.
 
 - (26) **Animated models stage 2: true skeletal runtime (.tskl) + crossfade
-  blending** — the baked-morph-frame backend from (25) is replaced by a real
+  blending** â€” the baked-morph-frame backend from (25) is replaced by a real
   skeletal one; the entire authoring surface (.glb import, clip names,
   Properties fields, flow nodes, script API, RuntimeObject anim fields and
   animFinished semantics) is unchanged. The editor now serializes what
@@ -558,13 +654,13 @@ Each finished feature lands as its own commit.
   bind-pose triangle lists with u8 joints/weights (sum-normalized to 255,
   max 256 palette slots). Engine fork additions: `TsklLoader` (whole-file
   read, bounds-checked, validates hierarchy/palette/joints once at load) and
-  `SkelInstance` — per-object playback (current + fading layer, per-channel
+  `SkelInstance` â€” per-object playback (current + fading layer, per-channel
   O(1) key cursors), EE pose evaluation (slerp/step sampling identical to
   the editor's math, parents-first hierarchy walk, palette = global x IBM),
   crossfade as a local-TRS blend (lerp T/S, sign-fixed nlerp R) before one
   hierarchy walk, and EE skinning of positions + normals into an owned
   single-frame DynamicMesh that DynPip renders as verticesFrom==verticesTo
-  (interpolation 0) — zero new VU1 code, stage-1 lighting/tint/texture
+  (interpolation 0) â€” zero new VU1 code, stage-1 lighting/tint/texture
   plumbing reused, frame bboxes refreshed from the skinned AABB every skin.
   Codegen: `GameAnimModel` holds the shared SkelModel + per-part textures,
   `setupAnimObject` builds a SkelInstance per object (fresh material ids
@@ -573,7 +669,7 @@ Each finished feature lands as its own commit.
   animSpeed` (wall-clock, PAL/NTSC-safe); collision still uses the clip-0
   frame-0 AABB (now stored in the .tskl). New surface (M2): optional
   **Fade** param on Play Animation (seconds, 0 = instant), `playAnimation(
-  ..., fade)` default arg + `RuntimeObject::animFade` — both backward
+  ..., fade)` default arg + `RuntimeObject::animFade` â€” both backward
   compatible; docs/animated-models.md rewritten for the skeletal pipeline.
   Import status now reports the skeletal RAM estimate. Verified: host
   harness + python cross-checker re-evaluates the .tskl pose/skinning math
@@ -590,10 +686,10 @@ Each finished feature lands as its own commit.
   0.4s-burst screenshots shows a smooth twist->wave blend with consecutive-
   frame pixel deltas in the same band as normal playback (no pop; fade
   codegen inspected in flow_graph.gen.cpp). Sample regenerated + rebuilt in
-  Docker. VU1 skinning (M3) stays in the backlog — EE headroom says it is
+  Docker. VU1 skinning (M3) stays in the backlog â€” EE headroom says it is
   not yet the bottleneck.
 
-- (25) **Animated models: .glb import baked to PS2 morph frames (stage 1)** —
+- (25) **Animated models: .glb import baked to PS2 morph frames (stage 1)** â€”
   the engine's dormant dynamic pipeline (DynPip: MD2-style two-frame VU1
   interpolation) is now wired end to end. OBJ has no animation, so animated
   models come in as **.glb** (Blender: glTF Binary export): the new
@@ -630,7 +726,7 @@ Each finished feature lands as its own commit.
   runtime) is specced in the Backlog.
 
 - (24) **Texture quantization: project-wide palette textures + per-asset
-  quality override** — the PS2-native "texture compression". The GS has no
+  quality override** â€” the PS2-native "texture compression". The GS has no
   DXT-style format; era games shipped palettized PSMT8/PSMT4 textures, and
   the engine's PNG loader already eats indexed PNGs directly - so the editor
   now produces them. **Preferences > Rendering > Textures** picks the
@@ -661,7 +757,7 @@ Each finished feature lands as its own commit.
   Preferences/Assets combos need a hands-on GUI pass). Sample regenerated
   (Makefile RESDIR + .gitignore .res-baked).
 
-- (23) **Materials replace per-object textures** — the loose "slap a PNG on
+- (23) **Materials replace per-object textures** â€” the loose "slap a PNG on
   an object" texture is gone; .mtl material libraries are the one texturing
   mechanism. Every solid object gets a **Material combo** in Properties
   listing the project's .mtl assets (a new `res/materials` folder for
@@ -691,7 +787,7 @@ Each finished feature lands as its own commit.
   the red MISSING flags in Properties. fpp + empty presets rebuilt clean in
   Docker; sample regenerated.
 
-- (22) **Missing textures fail soft + are visible in the editor** — a model
+- (22) **Missing textures fail soft + are visible in the editor** â€” a model
   whose .mtl referenced a texture that never made it into the project used to
   kill the game at boot ("Failed to load ... png_loader.cpp:39" assert - the
   texture repository trusts its callers). The generated game now probes every
@@ -707,7 +803,7 @@ Each finished feature lands as its own commit.
   the game now boots at 50 FPS with "Model texture missing:
   models/tower/textures/t_C_3.png" in the game log; editor builds clean.
 
-- (21) **Sibling-.mtl matching, asset subfolders, Add-menu restructure** —
+- (21) **Sibling-.mtl matching, asset subfolders, Add-menu restructure** â€”
   three usability follow-ups. **Implicit MTL**: a `.mtl` named like the `.obj`
   next to it is picked up even without a `mtllib` line (the common exporter
   convention); explicit mtllib files still parse afterwards and win on name
@@ -728,7 +824,7 @@ Each finished feature lands as its own commit.
   mtl+texture (loads clean - no LeanObjLoader warnings in the game log);
   editor builds clean.
 
-- (20) **Pick-from-project asset flow + Assets section + MTL visibility** —
+- (20) **Pick-from-project asset flow + Assets section + MTL visibility** â€”
   the object/terrain pickers no longer open file dialogs: textures pick from
   `res/textures` (object texture, Project Preferences and Scene Preferences
   terrain texture - all through one `pickProjectTexture()` popup), model
@@ -747,7 +843,7 @@ Each finished feature lands as its own commit.
   ("walls (bricks.png), roof (color)" for the test house) and the Pick...
   texture flow on the mtltest project.
 
-- (19) **Asset import rework: drop-into-res + rescan, in-editor WAV converter** —
+- (19) **Asset import rework: drop-into-res + rescan, in-editor WAV converter** â€”
   assets no longer have to go through the import dialogs. WAVs dropped by hand
   into `res/audio` / `res/sfx` are picked up by a rescan (runs on project open
   + Rescan buttons in the Music/Sounds sections); entries whose file vanished
@@ -770,7 +866,7 @@ Each finished feature lands as its own commit.
   Rescan buttons + pickers visible in the GUI. Hands-on drop-a-file-and-rescan
   pass left for a human.
 
-- (18) **MTL materials, runtime model loading and mesh collision** — models
+- (18) **MTL materials, runtime model loading and mesh collision** â€” models
   went from "baked gray blob" to the full 2002 experience. **Engine** (new,
   marked "Added by tyra-editor"): `LeanObjLoader` - a lightweight OBJ+MTL
   loader (per-material split, Kd + map_Kd, flat per-face normals and V-flip
@@ -807,7 +903,7 @@ Each finished feature lands as its own commit.
   loaded from the disc). Interactive walk-into-walls pad feel left for a
   human.
 
-- (17) **Two project presets + per-scene override of scene-visual settings** —
+- (17) **Two project presets + per-scene override of scene-visual settings** â€”
   tidy-up of project creation and preferences. **New project presets** cut from
   three (orbit / fpp / showcase) to two: `empty` (orbit camera, no objects) and
   `fpp` (FPP game template + a single Player entity, nothing else). `create()`'s
@@ -822,7 +918,7 @@ Each finished feature lands as its own commit.
   active category swapped for the scene's values. Everything downstream reads
   through it: the viewport (`applyProjectToViewport`), ISO export, and codegen.
   A new **Scene > Scene Preferences** dialog mirrors Project Preferences with an
-  "Override project settings" checkbox per category — off = the widgets are
+  "Override project settings" checkbox per category â€” off = the widgets are
   grayed and preview the inherited project value, on = editable from that value.
   Project Preferences now edits only the project-wide defaults (it no longer
   writes lighting into the active scene, which also fixed a latent bug where the
@@ -834,7 +930,7 @@ Each finished feature lands as its own commit.
   existing per-scene lighting), reached through `SKY_R = SKY_RS[g_activeScene]`
   style accessor macros. Those macros (and the whole SCENE_*/TERRAIN_* set)
   moved out of the game-cpp prolog into `scene_data.hpp`, and `g_activeScene`
-  became a real extern global (defined once in the game cpp) — so user scripts,
+  became a real extern global (defined once in the game cpp) â€” so user scripts,
   which include `scene_data.hpp` via `script.hpp`, keep seeing `SKY_R` etc.
   (the first Docker build caught this: the example script failed to compile
   until the macros were visible to its TU). `loadScene` now re-applies the
@@ -852,7 +948,7 @@ Each finished feature lands as its own commit.
   per-scene switch (loadScene re-application) and the Scene Preferences dialog's
   graying are the standard hands-on human checks.
 
-- (16) **Single `.tyra` project file + per-project window layout** — normalized
+- (16) **Single `.tyra` project file + per-project window layout** â€” normalized
   the on-disk project. Previously a project was `project.json` (game data,
   tracked) plus a gitignored `<name>.tyra` solution (editor state + undo) plus
   binary `terrain-*.heights`, and the ImGui window layout lived in a global
@@ -861,24 +957,24 @@ Each finished feature lands as its own commit.
   mode) + the ImGui docking layout, so the window arrangement is restored per
   project. `project.json` is gone (no backward compat); `load()` finds the
   single `*.tyra` in the dir. The undo history moved to a sidecar
-  `<name>.history` (JSON, gitignored — churny, rewritten on every edit); heights
+  `<name>.history` (JSON, gitignored â€” churny, rewritten on every edit); heights
   stay binary sidecars as before. `io.IniFilename` is nulled so ImGui never
   writes `imgui.ini`; the layout is captured via `SaveIniSettingsToMemory` into
   the `.tyra` whenever ImGui settles a layout change (and on graceful exit), and
   applied via `LoadIniSettingsFromMemory` in `attachProject`. Generated
   `.gitignore` drops `*.tyra` (now the tracked source) and adds `*.history`.
-  `saveSolution/loadSolution` → `saveHistory/loadHistory`; a `jsonEscape` helper
-  handles the layout's newlines/brackets. Sample migrated (`project.json` →
+  `saveSolution/loadSolution` â†’ `saveHistory/loadHistory`; a `jsonEscape` helper
+  handles the layout's newlines/brackets. Sample migrated (`project.json` â†’
   `script-demo.tyra`, pure rename). Verified headless (`--new showcase`: exactly
   one `.tyra` + one `.history`, no `project.json`, `.gitignore` correct) and in
   the GUI: opened the project (loads fine), the live layout autosaved into the
-  `.tyra` (`"layout"` grew 14→1036 chars, no `imgui.ini` written anywhere), then
-  hand-widened the stored Project panel (383→700), reopened, and the wider panel
-  was honored — proving the load→apply→save→reload round-trip. Migrated sample
+  `.tyra` (`"layout"` grew 14â†’1036 chars, no `imgui.ini` written anywhere), then
+  hand-widened the stored Project panel (383â†’700), reopened, and the wider panel
+  was honored â€” proving the loadâ†’applyâ†’saveâ†’reload round-trip. Migrated sample
   also opens correctly (title, objects, viewport). Interactive drag-to-rearrange
   feel is the standard human check; the persistence mechanism is verified.
 
-- (15) **Film grain dropout root-caused: alpha test vs stale RGBAQ** — the
+- (15) **Film grain dropout root-caused: alpha test vs stale RGBAQ** â€” the
   real mechanism behind "grain vanishes for a few frames when looking at the
   fog": post fx blits send only UV+XYZ, so their vertex alpha is whatever
   RGBAQ the scene left in the GS - and the drawing environment's alpha test
@@ -902,7 +998,7 @@ Each finished feature lands as its own commit.
   (Path1::isVU1Configured), so pure-2D loading frames never handshake a VU1
   that can't answer. All verified in PCSX2 SW renderer at steady 50 FPS.
 
-- (14) **Outline close-up fixes** — two artifacts visible when standing next to a
+- (14) **Outline close-up fixes** â€” two artifacts visible when standing next to a
   usable object: (a) no bottom rim - grounded objects' shells dip below the terrain
   and the ground in front z-rejects them from a low camera; shell vertices are now
   lifted just above the terrain surface, turning the bottom rim into a glow apron
@@ -912,40 +1008,40 @@ Each finished feature lands as its own commit.
   the wash without touching the rim outside the silhouette. Verified in PCSX2 up
   close (USE prompt range): clean side faces, ground glow at the base, 50 FPS.
 
-- (13) **Configurable outline blur** — Preferences > Usable objects gains "Blur
+- (13) **Configurable outline blur** â€” Preferences > Usable objects gains "Blur
   width (units)" (total rim size, 0.05-2.0) and "Blur steps" (1-8 shells; 1 = sharp
   solid edge). Baked into terrain_config.hpp as HIGHLIGHT_WIDTH / HIGHLIGHT_STEPS;
   shells are spaced evenly up to the width with alpha halving outward. Verified in
   PCSX2: width 0.7 / steps 6 produces a visibly wider, smoother glow than the
   0.35 / 4 default.
 
-- (12) **Soft usable-object outline + draw-order fix** — the single hull rim could
+- (12) **Soft usable-object outline + draw-order fix** â€” the single hull rim could
   be punched through by objects drawn later in the loop (rim pixels carried the
   background's z, so e.g. a house behind the highlighted box overdrew the rim).
   Rims now render after the whole scene: four concentric shells with fading alpha
-  (blur), each pushed away from the camera by a uniform scale around the eye point —
+  (blur), each pushed away from the camera by a uniform scale around the eye point â€”
   screen silhouette unchanged, but the object's own z-buffer rejects the interior
   and the rim is depth-tested like normal geometry (one shared pushback for all
   shells; per-shell depths made the terrain cut each shell on a different line).
   Verified in PCSX2 (software renderer, 50 FPS): house directly behind the usable
-  box — rim glows in front of the house with a smooth falloff.
+  box â€” rim glows in front of the house with a smooth falloff.
 
-- (11) **Usable-object highlight** — Preferences > Usable objects: "Highlight usable
+- (11) **Usable-object highlight** â€” Preferences > Usable objects: "Highlight usable
   objects" + proximity (units) + color. In-game, objects marked Usable get a colored
   outline while the player is within proximity: a flat-color copy of the object grown
   ~0.12 units around its center is drawn just before it with z-test but no z-write,
   so the object overdraws the interior and only a rim survives. The no-z-write mode
   is a new engine enum (`PipelineZTest_TestOnly`, stapip + dynpip) implemented purely
-  in the GS TEST register (alpha-test all-fail + AFAIL keep-zbuffer) — the VU1
+  in the GS TEST register (alpha-test all-fail + AFAIL keep-zbuffer) â€” the VU1
   options layout is untouched. Editor viewport marks usable objects with a wire box
   in the highlight color when the pref is on (proximity is runtime-only). Verified
   in PCSX2 (software renderer, 50 FPS): near usable box shows a yellow rim, far
   usable pillar and non-usable objects stay clean; prefs UI + JSON round-trip +
   viewport preview screenshotted. Dead end for the record: a classic inverted-hull
-  outline doesn't work here — the Tyra pipeline has no backface culling, so a scaled
+  outline doesn't work here â€” the Tyra pipeline has no backface culling, so a scaled
   hull drawn normally occludes the object; the no-z-write underdraw sidesteps that.
 
-- (10) **FPP showcase template** — third choice in New Project: seeds a fresh project
+- (10) **FPP showcase template** â€” third choice in New Project: seeds a fresh project
   with all features (built-in house.obj + crosshair.png embedded in the editor,
   physics ball, pillar, HUD, starter flow graph). Fresh copy every time, so the
   shared sample no longer gets wrecked by experiments. Verified in PCSX2.
@@ -955,40 +1051,40 @@ Each finished feature lands as its own commit.
 - Core editor: project creation (orbit/FPP templates), solution files + undo history,
   scene primitives + spawn points, gizmos, wireframe view modes, preferences,
   C++ scripts with VS Code IntelliSense, engine clipping fixes, sample project.
-- (1) **Runtime scene v2** — objects are mutable at runtime (`RuntimeObject` in
+- (1) **Runtime scene v2** â€” objects are mutable at runtime (`RuntimeObject` in
   ScriptContext: position/rotation/scale/color/visible + `dirty` flag), each object
   renders from its own bag rebuilt on change. Terrain keeps precise clipping;
   objects skip culling (engine bbox cache is keyed by pointer and goes stale for
   moving objects). Verified in PCSX2: falling sphere rests on the ground, 50 FPS.
-- (2) **Player physics (FPP)** — gravity + jump on X (JUMP_SPEED pref), XZ collision
+- (2) **Player physics (FPP)** â€” gravity + jump on X (JUMP_SPEED pref), XZ collision
   with scene objects (AABB + player radius), walking on top of boxes (step 0.5).
   Compiles & boots; interactive feel needs a pad test.
-- (3) **Object physics** — `Physics` checkbox per object: falls with GRAVITY pref,
+- (3) **Object physics** â€” `Physics` checkbox per object: falls with GRAVITY pref,
   rests on the terrain. New FPP projects seed a falling ball as demo. Verified.
-- (4) **Sky gradient dome** — vertex-colored dome (horizon/zenith preference colors),
+- (4) **Sky gradient dome** â€” vertex-colored dome (horizon/zenith preference colors),
   same gradient in the editor viewport. Scripts changing ctx.skyColor retint the
   dome at runtime. Verified in PCSX2.
-- (5) **Flow graph** — CryEngine-like visual logic (imnodes window, tab next to
+- (5) **Flow graph** â€” CryEngine-like visual logic (imnodes window, tab next to
   Viewport): triggers (On Start, On Button, Near Object, Every N Seconds) wired to
   actions (Set Sky Color, Show/Hide/Toggle Object, Move Object By, Set Object Color,
   Log). Graph lives in project.json, compiles to src/scripts/flow_graph.gen.cpp on
   every build. Runtime verified in PCSX2 (OnStart->SetSky retints the dome).
   Editor node UI compiled but needs a hands-on pass.
-- (6) **Directional lighting** — light direction + ambient/diffuse in preferences,
+- (6) **Directional lighting** â€” light direction + ambient/diffuse in preferences,
   baked into vertex colors at build; terrain shaded by its up normal; viewport uses
   the same formula. Gotcha: PS2SDK math3d.h #defines LIGHT_AMBIENT - constants use
   SCENE_ prefix. Verified in PCSX2 (side light: directional shading on sphere/box).
-- (7) **Custom .obj models** — "+ Model" imports a .obj into res/models/, shown in
+- (7) **Custom .obj models** â€” "+ Model" imports a .obj into res/models/, shown in
   the viewport (shared parser, per-face normals) and compiled into the game as
   vertex data (capped 3000 tris/model). Full citizen: gizmos, physics, scripts,
   lighting. Verified in editor + PCSX2 (hand-written house model).
-- (8) **Gizmo snapping** — hold Ctrl while dragging: 0.5 units / 15 deg / 0.25 scale.
-- (9) **HUD from images** — "+ Image (PNG)" imports into res/hud/; position
+- (8) **Gizmo snapping** â€” hold Ctrl while dragging: 0.5 units / 15 deg / 0.25 scale.
+- (9) **HUD from images** â€” "+ Image (PNG)" imports into res/hud/; position
   (normalized, center anchor) + pixel size editable; live preview overlaid on the
   viewport (stb_image); in-game rendering via Tyra Renderer2D sprites. Verified in
   PCSX2 (crosshair over the 3D scene).
 
-- (11) **Engine optimization: fast EE clipper (patch v2)** — three engine files
+- (11) **Engine optimization: fast EE clipper (patch v2)** â€” three engine files
   patched via the Runner (marker `/tyra/.tyra-editor-patch-3`, originals restorable
   with `git checkout` inside `/tyra`):
   - `planes_clip_algorithm.cpp`: Cohen-Sutherland outcodes - fully-visible
@@ -1004,7 +1100,7 @@ Each finished feature lands as its own commit.
   pixel-identical output. Real scenes with a higher clipping share should gain
   more (the pathological benchmark is partly VU1/DMA-bound).
 
-- (12) **Engine optimization v3: clipping leaves the EE (the author's TODO)** —
+- (12) **Engine optimization v3: clipping leaves the EE (the author's TODO)** â€”
   resolves the engine author's own comment in stapip_clipper.hpp ("clipping
   algorithm should be moved to VU1... too much time"). How: the classic PS2
   guard-band trick. The shared `PerformClipCheck` VU1 macro now tests XY against
@@ -1020,7 +1116,7 @@ Each finished feature lands as its own commit.
   frame rate)**, frame pixel-clean. VU1 usage 1% -> 6%: the work moved to the
   chip that was built for it.
 
-- (13) **Terraforming** — sculpt the terrain with a brush: *Sculpt (T)* mode in the
+- (13) **Terraforming** â€” sculpt the terrain with a brush: *Sculpt (T)* mode in the
   viewport, LMB raises / Shift+LMB lowers (cosine falloff, radius + strength
   sliders, RMB orbits), brush ring projected onto the relief. Heightmap lives in
   `terrain.heights` (vertex grid = terrain detail; resampled when the grid config
@@ -1031,7 +1127,7 @@ Each finished feature lands as its own commit.
   the hilltop). Sculpting itself needs a hands-on mouse test. Not in undo history
   (saved on stroke end).
 
-- (14) **Textures (PNG)** — the PS2-native format Tyra loads (32/24bpp + fast
+- (14) **Textures (PNG)** â€” the PS2-native format Tyra loads (32/24bpp + fast
   palletized 8/4bpp; power-of-two sizes recommended). Per-object texture
   (Set.../Clear in object properties; object color modulates the texture, white =
   plain) and a tiled terrain texture (preference + world-units-per-tile scale).
@@ -1041,17 +1137,17 @@ Each finished feature lands as its own commit.
   the same textures via stb_image + a sampler in the shader (wire passes stay
   untextured). Verified in editor + PCSX2 (bricks on sculpted terrain and a box).
 
-- (15) **Scene light management** — light color (tints the diffuse term) and a
+- (15) **Scene light management** â€” light color (tints the diffuse term) and a
   global brightness multiplier (0..2), next to the existing direction/ambient/
   diffuse in Preferences > Lighting (same dialog as the sky). Shading is now
   per-channel RGB in the whole pipeline (game codegen + viewport). Verified in
   editor + PCSX2 (warm sunset light over the textured terrain).
 
-- (16) **Player entity** — "+ Player" inserts a playable player into any scene, no
+- (16) **Player entity** â€” "+ Player" inserts a playable player into any scene, no
   FPP template required (works in orbit projects too; the first Player wins over
   the template camera). Per-object parameters in the properties panel: movement
-  mode (**Walk FPP** — terrain relief + AABB collision + gravity/jump on X, or
-  **Noclip** — free flight toward the look direction, Cross up / Square down),
+  mode (**Walk FPP** â€” terrain relief + AABB collision + gravity/jump on X, or
+  **Noclip** â€” free flight toward the look direction, Cross up / Square down),
   walk speed, look speed, eye height, jump speed. Left stick moves, right stick
   looks. Shown as a gold humanoid marker in the viewport (nose = facing),
   invisible in the game. Stored as `"player": {...}` in project.json, compiled
@@ -1060,7 +1156,7 @@ Each finished feature lands as its own commit.
   project: noclip camera at the entity, scene objects framed as expected).
   Interactive pad feel needs a hands-on test.
 
-- (17) **Music playback** — background music controlled from the Flow Graph.
+- (17) **Music playback** â€” background music controlled from the Flow Graph.
   New Music section in the Project panel imports WAV tracks into `res/audio/`
   (16-bit 22050 Hz stereo - the format Tyra's song player streams; the importer
   reads the WAV header and warns about anything else). Three new action nodes:
@@ -1072,7 +1168,7 @@ Each finished feature lands as its own commit.
   (generated 22kHz arpeggio); Triangle -> Stop Music compiled in. Speaker check
   by ear is left for a human.
 
-- (18) **Sound effects (ADPCM)** — one-shot samples from the Flow Graph. Sounds
+- (18) **Sound effects (ADPCM)** â€” one-shot samples from the Flow Graph. Sounds
   section in the Project panel imports WAV (16-bit 22050 Hz, mono or stereo)
   into `res/sfx/`; the Runner converts them with the PS2SDK `adpenc` tool at
   build (`bin/sfx/*.adpcm`, skipped when already up to date). New **Play Sound**
@@ -1084,7 +1180,7 @@ Each finished feature lands as its own commit.
   shows silence with a burst exactly every 2 s (test chirp). Speaker check by
   ear is left for a human.
 
-- (19) **Per-object flow graphs + categorized menus** — the single global flow
+- (19) **Per-object flow graphs + categorized menus** â€” the single global flow
   graph is gone: every scene object can carry its own graph (stored inside the
   object in project.json; legacy project-level graphs migrate to the first
   object on load). The Flow Graph tab gets a "Graph of" combo (objects with a
@@ -1103,7 +1199,7 @@ Each finished feature lands as its own commit.
   self-references correctly (phys-demo), game boots at 50 FPS; node-editor
   interactions (pins, combos) need a hands-on mouse pass.
 
-- (20) **Position pins + player spawning** — second data type in the flow
+- (20) **Position pins + player spawning** â€” second data type in the flow
   graph: XYZ positions travel over green triangle pins (object ids stay on
   amber squares; pure data nodes have no exec pins). New nodes: **Get
   Position** (pure - reads the target object's position live at the consumer),
@@ -1119,7 +1215,7 @@ Each finished feature lands as its own commit.
   the house position through a Get Position -> Set Object Position link);
   Square-button respawn needs a pad test.
 
-- (21) **In-tree Tyra engine + WAV-aware music player** — the engine-patch
+- (21) **In-tree Tyra engine + WAV-aware music player** â€” the engine-patch
   machinery (embedded sources, awk macro swap, `/tyra/.tyra-editor-patch-N`
   markers) is gone: `vendor/tyra/engine` is now a versioned fork (Apache 2.0,
   upstream `9273416`) with all editor fixes applied directly. The Runner
@@ -1148,7 +1244,7 @@ Each finished feature lands as its own commit.
   Player entity gets a "Can jump (X)" checkbox (PLAYER_CAN_JUMP gates the walk
   jump; jump speed hidden when off).
 
-- (23) **"Use" interaction + global control mapping** — objects get a "Usable"
+- (23) **"Use" interaction + global control mapping** â€” objects get a "Usable"
   checkbox: when the player camera is close (USE_DISTANCE) and looking at the
   object (USE_LOOK_DOT), a built-in "USE" sprite shows bottom-center
   (res/hud/use.png, 128x32 - PS2 textures need power-of-two sizes; shipped
@@ -1163,7 +1259,7 @@ Each finished feature lands as its own commit.
   box up close; On Used -> Log compiled (`ctx.usedObject == idx`); the actual
   Square press needs a pad test.
 
-- (24) **Viewport camera panning** — the editor camera orbits a movable target
+- (24) **Viewport camera panning** â€” the editor camera orbits a movable target
   now: middle-mouse drag pans in the view plane, WASD flies over the terrain
   along the camera heading (both scale with zoom, so screen-space speed feels
   constant). Picking, sculpt raycast and the gizmo all follow the moved
@@ -1177,7 +1273,7 @@ Each finished feature lands as its own commit.
   per-object bags used frustumCulling **None**, so objects behind or far
   off-screen were submitted raw and their coordinates wrapped the GS 4096px
   raster window. PCSX2's HW renderer often masks the wrap (hence "czasem
-  działa"); the SW renderer - and real hardware - show it faithfully. Fix:
+  dziaĹ‚a"); the SW renderer - and real hardware - show it faithfully. Fix:
   every bag (terrain, objects, sky dome) now goes through per-package frustum
   classification; the engine's bbox cache got a `bboxVersion` field on
   StaPipBag (mixed into the cache key) which the game bumps on every geometry
@@ -1190,7 +1286,7 @@ Each finished feature lands as its own commit.
   (the honest one): known-bad camera positions render clean and stable,
   gameplay views correct, near-plane clipping right, 50 FPS.
 
-- (26) **4:3 frame, HUD preview toggle, HUD flow nodes** — the viewport gets a
+- (26) **4:3 frame, HUD preview toggle, HUD flow nodes** â€” the viewport gets a
   "4:3" toolbar toggle that dims everything outside a centered 4:3 frame (a
   rough preview of the console picture on a TV); the HUD editor overlay maps
   into that frame when active. The HUD preview itself is now hidden by
@@ -1200,7 +1296,7 @@ Each finished feature lands as its own commit.
   independent). Verified in PCSX2: Every-2-Seconds -> Toggle HUD blinks the
   crosshair while USE stays; editor overlays verified by screenshot.
 
-- (27) **Multiple scenes** — every scene owns its objects (with their flow
+- (27) **Multiple scenes** â€” every scene owns its objects (with their flow
   graphs); terrain/heightmap, settings, HUD and audio assets stay shared. The
   Scenes section creates (+ Scene modal), switches (click) and deletes (x)
   scenes; the first scene is the start scene. New **Switch Scene** flow node
@@ -1218,7 +1314,7 @@ Each finished feature lands as its own commit.
   Trade-off noted: assets of ALL scenes stay resident (fine for editor-scale
   projects; per-scene asset streaming = future work).
 
-- (28) **Per-scene terrain and lighting** — each scene now owns its terrain
+- (28) **Per-scene terrain and lighting** â€” each scene now owns its terrain
   (size, sculpted heightmap in terrain-<scene>.heights, tiled texture) and
   its lighting (direction/ambient/diffuse/color/brightness); sky and physics
   prefs stay project-global. Preferences edit the ACTIVE scene. Generated
@@ -1229,7 +1325,7 @@ Each finished feature lands as its own commit.
   every scene on load. Verified: legacy project renders identically at
   50 FPS; scene switching rebuilds terrain per scene.
 
-- (29) **Particle emitters (fire/smoke/fog/sparks)** — new Emitter object
+- (29) **Particle emitters (fire/smoke/fog/sparks)** â€” new Emitter object
   (Effects submenu presets; cone marker in the viewport; properties: effect
   kind, pool size 1-128, particle size; color tints, scale X/Z = spawn area).
   2002-style runtime: fixed pools allocated once per scene load, one LCG,
@@ -1881,6 +1977,39 @@ Each finished feature lands as its own commit.
   codegen would read 1.2/s on NTSC). Both modes verified booting at their
   vsync rate (status bar 50/60 VPS). Legacy V1 templates untouched (their
   byte-identical match must keep working).
+- (60) **Configurable viewport navigation + orbit around selection** - the
+  camera controls were hard-coded (LMB/RMB orbit, MMB pan, WASD fly) and the
+  orbit pivot was a free point, never the selection. Added a global `NavConfig`
+  (app.hpp): mouse **scheme** (Tyra/Blender/Maya/Unity - each maps which
+  drag+modifier orbits vs pans; Blender/Unity free the LMB for selection, Maya
+  adds an Alt+RMB dolly), **fly keys** (WASD or arrow keys), orbit/pan/zoom
+  **sensitivity** multipliers, invert X/Y, and an **orbit-around-selection**
+  toggle. These are machine/muscle-memory prefs, not project data, so they
+  extend the existing global `editor.ini` in %LOCALAPPDATA% (the old single-key
+  uiScale reader/writer became a full `EditorConfig` load/save; whole file
+  rewritten on any change). Input in `drawViewportWindow` now switches on the
+  scheme and scales/inverts pixel deltas; `Viewport::zoom` became continuous
+  (`distance *= 0.9^wheel`) so sensitivity and drag-dolly move proportionally
+  while one wheel notch keeps the old 0.9x feel; new `Viewport::setTarget`
+  snaps the orbit pivot to the selected object's position whenever the
+  selection index changes (independent of the transform gizmo mode) - pan/fly
+  afterward still move the pivot freely. New "View > Navigation controls..."
+  modal (clone of the Preferences modal pattern) edits it all live and persists
+  on every change, with a Restore-defaults button. Verified: clean build;
+  editor launched on a scratch fpp project and ran the new per-frame nav code
+  (scheme gating + focus snapping execute every frame) without crashing;
+  `editor.ini` round-trip confirmed by triggering a save (Ctrl+= -> setUiScale)
+  and reading back all nine nav keys at their defaults, then restoring auto DPI.
+  The interactive mouse feel per scheme (Blender/Maya/Unity muscle memory,
+  invert/sensitivity tuning) still wants a hands-on human pass - the GDI
+  screenshot tool can't capture ImGui's multi-viewport menu popups.
+  Follow-up: with arrow-key movement, ImGui's keyboard nav (NavEnableKeyboard,
+  on globally) was cycling focus through the viewport overlay tool buttons
+  (Move/Rotate/Scale, World/Camera, view mode) as the arrows were pressed. Fixed
+  by giving the Viewport window `ImGuiWindowFlags_NoNav` - those buttons keep
+  their 1/2/3/5 hotkeys, so nothing is lost. Verified: forced arrow mode in
+  editor.ini, focused the viewport, sent 6x Down + 6x Right - the tool stayed on
+  Move (no focus migration), screenshot-confirmed.
 
 
 ## Backlog (rough order)

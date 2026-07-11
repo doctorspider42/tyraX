@@ -8,8 +8,18 @@ weights), bind-pose mesh and raw keyframe tracks are serialized to a compact
 interpolation at authored fidelity, crossfade blending between clips), skins
 the vertices through the matrix palette on **VU0 in macro mode** (the
 era-correct split: animation on VU0, 3D on VU1, game code on EE) and renders
-the result through the engine's dynamic pipeline. You get smooth, named, scriptable, *blendable*
-clips at a fraction of the memory the old baked-frame path needed.
+the result through the engine's **static pipeline** alongside the rest of the
+scene (one vertex upload instead of DynPip's from/to double send, no VU1
+program swap mid-frame, and screen-edge triangles clipped by the same EE
+clipper as everything else). The whole animated pass is budgeted from real
+hardware measurements - a 1092-vertex instance costs ~0.9 ms pose+skin plus
+~1 ms submit on the EE, which PCSX2's fast EE completely hides: instances
+whose conservative all-clips AABB is outside the frustum skip pose
+evaluation, skinning and submission entirely (playback time still advances),
+and instances striking the identical pose - the same clip autoplaying in
+lockstep, the usual ambient-prop or enemy-pack setup - share one skinned
+mesh. You get smooth, named, scriptable, *blendable* clips at a fraction of
+the memory the old baked-frame path needed.
 
 ```
 Blender (rig + actions)
@@ -21,7 +31,7 @@ res/models/character.glb          ← the imported source asset
 res/models/character.tskl (+ extracted PNG textures)
    │  loaded by the engine's TsklLoader
    ▼
-SkelInstance (EE pose evaluation + VU0 skinning) → DynPip (VU1 transform/light)
+SkelInstance (EE pose evaluation + VU0 skinning) → StaPip (VU1 transform/light, EE clipping)
 ```
 
 (Stage 1 of this feature baked clips into MD2-style morph frames - `.tanm`

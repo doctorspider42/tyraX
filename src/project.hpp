@@ -190,6 +190,12 @@ struct ProjectSettings {
     bool showFps = false;     // debug profile only: on-screen FPS counter
     bool showMemory = false;  // debug profile only: on-screen free-RAM readout
 
+    // Experimental: skip the vsync wait before the buffer flip. Frame rate
+    // becomes continuous instead of quantized to 50/25 (PAL), at the cost
+    // of screen tearing. Gameplay speed is unaffected either way - the
+    // generated game measures real frame time (see updateFrameClock).
+    bool disableVsync = false;
+
     // "precise": real per-triangle clipping - no holes at screen edges, but
     // costs EE time. "fast": VU1 cull only - fastest, may drop triangles
     // that extend far beyond the screen.
@@ -270,6 +276,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
     };
     return a.videoSystem == b.videoSystem && a.buildProfile == b.buildProfile &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
+           a.disableVsync == b.disableVsync &&
            a.clipping == b.clipping && a.terrainDetail == b.terrainDetail &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.eyeHeight == b.eyeHeight &&
