@@ -1743,6 +1743,34 @@ Each finished feature lands as its own commit.
   mid-session File > Open path needs a hands-on mouse test (no synthetic
   input from automation), but it now runs the exact same deferred code path
   as the verified startup load.
+- (58) **Gizmo axis spaces: absolute (world) vs camera-relative** - two
+  transform modes for move/rotate/scale, toggled by World/Camera buttons in
+  the viewport toolbar (next to Move/Rotate/Scale) or key 5, persisted in the
+  .tyra editor block as `gizmoSpace` (like `gizmo`/`viewMode`). Absolute mode
+  passes ImGuizmo::WORLD for all ops: move and rotate follow the world X/Y/Z
+  (rotate previously used LOCAL - object axes; world axes is what "absolute"
+  means and the camera mode covers view-based rotation). Scale stays on the
+  object's own axes in both modes - ImGuizmo forces SCALE to LOCAL because a
+  world/camera-axis scale on a rotated object cannot be stored in a TRS
+  (shear). Camera mode manipulates a unit-scale proxy matrix whose local
+  frame is the camera rotation (transpose of the view 3x3; ImGuizmo/GL share
+  column-major layout) with ImGuizmo::LOCAL: translate lands in the proxy
+  position (per-frame incremental in ImGuizmo, so rebuilding the proxy from
+  the object each frame is correct); rotate extracts the world-space delta
+  W = proxyOut * view (proxyIn^-1 = the view rotation), applies model' =
+  W * model about the object position and takes only the euler rotation from
+  the decompose (W is orthogonal - position/scale unchanged by construction,
+  discarding them avoids float drift); scale reads ImGuizmo's deltaMatrix -
+  which is cumulative over the whole drag, hence a drag-start scale snapshot
+  captured while !IsUsing() - and applies the dominant diagonal factor
+  uniformly. Ctrl-snap works in all cases (ImGuizmo snaps translation in the
+  gizmo's local frame, rotation by angle, scale by factor). Verified: clean
+  build; `--new` writes `"gizmoSpace": 0` in the editor block; hand-editing
+  it to 1 and opening the project shows the Camera button active in a GUI
+  screenshot (load path proven), World/Camera sit in the toolbar between the
+  tool and shading groups. Drag feel (camera-axis move/rotate on a rotated
+  object, uniform camera scale) needs a hands-on mouse test - no synthetic
+  input from automation.
 
 - (58) **Target system (PAL/NTSC) + debug/release build profiles** - Project >
   Preferences grew a "Build" section: **Target system** (Auto / NTSC 60 Hz /

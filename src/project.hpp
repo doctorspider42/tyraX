@@ -508,6 +508,7 @@ struct Project {
     // file). Restores the editing session on reopen.
     int selectedObject = -1;   // selected object in the active scene (-1 none)
     int gizmoOp = 0;           // transform gizmo: 0 move, 1 rotate, 2 scale
+    int gizmoSpace = 0;        // gizmo axes: 0 absolute (world), 1 camera-relative
     int viewMode = 0;          // viewport shading: 0 solid, 1 wire, 2 wire+solid
     std::string windowLayout;  // ImGui docking layout (SaveIniSettingsToMemory)
     // Absolute path to the PCSX2 executable to launch (Project > Preferences).
