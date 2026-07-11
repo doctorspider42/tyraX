@@ -4,6 +4,8 @@
 #include <map>
 #include <vector>
 
+#include <stb_image.h>
+
 #include "objparser.hpp"
 #include "pngquant.hpp"
 
@@ -31,6 +33,59 @@ std::string lowerExt(const fs::path& p) {
     std::string e = p.extension().string();
     for (char& c : e) c = (char)tolower((unsigned char)c);
     return e;
+}
+
+// The PS2 texture dimensions the engine accepts (a runtime assert otherwise).
+int nearestValidDim(int v) {
+    static const int valid[] = {8, 16, 32, 64, 128, 256, 512};
+    int best = valid[0], bestDist = 1 << 30;
+    for (int d : valid) {
+        const int dd = v > d ? v - d : d - v;
+        if (dd < bestDist) { bestDist = dd; best = d; }
+    }
+    return best;
+}
+
+// Resize a HUD PNG into a valid power-of-two (HudImage::texW/texH, 0 = nearest
+// to the source) and optionally palette-quantize it, writing dst. On a quant
+// failure it falls back to a full-color write - still a valid size, so the
+// game never asserts. Returns false only if the source cannot be decoded or
+// nothing could be written (then the caller copies verbatim).
+bool bakeHudImage(const fs::path& src, const fs::path& dst, const HudImage& hi,
+                  const std::string& quant,
+                  const std::function<void(const std::string&)>& log) {
+    int sw = 0, sh = 0, comp = 0;
+    unsigned char* px = stbi_load(src.string().c_str(), &sw, &sh, &comp, 4);
+    if (!px) {
+        log("[editor] HUD bake: cannot decode " + src.filename().string());
+        return false;
+    }
+    const int tw = hi.texW > 0 ? hi.texW : nearestValidDim(sw);
+    const int th = hi.texH > 0 ? hi.texH : nearestValidDim(sh);
+    const int cols = colorsOf(quant);  // "" already resolved to the project
+
+    std::vector<unsigned char> buf;
+    const unsigned char* pixels = px;
+    if (tw != sw || th != sh) {
+        buf = pngquant::resizeRGBA(px, sw, sh, tw, th);
+        pixels = buf.data();
+    }
+
+    std::string err;
+    bool ok = false;
+    if (cols > 0) {
+        ok = pngquant::quantizeRGBA(dst.string(), pixels, tw, th, cols, err);
+        if (!ok) {
+            log("[editor] HUD bake: " + src.filename().string() + ": " + err +
+                " - written full color");
+            ok = pngquant::writePngRGBA(dst.string(), pixels, tw, th, err);
+        }
+    } else {
+        ok = pngquant::writePngRGBA(dst.string(), pixels, tw, th, err);
+    }
+    stbi_image_free(px);
+    if (!ok) log("[editor] HUD bake: " + src.filename().string() + ": " + err);
+    return ok;
 }
 
 }  // namespace
@@ -95,6 +150,11 @@ std::string bake(const Project& p,
         }
     }
 
+    // HUD images referenced by the project, keyed by res path (last wins if a
+    // file is used by several entries - a rare, contradictory case).
+    std::map<std::string, const HudImage*> hudBake;
+    for (const HudImage& h : p.hud) hudBake[h.imagePath] = &h;
+
     // --- mirror res/ into .res-baked/ --------------------------------------
     const std::string defaultQ = p.settings.textureQuant;  // none/8bit/4bit
     int quantized = 0, copied = 0;
@@ -106,6 +166,24 @@ std::string bake(const Project& p,
 
         const std::string relRes = ("res/" + rel.generic_string());
         const std::string top = rel.begin()->generic_string();
+
+        // HUD sprites: resize to a PS2-valid size (+ optional quantize) so a
+        // mis-sized import cannot assert in-game. Built-in HUD assets (use.png,
+        // loading.png, save-*.png, ...) are not project entries - copied below.
+        if (top == "hud" && lowerExt(e.path()) == ".png") {
+            if (auto it = hudBake.find(relRes); it != hudBake.end()) {
+                // "" = follow the project texture default, like materials.
+                const std::string q = it->second->texQuant.empty()
+                                          ? defaultQ
+                                          : it->second->texQuant;
+                if (bakeHudImage(e.path(), dst, *it->second, q, log)) {
+                    ++quantized;
+                    continue;
+                }
+                // fell through: decode/write failed - copy verbatim below
+            }
+        }
+
         const bool quantizable =
             lowerExt(e.path()) == ".png" &&
             (top == "models" || top == "materials" || top == "textures");
