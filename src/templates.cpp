@@ -321,7 +321,9 @@ static const char* TPL_GAME_HPP_ORBIT =
 #pragma once
 
 #include <tyra>
+#include <map>
 #include <memory>
+#include <string>
 #include <vector>
 #include "save_system.gen.hpp"
 #include "scripts/script.hpp"
@@ -379,6 +381,15 @@ class TerrainGame : public Tyra::Game {
       std::unique_ptr<Tyra::StaPipColorBag> colorBag;
       std::unique_ptr<Tyra::StaPipTextureBag> texBag;
       std::unique_ptr<Tyra::StaPipLightingBag> lightBag;
+      // The lit StaPip VU1 programs (_d/_td) derive the vertex color purely
+      // from the directional lights - they never read a base/vertex color -
+      // so an untextured mesh would render in the plain scene light color
+      // (i.e. gray). This part's material albedo is folded into its own light
+      // and ambient colors instead (outputColor = albedo * sceneLighting),
+      // matching how the editor viewport tints the .glb. Directions stay
+      // shared (animLightDirs); only the colors carry the per-part tint.
+      std::unique_ptr<Tyra::PipelineDirLightsBag> animLights;
+      Tyra::Vec4 litColors[4];
     };
     std::vector<AnimPart> animParts;
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
@@ -392,9 +403,10 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
     std::unique_ptr<Tyra::StaPipColorBag> hullColorBag;
   };
-  // Custom .obj models, loaded once at startup (paths in model_data.gen.hpp):
-  // geometry split per MTL material with optional per-material textures, the
-  // real mesh AABB for box collision, a CollisionMesh for mesh collision.
+  // Custom .obj models (paths in model_data.gen.hpp): geometry split per MTL
+  // material with optional per-material textures, the real mesh AABB for box
+  // collision, a CollisionMesh for mesh collision. Loaded on demand by the
+  // layer streaming - only models some resident layer uses stay in memory.
   struct GameModelPart {
     std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
     Tyra::Texture* texture = nullptr;
@@ -405,9 +417,11 @@ class TerrainGame : public Tyra::Game {
     float mn[3] = {-0.5F, -0.5F, -0.5F};
     float mx[3] = {0.5F, 0.5F, 0.5F};
     Tyra::CollisionMesh collider;  // built only when a scene needs mesh mode
+    std::vector<std::string> texPaths;  // texture-cache refs this model holds
   };
   std::vector<GameModel> gameModels;
-  void loadModels();
+  void loadModelAsset(int index);
+  void freeModelAsset(int index);
   // Animated .glb models: serialized by the editor to .tskl skeletal files
   // (paths in model_data.gen.hpp) - bone keyframe tracks + bind-pose mesh.
   // Poses are evaluated and skinned on the EE/VU0 (SkelInstance) for the
@@ -418,10 +432,12 @@ class TerrainGame : public Tyra::Game {
   struct GameAnimModel {
     std::unique_ptr<Tyra::SkelModel> src;   // skeleton + mesh + clip tracks
     std::vector<Tyra::Texture*> textures;   // per part, nullptr = untextured
+    std::vector<std::string> texPaths;      // texture-cache refs held
     Tyra::CoreBBox cullBox;  // local AABB over all clips + margin (see load)
   };
   std::vector<GameAnimModel> gameAnimModels;
-  void loadAnimModels();
+  void loadAnimModelAsset(int index);
+  void freeAnimModelAsset(int index);
   void setupAnimObject(int index);  // per-object instance + playback state
   void updateAndRenderAnimObjects();
   // Directional light for the animated pass, mirroring the baked static
@@ -441,10 +457,40 @@ class TerrainGame : public Tyra::Game {
   struct GameMaterial {
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
+    std::string texPath;  // texture-cache ref held ("" = untextured)
   };
   std::vector<GameMaterial> gameMaterials;
-  void loadMaterials();
+  void loadMaterialAsset(int index);
+  void freeMaterialAsset(int index);
   std::vector<Tyra::Texture*> loadedTextures;
+
+  // Streaming layers (SCENE_LAYER_* tables): an asset is resident only while
+  // some active-scene object in a resident layer (or with no layer) uses it.
+  // Load Layer queues the layer's missing assets and the queue drains one
+  // asset per frame (loads spread out - no long stall); Unload Layer drops
+  // the layer's objects immediately and frees whatever nothing else needs.
+  // Textures shared between layers/models are reference-counted by path.
+  struct TexEntry {
+    Tyra::Texture* tex = nullptr;
+    int refs = 0;
+  };
+  std::map<std::string, TexEntry> texCache;
+  Tyra::Texture* acquireTexture(const std::string& path);
+  void releaseTexture(const std::string& path);
+  void loadSceneTexture(int index);
+  void freeSceneTexture(int index);
+  std::vector<unsigned char> modelLoaded, materialLoaded, animModelLoaded,
+      sceneTexLoaded;
+  bool layerOn(int layer) const;  // desired residency of an object's layer
+  void applyLayerResidency();     // free unneeded assets, queue missing ones
+  void processOneStreamJob();
+  void activateObject(int index);
+  void deactivateObject(int index);
+  void updateLayerStreaming();
+  std::vector<unsigned char> layerState;   // 0 unloaded, 1 loading, 2 loaded
+  std::vector<unsigned char> layerTarget;  // desired residency per layer
+  std::vector<signed char> layerRequest;   // script requests (-1 = none)
+  std::vector<int> streamQueue;            // (kind << 16) | asset index
   std::vector<Tyra::Vec4> terrainSts;
   Tyra::StaPipTextureBag terrainTexBag;
   std::vector<RuntimeObject> runtimeObjects;
@@ -554,7 +600,9 @@ static const char* TPL_GAME_HPP_FPP =
 #pragma once
 
 #include <tyra>
+#include <map>
 #include <memory>
+#include <string>
 #include <vector>
 #include "save_system.gen.hpp"
 #include "scripts/script.hpp"
@@ -613,6 +661,15 @@ class TerrainGame : public Tyra::Game {
       std::unique_ptr<Tyra::StaPipColorBag> colorBag;
       std::unique_ptr<Tyra::StaPipTextureBag> texBag;
       std::unique_ptr<Tyra::StaPipLightingBag> lightBag;
+      // The lit StaPip VU1 programs (_d/_td) derive the vertex color purely
+      // from the directional lights - they never read a base/vertex color -
+      // so an untextured mesh would render in the plain scene light color
+      // (i.e. gray). This part's material albedo is folded into its own light
+      // and ambient colors instead (outputColor = albedo * sceneLighting),
+      // matching how the editor viewport tints the .glb. Directions stay
+      // shared (animLightDirs); only the colors carry the per-part tint.
+      std::unique_ptr<Tyra::PipelineDirLightsBag> animLights;
+      Tyra::Vec4 litColors[4];
     };
     std::vector<AnimPart> animParts;
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
@@ -626,9 +683,10 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
     std::unique_ptr<Tyra::StaPipColorBag> hullColorBag;
   };
-  // Custom .obj models, loaded once at startup (paths in model_data.gen.hpp):
-  // geometry split per MTL material with optional per-material textures, the
-  // real mesh AABB for box collision, a CollisionMesh for mesh collision.
+  // Custom .obj models (paths in model_data.gen.hpp): geometry split per MTL
+  // material with optional per-material textures, the real mesh AABB for box
+  // collision, a CollisionMesh for mesh collision. Loaded on demand by the
+  // layer streaming - only models some resident layer uses stay in memory.
   struct GameModelPart {
     std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
     Tyra::Texture* texture = nullptr;
@@ -639,9 +697,11 @@ class TerrainGame : public Tyra::Game {
     float mn[3] = {-0.5F, -0.5F, -0.5F};
     float mx[3] = {0.5F, 0.5F, 0.5F};
     Tyra::CollisionMesh collider;  // built only when a scene needs mesh mode
+    std::vector<std::string> texPaths;  // texture-cache refs this model holds
   };
   std::vector<GameModel> gameModels;
-  void loadModels();
+  void loadModelAsset(int index);
+  void freeModelAsset(int index);
   // Animated .glb models: serialized by the editor to .tskl skeletal files
   // (paths in model_data.gen.hpp) - bone keyframe tracks + bind-pose mesh.
   // Poses are evaluated and skinned on the EE/VU0 (SkelInstance) for the
@@ -652,10 +712,12 @@ class TerrainGame : public Tyra::Game {
   struct GameAnimModel {
     std::unique_ptr<Tyra::SkelModel> src;   // skeleton + mesh + clip tracks
     std::vector<Tyra::Texture*> textures;   // per part, nullptr = untextured
+    std::vector<std::string> texPaths;      // texture-cache refs held
     Tyra::CoreBBox cullBox;  // local AABB over all clips + margin (see load)
   };
   std::vector<GameAnimModel> gameAnimModels;
-  void loadAnimModels();
+  void loadAnimModelAsset(int index);
+  void freeAnimModelAsset(int index);
   void setupAnimObject(int index);  // per-object instance + playback state
   void updateAndRenderAnimObjects();
   // Directional light for the animated pass, mirroring the baked static
@@ -675,10 +737,40 @@ class TerrainGame : public Tyra::Game {
   struct GameMaterial {
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
+    std::string texPath;  // texture-cache ref held ("" = untextured)
   };
   std::vector<GameMaterial> gameMaterials;
-  void loadMaterials();
+  void loadMaterialAsset(int index);
+  void freeMaterialAsset(int index);
   std::vector<Tyra::Texture*> loadedTextures;
+
+  // Streaming layers (SCENE_LAYER_* tables): an asset is resident only while
+  // some active-scene object in a resident layer (or with no layer) uses it.
+  // Load Layer queues the layer's missing assets and the queue drains one
+  // asset per frame (loads spread out - no long stall); Unload Layer drops
+  // the layer's objects immediately and frees whatever nothing else needs.
+  // Textures shared between layers/models are reference-counted by path.
+  struct TexEntry {
+    Tyra::Texture* tex = nullptr;
+    int refs = 0;
+  };
+  std::map<std::string, TexEntry> texCache;
+  Tyra::Texture* acquireTexture(const std::string& path);
+  void releaseTexture(const std::string& path);
+  void loadSceneTexture(int index);
+  void freeSceneTexture(int index);
+  std::vector<unsigned char> modelLoaded, materialLoaded, animModelLoaded,
+      sceneTexLoaded;
+  bool layerOn(int layer) const;  // desired residency of an object's layer
+  void applyLayerResidency();     // free unneeded assets, queue missing ones
+  void processOneStreamJob();
+  void activateObject(int index);
+  void deactivateObject(int index);
+  void updateLayerStreaming();
+  std::vector<unsigned char> layerState;   // 0 unloaded, 1 loading, 2 loaded
+  std::vector<unsigned char> layerTarget;  // desired residency per layer
+  std::vector<signed char> layerRequest;   // script requests (-1 = none)
+  std::vector<int> streamQueue;            // (kind << 16) | asset index
   std::vector<Tyra::Vec4> terrainSts;
   Tyra::StaPipTextureBag terrainTexBag;
   std::vector<RuntimeObject> runtimeObjects;
@@ -965,6 +1057,16 @@ V3 pointLightAt(const V3& wp, const V3& n) {
 // explicitly via the kd/textured parameters instead.
 const float* g_primKd = nullptr;
 bool g_primTextured = false;
+
+// Every rebuilt vertex buffer gets a process-unique bbox version. The
+// engine's frustum-bbox cache is keyed by (vertex pointer, version); layer
+// streaming frees and reallocates buffers, so with per-bag counters a
+// recycled heap address could arrive with the dead buffer's exact version
+// and inherit its cached boxes - packages misclassify (objects smear or
+// vanish) or the package index runs past the cached part count (the
+// stapip_bag_packages_bbox assert). One monotonic stamp shared by every
+// bag makes each (pointer, version) pair unique for the whole run.
+u32 g_bboxStamp = 0;
 
 // Clip-name resolution for scripts/flow graph: ScriptContext carries a plain
 // function pointer (script.hpp must stay engine-agnostic), so the game
@@ -1342,6 +1444,10 @@ void TerrainGame::loop() {
     return;
   }
 
+  // Streaming layers: Load/Unload Layer requests, one asset load per frame,
+  // trickle activation of freshly resident layers.
+  updateLayerStreaming();
+
   // Flow graph / script teleport request (needs a Player entity - the orbit
   // camera itself is not teleportable)
   if (scriptCtx.teleport) {
@@ -1386,20 +1492,21 @@ void TerrainGame::loop() {
 // Shared scene/terrain mesh building and runtime object management.
 static const char* TPL_GAME_CPP_SCENE = R"(
 void TerrainGame::buildScene() {
-  // Load all scene textures once (paths in texture_data.gen.hpp)
-  loadedTextures.assign(TEXTURE_COUNT, nullptr);
-  for (int i = 0; i < TEXTURE_COUNT; ++i) {
-    if (!assetFileExists(TEXTURE_PATHS[i])) {
-      TYRA_WARN("Scene texture missing: ", TEXTURE_PATHS[i]);
-      continue;  // objects fall back to their plain color
-    }
-    loadedTextures[i] =
-        engine->renderer.getTextureRepository().add(FileUtils::fromCwd(TEXTURE_PATHS[i]));
-  }
-
-  loadModels();
-  loadMaterials();
-  loadAnimModels();
+  // Asset tables start empty: loadScene(0) below loads what the first
+  // scene's start-resident layers need and nothing else - the rest streams
+  // in on demand when a Load Layer node (or a scene switch) asks for it.
+  loadedTextures.assign(TEXTURE_COUNT > 0 ? TEXTURE_COUNT : 0, nullptr);
+  sceneTexLoaded.assign(TEXTURE_COUNT > 0 ? TEXTURE_COUNT : 0, 0);
+  gameModels.assign(MODEL_COUNT > 0 ? MODEL_COUNT : 0, GameModel());
+  modelLoaded.assign(MODEL_COUNT > 0 ? MODEL_COUNT : 0, 0);
+  gameMaterials.assign(MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 0, GameMaterial());
+  materialLoaded.assign(MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 0, 0);
+  gameAnimModels.clear();
+  gameAnimModels.resize(ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 0);
+  animModelLoaded.assign(ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 0, 0);
+  // One shared directional-light set for every animated instance; the
+  // arrays are member storage, values refresh each frame in the anim pass.
+  animDirLights.setLightsManually(animLightColors, animLightDirs);
   g_animGame = this;
   scriptCtx.resolveClip = &animResolveClipThunk;
 
@@ -1511,143 +1618,348 @@ void TerrainGame::buildScene() {
   loadScene(0);
 }
 
-// Loads every custom .obj once at startup through the engine's LeanObjLoader:
-// geometry split per MTL material, map_Kd textures through the texture
-// repository (de-duplicated by path), the real mesh AABB for box collision
-// and a CollisionMesh where some scene object collides in mesh mode.
-void TerrainGame::loadModels() {
-  gameModels.assign(MODEL_COUNT > 0 ? MODEL_COUNT : 0, GameModel());
-  std::map<std::string, Texture*> textureByPath;
-  for (int i = 0; i < MODEL_COUNT; ++i) {
-    const std::string overrideMtl = MODEL_MTLS[i];
-    auto mesh = LeanObjLoader::load(MODEL_PATHS[i], overrideMtl);
-    if (!mesh) continue;  // stays empty - objects using it render nothing
-    GameModel& gm = gameModels[i];
-    for (int k = 0; k < 3; ++k) {
-      gm.mn[k] = mesh->min[k];
-      gm.mx[k] = mesh->max[k];
+// Shared texture cache: one engine texture per path, reference-counted so
+// layers/models sharing a PNG neither load it twice nor free it while the
+// other still draws with it. A missing file caches a null entry - the part
+// degrades to its Kd color instead of an assert.
+Texture* TerrainGame::acquireTexture(const std::string& path) {
+  auto it = texCache.find(path);
+  if (it == texCache.end()) {
+    TexEntry e;
+    if (assetFileExists(path)) {
+      e.tex =
+          engine->renderer.getTextureRepository().add(FileUtils::fromCwd(path));
+      // Upload to GS VRAM now, OUTSIDE the frame. The pipelines otherwise
+      // upload on first use - a PATH3 transfer in the middle of a rendered
+      // frame, racing the VU1/GIF work in flight. Boot-time loads got away
+      // with it on the first near-empty frames; textures streamed in by
+      // Load Layer hit it mid-gameplay repeatedly.
+      engine->renderer.core.texture.useTexture(e.tex);
+    } else {
+      TYRA_WARN("Texture missing: ", path.c_str());
     }
-    // map_Kd texture names resolve relative to the file that defined them:
-    // the override .mtl when one is assigned, the model otherwise
-    std::string dir = overrideMtl.empty() ? MODEL_PATHS[i] : overrideMtl;
-    const size_t slash = dir.find_last_of('/');
-    dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
-    for (auto& mat : mesh->materials) {
-      GameModelPart part;
-      part.verts.swap(mat.vertices);
-      part.kd[0] = mat.kd[0];
-      part.kd[1] = mat.kd[1];
-      part.kd[2] = mat.kd[2];
-      if (!mat.textureName.empty()) {
-        const std::string path = dir + mat.textureName;
-        auto it = textureByPath.find(path);
-        if (it == textureByPath.end()) {
-          Texture* t = nullptr;
-          // a texture the .mtl wants but the project lacks degrades the part
-          // to its Kd color instead of an assert at boot
-          if (assetFileExists(path))
-            t = engine->renderer.getTextureRepository().add(
-                FileUtils::fromCwd(path));
-          else
-            TYRA_WARN("Model texture missing: ", path.c_str());
-          it = textureByPath.emplace(path, t).first;
-        }
-        part.texture = it->second;
-      }
-      gm.parts.push_back(std::move(part));
-    }
-    if (MODEL_NEEDS_COLLIDER[i]) {
-      std::vector<float> all;  // the collider spans every material part
-      for (const auto& part : gm.parts)
-        all.insert(all.end(), part.verts.begin(), part.verts.end());
-      gm.collider.build(all.data(), (u32)(all.size() / 8), 8);
-    }
+    it = texCache.emplace(path, e).first;
   }
+  it->second.refs++;
+  return it->second.tex;
+}
+
+void TerrainGame::releaseTexture(const std::string& path) {
+  auto it = texCache.find(path);
+  if (it == texCache.end()) return;
+  if (--it->second.refs > 0) return;
+  // last reference gone - destruct the texture and free its GS buffer slot
+  if (it->second.tex)
+    engine->renderer.getTextureRepository().free(it->second.tex);
+  texCache.erase(it);
+}
+
+// Loads one custom .obj through the engine's LeanObjLoader: geometry split
+// per MTL material, map_Kd textures through the texture cache, the real
+// mesh AABB for box collision and a CollisionMesh where some scene object
+// collides in mesh mode. Called on demand by the layer streaming.
+void TerrainGame::loadModelAsset(int i) {
+  if (i < 0 || i >= MODEL_COUNT || modelLoaded[i]) return;
+  modelLoaded[i] = 1;  // missing/unparseable stays empty but counts as tried
+  const std::string overrideMtl = MODEL_MTLS[i];
+  auto mesh = LeanObjLoader::load(MODEL_PATHS[i], overrideMtl);
+  if (!mesh) return;  // stays empty - objects using it render nothing
+  GameModel& gm = gameModels[i];
+  for (int k = 0; k < 3; ++k) {
+    gm.mn[k] = mesh->min[k];
+    gm.mx[k] = mesh->max[k];
+  }
+  // map_Kd texture names resolve relative to the file that defined them:
+  // the override .mtl when one is assigned, the model otherwise
+  std::string dir = overrideMtl.empty() ? MODEL_PATHS[i] : overrideMtl;
+  const size_t slash = dir.find_last_of('/');
+  dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
+  for (auto& mat : mesh->materials) {
+    GameModelPart part;
+    part.verts.swap(mat.vertices);
+    part.kd[0] = mat.kd[0];
+    part.kd[1] = mat.kd[1];
+    part.kd[2] = mat.kd[2];
+    if (!mat.textureName.empty()) {
+      const std::string path = dir + mat.textureName;
+      part.texture = acquireTexture(path);
+      gm.texPaths.push_back(path);
+    }
+    gm.parts.push_back(std::move(part));
+  }
+  if (MODEL_NEEDS_COLLIDER[i]) {
+    std::vector<float> all;  // the collider spans every material part
+    for (const auto& part : gm.parts)
+      all.insert(all.end(), part.verts.begin(), part.verts.end());
+    gm.collider.build(all.data(), (u32)(all.size() / 8), 8);
+  }
+}
+
+// Frees a model's geometry, collider and texture references. Only called
+// when no object of a resident layer uses the model - every GeoPart drawing
+// it was dropped by deactivateObject() beforehand.
+void TerrainGame::freeModelAsset(int i) {
+  if (i < 0 || i >= MODEL_COUNT || !modelLoaded[i]) return;
+  GameModel& gm = gameModels[i];
+  for (const std::string& path : gm.texPaths) releaseTexture(path);
+  gm = GameModel();
+  modelLoaded[i] = 0;
 }
 
 // Primitive materials: each MATERIAL_PATHS entry is a .mtl whose FIRST
 // material becomes the surface of the primitives it is assigned to
 // (Kd color + optional map_Kd texture, resolved relative to the .mtl).
-void TerrainGame::loadMaterials() {
-  gameMaterials.assign(MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 0, GameMaterial());
-  std::map<std::string, Texture*> textureByPath;
-  for (int i = 0; i < MATERIAL_COUNT; ++i) {
-    const auto materials = LeanObjLoader::loadMtl(MATERIAL_PATHS[i]);
-    if (materials.empty()) continue;  // stays white - plain object color
-    const auto& mat = materials.front();
-    GameMaterial& gmat = gameMaterials[i];
-    gmat.kd[0] = mat.kd[0];
-    gmat.kd[1] = mat.kd[1];
-    gmat.kd[2] = mat.kd[2];
-    if (mat.textureName.empty()) continue;
-    std::string dir = MATERIAL_PATHS[i];
-    const size_t slash = dir.find_last_of('/');
-    dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
-    const std::string path = dir + mat.textureName;
-    auto it = textureByPath.find(path);
-    if (it == textureByPath.end()) {
-      Texture* t = nullptr;
-      if (assetFileExists(path))
-        t = engine->renderer.getTextureRepository().add(FileUtils::fromCwd(path));
-      else
-        TYRA_WARN("Material texture missing: ", path.c_str());
-      it = textureByPath.emplace(path, t).first;
-    }
-    gmat.texture = it->second;
-  }
+void TerrainGame::loadMaterialAsset(int i) {
+  if (i < 0 || i >= MATERIAL_COUNT || materialLoaded[i]) return;
+  materialLoaded[i] = 1;
+  const auto materials = LeanObjLoader::loadMtl(MATERIAL_PATHS[i]);
+  if (materials.empty()) return;  // stays white - plain object color
+  const auto& mat = materials.front();
+  GameMaterial& gmat = gameMaterials[i];
+  gmat.kd[0] = mat.kd[0];
+  gmat.kd[1] = mat.kd[1];
+  gmat.kd[2] = mat.kd[2];
+  if (mat.textureName.empty()) return;
+  std::string dir = MATERIAL_PATHS[i];
+  const size_t slash = dir.find_last_of('/');
+  dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
+  gmat.texPath = dir + mat.textureName;
+  gmat.texture = acquireTexture(gmat.texPath);
+}
+
+void TerrainGame::freeMaterialAsset(int i) {
+  if (i < 0 || i >= MATERIAL_COUNT || !materialLoaded[i]) return;
+  GameMaterial& gmat = gameMaterials[i];
+  if (!gmat.texPath.empty()) releaseTexture(gmat.texPath);
+  gmat = GameMaterial();
+  materialLoaded[i] = 0;
 }
 
 // Animated models: .glb files serialized by the editor into .tskl skeletal
 // files (TsklLoader). The model data is shared; every scene object gets a
 // SkelInstance (own playback state + skinned output mesh). Textures ship as
 // PNGs next to the .tskl and link to each instance's materials by id.
-void TerrainGame::loadAnimModels() {
-  gameAnimModels.clear();
-  gameAnimModels.resize(ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 0);
-  std::map<std::string, Texture*> textureByPath;
-  for (int i = 0; i < ANIM_MODEL_COUNT; ++i) {
-    auto model = TsklLoader::load(ANIM_MODEL_PATHS[i]);
-    if (!model) continue;  // stays empty - objects using it render nothing
-    GameAnimModel& gam = gameAnimModels[i];
-    gam.textures.assign(model->parts.size(), nullptr);
-    for (size_t m = 0; m < model->parts.size(); ++m) {
-      const std::string& path = model->parts[m].texturePath;
-      if (path.empty()) continue;
-      auto it = textureByPath.find(path);
-      if (it == textureByPath.end()) {
-        Texture* t = nullptr;
-        if (assetFileExists(path))
-          t = engine->renderer.getTextureRepository().add(FileUtils::fromCwd(path));
-        else
-          TYRA_WARN("Model texture missing: ", path.c_str());
-        it = textureByPath.emplace(path, t).first;
-      }
-      if (it->second)
-        gam.textures[m] = it->second;
-      else  // missing texture degrades the part to its plain color
-        model->parts[m].texturePath.clear();
-    }
-    // Local-space cull box: the .tskl AABB is a union over every clip
-    // (sampled by the baker), padded 10% per axis for pose positions
-    // between the bake samples. Culling skips pose+skin+submit entirely,
-    // so the box must stay conservative.
-    {
-      float lo[3], hi[3];
-      for (int c = 0; c < 3; ++c) {
-        const float pad = 0.1F * (model->max[c] - model->min[c]);
-        lo[c] = model->min[c] - pad;
-        hi[c] = model->max[c] + pad;
-      }
-      Vec4 corners[2];
-      corners[0].set(lo[0], lo[1], lo[2], 1.0F);
-      corners[1].set(hi[0], hi[1], hi[2], 1.0F);
-      gam.cullBox = CoreBBox(corners, 2);
-    }
-    gam.src = std::move(model);
+void TerrainGame::loadAnimModelAsset(int i) {
+  if (i < 0 || i >= ANIM_MODEL_COUNT || animModelLoaded[i]) return;
+  animModelLoaded[i] = 1;
+  auto model = TsklLoader::load(ANIM_MODEL_PATHS[i]);
+  if (!model) return;  // stays empty - objects using it render nothing
+  GameAnimModel& gam = gameAnimModels[i];
+  gam.textures.assign(model->parts.size(), nullptr);
+  for (size_t m = 0; m < model->parts.size(); ++m) {
+    const std::string& path = model->parts[m].texturePath;
+    if (path.empty()) continue;
+    Texture* t = acquireTexture(path);
+    gam.texPaths.push_back(path);
+    if (t)
+      gam.textures[m] = t;
+    else  // missing texture degrades the part to its plain color
+      model->parts[m].texturePath.clear();
   }
-  // One shared directional-light set for every animated instance; the
-  // arrays are member storage, values refresh each frame in the anim pass.
-  animDirLights.setLightsManually(animLightColors, animLightDirs);
+  // Local-space cull box: the .tskl AABB is a union over every clip
+  // (sampled by the baker), padded 10% per axis for pose positions
+  // between the bake samples. Culling skips pose+skin+submit entirely,
+  // so the box must stay conservative.
+  {
+    float lo[3], hi[3];
+    for (int c = 0; c < 3; ++c) {
+      const float pad = 0.1F * (model->max[c] - model->min[c]);
+      lo[c] = model->min[c] - pad;
+      hi[c] = model->max[c] + pad;
+    }
+    Vec4 corners[2];
+    corners[0].set(lo[0], lo[1], lo[2], 1.0F);
+    corners[1].set(hi[0], hi[1], hi[2], 1.0F);
+    gam.cullBox = CoreBBox(corners, 2);
+  }
+  gam.src = std::move(model);
+}
+
+// Frees the shared skeletal model + its textures. Every SkelInstance
+// sampling it is already gone - deactivateObject() resets them before the
+// residency pass frees assets.
+void TerrainGame::freeAnimModelAsset(int i) {
+  if (i < 0 || i >= ANIM_MODEL_COUNT || !animModelLoaded[i]) return;
+  GameAnimModel& gam = gameAnimModels[i];
+  for (const std::string& path : gam.texPaths) releaseTexture(path);
+  gam = GameAnimModel();
+  animModelLoaded[i] = 0;
+}
+
+// Scene (terrain) textures from texture_data.gen.hpp, through the cache.
+void TerrainGame::loadSceneTexture(int i) {
+  if (i < 0 || i >= TEXTURE_COUNT || sceneTexLoaded[i]) return;
+  sceneTexLoaded[i] = 1;
+  loadedTextures[i] = acquireTexture(TEXTURE_PATHS[i]);
+}
+
+void TerrainGame::freeSceneTexture(int i) {
+  if (i < 0 || i >= TEXTURE_COUNT || !sceneTexLoaded[i]) return;
+  releaseTexture(TEXTURE_PATHS[i]);
+  loadedTextures[i] = nullptr;
+  sceneTexLoaded[i] = 0;
+}
+
+// Desired residency of an object's layer (-1 = no layer = always resident).
+bool TerrainGame::layerOn(int layer) const {
+  if (layer < 0) return true;
+  if (layer >= (int)layerTarget.size()) return true;
+  return layerTarget[layer] != 0;
+}
+
+// Recomputes which assets the active scene needs under the current layer
+// targets: frees loaded-but-unneeded ones immediately (cheap), rebuilds the
+// stream queue with the needed-but-missing ones. loadScene() drains the
+// queue synchronously behind the loading screen; updateLayerStreaming()
+// drains it one asset per frame during gameplay.
+void TerrainGame::applyLayerResidency() {
+  std::vector<unsigned char> modelNeed(gameModels.size(), 0);
+  std::vector<unsigned char> materialNeed(gameMaterials.size(), 0);
+  std::vector<unsigned char> animNeed(gameAnimModels.size(), 0);
+  std::vector<unsigned char> texNeed(loadedTextures.size(), 0);
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+    const SceneObjectData& d = SCENE_OBJECTS[i];
+    if (!layerOn(d.layer)) continue;
+    if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
+    if (d.material >= 0 && d.material < (int)materialNeed.size())
+      materialNeed[d.material] = 1;
+    if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
+      animNeed[d.animModel] = 1;
+  }
+  if (TERRAIN_TEXTURE >= 0 && TERRAIN_TEXTURE < (int)texNeed.size())
+    texNeed[TERRAIN_TEXTURE] = 1;
+
+  for (int i = 0; i < (int)modelNeed.size(); ++i)
+    if (!modelNeed[i] && modelLoaded[i]) freeModelAsset(i);
+  for (int i = 0; i < (int)materialNeed.size(); ++i)
+    if (!materialNeed[i] && materialLoaded[i]) freeMaterialAsset(i);
+  for (int i = 0; i < (int)animNeed.size(); ++i)
+    if (!animNeed[i] && animModelLoaded[i]) freeAnimModelAsset(i);
+  for (int i = 0; i < (int)texNeed.size(); ++i)
+    if (!texNeed[i] && sceneTexLoaded[i]) freeSceneTexture(i);
+
+  streamQueue.clear();
+  for (int i = 0; i < (int)texNeed.size(); ++i)  // terrain first - most visible
+    if (texNeed[i] && !sceneTexLoaded[i]) streamQueue.push_back((3 << 16) | i);
+  for (int i = 0; i < (int)materialNeed.size(); ++i)
+    if (materialNeed[i] && !materialLoaded[i]) streamQueue.push_back((1 << 16) | i);
+  for (int i = 0; i < (int)modelNeed.size(); ++i)
+    if (modelNeed[i] && !modelLoaded[i]) streamQueue.push_back((0 << 16) | i);
+  for (int i = 0; i < (int)animNeed.size(); ++i)
+    if (animNeed[i] && !animModelLoaded[i]) streamQueue.push_back((2 << 16) | i);
+}
+
+void TerrainGame::processOneStreamJob() {
+  if (streamQueue.empty()) return;
+  const int job = streamQueue.front();
+  streamQueue.erase(streamQueue.begin());
+  const int kind = job >> 16;
+  const int index = job & 0xFFFF;
+  if (kind == 0)
+    loadModelAsset(index);
+  else if (kind == 1)
+    loadMaterialAsset(index);
+  else if (kind == 2)
+    loadAnimModelAsset(index);
+  else
+    loadSceneTexture(index);
+}
+
+// Brings a streamed-in object back with fresh runtime state from the scene
+// data - like a scene load, a re-entered GTA3 interior resets the same way.
+// Geometry rebuilds lazily through the dirty flag.
+void TerrainGame::activateObject(int i) {
+  RuntimeObject& o = runtimeObjects[i];
+  o = RuntimeObject();
+  o.data = SCENE_OBJECTS[i];
+  o.visible = o.data.type != 4 && o.data.type != 6 &&
+              !(o.data.type == 7 && !o.data.emitEnabled);
+  o.dirty = true;
+  setupAnimObject(i);
+}
+
+// Streams an object out: everything it owns on the heap (vertex copies,
+// bags, skeletal instance, hull) is released. The constexpr scene data
+// stays, so activateObject() can rebuild it exactly.
+void TerrainGame::deactivateObject(int i) {
+  runtimeObjects[i].active = false;
+  runtimeObjects[i].visible = false;
+  runtimeObjects[i].dirty = false;
+  objectGeometry[i] = ObjectGeometry();
+}
+
+// Once per frame: applies the scripts' Load/Unload Layer requests, frees
+// unloading layers immediately, streams missing assets in ONE per frame and
+// then trickle-activates the loaded layer's objects a few per frame - the
+// cost is spread out so a corridor walk masks the whole load, GTA3 style.
+void TerrainGame::updateLayerStreaming() {
+  const int lc = (int)layerTarget.size();
+  if (lc == 0) return;
+
+  bool changed = false;
+  for (int l = 0; l < lc; ++l) {
+    const signed char req = layerRequest[l];
+    layerRequest[l] = -1;
+    if (req < 0) continue;
+    if (req != 0 && layerTarget[l] == 0) {
+      layerTarget[l] = 1;
+      layerState[l] = 1;  // loading - assets stream in below
+      changed = true;
+    } else if (req == 0 && layerTarget[l] != 0) {
+      layerTarget[l] = 0;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    // Unloads first: the layer's objects drop out this frame, then whatever
+    // only they needed is freed (deactivate before free - no bag or particle
+    // pool may still point at a freed texture).
+    bool anyOut = false;
+    for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
+      const int l = SCENE_OBJECTS[i].layer;
+      if (l >= 0 && l < lc && layerTarget[l] == 0 && runtimeObjects[i].active) {
+        deactivateObject(i);
+        anyOut = true;
+      }
+    }
+    for (int l = 0; l < lc; ++l)
+      if (layerTarget[l] == 0) layerState[l] = 0;
+    applyLayerResidency();
+    if (anyOut) buildParticles();  // drop the streamed-out emitters' pools
+  }
+
+  if (!streamQueue.empty()) {
+    processOneStreamJob();  // one asset per frame - the streaming budget
+    return;                 // activation starts once everything is resident
+  }
+
+  // All assets in: activate a few objects per frame until each loading
+  // layer is complete (they pop in staggered instead of stalling a frame).
+  bool anyLoading = false;
+  for (int l = 0; l < lc; ++l) anyLoading |= (layerState[l] == 1);
+  if (!anyLoading) return;
+  int budget = 4;
+  for (int i = 0; i < (int)runtimeObjects.size() && budget > 0; ++i) {
+    const int l = SCENE_OBJECTS[i].layer;
+    if (l < 0 || l >= lc || layerState[l] != 1 || runtimeObjects[i].active)
+      continue;
+    activateObject(i);
+    --budget;
+  }
+  bool completed = false;
+  for (int l = 0; l < lc; ++l) {
+    if (layerState[l] != 1) continue;
+    bool pending = false;
+    for (int i = 0; i < (int)runtimeObjects.size(); ++i)
+      if (SCENE_OBJECTS[i].layer == l && !runtimeObjects[i].active)
+        pending = true;
+    if (!pending) {
+      layerState[l] = 2;
+      completed = true;
+    }
+  }
+  if (completed) buildParticles();  // pools for the streamed-in emitters
 }
 
 int TerrainGame::resolveClipIndex(int objectIndex, const char* clipName) const {
@@ -1685,11 +1997,12 @@ void TerrainGame::setupAnimObject(int index) {
     // texture links are per material id and every instance has fresh ids
     if (m < gam.textures.size() && gam.textures[m])
       gam.textures[m]->addLink(mat->id);
-    // per-instance tint: object color multiplies the material base color
+    // material albedo (glTF baseColorFactor). The lit VU1 programs ignore
+    // this single color - it rides in the per-part light colors below - but
+    // it is kept in sync for any single-color path that may read it.
     const float* base = gam.src->parts[m].color;
-    mat->ambient.set(base[0] * 128.0F * o.data.color[0],
-                     base[1] * 128.0F * o.data.color[1],
-                     base[2] * 128.0F * o.data.color[2], 128.0F);
+    mat->ambient.set(base[0] * 128.0F, base[1] * 128.0F, base[2] * 128.0F,
+                     128.0F);
   }
 
   // Static-pipeline bags around the skinned arrays (rebuilt in place every
@@ -1711,7 +2024,24 @@ void TerrainGame::setupAnimObject(int index) {
     ap.lightBag = std::make_unique<StaPipLightingBag>();
     ap.lightBag->lightMatrix = &g.animMat;
     ap.lightBag->normals = frame->normals;
-    ap.lightBag->dirLights = &animDirLights;
+    // Fold this part's material albedo into its light colors so the lit VU1
+    // program renders the .glb material color (outputColor = albedo * light),
+    // not the plain scene light color (gray). Scene light/ambient here mirror
+    // updateAndRenderAnimObjects; directions stay shared (animLightDirs).
+    {
+      const float* base = gam.src->parts[m].color;
+      const float amb = 128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT;
+      const float dif = 128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE;
+      ap.litColors[0].set(dif * SCENE_LIGHT_COL_R * base[0],
+                          dif * SCENE_LIGHT_COL_G * base[1],
+                          dif * SCENE_LIGHT_COL_B * base[2], 1.0F);
+      ap.litColors[1].set(0.0F, 0.0F, 0.0F, 1.0F);
+      ap.litColors[2].set(0.0F, 0.0F, 0.0F, 1.0F);
+      ap.litColors[3].set(amb * base[0], amb * base[1], amb * base[2], 128.0F);
+      ap.animLights = std::make_unique<PipelineDirLightsBag>(true);
+      ap.animLights->setLightsManually(ap.litColors, animLightDirs);
+      ap.lightBag->dirLights = ap.animLights.get();
+    }
     ap.bag = std::make_unique<StaPipBag>();
     ap.bag->info = g.animInfoBag.get();
     ap.bag->color = ap.colorBag.get();
@@ -1772,7 +2102,8 @@ void TerrainGame::updateAndRenderAnimObjects() {
   if (gameAnimModels.empty()) return;
   bool any = false;
   for (int i = 0; i < (int)runtimeObjects.size() && !any; ++i)
-    any = runtimeObjects[i].visible && objectGeometry[i].animInst != nullptr;
+    any = runtimeObjects[i].active && runtimeObjects[i].visible &&
+          objectGeometry[i].animInst != nullptr;
   if (!any) return;
 
   const float amb = 128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT;
@@ -1800,7 +2131,7 @@ void TerrainGame::updateAndRenderAnimObjects() {
     RuntimeObject& o = runtimeObjects[i];
     ObjectGeometry& g = objectGeometry[i];
     SkelInstance* inst = g.animInst.get();
-    if (!inst || !o.visible) continue;
+    if (!inst || !o.active || !o.visible) continue;
     const GameAnimModel& gam = gameAnimModels[o.data.animModel];
 
     if (o.animClip < 0 || o.animClip >= (int)gam.src->clips.size())
@@ -1925,7 +2256,7 @@ void TerrainGame::updateAndRenderAnimObjects() {
       ap.lightBag->normals = la.normals;
       if (ap.texBag) ap.texBag->coordinates = la.textureCoords;
       if (meshOwner == i) {
-        if (reskinned) ap.bag->bboxVersion++;  // skinned in place
+        if (reskinned) ap.bag->bboxVersion = ++g_bboxStamp;  // skinned in place
       } else {
         // identical pointer + version = followers reuse the owner's cached
         // frustum boxes instead of recomputing them per instance
@@ -1948,7 +2279,7 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
                                 float* ground) {
   const float playerRadius = 0.35F;
   for (const RuntimeObject& o : runtimeObjects) {
-    if (!o.visible || o.data.type == 4 || o.data.type == 6 ||
+    if (!o.active || !o.visible || o.data.type == 4 || o.data.type == 6 ||
         o.data.type == 7 || o.data.type == 8 || o.data.type == 9 ||
         o.data.type == 11 || o.data.type == 13)  // 13 = decal (visual only)
       continue;
@@ -2060,15 +2391,29 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
 static int sndChVol[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
 static int sndChPan[8] = {-999, -999, -999, -999, -999, -999, -999, -999};
 
-// Switches the runtime state to a scene from scene_data.hpp. Assets
-// (textures, models) are loaded once for all scenes at startup, so this
-// only rebuilds the runtime objects: vectors and per-object bags are
-// reused/freed here - nothing leaks and the switch takes a frame or two.
+// Switches the runtime state to a scene from scene_data.hpp and settles the
+// asset residency for it: everything the scene's start-resident layers need
+// loads synchronously here (the switch hides behind the loading screen),
+// assets no resident layer uses any more - the previous scene's included -
+// are freed. Runtime objects are rebuilt; vectors and per-object bags are
+// reused/freed here, nothing leaks.
 void TerrainGame::loadScene(int sceneIndex) {
   if (sceneIndex < 0 || sceneIndex >= SCENE_COUNT) return;
   currentScene = sceneIndex;
   g_activeScene = sceneIndex;
   sceneGeneration++;  // scene scripts see this and reset their state
+
+  // Streaming layers: desired residency from the scene's authored defaults.
+  {
+    const int lc = SCENE_LAYER_COUNT;
+    layerTarget.assign(lc > 0 ? lc : 0, 0);
+    layerState.assign(lc > 0 ? lc : 0, 0);
+    layerRequest.assign(lc > 0 ? lc : 0, -1);
+    for (int l = 0; l < lc; ++l) layerTarget[l] = SCENE_LAYER_START[l] ? 1 : 0;
+    applyLayerResidency();
+    while (!streamQueue.empty()) processOneStreamJob();
+    for (int l = 0; l < lc; ++l) layerState[l] = layerTarget[l] ? 2 : 0;
+  }
 
   // Terrain, lighting, sky, clipping and post-FX are per scene (Scene >
   // Preferences overrides) - rebuild the terrain mesh + sky dome and re-apply
@@ -2081,7 +2426,7 @@ void TerrainGame::loadScene(int sceneIndex) {
     colorBag->many = colors.data();
     bag->vertices = vertices.data();
     bag->count = static_cast<u32>(vertices.size());
-    bag->bboxVersion++;
+    bag->bboxVersion = ++g_bboxStamp;
     if (TERRAIN_TEXTURE >= 0 && loadedTextures[TERRAIN_TEXTURE]) {
       terrainTexBag.texture = loadedTextures[TERRAIN_TEXTURE];
       terrainTexBag.coordinates = terrainSts.data();
@@ -2117,14 +2462,24 @@ void TerrainGame::loadScene(int sceneIndex) {
         SCENE_OBJECTS[i].type != 4 && SCENE_OBJECTS[i].type != 6 &&
         !(SCENE_OBJECTS[i].type == 7 && !SCENE_OBJECTS[i].emitEnabled);
     runtimeObjects[i].dirty = true;
+    // objects of layers that don't start resident wait for Load Layer
+    runtimeObjects[i].active = layerOn(SCENE_OBJECTS[i].layer);
+    if (!runtimeObjects[i].active) {
+      runtimeObjects[i].visible = false;
+      runtimeObjects[i].dirty = false;
+    }
   }
   // Animated models: fresh per-object mesh instances + playback defaults
-  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) setupAnimObject(i);
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+    if (runtimeObjects[i].active) setupAnimObject(i);
 
   scriptCtx.objects = runtimeObjects.data();
   scriptCtx.objectCount = (int)runtimeObjects.size();
   scriptCtx.scene = currentScene;
   scriptCtx.sceneGeneration = sceneGeneration;
+  scriptCtx.layerState = layerState.data();
+  scriptCtx.layerRequest = layerRequest.data();
+  scriptCtx.layerCount = (int)layerState.size();
   scriptCtx.usedObject = -1;
   useTargetIndex = -1;
 
@@ -2172,7 +2527,7 @@ void TerrainGame::updateSoundEmitters() {
     if (!sndSamples[o.data.snd]) continue;  // sample failed to load (too big for SPU2?)
     const s8 ch = (s8)(16 + (i & 7));  // emitters own channels 16-23
     const int chIdx = i & 7;
-    if (!o.visible) {
+    if (!o.active || !o.visible) {
       if (sndChVol[chIdx] != 0) {
         engine->audio.adpcm.setVolume(0, ch);
         sndChVol[chIdx] = 0;
@@ -2246,6 +2601,7 @@ void TerrainGame::buildParticles() {
   particles.clear();
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (runtimeObjects[i].data.type != 7) continue;
+    if (!runtimeObjects[i].active) continue;  // emitter streamed out - no pool
     ParticleSystem ps;
     ps.objectIndex = i;
     ps.rng = 12345u + (unsigned int)i * 7919u;
@@ -2311,7 +2667,7 @@ void TerrainGame::updateParticles() {
 
   for (ParticleSystem& ps : particles) {
     const RuntimeObject& o = runtimeObjects[ps.objectIndex];
-    if (!o.visible) {
+    if (!o.active || !o.visible) {
       ps.bag->count = 0;  // Hide Object turns the emitter off
       continue;
     }
@@ -2479,7 +2835,7 @@ void TerrainGame::updateParticles() {
     ps.colorBag->many = ps.cols.data();
     ps.bag->vertices = ps.verts.data();
     ps.bag->count = (u32)ps.verts.size();
-    ps.bag->bboxVersion++;  // moving cloud - refresh the frustum bbox
+    ps.bag->bboxVersion = ++g_bboxStamp;  // moving cloud - refresh the bbox
   }
 }
 // Picks the nearest usable object the camera is close to and looking at
@@ -2497,7 +2853,7 @@ void TerrainGame::updateUseTarget() {
   float bestDist = 0.0F;
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     const RuntimeObject& o = runtimeObjects[i];
-    if (!o.data.usable || !o.visible) continue;
+    if (!o.active || !o.data.usable || !o.visible) continue;
     if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
         o.data.type == 8 || o.data.type == 9 || o.data.type == 11)
       continue;
@@ -2940,8 +3296,7 @@ void TerrainGame::buildSkyDome() {
   skyDome.bag->count = static_cast<u32>(skyDome.vertices.size());
   skyDome.bag->texture = nullptr;
   skyDome.bag->lighting = nullptr;
-  static u32 domeVersion = 0;  // dome rebuilds on retint - skip stale bboxes
-  skyDome.bag->bboxVersion = ++domeVersion;
+  skyDome.bag->bboxVersion = ++g_bboxStamp;  // dome rebuilds on retint
 }
 
 void TerrainGame::rebuildObjectGeometry(int index) {
@@ -3031,7 +3386,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     part.colorBag->many = part.colors.data();
     part.bag->vertices = part.vertices.data();
     part.bag->count = static_cast<u32>(part.vertices.size());
-    part.bag->bboxVersion++;  // geometry changed - refresh the bbox cache
+    part.bag->bboxVersion = ++g_bboxStamp;  // geometry changed - fresh boxes
 
     // models: the part's own map_Kd; primitives: the assigned material's
     Texture* tex =
@@ -3051,7 +3406,7 @@ void TerrainGame::updateObjectPhysics() {
   // GRAVITY is units/s^2
   const float gravityPerFrame = GRAVITY * g_frameDt * g_frameDt;
   for (RuntimeObject& o : runtimeObjects) {
-    if (!o.data.physics) continue;
+    if (!o.active || !o.data.physics) continue;
     const float half = 0.5F * o.data.scale[1];
     const float floorY =
         terrainHeightAt(o.data.position[0], o.data.position[2]) + half;
@@ -3080,6 +3435,7 @@ void TerrainGame::renderScene() {
   if (skyDome.bag) stapip.core.render(skyDome.bag.get());
   stapip.core.render(bag.get());
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
+    if (!runtimeObjects[i].active) continue;  // streamed out with its layer
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
     if (!runtimeObjects[i].visible) continue;
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
@@ -3094,8 +3450,8 @@ void TerrainGame::renderScene() {
   // punched through by an object drawn later in the loop.
   if (HIGHLIGHT_USABLE)
     for (int i = 0; i < (int)runtimeObjects.size(); ++i)
-      if (runtimeObjects[i].visible && runtimeObjects[i].data.usable &&
-          !objectGeometry[i].parts.empty())
+      if (runtimeObjects[i].active && runtimeObjects[i].visible &&
+          runtimeObjects[i].data.usable && !objectGeometry[i].parts.empty())
         renderHighlightHull(i);  // proximity-checked inside; no-op when far
   // particles last - alpha blended over the scene
   for (ParticleSystem& ps : particles)
@@ -3197,7 +3553,7 @@ void TerrainGame::renderHighlightHull(int index) {
   g.hullColorBag->many = g.hullCols.data();
   g.hullBag->vertices = g.hullVerts.data();
   g.hullBag->count = static_cast<u32>(g.hullVerts.size());
-  g.hullBag->bboxVersion++;  // rebuilt every frame while highlighted
+  g.hullBag->bboxVersion = ++g_bboxStamp;  // rebuilt every frame while shown
   stapip.core.render(g.hullBag.get());
   // The pushback clears the object's front face but not its receding side
   // faces - shells still blend over those at glancing angles. Repainting
@@ -3479,6 +3835,10 @@ void TerrainGame::loop() {
     playerY = terrainHeightAt(playerX, playerZ);
     playerVelY = 0.0F;
   }
+
+  // Streaming layers: Load/Unload Layer requests, one asset load per frame,
+  // trickle activation of freshly resident layers.
+  updateLayerStreaming();
 
   // Flow graph / script teleport request: move the Player entity when the
   // scene has one, the built-in FPP player otherwise.
@@ -4116,6 +4476,12 @@ struct RuntimeObject {
   bool visible = true;
   float velocityY = 0.0F;  // vertical velocity (object physics)
   bool dirty = true;
+  // False while the object's streaming layer is not resident: the object is
+  // fully out of the game (no render, collision, sound, USE, physics) and
+  // its geometry/assets may be freed. Managed by the game's layer streaming
+  // - scripts should use the Load/Unload Layer flow nodes (or
+  // ctx.layerRequest) instead of writing this directly.
+  bool active = true;
 
   // Animated models (.glb) playback state; ignored on everything else.
   // To switch clips set animClip (resolve names with ctx.resolveClip or the
@@ -4179,6 +4545,16 @@ struct ScriptContext {
   int scene = 0;
   unsigned int sceneGeneration = 0;
   int requestScene = -1;
+
+  // Streaming layers (SCENE_LAYER_* tables, per active scene). layerState[i]:
+  // 0 = unloaded, 1 = loading (assets streaming in over frames), 2 = loaded.
+  // Write 1 into layerRequest[i] to start loading a layer, 0 to unload it
+  // (the game applies requests after this frame's scripts; -1 = none).
+  // Loading is incremental - GTA3 style: request the next area's layer a
+  // corridor early and it pops in without a hitch.
+  const unsigned char* layerState = nullptr;
+  signed char* layerRequest = nullptr;
+  int layerCount = 0;
 
   // Animated models: clip-name -> clip-index lookup for an object (-1 =
   // unknown clip / not an animated model). Set by the game at startup.
@@ -4574,6 +4950,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int animLoop;          // animated models: 1 = starting clip loops\n"
            "  float animSpeed;       // animated models: playback speed multiplier\n"
            "  int primDetail;        // segments (curved) or box subdivisions/edge\n"
+           "  int layer;      // streaming layer (SCENE_LAYER_* tables), -1 = none:\n"
+           "                  // always resident, never streamed out\n"
            "};\n"
            "\n";
 
@@ -4592,12 +4970,19 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
                    "0, 0, 0.0F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, "
                    "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, \"\", 1, 1, "
-                   "1.0F, 1},\n";
+                   "1.0F, 1, -1},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
                 for (size_t i = 0; i < p.sounds.size(); ++i)
                     if (p.sounds[i] == path) return (int)i;
                 return -1;
+            };
+            auto layerIndexIn = [&](const std::string& name) {
+                if (name.empty()) return -1;
+                const auto& layers = p.scenes[si].layers;
+                for (size_t i = 0; i < layers.size(); ++i)
+                    if (layers[i].name == name) return (int)i;
+                return -1;  // unknown layer name = always resident
             };
             for (const SceneObject& o : objs) {
                 out << "    {" << (int)o.type << ", " << vec3Init(o.position) << ", "
@@ -4628,8 +5013,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << ", \"" << escapeCString(o.animClip) << "\", "
                     << (o.animAutoplay ? 1 : 0) << ", " << (o.animLoop ? 1 : 0)
                     << ", " << floatLit(o.animSpeed) << ", "
-                    << clampPrimDetail(o.type, o.primDetail) << "},  // " << o.name
-                    << "\n";
+                    << clampPrimDetail(o.type, o.primDetail) << ", "
+                    << layerIndexIn(o.layer) << "},  // " << o.name << "\n";
             }
         }
         out << "};\n";
@@ -4642,6 +5027,30 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {";
     for (int si = 0; si < sceneCount; ++si)
         out << (si ? ", " : "") << "SCENE_" << si << "_OBJECTS";
+    out << "};\n\n";
+
+    // Streaming layers: per-scene layer count and which layers start resident
+    // (rows padded to SCENE_MAX_LAYERS with true). SceneObjectData.layer
+    // indexes these; the Load/Unload Layer flow nodes flip residency at
+    // runtime and the game streams the assets in/out.
+    int maxLayers = 1;
+    for (const SceneData& sc : p.scenes)
+        if ((int)sc.layers.size() > maxLayers) maxLayers = (int)sc.layers.size();
+    out << "constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "") << p.scenes[si].layers.size();
+    out << "};\n"
+        << "constexpr int SCENE_MAX_LAYERS = " << maxLayers << ";\n"
+        << "constexpr bool SCENE_LAYER_STARTS[SCENE_COUNT][SCENE_MAX_LAYERS] = {";
+    for (int si = 0; si < sceneCount; ++si) {
+        out << (si ? ", {" : "{");
+        for (int li = 0; li < maxLayers; ++li) {
+            const auto& layers = p.scenes[si].layers;
+            const bool start = li >= (int)layers.size() || layers[li].startLoaded;
+            out << (li ? ", " : "") << (start ? "true" : "false");
+        }
+        out << "}";
+    }
     out << "};\n\n";
 
     // Sound effect samples referenced by sound emitters (SceneObjectData.snd
@@ -4928,6 +5337,8 @@ inline int everyFrames(float seconds) {
 }
 #define SCENE_OBJECT_COUNT SCENE_OBJECT_COUNTS[g_activeScene]
 #define SCENE_OBJECTS SCENE_OBJECT_TABLES[g_activeScene]
+#define SCENE_LAYER_COUNT SCENE_LAYER_COUNTS[g_activeScene]
+#define SCENE_LAYER_START SCENE_LAYER_STARTS[g_activeScene]
 #define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
 #define PLAYER_MODE PLAYER_MODES[g_activeScene]
 #define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[g_activeScene]
@@ -5190,6 +5601,13 @@ std::string flowGraphScript(const Project& p) {
             if (sceneObjs[i].name == name) return (int)i;
         return -1;
     };
+    // Streaming layers are per scene - names resolve within the owning scene
+    auto layerIndexOf = [&](const std::string& name) {
+        const auto& layers = p.scenes[si].layers;
+        for (size_t i = 0; i < layers.size(); ++i)
+            if (layers[i].name == name) return (int)i;
+        return -1;
+    };
     for (size_t ownerIdx = 0; ownerIdx < sceneObjs.size(); ++ownerIdx) {
         const FlowGraph& fg = sceneObjs[ownerIdx].flowGraph;
         if (fg.empty()) continue;
@@ -5286,6 +5704,12 @@ std::string flowGraphScript(const Project& p) {
                 const int idx = resolveTarget(n);
                 if (idx < 0) return "false";
                 return "(ctx.objects[" + std::to_string(idx) + "].visible)";
+            }
+            if (n.type == "IsLayerLoaded") {
+                const int li = layerIndexOf(n.str);
+                if (li < 0) return "false";  // unknown layer name
+                return "(ctx.layerState && ctx.layerState[" + std::to_string(li) +
+                       "] == 2)";
             }
             if (n.type == "ValueAtLeast") {
                 const int vi = saveValueIndex(n.str);
@@ -5466,6 +5890,17 @@ std::string flowGraphScript(const Project& p) {
                 } else {
                     c << pad << "ctx.requestScene = " << target << ";  // \"" << n.str
                       << "\"\n";
+                }
+            } else if (n.type == "LoadLayer" || n.type == "UnloadLayer") {
+                const int li = layerIndexOf(n.str);
+                if (li < 0) {
+                    c << pad << "// node " << n.id << " (" << n.type
+                      << "): unknown layer '" << n.str << "'\n";
+                } else {
+                    c << pad << "if (ctx.layerRequest && " << li
+                      << " < ctx.layerCount) ctx.layerRequest[" << li
+                      << "] = " << (n.type == "LoadLayer" ? 1 : 0) << ";  // \""
+                      << n.str << "\"\n";
                 }
             } else if (n.type == "SetGrading") {
                 if (n.str.empty()) {

@@ -5,7 +5,7 @@
 #include <vector>
 #include "scene_data.hpp"
 
-namespace Script_demo {
+namespace Layer_streaming {
 
 /** A scene object at runtime. Mutate `data` (position/rotation/scale/color),
  * `visible` or `velocityY`, then set `dirty = true` so the geometry gets
@@ -187,14 +187,14 @@ inline std::vector<ObjectScriptFactory>& getObjectScriptFactories() {
   return factories;
 }
 
-}  // namespace Script_demo
+}  // namespace Layer_streaming
 
 /** Registers a script class. Put TYRA_SCRIPT(MyScript); at file scope. */
 #define TYRA_SCRIPT_CONCAT_INNER(a, b) a##b
 #define TYRA_SCRIPT_CONCAT(a, b) TYRA_SCRIPT_CONCAT_INNER(a, b)
 #define TYRA_SCRIPT(ClassName)                                             \
   static const bool TYRA_SCRIPT_CONCAT(_tyraScript_, __COUNTER__) = []() { \
-    Script_demo::getScripts().push_back(new ClassName());            \
+    Layer_streaming::getScripts().push_back(new ClassName());            \
     return true;                                                           \
   }()
 
@@ -203,8 +203,8 @@ inline std::vector<ObjectScriptFactory>& getObjectScriptFactories() {
  * TYRA_OBJECT_SCRIPT(MyScript); at file scope INSIDE your namespace. */
 #define TYRA_OBJECT_SCRIPT(ClassName)                                         \
   static const bool TYRA_SCRIPT_CONCAT(_tyraObjScript_, __COUNTER__) = []() { \
-    Script_demo::getObjectScriptFactories().push_back(                  \
-        {#ClassName, []() -> Script_demo::ObjectScript* {               \
+    Layer_streaming::getObjectScriptFactories().push_back(                  \
+        {#ClassName, []() -> Layer_streaming::ObjectScript* {               \
           return new ClassName();                                             \
         }});                                                                  \
     return true;                                                              \

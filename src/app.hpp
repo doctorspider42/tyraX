@@ -61,6 +61,8 @@ private:
     // fields common to every selected object, edited in one pass.
     void drawMultiProperties();
     void drawSceneSection();
+    void drawLayersSection();
+    bool isObjectHiddenInEditor(const SceneObject& o) const;
     void drawScriptsSection();
     void drawNewScriptModal();
     void drawNewSceneModal();
@@ -136,6 +138,15 @@ private:
         std::vector<std::string> clips;
         int vertexCount = 0, frameCount = 0;
         std::vector<std::string> warnings;
+        // Baked materials (glTF), one per draw part: the color the game and
+        // the viewport tint the mesh with. name + baseColorFactor; textured
+        // parts also carry a texture flag.
+        struct Material {
+            std::string name;
+            float color[3] = {1, 1, 1};
+            bool textured = false;
+        };
+        std::vector<Material> materials;
     };
     std::map<std::string, GlbInfo> glbInfoCache_;
     const GlbInfo& glbInfo(const std::string& relPath);
@@ -155,6 +166,33 @@ private:
     void importMusicTrack();
     void drawSoundsSection();
     void importSoundEffect();
+
+    // --- Asset deletion (Assets / HUD / Music / Sounds sections) -----------
+    // Removes an asset from the project instead of the user hand-deleting the
+    // file: a "x" button stages the asset here, drawDeleteAssetModal() asks for
+    // confirmation (spelling out what still references it) and then deletes the
+    // file from res/ and clears any dangling references.
+    struct PendingAssetDelete {
+        enum Kind { Model, Material, Music, Sound, Hud };
+        Kind kind = Model;
+        std::string relPath;  // project-relative file ("res/models/tree.obj")
+        std::string label;    // display name shown in the dialog
+        int hudIndex = -1;    // Hud only: project_.hud entry to erase
+    };
+    bool assetDeleteActive_ = false;      // a deletion is awaiting confirmation
+    PendingAssetDelete assetDeletePending_;
+    void requestAssetDelete(PendingAssetDelete::Kind kind, const std::string& relPath,
+                            const std::string& label, int hudIndex = -1);
+    void drawDeleteAssetModal();
+    // Deletes the staged asset file from res/ and clears the project references
+    // the dialog warned about (object model/material/sound paths, audio flow
+    // nodes, list entries). Called on confirm.
+    void performAssetDelete(const PendingAssetDelete& d);
+    // Objects (across all scenes) and flow-graph nodes still pointing at the
+    // staged asset - filled by countAssetUsers for the dialog, cleared on
+    // confirm. objectUsers: scene objects; nodeUsers: flow-graph audio nodes.
+    void countAssetUsers(const PendingAssetDelete& d, int& objectUsers,
+                         int& nodeUsers) const;
     void drawSaveDataSection();
     void drawMenusWindow();
     void drawGradingWindow();
@@ -334,6 +372,11 @@ private:
     };
     std::map<std::string, ScriptFileScan> scriptScanCache_;
     std::vector<std::string> objectScriptNames();
+
+    // Layer rename-in-place: the name captured when the field gained focus,
+    // so object and flow-node references remap from it when editing ends.
+    std::string layerRenameFrom_;
+    int layerRenameIdx_ = -1;
 
     // "New scene" modal state
     int deleteScenePending_ = -1;  // scene index awaiting delete confirmation

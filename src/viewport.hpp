@@ -68,6 +68,11 @@ public:
     // a full-screen post pass over the rendered frame.
     void setGrading(bool enabled, const CompiledGrading& g);
 
+    // Editor-only layer visibility: indices flagged in the mask (parallel to
+    // the objects vector) are skipped by render() and pick(). The app
+    // rebuilds the mask each frame from the scene's layer eye toggles.
+    void setHiddenMask(std::vector<char> mask) { hiddenMask_ = std::move(mask); }
+
     // Renders terrain + objects at the given pixel size, returns GL texture id.
     // selection: indices outlined; primary (the anchor, usually selection.back())
     // is outlined brighter so it reads as the value source for the multi-editor.
@@ -119,6 +124,11 @@ private:
         uint32_t vao = 0, vbo = 0;
         int vertexCount = 0;
     };
+
+    bool hiddenAt(size_t i) const {
+        return i < hiddenMask_.size() && hiddenMask_[i] != 0;
+    }
+    std::vector<char> hiddenMask_;
 
     void ensureFramebuffer(int width, int height);
     void buildTerrainMesh();
