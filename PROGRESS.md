@@ -9,6 +9,60 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (62) **Decal object type (transparent textured quad)** — a new
+  `PrimitiveType::Decal = 13` for signs/posters/text on walls. A flat unit quad
+  in the XY plane facing +Z, textured through the object's assigned material
+  (`map_Kd`) with transparency. **Key finding: the PS2 pipeline already supports
+  texture alpha** — the PNG loader keeps RGBA / palette+`tRNS` alpha, the static
+  pipeline runs an alpha test (`NOTEQUAL` ref 0, drops fully-transparent texels)
+  with blending on by default, and `pngquant` preserves `tRNS` through 8/4-bit
+  quantization. So the decal needed no new engine rendering path, only: geometry
+  (`addDecal`, XY quad nudged +Z by 0.02 so it sits just in front of the surface
+  instead of z-fighting), exclusion from player collision (type 13 skipped, like
+  the other markers), and editor support. **Editor viewport preview**: the
+  fragment shader gained a `uAlpha` cutout/blend path (samples the texture alpha,
+  discards near-zero, blends the rest) so decals look the same in the editor as
+  in-game; other primitives stay opaque. **UI**: Insert > Object > Decal;
+  `addDecal()` defaults to white tint (shows the texture untinted), collision
+  none, eye-height; Properties shows the material picker + transform + color but
+  no physics/usable/collision (it is a pure visual overlay). Not added to the
+  Box/Sphere/... "Type" combo (distinct type; its enum value is non-contiguous).
+  **Verified end-to-end**: clean editor build; a scratch project with a decal
+  using a hand-made 64x64 transparent PNG (auto-quantized to 4-bit palette +
+  `tRNS`, confirmed palette index 0 = alpha 0) built through Docker + PS2 `make`
+  (`=== Build OK ===`) and **booted in PCSX2** — the decal renders as a clean
+  red disc with a yellow bar and the transparent PNG background is fully cut out
+  (the terrain checkerboard shows through the quad's corners, no square outline,
+  no z-fighting). scene_data emits `type 13`, material index, collision none;
+  load/save round-trips. Interactive placement feel (nudging a decal flush onto
+  an arbitrary wall) still wants a hands-on human pass.
+
+- (61) **Plane primitive + gray default for simple objects** — added a `Plane`
+  shape (`PrimitiveType::Plane = 12`, kept non-contiguous but stable): a flat
+  unit square in the XZ plane, rendered **double-sided** (top +Y and bottom -Y
+  quads) so it's visible from both faces. Full chain: enum + `operator==` is
+  unaffected (no new field), `primitiveTypeName`/`primitiveTypeFromName`
+  (`"plane"`), `unitPlane()` + `plane_` mesh in the viewport (build/destroy/
+  `meshFor`), `addPlane()` + dispatch `case 12` in the game codegen
+  (`templates.cpp`), Insert > Shapes > Plane and `typeLabel` in the UI. The
+  Properties "Type" combo can't cast index→enum anymore (Plane=12 isn't
+  adjacent to Box..Cone=0..3), so it now maps through an explicit `kShapeTypes`
+  list; `isShape` includes Plane so it gets rotation/scale/color/material +
+  box collision like the other primitives. **Gray default**: changed the
+  `SceneObject::color` struct default from the terracotta `{0.8,0.35,0.25}` to
+  neutral `{0.6,0.6,0.6}`. Safe because every specialized type (spawn, player,
+  emitter, sound, light, empty, save point) overrides its color explicitly and
+  `color` is always emitted in the `.tyra` save, so only fresh Box/Sphere/
+  Cylinder/Cone/Plane/Model objects pick up the new gray; existing projects
+  load their stored color unchanged. **Verified**: clean editor build; a
+  scratch project with a hand-injected `"type":"plane"` object round-tripped
+  through load/save intact and emitted `{12, ..., {0.6F,0.6F,0.6F}, ...}` in
+  `inc/scene_data.hpp`; the full Docker + PS2 `make` e2e build succeeded
+  (`=== Build OK ===`), so the generated `addPlane` compiles on the PS2
+  toolchain. Editor viewport render path reuses the proven `pushQuadShaded`
+  quad code; an on-screen viewport pixel check of the plane still wants a
+  human/interactive pass (the GDI grab only caught the 4K window's top-left).
+
 - (50) **Viewport camera recenter buttons + toolbar cleanup** — two new
   camera actions plus a reorganization of the viewport overlay controls.
   **Center view** calls the new `Viewport::resetView()`, which restores the

@@ -170,6 +170,7 @@ in vec3 vWorld;
 uniform vec3 uTint;
 uniform int uUseTex;
 uniform sampler2D uTex;
+uniform int uAlpha;              // 1: honor texture alpha (decal cutout + blend)
 uniform int uLit;                // 0: lines/markers/sky - skip point lights
 uniform int uLightCount;
 uniform vec4 uLightPos[8];       // xyz = world position, w = radius
@@ -187,7 +188,12 @@ uniform float uFlashCut2;        // cos^2(half-angle)
 uniform float uFlashSoft;        // softness/(range^2*(1-cos^2))
 out vec4 FragColor;
 void main() {
-    vec3 tex = uUseTex != 0 ? texture(uTex, vUV).rgb : vec3(1.0);
+    vec4 texel = uUseTex != 0 ? texture(uTex, vUV) : vec4(1.0);
+    vec3 tex = texel.rgb;
+    // Decals honor the texture's alpha (mirrors the PS2 alpha test + blend);
+    // fully transparent texels are dropped so the surface behind shows through.
+    float a = uAlpha != 0 ? texel.a : 1.0;
+    if (uAlpha != 0 && a < 0.02) discard;
     vec3 shade = vColor;
     if (uLit != 0 && uLightCount > 0) {
         vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
@@ -222,7 +228,9 @@ void main() {
         float f = clamp((uFogEnd - viewDist) / (uFogEnd - uFogStart), 0.0, 1.0);
         color = mix(uFogColor, color, f);
     }
-    FragColor = vec4(color, 1.0);
+    // Decals carry the texture's alpha (cutout above + blend here); everything
+    // else outputs opaque.
+    FragColor = vec4(color, a);
 }
 )";
 
@@ -458,6 +466,25 @@ std::vector<float> unitCone(int detail = kDefaultPrimDetail) {
     return v;
 }
 
+// Flat unit square in the XZ plane, double-sided (top +Y and bottom -Y faces)
+// so it is visible from both above and below.
+std::vector<float> unitPlane() {
+    std::vector<float> v;
+    const float h = 0.5f;
+    pushQuadShaded(v, {-h, 0, -h}, {-h, 0, h}, {h, 0, h}, {h, 0, -h}, {0, 1, 0});
+    pushQuadShaded(v, {-h, 0, h}, {-h, 0, -h}, {h, 0, -h}, {h, 0, h}, {0, -1, 0});
+    return v;
+}
+
+// Decal quad: XY plane facing +Z, nudged +Z by 0.02 (matches addDecal in the
+// codegen). Same corner/UV order as the box +Z face so textures map the same.
+std::vector<float> unitDecal() {
+    std::vector<float> v;
+    const float h = 0.5f, z = 0.02f;
+    pushQuadShaded(v, {-h, -h, z}, {h, -h, z}, {h, h, z}, {-h, h, z}, {0, 0, 1});
+    return v;
+}
+
 // Spawn point marker: a pole with an arrow pointing +Z (the facing direction,
 // i.e. object yaw = player start yaw in the FPP template).
 std::vector<float> unitSpawnMarker() {
@@ -650,6 +677,7 @@ bool Viewport::init() {
     uMvp_ = glGetUniformLocation(program_, "uMvp");
     uTint_ = glGetUniformLocation(program_, "uTint");
     uUseTex_ = glGetUniformLocation(program_, "uUseTex");
+    uAlpha_ = glGetUniformLocation(program_, "uAlpha");
     uModel_ = glGetUniformLocation(program_, "uModel");
     uLit_ = glGetUniformLocation(program_, "uLit");
     uLightCount_ = glGetUniformLocation(program_, "uLightCount");
@@ -740,6 +768,8 @@ void Viewport::shutdown() {
     destroyMesh(sphere_);
     destroyMesh(cylinder_);
     destroyMesh(cone_);
+    destroyMesh(plane_);
+    destroyMesh(decal_);
     destroyMesh(spawnMarker_);
     destroyMesh(playerMarker_);
     destroyMesh(wireCube_);
@@ -861,6 +891,8 @@ void Viewport::buildPrimitiveMeshes() {
     destroyMesh(sphere_);
     destroyMesh(cylinder_);
     destroyMesh(cone_);
+    destroyMesh(plane_);
+    destroyMesh(decal_);
     destroyMesh(spawnMarker_);
     destroyMesh(playerMarker_);
     destroyMesh(wireCube_);
@@ -870,6 +902,8 @@ void Viewport::buildPrimitiveMeshes() {
     sphere_ = uploadMesh(unitSphere());
     cylinder_ = uploadMesh(unitCylinder());
     cone_ = uploadMesh(unitCone());
+    plane_ = uploadMesh(unitPlane());
+    decal_ = uploadMesh(unitDecal());
     spawnMarker_ = uploadMesh(unitSpawnMarker());
     playerMarker_ = uploadMesh(unitPlayerMarker());
     wireCube_ = uploadMesh(unitWireCube());
@@ -1617,15 +1651,22 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     const Mat4 identityM = identity();
 
     auto draw = [&](const Mesh& mesh, GLenum mode, const Mat4& mvp, float r, float g,
-                    float b, uint32_t texture = 0, const Mat4* model = nullptr) {
+                    float b, uint32_t texture = 0, const Mat4* model = nullptr,
+                    bool alpha = false) {
         glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
         glUniformMatrix4fv(uModel_, 1, GL_FALSE, model ? model->m : identityM.m);
         glUniform1i(uLit_, model ? 1 : 0);  // world matrix given = lit geometry
         glUniform3f(uTint_, r, g, b);
         glUniform1i(uUseTex_, texture ? 1 : 0);
+        glUniform1i(uAlpha_, alpha ? 1 : 0);
+        if (alpha) {
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        }
         if (texture) glBindTexture(GL_TEXTURE_2D, texture);
         glBindVertexArray(mesh.vao);
         glDrawArrays(mode, 0, mesh.vertexCount);
+        if (alpha) glDisable(GL_BLEND);
     };
 
     auto meshFor = [&](const SceneObject& o) -> const Mesh* {
@@ -1634,6 +1675,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             case PrimitiveType::Sphere:
             case PrimitiveType::Cylinder:
             case PrimitiveType::Cone: return &primMesh(o.type, o.primDetail);
+            case PrimitiveType::Plane: return &plane_;
+            case PrimitiveType::Decal: return &decal_;
             case PrimitiveType::SpawnPoint: return &spawnMarker_;
             case PrimitiveType::Player: return &playerMarker_;
             case PrimitiveType::SoundEmitter: return &sphere_;  // speaker-ish marker
@@ -1712,9 +1755,13 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             const float kr = mat ? mat->kd[0] : 1.0f;
             const float kg = mat ? mat->kd[1] : 1.0f;
             const float kb = mat ? mat->kd[2] : 1.0f;
+            const uint32_t tex = (asLines || !mat) ? 0 : mat->tex;
+            // Decals honor their texture's alpha (cutout + blend) - matches the
+            // in-game look; other primitives draw opaque.
+            const bool decalAlpha = o.type == PrimitiveType::Decal && tex && !asLines;
             draw(*meshFor(o), GL_TRIANGLES, mvp, o.color[0] * kr * tintScale,
                  o.color[1] * kg * tintScale, o.color[2] * kb * tintScale,
-                 (asLines || !mat) ? 0 : mat->tex, lit ? &model : nullptr);
+                 tex, lit ? &model : nullptr, decalAlpha);
         }
         if (!asLines) glDisable(GL_POLYGON_OFFSET_FILL);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -1866,6 +1913,7 @@ uint32_t Viewport::renderMaterialPreview(int width, int height, const float* kd,
         glUniform1i(uLit_, 0);
         glUniform3f(uTint_, r, g, b);
         glUniform1i(uUseTex_, texture ? 1 : 0);
+        glUniform1i(uAlpha_, 0);
         if (texture) glBindTexture(GL_TEXTURE_2D, texture);
         glBindVertexArray(mesh.vao);
         glDrawArrays(GL_TRIANGLES, 0, mesh.vertexCount);
