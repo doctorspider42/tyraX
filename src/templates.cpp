@@ -112,7 +112,8 @@ static int materialIndexOf(const Project& p, const SceneObject& o) {
 }
 
 // Unique texture paths (terrain only - objects are textured via materials),
-// first-use order. The index == TERRAIN_TEXTURE in generated code.
+// first-use order. The index == TERRAIN_TEXTURE in generated code. Each
+// terrain material contributes its first material's map_Kd (if any).
 static std::vector<std::string> collectTexturePaths(const Project& p) {
     std::vector<std::string> paths;
     auto add = [&](const std::string& t) {
@@ -122,7 +123,8 @@ static std::vector<std::string> collectTexturePaths(const Project& p) {
         paths.push_back(t);
     };
     for (const SceneData& sc : p.scenes)
-        add(project::resolvedSettings(p, sc).terrainTexture);
+        add(project::resolveTerrainMaterial(p, project::resolvedSettings(p, sc).terrainMaterial)
+                .texture);
     return paths;
 }
 
@@ -3677,13 +3679,18 @@ void TerrainGame::generateTerrainGrid() {
     return s;
   };
 
-  // Untextured: two greens in a checker pattern. Textured: a neutral gray
-  // that modulates the texture 1:1 (PS2 modulation: 128 = 1.0).
+  // No material: two greens in a checker pattern. With a material, the Kd
+  // tint colors every cell uniformly - textured terrain modulates the map
+  // (PS2 modulation: 128 = 1.0, so Kd*128), flat terrain uses Kd*255.
   const bool textured = TERRAIN_TEXTURE >= 0;
-  const float baseA[3] = {textured ? 128.0F : 96.0F, textured ? 128.0F : 160.0F,
-                          textured ? 128.0F : 72.0F};
-  const float baseB[3] = {textured ? 128.0F : 74.0F, textured ? 128.0F : 128.0F,
-                          textured ? 128.0F : 56.0F};
+  const bool hasMat = TERRAIN_HAS_MATERIAL;
+  const float k = textured ? 128.0F : 255.0F;
+  const float baseA[3] = {hasMat ? TERRAIN_TINT_R * k : 96.0F,
+                          hasMat ? TERRAIN_TINT_G * k : 160.0F,
+                          hasMat ? TERRAIN_TINT_B * k : 72.0F};
+  const float baseB[3] = {hasMat ? TERRAIN_TINT_R * k : 74.0F,
+                          hasMat ? TERRAIN_TINT_G * k : 128.0F,
+                          hasMat ? TERRAIN_TINT_B * k : 56.0F};
 
   for (u32 z = 0; z < cellsZ; ++z) {
     for (u32 x = 0; x < cellsX; ++x) {
@@ -3702,7 +3709,7 @@ void TerrainGame::generateTerrainGrid() {
       };
       auto st = [&](float wx, float wz) {
         terrainSts.push_back(
-            Vec4(wx / TERRAIN_TEX_SCALE, wz / TERRAIN_TEX_SCALE, 1.0F, 0.0F));
+            Vec4(wx * TERRAIN_TILE_U, wz * TERRAIN_TILE_V, 1.0F, 0.0F));
       };
 
       vertices.push_back(Vec4(x0, h00, z0, 1.0F));
@@ -5500,7 +5507,12 @@ inline int everyFrames(float seconds) {
 #define HM_D HM_DS[g_activeScene]
 #define TERRAIN_HEIGHTS TERRAIN_HEIGHTS_TABLES[g_activeScene]
 #define TERRAIN_TEXTURE TERRAIN_TEXTURES[g_activeScene]
-#define TERRAIN_TEX_SCALE TERRAIN_TEX_SCALES[g_activeScene]
+#define TERRAIN_TILE_U TERRAIN_TILE_US[g_activeScene]
+#define TERRAIN_TILE_V TERRAIN_TILE_VS[g_activeScene]
+#define TERRAIN_HAS_MATERIAL TERRAIN_HAS_MATERIALS[g_activeScene]
+#define TERRAIN_TINT_R TERRAIN_TINTS[g_activeScene][0]
+#define TERRAIN_TINT_G TERRAIN_TINTS[g_activeScene][1]
+#define TERRAIN_TINT_B TERRAIN_TINTS[g_activeScene][2]
 // Per-scene sky / clipping / post-FX / usable-highlight (Scene > Preferences)
 #define CLIP_PRECISE CLIP_PRECISES[g_activeScene]
 #define SKY_R SKY_RS[g_activeScene]
@@ -6643,16 +6655,35 @@ static std::string textureDataHeader(const Project& p) {
             out << "    \"" << binPath << "\",\n";
         }
     }
+    // Per scene: the terrain material's map_Kd texture index (-1 = none), the
+    // tiling scale, whether a material is assigned at all, and its Kd tint.
+    std::vector<project::TerrainMaterial> terrain(p.scenes.size());
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        terrain[si] = project::resolveTerrainMaterial(
+            p, project::resolvedSettings(p, p.scenes[si]).terrainMaterial);
     out << "};\n\n"
         << "constexpr int TERRAIN_TEXTURES[" << p.scenes.size() << "] = {";
     for (size_t si = 0; si < p.scenes.size(); ++si)
-        out << (si ? ", " : "")
-            << textureIndexOf(p, project::resolvedSettings(p, p.scenes[si]).terrainTexture);
+        out << (si ? ", " : "") << textureIndexOf(p, terrain[si].texture);
     out << "};\n"
-        << "constexpr float TERRAIN_TEX_SCALES[" << p.scenes.size() << "] = {";
+        // Texture tiling from the material's map_Kd "-s" option: UV repeats per
+        // world unit, per axis (u across X, v across Z).
+        << "constexpr float TERRAIN_TILE_US[" << p.scenes.size() << "] = {";
     for (size_t si = 0; si < p.scenes.size(); ++si)
-        out << (si ? ", " : "")
-            << floatLit(project::resolvedSettings(p, p.scenes[si]).terrainTexScale);
+        out << (si ? ", " : "") << floatLit(terrain[si].tile[0]);
+    out << "};\n"
+        << "constexpr float TERRAIN_TILE_VS[" << p.scenes.size() << "] = {";
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        out << (si ? ", " : "") << floatLit(terrain[si].tile[1]);
+    out << "};\n"
+        << "constexpr bool TERRAIN_HAS_MATERIALS[" << p.scenes.size() << "] = {";
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        out << (si ? ", " : "") << (terrain[si].present ? "true" : "false");
+    out << "};\n"
+        << "constexpr float TERRAIN_TINTS[" << p.scenes.size() << "][3] = {";
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        out << (si ? ", " : "") << "{" << floatLit(terrain[si].kd[0]) << ", "
+            << floatLit(terrain[si].kd[1]) << ", " << floatLit(terrain[si].kd[2]) << "}";
     out << "};\n\n}  // namespace " << ns << "\n";
     return out.str();
 }

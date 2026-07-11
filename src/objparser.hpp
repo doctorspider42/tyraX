@@ -33,6 +33,7 @@ struct MtlMaterial {
     std::string name;
     std::string texture;  // map_Kd, relative to the .mtl's directory ("" = none)
     float kd[3] = {1.0f, 1.0f, 1.0f};
+    float scale[2] = {1.0f, 1.0f};  // map_Kd -s (u, v) UV multiplier; 1 = as-is
 };
 
 // Loads a Wavefront .obj (+ its .mtl material libraries, resolved relative to

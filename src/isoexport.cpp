@@ -75,7 +75,11 @@ static std::string orderFiles(const Project& p, std::vector<OrderedFile>& out,
     for (const std::string& s : p.sounds) take(adpcmPathOf(s), "startup");
     for (const SceneData& s : p.scenes) {
         const std::string group = "scene:" + s.name;
-        const std::string terrainTex = project::resolvedSettings(p, s).terrainTexture;
+        // The terrain material is compiled away (its Kd + texture index are
+        // baked); only its map_Kd texture reaches the disc - group that.
+        const std::string terrainTex =
+            project::resolveTerrainMaterial(p, project::resolvedSettings(p, s).terrainMaterial)
+                .texture;
         if (!terrainTex.empty()) take(binPathOf(terrainTex), group);
         for (const SceneObject& o : s.objects) {
             if (!o.materialPath.empty()) take(binPathOf(o.materialPath), group);

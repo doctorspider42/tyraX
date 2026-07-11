@@ -966,15 +966,18 @@ void Viewport::buildTerrainMesh() {
         return shadeOf(normalize(n));
     };
 
-    // Textured terrain modulates the texture with a neutral shade only.
-    const bool texturedTerrain = !terrainTexture_.empty();
-    const float cA[3] = {texturedTerrain ? 1.0f : 96 / 255.0f,
-                         texturedTerrain ? 1.0f : 160 / 255.0f,
-                         texturedTerrain ? 1.0f : 72 / 255.0f};
-    const float cB[3] = {texturedTerrain ? 1.0f : 74 / 255.0f,
-                         texturedTerrain ? 1.0f : 128 / 255.0f,
-                         texturedTerrain ? 1.0f : 56 / 255.0f};
-    const float ts = terrainTexScale_;
+    // With a material every cell takes its Kd tint (the shader modulates the
+    // texture by it when one is bound; a flat color otherwise). Without a
+    // material the terrain falls back to the two-green checker.
+    const float cA[3] = {terrainHasMaterial_ ? terrainKd_[0] : 96 / 255.0f,
+                         terrainHasMaterial_ ? terrainKd_[1] : 160 / 255.0f,
+                         terrainHasMaterial_ ? terrainKd_[2] : 72 / 255.0f};
+    const float cB[3] = {terrainHasMaterial_ ? terrainKd_[0] : 74 / 255.0f,
+                         terrainHasMaterial_ ? terrainKd_[1] : 128 / 255.0f,
+                         terrainHasMaterial_ ? terrainKd_[2] : 56 / 255.0f};
+    // Texture tiling from the material's map_Kd "-s": UV repeats per world
+    // unit, per axis (u across X, v across Z). Matches the game's st() lambda.
+    const float tu = terrainTile_[0], tv = terrainTile_[1];
 
     std::vector<float> tri;
     tri.reserve((size_t)cellsX * cellsZ * 6 * 8);
@@ -988,17 +991,17 @@ void Viewport::buildTerrainMesh() {
             const Vec3 s00 = shadeAt(x, z), s10 = shadeAt(x + 1, z);
             const Vec3 s01 = shadeAt(x, z + 1), s11 = shadeAt(x + 1, z + 1);
             pushVertexColor(tri, ax, h00, az, c[0] * s00.x, c[1] * s00.y, c[2] * s00.z,
-                            ax / ts, az / ts);
+                            ax * tu, az * tv);
             pushVertexColor(tri, bx, h10, az, c[0] * s10.x, c[1] * s10.y, c[2] * s10.z,
-                            bx / ts, az / ts);
+                            bx * tu, az * tv);
             pushVertexColor(tri, ax, h01, bz, c[0] * s01.x, c[1] * s01.y, c[2] * s01.z,
-                            ax / ts, bz / ts);
+                            ax * tu, bz * tv);
             pushVertexColor(tri, bx, h10, az, c[0] * s10.x, c[1] * s10.y, c[2] * s10.z,
-                            bx / ts, az / ts);
+                            bx * tu, az * tv);
             pushVertexColor(tri, bx, h11, bz, c[0] * s11.x, c[1] * s11.y, c[2] * s11.z,
-                            bx / ts, bz / ts);
+                            bx * tu, bz * tv);
             pushVertexColor(tri, ax, h01, bz, c[0] * s01.x, c[1] * s01.y, c[2] * s01.z,
-                            ax / ts, bz / ts);
+                            ax * tu, bz * tv);
         }
     }
     terrain_mesh_ = uploadMesh(tri);
@@ -1247,10 +1250,16 @@ void Viewport::setProjectDir(const std::string& dir) {
     clearTexCache();
 }
 
-void Viewport::setTerrainTexture(const std::string& relPath, float scale) {
-    if (terrainTexture_ == relPath && terrainTexScale_ == scale) return;
-    terrainTexture_ = relPath;
-    terrainTexScale_ = scale < 0.25f ? 0.25f : scale;
+void Viewport::setTerrainMaterial(const std::string& texRelPath, const float kd[3],
+                                  bool hasMaterial, const float tile[2]) {
+    if (terrainTexture_ == texRelPath && terrainTile_[0] == tile[0] &&
+        terrainTile_[1] == tile[1] && terrainHasMaterial_ == hasMaterial &&
+        terrainKd_[0] == kd[0] && terrainKd_[1] == kd[1] && terrainKd_[2] == kd[2])
+        return;
+    terrainTexture_ = texRelPath;
+    terrainTile_[0] = tile[0], terrainTile_[1] = tile[1];
+    terrainHasMaterial_ = hasMaterial;
+    terrainKd_[0] = kd[0], terrainKd_[1] = kd[1], terrainKd_[2] = kd[2];
     if (program_) buildTerrainMesh();
 }
 
