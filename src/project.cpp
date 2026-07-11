@@ -313,7 +313,8 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << ", \"color\": " << fmtVec3(s.lightColor) << ", \"brightness\": "
       << fmtFloat(s.brightness) << " }, \"sky\": { \"color\": " << fmtVec3(s.skyColor)
       << ", \"topColor\": " << fmtVec3(s.skyTopColor) << ", \"dome\": "
-      << (s.skyDome ? "true" : "false") << " }, \"clipping\": \"" << s.clipping
+      << (s.skyDome ? "true" : "false") << ", \"zenithSize\": " << fmtFloat(s.zenithSize)
+      << " }, \"clipping\": \"" << s.clipping
       << "\", \"terrainTexture\": \"" << s.terrainTexture << "\", \"terrainTexScale\": "
       << fmtFloat(s.terrainTexScale) << ", \"postfx\": { \"bloom\": " << fmtFloat(s.bloom)
       << ", \"grain\": " << fmtFloat(s.grain) << " }, \"fog\": { \"enabled\": "
@@ -355,6 +356,8 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
                 readVec3(sk->find("color"), s.skyColor);
                 readVec3(sk->find("topColor"), s.skyTopColor);
                 if (const auto* v = sk->find("dome")) s.skyDome = v->boolOr(true);
+                if (const auto* v = sk->find("zenithSize"))
+                    s.zenithSize = (float)v->numberOr(0.5);
             }
             if (const auto* v = st->find("clipping"))
                 s.clipping = v->stringOr("precise") == "fast" ? "fast" : "precise";
@@ -427,6 +430,7 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
     if (s.overrides.sky) {
         for (int i = 0; i < 3; ++i) r.skyColor[i] = o.skyColor[i], r.skyTopColor[i] = o.skyTopColor[i];
         r.skyDome = o.skyDome;
+        r.zenithSize = o.zenithSize;
     }
     if (s.overrides.clipping) r.clipping = o.clipping;
     if (s.overrides.terrainTex) {
@@ -465,6 +469,7 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
             r.fogColor[i] = a.fogColor[i];
         }
         r.skyDome = a.skyDome;
+        r.zenithSize = a.zenithSize;
         r.ambient = a.ambient;
         r.diffuse = a.diffuse;
         r.brightness = a.brightness;
@@ -508,6 +513,7 @@ std::string save(const Project& p) {
          << "    \"skyColor\": " << fmtVec3(p.settings.skyColor) << ",\n"
          << "    \"skyTopColor\": " << fmtVec3(p.settings.skyTopColor) << ",\n"
          << "    \"skyDome\": " << (p.settings.skyDome ? "true" : "false") << ",\n"
+         << "    \"zenithSize\": " << fmtFloat(p.settings.zenithSize) << ",\n"
          << "    \"eyeHeight\": " << fmtFloat(p.settings.eyeHeight) << ",\n"
          << "    \"walkSpeed\": " << fmtFloat(p.settings.walkSpeed) << ",\n"
          << "    \"lookSpeed\": " << fmtFloat(p.settings.lookSpeed) << ",\n"
@@ -626,6 +632,7 @@ std::string save(const Project& p) {
              << "\", \"skyColor\": " << fmtVec3(a.skyColor)
              << ", \"skyTopColor\": " << fmtVec3(a.skyTopColor)
              << ", \"skyDome\": " << (a.skyDome ? "true" : "false")
+             << ", \"zenithSize\": " << fmtFloat(a.zenithSize)
              << ", \"lightDir\": " << fmtVec3(a.lightDir)
              << ", \"ambient\": " << fmtFloat(a.ambient)
              << ", \"diffuse\": " << fmtFloat(a.diffuse)
@@ -1109,6 +1116,7 @@ std::string load(Project& out, const std::string& projectDir) {
         readVec3(s->find("skyTopColor"), st.skyTopColor);
         if (const auto* v = s->find("skyDome"))
             st.skyDome = v->type == json::Value::Type::Bool && v->boolean;
+        if (const auto* v = s->find("zenithSize")) st.zenithSize = (float)v->numberOr(0.5);
         if (const auto* v = s->find("eyeHeight")) st.eyeHeight = (float)v->numberOr(1.8);
         if (const auto* v = s->find("walkSpeed")) st.walkSpeed = (float)v->numberOr(0.4);
         if (const auto* v = s->find("lookSpeed")) st.lookSpeed = (float)v->numberOr(1.0);
@@ -1321,6 +1329,7 @@ std::string load(Project& out, const std::string& projectDir) {
             readVec3(ja.find("skyColor"), a.skyColor);
             readVec3(ja.find("skyTopColor"), a.skyTopColor);
             if (const auto* v = ja.find("skyDome")) a.skyDome = v->boolOr(true);
+            if (const auto* v = ja.find("zenithSize")) a.zenithSize = (float)v->numberOr(0.5);
             readVec3(ja.find("lightDir"), a.lightDir);
             if (const auto* v = ja.find("ambient")) a.ambient = (float)v->numberOr(0.55);
             if (const auto* v = ja.find("diffuse")) a.diffuse = (float)v->numberOr(0.45);
@@ -1363,6 +1372,7 @@ std::string load(Project& out, const std::string& projectDir) {
                 a.fogColor[i] = s.fogColor[i];
             }
             a.skyDome = s.skyDome;
+            a.zenithSize = s.zenithSize;
             a.ambient = s.ambient, a.diffuse = s.diffuse, a.brightness = s.brightness;
             a.fogEnabled = s.fogEnabled, a.fogStart = s.fogStart, a.fogEnd = s.fogEnd;
             return a;

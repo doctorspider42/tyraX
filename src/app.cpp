@@ -699,7 +699,7 @@ void App::drawViewportWindow() {
                                  selectedAmbience_ < (int)project_.ambiencePresets.size();
             if (preview) {
                 const AmbiencePreset& a = project_.ambiencePresets[selectedAmbience_];
-                viewport_.setSky(a.skyColor, a.skyTopColor, a.skyDome);
+                viewport_.setSky(a.skyColor, a.skyTopColor, a.skyDome, a.zenithSize);
                 viewport_.setLighting(a.lightDir, a.ambient, a.diffuse, a.lightColor,
                                       a.brightness);
                 viewport_.setFog(a.fogEnabled, a.fogColor, a.fogStart, a.fogEnd);
@@ -5534,6 +5534,14 @@ void App::drawAmbienceWindow() {
     changed |= ImGui::IsItemDeactivatedAfterEdit();
     ImGui::Checkbox("Gradient sky dome", &a.skyDome);
     changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::BeginDisabled(!a.skyDome);
+    ImGui::SliderFloat("Zenith size", &a.zenithSize, 0.05f, 0.95f, "%.2f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("How much of the sky the zenith color fills.\n"
+                          "0.5 = linear; higher spreads the zenith color down\n"
+                          "toward the horizon, lower keeps it near the top.");
+    ImGui::EndDisabled();
 
     ImGui::SeparatorText("Lighting");
     ImGui::TextDisabled("Baked into vertex colors at build (per scene). The Set "
@@ -7527,7 +7535,7 @@ void App::applyProjectToViewport() {
     viewport_.setTerrainTexture(rs.terrainTexture, rs.terrainTexScale);
     viewport_.setTerrain(sc.terrain, project_.settings.terrainDetail, sc.heights, sc.hmW,
                          sc.hmD);
-    viewport_.setSky(rs.skyColor, rs.skyTopColor, rs.skyDome);
+    viewport_.setSky(rs.skyColor, rs.skyTopColor, rs.skyDome, rs.zenithSize);
     viewport_.setUsableHighlight(rs.highlightUsable, rs.highlightColor);
     viewport_.setLighting(rs.lightDir, rs.ambient, rs.diffuse, rs.lightColor, rs.brightness);
     viewport_.setFog(rs.fogEnabled, rs.fogColor, rs.fogStart, rs.fogEnd);

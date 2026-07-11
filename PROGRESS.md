@@ -21,7 +21,13 @@ Each finished feature lands as its own commit.
   up-arc, so the full 180° horizon-through-zenith sweep reads as one coherent
   dome that tracks camera pitch (clear color still fills below the horizon).
   The generated game dome was already elevation-linear, so its formula is
-  unchanged — the twin now matches. **(c) Ambience Editor** (Tools > Ambience
+  unchanged except for a new **Zenith size** control (`ProjectSettings::
+  zenithSize` / `AmbiencePreset::zenithSize`, 0.05..0.95, default 0.5 = linear):
+  both the preview dome and the generated dome remap the elevation fraction by
+  `pow(t, (1-size)/size)`, so a larger value spreads the zenith color down
+  toward the horizon (bigger zenith cap) and a smaller one keeps it near the
+  top. Codegen bakes it as the precomputed exponent `SKY_ZENITH_EXPS` per
+  scene. **(c) Ambience Editor** (Tools > Ambience
   Editor): a new project-wide collection of **AmbiencePreset** bundles (sky
   gradient + baked lighting + distance fog), one markable default — mirrors the
   Color Grading preset system end-to-end. The sky/lighting/fog controls moved

@@ -301,6 +301,12 @@ struct ProjectSettings {
     float skyColor[3] = {0.25f, 0.55f, 0.78f};   // horizon / clear color
     float skyTopColor[3] = {0.08f, 0.3f, 0.65f};  // zenith (gradient dome)
     bool skyDome = true;  // render a gradient sky dome (vs flat clear color)
+    // How much of the dome the zenith color fills. 0.5 = linear (color scales
+    // linearly with elevation); higher = zenith reaches lower toward the
+    // horizon (bigger zenith cap); lower = zenith stays near the top. Both the
+    // viewport preview and the generated dome remap the gradient by
+    // pow(t, (1-size)/size), t = 0 horizon .. 1 zenith.
+    float zenithSize = 0.5f;  // 0.05 .. 0.95
 
     // FPP template
     float eyeHeight = 1.8f;
@@ -369,7 +375,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.meshLodDistance == b.meshLodDistance &&
            a.terrainDetail == b.terrainDetail &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
-           a.skyDome == b.skyDome && a.eyeHeight == b.eyeHeight &&
+           a.skyDome == b.skyDome && a.zenithSize == b.zenithSize &&
+           a.eyeHeight == b.eyeHeight &&
            a.walkSpeed == b.walkSpeed && a.lookSpeed == b.lookSpeed &&
            a.stickDeadzoneL == b.stickDeadzoneL &&
            a.stickDeadzoneR == b.stickDeadzoneR &&

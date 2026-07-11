@@ -1474,12 +1474,14 @@ void Viewport::updateAnimPose(AnimModelDraw& draw, const SceneObject& o) {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
-void Viewport::setSky(const float* horizonRgb, const float* topRgb, bool gradient) {
+void Viewport::setSky(const float* horizonRgb, const float* topRgb, bool gradient,
+                      float zenithSize) {
     for (int i = 0; i < 3; ++i) {
         sky_[i] = horizonRgb[i];
         skyTop_[i] = topRgb[i];
     }
     skyGradient_ = gradient;
+    skyZenithSize_ = zenithSize < 0.05f ? 0.05f : (zenithSize > 0.95f ? 0.95f : zenithSize);
     skyQuadDirty_ = true;
 }
 
@@ -1573,10 +1575,13 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         destroyMesh(skyQuad_);
         std::vector<float> q;
         const int stacks = 12, slices = 24;
+        // Zenith-size bias: pow(t, exp), exp = (1-size)/size. size 0.5 => exp 1
+        // (linear); larger size => smaller exp => zenith color reaches lower.
+        const float zExp = (1.0f - skyZenithSize_) / skyZenithSize_;
         auto domeVert = [&](int stack, int slice) {
             const float lat = -0.05f + (kPi * 0.5f + 0.05f) * stack / stacks;
             const float lon = 2.0f * kPi * slice / slices;
-            const float t = (float)stack / stacks;
+            const float t = std::pow((float)stack / stacks, zExp);
             const float r = std::cos(lat);
             pushVertexColor(q, r * std::cos(lon), std::sin(lat), r * std::sin(lon),
                             sky_[0] + (skyTop_[0] - sky_[0]) * t,
