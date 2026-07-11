@@ -90,6 +90,10 @@ public:
     // keeping the current yaw/pitch/distance. Used by "orbit around selection".
     void setTarget(const float target[3]);
 
+    // Recenter the camera on the terrain center (world origin) and restore the
+    // default orientation and a distance framing the whole terrain.
+    void resetView();
+
     // View/projection of the last render() call (column-major, OpenGL style) -
     // used by the transform gizmo.
     const float* viewMatrix() const { return viewM_; }

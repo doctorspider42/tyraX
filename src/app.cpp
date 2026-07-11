@@ -1038,6 +1038,29 @@ void App::drawViewportWindow() {
             if (active) ImGui::PopStyleColor();
         }
 
+        // Recenter the orbit camera on the terrain center (world origin).
+        ImGui::SameLine(0.0f, 24.0f);
+        if (ImGui::SmallButton("Center view")) viewport_.resetView();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Reset the camera to the terrain center\n"
+                              "with the default orientation and zoom.");
+
+        // Snap the orbit pivot onto the selected object, keeping the current
+        // orientation and zoom. Disabled when nothing is selected.
+        {
+            const bool objSel = selectedObject_ >= 0 &&
+                                selectedObject_ < (int)project_.objects().size();
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!objSel);
+            if (ImGui::SmallButton("Center selection") && objSel) {
+                viewport_.setTarget(project_.objects()[selectedObject_].position);
+                navFocusedIndex_ = selectedObject_;  // keep orbit-around-selection in sync
+            }
+            ImGui::EndDisabled();
+            if (objSel && ImGui::IsItemHovered())
+                ImGui::SetTooltip("Move the camera pivot to the selected object.");
+        }
+
         // Terrain sculpting toggle + brush parameters
         ImGui::SameLine(0.0f, 24.0f);
         if (sculptMode_)

@@ -9,6 +9,19 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (50) **Viewport camera recenter buttons** — two new SmallButtons on the
+  viewport toolbar (after the Solid/Wire view-mode switch). **Center view**
+  calls the new `Viewport::resetView()`, which restores the orbit pivot to the
+  world origin, the default yaw/pitch, and a distance framing the whole terrain
+  (the exact framing `setTerrain` picks on first load, so a fresh scene and a
+  reset look identical). **Center selection** snaps the pivot onto the selected
+  object via the existing `setTarget()` and updates `navFocusedIndex_` so the
+  "orbit around selection" preference stays consistent; it is `BeginDisabled`
+  when nothing is selected. Neither touches the project model, so no
+  `commitChange()`/serialization. Verified: clean editor build; Center view
+  confirmed working in the GUI by the user; Center selection reuses the
+  already-proven selection-pivot path.
+
 - (49) **Auto-generated mesh LOD for animated models (LOD tier 2)** — new
   Preferences > Rendering > `Mesh LOD distance` (0 = off): the build bakes
   decimated variants of every .tskl part (~50% and ~25% of the welded
