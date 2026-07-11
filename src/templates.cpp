@@ -298,6 +298,16 @@ constexpr bool LOADING_SCREEN = {{LOADING_SCREEN}};
 // wait before the flip - continuous frame rate, screen tearing possible.
 constexpr bool FRAME_LIMIT = {{FRAME_LIMIT}};
 
+// Animation LOD (Preferences > Rendering): animated instances farther than
+// this refresh pose/skinning every 2nd frame, every 4th beyond twice the
+// distance (staggered per object). 0 = off. Playback time is unaffected.
+constexpr float ANIM_LOD_DISTANCE = {{ANIM_LOD_DISTANCE}};
+
+// Mesh LOD (Preferences > Rendering): instances farther than this render
+// the ~50%-vertex variant baked into the .tskl, beyond twice the distance
+// the ~25% one. 0 = off (the build then bakes no LOD chains at all).
+constexpr float MESH_LOD_DISTANCE = {{MESH_LOD_DISTANCE}};
+
 // Debug-profile HUD (Project > Preferences > Build). Both are forced false
 // in a release-profile build, which folds the overlay code away entirely.
 constexpr bool DEBUG_SHOW_FPS = {{DEBUG_SHOW_FPS}};
@@ -373,6 +383,7 @@ class TerrainGame : public Tyra::Game {
     std::vector<AnimPart> animParts;
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
+    u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
     // Usable-object highlight: fading shells grown around the object
     // center, drawn after the scene (see renderHighlightHull)
     std::vector<Tyra::Vec4> hullVerts;
@@ -418,6 +429,7 @@ class TerrainGame : public Tyra::Game {
   Tyra::Vec4 animLightColors[4];
   Tyra::Vec4 animLightDirs[3];
   Tyra::PipelineDirLightsBag animDirLights{true};
+  u32 animLodTick = 0;  // frame counter for the ANIM_LOD_DISTANCE stagger
 
  public:
   // Clip-name lookup for scripts/flow graph (ScriptContext::resolveClip).
@@ -605,6 +617,7 @@ class TerrainGame : public Tyra::Game {
     std::vector<AnimPart> animParts;
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
+    u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
     // Usable-object highlight: fading shells grown around the object
     // center, drawn after the scene (see renderHighlightHull)
     std::vector<Tyra::Vec4> hullVerts;
@@ -650,6 +663,7 @@ class TerrainGame : public Tyra::Game {
   Tyra::Vec4 animLightColors[4];
   Tyra::Vec4 animLightDirs[3];
   Tyra::PipelineDirLightsBag animDirLights{true};
+  u32 animLodTick = 0;  // frame counter for the ANIM_LOD_DISTANCE stagger
 
  public:
   // Clip-name lookup for scripts/flow graph (ScriptContext::resolveClip).
@@ -784,6 +798,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <algorithm>
 #include <map>
 #include <string>
 
@@ -1004,21 +1019,42 @@ void pushQuad(std::vector<Vec4>& verts, std::vector<Color>& cols,
 
 void addBox(std::vector<Vec4>& verts, std::vector<Color>& cols,
             std::vector<Vec4>& sts, const SceneObjectData& o) {
-  const float h = 0.5F;
-  pushQuad(verts, cols, sts, o, {h, -h, -h}, {h, h, -h}, {h, h, h}, {h, -h, h}, {1, 0, 0});
-  pushQuad(verts, cols, sts, o, {-h, -h, h}, {-h, h, h}, {-h, h, -h}, {-h, -h, -h},
-           {-1, 0, 0});
-  pushQuad(verts, cols, sts, o, {-h, h, -h}, {-h, h, h}, {h, h, h}, {h, h, -h}, {0, 1, 0});
-  pushQuad(verts, cols, sts, o, {-h, -h, h}, {-h, -h, -h}, {h, -h, -h}, {h, -h, h},
-           {0, -1, 0});
-  pushQuad(verts, cols, sts, o, {-h, -h, h}, {h, -h, h}, {h, h, h}, {-h, h, h}, {0, 0, 1});
-  pushQuad(verts, cols, sts, o, {h, -h, -h}, {-h, -h, -h}, {-h, h, -h}, {h, h, -h},
-           {0, 0, -1});
+  // Detail = subdivisions per edge (1 = plain 6-quad box); each face is an
+  // n x n grid, UVs span 0..1 per face. Mirror of the editor's unitBox.
+  const int n = o.primDetail < 1 ? 1 : (o.primDetail > 16 ? 16 : o.primDetail);
+  const float h = 0.5F, H = 1.0F;
+  auto face = [&](V3 c0, V3 du, V3 dv, V3 nrm) {
+    for (int i = 0; i < n; ++i)
+      for (int j = 0; j < n; ++j) {
+        const float s0 = (float)i / n, s1 = (float)(i + 1) / n;
+        const float t0 = (float)j / n, t1 = (float)(j + 1) / n;
+        auto P = [&](float s, float t) -> V3 {
+          return {c0.x + du.x * s + dv.x * t, c0.y + du.y * s + dv.y * t,
+                  c0.z + du.z * s + dv.z * t};
+        };
+        pushVert(verts, cols, sts, o, P(s0, t0), nrm, s0, t0);
+        pushVert(verts, cols, sts, o, P(s1, t0), nrm, s1, t0);
+        pushVert(verts, cols, sts, o, P(s1, t1), nrm, s1, t1);
+        pushVert(verts, cols, sts, o, P(s0, t0), nrm, s0, t0);
+        pushVert(verts, cols, sts, o, P(s1, t1), nrm, s1, t1);
+        pushVert(verts, cols, sts, o, P(s0, t1), nrm, s0, t1);
+      }
+  };
+  face({h, -h, -h}, {0, H, 0}, {0, 0, H}, {1, 0, 0});    // +X
+  face({-h, -h, h}, {0, H, 0}, {0, 0, -H}, {-1, 0, 0});  // -X
+  face({-h, h, -h}, {0, 0, H}, {H, 0, 0}, {0, 1, 0});    // +Y
+  face({-h, -h, h}, {0, 0, -H}, {H, 0, 0}, {0, -1, 0});  // -Y
+  face({-h, -h, h}, {H, 0, 0}, {0, H, 0}, {0, 0, 1});    // +Z
+  face({h, -h, -h}, {-H, 0, 0}, {0, H, 0}, {0, 0, -1});  // -Z
 }
 
 void addSphere(std::vector<Vec4>& verts, std::vector<Color>& cols,
                std::vector<Vec4>& sts, const SceneObjectData& o) {
-  const int stacks = 10, slices = 14;
+  // Detail = radial segments; stacks ~5:7 of that (mirror of the editor's
+  // primSphereStacks in project.hpp - keep the two in sync).
+  int slices = o.primDetail < 3 ? 3 : (o.primDetail > 64 ? 64 : o.primDetail);
+  int stacks = slices * 5 / 7;
+  if (stacks < 2) stacks = 2;
   const float r = 0.5F;
   for (int st = 0; st < stacks; ++st) {
     const float t0 = PI * st / stacks, t1 = PI * (st + 1) / stacks;
@@ -1047,7 +1083,7 @@ void addSphere(std::vector<Vec4>& verts, std::vector<Color>& cols,
 
 void addCylinder(std::vector<Vec4>& verts, std::vector<Color>& cols,
                  std::vector<Vec4>& sts, const SceneObjectData& o) {
-  const int seg = 16;
+  const int seg = o.primDetail < 3 ? 3 : (o.primDetail > 64 ? 64 : o.primDetail);
   const float r = 0.5F, h = 0.5F;
   for (int i = 0; i < seg; ++i) {
     const float a0 = 2.0F * PI * i / seg, a1 = 2.0F * PI * (i + 1) / seg;
@@ -1093,7 +1129,7 @@ void addDecal(std::vector<Vec4>& verts, std::vector<Color>& cols,
 
 void addCone(std::vector<Vec4>& verts, std::vector<Color>& cols,
              std::vector<Vec4>& sts, const SceneObjectData& o) {
-  const int seg = 16;
+  const int seg = o.primDetail < 3 ? 3 : (o.primDetail > 64 ? 64 : o.primDetail);
   const float r = 0.5F, h = 0.5F;
   const float nl = 0.894F, ny = 0.447F;  // side normal for r=0.5, h=1
   for (int i = 0; i < seg; ++i) {
@@ -1200,6 +1236,12 @@ void TerrainGame::init() {
   stapip.setRenderer(&engine->renderer.core);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  // GS hardware distance fog (Scene/Project > Preferences > Fog).
+  if (FOG_ENABLED)
+    engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START,
+                                 FOG_END);
+  else
+    engine->renderer.core.disableFog();
   // Default color grading look (Tools > Color Grading); no-op when -1.
   // Grading is global - scene switches keep whatever preset is active.
   applySceneGrading(engine, GRADING_DEFAULT);
@@ -1317,6 +1359,15 @@ void TerrainGame::loop() {
   updateParticles();
   updateSoundEmitters();
 
+  // Camera-attached flashlight (Scene/Project > Preferences > Flashlight).
+  if (FLASHLIGHT_ENABLED) {
+    Vec4 flashDir = cameraLookAt - cameraPosition;
+    engine->renderer.core.setSpotLight(
+        Color(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B), cameraPosition,
+        flashDir, FLASHLIGHT_RANGE, FLASHLIGHT_ANGLE);
+  } else {
+    engine->renderer.core.disableSpotLight();
+  }
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -1620,6 +1671,7 @@ void TerrainGame::setupAnimObject(int index) {
   g.animInst.reset();
   g.animParts.clear();  // bags point into the instance - drop them together
   g.animInfoBag.reset();
+  g.animLastTick = 0;  // fresh instance skins on its first in-view frame
   if (o.data.type != 5 || o.data.animModel < 0 ||
       o.data.animModel >= (int)gameAnimModels.size())
     return;
@@ -1698,12 +1750,22 @@ void TerrainGame::setupAnimObject(int index) {
 //    skip pose/skin/submit entirely (playback still advances, so
 //    animFinished and re-entry poses stay honest);
 //  - instances striking the identical pose (same clip advanced in lockstep,
-//    the ambient-prop / enemy-pack case) share one skinned mesh - the first
-//    skins, the rest re-point their bags at its arrays;
+//    the ambient-prop / enemy-pack case) share one skinned mesh - the
+//    nearest one skins, the rest re-point their bags at its arrays;
+//  - with ANIM_LOD_DISTANCE set (Preferences > Rendering), far instances
+//    refresh their pose every 2nd frame and every 4th beyond twice the
+//    distance, staggered per object; playback time is unaffected and a
+//    just-(re)appeared instance always skins immediately;
+//  - with MESH_LOD_DISTANCE set, far instances render the decimated
+//    variants baked into the .tskl (~50% verts, ~25% beyond twice the
+//    distance) - less skinning, packing, clipping and VU1 per instance;
 //  - the skinned arrays render through the SAME static pipeline as the rest
 //    of the scene: one submission per vertex (DynPip uploads every vertex
 //    twice for its from/to lerp), no VU1 program swap mid-frame, and the
 //    EE clipper handles screen-edge crossers like all other geometry.
+// In-view instances draw nearest-first: the front-to-back order lets the GS
+// z-reject overdraw and makes each pose group's mesh owner its closest
+// on-screen member (the LOD refresh rate follows the closest copy).
 // One directional light matches the baked static lighting (point lights are
 // baked into static vertex colors and cannot follow animated meshes).
 void TerrainGame::updateAndRenderAnimObjects() {
@@ -1725,15 +1787,14 @@ void TerrainGame::updateAndRenderAnimObjects() {
   animLightDirs[1].set(0.0F, 0.0F, 0.0F, 1.0F);
   animLightDirs[2].set(0.0F, 0.0F, 0.0F, 1.0F);
 
-  // in-view instances rendered so far this frame: object index + the object
-  // whose instance owns the skinned arrays it drew with (itself, or the
-  // group leader it followed)
-  struct RenderedAnim {
+  // pass 1: playback bookkeeping for every instance; collect the in-view
+  // ones with their camera distance
+  struct VisibleAnim {
     int obj;
-    int meshOwner;
+    float dist2;
   };
-  static std::vector<RenderedAnim> rendered;
-  rendered.clear();
+  static std::vector<VisibleAnim> inView;
+  inView.clear();
 
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     RuntimeObject& o = runtimeObjects[i];
@@ -1757,8 +1818,15 @@ void TerrainGame::updateAndRenderAnimObjects() {
     const float step = o.animPlaying ? g_frameDt * o.animSpeed : 0.0F;
     o.animFinished = inst->advance(step);
 
-    // draw-distance cut-off, same rule as the static path in renderScene
-    if (beyondDrawDistance(o.data, cameraPosition)) continue;
+    // draw-distance cut-off (same rule as the static path in renderScene);
+    // the distance doubles as the LOD tier and the draw-order key below
+    const float dx = o.data.position[0] - cameraPosition.x;
+    const float dy = o.data.position[1] - cameraPosition.y;
+    const float dz = o.data.position[2] - cameraPosition.z;
+    const float dist2 = dx * dx + dy * dy + dz * dz;
+    if (o.data.drawDistance > 0.0F &&
+        dist2 > o.data.drawDistance * o.data.drawDistance)
+      continue;
 
     // model matrix straight from the object data: T * R(X,Y,Z) * S, the
     // same transform the static path bakes through pushVert()/rotated()
@@ -1780,27 +1848,82 @@ void TerrainGame::updateAndRenderAnimObjects() {
         CoreBBoxFrustum::OUTSIDE_FRUSTUM)
       continue;
 
+    inView.push_back({i, dist2});
+  }
+  if (inView.empty()) return;
+  std::sort(inView.begin(), inView.end(),
+            [](const VisibleAnim& a, const VisibleAnim& b) {
+              return a.dist2 < b.dist2;
+            });
+  ++animLodTick;
+
+  // pass 2, nearest first: group equal poses per mesh-LOD tier, gate far
+  // skins, submit
+  struct RenderedAnim {
+    int obj;
+    int meshOwner;
+    u8 meshLod;
+  };
+  static std::vector<RenderedAnim> rendered;
+  rendered.clear();
+
+  for (const VisibleAnim& va : inView) {
+    const int i = va.obj;
+    RuntimeObject& o = runtimeObjects[i];
+    ObjectGeometry& g = objectGeometry[i];
+    SkelInstance* inst = g.animInst.get();
+
+    // mesh LOD tier: which baked variant this instance renders (the .tskl
+    // clamps per part - a file without chains always renders the full mesh)
+    u8 meshLod = 0;
+    if (MESH_LOD_DISTANCE > 0.0F) {
+      const float m2 = MESH_LOD_DISTANCE * MESH_LOD_DISTANCE;
+      meshLod = va.dist2 > m2 * 4.0F ? 2 : va.dist2 > m2 ? 1 : 0;
+    }
+
     // pose sharing: follow an already-rendered instance in the same pose
+    // AND the same tier (each tier holds its own skinned buffers)
     int meshOwner = i;
     for (const RenderedAnim& r : rendered) {
+      if (r.meshLod != meshLod) continue;
       if (runtimeObjects[r.obj].data.animModel != o.data.animModel) continue;
       if (!inst->poseEquals(*objectGeometry[r.obj].animInst)) continue;
       meshOwner = r.meshOwner;
       break;
     }
 
+    // animation LOD: a far mesh owner refreshes its pose every 2nd frame
+    // (every 4th beyond twice the distance), staggered by object index. An
+    // instance that just (re)entered the view skins immediately - its held
+    // pose could be arbitrarily stale.
+    bool allowSkin = true;
+    if (ANIM_LOD_DISTANCE > 0.0F && meshOwner == i &&
+        g.animLastTick != 0 && animLodTick - g.animLastTick <= 4) {
+      const float lod2 = ANIM_LOD_DISTANCE * ANIM_LOD_DISTANCE;
+      if (va.dist2 > lod2 * 4.0F)
+        allowSkin = ((animLodTick + (u32)i) & 3) == 0;
+      else if (va.dist2 > lod2)
+        allowSkin = ((animLodTick + (u32)i) & 1) == 0;
+    }
+    g.animLastTick = animLodTick;
+
     ObjectGeometry& owner = objectGeometry[meshOwner];
+    SkelInstance* ownerInst = owner.animInst.get();
+    // a tier switch always re-skins (the other tier's buffers hold an older
+    // skin, or the bind pose before their first ever use)
     const bool reskinned =
-        meshOwner == i ? inst->ensurePose() : false;
-    DynamicMesh* srcMesh = owner.animInst->mesh.get();
+        meshOwner == i && (allowSkin || inst->currentLod() != meshLod)
+            ? inst->ensurePose(meshLod)
+            : false;
     for (size_t p = 0; p < g.animParts.size(); ++p) {
       ObjectGeometry::AnimPart& ap = g.animParts[p];
       if (!ap.bag) continue;
-      // bags may still point at another frame's group leader - re-aim them
-      MeshMaterialFrame* frame = srcMesh->materials[p]->frames[0];
-      ap.bag->vertices = frame->vertices;
-      ap.lightBag->normals = frame->normals;
-      if (ap.texBag) ap.texBag->coordinates = frame->textureCoords;
+      // bags may point at another frame's group leader or tier - re-aim
+      const SkelInstance::LodArrays la = ownerInst->lodArrays(p, meshLod);
+      ap.bag->vertices = la.vertices;
+      ap.bag->count = la.count;
+      ap.lightBag->normals = la.normals;
+      if (ap.texBag) ap.texBag->coordinates = la.textureCoords;
       if (meshOwner == i) {
         if (reskinned) ap.bag->bboxVersion++;  // skinned in place
       } else {
@@ -1810,7 +1933,7 @@ void TerrainGame::updateAndRenderAnimObjects() {
       }
       stapip.core.render(ap.bag.get());
     }
-    rendered.push_back({i, meshOwner});
+    rendered.push_back({i, meshOwner, meshLod});
   }
 }
 
@@ -1976,6 +2099,12 @@ void TerrainGame::loadScene(int sceneIndex) {
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  // GS hardware distance fog (Scene/Project > Preferences > Fog).
+  if (FOG_ENABLED)
+    engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START,
+                                 FOG_END);
+  else
+    engine->renderer.core.disableFog();
 
   runtimeObjects.assign(SCENE_OBJECT_COUNT, RuntimeObject());
   objectGeometry.clear();
@@ -2295,7 +2424,9 @@ void TerrainGame::updateParticles() {
         alpha = 40.0F * t;
       } else if (kind == 2) {
         size *= 3.0F;
-        alpha = 18.0F * (t < 0.5F ? t * 2.0F : (1.0F - t) * 2.0F);  // fade in+out
+        // density knob: Opacity 0..1 -> peak alpha 0..60 (old look ~= 0.3)
+        alpha = d.emitOpacity * 60.0F *
+                (t < 0.5F ? t * 2.0F : (1.0F - t) * 2.0F);  // fade in+out
       } else if (kind == 4) {
         sizeUp = size * 0.5F;  // size = streak length
         size *= 0.06F;         // thin
@@ -2309,16 +2440,32 @@ void TerrainGame::updateParticles() {
       }
 
       // rain streaks stay vertical (world-up quads); everything else is a
-      // full camera-facing billboard
-      const float Rx = rx * size, Rz = rz * size;
-      const float Ux = sizeUp > 0.0F ? 0.0F : ux * size;
-      const float Uy = sizeUp > 0.0F ? sizeUp : uy * size;
-      const float Uz = sizeUp > 0.0F ? 0.0F : uz * size;
+      // full camera-facing billboard. Fog puffs additionally swirl: the
+      // billboard slowly rotates in the camera plane, alternating direction
+      // per puff (the Silent Hill roll) - keep in sync with the viewport
+      // preview (drawEmitterPreviews).
+      float brx = rx, bry = 0.0F, brz = rz;
+      float bux = ux, buy = uy, buz = uz;
+      if (kind == 2) {
+        const float age = ps.maxLife[i] - ps.life[i];
+        const float ang = (float)i * 2.4F + (i & 1 ? 0.3F : -0.3F) * age;
+        const float ca = cosf(ang), sa = sinf(ang);
+        brx = rx * ca + ux * sa;
+        bry = uy * sa;
+        brz = rz * ca + uz * sa;
+        bux = ux * ca - rx * sa;
+        buy = uy * ca;
+        buz = uz * ca - rz * sa;
+      }
+      const float Rx = brx * size, Ry = bry * size, Rz = brz * size;
+      const float Ux = sizeUp > 0.0F ? 0.0F : bux * size;
+      const float Uy = sizeUp > 0.0F ? sizeUp : buy * size;
+      const float Uz = sizeUp > 0.0F ? 0.0F : buz * size;
       const Vec4& P = ps.pos[i];
-      const Vec4 v0(P.x - Rx - Ux, P.y - Uy, P.z - Rz - Uz, 1.0F);
-      const Vec4 v1(P.x + Rx - Ux, P.y - Uy, P.z + Rz - Uz, 1.0F);
-      const Vec4 v2(P.x + Rx + Ux, P.y + Uy, P.z + Rz + Uz, 1.0F);
-      const Vec4 v3(P.x - Rx + Ux, P.y + Uy, P.z - Rz + Uz, 1.0F);
+      const Vec4 v0(P.x - Rx - Ux, P.y - Ry - Uy, P.z - Rz - Uz, 1.0F);
+      const Vec4 v1(P.x + Rx - Ux, P.y + Ry - Uy, P.z + Rz - Uz, 1.0F);
+      const Vec4 v2(P.x + Rx + Ux, P.y + Ry + Uy, P.z + Rz + Uz, 1.0F);
+      const Vec4 v3(P.x - Rx + Ux, P.y - Ry + Uy, P.z - Rz + Uz, 1.0F);
       const int b = i * 6;
       ps.verts[b] = v0;
       ps.verts[b + 1] = v1;
@@ -2780,6 +2927,10 @@ void TerrainGame::buildSkyDome() {
   // Static geometry crossing the screen edges all the time - needs clipping
   skyDome.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
   skyDome.infoBag->fullClipChecks = true;
+  // The dome sits past the fog end distance - hardware fog would paint it
+  // solid fog color, so it opts out (the horizon still fades into the fog
+  // because the terrain and objects do get fogged).
+  skyDome.infoBag->fogDisabled = true;
   skyDome.colorBag = std::make_unique<StaPipColorBag>();
   skyDome.colorBag->many = skyDome.colors.data();
   skyDome.bag = std::make_unique<StaPipBag>();
@@ -3193,6 +3344,12 @@ void TerrainGame::init() {
   stapip.setRenderer(&engine->renderer.core);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  // GS hardware distance fog (Scene/Project > Preferences > Fog).
+  if (FOG_ENABLED)
+    engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START,
+                                 FOG_END);
+  else
+    engine->renderer.core.disableFog();
   // Default color grading look (Tools > Color Grading); no-op when -1.
   // Grading is global - scene switches keep whatever preset is active.
   applySceneGrading(engine, GRADING_DEFAULT);
@@ -3346,6 +3503,15 @@ void TerrainGame::loop() {
   updateParticles();
   updateSoundEmitters();
 
+  // Camera-attached flashlight (Scene/Project > Preferences > Flashlight).
+  if (FLASHLIGHT_ENABLED) {
+    Vec4 flashDir = cameraLookAt - cameraPosition;
+    engine->renderer.core.setSpotLight(
+        Color(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B), cameraPosition,
+        flashDir, FLASHLIGHT_RANGE, FLASHLIGHT_ANGLE);
+  } else {
+    engine->renderer.core.disableSpotLight();
+  }
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -3837,6 +4003,15 @@ void TerrainGame::init() {
 void TerrainGame::loop() {
   updateCameraOrbit();
 
+  // Camera-attached flashlight (Scene/Project > Preferences > Flashlight).
+  if (FLASHLIGHT_ENABLED) {
+    Vec4 flashDir = cameraLookAt - cameraPosition;
+    engine->renderer.core.setSpotLight(
+        Color(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B), cameraPosition,
+        flashDir, FLASHLIGHT_RANGE, FLASHLIGHT_ANGLE);
+  } else {
+    engine->renderer.core.disableSpotLight();
+  }
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -4398,6 +4573,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int animAutoplay;      // animated models: 1 = play at scene start\n"
            "  int animLoop;          // animated models: 1 = starting clip loops\n"
            "  float animSpeed;       // animated models: playback speed multiplier\n"
+           "  int primDetail;        // segments (curved) or box subdivisions/edge\n"
            "};\n"
            "\n";
 
@@ -4416,7 +4592,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
                    "0, 0, 0.0F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, "
                    "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, \"\", 1, 1, "
-                   "1.0F},\n";
+                   "1.0F, 1},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
                 for (size_t i = 0; i < p.sounds.size(); ++i)
@@ -4451,7 +4627,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << floatLit(o.drawDistance) << ", " << animModelIndexOf(p, o)
                     << ", \"" << escapeCString(o.animClip) << "\", "
                     << (o.animAutoplay ? 1 : 0) << ", " << (o.animLoop ? 1 : 0)
-                    << ", " << floatLit(o.animSpeed) << "},  // " << o.name << "\n";
+                    << ", " << floatLit(o.animSpeed) << ", "
+                    << clampPrimDetail(o.type, o.primDetail) << "},  // " << o.name
+                    << "\n";
             }
         }
         out << "};\n";
@@ -4591,6 +4769,23 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     sceneFloats("SKY_TOP_BS", [&](int si) { return floatLit(rs[si].skyTopColor[2] * 255.0f); });
     sceneInts("POSTFX_BLOOMS", [&](int si) { return fx128(rs[si].bloom); });
     sceneInts("POSTFX_GRAINS", [&](int si) { return fx128(rs[si].grain); });
+    sceneBools("FOG_ENABLEDS", [&](int si) { return rs[si].fogEnabled; });
+    sceneFloats("FOG_RS", [&](int si) { return floatLit(rs[si].fogColor[0] * 255.0f); });
+    sceneFloats("FOG_GS", [&](int si) { return floatLit(rs[si].fogColor[1] * 255.0f); });
+    sceneFloats("FOG_BS", [&](int si) { return floatLit(rs[si].fogColor[2] * 255.0f); });
+    sceneFloats("FOG_STARTS", [&](int si) { return floatLit(rs[si].fogStart); });
+    sceneFloats("FOG_ENDS", [&](int si) { return floatLit(rs[si].fogEnd); });
+    sceneBools("FLASHLIGHT_ENABLEDS", [&](int si) { return rs[si].flashlightEnabled; });
+    sceneFloats("FLASHLIGHT_RS",
+                [&](int si) { return floatLit(rs[si].flashlightColor[0] * 128.0f); });
+    sceneFloats("FLASHLIGHT_GS",
+                [&](int si) { return floatLit(rs[si].flashlightColor[1] * 128.0f); });
+    sceneFloats("FLASHLIGHT_BS",
+                [&](int si) { return floatLit(rs[si].flashlightColor[2] * 128.0f); });
+    sceneFloats("FLASHLIGHT_RANGES",
+                [&](int si) { return floatLit(rs[si].flashlightRange); });
+    sceneFloats("FLASHLIGHT_ANGLES",
+                [&](int si) { return floatLit(rs[si].flashlightAngle); });
     sceneBools("HIGHLIGHT_USABLES", [&](int si) { return rs[si].highlightUsable; });
     sceneFloats("HIGHLIGHT_DISTANCES", [&](int si) { return floatLit(rs[si].highlightDistance); });
     sceneFloats("HIGHLIGHT_RS", [&](int si) { return floatLit(rs[si].highlightColor[0] * 255.0f); });
@@ -4767,6 +4962,18 @@ inline int everyFrames(float seconds) {
 #define SKY_TOP_B SKY_TOP_BS[g_activeScene]
 #define POSTFX_BLOOM POSTFX_BLOOMS[g_activeScene]
 #define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
+#define FOG_ENABLED FOG_ENABLEDS[g_activeScene]
+#define FOG_R FOG_RS[g_activeScene]
+#define FOG_G FOG_GS[g_activeScene]
+#define FOG_B FOG_BS[g_activeScene]
+#define FOG_START FOG_STARTS[g_activeScene]
+#define FOG_END FOG_ENDS[g_activeScene]
+#define FLASHLIGHT_ENABLED FLASHLIGHT_ENABLEDS[g_activeScene]
+#define FLASHLIGHT_R FLASHLIGHT_RS[g_activeScene]
+#define FLASHLIGHT_G FLASHLIGHT_GS[g_activeScene]
+#define FLASHLIGHT_B FLASHLIGHT_BS[g_activeScene]
+#define FLASHLIGHT_RANGE FLASHLIGHT_RANGES[g_activeScene]
+#define FLASHLIGHT_ANGLE FLASHLIGHT_ANGLES[g_activeScene]
 #define HIGHLIGHT_USABLE HIGHLIGHT_USABLES[g_activeScene]
 #define HIGHLIGHT_DISTANCE HIGHLIGHT_DISTANCES[g_activeScene]
 #define HIGHLIGHT_R HIGHLIGHT_RS[g_activeScene]
@@ -4822,6 +5029,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{JUMP_SPEED}}", floatLit(st.jumpSpeed));
     s = replaceAll(s, "{{LOADING_SCREEN}}", st.loadingScreen ? "true" : "false");
     s = replaceAll(s, "{{FRAME_LIMIT}}", st.disableVsync ? "false" : "true");
+    s = replaceAll(s, "{{ANIM_LOD_DISTANCE}}", floatLit(st.animLodDistance));
+    s = replaceAll(s, "{{MESH_LOD_DISTANCE}}", floatLit(st.meshLodDistance));
     s = replaceAll(s, "{{VIDEO_MODE}}", st.videoSystem == "pal"    ? "PAL"
                                         : st.videoSystem == "ntsc" ? "NTSC"
                                                                    : "Auto");
@@ -6384,6 +6593,10 @@ std::vector<File> bakeAnimAssets(const Project& p,
             continue;
         }
         for (const std::string& w : skel.warnings) warn(relPath + ": " + w);
+        // Distance LODs ride in the .tskl only when the project uses them -
+        // the engine keeps every loaded LOD (plus per-instance skinning
+        // buffers) in the PS2's 32 MB, so an unused chain is pure waste.
+        if (p.settings.meshLodDistance > 0.0f) glbparser::generateSkelLods(skel);
 
         // Extracted textures land next to the .tskl, prefixed with the model
         // stem so two models' equally-named images cannot collide. The game

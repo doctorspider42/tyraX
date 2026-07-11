@@ -175,6 +175,17 @@ uniform int uLit;                // 0: lines/markers/sky - skip point lights
 uniform int uLightCount;
 uniform vec4 uLightPos[8];       // xyz = world position, w = radius
 uniform vec4 uLightCol[8];       // rgb = color, w = brightness
+uniform int uFogOn;              // GS hardware fog preview (lit geometry only)
+uniform vec3 uFogColor;
+uniform float uFogStart;
+uniform float uFogEnd;
+uniform vec3 uFogEye;            // camera position (world) - also flashlight
+uniform vec3 uFogFwd;            // camera forward (world, normalized)
+uniform int uFlashOn;            // camera flashlight preview (VU1 twin)
+uniform vec3 uFlashCol;
+uniform float uFlashInvR2;       // 1/range^2
+uniform float uFlashCut2;        // cos^2(half-angle)
+uniform float uFlashSoft;        // softness/(range^2*(1-cos^2))
 out vec4 FragColor;
 void main() {
     vec4 texel = uUseTex != 0 ? texture(uTex, vUV) : vec4(1.0);
@@ -199,7 +210,27 @@ void main() {
         }
         shade = min(shade + add, vec3(1.0));
     }
-    FragColor = vec4(shade * uTint * tex, a);
+    if (uFlashOn != 0 && uLit != 0) {
+        // Camera flashlight - the exact per-vertex formula the PS2 runs on
+        // VU1 (CalculateTyraSpotLight): cone + distance falloff, no N.L.
+        vec3 d = vWorld - uFogEye;
+        float dist2 = dot(d, d);
+        float t = max(dot(d, uFogFwd), 0.0);
+        float cone = clamp((t * t - uFlashCut2 * dist2) * uFlashSoft, 0.0, 1.0);
+        float axial = clamp(1.0 - dist2 * uFlashInvR2, 0.0, 1.0);
+        shade = min(shade + uFlashCol * (cone * axial), vec3(1.0));
+    }
+    vec3 color = shade * uTint * tex;
+    if (uFogOn != 0 && uLit != 0) {
+        // View-plane distance, same metric as the PS2 (clip-space W); the
+        // sky is excluded like the game's fogDisabled sky dome bag.
+        float viewDist = dot(vWorld - uFogEye, uFogFwd);
+        float f = clamp((uFogEnd - viewDist) / (uFogEnd - uFogStart), 0.0, 1.0);
+        color = mix(uFogColor, color, f);
+    }
+    // Decals carry the texture's alpha (cutout above + blend here); everything
+    // else outputs opaque.
+    FragColor = vec4(color, a);
 }
 )";
 
@@ -321,21 +352,48 @@ void pushQuadShaded(std::vector<float>& v, Vec3 a, Vec3 b, Vec3 c, Vec3 d, Vec3 
     pushShaded(v, d, n, 0, 1);
 }
 
-std::vector<float> unitBox() {
+// detail = subdivisions per edge; at 1 this emits exactly the original 6-quad
+// box. Each face is an n x n grid; UVs span 0..1 over the whole face (texture
+// does not tile with detail). Kept in sync with the PS2 runtime addBox.
+std::vector<float> unitBox(int detail = kDefaultBoxDetail) {
     std::vector<float> v;
-    const float h = 0.5f;
-    pushQuadShaded(v, {h, -h, -h}, {h, h, -h}, {h, h, h}, {h, -h, h}, {1, 0, 0});
-    pushQuadShaded(v, {-h, -h, h}, {-h, h, h}, {-h, h, -h}, {-h, -h, -h}, {-1, 0, 0});
-    pushQuadShaded(v, {-h, h, -h}, {-h, h, h}, {h, h, h}, {h, h, -h}, {0, 1, 0});
-    pushQuadShaded(v, {-h, -h, h}, {-h, -h, -h}, {h, -h, -h}, {h, -h, h}, {0, -1, 0});
-    pushQuadShaded(v, {-h, -h, h}, {h, -h, h}, {h, h, h}, {-h, h, h}, {0, 0, 1});
-    pushQuadShaded(v, {h, -h, -h}, {-h, -h, -h}, {-h, h, -h}, {h, h, -h}, {0, 0, -1});
+    const int n = clampPrimDetail(PrimitiveType::Box, detail);
+    const float h = 0.5f, H = 1.0f;  // half-extent, full edge
+    // Face grid spanning c0 + s*du + t*dv (s,t in [0,1]); du x dv points along
+    // nrm so the winding stays CCW-outward.
+    auto face = [&](Vec3 c0, Vec3 du, Vec3 dv, Vec3 nrm) {
+        auto P = [&](float s, float t) -> Vec3 {
+            return {c0.x + du.x * s + dv.x * t, c0.y + du.y * s + dv.y * t,
+                    c0.z + du.z * s + dv.z * t};
+        };
+        for (int i = 0; i < n; ++i)
+            for (int j = 0; j < n; ++j) {
+                const float s0 = (float)i / n, s1 = (float)(i + 1) / n;
+                const float t0 = (float)j / n, t1 = (float)(j + 1) / n;
+                const Vec3 a = P(s0, t0), b = P(s1, t0), c = P(s1, t1), d = P(s0, t1);
+                pushShaded(v, a, nrm, s0, t0);
+                pushShaded(v, b, nrm, s1, t0);
+                pushShaded(v, c, nrm, s1, t1);
+                pushShaded(v, a, nrm, s0, t0);
+                pushShaded(v, c, nrm, s1, t1);
+                pushShaded(v, d, nrm, s0, t1);
+            }
+    };
+    face({h, -h, -h}, {0, H, 0}, {0, 0, H}, {1, 0, 0});    // +X
+    face({-h, -h, h}, {0, H, 0}, {0, 0, -H}, {-1, 0, 0});  // -X
+    face({-h, h, -h}, {0, 0, H}, {H, 0, 0}, {0, 1, 0});    // +Y
+    face({-h, -h, h}, {0, 0, -H}, {H, 0, 0}, {0, -1, 0});  // -Y
+    face({-h, -h, h}, {H, 0, 0}, {0, H, 0}, {0, 0, 1});    // +Z
+    face({h, -h, -h}, {-H, 0, 0}, {0, H, 0}, {0, 0, -1});  // -Z
     return v;
 }
 
-std::vector<float> unitSphere() {
+// detail = radial segment count; see project.hpp for the shared tessellation
+// formulas (kept in sync with the PS2 runtime in templates.cpp addSphere).
+std::vector<float> unitSphere(int detail = kDefaultPrimDetail) {
     std::vector<float> v;
-    const int stacks = 12, slices = 18;
+    const int slices = clampPrimDetail(PrimitiveType::Sphere, detail);
+    const int stacks = primSphereStacks(slices);
     const float r = 0.5f;
     auto at = [&](float t, float p) -> Vec3 {
         return {r * std::sin(t) * std::cos(p), r * std::cos(t), r * std::sin(t) * std::sin(p)};
@@ -359,9 +417,9 @@ std::vector<float> unitSphere() {
     return v;
 }
 
-std::vector<float> unitCylinder() {
+std::vector<float> unitCylinder(int detail = kDefaultPrimDetail) {
     std::vector<float> v;
-    const int seg = 24;
+    const int seg = clampPrimDetail(PrimitiveType::Cylinder, detail);
     const float r = 0.5f, h = 0.5f;
     for (int i = 0; i < seg; ++i) {
         const float a0 = 2 * kPi * i / seg, a1 = 2 * kPi * (i + 1) / seg;
@@ -386,9 +444,9 @@ std::vector<float> unitCylinder() {
     return v;
 }
 
-std::vector<float> unitCone() {
+std::vector<float> unitCone(int detail = kDefaultPrimDetail) {
     std::vector<float> v;
-    const int seg = 24;
+    const int seg = clampPrimDetail(PrimitiveType::Cone, detail);
     const float r = 0.5f, h = 0.5f;
     const float nl = 0.894f, ny = 0.447f;
     for (int i = 0; i < seg; ++i) {
@@ -625,6 +683,17 @@ bool Viewport::init() {
     uLightCount_ = glGetUniformLocation(program_, "uLightCount");
     uLightPos_ = glGetUniformLocation(program_, "uLightPos");
     uLightCol_ = glGetUniformLocation(program_, "uLightCol");
+    uFogOn_ = glGetUniformLocation(program_, "uFogOn");
+    uFogColor_ = glGetUniformLocation(program_, "uFogColor");
+    uFogStart_ = glGetUniformLocation(program_, "uFogStart");
+    uFogEnd_ = glGetUniformLocation(program_, "uFogEnd");
+    uFogEye_ = glGetUniformLocation(program_, "uFogEye");
+    uFogFwd_ = glGetUniformLocation(program_, "uFogFwd");
+    uFlashOn_ = glGetUniformLocation(program_, "uFlashOn");
+    uFlashCol_ = glGetUniformLocation(program_, "uFlashCol");
+    uFlashInvR2_ = glGetUniformLocation(program_, "uFlashInvR2");
+    uFlashCut2_ = glGetUniformLocation(program_, "uFlashCut2");
+    uFlashSoft_ = glGetUniformLocation(program_, "uFlashSoft");
 
     GLuint gvs = compile(GL_VERTEX_SHADER, GRADE_VS);
     GLuint gfs = compile(GL_FRAGMENT_SHADER, GRADE_FS);
@@ -706,6 +775,7 @@ void Viewport::shutdown() {
     destroyMesh(wireCube_);
     destroyMesh(lightGizmo_);
     destroyMesh(wireSphere_);
+    clearPrimMeshCache();
     destroyMesh(skyQuad_);
     destroyMesh(prevBg_);
     destroyMesh(prevFloor_);
@@ -839,6 +909,32 @@ void Viewport::buildPrimitiveMeshes() {
     wireCube_ = uploadMesh(unitWireCube());
     lightGizmo_ = uploadMesh(unitLightBulb());
     wireSphere_ = uploadMesh(unitWireSphere());
+}
+
+const Viewport::Mesh& Viewport::primMesh(PrimitiveType type, int detail) {
+    const int d = clampPrimDetail(type, detail);
+    std::map<int, Mesh>* cache;
+    switch (type) {
+        case PrimitiveType::Box: cache = &boxMeshes_; break;
+        case PrimitiveType::Sphere: cache = &sphereMeshes_; break;
+        case PrimitiveType::Cylinder: cache = &cylinderMeshes_; break;
+        case PrimitiveType::Cone: cache = &coneMeshes_; break;
+        default: return box_;
+    }
+    if (auto it = cache->find(d); it != cache->end()) return it->second;
+    const Mesh m = type == PrimitiveType::Box        ? uploadMesh(unitBox(d))
+                   : type == PrimitiveType::Sphere   ? uploadMesh(unitSphere(d))
+                   : type == PrimitiveType::Cylinder ? uploadMesh(unitCylinder(d))
+                                                     : uploadMesh(unitCone(d));
+    return cache->emplace(d, m).first->second;
+}
+
+void Viewport::clearPrimMeshCache() {
+    for (std::map<int, Mesh>* c :
+         {&boxMeshes_, &sphereMeshes_, &cylinderMeshes_, &coneMeshes_}) {
+        for (auto& [detail, m] : *c) destroyMesh(m);
+        c->clear();
+    }
 }
 
 void Viewport::buildTerrainMesh() {
@@ -1126,6 +1222,21 @@ void Viewport::setLighting(const float* dir, float ambient, float diffuse,
         buildTerrainMesh();
         clearModelCache();  // model shading is baked too
     }
+}
+
+void Viewport::setFog(bool enabled, const float* rgb, float start, float end) {
+    fogOn_ = enabled;
+    fogColor_[0] = rgb[0], fogColor_[1] = rgb[1], fogColor_[2] = rgb[2];
+    fogStart_ = start;
+    fogEnd_ = end;
+}
+
+void Viewport::setFlashlight(bool enabled, const float* rgb, float range,
+                             float halfAngleDeg) {
+    flashOn_ = enabled;
+    flashColor_[0] = rgb[0], flashColor_[1] = rgb[1], flashColor_[2] = rgb[2];
+    flashRange_ = range < 1.0f ? 1.0f : range;
+    flashAngle_ = halfAngleDeg < 2.0f ? 2.0f : (halfAngleDeg > 80.0f ? 80.0f : halfAngleDeg);
 }
 
 void Viewport::setProjectDir(const std::string& dir) {
@@ -1479,6 +1590,30 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     glUseProgram(program_);
 
+    // GS hardware fog preview: same coefficient the VU1 computes in-game.
+    {
+        Vec3 fwd{tgt.x - eye.x, tgt.y - eye.y, tgt.z - eye.z};
+        float len = std::sqrt(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
+        if (len > 1e-5f) fwd = {fwd.x / len, fwd.y / len, fwd.z / len};
+        glUniform1i(uFogOn_, fogOn_ ? 1 : 0);
+        glUniform3f(uFogColor_, fogColor_[0], fogColor_[1], fogColor_[2]);
+        glUniform1f(uFogStart_, fogStart_);
+        glUniform1f(uFogEnd_, fogEnd_ > fogStart_ + 1.0f ? fogEnd_ : fogStart_ + 1.0f);
+        glUniform3f(uFogEye_, eye.x, eye.y, eye.z);
+        glUniform3f(uFogFwd_, fwd.x, fwd.y, fwd.z);
+
+        // Camera flashlight preview (same constants the engine derives)
+        glUniform1i(uFlashOn_, flashOn_ ? 1 : 0);
+        glUniform3f(uFlashCol_, flashColor_[0], flashColor_[1], flashColor_[2]);
+        const float r2 = flashRange_ * flashRange_;
+        const float cosCut = std::cos(flashAngle_ * kPi / 180.0f);
+        const float cut2 = cosCut * cosCut;
+        const float coneBase = r2 * (1.0f - cut2);
+        glUniform1f(uFlashInvR2_, 1.0f / r2);
+        glUniform1f(uFlashCut2_, cut2);
+        glUniform1f(uFlashSoft_, coneBase > 1e-10f ? 3.0f / coneBase : 0.0f);
+    }
+
     // Point lights in the scene -> fragment shader uniforms (live preview of
     // what the game bakes into vertex colors; capped at the shader's 8).
     {
@@ -1524,9 +1659,10 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     auto meshFor = [&](const SceneObject& o) -> const Mesh* {
         switch (o.type) {
-            case PrimitiveType::Sphere: return &sphere_;
-            case PrimitiveType::Cylinder: return &cylinder_;
-            case PrimitiveType::Cone: return &cone_;
+            case PrimitiveType::Box:
+            case PrimitiveType::Sphere:
+            case PrimitiveType::Cylinder:
+            case PrimitiveType::Cone: return &primMesh(o.type, o.primDetail);
             case PrimitiveType::Plane: return &plane_;
             case PrimitiveType::Decal: return &decal_;
             case PrimitiveType::SpawnPoint: return &spawnMarker_;
@@ -1971,7 +2107,9 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
                 alpha = 40.0f * t / 128.0f;
             } else if (kind == 2) {
                 size *= 3.0f;
-                alpha = 18.0f * (t < 0.5f ? t * 2.0f : (1.0f - t) * 2.0f) / 128.0f;
+                // density knob: Opacity 0..1 -> peak alpha 0..60 (game twin)
+                alpha = o.emitterOpacity * 60.0f *
+                        (t < 0.5f ? t * 2.0f : (1.0f - t) * 2.0f) / 128.0f;
             } else if (kind == 4) {
                 sizeUp = size * 0.5f;  // size = streak length
                 size *= 0.06f;         // thin
@@ -1985,16 +2123,33 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
             }
 
             // rain streaks stay vertical (world-up quads); everything else is
-            // a full camera-facing billboard
-            const float Rx = rx * size, Rz = rz * size;
-            const float Ux = sizeUp > 0.0f ? 0.0f : ux * size;
-            const float Uy = sizeUp > 0.0f ? sizeUp : uy * size;
-            const float Uz = sizeUp > 0.0f ? 0.0f : uz * size;
+            // a full camera-facing billboard. Fog puffs swirl in the camera
+            // plane, alternating direction per puff - same formula as the
+            // game's updateParticles() (keep in sync).
+            float brx = rx, bry = 0.0f, brz = rz;
+            float bux = ux, buy = uy, buz = uz;
+            if (kind == 2) {
+                const int pi = (int)(&p - ep.parts.data());
+                const float age = p.maxLife - p.life;
+                const float ang =
+                    (float)pi * 2.4f + (pi & 1 ? 0.3f : -0.3f) * age;
+                const float ca = std::cos(ang), sa = std::sin(ang);
+                brx = rx * ca + ux * sa;
+                bry = uy * sa;
+                brz = rz * ca + uz * sa;
+                bux = ux * ca - rx * sa;
+                buy = uy * ca;
+                buz = uz * ca - rz * sa;
+            }
+            const float Rx = brx * size, Ry = bry * size, Rz = brz * size;
+            const float Ux = sizeUp > 0.0f ? 0.0f : bux * size;
+            const float Uy = sizeUp > 0.0f ? sizeUp : buy * size;
+            const float Uz = sizeUp > 0.0f ? 0.0f : buz * size;
             const float X = p.pos[0], Y = p.pos[1], Z = p.pos[2];
-            const float v0[3] = {X - Rx - Ux, Y - Uy, Z - Rz - Uz};
-            const float v1[3] = {X + Rx - Ux, Y - Uy, Z + Rz - Uz};
-            const float v2[3] = {X + Rx + Ux, Y + Uy, Z + Rz + Uz};
-            const float v3[3] = {X - Rx + Ux, Y + Uy, Z - Rz + Uz};
+            const float v0[3] = {X - Rx - Ux, Y - Ry - Uy, Z - Rz - Uz};
+            const float v1[3] = {X + Rx - Ux, Y + Ry - Uy, Z + Rz - Uz};
+            const float v2[3] = {X + Rx + Ux, Y + Ry + Uy, Z + Rz + Uz};
+            const float v3[3] = {X - Rx + Ux, Y - Ry + Uy, Z - Rz + Uz};
             auto vert = [&](const float* v, float tu, float tv) {
                 buf.insert(buf.end(),
                            {v[0], v[1], v[2], cr, cg, cb, alpha, tu, tv});

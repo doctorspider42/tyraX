@@ -33,6 +33,8 @@
     LoadTyraStaticData{ gifSetTag }
     LoadTyraSingleColor{ singleColor, singleColorEnabled, VU1_SINGLE_COLOR_ADDR, VU1_OPTIONS_ADDR }
     LoadTyraTags{ lodGifTag, testsTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR }
+    ; Modified by tyra-editor: GS hardware fog (packed XYZF2)
+    LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
 
 begin:
     xtop buffer
@@ -69,14 +71,14 @@ multiColor:
         lq      color3,   2(colorData)
         
 processing:
-        ;--- Load vertex1
-        lq.xyz  vertex1,  (vertexData)
+        ;--- Load vertex1 (full quad - W carries the view distance for fog)
+        lq      vertex1,  (vertexData)
 
         ;--- Load vertex2
-        lq.xyz  vertex2,  1(vertexData)
+        lq      vertex2,  1(vertexData)
 
         ;--- Load vertex3
-        lq.xyz  vertex3,  2(vertexData)
+        lq      vertex3,  2(vertexData)
 
         ;--- Calculate vertex1
         ScaleVertexToGSFormat{ scale, vertex1 }
@@ -90,10 +92,13 @@ processing:
         ScaleVertexToGSFormat{ scale, vertex3 }
         FixColor{ color3 }
 
-        iaddiu      adcBit,     VI00, 0x0
-        isw.w       adcBit,     XYZ2_STORE_OFFSET(destAddress)
-        isw.w       adcBit,     XYZ2_STORE_OFFSET+2(destAddress)
-        isw.w       adcBit,     XYZ2_STORE_OFFSET+4(destAddress)
+        ; Modified by tyra-editor: fog coefficient replaces the zero ADC word
+        CalculateTyraFog{ fogInt, vertex1, fogParams }
+        StoreTyraFog{ fogInt, destAddress, XYZ2_STORE_OFFSET }
+        CalculateTyraFog{ fogInt, vertex2, fogParams }
+        StoreTyraFog{ fogInt, destAddress, XYZ2_STORE_OFFSET+2 }
+        CalculateTyraFog{ fogInt, vertex3, fogParams }
+        StoreTyraFog{ fogInt, destAddress, XYZ2_STORE_OFFSET+4 }
 
         ;--- Store vertex1
         sq      color1,         RGBA_STORE_OFFSET(destAddress)

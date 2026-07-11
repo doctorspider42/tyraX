@@ -51,6 +51,17 @@ struct SkelClip {
   std::vector<SkelChannel> channels;
 };
 
+/** A decimated variant of a part's mesh (same layout, fewer triangles).
+ * Baked by the editor (v2 files, Preferences > Rendering > Mesh LOD). */
+struct SkelLod {
+  u32 vertexCount = 0;
+  std::vector<float> positions;
+  std::vector<float> normals;
+  std::vector<float> uvs;
+  std::vector<u8> joints;
+  std::vector<u8> weights;
+};
+
 /** One draw batch in bind pose (flat triangle list) with palette bindings. */
 struct SkelPart {
   std::string name;
@@ -62,6 +73,7 @@ struct SkelPart {
   std::vector<float> uvs;        // vertexCount * 2 (textured parts only)
   std::vector<u8> joints;        // vertexCount * 4 palette slots
   std::vector<u8> weights;       // vertexCount * 4; skinning divides by sum
+  std::vector<SkelLod> lods;     // [0] ~50% verts, [1] ~25%; may be empty
 };
 
 /**

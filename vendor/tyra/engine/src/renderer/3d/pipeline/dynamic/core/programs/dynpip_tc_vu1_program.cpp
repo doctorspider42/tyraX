@@ -20,7 +20,7 @@ DynPipTCVU1Program::DynPipTCVU1Program()
     : DynPipVU1Program(DynPipTextureColor, &DynPipVU1_TC_CodeStart,
                        &DynPipVU1_TC_CodeEnd,
                        ((u64)GIF_REG_ST) << 0 | ((u64)GIF_REG_RGBAQ) << 4 |
-                           ((u64)GIF_REG_XYZ2) << 8,
+                           ((u64)GIF_REG_XYZF2) << 8,
                        3, 2) {}
 
 DynPipTCVU1Program::~DynPipTCVU1Program() {}

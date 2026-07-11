@@ -20,7 +20,7 @@ StaPipAsIsTCVU1Program::StaPipAsIsTCVU1Program()
     : StaPipVU1Program(StaPipAsIsTextureColor, &StaPipVU1As_Is_TC_CodeStart,
                        &StaPipVU1As_Is_TC_CodeEnd,
                        ((u64)GIF_REG_ST) << 0 | ((u64)GIF_REG_RGBAQ) << 4 |
-                           ((u64)GIF_REG_XYZ2) << 8,
+                           ((u64)GIF_REG_XYZF2) << 8,
                        3, 3) {}
 
 StaPipAsIsTCVU1Program::~StaPipAsIsTCVU1Program() {}

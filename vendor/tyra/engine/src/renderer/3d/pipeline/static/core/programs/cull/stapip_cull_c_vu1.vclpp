@@ -35,6 +35,11 @@
     MatrixLoad{ mvp, VU1_MVP_MATRIX_ADDR, vi00 }
     LoadTyraSingleColor{ singleColor, singleColorEnabled, VU1_SINGLE_COLOR_ADDR, VU1_OPTIONS_ADDR }
     LoadTyraTags{ lodGifTag, testsTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR }
+    ; Modified by tyra-editor: GS hardware fog (packed XYZF2)
+    LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
+    MakeTyraAdcMask{ adcMask }
+    ; Modified by tyra-editor: spot light (flashlight)
+    LoadTyraSpotLight{ spotPos, spotDirV, spotColV, VU1_LIGHTS_DIRS_ADDR }
 
 begin:
     xtop buffer
@@ -81,22 +86,28 @@ processing:
         lq      vertex3,  2(vertexData)
 
         ;--- Calculate vertex1
+        CalculateTyraSpotLight{ color1, vertex1, spotPos, spotDirV, spotColV }
         MatrixMultiplyVertex{ vertex1, mvp, vertex1 }
-        PerformClipCheck{ vertex1, destAddress, XYZ2_STORE_OFFSET }
+        CalculateTyraFog{ fogInt, vertex1, fogParams }
+        PerformTyraFogClipCheck{ vertex1, destAddress, XYZ2_STORE_OFFSET, fogInt, adcMask }
         VertexPersCorr{ vertex1, vertex1 }
         ScaleVertexToGSFormat{ scale, vertex1 }
         FixColor{ color1 }
 
         ;--- Calculate vertex2
+        CalculateTyraSpotLight{ color2, vertex2, spotPos, spotDirV, spotColV }
         MatrixMultiplyVertex{ vertex2, mvp, vertex2 }
-        PerformClipCheck{ vertex2, destAddress, XYZ2_STORE_OFFSET+2 }
+        CalculateTyraFog{ fogInt, vertex2, fogParams }
+        PerformTyraFogClipCheck{ vertex2, destAddress, XYZ2_STORE_OFFSET+2, fogInt, adcMask }
         VertexPersCorr{ vertex2, vertex2 }
         ScaleVertexToGSFormat{ scale, vertex2 }
         FixColor{ color2 }
     
         ;--- Calculate vertex3
+        CalculateTyraSpotLight{ color3, vertex3, spotPos, spotDirV, spotColV }
         MatrixMultiplyVertex{ vertex3, mvp, vertex3 }
-        PerformClipCheck{ vertex3, destAddress, XYZ2_STORE_OFFSET+4 }
+        CalculateTyraFog{ fogInt, vertex3, fogParams }
+        PerformTyraFogClipCheck{ vertex3, destAddress, XYZ2_STORE_OFFSET+4, fogInt, adcMask }
         VertexPersCorr{ vertex3, vertex3 }
         ScaleVertexToGSFormat{ scale, vertex3 }
         FixColor{ color3 }

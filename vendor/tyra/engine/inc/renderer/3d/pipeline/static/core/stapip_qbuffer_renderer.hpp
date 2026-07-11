@@ -41,8 +41,10 @@ class StaPipQBufferRenderer {
 
   StaPipQBuffer* getBuffer();
 
+  // Modified by tyra-editor: non-const - also pushes the per-mesh
+  // object-space spot light to the EE clipper.
   void sendObjectData(StaPipBag* bag, M4x4* mvp,
-                      RendererCoreTextureBuffers* texBuffers) const;
+                      RendererCoreTextureBuffers* texBuffers);
 
   void setMaxVertCount(const u32& count);
 

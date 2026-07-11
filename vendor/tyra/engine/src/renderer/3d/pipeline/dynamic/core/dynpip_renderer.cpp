@@ -127,8 +127,9 @@ void DynPipRenderer::sendObjectData(
                     singleColorEnabled);  // Single color enabled.
     packet2_add_float(objectDataPacket,
                       bag->interpolation);  // Interpolation value
-    packet2_add_u32(objectDataPacket, 0);   // not used, padding
-    packet2_add_u32(objectDataPacket, 0);   // not used, padding
+    // Modified by tyra-editor: GS hardware fog params (see RendererCoreFog)
+    packet2_add_float(objectDataPacket, rendererCore->fog.scale);
+    packet2_add_float(objectDataPacket, rendererCore->fog.offset);
 
     packet2_utils_gs_add_lod(objectDataPacket, lod);
 
