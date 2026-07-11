@@ -401,12 +401,12 @@ void App::drawUI() {
             ImGuiID center = dockspace;
             ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.24f, nullptr,
                                                        &center);
-            ImGuiID leftBottom = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.5f,
-                                                             nullptr, &left);
+            ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.26f, nullptr,
+                                                        &center);
             ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.26f, nullptr,
                                                          &center);
             ImGui::DockBuilderDockWindow("Project", left);
-            ImGui::DockBuilderDockWindow("Properties", leftBottom);
+            ImGui::DockBuilderDockWindow("Properties", right);
             ImGui::DockBuilderDockWindow("Output", bottom);
             ImGui::DockBuilderDockWindow("Debug", bottom);
             ImGui::DockBuilderDockWindow("Flow Graph", center);
@@ -416,13 +416,14 @@ void App::drawUI() {
     }
 
     // Layouts saved before the Properties window existed: carve a slot for it
-    // under the Project panel once that panel has settled into its dock node.
+    // on the right side of the main dockspace once the Project panel has
+    // settled (a signal that the loaded layout has been applied).
     if (dockPropertiesPending_) {
         if (ImGuiWindow* proj = ImGui::FindWindowByName("Project")) {
             if (proj->DockId != 0 && ImGui::DockBuilderGetNode(proj->DockId)) {
-                ImGuiID top = proj->DockId;
-                ImGuiID slot = ImGui::DockBuilderSplitNode(top, ImGuiDir_Down, 0.5f,
-                                                           nullptr, &top);
+                ImGuiID center = dockspace;
+                ImGuiID slot = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.26f,
+                                                           nullptr, &center);
                 ImGui::DockBuilderDockWindow("Properties", slot);
                 ImGui::DockBuilderFinish(dockspace);
             }
@@ -440,7 +441,9 @@ void App::drawUI() {
     drawDiscLayoutWindow();
     drawMenusWindow();
     drawGradingWindow();
+    drawAmbienceWindow();
     drawMaterialEditorWindow();
+    drawUiEditorWindow();
     drawNewProjectModal();
     drawPreferencesModal();
     drawNavigationModal();
@@ -644,6 +647,8 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Material Editor...")) showMaterialEditor_ = true;
             if (ImGui::MenuItem("Menu Editor...")) showMenusEditor_ = true;
             if (ImGui::MenuItem("Color Grading...")) showGradingEditor_ = true;
+            if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
+            if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
             ImGui::EndMenu();
         }
 
@@ -686,6 +691,25 @@ void App::drawViewportWindow() {
                 gradingPreview_ && gi >= 0 && gi < (int)project_.gradings.size();
             viewport_.setGrading(
                 on, on ? compileGrading(project_.gradings[gi]) : CompiledGrading{});
+        }
+        // Ambience preview: the preset selected in the Ambience Editor wins
+        // over the scene's sky/lighting/fog while that window is open, then
+        // the scene's own values are restored once.
+        {
+            const bool preview = showAmbienceEditor_ && ambiencePreview_ &&
+                                 selectedAmbience_ >= 0 &&
+                                 selectedAmbience_ < (int)project_.ambiencePresets.size();
+            if (preview) {
+                const AmbiencePreset& a = project_.ambiencePresets[selectedAmbience_];
+                viewport_.setSky(a.skyColor, a.skyTopColor, a.skyDome, a.zenithSize);
+                viewport_.setLighting(a.lightDir, a.ambient, a.diffuse, a.lightColor,
+                                      a.brightness);
+                viewport_.setFog(a.fogEnabled, a.fogColor, a.fogStart, a.fogEnd);
+                ambiencePreviewPushed_ = true;
+            } else if (ambiencePreviewPushed_) {
+                ambiencePreviewPushed_ = false;
+                applyProjectToViewport();  // restore the scene's own ambience
+            }
         }
         // Layer eye toggles: objects on hidden layers vanish from the render
         // and the click picking (mask indices parallel project_.objects()).
@@ -1088,8 +1112,9 @@ void App::drawViewportWindow() {
         }
 
         // --- HUD preview overlay (matches the PS2 512x448 screen mapping;
-        // hidden by default - toggle in the HUD section) ---
-        if (showHudInEditor_ && !project_.hud.empty()) {
+        // hidden by default - toggle in the UI Editor, which also shows it
+        // while open) ---
+        if ((showHudInEditor_ || showUiEditor_) && !project_.hud.empty()) {
             ImDrawList* dl = ImGui::GetWindowDrawList();
             for (int i = 0; i < (int)project_.hud.size(); ++i) {
                 const HudImage& hi = project_.hud[i];
@@ -1103,7 +1128,7 @@ void App::drawViewportWindow() {
                     dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax);
                 else
                     dl->AddRect(pMin, pMax, IM_COL32(255, 100, 100, 200));
-                if (i == selectedHud_)
+                if (showUiEditor_ && uiFxSel_ == 0 && i == selectedHud_)
                     dl->AddRect(pMin, pMax, IM_COL32(255, 160, 30, 255), 0.0f, 0, 2.0f);
             }
         }
@@ -1294,7 +1319,6 @@ void App::drawProjectWindow() {
     drawSceneSection();
     drawLayersSection();
     drawAssetsSection();
-    drawHudSection();
     drawMusicSection();
     drawSoundsSection();
     drawSaveDataSection();
@@ -3939,6 +3963,22 @@ void App::drawFlowGraphWindow() {
                     ImGui::TextDisabled("Add presets in\nTools > Color Grading.");
                 ImGui::EndCombo();
             }
+        } else if (t->strKind == FlowParamKind::AmbienceName) {
+            if (ImGui::BeginCombo("Preset", n.str.empty() ? "<none>" : n.str.c_str())) {
+                if (ImGui::Selectable("<none>", n.str.empty())) {
+                    n.str.clear();
+                    changed = true;
+                }
+                for (const AmbiencePreset& a : project_.ambiencePresets) {
+                    if (ImGui::Selectable(a.name.c_str(), a.name == n.str)) {
+                        n.str = a.name;
+                        changed = true;
+                    }
+                }
+                if (project_.ambiencePresets.empty())
+                    ImGui::TextDisabled("Add presets in\nTools > Ambience Editor.");
+                ImGui::EndCombo();
+            }
         } else if (t->strKind == FlowParamKind::MenuName) {
             if (ImGui::BeginCombo("Menu", n.str.empty() ? "<none>" : n.str.c_str())) {
                 for (const GameMenu& gm : project_.menus) {
@@ -4440,33 +4480,265 @@ void App::importHudImage() {
     }
     project_.hud.push_back(std::move(h));
     selectedHud_ = (int)project_.hud.size() - 1;
+    uiFxSel_ = 0;
     saveAll("Saved");
 }
 
-void App::drawHudSection() {
-    if (!ImGui::CollapsingHeader("HUD")) return;
+// UI Editor window (Tools > UI Editor): everything composited over the 3D
+// scene, as one reorderable "screen stack" - the HUD images plus two effect
+// layers (bloom+grading, and film grain). The stack order is the game's draw
+// order: entries above an effect layer stay crisp (e.g. the crosshair over the
+// bloom), entries below are composited with it. Bloom and grain are separate
+// entries so, say, bloom can sit under the HUD while grain overlays the whole
+// screen.
+namespace {
+constexpr int kBloomMark = -2;
+constexpr int kGrainMark = -3;
+}  // namespace
 
-    if (ImGui::SmallButton("Import image (PNG)...")) importHudImage();
-    ImGui::SameLine();
-    ImGui::Checkbox("Show in viewport", &showHudInEditor_);
+void App::drawUiEditorWindow() {
+    if (!showUiEditor_ || !hasProject_) return;
+
+    ImGui::SetNextWindowSize(
+        ImVec2(560 * uiScaleApplied_, 420 * uiScaleApplied_),
+        ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("UI Editor", &showUiEditor_)) {
+        ImGui::End();
+        return;
+    }
 
     bool changed = false;
-    for (int i = 0; i < (int)project_.hud.size(); ++i) {
-        std::string label = project_.hud[i].name + "##hud" + std::to_string(i);
-        if (ImGui::Selectable(label.c_str(), selectedHud_ == i)) selectedHud_ = i;
-    }
-    if (project_.hud.empty()) ImGui::TextDisabled("No HUD images.");
+    const int n = (int)project_.hud.size();
 
-    if (selectedHud_ >= 0 && selectedHud_ < (int)project_.hud.size()) {
+    // Render-order stack (bottom of the screen list = drawn first): hud indices
+    // plus the two effect markers. A marker at layer L renders right before hud
+    // sprite L; layer -1 (or >= n) renders after every sprite (topmost). Bloom
+    // before grain when they share a slot (grain composites over the graded,
+    // bloomed image - the fixed internal order).
+    auto buildStack = [&]() {
+        std::vector<int> s;
+        s.reserve(n + 2);
+        for (int i = 0; i < n; ++i) {
+            if (project_.hudBloomLayer == i) s.push_back(kBloomMark);
+            if (project_.hudGrainLayer == i) s.push_back(kGrainMark);
+            s.push_back(i);
+        }
+        if (project_.hudBloomLayer < 0 || project_.hudBloomLayer >= n)
+            s.push_back(kBloomMark);
+        if (project_.hudGrainLayer < 0 || project_.hudGrainLayer >= n)
+            s.push_back(kGrainMark);
+        return s;
+    };
+    // Rebuild the model from a render-order stack: hud array is reordered to
+    // match, each layer = number of hud sprites before its marker (n = -1).
+    auto rebuild = [&](const std::vector<int>& s) {
+        std::vector<HudImage> newHud;
+        newHud.reserve(n);
+        int before = 0, bl = -1, gr = -1;
+        for (int e : s) {
+            if (e == kBloomMark) bl = before;
+            else if (e == kGrainMark) gr = before;
+            else { newHud.push_back(project_.hud[e]); ++before; }
+        }
+        project_.hudBloomLayer = bl >= n ? -1 : bl;
+        project_.hudGrainLayer = gr >= n ? -1 : gr;
+        project_.hud = std::move(newHud);
+    };
+
+    // Display order: top of the screen (drawn last) first = reversed stack.
+    std::vector<int> order = buildStack();
+    std::reverse(order.begin(), order.end());
+
+    // --- left: the screen stack ---------------------------------------------
+    ImGui::BeginChild("##ui_stack", ImVec2(230 * uiScaleApplied_, 0),
+                      ImGuiChildFlags_Borders);
+    if (ImGui::Button("Import image (PNG)...", ImVec2(-1, 0))) importHudImage();
+    ImGui::Checkbox("Show in viewport", &showHudInEditor_);
+    ImGui::SeparatorText("Screen stack");
+    ImGui::TextDisabled("Top entry draws last (on top).\nDrag to reorder.");
+    for (int r = 0; r < (int)order.size(); ++r) {
+        const int id = order[r];
+        ImGui::PushID(r);
+        bool isSel;
+        const char* label;
+        if (id == kBloomMark) {
+            isSel = uiFxSel_ == 1;
+            label = "[ Bloom + color grading ]";
+        } else if (id == kGrainMark) {
+            isSel = uiFxSel_ == 2;
+            label = "[ Film grain ]";
+        } else {
+            isSel = uiFxSel_ == 0 && selectedHud_ == id;
+            label = project_.hud[id].name.c_str();
+        }
+        if (ImGui::Selectable(label, isSel)) {
+            if (id == kBloomMark) uiFxSel_ = 1;
+            else if (id == kGrainMark) uiFxSel_ = 2;
+            else { uiFxSel_ = 0; selectedHud_ = id; }
+        }
+        // Drag to reorder: swap with the neighbor the cursor moved towards,
+        // then rebuild the model from the new order.
+        if (ImGui::IsItemActive() && !ImGui::IsItemHovered()) {
+            const int dst = r + (ImGui::GetMouseDragDelta(0).y < 0.0f ? -1 : 1);
+            if (dst >= 0 && dst < (int)order.size()) {
+                // Remember the selected image so its selection survives the
+                // reorder (indices shift; identity does not).
+                const bool hadHud =
+                    uiFxSel_ == 0 && selectedHud_ >= 0 && selectedHud_ < n;
+                HudImage selHud;
+                if (hadHud) selHud = project_.hud[selectedHud_];
+
+                std::swap(order[r], order[dst]);
+                std::vector<int> s(order.rbegin(), order.rend());
+                rebuild(s);
+
+                if (hadHud)
+                    for (int i = 0; i < (int)project_.hud.size(); ++i)
+                        if (project_.hud[i] == selHud) { selectedHud_ = i; break; }
+                ImGui::ResetMouseDragDelta();
+                changed = true;
+            }
+        }
+        ImGui::PopID();
+    }
+    if (project_.hud.empty())
+        ImGui::TextDisabled("No HUD images yet.\nImport a PNG above.");
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    // --- right: selected entry ------------------------------------------------
+    ImGui::BeginChild("##ui_props", ImVec2(0, 0));
+    if (uiFxSel_ == 1) {
+        ImGui::SeparatorText("Bloom + color grading");
+        ImGui::SliderFloat("Bloom", &project_.settings.bloom, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::TextDisabled(
+            "GS framebuffer trick - no pixel shaders on the PS2. Quarter-res\n"
+            "blur re-added over the frame (soft glow).");
+        ImGui::Spacing();
+        ImGui::TextWrapped(
+            "Stack entries above this layer draw crisp on top of the bloom - "
+            "put the crosshair or text there so the glow does not blur them. "
+            "At the very top the bloom applies at the end of the frame, over "
+            "everything including menus.");
+        ImGui::Spacing();
+        ImGui::TextDisabled(
+            "Color grading applies with this layer. Author presets in\n"
+            "Tools > Color Grading. Per-scene bloom strength: Scene > Scene\n"
+            "Preferences > Post effects.");
+    } else if (uiFxSel_ == 2) {
+        ImGui::SeparatorText("Film grain");
+        ImGui::SliderFloat("Film grain", &project_.settings.grain, 0.0f, 1.0f,
+                           "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::TextDisabled(
+            "Animated noise overlay (GS blits). Subtle values work best.");
+        ImGui::Spacing();
+        ImGui::TextWrapped(
+            "As a separate layer the grain can sit above the bloom and the "
+            "HUD - a filmic overlay over the whole screen - while the bloom "
+            "stays underneath so it does not smear the UI.");
+        ImGui::Spacing();
+        ImGui::TextDisabled(
+            "Per-scene grain strength: Scene > Scene Preferences > Post "
+            "effects.");
+    } else if (selectedHud_ >= 0 && selectedHud_ < n) {
         HudImage& h = project_.hud[selectedHud_];
+        ImGui::SeparatorText(h.name.c_str());
         ImGui::DragFloat2("Position##hud", h.pos, 0.005f, 0.0f, 1.0f, "%.3f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::DragFloat2("Size (px)##hud", h.size, 1.0f, 1.0f, 512.0f, "%.0f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
+
+        // --- Texture bake ----------------------------------------------------
+        // The PS2 only accepts 8/16/32/64/128/256/512-sized textures; the build
+        // resizes the imported PNG into .res-baked to that. "Auto" picks the
+        // nearest valid size, so a mis-sized import just works.
+        auto nearestValid = [](int v) {
+            static const int V[] = {8, 16, 32, 64, 128, 256, 512};
+            int best = V[0], bd = 1 << 30;
+            for (int d : V) {
+                const int dd = v > d ? v - d : d - v;
+                if (dd < bd) { bd = dd; best = d; }
+            }
+            return best;
+        };
+        auto isValid = [&](int v) { return v > 0 && v == nearestValid(v); };
+        auto dimCombo = [&](const char* label, int& dim) {
+            static const int vals[] = {0, 8, 16, 32, 64, 128, 256, 512};
+            static const char* names[] = {"Auto", "8",   "16",  "32",
+                                          "64",   "128", "256", "512"};
+            int cur = 0;
+            for (int i = 0; i < 8; ++i)
+                if (vals[i] == dim) { cur = i; break; }
+            if (ImGui::Combo(label, &cur, names, 8)) {
+                dim = vals[cur];
+                changed = true;
+            }
+        };
+
+        ImGui::SeparatorText("Texture (baked for PS2)");
+        int sw = 0, sh = 0;
+        if (const HudTexture* t = hudTexture(h.imagePath)) { sw = t->w; sh = t->h; }
+        if (sw > 0) {
+            const bool bad = !isValid(sw) || !isValid(sh);
+            if (bad)
+                ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f),
+                                   "Source %dx%d is not a PS2 size", sw, sh);
+            else
+                ImGui::TextDisabled("Source: %dx%d px", sw, sh);
+        }
+        ImGui::PushItemWidth(90.0f * uiScaleApplied_);
+        dimCombo("Width##texw", h.texW);
+        ImGui::SameLine();
+        dimCombo("Height##texh", h.texH);
+        ImGui::PopItemWidth();
+
+        // Colors: like the per-asset material quality, "(project default)"
+        // follows Preferences > Textures; the others override - e.g. keep an
+        // important element full color while the rest of the HUD is quantized.
+        int q = h.texQuant == "none" ? 1
+                : h.texQuant == "8bit" ? 2
+                : h.texQuant == "4bit" ? 3
+                                       : 0;
+        const char* qn[] = {"Project default", "Full color (32-bit)",
+                            "256 colors (8-bit)", "16 colors (4-bit)"};
+        if (ImGui::Combo("Colors##hudq", &q, qn, 4)) {
+            h.texQuant = q == 1 ? "none" : q == 2 ? "8bit" : q == 3 ? "4bit" : "";
+            changed = true;
+        }
+
+        // Resolve "(project default)" for the baked readout.
+        auto colorLabel = [](const std::string& qv) {
+            return qv == "8bit"   ? "256 colors (8-bit)"
+                   : qv == "4bit" ? "16 colors (4-bit)"
+                                  : "Full color (32-bit)";
+        };
+        const std::string effQ =
+            h.texQuant.empty() ? project_.settings.textureQuant : h.texQuant;
+        const int bw = h.texW > 0 ? h.texW : (sw > 0 ? nearestValid(sw) : 0);
+        const int bh = h.texH > 0 ? h.texH : (sh > 0 ? nearestValid(sh) : 0);
+        if (h.texQuant.empty())
+            ImGui::TextDisabled("Baked: %dx%d, %s (from project)", bw, bh,
+                                colorLabel(effQ));
+        else
+            ImGui::TextDisabled("Baked: %dx%d, %s", bw, bh, colorLabel(effQ));
+        ImGui::TextDisabled(
+            "Resized at build (source in res/hud stays untouched). The\n"
+            "on-screen size above is separate - the sprite is stretched.");
+
+        ImGui::Spacing();
         if (ImGui::Button("Delete HUD image"))
-            requestAssetDelete(PendingAssetDelete::Hud, h.imagePath, h.name, selectedHud_);
+            requestAssetDelete(PendingAssetDelete::Hud, h.imagePath, h.name,
+                               selectedHud_);
+    } else {
+        ImGui::TextDisabled("Select an entry on the left.");
     }
-    if (changed) saveAll("Saved");
+    ImGui::EndChild();
+
+    if (changed) saveAll("Saved");  // UI edits are not on the undo stack
+    ImGui::End();
 }
 
 void App::importMusicTrack() {
@@ -5060,7 +5332,7 @@ void App::handleFileDrop(int count, const char** paths) {
                          project_.menus[selectedMenu_].name + "\"";
     } else if (copied > 0 || fonts > 0) {
         statusMessage_ = "Copied into res/ - attach in the Menu Editor (images: "
-                         "Images list, fonts: Font combo) or the HUD section";
+                         "Images list, fonts: Font combo) or Tools > UI Editor";
     } else if (skipped > 0) {
         statusMessage_ = "Drop: PNG images and TTF/OTF fonts are handled here";
     }
@@ -5378,6 +5650,188 @@ void App::drawGradingWindow() {
                         cg.lift[2], cg.mixAmt * 100 / 128, cg.mixColor[0],
                         cg.mixColor[1], cg.mixColor[2],
                         cg.neutral() ? "neutral (skipped)" : "3-6 sprites, GS only");
+
+    ImGui::EndChild();
+    ImGui::End();
+
+    if (changed) commitChange();
+}
+
+// Ambience Editor (Tools > Ambience Editor): preset list on the left, the
+// sky / lighting / fog controls for the selected preset on the right. A preset
+// is a scene's "mood" bundle; scenes pick one in Scene > Preferences (empty =
+// the default), and the Set Ambience flow node repaints the sky at runtime.
+// These controls used to live in Project Preferences.
+void App::drawAmbienceWindow() {
+    if (!showAmbienceEditor_ || !hasProject_) return;
+
+    ImGui::SetNextWindowSize(ImVec2(560, 540), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Ambience Editor", &showAmbienceEditor_)) {
+        ImGui::End();
+        return;
+    }
+
+    bool changed = false;
+
+    // --- left: preset list -------------------------------------------------
+    ImGui::BeginChild("##ambience_list", ImVec2(170, 0), ImGuiChildFlags_Borders);
+    if (ImGui::Button("+ New preset", ImVec2(-1, 0))) {
+        int counter = 0;
+        std::string name;
+        for (;;) {
+            name = "ambience-" + std::to_string(++counter);
+            bool taken = false;
+            for (const auto& a : project_.ambiencePresets) taken |= (a.name == name);
+            if (!taken) break;
+        }
+        AmbiencePreset a;
+        a.name = name;
+        project_.ambiencePresets.push_back(std::move(a));
+        selectedAmbience_ = (int)project_.ambiencePresets.size() - 1;
+        changed = true;
+    }
+    ImGui::Separator();
+    for (int i = 0; i < (int)project_.ambiencePresets.size(); ++i) {
+        ImGui::PushID(i);
+        std::string tag = project_.ambiencePresets[i].name;
+        if (project_.defaultAmbience == i) tag += "  [default]";
+        if (ImGui::Selectable(tag.c_str(), selectedAmbience_ == i))
+            selectedAmbience_ = i;
+        ImGui::PopID();
+    }
+    if (project_.ambiencePresets.empty())
+        ImGui::TextDisabled("No presets yet.\nA preset bundles the\n"
+                            "sky, lighting and fog\ninto one reusable mood.");
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    // --- right: selected preset editor -------------------------------------
+    ImGui::BeginChild("##ambience_edit", ImVec2(0, 0));
+    if (selectedAmbience_ < 0 ||
+        selectedAmbience_ >= (int)project_.ambiencePresets.size()) {
+        ImGui::TextDisabled("Select a preset on the left (or create one).");
+        ImGui::TextDisabled("\nUse presets by:");
+        ImGui::BulletText("marking one \"Default at game start\"");
+        ImGui::BulletText("picking one per scene in Scene > Preferences");
+        ImGui::BulletText("the Set Ambience flow node (category \"Scene\")");
+        ImGui::EndChild();
+        ImGui::End();
+        return;
+    }
+    AmbiencePreset& a = project_.ambiencePresets[selectedAmbience_];
+
+    char nameBuf[64];
+    std::snprintf(nameBuf, sizeof(nameBuf), "%s", a.name.c_str());
+    ImGui::SetNextItemWidth(180.0f);
+    if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
+        // keep scene references and Set Ambience flow nodes pointing here
+        for (SceneData& sc : project_.scenes) {
+            if (sc.ambiencePreset == a.name) sc.ambiencePreset = nameBuf;
+            for (SceneObject& o : sc.objects)
+                for (FlowNode& fn : o.flowGraph.nodes) {
+                    const FlowNodeType* ft = flowNodeType(fn.type);
+                    if (ft && ft->strKind == FlowParamKind::AmbienceName &&
+                        fn.str == a.name)
+                        fn.str = nameBuf;
+                }
+        }
+        a.name = nameBuf;
+    }
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Duplicate")) {
+        AmbiencePreset copy = a;
+        std::string base = copy.name;
+        for (int n = 2;; ++n) {
+            copy.name = base + "-" + std::to_string(n);
+            bool taken = false;
+            for (const auto& other : project_.ambiencePresets)
+                taken |= (other.name == copy.name);
+            if (!taken) break;
+        }
+        project_.ambiencePresets.push_back(std::move(copy));
+        selectedAmbience_ = (int)project_.ambiencePresets.size() - 1;
+        changed = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Delete")) {
+        const std::string gone = a.name;
+        for (SceneData& sc : project_.scenes) {
+            if (sc.ambiencePreset == gone) sc.ambiencePreset.clear();
+            for (SceneObject& o : sc.objects)
+                for (FlowNode& fn : o.flowGraph.nodes) {
+                    const FlowNodeType* ft = flowNodeType(fn.type);
+                    if (ft && ft->strKind == FlowParamKind::AmbienceName &&
+                        fn.str == gone)
+                        fn.str.clear();
+                }
+        }
+        if (project_.defaultAmbience == selectedAmbience_)
+            project_.defaultAmbience = -1;
+        else if (project_.defaultAmbience > selectedAmbience_)
+            --project_.defaultAmbience;
+        project_.ambiencePresets.erase(project_.ambiencePresets.begin() +
+                                       selectedAmbience_);
+        selectedAmbience_ = -1;
+        commitChange();
+        ImGui::EndChild();
+        ImGui::End();
+        return;
+    }
+
+    bool isDefault = project_.defaultAmbience == selectedAmbience_;
+    if (ImGui::Checkbox("Default at game start", &isDefault)) {
+        project_.defaultAmbience = isDefault ? selectedAmbience_ : -1;
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Scenes that don't pick a preset use this one.");
+    ImGui::SameLine(0.0f, 24.0f);
+    ImGui::Checkbox("Preview in viewport", &ambiencePreview_);
+
+    ImGui::SeparatorText("Sky");
+    ImGui::ColorEdit3("Sky horizon color", a.skyColor);
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::ColorEdit3("Sky zenith color", a.skyTopColor);
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::Checkbox("Gradient sky dome", &a.skyDome);
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::BeginDisabled(!a.skyDome);
+    ImGui::SliderFloat("Zenith size", &a.zenithSize, 0.05f, 0.95f, "%.2f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("How much of the sky the zenith color fills.\n"
+                          "0.5 = linear; higher spreads the zenith color down\n"
+                          "toward the horizon, lower keeps it near the top.");
+    ImGui::EndDisabled();
+
+    ImGui::SeparatorText("Lighting");
+    ImGui::TextDisabled("Baked into vertex colors at build (per scene). The Set "
+                        "Ambience flow node repaints only the sky.");
+    ImGui::DragFloat3("Light direction", a.lightDir, 0.02f, -1.0f, 1.0f, "%.2f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::ColorEdit3("Light color", a.lightColor);
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Brightness", &a.brightness, 0.0f, 2.0f, "%.2f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Ambient", &a.ambient, 0.0f, 1.0f, "%.2f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Diffuse", &a.diffuse, 0.0f, 1.0f, "%.2f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+
+    ImGui::SeparatorText("Distance fog");
+    ImGui::Checkbox("Fog enabled", &a.fogEnabled);
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    if (a.fogEnabled) {
+        ImGui::ColorEdit3("Fog color", a.fogColor);
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat("Fog start", &a.fogStart, 0.5f, 0.0f, 1000.0f, "%.1f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat("Fog end", &a.fogEnd, 0.5f, 0.0f, 1000.0f, "%.1f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (a.fogEnd <= a.fogStart + 1.0f) a.fogEnd = a.fogStart + 1.0f;
+    }
 
     ImGui::EndChild();
     ImGui::End();
@@ -6740,8 +7194,17 @@ void App::performAssetDelete(const PendingAssetDelete& d) {
         case PendingAssetDelete::Hud: {
             // Drop the list entry first; delete the file only if no other HUD
             // entry still references it (imports can duplicate a path).
-            if (d.hudIndex >= 0 && d.hudIndex < (int)project_.hud.size())
+            if (d.hudIndex >= 0 && d.hudIndex < (int)project_.hud.size()) {
                 project_.hud.erase(project_.hud.begin() + d.hudIndex);
+                // Keep the effect layers where they were in the stack: entries
+                // above the erased one shift down by one.
+                auto fixLayer = [&](int& L) {
+                    if (L > d.hudIndex) --L;
+                    if (L >= (int)project_.hud.size()) L = -1;
+                };
+                fixLayer(project_.hudBloomLayer);
+                fixLayer(project_.hudGrainLayer);
+            }
             selectedHud_ = -1;
             bool stillUsed = false;
             for (const HudImage& h : project_.hud)
@@ -7380,7 +7843,7 @@ void App::applyProjectToViewport() {
     viewport_.setTerrainMaterial(tm.texture, tm.kd, tm.present, tm.tile);
     viewport_.setTerrain(sc.terrain, project_.settings.terrainDetail, sc.heights, sc.hmW,
                          sc.hmD);
-    viewport_.setSky(rs.skyColor, rs.skyTopColor, rs.skyDome);
+    viewport_.setSky(rs.skyColor, rs.skyTopColor, rs.skyDome, rs.zenithSize);
     viewport_.setUsableHighlight(rs.highlightUsable, rs.highlightColor);
     viewport_.setLighting(rs.lightDir, rs.ambient, rs.diffuse, rs.lightColor, rs.brightness);
     viewport_.setFog(rs.fogEnabled, rs.fogColor, rs.fogStart, rs.fogEnd);
@@ -7553,33 +8016,19 @@ void App::drawPreferencesModal() {
     ImGui::TextDisabled("The material's color tints the terrain; its texture (map_Kd),\n"
                         "if any, tiles across it - set the tiling on the material's\n"
                         "texture in the Material Editor. Import .mtl in the Assets section.");
-    ImGui::ColorEdit3("Sky horizon color", prefSettings_.skyColor);
-    ImGui::ColorEdit3("Sky zenith color", prefSettings_.skyTopColor);
-    ImGui::Checkbox("Gradient sky dome", &prefSettings_.skyDome);
 
     ImGui::SeparatorText("Post effects");
-    ImGui::SliderFloat("Bloom", &prefSettings_.bloom, 0.0f, 1.0f, "%.2f");
-    ImGui::SliderFloat("Film grain", &prefSettings_.grain, 0.0f, 1.0f, "%.2f");
     ImGui::TextDisabled(
-        "GS framebuffer tricks, applied in-game at the end of every frame.\n"
-        "Bloom: quarter-res blur re-added over the frame (soft glow).\n"
-        "Film grain: animated noise overlay. Subtle values work best.");
+        "Bloom and film grain moved to Tools > UI Editor, where their\n"
+        "on-screen layer is also set (e.g. bloom under the HUD, so it\n"
+        "does not blur the crosshair or text).");
 
-    ImGui::SeparatorText("Distance fog");
-    ImGui::Checkbox("Enable fog", &prefSettings_.fogEnabled);
-    if (prefSettings_.fogEnabled) {
-        ImGui::ColorEdit3("Fog color", prefSettings_.fogColor);
-        ImGui::DragFloat("Fog start (units)", &prefSettings_.fogStart, 0.5f, 0.0f,
-                         1000.0f, "%.1f");
-        ImGui::DragFloat("Fog end (units)", &prefSettings_.fogEnd, 0.5f, 1.0f,
-                         2000.0f, "%.1f");
-        if (prefSettings_.fogEnd <= prefSettings_.fogStart + 1.0f)
-            prefSettings_.fogEnd = prefSettings_.fogStart + 1.0f;
-    }
+    ImGui::SeparatorText("Ambience (sky, lighting, fog)");
     ImGui::TextDisabled(
-        "PS2 GS hardware fog: geometry fades to the fog color with distance\n"
-        "(free on the GS). Match the fog color with the sky color for an\n"
-        "atmospheric fade-out that hides the draw distance.");
+        "Sky gradient, baked lighting and distance fog now live in presets.\n"
+        "Author them in Tools > Ambience Editor; each scene picks a preset in\n"
+        "Scene > Preferences (or uses the default).");
+    if (ImGui::Button("Open Ambience Editor")) showAmbienceEditor_ = true;
 
     ImGui::SeparatorText("Scenes");
     ImGui::Checkbox("Loading screen between scenes", &prefSettings_.loadingScreen);
@@ -7602,13 +8051,6 @@ void App::drawPreferencesModal() {
     ImGui::TextDisabled(
         "In-game outline around objects marked 'Usable' while the player is\n"
         "within the proximity distance. The viewport marks them with a wire box.");
-
-    ImGui::SeparatorText("Lighting");
-    ImGui::DragFloat3("Light direction", prefSettings_.lightDir, 0.02f, -1.0f, 1.0f, "%.2f");
-    ImGui::ColorEdit3("Light color", prefSettings_.lightColor);
-    ImGui::SliderFloat("Brightness", &prefSettings_.brightness, 0.0f, 2.0f, "%.2f");
-    ImGui::SliderFloat("Ambient", &prefSettings_.ambient, 0.0f, 1.0f, "%.2f");
-    ImGui::SliderFloat("Diffuse", &prefSettings_.diffuse, 0.0f, 1.0f, "%.2f");
 
     if (prefTemplate_ == 1) {
         ImGui::SeparatorText("FPP camera");
@@ -7763,6 +8205,7 @@ void App::openScenePreferences() {
     // ticking its override starts editing from that value with no jump.
     scenePrefSettings_ = project::resolvedSettings(project_, project_.active());
     scenePrefOverrides_ = project_.active().overrides;
+    scenePrefAmbience_ = project_.active().ambiencePreset;
     openScenePrefsPopup_ = true;
 }
 
@@ -7804,19 +8247,34 @@ void App::drawScenePreferencesModal() {
         ImGui::PopID();
     };
 
-    category("Lighting", ov.lighting, [&] {
-        ImGui::DragFloat3("Light direction", s.lightDir, 0.02f, -1.0f, 1.0f, "%.2f");
-        ImGui::ColorEdit3("Light color", s.lightColor);
-        ImGui::SliderFloat("Brightness", &s.brightness, 0.0f, 2.0f, "%.2f");
-        ImGui::SliderFloat("Ambient", &s.ambient, 0.0f, 1.0f, "%.2f");
-        ImGui::SliderFloat("Diffuse", &s.diffuse, 0.0f, 1.0f, "%.2f");
-    });
-
-    category("Sky", ov.sky, [&] {
-        ImGui::ColorEdit3("Sky horizon color", s.skyColor);
-        ImGui::ColorEdit3("Sky zenith color", s.skyTopColor);
-        ImGui::Checkbox("Gradient sky dome", &s.skyDome);
-    });
+    // Ambience (sky + lighting + fog) comes from a preset, not per-scene
+    // overrides. Empty = the project default preset.
+    ImGui::SeparatorText("Ambience (sky, lighting, fog)");
+    {
+        const char* cur = scenePrefAmbience_.empty()
+                              ? (project_.defaultAmbience >= 0 ? "<default>" : "<none>")
+                              : scenePrefAmbience_.c_str();
+        if (ImGui::BeginCombo("Preset", cur)) {
+            const char* dflt = project_.defaultAmbience >= 0 &&
+                                       project_.defaultAmbience <
+                                           (int)project_.ambiencePresets.size()
+                                   ? project_.ambiencePresets[project_.defaultAmbience]
+                                         .name.c_str()
+                                   : nullptr;
+            std::string dfltLabel =
+                dflt ? std::string("<default> (") + dflt + ")" : "<default>";
+            if (ImGui::Selectable(dfltLabel.c_str(), scenePrefAmbience_.empty()))
+                scenePrefAmbience_.clear();
+            for (const AmbiencePreset& ap : project_.ambiencePresets)
+                if (ImGui::Selectable(ap.name.c_str(), ap.name == scenePrefAmbience_))
+                    scenePrefAmbience_ = ap.name;
+            ImGui::EndCombo();
+        }
+        if (project_.ambiencePresets.empty())
+            ImGui::TextDisabled("Add presets in Tools > Ambience Editor.");
+        else
+            ImGui::TextDisabled("Author presets in Tools > Ambience Editor.");
+    }
 
     category("Clipping", ov.clipping, [&] {
         int clipMode = s.clipping == "fast" ? 1 : 0;
@@ -7836,14 +8294,6 @@ void App::drawScenePreferencesModal() {
         ImGui::SliderFloat("Film grain", &s.grain, 0.0f, 1.0f, "%.2f");
     });
 
-    category("Distance fog", ov.fog, [&] {
-        ImGui::Checkbox("Enable fog", &s.fogEnabled);
-        ImGui::ColorEdit3("Fog color", s.fogColor);
-        ImGui::DragFloat("Fog start (units)", &s.fogStart, 0.5f, 0.0f, 1000.0f, "%.1f");
-        ImGui::DragFloat("Fog end (units)", &s.fogEnd, 0.5f, 1.0f, 2000.0f, "%.1f");
-        if (s.fogEnd <= s.fogStart + 1.0f) s.fogEnd = s.fogStart + 1.0f;
-    });
-
     category("Usable objects", ov.highlight, [&] {
         ImGui::Checkbox("Highlight usable objects", &s.highlightUsable);
         ImGui::DragFloat("Proximity (units)", &s.highlightDistance, 0.1f, 0.5f, 1000.0f, "%.1f");
@@ -7857,6 +8307,7 @@ void App::drawScenePreferencesModal() {
         SceneData& sc = project_.scenes[scenePrefScene_];
         sc.settings = scenePrefSettings_;
         sc.overrides = scenePrefOverrides_;
+        sc.ambiencePreset = scenePrefAmbience_;
         applyProjectToViewport();
         commitChange();
         ImGui::CloseCurrentPopup();

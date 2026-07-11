@@ -9,6 +9,123 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (68) **Ambience Editor + Properties docked right + sky dome preview** — three
+  related changes. **(a) Docking default:** the first-run DockBuilder layout now
+  puts **Properties in a docked column on the right** (Project left, Viewport
+  center, Output/Debug bottom) instead of under Project on the left; the
+  pre-Properties migration path docks it on the right too. Existing projects
+  keep their saved layout. **(b) Sky gradient preview:** the editor viewport
+  sky was a flat screen-space quad that ignored the camera. It is now a
+  world-space **hemisphere dome** centered on the camera (mirrors the PS2
+  `buildSkyDome`): horizon→zenith colors interpolate by elevation over the 90°
+  up-arc, so the full 180° horizon-through-zenith sweep reads as one coherent
+  dome that tracks camera pitch (clear color still fills below the horizon).
+  The generated game dome was already elevation-linear, so its formula is
+  unchanged except for a new **Zenith size** control (`ProjectSettings::
+  zenithSize` / `AmbiencePreset::zenithSize`, 0.05..0.95, default 0.5 = linear):
+  both the preview dome and the generated dome remap the elevation fraction by
+  `pow(t, (1-size)/size)`, so a larger value spreads the zenith color down
+  toward the horizon (bigger zenith cap) and a smaller one keeps it near the
+  top. Codegen bakes it as the precomputed exponent `SKY_ZENITH_EXPS` per
+  scene. **(c) Ambience Editor** (Tools > Ambience
+  Editor): a new project-wide collection of **AmbiencePreset** bundles (sky
+  gradient + baked lighting + distance fog), one markable default — mirrors the
+  Color Grading preset system end-to-end. The sky/lighting/fog controls moved
+  **out of the crowded Project Preferences** (global + per-scene override
+  categories) into this editor; per-scene Preferences now picks a preset
+  (empty = default), and the new **Set Ambience** flow node (Scene category)
+  repaints the sky from a named preset at runtime (lighting/fog are baked per
+  scene at build, so only the sky changes live — like Set Sky Color).
+  `project::resolvedSettings` overlays the resolved preset's sky/lighting/fog on
+  top of the scene, so all downstream codegen/viewport keeps reading the same
+  `ProjectSettings` fields unchanged. New projects seed a "Default" preset;
+  loading a pre-Ambience project migrates its global + per-scene sky/lighting/fog
+  into presets (a Default plus one per overriding scene) so the look is
+  preserved. Verified: editor builds clean; a scratch project round-trips the
+  presets + per-scene `ambiencePreset` through save/load; a scene pointed at a
+  dark "night" preset bakes the expected `SKY_RS`/`SCENE_AMBIENTS` (5.1F / 0.2F)
+  into `scene_data.hpp`; a `Set Ambience` node compiles to
+  `ctx.skyColor = Tyra::Color(5.1F, 5.1F, 20.4F)`; GUI screenshots confirm
+  Properties on the right, the sky dome gradient, and the Ambience Editor window
+  (preset list + sky/light/fog controls). Not yet booted in PCSX2 — the runtime
+  Set Ambience sky repaint still wants a hands-on in-game check.
+
+- (67) **HUD images baked to a PS2-valid texture at build (size + bit depth)**
+  — the engine hard-asserts textures must be 8/16/32/64/128/256/512 in each
+  dimension (`texture.cpp`), and it only fires when the game boots, so a HUD
+  PNG imported at, say, 100x40 crashed at runtime with no editor-side warning.
+  Now HUD images referenced by the project are resized into `.res-baked/hud`
+  (the mirror the game actually ships) to a valid power-of-two, so a mis-sized
+  import just works. Per-image controls in Tools > UI Editor, mirroring the
+  per-asset material texture quality: Width / Height combos (Auto = nearest
+  valid size, or a chosen one) and a Colors combo `Project default / Full
+  color / 256 / 16`. The Colors default *follows* Preferences > Textures (so
+  the HUD quantizes along with the rest of the project to save VRAM), and any
+  element can be overridden - e.g. a crosshair or logo kept full color while
+  the rest is 4-bit, or vice versa. Live readout of the source size (orange
+  warning when it is not a PS2 size) and the resulting baked size + effective
+  depth ("(from project)" when inherited). The on-screen sprite size is
+  unchanged — the sprite is stretched, so resizing the texture never changes
+  how the HUD looks, only its stored resolution/quality. Model:
+  `HudImage::texW` / `texH` (0 = auto) + `texQuant` ("" = follow the project
+  `ProjectSettings::textureQuant`, "none" = full-color override, "8bit" /
+  "4bit"), serialized in the `hud` array, defaulted for older projects.
+  `pngquant` gained `resizeRGBA` (bilinear), `writePngRGBA` (full color via
+  stb_image_write), and a buffer-based `quantizeRGBA` (the old file-path
+  `quantize` now loads then calls it); `texbake` resolves each HUD entry's
+  depth (falling back to the project default) then resizes+quantizes the PNG
+  (built-in HUD assets like use.png/loading.png/save-*.png are not project
+  entries, so they copy verbatim). Verified: clean editor build; a scratch
+  project (project default 4-bit) with a 100x40 PNG (auto size, follow
+  project) and a 130x50 PNG (auto, explicit 4-bit) — pre-fix both would
+  assert. After `--build`, `.res-baked` shows: badhud 128x32 4-bit and
+  crosshair 32x32 4-bit (both inheriting the project default), ammo2 128x64
+  4-bit (explicit), and vignette 64x64 full RGBA (a "none" override proving an
+  element can keep more color than the project). PCSX2 boot (`-elf`) reached
+  "is executing" with no assertion; an F8 snap shows the images rendering
+  (gradient resized, boxes palettized). UI checked by scripted clicks: the
+  bake section renders, and the mis-sized image shows "Source 100x40 is not a
+  PS2 size" + "Baked: 128x32".
+
+- (66) **UI Editor tool: HUD + full-screen effects as a reorderable screen
+  stack, bloom and grain as independent layers** — HUD image configuration
+  moved out of the Project panel and the bloom/grain sliders out of Project >
+  Preferences into a new Tools > UI Editor window. It shows the whole 2D
+  composition as a "screen stack" (top entry draws last): every HUD image plus
+  two effect layers — `[ Bloom + color grading ]` and `[ Film grain ]` —
+  drag-to-reorder. The point: each effect can sit *under* the HUD (so it does
+  not smear the crosshair/text) or *over* it, independently. Canonical split:
+  bloom under the HUD, film grain at the very top as a filmic overlay over the
+  whole screen. Model: `Project::hudBloomLayer` + `hudGrainLayer` (grading
+  rides with bloom). `-1` = the pass applies at end of frame over everything
+  incl. menus (the old behavior and the load default); `k` = applies before
+  HUD sprite `k`, sprites above draw crisp. Serialized as `"hudBloomLayer"` /
+  `"hudGrainLayer"` next to `"hud"`; the pre-split `"hudPostFxLayer"` key
+  migrates to both; HUD deletion re-indexes both. Engine (vendor/tyra):
+  `RendererCorePostFx::apply(int passes)` gained a `Pass` bitmask
+  (`PassBloom | PassGrading | PassGrain`) so a subset composites per call;
+  `RendererCore::applyPostFx(passes)` applies only the not-yet-applied passes,
+  runs the PATH1 drain barrier once (before the first pass that actually
+  draws), and `endFrame()` composites whatever is left. Codegen:
+  `hud_data.gen.hpp` gains `HUD_BLOOM_LAYER` / `HUD_GRAIN_LAYER`; both game
+  templates run the HUD loop applying `PassBloom|PassGrading` at the bloom slot
+  and `PassGrain` at the grain slot. Scene Preferences per-scene bloom/grain
+  strength overrides are untouched (the layer positions are project-wide, like
+  the HUD). The viewport HUD overlay also shows while the UI Editor is open,
+  with the selected image outlined. Verified: clean editor build; scratch
+  project round-trip (`hudBloomLayer`/`hudGrainLayer` save/load + clamp +
+  legacy migration); codegen inspected (`HUD_BLOOM_LAYER = 1`,
+  `HUD_GRAIN_LAYER = -1`); GUI exercised by scripted clicks (window opens,
+  stack lists the images + both effect rows, selecting each shows its slider,
+  dragging saves the layer); full Docker build OK (engine + game relinked);
+  PCSX2 boot (`-elf`, emulog "is executing") with bloom 0.9 + grain 0.4.
+  Quantified the split from F8 snaps (PIL mean |dx| grain proxy): with grain
+  under the HUD the ammo-box UI element scored 0.97 (clean) vs 2.85 on the
+  sky; moving grain to the top layer took the ammo box to 3.06 — grain now
+  overlays the UI to the same level as the scene — while bloom stayed under
+  the HUD (crosshair/ammo render sharp, not glowing). No mid-frame barrier
+  hang across either config.
+
 - (65) **Copy/paste flow-graph nodes with Ctrl+C/V** — before this, Ctrl+C/V in
   the Flow Graph window always hit the global handler and copied the *scene
   objects* selected in the viewport, so there was no way to duplicate graph
