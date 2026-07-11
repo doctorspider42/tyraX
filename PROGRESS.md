@@ -9,6 +9,41 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (66) **Layer auto-streaming (zone pivot + radius) + per-layer RAM readout** —
+  GTA-style zone streaming without wiring the flow graph. A layer can opt in
+  to **Auto stream** (Layers panel): it gets a zone center (world X/Z, with a
+  "Center on sel." button) and a radius; the game loads the layer while the
+  player is inside the zone and unloads it once they leave radius + a
+  hysteresis band (15% + 8 units, so pacing along the border doesn't thrash).
+  Data model: `SceneLayer.autoStream/streamX/streamZ/streamRadius` (+
+  `operator==` — undo — and JSON keys omitted when off, older files load
+  unchanged). Codegen: `SCENE_LAYER_STREAM_XS/ZS/RADII[SCENE_COUNT][
+  SCENE_MAX_LAYERS]` tables + accessor macros (radius 0 = script-driven
+  layer). Runtime: requests are **edge-triggered** through the same
+  `layerRequest` channel the Load/Unload Layer nodes use - a boundary
+  crossing queues one request, so scripts can still override a zone until
+  the next crossing; initial residency of auto layers comes from the spawn
+  point's distance (Player entity, else the type-4 spawn marker), NOT
+  `startLoaded` (the checkbox is disabled in the UI for auto layers). Focus
+  = `cameraLookAt` (the player in FPP, terrain center in orbit).
+  **Per-layer RAM readout**: each layer row shows `N | X.X MB` - the unique
+  model/material/texture files its objects reference (materials parsed for
+  map_Kd, .obj submeshes for their textures), summed by file size; plus an
+  "Always resident (no layer)" line for the unassigned group. An estimate by
+  design (PNGs decode/quantize to different sizes, shared assets count in
+  every layer using them); cached per layer name, invalidated by
+  `commitChange()`. **Verified e2e in PCSX2 (software renderer)**: a scratch
+  scene with an auto zone (r=45 at origin, `startLoaded=true` on purpose) and
+  the player spawning 100 units away, facing the zone - at boot the zone's
+  towers do NOT exist (spawn-distance init beats startLoaded); an
+  EverySeconds(6) -> Spawn Player At flow graph then teleports the player
+  into the zone and the layer streams in (the zone's towers near the old
+  spawn appear in the post-teleport screenshot; the layer also carries a
+  .glb spider, exercising the asset-streaming path). Codegen inspected
+  (tables + compiled teleport graph); clean editor build; Layers panel
+  renders on the scratch project. Walking across a zone border with a pad
+  (instead of teleporting) still wants a hands-on pass.
+
 - (65) **Copy/paste flow-graph nodes with Ctrl+C/V** — before this, Ctrl+C/V in
   the Flow Graph window always hit the global handler and copied the *scene
   objects* selected in the viewport, so there was no way to duplicate graph

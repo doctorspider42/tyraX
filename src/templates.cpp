@@ -492,6 +492,7 @@ class TerrainGame : public Tyra::Game {
   std::vector<unsigned char> layerState;   // 0 unloaded, 1 loading, 2 loaded
   std::vector<unsigned char> layerTarget;  // desired residency per layer
   std::vector<signed char> layerRequest;   // script requests (-1 = none)
+  std::vector<unsigned char> layerAutoInside;  // auto zones: focus inside?
   std::vector<int> streamQueue;            // (kind << 16) | asset index
   std::vector<Tyra::Vec4> terrainSts;
   Tyra::StaPipTextureBag terrainTexBag;
@@ -775,6 +776,7 @@ class TerrainGame : public Tyra::Game {
   std::vector<unsigned char> layerState;   // 0 unloaded, 1 loading, 2 loaded
   std::vector<unsigned char> layerTarget;  // desired residency per layer
   std::vector<signed char> layerRequest;   // script requests (-1 = none)
+  std::vector<unsigned char> layerAutoInside;  // auto zones: focus inside?
   std::vector<int> streamQueue;            // (kind << 16) | asset index
   std::vector<Tyra::Vec4> terrainSts;
   Tyra::StaPipTextureBag terrainTexBag;
@@ -1923,6 +1925,32 @@ void TerrainGame::updateLayerStreaming() {
   const int lc = (int)layerTarget.size();
   if (lc == 0) return;
 
+  // Auto-streamed layers (Layers panel > Auto stream): crossing a zone
+  // boundary queues the same request a Load/Unload Layer node would, so
+  // scripts can still override a zone until the next crossing. The unload
+  // edge sits a hysteresis band beyond the radius - pacing along the border
+  // doesn't thrash. Focus = cameraLookAt (the player in FPP, the terrain
+  // center for orbit showcases).
+  if ((int)layerAutoInside.size() == lc) {
+    const float px = cameraLookAt.x;
+    const float pz = cameraLookAt.z;
+    for (int l = 0; l < lc; ++l) {
+      const float r = SCENE_LAYER_STREAM_R[l];
+      if (r <= 0.0F) continue;
+      const float dx = px - SCENE_LAYER_STREAM_X[l];
+      const float dz = pz - SCENE_LAYER_STREAM_Z[l];
+      const float d2 = dx * dx + dz * dz;
+      const float rOut = r * 1.15F + 8.0F;
+      if (!layerAutoInside[l] && d2 < r * r) {
+        layerAutoInside[l] = 1;
+        layerRequest[l] = 1;
+      } else if (layerAutoInside[l] && d2 > rOut * rOut) {
+        layerAutoInside[l] = 0;
+        layerRequest[l] = 0;
+      }
+    }
+  }
+
   bool changed = false;
   for (int l = 0; l < lc; ++l) {
     const signed char req = layerRequest[l];
@@ -2477,7 +2505,33 @@ void TerrainGame::loadScene(int sceneIndex) {
     layerTarget.assign(lc > 0 ? lc : 0, 0);
     layerState.assign(lc > 0 ? lc : 0, 0);
     layerRequest.assign(lc > 0 ? lc : 0, -1);
-    for (int l = 0; l < lc; ++l) layerTarget[l] = SCENE_LAYER_START[l] ? 1 : 0;
+    layerAutoInside.assign(lc > 0 ? lc : 0, 0);
+    // Auto-streamed layers start resident only when the spawn point is
+    // inside their zone; everything else follows the authored Start loaded.
+    float spawnX = 0.0F, spawnZ = 0.0F;
+    if (PLAYER_INDEX >= 0) {
+      spawnX = SCENE_OBJECTS[PLAYER_INDEX].position[0];
+      spawnZ = SCENE_OBJECTS[PLAYER_INDEX].position[2];
+    } else {
+      for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+        if (SCENE_OBJECTS[i].type == 4) {  // spawn point (built-in FPP)
+          spawnX = SCENE_OBJECTS[i].position[0];
+          spawnZ = SCENE_OBJECTS[i].position[2];
+          break;
+        }
+    }
+    for (int l = 0; l < lc; ++l) {
+      const float r = SCENE_LAYER_STREAM_R[l];
+      if (r > 0.0F) {
+        const float dx = spawnX - SCENE_LAYER_STREAM_X[l];
+        const float dz = spawnZ - SCENE_LAYER_STREAM_Z[l];
+        const bool inside = dx * dx + dz * dz < r * r;
+        layerTarget[l] = inside ? 1 : 0;
+        layerAutoInside[l] = inside ? 1 : 0;
+      } else {
+        layerTarget[l] = SCENE_LAYER_START[l] ? 1 : 0;
+      }
+    }
     applyLayerResidency();
     while (!streamQueue.empty()) processOneStreamJob();
     for (int l = 0; l < lc; ++l) layerState[l] = layerTarget[l] ? 2 : 0;
@@ -5164,7 +5218,34 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         }
         out << "}";
     }
-    out << "};\n\n";
+    out << "};\n";
+
+    // Auto-streamed layers: zone center + radius per layer; radius 0 = the
+    // layer is script-driven only. The game loads an auto layer while the
+    // player is inside the zone and unloads it past radius + hysteresis
+    // (edge-triggered - Load/Unload Layer nodes can still override until
+    // the next boundary crossing).
+    auto layerFloatTable = [&](const char* name, auto get) {
+        out << "constexpr float " << name << "[SCENE_COUNT][SCENE_MAX_LAYERS] = {";
+        for (int si = 0; si < sceneCount; ++si) {
+            out << (si ? ", {" : "{");
+            for (int li = 0; li < maxLayers; ++li) {
+                const auto& layers = p.scenes[si].layers;
+                out << (li ? ", " : "")
+                    << floatLit(li < (int)layers.size() ? get(layers[li]) : 0.0f);
+            }
+            out << "}";
+        }
+        out << "};\n";
+    };
+    layerFloatTable("SCENE_LAYER_STREAM_XS",
+                    [](const SceneLayer& l) { return l.streamX; });
+    layerFloatTable("SCENE_LAYER_STREAM_ZS",
+                    [](const SceneLayer& l) { return l.streamZ; });
+    layerFloatTable("SCENE_LAYER_STREAM_RADII", [](const SceneLayer& l) {
+        return l.autoStream ? l.streamRadius : 0.0f;
+    });
+    out << "\n";
 
     // Sound effect samples referenced by sound emitters (SceneObjectData.snd
     // indexes this list; res/sfx/x.wav -> sfx/x.adpcm next to the ELF)
@@ -5485,6 +5566,9 @@ inline int everyFrames(float seconds) {
 #define SCENE_OBJECTS SCENE_OBJECT_TABLES[g_activeScene]
 #define SCENE_LAYER_COUNT SCENE_LAYER_COUNTS[g_activeScene]
 #define SCENE_LAYER_START SCENE_LAYER_STARTS[g_activeScene]
+#define SCENE_LAYER_STREAM_X SCENE_LAYER_STREAM_XS[g_activeScene]
+#define SCENE_LAYER_STREAM_Z SCENE_LAYER_STREAM_ZS[g_activeScene]
+#define SCENE_LAYER_STREAM_R SCENE_LAYER_STREAM_RADII[g_activeScene]
 #define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
 #define PLAYER_MODE PLAYER_MODES[g_activeScene]
 #define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[g_activeScene]

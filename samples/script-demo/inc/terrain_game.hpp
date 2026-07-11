@@ -172,6 +172,7 @@ class TerrainGame : public Tyra::Game {
   std::vector<unsigned char> layerState;   // 0 unloaded, 1 loading, 2 loaded
   std::vector<unsigned char> layerTarget;  // desired residency per layer
   std::vector<signed char> layerRequest;   // script requests (-1 = none)
+  std::vector<unsigned char> layerAutoInside;  // auto zones: focus inside?
   std::vector<int> streamQueue;            // (kind << 16) | asset index
   std::vector<Tyra::Vec4> terrainSts;
   Tyra::StaPipTextureBag terrainTexBag;

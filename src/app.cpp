@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <set>
 #include <sstream>
 
 #include "gl_loader.h"
@@ -1337,6 +1338,7 @@ void App::saveAll(const char* status) {
 
 void App::commitChange() {
     history_.push({project_.scenes});
+    layerRamCache_.clear();  // objects/layers may have changed - re-estimate
     saveAll("Saved");
 }
 
@@ -1507,6 +1509,7 @@ void App::pasteObject() {
 void App::attachProject() {
     flowGraphObject_ = -1;
     flowPositionsApplied_ = false;
+    layerRamCache_.clear();
     history_.reset({project_.scenes});
     // The history file restores the undo stack when it is in sync with the
     // project file; otherwise we start fresh (and write a new one).
@@ -2475,6 +2478,72 @@ bool App::isObjectHiddenInEditor(const SceneObject& o) const {
     return false;
 }
 
+// Estimated RAM the layer's assets hold while resident: the unique files its
+// objects reference - models, material libraries and the textures those point
+// at - summed by file size under the project dir. An approximation on
+// purpose: PNGs decode/quantize to different sizes in RAM and an asset shared
+// between layers is counted in each layer that uses it, but it reliably
+// points at the heavy layer before the PS2's 32 MB does. Cached per layer
+// name until the next commitChange() (model/material parsing is not
+// per-frame material).
+double App::layerAssetMB(const std::string& layerName) {
+    namespace fs = std::filesystem;
+    if (auto it = layerRamCache_.find(layerName); it != layerRamCache_.end())
+        return it->second;
+
+    const SceneData& sc = project_.active();
+    auto layerExists = [&](const std::string& name) {
+        for (const SceneLayer& l : sc.layers)
+            if (l.name == name) return true;
+        return false;
+    };
+    std::set<std::string> files;  // project-relative or resolved paths
+    auto addFile = [&](const fs::path& p) {
+        std::error_code ec;
+        const fs::path canon = fs::weakly_canonical(p, ec);
+        files.insert((ec ? p : canon).string());
+    };
+    for (const SceneObject& o : sc.objects) {
+        // "" collects the always-resident group: unassigned or stale names
+        const bool match = layerName.empty()
+                               ? (o.layer.empty() || !layerExists(o.layer))
+                               : o.layer == layerName;
+        if (!match) continue;
+        const fs::path root = project_.dir;
+        if (!o.materialPath.empty()) {
+            const fs::path mtl = root / o.materialPath;
+            addFile(mtl);
+            std::vector<objparser::MtlMaterial> mats;
+            if (objparser::loadMtl(mtl.string(), mats))
+                for (const auto& m : mats)
+                    if (!m.texture.empty()) addFile(mtl.parent_path() / m.texture);
+        }
+        if (o.modelPath.empty()) continue;
+        const fs::path model = root / o.modelPath;
+        addFile(model);
+        // .glb bakes to a .tskl of a similar size; the textures it embeds are
+        // extracted next to it at import time and already live under res/,
+        // referenced by the baked materials - the file itself is the proxy.
+        if (model.extension() == ".obj" && o.materialPath.empty()) {
+            objparser::Model m;
+            if (objparser::load(model.string(), m)) {
+                for (const auto& sub : m.submeshes)
+                    if (!sub.texture.empty())
+                        addFile(model.parent_path() / sub.texture);
+            }
+        }
+    }
+    double bytes = 0;
+    for (const std::string& f : files) {
+        std::error_code ec;
+        const auto sz = fs::file_size(f, ec);
+        if (!ec) bytes += (double)sz;
+    }
+    const double mb = bytes / (1024.0 * 1024.0);
+    layerRamCache_[layerName] = mb;
+    return mb;
+}
+
 // Streaming layers of the ACTIVE scene: named object groups the game can
 // evict from / pull into memory at runtime (Load/Unload Layer flow nodes).
 // The eye checkbox hides a layer in the editor only; "start" marks it
@@ -2566,24 +2635,78 @@ void App::drawLayersSection() {
 
         ImGui::SameLine();
         bool start = l.startLoaded;
+        ImGui::BeginDisabled(l.autoStream);  // auto zones decide their own start
         if (ImGui::Checkbox("start", &start)) {
             l.startLoaded = start;
             committed = true;
         }
+        ImGui::EndDisabled();
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("In memory when the scene starts");
+            ImGui::SetTooltip(l.autoStream
+                                  ? "Auto-streamed: starts loaded only when the\n"
+                                    "spawn point is inside the zone"
+                                  : "In memory when the scene starts");
 
         ImGui::SameLine();
         int count = 0;
         for (const SceneObject& o : sc.objects)
             if (o.layer == l.name) ++count;
-        ImGui::TextDisabled("%d", count);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Objects on this layer");
+        ImGui::TextDisabled("%d | %.1f MB", count, layerAssetMB(l.name));
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Objects on this layer | estimated asset RAM while resident\n"
+                "(unique model/material/texture files, by file size - an\n"
+                "approximation; shared assets count in every layer using them)");
 
         ImGui::SameLine(ImGui::GetContentRegionMax().x - 22.0f);
         if (ImGui::SmallButton("x")) deleteIdx = i;
+
+        // Auto-streaming zone: load inside the radius, unload past it (the
+        // game adds a hysteresis band); Load/Unload Layer nodes can still
+        // override until the player next crosses the boundary.
+        bool autoStream = l.autoStream;
+        if (ImGui::Checkbox("auto-stream", &autoStream)) {
+            l.autoStream = autoStream;
+            committed = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Load this layer automatically while the player is within\n"
+                "the zone below, unload it when they leave - GTA-style zone\n"
+                "streaming, no flow graph needed.");
+        if (l.autoStream) {
+            ImGui::SameLine();
+            float center[2] = {l.streamX, l.streamZ};
+            ImGui::SetNextItemWidth(110.0f);
+            if (ImGui::DragFloat2("##zonexz", center, 0.5f, 0.0f, 0.0f, "%.0f")) {
+                l.streamX = center[0];
+                l.streamZ = center[1];
+            }
+            if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Zone center (world X, Z)");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(70.0f);
+            ImGui::DragFloat("##zoner", &l.streamRadius, 0.5f, 1.0f, 4096.0f,
+                             "r %.0f");
+            if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Zone radius (world units)");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Center on sel.") && selectedObject_ >= 0 &&
+                selectedObject_ < (int)sc.objects.size()) {
+                l.streamX = sc.objects[selectedObject_].position[0];
+                l.streamZ = sc.objects[selectedObject_].position[2];
+                committed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Move the zone center to the selected object");
+        }
         ImGui::PopID();
     }
+
+    // The unassigned group is the floor every scene pays regardless of
+    // streaming - show it so the budget math has all the numbers.
+    ImGui::TextDisabled("Always resident (no layer): %.1f MB + terrain",
+                        layerAssetMB(""));
 
     if (deleteIdx >= 0) {
         const std::string name = sc.layers[deleteIdx].name;

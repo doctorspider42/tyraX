@@ -1073,6 +1073,32 @@ void TerrainGame::updateLayerStreaming() {
   const int lc = (int)layerTarget.size();
   if (lc == 0) return;
 
+  // Auto-streamed layers (Layers panel > Auto stream): crossing a zone
+  // boundary queues the same request a Load/Unload Layer node would, so
+  // scripts can still override a zone until the next crossing. The unload
+  // edge sits a hysteresis band beyond the radius - pacing along the border
+  // doesn't thrash. Focus = cameraLookAt (the player in FPP, the terrain
+  // center for orbit showcases).
+  if ((int)layerAutoInside.size() == lc) {
+    const float px = cameraLookAt.x;
+    const float pz = cameraLookAt.z;
+    for (int l = 0; l < lc; ++l) {
+      const float r = SCENE_LAYER_STREAM_R[l];
+      if (r <= 0.0F) continue;
+      const float dx = px - SCENE_LAYER_STREAM_X[l];
+      const float dz = pz - SCENE_LAYER_STREAM_Z[l];
+      const float d2 = dx * dx + dz * dz;
+      const float rOut = r * 1.15F + 8.0F;
+      if (!layerAutoInside[l] && d2 < r * r) {
+        layerAutoInside[l] = 1;
+        layerRequest[l] = 1;
+      } else if (layerAutoInside[l] && d2 > rOut * rOut) {
+        layerAutoInside[l] = 0;
+        layerRequest[l] = 0;
+      }
+    }
+  }
+
   bool changed = false;
   for (int l = 0; l < lc; ++l) {
     const signed char req = layerRequest[l];
@@ -1627,7 +1653,33 @@ void TerrainGame::loadScene(int sceneIndex) {
     layerTarget.assign(lc > 0 ? lc : 0, 0);
     layerState.assign(lc > 0 ? lc : 0, 0);
     layerRequest.assign(lc > 0 ? lc : 0, -1);
-    for (int l = 0; l < lc; ++l) layerTarget[l] = SCENE_LAYER_START[l] ? 1 : 0;
+    layerAutoInside.assign(lc > 0 ? lc : 0, 0);
+    // Auto-streamed layers start resident only when the spawn point is
+    // inside their zone; everything else follows the authored Start loaded.
+    float spawnX = 0.0F, spawnZ = 0.0F;
+    if (PLAYER_INDEX >= 0) {
+      spawnX = SCENE_OBJECTS[PLAYER_INDEX].position[0];
+      spawnZ = SCENE_OBJECTS[PLAYER_INDEX].position[2];
+    } else {
+      for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+        if (SCENE_OBJECTS[i].type == 4) {  // spawn point (built-in FPP)
+          spawnX = SCENE_OBJECTS[i].position[0];
+          spawnZ = SCENE_OBJECTS[i].position[2];
+          break;
+        }
+    }
+    for (int l = 0; l < lc; ++l) {
+      const float r = SCENE_LAYER_STREAM_R[l];
+      if (r > 0.0F) {
+        const float dx = spawnX - SCENE_LAYER_STREAM_X[l];
+        const float dz = spawnZ - SCENE_LAYER_STREAM_Z[l];
+        const bool inside = dx * dx + dz * dz < r * r;
+        layerTarget[l] = inside ? 1 : 0;
+        layerAutoInside[l] = inside ? 1 : 0;
+      } else {
+        layerTarget[l] = SCENE_LAYER_START[l] ? 1 : 0;
+      }
+    }
     applyLayerResidency();
     while (!streamQueue.empty()) processOneStreamJob();
     for (int l = 0; l < lc; ++l) layerState[l] = layerTarget[l] ? 2 : 0;
@@ -2829,13 +2881,18 @@ void TerrainGame::generateTerrainGrid() {
     return s;
   };
 
-  // Untextured: two greens in a checker pattern. Textured: a neutral gray
-  // that modulates the texture 1:1 (PS2 modulation: 128 = 1.0).
+  // No material: two greens in a checker pattern. With a material, the Kd
+  // tint colors every cell uniformly - textured terrain modulates the map
+  // (PS2 modulation: 128 = 1.0, so Kd*128), flat terrain uses Kd*255.
   const bool textured = TERRAIN_TEXTURE >= 0;
-  const float baseA[3] = {textured ? 128.0F : 96.0F, textured ? 128.0F : 160.0F,
-                          textured ? 128.0F : 72.0F};
-  const float baseB[3] = {textured ? 128.0F : 74.0F, textured ? 128.0F : 128.0F,
-                          textured ? 128.0F : 56.0F};
+  const bool hasMat = TERRAIN_HAS_MATERIAL;
+  const float k = textured ? 128.0F : 255.0F;
+  const float baseA[3] = {hasMat ? TERRAIN_TINT_R * k : 96.0F,
+                          hasMat ? TERRAIN_TINT_G * k : 160.0F,
+                          hasMat ? TERRAIN_TINT_B * k : 72.0F};
+  const float baseB[3] = {hasMat ? TERRAIN_TINT_R * k : 74.0F,
+                          hasMat ? TERRAIN_TINT_G * k : 128.0F,
+                          hasMat ? TERRAIN_TINT_B * k : 56.0F};
 
   for (u32 z = 0; z < cellsZ; ++z) {
     for (u32 x = 0; x < cellsX; ++x) {
@@ -2854,7 +2911,7 @@ void TerrainGame::generateTerrainGrid() {
       };
       auto st = [&](float wx, float wz) {
         terrainSts.push_back(
-            Vec4(wx / TERRAIN_TEX_SCALE, wz / TERRAIN_TEX_SCALE, 1.0F, 0.0F));
+            Vec4(wx * TERRAIN_TILE_U, wz * TERRAIN_TILE_V, 1.0F, 0.0F));
       };
 
       vertices.push_back(Vec4(x0, h00, z0, 1.0F));

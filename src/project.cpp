@@ -285,8 +285,12 @@ static void writeLayersArray(std::ostream& json, const std::vector<SceneLayer>& 
     for (size_t i = 0; i < layers.size(); ++i) {
         json << (i ? ", " : "") << "{ \"name\": \"" << layers[i].name << "\""
              << (layers[i].startLoaded ? "" : ", \"startLoaded\": false")
-             << (layers[i].editorVisible ? "" : ", \"editorVisible\": false")
-             << " }";
+             << (layers[i].editorVisible ? "" : ", \"editorVisible\": false");
+        if (layers[i].autoStream)  // off = keys omitted (older files stay valid)
+            json << ", \"autoStream\": true, \"streamX\": " << fmtFloat(layers[i].streamX)
+                 << ", \"streamZ\": " << fmtFloat(layers[i].streamZ)
+                 << ", \"streamRadius\": " << fmtFloat(layers[i].streamRadius);
+        json << " }";
     }
     json << "]";
 }
@@ -299,6 +303,13 @@ static void readLayersArray(const json::Value& arr, std::vector<SceneLayer>& lay
         if (const auto* v = jl.find("name")) l.name = v->stringOr("");
         if (const auto* v = jl.find("startLoaded")) l.startLoaded = v->boolOr(true);
         if (const auto* v = jl.find("editorVisible")) l.editorVisible = v->boolOr(true);
+        if (const auto* v = jl.find("autoStream")) l.autoStream = v->boolOr(false);
+        if (const auto* v = jl.find("streamX")) l.streamX = (float)v->numberOr(0.0);
+        if (const auto* v = jl.find("streamZ")) l.streamZ = (float)v->numberOr(0.0);
+        if (const auto* v = jl.find("streamRadius")) {
+            l.streamRadius = (float)v->numberOr(60.0);
+            if (l.streamRadius < 1.0f) l.streamRadius = 1.0f;
+        }
         if (!l.name.empty()) layers.push_back(l);
     }
 }
