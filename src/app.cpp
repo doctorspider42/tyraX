@@ -2336,6 +2336,19 @@ void App::drawPropertiesWindow() {
                 "collision and logic still run. 0 = always drawn.");
     }
 
+    // Per-object override of the project LOD distances (animated models):
+    // a hero character keeps full quality far beyond the crowd default.
+    if (animatedModel) {
+        ImGui::DragFloat("LOD distance", &o.lodDistance, 0.5f, 0.0f, 2000.0f,
+                         o.lodDistance > 0.0f ? "%.0f units" : "project default");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (o.lodDistance > 0.0f)
+            ImGui::TextDisabled(
+                "Replaces the Preferences > Rendering LOD distances for this\n"
+                "object (animation and mesh LOD). Mesh LOD still needs the\n"
+                "project setting on - it controls whether LODs are baked.");
+    }
+
     if (o.type == PrimitiveType::Emitter) {
         ImGui::SeparatorText("Particle emitter");
         const char* kinds[] = {"Fire", "Smoke", "Fog", "Sparks", "Rain", "Custom"};

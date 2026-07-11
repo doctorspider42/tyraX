@@ -9,6 +9,24 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (50) **Per-object LOD distance override** — new `LOD distance` property
+  on animated-model objects (Properties panel, 0 = project default):
+  replaces BOTH project LOD distances (animation + mesh) for that object,
+  so crowds can LOD at the project's short default while a hero character
+  set to e.g. 100 stays full quality. Serialized as `"lodDistance"`
+  (omitted at 0), baked as a `SceneObjectData.lodDistance` column; the
+  animated pass computes per-instance effective distances from it. Mesh
+  LOD still requires the project preference on (that is what bakes the
+  chains); the runtime clamp makes a stray override harmless either way.
+  Docs table extended. Verified in PCSX2 with a one-shot LODMAP dump
+  (project mesh LOD 5, override 100 on the farthest spider): unmodified
+  spiders tier exactly by distance (<=5 full, 5-10 lod1, >10 lod2) while
+  the override object at distance 14.7 renders tier 0 (full mesh), 50 FPS.
+  Side find: booting PCSX2 directly on a bin/ that a "Run on PS2" deploy
+  left a `ps2link.run` marker in makes the game think it runs under
+  ps2link (file logging off) - the editor's own PCSX2 launch deletes the
+  marker, direct `pcsx2-qt -elf` launches must do it by hand.
+
 - (49) **Auto-generated mesh LOD for animated models (LOD tier 2)** — new
   Preferences > Rendering > `Mesh LOD distance` (0 = off): the build bakes
   decimated variants of every .tskl part (~50% and ~25% of the welded

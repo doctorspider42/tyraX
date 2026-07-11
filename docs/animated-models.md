@@ -146,10 +146,13 @@ budget - two are **per-project preferences**, one is **per object**:
 | **Draw distance** | Properties panel of the selected object | per object | Farther than this from the camera the object is not drawn at all. Collision, sounds, scripts and animation time keep running. `0` = always drawn. Works on static objects too. |
 | **Animation LOD distance** | Project > Preferences > **Rendering** | per project | Instances farther than this refresh their pose/skinning every 2nd frame, beyond twice the distance every 4th (staggered across objects). Playback time is unaffected - the pose catches up on the next refresh. `off` (0) = every instance skins every frame. |
 | **Mesh LOD distance** | Project > Preferences > **Rendering** | per project | The build bakes ~50% and ~25%-vertex variants of every animated model into the `.tskl` (quadric-error decimation; skin weights and uvs are preserved, never blended). Instances render the 50% mesh beyond the distance and the 25% one beyond twice the distance. `off` (0) = no LODs baked or kept in RAM. |
+| **LOD distance** (override) | Properties panel of the selected animated model | per object | Replaces **both** project LOD distances for this object - e.g. crowds LOD at the project's 10 units while the hero set to 100 stays full quality. `project default` (0) = use the preferences. Mesh LOD still requires the project setting to be on, since that is what bakes the LOD chains. |
 
-Both preferences live in the project file (`.tyra`), so every project tunes
-its own values; there are no per-scene overrides. Distances are world units
-from the camera to the object center, the same units as object positions.
+The two preferences live in the project file (`.tyra`), so every project
+tunes its own values; there are no per-scene overrides - per-object needs
+are covered by the **LOD distance** override above. Distances are world
+units from the camera to the object center, the same units as object
+positions.
 
 Tuning guidance:
 

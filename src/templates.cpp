@@ -1818,11 +1818,20 @@ void TerrainGame::updateAndRenderAnimObjects() {
     ObjectGeometry& g = objectGeometry[i];
     SkelInstance* inst = g.animInst.get();
 
+    // Per-object LOD override (Properties > LOD distance): replaces both
+    // project distances for this object - hero characters stay full
+    // quality far beyond the crowd default. 0 = project settings.
+    const float meshLodDist =
+        o.data.lodDistance > 0.0F ? o.data.lodDistance : MESH_LOD_DISTANCE;
+    const float animLodDist =
+        o.data.lodDistance > 0.0F ? o.data.lodDistance : ANIM_LOD_DISTANCE;
+
     // mesh LOD tier: which baked variant this instance renders (the .tskl
-    // clamps per part - a file without chains always renders the full mesh)
+    // clamps per part - a file without chains always renders the full mesh).
+    // Chains only exist when the project preference baked them.
     u8 meshLod = 0;
-    if (MESH_LOD_DISTANCE > 0.0F) {
-      const float m2 = MESH_LOD_DISTANCE * MESH_LOD_DISTANCE;
+    if (MESH_LOD_DISTANCE > 0.0F && meshLodDist > 0.0F) {
+      const float m2 = meshLodDist * meshLodDist;
       meshLod = va.dist2 > m2 * 4.0F ? 2 : va.dist2 > m2 ? 1 : 0;
     }
 
@@ -1842,9 +1851,9 @@ void TerrainGame::updateAndRenderAnimObjects() {
     // instance that just (re)entered the view skins immediately - its held
     // pose could be arbitrarily stale.
     bool allowSkin = true;
-    if (ANIM_LOD_DISTANCE > 0.0F && meshOwner == i &&
+    if (animLodDist > 0.0F && meshOwner == i &&
         g.animLastTick != 0 && animLodTick - g.animLastTick <= 4) {
-      const float lod2 = ANIM_LOD_DISTANCE * ANIM_LOD_DISTANCE;
+      const float lod2 = animLodDist * animLodDist;
       if (va.dist2 > lod2 * 4.0F)
         allowSkin = ((animLodTick + (u32)i) & 3) == 0;
       else if (va.dist2 > lod2)
@@ -4459,6 +4468,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none\n"
            "  float drawDistance;  // not drawn farther than this from the camera;\n"
            "                       // 0 = unlimited (collision/logic always run)\n"
+           "  float lodDistance;   // animated models: overrides the project LOD\n"
+           "                       // distances for this object; 0 = project\n"
            "  int animModel;  // animated models: index into ANIM_MODEL_PATHS, -1 = none\n"
            "  const char* animClip;  // animated models: starting clip (\"\" = first)\n"
            "  int animAutoplay;      // animated models: 1 = play at scene start\n"
@@ -4481,8 +4492,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         if (objs.empty()) {
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
                    "0, 0, 0.0F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, "
-                   "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, \"\", 1, 1, "
-                   "1.0F},\n";
+                   "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0.0F, -1, \"\", "
+                   "1, 1, 1.0F},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
                 for (size_t i = 0; i < p.sounds.size(); ++i)
@@ -4514,7 +4525,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << ", " << floatLit(o.lightBright)
                     << ", " << floatLit(o.lightRadius) << ", " << (o.saveState ? 1 : 0)
                     << ", " << o.collisionMode << ", "
-                    << floatLit(o.drawDistance) << ", " << animModelIndexOf(p, o)
+                    << floatLit(o.drawDistance) << ", "
+                    << floatLit(o.lodDistance) << ", " << animModelIndexOf(p, o)
                     << ", \"" << escapeCString(o.animClip) << "\", "
                     << (o.animAutoplay ? 1 : 0) << ", " << (o.animLoop ? 1 : 0)
                     << ", " << floatLit(o.animSpeed) << "},  // " << o.name << "\n";

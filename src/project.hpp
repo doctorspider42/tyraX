@@ -63,6 +63,13 @@ struct SceneObject {
     // drawn at all (collision, sounds and scripts still run). 0 = unlimited.
     // The cheapest LOD there is - era-correct for dense scenes.
     float drawDistance = 0.0f;
+    // Per-object override of the project LOD distances (animated models
+    // only): this object's animation- and mesh-LOD thresholds use this value
+    // instead of the Preferences > Rendering ones - a hero character with a
+    // large value stays full quality far beyond the crowd default.
+    // 0 = use the project settings. Mesh LOD additionally needs the project
+    // setting on (it controls whether LOD chains are baked at all).
+    float lodDistance = 0.0f;
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     // Material library (.mtl) assigned to the object, e.g.
     // "res/materials/walls.mtl". Primitives take the file's FIRST material
@@ -150,7 +157,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
            a.physics == b.physics && a.usable == b.usable &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
-           a.drawDistance == b.drawDistance && a.modelPath == b.modelPath &&
+           a.drawDistance == b.drawDistance && a.lodDistance == b.lodDistance &&
+           a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.playerMode == b.playerMode &&
            a.playerWalkSpeed == b.playerWalkSpeed &&
            a.playerLookSpeed == b.playerLookSpeed &&

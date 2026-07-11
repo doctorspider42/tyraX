@@ -191,6 +191,10 @@ static std::string objectJson(const SceneObject& o) {
         (o.drawDistance > 0.0f
              ? ", \"drawDistance\": " + fmtFloat(o.drawDistance)
              : "") +
+        // 0 = project LOD settings (default) stays implicit
+        (o.lodDistance > 0.0f
+             ? ", \"lodDistance\": " + fmtFloat(o.lodDistance)
+             : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + o.modelPath + "\"") +
         (o.materialPath.empty() ? "" : ", \"material\": \"" + o.materialPath + "\"");
     if (o.type == PrimitiveType::Player) {
@@ -801,6 +805,10 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* v = jo.find("drawDistance")) {
             o.drawDistance = (float)v->numberOr(0.0);
             if (o.drawDistance < 0.0f) o.drawDistance = 0.0f;
+        }
+        if (const auto* v = jo.find("lodDistance")) {
+            o.lodDistance = (float)v->numberOr(0.0);
+            if (o.lodDistance < 0.0f) o.lodDistance = 0.0f;
         }
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
