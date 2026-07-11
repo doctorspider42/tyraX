@@ -908,6 +908,14 @@ float g_frameRate = 50.0F;
 float g_frameDt = 1.0F / 50.0F;
 float g_frameScale = 1.0F;
 
+// Camera flashlight runtime state (a Player object property; declared in
+// scene_data.hpp). g_flashEnabled is the master switch - seeded per scene from
+// the player's Enabled flag in loadScene, flipped by the Set Flashlight flow
+// node. g_flashOn is the on/off state the optional toggle button drives; the
+// beam only shows while BOTH are set, so the toggle respects Enabled.
+bool g_flashEnabled = false;
+bool g_flashOn = true;
+
 // Measures the real time since the previous frame (EE COP0 Count register,
 // 294.912 MHz, wrap-safe) and folds it into g_frameDt / g_frameScale.
 // Within 10% of the nominal vsync step it snaps to exactly nominal, so a
@@ -1465,8 +1473,16 @@ void TerrainGame::loop() {
   updateParticles();
   updateSoundEmitters();
 
-  // Camera-attached flashlight (Scene/Project > Preferences > Flashlight).
-  if (FLASHLIGHT_ENABLED) {
+  // Camera flashlight (Player object > Flashlight). The Set Flashlight flow
+  // node drives the master (scriptCtx.flashlight: 0 off / 1 on / -1 = leave);
+  // the optional toggle button flips the on/off state. The beam shows only
+  // while both are set, so the toggle respects the Enabled master.
+  if (scriptCtx.flashlight >= 0) {
+    g_flashEnabled = scriptCtx.flashlight != 0;
+    scriptCtx.flashlight = -1;
+  }
+  if (flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
+  if (g_flashEnabled && g_flashOn) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
     engine->renderer.core.setSpotLight(
         Color(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B), cameraPosition,
@@ -2451,6 +2467,12 @@ void TerrainGame::loadScene(int sceneIndex) {
   else
     engine->renderer.core.disableFog();
 
+  // Camera flashlight is a Player property: reset the runtime master to this
+  // scene's player Enabled flag (the flow graph can change it later); the
+  // on/off toggle starts on.
+  g_flashEnabled = FLASHLIGHT_ENABLED;
+  g_flashOn = true;
+
   runtimeObjects.assign(SCENE_OBJECT_COUNT, RuntimeObject());
   objectGeometry.clear();
   objectGeometry.resize(SCENE_OBJECT_COUNT);
@@ -2798,7 +2820,7 @@ void TerrainGame::updateParticles() {
       // rain streaks stay vertical (world-up quads); everything else is a
       // full camera-facing billboard. Fog puffs additionally swirl: the
       // billboard slowly rotates in the camera plane, alternating direction
-      // per puff (the Silent Hill roll) - keep in sync with the viewport
+      // per puff (the swirling fog roll) - keep in sync with the viewport
       // preview (drawEmitterPreviews).
       float brx = rx, bry = 0.0F, brz = rz;
       float bux = ux, buy = uy, buz = uz;
@@ -3863,8 +3885,16 @@ void TerrainGame::loop() {
   updateParticles();
   updateSoundEmitters();
 
-  // Camera-attached flashlight (Scene/Project > Preferences > Flashlight).
-  if (FLASHLIGHT_ENABLED) {
+  // Camera flashlight (Player object > Flashlight). The Set Flashlight flow
+  // node drives the master (scriptCtx.flashlight: 0 off / 1 on / -1 = leave);
+  // the optional toggle button flips the on/off state. The beam shows only
+  // while both are set, so the toggle respects the Enabled master.
+  if (scriptCtx.flashlight >= 0) {
+    g_flashEnabled = scriptCtx.flashlight != 0;
+    scriptCtx.flashlight = -1;
+  }
+  if (flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
+  if (g_flashEnabled && g_flashOn) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
     engine->renderer.core.setSpotLight(
         Color(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B), cameraPosition,
@@ -4518,6 +4548,11 @@ struct ScriptContext {
 
   // Write to show/hide all HUD images (the USE prompt is unaffected).
   bool hudVisible = true;
+
+  // Camera flashlight master switch (the Player object's "Enabled"). Write 1
+  // to turn it on, 0 to turn it off, -1 to leave it unchanged; the game
+  // applies and resets it. The optional toggle button still gates the beam.
+  int flashlight = -1;
 
   // Save data: named values persisted in memory card slots (SAVE_VALUE_NAMES
   // order, scene_data.hpp). Set openSaveMenu = true to open the in-game
@@ -5184,17 +5219,27 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     sceneFloats("FOG_BS", [&](int si) { return floatLit(rs[si].fogColor[2] * 255.0f); });
     sceneFloats("FOG_STARTS", [&](int si) { return floatLit(rs[si].fogStart); });
     sceneFloats("FOG_ENDS", [&](int si) { return floatLit(rs[si].fogEnd); });
-    sceneBools("FLASHLIGHT_ENABLEDS", [&](int si) { return rs[si].flashlightEnabled; });
-    sceneFloats("FLASHLIGHT_RS",
-                [&](int si) { return floatLit(rs[si].flashlightColor[0] * 128.0f); });
-    sceneFloats("FLASHLIGHT_GS",
-                [&](int si) { return floatLit(rs[si].flashlightColor[1] * 128.0f); });
-    sceneFloats("FLASHLIGHT_BS",
-                [&](int si) { return floatLit(rs[si].flashlightColor[2] * 128.0f); });
-    sceneFloats("FLASHLIGHT_RANGES",
-                [&](int si) { return floatLit(rs[si].flashlightRange); });
-    sceneFloats("FLASHLIGHT_ANGLES",
-                [&](int si) { return floatLit(rs[si].flashlightAngle); });
+    // Camera flashlight is a Player object property (color/range/angle are
+    // fixed per scene; the enabled flag is only the runtime master's initial
+    // value - the flow graph / toggle button change it live). No player in a
+    // scene = no flashlight there.
+    sceneBools("FLASHLIGHT_ENABLEDS",
+               [&](int si) { return players[si] && players[si]->flashlightEnabled; });
+    sceneFloats("FLASHLIGHT_RS", [&](int si) {
+        return floatLit((players[si] ? players[si]->flashlightColor[0] : 0.0f) * 128.0f);
+    });
+    sceneFloats("FLASHLIGHT_GS", [&](int si) {
+        return floatLit((players[si] ? players[si]->flashlightColor[1] : 0.0f) * 128.0f);
+    });
+    sceneFloats("FLASHLIGHT_BS", [&](int si) {
+        return floatLit((players[si] ? players[si]->flashlightColor[2] : 0.0f) * 128.0f);
+    });
+    sceneFloats("FLASHLIGHT_RANGES", [&](int si) {
+        return floatLit(players[si] ? players[si]->flashlightRange : 30.0f);
+    });
+    sceneFloats("FLASHLIGHT_ANGLES", [&](int si) {
+        return floatLit(players[si] ? players[si]->flashlightAngle : 20.0f);
+    });
     sceneBools("HIGHLIGHT_USABLES", [&](int si) { return rs[si].highlightUsable; });
     sceneFloats("HIGHLIGHT_DISTANCES", [&](int si) { return floatLit(rs[si].highlightDistance); });
     sceneFloats("HIGHLIGHT_RS", [&](int si) { return floatLit(rs[si].highlightColor[0] * 255.0f); });
@@ -5330,7 +5375,30 @@ extern int g_activeScene;
 extern float g_frameRate;   // vsync rate: 50 (PAL) or 60 (NTSC)
 extern float g_frameDt;     // 1 / g_frameRate
 extern float g_frameScale;  // 50 / g_frameRate
-// Frames per `seconds` of wall-clock time (>= 1), for frame-counter timers.
+
+// Camera flashlight runtime state (a Player object property), defined in the
+// game cpp. g_flashEnabled is the master switch (Set Flashlight flow node);
+// g_flashOn is the on/off toggle state the player controls with the optional
+// toggle button. The beam shows only while both are set.
+extern bool g_flashEnabled;
+extern bool g_flashOn;
+)";
+    // Per-scene flashlight toggle button: the pad button the scene's player
+    // presses to flip the beam on/off (empty = no toggle). A template so the
+    // header stays engine-include-free (instantiated where Engine is complete).
+    out << "template <typename TEngine>\n"
+           "inline bool flashlightTogglePressed(TEngine* engine) {\n"
+           "  (void)engine;\n"
+           "  switch (g_activeScene) {\n";
+    for (int si = 0; si < sceneCount; ++si)
+        if (players[si] && !players[si]->flashlightToggleButton.empty())
+            out << "    case " << si << ": return engine->pad.getClicked()."
+                << players[si]->flashlightToggleButton << ";\n";
+    out << "    default: break;\n"
+           "  }\n"
+           "  return false;\n"
+           "}\n";
+    out << R"(// Frames per `seconds` of wall-clock time (>= 1), for frame-counter timers.
 inline int everyFrames(float seconds) {
   const int f = (int)(seconds * g_frameRate);
   return f < 1 ? 1 : f;
@@ -6010,6 +6078,9 @@ std::string flowGraphScript(const Project& p) {
                       << pad << "  song.play();\n"
                       << pad << "}\n";
                 }
+            } else if (n.type == "SetFlashlight") {
+                c << pad << "ctx.flashlight = " << (n.num[0] != 0.0f ? "1" : "0")
+                  << ";\n";
             } else if (n.type == "ShowHud") {
                 c << pad << "ctx.hudVisible = true;\n";
             } else if (n.type == "HideHud") {

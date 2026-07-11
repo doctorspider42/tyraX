@@ -8,7 +8,7 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 # Modified by tyra-editor: drained3DFor2D flag (PATH1 drain before 2D sprites),
 # GS hardware distance fog state (setFog/disableFog), camera spot light
-# (setSpotLight/disableSpotLight - the Silent Hill flashlight)
+# (setSpotLight/disableSpotLight - the camera flashlight)
 */
 
 #pragma once
@@ -46,7 +46,7 @@ struct RendererCoreFog {
  * per-vertex on VU1 in the StaPip color pipelines (the ones the editor's
  * generated games use): additive cone + distance falloff on top of the baked
  * vertex colors, no N.L term (there are no normals in the color paths -
- * same trick Silent Hill era games used). The per-mesh object-space
+ * the same trick early hardware-lit games used). The per-mesh object-space
  * transform happens on the EE (see StaPipQBufferRenderer::sendObjectData);
  * EE-clipped triangles get the light injected into their colors before
  * interpolation (see StaPipClipper).
@@ -103,8 +103,8 @@ class RendererCore {
 
   /**
    * Enable GS hardware distance fog (tyra-editor fork). Geometry fades to
-   * `color` between view distances `start` and `end`. For a Silent Hill
-   * style fade-out, match `color` with the clear screen color and keep
+   * `color` between view distances `start` and `end`. For an atmospheric
+   * fade-out, match `color` with the clear screen color and keep
    * `end` at (or before) the far plane.
    */
   void setFog(const Color& color, const float& start, const float& end);
