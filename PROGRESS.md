@@ -1828,6 +1828,39 @@ Each finished feature lands as its own commit.
   codegen would read 1.2/s on NTSC). Both modes verified booting at their
   vsync rate (status bar 50/60 VPS). Legacy V1 templates untouched (their
   byte-identical match must keep working).
+- (60) **Configurable viewport navigation + orbit around selection** - the
+  camera controls were hard-coded (LMB/RMB orbit, MMB pan, WASD fly) and the
+  orbit pivot was a free point, never the selection. Added a global `NavConfig`
+  (app.hpp): mouse **scheme** (Tyra/Blender/Maya/Unity - each maps which
+  drag+modifier orbits vs pans; Blender/Unity free the LMB for selection, Maya
+  adds an Alt+RMB dolly), **fly keys** (WASD or arrow keys), orbit/pan/zoom
+  **sensitivity** multipliers, invert X/Y, and an **orbit-around-selection**
+  toggle. These are machine/muscle-memory prefs, not project data, so they
+  extend the existing global `editor.ini` in %LOCALAPPDATA% (the old single-key
+  uiScale reader/writer became a full `EditorConfig` load/save; whole file
+  rewritten on any change). Input in `drawViewportWindow` now switches on the
+  scheme and scales/inverts pixel deltas; `Viewport::zoom` became continuous
+  (`distance *= 0.9^wheel`) so sensitivity and drag-dolly move proportionally
+  while one wheel notch keeps the old 0.9x feel; new `Viewport::setTarget`
+  snaps the orbit pivot to the selected object's position whenever the
+  selection index changes (independent of the transform gizmo mode) - pan/fly
+  afterward still move the pivot freely. New "View > Navigation controls..."
+  modal (clone of the Preferences modal pattern) edits it all live and persists
+  on every change, with a Restore-defaults button. Verified: clean build;
+  editor launched on a scratch fpp project and ran the new per-frame nav code
+  (scheme gating + focus snapping execute every frame) without crashing;
+  `editor.ini` round-trip confirmed by triggering a save (Ctrl+= -> setUiScale)
+  and reading back all nine nav keys at their defaults, then restoring auto DPI.
+  The interactive mouse feel per scheme (Blender/Maya/Unity muscle memory,
+  invert/sensitivity tuning) still wants a hands-on human pass - the GDI
+  screenshot tool can't capture ImGui's multi-viewport menu popups.
+  Follow-up: with arrow-key movement, ImGui's keyboard nav (NavEnableKeyboard,
+  on globally) was cycling focus through the viewport overlay tool buttons
+  (Move/Rotate/Scale, World/Camera, view mode) as the arrows were pressed. Fixed
+  by giving the Viewport window `ImGuiWindowFlags_NoNav` - those buttons keep
+  their 1/2/3/5 hotkeys, so nothing is lost. Verified: forced arrow mode in
+  editor.ini, focused the viewport, sent 6x Down + 6x Right - the tool stayed on
+  Move (no focus migration), screenshot-confirmed.
 
 
 ## Backlog (rough order)
