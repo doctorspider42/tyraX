@@ -289,6 +289,23 @@ Each finished feature lands as its own commit.
   (chunk-border grid renders, fog preview correct). samples/script-demo
   regenerated + rebuilt OK. Walking across chunk borders (pad) and sculpt
   brush feel on a 512 map still want a hands-on human pass.
+  **Real-PS2 follow-up (same day, bigdemo stress scene: 2048x2048 at detail
+  512, view distance 70 + fog 25-66, 1100 draw-distance objects, 30 skeletal
+  spiders with anim/mesh LOD, COP0 PERF lines over ps2link):** steady state
+  held a locked 50 FPS while walking (frame_avg ~19.99 ms), but every
+  chunk-border crossing hitched one frame to a quantized ~340 ms (17
+  vsyncs). Root cause was NOT the chunk mesh work itself: `pointLightAt`
+  scanned the whole SCENE_OBJECTS table per vertex looking for point
+  lights, and at 1131 objects that streams the ~250 KB table through the
+  EE's 16 KB dcache 1024 times per chunk (~170 ms/chunk x 2-chunk budget).
+  The old monolithic build paid the same cost once, behind the loading
+  screen - chunk streaming moved it into gameplay and exposed it. Fix in
+  the game template: point lights are collected once per scene load into a
+  small list (`collectScenePointLights`, called at the top of `loadScene`);
+  `pointLightAt` iterates that list, so scenes without point lights bake
+  chunks in microseconds. PS2-toolchain compile verified in the bigdemo
+  container; the console re-test of the fixed build is in the user's hands
+  (pad session was live while this landed).
 
 - (62) **Decal object type (transparent textured quad)** — a new
   `PrimitiveType::Decal = 13` for signs/posters/text on walls. A flat unit quad
