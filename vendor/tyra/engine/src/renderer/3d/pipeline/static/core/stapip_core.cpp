@@ -111,12 +111,12 @@ void StaPipCore::render(StaPipBag* bag) {
 
   StaPipBagPackagesBBox* bbox = nullptr;
   if (bag->info->frustumCulling == PipelineInfoBagFrustumCulling_Precise) {
-    // tyra-editor: mix the bag's bboxVersion into the cache id so reused
-    // vertex buffers with new content do not resolve to stale boxes
-    bbox = cacher.getBBoxes(
-        bag->vertices, bag->count,
-        reinterpret_cast<u32>(bag->vertices) + bag->bboxVersion * 2654435761u,
-        maxVertCount);
+    // tyra-editor: the bag's bboxVersion invalidates the cached boxes for
+    // reused vertex buffers with new content (the cacher recomputes the
+    // entry in place - per-frame bumps stay allocation-free)
+    bbox = cacher.getBBoxes(bag->vertices, bag->count,
+                            reinterpret_cast<u32>(bag->vertices),
+                            bag->bboxVersion, maxVertCount);
   }
 
   setMaxVertCount(maxVertCount);

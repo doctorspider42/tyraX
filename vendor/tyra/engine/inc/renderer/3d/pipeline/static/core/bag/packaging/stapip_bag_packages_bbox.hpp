@@ -8,6 +8,8 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
+// Modified by tyra-editor: recalculate() for per-frame dynamic geometry.
+
 #pragma once
 
 #include "renderer/core/3d/bbox/render_bbox.hpp"
@@ -25,6 +27,11 @@ class StaPipBagPackagesBBox {
   StaPipBagPackagesBBox(const Vec4* t_vertices, const u32& t_counts,
                         const u32& t_maxVertCount);
   ~StaPipBagPackagesBBox();
+
+  /** Recomputes every child bbox and the main bbox from the same vertex
+   * buffer with new content. Vertex count and maxVertCount must match the
+   * construction values (the part split is reused, nothing reallocates). */
+  void recalculate(const Vec4* t_vertices, const u32& t_maxVertCount);
 
   void setMaxVertCount(const u32& count);
 

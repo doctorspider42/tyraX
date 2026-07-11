@@ -9,6 +9,66 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (46) **Frame drops no longer halve gameplay speed + "Disable VSync
+  (experimental)" preference** — with double-buffered vsync a PAL game is
+  quantized to 50/25/16.7 FPS (a 20.1 ms frame waits for the next vblank),
+  and the generated games set `g_frameDt`/`g_frameScale` once at init
+  assuming full rate - so dropping to 25 FPS also meant *half-speed*
+  gameplay. Now `updateFrameClock()` (generated prolog, called first thing
+  in both loop() variants) measures the real frame time (EE COP0 Count,
+  wrap-safe) and refreshes dt/scale every frame: within ±10% of the nominal
+  vsync step it snaps to exactly nominal (full-rate behavior stays
+  bit-identical), longer/shorter frames pass through clamped to [1/4, 4x]
+  nominal (a scene load is a hitch, not a gameplay leap). Known gap,
+  documented: frame-counter timers (`everyFrames` - flow-graph Every N
+  Seconds, sound-emitter intervals, HUD holds) still count rendered frames
+  and stretch at 25 FPS. Second half: **Project > Preferences > Build >
+  "Disable VSync (experimental)"** (`ProjectSettings::disableVsync`, saved
+  to .tyra, baked as `FRAME_LIMIT` into terrain_config.hpp; init calls
+  `setFrameLimit(false)`) - skips the vsync wait before the flip, making
+  the frame rate continuous instead of snapping 50 -> 25, at the cost of
+  tearing. Verified on the real PS2 (15-spider scene, PERF telemetry,
+  full sweeps): vsync ON - 50 FPS up to 11 spiders in view, 25 FPS zone at
+  14-15 with `dtus` flipping 19999 -> 40000 exactly when frames double
+  (compensation active); vsync OFF - endFrame wait collapses ~12 ms ->
+  0.53 ms and frame times go continuous: 7.1 ms empty view (~140 FPS),
+  15.8 ms at 11 spiders (~63), 23.2 ms at 15 (~43 FPS instead of a hard
+  25). A by-eye TV check of tearing severity stays with a human.
+
+- (45) **Animated models: 50 FPS on real hardware (was 25 at most camera
+  angles)** — the anim-test-many scene (7 skeletal 1092-vert spiders) halved
+  to exactly 25 FPS whenever several were on screen, PCSX2 never showed it.
+  Diagnosed with a throwaway instrumented build (COP0 frame-phase timers +
+  auto-spinning camera, PERF lines over ps2link): the frame was **EE-bound**
+  — every instance paid ~0.9 ms pose+skin plus ~1 ms DynPip submit every
+  frame, visible or not (~9.6 ms with zero spiders on screen), and with 7 in
+  view the busy time alone crossed the 20 ms PAL budget. (An earlier
+  guard-band-raster theory did not survive measurement: exact EE clipping
+  changed nothing at the bad angles - the "skip one spider" experiment had
+  merely removed ~1.5 ms of EE work.) Fix, all four parts measured on the
+  console: **(a)** skinned meshes render through **StaPip** instead of
+  DynPip - one vertex upload (DynPip sends from/to pairs and lerps them for
+  nothing on single-frame skeletal meshes), no VU1 program swap mid-frame,
+  EE clipping, per-package culling; **(b)** whole-instance frustum culling
+  with the .tskl AABB (now baked as a sampled union over every clip - the
+  runtime pads it 10%/axis; also fattens the collision box of clips that
+  reach out) - culled instances only advance playback time
+  (`SkelInstance::advance()/ensurePose()` split, engine); **(c)** instances
+  striking the identical pose (same clip advanced in lockstep - autoplayed
+  packs/props) share one skinned mesh via `SkelInstance::poseEquals`;
+  **(d)** TsklLoader merges parts with equal texture+color (fewer bags =
+  fewer object-data DMAs/packager runs), and the StaPip bbox cacher
+  recomputes version-bumped entries **in place** (per-frame `bboxVersion`
+  bumps used to pile up 250-frame-retention cache entries). Verified on the
+  real PS2 (360° sweeps, PERF telemetry): 50 FPS at every angle (worst
+  angle was 39.6 ms/frame, now 19.99 ms with ~7 ms vsync idle); offscreen
+  anim cost 9.6 ms -> ~6 us; 7 synced spiders skin once (anim 6.0 ms ->
+  0.86 ms); a mixed-clip variant (5 synced + 1 stand + 1 slow) shows exactly
+  3x the single-skin cost - groups split correctly - still 50 FPS. PCSX2 SW
+  renderer: spiders at the old worst angle render identically to the DynPip
+  path (lighting formula and light-data layout are shared between the
+  pipelines). Docs updated (animated-models.md).
+
 - (44) **PS2 deploy: Stop / second launch hung the console (thread-priority
   regression)** — first network deploy worked, but Stop on PS2 and every
   redeploy left the console frozen on the old game. Root cause: entry (40)'s
