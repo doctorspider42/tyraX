@@ -86,6 +86,7 @@ enum class FlowParamKind {
     VarName,    // name of a flow variable (free text; created on first use)
     SaveText,   // name of a Project::saveTexts entry
     GradingName,  // name of a Project::gradings preset ("" = neutral/off)
+    AmbienceName,  // name of a Project::ambiencePresets entry ("" = none)
     LayerName,  // name of a SceneData::layers entry (streaming layer)
 };
 
@@ -215,6 +216,11 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // frame's GS post pass; "<none>" restores the ungraded image. The
         // switch is global and persists across scene changes.
         {"SetGrading", "Set Color Grading", "Scene", false, FlowParamKind::GradingName,
+         0, {}, FlowParamKind::None, false, false},
+        // Repaints the sky from an Ambience Editor preset at runtime. Lighting
+        // and fog are baked per scene at build, so only the sky changes live
+        // (assign presets per scene, or switch scenes, for the full mood).
+        {"SetAmbience", "Set Ambience", "Scene", false, FlowParamKind::AmbienceName,
          0, {}, FlowParamKind::None, false, false},
         // HUD (all HUD images at once; the USE prompt is unaffected)
         {"ShowHud", "Show HUD", "HUD", false, FlowParamKind::None, 0, {},

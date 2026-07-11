@@ -331,6 +331,8 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << (o.terrainTex ? "true" : "false") << ", \"postFx\": " << (o.postFx ? "true" : "false")
       << ", \"fog\": " << (o.fog ? "true" : "false")
       << ", \"highlight\": " << (o.highlight ? "true" : "false") << " }";
+    if (!sc.ambiencePreset.empty())
+        j << ", \"ambiencePreset\": \"" << jsonEscape(sc.ambiencePreset) << "\"";
 }
 
 // Reads a scene's scene-visual settings + override flags. New files carry an
@@ -405,6 +407,7 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
         if (const auto* v = js.find("terrainTexScale"))
             s.terrainTexScale = (float)v->numberOr(4.0);
     }
+    if (const auto* v = js.find("ambiencePreset")) sc.ambiencePreset = v->stringOr("");
     if (s.terrainTexScale < 0.25f) s.terrainTexScale = 0.25f;
     if (s.brightness < 0.0f) s.brightness = 0.0f;
     if (s.brightness > 2.0f) s.brightness = 2.0f;
@@ -447,7 +450,39 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         r.highlightWidth = o.highlightWidth;
         r.highlightSteps = o.highlightSteps;
     }
+    // Ambience preset overlay: a resolved preset owns sky + lighting + fog and
+    // wins over the raw project/scene values above (those remain the fallback
+    // when no presets exist). Keeps all downstream codegen/viewport reading the
+    // same ProjectSettings fields.
+    const int ai = ambienceIndexFor(p, s);
+    if (ai >= 0) {
+        const AmbiencePreset& a = p.ambiencePresets[ai];
+        for (int i = 0; i < 3; ++i) {
+            r.skyColor[i] = a.skyColor[i];
+            r.skyTopColor[i] = a.skyTopColor[i];
+            r.lightDir[i] = a.lightDir[i];
+            r.lightColor[i] = a.lightColor[i];
+            r.fogColor[i] = a.fogColor[i];
+        }
+        r.skyDome = a.skyDome;
+        r.ambient = a.ambient;
+        r.diffuse = a.diffuse;
+        r.brightness = a.brightness;
+        r.fogEnabled = a.fogEnabled;
+        r.fogStart = a.fogStart;
+        r.fogEnd = a.fogEnd;
+    }
     return r;
+}
+
+int ambienceIndexFor(const Project& p, const SceneData& s) {
+    if (!s.ambiencePreset.empty()) {
+        for (int i = 0; i < (int)p.ambiencePresets.size(); ++i)
+            if (p.ambiencePresets[i].name == s.ambiencePreset) return i;
+    }
+    if (p.defaultAmbience >= 0 && p.defaultAmbience < (int)p.ambiencePresets.size())
+        return p.defaultAmbience;
+    return -1;
 }
 
 std::string save(const Project& p) {
@@ -584,6 +619,25 @@ std::string save(const Project& p) {
     }
     json << (p.gradings.empty() ? "]" : "\n  ]");
     json << ",\n  \"defaultGrading\": " << p.defaultGrading;
+    json << ",\n  \"ambience\": [";
+    for (size_t i = 0; i < p.ambiencePresets.size(); ++i) {
+        const AmbiencePreset& a = p.ambiencePresets[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << jsonEscape(a.name)
+             << "\", \"skyColor\": " << fmtVec3(a.skyColor)
+             << ", \"skyTopColor\": " << fmtVec3(a.skyTopColor)
+             << ", \"skyDome\": " << (a.skyDome ? "true" : "false")
+             << ", \"lightDir\": " << fmtVec3(a.lightDir)
+             << ", \"ambient\": " << fmtFloat(a.ambient)
+             << ", \"diffuse\": " << fmtFloat(a.diffuse)
+             << ", \"lightColor\": " << fmtVec3(a.lightColor)
+             << ", \"brightness\": " << fmtFloat(a.brightness)
+             << ", \"fogEnabled\": " << (a.fogEnabled ? "true" : "false")
+             << ", \"fogColor\": " << fmtVec3(a.fogColor)
+             << ", \"fogStart\": " << fmtFloat(a.fogStart)
+             << ", \"fogEnd\": " << fmtFloat(a.fogEnd) << " }";
+    }
+    json << (p.ambiencePresets.empty() ? "]" : "\n  ]");
+    json << ",\n  \"defaultAmbience\": " << p.defaultAmbience;
     json << ",\n  \"menus\": [";
     static const char* kMenuActions[] = {"close",     "scene",     "save-menu",
                                          "menu",      "set-value", "add-value",
@@ -669,6 +723,13 @@ std::string create(Project& out, const std::string& name, const std::string& par
     out.name = name;
     out.dir = root.string();
     out.scenes[0].terrain = terrain;
+
+    // Start with one ambience preset (its defaults match the project's default
+    // sky/lighting/fog) so the sky renders and the Ambience Editor isn't empty.
+    AmbiencePreset amb;
+    amb.name = "Default";
+    out.ambiencePresets.push_back(amb);
+    out.defaultAmbience = 0;
 
     // Two presets: "fpp" (FPP game template with a single player entity) and
     // "empty" (orbit camera, no objects). Anything else is treated as empty.
@@ -1251,6 +1312,78 @@ std::string load(Project& out, const std::string& projectDir) {
     if (out.defaultGrading < -1 ||
         out.defaultGrading >= (int)out.gradings.size())
         out.defaultGrading = -1;
+
+    if (const auto* amb = root.find("ambience");
+        amb && amb->type == json::Value::Type::Array) {
+        for (const auto& ja : amb->arr) {
+            AmbiencePreset a;
+            if (const auto* v = ja.find("name")) a.name = v->stringOr("");
+            readVec3(ja.find("skyColor"), a.skyColor);
+            readVec3(ja.find("skyTopColor"), a.skyTopColor);
+            if (const auto* v = ja.find("skyDome")) a.skyDome = v->boolOr(true);
+            readVec3(ja.find("lightDir"), a.lightDir);
+            if (const auto* v = ja.find("ambient")) a.ambient = (float)v->numberOr(0.55);
+            if (const auto* v = ja.find("diffuse")) a.diffuse = (float)v->numberOr(0.45);
+            readVec3(ja.find("lightColor"), a.lightColor);
+            if (const auto* v = ja.find("brightness"))
+                a.brightness = (float)v->numberOr(1.0);
+            if (const auto* v = ja.find("fogEnabled")) a.fogEnabled = v->boolOr(false);
+            readVec3(ja.find("fogColor"), a.fogColor);
+            if (const auto* v = ja.find("fogStart")) a.fogStart = (float)v->numberOr(15.0);
+            if (const auto* v = ja.find("fogEnd")) a.fogEnd = (float)v->numberOr(120.0);
+            if (!a.name.empty()) out.ambiencePresets.push_back(std::move(a));
+        }
+    }
+    if (const auto* v = root.find("defaultAmbience"))
+        out.defaultAmbience = (int)v->numberOr(-1.0);
+
+    // Migrate projects authored before the Ambience Editor: sky/lighting/fog
+    // used to live in Preferences (global + per-scene overrides). Fold them
+    // into presets so the same values keep driving the scene now that those
+    // controls have moved. Only runs when the project has no presets yet.
+    if (out.ambiencePresets.empty()) {
+        auto uniqueName = [&](std::string base) {
+            if (base.empty()) base = "Ambience";
+            std::string n = base;
+            for (int k = 2;; ++k) {
+                bool taken = false;
+                for (const auto& a : out.ambiencePresets) taken |= (a.name == n);
+                if (!taken) return n;
+                n = base + "-" + std::to_string(k);
+            }
+        };
+        auto fromSettings = [](const ProjectSettings& s, const std::string& name) {
+            AmbiencePreset a;
+            a.name = name;
+            for (int i = 0; i < 3; ++i) {
+                a.skyColor[i] = s.skyColor[i];
+                a.skyTopColor[i] = s.skyTopColor[i];
+                a.lightDir[i] = s.lightDir[i];
+                a.lightColor[i] = s.lightColor[i];
+                a.fogColor[i] = s.fogColor[i];
+            }
+            a.skyDome = s.skyDome;
+            a.ambient = s.ambient, a.diffuse = s.diffuse, a.brightness = s.brightness;
+            a.fogEnabled = s.fogEnabled, a.fogStart = s.fogStart, a.fogEnd = s.fogEnd;
+            return a;
+        };
+        // Default at index 0. Keep defaultAmbience = -1 during the per-scene
+        // loop so resolvedSettings() below sees NO preset overlay and captures
+        // each scene's own overridden sky/lighting/fog, not the default's.
+        out.ambiencePresets.push_back(fromSettings(out.settings, uniqueName("Default")));
+        for (SceneData& sc : out.scenes) {
+            if (!(sc.overrides.sky || sc.overrides.lighting || sc.overrides.fog))
+                continue;
+            AmbiencePreset a = fromSettings(resolvedSettings(out, sc), uniqueName(sc.name));
+            sc.ambiencePreset = a.name;
+            sc.overrides.sky = sc.overrides.lighting = sc.overrides.fog = false;
+            out.ambiencePresets.push_back(std::move(a));
+        }
+        out.defaultAmbience = 0;
+    }
+    if (out.defaultAmbience < -1 ||
+        out.defaultAmbience >= (int)out.ambiencePresets.size())
+        out.defaultAmbience = -1;
 
     if (const auto* menus = root.find("menus");
         menus && menus->type == json::Value::Type::Array) {

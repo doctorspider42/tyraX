@@ -5551,6 +5551,11 @@ std::string flowGraphScript(const Project& p) {
             if (p.gradings[i].name == name) return (int)i;
         return -1;
     };
+    auto ambienceIndexOf = [&](const std::string& name) {
+        for (size_t i = 0; i < p.ambiencePresets.size(); ++i)
+            if (p.ambiencePresets[i].name == name) return (int)i;
+        return -1;
+    };
     auto saveValueIndex = [&](const std::string& name) {
         for (size_t i = 0; i < p.saveValues.size(); ++i)
             if (p.saveValues[i].name == name) return (int)i;
@@ -5982,6 +5987,22 @@ std::string flowGraphScript(const Project& p) {
                         c << pad << "applySceneGrading(ctx.engine, " << gi
                           << ");  // \"" << n.str << "\"\n";
                     }
+                }
+            } else if (n.type == "SetAmbience") {
+                // Runtime repaint of the sky from a named preset (resolved to a
+                // literal here). Lighting/fog are baked per-scene at build, so
+                // only the sky changes live - like the Set Sky Color node.
+                const int ai = ambienceIndexOf(n.str);
+                if (n.str.empty() || ai < 0) {
+                    c << pad << "// node " << n.id
+                      << " (SetAmbience): unknown preset '" << n.str << "'\n";
+                } else {
+                    const AmbiencePreset& a = p.ambiencePresets[ai];
+                    c << pad << "ctx.skyColor = Tyra::Color("
+                      << floatLit(a.skyColor[0] * 255.0f) << ", "
+                      << floatLit(a.skyColor[1] * 255.0f) << ", "
+                      << floatLit(a.skyColor[2] * 255.0f) << ");  // \"" << n.str
+                      << "\"\n";
                 }
             } else if (n.type == "ShowObject") {
                 c << pad << obj << ".visible = true;\n";

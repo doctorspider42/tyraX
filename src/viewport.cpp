@@ -1562,29 +1562,33 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     glDepthFunc(GL_LEQUAL);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    // Gradient sky (matches the PS2 sky dome): fullscreen quad, no depth
-    if (skyGradient_) {
-        if (skyQuadDirty_) {
-            skyQuadDirty_ = false;
-            destroyMesh(skyQuad_);
-            std::vector<float> q;
-            pushVertexColor(q, -1, -1, 0, sky_[0], sky_[1], sky_[2]);
-            pushVertexColor(q, 1, -1, 0, sky_[0], sky_[1], sky_[2]);
-            pushVertexColor(q, 1, 1, 0, skyTop_[0], skyTop_[1], skyTop_[2]);
-            pushVertexColor(q, -1, -1, 0, sky_[0], sky_[1], sky_[2]);
-            pushVertexColor(q, 1, 1, 0, skyTop_[0], skyTop_[1], skyTop_[2]);
-            pushVertexColor(q, -1, 1, 0, skyTop_[0], skyTop_[1], skyTop_[2]);
-            skyQuad_ = uploadMesh(q);
-        }
-        glDisable(GL_DEPTH_TEST);
-        glUseProgram(program_);
-        Mat4 id = identity();
-        glUniformMatrix4fv(uMvp_, 1, GL_FALSE, id.m);
-        glUniform3f(uTint_, 1.0f, 1.0f, 1.0f);
-        glUniform1i(uLit_, 0);
-        glBindVertexArray(skyQuad_.vao);
-        glDrawArrays(GL_TRIANGLES, 0, skyQuad_.vertexCount);
-        glEnable(GL_DEPTH_TEST);
+    // Gradient sky dome (mirrors the PS2 sky dome in templates.cpp): a unit
+    // hemisphere, colored horizon->zenith linearly by elevation over the 90°
+    // up-arc, so the full 180° horizon-through-zenith-to-horizon sweep reads as
+    // one coherent dome. Rebuilt only when the colors change; drawn later with
+    // the real camera so it tracks pitch (the clear color already fills below
+    // the horizon with the horizon color).
+    if (skyGradient_ && skyQuadDirty_) {
+        skyQuadDirty_ = false;
+        destroyMesh(skyQuad_);
+        std::vector<float> q;
+        const int stacks = 12, slices = 24;
+        auto domeVert = [&](int stack, int slice) {
+            const float lat = -0.05f + (kPi * 0.5f + 0.05f) * stack / stacks;
+            const float lon = 2.0f * kPi * slice / slices;
+            const float t = (float)stack / stacks;
+            const float r = std::cos(lat);
+            pushVertexColor(q, r * std::cos(lon), std::sin(lat), r * std::sin(lon),
+                            sky_[0] + (skyTop_[0] - sky_[0]) * t,
+                            sky_[1] + (skyTop_[1] - sky_[1]) * t,
+                            sky_[2] + (skyTop_[2] - sky_[2]) * t);
+        };
+        for (int st = 0; st < stacks; ++st)
+            for (int sl = 0; sl < slices; ++sl) {
+                domeVert(st, sl);     domeVert(st + 1, sl); domeVert(st + 1, sl + 1);
+                domeVert(st, sl); domeVert(st + 1, sl + 1); domeVert(st, sl + 1);
+            }
+        skyQuad_ = uploadMesh(q);
     }
 
     const Vec3 tgt{target_[0], target_[1], target_[2]};
@@ -1602,6 +1606,23 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     }
 
     glUseProgram(program_);
+
+    // Sky dome: centered on the camera (an "infinite" sky) and scaled well
+    // past the scene but inside the far plane, drawn first with no depth so
+    // the scene paints over it. Colors interpolate by elevation (built above).
+    if (skyGradient_ && skyQuad_.vertexCount) {
+        const float skyR = diag * 8.0f + 80.0f;
+        Mat4 skyModel =
+            mul(translation(eye.x, eye.y, eye.z), scaleM(skyR, skyR, skyR));
+        Mat4 skyMvp = mul(viewProj, skyModel);
+        glDisable(GL_DEPTH_TEST);
+        glUniformMatrix4fv(uMvp_, 1, GL_FALSE, skyMvp.m);
+        glUniform3f(uTint_, 1.0f, 1.0f, 1.0f);
+        glUniform1i(uLit_, 0);
+        glBindVertexArray(skyQuad_.vao);
+        glDrawArrays(GL_TRIANGLES, 0, skyQuad_.vertexCount);
+        glEnable(GL_DEPTH_TEST);
+    }
 
     // GS hardware fog preview: same coefficient the VU1 computes in-game.
     {
