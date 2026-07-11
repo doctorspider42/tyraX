@@ -45,7 +45,13 @@ void Engine::initAll(const EngineOptions& options) {
   // compute-bound frame then starves the audio threads and streamed music
   // audibly drags exactly when the game dips below full frame rate. The
   // audio threads cost microseconds per wake, so the game loses nothing.
-  ChangeThreadPriority(GetThreadId(), 0x10);
+  //
+  // The value must stay numerically ABOVE 20: ps2link's EE command thread
+  // (the one that services "ps2client reset"/execee while a game runs) is
+  // priority 20, and the EE scheduler is strictly priority-based. An earlier
+  // 0x10 here starved it forever - the first network deploy worked, but Stop
+  // and every redeploy hung because the console never processed the reset.
+  ChangeThreadPriority(GetThreadId(), 0x40);
 
   srand(time(nullptr));
   irx.loadAll(options.loadUsbDriver, info.writeLogsToFile);
