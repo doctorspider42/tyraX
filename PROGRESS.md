@@ -2025,6 +2025,51 @@ Each finished feature lands as its own commit.
   launch), so the pad walkthrough stays a hands-on check - the streaming
   runtime itself was e2e-verified above through the same codepaths.
 
+- (61) **Layer streaming stability: stale bbox cache, leaked GS VRAM,
+  mid-frame texture uploads** - user repro on the layer-streaming example:
+  streamed-in objects sometimes rendered wrong/misplaced, and longer play
+  hit the `index < partsCount` assert in stapip_bag_packages_bbox.cpp:76.
+  Three root causes, all firsts exposed by streaming (nothing ever freed
+  buffers or textures mid-game before):
+  1. *Bbox-cache aliasing.* The engine's frustum-bbox cache is keyed by
+     (vertex pointer, bboxVersion). Streaming frees vertex buffers and the
+     next layer's vectors can land on the recycled heap address; with
+     per-bag counters both sides often sit at version 1, so the new buffer
+     inherited the dead buffer's cached boxes - packages misclassify
+     (smeared/vanishing geometry) or the package index runs past the cached
+     part count (the assert). Fix: generated games stamp every rebuilt bag
+     from one monotonic `g_bboxStamp` (all sites: object parts, terrain,
+     particles, sky dome, hulls, anim parts - pose-sharing followers still
+     copy the owner's stamp), plus a defensive count check in the engine
+     cacher (`stapip_bag_bboxes_cacher.cpp`) for non-regenerated games.
+  2. *TextureRepository::free leaked the GS side.* `removeBufferId()` only
+     tombstones the allocation entry (id = -1): the VRAM pages and both
+     texbuffer_t structs leaked on every free. Engine fix: the repository
+     now calls a new `RendererCoreTexture::freeTextureBuffers()`
+     (sender.deallocate + unregisterAllocation) from free()/removeById();
+     the old tombstone path remains only for a repository initialized
+     without its core.
+  3. *Mid-frame PATH3 uploads.* Pipelines upload a texture to GS VRAM on
+     first use - in the middle of a rendered frame, racing the in-flight
+     VU1/GIF work. Boot-time loads got away with it on the first
+     near-empty frames; textures streamed in by Load Layer hit it
+     repeatedly mid-gameplay and eventually hung the frame (the stress
+     repro froze after 3 load/unload cycles with no assert logged).
+     Fix: the generated game's acquireTexture() calls
+     `renderer.core.texture.useTexture()` right after the repository add -
+     updateLayerStreaming/loadScene run outside beginFrame/endFrame, so
+     the upload happens with the GIF quiet.
+  Verified: stress scene (EverySeconds 6 -> load interior/unload exterior,
+  Delay 3 -> swap back; models + two textures churned every 3 s) in PCSX2:
+  before the fixes it froze after 3 cycles; after, 63 cycles over ~10
+  minutes at the exact 6 s cadence, log clean (0 asserts, 0 warns), process
+  alive until killed. Editor clean build; example + sample regenerate and
+  build (engine relinked). Visual spot-check of this run was blocked by
+  window occlusion (the desktop was in use; PrintWindow cannot see the GS
+  surface, only CopyFromScreen can) - the earlier phased screenshots plus
+  the assert-free 10-minute run carry the verification; a pad walk on the
+  example remains the standing hands-on check.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

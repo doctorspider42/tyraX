@@ -39,8 +39,15 @@ StaPipBagPackagesBBox* StapipBagBBoxesCacher::getBBoxes(
   if (cache) {
     cache->framesLeftToDestroy = cacheFramesCount * cacheSecondsCount;
     // Modified by tyra-editor: same buffer, new content - recompute in
-    // place; a changed vertex count needs a fresh part split.
-    if (cache->version != version) {
+    // place; a changed vertex count needs a fresh part split. The version
+    // check alone is not enough: games that free and reallocate vertex
+    // buffers (layer streaming) can present a recycled heap address whose
+    // version happens to equal the dead buffer's cached one - reusing those
+    // boxes misclassifies packages and indexes past the cached part count.
+    // A count mismatch exposes that case here; equal-count aliasing is
+    // prevented by the process-unique version stamps generated games use.
+    if (cache->version != version ||
+        cache->bboxes->getVertexCount() != count) {
       if (cache->bboxes->getVertexCount() == count) {
         cache->bboxes->recalculate(vertices, maxVertCount);
       } else {

@@ -167,6 +167,16 @@ V3 pointLightAt(const V3& wp, const V3& n) {
 const float* g_primKd = nullptr;
 bool g_primTextured = false;
 
+// Every rebuilt vertex buffer gets a process-unique bbox version. The
+// engine's frustum-bbox cache is keyed by (vertex pointer, version); layer
+// streaming frees and reallocates buffers, so with per-bag counters a
+// recycled heap address could arrive with the dead buffer's exact version
+// and inherit its cached boxes - packages misclassify (objects smear or
+// vanish) or the package index runs past the cached part count (the
+// stapip_bag_packages_bbox assert). One monotonic stamp shared by every
+// bag makes each (pointer, version) pair unique for the whole run.
+u32 g_bboxStamp = 0;
+
 // Clip-name resolution for scripts/flow graph: ScriptContext carries a plain
 // function pointer (script.hpp must stay engine-agnostic), so the game
 // instance is reached through this file-static (set in buildScene).
@@ -707,11 +717,18 @@ Texture* TerrainGame::acquireTexture(const std::string& path) {
   auto it = texCache.find(path);
   if (it == texCache.end()) {
     TexEntry e;
-    if (assetFileExists(path))
+    if (assetFileExists(path)) {
       e.tex =
           engine->renderer.getTextureRepository().add(FileUtils::fromCwd(path));
-    else
+      // Upload to GS VRAM now, OUTSIDE the frame. The pipelines otherwise
+      // upload on first use - a PATH3 transfer in the middle of a rendered
+      // frame, racing the VU1/GIF work in flight. Boot-time loads got away
+      // with it on the first near-empty frames; textures streamed in by
+      // Load Layer hit it mid-gameplay repeatedly.
+      engine->renderer.core.texture.useTexture(e.tex);
+    } else {
       TYRA_WARN("Texture missing: ", path.c_str());
+    }
     it = texCache.emplace(path, e).first;
   }
   it->second.refs++;
@@ -1237,7 +1254,7 @@ void TerrainGame::updateAndRenderAnimObjects() {
       ap.lightBag->normals = frame->normals;
       if (ap.texBag) ap.texBag->coordinates = frame->textureCoords;
       if (meshOwner == i) {
-        if (reskinned) ap.bag->bboxVersion++;  // skinned in place
+        if (reskinned) ap.bag->bboxVersion = ++g_bboxStamp;  // skinned in place
       } else {
         // identical pointer + version = followers reuse the owner's cached
         // frustum boxes instead of recomputing them per instance
@@ -1407,7 +1424,7 @@ void TerrainGame::loadScene(int sceneIndex) {
     colorBag->many = colors.data();
     bag->vertices = vertices.data();
     bag->count = static_cast<u32>(vertices.size());
-    bag->bboxVersion++;
+    bag->bboxVersion = ++g_bboxStamp;
     if (TERRAIN_TEXTURE >= 0 && loadedTextures[TERRAIN_TEXTURE]) {
       terrainTexBag.texture = loadedTextures[TERRAIN_TEXTURE];
       terrainTexBag.coordinates = terrainSts.data();
@@ -1792,7 +1809,7 @@ void TerrainGame::updateParticles() {
     ps.colorBag->many = ps.cols.data();
     ps.bag->vertices = ps.verts.data();
     ps.bag->count = (u32)ps.verts.size();
-    ps.bag->bboxVersion++;  // moving cloud - refresh the frustum bbox
+    ps.bag->bboxVersion = ++g_bboxStamp;  // moving cloud - refresh the bbox
   }
 }
 // Picks the nearest usable object the camera is close to and looking at
@@ -2249,8 +2266,7 @@ void TerrainGame::buildSkyDome() {
   skyDome.bag->count = static_cast<u32>(skyDome.vertices.size());
   skyDome.bag->texture = nullptr;
   skyDome.bag->lighting = nullptr;
-  static u32 domeVersion = 0;  // dome rebuilds on retint - skip stale bboxes
-  skyDome.bag->bboxVersion = ++domeVersion;
+  skyDome.bag->bboxVersion = ++g_bboxStamp;  // dome rebuilds on retint
 }
 
 void TerrainGame::rebuildObjectGeometry(int index) {
@@ -2338,7 +2354,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     part.colorBag->many = part.colors.data();
     part.bag->vertices = part.vertices.data();
     part.bag->count = static_cast<u32>(part.vertices.size());
-    part.bag->bboxVersion++;  // geometry changed - refresh the bbox cache
+    part.bag->bboxVersion = ++g_bboxStamp;  // geometry changed - fresh boxes
 
     // models: the part's own map_Kd; primitives: the assigned material's
     Texture* tex =
@@ -2504,7 +2520,7 @@ void TerrainGame::renderHighlightHull(int index) {
   g.hullColorBag->many = g.hullCols.data();
   g.hullBag->vertices = g.hullVerts.data();
   g.hullBag->count = static_cast<u32>(g.hullVerts.size());
-  g.hullBag->bboxVersion++;  // rebuilt every frame while highlighted
+  g.hullBag->bboxVersion = ++g_bboxStamp;  // rebuilt every frame while shown
   stapip.core.render(g.hullBag.get());
   // The pushback clears the object's front face but not its receding side
   // faces - shells still blend over those at glancing angles. Repainting

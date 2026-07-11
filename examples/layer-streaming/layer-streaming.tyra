@@ -7,6 +7,7 @@
     "textureQuant": "4bit",
     "showFps": true,
     "showMemory": true,
+    "disableVsync": false,
     "clipping": "precise",
     "terrainDetail": 32,
     "skyColor": [0.25, 0.55, 0.78],
@@ -63,26 +64,10 @@
       { "name": "b-orb", "type": "sphere", "position": [-3.5, 1, 16.5], "rotation": [0, 0, 0], "scale": [2, 2, 2], "color": [0.25, 0.8, 0.5], "physics": false, "layer": "building-b" },
       { "name": "b-cone", "type": "cone", "position": [0, 1, 17], "rotation": [0, 0, 0], "scale": [1.5, 2, 1.5], "color": [0.4, 0.5, 0.95], "physics": false, "layer": "building-b" },
       { "name": "b-light", "type": "point-light", "position": [0, 2.6, 14], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.6, 0.8, 1], "physics": false, "layer": "building-b", "light": { "brightness": 1.2, "radius": 11 } },
-      { "name": "trig-unload-b", "type": "empty", "position": [0, 1, -6], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false,
-        "flowGraph": { "nextId": 5, "nodes": [
-          { "id": 1, "type": "NearObject", "pos": [0, 0], "str": "", "num": [3.5, 0, 0, 0] },
-          { "id": 2, "type": "UnloadLayer", "pos": [240, 0], "str": "building-b", "num": [0, 0, 0, 0] }
-        ], "links": [{ "id": 3, "from": 1, "to": 2 }] } },
-      { "name": "trig-load-b", "type": "empty", "position": [0, 1, -3], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false,
-        "flowGraph": { "nextId": 5, "nodes": [
-          { "id": 1, "type": "NearObject", "pos": [0, 0], "str": "", "num": [3.5, 0, 0, 0] },
-          { "id": 2, "type": "LoadLayer", "pos": [240, 0], "str": "building-b", "num": [0, 0, 0, 0] }
-        ], "links": [{ "id": 3, "from": 1, "to": 2 }] } },
-      { "name": "trig-load-a", "type": "empty", "position": [0, 1, 3], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false,
-        "flowGraph": { "nextId": 5, "nodes": [
-          { "id": 1, "type": "NearObject", "pos": [0, 0], "str": "", "num": [3.5, 0, 0, 0] },
-          { "id": 2, "type": "LoadLayer", "pos": [240, 0], "str": "building-a", "num": [0, 0, 0, 0] }
-        ], "links": [{ "id": 3, "from": 1, "to": 2 }] } },
-      { "name": "trig-unload-a", "type": "empty", "position": [0, 1, 6], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false,
-        "flowGraph": { "nextId": 5, "nodes": [
-          { "id": 1, "type": "NearObject", "pos": [0, 0], "str": "", "num": [3.5, 0, 0, 0] },
-          { "id": 2, "type": "UnloadLayer", "pos": [240, 0], "str": "building-a", "num": [0, 0, 0, 0] }
-        ], "links": [{ "id": 3, "from": 1, "to": 2 }] } }
+      { "name": "trig-unload-b", "type": "empty", "position": [0, 1, -6], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "flowGraph": { "nextId": 5, "nodes": [{ "id": 1, "type": "NearObject", "pos": [0, 0], "str": "", "num": [3.5, 0, 0, 0] }, { "id": 2, "type": "UnloadLayer", "pos": [240, 0], "str": "building-b", "num": [0, 0, 0, 0] }], "links": [{ "id": 3, "from": 1, "to": 2 }] } },
+      { "name": "trig-load-b", "type": "empty", "position": [0, 1, -3], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "flowGraph": { "nextId": 5, "nodes": [{ "id": 1, "type": "NearObject", "pos": [0, 0], "str": "", "num": [3.5, 0, 0, 0] }, { "id": 2, "type": "LoadLayer", "pos": [240, 0], "str": "building-b", "num": [0, 0, 0, 0] }], "links": [{ "id": 3, "from": 1, "to": 2 }] } },
+      { "name": "trig-load-a", "type": "empty", "position": [0, 1, 3], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "flowGraph": { "nextId": 5, "nodes": [{ "id": 1, "type": "NearObject", "pos": [0, 0], "str": "", "num": [3.5, 0, 0, 0] }, { "id": 2, "type": "LoadLayer", "pos": [240, 0], "str": "building-a", "num": [0, 0, 0, 0] }], "links": [{ "id": 3, "from": 1, "to": 2 }] } },
+      { "name": "trig-unload-a", "type": "empty", "position": [0, 1, 6], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "flowGraph": { "nextId": 5, "nodes": [{ "id": 1, "type": "NearObject", "pos": [0, 0], "str": "", "num": [3.5, 0, 0, 0] }, { "id": 2, "type": "UnloadLayer", "pos": [240, 0], "str": "building-a", "num": [0, 0, 0, 0] }], "links": [{ "id": 3, "from": 1, "to": 2 }] } }
     ] }
   ],
   "hud": [],
@@ -93,6 +78,6 @@
   "gradings": [],
   "defaultGrading": -1,
   "menus": [],
-  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "emulatorPath": "", "ps2LinkIp": "" },
-  "layout": ""
+  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "emulatorPath": "", "ps2LinkIp": "192.168.100.150" },
+  "layout": "[Window][Project]\nPos=0,19\nSize=460,640\nCollapsed=0\nDockId=0x00000003,0\nLastUsed=20260711\n\n[Window][Properties]\nPos=0,661\nSize=460,356\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260711\n\n[Window][Output]\nPos=462,753\nSize=1458,264\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260711\n\n[Window][Debug]\nPos=462,753\nSize=1458,264\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260711\n\n[Window][Flow Graph]\nPos=462,19\nSize=1458,732\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260711\n\n[Window][Viewport]\nPos=462,19\nSize=1458,732\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260711\n\n[Window][WindowOverViewport_11111111]\nPos=0,19\nSize=1920,998\nCollapsed=0\nLastUsed=20260711\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260711\n\n[Window][Project Preferences]\nPos=696,12\nSize=527,992\nCollapsed=0\nLastUsed=20260711\n\n[Window][New Project]\nPos=780,381\nSize=527,254\nCollapsed=0\nLastUsed=20260711\n\n[Docking][Data]\nDockSpace     ID=0x08BD597D Window=0x1BBC0F80 Pos=0,19 Size=1920,998 Split=X\n  DockNode    ID=0x00000001 Parent=0x08BD597D SizeRef=460,1017 Split=Y\n    DockNode  ID=0x00000003 Parent=0x00000001 SizeRef=460,640 Selected=0x9C21DE82\n    DockNode  ID=0x00000004 Parent=0x00000001 SizeRef=460,356 Selected=0x8C72BEA8\n  DockNode    ID=0x00000002 Parent=0x08BD597D SizeRef=1458,1017 Split=Y\n    DockNode  ID=0x00000005 Parent=0x00000002 SizeRef=1458,751 CentralNode=1 Selected=0xC450F867\n    DockNode  ID=0x00000006 Parent=0x00000002 SizeRef=1458,264 Selected=0x6BCC3585\n\n"
 }
