@@ -3984,7 +3984,8 @@ void App::drawFlowGraphWindow() {
             ImGui::TextDisabled("Position: from link");
             firstNum = 3;
         }
-        if (n.type == "SetVarBool" || n.type == "SetFlashlight") {
+        if (n.type == "SetVarBool" || n.type == "SetFlashlight" ||
+            n.type == "SetFog" || n.type == "SetParticles") {
             bool v = n.num[0] != 0.0f;
             if (ImGui::Checkbox(t->numLabels[0], &v)) {
                 n.num[0] = v ? 1.0f : 0.0f;

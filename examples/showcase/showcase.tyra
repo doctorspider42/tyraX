@@ -3,15 +3,15 @@
   "template": "fpp",
   "settings": {
     "videoSystem": "auto",
-    "buildProfile": "release",
+    "buildProfile": "debug",
     "textureQuant": "4bit",
-    "showFps": false,
-    "showMemory": false,
+    "showFps": true,
+    "showMemory": true,
     "disableVsync": false,
     "clipping": "precise",
-    "animLodDistance": 35,
-    "meshLodDistance": 45,
-    "terrainDetail": 64,
+    "animLodDistance": 24,
+    "meshLodDistance": 30,
+    "terrainDetail": 48,
     "terrainViewDistance": 88,
     "skyColor": [
       0.86,
@@ -46,8 +46,8 @@
     ],
     "brightness": 1,
     "terrainMaterial": "res/materials/ground.mtl",
-    "bloom": 0.35,
-    "grain": 0.14,
+    "bloom": 0,
+    "grain": 0,
     "fogEnabled": true,
     "fogColor": [
       0.82,
@@ -98,7 +98,7 @@
           "type": "player",
           "position": [
             0,
-            -0.0227,
+            -0.0286,
             -8
           ],
           "rotation": [
@@ -137,7 +137,7 @@
             }
           },
           "flowGraph": {
-            "nextId": 6,
+            "nextId": 33,
             "nodes": [
               {
                 "id": 1,
@@ -186,6 +186,294 @@
                   0,
                   0
                 ]
+              },
+              {
+                "id": 6,
+                "type": "OnButton",
+                "pos": [
+                  40,
+                  200
+                ],
+                "str": "Select",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 7,
+                "type": "OpenMenu",
+                "pos": [
+                  300,
+                  200
+                ],
+                "str": "options",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 9,
+                "type": "OnMenuEvent",
+                "pos": [
+                  40,
+                  300
+                ],
+                "str": "fog-on",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 10,
+                "type": "SetFog",
+                "pos": [
+                  300,
+                  300
+                ],
+                "str": "",
+                "str2": "",
+                "num": [
+                  1,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 12,
+                "type": "OnMenuEvent",
+                "pos": [
+                  40,
+                  370
+                ],
+                "str": "fog-off",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 13,
+                "type": "SetFog",
+                "pos": [
+                  300,
+                  370
+                ],
+                "str": "",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 15,
+                "type": "OnMenuEvent",
+                "pos": [
+                  40,
+                  440
+                ],
+                "str": "grain-on",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 16,
+                "type": "SetGrain",
+                "pos": [
+                  300,
+                  440
+                ],
+                "str": "",
+                "str2": "",
+                "num": [
+                  0.14,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 18,
+                "type": "OnMenuEvent",
+                "pos": [
+                  40,
+                  510
+                ],
+                "str": "grain-off",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 19,
+                "type": "SetGrain",
+                "pos": [
+                  300,
+                  510
+                ],
+                "str": "",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 21,
+                "type": "OnMenuEvent",
+                "pos": [
+                  40,
+                  580
+                ],
+                "str": "bloom-on",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 22,
+                "type": "SetBloom",
+                "pos": [
+                  300,
+                  580
+                ],
+                "str": "",
+                "str2": "",
+                "num": [
+                  0.35,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 24,
+                "type": "OnMenuEvent",
+                "pos": [
+                  40,
+                  650
+                ],
+                "str": "bloom-off",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 25,
+                "type": "SetBloom",
+                "pos": [
+                  300,
+                  650
+                ],
+                "str": "",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 27,
+                "type": "OnMenuEvent",
+                "pos": [
+                  40,
+                  720
+                ],
+                "str": "part-on",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 28,
+                "type": "SetParticles",
+                "pos": [
+                  300,
+                  720
+                ],
+                "str": "",
+                "str2": "",
+                "num": [
+                  1,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 30,
+                "type": "OnMenuEvent",
+                "pos": [
+                  40,
+                  790
+                ],
+                "str": "part-off",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 31,
+                "type": "SetParticles",
+                "pos": [
+                  300,
+                  790
+                ],
+                "str": "",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
               }
             ],
             "links": [
@@ -198,6 +486,51 @@
                 "id": 5,
                 "from": 1,
                 "to": 4
+              },
+              {
+                "id": 8,
+                "from": 6,
+                "to": 7
+              },
+              {
+                "id": 11,
+                "from": 9,
+                "to": 10
+              },
+              {
+                "id": 14,
+                "from": 12,
+                "to": 13
+              },
+              {
+                "id": 17,
+                "from": 15,
+                "to": 16
+              },
+              {
+                "id": 20,
+                "from": 18,
+                "to": 19
+              },
+              {
+                "id": 23,
+                "from": 21,
+                "to": 22
+              },
+              {
+                "id": 26,
+                "from": 24,
+                "to": 25
+              },
+              {
+                "id": 29,
+                "from": 27,
+                "to": 28
+              },
+              {
+                "id": 32,
+                "from": 30,
+                "to": 31
               }
             ]
           }
@@ -207,7 +540,7 @@
           "type": "cylinder",
           "position": [
             -6,
-            0.012,
+            0.0288,
             2
           ],
           "rotation": [
@@ -233,7 +566,7 @@
           "type": "emitter",
           "position": [
             -6,
-            0.162,
+            0.1788,
             2
           ],
           "rotation": [
@@ -254,7 +587,7 @@
           "physics": false,
           "emitter": {
             "kind": "fire",
-            "count": 40,
+            "count": 18,
             "size": 0.55,
             "enabled": true,
             "followPlayer": false
@@ -265,7 +598,7 @@
           "type": "emitter",
           "position": [
             -6,
-            1.162,
+            1.1788,
             2
           ],
           "rotation": [
@@ -286,8 +619,8 @@
           "physics": false,
           "emitter": {
             "kind": "smoke",
-            "count": 26,
-            "size": 0.8,
+            "count": 12,
+            "size": 0.75,
             "enabled": true,
             "followPlayer": false
           }
@@ -297,7 +630,7 @@
           "type": "point-light",
           "position": [
             -6,
-            0.762,
+            0.7788,
             2
           ],
           "rotation": [
@@ -326,7 +659,7 @@
           "type": "sound",
           "position": [
             -6,
-            0.262,
+            0.2788,
             2
           ],
           "rotation": [
@@ -358,7 +691,7 @@
           "type": "save-point",
           "position": [
             -3,
-            0.8437,
+            0.8362,
             4
           ],
           "rotation": [
@@ -384,7 +717,7 @@
           "type": "box",
           "position": [
             10,
-            2.2172,
+            2.1965,
             -6
           ],
           "rotation": [
@@ -454,7 +787,7 @@
           "type": "decal",
           "position": [
             11,
-            2.3172,
+            2.2965,
             -5.7
           ],
           "rotation": [
@@ -480,7 +813,7 @@
           "type": "empty",
           "position": [
             38,
-            1.2022,
+            1.1841,
             -34
           ],
           "rotation": [
@@ -570,7 +903,7 @@
           "type": "empty",
           "position": [
             -40,
-            0.9155,
+            0.9659,
             -40
           ],
           "rotation": [
@@ -660,7 +993,7 @@
           "type": "cylinder",
           "position": [
             16,
-            3.8447,
+            3.8402,
             18
           ],
           "rotation": [
@@ -688,7 +1021,7 @@
           "type": "cone",
           "position": [
             16,
-            5.3247,
+            5.3202,
             18
           ],
           "rotation": [
@@ -717,7 +1050,7 @@
           "type": "cylinder",
           "position": [
             22,
-            3.7522,
+            3.7402,
             10
           ],
           "rotation": [
@@ -745,7 +1078,7 @@
           "type": "cone",
           "position": [
             22,
-            5.6522,
+            5.6402,
             10
           ],
           "rotation": [
@@ -759,7 +1092,7 @@
             1.7
           ],
           "color": [
-            0.1808,
+            0.1908,
             0.42,
             0.16
           ],
@@ -774,7 +1107,7 @@
           "type": "cylinder",
           "position": [
             12,
-            4.4275,
+            4.3832,
             26
           ],
           "rotation": [
@@ -802,7 +1135,7 @@
           "type": "cone",
           "position": [
             12,
-            6.7475,
+            6.7032,
             26
           ],
           "rotation": [
@@ -816,7 +1149,7 @@
             1.7
           ],
           "color": [
-            0.1885,
+            0.2091,
             0.42,
             0.16
           ],
@@ -831,7 +1164,7 @@
           "type": "cylinder",
           "position": [
             -14,
-            -0.3069,
+            -0.3331,
             20
           ],
           "rotation": [
@@ -859,7 +1192,7 @@
           "type": "cone",
           "position": [
             -14,
-            1.1731,
+            1.1469,
             20
           ],
           "rotation": [
@@ -873,7 +1206,7 @@
             1.7
           ],
           "color": [
-            0.2054,
+            0.2297,
             0.42,
             0.16
           ],
@@ -888,7 +1221,7 @@
           "type": "cylinder",
           "position": [
             -22,
-            -2.2079,
+            -2.1483,
             14
           ],
           "rotation": [
@@ -916,7 +1249,7 @@
           "type": "cone",
           "position": [
             -22,
-            -0.3079,
+            -0.2483,
             14
           ],
           "rotation": [
@@ -930,7 +1263,7 @@
             1.7
           ],
           "color": [
-            0.2067,
+            0.2133,
             0.42,
             0.16
           ],
@@ -945,7 +1278,7 @@
           "type": "cylinder",
           "position": [
             -8,
-            0.7715,
+            0.7355,
             28
           ],
           "rotation": [
@@ -973,7 +1306,7 @@
           "type": "cone",
           "position": [
             -8,
-            3.0915,
+            3.0555,
             28
           ],
           "rotation": [
@@ -987,7 +1320,7 @@
             1.7
           ],
           "color": [
-            0.2165,
+            0.2297,
             0.42,
             0.16
           ],
@@ -1001,9 +1334,9 @@
           "name": "cylinder-8",
           "type": "cylinder",
           "position": [
-            26,
-            3.6868,
-            24
+            30,
+            4.4099,
+            6
           ],
           "rotation": [
             0,
@@ -1029,9 +1362,9 @@
           "name": "cone-7",
           "type": "cone",
           "position": [
-            26,
-            5.1668,
-            24
+            30,
+            5.8899,
+            6
           ],
           "rotation": [
             0,
@@ -1044,7 +1377,7 @@
             1.7
           ],
           "color": [
-            0.2006,
+            0.1945,
             0.42,
             0.16
           ],
@@ -1058,9 +1391,9 @@
           "name": "cylinder-9",
           "type": "cylinder",
           "position": [
-            -26,
-            -0.0178,
-            26
+            -30,
+            -4.4455,
+            2
           ],
           "rotation": [
             0,
@@ -1086,9 +1419,9 @@
           "name": "cone-8",
           "type": "cone",
           "position": [
-            -26,
-            1.8822,
-            26
+            -30,
+            -2.5455,
+            2
           ],
           "rotation": [
             0,
@@ -1101,7 +1434,7 @@
             1.7
           ],
           "color": [
-            0.2148,
+            0.2263,
             0.42,
             0.16
           ],
@@ -1115,9 +1448,9 @@
           "name": "cylinder-10",
           "type": "cylinder",
           "position": [
-            30,
-            4.8508,
-            6
+            18,
+            1.1284,
+            -18
           ],
           "rotation": [
             0,
@@ -1143,9 +1476,9 @@
           "name": "cone-9",
           "type": "cone",
           "position": [
-            30,
-            7.1708,
-            6
+            18,
+            3.4484,
+            -18
           ],
           "rotation": [
             0,
@@ -1158,7 +1491,7 @@
             1.7
           ],
           "color": [
-            0.2021,
+            0.2292,
             0.42,
             0.16
           ],
@@ -1172,9 +1505,9 @@
           "name": "cylinder-11",
           "type": "cylinder",
           "position": [
-            -30,
-            -4.7113,
-            2
+            -18,
+            -1.5249,
+            -16
           ],
           "rotation": [
             0,
@@ -1200,9 +1533,9 @@
           "name": "cone-10",
           "type": "cone",
           "position": [
-            -30,
-            -3.2313,
-            2
+            -18,
+            -0.0449,
+            -16
           ],
           "rotation": [
             0,
@@ -1215,235 +1548,7 @@
             1.7
           ],
           "color": [
-            0.2267,
-            0.42,
-            0.16
-          ],
-          "physics": false,
-          "collision": "none",
-          "layer": "forest",
-          "detail": 10,
-          "drawDistance": 84
-        },
-        {
-          "name": "cylinder-12",
-          "type": "cylinder",
-          "position": [
-            18,
-            1.0062,
-            -18
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            0.35,
-            1.575,
-            0.35
-          ],
-          "color": [
-            0.33,
-            0.22,
-            0.12
-          ],
-          "physics": false,
-          "layer": "forest",
-          "detail": 8,
-          "drawDistance": 84
-        },
-        {
-          "name": "cone-11",
-          "type": "cone",
-          "position": [
-            18,
-            2.9062,
-            -18
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1.7,
-            2.625,
-            1.7
-          ],
-          "color": [
-            0.188,
-            0.42,
-            0.16
-          ],
-          "physics": false,
-          "collision": "none",
-          "layer": "forest",
-          "detail": 10,
-          "drawDistance": 84
-        },
-        {
-          "name": "cylinder-13",
-          "type": "cylinder",
-          "position": [
-            -18,
-            -1.1833,
-            -16
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            0.35,
-            1.89,
-            0.35
-          ],
-          "color": [
-            0.33,
-            0.22,
-            0.12
-          ],
-          "physics": false,
-          "layer": "forest",
-          "detail": 8,
-          "drawDistance": 84
-        },
-        {
-          "name": "cone-12",
-          "type": "cone",
-          "position": [
-            -18,
-            1.1367,
-            -16
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1.7,
-            3.15,
-            1.7
-          ],
-          "color": [
-            0.2091,
-            0.42,
-            0.16
-          ],
-          "physics": false,
-          "collision": "none",
-          "layer": "forest",
-          "detail": 10,
-          "drawDistance": 84
-        },
-        {
-          "name": "cylinder-14",
-          "type": "cylinder",
-          "position": [
-            34,
-            3.3498,
-            30
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            0.35,
-            1.26,
-            0.35
-          ],
-          "color": [
-            0.33,
-            0.22,
-            0.12
-          ],
-          "physics": false,
-          "layer": "forest",
-          "detail": 8,
-          "drawDistance": 84
-        },
-        {
-          "name": "cone-13",
-          "type": "cone",
-          "position": [
-            34,
-            4.8298,
-            30
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1.7,
-            2.1,
-            1.7
-          ],
-          "color": [
-            0.2172,
-            0.42,
-            0.16
-          ],
-          "physics": false,
-          "collision": "none",
-          "layer": "forest",
-          "detail": 10,
-          "drawDistance": 84
-        },
-        {
-          "name": "cylinder-15",
-          "type": "cylinder",
-          "position": [
-            -34,
-            2.6732,
-            34
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            0.35,
-            1.575,
-            0.35
-          ],
-          "color": [
-            0.33,
-            0.22,
-            0.12
-          ],
-          "physics": false,
-          "layer": "forest",
-          "detail": 8,
-          "drawDistance": 84
-        },
-        {
-          "name": "cone-14",
-          "type": "cone",
-          "position": [
-            -34,
-            4.5732,
-            34
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1.7,
-            2.625,
-            1.7
-          ],
-          "color": [
-            0.1849,
+            0.1998,
             0.42,
             0.16
           ],
@@ -1458,7 +1563,7 @@
           "type": "sphere",
           "position": [
             6,
-            1.5107,
+            1.5442,
             14
           ],
           "rotation": [
@@ -1477,7 +1582,7 @@
             0.46
           ],
           "physics": false,
-          "detail": 20,
+          "detail": 12,
           "drawDistance": 82
         },
         {
@@ -1485,7 +1590,7 @@
           "type": "sphere",
           "position": [
             -10,
-            0.207,
+            0.201,
             10
           ],
           "rotation": [
@@ -1504,7 +1609,7 @@
             0.46
           ],
           "physics": false,
-          "detail": 20,
+          "detail": 12,
           "drawDistance": 82
         },
         {
@@ -1512,7 +1617,7 @@
           "type": "sphere",
           "position": [
             20,
-            1.697,
+            1.6948,
             -8
           ],
           "rotation": [
@@ -1531,7 +1636,7 @@
             0.46
           ],
           "physics": false,
-          "detail": 20,
+          "detail": 12,
           "drawDistance": 82
         },
         {
@@ -1539,7 +1644,7 @@
           "type": "sphere",
           "position": [
             -16,
-            -0.5885,
+            -0.5702,
             -6
           ],
           "rotation": [
@@ -1558,7 +1663,7 @@
             0.46
           ],
           "physics": false,
-          "detail": 20,
+          "detail": 12,
           "drawDistance": 82
         },
         {
@@ -1566,7 +1671,7 @@
           "type": "model",
           "position": [
             3,
-            0.949,
+            0.9064,
             6
           ],
           "rotation": [
@@ -1599,7 +1704,7 @@
           "type": "model",
           "position": [
             -2,
-            0.5337,
+            0.5092,
             9
           ],
           "rotation": [
@@ -1641,9 +1746,9 @@
             0
           ],
           "scale": [
-            16,
+            14,
             1,
-            16
+            14
           ],
           "color": [
             0.6,
@@ -1654,7 +1759,7 @@
           "layer": "weather",
           "emitter": {
             "kind": "rain",
-            "count": 120,
+            "count": 34,
             "size": 0.12,
             "enabled": true,
             "followPlayer": true
@@ -1665,7 +1770,7 @@
           "type": "box",
           "position": [
             36,
-            2.2865,
+            2.2762,
             -39
           ],
           "rotation": [
@@ -1691,7 +1796,7 @@
           "type": "box",
           "position": [
             45,
-            3.3457,
+            3.3595,
             -34
           ],
           "rotation": [
@@ -1717,7 +1822,7 @@
           "type": "box",
           "position": [
             38,
-            2.415,
+            2.4039,
             -30
           ],
           "rotation": [
@@ -1743,7 +1848,7 @@
           "type": "box",
           "position": [
             46,
-            2.2717,
+            2.2639,
             -42
           ],
           "rotation": [
@@ -1769,7 +1874,7 @@
           "type": "box",
           "position": [
             40,
-            0.4087,
+            0.4192,
             -36
           ],
           "rotation": [
@@ -1791,11 +1896,11 @@
           "layer": "village"
         },
         {
-          "name": "cylinder-16",
+          "name": "cylinder-12",
           "type": "cylinder",
           "position": [
             37,
-            1.2801,
+            1.2731,
             -36
           ],
           "rotation": [
@@ -1821,7 +1926,7 @@
           "type": "point-light",
           "position": [
             37,
-            2.6801,
+            2.6731,
             -36
           ],
           "rotation": [
@@ -1847,11 +1952,11 @@
           }
         },
         {
-          "name": "cylinder-17",
+          "name": "cylinder-13",
           "type": "cylinder",
           "position": [
             44,
-            1.1714,
+            1.173,
             -33
           ],
           "rotation": [
@@ -1877,7 +1982,7 @@
           "type": "point-light",
           "position": [
             44,
-            2.5714,
+            2.573,
             -33
           ],
           "rotation": [
@@ -1907,7 +2012,7 @@
           "type": "model",
           "position": [
             40,
-            0.0692,
+            0.0762,
             -35
           ],
           "rotation": [
@@ -1941,7 +2046,7 @@
           "type": "model",
           "position": [
             42,
-            -0.1567,
+            -0.1739,
             -37
           ],
           "rotation": [
@@ -1975,7 +2080,7 @@
           "type": "emitter",
           "position": [
             45,
-            7.5087,
+            7.5192,
             -34
           ],
           "rotation": [
@@ -1997,18 +2102,18 @@
           "layer": "village",
           "emitter": {
             "kind": "smoke",
-            "count": 20,
+            "count": 10,
             "size": 0.7,
             "enabled": true,
             "followPlayer": false
           }
         },
         {
-          "name": "cylinder-18",
+          "name": "cylinder-14",
           "type": "cylinder",
           "position": [
             -34,
-            2.4463,
+            2.4472,
             -40
           ],
           "rotation": [
@@ -2031,11 +2136,11 @@
           "detail": 12
         },
         {
-          "name": "cylinder-19",
+          "name": "cylinder-15",
           "type": "cylinder",
           "position": [
             -38.1459,
-            -0.3009,
+            -0.2751,
             -34.2937
           ],
           "rotation": [
@@ -2058,11 +2163,11 @@
           "detail": 12
         },
         {
-          "name": "cylinder-20",
+          "name": "cylinder-16",
           "type": "cylinder",
           "position": [
             -44.8541,
-            1.5652,
+            1.5393,
             -36.4733
           ],
           "rotation": [
@@ -2085,11 +2190,11 @@
           "detail": 12
         },
         {
-          "name": "cylinder-21",
+          "name": "cylinder-17",
           "type": "cylinder",
           "position": [
             -44.8541,
-            1.0728,
+            1.0755,
             -43.5267
           ],
           "rotation": [
@@ -2112,11 +2217,11 @@
           "detail": 12
         },
         {
-          "name": "cylinder-22",
+          "name": "cylinder-18",
           "type": "cylinder",
           "position": [
             -38.1459,
-            3.8591,
+            3.7857,
             -45.7063
           ],
           "rotation": [
@@ -2143,7 +2248,7 @@
           "type": "emitter",
           "position": [
             -40,
-            2.4155,
+            2.4659,
             -40
           ],
           "rotation": [
@@ -2165,7 +2270,7 @@
           "layer": "ruins",
           "emitter": {
             "kind": "sparks",
-            "count": 40,
+            "count": 18,
             "size": 0.14,
             "enabled": true,
             "followPlayer": false
@@ -2176,7 +2281,7 @@
           "type": "emitter",
           "position": [
             -40,
-            0.5155,
+            0.5659,
             -40
           ],
           "rotation": [
@@ -2185,9 +2290,9 @@
             0
           ],
           "scale": [
-            8,
+            6,
             1,
-            8
+            6
           ],
           "color": [
             0.55,
@@ -2198,8 +2303,8 @@
           "layer": "ruins",
           "emitter": {
             "kind": "fog",
-            "count": 30,
-            "size": 3,
+            "count": 12,
+            "size": 1.6,
             "enabled": true,
             "followPlayer": false
           }
@@ -2209,7 +2314,7 @@
           "type": "point-light",
           "position": [
             -40,
-            2.4155,
+            2.4659,
             -40
           ],
           "rotation": [
@@ -2239,7 +2344,7 @@
           "type": "model",
           "position": [
             -40,
-            -0.0845,
+            -0.0341,
             -40
           ],
           "rotation": [
@@ -2273,7 +2378,7 @@
           "type": "sphere",
           "position": [
             -37,
-            1.3155,
+            1.3659,
             -38
           ],
           "rotation": [
@@ -2404,8 +2509,8 @@
         "clipping": "precise",
         "terrainMaterial": "",
         "postfx": {
-          "bloom": 0.5,
-          "grain": 0.25
+          "bloom": 0,
+          "grain": 0
         },
         "fog": {
           "enabled": true,
@@ -2487,7 +2592,7 @@
             }
           },
           "flowGraph": {
-            "nextId": 6,
+            "nextId": 33,
             "nodes": [
               {
                 "id": 1,
@@ -2536,6 +2641,294 @@
                   0,
                   0
                 ]
+              },
+              {
+                "id": 6,
+                "type": "OnButton",
+                "pos": [
+                  40,
+                  200
+                ],
+                "str": "Select",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 7,
+                "type": "OpenMenu",
+                "pos": [
+                  300,
+                  200
+                ],
+                "str": "options",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 9,
+                "type": "OnMenuEvent",
+                "pos": [
+                  40,
+                  300
+                ],
+                "str": "fog-on",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 10,
+                "type": "SetFog",
+                "pos": [
+                  300,
+                  300
+                ],
+                "str": "",
+                "str2": "",
+                "num": [
+                  1,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 12,
+                "type": "OnMenuEvent",
+                "pos": [
+                  40,
+                  370
+                ],
+                "str": "fog-off",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 13,
+                "type": "SetFog",
+                "pos": [
+                  300,
+                  370
+                ],
+                "str": "",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 15,
+                "type": "OnMenuEvent",
+                "pos": [
+                  40,
+                  440
+                ],
+                "str": "grain-on",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 16,
+                "type": "SetGrain",
+                "pos": [
+                  300,
+                  440
+                ],
+                "str": "",
+                "str2": "",
+                "num": [
+                  0.14,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 18,
+                "type": "OnMenuEvent",
+                "pos": [
+                  40,
+                  510
+                ],
+                "str": "grain-off",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 19,
+                "type": "SetGrain",
+                "pos": [
+                  300,
+                  510
+                ],
+                "str": "",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 21,
+                "type": "OnMenuEvent",
+                "pos": [
+                  40,
+                  580
+                ],
+                "str": "bloom-on",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 22,
+                "type": "SetBloom",
+                "pos": [
+                  300,
+                  580
+                ],
+                "str": "",
+                "str2": "",
+                "num": [
+                  0.35,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 24,
+                "type": "OnMenuEvent",
+                "pos": [
+                  40,
+                  650
+                ],
+                "str": "bloom-off",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 25,
+                "type": "SetBloom",
+                "pos": [
+                  300,
+                  650
+                ],
+                "str": "",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 27,
+                "type": "OnMenuEvent",
+                "pos": [
+                  40,
+                  720
+                ],
+                "str": "part-on",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 28,
+                "type": "SetParticles",
+                "pos": [
+                  300,
+                  720
+                ],
+                "str": "",
+                "str2": "",
+                "num": [
+                  1,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 30,
+                "type": "OnMenuEvent",
+                "pos": [
+                  40,
+                  790
+                ],
+                "str": "part-off",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": 31,
+                "type": "SetParticles",
+                "pos": [
+                  300,
+                  790
+                ],
+                "str": "",
+                "str2": "",
+                "num": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
               }
             ],
             "links": [
@@ -2548,6 +2941,51 @@
                 "id": 5,
                 "from": 1,
                 "to": 3
+              },
+              {
+                "id": 8,
+                "from": 6,
+                "to": 7
+              },
+              {
+                "id": 11,
+                "from": 9,
+                "to": 10
+              },
+              {
+                "id": 14,
+                "from": 12,
+                "to": 13
+              },
+              {
+                "id": 17,
+                "from": 15,
+                "to": 16
+              },
+              {
+                "id": 20,
+                "from": 18,
+                "to": 19
+              },
+              {
+                "id": 23,
+                "from": 21,
+                "to": 22
+              },
+              {
+                "id": 26,
+                "from": 24,
+                "to": 25
+              },
+              {
+                "id": 29,
+                "from": 27,
+                "to": 28
+              },
+              {
+                "id": 32,
+                "from": 30,
+                "to": 31
               }
             ]
           }
@@ -2557,7 +2995,7 @@
           "type": "box",
           "position": [
             0,
-            3.3417,
+            3.3378,
             -26
           ],
           "rotation": [
@@ -2623,11 +3061,11 @@
           }
         },
         {
-          "name": "cone-15",
+          "name": "cone-11",
           "type": "cone",
           "position": [
             6,
-            1.7306,
+            1.7451,
             -14
           ],
           "rotation": [
@@ -2654,7 +3092,7 @@
           "type": "point-light",
           "position": [
             6,
-            2.7306,
+            2.7451,
             -14
           ],
           "rotation": [
@@ -2680,11 +3118,11 @@
           }
         },
         {
-          "name": "cone-16",
+          "name": "cone-12",
           "type": "cone",
           "position": [
             -7,
-            3.5172,
+            3.5095,
             -12
           ],
           "rotation": [
@@ -2707,11 +3145,11 @@
           "detail": 8
         },
         {
-          "name": "cone-17",
+          "name": "cone-13",
           "type": "cone",
           "position": [
             10,
-            3.8671,
+            3.8565,
             -4
           ],
           "rotation": [
@@ -2738,7 +3176,7 @@
           "type": "point-light",
           "position": [
             10,
-            5.9671,
+            5.9565,
             -4
           ],
           "rotation": [
@@ -2764,11 +3202,11 @@
           }
         },
         {
-          "name": "cone-18",
+          "name": "cone-14",
           "type": "cone",
           "position": [
             -11,
-            2.3643,
+            2.3571,
             -6
           ],
           "rotation": [
@@ -2791,11 +3229,11 @@
           "detail": 8
         },
         {
-          "name": "cone-19",
+          "name": "cone-15",
           "type": "cone",
           "position": [
             3,
-            3.0905,
+            3.0773,
             2
           ],
           "rotation": [
@@ -2822,7 +3260,7 @@
           "type": "point-light",
           "position": [
             3,
-            4.6405,
+            4.6273,
             2
           ],
           "rotation": [
@@ -2848,7 +3286,7 @@
           }
         },
         {
-          "name": "cone-20",
+          "name": "cone-16",
           "type": "cone",
           "position": [
             -4,
@@ -2879,7 +3317,7 @@
           "type": "emitter",
           "position": [
             0,
-            1.4292,
+            1.43,
             -6
           ],
           "rotation": [
@@ -2888,9 +3326,9 @@
             0
           ],
           "scale": [
-            20,
+            14,
             1,
-            20
+            14
           ],
           "color": [
             0.4,
@@ -2901,8 +3339,8 @@
           "layer": "crystals",
           "emitter": {
             "kind": "fog",
-            "count": 40,
-            "size": 4,
+            "count": 14,
+            "size": 2,
             "enabled": true,
             "followPlayer": false
           }
@@ -2912,7 +3350,7 @@
           "type": "emitter",
           "position": [
             2,
-            2.9292,
+            2.93,
             -8
           ],
           "rotation": [
@@ -2934,7 +3372,7 @@
           "layer": "crystals",
           "emitter": {
             "kind": "sparks",
-            "count": 30,
+            "count": 16,
             "size": 0.1,
             "enabled": true,
             "followPlayer": false
@@ -3007,8 +3445,8 @@
         "clipping": "precise",
         "terrainMaterial": "",
         "postfx": {
-          "bloom": 0.5,
-          "grain": 0.25
+          "bloom": 0,
+          "grain": 0
         },
         "fog": {
           "enabled": true,
@@ -3171,6 +3609,68 @@
         {
           "label": "Save Game",
           "action": "save-menu"
+        }
+      ]
+    },
+    {
+      "name": "options",
+      "title": "GRAPHICS",
+      "pause": false,
+      "panelW": 256,
+      "screenPos": [
+        0.5,
+        0.5
+      ],
+      "accent": [
+        0.5,
+        0.85,
+        1
+      ],
+      "entrySize": 13,
+      "entries": [
+        {
+          "label": "Fog: On",
+          "action": "event",
+          "param": "fog-on"
+        },
+        {
+          "label": "Fog: Off",
+          "action": "event",
+          "param": "fog-off"
+        },
+        {
+          "label": "Grain: On",
+          "action": "event",
+          "param": "grain-on"
+        },
+        {
+          "label": "Grain: Off",
+          "action": "event",
+          "param": "grain-off"
+        },
+        {
+          "label": "Bloom: On",
+          "action": "event",
+          "param": "bloom-on"
+        },
+        {
+          "label": "Bloom: Off",
+          "action": "event",
+          "param": "bloom-off"
+        },
+        {
+          "label": "Particles: On",
+          "action": "event",
+          "param": "part-on"
+        },
+        {
+          "label": "Particles: Off",
+          "action": "event",
+          "param": "part-off"
+        },
+        {
+          "label": "Close",
+          "action": "close"
         }
       ]
     }

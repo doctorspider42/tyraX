@@ -10,7 +10,7 @@ namespace Showcase {
 // project-wide; sky, clipping, post-FX and the usable-highlight can be
 // overridden per scene and live as SCENE_COUNT arrays in scene_data.hpp
 // (reached through the accessor macros defined in scene_data.hpp).
-constexpr int TERRAIN_MAX_CELLS = 64;
+constexpr int TERRAIN_MAX_CELLS = 48;
 
 // Terrain streaming (Preferences > Terrain). The terrain mesh is built in
 // TERRAIN_CHUNK_CELLS x TERRAIN_CHUNK_CELLS tiles; with a view distance > 0
@@ -42,16 +42,16 @@ constexpr bool FRAME_LIMIT = true;
 // Animation LOD (Preferences > Rendering): animated instances farther than
 // this refresh pose/skinning every 2nd frame, every 4th beyond twice the
 // distance (staggered per object). 0 = off. Playback time is unaffected.
-constexpr float ANIM_LOD_DISTANCE = 35.0F;
+constexpr float ANIM_LOD_DISTANCE = 24.0F;
 
 // Mesh LOD (Preferences > Rendering): instances farther than this render
 // the ~50%-vertex variant baked into the .tskl, beyond twice the distance
 // the ~25% one. 0 = off (the build then bakes no LOD chains at all).
-constexpr float MESH_LOD_DISTANCE = 45.0F;
+constexpr float MESH_LOD_DISTANCE = 30.0F;
 
 // Debug-profile HUD (Project > Preferences > Build). Both are forced false
 // in a release-profile build, which folds the overlay code away entirely.
-constexpr bool DEBUG_SHOW_FPS = false;
-constexpr bool DEBUG_SHOW_MEM = false;
+constexpr bool DEBUG_SHOW_FPS = true;
+constexpr bool DEBUG_SHOW_MEM = true;
 
 }  // namespace Showcase

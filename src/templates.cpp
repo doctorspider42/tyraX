@@ -958,6 +958,9 @@ float g_frameScale = 1.0F;
 // beam only shows while BOTH are set, so the toggle respects Enabled.
 bool g_flashEnabled = false;
 bool g_flashOn = true;
+// Global emitter draw switch (Set Particles flow node). false = updateParticles
+// skips all simulation + drawing, so every emitter's fill cost disappears.
+bool g_particlesOn = true;
 
 // Measures the real time since the previous frame (EE COP0 Count register,
 // 294.912 MHz, wrap-safe) and folds it into g_frameDt / g_frameScale.
@@ -1551,6 +1554,26 @@ void TerrainGame::loop() {
   if (scriptCtx.flashlight >= 0) {
     g_flashEnabled = scriptCtx.flashlight != 0;
     scriptCtx.flashlight = -1;
+  }
+  // Runtime graphics switches (Set Fog / Bloom / Grain / Particles flow nodes).
+  if (scriptCtx.fog >= 0) {
+    if (scriptCtx.fog)
+      engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START, FOG_END);
+    else
+      engine->renderer.core.disableFog();
+    scriptCtx.fog = -1;
+  }
+  if (scriptCtx.bloom >= 0) {
+    engine->renderer.core.postFx.setBloom(scriptCtx.bloom);
+    scriptCtx.bloom = -1;
+  }
+  if (scriptCtx.grain >= 0) {
+    engine->renderer.core.postFx.setGrain(scriptCtx.grain);
+    scriptCtx.grain = -1;
+  }
+  if (scriptCtx.particles >= 0) {
+    g_particlesOn = scriptCtx.particles != 0;
+    scriptCtx.particles = -1;
   }
   if (flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
   if (g_flashEnabled && g_flashOn) {
@@ -2759,7 +2782,7 @@ void TerrainGame::buildParticles() {
 }
 
 void TerrainGame::updateParticles() {
-  if (particles.empty()) return;
+  if (particles.empty() || !g_particlesOn) return;  // Set Particles switch
   const float dt = g_frameDt;
 
   // camera right/up shared by every billboard this frame
@@ -4158,6 +4181,26 @@ void TerrainGame::loop() {
     g_flashEnabled = scriptCtx.flashlight != 0;
     scriptCtx.flashlight = -1;
   }
+  // Runtime graphics switches (Set Fog / Bloom / Grain / Particles flow nodes).
+  if (scriptCtx.fog >= 0) {
+    if (scriptCtx.fog)
+      engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START, FOG_END);
+    else
+      engine->renderer.core.disableFog();
+    scriptCtx.fog = -1;
+  }
+  if (scriptCtx.bloom >= 0) {
+    engine->renderer.core.postFx.setBloom(scriptCtx.bloom);
+    scriptCtx.bloom = -1;
+  }
+  if (scriptCtx.grain >= 0) {
+    engine->renderer.core.postFx.setGrain(scriptCtx.grain);
+    scriptCtx.grain = -1;
+  }
+  if (scriptCtx.particles >= 0) {
+    g_particlesOn = scriptCtx.particles != 0;
+    scriptCtx.particles = -1;
+  }
   if (flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
   if (g_flashEnabled && g_flashOn) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
@@ -4827,6 +4870,14 @@ struct ScriptContext {
   // to turn it on, 0 to turn it off, -1 to leave it unchanged; the game
   // applies and resets it. The optional toggle button still gates the beam.
   int flashlight = -1;
+
+  // Runtime graphics switches (Set Fog / Set Bloom / Set Grain / Set Particles
+  // flow nodes). fog / particles: -1 = leave, 0 = off, 1 = on. bloom / grain:
+  // -1 = leave, else a 0..128 fixed-point amount. The game applies and resets.
+  int fog = -1;
+  int bloom = -1;
+  int grain = -1;
+  int particles = -1;
 
   // Save data: named values persisted in memory card slots (SAVE_VALUE_NAMES
   // order, scene_data.hpp). Set openSaveMenu = true to open the in-game
@@ -6361,6 +6412,17 @@ std::string flowGraphScript(const Project& p) {
             } else if (n.type == "SetFlashlight") {
                 c << pad << "ctx.flashlight = " << (n.num[0] != 0.0f ? "1" : "0")
                   << ";\n";
+            } else if (n.type == "SetFog") {
+                c << pad << "ctx.fog = " << (n.num[0] != 0.0f ? "1" : "0") << ";\n";
+            } else if (n.type == "SetParticles") {
+                c << pad << "ctx.particles = " << (n.num[0] != 0.0f ? "1" : "0")
+                  << ";\n";
+            } else if (n.type == "SetBloom" || n.type == "SetGrain") {
+                int v = (int)(n.num[0] * 128.0f + 0.5f);
+                if (v < 0) v = 0;
+                if (v > 128) v = 128;
+                c << pad << "ctx." << (n.type == "SetBloom" ? "bloom" : "grain")
+                  << " = " << v << ";\n";
             } else if (n.type == "ShowHud") {
                 c << pad << "ctx.hudVisible = true;\n";
             } else if (n.type == "HideHud") {

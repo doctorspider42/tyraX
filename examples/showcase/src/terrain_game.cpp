@@ -36,6 +36,9 @@ float g_frameScale = 1.0F;
 // beam only shows while BOTH are set, so the toggle respects Enabled.
 bool g_flashEnabled = false;
 bool g_flashOn = true;
+// Global emitter draw switch (Set Particles flow node). false = updateParticles
+// skips all simulation + drawing, so every emitter's fill cost disappears.
+bool g_particlesOn = true;
 
 // Measures the real time since the previous frame (EE COP0 Count register,
 // 294.912 MHz, wrap-safe) and folds it into g_frameDt / g_frameScale.
@@ -669,6 +672,26 @@ void TerrainGame::loop() {
   if (scriptCtx.flashlight >= 0) {
     g_flashEnabled = scriptCtx.flashlight != 0;
     scriptCtx.flashlight = -1;
+  }
+  // Runtime graphics switches (Set Fog / Bloom / Grain / Particles flow nodes).
+  if (scriptCtx.fog >= 0) {
+    if (scriptCtx.fog)
+      engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START, FOG_END);
+    else
+      engine->renderer.core.disableFog();
+    scriptCtx.fog = -1;
+  }
+  if (scriptCtx.bloom >= 0) {
+    engine->renderer.core.postFx.setBloom(scriptCtx.bloom);
+    scriptCtx.bloom = -1;
+  }
+  if (scriptCtx.grain >= 0) {
+    engine->renderer.core.postFx.setGrain(scriptCtx.grain);
+    scriptCtx.grain = -1;
+  }
+  if (scriptCtx.particles >= 0) {
+    g_particlesOn = scriptCtx.particles != 0;
+    scriptCtx.particles = -1;
   }
   if (flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
   if (g_flashEnabled && g_flashOn) {
@@ -1874,7 +1897,7 @@ void TerrainGame::buildParticles() {
 }
 
 void TerrainGame::updateParticles() {
-  if (particles.empty()) return;
+  if (particles.empty() || !g_particlesOn) return;  // Set Particles switch
   const float dt = g_frameDt;
 
   // camera right/up shared by every billboard this frame

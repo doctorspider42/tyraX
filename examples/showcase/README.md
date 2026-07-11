@@ -45,3 +45,17 @@ checked in.
   value (`orbs`) collected from a usable relic, usable-object highlighting, a
   gradient sky dome, ambient music and a spatial campfire sound, and a portal
   pair that switches between the two scenes.
+- **Graphics options menu** — press **Select** for a floating menu that toggles
+  fog, film grain, bloom and particles at runtime (via the Set Fog / Set Bloom /
+  Set Grain / Set Particles flow nodes), so you can trade effects for frame rate.
+
+## Performance
+
+This scene is tuned to hold 50 FPS on real PS2 hardware, where GS fill-rate and
+EE geometry cost dominate (PCSX2's software renderer hides both). Key levers:
+terrain **chunk streaming** (`terrainViewDistance`), a lean skeletal model +
+anim/mesh **LOD**, per-object **draw distance**, modest particle pools, and
+post-FX (bloom/grain) off by default. The on-screen **FPS + free-RAM overlay**
+is on (`buildProfile: debug`); combined with the Select options menu it lets you
+measure each effect's cost on hardware. For the clean look, set `buildProfile`
+to `release` and turn `showFps`/`showMemory` off in Preferences.

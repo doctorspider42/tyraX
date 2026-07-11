@@ -33,6 +33,33 @@ class FlowGraphScript_0_0 : public Script {
         song.play();
       }
     }
+    if (ctx.engine->pad.getClicked().Select) {
+      ctx.openMenu = 2;  // "options"
+    }
+    if (ctx.menuEvent == 0) {  // "fog-on"
+      ctx.fog = 1;
+    }
+    if (ctx.menuEvent == 1) {  // "fog-off"
+      ctx.fog = 0;
+    }
+    if (ctx.menuEvent == 2) {  // "grain-on"
+      ctx.grain = 18;
+    }
+    if (ctx.menuEvent == 3) {  // "grain-off"
+      ctx.grain = 0;
+    }
+    if (ctx.menuEvent == 4) {  // "bloom-on"
+      ctx.bloom = 45;
+    }
+    if (ctx.menuEvent == 5) {  // "bloom-off"
+      ctx.bloom = 0;
+    }
+    if (ctx.menuEvent == 6) {  // "part-on"
+      ctx.particles = 1;
+    }
+    if (ctx.menuEvent == 7) {  // "part-off"
+      ctx.particles = 0;
+    }
   }
 
  private:
@@ -128,8 +155,8 @@ class FlowGraphScript_0_10 : public Script {
   bool near1 = false;
 };
 
-// Scene "vale": graph of "relic-orb" (object 67)
-class FlowGraphScript_0_67 : public Script {
+// Scene "vale": graph of "relic-orb" (object 59)
+class FlowGraphScript_0_59 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
@@ -140,9 +167,9 @@ class FlowGraphScript_0_67 : public Script {
       started = false;
     }
     frame++;
-    if (ctx.usedObject == 67) {
+    if (ctx.usedObject == 59) {
       ctx.saveValues[0] += 1.0F;  // "orbs"
-      ctx.objects[67].visible = false;
+      ctx.objects[59].visible = false;
     }
   }
 
@@ -168,6 +195,33 @@ class FlowGraphScript_1_0 : public Script {
       started = true;
       applySceneGrading(ctx.engine, 1);  // "Nightfall"
       ctx.flashlight = 1;
+    }
+    if (ctx.engine->pad.getClicked().Select) {
+      ctx.openMenu = 2;  // "options"
+    }
+    if (ctx.menuEvent == 0) {  // "fog-on"
+      ctx.fog = 1;
+    }
+    if (ctx.menuEvent == 1) {  // "fog-off"
+      ctx.fog = 0;
+    }
+    if (ctx.menuEvent == 2) {  // "grain-on"
+      ctx.grain = 18;
+    }
+    if (ctx.menuEvent == 3) {  // "grain-off"
+      ctx.grain = 0;
+    }
+    if (ctx.menuEvent == 4) {  // "bloom-on"
+      ctx.bloom = 45;
+    }
+    if (ctx.menuEvent == 5) {  // "bloom-off"
+      ctx.bloom = 0;
+    }
+    if (ctx.menuEvent == 6) {  // "part-on"
+      ctx.particles = 1;
+    }
+    if (ctx.menuEvent == 7) {  // "part-off"
+      ctx.particles = 0;
     }
   }
 
@@ -206,6 +260,6 @@ TYRA_SCRIPT(Showcase::FlowGraphScript_0_0);
 TYRA_SCRIPT(Showcase::FlowGraphScript_0_7);
 TYRA_SCRIPT(Showcase::FlowGraphScript_0_9);
 TYRA_SCRIPT(Showcase::FlowGraphScript_0_10);
-TYRA_SCRIPT(Showcase::FlowGraphScript_0_67);
+TYRA_SCRIPT(Showcase::FlowGraphScript_0_59);
 TYRA_SCRIPT(Showcase::FlowGraphScript_1_0);
 TYRA_SCRIPT(Showcase::FlowGraphScript_1_1);

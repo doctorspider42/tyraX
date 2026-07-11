@@ -216,6 +216,19 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // switch is global and persists across scene changes.
         {"SetGrading", "Set Color Grading", "Scene", false, FlowParamKind::GradingName,
          0, {}, FlowParamKind::None, false, false},
+        // Runtime graphics switches (options menus / perf tuning). Set Fog
+        // On=1 re-applies the scene's own fog, 0 disables it. Set Bloom / Set
+        // Grain take a 0..1 amount (0 = off). Set Particles is a global switch
+        // for every emitter's draw. Handy wired to On Menu Event entries so the
+        // player can toggle expensive effects on real hardware.
+        {"SetFog", "Set Fog", "Scene", false, FlowParamKind::None, 1, {"On"},
+         FlowParamKind::None, false, false},
+        {"SetBloom", "Set Bloom", "Scene", false, FlowParamKind::None, 1, {"Amount"},
+         FlowParamKind::None, false, false},
+        {"SetGrain", "Set Grain", "Scene", false, FlowParamKind::None, 1, {"Amount"},
+         FlowParamKind::None, false, false},
+        {"SetParticles", "Set Particles", "Scene", false, FlowParamKind::None, 1, {"On"},
+         FlowParamKind::None, false, false},
         // HUD (all HUD images at once; the USE prompt is unaffected)
         {"ShowHud", "Show HUD", "HUD", false, FlowParamKind::None, 0, {},
          FlowParamKind::None, false, false},

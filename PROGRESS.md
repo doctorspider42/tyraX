@@ -1558,6 +1558,40 @@ Each finished feature lands as its own commit.
   whole map; `terrainViewDistance` / `fogEnd` can be lowered further together if
   more headroom is needed.
 
+- (68) **Runtime graphics-toggle flow nodes (Set Fog / Bloom / Grain / Particles)**
+  -- four new Scene-category flow nodes that change graphics settings at
+  runtime, mirroring how Set Flashlight / Set Grading already work. Set Fog
+  (On) re-applies the active scene's own fog or disables it; Set Bloom / Set
+  Grain take a 0..1 amount (compiled to the engine's 0..128 fixed point); Set
+  Particles is a global switch that makes `updateParticles` skip all emitter
+  simulation + draw (a new `g_particlesOn`). Each writes a `ScriptContext`
+  field (`fog`/`bloom`/`grain`/`particles`, -1 = leave) that both game loops
+  (orbit + fpp) apply and reset next to the flashlight block; the engine
+  already exposed `setFog`/`disableFog`/`postFx.setBloom`/`setGrain`. UI is the
+  generic flow-node renderer (On = checkbox like Set Flashlight, Amount =
+  DragFloat). Motivating use: wire them to On Menu Event entries so a game can
+  offer a graphics-options menu / let players trade effects for frame rate on
+  real hardware. Verified: editor builds clean; the showcase's options menu
+  generates the expected `ctx.fog/bloom/grain/particles` calls (`0.35 -> 45`,
+  `0.14 -> 18`), compiles under PS2DEV, and an `On Start -> Set Fog(0) + Set
+  Particles(0)` test in PCSX2 visibly removed the fog (terrain extends to the
+  horizon) and every particle. Interactive menu navigation still wants a pad test.
+- (69) **showcase: perf pass + graphics options menu** -- the showcase ran at
+  ~8 FPS on real PS2 hardware (50 in PCSX2, whose software renderer hides GS
+  fill-rate + EE geometry cost). Lightened the scene: the animated wobbler
+  model dropped from 1248 to 123 base verts (skeletal skinning is EE-bound),
+  terrainDetail 64 -> 48, particle pools + the big `fog`-emitter quad sizes cut
+  hard (rain 120 -> 34, cave/ruins fog counts + sizes down), post-FX bloom +
+  grain off by default, tree count 14 -> 10, animLod/meshLod onset pulled in
+  (24 / 30). Added a floating **GRAPHICS options menu** (open with Select) wired
+  to the new Set Fog/Bloom/Grain/Particles nodes so the effects can be toggled
+  live while the on-screen **FPS + free-RAM overlay** (now enabled -- buildProfile
+  debug) is watched, to pinpoint the hardware cost. Verified: `--build` exit 0;
+  PCSX2 boots both scenes at 50 FPS with the overlay, and the toggle nodes work
+  end-to-end. The overlay/debug profile is diagnostic -- flip to release +
+  showFps/showMemory off (a `gen_project` comment notes this) once perf is
+  dialed in on hardware.
+
 ## Done
 
 - Core editor: project creation (orbit/FPP templates), solution files + undo history,

@@ -24,7 +24,7 @@ struct MenuData {
   float screenX, screenY;  // normalized panel-center position
 };
 
-constexpr int MENU_COUNT = 2;
+constexpr int MENU_COUNT = 3;
 
 // menu "title"
 constexpr MenuEntryData MENU_0_ENTRIES[1] = {
@@ -35,18 +35,30 @@ constexpr MenuEntryData MENU_1_ENTRIES[2] = {
     {0, -1, 0.0F},  // Resume
     {2, -1, 0.0F},  // Save Game
 };
+// menu "options"
+constexpr MenuEntryData MENU_2_ENTRIES[8] = {
+    {6, 0, 0.0F},  // Fog: On
+    {6, 1, 0.0F},  // Fog: Off
+    {6, 2, 0.0F},  // Grain: On
+    {6, 3, 0.0F},  // Grain: Off
+    {6, 4, 0.0F},  // Bloom: On
+    {6, 5, 0.0F},  // Bloom: Off
+    {6, 6, 0.0F},  // Particles: On
+    {6, 7, 0.0F},  // Particles: Off
+};
 
 inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
     {"menus/title.png", 256, 256, 182, 136, 24, 1, MENU_0_ENTRIES, 1, 1, 0.5F, 0.5F},  // title
     {"menus/pause.png", 256, 128, 114, 44, 24, 2, MENU_1_ENTRIES, 0, 1, 0.5F, 0.45F},  // pause
+    {"menus/options.png", 256, 256, 242, 44, 22, 8, MENU_2_ENTRIES, 0, 0, 0.5F, 0.5F},  // options
 };
 
 constexpr int TITLE_MENU = 0;
 // The Start button opens/closes this menu in-game (-1 = none)
 constexpr int PAUSE_MENU = 1;
 
-constexpr int MENU_EVENT_COUNT = 0;
+constexpr int MENU_EVENT_COUNT = 8;
 // Names of the "Flow event" entry actions (menuEvent indexes this)
-inline const char* MENU_EVENTS[MENU_EVENT_COUNT > 0 ? MENU_EVENT_COUNT : 1] = {""};
+inline const char* MENU_EVENTS[MENU_EVENT_COUNT > 0 ? MENU_EVENT_COUNT : 1] = {"fog-on", "fog-off", "grain-on", "grain-off", "bloom-on", "bloom-off", "part-on", "part-off"};
 
 }  // namespace Showcase
