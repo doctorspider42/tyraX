@@ -152,6 +152,9 @@ private:
     const GlbInfo& glbInfo(const std::string& relPath);
     // Summary of a standalone .mtl (material lines + missing-texture flags)
     const ModelInfo& materialInfo(const std::string& relPath);
+    // Terrain-material picker (project-wide + per-scene overrides). Lists the
+    // project's .mtl assets; returns true when the selection changed.
+    bool drawTerrainMaterialCombo(const char* label, std::string& matPath);
     // Mirrors res/audio + res/sfx into the music/sounds lists (manual drops
     // are picked up, vanished files are dropped). announce: status even when
     // nothing changed.
@@ -325,6 +328,8 @@ private:
         float color[3] = {1.0f, 1.0f, 1.0f};
         float brightness = 1.0f;  // folded into Kd on save (see saveMaterialFile)
         std::string texture;      // map_Kd, relative to the .mtl dir ("" = none)
+        float tile = 1.0f;        // map_Kd -s: texture repeats per world unit
+                                  // (terrain only; objects have baked UVs)
         std::vector<std::string> extra;  // unrecognized lines, preserved verbatim
     };
     std::vector<MatEdEntry> matEdMats_;

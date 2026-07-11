@@ -56,8 +56,12 @@ public:
     // project root for resolving relative model paths (clears the model cache)
     void setProjectDir(const std::string& dir);
 
-    // terrain texture (PNG, tiled; empty = checker colors) + world units per tile
-    void setTerrainTexture(const std::string& relPath, float scale);
+    // Terrain material, pre-resolved by the caller: the first material's
+    // map_Kd texture (empty = flat color), its Kd tint, whether a material is
+    // assigned (false = checker greens), and the map's "-s" tiling (texture
+    // repeats per world unit, per axis u/v).
+    void setTerrainMaterial(const std::string& texRelPath, const float kd[3],
+                            bool hasMaterial, const float tile[2]);
 
     // "Highlight usable objects" preference: marks usable objects with a wire
     // box in the highlight color (proximity is a game-runtime condition)
@@ -259,8 +263,10 @@ private:
     void drawEmitterPreviews(const std::vector<SceneObject>& objects,
                              const float* viewProj, const float* eye,
                              const float* fwd);
-    std::string terrainTexture_;
-    float terrainTexScale_ = 4.0f;
+    std::string terrainTexture_;  // resolved map_Kd of the terrain material
+    float terrainTile_[2] = {1.0f, 1.0f};  // map_Kd -s: repeats per world unit
+    float terrainKd_[3] = {1.0f, 1.0f, 1.0f};  // terrain material Kd tint
+    bool terrainHasMaterial_ = false;  // false = checker greens fallback
     Mesh wireCube_;  // selection outline (unit cube edges)
     bool usableHighlight_ = false;  // wire box on usable objects
     float usableHighlightCol_[3] = {1.0f, 0.85f, 0.15f};

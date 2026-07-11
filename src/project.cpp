@@ -9,6 +9,7 @@
 #include "history.hpp"
 #include "json.hpp"
 #include "menubake.hpp"
+#include "objparser.hpp"
 #include "templates.hpp"
 
 namespace fs = std::filesystem;
@@ -314,8 +315,8 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << fmtFloat(s.brightness) << " }, \"sky\": { \"color\": " << fmtVec3(s.skyColor)
       << ", \"topColor\": " << fmtVec3(s.skyTopColor) << ", \"dome\": "
       << (s.skyDome ? "true" : "false") << " }, \"clipping\": \"" << s.clipping
-      << "\", \"terrainTexture\": \"" << s.terrainTexture << "\", \"terrainTexScale\": "
-      << fmtFloat(s.terrainTexScale) << ", \"postfx\": { \"bloom\": " << fmtFloat(s.bloom)
+      << "\", \"terrainMaterial\": \"" << s.terrainMaterial
+      << "\", \"postfx\": { \"bloom\": " << fmtFloat(s.bloom)
       << ", \"grain\": " << fmtFloat(s.grain) << " }, \"fog\": { \"enabled\": "
       << (s.fogEnabled ? "true" : "false") << ", \"color\": " << fmtVec3(s.fogColor)
       << ", \"start\": " << fmtFloat(s.fogStart) << ", \"end\": " << fmtFloat(s.fogEnd)
@@ -327,14 +328,14 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
     const SceneOverrides& o = sc.overrides;
     j << ", \"overrides\": { \"lighting\": " << (o.lighting ? "true" : "false")
       << ", \"sky\": " << (o.sky ? "true" : "false") << ", \"clipping\": "
-      << (o.clipping ? "true" : "false") << ", \"terrainTex\": "
-      << (o.terrainTex ? "true" : "false") << ", \"postFx\": " << (o.postFx ? "true" : "false")
+      << (o.clipping ? "true" : "false") << ", \"terrainMat\": "
+      << (o.terrainMat ? "true" : "false") << ", \"postFx\": " << (o.postFx ? "true" : "false")
       << ", \"fog\": " << (o.fog ? "true" : "false")
       << ", \"highlight\": " << (o.highlight ? "true" : "false") << " }";
 }
 
 // Reads a scene's scene-visual settings + override flags. New files carry an
-// "overrides" object; older files carried a top-level "lighting"/"terrainTexture"
+// "overrides" object; older files carried a top-level "lighting"/"terrainTexScale"
 // per scene (always-active) - migrate those with the two flags on.
 static void readSceneVisuals(const json::Value& js, SceneData& sc) {
     ProjectSettings& s = sc.settings;
@@ -356,9 +357,7 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
             }
             if (const auto* v = st->find("clipping"))
                 s.clipping = v->stringOr("precise") == "fast" ? "fast" : "precise";
-            if (const auto* v = st->find("terrainTexture")) s.terrainTexture = v->stringOr("");
-            if (const auto* v = st->find("terrainTexScale"))
-                s.terrainTexScale = (float)v->numberOr(4.0);
+            if (const auto* v = st->find("terrainMaterial")) s.terrainMaterial = v->stringOr("");
             if (const auto* pf = st->find("postfx")) {
                 if (const auto* v = pf->find("bloom")) s.bloom = clamp01((float)v->numberOr(0.0));
                 if (const auto* v = pf->find("grain")) s.grain = clamp01((float)v->numberOr(0.0));
@@ -382,8 +381,12 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
         sc.overrides.lighting = ov->find("lighting") ? ov->find("lighting")->boolOr(false) : false;
         sc.overrides.sky = ov->find("sky") ? ov->find("sky")->boolOr(false) : false;
         sc.overrides.clipping = ov->find("clipping") ? ov->find("clipping")->boolOr(false) : false;
-        sc.overrides.terrainTex =
-            ov->find("terrainTex") ? ov->find("terrainTex")->boolOr(false) : false;
+        // Legacy files carried this flag as "terrainTex" (it gated the terrain
+        // texture, now the terrain material). Accept both keys.
+        sc.overrides.terrainMat =
+            ov->find("terrainMat")   ? ov->find("terrainMat")->boolOr(false)
+            : ov->find("terrainTex") ? ov->find("terrainTex")->boolOr(false)
+                                     : false;
         sc.overrides.postFx = ov->find("postFx") ? ov->find("postFx")->boolOr(false) : false;
         sc.overrides.fog = ov->find("fog") ? ov->find("fog")->boolOr(false) : false;
         sc.overrides.highlight =
@@ -398,14 +401,10 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
             if (const auto* v = li->find("brightness")) s.brightness = (float)v->numberOr(1.0);
             sc.overrides.lighting = true;
         }
-        if (const auto* v = js.find("terrainTexture")) {
-            s.terrainTexture = v->stringOr("");
-            sc.overrides.terrainTex = true;
-        }
-        if (const auto* v = js.find("terrainTexScale"))
-            s.terrainTexScale = (float)v->numberOr(4.0);
+        // Terrain was picked by raw texture + tiling scale in these legacy
+        // files; both are gone now - terrain takes a material whose map "-s"
+        // option carries the tiling. Nothing to migrate here.
     }
-    if (s.terrainTexScale < 0.25f) s.terrainTexScale = 0.25f;
     if (s.brightness < 0.0f) s.brightness = 0.0f;
     if (s.brightness > 2.0f) s.brightness = 2.0f;
     if (s.highlightSteps < 1) s.highlightSteps = 1;
@@ -426,10 +425,7 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         r.skyDome = o.skyDome;
     }
     if (s.overrides.clipping) r.clipping = o.clipping;
-    if (s.overrides.terrainTex) {
-        r.terrainTexture = o.terrainTexture;
-        r.terrainTexScale = o.terrainTexScale;
-    }
+    if (s.overrides.terrainMat) r.terrainMaterial = o.terrainMaterial;
     if (s.overrides.postFx) {
         r.bloom = o.bloom;
         r.grain = o.grain;
@@ -448,6 +444,23 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         r.highlightSteps = o.highlightSteps;
     }
     return r;
+}
+
+TerrainMaterial resolveTerrainMaterial(const Project& p, const std::string& matRel) {
+    TerrainMaterial out;
+    if (matRel.empty()) return out;
+    std::vector<objparser::MtlMaterial> mats;
+    const std::string full = (fs::path(p.dir) / matRel).string();
+    if (!objparser::loadMtl(full, mats) || mats.empty()) return out;
+    const objparser::MtlMaterial& m = mats.front();
+    out.present = true;
+    for (int i = 0; i < 3; ++i) out.kd[i] = m.kd[i];
+    out.tile[0] = m.scale[0];
+    out.tile[1] = m.scale[1];
+    // map_Kd is relative to the .mtl's own directory.
+    if (!m.texture.empty())
+        out.texture = (fs::path(matRel).parent_path() / m.texture).generic_string();
+    return out;
 }
 
 std::string save(const Project& p) {
@@ -486,8 +499,7 @@ std::string save(const Project& p) {
          << "    \"diffuse\": " << fmtFloat(p.settings.diffuse) << ",\n"
          << "    \"lightColor\": " << fmtVec3(p.settings.lightColor) << ",\n"
          << "    \"brightness\": " << fmtFloat(p.settings.brightness) << ",\n"
-         << "    \"terrainTexture\": \"" << p.settings.terrainTexture << "\",\n"
-         << "    \"terrainTexScale\": " << fmtFloat(p.settings.terrainTexScale) << ",\n"
+         << "    \"terrainMaterial\": \"" << p.settings.terrainMaterial << "\",\n"
          << "    \"bloom\": " << fmtFloat(p.settings.bloom) << ",\n"
          << "    \"grain\": " << fmtFloat(p.settings.grain) << ",\n"
          << "    \"fogEnabled\": " << (p.settings.fogEnabled ? "true" : "false")
@@ -1070,10 +1082,7 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = s->find("brightness")) st.brightness = (float)v->numberOr(1.0);
         if (st.brightness < 0.0f) st.brightness = 0.0f;
         if (st.brightness > 2.0f) st.brightness = 2.0f;
-        if (const auto* v = s->find("terrainTexture")) st.terrainTexture = v->stringOr("");
-        if (const auto* v = s->find("terrainTexScale"))
-            st.terrainTexScale = (float)v->numberOr(4.0);
-        if (st.terrainTexScale < 0.25f) st.terrainTexScale = 0.25f;
+        if (const auto* v = s->find("terrainMaterial")) st.terrainMaterial = v->stringOr("");
         auto clamp01 = [](float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
         if (const auto* v = s->find("bloom")) st.bloom = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("grain")) st.grain = clamp01((float)v->numberOr(0.0));

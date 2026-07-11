@@ -86,6 +86,50 @@ Each finished feature lands as its own commit.
   code review + compile only, while the selection→highlight→panel pipeline they
   feed is confirmed working.
 
+- (65) **Terrain picks a material, not a raw texture — tiling comes from the
+  material too** — the terrain used to take a loose PNG
+  (`ProjectSettings::terrainTexture` + a `terrainTexScale` slider, project-wide
+  + per-scene override); it now takes a Wavefront **material** (`.mtl`) like
+  every solid object, so the terrain carries its color, texture *and* tiling
+  from one asset. The model field is `terrainMaterial` (the whole
+  `terrainTexScale` field is gone); the override flag
+  `SceneOverrides::terrainTex` became `terrainMat` (the loader still reads the
+  old `"terrainTex"` key so existing per-scene overrides survive). The first
+  material's **Kd** tints the terrain, its **map_Kd** (when present) textures
+  it, and the map's **`-s <u> <v>`** option (standard Wavefront texture-scale,
+  a UV multiplier) drives tiling as *repeats per world unit, per axis* —
+  previously discarded by the parser, now read by `objparser` into
+  `MtlMaterial::scale[2]`. A material with no texture yields a flat Kd-colored
+  surface; no material at all keeps the two-green checker. Old projects lose
+  their raw terrain texture and its tiling (a PNG can't become a material) per
+  an explicit product decision. A shared resolver
+  `project::resolveTerrainMaterial()` returns a `TerrainMaterial{present,
+  texture, kd, tile}` so codegen, the editor viewport and the ISO planner
+  agree. Codegen (`texture_data.gen.hpp`) emits `TERRAIN_HAS_MATERIALS[]`,
+  `TERRAIN_TINTS[][3]`, and `TERRAIN_TILE_US[]`/`TERRAIN_TILE_VS[]` (replacing
+  `TERRAIN_TEX_SCALES[]`) next to `TERRAIN_TEXTURES[]`; the terrain runtime
+  folds the tint into the per-cell base color (textured → Kd·128 modulation,
+  flat → Kd·255) and its UVs become `worldPos·tile`, and the viewport mirrors
+  both formulas. The material is compiled away — only its texture reaches the
+  disc — so the ISO planner groups that texture, not the `.mtl`. Editor: the
+  Preferences and Scene-override "Terrain texture" pickers (and the tile slider)
+  are replaced by a "Terrain material" combo listing the project's `.mtl`
+  assets; the **Material Editor gained a "Tile repeat" field** that reads/writes
+  the `map_Kd -s` option (uniform in the UI, per-axis preserved for hand-edited
+  files); deleting a material asset now also clears any terrain that referenced
+  it. Verified: editor builds clean; a scratch fpp project set to a textured
+  material (`Kd 0.6 0.4 0.2` + `map_Kd`) generates `TERRAIN_TEXTURES={0}`,
+  `TERRAIN_HAS_MATERIALS={true}`, `TERRAIN_TINTS={{0.6,0.4,0.2}}`; with no `-s`
+  the tiles are `{1.0}`, and with `map_Kd -s 0.25 0.5 1` they become
+  `TERRAIN_TILE_US={0.25}` / `TERRAIN_TILE_VS={0.5}` (per-axis parse); a
+  color-only material generates `TERRAIN_TEXTURES={-1}` with the same tint —
+  all compile under the PS2DEV toolchain (Docker build exit 0). The editor
+  viewport and PCSX2 (SW renderer, 50 FPS) both render the terrain as the
+  texture tinted warm brown and tiled per `-s`, confirming the twin
+  editor/game formulas match. (Material Editor slider round-trip verified by
+  code + the hand-authored `-s` parse; the in-GUI drag still wants a human
+  pass — synthetic mouse input doesn't reach the GLFW window here.)
+
 - (63) **Delete assets from the editor (with confirmation)** — until now the
   only way to remove a model, material, texture or HUD image was to delete the
   file by hand in Explorer, and the Music/Sounds `x` deleted the file instantly
