@@ -15,3 +15,9 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the game loads/unloads from memory at runtime (GTA3-style interior
   streaming): the Layers panel, the Load / Unload / Is Layer Loaded flow
   nodes, the corridor trigger pattern, what gets freed, troubleshooting.
+
+Developer design docs (internals, not user guides):
+
+- [VU1 clipping plan](vu1-clipping-plan.md) - measured EE-clipper cost on
+  real hardware (2026-07-11) and the design + milestones for moving StaPip
+  clipping into a VU1 microprogram.
