@@ -152,6 +152,9 @@ private:
     const GlbInfo& glbInfo(const std::string& relPath);
     // Summary of a standalone .mtl (material lines + missing-texture flags)
     const ModelInfo& materialInfo(const std::string& relPath);
+    // Terrain-material picker (project-wide + per-scene overrides). Lists the
+    // project's .mtl assets; returns true when the selection changed.
+    bool drawTerrainMaterialCombo(const char* label, std::string& matPath);
     // Mirrors res/audio + res/sfx into the music/sounds lists (manual drops
     // are picked up, vanished files are dropped). announce: status even when
     // nothing changed.
@@ -160,7 +163,6 @@ private:
     // (16-bit PCM 22050 Hz); music = the song player rules.
     const std::string& wavIssue(const std::string& relPath, bool sfx);
     std::map<std::string, std::string> wavIssueCache_;
-    void drawHudSection();
     void importHudImage();
     void drawMusicSection();
     void importMusicTrack();
@@ -197,6 +199,10 @@ private:
     void drawMenusWindow();
     void drawGradingWindow();
     void drawAmbienceWindow();
+    // UI Editor (Tools > UI Editor): the screen stack - HUD images plus the
+    // full-screen effects layer (bloom/grain), reorderable so effects can sit
+    // under the crosshair/text instead of blurring them.
+    void drawUiEditorWindow();
     // Material Editor (Tools > Material Editor): authors the .mtl files the
     // whole pipeline already consumes (newmtl/Kd/map_Kd) with a live preview.
     void drawMaterialEditorWindow();
@@ -300,8 +306,12 @@ private:
     bool showNtsc_ = false;
     bool showHudInEditor_ = false;  // HUD preview overlay (default hidden)
 
-    // HUD editing
+    // UI Editor (Tools > UI Editor): selected screen-stack entry - a HUD image
+    // (uiFxSel_ == 0, index in selectedHud_) or an effect layer (uiFxSel_ 1 =
+    // bloom + color grading, 2 = film grain).
+    bool showUiEditor_ = false;
     int selectedHud_ = -1;
+    int uiFxSel_ = 0;
 
     // Menus editing (Menu Editor window): selected menu + a live preview of
     // the baked panel (re-baked whenever the menu's content changes)
@@ -339,6 +349,8 @@ private:
         float color[3] = {1.0f, 1.0f, 1.0f};
         float brightness = 1.0f;  // folded into Kd on save (see saveMaterialFile)
         std::string texture;      // map_Kd, relative to the .mtl dir ("" = none)
+        float tile = 1.0f;        // map_Kd -s: texture repeats per world unit
+                                  // (terrain only; objects have baked UVs)
         std::vector<std::string> extra;  // unrecognized lines, preserved verbatim
     };
     std::vector<MatEdEntry> matEdMats_;

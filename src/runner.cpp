@@ -374,10 +374,31 @@ void Runner::stopPs2(const Project& p) {
             if (!silencer.empty()) {
                 for (int i = 0; i < 12 && !cancelRequested_; i++) Sleep(250);
                 const std::string dir = fs::path(silencer).parent_path().string();
-                exec("start \"\" /B \"" + client + "\" -h " + p.ps2LinkIp +
-                         " execee host:silencer.elf",
-                     dir);
-                for (int i = 0; i < 16 && !cancelRequested_; i++) Sleep(250);
+                // Spawn the execee file server DIRECTLY, not via exec() + a
+                // "start /B" wrapper. That wrapper let ps2client inherit exec()'s
+                // stdout pipe; because the silencer's file server never exits on
+                // its own, the pipe never reached EOF and exec()'s read loop
+                // blocked forever - hanging Stop at "Executing file host:...elf"
+                // and leaving the build stuck Running. Here nothing is inherited,
+                // so we just launch, give the silencer a few seconds to load
+                // audsrv and reset the SPU, then kill the file server ourselves.
+                appendLine("[editor] Silencing the SPU (host:silencer.elf)...");
+                std::string cmd = "\"" + client + "\" -h " + p.ps2LinkIp +
+                                  " execee host:silencer.elf";
+                STARTUPINFOA si{};
+                si.cb = sizeof(si);
+                PROCESS_INFORMATION pi{};
+                if (CreateProcessA(nullptr, cmd.data(), nullptr, nullptr, FALSE,
+                                   CREATE_NO_WINDOW, nullptr, dir.c_str(), &si,
+                                   &pi)) {
+                    for (int i = 0; i < 16 && !cancelRequested_; i++) Sleep(250);
+                    TerminateProcess(pi.hProcess, 1);
+                    CloseHandle(pi.hProcess);
+                    CloseHandle(pi.hThread);
+                } else {
+                    appendLine("[editor] Failed to start: " + cmd);
+                }
+                // Belt and suspenders: reap the just-killed server and any stray.
                 exec("taskkill /F /IM ps2client.exe 2>nul & exit 0", "");
                 appendLine("[editor] SPU silenced; ps2link is listening again.");
             } else {

@@ -8,7 +8,9 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 # Modified by tyra-editor: drained3DFor2D flag (PATH1 drain before 2D sprites),
 # GS hardware distance fog state (setFog/disableFog), camera spot light
-# (setSpotLight/disableSpotLight - the camera flashlight)
+# (setSpotLight/disableSpotLight - the camera flashlight), applyPostFx()
+# (mid-frame post fx, per-pass, so HUD sprites can draw crisp on top of
+# bloom while film grain still sits over everything)
 */
 
 #pragma once
@@ -132,6 +134,18 @@ class RendererCore {
   /** Clear screen and update view frustum for frustum culling. 3D support */
   void beginFrame(const CameraInfo3D& cameraInfo);
 
+  /**
+   * Apply a subset of the full-screen post effects NOW instead of at endFrame
+   * (tyra-editor fork). `passes` is a RendererCorePostFx::Pass bitmask - the
+   * UI Editor screen stack applies bloom(+grading) and grain at independent
+   * points, e.g. bloom under the HUD, grain over everything. Call it
+   * mid-frame - after the scene, before the HUD sprites you want on top.
+   * Each pass runs at most once per frame; endFrame() composites whatever is
+   * still unapplied. The PATH1 drain barrier (endFrame's) runs once, on the
+   * first pass that actually draws.
+   */
+  void applyPostFx(int passes = RendererCorePostFx::PassAll);
+
   /** VSync and swap frame double buffer. */
   void endFrame();
 
@@ -146,6 +160,12 @@ class RendererCore {
 
  private:
   bool isFrameLimitOn;
+  // Which post fx passes already ran this frame (RendererCorePostFx::Pass
+  // bits) - endFrame composites the rest. postFxDrained: the PATH1 barrier
+  // has run once this frame (only needed before the first pass that draws).
+  // Both reset by beginFrame.
+  int postFxAppliedMask = 0;
+  bool postFxDrained = false;
   Color bgColor;
   RendererSettings settings;
   Path3 path3;

@@ -63,6 +63,15 @@ class TerrainGame : public Tyra::Game {
       std::unique_ptr<Tyra::StaPipColorBag> colorBag;
       std::unique_ptr<Tyra::StaPipTextureBag> texBag;
       std::unique_ptr<Tyra::StaPipLightingBag> lightBag;
+      // The lit StaPip VU1 programs (_d/_td) derive the vertex color purely
+      // from the directional lights - they never read a base/vertex color -
+      // so an untextured mesh would render in the plain scene light color
+      // (i.e. gray). This part's material albedo is folded into its own light
+      // and ambient colors instead (outputColor = albedo * sceneLighting),
+      // matching how the editor viewport tints the .glb. Directions stay
+      // shared (animLightDirs); only the colors carry the per-part tint.
+      std::unique_ptr<Tyra::PipelineDirLightsBag> animLights;
+      Tyra::Vec4 litColors[4];
     };
     std::vector<AnimPart> animParts;
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
@@ -175,9 +184,12 @@ class TerrainGame : public Tyra::Game {
   void buildSkyDome();
   void rebuildObjectGeometry(int index);
   // Player-vs-objects collision shared by both walkers: box (scale box or
-  // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision
+  // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision.
+  // ceiling receives the lowest overhead surface so the walkers can keep the
+  // camera from poking into geometry from below (jump clamp).
   void collidePlayer(float prevX, float prevZ, float* nextX, float* nextZ,
-                     float feetY, float eyeHeight, float* ground);
+                     float feetY, float eyeHeight, float* ground,
+                     float* ceiling);
   void updateObjectPhysics();
   void renderScene();
   void renderHighlightHull(int index);

@@ -29,6 +29,14 @@ float g_frameRate = 50.0F;
 float g_frameDt = 1.0F / 50.0F;
 float g_frameScale = 1.0F;
 
+// Camera flashlight runtime state (a Player object property; declared in
+// scene_data.hpp). g_flashEnabled is the master switch - seeded per scene from
+// the player's Enabled flag in loadScene, flipped by the Set Flashlight flow
+// node. g_flashOn is the on/off state the optional toggle button drives; the
+// beam only shows while BOTH are set, so the toggle respects Enabled.
+bool g_flashEnabled = false;
+bool g_flashOn = true;
+
 // Measures the real time since the previous frame (EE COP0 Count register,
 // 294.912 MHz, wrap-safe) and folds it into g_frameDt / g_frameScale.
 // Within 10% of the nominal vsync step it snaps to exactly nominal, so a
@@ -145,26 +153,51 @@ V3 shadeOf(const V3& n) {
   return s;
 }
 
-/** Point lights (SceneObject type 9) in the active scene, baked additively on
- * top of the directional term. Linear distance falloff * N.L, tinted by the
- * light color and scaled by its brightness. wp = world-space vertex position. */
-V3 pointLightAt(const V3& wp, const V3& n) {
-  V3 add = {0.0F, 0.0F, 0.0F};
+/** Point lights (SceneObject type 9) of the active scene, collected once per
+ * scene load. pointLightAt runs PER VERTEX while baking terrain chunks and
+ * object meshes; scanning the whole SCENE_OBJECTS table there thrashes the
+ * EE's 16 KB dcache on big scenes - an 1100-object scene cost ~170 ms per
+ * 16x16 terrain chunk (a visible hitch on every chunk-border crossing).
+ * Lights are static authored data, so the tiny list is exact. */
+struct BakedPointLight {
+  V3 pos;
+  float color[3];
+  float radius, bright;
+};
+std::vector<BakedPointLight> g_scenePointLights;
+void collectScenePointLights() {
+  g_scenePointLights.clear();
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     const SceneObjectData& L = SCENE_OBJECTS[i];
     if (L.type != 9) continue;
-    const float radius = L.lightRadius > 0.01F ? L.lightRadius : 0.01F;
-    V3 d = {L.position[0] - wp.x, L.position[1] - wp.y, L.position[2] - wp.z};
+    BakedPointLight b;
+    b.pos = {L.position[0], L.position[1], L.position[2]};
+    b.color[0] = L.color[0];
+    b.color[1] = L.color[1];
+    b.color[2] = L.color[2];
+    b.radius = L.lightRadius > 0.01F ? L.lightRadius : 0.01F;
+    b.bright = L.lightBright;
+    g_scenePointLights.push_back(b);
+  }
+}
+
+/** Point lights baked additively on top of the directional term. Linear
+ * distance falloff * N.L, tinted by the light color and scaled by its
+ * brightness. wp = world-space vertex position. */
+V3 pointLightAt(const V3& wp, const V3& n) {
+  V3 add = {0.0F, 0.0F, 0.0F};
+  for (const BakedPointLight& L : g_scenePointLights) {
+    V3 d = {L.pos.x - wp.x, L.pos.y - wp.y, L.pos.z - wp.z};
     const float dist = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
-    if (dist >= radius) continue;
-    float atten = 1.0F - dist / radius;
+    if (dist >= L.radius) continue;
+    float atten = 1.0F - dist / L.radius;
     atten *= atten;  // softer, rounder pool of light
     float ndotl = 1.0F;
     if (dist > 0.0001F) {
       ndotl = (n.x * d.x + n.y * d.y + n.z * d.z) / dist;
       if (ndotl < 0.0F) ndotl = 0.0F;
     }
-    const float k = L.lightBright * atten * ndotl;
+    const float k = L.bright * atten * ndotl;
     add.x += k * L.color[0];
     add.y += k * L.color[1];
     add.z += k * L.color[2];
@@ -443,10 +476,13 @@ TerrainGame::~TerrainGame() {}
 void TerrainGame::init() {
   // Engine clipper fix: the default clipMargin (-10.0F) moves the near
   // clipping plane ~10 units away from the camera, cutting away nearby
-  // geometry. Clip right in front of the real near plane instead.
-  // (read by the clipper during setRenderer below)
+  // geometry. Clip 0.15 units in front of the camera instead - just past
+  // the real near plane (0.1) and closer than the collision clearance the
+  // walkers guarantee (playerRadius 0.35, EYE_CLEARANCE 0.2), so a wall
+  // the player presses against can never fall in front of the clip plane
+  // and open a see-through hole. (read during setRenderer below)
   PlanesClipAlgorithm::clipMargin =
-      -(engine->renderer.core.getSettings().getNear() + 0.5F);
+      -(engine->renderer.core.getSettings().getNear() + 0.15F);
 
   // Wall-clock normalization: per-frame steps below are tuned for 50 Hz;
   // g_frameScale stretches them so NTSC's 60 Hz plays at the same speed.
@@ -626,8 +662,16 @@ void TerrainGame::loop() {
   updateParticles();
   updateSoundEmitters();
 
-  // Camera-attached flashlight (Scene/Project > Preferences > Flashlight).
-  if (FLASHLIGHT_ENABLED) {
+  // Camera flashlight (Player object > Flashlight). The Set Flashlight flow
+  // node drives the master (scriptCtx.flashlight: 0 off / 1 on / -1 = leave);
+  // the optional toggle button flips the on/off state. The beam shows only
+  // while both are set, so the toggle respects the Enabled master.
+  if (scriptCtx.flashlight >= 0) {
+    g_flashEnabled = scriptCtx.flashlight != 0;
+    scriptCtx.flashlight = -1;
+  }
+  if (flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
+  if (g_flashEnabled && g_flashOn) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
     engine->renderer.core.setSpotLight(
         Color(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B), cameraPosition,
@@ -639,8 +683,20 @@ void TerrainGame::loop() {
   {
     engine->renderer.renderer3D.usePipeline(stapip);
     renderScene();
-    if (scriptCtx.hudVisible)
-      for (auto& sprite : hudSprites) engine->renderer.renderer2D.render(sprite);
+    // Full-screen effects can sit inside the HUD stack (Tools > UI Editor):
+    // bloom (with color grading) and film grain composite at independent
+    // points, so sprites drawn afterwards stay crisp on top of them. -1 = the
+    // pass applies at endFrame, over everything (menus included).
+    for (int i = 0; i < (int)hudSprites.size(); ++i) {
+      if (i == HUD_BLOOM_LAYER)
+        engine->renderer.core.applyPostFx(
+            Tyra::RendererCorePostFx::PassBloom |
+            Tyra::RendererCorePostFx::PassGrading);
+      if (i == HUD_GRAIN_LAYER)
+        engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassGrain);
+      if (scriptCtx.hudVisible)
+        engine->renderer.renderer2D.render(hudSprites[i]);
+    }
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
     renderGameMenu();
     renderSaveMenu();
@@ -668,12 +724,6 @@ void TerrainGame::buildScene() {
   g_animGame = this;
   scriptCtx.resolveClip = &animResolveClipThunk;
 
-  vertices.clear();
-  colors.clear();
-  terrainSts.clear();
-
-  generateTerrainGrid();
-
   infoBag = std::make_unique<StaPipInfoBag>();
   infoBag->model = &model;
   infoBag->shadingType = TyraShadingFlat;
@@ -685,23 +735,8 @@ void TerrainGame::buildScene() {
   // window and smears giant polygons (faithful on real HW / SW renderer).
   infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
   infoBag->fullClipChecks = CLIP_PRECISE;
-
-  colorBag = std::make_unique<StaPipColorBag>();
-  colorBag->many = colors.data();
-
-  bag = std::make_unique<StaPipBag>();
-  bag->info = infoBag.get();
-  bag->color = colorBag.get();
-  bag->vertices = vertices.data();
-  bag->count = static_cast<u32>(vertices.size());
-  bag->texture = nullptr;
-  bag->lighting = nullptr;
-
-  if (TERRAIN_TEXTURE >= 0 && loadedTextures[TERRAIN_TEXTURE]) {
-    terrainTexBag.texture = loadedTextures[TERRAIN_TEXTURE];
-    terrainTexBag.coordinates = terrainSts.data();
-    bag->texture = &terrainTexBag;
-  }
+  // The terrain mesh itself is built per chunk by loadScene(0) below
+  // (resetTerrainChunks + the synchronous chunk drain).
 
   // Runtime copies of the scene objects - scripts and physics mutate these.
   skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
@@ -1155,11 +1190,12 @@ void TerrainGame::setupAnimObject(int index) {
     // texture links are per material id and every instance has fresh ids
     if (m < gam.textures.size() && gam.textures[m])
       gam.textures[m]->addLink(mat->id);
-    // per-instance tint: object color multiplies the material base color
+    // material albedo (glTF baseColorFactor). The lit VU1 programs ignore
+    // this single color - it rides in the per-part light colors below - but
+    // it is kept in sync for any single-color path that may read it.
     const float* base = gam.src->parts[m].color;
-    mat->ambient.set(base[0] * 128.0F * o.data.color[0],
-                     base[1] * 128.0F * o.data.color[1],
-                     base[2] * 128.0F * o.data.color[2], 128.0F);
+    mat->ambient.set(base[0] * 128.0F, base[1] * 128.0F, base[2] * 128.0F,
+                     128.0F);
   }
 
   // Static-pipeline bags around the skinned arrays (rebuilt in place every
@@ -1181,7 +1217,24 @@ void TerrainGame::setupAnimObject(int index) {
     ap.lightBag = std::make_unique<StaPipLightingBag>();
     ap.lightBag->lightMatrix = &g.animMat;
     ap.lightBag->normals = frame->normals;
-    ap.lightBag->dirLights = &animDirLights;
+    // Fold this part's material albedo into its light colors so the lit VU1
+    // program renders the .glb material color (outputColor = albedo * light),
+    // not the plain scene light color (gray). Scene light/ambient here mirror
+    // updateAndRenderAnimObjects; directions stay shared (animLightDirs).
+    {
+      const float* base = gam.src->parts[m].color;
+      const float amb = 128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT;
+      const float dif = 128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE;
+      ap.litColors[0].set(dif * SCENE_LIGHT_COL_R * base[0],
+                          dif * SCENE_LIGHT_COL_G * base[1],
+                          dif * SCENE_LIGHT_COL_B * base[2], 1.0F);
+      ap.litColors[1].set(0.0F, 0.0F, 0.0F, 1.0F);
+      ap.litColors[2].set(0.0F, 0.0F, 0.0F, 1.0F);
+      ap.litColors[3].set(amb * base[0], amb * base[1], amb * base[2], 128.0F);
+      ap.animLights = std::make_unique<PipelineDirLightsBag>(true);
+      ap.animLights->setLightsManually(ap.litColors, animLightDirs);
+      ap.lightBag->dirLights = ap.animLights.get();
+    }
     ap.bag = std::make_unique<StaPipBag>();
     ap.bag->info = g.animInfoBag.get();
     ap.bag->color = ap.colorBag.get();
@@ -1408,15 +1461,22 @@ void TerrainGame::updateAndRenderAnimObjects() {
   }
 }
 
+// Minimum gap kept between the camera eye and any surface overhead. Must
+// stay larger than the near clip distance (0.15, see clipMargin in init())
+// or looking up at a ceiling the head touches would open a see-through hole.
+constexpr float EYE_CLEARANCE = 0.2F;
+
 // Shared player-vs-scene collision (both walkers). Box mode reproduces the
 // classic behavior (XZ box + stand-on-top + step up 0.5), with models sized
 // by their real mesh AABB instead of the unit scale box. Mesh mode collides
 // with the model's triangles in object-local space: a downward ray finds the
 // walkable ground (ramps/stairs work) and steep faces push the player out
 // like walls. Rotation is honored in mesh mode and ignored in box mode.
+// ceiling collects the lowest surface overhead (box undersides, mesh hits of
+// an upward ray) so the walkers can clamp jumps below it.
 void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
                                 float* nextZ, float feetY, float eyeHeight,
-                                float* ground) {
+                                float* ground, float* ceiling) {
   const float playerRadius = 0.35F;
   for (const RuntimeObject& o : runtimeObjects) {
     if (!o.active || !o.visible || o.data.type == 4 || o.data.type == 6 ||
@@ -1475,6 +1535,24 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
           if (hit.y > *ground) *ground = hit.y;
         }
       }
+
+      // ceiling: a ray from step height straight up past the head finds the
+      // underside of overhead geometry (door lintels, floors jumped against)
+      const V3 co = toLocal(*nextX, feetY + 0.5F, *nextZ);
+      const V3 cq =
+          toLocal(*nextX, feetY + eyeHeight + EYE_CLEARANCE + 1.0F, *nextZ);
+      V3 cd = {cq.x - co.x, cq.y - co.y, cq.z - co.z};
+      const float cl = sqrtf(cd.x * cd.x + cd.y * cd.y + cd.z * cd.z);
+      if (cl > 0.0001F) {
+        cd.x /= cl, cd.y /= cl, cd.z /= cl;
+        float t;
+        if (gm->collider.raycast(Vec4(co.x, co.y, co.z, 1.0F),
+                                 Vec4(cd.x, cd.y, cd.z, 0.0F), cl, &t)) {
+          const V3 hit =
+              toWorld({co.x + cd.x * t, co.y + cd.y * t, co.z + cd.z * t});
+          if (hit.y < *ceiling) *ceiling = hit.y;
+        }
+      }
       continue;
     }
 
@@ -1511,7 +1589,23 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     if (feetY + 0.5F >= top) {
       // low enough to walk onto - candidate floor
       if (top > *ground) *ground = top;
-    } else if (feetY < top && feetY + eyeHeight > bottom) {
+    } else if (bottom >= feetY + eyeHeight) {
+      // box entirely above the head - overhead surface for the jump clamp
+      if (bottom < *ceiling) *ceiling = bottom;
+      if (bottom < feetY + eyeHeight + EYE_CLEARANCE) {
+        // walking under would leave the eye closer than the clip plane -
+        // block, unless the player is already under it (let them walk out)
+        const bool wasInsideX = prevX > cx - hx && prevX < cx + hx;
+        const bool wasInsideZ = prevZ > cz - hz && prevZ < cz + hz;
+        if (!wasInsideX || !wasInsideZ) {
+          if (!wasInsideX) *nextX = prevX;
+          if (!wasInsideZ) *nextZ = prevZ;
+        }
+      }
+    } else if (feetY < top) {
+      // vertical overlap: also the lowest surface overhead when the box sank
+      // onto the player (moving platforms) - lets the clamp push them out
+      if (bottom >= feetY && bottom < *ceiling) *ceiling = bottom;
       // blocked - cancel the axes that entered the box this frame
       const bool wasInsideX = prevX > cx - hx && prevX < cx + hx;
       const bool wasInsideZ = prevZ > cz - hz && prevZ < cz + hz;
@@ -1542,6 +1636,9 @@ void TerrainGame::loadScene(int sceneIndex) {
   currentScene = sceneIndex;
   g_activeScene = sceneIndex;
   sceneGeneration++;  // scene scripts see this and reset their state
+  // Before any mesh baking: terrain chunks and object geometry shade with
+  // this scene's point lights (see collectScenePointLights).
+  collectScenePointLights();
 
   // Streaming layers: desired residency from the scene's authored defaults.
   {
@@ -1556,25 +1653,12 @@ void TerrainGame::loadScene(int sceneIndex) {
   }
 
   // Terrain, lighting, sky, clipping and post-FX are per scene (Scene >
-  // Preferences overrides) - rebuild the terrain mesh + sky dome and re-apply
-  // the scene's render settings. Vectors and bags are reused.
-  if (bag) {
-    vertices.clear();
-    colors.clear();
-    terrainSts.clear();
-    generateTerrainGrid();
-    colorBag->many = colors.data();
-    bag->vertices = vertices.data();
-    bag->count = static_cast<u32>(vertices.size());
-    bag->bboxVersion = ++g_bboxStamp;
-    if (TERRAIN_TEXTURE >= 0 && loadedTextures[TERRAIN_TEXTURE]) {
-      terrainTexBag.texture = loadedTextures[TERRAIN_TEXTURE];
-      terrainTexBag.coordinates = terrainSts.data();
-      bag->texture = &terrainTexBag;
-    } else {
-      bag->texture = nullptr;
-    }
+  // Preferences overrides) - reset the terrain chunk pool for this scene's
+  // grid (the chunks themselves are drained synchronously at the end of this
+  // function, once the view focus is known) and re-apply render settings.
+  if (infoBag) {
     infoBag->fullClipChecks = CLIP_PRECISE;
+    resetTerrainChunks();
     skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
     buildSkyDome();
   }
@@ -1590,6 +1674,12 @@ void TerrainGame::loadScene(int sceneIndex) {
                                  FOG_END);
   else
     engine->renderer.core.disableFog();
+
+  // Camera flashlight is a Player property: reset the runtime master to this
+  // scene's player Enabled flag (the flow graph can change it later); the
+  // on/off toggle starts on.
+  g_flashEnabled = FLASHLIGHT_ENABLED;
+  g_flashOn = true;
 
   runtimeObjects.assign(SCENE_OBJECT_COUNT, RuntimeObject());
   objectGeometry.clear();
@@ -1647,6 +1737,12 @@ void TerrainGame::loadScene(int sceneIndex) {
   // A loaded save targeting this scene: apply the stored object state now
   if (pendingObjScene == sceneIndex && !pendingObjState.empty())
     applySavedObjects();
+
+  // Terrain: build every chunk in view of the start focus synchronously -
+  // the scene switch hides behind the loading screen, exactly like the
+  // layer-asset drain above. From here on renderScene streams the ring.
+  updateTerrainChunks(PLAYER_INDEX >= 0 ? entX : cameraLookAt.x,
+                      PLAYER_INDEX >= 0 ? entZ : cameraLookAt.z, 0x7FFFFFFF);
 }
 
 // --- Sound emitters ----------------------------------------------------
@@ -1938,7 +2034,7 @@ void TerrainGame::updateParticles() {
       // rain streaks stay vertical (world-up quads); everything else is a
       // full camera-facing billboard. Fog puffs additionally swirl: the
       // billboard slowly rotates in the camera plane, alternating direction
-      // per puff (the Silent Hill roll) - keep in sync with the viewport
+      // per puff (the swirling fog roll) - keep in sync with the viewport
       // preview (drawEmitterPreviews).
       float brx = rx, bry = 0.0F, brz = rz;
       float bux = ux, buy = uy, buz = uz;
@@ -2353,12 +2449,21 @@ bool TerrainGame::updatePlayerEntity() {
   if (nextZ < -limZ) nextZ = -limZ;
 
   float ground = terrainHeightAt(nextX, nextZ);
-  collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground);
+  float ceiling = 1e30F;
+  collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground,
+                &ceiling);
   entX = nextX;
   entZ = nextZ;
 
   entVelY -= GRAVITY * g_frameDt * g_frameDt;  // GRAVITY is units/s^2
   entY += entVelY;
+  // Jump clamp: keep the eye EYE_CLEARANCE below overhead geometry so the
+  // camera never pokes into it (skipped when the gap is too low to stand in)
+  const float maxY = ceiling - PLAYER_EYE_HEIGHT - EYE_CLEARANCE;
+  if (entY > maxY && maxY >= ground) {
+    entY = maxY;
+    if (entVelY > 0.0F) entVelY = 0.0F;
+  }
   if (entY <= ground) {
     entY = ground;
     entVelY = 0.0F;
@@ -2573,7 +2678,12 @@ void TerrainGame::renderScene() {
     buildSkyDome();
   }
   if (skyDome.bag) stapip.core.render(skyDome.bag.get());
-  stapip.core.render(bag.get());
+  // Terrain: stream the chunk ring around the view focus (budgeted, so the
+  // build cost spreads over frames), then submit the built chunks - the
+  // engine drops whole out-of-frustum chunks EE-side (main-bbox classify)
+  // before any packaging or clipping work happens.
+  updateTerrainChunks(cameraLookAt.x, cameraLookAt.z, 2);
+  renderTerrain();
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (!runtimeObjects[i].active) continue;  // streamed out with its layer
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
@@ -2703,14 +2813,56 @@ void TerrainGame::renderHighlightHull(int index) {
     if (part.bag) stapip.core.render(part.bag.get());
 }
 
-void TerrainGame::generateTerrainGrid() {
-  // The grid follows the heightmap (terrain_heights.gen.hpp): one cell per
-  // heightmap quad, vertex heights sampled directly, per-vertex shading
-  // from the height gradient.
-  const u32 cellsX = HM_W - 1;
-  const u32 cellsZ = HM_D - 1;
-  const float stepX = TERRAIN_WIDTH / cellsX;
-  const float stepZ = TERRAIN_DEPTH / cellsZ;
+// --- Terrain chunks ---------------------------------------------------------
+// The heightmap grid is cut into TERRAIN_CHUNK_CELLS x TERRAIN_CHUNK_CELLS
+// tiles, one StaPip bag each: whole off-screen tiles are rejected EE-side by
+// the engine's bag-bbox frustum check, and with TERRAIN_VIEW_DISTANCE > 0
+// only the tiles around the view focus are kept in memory at all - mesh RAM
+// stays constant no matter how large the map is. Gameplay never depends on
+// the mesh (terrainHeightAt samples TERRAIN_HEIGHTS), so a not-yet-streamed
+// far chunk is a purely visual gap - pair the view distance with fog.
+
+// Sizes the slot pool for the active scene and marks every chunk unbuilt.
+// The pool never reallocates afterwards: chunk bags point into their own
+// slot's vectors, so slots must not move while chunks are alive.
+void TerrainGame::resetTerrainChunks() {
+  const int cellsX = HM_W - 1;
+  const int cellsZ = HM_D - 1;
+  terrainChunksX = (cellsX + TERRAIN_CHUNK_CELLS - 1) / TERRAIN_CHUNK_CELLS;
+  terrainChunksZ = (cellsZ + TERRAIN_CHUNK_CELLS - 1) / TERRAIN_CHUNK_CELLS;
+  const int total = terrainChunksX * terrainChunksZ;
+
+  int pool = total;
+  if (TERRAIN_VIEW_DISTANCE > 0.0F) {
+    // The view rect (focus +- view distance) covers at most ceil(2V/span)+1
+    // tiles per axis; +1 more per axis for the eviction hysteresis.
+    const float spanX = TERRAIN_CHUNK_CELLS * ((float)TERRAIN_WIDTH / cellsX);
+    const float spanZ = TERRAIN_CHUNK_CELLS * ((float)TERRAIN_DEPTH / cellsZ);
+    const int nx = (int)(2.0F * TERRAIN_VIEW_DISTANCE / spanX) + 3;
+    const int nz = (int)(2.0F * TERRAIN_VIEW_DISTANCE / spanZ) + 3;
+    if (nx * nz < pool) pool = nx * nz;
+  }
+
+  terrainChunks.clear();
+  terrainChunks.resize(pool);  // sized once per scene - slots stay put
+  terrainChunkSlot.assign(total, -1);
+}
+
+// Fills a pool slot with the mesh of chunk (cx, cz): the same vertex layout,
+// checker colors and baked shading the old whole-map build used - a chunk
+// streamed in later is pixel-identical to one built at scene load.
+void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
+  TerrainChunk& ch = terrainChunks[slot];
+  if (ch.cx >= 0)  // recycling: unmap the chunk this slot held
+    terrainChunkSlot[ch.cz * terrainChunksX + ch.cx] = -1;
+  ch.cx = cx;
+  ch.cz = cz;
+  terrainChunkSlot[cz * terrainChunksX + cx] = (short)slot;
+
+  const int cellsX = HM_W - 1;
+  const int cellsZ = HM_D - 1;
+  const float stepX = (float)TERRAIN_WIDTH / cellsX;
+  const float stepZ = (float)TERRAIN_DEPTH / cellsZ;
   const float startX = -TERRAIN_WIDTH * 0.5F;
   const float startZ = -TERRAIN_DEPTH * 0.5F;
 
@@ -2736,16 +2888,35 @@ void TerrainGame::generateTerrainGrid() {
     return s;
   };
 
-  // Untextured: two greens in a checker pattern. Textured: a neutral gray
-  // that modulates the texture 1:1 (PS2 modulation: 128 = 1.0).
+  // No material: two greens in a checker pattern. With a material, the Kd
+  // tint colors every cell uniformly - textured terrain modulates the map
+  // (PS2 modulation: 128 = 1.0, so Kd*128), flat terrain uses Kd*255.
   const bool textured = TERRAIN_TEXTURE >= 0;
-  const float baseA[3] = {textured ? 128.0F : 96.0F, textured ? 128.0F : 160.0F,
-                          textured ? 128.0F : 72.0F};
-  const float baseB[3] = {textured ? 128.0F : 74.0F, textured ? 128.0F : 128.0F,
-                          textured ? 128.0F : 56.0F};
+  const bool hasMat = TERRAIN_HAS_MATERIAL;
+  const float k = textured ? 128.0F : 255.0F;
+  const float baseA[3] = {hasMat ? TERRAIN_TINT_R * k : 96.0F,
+                          hasMat ? TERRAIN_TINT_G * k : 160.0F,
+                          hasMat ? TERRAIN_TINT_B * k : 72.0F};
+  const float baseB[3] = {hasMat ? TERRAIN_TINT_R * k : 74.0F,
+                          hasMat ? TERRAIN_TINT_G * k : 128.0F,
+                          hasMat ? TERRAIN_TINT_B * k : 56.0F};
 
-  for (u32 z = 0; z < cellsZ; ++z) {
-    for (u32 x = 0; x < cellsX; ++x) {
+  const int gx0 = cx * TERRAIN_CHUNK_CELLS;
+  const int gz0 = cz * TERRAIN_CHUNK_CELLS;
+  int gx1 = gx0 + TERRAIN_CHUNK_CELLS;
+  int gz1 = gz0 + TERRAIN_CHUNK_CELLS;
+  if (gx1 > cellsX) gx1 = cellsX;  // edge chunks cover the remainder
+  if (gz1 > cellsZ) gz1 = cellsZ;
+
+  ch.vertices.clear();
+  ch.colors.clear();
+  ch.sts.clear();
+  ch.vertices.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
+  ch.colors.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
+  if (textured) ch.sts.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
+
+  for (int z = gz0; z < gz1; ++z) {
+    for (int x = gx0; x < gx1; ++x) {
       const float x0 = startX + x * stepX;
       const float x1 = x0 + stepX;
       const float z0 = startZ + z * stepZ;
@@ -2760,32 +2931,132 @@ void TerrainGame::generateTerrainGrid() {
         return Color(base[0] * s.x, base[1] * s.y, base[2] * s.z, 128.0F);
       };
       auto st = [&](float wx, float wz) {
-        terrainSts.push_back(
-            Vec4(wx / TERRAIN_TEX_SCALE, wz / TERRAIN_TEX_SCALE, 1.0F, 0.0F));
+        ch.sts.push_back(
+            Vec4(wx * TERRAIN_TILE_U, wz * TERRAIN_TILE_V, 1.0F, 0.0F));
       };
 
-      vertices.push_back(Vec4(x0, h00, z0, 1.0F));
-      vertices.push_back(Vec4(x1, h10, z0, 1.0F));
-      vertices.push_back(Vec4(x0, h01, z1, 1.0F));
-      vertices.push_back(Vec4(x1, h10, z0, 1.0F));
-      vertices.push_back(Vec4(x1, h11, z1, 1.0F));
-      vertices.push_back(Vec4(x0, h01, z1, 1.0F));
+      ch.vertices.push_back(Vec4(x0, h00, z0, 1.0F));
+      ch.vertices.push_back(Vec4(x1, h10, z0, 1.0F));
+      ch.vertices.push_back(Vec4(x0, h01, z1, 1.0F));
+      ch.vertices.push_back(Vec4(x1, h10, z0, 1.0F));
+      ch.vertices.push_back(Vec4(x1, h11, z1, 1.0F));
+      ch.vertices.push_back(Vec4(x0, h01, z1, 1.0F));
 
-      st(x0, z0);
-      st(x1, z0);
-      st(x0, z1);
-      st(x1, z0);
-      st(x1, z1);
-      st(x0, z1);
+      if (textured) {
+        st(x0, z0);
+        st(x1, z0);
+        st(x0, z1);
+        st(x1, z0);
+        st(x1, z1);
+        st(x0, z1);
+      }
 
-      colors.push_back(shaded(s00));
-      colors.push_back(shaded(s10));
-      colors.push_back(shaded(s01));
-      colors.push_back(shaded(s10));
-      colors.push_back(shaded(s11));
-      colors.push_back(shaded(s01));
+      ch.colors.push_back(shaded(s00));
+      ch.colors.push_back(shaded(s10));
+      ch.colors.push_back(shaded(s01));
+      ch.colors.push_back(shaded(s10));
+      ch.colors.push_back(shaded(s11));
+      ch.colors.push_back(shaded(s01));
     }
   }
+
+  if (!ch.bag) {
+    ch.colorBag = std::make_unique<StaPipColorBag>();
+    ch.bag = std::make_unique<StaPipBag>();
+    ch.bag->info = infoBag.get();
+    ch.bag->lighting = nullptr;
+  }
+  ch.colorBag->many = ch.colors.data();
+  ch.bag->color = ch.colorBag.get();
+  ch.bag->vertices = ch.vertices.data();
+  ch.bag->count = static_cast<u32>(ch.vertices.size());
+  if (textured && loadedTextures[TERRAIN_TEXTURE]) {
+    ch.texBag.texture = loadedTextures[TERRAIN_TEXTURE];
+    ch.texBag.coordinates = ch.sts.data();
+    ch.bag->texture = &ch.texBag;
+  } else {
+    ch.bag->texture = nullptr;
+  }
+  // Reused slot = same bag pointer with new vertex content: without the bump
+  // the engine's bbox cacher would cull this chunk with the old chunk's boxes.
+  ch.bag->bboxVersion = ++g_bboxStamp;
+}
+
+// Keeps the resident chunk set centered on the view focus. View distance off
+// (0) = the whole map stays resident (small maps - matches the old
+// behavior). Otherwise chunks outside the focus rect are freed - with one
+// tile of hysteresis so walking along a border doesn't rebuild the same ring
+// every frame - and missing ones are built nearest-first, `budget` per call
+// (loadScene passes INT_MAX to drain behind the loading screen).
+void TerrainGame::updateTerrainChunks(float focusX, float focusZ, int budget) {
+  if (terrainChunksX <= 0 || terrainChunksZ <= 0 || !infoBag) return;
+  const int cellsX = HM_W - 1;
+  const int cellsZ = HM_D - 1;
+  const float spanX = TERRAIN_CHUNK_CELLS * ((float)TERRAIN_WIDTH / cellsX);
+  const float spanZ = TERRAIN_CHUNK_CELLS * ((float)TERRAIN_DEPTH / cellsZ);
+  const float startX = -TERRAIN_WIDTH * 0.5F;
+  const float startZ = -TERRAIN_DEPTH * 0.5F;
+
+  int cx0 = 0, cz0 = 0, cx1 = terrainChunksX - 1, cz1 = terrainChunksZ - 1;
+  if (TERRAIN_VIEW_DISTANCE > 0.0F) {
+    auto clampX = [&](int v) {
+      return v < 0 ? 0 : (v > terrainChunksX - 1 ? terrainChunksX - 1 : v);
+    };
+    auto clampZ = [&](int v) {
+      return v < 0 ? 0 : (v > terrainChunksZ - 1 ? terrainChunksZ - 1 : v);
+    };
+    cx0 = clampX((int)((focusX - TERRAIN_VIEW_DISTANCE - startX) / spanX));
+    cx1 = clampX((int)((focusX + TERRAIN_VIEW_DISTANCE - startX) / spanX));
+    cz0 = clampZ((int)((focusZ - TERRAIN_VIEW_DISTANCE - startZ) / spanZ));
+    cz1 = clampZ((int)((focusZ + TERRAIN_VIEW_DISTANCE - startZ) / spanZ));
+
+    for (TerrainChunk& ch : terrainChunks) {
+      if (ch.cx < 0) continue;
+      if (ch.cx < cx0 - 1 || ch.cx > cx1 + 1 || ch.cz < cz0 - 1 ||
+          ch.cz > cz1 + 1) {
+        terrainChunkSlot[ch.cz * terrainChunksX + ch.cx] = -1;
+        ch.cx = ch.cz = -1;  // buffers keep their capacity for the next build
+      }
+    }
+  }
+
+  while (budget > 0) {
+    // Nearest unbuilt chunk in the rect. The rect is small (a handful of
+    // tiles across), so a per-call linear scan beats maintaining a build
+    // queue that would need reordering on every focus move.
+    int bestCx = -1, bestCz = -1;
+    float bestD = 0.0F;
+    for (int cz = cz0; cz <= cz1; ++cz)
+      for (int cx = cx0; cx <= cx1; ++cx) {
+        if (terrainChunkSlot[cz * terrainChunksX + cx] >= 0) continue;
+        const float dx = startX + (cx + 0.5F) * spanX - focusX;
+        const float dz = startZ + (cz + 0.5F) * spanZ - focusZ;
+        const float d = dx * dx + dz * dz;
+        if (bestCx < 0 || d < bestD) {
+          bestCx = cx;
+          bestCz = cz;
+          bestD = d;
+        }
+      }
+    if (bestCx < 0) return;  // everything in view is built
+
+    int slot = -1;
+    for (int s = 0; s < (int)terrainChunks.size(); ++s)
+      if (terrainChunks[s].cx < 0) {
+        slot = s;
+        break;
+      }
+    if (slot < 0) return;  // pool momentarily full - eviction frees one soon
+
+    buildTerrainChunk(slot, bestCx, bestCz);
+    --budget;
+  }
+}
+
+void TerrainGame::renderTerrain() {
+  for (TerrainChunk& ch : terrainChunks)
+    if (ch.cx >= 0 && ch.bag && ch.bag->count > 0)
+      stapip.core.render(ch.bag.get());
 }
 
 namespace {
@@ -2832,13 +3103,22 @@ void TerrainGame::updatePlayer() {
   // + standing on top of them. Player can step ~0.5 units up.
   // The floor is the sculpted terrain.
   float ground = terrainHeightAt(nextX, nextZ);
-  collidePlayer(playerX, playerZ, &nextX, &nextZ, playerY, EYE_HEIGHT, &ground);
+  float ceiling = 1e30F;
+  collidePlayer(playerX, playerZ, &nextX, &nextZ, playerY, EYE_HEIGHT, &ground,
+                &ceiling);
   playerX = nextX;
   playerZ = nextZ;
 
   // Gravity & jumping (X). GRAVITY: units/s^2, JUMP_SPEED: units/s.
   playerVelY -= GRAVITY * g_frameDt * g_frameDt;
   playerY += playerVelY;
+  // Jump clamp: keep the eye EYE_CLEARANCE below overhead geometry so the
+  // camera never pokes into it (skipped when the gap is too low to stand in)
+  const float maxY = ceiling - EYE_HEIGHT - EYE_CLEARANCE;
+  if (playerY > maxY && maxY >= ground) {
+    playerY = maxY;
+    if (playerVelY > 0.0F) playerVelY = 0.0F;
+  }
   if (playerY <= ground) {
     playerY = ground;
     playerVelY = 0.0F;

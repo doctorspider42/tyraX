@@ -443,6 +443,7 @@ void App::drawUI() {
     drawGradingWindow();
     drawAmbienceWindow();
     drawMaterialEditorWindow();
+    drawUiEditorWindow();
     drawNewProjectModal();
     drawPreferencesModal();
     drawNavigationModal();
@@ -647,6 +648,7 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Menu Editor...")) showMenusEditor_ = true;
             if (ImGui::MenuItem("Color Grading...")) showGradingEditor_ = true;
             if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
+            if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
             ImGui::EndMenu();
         }
 
@@ -744,7 +746,10 @@ void App::drawViewportWindow() {
                     project::sculptHeightmap(project_, brushX, brushZ, brushRadius_,
                                              delta);
                 }
-                applyProjectToViewport();  // live mesh rebuild
+                // Live rebuild of just the chunks under the brush - a full
+                // applyProjectToViewport would rebuild the whole map per frame.
+                viewport_.updateTerrainRegion(project_.active().heights, brushX, brushZ,
+                                              brushRadius_);
                 sculptStroke_ = true;
             }
         }
@@ -1107,8 +1112,9 @@ void App::drawViewportWindow() {
         }
 
         // --- HUD preview overlay (matches the PS2 512x448 screen mapping;
-        // hidden by default - toggle in the HUD section) ---
-        if (showHudInEditor_ && !project_.hud.empty()) {
+        // hidden by default - toggle in the UI Editor, which also shows it
+        // while open) ---
+        if ((showHudInEditor_ || showUiEditor_) && !project_.hud.empty()) {
             ImDrawList* dl = ImGui::GetWindowDrawList();
             for (int i = 0; i < (int)project_.hud.size(); ++i) {
                 const HudImage& hi = project_.hud[i];
@@ -1122,7 +1128,7 @@ void App::drawViewportWindow() {
                     dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax);
                 else
                     dl->AddRect(pMin, pMax, IM_COL32(255, 100, 100, 200));
-                if (i == selectedHud_)
+                if (showUiEditor_ && uiFxSel_ == 0 && i == selectedHud_)
                     dl->AddRect(pMin, pMax, IM_COL32(255, 160, 30, 255), 0.0f, 0, 2.0f);
             }
         }
@@ -1313,7 +1319,6 @@ void App::drawProjectWindow() {
     drawSceneSection();
     drawLayersSection();
     drawAssetsSection();
-    drawHudSection();
     drawMusicSection();
     drawSoundsSection();
     drawSaveDataSection();
@@ -2076,6 +2081,31 @@ bool App::drawMaterialCombo(SceneObject& o) {
             if (ImGui::Selectable(label.c_str(), rel == o.materialPath) &&
                 rel != o.materialPath) {
                 o.materialPath = rel;
+                changed = true;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    return changed;
+}
+
+// Terrain material picker. Lists the project's .mtl assets (res/materials +
+// the models' own libraries); "<none>" clears it back to the checker greens.
+bool App::drawTerrainMaterialCombo(const char* label, std::string& matPath) {
+    const char* noneLabel = "<none - checker greens>";
+    std::string current = matPath.empty() ? noneLabel : matPath;
+    if (current.rfind("res/", 0) == 0) current = current.substr(4);
+
+    bool changed = false;
+    if (ImGui::BeginCombo(label, current.c_str())) {
+        if (ImGui::Selectable(noneLabel, matPath.empty()) && !matPath.empty()) {
+            matPath.clear();
+            changed = true;
+        }
+        for (const std::string& rel : listMaterialAssets()) {
+            const std::string item = rel.substr(4);  // drop "res/"
+            if (ImGui::Selectable(item.c_str(), rel == matPath) && rel != matPath) {
+                matPath = rel;
                 changed = true;
             }
         }
@@ -4449,33 +4479,265 @@ void App::importHudImage() {
     }
     project_.hud.push_back(std::move(h));
     selectedHud_ = (int)project_.hud.size() - 1;
+    uiFxSel_ = 0;
     saveAll("Saved");
 }
 
-void App::drawHudSection() {
-    if (!ImGui::CollapsingHeader("HUD")) return;
+// UI Editor window (Tools > UI Editor): everything composited over the 3D
+// scene, as one reorderable "screen stack" - the HUD images plus two effect
+// layers (bloom+grading, and film grain). The stack order is the game's draw
+// order: entries above an effect layer stay crisp (e.g. the crosshair over the
+// bloom), entries below are composited with it. Bloom and grain are separate
+// entries so, say, bloom can sit under the HUD while grain overlays the whole
+// screen.
+namespace {
+constexpr int kBloomMark = -2;
+constexpr int kGrainMark = -3;
+}  // namespace
 
-    if (ImGui::SmallButton("Import image (PNG)...")) importHudImage();
-    ImGui::SameLine();
-    ImGui::Checkbox("Show in viewport", &showHudInEditor_);
+void App::drawUiEditorWindow() {
+    if (!showUiEditor_ || !hasProject_) return;
+
+    ImGui::SetNextWindowSize(
+        ImVec2(560 * uiScaleApplied_, 420 * uiScaleApplied_),
+        ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("UI Editor", &showUiEditor_)) {
+        ImGui::End();
+        return;
+    }
 
     bool changed = false;
-    for (int i = 0; i < (int)project_.hud.size(); ++i) {
-        std::string label = project_.hud[i].name + "##hud" + std::to_string(i);
-        if (ImGui::Selectable(label.c_str(), selectedHud_ == i)) selectedHud_ = i;
-    }
-    if (project_.hud.empty()) ImGui::TextDisabled("No HUD images.");
+    const int n = (int)project_.hud.size();
 
-    if (selectedHud_ >= 0 && selectedHud_ < (int)project_.hud.size()) {
+    // Render-order stack (bottom of the screen list = drawn first): hud indices
+    // plus the two effect markers. A marker at layer L renders right before hud
+    // sprite L; layer -1 (or >= n) renders after every sprite (topmost). Bloom
+    // before grain when they share a slot (grain composites over the graded,
+    // bloomed image - the fixed internal order).
+    auto buildStack = [&]() {
+        std::vector<int> s;
+        s.reserve(n + 2);
+        for (int i = 0; i < n; ++i) {
+            if (project_.hudBloomLayer == i) s.push_back(kBloomMark);
+            if (project_.hudGrainLayer == i) s.push_back(kGrainMark);
+            s.push_back(i);
+        }
+        if (project_.hudBloomLayer < 0 || project_.hudBloomLayer >= n)
+            s.push_back(kBloomMark);
+        if (project_.hudGrainLayer < 0 || project_.hudGrainLayer >= n)
+            s.push_back(kGrainMark);
+        return s;
+    };
+    // Rebuild the model from a render-order stack: hud array is reordered to
+    // match, each layer = number of hud sprites before its marker (n = -1).
+    auto rebuild = [&](const std::vector<int>& s) {
+        std::vector<HudImage> newHud;
+        newHud.reserve(n);
+        int before = 0, bl = -1, gr = -1;
+        for (int e : s) {
+            if (e == kBloomMark) bl = before;
+            else if (e == kGrainMark) gr = before;
+            else { newHud.push_back(project_.hud[e]); ++before; }
+        }
+        project_.hudBloomLayer = bl >= n ? -1 : bl;
+        project_.hudGrainLayer = gr >= n ? -1 : gr;
+        project_.hud = std::move(newHud);
+    };
+
+    // Display order: top of the screen (drawn last) first = reversed stack.
+    std::vector<int> order = buildStack();
+    std::reverse(order.begin(), order.end());
+
+    // --- left: the screen stack ---------------------------------------------
+    ImGui::BeginChild("##ui_stack", ImVec2(230 * uiScaleApplied_, 0),
+                      ImGuiChildFlags_Borders);
+    if (ImGui::Button("Import image (PNG)...", ImVec2(-1, 0))) importHudImage();
+    ImGui::Checkbox("Show in viewport", &showHudInEditor_);
+    ImGui::SeparatorText("Screen stack");
+    ImGui::TextDisabled("Top entry draws last (on top).\nDrag to reorder.");
+    for (int r = 0; r < (int)order.size(); ++r) {
+        const int id = order[r];
+        ImGui::PushID(r);
+        bool isSel;
+        const char* label;
+        if (id == kBloomMark) {
+            isSel = uiFxSel_ == 1;
+            label = "[ Bloom + color grading ]";
+        } else if (id == kGrainMark) {
+            isSel = uiFxSel_ == 2;
+            label = "[ Film grain ]";
+        } else {
+            isSel = uiFxSel_ == 0 && selectedHud_ == id;
+            label = project_.hud[id].name.c_str();
+        }
+        if (ImGui::Selectable(label, isSel)) {
+            if (id == kBloomMark) uiFxSel_ = 1;
+            else if (id == kGrainMark) uiFxSel_ = 2;
+            else { uiFxSel_ = 0; selectedHud_ = id; }
+        }
+        // Drag to reorder: swap with the neighbor the cursor moved towards,
+        // then rebuild the model from the new order.
+        if (ImGui::IsItemActive() && !ImGui::IsItemHovered()) {
+            const int dst = r + (ImGui::GetMouseDragDelta(0).y < 0.0f ? -1 : 1);
+            if (dst >= 0 && dst < (int)order.size()) {
+                // Remember the selected image so its selection survives the
+                // reorder (indices shift; identity does not).
+                const bool hadHud =
+                    uiFxSel_ == 0 && selectedHud_ >= 0 && selectedHud_ < n;
+                HudImage selHud;
+                if (hadHud) selHud = project_.hud[selectedHud_];
+
+                std::swap(order[r], order[dst]);
+                std::vector<int> s(order.rbegin(), order.rend());
+                rebuild(s);
+
+                if (hadHud)
+                    for (int i = 0; i < (int)project_.hud.size(); ++i)
+                        if (project_.hud[i] == selHud) { selectedHud_ = i; break; }
+                ImGui::ResetMouseDragDelta();
+                changed = true;
+            }
+        }
+        ImGui::PopID();
+    }
+    if (project_.hud.empty())
+        ImGui::TextDisabled("No HUD images yet.\nImport a PNG above.");
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    // --- right: selected entry ------------------------------------------------
+    ImGui::BeginChild("##ui_props", ImVec2(0, 0));
+    if (uiFxSel_ == 1) {
+        ImGui::SeparatorText("Bloom + color grading");
+        ImGui::SliderFloat("Bloom", &project_.settings.bloom, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::TextDisabled(
+            "GS framebuffer trick - no pixel shaders on the PS2. Quarter-res\n"
+            "blur re-added over the frame (soft glow).");
+        ImGui::Spacing();
+        ImGui::TextWrapped(
+            "Stack entries above this layer draw crisp on top of the bloom - "
+            "put the crosshair or text there so the glow does not blur them. "
+            "At the very top the bloom applies at the end of the frame, over "
+            "everything including menus.");
+        ImGui::Spacing();
+        ImGui::TextDisabled(
+            "Color grading applies with this layer. Author presets in\n"
+            "Tools > Color Grading. Per-scene bloom strength: Scene > Scene\n"
+            "Preferences > Post effects.");
+    } else if (uiFxSel_ == 2) {
+        ImGui::SeparatorText("Film grain");
+        ImGui::SliderFloat("Film grain", &project_.settings.grain, 0.0f, 1.0f,
+                           "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::TextDisabled(
+            "Animated noise overlay (GS blits). Subtle values work best.");
+        ImGui::Spacing();
+        ImGui::TextWrapped(
+            "As a separate layer the grain can sit above the bloom and the "
+            "HUD - a filmic overlay over the whole screen - while the bloom "
+            "stays underneath so it does not smear the UI.");
+        ImGui::Spacing();
+        ImGui::TextDisabled(
+            "Per-scene grain strength: Scene > Scene Preferences > Post "
+            "effects.");
+    } else if (selectedHud_ >= 0 && selectedHud_ < n) {
         HudImage& h = project_.hud[selectedHud_];
+        ImGui::SeparatorText(h.name.c_str());
         ImGui::DragFloat2("Position##hud", h.pos, 0.005f, 0.0f, 1.0f, "%.3f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::DragFloat2("Size (px)##hud", h.size, 1.0f, 1.0f, 512.0f, "%.0f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
+
+        // --- Texture bake ----------------------------------------------------
+        // The PS2 only accepts 8/16/32/64/128/256/512-sized textures; the build
+        // resizes the imported PNG into .res-baked to that. "Auto" picks the
+        // nearest valid size, so a mis-sized import just works.
+        auto nearestValid = [](int v) {
+            static const int V[] = {8, 16, 32, 64, 128, 256, 512};
+            int best = V[0], bd = 1 << 30;
+            for (int d : V) {
+                const int dd = v > d ? v - d : d - v;
+                if (dd < bd) { bd = dd; best = d; }
+            }
+            return best;
+        };
+        auto isValid = [&](int v) { return v > 0 && v == nearestValid(v); };
+        auto dimCombo = [&](const char* label, int& dim) {
+            static const int vals[] = {0, 8, 16, 32, 64, 128, 256, 512};
+            static const char* names[] = {"Auto", "8",   "16",  "32",
+                                          "64",   "128", "256", "512"};
+            int cur = 0;
+            for (int i = 0; i < 8; ++i)
+                if (vals[i] == dim) { cur = i; break; }
+            if (ImGui::Combo(label, &cur, names, 8)) {
+                dim = vals[cur];
+                changed = true;
+            }
+        };
+
+        ImGui::SeparatorText("Texture (baked for PS2)");
+        int sw = 0, sh = 0;
+        if (const HudTexture* t = hudTexture(h.imagePath)) { sw = t->w; sh = t->h; }
+        if (sw > 0) {
+            const bool bad = !isValid(sw) || !isValid(sh);
+            if (bad)
+                ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f),
+                                   "Source %dx%d is not a PS2 size", sw, sh);
+            else
+                ImGui::TextDisabled("Source: %dx%d px", sw, sh);
+        }
+        ImGui::PushItemWidth(90.0f * uiScaleApplied_);
+        dimCombo("Width##texw", h.texW);
+        ImGui::SameLine();
+        dimCombo("Height##texh", h.texH);
+        ImGui::PopItemWidth();
+
+        // Colors: like the per-asset material quality, "(project default)"
+        // follows Preferences > Textures; the others override - e.g. keep an
+        // important element full color while the rest of the HUD is quantized.
+        int q = h.texQuant == "none" ? 1
+                : h.texQuant == "8bit" ? 2
+                : h.texQuant == "4bit" ? 3
+                                       : 0;
+        const char* qn[] = {"Project default", "Full color (32-bit)",
+                            "256 colors (8-bit)", "16 colors (4-bit)"};
+        if (ImGui::Combo("Colors##hudq", &q, qn, 4)) {
+            h.texQuant = q == 1 ? "none" : q == 2 ? "8bit" : q == 3 ? "4bit" : "";
+            changed = true;
+        }
+
+        // Resolve "(project default)" for the baked readout.
+        auto colorLabel = [](const std::string& qv) {
+            return qv == "8bit"   ? "256 colors (8-bit)"
+                   : qv == "4bit" ? "16 colors (4-bit)"
+                                  : "Full color (32-bit)";
+        };
+        const std::string effQ =
+            h.texQuant.empty() ? project_.settings.textureQuant : h.texQuant;
+        const int bw = h.texW > 0 ? h.texW : (sw > 0 ? nearestValid(sw) : 0);
+        const int bh = h.texH > 0 ? h.texH : (sh > 0 ? nearestValid(sh) : 0);
+        if (h.texQuant.empty())
+            ImGui::TextDisabled("Baked: %dx%d, %s (from project)", bw, bh,
+                                colorLabel(effQ));
+        else
+            ImGui::TextDisabled("Baked: %dx%d, %s", bw, bh, colorLabel(effQ));
+        ImGui::TextDisabled(
+            "Resized at build (source in res/hud stays untouched). The\n"
+            "on-screen size above is separate - the sprite is stretched.");
+
+        ImGui::Spacing();
         if (ImGui::Button("Delete HUD image"))
-            requestAssetDelete(PendingAssetDelete::Hud, h.imagePath, h.name, selectedHud_);
+            requestAssetDelete(PendingAssetDelete::Hud, h.imagePath, h.name,
+                               selectedHud_);
+    } else {
+        ImGui::TextDisabled("Select an entry on the left.");
     }
-    if (changed) saveAll("Saved");
+    ImGui::EndChild();
+
+    if (changed) saveAll("Saved");  // UI edits are not on the undo stack
+    ImGui::End();
 }
 
 void App::importMusicTrack() {
@@ -5069,7 +5331,7 @@ void App::handleFileDrop(int count, const char** paths) {
                          project_.menus[selectedMenu_].name + "\"";
     } else if (copied > 0 || fonts > 0) {
         statusMessage_ = "Copied into res/ - attach in the Menu Editor (images: "
-                         "Images list, fonts: Font combo) or the HUD section";
+                         "Images list, fonts: Font combo) or Tools > UI Editor";
     } else if (skipped > 0) {
         statusMessage_ = "Drop: PNG images and TTF/OTF fonts are handled here";
     }
@@ -5611,11 +5873,19 @@ bool App::loadMaterialFile(const std::string& relPath) {
         if (tag == "Kd") {
             ss >> e.color[0] >> e.color[1] >> e.color[2];
         } else if (tag == "map_Kd") {
-            std::string tok, last;  // options of map_Kd (rare) are dropped
-            while (ss >> tok) last = tok;
-            for (char& c : last)
-                if (c == '\\') c = '/';
-            e.texture = last;
+            std::vector<std::string> toks;  // "<options> filename"; filename last
+            for (std::string t; ss >> t;) toks.push_back(t);
+            if (!toks.empty()) {
+                e.texture = toks.back();
+                for (char& c : e.texture)
+                    if (c == '\\') c = '/';
+                // -s <u> [v] [w]: tiling (a UV multiplier); take the u factor.
+                for (size_t i = 0; i + 1 < toks.size(); ++i)
+                    if (toks[i] == "-s") {
+                        std::istringstream(toks[i + 1]) >> e.tile;
+                        break;
+                    }
+            }
         } else if (tag == "#") {
             std::string what;
             ss >> what;
@@ -5679,7 +5949,16 @@ void App::saveMaterialFile() {
         };
         std::snprintf(buf, sizeof(buf), "Kd %.4f %.4f %.4f", kd(0), kd(1), kd(2));
         out << buf << "\n";
-        if (!e.texture.empty()) out << "map_Kd " << e.texture << "\n";
+        if (!e.texture.empty()) {
+            // -s tiling (repeats per world unit) matters only for terrain; skip
+            // it at the default 1 to keep files clean. Wavefront: "-s u v w".
+            out << "map_Kd";
+            if (e.tile != 1.0f) {
+                std::snprintf(buf, sizeof(buf), " -s %.4g %.4g 1", e.tile, e.tile);
+                out << buf;
+            }
+            out << " " << e.texture << "\n";
+        }
         for (const std::string& x : e.extra) out << x << "\n";
         out << "\n";
     }
@@ -5937,6 +6216,17 @@ void App::drawMaterialEditorWindow() {
                     ImGui::TextDisabled("%dx%d", tw, th);
             }
         }
+
+        // Tiling (map_Kd -s): how densely the texture repeats. Used by terrain
+        // (which generates its own UVs); objects carry baked UVs and ignore it.
+        ImGui::SetNextItemWidth(180.0f);
+        ImGui::DragFloat("Tile repeat", &e.tile, 0.05f, 0.01f, 64.0f, "%.2f/unit");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (e.tile < 0.01f) e.tile = 0.01f;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Terrain only: texture repeats per world unit.\n"
+                              "Higher = smaller, denser tiles. Objects use their\n"
+                              "mesh UVs and ignore this.");
     }
 
     ImGui::Spacing();
@@ -6856,6 +7146,12 @@ void App::performAssetDelete(const PendingAssetDelete& d) {
             for (SceneData& scene : project_.scenes)
                 for (SceneObject& o : scene.objects)
                     if (o.materialPath == d.relPath) o.materialPath.clear();
+            // A terrain that used it falls back to the checker greens.
+            if (project_.settings.terrainMaterial == d.relPath)
+                project_.settings.terrainMaterial.clear();
+            for (SceneData& scene : project_.scenes)
+                if (scene.settings.terrainMaterial == d.relPath)
+                    scene.settings.terrainMaterial.clear();
             modelInfoCache_.clear();
             statusMessage_ = "Deleted " + d.label;
             commitChange();
@@ -6897,8 +7193,17 @@ void App::performAssetDelete(const PendingAssetDelete& d) {
         case PendingAssetDelete::Hud: {
             // Drop the list entry first; delete the file only if no other HUD
             // entry still references it (imports can duplicate a path).
-            if (d.hudIndex >= 0 && d.hudIndex < (int)project_.hud.size())
+            if (d.hudIndex >= 0 && d.hudIndex < (int)project_.hud.size()) {
                 project_.hud.erase(project_.hud.begin() + d.hudIndex);
+                // Keep the effect layers where they were in the stack: entries
+                // above the erased one shift down by one.
+                auto fixLayer = [&](int& L) {
+                    if (L > d.hudIndex) --L;
+                    if (L >= (int)project_.hud.size()) L = -1;
+                };
+                fixLayer(project_.hudBloomLayer);
+                fixLayer(project_.hudGrainLayer);
+            }
             selectedHud_ = -1;
             bool stillUsed = false;
             for (const HudImage& h : project_.hud)
@@ -6926,8 +7231,8 @@ void App::drawNewSceneModal() {
         return;
 
     ImGui::InputText("Name", newSceneName_, sizeof(newSceneName_));
-    ImGui::DragInt("Terrain width", &newSceneWidth_, 1.0f, 8, 512, "%d units");
-    ImGui::DragInt("Terrain depth", &newSceneDepth_, 1.0f, 8, 512, "%d units");
+    ImGui::DragInt("Terrain width", &newSceneWidth_, 1.0f, 8, 4096, "%d units");
+    ImGui::DragInt("Terrain depth", &newSceneDepth_, 1.0f, 8, 4096, "%d units");
     if (!newSceneError_.empty())
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", newSceneError_.c_str());
 
@@ -7532,7 +7837,9 @@ void App::applyProjectToViewport() {
     // Scene-visual settings resolve project defaults + this scene's overrides.
     const ProjectSettings rs = project::resolvedSettings(project_, sc);
     viewport_.setProjectDir(project_.dir);
-    viewport_.setTerrainTexture(rs.terrainTexture, rs.terrainTexScale);
+    const project::TerrainMaterial tm =
+        project::resolveTerrainMaterial(project_, rs.terrainMaterial);
+    viewport_.setTerrainMaterial(tm.texture, tm.kd, tm.present, tm.tile);
     viewport_.setTerrain(sc.terrain, project_.settings.terrainDetail, sc.heights, sc.hmW,
                          sc.hmD);
     viewport_.setSky(rs.skyColor, rs.skyTopColor, rs.skyDome, rs.zenithSize);
@@ -7611,9 +7918,54 @@ void App::drawPreferencesModal() {
                                                                                 : prefTerrain_.width;
     prefTerrain_.depth = prefTerrain_.depth < 1 ? 1 : prefTerrain_.depth > 4096 ? 4096
                                                                                 : prefTerrain_.depth;
-    ImGui::SliderInt("Detail (max grid cells)", &prefSettings_.terrainDetail, 4, 128);
+    ImGui::SliderInt("Detail (max grid cells)", &prefSettings_.terrainDetail, 4, 512);
     ImGui::TextDisabled("More cells = smaller triangles = fewer clipping artifacts,");
     ImGui::TextDisabled("but more geometry for the PS2 to push.");
+
+    ImGui::DragFloat("View distance", &prefSettings_.terrainViewDistance, 1.0f, 0.0f,
+                     2000.0f,
+                     prefSettings_.terrainViewDistance > 0.0f ? "%.0f units"
+                                                              : "off (whole map)");
+    if (prefSettings_.terrainViewDistance < 0.0f)
+        prefSettings_.terrainViewDistance = 0.0f;
+    ImGui::TextDisabled(
+        "The game keeps only the terrain chunks within this range of the\n"
+        "camera in memory; the rest streams in as the player moves. Pair it\n"
+        "with fog (view distance ~ fog end) to hide the pop-in. 0 keeps the\n"
+        "whole map resident. Meant for FPP - orbit showcases see the whole\n"
+        "map at once and should leave it 0.");
+
+    // Worst-case resident mesh memory so oversized configs are caught here,
+    // not by an out-of-memory PS2. Mirrors the generated game: 6 verts/cell,
+    // 32 B untextured / 48 B textured, chunks of 16x16 cells.
+    {
+        const SceneData& sc = project_.active();
+        const int cellsX = sc.terrain.width < prefSettings_.terrainDetail
+                               ? sc.terrain.width
+                               : prefSettings_.terrainDetail;
+        const int cellsZ = sc.terrain.depth < prefSettings_.terrainDetail
+                               ? sc.terrain.depth
+                               : prefSettings_.terrainDetail;
+        const int bytesPerVert = prefSettings_.terrainMaterial.empty() ? 32 : 48;
+        double cells = (double)cellsX * cellsZ;
+        if (prefSettings_.terrainViewDistance > 0.0f) {
+            // resident rect in chunks (16 cells each), as in the generated game
+            const float spanX = 16.0f * (float)sc.terrain.width / (float)cellsX;
+            const float spanZ = 16.0f * (float)sc.terrain.depth / (float)cellsZ;
+            const double nx = (int)(2.0f * prefSettings_.terrainViewDistance / spanX) + 3;
+            const double nz = (int)(2.0f * prefSettings_.terrainViewDistance / spanZ) + 3;
+            const double rectCells = nx * nz * 16.0 * 16.0;
+            if (rectCells < cells) cells = rectCells;
+        }
+        const double mb = cells * 6.0 * bytesPerVert / (1024.0 * 1024.0);
+        if (mb > 8.0)
+            ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+                               "Resident terrain mesh: ~%.1f MB of the PS2's 32 MB - set"
+                               " a view distance or lower the detail.",
+                               mb);
+        else
+            ImGui::TextDisabled("Resident terrain mesh: ~%.1f MB (active scene).", mb);
+    }
 
     ImGui::SeparatorText("Rendering");
     int clipMode = prefSettings_.clipping == "fast" ? 1 : 0;
@@ -7659,24 +8011,16 @@ void App::drawPreferencesModal() {
         "model/material in the Assets section - e.g. keep the hero's textures\n"
         "full color while everything else goes 4-bit.");
 
-    ImGui::TextDisabled(
-        "Terrain texture: %s",
-        prefSettings_.terrainTexture.empty() ? "<none>" : prefSettings_.terrainTexture.c_str());
-    ImGui::SameLine();
-    pickProjectTexture("##pick_terrain_texture", prefSettings_.terrainTexture);
-    if (!prefSettings_.terrainTexture.empty()) {
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Clear##terrtex")) prefSettings_.terrainTexture.clear();
-        ImGui::DragFloat("Texture tile (units)", &prefSettings_.terrainTexScale, 0.25f, 0.25f,
-                         64.0f, "%.2f");
-    }
+    drawTerrainMaterialCombo("Terrain material", prefSettings_.terrainMaterial);
+    ImGui::TextDisabled("The material's color tints the terrain; its texture (map_Kd),\n"
+                        "if any, tiles across it - set the tiling on the material's\n"
+                        "texture in the Material Editor. Import .mtl in the Assets section.");
+
     ImGui::SeparatorText("Post effects");
-    ImGui::SliderFloat("Bloom", &prefSettings_.bloom, 0.0f, 1.0f, "%.2f");
-    ImGui::SliderFloat("Film grain", &prefSettings_.grain, 0.0f, 1.0f, "%.2f");
     ImGui::TextDisabled(
-        "GS framebuffer tricks, applied in-game at the end of every frame.\n"
-        "Bloom: quarter-res blur re-added over the frame (soft glow).\n"
-        "Film grain: animated noise overlay. Subtle values work best.");
+        "Bloom and film grain moved to Tools > UI Editor, where their\n"
+        "on-screen layer is also set (e.g. bloom under the HUD, so it\n"
+        "does not blur the crosshair or text).");
 
     ImGui::SeparatorText("Ambience (sky, lighting, fog)");
     ImGui::TextDisabled(
@@ -7940,17 +8284,8 @@ void App::drawScenePreferencesModal() {
             s.clipping = clipMode == 1 ? "fast" : "precise";
     });
 
-    category("Terrain texture", ov.terrainTex, [&] {
-        ImGui::TextDisabled("Texture: %s",
-                            s.terrainTexture.empty() ? "<none>" : s.terrainTexture.c_str());
-        ImGui::SameLine();
-        pickProjectTexture("##pick_scene_terrain_texture", s.terrainTexture);
-        if (!s.terrainTexture.empty()) {
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Clear")) s.terrainTexture.clear();
-            ImGui::DragFloat("Texture tile (units)", &s.terrainTexScale, 0.25f, 0.25f, 64.0f,
-                             "%.2f");
-        }
+    category("Terrain material", ov.terrainMat, [&] {
+        drawTerrainMaterialCombo("Material", s.terrainMaterial);
     });
 
     category("Post effects", ov.postFx, [&] {

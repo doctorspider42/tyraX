@@ -21,7 +21,10 @@ class TerrainGame : public Tyra::Game {
 
  private:
   void buildScene();
-  void generateTerrainGrid();
+  void resetTerrainChunks();
+  void buildTerrainChunk(int slot, int cx, int cz);
+  void updateTerrainChunks(float focusX, float focusZ, int budget);
+  void renderTerrain();
   void updatePlayer();
 
   Tyra::Engine* engine;
@@ -31,13 +34,25 @@ class TerrainGame : public Tyra::Game {
   float playerX, playerZ, yaw, pitch;
   float playerY, playerVelY;  // feet height + vertical velocity (physics)
 
-  std::vector<Tyra::Vec4> vertices;
-  std::vector<Tyra::Color> colors;
+  // Terrain chunks: the heightmap grid is cut into TERRAIN_CHUNK_CELLS-sized
+  // square tiles, one StaPip bag each (see the chunk functions in the .cpp).
+  // Slots live in a pool sized once per scene load (resetTerrainChunks) and
+  // never move afterwards - each bag points into its own slot's vectors.
+  struct TerrainChunk {
+    std::vector<Tyra::Vec4> vertices;
+    std::vector<Tyra::Color> colors;
+    std::vector<Tyra::Vec4> sts;  // texture coordinates (textured terrain)
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    Tyra::StaPipTextureBag texBag;
+    int cx = -1, cz = -1;  // chunk coords; -1 = free pool slot
+  };
+  std::vector<TerrainChunk> terrainChunks;  // slot pool
+  std::vector<short> terrainChunkSlot;      // chunk index -> slot, -1 = unbuilt
+  int terrainChunksX = 0, terrainChunksZ = 0;
 
   Tyra::M4x4 model;
-  std::unique_ptr<Tyra::StaPipBag> bag;
-  std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
-  std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+  std::unique_ptr<Tyra::StaPipInfoBag> infoBag;  // shared by all chunk bags
 
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])
@@ -63,6 +78,15 @@ class TerrainGame : public Tyra::Game {
       std::unique_ptr<Tyra::StaPipColorBag> colorBag;
       std::unique_ptr<Tyra::StaPipTextureBag> texBag;
       std::unique_ptr<Tyra::StaPipLightingBag> lightBag;
+      // The lit StaPip VU1 programs (_d/_td) derive the vertex color purely
+      // from the directional lights - they never read a base/vertex color -
+      // so an untextured mesh would render in the plain scene light color
+      // (i.e. gray). This part's material albedo is folded into its own light
+      // and ambient colors instead (outputColor = albedo * sceneLighting),
+      // matching how the editor viewport tints the .glb. Directions stay
+      // shared (animLightDirs); only the colors carry the per-part tint.
+      std::unique_ptr<Tyra::PipelineDirLightsBag> animLights;
+      Tyra::Vec4 litColors[4];
     };
     std::vector<AnimPart> animParts;
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
@@ -164,8 +188,6 @@ class TerrainGame : public Tyra::Game {
   std::vector<unsigned char> layerTarget;  // desired residency per layer
   std::vector<signed char> layerRequest;   // script requests (-1 = none)
   std::vector<int> streamQueue;            // (kind << 16) | asset index
-  std::vector<Tyra::Vec4> terrainSts;
-  Tyra::StaPipTextureBag terrainTexBag;
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
   GeoPart skyDome;
@@ -175,9 +197,12 @@ class TerrainGame : public Tyra::Game {
   void buildSkyDome();
   void rebuildObjectGeometry(int index);
   // Player-vs-objects collision shared by both walkers: box (scale box or
-  // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision
+  // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision.
+  // ceiling receives the lowest overhead surface so the walkers can keep the
+  // camera from poking into geometry from below (jump clamp).
   void collidePlayer(float prevX, float prevZ, float* nextX, float* nextZ,
-                     float feetY, float eyeHeight, float* ground);
+                     float feetY, float eyeHeight, float* ground,
+                     float* ceiling);
   void updateObjectPhysics();
   void renderScene();
   void renderHighlightHull(int index);

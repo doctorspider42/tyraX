@@ -762,8 +762,11 @@ void Viewport::shutdown() {
     if (particleProgram_) glDeleteProgram(particleProgram_);
     if (particleVbo_) glDeleteBuffers(1, &particleVbo_);
     if (particleVao_) glDeleteVertexArrays(1, &particleVao_);
-    destroyMesh(terrain_mesh_);
-    destroyMesh(lines_);
+    for (Mesh& m : terrainChunkMeshes_) destroyMesh(m);
+    terrainChunkMeshes_.clear();
+    for (Mesh& m : terrainLineMeshes_) destroyMesh(m);
+    terrainLineMeshes_.clear();
+    destroyMesh(axes_);
     destroyMesh(box_);
     destroyMesh(sphere_);
     destroyMesh(cylinder_);
@@ -939,17 +942,47 @@ void Viewport::clearPrimMeshCache() {
 
 void Viewport::buildTerrainMesh() {
     if (!program_) return;  // init() not called yet
-    destroyMesh(terrain_mesh_);
-    destroyMesh(lines_);
+    for (Mesh& m : terrainChunkMeshes_) destroyMesh(m);
+    for (Mesh& m : terrainLineMeshes_) destroyMesh(m);
+    destroyMesh(axes_);
+
+    // Match the generated PS2 game: checker pattern, capped cell count,
+    // vertex heights from the sculpted heightmap. Built per chunk so a
+    // sculpt stroke rebuilds only the chunks under the brush.
+    tcCellsX_ = terrain_.width > maxCells_ ? maxCells_ : terrain_.width;
+    tcCellsZ_ = terrain_.depth > maxCells_ ? maxCells_ : terrain_.depth;
+    tcChunksX_ = (tcCellsX_ + kTerrainChunkCells - 1) / kTerrainChunkCells;
+    tcChunksZ_ = (tcCellsZ_ + kTerrainChunkCells - 1) / kTerrainChunkCells;
+    terrainChunkMeshes_.assign((size_t)tcChunksX_ * tcChunksZ_, Mesh());
+    terrainLineMeshes_.assign((size_t)tcChunksX_ * tcChunksZ_, Mesh());
+    for (int cz = 0; cz < tcChunksZ_; ++cz)
+        for (int cx = 0; cx < tcChunksX_; ++cx) buildTerrainChunkMesh(cx, cz);
+
+    // World axes: X red, Y green, Z blue (slightly above terrain)
+    const float w = (float)terrain_.width, d = (float)terrain_.depth;
+    std::vector<float> lines;
+    float axisLen = (w > d ? w : d) * 0.6f;
+    pushVertexColor(lines, 0, 0.02f, 0, 0.9f, 0.2f, 0.2f);
+    pushVertexColor(lines, axisLen, 0.02f, 0, 0.9f, 0.2f, 0.2f);
+    pushVertexColor(lines, 0, 0.02f, 0, 0.2f, 0.9f, 0.2f);
+    pushVertexColor(lines, 0, axisLen * 0.5f, 0, 0.2f, 0.9f, 0.2f);
+    pushVertexColor(lines, 0, 0.02f, 0, 0.3f, 0.4f, 1.0f);
+    pushVertexColor(lines, 0, 0.02f, axisLen, 0.3f, 0.4f, 1.0f);
+    axes_ = uploadMesh(lines);
+}
+
+// One terrain chunk (kTerrainChunkCells^2 cells at most): triangles + grid
+// lines. The vertex emission matches the generated PS2 game exactly - when
+// changing the shading here, change buildTerrainChunk in templates.cpp too.
+void Viewport::buildTerrainChunkMesh(int cx, int cz) {
+    const int ci = cz * tcChunksX_ + cx;
+    destroyMesh(terrainChunkMeshes_[ci]);
+    destroyMesh(terrainLineMeshes_[ci]);
 
     const float w = (float)terrain_.width;
     const float d = (float)terrain_.depth;
     const float x0 = -w * 0.5f, z0 = -d * 0.5f;
-
-    // Match the generated PS2 game: checker pattern, capped cell count,
-    // vertex heights from the sculpted heightmap.
-    const int cellsX = terrain_.width > maxCells_ ? maxCells_ : terrain_.width;
-    const int cellsZ = terrain_.depth > maxCells_ ? maxCells_ : terrain_.depth;
+    const int cellsX = tcCellsX_, cellsZ = tcCellsZ_;
     const float sx = w / cellsX, sz = d / cellsZ;
 
     const bool hasHeights =
@@ -966,20 +999,28 @@ void Viewport::buildTerrainMesh() {
         return shadeOf(normalize(n));
     };
 
-    // Textured terrain modulates the texture with a neutral shade only.
-    const bool texturedTerrain = !terrainTexture_.empty();
-    const float cA[3] = {texturedTerrain ? 1.0f : 96 / 255.0f,
-                         texturedTerrain ? 1.0f : 160 / 255.0f,
-                         texturedTerrain ? 1.0f : 72 / 255.0f};
-    const float cB[3] = {texturedTerrain ? 1.0f : 74 / 255.0f,
-                         texturedTerrain ? 1.0f : 128 / 255.0f,
-                         texturedTerrain ? 1.0f : 56 / 255.0f};
-    const float ts = terrainTexScale_;
+    // With a material every cell takes its Kd tint (the shader modulates the
+    // texture by it when one is bound; a flat color otherwise). Without a
+    // material the terrain falls back to the two-green checker.
+    const float cA[3] = {terrainHasMaterial_ ? terrainKd_[0] : 96 / 255.0f,
+                         terrainHasMaterial_ ? terrainKd_[1] : 160 / 255.0f,
+                         terrainHasMaterial_ ? terrainKd_[2] : 72 / 255.0f};
+    const float cB[3] = {terrainHasMaterial_ ? terrainKd_[0] : 74 / 255.0f,
+                         terrainHasMaterial_ ? terrainKd_[1] : 128 / 255.0f,
+                         terrainHasMaterial_ ? terrainKd_[2] : 56 / 255.0f};
+    // Texture tiling from the material's map_Kd "-s": UV repeats per world
+    // unit, per axis (u across X, v across Z). Matches the game's st() lambda.
+    const float tu = terrainTile_[0], tv = terrainTile_[1];
+
+    const int gx0 = cx * kTerrainChunkCells;
+    const int gz0 = cz * kTerrainChunkCells;
+    const int gx1 = gx0 + kTerrainChunkCells > cellsX ? cellsX : gx0 + kTerrainChunkCells;
+    const int gz1 = gz0 + kTerrainChunkCells > cellsZ ? cellsZ : gz0 + kTerrainChunkCells;
 
     std::vector<float> tri;
-    tri.reserve((size_t)cellsX * cellsZ * 6 * 8);
-    for (int z = 0; z < cellsZ; ++z) {
-        for (int x = 0; x < cellsX; ++x) {
+    tri.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6 * 8);
+    for (int z = gz0; z < gz1; ++z) {
+        for (int x = gx0; x < gx1; ++x) {
             const float* c = ((x + z) % 2 == 0) ? cA : cB;
             float ax = x0 + x * sx, az = z0 + z * sz;
             float bx = ax + sx, bz = az + sz;
@@ -988,47 +1029,76 @@ void Viewport::buildTerrainMesh() {
             const Vec3 s00 = shadeAt(x, z), s10 = shadeAt(x + 1, z);
             const Vec3 s01 = shadeAt(x, z + 1), s11 = shadeAt(x + 1, z + 1);
             pushVertexColor(tri, ax, h00, az, c[0] * s00.x, c[1] * s00.y, c[2] * s00.z,
-                            ax / ts, az / ts);
+                            ax * tu, az * tv);
             pushVertexColor(tri, bx, h10, az, c[0] * s10.x, c[1] * s10.y, c[2] * s10.z,
-                            bx / ts, az / ts);
+                            bx * tu, az * tv);
             pushVertexColor(tri, ax, h01, bz, c[0] * s01.x, c[1] * s01.y, c[2] * s01.z,
-                            ax / ts, bz / ts);
+                            ax * tu, bz * tv);
             pushVertexColor(tri, bx, h10, az, c[0] * s10.x, c[1] * s10.y, c[2] * s10.z,
-                            bx / ts, az / ts);
+                            bx * tu, az * tv);
             pushVertexColor(tri, bx, h11, bz, c[0] * s11.x, c[1] * s11.y, c[2] * s11.z,
-                            bx / ts, bz / ts);
+                            bx * tu, bz * tv);
             pushVertexColor(tri, ax, h01, bz, c[0] * s01.x, c[1] * s01.y, c[2] * s01.z,
-                            ax / ts, bz / ts);
+                            ax * tu, bz * tv);
         }
     }
-    terrain_mesh_ = uploadMesh(tri);
+    terrainChunkMeshes_[ci] = uploadMesh(tri);
 
-    // Grid lines (cell borders, following the relief) + world axes
+    // Grid lines (cell borders, following the relief). Shared border lines
+    // belong to the chunk on their -X/-Z side; the last chunk per axis also
+    // emits the map's outer edge. Above kTerrainFullGridCells total cells the
+    // per-cell grid is solid noise (and tens of MB) - draw chunk borders only.
+    const int stride =
+        (long long)cellsX * cellsZ <= kTerrainFullGridCells ? 1 : kTerrainChunkCells;
     std::vector<float> lines;
     const float gc = 0.15f;  // grid line color (dark)
-    for (int x = 0; x <= cellsX; ++x) {
+    for (int x = gx0; x <= gx1; ++x) {
+        if (x % stride != 0 && x != cellsX) continue;
+        if (x == gx1 && x != cellsX) continue;  // next chunk draws this border
         const float px = x0 + x * sx;
-        for (int z = 0; z < cellsZ; ++z) {
+        for (int z = gz0; z < gz1; ++z) {
             pushVertexColor(lines, px, hAt(x, z) + 0.02f, z0 + z * sz, gc, gc, gc);
-            pushVertexColor(lines, px, hAt(x, z + 1) + 0.02f, z0 + (z + 1) * sz, gc, gc, gc);
+            pushVertexColor(lines, px, hAt(x, z + 1) + 0.02f, z0 + (z + 1) * sz, gc, gc,
+                            gc);
         }
     }
-    for (int z = 0; z <= cellsZ; ++z) {
+    for (int z = gz0; z <= gz1; ++z) {
+        if (z % stride != 0 && z != cellsZ) continue;
+        if (z == gz1 && z != cellsZ) continue;  // next chunk draws this border
         const float pz = z0 + z * sz;
-        for (int x = 0; x < cellsX; ++x) {
+        for (int x = gx0; x < gx1; ++x) {
             pushVertexColor(lines, x0 + x * sx, hAt(x, z) + 0.02f, pz, gc, gc, gc);
-            pushVertexColor(lines, x0 + (x + 1) * sx, hAt(x + 1, z) + 0.02f, pz, gc, gc, gc);
+            pushVertexColor(lines, x0 + (x + 1) * sx, hAt(x + 1, z) + 0.02f, pz, gc, gc,
+                            gc);
         }
     }
-    // Axes: X red, Y green, Z blue (slightly above terrain)
-    float axisLen = (w > d ? w : d) * 0.6f;
-    pushVertexColor(lines, 0, 0.02f, 0, 0.9f, 0.2f, 0.2f);
-    pushVertexColor(lines, axisLen, 0.02f, 0, 0.9f, 0.2f, 0.2f);
-    pushVertexColor(lines, 0, 0.02f, 0, 0.2f, 0.9f, 0.2f);
-    pushVertexColor(lines, 0, axisLen * 0.5f, 0, 0.2f, 0.9f, 0.2f);
-    pushVertexColor(lines, 0, 0.02f, 0, 0.3f, 0.4f, 1.0f);
-    pushVertexColor(lines, 0, 0.02f, axisLen, 0.3f, 0.4f, 1.0f);
-    lines_ = uploadMesh(lines);
+    terrainLineMeshes_[ci] = uploadMesh(lines);
+}
+
+void Viewport::updateTerrainRegion(const std::vector<float>& heights, float worldX,
+                                   float worldZ, float radius) {
+    if ((int)heights.size() != hmW_ * hmD_ || terrainChunkMeshes_.empty()) {
+        heights_ = heights;
+        buildTerrainMesh();  // dims changed - fall back to the full rebuild
+        return;
+    }
+    heights_ = heights;
+
+    // Cells whose vertices (or shading neighbors: +-1 vertex) the brush
+    // circle touched, padded one cell outward, mapped to chunk range.
+    const float w = (float)terrain_.width, d = (float)terrain_.depth;
+    const float sx = w / tcCellsX_, sz = d / tcCellsZ_;
+    const int minCellX = (int)((worldX - radius + w * 0.5f) / sx) - 2;
+    const int maxCellX = (int)((worldX + radius + w * 0.5f) / sx) + 2;
+    const int minCellZ = (int)((worldZ - radius + d * 0.5f) / sz) - 2;
+    const int maxCellZ = (int)((worldZ + radius + d * 0.5f) / sz) + 2;
+    auto clampi = [](int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); };
+    const int c0x = clampi(minCellX / kTerrainChunkCells, 0, tcChunksX_ - 1);
+    const int c1x = clampi(maxCellX / kTerrainChunkCells, 0, tcChunksX_ - 1);
+    const int c0z = clampi(minCellZ / kTerrainChunkCells, 0, tcChunksZ_ - 1);
+    const int c1z = clampi(maxCellZ / kTerrainChunkCells, 0, tcChunksZ_ - 1);
+    for (int cz = c0z; cz <= c1z; ++cz)
+        for (int cx = c0x; cx <= c1x; ++cx) buildTerrainChunkMesh(cx, cz);
 }
 
 void Viewport::ensureFramebuffer(int width, int height) {
@@ -1247,10 +1317,16 @@ void Viewport::setProjectDir(const std::string& dir) {
     clearTexCache();
 }
 
-void Viewport::setTerrainTexture(const std::string& relPath, float scale) {
-    if (terrainTexture_ == relPath && terrainTexScale_ == scale) return;
-    terrainTexture_ = relPath;
-    terrainTexScale_ = scale < 0.25f ? 0.25f : scale;
+void Viewport::setTerrainMaterial(const std::string& texRelPath, const float kd[3],
+                                  bool hasMaterial, const float tile[2]) {
+    if (terrainTexture_ == texRelPath && terrainTile_[0] == tile[0] &&
+        terrainTile_[1] == tile[1] && terrainHasMaterial_ == hasMaterial &&
+        terrainKd_[0] == kd[0] && terrainKd_[1] == kd[1] && terrainKd_[2] == kd[2])
+        return;
+    terrainTexture_ = texRelPath;
+    terrainTile_[0] = tile[0], terrainTile_[1] = tile[1];
+    terrainHasMaterial_ = hasMaterial;
+    terrainKd_[0] = kd[0], terrainKd_[1] = kd[1], terrainKd_[2] = kd[2];
     if (program_) buildTerrainMesh();
 }
 
@@ -1727,8 +1803,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         }
         const uint32_t terrainTex =
             asLines ? 0 : glTexture(terrainTexture_);  // wire passes stay untextured
-        draw(terrain_mesh_, GL_TRIANGLES, viewProj, tintScale, tintScale, tintScale,
-             terrainTex, asLines ? nullptr : &identityM);
+        for (const Mesh& chunk : terrainChunkMeshes_)
+            draw(chunk, GL_TRIANGLES, viewProj, tintScale, tintScale, tintScale,
+                 terrainTex, asLines ? nullptr : &identityM);
         for (size_t oi = 0; oi < objects.size(); ++oi) {
             if (hiddenAt(oi)) continue;
             const SceneObject& o = objects[oi];
@@ -1808,7 +1885,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     }
 
     // Grid lines, axes and the selection outline are unaffected by view mode
-    draw(lines_, GL_LINES, viewProj, 1.0f, 1.0f, 1.0f);
+    for (const Mesh& chunkLines : terrainLineMeshes_)
+        draw(chunkLines, GL_LINES, viewProj, 1.0f, 1.0f, 1.0f);
+    draw(axes_, GL_LINES, viewProj, 1.0f, 1.0f, 1.0f);
 
     // Point-light reach: a ring sphere at each light, scaled to its radius and
     // tinted with the light color (a rough preview of the lit volume).

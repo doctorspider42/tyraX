@@ -9,6 +9,7 @@
 #include "history.hpp"
 #include "json.hpp"
 #include "menubake.hpp"
+#include "objparser.hpp"
 #include "templates.hpp"
 
 namespace fs = std::filesystem;
@@ -315,8 +316,8 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << ", \"topColor\": " << fmtVec3(s.skyTopColor) << ", \"dome\": "
       << (s.skyDome ? "true" : "false") << ", \"zenithSize\": " << fmtFloat(s.zenithSize)
       << " }, \"clipping\": \"" << s.clipping
-      << "\", \"terrainTexture\": \"" << s.terrainTexture << "\", \"terrainTexScale\": "
-      << fmtFloat(s.terrainTexScale) << ", \"postfx\": { \"bloom\": " << fmtFloat(s.bloom)
+      << "\", \"terrainMaterial\": \"" << s.terrainMaterial
+      << "\", \"postfx\": { \"bloom\": " << fmtFloat(s.bloom)
       << ", \"grain\": " << fmtFloat(s.grain) << " }, \"fog\": { \"enabled\": "
       << (s.fogEnabled ? "true" : "false") << ", \"color\": " << fmtVec3(s.fogColor)
       << ", \"start\": " << fmtFloat(s.fogStart) << ", \"end\": " << fmtFloat(s.fogEnd)
@@ -328,8 +329,8 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
     const SceneOverrides& o = sc.overrides;
     j << ", \"overrides\": { \"lighting\": " << (o.lighting ? "true" : "false")
       << ", \"sky\": " << (o.sky ? "true" : "false") << ", \"clipping\": "
-      << (o.clipping ? "true" : "false") << ", \"terrainTex\": "
-      << (o.terrainTex ? "true" : "false") << ", \"postFx\": " << (o.postFx ? "true" : "false")
+      << (o.clipping ? "true" : "false") << ", \"terrainMat\": "
+      << (o.terrainMat ? "true" : "false") << ", \"postFx\": " << (o.postFx ? "true" : "false")
       << ", \"fog\": " << (o.fog ? "true" : "false")
       << ", \"highlight\": " << (o.highlight ? "true" : "false") << " }";
     if (!sc.ambiencePreset.empty())
@@ -337,7 +338,7 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
 }
 
 // Reads a scene's scene-visual settings + override flags. New files carry an
-// "overrides" object; older files carried a top-level "lighting"/"terrainTexture"
+// "overrides" object; older files carried a top-level "lighting"/"terrainTexScale"
 // per scene (always-active) - migrate those with the two flags on.
 static void readSceneVisuals(const json::Value& js, SceneData& sc) {
     ProjectSettings& s = sc.settings;
@@ -361,9 +362,7 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
             }
             if (const auto* v = st->find("clipping"))
                 s.clipping = v->stringOr("precise") == "fast" ? "fast" : "precise";
-            if (const auto* v = st->find("terrainTexture")) s.terrainTexture = v->stringOr("");
-            if (const auto* v = st->find("terrainTexScale"))
-                s.terrainTexScale = (float)v->numberOr(4.0);
+            if (const auto* v = st->find("terrainMaterial")) s.terrainMaterial = v->stringOr("");
             if (const auto* pf = st->find("postfx")) {
                 if (const auto* v = pf->find("bloom")) s.bloom = clamp01((float)v->numberOr(0.0));
                 if (const auto* v = pf->find("grain")) s.grain = clamp01((float)v->numberOr(0.0));
@@ -387,8 +386,12 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
         sc.overrides.lighting = ov->find("lighting") ? ov->find("lighting")->boolOr(false) : false;
         sc.overrides.sky = ov->find("sky") ? ov->find("sky")->boolOr(false) : false;
         sc.overrides.clipping = ov->find("clipping") ? ov->find("clipping")->boolOr(false) : false;
-        sc.overrides.terrainTex =
-            ov->find("terrainTex") ? ov->find("terrainTex")->boolOr(false) : false;
+        // Legacy files carried this flag as "terrainTex" (it gated the terrain
+        // texture, now the terrain material). Accept both keys.
+        sc.overrides.terrainMat =
+            ov->find("terrainMat")   ? ov->find("terrainMat")->boolOr(false)
+            : ov->find("terrainTex") ? ov->find("terrainTex")->boolOr(false)
+                                     : false;
         sc.overrides.postFx = ov->find("postFx") ? ov->find("postFx")->boolOr(false) : false;
         sc.overrides.fog = ov->find("fog") ? ov->find("fog")->boolOr(false) : false;
         sc.overrides.highlight =
@@ -403,15 +406,11 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
             if (const auto* v = li->find("brightness")) s.brightness = (float)v->numberOr(1.0);
             sc.overrides.lighting = true;
         }
-        if (const auto* v = js.find("terrainTexture")) {
-            s.terrainTexture = v->stringOr("");
-            sc.overrides.terrainTex = true;
-        }
-        if (const auto* v = js.find("terrainTexScale"))
-            s.terrainTexScale = (float)v->numberOr(4.0);
+        // Terrain was picked by raw texture + tiling scale in these legacy
+        // files; both are gone now - terrain takes a material whose map "-s"
+        // option carries the tiling. Nothing to migrate here.
     }
     if (const auto* v = js.find("ambiencePreset")) sc.ambiencePreset = v->stringOr("");
-    if (s.terrainTexScale < 0.25f) s.terrainTexScale = 0.25f;
     if (s.brightness < 0.0f) s.brightness = 0.0f;
     if (s.brightness > 2.0f) s.brightness = 2.0f;
     if (s.highlightSteps < 1) s.highlightSteps = 1;
@@ -433,10 +432,7 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         r.zenithSize = o.zenithSize;
     }
     if (s.overrides.clipping) r.clipping = o.clipping;
-    if (s.overrides.terrainTex) {
-        r.terrainTexture = o.terrainTexture;
-        r.terrainTexScale = o.terrainTexScale;
-    }
+    if (s.overrides.terrainMat) r.terrainMaterial = o.terrainMaterial;
     if (s.overrides.postFx) {
         r.bloom = o.bloom;
         r.grain = o.grain;
@@ -490,6 +486,23 @@ int ambienceIndexFor(const Project& p, const SceneData& s) {
     return -1;
 }
 
+TerrainMaterial resolveTerrainMaterial(const Project& p, const std::string& matRel) {
+    TerrainMaterial out;
+    if (matRel.empty()) return out;
+    std::vector<objparser::MtlMaterial> mats;
+    const std::string full = (fs::path(p.dir) / matRel).string();
+    if (!objparser::loadMtl(full, mats) || mats.empty()) return out;
+    const objparser::MtlMaterial& m = mats.front();
+    out.present = true;
+    for (int i = 0; i < 3; ++i) out.kd[i] = m.kd[i];
+    out.tile[0] = m.scale[0];
+    out.tile[1] = m.scale[1];
+    // map_Kd is relative to the .mtl's own directory.
+    if (!m.texture.empty())
+        out.texture = (fs::path(matRel).parent_path() / m.texture).generic_string();
+    return out;
+}
+
 std::string save(const Project& p) {
     std::ostringstream json;
     json << "{\n"
@@ -510,6 +523,8 @@ std::string save(const Project& p) {
          << "    \"meshLodDistance\": " << fmtFloat(p.settings.meshLodDistance)
          << ",\n"
          << "    \"terrainDetail\": " << p.settings.terrainDetail << ",\n"
+         << "    \"terrainViewDistance\": " << fmtFloat(p.settings.terrainViewDistance)
+         << ",\n"
          << "    \"skyColor\": " << fmtVec3(p.settings.skyColor) << ",\n"
          << "    \"skyTopColor\": " << fmtVec3(p.settings.skyTopColor) << ",\n"
          << "    \"skyDome\": " << (p.settings.skyDome ? "true" : "false") << ",\n"
@@ -527,8 +542,7 @@ std::string save(const Project& p) {
          << "    \"diffuse\": " << fmtFloat(p.settings.diffuse) << ",\n"
          << "    \"lightColor\": " << fmtVec3(p.settings.lightColor) << ",\n"
          << "    \"brightness\": " << fmtFloat(p.settings.brightness) << ",\n"
-         << "    \"terrainTexture\": \"" << p.settings.terrainTexture << "\",\n"
-         << "    \"terrainTexScale\": " << fmtFloat(p.settings.terrainTexScale) << ",\n"
+         << "    \"terrainMaterial\": \"" << p.settings.terrainMaterial << "\",\n"
          << "    \"bloom\": " << fmtFloat(p.settings.bloom) << ",\n"
          << "    \"grain\": " << fmtFloat(p.settings.grain) << ",\n"
          << "    \"fogEnabled\": " << (p.settings.fogEnabled ? "true" : "false")
@@ -568,9 +582,12 @@ std::string save(const Project& p) {
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << h.name << "\", \"image\": \""
              << h.imagePath << "\", \"pos\": [" << fmtFloat(h.pos[0]) << ", "
              << fmtFloat(h.pos[1]) << "], \"size\": [" << fmtFloat(h.size[0]) << ", "
-             << fmtFloat(h.size[1]) << "] }";
+             << fmtFloat(h.size[1]) << "], \"texW\": " << h.texW << ", \"texH\": "
+             << h.texH << ", \"texQuant\": \"" << h.texQuant << "\" }";
     }
     json << (p.hud.empty() ? "]" : "\n  ]");
+    json << ",\n  \"hudBloomLayer\": " << p.hudBloomLayer;
+    json << ",\n  \"hudGrainLayer\": " << p.hudGrainLayer;
     json << ",\n  \"music\": [";
     for (size_t i = 0; i < p.music.size(); ++i)
         json << (i ? ", " : "") << "\"" << p.music[i] << "\"";
@@ -1111,7 +1128,11 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = s->find("terrainDetail"))
             st.terrainDetail = (int)v->numberOr(32);
         if (st.terrainDetail < 4) st.terrainDetail = 4;
-        if (st.terrainDetail > 128) st.terrainDetail = 128;
+        if (st.terrainDetail > 512) st.terrainDetail = 512;
+        if (const auto* v = s->find("terrainViewDistance")) {
+            st.terrainViewDistance = (float)v->numberOr(0.0);
+            if (st.terrainViewDistance < 0.0f) st.terrainViewDistance = 0.0f;
+        }
         readVec3(s->find("skyColor"), st.skyColor);
         readVec3(s->find("skyTopColor"), st.skyTopColor);
         if (const auto* v = s->find("skyDome"))
@@ -1139,10 +1160,7 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = s->find("brightness")) st.brightness = (float)v->numberOr(1.0);
         if (st.brightness < 0.0f) st.brightness = 0.0f;
         if (st.brightness > 2.0f) st.brightness = 2.0f;
-        if (const auto* v = s->find("terrainTexture")) st.terrainTexture = v->stringOr("");
-        if (const auto* v = s->find("terrainTexScale"))
-            st.terrainTexScale = (float)v->numberOr(4.0);
-        if (st.terrainTexScale < 0.25f) st.terrainTexScale = 0.25f;
+        if (const auto* v = s->find("terrainMaterial")) st.terrainMaterial = v->stringOr("");
         auto clamp01 = [](float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
         if (const auto* v = s->find("bloom")) st.bloom = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("grain")) st.grain = clamp01((float)v->numberOr(0.0));
@@ -1232,9 +1250,35 @@ std::string load(Project& out, const std::string& projectDir) {
                 h.size[0] = (float)v->arr[0].numberOr(64);
                 h.size[1] = (float)v->arr[1].numberOr(64);
             }
+            // Bake settings; absent (older projects) = auto size, full color.
+            if (const auto* v = jh.find("texW")) h.texW = (int)v->numberOr(0);
+            if (const auto* v = jh.find("texH")) h.texH = (int)v->numberOr(0);
+            if (const auto* v = jh.find("texQuant")) {
+                const std::string q = v->stringOr("");
+                h.texQuant =
+                    (q == "none" || q == "8bit" || q == "4bit") ? q : "";
+            }
             if (!h.imagePath.empty()) out.hud.push_back(std::move(h));
         }
     }
+    // Effect layer positions; absent (older projects) or out of range = -1,
+    // i.e. the effect applies over everything at end of frame - the old
+    // behavior. "hudPostFxLayer" is the pre-split key (bloom+grain shared one
+    // layer); migrate it to both.
+    int legacyLayer = -1;
+    if (const auto* v = root.find("hudPostFxLayer"))
+        legacyLayer = (int)v->numberOr(-1.0);
+    out.hudBloomLayer = legacyLayer;
+    out.hudGrainLayer = legacyLayer;
+    if (const auto* v = root.find("hudBloomLayer"))
+        out.hudBloomLayer = (int)v->numberOr(-1.0);
+    if (const auto* v = root.find("hudGrainLayer"))
+        out.hudGrainLayer = (int)v->numberOr(-1.0);
+    auto clampLayer = [&](int& L) {
+        if (L < -1 || L >= (int)out.hud.size()) L = -1;
+    };
+    clampLayer(out.hudBloomLayer);
+    clampLayer(out.hudGrainLayer);
 
     if (const auto* music = root.find("music");
         music && music->type == json::Value::Type::Array) {

@@ -182,6 +182,21 @@ extern int g_activeScene;
 extern float g_frameRate;   // vsync rate: 50 (PAL) or 60 (NTSC)
 extern float g_frameDt;     // 1 / g_frameRate
 extern float g_frameScale;  // 50 / g_frameRate
+
+// Camera flashlight runtime state (a Player object property), defined in the
+// game cpp. g_flashEnabled is the master switch (Set Flashlight flow node);
+// g_flashOn is the on/off toggle state the player controls with the optional
+// toggle button. The beam shows only while both are set.
+extern bool g_flashEnabled;
+extern bool g_flashOn;
+template <typename TEngine>
+inline bool flashlightTogglePressed(TEngine* engine) {
+  (void)engine;
+  switch (g_activeScene) {
+    default: break;
+  }
+  return false;
+}
 // Frames per `seconds` of wall-clock time (>= 1), for frame-counter timers.
 inline int everyFrames(float seconds) {
   const int f = (int)(seconds * g_frameRate);

@@ -298,6 +298,13 @@ struct ProjectSettings {
     float meshLodDistance = 0.0f;
 
     int terrainDetail = 32;  // max terrain grid cells per axis (quality vs perf)
+
+    // Terrain streaming: the generated game builds the terrain in 16x16-cell
+    // chunks; with a view distance > 0 only the chunks within that range of
+    // the camera stay in memory (the ring streams in as the player moves,
+    // like the layer streaming). 0 = whole map resident. Large maps at high
+    // detail NEED this - the full mesh would not fit in the PS2's 32 MB.
+    float terrainViewDistance = 0.0f;  // world units, 0 = off
     float skyColor[3] = {0.25f, 0.55f, 0.78f};   // horizon / clear color
     float skyTopColor[3] = {0.08f, 0.3f, 0.65f};  // zenith (gradient dome)
     bool skyDome = true;  // render a gradient sky dome (vs flat clear color)
@@ -333,9 +340,11 @@ struct ProjectSettings {
     float lightColor[3] = {1.0f, 1.0f, 1.0f};    // tints the diffuse term
     float brightness = 1.0f;                     // global multiplier (0..2)
 
-    // Terrain texture (PNG, tiled; empty = checker colors)
-    std::string terrainTexture;
-    float terrainTexScale = 4.0f;  // world units per texture tile
+    // Terrain material (.mtl asset; empty = checker greens). The first
+    // material's Kd tints the terrain; its map_Kd (when present) textures it,
+    // tiled by the map's "-s" scale (repeats per world unit), otherwise the
+    // terrain is a flat Kd-colored surface.
+    std::string terrainMaterial;
 
     // Post effects (GS framebuffer blits at the end of every frame; no
     // pixel shaders on the PS2). 0 = off, 1 = maximum.
@@ -374,6 +383,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
            a.meshLodDistance == b.meshLodDistance &&
            a.terrainDetail == b.terrainDetail &&
+           a.terrainViewDistance == b.terrainViewDistance &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.zenithSize == b.zenithSize &&
            a.eyeHeight == b.eyeHeight &&
@@ -384,8 +394,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.jumpSpeed == b.jumpSpeed && eq3(a.lightDir, b.lightDir) &&
            a.ambient == b.ambient && a.diffuse == b.diffuse &&
            eq3(a.lightColor, b.lightColor) && a.brightness == b.brightness &&
-           a.terrainTexture == b.terrainTexture &&
-           a.terrainTexScale == b.terrainTexScale && a.bloom == b.bloom &&
+           a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
            a.grain == b.grain && a.fogEnabled == b.fogEnabled &&
            eq3(a.fogColor, b.fogColor) && a.fogStart == b.fogStart &&
            a.fogEnd == b.fogEnd &&
@@ -405,7 +414,7 @@ struct SceneOverrides {
     bool lighting = false;    // lightDir, ambient, diffuse, lightColor, brightness
     bool sky = false;         // skyColor, skyTopColor, skyDome
     bool clipping = false;    // clipping mode
-    bool terrainTex = false;  // terrainTexture, terrainTexScale
+    bool terrainMat = false;  // terrainMaterial
     bool postFx = false;      // bloom, grain
     bool fog = false;         // fogEnabled, fogColor, fogStart, fogEnd
     bool highlight = false;   // highlightUsable + distance/color/width/steps
@@ -413,7 +422,7 @@ struct SceneOverrides {
 
 inline bool operator==(const SceneOverrides& a, const SceneOverrides& b) {
     return a.lighting == b.lighting && a.sky == b.sky && a.clipping == b.clipping &&
-           a.terrainTex == b.terrainTex && a.postFx == b.postFx &&
+           a.terrainMat == b.terrainMat && a.postFx == b.postFx &&
            a.fog == b.fog && a.highlight == b.highlight;
 }
 
@@ -424,8 +433,30 @@ struct HudImage {
     std::string name;
     std::string imagePath;      // e.g. "res/hud/crosshair.png"
     float pos[2] = {0.5f, 0.5f};   // normalized screen position (center anchor)
-    float size[2] = {64.0f, 64.0f};  // pixels (PS2 screen is 512x448)
+    float size[2] = {64.0f, 64.0f};  // on-screen draw size in pixels (PS2 screen
+                                     // is 512x448); independent of the texture
+                                     // resolution below (the sprite is stretched)
+
+    // Build-time bake: the PS2 rejects textures that are not 8/16/32/64/128/
+    // 256/512 in each dimension (a runtime assert), so the editor resizes the
+    // imported PNG into .res-baked before it reaches the game. 0 = auto (the
+    // nearest valid power-of-two of the source); otherwise a chosen valid size.
+    int texW = 0;
+    int texH = 0;
+    // Palette quantization, like the per-asset material texture quality:
+    // "" = follow the project default (ProjectSettings::textureQuant),
+    // "none" = full color (32-bit) override, "8bit" = 256-color, "4bit" =
+    // 16-color. Lets an important HUD element keep full color while the rest
+    // of the project runs quantized (or vice versa).
+    std::string texQuant;
 };
+
+inline bool operator==(const HudImage& a, const HudImage& b) {
+    return a.name == b.name && a.imagePath == b.imagePath &&
+           a.pos[0] == b.pos[0] && a.pos[1] == b.pos[1] &&
+           a.size[0] == b.size[0] && a.size[1] == b.size[1] &&
+           a.texW == b.texW && a.texH == b.texH && a.texQuant == b.texQuant;
+}
 
 // A streaming layer: a named group of scene objects that the game can load
 // into / evict from memory at runtime (Load Layer / Unload Layer flow nodes)
@@ -614,6 +645,16 @@ struct Project {
     const std::vector<SceneObject>& objects() const { return active().objects; }
 
     std::vector<HudImage> hud;
+    // Where the full-screen post effects sit in the screen stack (Tools > UI
+    // Editor). Bloom (with color grading) and film grain are placed
+    // independently: the effect applies right before the HUD sprite at that
+    // index, so sprites with a lower index get the effect and higher ones draw
+    // crisp on top. -1 = apply at the very end of the frame, over everything
+    // including menus (the classic behavior, and the default). Typical split:
+    // bloom under the HUD so it does not blur the crosshair, grain at -1 as a
+    // filmic overlay over the whole screen. Grading rides with bloom.
+    int hudBloomLayer = -1;
+    int hudGrainLayer = -1;
     // Music tracks (16-bit 22kHz stereo WAV in res/audio/), played via the
     // flow graph (Play Music / Stop Music / Set Music Volume actions).
     std::vector<std::string> music;
@@ -689,7 +730,7 @@ std::string create(Project& out, const std::string& name, const std::string& par
                    const TerrainConfig& terrain, const std::string& preset = "empty");
 
 // The effective settings for a scene: the project defaults with each scene
-// category (lighting, sky, clipping, terrain texture, post-FX, highlight)
+// category (lighting, sky, clipping, terrain material, post-FX, highlight)
 // replaced by the scene's own values where its override flag is set. All
 // codegen and viewport code reads scene-visual settings through this.
 ProjectSettings resolvedSettings(const Project& p, const SceneData& s);
@@ -698,6 +739,21 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s);
 // its named preset if it exists, otherwise the project default. -1 = none
 // (no presets, or a dangling/empty name with no default).
 int ambienceIndexFor(const Project& p, const SceneData& s);
+
+// A terrain material resolved to what the terrain actually needs.
+struct TerrainMaterial {
+    bool present = false;            // false = no material -> checker greens
+    std::string texture;             // res-relative map_Kd ("" = flat color)
+    float kd[3] = {1.0f, 1.0f, 1.0f};  // tint (defaults to white)
+    float tile[2] = {1.0f, 1.0f};    // texture repeats per world unit (u, v)
+};
+
+// Resolves a terrain material (.mtl asset, res-relative, e.g. from
+// resolvedSettings(...).terrainMaterial) to its first material's map_Kd
+// texture, Kd tint and "-s" tiling. `present` is false when unassigned or the
+// .mtl is unreadable. Codegen, the editor viewport and the ISO planner resolve
+// through this so they agree on the terrain's texture, color and tiling.
+TerrainMaterial resolveTerrainMaterial(const Project& p, const std::string& matRel);
 
 // Loads the single <name>.tyra project file from an existing project
 // directory (game data + editor-side state + window layout).
