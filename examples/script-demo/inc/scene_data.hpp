@@ -206,7 +206,12 @@ inline int everyFrames(float seconds) {
 #define HM_D HM_DS[g_activeScene]
 #define TERRAIN_HEIGHTS TERRAIN_HEIGHTS_TABLES[g_activeScene]
 #define TERRAIN_TEXTURE TERRAIN_TEXTURES[g_activeScene]
-#define TERRAIN_TEX_SCALE TERRAIN_TEX_SCALES[g_activeScene]
+#define TERRAIN_TILE_U TERRAIN_TILE_US[g_activeScene]
+#define TERRAIN_TILE_V TERRAIN_TILE_VS[g_activeScene]
+#define TERRAIN_HAS_MATERIAL TERRAIN_HAS_MATERIALS[g_activeScene]
+#define TERRAIN_TINT_R TERRAIN_TINTS[g_activeScene][0]
+#define TERRAIN_TINT_G TERRAIN_TINTS[g_activeScene][1]
+#define TERRAIN_TINT_B TERRAIN_TINTS[g_activeScene][2]
 // Per-scene sky / clipping / post-FX / usable-highlight (Scene > Preferences)
 #define CLIP_PRECISE CLIP_PRECISES[g_activeScene]
 #define SKY_R SKY_RS[g_activeScene]
