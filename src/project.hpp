@@ -106,6 +106,10 @@ struct SceneObject {
     // Player collision: 0 = box (models use their real mesh AABB), 1 = mesh
     // (models only: per-triangle - ramps/stairs are walkable), 2 = none
     int collisionMode = 0;
+    // Streaming layer this object belongs to (SceneData::layers entry name).
+    // Empty = no layer: always resident in the game, always shown in the
+    // editor. Objects reference layers by name (renames remap references).
+    std::string layer;
     // Tessellation detail for the geometry primitives: radial segments for
     // Sphere/Cylinder/Cone, subdivisions per edge for Box. More = smoother +
     // more triangles. Type-dependent range/default - see clampPrimDetail /
@@ -216,6 +220,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
            a.physics == b.physics && a.usable == b.usable &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
+           a.layer == b.layer &&
            a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
            a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.playerMode == b.playerMode &&
@@ -414,6 +419,21 @@ struct HudImage {
     float size[2] = {64.0f, 64.0f};  // pixels (PS2 screen is 512x448)
 };
 
+// A streaming layer: a named group of scene objects that the game can load
+// into / evict from memory at runtime (Load Layer / Unload Layer flow nodes)
+// - GTA3-style interior streaming. Also doubles as an editor visibility
+// group (the eye toggle hides the layer's objects while editing).
+struct SceneLayer {
+    std::string name = "Layer";
+    bool startLoaded = true;    // game: resident when the scene starts
+    bool editorVisible = true;  // editor-only: draw/pick the objects
+};
+
+inline bool operator==(const SceneLayer& a, const SceneLayer& b) {
+    return a.name == b.name && a.startLoaded == b.startLoaded &&
+           a.editorVisible == b.editorVisible;
+}
+
 // A scene: its own objects (each with its flow graph), its own terrain
 // (size, heightmap, texture) and its own lighting. Sky, physics prefs, HUD
 // and audio assets are shared; the game starts in the first scene and
@@ -421,6 +441,7 @@ struct HudImage {
 struct SceneData {
     std::string name = "main";
     std::vector<SceneObject> objects;
+    std::vector<SceneLayer> layers;
 
     TerrainConfig terrain;
     // Heightmap: vertex heights on the render grid (row-major, hmW x hmD).
@@ -438,7 +459,7 @@ struct SceneData {
 };
 
 inline bool operator==(const SceneData& a, const SceneData& b) {
-    return a.name == b.name && a.objects == b.objects &&
+    return a.name == b.name && a.objects == b.objects && a.layers == b.layers &&
            a.terrain.width == b.terrain.width && a.terrain.depth == b.terrain.depth &&
            a.heights == b.heights && a.hmW == b.hmW && a.hmD == b.hmD &&
            a.overrides == b.overrides && a.settings == b.settings;

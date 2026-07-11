@@ -15,12 +15,18 @@ Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 public class Win32Shot {
+    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT { public int Left, Top, Right, Bottom; }
 }
 "@
+
+# Without DPI awareness, GetWindowRect/CopyFromScreen work in virtualized
+# coordinates on displays scaled above 100% and the capture comes out as a
+# scaled-up crop of the window's top-left corner.
+[Win32Shot]::SetProcessDPIAware() | Out-Null
 
 $proc = Get-Process $ProcessName -ErrorAction SilentlyContinue |
     Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1

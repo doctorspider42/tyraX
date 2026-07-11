@@ -448,6 +448,7 @@ void App::drawUI() {
     drawNewScriptModal();
     drawNewSceneModal();
     drawDeleteSceneModal();
+    drawDeleteAssetModal();
 
     // Keyboard shortcuts
     ImGuiIO& io = ImGui::GetIO();
@@ -525,8 +526,13 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Undo", "Ctrl+Z", false, history_.canUndo())) undo();
             if (ImGui::MenuItem("Redo", "Ctrl+Y", false, history_.canRedo())) redo();
             ImGui::Separator();
-            if (ImGui::MenuItem("Copy object", "Ctrl+C", false, objectSelected)) copyObject();
-            if (ImGui::MenuItem("Paste object", "Ctrl+V", false, hasClipboard_)) pasteObject();
+            const char* copyLabel =
+                selection_.size() > 1 ? "Copy objects" : "Copy object";
+            const char* pasteLabel =
+                clipboard_.size() > 1 ? "Paste objects" : "Paste object";
+            if (ImGui::MenuItem(copyLabel, "Ctrl+C", false, objectSelected)) copyObject();
+            if (ImGui::MenuItem(pasteLabel, "Ctrl+V", false, !clipboard_.empty()))
+                pasteObject();
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("View")) {
@@ -677,8 +683,16 @@ void App::drawViewportWindow() {
             viewport_.setGrading(
                 on, on ? compileGrading(project_.gradings[gi]) : CompiledGrading{});
         }
-        uint32_t tex =
-            viewport_.render((int)avail.x, (int)avail.y, project_.objects(), selectedObject_);
+        // Layer eye toggles: objects on hidden layers vanish from the render
+        // and the click picking (mask indices parallel project_.objects()).
+        {
+            std::vector<char> hidden(project_.objects().size(), 0);
+            for (size_t i = 0; i < project_.objects().size(); ++i)
+                hidden[i] = isObjectHiddenInEditor(project_.objects()[i]) ? 1 : 0;
+            viewport_.setHiddenMask(std::move(hidden));
+        }
+        uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, project_.objects(),
+                                        selection_, selectedObject_);
         // Flip vertically: GL texture origin is bottom-left
         ImGui::Image((ImTextureID)(intptr_t)tex, avail, ImVec2(0, 1), ImVec2(1, 0));
 
@@ -748,9 +762,11 @@ void App::drawViewportWindow() {
             }
         }
 
-        // --- Transform gizmo on the selected object (disabled while sculpting) ---
+        // --- Transform gizmo on the selection (disabled while sculpting;
+        // objects on a hidden layer can't be grabbed either) ---
         bool objectSelected = !sculptMode_ && selectedObject_ >= 0 &&
-                              selectedObject_ < (int)project_.objects().size();
+                              selectedObject_ < (int)project_.objects().size() &&
+                              !isObjectHiddenInEditor(project_.objects()[selectedObject_]);
         if (objectSelected) {
             SceneObject& o = project_.objects()[selectedObject_];
 
@@ -770,7 +786,45 @@ void App::drawViewportWindow() {
                                          op == ImGuizmo::TRANSLATE ? 0.5f : 0.0f};
             const float* snap = io.KeyCtrl ? snapValues : nullptr;
 
-            if (gizmoSpace_ == 0) {
+            if (selection_.size() > 1) {
+                // Multiple objects: manipulate a proxy at the group's centroid,
+                // then apply the resulting world-space delta to every selected
+                // object's TRS - so the group translates / rotates / scales
+                // about the pivot as one rigid arrangement. (float[16] are
+                // column-major; element (row r, col c) is at [c*4 + r].)
+                auto mulMat4 = [](const float* A, const float* B, float* C) {
+                    for (int c = 0; c < 4; ++c)
+                        for (int r = 0; r < 4; ++r) {
+                            float s = 0.0f;
+                            for (int k = 0; k < 4; ++k) s += A[k * 4 + r] * B[c * 4 + k];
+                            C[c * 4 + r] = s;
+                        }
+                };
+                float pivot[3] = {0.0f, 0.0f, 0.0f};
+                for (int idx : selection_)
+                    for (int k = 0; k < 3; ++k)
+                        pivot[k] += project_.objects()[idx].position[k];
+                for (int k = 0; k < 3; ++k) pivot[k] /= (float)selection_.size();
+
+                const float unitRot[3] = {0.0f, 0.0f, 0.0f};
+                const float unitScale[3] = {1.0f, 1.0f, 1.0f};
+                float proxy[16], delta[16];
+                ImGuizmo::RecomposeMatrixFromComponents(pivot, unitRot, unitScale, proxy);
+                if (ImGuizmo::Manipulate(viewport_.viewMatrix(), viewport_.projMatrix(),
+                                         op, ImGuizmo::WORLD, proxy, delta, snap)) {
+                    for (int idx : selection_) {
+                        SceneObject& so = project_.objects()[idx];
+                        float model[16], out[16];
+                        ImGuizmo::RecomposeMatrixFromComponents(so.position, so.rotation,
+                                                                so.scale, model);
+                        mulMat4(delta, model, out);  // out = delta * model
+                        ImGuizmo::DecomposeMatrixToComponents(out, so.position,
+                                                              so.rotation, so.scale);
+                        for (float& s : so.scale)
+                            if (s < 0.01f) s = 0.01f;
+                    }
+                }
+            } else if (gizmoSpace_ == 0) {
                 // Absolute: move and rotate along the world axes. ImGuizmo
                 // forces SCALE onto the object's own axes regardless of the
                 // mode (world-axis scale would skew the TRS matrix).
@@ -895,7 +949,9 @@ void App::drawViewportWindow() {
                     break;
                 case NavScheme::Default:
                 default:
-                    doOrbit = (!sculptMode_ && lmb) || rmb;
+                    // Left-drag is reserved for rubber-band selection; orbit on
+                    // right-drag (as this scheme already supported).
+                    doOrbit = rmb;
                     doPan = mmb;
                     break;
             }
@@ -910,12 +966,50 @@ void App::drawViewportWindow() {
             if (io.MouseWheel != 0.0f || dolly != 0.0f)
                 viewport_.zoom(io.MouseWheel * nav_.zoomSensitivity + dolly);
 
-            // Click (no drag) = pick object under cursor
-            if (!sculptMode_ && ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
-                io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
-                const float u = (io.MousePos.x - imgPos.x) / avail.x;
-                const float v = (io.MousePos.y - imgPos.y) / avail.y;
-                selectedObject_ = viewport_.pick(u, v, project_.objects());
+            // Begin a rubber-band box when a left-drag starts and the left
+            // button is not driving the camera in this scheme (only Maya's
+            // Alt+LMB does) and we're not sculpting.
+            const bool lmbCamera = (nav_.scheme == NavScheme::Maya) && alt;
+            if (!sculptMode_ && !lmbCamera &&
+                ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+                boxSelecting_ = true;
+        }
+
+        // Rubber-band box select: tracked until the button is released, even if
+        // the cursor leaves the image. A left-drag past the click threshold
+        // draws a marquee and selects the overlapped objects on release; a plain
+        // click (no drag) falls through to single-object picking below.
+        if (boxSelecting_) {
+            const ImVec2 a = io.MouseClickedPos[ImGuiMouseButton_Left];
+            const ImVec2 b = io.MousePos;
+            const bool dragged =
+                io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] >= 9.0f;
+            if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+                if (dragged) {
+                    ImDrawList* dl = ImGui::GetWindowDrawList();
+                    const ImVec2 mn(std::min(a.x, b.x), std::min(a.y, b.y));
+                    const ImVec2 mx(std::max(a.x, b.x), std::max(a.y, b.y));
+                    dl->AddRectFilled(mn, mx, IM_COL32(120, 170, 255, 40));
+                    dl->AddRect(mn, mx, IM_COL32(120, 170, 255, 200));
+                }
+            } else {
+                if (dragged) selectObjectsInBox(a, b, imgPos, avail, io.KeyCtrl);
+                boxSelecting_ = false;
+            }
+        }
+
+        // Click (no drag) = pick object under cursor. Ctrl toggles it in the
+        // current selection; a plain click replaces (empty click clears).
+        if (imageHovered && !gizmoBusy && !sculptMode_ &&
+            ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
+            io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
+            const float u = (io.MousePos.x - imgPos.x) / avail.x;
+            const float v = (io.MousePos.y - imgPos.y) / avail.y;
+            const int hit = viewport_.pick(u, v, project_.objects());
+            if (io.KeyCtrl) {
+                if (hit >= 0) toggleSelect(hit);
+            } else {
+                selectOnly(hit);
             }
         }
 
@@ -1122,11 +1216,8 @@ void App::drawViewportWindow() {
             const float strafe = (ImGui::IsKeyDown(kR) ? 1.0f : 0.0f) -
                                  (ImGui::IsKeyDown(kL) ? 1.0f : 0.0f);
             viewport_.fly(fwd, strafe, io.DeltaTime);
-            if (objectSelected && ImGui::IsKeyPressed(ImGuiKey_Delete)) {
-                project_.objects().erase(project_.objects().begin() + selectedObject_);
-                selectedObject_ = -1;
-                commitChange();
-            }
+            if (objectSelected && ImGui::IsKeyPressed(ImGuiKey_Delete))
+                deleteSelectedObjects();
         }
     }
     ImGui::End();
@@ -1179,7 +1270,7 @@ void App::drawProjectWindow() {
                                   ImGuiSelectableFlags_AllowOverlap) &&
                 project_.activeScene != i) {
                 project_.activeScene = i;
-                selectedObject_ = -1;
+                clearSelection();
                 flowGraphObject_ = -1;
                 flowPositionsApplied_ = false;
                 applyProjectToViewport();  // terrain/lighting are per scene
@@ -1194,6 +1285,7 @@ void App::drawProjectWindow() {
     }
 
     drawSceneSection();
+    drawLayersSection();
     drawAssetsSection();
     drawHudSection();
     drawMusicSection();
@@ -1247,7 +1339,9 @@ void App::commitChange() {
 void App::applySnapshot(const SceneSnapshot& s) {
     project_.scenes = s.scenes;
     if (project_.activeScene >= (int)project_.scenes.size()) project_.activeScene = 0;
-    if (selectedObject_ >= (int)project_.objects().size()) selectedObject_ = -1;
+    // A snapshot may have fewer objects (undo of a paste/add) - drop selection
+    // indices that no longer exist.
+    pruneSelection();
     flowPositionsApplied_ = false;  // graphs live in objects - re-pin node positions
     project::saveHeights(project_);  // snapshots carry heightmaps (sculpt undo)
     applyProjectToViewport();  // terrain/lighting/heights may differ per snapshot
@@ -1265,32 +1359,145 @@ void App::redo() {
     saveAll("Redo");
 }
 
+// --- Selection set -------------------------------------------------------
+// selectedObject_ is kept in sync as the primary (anchor) of the set: the
+// last-clicked object, which drives the orbit pivot, the single-object gizmo
+// path and the anchor value shown in the multi-edit panel.
+void App::selectOnly(int i) {
+    selection_.clear();
+    if (i >= 0 && i < (int)project_.objects().size()) selection_.push_back(i);
+    selectedObject_ = selection_.empty() ? -1 : selection_.back();
+}
+
+void App::toggleSelect(int i) {
+    if (i < 0 || i >= (int)project_.objects().size()) return;
+    auto it = std::find(selection_.begin(), selection_.end(), i);
+    if (it != selection_.end()) selection_.erase(it);
+    else selection_.push_back(i);
+    selectedObject_ = selection_.empty() ? -1 : selection_.back();
+}
+
+void App::clearSelection() {
+    selection_.clear();
+    selectedObject_ = -1;
+}
+
+bool App::isSelected(int i) const {
+    return std::find(selection_.begin(), selection_.end(), i) != selection_.end();
+}
+
+void App::pruneSelection() {
+    const int n = (int)project_.objects().size();
+    selection_.erase(
+        std::remove_if(selection_.begin(), selection_.end(),
+                       [n](int i) { return i < 0 || i >= n; }),
+        selection_.end());
+    selectedObject_ = selection_.empty() ? -1 : selection_.back();
+}
+
+void App::selectObjectsInBox(ImVec2 a, ImVec2 b, ImVec2 imgPos, ImVec2 avail, bool add) {
+    const float rMinX = std::min(a.x, b.x), rMaxX = std::max(a.x, b.x);
+    const float rMinY = std::min(a.y, b.y), rMaxY = std::max(a.y, b.y);
+
+    // World -> image projection, matching the viewport's render camera (same
+    // math as the sculpt brush overlay in run()).
+    const float* V = viewport_.viewMatrix();
+    const float* P = viewport_.projMatrix();
+    auto project = [&](float wx, float wy, float wz, ImVec2& out) -> bool {
+        const float vx = V[0] * wx + V[4] * wy + V[8] * wz + V[12];
+        const float vy = V[1] * wx + V[5] * wy + V[9] * wz + V[13];
+        const float vz = V[2] * wx + V[6] * wy + V[10] * wz + V[14];
+        const float cx = P[0] * vx + P[4] * vy + P[8] * vz + P[12];
+        const float cy = P[1] * vx + P[5] * vy + P[9] * vz + P[13];
+        const float cw = P[3] * vx + P[7] * vy + P[11] * vz + P[15];
+        if (cw <= 0.001f) return false;  // behind the camera
+        out = ImVec2(imgPos.x + (cx / cw * 0.5f + 0.5f) * avail.x,
+                     imgPos.y + (1.0f - (cy / cw * 0.5f + 0.5f)) * avail.y);
+        return true;
+    };
+
+    if (!add) selection_.clear();
+    const float d2r = 3.14159265358979f / 180.0f;
+    for (int i = 0; i < (int)project_.objects().size(); ++i) {
+        const SceneObject& o = project_.objects()[i];
+        if (isObjectHiddenInEditor(o)) continue;  // hidden layers aren't selectable
+        // Rotation applied to each unit-box corner: Rz*Ry*Rx (see modelMatrix).
+        const float cx = std::cos(o.rotation[0] * d2r), sx = std::sin(o.rotation[0] * d2r);
+        const float cy = std::cos(o.rotation[1] * d2r), sy = std::sin(o.rotation[1] * d2r);
+        const float cz = std::cos(o.rotation[2] * d2r), sz = std::sin(o.rotation[2] * d2r);
+        float oMinX = 1e30f, oMinY = 1e30f, oMaxX = -1e30f, oMaxY = -1e30f;
+        bool anyFront = false;
+        for (int s = 0; s < 8; ++s) {
+            const float lx = ((s & 1) ? 0.5f : -0.5f) * o.scale[0];
+            const float ly = ((s & 2) ? 0.5f : -0.5f) * o.scale[1];
+            const float lz = ((s & 4) ? 0.5f : -0.5f) * o.scale[2];
+            const float y1 = ly * cx - lz * sx, z1 = ly * sx + lz * cx, x1 = lx;  // Rx
+            const float x2 = x1 * cy + z1 * sy, z2 = -x1 * sy + z1 * cy, y2 = y1;  // Ry
+            const float x3 = x2 * cz - y2 * sz, y3 = x2 * sz + y2 * cz, z3 = z2;  // Rz
+            ImVec2 sp;
+            if (!project(o.position[0] + x3, o.position[1] + y3, o.position[2] + z3, sp))
+                continue;
+            anyFront = true;
+            oMinX = std::min(oMinX, sp.x), oMinY = std::min(oMinY, sp.y);
+            oMaxX = std::max(oMaxX, sp.x), oMaxY = std::max(oMaxY, sp.y);
+        }
+        if (!anyFront) continue;
+        const bool overlap =
+            oMinX <= rMaxX && oMaxX >= rMinX && oMinY <= rMaxY && oMaxY >= rMinY;
+        if (overlap && !isSelected(i)) selection_.push_back(i);
+    }
+    selectedObject_ = selection_.empty() ? -1 : selection_.back();
+}
+
+void App::deleteSelectedObjects() {
+    if (selection_.empty()) return;
+    // Erase high indices first so earlier ones stay valid.
+    std::vector<int> idx = selection_;
+    std::sort(idx.begin(), idx.end(), [](int a, int b) { return a > b; });
+    for (int i : idx)
+        if (i >= 0 && i < (int)project_.objects().size())
+            project_.objects().erase(project_.objects().begin() + i);
+    clearSelection();
+    commitChange();
+}
+
 void App::copyObject() {
-    if (selectedObject_ < 0 || selectedObject_ >= (int)project_.objects().size()) return;
-    clipboard_ = project_.objects()[selectedObject_];
-    hasClipboard_ = true;
-    statusMessage_ = "Copied " + clipboard_.name;
+    if (selection_.empty()) return;
+    clipboard_.clear();
+    for (int i : selection_)
+        if (i >= 0 && i < (int)project_.objects().size())
+            clipboard_.push_back(project_.objects()[i]);
+    statusMessage_ = clipboard_.size() == 1
+                         ? "Copied " + clipboard_.front().name
+                         : "Copied " + std::to_string(clipboard_.size()) + " objects";
 }
 
 void App::pasteObject() {
-    if (!hasClipboard_) return;
+    if (clipboard_.empty()) return;
 
-    SceneObject o = clipboard_;
-    std::string name = o.name + "-copy";
-    for (int n = 2;; ++n) {
-        bool taken = false;
-        for (const auto& other : project_.objects()) taken |= (other.name == name);
-        if (!taken) break;
-        name = o.name + "-copy" + std::to_string(n);
+    // Paste the whole group offset by the same amount so it keeps its shape,
+    // then select the pasted objects (primary = the last one).
+    selection_.clear();
+    for (const SceneObject& src : clipboard_) {
+        SceneObject o = src;
+        std::string name = o.name + "-copy";
+        for (int n = 2;; ++n) {
+            bool taken = false;
+            for (const auto& other : project_.objects()) taken |= (other.name == name);
+            if (!taken) break;
+            name = o.name + "-copy" + std::to_string(n);
+        }
+        o.name = name;
+        o.position[0] += 1.0f;  // offset so the copy is visible next to the original
+        o.position[2] += 1.0f;
+        project_.objects().push_back(std::move(o));
+        selection_.push_back((int)project_.objects().size() - 1);
     }
-    o.name = name;
-    o.position[0] += 1.0f;  // offset so the copy is visible next to the original
-    o.position[2] += 1.0f;
-
-    project_.objects().push_back(std::move(o));
-    selectedObject_ = (int)project_.objects().size() - 1;
+    selectedObject_ = selection_.back();
     commitChange();
-    statusMessage_ = "Pasted " + project_.objects().back().name;
+    statusMessage_ = clipboard_.size() == 1
+                         ? "Pasted " + project_.objects().back().name
+                         : "Pasted " + std::to_string(clipboard_.size()) + " objects";
 }
 
 void App::attachProject() {
@@ -1304,8 +1511,8 @@ void App::attachProject() {
         project::saveHistory(project_, history_);
     }
     // Editor-side state + window layout came in with the .tyra project file.
-    selectedObject_ = project_.selectedObject;
-    if (selectedObject_ >= (int)project_.objects().size()) selectedObject_ = -1;
+    // Only the primary selection persists; seed the (transient) set from it.
+    selectOnly(project_.selectedObject);
     gizmoOp_ = (project_.gizmoOp >= 0 && project_.gizmoOp <= 2) ? project_.gizmoOp : 0;
     gizmoSpace_ = project_.gizmoSpace == 1 ? 1 : 0;
     const int viewMode =
@@ -1432,7 +1639,7 @@ void App::addObject(PrimitiveType type) {
         o.color[0] = 0.95f, o.color[1] = 0.75f, o.color[2] = 0.2f;
     }
     project_.objects().push_back(o);
-    selectedObject_ = (int)project_.objects().size() - 1;
+    selectOnly((int)project_.objects().size() - 1);
     commitChange();
 }
 
@@ -1772,6 +1979,15 @@ const App::GlbInfo& App::glbInfo(const std::string& relPath) {
         info.vertexCount = baked.totalVertexCount();
         info.frameCount = baked.frameCount;
         info.warnings = baked.warnings;
+        for (const glbparser::Part& p : baked.parts) {
+            GlbInfo::Material mat;
+            mat.name = p.material.empty() ? "material" : p.material;
+            mat.color[0] = p.baseColor[0];
+            mat.color[1] = p.baseColor[1];
+            mat.color[2] = p.baseColor[2];
+            mat.textured = p.image >= 0;
+            info.materials.push_back(std::move(mat));
+        }
     }
     return glbInfoCache_.emplace(relPath, std::move(info)).first->second;
 }
@@ -1885,6 +2101,10 @@ void App::drawAssetsSection() {
         ImGui::Bullet();
         ImGui::SameLine();
         ImGui::TextUnformatted(m.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton(("x##delmodel" + m).c_str()))
+            requestAssetDelete(PendingAssetDelete::Model, "res/models/" + m, m);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this model from the project");
         qualityCombo("res/models/" + m);
         const ModelInfo& info = modelInfo("res/models/" + m);
         if (info.ok) {
@@ -1909,6 +2129,10 @@ void App::drawAssetsSection() {
         ImGui::Bullet();
         ImGui::SameLine();
         ImGui::TextUnformatted(m.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton(("x##delglb" + m).c_str()))
+            requestAssetDelete(PendingAssetDelete::Model, "res/models/" + m, m);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this model from the project");
         const GlbInfo& info = glbInfo("res/models/" + m);
         if (info.ok) {
             ImGui::SameLine();
@@ -1959,6 +2183,10 @@ void App::drawAssetsSection() {
         ImGui::SameLine();
         if (ImGui::SmallButton(("Edit##mat" + m).c_str()))
             openMaterialEditor("res/materials/" + m);
+        ImGui::SameLine();
+        if (ImGui::SmallButton(("x##delmat" + m).c_str()))
+            requestAssetDelete(PendingAssetDelete::Material, "res/materials/" + m, m);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this material from the project");
         qualityCombo("res/materials/" + m);
         const ModelInfo& info = materialInfo("res/materials/" + m);
         if (info.ok) {
@@ -2004,7 +2232,7 @@ void App::addModelObject(const std::string& relPath) {
     o.name = name;
 
     project_.objects().push_back(std::move(o));
-    selectedObject_ = (int)project_.objects().size() - 1;
+    selectOnly((int)project_.objects().size() - 1);
     commitChange();
 }
 
@@ -2081,17 +2309,167 @@ void App::drawSceneSection() {
         ImGui::TextDisabled("No objects - add a primitive above.");
     } else {
         ImGui::BeginChild("##objects", ImVec2(0, 130), ImGuiChildFlags_Borders);
+        // Ctrl/Shift+click extends the selection; plain click replaces it.
         for (int i = 0; i < (int)project_.objects().size(); ++i) {
             const SceneObject& o = project_.objects()[i];
-            std::string label = o.name + "  (" + primitiveTypeName(o.type) + ")##obj" +
+            const bool hidden = isObjectHiddenInEditor(o);
+            std::string label = o.name + "  (" + primitiveTypeName(o.type) + ")" +
+                                (hidden ? "  [hidden]" : "") + "##obj" +
                                 std::to_string(i);
-            if (ImGui::Selectable(label.c_str(), selectedObject_ == i)) selectedObject_ = i;
+            if (hidden)
+                ImGui::PushStyleColor(ImGuiCol_Text,
+                                      ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+            if (ImGui::Selectable(label.c_str(), isSelected(i))) {
+                if (ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift) toggleSelect(i);
+                else selectOnly(i);
+            }
+            if (hidden) ImGui::PopStyleColor();
         }
         ImGui::EndChild();
     }
 
-    if (selectedObject_ >= 0 && selectedObject_ < (int)project_.objects().size())
+    if (selection_.size() > 1)
+        ImGui::TextDisabled("%d objects selected - edit shared fields in Properties.",
+                            (int)selection_.size());
+    else if (selectedObject_ >= 0 && selectedObject_ < (int)project_.objects().size())
         ImGui::TextDisabled("Edit the selection in the Properties window.");
+}
+
+// True when the object sits on a layer whose editor eye is off - the
+// viewport skips it (render and picking) and the object list dims it.
+// Unknown layer names count as visible.
+bool App::isObjectHiddenInEditor(const SceneObject& o) const {
+    if (o.layer.empty()) return false;
+    for (const SceneLayer& l : project_.active().layers)
+        if (l.name == o.layer) return !l.editorVisible;
+    return false;
+}
+
+// Streaming layers of the ACTIVE scene: named object groups the game can
+// evict from / pull into memory at runtime (Load/Unload Layer flow nodes).
+// The eye checkbox hides a layer in the editor only; "start" marks it
+// resident when the scene starts.
+void App::drawLayersSection() {
+    // starts open once the scene actually uses layers
+    const ImGuiTreeNodeFlags flags =
+        project_.active().layers.empty() ? 0 : ImGuiTreeNodeFlags_DefaultOpen;
+    if (!ImGui::CollapsingHeader("Layers", flags)) return;
+
+    SceneData& sc = project_.active();
+    if (ImGui::SmallButton("+ Layer")) {
+        auto exists = [&](const std::string& name) {
+            for (const SceneLayer& e : sc.layers)
+                if (e.name == name) return true;
+            return false;
+        };
+        SceneLayer l;
+        int n = (int)sc.layers.size() + 1;
+        do {
+            l.name = "Layer " + std::to_string(n++);
+        } while (exists(l.name));
+        sc.layers.push_back(l);
+        commitChange();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Streaming layers (per scene). Assign objects to a layer in\n"
+            "Properties; the game can then drop the whole layer from memory\n"
+            "and stream it back with the Load / Unload Layer flow nodes -\n"
+            "GTA3-style interior streaming. The eye hides the layer in the\n"
+            "editor only; \"start\" = in memory when the scene starts.\n"
+            "Deleting a layer keeps its objects (they become unassigned).");
+
+    if (sc.layers.empty()) {
+        ImGui::TextDisabled("No layers - every object is always in memory.");
+        return;
+    }
+
+    bool committed = false;
+    int deleteIdx = -1;
+    for (int i = 0; i < (int)sc.layers.size(); ++i) {
+        SceneLayer& l = sc.layers[i];
+        ImGui::PushID(i + 4000);
+
+        bool vis = l.editorVisible;
+        if (ImGui::Checkbox("##vis", &vis)) {
+            l.editorVisible = vis;
+            committed = true;
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show in editor");
+
+        // rename in place; object/flow references remap when the edit ends
+        ImGui::SameLine();
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%s", l.name.c_str());
+        const std::string before = l.name;
+        ImGui::SetNextItemWidth(-118.0f);
+        if (ImGui::InputText("##name", buf, sizeof(buf))) l.name = buf;
+        if (ImGui::IsItemActivated()) {
+            layerRenameFrom_ = before;
+            layerRenameIdx_ = i;
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            const std::string from =
+                layerRenameIdx_ == i ? layerRenameFrom_ : before;
+            layerRenameIdx_ = -1;
+            const std::string to = l.name;
+            bool dup = false;
+            for (int k = 0; k < (int)sc.layers.size(); ++k)
+                dup |= (k != i && sc.layers[k].name == to);
+            if (to.empty() || dup) {
+                l.name = from;  // keep names unique and non-empty
+            } else if (to != from) {
+                for (SceneObject& o : sc.objects) {
+                    if (o.layer == from) o.layer = to;
+                    for (FlowNode& fn : o.flowGraph.nodes) {
+                        const FlowNodeType* t = flowNodeType(fn.type);
+                        if (t && t->strKind == FlowParamKind::LayerName &&
+                            fn.str == from)
+                            fn.str = to;
+                    }
+                }
+            }
+            committed = true;
+        }
+
+        ImGui::SameLine();
+        bool start = l.startLoaded;
+        if (ImGui::Checkbox("start", &start)) {
+            l.startLoaded = start;
+            committed = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("In memory when the scene starts");
+
+        ImGui::SameLine();
+        int count = 0;
+        for (const SceneObject& o : sc.objects)
+            if (o.layer == l.name) ++count;
+        ImGui::TextDisabled("%d", count);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Objects on this layer");
+
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - 22.0f);
+        if (ImGui::SmallButton("x")) deleteIdx = i;
+        ImGui::PopID();
+    }
+
+    if (deleteIdx >= 0) {
+        const std::string name = sc.layers[deleteIdx].name;
+        for (SceneObject& o : sc.objects) {
+            if (o.layer == name) o.layer.clear();
+            for (FlowNode& fn : o.flowGraph.nodes) {
+                const FlowNodeType* t = flowNodeType(fn.type);
+                if (t && t->strKind == FlowParamKind::LayerName && fn.str == name)
+                    fn.str.clear();
+            }
+        }
+        sc.layers.erase(sc.layers.begin() + deleteIdx);
+        committed = true;
+    }
+
+    if (committed) commitChange();
 }
 
 // Display names for the Type field (primitiveTypeName() is the serialized
@@ -2133,6 +2511,11 @@ void App::drawPropertiesWindow() {
         ImGui::End();
         return;
     }
+    if (selection_.size() > 1) {
+        drawMultiProperties();
+        ImGui::End();
+        return;
+    }
     SceneObject& o = project_.objects()[selectedObject_];
 
     // Edits apply live; a history snapshot is committed once per finished
@@ -2151,6 +2534,26 @@ void App::drawPropertiesWindow() {
     std::snprintf(nameBuf, sizeof(nameBuf), "%s", o.name.c_str());
     if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) o.name = nameBuf;
     committed |= ImGui::IsItemDeactivatedAfterEdit();
+
+    // Streaming layer (Project panel > Layers). Shown as soon as the scene
+    // has layers - or when the object still references a deleted-scene name.
+    if (!project_.active().layers.empty() || !o.layer.empty()) {
+        const std::string current = o.layer.empty() ? "<none>" : o.layer;
+        if (ImGui::BeginCombo("Layer", current.c_str())) {
+            if (ImGui::Selectable("<none>", o.layer.empty()) && !o.layer.empty()) {
+                o.layer.clear();
+                committed = true;
+            }
+            for (const SceneLayer& l : project_.active().layers) {
+                if (ImGui::Selectable(l.name.c_str(), l.name == o.layer) &&
+                    o.layer != l.name) {
+                    o.layer = l.name;
+                    committed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+    }
 
     if (isShape) {
         // Plane's enum value isn't contiguous with the other shapes, so map
@@ -2229,6 +2632,29 @@ void App::drawPropertiesWindow() {
                 for (const std::string& w : info.warnings)
                     ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s",
                                        w.c_str());
+                // Baked materials (from the .glb): the colors the game renders
+                // the mesh with. Authored in the modelling tool (Blender:
+                // material Base Color) and baked into the .tskl at build.
+                if (!info.materials.empty()) {
+                    ImGui::SeparatorText("Materials");
+                    for (const GlbInfo::Material& mat : info.materials) {
+                        ImGui::ColorButton(
+                            ("##animmat" + mat.name).c_str(),
+                            ImVec4(mat.color[0], mat.color[1], mat.color[2],
+                                   1.0f),
+                            ImGuiColorEditFlags_NoTooltip |
+                                ImGuiColorEditFlags_NoDragDrop,
+                            ImVec2(14, 14));
+                        ImGui::SameLine();
+                        if (mat.textured)
+                            ImGui::Text("%s (textured)", mat.name.c_str());
+                        else
+                            ImGui::TextUnformatted(mat.name.c_str());
+                    }
+                    ImGui::TextDisabled(
+                        "Colors come from the model; edit them in the\n"
+                        "modelling tool and re-export the .glb.");
+                }
                 ImGui::SeparatorText("Animation");
                 const std::string clipLabel =
                     o.animClip.empty()
@@ -2652,13 +3078,274 @@ void App::drawPropertiesWindow() {
 
     ImGui::Separator();
     if (ImGui::Button("Delete object")) {
-        project_.objects().erase(project_.objects().begin() + selectedObject_);
-        selectedObject_ = -1;
-        committed = true;
+        if (committed) commitChange();  // flush any pending field edit first
+        deleteSelectedObjects();        // commits + clears on its own
+        ImGui::End();
+        return;
     }
 
     if (committed) commitChange();
     ImGui::End();
+}
+
+// Properties body for a multi-selection: only the fields common to every
+// selected object. Transforms apply relatively (a drag nudges the whole group
+// by the same delta, keeping its arrangement); other shared fields are set to
+// one value for all and render a "mixed" dash while they differ. Inherently
+// per-object fields (name, model/material/sound, scripts) are omitted - they
+// are edited by selecting a single object. Called with the Properties window
+// already open (drawPropertiesWindow handles Begin/End).
+void App::drawMultiProperties() {
+    std::vector<SceneObject*> objs;
+    for (int i : selection_)
+        if (i >= 0 && i < (int)project_.objects().size())
+            objs.push_back(&project_.objects()[i]);
+    if (objs.size() < 2) return;
+    SceneObject& primary = *objs.back();  // anchor: seeds the transform values
+    bool committed = false;
+
+    // Header + per-type tally ("2 Box, 1 Sphere").
+    ImGui::Text("%d objects selected", (int)objs.size());
+    {
+        std::string tally;
+        for (int t = 0; t <= (int)PrimitiveType::Empty; ++t) {
+            int n = 0;
+            for (auto* p : objs)
+                if ((int)p->type == t) ++n;
+            if (!n) continue;
+            if (!tally.empty()) tally += ", ";
+            tally += std::to_string(n) + " " + typeLabel((PrimitiveType)t);
+        }
+        ImGui::TextDisabled("%s", tally.c_str());
+    }
+    ImGui::Separator();
+
+    // Which field groups apply = the intersection over the whole selection.
+    // Same type predicates the single-object view uses (isShape includes Plane;
+    // Decal is a textured quad with transform/color/material but no game state).
+    bool allShape = true, allSolid = true, allSaveable = true, allRot = true,
+         allScale = true, allColor = true, allSameType = true, allModel = true,
+         allEmitter = true, allLight = true, allDetail = true, anyModel = false,
+         anySavePoint = false;
+    for (auto* p : objs) {
+        const SceneObject& o = *p;
+        const bool shape = o.type == PrimitiveType::Box || o.type == PrimitiveType::Sphere ||
+                           o.type == PrimitiveType::Cylinder ||
+                           o.type == PrimitiveType::Cone || o.type == PrimitiveType::Plane;
+        const bool solid =
+            shape || o.type == PrimitiveType::Model || o.type == PrimitiveType::SavePoint;
+        const bool empty = o.type == PrimitiveType::Empty;
+        const bool decal = o.type == PrimitiveType::Decal;
+        // Detail (segments/subdivisions) exists for the curved/box primitives,
+        // not for the flat Plane.
+        const bool hasDetail = o.type == PrimitiveType::Box ||
+                               o.type == PrimitiveType::Sphere ||
+                               o.type == PrimitiveType::Cylinder ||
+                               o.type == PrimitiveType::Cone;
+        allShape = allShape && shape;
+        allSolid = allSolid && solid;
+        allDetail = allDetail && hasDetail;
+        allSameType = allSameType && (o.type == primary.type);
+        allModel = allModel && (o.type == PrimitiveType::Model);
+        allEmitter = allEmitter && (o.type == PrimitiveType::Emitter);
+        allLight = allLight && (o.type == PrimitiveType::PointLight);
+        anyModel = anyModel || (o.type == PrimitiveType::Model);
+        anySavePoint = anySavePoint || (o.type == PrimitiveType::SavePoint);
+        allRot = allRot && (solid || empty || decal ||
+                            (o.type == PrimitiveType::Emitter && o.emitterKind == 5));
+        allScale = allScale && (solid || empty || decal || o.type == PrimitiveType::Emitter);
+        allColor = allColor && (solid || empty || decal || o.type == PrimitiveType::Emitter ||
+                                o.type == PrimitiveType::PointLight);
+        allSaveable = allSaveable && (solid || empty || o.type == PrimitiveType::Emitter ||
+                                      o.type == PrimitiveType::SoundEmitter);
+    }
+
+    // --- edit helpers ---
+    // Relative transform: seed from the anchor, apply the drag delta to all.
+    auto relDrag3 = [&](const char* label, float* (*get)(SceneObject&), float speed,
+                        float lo, float hi, const char* fmt) {
+        float* pv = get(primary);
+        float v[3] = {pv[0], pv[1], pv[2]};
+        ImGui::DragFloat3(label, v, speed, lo, hi, fmt);
+        for (int k = 0; k < 3; ++k) {
+            const float d = v[k] - pv[k];
+            if (d != 0.0f)
+                for (auto* p : objs) get(*p)[k] += d;
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+    };
+    // Set-all scalar/bool/combo with a "mixed" indicator while values differ.
+    auto multiCheck = [&](const char* label, bool SceneObject::* field) {
+        bool mixed = false;
+        for (auto* p : objs) mixed = mixed || (p->*field != primary.*field);
+        bool v = primary.*field;
+        if (mixed) ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, true);
+        const bool changed = ImGui::Checkbox(label, &v);
+        if (mixed) ImGui::PopItemFlag();
+        if (changed) {
+            for (auto* p : objs) p->*field = v;
+            committed = true;
+        }
+    };
+    auto multiDragF = [&](const char* label, float SceneObject::* field, float speed,
+                          float lo, float hi, const char* fmt) {
+        bool mixed = false;
+        for (auto* p : objs) mixed = mixed || (p->*field != primary.*field);
+        float v = primary.*field;
+        if (mixed) ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, true);
+        ImGui::DragFloat(label, &v, speed, lo, hi, fmt);
+        if (mixed) ImGui::PopItemFlag();
+        if (v != primary.*field)
+            for (auto* p : objs) p->*field = v;
+        if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+    };
+    auto multiCombo = [&](const char* label, int SceneObject::* field,
+                          const char* const items[], int count) {
+        const int v0 = primary.*field;
+        bool mixed = false;
+        for (auto* p : objs) mixed = mixed || (p->*field != v0);
+        const char* preview =
+            mixed ? "(multiple)" : (v0 >= 0 && v0 < count ? items[v0] : "");
+        if (ImGui::BeginCombo(label, preview)) {
+            for (int i = 0; i < count; ++i)
+                if (ImGui::Selectable(items[i], !mixed && v0 == i)) {
+                    for (auto* p : objs) p->*field = i;
+                    committed = true;
+                }
+            ImGui::EndCombo();
+        }
+    };
+
+    // --- transforms (relative) ---
+    relDrag3("Position", [](SceneObject& o) -> float* { return o.position; }, 0.1f, 0.0f,
+             0.0f, "%.3f");
+    if (allRot)
+        relDrag3("Rotation", [](SceneObject& o) -> float* { return o.rotation; }, 1.0f,
+                 -360.0f, 360.0f, "%.0f deg");
+    if (allScale) {
+        relDrag3("Scale", [](SceneObject& o) -> float* { return o.scale; }, 0.05f, 0.01f,
+                 1000.0f, "%.3f");
+        for (auto* p : objs)
+            for (float& s : p->scale)
+                if (s < 0.01f) s = 0.01f;  // additive delta must not go non-positive
+    }
+    ImGui::TextDisabled("Transforms apply to all - the arrangement is kept.");
+
+    // --- color ---
+    if (allColor) {
+        float c[3] = {primary.color[0], primary.color[1], primary.color[2]};
+        bool mixed = false;
+        for (auto* p : objs)
+            mixed = mixed || p->color[0] != c[0] || p->color[1] != c[1] ||
+                    p->color[2] != c[2];
+        if (mixed) ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, true);
+        const bool changed = ImGui::ColorEdit3("Color", c);
+        if (mixed) ImGui::PopItemFlag();
+        if (changed)
+            for (auto* p : objs) {
+                p->color[0] = c[0], p->color[1] = c[1], p->color[2] = c[2];
+            }
+        if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+    }
+
+    // --- shape type / detail ---
+    if (allShape) {
+        // Shape enum values aren't contiguous (Plane = 12), so map combo indices
+        // through an explicit list - same as the single-object view.
+        static const PrimitiveType kShapeTypes[] = {
+            PrimitiveType::Box, PrimitiveType::Sphere, PrimitiveType::Cylinder,
+            PrimitiveType::Cone, PrimitiveType::Plane};
+        const char* typeNames[] = {"Box", "Sphere", "Cylinder", "Cone", "Plane"};
+        int t0 = 0;
+        for (int i = 0; i < IM_ARRAYSIZE(kShapeTypes); ++i)
+            if (kShapeTypes[i] == primary.type) t0 = i;
+        bool mixedT = false;
+        for (auto* p : objs) mixedT = mixedT || p->type != primary.type;
+        const char* preview = mixedT ? "(multiple)" : typeNames[t0];
+        if (ImGui::BeginCombo("Type", preview)) {
+            for (int i = 0; i < IM_ARRAYSIZE(kShapeTypes); ++i)
+                if (ImGui::Selectable(typeNames[i], !mixedT && t0 == i)) {
+                    for (auto* p : objs) {
+                        p->type = kShapeTypes[i];
+                        p->primDetail = clampPrimDetail(p->type, p->primDetail);
+                    }
+                    committed = true;
+                }
+            ImGui::EndCombo();
+        }
+    }
+    if (allDetail && allSameType) {
+        const bool box = primary.type == PrimitiveType::Box;
+        int d = primary.primDetail;
+        bool mixedD = false;
+        for (auto* p : objs) mixedD = mixedD || p->primDetail != primary.primDetail;
+        if (mixedD) ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, true);
+        ImGui::DragInt("Detail", &d, 0.2f, primDetailMin(primary.type),
+                       primDetailMax(primary.type), box ? "%d subdivisions" : "%d segments");
+        if (mixedD) ImGui::PopItemFlag();
+        if (d != primary.primDetail)
+            for (auto* p : objs) p->primDetail = clampPrimDetail(p->type, d);
+        if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+    }
+
+    // --- solid geometry fields ---
+    if (allSolid) {
+        multiDragF("Draw distance", &SceneObject::drawDistance, 0.5f, 0.0f, 2000.0f,
+                   "%.0f units");
+        multiCheck("Physics (falls with gravity)", &SceneObject::physics);
+        if (!anySavePoint)
+            multiCheck("Usable (USE prompt + On Used)", &SceneObject::usable);
+        if (allModel) {
+            const char* modes[] = {"Box (mesh AABB)", "Mesh (walkable triangles)", "None"};
+            multiCombo("Collision", &SceneObject::collisionMode, modes, 3);
+        } else if (!anyModel) {
+            // primitives / save points: solid box or none
+            bool mixed = false;
+            for (auto* p : objs)
+                mixed = mixed ||
+                        (p->collisionMode != 2) != (primary.collisionMode != 2);
+            bool solid = primary.collisionMode != 2;
+            if (mixed) ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, true);
+            const bool changed = ImGui::Checkbox("Collision (blocks the player)", &solid);
+            if (mixed) ImGui::PopItemFlag();
+            if (changed) {
+                for (auto* p : objs) p->collisionMode = solid ? 0 : 2;
+                committed = true;
+            }
+        }
+    }
+    if (allSaveable)
+        multiCheck("Save state (position/color/visibility in saves)",
+                   &SceneObject::saveState);
+
+    // --- emitter / light groups (only when the whole selection is that type) ---
+    if (allEmitter) {
+        ImGui::SeparatorText("Particle emitter");
+        const char* kinds[] = {"Fire", "Smoke", "Fog", "Sparks", "Rain", "Custom"};
+        multiCombo("Effect", &SceneObject::emitterKind, kinds, 6);
+        multiDragF("Particle size", &SceneObject::emitterSize, 0.02f, 0.05f, 8.0f, "%.2f");
+        multiDragF("Opacity", &SceneObject::emitterOpacity, 0.01f, 0.0f, 1.0f, "%.2f");
+        multiCheck("Enabled", &SceneObject::emitterEnabled);
+        multiCheck("Follow player", &SceneObject::emitterFollowPlayer);
+    }
+    if (allLight) {
+        ImGui::SeparatorText("Point light");
+        multiDragF("Brightness", &SceneObject::lightBright, 0.02f, 0.0f, 4.0f, "%.2f");
+        multiDragF("Radius", &SceneObject::lightRadius, 0.1f, 0.1f, 100.0f, "%.1f units");
+    }
+
+    ImGui::Separator();
+    ImGui::TextDisabled("Name, model, materials, sounds and scripts are edited\n"
+                        "one object at a time - select a single object for those.");
+    ImGui::Separator();
+    const std::string delLabel =
+        "Delete " + std::to_string((int)objs.size()) + " objects";
+    if (ImGui::Button(delLabel.c_str())) {
+        if (committed) commitChange();
+        deleteSelectedObjects();  // commits + clears on its own
+        return;
+    }
+    if (committed) commitChange();
 }
 
 // Class names registered with TYRA_OBJECT_SCRIPT(...) across src/scripts,
@@ -3051,6 +3738,18 @@ void App::drawFlowGraphWindow() {
                         changed = true;
                     }
                 }
+                ImGui::EndCombo();
+            }
+        } else if (t->strKind == FlowParamKind::LayerName) {
+            if (ImGui::BeginCombo("Layer", n.str.empty() ? "<none>" : n.str.c_str())) {
+                for (const SceneLayer& l : project_.active().layers) {
+                    if (ImGui::Selectable(l.name.c_str(), l.name == n.str)) {
+                        n.str = l.name;
+                        changed = true;
+                    }
+                }
+                if (project_.active().layers.empty())
+                    ImGui::TextDisabled("Add layers in the\nProject panel (Layers).");
                 ImGui::EndCombo();
             }
         } else if (t->strKind == FlowParamKind::SaveValue) {
@@ -3455,6 +4154,9 @@ void App::drawFlowGraphWindow() {
                         if (!project_.music.empty()) n.str = project_.music.front();
                     }
                     if (std::string(t.key) == "SetMusicVolume") n.num[0] = 80.0f;
+                    if (t.strKind == FlowParamKind::LayerName &&
+                        !project_.active().layers.empty())
+                        n.str = project_.active().layers.front().name;
                     if (std::string(t.key) == "SetVarBool") n.num[0] = 1.0f;
                     if (std::string(t.key) == "SetFlashlight") n.num[0] = 1.0f;
                     if (std::string(t.key) == "PlaySound") {
@@ -3564,11 +4266,8 @@ void App::drawHudSection() {
         changed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::DragFloat2("Size (px)##hud", h.size, 1.0f, 1.0f, 512.0f, "%.0f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::Button("Delete HUD image")) {
-            project_.hud.erase(project_.hud.begin() + selectedHud_);
-            selectedHud_ = -1;
-            changed = true;
-        }
+        if (ImGui::Button("Delete HUD image"))
+            requestAssetDelete(PendingAssetDelete::Hud, h.imagePath, h.name, selectedHud_);
     }
     if (changed) saveAll("Saved");
 }
@@ -3758,7 +4457,6 @@ void App::drawMusicSection() {
                           "converted at import; hand-dropped files get a Convert\n"
                           "button. Play via Flow Graph: On Start -> Play Music.");
 
-    bool changed = false;
     for (int i = 0; i < (int)project_.music.size(); ++i) {
         const std::string name = std::filesystem::path(project_.music[i]).filename().string();
         ImGui::PushID(i);
@@ -3782,14 +4480,8 @@ void App::drawMusicSection() {
             }
         }
         ImGui::SameLine();
-        if (ImGui::SmallButton("x")) {
-            removeAudioTrack(project_, project_.music[i], true);
-            project_.musicBuild.erase(project_.music[i]);
-            project_.music.erase(project_.music.begin() + i);
-            changed = true;
-            ImGui::PopID();
-            break;
-        }
+        if (ImGui::SmallButton("x"))
+            requestAssetDelete(PendingAssetDelete::Music, project_.music[i], name);
 
         // Build-time conversion knobs: applied to the bin/audio copy after
         // every build (the res/ source stays untouched). Only rates audsrv
@@ -3838,7 +4530,6 @@ void App::drawMusicSection() {
         ImGui::PopID();
     }
     if (project_.music.empty()) ImGui::TextDisabled("No music tracks.");
-    if (changed) commitChange();  // graphs live in objects - undoable
 }
 
 void App::importSoundEffect() {
@@ -3915,7 +4606,6 @@ void App::drawSoundsSection() {
                           "All sounds are loaded into SPU2's ~2 MB sample RAM at\n"
                           "scene start, so keep them short - use Music for full tracks.");
 
-    bool changed = false;
     uintmax_t totalAdpcm = 0;
     for (int i = 0; i < (int)project_.sounds.size(); ++i) {
         const std::string name =
@@ -3958,13 +4648,8 @@ void App::drawSoundsSection() {
                 ImGui::TextDisabled(fmt, val);
             ImGui::SameLine();
         }
-        if (ImGui::SmallButton("x")) {
-            removeAudioTrack(project_, project_.sounds[i], false);
-            project_.sounds.erase(project_.sounds.begin() + i);
-            changed = true;
-            ImGui::PopID();
-            break;
-        }
+        if (ImGui::SmallButton("x"))
+            requestAssetDelete(PendingAssetDelete::Sound, project_.sounds[i], name);
         ImGui::PopID();
     }
     if (project_.sounds.empty()) {
@@ -3978,7 +4663,6 @@ void App::drawSoundsSection() {
         else
             ImGui::TextDisabled("SPU2 sample RAM: ~%.1f / 2.0 MB", totalMb);
     }
-    if (changed) commitChange();
 }
 
 // Custom values persisted in memory card save slots. Flow graph "Save"
@@ -5630,7 +6314,7 @@ void App::drawDeleteSceneModal() {
         if (project_.activeScene >= (int)project_.scenes.size() ||
             project_.activeScene == deleteScenePending_)
             project_.activeScene = 0;
-        selectedObject_ = -1;
+        clearSelection();
         flowGraphObject_ = -1;
         flowPositionsApplied_ = false;
         deleteScenePending_ = -1;
@@ -5644,6 +6328,202 @@ void App::drawDeleteSceneModal() {
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
+}
+
+void App::requestAssetDelete(PendingAssetDelete::Kind kind, const std::string& relPath,
+                             const std::string& label, int hudIndex) {
+    assetDeletePending_ = PendingAssetDelete{kind, relPath, label, hudIndex};
+    assetDeleteActive_ = true;
+}
+
+// Scene objects (across every scene) and flow-graph audio nodes still pointing
+// at the staged asset. Drives the confirmation dialog's warning and the
+// reference cleanup on confirm.
+void App::countAssetUsers(const PendingAssetDelete& d, int& objectUsers,
+                          int& nodeUsers) const {
+    objectUsers = 0;
+    nodeUsers = 0;
+    for (const SceneData& scene : project_.scenes) {
+        for (const SceneObject& o : scene.objects) {
+            switch (d.kind) {
+                case PendingAssetDelete::Model:
+                    if (o.type == PrimitiveType::Model && o.modelPath == d.relPath)
+                        ++objectUsers;
+                    break;
+                case PendingAssetDelete::Material:
+                    if (o.materialPath == d.relPath) ++objectUsers;
+                    break;
+                case PendingAssetDelete::Sound:
+                    if (o.type == PrimitiveType::SoundEmitter &&
+                        o.soundPath == d.relPath)
+                        ++objectUsers;
+                    break;
+                default:
+                    break;
+            }
+            if (d.kind == PendingAssetDelete::Music ||
+                d.kind == PendingAssetDelete::Sound) {
+                for (const FlowNode& n : o.flowGraph.nodes) {
+                    const FlowNodeType* t = flowNodeType(n.type);
+                    if (!t || n.str != d.relPath) continue;
+                    if ((d.kind == PendingAssetDelete::Music &&
+                         t->strKind == FlowParamKind::MusicTrack) ||
+                        (d.kind == PendingAssetDelete::Sound &&
+                         t->strKind == FlowParamKind::SoundTrack))
+                        ++nodeUsers;
+                }
+            }
+        }
+    }
+}
+
+void App::drawDeleteAssetModal() {
+    if (assetDeleteActive_ && !ImGui::IsPopupOpen("Delete Asset?"))
+        ImGui::OpenPopup("Delete Asset?");
+    if (!assetDeleteActive_) return;
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal("Delete Asset?", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+
+    const PendingAssetDelete& d = assetDeletePending_;
+    const char* kindName = d.kind == PendingAssetDelete::Model      ? "model"
+                           : d.kind == PendingAssetDelete::Material ? "material"
+                           : d.kind == PendingAssetDelete::Music    ? "music track"
+                           : d.kind == PendingAssetDelete::Sound    ? "sound"
+                                                                    : "HUD image";
+    ImGui::Text("Delete %s \"%s\"?", kindName, d.label.c_str());
+
+    int objUsers = 0, nodeUsers = 0;
+    countAssetUsers(d, objUsers, nodeUsers);
+    const ImVec4 warn(1.0f, 0.75f, 0.3f, 1.0f);
+    switch (d.kind) {
+        case PendingAssetDelete::Model:
+            if (objUsers > 0)
+                ImGui::TextColored(warn,
+                    "Used by %d object(s) - they will show as missing until you\n"
+                    "repoint or delete them.", objUsers);
+            break;
+        case PendingAssetDelete::Material:
+            if (objUsers > 0)
+                ImGui::TextColored(warn,
+                    "Assigned to %d object(s) - they revert to plain color /\n"
+                    "the model's own materials.", objUsers);
+            break;
+        case PendingAssetDelete::Music:
+            if (nodeUsers > 0)
+                ImGui::TextColored(warn,
+                    "Referenced by %d Music flow node(s) - they will be cleared.",
+                    nodeUsers);
+            break;
+        case PendingAssetDelete::Sound:
+            if (objUsers > 0 || nodeUsers > 0)
+                ImGui::TextColored(warn,
+                    "Used by %d sound emitter(s) and %d flow node(s) -\n"
+                    "the references will be cleared.", objUsers, nodeUsers);
+            break;
+        case PendingAssetDelete::Hud:
+            break;
+    }
+    ImGui::TextDisabled("The file is removed from res/. This cannot be undone.");
+
+    ImGui::Separator();
+    if (ImGui::Button("Delete", ImVec2(120, 0))) {
+        performAssetDelete(d);
+        assetDeleteActive_ = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+        assetDeleteActive_ = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
+// Deletes the staged asset file and clears the project references the dialog
+// warned about. Model/material live on the filesystem (the Assets lists rescan
+// them); music/sound/hud also carry a project-list entry to drop.
+void App::performAssetDelete(const PendingAssetDelete& d) {
+    std::error_code ec;
+    const std::filesystem::path full = std::filesystem::path(project_.dir) / d.relPath;
+
+    switch (d.kind) {
+        case PendingAssetDelete::Model:
+            std::filesystem::remove(full, ec);
+            project_.textureQuality.erase(d.relPath);
+            modelInfoCache_.clear();
+            glbInfoCache_.clear();
+            statusMessage_ = "Deleted " + d.label;
+            commitChange();
+            break;
+
+        case PendingAssetDelete::Material:
+            std::filesystem::remove(full, ec);
+            project_.textureQuality.erase(d.relPath);
+            // Objects keep working: an empty material is plain color for a
+            // primitive and the model's own .mtl for a model.
+            for (SceneData& scene : project_.scenes)
+                for (SceneObject& o : scene.objects)
+                    if (o.materialPath == d.relPath) o.materialPath.clear();
+            modelInfoCache_.clear();
+            statusMessage_ = "Deleted " + d.label;
+            commitChange();
+            break;
+
+        case PendingAssetDelete::Music:
+            // removeAudioTrack clears Play/Stop Music nodes and deletes the file.
+            removeAudioTrack(project_, d.relPath, true);
+            project_.musicBuild.erase(d.relPath);
+            for (size_t i = 0; i < project_.music.size(); ++i)
+                if (project_.music[i] == d.relPath) {
+                    project_.music.erase(project_.music.begin() + i);
+                    break;
+                }
+            wavIssueCache_.clear();
+            statusMessage_ = "Deleted " + d.label;
+            commitChange();
+            break;
+
+        case PendingAssetDelete::Sound:
+            // Clears Play Sound nodes and deletes the file; sound emitters point
+            // at it through soundPath, which removeAudioTrack does not touch.
+            removeAudioTrack(project_, d.relPath, false);
+            for (SceneData& scene : project_.scenes)
+                for (SceneObject& o : scene.objects)
+                    if (o.type == PrimitiveType::SoundEmitter &&
+                        o.soundPath == d.relPath)
+                        o.soundPath.clear();
+            for (size_t i = 0; i < project_.sounds.size(); ++i)
+                if (project_.sounds[i] == d.relPath) {
+                    project_.sounds.erase(project_.sounds.begin() + i);
+                    break;
+                }
+            wavIssueCache_.clear();
+            statusMessage_ = "Deleted " + d.label;
+            commitChange();
+            break;
+
+        case PendingAssetDelete::Hud: {
+            // Drop the list entry first; delete the file only if no other HUD
+            // entry still references it (imports can duplicate a path).
+            if (d.hudIndex >= 0 && d.hudIndex < (int)project_.hud.size())
+                project_.hud.erase(project_.hud.begin() + d.hudIndex);
+            selectedHud_ = -1;
+            bool stillUsed = false;
+            for (const HudImage& h : project_.hud)
+                stillUsed |= (h.imagePath == d.relPath);
+            if (!stillUsed) {
+                std::filesystem::remove(full, ec);
+                hudTexCache_.erase(d.relPath);
+            }
+            statusMessage_ = "Deleted " + d.label;
+            saveAll("Saved");  // HUD edits are not on the undo stack
+            break;
+        }
+    }
 }
 
 void App::drawNewSceneModal() {
@@ -5681,7 +6561,7 @@ void App::drawNewSceneModal() {
             sc.terrain.depth = newSceneDepth_;
             project_.scenes.push_back(std::move(sc));
             project_.activeScene = (int)project_.scenes.size() - 1;
-            selectedObject_ = -1;
+            clearSelection();
             flowGraphObject_ = -1;
             flowPositionsApplied_ = false;
             applyProjectToViewport();  // builds the flat heightmap + mesh

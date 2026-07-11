@@ -86,6 +86,7 @@ enum class FlowParamKind {
     VarName,    // name of a flow variable (free text; created on first use)
     SaveText,   // name of a Project::saveTexts entry
     GradingName,  // name of a Project::gradings preset ("" = neutral/off)
+    LayerName,  // name of a SceneData::layers entry (streaming layer)
 };
 
 struct FlowNodeType {
@@ -199,6 +200,17 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // state resets; textures/models stay loaded (shared across scenes).
         {"SwitchScene", "Switch Scene", "Scene", false, FlowParamKind::SceneName, 0, {},
          FlowParamKind::None, false, false},
+        // Streaming layers (GTA3-style): Load Layer starts pulling the layer's
+        // assets into memory (spread over frames, no hitch) and activates its
+        // objects when everything is resident; Unload Layer deactivates the
+        // objects immediately and frees assets no other loaded layer uses.
+        // Is Layer Loaded is a pure bool: true once the layer is fully in.
+        {"LoadLayer", "Load Layer", "Scene", false, FlowParamKind::LayerName, 0, {},
+         FlowParamKind::None, false, false},
+        {"UnloadLayer", "Unload Layer", "Scene", false, FlowParamKind::LayerName, 0, {},
+         FlowParamKind::None, false, false},
+        {"IsLayerLoaded", "Is Layer Loaded", "Scene", false, FlowParamKind::LayerName,
+         0, {}, FlowParamKind::None, false, false, false, false, true, false, true},
         // Applies a color grading preset (Tools > Color Grading) as the
         // frame's GS post pass; "<none>" restores the ungraded image. The
         // switch is global and persists across scene changes.

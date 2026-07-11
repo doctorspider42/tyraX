@@ -9,7 +9,7 @@
 #include "save_system.gen.hpp"
 #include "scripts/script.hpp"
 
-namespace Script_demo {
+namespace Layer_streaming {
 
 class TerrainGame : public Tyra::Game {
  public:
@@ -265,4 +265,4 @@ class TerrainGame : public Tyra::Game {
   ScriptContext scriptCtx;
 };
 
-}  // namespace Script_demo
+}  // namespace Layer_streaming

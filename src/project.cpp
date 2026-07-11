@@ -191,6 +191,7 @@ static std::string objectJson(const SceneObject& o) {
         // collision: box is the default and stays implicit
         (o.collisionMode == 1 ? ", \"collision\": \"mesh\""
                               : o.collisionMode == 2 ? ", \"collision\": \"none\"" : "") +
+        (o.layer.empty() ? "" : ", \"layer\": \"" + o.layer + "\"") +
         // geometry primitives only; the type's default detail stays implicit
         (((o.type == PrimitiveType::Box || o.type == PrimitiveType::Sphere ||
            o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone) &&
@@ -274,6 +275,31 @@ static void writeObjectsArray(std::ostringstream& json, const std::vector<SceneO
         json << (i ? ",\n" + indent : "\n" + indent) << objectJson(objects[i]);
     if (!objects.empty()) json << "\n" << indent.substr(0, indent.size() > 2 ? indent.size() - 2 : 0);
     json << "]";
+}
+
+// "layers": [ ... ] - a scene's streaming layers (shared by the project file
+// and the history file). Omitted entirely when the scene has no layers.
+static void writeLayersArray(std::ostream& json, const std::vector<SceneLayer>& layers) {
+    json << "[";
+    for (size_t i = 0; i < layers.size(); ++i) {
+        json << (i ? ", " : "") << "{ \"name\": \"" << layers[i].name << "\""
+             << (layers[i].startLoaded ? "" : ", \"startLoaded\": false")
+             << (layers[i].editorVisible ? "" : ", \"editorVisible\": false")
+             << " }";
+    }
+    json << "]";
+}
+
+static void readLayersArray(const json::Value& arr, std::vector<SceneLayer>& layers) {
+    layers.clear();
+    if (arr.type != json::Value::Type::Array) return;
+    for (const auto& jl : arr.arr) {
+        SceneLayer l;
+        if (const auto* v = jl.find("name")) l.name = v->stringOr("");
+        if (const auto* v = jl.find("startLoaded")) l.startLoaded = v->boolOr(true);
+        if (const auto* v = jl.find("editorVisible")) l.editorVisible = v->boolOr(true);
+        if (!l.name.empty()) layers.push_back(l);
+    }
 }
 
 // A scene's "settings" + "overrides" blocks (shared by the project file and
@@ -486,6 +512,10 @@ std::string save(const Project& p) {
              << "\",\n      \"terrain\": { \"width\": " << sc.terrain.width
              << ", \"depth\": " << sc.terrain.depth << " },\n      ";
         writeSceneVisuals(json, sc);
+        if (!sc.layers.empty()) {
+            json << ",\n      \"layers\": ";
+            writeLayersArray(json, sc.layers);
+        }
         json << ",\n      \"objects\": ";
         writeObjectsArray(json, sc.objects, "      ");
         json << " }";
@@ -838,6 +868,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             const std::string mode = v->stringOr("box");
             o.collisionMode = mode == "mesh" ? 1 : mode == "none" ? 2 : 0;
         }
+        if (const auto* v = jo.find("layer")) o.layer = v->stringOr("");
         // Default depends on the shape (box baseline is 1, curved is 16); old
         // projects with no "detail" key keep each shape's plain look.
         o.primDetail = defaultPrimDetail(o.type);
@@ -1081,6 +1112,7 @@ std::string load(Project& out, const std::string& projectDir) {
             for (const auto& js : scenes->arr) {
                 SceneData sc;
                 if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
+                if (const auto* ls = js.find("layers")) readLayersArray(*ls, sc.layers);
                 if (const auto* objs = js.find("objects"))
                     readObjectsArray(*objs, sc.objects);
                 if (const auto* t = js.find("terrain")) {
@@ -1362,6 +1394,10 @@ std::string saveHistory(const Project& p, const History& h) {
                  << "\", \"terrain\": { \"width\": " << sc.terrain.width
                  << ", \"depth\": " << sc.terrain.depth << " }, ";
             writeSceneVisuals(json, sc);
+            if (!sc.layers.empty()) {
+                json << ", \"layers\": ";
+                writeLayersArray(json, sc.layers);
+            }
             json << ", \"objects\": ";
             writeObjectsArray(json, sc.objects, "        ");
             json << " }";
@@ -1396,6 +1432,7 @@ std::string loadHistory(const Project& p, History& h) {
             for (const auto& js : scenes->arr) {
                 SceneData sc;
                 if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
+                if (const auto* ls = js.find("layers")) readLayersArray(*ls, sc.layers);
                 if (const auto* objs = js.find("objects"))
                     readObjectsArray(*objs, sc.objects);
                 if (const auto* t = js.find("terrain")) {

@@ -21,12 +21,21 @@
 #include <string>
 
 namespace Tyra {
+
+class RendererCoreTexture;
+
 class TextureRepository {
  public:
   TextureRepository();
   ~TextureRepository();
 
-  void init(std::vector<RendererCoreTextureBuffers>* textureBuffers);
+  // Modified by tyra-editor: the repository needs its owning core to
+  // properly deallocate GS texture buffers on free()/removeById() -
+  // removeBufferId() only tombstones the allocation entry (id = -1) and
+  // leaks the VRAM plus the texbuffer structs, which games that stream
+  // textures in and out at runtime (layer streaming) cannot afford.
+  void init(std::vector<RendererCoreTextureBuffers>* textureBuffers,
+            RendererCoreTexture* coreTexture = nullptr);
 
   /** Returns all repository textures. */
   std::vector<Texture*>* getAll() { return &textures; }
@@ -121,6 +130,7 @@ class TextureRepository {
 
   std::vector<Texture*> textures;
   std::vector<RendererCoreTextureBuffers>* textureBuffers;
+  RendererCoreTexture* coreTexture = nullptr;  // Modified by tyra-editor
   TextureLoaderSelector texLoaderSelector;
 };
 }  // namespace Tyra

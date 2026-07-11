@@ -1,4 +1,4 @@
-name: script-demo
+name: layer-streaming
 volumes:
   tyra-game-volume:
   tyra-engine:

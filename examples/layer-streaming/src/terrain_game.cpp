@@ -51,7 +51,7 @@ static void updateFrameClock() {
   g_frameScale = dt * 50.0F;
 }
 
-namespace Script_demo {
+namespace Layer_streaming {
 
 using namespace Tyra;
 
@@ -2851,4 +2851,4 @@ void TerrainGame::updatePlayer() {
                       playerZ + fz * cosf(pitch));
 }
 
-}  // namespace Script_demo
+}  // namespace Layer_streaming

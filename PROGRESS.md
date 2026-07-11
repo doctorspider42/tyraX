@@ -35,6 +35,126 @@ Each finished feature lands as its own commit.
   (`ctx.flashlight = 1;`), compiles under the PS2DEV toolchain (Docker build
   exit 0), and boots in PCSX2 (SW renderer) showing the lit flashlight cone on
   the terrain. Interactive toggle-button press still wants a hands-on pad test.
+- (64) **Multi-object selection, group transform, copy & multi-edit** — the
+  editor now works on a *set* of objects, not one at a time. A new
+  `std::vector<int> selection_` carries the full selection while the old
+  `selectedObject_` stays as its *primary* (anchor) member, always
+  `selection_.back()` — so the ~30 existing single-select reads (orbit pivot,
+  flow-graph "from selected", script-attach target...) keep working unchanged.
+  All the scattered `selectedObject_ =` writes went through four helpers
+  (`selectOnly`/`toggleSelect`/`clearSelection`/`pruneSelection`) that keep the
+  invariant; `pruneSelection` drops stale indices after undo/scene changes.
+  **Selecting**: Ctrl/Shift+click (viewport or Project list) toggles an object
+  in/out; plain click replaces. Left-drag draws a rubber-band marquee and
+  selects every object whose screen-space bounds overlap it (8 unit-box corners
+  projected with the same view/proj math as the sculpt-brush overlay, rotated
+  Rz·Ry·Rx to match `modelMatrix`); Ctrl+drag extends. To free left-drag for the
+  marquee the Default nav scheme now orbits on right-drag only (it already did).
+  All selected objects get an amber outline in the viewport, the primary
+  brighter (`Viewport::render` now takes the selection vector + primary).
+  **Transforming**: with >1 selected the gizmo manipulates a proxy at the
+  group centroid, captures ImGuizmo's world-space `deltaMatrix`, and applies
+  `delta · model` to every object (decompose back to TRS) — translate /
+  rotate-about-pivot / scale-about-pivot for the whole group, one undo step per
+  drag. The single-object path (world/camera-relative + snapping) is untouched.
+  **Copy/paste/delete** all operate on the set: the clipboard is a
+  `vector<SceneObject>`; paste offsets the group by a shared `(+1,0,+1)` so it
+  keeps its shape and selects the new copies; delete erases high-index-first.
+  **Multi-edit Properties panel** (`drawMultiProperties`): shows only fields
+  common to every selected object (intersection of the same isShape/isSolid/
+  isEmpty/emitter/light predicates the single view uses). Transforms apply
+  *relatively* — a drag nudges the whole group by the same delta, seeded from
+  the anchor, so the arrangement is kept. Every other shared field (color,
+  physics, usable, collision, draw distance, type/detail, save state, emitter &
+  point-light params) is set-all with a "mixed" dash via
+  `ImGuiItemFlags_MixedValue` while the values differ; small
+  `multiCheck`/`multiDragF`/`multiCombo` lambdas (pointer-to-member) keep it
+  terse. A header tallies the selection ("3 Box"); inherently per-object fields
+  (name, model/material/sound, scripts) are noted as single-object-only.
+  Selection is pure editor state — no `.tyra` format change (only the primary
+  persists, as before), no codegen, no PS2 runtime touched.
+  Verified: clean editor build; launched on a 3-box scratch scene (distinct
+  positions/colors/detail, one with physics). The full pipeline was confirmed
+  by screenshot — all three boxes highlighted in the Project list + "3 objects
+  selected" hint, and the multi-edit panel rendering "3 objects selected /
+  3 Box", relative transforms seeded from the anchor, and the mixed-value dash
+  correctly on Physics (one object differs) vs a normal check on Collision (all
+  same). The interactive *gestures* themselves — box-drag feel and the group
+  gizmo drag — still want a hands-on human pass: synthetic mouse input would not
+  register in the GLFW window in this environment (mouse_event and SendInput
+  both failed to reach it despite correct focus), so those were verified by
+  code review + compile only, while the selection→highlight→panel pipeline they
+  feed is confirmed working.
+
+- (63) **Delete assets from the editor (with confirmation)** — until now the
+  only way to remove a model, material, texture or HUD image was to delete the
+  file by hand in Explorer, and the Music/Sounds `x` deleted the file instantly
+  with no prompt. Added a single confirmation modal, `drawDeleteAssetModal()`
+  (mirrors `drawDeleteSceneModal`), staged via `requestAssetDelete(kind, relPath,
+  label, hudIndex)` into `assetDeletePending_`. New `x` buttons on every model
+  (.obj/.glb) and material (.mtl) row in Project > Assets; the Music/Sounds `x`
+  and the HUD **Delete HUD image** button now route through the same modal
+  instead of deleting on the spot. The dialog spells out what still references
+  the asset (`countAssetUsers` counts scene objects across all scenes + audio
+  flow-graph nodes) and warns that the file removal cannot be undone. On confirm
+  `performAssetDelete` deletes the res/ file and clears the dangling references:
+  materials reset the referencing objects' `materialPath` (empty = plain color /
+  the model's own .mtl); sounds clear `SoundEmitter.soundPath` on top of the
+  Play-Sound flow nodes `removeAudioTrack` already handled; models are left
+  pointing at the now-missing file (shown as "missing", same as a hand delete)
+  and the caches (`modelInfoCache_`/`glbInfoCache_`) + `textureQuality` override
+  are dropped; HUD deletes the file only when no other HUD entry still uses that
+  path. Audio/model/material deletes go through `commitChange()` (HUD stays on
+  `saveAll`, matching the section's existing behavior). Verified: clean editor
+  build; launched on a scratch project holding a model, material, music and sfx
+  plus scene objects referencing them (a model object + a sound emitter) — the
+  new `x` buttons render on the cube.obj / walls.mtl / song.wav rows
+  (PrintWindow capture) and triggering a delete opens the confirmation modal
+  (ImGui modal dim-backdrop over the panel). The interactive click-through of
+  the modal's Delete/Cancel buttons could not be automated here: synthetic mouse
+  input does not register against the GLFW/OpenGL window in this environment
+  (keyboard does), so the final click + on-disk removal still wants a hands-on
+  human confirmation.
+
+- (63) **Animated models (.glb) render their material colors in-game (was
+  gray)** — an animated model authored with per-material Base Colors (e.g.
+  `spider2.glb`: red body, black legs, gray tee) showed those colors in the
+  editor viewport but rendered a flat gray on the PS2. **Root cause**: the
+  animated pass is the *only* editor-generated geometry that draws through the
+  StaPip **dynamic-lighting** path (`bag->lighting` set); every other path
+  pre-bakes lighting into per-vertex colors and draws unlit (`lighting =
+  nullptr`). The lit StaPip VU1 programs (`stapip_cull_d_vu1` / `_td` and the
+  `as_is` twins) compute the output color *purely* from the directional lights
+  and normals via `CalculateTyraDirectionalLights` — they never read the
+  vertex/material RGBA — so every animated mesh came out in the plain scene
+  light color, i.e. gray. The per-part `mat->ambient` the setup code set (and
+  the object-color multiply on it) was silently discarded by the shader.
+  **Fix** (codegen only, no engine/VU1 change): fold each part's material
+  albedo (glTF `baseColorFactor`, already carried in the `.tskl`) into that
+  part's own light + ambient colors, since `outputColor = Σ lightColor·(L·N) +
+  ambient` means scaling the colors by albedo M yields `M · sceneLighting`
+  exactly. Each `AnimPart` now owns a `PipelineDirLightsBag` + `litColors[4]`
+  built in `setupAnimObject` (scene diffuse/ambient × baseColor; directions
+  stay shared). This matches the viewport, which tints the baked mesh by
+  `shadeOf(n) · baseColor`. Dropped the old object-color multiply so the
+  in-game look equals the editor's (the viewport does not tint animated models
+  by object color; a non-white default color would otherwise recolor every
+  imported .glb). Touches the `AnimPart` struct in both game-header templates
+  (orbit + fpp) and the shared `setupAnimObject` body in templates.cpp.
+  **Editor UI**: the animated-model Properties block gained a **Materials**
+  summary (color swatch + name, "(textured)" tag) from a new `GlbInfo::
+  materials` list, so the model's materials are visible where you set the clip.
+  Verified: clean editor build; Docker build of a spider2 scene compiles the
+  regenerated `terrain_game.cpp` (litColors fold present at lines 903-918) and
+  links; `spider2.tskl` carries the three material names + exact colors
+  `(1,0,0)`/`(0,0,0)`/`(0.8,0.8,0.8)`; the ELF boots and executes in PCSX2 with
+  no assert (emulog). **PCSX2 F8 screenshot confirms the spider renders with a
+  red body, black legs and a gray tee — the same colors the editor shows, no
+  longer flat gray.** (Capture note: several parallel editor sessions shared
+  the single PCSX2 install — each one's `--run` `taskkill`s all PCSX2 and
+  steals focus — and this box has no real GPU, so GDI/PrintWindow grabs were
+  garbage; only native F8-via-PostMessage to the spidertest window, read from
+  snaps/, worked. See the pcsx2-test-environment memory.)
 
 - (62) **Decal object type (transparent textured quad)** — a new
   `PrimitiveType::Decal = 13` for signs/posters/text on walls. A flat unit quad
@@ -2241,6 +2361,132 @@ Each finished feature lands as its own commit.
   (no key, backward-compatible) and `subBox` -> `6` (432 tris). Same 4K/PCSX2
   capture limitation still blocks an automated visual poly-count diff.
 
+
+- (60) **Streaming layers: per-scene object groups the game loads/evicts at
+  runtime (GTA3-style interior streaming)** - `SceneData::layers` (name +
+  `startLoaded` + editor-only `editorVisible`), `SceneObject::layer` (by
+  name, "" = always resident), serialized in the `.tyra` scene block and the
+  history file. Editor: a "Layers" section in the Project panel (add /
+  rename-in-place / delete, eye toggle, "start" checkbox, per-layer object
+  count; rename remaps object + flow-node references, delete unassigns), a
+  Layer combo in Properties, and hidden layers vanish from the viewport
+  (render, click picking, gizmo, light preview, emitter previews) via a
+  hidden-index mask passed to the viewport; the object list dims them with
+  a [hidden] tag. Flow graph: Load Layer / Unload Layer actions and a pure
+  Is Layer Loaded bool (new `FlowParamKind::LayerName` combo), compiled to
+  writes into new `ScriptContext` fields (`layerRequest`/`layerState`,
+  mirroring the requestScene pattern). Runtime (generated game, both orbit
+  and FPP): asset residency is now demand-driven - `buildScene()` no longer
+  loads every scene's models/materials/anim models/terrain textures at
+  boot; `loadScene()` computes what the scene's start-resident layers need,
+  loads it synchronously behind the existing loading screen and frees what
+  nothing needs any more (scene switches now also evict the previous
+  scene's assets instead of keeping everything forever). During gameplay
+  `updateLayerStreaming()` applies script requests: unload drops the
+  layer's objects the same frame (new `RuntimeObject::active` gates render,
+  collision, USE, sounds, physics, anim pass and particle pools) and frees
+  assets no resident layer uses; load streams missing assets from a queue
+  at ONE asset per frame, then trickle-activates the layer's objects 4 per
+  frame - the whole cost hides in a corridor walk, no frame stall. Shared
+  textures are reference-counted by path in a texture cache
+  (`TextureRepository::free` releases the GS buffer + destructs); models
+  free their geometry, collider and texture refs. Layer state resets to the
+  authored defaults on scene (re)load, like the rest of the runtime state;
+  point lights stay baked (an unloaded layer's light keeps shining exactly
+  as a hidden light does today). Legacy V1 templates untouched. Verified:
+  clean editor build; scratch FPP project (short path) with an "exterior"
+  start layer (spheres, one with a stone .mtl texture) + non-start
+  "interior" (boxes, a brick-textured box, house.obj with mesh collision)
+  and an OnStart -> Delay 4s -> Load Layer interior / Delay 8s -> Unload
+  Layer exterior graph, built in Docker and run in PCSX2 at 50 FPS: timed
+  screenshots show exterior-only -> both (the house model + brick texture
+  visibly stream in mid-game) -> interior-only; `IsLayerLoaded ->
+  OnCondition -> Log` printed INTERIOR-NOW-LOADED to host log.txt; the
+  debug MEM overlay dropped 4.8 -> 4.4 MB after the unload in the
+  primitive-only variant (freed vertex buffers + texture). Editor side:
+  layers round-trip the .tyra through a GUI reopen (screenshot shows both
+  rows incl. a persisted eye-off state); sample script-demo regenerated and
+  builds (zero-layer degenerate case). Hands-on pending (no synthetic
+  input from automation): clicking the eye/rename/delete controls and
+  walking a real corridor with a pad. Testing fix that cost three runs:
+  the bundled screenshot-window.ps1 captured a scaled-up crop of the
+  window's top-left corner on a display scaled above 100% - the script now
+  calls SetProcessDPIAware() first. Follow-up in the same PR: user docs
+  (docs/streaming-layers.md, linked from docs/README.md and the root
+  README) and a new `examples/` folder ("one runnable project per
+  feature") whose first entry, examples/layer-streaming, is the canonical
+  two-buildings-and-a-corridor scene: four Near Object trigger markers in
+  the corridor swap the buildings' layers bidirectionally (each direction
+  passes a harmless no-op unload first, then the load for the building
+  ahead, then - close to the far door - the unload for the one behind, so
+  walking back and forth needs no extra logic), debug MEM/FPS overlay on.
+  Verified: Docker build exit 0 from the repo checkout; the compiled
+  trigger graphs inspected in flow_graph.gen.cpp (four correct
+  layerRequest writes). A PCSX2 boot check collided with a parallel
+  session's emulator run (the runner taskkills the shared PCSX2 on every
+  launch), so the pad walkthrough stays a hands-on check - the streaming
+  runtime itself was e2e-verified above through the same codepaths.
+
+- (61) **Layer streaming stability: stale bbox cache, leaked GS VRAM,
+  mid-frame texture uploads** - user repro on the layer-streaming example:
+  streamed-in objects sometimes rendered wrong/misplaced, and longer play
+  hit the `index < partsCount` assert in stapip_bag_packages_bbox.cpp:76.
+  Three root causes, all firsts exposed by streaming (nothing ever freed
+  buffers or textures mid-game before):
+  1. *Bbox-cache aliasing.* The engine's frustum-bbox cache is keyed by
+     (vertex pointer, bboxVersion). Streaming frees vertex buffers and the
+     next layer's vectors can land on the recycled heap address; with
+     per-bag counters both sides often sit at version 1, so the new buffer
+     inherited the dead buffer's cached boxes - packages misclassify
+     (smeared/vanishing geometry) or the package index runs past the cached
+     part count (the assert). Fix: generated games stamp every rebuilt bag
+     from one monotonic `g_bboxStamp` (all sites: object parts, terrain,
+     particles, sky dome, hulls, anim parts - pose-sharing followers still
+     copy the owner's stamp), plus a defensive count check in the engine
+     cacher (`stapip_bag_bboxes_cacher.cpp`) for non-regenerated games.
+  2. *TextureRepository::free leaked the GS side.* `removeBufferId()` only
+     tombstones the allocation entry (id = -1): the VRAM pages and both
+     texbuffer_t structs leaked on every free. Engine fix: the repository
+     now calls a new `RendererCoreTexture::freeTextureBuffers()`
+     (sender.deallocate + unregisterAllocation) from free()/removeById();
+     the old tombstone path remains only for a repository initialized
+     without its core.
+  3. *Mid-frame PATH3 uploads.* Pipelines upload a texture to GS VRAM on
+     first use - in the middle of a rendered frame, racing the in-flight
+     VU1/GIF work. Boot-time loads got away with it on the first
+     near-empty frames; textures streamed in by Load Layer hit it
+     repeatedly mid-gameplay and eventually hung the frame (the stress
+     repro froze after 3 load/unload cycles with no assert logged).
+     Fix: the generated game's acquireTexture() calls
+     `renderer.core.texture.useTexture()` right after the repository add -
+     updateLayerStreaming/loadScene run outside beginFrame/endFrame, so
+     the upload happens with the GIF quiet.
+  Verified: stress scene (EverySeconds 6 -> load interior/unload exterior,
+  Delay 3 -> swap back; models + two textures churned every 3 s) in PCSX2:
+  before the fixes it froze after 3 cycles; after, 63 cycles over ~10
+  minutes at the exact 6 s cadence, log clean (0 asserts, 0 warns), process
+  alive until killed. Editor clean build; example + sample regenerate and
+  build (engine relinked). Visual spot-check of this run was blocked by
+  window occlusion (the desktop was in use; PrintWindow cannot see the GS
+  surface, only CopyFromScreen can) - the earlier phased screenshots plus
+  the assert-free 10-minute run carry the verification; a pad walk on the
+  example remains the standing hands-on check.
+
+- (62) **Known regression on main: the debug FPS/MEM overlay freezes the
+  first frame** - found while re-verifying layer streaming after merging
+  the fog/flashlight/LOD batch (#31/#34/#35...). NOT caused by the layers
+  branch: a pure origin/main editor build with a fresh no-layers FPP
+  scratch project (fog off) freezes the same way the moment
+  `showFps`/`showMemory` are on - an EverySeconds(2)->Log ticker printed
+  0 lines in 40 s with the overlay, 17 without. TYRA_LOG probes place the
+  hang after renderScene() completes on frame 0, in the 2D block - most
+  likely drawDebugHud()'s first renderer2D.render() (lazy PATH3 upload of
+  debugfont.png and/or the 3D->2D drain) against the merged VU1/qbuffer
+  changes; renderer/2d and path3 sources are untouched by those PRs.
+  Workaround in this branch: examples/layer-streaming ships with the
+  overlay off (its README says how to re-enable); a separate task tracks
+  the real fix. Layer streaming re-verified post-merge with the overlay
+  off: 24 stress cycles over ~140 s at the exact 6 s cadence, 0 asserts.
 
 ## Backlog (rough order)
 
