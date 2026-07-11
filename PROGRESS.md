@@ -9,7 +9,7 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (38) **Song streamer thread + EE-load overlay** — the last structural fix
+- (41) **Song streamer thread + EE-load overlay** — the last structural fix
   for network music: the fillbuf callback fires when the audsrv ring is
   nearly EMPTY, so any file read on the audio thread races a ring holding
   under ~1/9th s of audio - one slow network round trip at that moment is a
@@ -30,7 +30,7 @@ Each finished feature lands as its own commit.
   main-thread work before it starts waiting on the GS; works on real
   hardware (unlike PCSX2's emulator-side EE% readout).
 
-- (37) **Music + sound emitters = FPS drop: audsrv RPC contention fix** —
+- (40) **Music + sound emitters = FPS drop: audsrv RPC contention fix** —
   reproduced in PCSX2 (finally an EE-side bug, not the network): a scene
   with one sound emitter ran 50 FPS silent but 42 FPS with music playing,
   while a scene with music and NO emitters held 50. Mechanism:
@@ -46,7 +46,7 @@ Each finished feature lands as its own commit.
   overlay has no emulator gate - it renders on real hardware too (the "not
   on the console" report was a stale pre-debug-profile deploy).
 
-- (36) **Per-track music build conversion + Stop on PS2** — the experiment
+- (39) **Per-track music build conversion + Stop on PS2** — the experiment
   window for network music: every Music-panel track gets "PS2 build"
   controls (rate: keep/48000/32000/22050/11025 + mono; only rates audsrv has
   an upsampler for - a first cut offered 16000, which audsrv does NOT
@@ -69,7 +69,7 @@ Each finished feature lands as its own commit.
   reboots back into its listening state instead of hanging on dead file
   handles when you just want the game gone.
 
-- (35) **Song read-ahead stage (network music without hiccups)** — feeding
+- (38) **Song read-ahead stage (network music without hiccups)** — feeding
   audsrv straight from per-chunk freads gives every read a hard deadline of
   one chunk of audio (46 ms at 22 kHz stereo); over ps2link any latency
   outlier is an audible hiccup ("almost right, still snags" on the real
@@ -83,6 +83,99 @@ Each finished feature lands as its own commit.
   WASAPI peak meter shows a rock-steady level for the whole window (a
   starving stream shows dropouts); real-console listen pending. Also
   upstreamed the ps2client TCP_NODELAY fix as ps2dev/ps2client#25.
+
+- (37) **Skeletal animation skinning moved from the EE FPU to VU0 (macro
+  mode)** — the backlog's era-correct split (animation on VU0, 3D on VU1,
+  game code on EE), engine-fork only, zero authoring/codegen changes. The
+  `SkelInstance::skinParts` vertex loop is now COP2 inline asm (the
+  `M4x4::cross` lqc2/vmadda pattern, no microprogram): matrix-palette blend,
+  position+normal transform, vrsqrt normal normalization and the skinned
+  AABB (vmini/vmax, kept resident in $vf20/$vf21 across the loop; the
+  min.w slot carries the epsilon that replaces the old `len > 1e-6` guard).
+  The constructor repacks bind data into 16-byte-aligned qwords (positions
+  w=1, normals w=0 so the translation column drops out), prenormalizes the
+  u8 weights to floats summing 1, and sorts each vertex's joints by
+  descending weight so the loop dispatches on influence count: 1 bone = 4
+  matrix loads and no blend, 2 bones = 2-matrix blend (the hot case: 95% of
+  the test character), 3-4 = full blend, 0 = zero matrix (vertex collapses
+  to the origin exactly like the EE loop). A first, dispatch-less version
+  that always blended 4 matrices measured *slower* than the EE loop in
+  PCSX2 (median EE 38.7% vs ~37%) - PCSX2's EE JIT prices a COP2 op like an
+  FPU op, so op count is everything there; the dispatch version restored
+  parity. Pose evaluation (mulM4/fromTrs/slerp) deliberately stays plain C
+  for bit-parity with the editor's preview math. Verified (Docker + PCSX2
+  SW renderer): skelpar frozen-pose scene (skinned char x2 poses + rigid
+  flag, tint) pixel-compared EE vs VU0 - **548 900 game-area pixels, 0
+  differ** (both the naive and the dispatch version); skelperf (3 animated
+  1440-vert characters, 1368 verts with 2 influences / 72 with 1) holds 50
+  FPS with EE median 37.0% (6 samples) vs EE-loop baseline 37.2% (6
+  samples, range 34-41%) - emulator parity, the real win is expected on
+  hardware where one COP2 FMAC does 4 lanes (real-HW run still pending the
+  ps2link memory-card install). The 0- and >=3-influence paths compile but
+  no test asset exercises them (the >=3 block is the pixel-verified naive
+  blend with sorted slots). Docs updated (animated-models.md).
+- (36) **Color grading** — DaVinci-style per-project looks, applied as a GS
+  post pass (zero EE cost, like bloom/grain). **Engine**:
+  `RendererCorePostFx::setGrading/clearGrading` draws flat full-screen
+  sprites between bloom and grain — per-channel gain via FBMSK-masked
+  `(Cd-0)*FIX` sprites (equal gains collapse to one), per-channel lift as
+  additive/subtractive flat colors, and one alpha-blend sprite mixing toward
+  a constant color (tint + the saturation approximation; two lerps toward
+  constants fold into one). Worst case 6 extra sprites, alpha byte always
+  FBMSK-protected, z writes stay masked; postfx packet grew 160 -> 224 qw.
+  **Model**: `ColorGradingPreset` (brightness/contrast/saturation/
+  temperature/tint/lift/gain) + `compileGrading()` in the new grading.hpp —
+  the ONE place that folds the friendly controls into quantized GS numbers
+  (contrast pivot into gain+lift, saturation as a mix toward mid-gray — the
+  GS has no per-pixel luma, documented as an approximation);
+  `Project::gradings` + `defaultGrading`, saved/loaded with defaults for old
+  projects (not part of undo snapshots, same as menus). **UI**: Tools >
+  Color Grading window (preset list, quick looks, sliders, live "GS pass:"
+  readout of the compiled numbers). **Viewport twin**: a fullscreen
+  post pass (GRADE_FS) replicates the integer GS math incl. the 0..255
+  clamp per blend step; previews the edited preset while the window is
+  open, else the project default (gl_loader gained Uniform1f). **Codegen**:
+  GRADING_* tables + templated `applySceneGrading()` in scene_data.hpp
+  (header stays engine-include-free), `applySceneGrading(engine,
+  GRADING_DEFAULT)` in both game templates' init (grading is global —
+  scene switches keep the active preset), new **Set Color Grading** flow
+  node (Scene category, preset picker, "<none>" = clearGrading). Verified:
+  editor builds clean; scratch fpp project with two presets round-trips the
+  JSON; generated tables hand-checked against compileGrading math; Docker
+  build OK (engine + empty- and 2-preset tables compile on the PS2
+  toolchain); PCSX2 e2e on the software renderer — timed screenshots show
+  boot applying the sepia default (sky measured (157,156,148) vs computed
+  (151,148,145)) and an Every-6s -> Set Color Grading("night") graph
+  switching the frame to the night look at runtime; viewport A/B
+  screenshots confirm the editor preview matches. **Color wheels**: Lift and
+  Gain are edited through Resolve-style trackballs (custom ImDrawList
+  widget: hue disc, draggable puck, double-click reset) - the puck carries
+  the zero-mean between-channel tint (exactly the wheel's 2 DOF, so
+  puck <-> rgb roundtrips), a master slider under each wheel carries the
+  common level, and a compact drag row shows the numbers; commits once per
+  gesture (live mutation while dragging, commitChange on release). Window
+  rendering verified via a temporary auto-open build + GDI screenshot
+  (presets, quick looks, sliders, both wheels and the GS readout all
+  render); the drag FEEL still needs a quick human pass (no safe way to
+  drive ImGui with synthetic input while the user works the machine).
+- (35) **UI (DPI) scaling** — the editor was near-unreadable on high-DPI small
+  screens (a 4K laptop). On startup it now auto-matches the monitor's content
+  scale via `ImGui_ImplGlfw_GetContentScaleForWindow` (a 4K laptop reports e.g.
+  2.0-2.5x), so it "just works" with zero config. A new always-available
+  **View** menu (plus `Ctrl+=` / `Ctrl+-` zoom and `Ctrl+0` for auto) lets the
+  user override: presets 100-300% or auto. `applyUiScale()` resets the style to
+  a `baseStyle_` captured once at init, then `ScaleAllSizes(scale)` +
+  `FontScaleMain = scale` - resetting from the base each time means repeated
+  changes never compound. Fonts stay crisp because this ImGui (1.92) rasterizes
+  dynamically and the GL3 backend advertises `RendererHasTextures` (rebuilds the
+  atlas on scale change). The override is machine-level, not project data, so it
+  lives in a tiny global config `%LOCALAPPDATA%\tyra-editor\editor.ini`
+  (`uiScale=<float>`, 0 == auto) - the same editor-owned dir already used for the
+  PS2SDK IntelliSense cache; the per-project `.tyra` format is untouched.
+  Verified: editor builds clean; launched and screenshotted at forced 100% and
+  200% (UI visibly doubles, text stays crisp) and with no config (auto detected
+  this machine's ~2.5x DPI and scaled accordingly) - all without crashing.
+  Gizmo/ImNodes use screen/clip-space sizing so they were already DPI-neutral.
 
 - (34) **Custom particle kind: full physics knobs (jets, leaks, steam)** —
   sixth emitter kind "Custom" exposes the simulation instead of a preset:
@@ -1631,23 +1724,15 @@ Each finished feature lands as its own commit.
   needs a custom double-buffered SPU RAM streamer in the engine; audsrv only
   streams PCM and plays ADPCM one-shots
 - Flow graph: more nodes (timers with reset, variables)
-- Animations: VU0 macro-mode skinning (cheap intermediate step before any
-  VU1 work). The Tyra author points out the era-correct split: animation on
-  VU0, 3D on VU1, game code on EE - stage 2 (entry 26) runs pose eval AND
-  vertex skinning on the EE FPU instead. The skinning inner loop in
-  SkelInstance::skinParts (palette blend + position/normal transform) maps
-  directly onto VU0 macro-mode inline asm (lqc2/vmadda - the same pattern
-  as M4x4::cross); no separate microprogram, no architecture change, frees
-  EE cycles that run in parallel with COP2. Keep the plain-C pose math
-  (mulM4/fromTrs) as-is - it exists for bit-parity with the editor, and the
-  vertex loop dominates anyway. Verify with before/after EE% + screenshot
-  parity like entry 26.
+- Animations: measure VU0 skinning (entry 34) on real hardware once ps2link
+  is installed - PCSX2 prices COP2 ops like FPU ops so it can only show
+  parity; the SIMD win (one FMAC = 4 lanes) is a hardware-only effect.
 - Animations stage 3 (optional) - VU1 skinning microprogram: matrix palette
   in VU memory, weights in the vertex stream, new VCL program (respect the
-  vcl_sml.i history first). Measure EE headroom before starting - after
-  stage 2 (entry 26) the EE skins 3 characters at 34-37% load, so it is not
-  the bottleneck yet (consider the VU0 macro-mode step above first).
-  Palette per batch limited by VU memory (~24-32 bones).
+  vcl_sml.i history first). Measure EE headroom before starting - skinning
+  now runs on VU0 in macro mode (entry 34) at ~37% EE load for 3 characters
+  in PCSX2, so the EE is not the bottleneck yet. Palette per batch limited
+  by VU memory (~24-32 bones).
 - Engine perf, next targets: packager allocates its package array per frame
   (poolable); the real endgame is the engine author's own TODO in
   stapip_clipper.hpp - move clipping to VU1 entirely ("too much time")

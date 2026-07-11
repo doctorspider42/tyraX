@@ -53,6 +53,11 @@ public:
     // box in the highlight color (proximity is a game-runtime condition)
     void setUsableHighlight(bool enabled, const float* rgb);
 
+    // Color grading preview: replicates the PS2 GS grading pass (the same
+    // quantized integers, incl. the 0..255 clamp after every blend step) as
+    // a full-screen post pass over the rendered frame.
+    void setGrading(bool enabled, const CompiledGrading& g);
+
     // Renders terrain + objects at the given pixel size, returns GL texture id.
     // selectedIndex: index into objects highlighted with an outline (-1 = none).
     uint32_t render(int width, int height, const std::vector<SceneObject>& objects,
@@ -199,6 +204,13 @@ private:
 
     uint32_t fbo_ = 0, colorTex_ = 0, depthRbo_ = 0;
     int fbWidth_ = 0, fbHeight_ = 0;
+
+    // Color grading post pass (grading preview): colorTex_ -> gradeTex_
+    bool gradingOn_ = false;
+    CompiledGrading grading_;
+    uint32_t gradeProgram_ = 0, gradeFbo_ = 0, gradeTex_ = 0, gradeVao_ = 0;
+    int uGradeSrc_ = -1, uGradeGain_ = -1, uGradeLiftPos_ = -1,
+        uGradeLiftNeg_ = -1, uGradeMixCol_ = -1, uGradeMixAmt_ = -1;
 
     float viewM_[16] = {};
     float projM_[16] = {};

@@ -3,6 +3,8 @@
 #include <map>
 #include <string>
 
+#include <imgui.h>  // ImGuiStyle baseStyle_ member (UI scaling)
+
 #include "history.hpp"
 #include "isoexport.hpp"
 #include "project.hpp"
@@ -19,6 +21,12 @@ public:
 private:
     void drawUI();
     void drawMenuBar();
+    // UI (DPI) scaling. uiScaleUser_ == 0 means "auto" (follow the monitor's
+    // content scale); a value > 0 is an explicit multiplier (1.0 == 100%).
+    // applyUiScale() recomputes the effective scale and re-applies it to the
+    // ImGui style + fonts; setUiScale() also persists the choice.
+    void applyUiScale();
+    void setUiScale(float userScale);
     void drawViewportWindow();
     void drawProjectWindow();
     void drawPropertiesWindow();
@@ -116,6 +124,7 @@ private:
     void importSoundEffect();
     void drawSaveDataSection();
     void drawMenusWindow();
+    void drawGradingWindow();
     void handleFileDrop(int count, const char** paths);
     void saveProject();
 
@@ -131,6 +140,14 @@ private:
     void attachProject();  // post-open: history + solution state
 
     GLFWwindow* window_ = nullptr;
+
+    // UI scaling (machine-level, stored in a small global editor config file,
+    // NOT in the per-project .tyra). baseStyle_ is the unscaled reference
+    // captured once at init; every scale change resets to it and re-scales so
+    // repeated changes never compound.
+    float uiScaleUser_ = 0.0f;     // 0 == auto (match display DPI)
+    float uiScaleApplied_ = 1.0f;  // effective scale currently in effect
+    ImGuiStyle baseStyle_;
 
     Project project_;
     bool hasProject_ = false;
@@ -183,6 +200,12 @@ private:
     bool menuPreviewClipped_ = false;  // content hit the 512px texture cap
     int menuPreviewMode_ = 0;      // 0 = panel 1:1, 1 = TV PAL, 2 = TV NTSC
     std::string menuPreviewKey_;  // serialized menu the texture was baked from
+
+    // Color grading (Tools > Color Grading): selected preset + whether the
+    // viewport previews grading (the edited preset wins over the default)
+    bool showGradingEditor_ = false;
+    int selectedGrading_ = -1;
+    bool gradingPreview_ = true;
     struct HudTexture {
         unsigned tex = 0;
         int w = 0, h = 0;

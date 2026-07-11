@@ -32,8 +32,9 @@ RendererCorePostFx::RendererCorePostFx() {
   gs = nullptr;
   bloom = 0;
   grain = 0;
+  clearGrading();
   rng = 0xC0FFEE01u;
-  packet = packet2_create(160, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
+  packet = packet2_create(224, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
 }
 
 RendererCorePostFx::~RendererCorePostFx() {
@@ -136,8 +137,79 @@ qword_t* RendererCorePostFx::blit(qword_t* q, int srcVram, int srcBufW,
   return q;
 }
 
+qword_t* RendererCorePostFx::flatQuad(qword_t* q, int dstVram, int dstBufW,
+                                      u32 fbmsk, u8 r, u8 g, u8 b, u8 a,
+                                      u64 alpha) {
+  PACK_GIFTAG(q, GIF_SET_TAG(6, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  PACK_GIFTAG(q, GS_SET_FRAME(dstVram >> 11, dstBufW >> 6, GS_PSM_32, fbmsk),
+              GS_REG_FRAME_1);
+  q++;
+  PACK_GIFTAG(q, alpha, GS_REG_ALPHA_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_RGBAQ(r, g, b, a, 0x3F800000), GS_REG_RGBAQ);
+  q++;
+  PACK_GIFTAG(q, GS_SET_PRIM(6 /* sprite */, 0, 0, 0, 1 /* abe */, 0, 0, 0, 0),
+              GS_REG_PRIM);
+  q++;
+  PACK_GIFTAG(q, GS_SET_XYZ(2048 << 4, 2048 << 4, 0xFFFFFFFFu), GS_REG_XYZ2);
+  q++;
+  PACK_GIFTAG(q,
+              GS_SET_XYZ((2048 + fbW) << 4, (2048 + fbH) << 4, 0xFFFFFFFFu),
+              GS_REG_XYZ2);
+  q++;
+  return q;
+}
+
+qword_t* RendererCorePostFx::gradingQuads(qword_t* q, int fbVram,
+                                          int fbBufW) {
+  // The alpha byte carries no scene data but the blits' TEXFLUSH/decal path
+  // reads it back, so every grading sprite masks it out of the write.
+  constexpr u32 kKeepAlpha = 0xFF000000u;
+
+  // Per-channel gain: (Cd - 0) * FIX >> 7 + 0, each channel through its own
+  // FBMSK-masked sprite. Equal gains collapse into a single sprite.
+  if (gGain[0] == gGain[1] && gGain[1] == gGain[2]) {
+    if (gGain[0] != 128)
+      q = flatQuad(q, fbVram, fbBufW, kKeepAlpha, 0x80, 0x80, 0x80, 0x80,
+                   GS_SET_ALPHA(1, 2, 2, 2, gGain[0]));
+  } else {
+    for (int c = 0; c < 3; c++) {
+      if (gGain[c] == 128) continue;
+      const u32 fbmsk = 0xFFFFFFFFu ^ (0xFFu << (8 * c));
+      q = flatQuad(q, fbVram, fbBufW, fbmsk, 0x80, 0x80, 0x80, 0x80,
+                   GS_SET_ALPHA(1, 2, 2, 2, gGain[c]));
+    }
+  }
+
+  // Per-channel lift: positive components added (Cd + Cs), negative ones
+  // subtracted (Cd - Cs) - unsigned GS math needs the two passes.
+  u8 pos[3], neg[3];
+  bool anyPos = false, anyNeg = false;
+  for (int c = 0; c < 3; c++) {
+    const int l = gLift[c];
+    pos[c] = (u8)(l > 0 ? (l > 255 ? 255 : l) : 0);
+    neg[c] = (u8)(l < 0 ? (l < -255 ? 255 : -l) : 0);
+    anyPos |= pos[c] != 0;
+    anyNeg |= neg[c] != 0;
+  }
+  if (anyPos)
+    q = flatQuad(q, fbVram, fbBufW, kKeepAlpha, pos[0], pos[1], pos[2], 0x80,
+                 GS_SET_ALPHA(0, 2, 2, 1, 128));
+  if (anyNeg)
+    q = flatQuad(q, fbVram, fbBufW, kKeepAlpha, neg[0], neg[1], neg[2], 0x80,
+                 GS_SET_ALPHA(2, 0, 2, 1, 128));
+
+  // Mix toward a constant color: the plain alpha blend
+  // (Cs - Cd) * As >> 7 + Cd with As = the mix amount.
+  if (gMixAmt > 0)
+    q = flatQuad(q, fbVram, fbBufW, kKeepAlpha, gMix[0], gMix[1], gMix[2],
+                 gMixAmt, GS_SET_ALPHA(0, 1, 0, 1, 0));
+  return q;
+}
+
 void RendererCorePostFx::apply() {
-  if ((bloom == 0 && grain == 0) || gs == nullptr) return;
+  if ((bloom == 0 && grain == 0 && !hasGrading()) || gs == nullptr) return;
 
   auto* fb = gs->getCurrentFrameBuffer();
   const int fbVram = static_cast<int>(fb->address);
@@ -198,6 +270,10 @@ void RendererCorePostFx::apply() {
     q = blit(q, lowVram[1], lowBufW, lowW, lowH, 0, 0, w4, h4, fbVram, fbBufW,
              0, 0, fbW, fbH, true, false, 1, GS_SET_ALPHA(0, 2, 2, 1, bloom));
   }
+
+  // Grading between bloom (glows come from the ungraded scene) and grain
+  // (film grain sits on top of the graded image).
+  if (hasGrading()) q = gradingQuads(q, fbVram, fbBufW);
 
   if (grain > 0) {
     u8 g = grain >> 1;

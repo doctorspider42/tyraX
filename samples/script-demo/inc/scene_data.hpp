@@ -13,9 +13,20 @@ struct SceneObjectData {
   int model;    // index into MODEL_PATHS / gameModels, -1 = none
   int material; // primitives: index into MATERIAL_PATHS, -1 = plain color
   int usable;   // 1 = shows the USE prompt up close (see controls.hpp)
-  int emitKind;   // emitters: 0 fire, 1 smoke, 2 fog, 3 sparks
-  int emitCount;  // emitters: particle pool size
+  int emitKind;   // emitters: 0 fire, 1 smoke, 2 fog, 3 sparks, 4 rain,
+                  // 5 custom (physics below)
+  int emitCount;  // emitters: particle pool size (density)
   float emitSize; // emitters: base particle size
+  int emitEnabled; // emitters: 0 = starts disabled (Show Object enables)
+  int emitFollow;  // emitters: 1 = position is an offset from the player
+  float emitSpeed;   // custom: emission speed along rotated +Y, units/s
+  float emitSpread;  // custom: cone half-angle, degrees
+  float emitGravity; // custom: units/s^2, negative = rises
+  float emitWeight;  // custom: air drag ~ 1/weight
+  float emitLife;    // custom: particle lifetime, seconds
+  float emitGrow;    // custom: size multiplier at end of life
+  float emitOpacity; // custom: base alpha 0..1
+  int emitDieGround; // custom: 1 = particle dies on the terrain
   int snd;        // sound emitters: index into SND_PATHS, -1 = none
   int sndAuto;    // sound emitters: 1 = plays while in range
   float sndRange;    // sound emitters: audible distance
@@ -37,9 +48,9 @@ constexpr int SCENE_COUNT = 1;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[3] = {
-    {4, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, -1, "", 1, 1, 1.0F},  // spawn-1
-    {0, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.8F, 0.35F, 0.25F}, 0, -1, -1, 0, 0, 24, 0.5F, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, -1, "", 1, 1, 1.0F},  // box-1
-    {5, {-7.0F, 0.0F, 9.0F}, {0.0F, 30.0F, 0.0F}, {2.5F, 2.5F, 2.5F}, {0.9F, 0.85F, 0.7F}, 0, 0, -1, 0, 0, 24, 0.5F, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, -1, "", 1, 1, 1.0F},  // house-1
+    {4, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, -1, "", 1, 1, 1.0F},  // spawn-1
+    {0, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.8F, 0.35F, 0.25F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, -1, "", 1, 1, 1.0F},  // box-1
+    {5, {-7.0F, 0.0F, 9.0F}, {0.0F, 30.0F, 0.0F}, {2.5F, 2.5F, 2.5F}, {0.9F, 0.85F, 0.7F}, 0, 0, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, -1, "", 1, 1, 1.0F},  // house-1
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {3};
@@ -84,6 +95,25 @@ constexpr float HIGHLIGHT_GS[SCENE_COUNT] = {216.75F};
 constexpr float HIGHLIGHT_BS[SCENE_COUNT] = {38.25F};
 constexpr float HIGHLIGHT_WIDTHS[SCENE_COUNT] = {0.35F};
 constexpr int HIGHLIGHT_STEPS_S[SCENE_COUNT] = {4};
+
+constexpr int GRADING_COUNT = 0;
+inline const char* GRADING_NAMES[GRADING_COUNT > 0 ? GRADING_COUNT : 1] = {""};
+constexpr unsigned char GRADING_GAINS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
+constexpr short GRADING_LIFTS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
+constexpr unsigned char GRADING_MIX_COLORS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
+constexpr unsigned char GRADING_MIX_AMTS[GRADING_COUNT > 0 ? GRADING_COUNT : 1] = {0};
+constexpr int GRADING_DEFAULT = -1;
+
+// Template so this header stays engine-include-free; instantiated
+// where Tyra::Engine is complete. index -1 (or any out of range)
+// is a no-op.
+template <typename TEngine>
+inline void applySceneGrading(TEngine* engine, int index) {
+  if (index < 0 || index >= GRADING_COUNT) return;
+  engine->renderer.core.postFx.setGrading(
+      GRADING_GAINS[index], GRADING_LIFTS[index],
+      GRADING_MIX_COLORS[index], GRADING_MIX_AMTS[index]);
+}
 
 constexpr int SAVE_VALUE_COUNT = 0;
 inline const char* SAVE_VALUE_NAMES[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {""};
