@@ -41,6 +41,12 @@ class RendererCoreTexture {
   /** Called by renderer during rendering */
   void updateClutBuffer(texbuffer_t* clutBuffer);
 
+  /** Modified by tyra-editor: releases a freed texture's GS VRAM and its
+   * texbuffer structs (no-op when the texture was never uploaded). Called
+   * by TextureRepository::free()/removeById(); the old removeBufferId()
+   * path only tombstoned the allocation entry and leaked both. */
+  void freeTextureBuffers(const u32& texId);
+
  private:
   std::vector<RendererCoreTextureBuffers> currentAllocations;
 

@@ -677,6 +677,14 @@ void App::drawViewportWindow() {
             viewport_.setGrading(
                 on, on ? compileGrading(project_.gradings[gi]) : CompiledGrading{});
         }
+        // Layer eye toggles: objects on hidden layers vanish from the render
+        // and the click picking (mask indices parallel project_.objects()).
+        {
+            std::vector<char> hidden(project_.objects().size(), 0);
+            for (size_t i = 0; i < project_.objects().size(); ++i)
+                hidden[i] = isObjectHiddenInEditor(project_.objects()[i]) ? 1 : 0;
+            viewport_.setHiddenMask(std::move(hidden));
+        }
         uint32_t tex =
             viewport_.render((int)avail.x, (int)avail.y, project_.objects(), selectedObject_);
         // Flip vertically: GL texture origin is bottom-left
@@ -748,9 +756,11 @@ void App::drawViewportWindow() {
             }
         }
 
-        // --- Transform gizmo on the selected object (disabled while sculpting) ---
+        // --- Transform gizmo on the selected object (disabled while sculpting;
+        // objects on a hidden layer can't be grabbed either) ---
         bool objectSelected = !sculptMode_ && selectedObject_ >= 0 &&
-                              selectedObject_ < (int)project_.objects().size();
+                              selectedObject_ < (int)project_.objects().size() &&
+                              !isObjectHiddenInEditor(project_.objects()[selectedObject_]);
         if (objectSelected) {
             SceneObject& o = project_.objects()[selectedObject_];
 
@@ -1194,6 +1204,7 @@ void App::drawProjectWindow() {
     }
 
     drawSceneSection();
+    drawLayersSection();
     drawAssetsSection();
     drawHudSection();
     drawMusicSection();
@@ -2083,15 +2094,158 @@ void App::drawSceneSection() {
         ImGui::BeginChild("##objects", ImVec2(0, 130), ImGuiChildFlags_Borders);
         for (int i = 0; i < (int)project_.objects().size(); ++i) {
             const SceneObject& o = project_.objects()[i];
-            std::string label = o.name + "  (" + primitiveTypeName(o.type) + ")##obj" +
+            const bool hidden = isObjectHiddenInEditor(o);
+            std::string label = o.name + "  (" + primitiveTypeName(o.type) + ")" +
+                                (hidden ? "  [hidden]" : "") + "##obj" +
                                 std::to_string(i);
+            if (hidden)
+                ImGui::PushStyleColor(ImGuiCol_Text,
+                                      ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
             if (ImGui::Selectable(label.c_str(), selectedObject_ == i)) selectedObject_ = i;
+            if (hidden) ImGui::PopStyleColor();
         }
         ImGui::EndChild();
     }
 
     if (selectedObject_ >= 0 && selectedObject_ < (int)project_.objects().size())
         ImGui::TextDisabled("Edit the selection in the Properties window.");
+}
+
+// True when the object sits on a layer whose editor eye is off - the
+// viewport skips it (render and picking) and the object list dims it.
+// Unknown layer names count as visible.
+bool App::isObjectHiddenInEditor(const SceneObject& o) const {
+    if (o.layer.empty()) return false;
+    for (const SceneLayer& l : project_.active().layers)
+        if (l.name == o.layer) return !l.editorVisible;
+    return false;
+}
+
+// Streaming layers of the ACTIVE scene: named object groups the game can
+// evict from / pull into memory at runtime (Load/Unload Layer flow nodes).
+// The eye checkbox hides a layer in the editor only; "start" marks it
+// resident when the scene starts.
+void App::drawLayersSection() {
+    // starts open once the scene actually uses layers
+    const ImGuiTreeNodeFlags flags =
+        project_.active().layers.empty() ? 0 : ImGuiTreeNodeFlags_DefaultOpen;
+    if (!ImGui::CollapsingHeader("Layers", flags)) return;
+
+    SceneData& sc = project_.active();
+    if (ImGui::SmallButton("+ Layer")) {
+        auto exists = [&](const std::string& name) {
+            for (const SceneLayer& e : sc.layers)
+                if (e.name == name) return true;
+            return false;
+        };
+        SceneLayer l;
+        int n = (int)sc.layers.size() + 1;
+        do {
+            l.name = "Layer " + std::to_string(n++);
+        } while (exists(l.name));
+        sc.layers.push_back(l);
+        commitChange();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Streaming layers (per scene). Assign objects to a layer in\n"
+            "Properties; the game can then drop the whole layer from memory\n"
+            "and stream it back with the Load / Unload Layer flow nodes -\n"
+            "GTA3-style interior streaming. The eye hides the layer in the\n"
+            "editor only; \"start\" = in memory when the scene starts.\n"
+            "Deleting a layer keeps its objects (they become unassigned).");
+
+    if (sc.layers.empty()) {
+        ImGui::TextDisabled("No layers - every object is always in memory.");
+        return;
+    }
+
+    bool committed = false;
+    int deleteIdx = -1;
+    for (int i = 0; i < (int)sc.layers.size(); ++i) {
+        SceneLayer& l = sc.layers[i];
+        ImGui::PushID(i + 4000);
+
+        bool vis = l.editorVisible;
+        if (ImGui::Checkbox("##vis", &vis)) {
+            l.editorVisible = vis;
+            committed = true;
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show in editor");
+
+        // rename in place; object/flow references remap when the edit ends
+        ImGui::SameLine();
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%s", l.name.c_str());
+        const std::string before = l.name;
+        ImGui::SetNextItemWidth(-118.0f);
+        if (ImGui::InputText("##name", buf, sizeof(buf))) l.name = buf;
+        if (ImGui::IsItemActivated()) {
+            layerRenameFrom_ = before;
+            layerRenameIdx_ = i;
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            const std::string from =
+                layerRenameIdx_ == i ? layerRenameFrom_ : before;
+            layerRenameIdx_ = -1;
+            const std::string to = l.name;
+            bool dup = false;
+            for (int k = 0; k < (int)sc.layers.size(); ++k)
+                dup |= (k != i && sc.layers[k].name == to);
+            if (to.empty() || dup) {
+                l.name = from;  // keep names unique and non-empty
+            } else if (to != from) {
+                for (SceneObject& o : sc.objects) {
+                    if (o.layer == from) o.layer = to;
+                    for (FlowNode& fn : o.flowGraph.nodes) {
+                        const FlowNodeType* t = flowNodeType(fn.type);
+                        if (t && t->strKind == FlowParamKind::LayerName &&
+                            fn.str == from)
+                            fn.str = to;
+                    }
+                }
+            }
+            committed = true;
+        }
+
+        ImGui::SameLine();
+        bool start = l.startLoaded;
+        if (ImGui::Checkbox("start", &start)) {
+            l.startLoaded = start;
+            committed = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("In memory when the scene starts");
+
+        ImGui::SameLine();
+        int count = 0;
+        for (const SceneObject& o : sc.objects)
+            if (o.layer == l.name) ++count;
+        ImGui::TextDisabled("%d", count);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Objects on this layer");
+
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - 22.0f);
+        if (ImGui::SmallButton("x")) deleteIdx = i;
+        ImGui::PopID();
+    }
+
+    if (deleteIdx >= 0) {
+        const std::string name = sc.layers[deleteIdx].name;
+        for (SceneObject& o : sc.objects) {
+            if (o.layer == name) o.layer.clear();
+            for (FlowNode& fn : o.flowGraph.nodes) {
+                const FlowNodeType* t = flowNodeType(fn.type);
+                if (t && t->strKind == FlowParamKind::LayerName && fn.str == name)
+                    fn.str.clear();
+            }
+        }
+        sc.layers.erase(sc.layers.begin() + deleteIdx);
+        committed = true;
+    }
+
+    if (committed) commitChange();
 }
 
 // Display names for the Type field (primitiveTypeName() is the serialized
@@ -2151,6 +2305,26 @@ void App::drawPropertiesWindow() {
     std::snprintf(nameBuf, sizeof(nameBuf), "%s", o.name.c_str());
     if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) o.name = nameBuf;
     committed |= ImGui::IsItemDeactivatedAfterEdit();
+
+    // Streaming layer (Project panel > Layers). Shown as soon as the scene
+    // has layers - or when the object still references a deleted-scene name.
+    if (!project_.active().layers.empty() || !o.layer.empty()) {
+        const std::string current = o.layer.empty() ? "<none>" : o.layer;
+        if (ImGui::BeginCombo("Layer", current.c_str())) {
+            if (ImGui::Selectable("<none>", o.layer.empty()) && !o.layer.empty()) {
+                o.layer.clear();
+                committed = true;
+            }
+            for (const SceneLayer& l : project_.active().layers) {
+                if (ImGui::Selectable(l.name.c_str(), l.name == o.layer) &&
+                    o.layer != l.name) {
+                    o.layer = l.name;
+                    committed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+    }
 
     if (isShape) {
         // Plane's enum value isn't contiguous with the other shapes, so map
@@ -3015,6 +3189,18 @@ void App::drawFlowGraphWindow() {
                 }
                 ImGui::EndCombo();
             }
+        } else if (t->strKind == FlowParamKind::LayerName) {
+            if (ImGui::BeginCombo("Layer", n.str.empty() ? "<none>" : n.str.c_str())) {
+                for (const SceneLayer& l : project_.active().layers) {
+                    if (ImGui::Selectable(l.name.c_str(), l.name == n.str)) {
+                        n.str = l.name;
+                        changed = true;
+                    }
+                }
+                if (project_.active().layers.empty())
+                    ImGui::TextDisabled("Add layers in the\nProject panel (Layers).");
+                ImGui::EndCombo();
+            }
         } else if (t->strKind == FlowParamKind::SaveValue) {
             if (ImGui::BeginCombo("Value", n.str.empty() ? "<none>" : n.str.c_str())) {
                 for (const SaveValue& v : project_.saveValues) {
@@ -3417,6 +3603,9 @@ void App::drawFlowGraphWindow() {
                         if (!project_.music.empty()) n.str = project_.music.front();
                     }
                     if (std::string(t.key) == "SetMusicVolume") n.num[0] = 80.0f;
+                    if (t.strKind == FlowParamKind::LayerName &&
+                        !project_.active().layers.empty())
+                        n.str = project_.active().layers.front().name;
                     if (std::string(t.key) == "SetVarBool") n.num[0] = 1.0f;
                     if (std::string(t.key) == "PlaySound") {
                         n.num[0] = 100.0f;  // volume

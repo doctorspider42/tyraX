@@ -57,6 +57,8 @@ private:
     void drawProjectWindow();
     void drawPropertiesWindow();
     void drawSceneSection();
+    void drawLayersSection();
+    bool isObjectHiddenInEditor(const SceneObject& o) const;
     void drawScriptsSection();
     void drawNewScriptModal();
     void drawNewSceneModal();
@@ -313,6 +315,11 @@ private:
     };
     std::map<std::string, ScriptFileScan> scriptScanCache_;
     std::vector<std::string> objectScriptNames();
+
+    // Layer rename-in-place: the name captured when the field gained focus,
+    // so object and flow-node references remap from it when editing ends.
+    std::string layerRenameFrom_;
+    int layerRenameIdx_ = -1;
 
     // "New scene" modal state
     int deleteScenePending_ = -1;  // scene index awaiting delete confirmation
