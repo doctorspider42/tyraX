@@ -9,6 +9,153 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (63) **Flashlight moved from a project preference to a Player property** — the
+  camera flashlight used to be a scene-visual category on `ProjectSettings`
+  (project default + per-scene override). It is now a property of the Player
+  object (`SceneObject::flashlight*`): color/range/cone half-angle plus an
+  **Enabled** master switch and an optional **toggle button**. Enabled is
+  runtime-controllable — the new **Set Flashlight** flow node (Player category)
+  writes `ScriptContext::flashlight` (0/1), which the game folds into a
+  `g_flashEnabled` global; loadScene seeds it per scene from the player's
+  Enabled flag. The optional toggle button (a pad button on the player) flips a
+  separate `g_flashOn` state via the generated `flashlightTogglePressed()`
+  helper (a per-scene switch over each player's button); the beam shows only
+  while `g_flashEnabled && g_flashOn`, so the toggle **respects Enabled**. The
+  per-scene `FLASHLIGHT_*` codegen tables now read the scene's first Player
+  object instead of resolved settings; no player = no flashlight. Editor: the
+  Preferences and Scene-override flashlight sections are gone, replaced by a
+  Flashlight block in the Player object properties (Enabled + color/reach/angle
+  + toggle-button combo). Also removed **all "Silent Hill" mentions** from the
+  codebase (comments in `project.hpp`, `app.cpp`, `templates.cpp`,
+  `vendor/tyra` renderer_core, and PROGRESS entries 47-49) per request.
+  Verified: editor builds clean; a scratch fpp project with the flashlight
+  enabled + toggle=Circle + an On Start → Set Flashlight graph round-trips
+  through save/load, generates the expected `scene_data.hpp` tables, toggle
+  helper (`case 0: return engine->pad.getClicked().Circle;`) and flow code
+  (`ctx.flashlight = 1;`), compiles under the PS2DEV toolchain (Docker build
+  exit 0), and boots in PCSX2 (SW renderer) showing the lit flashlight cone on
+  the terrain. Interactive toggle-button press still wants a hands-on pad test.
+- (64) **Multi-object selection, group transform, copy & multi-edit** — the
+  editor now works on a *set* of objects, not one at a time. A new
+  `std::vector<int> selection_` carries the full selection while the old
+  `selectedObject_` stays as its *primary* (anchor) member, always
+  `selection_.back()` — so the ~30 existing single-select reads (orbit pivot,
+  flow-graph "from selected", script-attach target...) keep working unchanged.
+  All the scattered `selectedObject_ =` writes went through four helpers
+  (`selectOnly`/`toggleSelect`/`clearSelection`/`pruneSelection`) that keep the
+  invariant; `pruneSelection` drops stale indices after undo/scene changes.
+  **Selecting**: Ctrl/Shift+click (viewport or Project list) toggles an object
+  in/out; plain click replaces. Left-drag draws a rubber-band marquee and
+  selects every object whose screen-space bounds overlap it (8 unit-box corners
+  projected with the same view/proj math as the sculpt-brush overlay, rotated
+  Rz·Ry·Rx to match `modelMatrix`); Ctrl+drag extends. To free left-drag for the
+  marquee the Default nav scheme now orbits on right-drag only (it already did).
+  All selected objects get an amber outline in the viewport, the primary
+  brighter (`Viewport::render` now takes the selection vector + primary).
+  **Transforming**: with >1 selected the gizmo manipulates a proxy at the
+  group centroid, captures ImGuizmo's world-space `deltaMatrix`, and applies
+  `delta · model` to every object (decompose back to TRS) — translate /
+  rotate-about-pivot / scale-about-pivot for the whole group, one undo step per
+  drag. The single-object path (world/camera-relative + snapping) is untouched.
+  **Copy/paste/delete** all operate on the set: the clipboard is a
+  `vector<SceneObject>`; paste offsets the group by a shared `(+1,0,+1)` so it
+  keeps its shape and selects the new copies; delete erases high-index-first.
+  **Multi-edit Properties panel** (`drawMultiProperties`): shows only fields
+  common to every selected object (intersection of the same isShape/isSolid/
+  isEmpty/emitter/light predicates the single view uses). Transforms apply
+  *relatively* — a drag nudges the whole group by the same delta, seeded from
+  the anchor, so the arrangement is kept. Every other shared field (color,
+  physics, usable, collision, draw distance, type/detail, save state, emitter &
+  point-light params) is set-all with a "mixed" dash via
+  `ImGuiItemFlags_MixedValue` while the values differ; small
+  `multiCheck`/`multiDragF`/`multiCombo` lambdas (pointer-to-member) keep it
+  terse. A header tallies the selection ("3 Box"); inherently per-object fields
+  (name, model/material/sound, scripts) are noted as single-object-only.
+  Selection is pure editor state — no `.tyra` format change (only the primary
+  persists, as before), no codegen, no PS2 runtime touched.
+  Verified: clean editor build; launched on a 3-box scratch scene (distinct
+  positions/colors/detail, one with physics). The full pipeline was confirmed
+  by screenshot — all three boxes highlighted in the Project list + "3 objects
+  selected" hint, and the multi-edit panel rendering "3 objects selected /
+  3 Box", relative transforms seeded from the anchor, and the mixed-value dash
+  correctly on Physics (one object differs) vs a normal check on Collision (all
+  same). The interactive *gestures* themselves — box-drag feel and the group
+  gizmo drag — still want a hands-on human pass: synthetic mouse input would not
+  register in the GLFW window in this environment (mouse_event and SendInput
+  both failed to reach it despite correct focus), so those were verified by
+  code review + compile only, while the selection→highlight→panel pipeline they
+  feed is confirmed working.
+
+- (63) **Delete assets from the editor (with confirmation)** — until now the
+  only way to remove a model, material, texture or HUD image was to delete the
+  file by hand in Explorer, and the Music/Sounds `x` deleted the file instantly
+  with no prompt. Added a single confirmation modal, `drawDeleteAssetModal()`
+  (mirrors `drawDeleteSceneModal`), staged via `requestAssetDelete(kind, relPath,
+  label, hudIndex)` into `assetDeletePending_`. New `x` buttons on every model
+  (.obj/.glb) and material (.mtl) row in Project > Assets; the Music/Sounds `x`
+  and the HUD **Delete HUD image** button now route through the same modal
+  instead of deleting on the spot. The dialog spells out what still references
+  the asset (`countAssetUsers` counts scene objects across all scenes + audio
+  flow-graph nodes) and warns that the file removal cannot be undone. On confirm
+  `performAssetDelete` deletes the res/ file and clears the dangling references:
+  materials reset the referencing objects' `materialPath` (empty = plain color /
+  the model's own .mtl); sounds clear `SoundEmitter.soundPath` on top of the
+  Play-Sound flow nodes `removeAudioTrack` already handled; models are left
+  pointing at the now-missing file (shown as "missing", same as a hand delete)
+  and the caches (`modelInfoCache_`/`glbInfoCache_`) + `textureQuality` override
+  are dropped; HUD deletes the file only when no other HUD entry still uses that
+  path. Audio/model/material deletes go through `commitChange()` (HUD stays on
+  `saveAll`, matching the section's existing behavior). Verified: clean editor
+  build; launched on a scratch project holding a model, material, music and sfx
+  plus scene objects referencing them (a model object + a sound emitter) — the
+  new `x` buttons render on the cube.obj / walls.mtl / song.wav rows
+  (PrintWindow capture) and triggering a delete opens the confirmation modal
+  (ImGui modal dim-backdrop over the panel). The interactive click-through of
+  the modal's Delete/Cancel buttons could not be automated here: synthetic mouse
+  input does not register against the GLFW/OpenGL window in this environment
+  (keyboard does), so the final click + on-disk removal still wants a hands-on
+  human confirmation.
+
+- (63) **Animated models (.glb) render their material colors in-game (was
+  gray)** — an animated model authored with per-material Base Colors (e.g.
+  `spider2.glb`: red body, black legs, gray tee) showed those colors in the
+  editor viewport but rendered a flat gray on the PS2. **Root cause**: the
+  animated pass is the *only* editor-generated geometry that draws through the
+  StaPip **dynamic-lighting** path (`bag->lighting` set); every other path
+  pre-bakes lighting into per-vertex colors and draws unlit (`lighting =
+  nullptr`). The lit StaPip VU1 programs (`stapip_cull_d_vu1` / `_td` and the
+  `as_is` twins) compute the output color *purely* from the directional lights
+  and normals via `CalculateTyraDirectionalLights` — they never read the
+  vertex/material RGBA — so every animated mesh came out in the plain scene
+  light color, i.e. gray. The per-part `mat->ambient` the setup code set (and
+  the object-color multiply on it) was silently discarded by the shader.
+  **Fix** (codegen only, no engine/VU1 change): fold each part's material
+  albedo (glTF `baseColorFactor`, already carried in the `.tskl`) into that
+  part's own light + ambient colors, since `outputColor = Σ lightColor·(L·N) +
+  ambient` means scaling the colors by albedo M yields `M · sceneLighting`
+  exactly. Each `AnimPart` now owns a `PipelineDirLightsBag` + `litColors[4]`
+  built in `setupAnimObject` (scene diffuse/ambient × baseColor; directions
+  stay shared). This matches the viewport, which tints the baked mesh by
+  `shadeOf(n) · baseColor`. Dropped the old object-color multiply so the
+  in-game look equals the editor's (the viewport does not tint animated models
+  by object color; a non-white default color would otherwise recolor every
+  imported .glb). Touches the `AnimPart` struct in both game-header templates
+  (orbit + fpp) and the shared `setupAnimObject` body in templates.cpp.
+  **Editor UI**: the animated-model Properties block gained a **Materials**
+  summary (color swatch + name, "(textured)" tag) from a new `GlbInfo::
+  materials` list, so the model's materials are visible where you set the clip.
+  Verified: clean editor build; Docker build of a spider2 scene compiles the
+  regenerated `terrain_game.cpp` (litColors fold present at lines 903-918) and
+  links; `spider2.tskl` carries the three material names + exact colors
+  `(1,0,0)`/`(0,0,0)`/`(0.8,0.8,0.8)`; the ELF boots and executes in PCSX2 with
+  no assert (emulog). **PCSX2 F8 screenshot confirms the spider renders with a
+  red body, black legs and a gray tee — the same colors the editor shows, no
+  longer flat gray.** (Capture note: several parallel editor sessions shared
+  the single PCSX2 install — each one's `--run` `taskkill`s all PCSX2 and
+  steals focus — and this box has no real GPU, so GDI/PrintWindow grabs were
+  garbage; only native F8-via-PostMessage to the spidertest window, read from
+  snaps/, worked. See the pcsx2-test-environment memory.)
+
 - (62) **Decal object type (transparent textured quad)** — a new
   `PrimitiveType::Decal = 13` for signs/posters/text on walls. A flat unit quad
   in the XY plane facing +Z, textured through the object's assigned material
@@ -83,9 +230,9 @@ Each finished feature lands as its own commit.
   project since it persists via `saveAll`). Verified: clean editor build; the
   reorganized toolbar and View-menu items confirmed in the GUI by the user.
 
-- (49) **Fog emitter upgraded to the Silent Hill swirl** — instead of a new
+- (49) **Fog emitter upgraded to a swirling roll** — instead of a new
   object type, the existing particle emitter's fog kind (2) grew the two
-  things the SH roll needed: per-puff **rotation in the camera plane**
+  things the rolling fog needed: per-puff **rotation in the camera plane**
   (angle = golden-angle phase per particle + slow spin, direction
   alternating per puff - billboards get a full 3D right vector so the
   rotation shows) and a **density knob** (the existing Opacity field now
@@ -100,11 +247,11 @@ Each finished feature lands as its own commit.
   texture (stb_image_write is already in the editor) is the natural
   follow-up.
 
-- (48) **Camera flashlight (Silent Hill spot light)** â€” dynamic spot light
+- (48) **Camera flashlight (dynamic spot light)** â€” dynamic spot light
   computed per vertex on VU1 in the StaPip color programs (cull C/TC), the
   paths every editor-generated game renders through. No N.L term (the color
-  paths carry no normals - the same flat cone + distance falloff trick the
-  SH era used): `I = clamp((tÂ˛-cosÂ˛Î¸Â·distÂ˛)Â·invSoft) Â· clamp(1-distÂ˛/rangeÂ˛)`
+  paths carry no normals - the same flat cone + distance falloff trick early
+  hardware-lit games used): `I = clamp((tÂ˛-cosÂ˛Î¸Â·distÂ˛)Â·invSoft) Â· clamp(1-distÂ˛/rangeÂ˛)`
   where t is the distance along the beam - no sqrt and no extra DIV on VU1
   (the cone test compares squares). The world light is transformed per mesh
   into object space on the EE via a new affine inverse in
@@ -125,7 +272,7 @@ Each finished feature lands as its own commit.
   yet; single-color bags only get it on the cull path (all editor bags are
   multicolor); non-uniform mesh scale distorts the cone slightly.
 
-- (47) **GS hardware distance fog (Silent Hill style)** â€” per-vertex fog
+- (47) **GS hardware distance fog (atmospheric fade-out)** â€” per-vertex fog
   coefficient computed on VU1, blended by the GS toward `FOGCOL` for free at
   the pixel level. Engine (`vendor/tyra`): all 8 StaPip + 4 DynPip VU1
   programs now send packed **XYZF2** instead of XYZ2 (new
