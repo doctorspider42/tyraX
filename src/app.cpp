@@ -485,8 +485,12 @@ void App::drawUI() {
         if (!io.WantTextInput) {
             if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Z)) undo();
             if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Y)) redo();
-            if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) copyObject();
-            if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V)) pasteObject();
+            // While the Flow Graph window has focus, Ctrl+C/V act on its nodes
+            // (handled in drawFlowGraphWindow); otherwise they copy scene objects.
+            if (!flowGraphFocused_) {
+                if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) copyObject();
+                if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V)) pasteObject();
+            }
         }
     }
 }
@@ -2308,9 +2312,27 @@ void App::drawSceneSection() {
     if (project_.objects().empty()) {
         ImGui::TextDisabled("No objects - add a primitive above.");
     } else {
-        ImGui::BeginChild("##objects", ImVec2(0, 130), ImGuiChildFlags_Borders);
+        SceneData& sc = project_.active();
+        // With layers, the list groups objects under a collapsible node per
+        // layer (plus an Unassigned group); without layers it stays flat.
+        const bool grouped = !sc.layers.empty();
+
+        auto layerExists = [&](const std::string& name) {
+            for (const SceneLayer& l : sc.layers)
+                if (l.name == name) return true;
+            return false;
+        };
+
+        // A dropped object (or the whole selection, if the dragged one is part
+        // of it) is reassigned after the child so the render loop stays stable.
+        int dropObj = -1;
+        std::string dropLayer;
+        bool dropHit = false;
+
+        // One object row: Selectable with the existing multi-select clicks and
+        // hidden dimming, doubling as a drag source for layer reassignment.
         // Ctrl/Shift+click extends the selection; plain click replaces it.
-        for (int i = 0; i < (int)project_.objects().size(); ++i) {
+        auto objectRow = [&](int i) {
             const SceneObject& o = project_.objects()[i];
             const bool hidden = isObjectHiddenInEditor(o);
             std::string label = o.name + "  (" + primitiveTypeName(o.type) + ")" +
@@ -2324,8 +2346,91 @@ void App::drawSceneSection() {
                 else selectOnly(i);
             }
             if (hidden) ImGui::PopStyleColor();
+            if (grouped && ImGui::BeginDragDropSource()) {
+                ImGui::SetDragDropPayload("SCENE_OBJECT", &i, sizeof(int));
+                const int n =
+                    (isSelected(i) && selection_.size() > 1) ? (int)selection_.size() : 1;
+                if (n > 1) ImGui::Text("Move %d objects", n);
+                else ImGui::TextUnformatted(o.name.c_str());
+                ImGui::EndDragDropSource();
+            }
+        };
+
+        // Turn the just-submitted item into a drop target for object rows.
+        auto dropTarget = [&](const std::string& layerName) {
+            if (!ImGui::BeginDragDropTarget()) return;
+            if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload("SCENE_OBJECT")) {
+                dropObj = *(const int*)p->Data;
+                dropLayer = layerName;
+                dropHit = true;
+            }
+            ImGui::EndDragDropTarget();
+        };
+
+        ImGui::BeginChild("##objects", ImVec2(0, grouped ? 220 : 130),
+                          ImGuiChildFlags_Borders);
+        if (!grouped) {
+            for (int i = 0; i < (int)project_.objects().size(); ++i) objectRow(i);
+        } else {
+            const ImGuiTreeNodeFlags gflags = ImGuiTreeNodeFlags_DefaultOpen |
+                                              ImGuiTreeNodeFlags_SpanAvailWidth;
+            for (int li = 0; li < (int)sc.layers.size(); ++li) {
+                const SceneLayer& l = sc.layers[li];
+                int count = 0;
+                for (const SceneObject& o : sc.objects)
+                    if (o.layer == l.name) ++count;
+                std::string header = l.name + "  (" + std::to_string(count) + ")" +
+                                     (l.editorVisible ? "" : "  [hidden]") +
+                                     "##layergrp" + std::to_string(li);
+                if (!l.editorVisible)
+                    ImGui::PushStyleColor(ImGuiCol_Text,
+                                          ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+                const bool open = ImGui::TreeNodeEx(header.c_str(), gflags);
+                if (!l.editorVisible) ImGui::PopStyleColor();
+                dropTarget(l.name);
+                if (open) {
+                    for (int i = 0; i < (int)project_.objects().size(); ++i)
+                        if (project_.objects()[i].layer == l.name) objectRow(i);
+                    ImGui::TreePop();
+                }
+            }
+
+            // Unassigned: no layer, or a stale name left by a deleted layer.
+            int count = 0;
+            for (const SceneObject& o : sc.objects)
+                if (o.layer.empty() || !layerExists(o.layer)) ++count;
+            std::string header =
+                "Unassigned  (" + std::to_string(count) + ")##layergrp_none";
+            const bool open = ImGui::TreeNodeEx(header.c_str(), gflags);
+            dropTarget("");
+            if (open) {
+                for (int i = 0; i < (int)project_.objects().size(); ++i) {
+                    const SceneObject& o = project_.objects()[i];
+                    if (o.layer.empty() || !layerExists(o.layer)) objectRow(i);
+                }
+                ImGui::TreePop();
+            }
         }
         ImGui::EndChild();
+
+        if (grouped)
+            ImGui::TextDisabled("Drag objects onto a layer to assign them.");
+
+        if (dropHit) {
+            // Move the whole selection when the dragged object is part of it.
+            std::vector<int> targets;
+            if (isSelected(dropObj) && selection_.size() > 1) targets = selection_;
+            else targets.push_back(dropObj);
+            bool changed = false;
+            for (int t : targets) {
+                if (t < 0 || t >= (int)project_.objects().size()) continue;
+                if (project_.objects()[t].layer != dropLayer) {
+                    project_.objects()[t].layer = dropLayer;
+                    changed = true;
+                }
+            }
+            if (changed) commitChange();
+        }
     }
 
     if (selection_.size() > 1)
@@ -3416,6 +3521,7 @@ std::vector<std::string> App::flowVarNames(const std::string& nodeType) const {
 }
 
 void App::drawFlowGraphWindow() {
+    flowGraphFocused_ = false;  // recomputed below; gates the global Ctrl+C/V
     ImGui::Begin("Flow Graph");
     if (!hasProject_) {
         ImGui::TextDisabled("No project open.");
@@ -4090,6 +4196,68 @@ void App::drawFlowGraphWindow() {
                 fg.links.push_back(l);
                 changed = true;
             }
+        }
+    }
+
+    // Copy/paste nodes. When this window has focus, Ctrl+C/V operate on the
+    // graph instead of the scene objects (the global handler stands down while
+    // flowGraphFocused_ is set). Skip while typing in a node param so Ctrl+C
+    // still copies text there.
+    const bool fgFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
+    flowGraphFocused_ = fgFocused;
+    if (fgFocused && !ImGui::GetIO().WantTextInput) {
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) {
+            const int numSel = ImNodes::NumSelectedNodes();
+            if (numSel > 0) {
+                std::vector<int> ids(numSel);
+                ImNodes::GetSelectedNodes(ids.data());
+                flowClipboard_ = FlowGraph{};
+                for (int id : ids)
+                    for (const FlowNode& n : fg.nodes)
+                        if (n.id == id) flowClipboard_.nodes.push_back(n);
+                auto copied = [&](int id) {
+                    for (const FlowNode& n : flowClipboard_.nodes)
+                        if (n.id == id) return true;
+                    return false;
+                };
+                for (const FlowLink& l : fg.links)
+                    if (copied(l.fromNode) && copied(l.toNode))
+                        flowClipboard_.links.push_back(l);
+                statusMessage_ =
+                    "Copied " + std::to_string(flowClipboard_.nodes.size()) +
+                    (flowClipboard_.nodes.size() == 1 ? " node" : " nodes");
+            }
+        }
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V) &&
+            !flowClipboard_.nodes.empty()) {
+            // Fresh ids from the target graph so a paste into the same or a
+            // different graph never collides; links are remapped to them.
+            std::vector<std::pair<int, int>> idMap;  // old id -> new id
+            for (const FlowNode& src : flowClipboard_.nodes) {
+                FlowNode n = src;
+                n.id = fg.nextId++;
+                n.pos[0] += 20.0f;  // offset so the paste sits beside the source
+                n.pos[1] += 20.0f;
+                idMap.push_back({src.id, n.id});
+                fg.nodes.push_back(n);
+            }
+            auto mapId = [&](int old) {
+                for (const auto& p : idMap)
+                    if (p.first == old) return p.second;
+                return -1;
+            };
+            for (const FlowLink& src : flowClipboard_.links) {
+                FlowLink l = src;
+                l.id = fg.nextId++;
+                l.fromNode = mapId(src.fromNode);
+                l.toNode = mapId(src.toNode);
+                fg.links.push_back(l);
+            }
+            flowPositionsApplied_ = false;  // push the pasted node positions
+            changed = true;
+            statusMessage_ =
+                "Pasted " + std::to_string(flowClipboard_.nodes.size()) +
+                (flowClipboard_.nodes.size() == 1 ? " node" : " nodes");
         }
     }
 
