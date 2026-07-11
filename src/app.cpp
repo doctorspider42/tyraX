@@ -51,6 +51,47 @@ enum class PickKind { Folder, Solution, ObjModel, Mtl, Png, Wav, Ttf, Executable
 // dialog when it interacts with the non-pumping app (grayed Open button).
 static HWND g_dialogOwner = nullptr;
 
+// ---------------------------------------------------------------------------
+// Global editor config. UI scale is a machine/display property (a 4K laptop
+// wants a different scale than a 1080p desktop), so it lives outside the
+// per-project .tyra - in %LOCALAPPDATA%\tyra-editor\editor.ini. This is the
+// only truly global editor setting today; keep the file format trivial.
+// ---------------------------------------------------------------------------
+static std::filesystem::path editorConfigPath() {
+    const char* base = getenv("LOCALAPPDATA");
+    if (!base || !*base) base = getenv("USERPROFILE");
+    if (!base || !*base) return {};
+    return std::filesystem::path(base) / "tyra-editor" / "editor.ini";
+}
+
+// Returns 0.0 (== "auto") when the file is missing or has no valid uiScale.
+static float loadUiScalePref() {
+    const auto path = editorConfigPath();
+    if (path.empty()) return 0.0f;
+    std::ifstream f(path);
+    std::string line;
+    while (std::getline(f, line)) {
+        const std::string key = "uiScale=";
+        if (line.rfind(key, 0) == 0) {
+            try {
+                return std::stof(line.substr(key.size()));
+            } catch (...) {
+                return 0.0f;
+            }
+        }
+    }
+    return 0.0f;
+}
+
+static void saveUiScalePref(float scale) {
+    const auto path = editorConfigPath();
+    if (path.empty()) return;
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    std::ofstream f(path, std::ios::trunc);
+    if (f) f << "uiScale=" << scale << "\n";
+}
+
 static std::string wideToUtf8(const wchar_t* path) {
     std::string result;
     const int len = WideCharToMultiByte(CP_UTF8, 0, path, -1, nullptr, 0, nullptr, nullptr);
@@ -222,10 +263,19 @@ int App::run(const std::string& initialProjectDir) {
     // imgui.ini - we load/save it via ImGui's in-memory settings API.
     io.IniFilename = nullptr;
     ImGui::StyleColorsDark();
+    // Capture the unscaled style before any DPI scaling is applied - every
+    // scale change resets to this reference so repeated changes don't compound.
+    baseStyle_ = ImGui::GetStyle();
 
     ImGui_ImplGlfw_InitForOpenGL(window_, true);
     ImGui_ImplOpenGL3_Init("#version 330 core");
     ImNodes::CreateContext();
+
+    // Scale the UI for the display: the saved override if any, else auto-match
+    // the monitor's content scale (a 4K laptop reports e.g. 2.0). Fonts are
+    // rasterized dynamically in this ImGui, so scaling stays crisp.
+    uiScaleUser_ = loadUiScalePref();
+    applyUiScale();
 
     // Drag & drop from Explorer: the dialog-free import path (PNGs land in
     // res/hud and attach to the selected menu when the Menu Editor is open).
@@ -369,6 +419,15 @@ void App::drawUI() {
     ImGuiIO& io = ImGui::GetIO();
     if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_N)) openNewProjectPopup_ = true;
     if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_O)) openProjectDialog();
+    // UI scaling (works with no project open; skip while typing in a field)
+    if (!io.WantTextInput) {
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Equal))
+            setUiScale(ImClamp(uiScaleApplied_ + 0.1f, 0.5f, 4.0f));
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Minus))
+            setUiScale(ImClamp(uiScaleApplied_ - 0.1f, 0.5f, 4.0f));
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_0))
+            setUiScale(0.0f);
+    }
     if (hasProject_ && !runner_.busy() && ImGui::IsKeyPressed(ImGuiKey_F5))
         runner_.buildAndRun(project_, true);
     if (hasProject_ && !runner_.busy() && !project_.ps2LinkIp.empty() &&
@@ -397,6 +456,25 @@ void App::drawUI() {
     }
 }
 
+void App::applyUiScale() {
+    float monitor = window_ ? ImGui_ImplGlfw_GetContentScaleForWindow(window_) : 1.0f;
+    if (monitor <= 0.0f) monitor = 1.0f;
+    float scale = uiScaleUser_ > 0.0f ? uiScaleUser_ : monitor;
+    scale = ImClamp(scale, 0.5f, 4.0f);  // keep the UI usable whatever we read
+
+    ImGuiStyle& style = ImGui::GetStyle();
+    style = baseStyle_;           // reset to the unscaled reference...
+    style.ScaleAllSizes(scale);   // ...then scale spacing/padding/borders
+    style.FontScaleMain = scale;  // dynamic fonts re-rasterize at the new size
+    uiScaleApplied_ = scale;
+}
+
+void App::setUiScale(float userScale) {
+    uiScaleUser_ = userScale;  // 0 == auto (follow the display DPI)
+    applyUiScale();
+    saveUiScalePref(uiScaleUser_);
+}
+
 void App::drawMenuBar() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
@@ -415,6 +493,27 @@ void App::drawMenuBar() {
             ImGui::Separator();
             if (ImGui::MenuItem("Copy object", "Ctrl+C", false, objectSelected)) copyObject();
             if (ImGui::MenuItem("Paste object", "Ctrl+V", false, hasClipboard_)) pasteObject();
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("View")) {
+            ImGui::TextDisabled("Interface scale");
+            if (ImGui::MenuItem("Zoom in", "Ctrl+="))
+                setUiScale(ImClamp(uiScaleApplied_ + 0.1f, 0.5f, 4.0f));
+            if (ImGui::MenuItem("Zoom out", "Ctrl+-"))
+                setUiScale(ImClamp(uiScaleApplied_ - 0.1f, 0.5f, 4.0f));
+            if (ImGui::MenuItem("Auto (match display DPI)", "Ctrl+0", uiScaleUser_ == 0.0f))
+                setUiScale(0.0f);
+            ImGui::Separator();
+            const float presets[] = {1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f};
+            for (float v : presets) {
+                char label[16];
+                std::snprintf(label, sizeof(label), "%d%%", (int)std::lround(v * 100.0f));
+                if (ImGui::MenuItem(label, nullptr, std::abs(uiScaleApplied_ - v) < 0.001f))
+                    setUiScale(v);
+            }
+            ImGui::Separator();
+            ImGui::TextDisabled("Current: %d%%%s", (int)std::lround(uiScaleApplied_ * 100.0f),
+                                uiScaleUser_ == 0.0f ? " (auto)" : "");
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Scene", hasProject_)) {
