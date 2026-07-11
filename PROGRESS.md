@@ -9,6 +9,36 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (51) **Delete assets from the editor (with confirmation)** — until now the
+  only way to remove a model, material, texture or HUD image was to delete the
+  file by hand in Explorer, and the Music/Sounds `x` deleted the file instantly
+  with no prompt. Added a single confirmation modal, `drawDeleteAssetModal()`
+  (mirrors `drawDeleteSceneModal`), staged via `requestAssetDelete(kind, relPath,
+  label, hudIndex)` into `assetDeletePending_`. New `x` buttons on every model
+  (.obj/.glb) and material (.mtl) row in Project > Assets; the Music/Sounds `x`
+  and the HUD **Delete HUD image** button now route through the same modal
+  instead of deleting on the spot. The dialog spells out what still references
+  the asset (`countAssetUsers` counts scene objects across all scenes + audio
+  flow-graph nodes) and warns that the file removal cannot be undone. On confirm
+  `performAssetDelete` deletes the res/ file and clears the dangling references:
+  materials reset the referencing objects' `materialPath` (empty = plain color /
+  the model's own .mtl); sounds clear `SoundEmitter.soundPath` on top of the
+  Play-Sound flow nodes `removeAudioTrack` already handled; models are left
+  pointing at the now-missing file (shown as "missing", same as a hand delete)
+  and the caches (`modelInfoCache_`/`glbInfoCache_`) + `textureQuality` override
+  are dropped; HUD deletes the file only when no other HUD entry still uses that
+  path. Audio/model/material deletes go through `commitChange()` (HUD stays on
+  `saveAll`, matching the section's existing behavior). Verified: clean editor
+  build; launched on a scratch project holding a model, material, music and sfx
+  plus scene objects referencing them (a model object + a sound emitter) — the
+  new `x` buttons render on the cube.obj / walls.mtl / song.wav rows
+  (PrintWindow capture) and triggering a delete opens the confirmation modal
+  (ImGui modal dim-backdrop over the panel). The interactive click-through of
+  the modal's Delete/Cancel buttons could not be automated here: synthetic mouse
+  input does not register against the GLFW/OpenGL window in this environment
+  (keyboard does), so the final click + on-disk removal still wants a hands-on
+  human confirmation.
+
 - (50) **Viewport camera recenter buttons + toolbar cleanup** — two new
   camera actions plus a reorganization of the viewport overlay controls.
   **Center view** calls the new `Viewport::resetView()`, which restores the

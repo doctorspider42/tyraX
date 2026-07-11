@@ -448,6 +448,7 @@ void App::drawUI() {
     drawNewScriptModal();
     drawNewSceneModal();
     drawDeleteSceneModal();
+    drawDeleteAssetModal();
 
     // Keyboard shortcuts
     ImGuiIO& io = ImGui::GetIO();
@@ -1876,6 +1877,10 @@ void App::drawAssetsSection() {
         ImGui::Bullet();
         ImGui::SameLine();
         ImGui::TextUnformatted(m.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton(("x##delmodel" + m).c_str()))
+            requestAssetDelete(PendingAssetDelete::Model, "res/models/" + m, m);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this model from the project");
         qualityCombo("res/models/" + m);
         const ModelInfo& info = modelInfo("res/models/" + m);
         if (info.ok) {
@@ -1900,6 +1905,10 @@ void App::drawAssetsSection() {
         ImGui::Bullet();
         ImGui::SameLine();
         ImGui::TextUnformatted(m.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton(("x##delglb" + m).c_str()))
+            requestAssetDelete(PendingAssetDelete::Model, "res/models/" + m, m);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this model from the project");
         const GlbInfo& info = glbInfo("res/models/" + m);
         if (info.ok) {
             ImGui::SameLine();
@@ -1950,6 +1959,10 @@ void App::drawAssetsSection() {
         ImGui::SameLine();
         if (ImGui::SmallButton(("Edit##mat" + m).c_str()))
             openMaterialEditor("res/materials/" + m);
+        ImGui::SameLine();
+        if (ImGui::SmallButton(("x##delmat" + m).c_str()))
+            requestAssetDelete(PendingAssetDelete::Material, "res/materials/" + m, m);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this material from the project");
         qualityCombo("res/materials/" + m);
         const ModelInfo& info = materialInfo("res/materials/" + m);
         if (info.ok) {
@@ -3492,11 +3505,8 @@ void App::drawHudSection() {
         changed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::DragFloat2("Size (px)##hud", h.size, 1.0f, 1.0f, 512.0f, "%.0f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::Button("Delete HUD image")) {
-            project_.hud.erase(project_.hud.begin() + selectedHud_);
-            selectedHud_ = -1;
-            changed = true;
-        }
+        if (ImGui::Button("Delete HUD image"))
+            requestAssetDelete(PendingAssetDelete::Hud, h.imagePath, h.name, selectedHud_);
     }
     if (changed) saveAll("Saved");
 }
@@ -3686,7 +3696,6 @@ void App::drawMusicSection() {
                           "converted at import; hand-dropped files get a Convert\n"
                           "button. Play via Flow Graph: On Start -> Play Music.");
 
-    bool changed = false;
     for (int i = 0; i < (int)project_.music.size(); ++i) {
         const std::string name = std::filesystem::path(project_.music[i]).filename().string();
         ImGui::PushID(i);
@@ -3710,14 +3719,8 @@ void App::drawMusicSection() {
             }
         }
         ImGui::SameLine();
-        if (ImGui::SmallButton("x")) {
-            removeAudioTrack(project_, project_.music[i], true);
-            project_.musicBuild.erase(project_.music[i]);
-            project_.music.erase(project_.music.begin() + i);
-            changed = true;
-            ImGui::PopID();
-            break;
-        }
+        if (ImGui::SmallButton("x"))
+            requestAssetDelete(PendingAssetDelete::Music, project_.music[i], name);
 
         // Build-time conversion knobs: applied to the bin/audio copy after
         // every build (the res/ source stays untouched). Only rates audsrv
@@ -3766,7 +3769,6 @@ void App::drawMusicSection() {
         ImGui::PopID();
     }
     if (project_.music.empty()) ImGui::TextDisabled("No music tracks.");
-    if (changed) commitChange();  // graphs live in objects - undoable
 }
 
 void App::importSoundEffect() {
@@ -3843,7 +3845,6 @@ void App::drawSoundsSection() {
                           "All sounds are loaded into SPU2's ~2 MB sample RAM at\n"
                           "scene start, so keep them short - use Music for full tracks.");
 
-    bool changed = false;
     uintmax_t totalAdpcm = 0;
     for (int i = 0; i < (int)project_.sounds.size(); ++i) {
         const std::string name =
@@ -3886,13 +3887,8 @@ void App::drawSoundsSection() {
                 ImGui::TextDisabled(fmt, val);
             ImGui::SameLine();
         }
-        if (ImGui::SmallButton("x")) {
-            removeAudioTrack(project_, project_.sounds[i], false);
-            project_.sounds.erase(project_.sounds.begin() + i);
-            changed = true;
-            ImGui::PopID();
-            break;
-        }
+        if (ImGui::SmallButton("x"))
+            requestAssetDelete(PendingAssetDelete::Sound, project_.sounds[i], name);
         ImGui::PopID();
     }
     if (project_.sounds.empty()) {
@@ -3906,7 +3902,6 @@ void App::drawSoundsSection() {
         else
             ImGui::TextDisabled("SPU2 sample RAM: ~%.1f / 2.0 MB", totalMb);
     }
-    if (changed) commitChange();
 }
 
 // Custom values persisted in memory card save slots. Flow graph "Save"
@@ -5572,6 +5567,202 @@ void App::drawDeleteSceneModal() {
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
+}
+
+void App::requestAssetDelete(PendingAssetDelete::Kind kind, const std::string& relPath,
+                             const std::string& label, int hudIndex) {
+    assetDeletePending_ = PendingAssetDelete{kind, relPath, label, hudIndex};
+    assetDeleteActive_ = true;
+}
+
+// Scene objects (across every scene) and flow-graph audio nodes still pointing
+// at the staged asset. Drives the confirmation dialog's warning and the
+// reference cleanup on confirm.
+void App::countAssetUsers(const PendingAssetDelete& d, int& objectUsers,
+                          int& nodeUsers) const {
+    objectUsers = 0;
+    nodeUsers = 0;
+    for (const SceneData& scene : project_.scenes) {
+        for (const SceneObject& o : scene.objects) {
+            switch (d.kind) {
+                case PendingAssetDelete::Model:
+                    if (o.type == PrimitiveType::Model && o.modelPath == d.relPath)
+                        ++objectUsers;
+                    break;
+                case PendingAssetDelete::Material:
+                    if (o.materialPath == d.relPath) ++objectUsers;
+                    break;
+                case PendingAssetDelete::Sound:
+                    if (o.type == PrimitiveType::SoundEmitter &&
+                        o.soundPath == d.relPath)
+                        ++objectUsers;
+                    break;
+                default:
+                    break;
+            }
+            if (d.kind == PendingAssetDelete::Music ||
+                d.kind == PendingAssetDelete::Sound) {
+                for (const FlowNode& n : o.flowGraph.nodes) {
+                    const FlowNodeType* t = flowNodeType(n.type);
+                    if (!t || n.str != d.relPath) continue;
+                    if ((d.kind == PendingAssetDelete::Music &&
+                         t->strKind == FlowParamKind::MusicTrack) ||
+                        (d.kind == PendingAssetDelete::Sound &&
+                         t->strKind == FlowParamKind::SoundTrack))
+                        ++nodeUsers;
+                }
+            }
+        }
+    }
+}
+
+void App::drawDeleteAssetModal() {
+    if (assetDeleteActive_ && !ImGui::IsPopupOpen("Delete Asset?"))
+        ImGui::OpenPopup("Delete Asset?");
+    if (!assetDeleteActive_) return;
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal("Delete Asset?", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+
+    const PendingAssetDelete& d = assetDeletePending_;
+    const char* kindName = d.kind == PendingAssetDelete::Model      ? "model"
+                           : d.kind == PendingAssetDelete::Material ? "material"
+                           : d.kind == PendingAssetDelete::Music    ? "music track"
+                           : d.kind == PendingAssetDelete::Sound    ? "sound"
+                                                                    : "HUD image";
+    ImGui::Text("Delete %s \"%s\"?", kindName, d.label.c_str());
+
+    int objUsers = 0, nodeUsers = 0;
+    countAssetUsers(d, objUsers, nodeUsers);
+    const ImVec4 warn(1.0f, 0.75f, 0.3f, 1.0f);
+    switch (d.kind) {
+        case PendingAssetDelete::Model:
+            if (objUsers > 0)
+                ImGui::TextColored(warn,
+                    "Used by %d object(s) - they will show as missing until you\n"
+                    "repoint or delete them.", objUsers);
+            break;
+        case PendingAssetDelete::Material:
+            if (objUsers > 0)
+                ImGui::TextColored(warn,
+                    "Assigned to %d object(s) - they revert to plain color /\n"
+                    "the model's own materials.", objUsers);
+            break;
+        case PendingAssetDelete::Music:
+            if (nodeUsers > 0)
+                ImGui::TextColored(warn,
+                    "Referenced by %d Music flow node(s) - they will be cleared.",
+                    nodeUsers);
+            break;
+        case PendingAssetDelete::Sound:
+            if (objUsers > 0 || nodeUsers > 0)
+                ImGui::TextColored(warn,
+                    "Used by %d sound emitter(s) and %d flow node(s) -\n"
+                    "the references will be cleared.", objUsers, nodeUsers);
+            break;
+        case PendingAssetDelete::Hud:
+            break;
+    }
+    ImGui::TextDisabled("The file is removed from res/. This cannot be undone.");
+
+    ImGui::Separator();
+    if (ImGui::Button("Delete", ImVec2(120, 0))) {
+        performAssetDelete(d);
+        assetDeleteActive_ = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+        assetDeleteActive_ = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
+// Deletes the staged asset file and clears the project references the dialog
+// warned about. Model/material live on the filesystem (the Assets lists rescan
+// them); music/sound/hud also carry a project-list entry to drop.
+void App::performAssetDelete(const PendingAssetDelete& d) {
+    std::error_code ec;
+    const std::filesystem::path full = std::filesystem::path(project_.dir) / d.relPath;
+
+    switch (d.kind) {
+        case PendingAssetDelete::Model:
+            std::filesystem::remove(full, ec);
+            project_.textureQuality.erase(d.relPath);
+            modelInfoCache_.clear();
+            glbInfoCache_.clear();
+            statusMessage_ = "Deleted " + d.label;
+            commitChange();
+            break;
+
+        case PendingAssetDelete::Material:
+            std::filesystem::remove(full, ec);
+            project_.textureQuality.erase(d.relPath);
+            // Objects keep working: an empty material is plain color for a
+            // primitive and the model's own .mtl for a model.
+            for (SceneData& scene : project_.scenes)
+                for (SceneObject& o : scene.objects)
+                    if (o.materialPath == d.relPath) o.materialPath.clear();
+            modelInfoCache_.clear();
+            statusMessage_ = "Deleted " + d.label;
+            commitChange();
+            break;
+
+        case PendingAssetDelete::Music:
+            // removeAudioTrack clears Play/Stop Music nodes and deletes the file.
+            removeAudioTrack(project_, d.relPath, true);
+            project_.musicBuild.erase(d.relPath);
+            for (size_t i = 0; i < project_.music.size(); ++i)
+                if (project_.music[i] == d.relPath) {
+                    project_.music.erase(project_.music.begin() + i);
+                    break;
+                }
+            wavIssueCache_.clear();
+            statusMessage_ = "Deleted " + d.label;
+            commitChange();
+            break;
+
+        case PendingAssetDelete::Sound:
+            // Clears Play Sound nodes and deletes the file; sound emitters point
+            // at it through soundPath, which removeAudioTrack does not touch.
+            removeAudioTrack(project_, d.relPath, false);
+            for (SceneData& scene : project_.scenes)
+                for (SceneObject& o : scene.objects)
+                    if (o.type == PrimitiveType::SoundEmitter &&
+                        o.soundPath == d.relPath)
+                        o.soundPath.clear();
+            for (size_t i = 0; i < project_.sounds.size(); ++i)
+                if (project_.sounds[i] == d.relPath) {
+                    project_.sounds.erase(project_.sounds.begin() + i);
+                    break;
+                }
+            wavIssueCache_.clear();
+            statusMessage_ = "Deleted " + d.label;
+            commitChange();
+            break;
+
+        case PendingAssetDelete::Hud: {
+            // Drop the list entry first; delete the file only if no other HUD
+            // entry still references it (imports can duplicate a path).
+            if (d.hudIndex >= 0 && d.hudIndex < (int)project_.hud.size())
+                project_.hud.erase(project_.hud.begin() + d.hudIndex);
+            selectedHud_ = -1;
+            bool stillUsed = false;
+            for (const HudImage& h : project_.hud)
+                stillUsed |= (h.imagePath == d.relPath);
+            if (!stillUsed) {
+                std::filesystem::remove(full, ec);
+                hudTexCache_.erase(d.relPath);
+            }
+            statusMessage_ = "Deleted " + d.label;
+            saveAll("Saved");  // HUD edits are not on the undo stack
+            break;
+        }
+    }
 }
 
 void App::drawNewSceneModal() {
