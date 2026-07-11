@@ -1069,6 +1069,17 @@ void addPlane(std::vector<Vec4>& verts, std::vector<Color>& cols,
   pushQuad(verts, cols, sts, o, {-h, 0, h}, {-h, 0, -h}, {h, 0, -h}, {h, 0, h}, {0, -1, 0});
 }
 
+// Decal: a flat unit quad in the XY plane facing +Z, textured via the assigned
+// material (transparency comes from the texture's alpha - the static pipeline
+// runs an alpha test that drops fully-transparent texels and alpha-blends the
+// rest). Nudged +Z by DECAL_OFFSET so it sits just in front of the surface it
+// is placed on instead of z-fighting it. Single-sided (front only).
+void addDecal(std::vector<Vec4>& verts, std::vector<Color>& cols,
+              std::vector<Vec4>& sts, const SceneObjectData& o) {
+  const float h = 0.5F, z = 0.02F;  // DECAL_OFFSET, local units (scaled by Z)
+  pushQuad(verts, cols, sts, o, {-h, -h, z}, {h, -h, z}, {h, h, z}, {-h, h, z}, {0, 0, 1});
+}
+
 void addCone(std::vector<Vec4>& verts, std::vector<Color>& cols,
              std::vector<Vec4>& sts, const SceneObjectData& o) {
   const int seg = 16;
@@ -1802,7 +1813,7 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
   for (const RuntimeObject& o : runtimeObjects) {
     if (!o.visible || o.data.type == 4 || o.data.type == 6 ||
         o.data.type == 7 || o.data.type == 8 || o.data.type == 9 ||
-        o.data.type == 11)
+        o.data.type == 11 || o.data.type == 13)  // 13 = decal (visual only)
       continue;
     if (o.data.collision == 2) continue;  // none
 
@@ -2822,6 +2833,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
       case 9: break;   // point light - invisible source, no geometry
       case 11: break;  // empty - pure transform, no geometry
       case 12: addPlane(p0.vertices, p0.colors, p0.sts, o.data); break;
+      case 13: addDecal(p0.vertices, p0.colors, p0.sts, o.data); break;
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
     g_primKd = nullptr;

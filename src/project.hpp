@@ -45,6 +45,11 @@ enum class PrimitiveType {
     // Plane: a flat unit square in the XZ plane (a floor/wall tile). Rendered
     // double-sided so it is visible from both faces.
     Plane = 12,
+    // Decal: a flat unit quad in the XY plane facing +Z, textured through the
+    // assigned material's map_Kd with transparency (cutout + alpha blend). Sits
+    // slightly in front of its origin along +Z to avoid z-fighting the surface
+    // it is stuck on. Never collides. For signs, posters, text on walls.
+    Decal = 13,
 };
 
 // Unit primitives fit a 1x1x1 cube centered at origin and are transformed by
