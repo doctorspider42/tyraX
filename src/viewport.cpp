@@ -2004,7 +2004,9 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
                 alpha = 40.0f * t / 128.0f;
             } else if (kind == 2) {
                 size *= 3.0f;
-                alpha = 18.0f * (t < 0.5f ? t * 2.0f : (1.0f - t) * 2.0f) / 128.0f;
+                // density knob: Opacity 0..1 -> peak alpha 0..60 (game twin)
+                alpha = o.emitterOpacity * 60.0f *
+                        (t < 0.5f ? t * 2.0f : (1.0f - t) * 2.0f) / 128.0f;
             } else if (kind == 4) {
                 sizeUp = size * 0.5f;  // size = streak length
                 size *= 0.06f;         // thin
@@ -2018,16 +2020,33 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
             }
 
             // rain streaks stay vertical (world-up quads); everything else is
-            // a full camera-facing billboard
-            const float Rx = rx * size, Rz = rz * size;
-            const float Ux = sizeUp > 0.0f ? 0.0f : ux * size;
-            const float Uy = sizeUp > 0.0f ? sizeUp : uy * size;
-            const float Uz = sizeUp > 0.0f ? 0.0f : uz * size;
+            // a full camera-facing billboard. Fog puffs swirl in the camera
+            // plane, alternating direction per puff - same formula as the
+            // game's updateParticles() (keep in sync).
+            float brx = rx, bry = 0.0f, brz = rz;
+            float bux = ux, buy = uy, buz = uz;
+            if (kind == 2) {
+                const int pi = (int)(&p - ep.parts.data());
+                const float age = p.maxLife - p.life;
+                const float ang =
+                    (float)pi * 2.4f + (pi & 1 ? 0.3f : -0.3f) * age;
+                const float ca = std::cos(ang), sa = std::sin(ang);
+                brx = rx * ca + ux * sa;
+                bry = uy * sa;
+                brz = rz * ca + uz * sa;
+                bux = ux * ca - rx * sa;
+                buy = uy * ca;
+                buz = uz * ca - rz * sa;
+            }
+            const float Rx = brx * size, Ry = bry * size, Rz = brz * size;
+            const float Ux = sizeUp > 0.0f ? 0.0f : bux * size;
+            const float Uy = sizeUp > 0.0f ? sizeUp : buy * size;
+            const float Uz = sizeUp > 0.0f ? 0.0f : buz * size;
             const float X = p.pos[0], Y = p.pos[1], Z = p.pos[2];
-            const float v0[3] = {X - Rx - Ux, Y - Uy, Z - Rz - Uz};
-            const float v1[3] = {X + Rx - Ux, Y - Uy, Z + Rz - Uz};
-            const float v2[3] = {X + Rx + Ux, Y + Uy, Z + Rz + Uz};
-            const float v3[3] = {X - Rx + Ux, Y + Uy, Z - Rz + Uz};
+            const float v0[3] = {X - Rx - Ux, Y - Ry - Uy, Z - Rz - Uz};
+            const float v1[3] = {X + Rx - Ux, Y + Ry - Uy, Z + Rz - Uz};
+            const float v2[3] = {X + Rx + Ux, Y + Ry + Uy, Z + Rz + Uz};
+            const float v3[3] = {X - Rx + Ux, Y - Ry + Uy, Z - Rz + Uz};
             auto vert = [&](const float* v, float tu, float tv) {
                 buf.insert(buf.end(),
                            {v[0], v[1], v[2], cr, cg, cb, alpha, tu, tv});

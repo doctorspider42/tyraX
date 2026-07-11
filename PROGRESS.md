@@ -9,6 +9,23 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (49) **Fog emitter upgraded to the Silent Hill swirl** — instead of a new
+  object type, the existing particle emitter's fog kind (2) grew the two
+  things the SH roll needed: per-puff **rotation in the camera plane**
+  (angle = golden-angle phase per particle + slow spin, direction
+  alternating per puff - billboards get a full 3D right vector so the
+  rotation shows) and a **density knob** (the existing Opacity field now
+  drives fog alpha, 0..1 -> peak 0..60; the old hardcoded look ~= 0.3).
+  Editor Properties shows Opacity for the fog kind with a recipe hint (big
+  spawn area + Follow player + soft-alpha texture via material + color
+  matched to the distance fog). Game sim and viewport preview twin changed
+  in lockstep (both marked keep-in-sync). Verified e2e in PCSX2 software
+  renderer: rotated fog quads visibly swirling over the dark scene, fog +
+  flashlight still correct underneath, 52 FPS. Known gap: an untextured
+  fog puff shows its quad edges - a generated default soft-alpha puff
+  texture (stb_image_write is already in the editor) is the natural
+  follow-up.
+
 - (48) **Camera flashlight (Silent Hill spot light)** â€” dynamic spot light
   computed per vertex on VU1 in the StaPip color programs (cull C/TC), the
   paths every editor-generated game renders through. No N.L term (the color

@@ -2283,7 +2283,9 @@ void TerrainGame::updateParticles() {
         alpha = 40.0F * t;
       } else if (kind == 2) {
         size *= 3.0F;
-        alpha = 18.0F * (t < 0.5F ? t * 2.0F : (1.0F - t) * 2.0F);  // fade in+out
+        // density knob: Opacity 0..1 -> peak alpha 0..60 (old look ~= 0.3)
+        alpha = d.emitOpacity * 60.0F *
+                (t < 0.5F ? t * 2.0F : (1.0F - t) * 2.0F);  // fade in+out
       } else if (kind == 4) {
         sizeUp = size * 0.5F;  // size = streak length
         size *= 0.06F;         // thin
@@ -2297,16 +2299,32 @@ void TerrainGame::updateParticles() {
       }
 
       // rain streaks stay vertical (world-up quads); everything else is a
-      // full camera-facing billboard
-      const float Rx = rx * size, Rz = rz * size;
-      const float Ux = sizeUp > 0.0F ? 0.0F : ux * size;
-      const float Uy = sizeUp > 0.0F ? sizeUp : uy * size;
-      const float Uz = sizeUp > 0.0F ? 0.0F : uz * size;
+      // full camera-facing billboard. Fog puffs additionally swirl: the
+      // billboard slowly rotates in the camera plane, alternating direction
+      // per puff (the Silent Hill roll) - keep in sync with the viewport
+      // preview (drawEmitterPreviews).
+      float brx = rx, bry = 0.0F, brz = rz;
+      float bux = ux, buy = uy, buz = uz;
+      if (kind == 2) {
+        const float age = ps.maxLife[i] - ps.life[i];
+        const float ang = (float)i * 2.4F + (i & 1 ? 0.3F : -0.3F) * age;
+        const float ca = cosf(ang), sa = sinf(ang);
+        brx = rx * ca + ux * sa;
+        bry = uy * sa;
+        brz = rz * ca + uz * sa;
+        bux = ux * ca - rx * sa;
+        buy = uy * ca;
+        buz = uz * ca - rz * sa;
+      }
+      const float Rx = brx * size, Ry = bry * size, Rz = brz * size;
+      const float Ux = sizeUp > 0.0F ? 0.0F : bux * size;
+      const float Uy = sizeUp > 0.0F ? sizeUp : buy * size;
+      const float Uz = sizeUp > 0.0F ? 0.0F : buz * size;
       const Vec4& P = ps.pos[i];
-      const Vec4 v0(P.x - Rx - Ux, P.y - Uy, P.z - Rz - Uz, 1.0F);
-      const Vec4 v1(P.x + Rx - Ux, P.y - Uy, P.z + Rz - Uz, 1.0F);
-      const Vec4 v2(P.x + Rx + Ux, P.y + Uy, P.z + Rz + Uz, 1.0F);
-      const Vec4 v3(P.x - Rx + Ux, P.y + Uy, P.z - Rz + Uz, 1.0F);
+      const Vec4 v0(P.x - Rx - Ux, P.y - Ry - Uy, P.z - Rz - Uz, 1.0F);
+      const Vec4 v1(P.x + Rx - Ux, P.y + Ry - Uy, P.z + Rz - Uz, 1.0F);
+      const Vec4 v2(P.x + Rx + Ux, P.y + Ry + Uy, P.z + Rz + Uz, 1.0F);
+      const Vec4 v3(P.x - Rx + Ux, P.y - Ry + Uy, P.z - Rz + Uz, 1.0F);
       const int b = i * 6;
       ps.verts[b] = v0;
       ps.verts[b + 1] = v1;

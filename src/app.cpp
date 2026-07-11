@@ -2338,6 +2338,15 @@ void App::drawPropertiesWindow() {
             ImGui::SameLine();
             if (ImGui::SmallButton("Edit...")) openMaterialEditor(o.materialPath);
         }
+        if (o.emitterKind == 2) {  // fog density
+            ImGui::DragFloat("Opacity", &o.emitterOpacity, 0.01f, 0.0f, 1.0f,
+                             "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::TextDisabled(
+                "Slowly swirling puffs. For the Silent Hill roll: big spawn\n"
+                "area, Follow player on, a soft-alpha texture, and match the\n"
+                "color to the distance fog color (Preferences > Distance fog).");
+        }
         if (o.emitterKind == 5) {  // custom physics knobs
             ImGui::DragFloat("Speed", &o.emitterSpeed, 0.05f, 0.0f, 50.0f,
                              "%.2f u/s");
