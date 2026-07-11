@@ -488,8 +488,8 @@ std::vector<float> unitWireCube() {
                           {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
     for (auto& edge : e)
         for (int k = 0; k < 2; ++k)
-            v.insert(v.end(),
-                     {c[edge[k]][0], c[edge[k]][1], c[edge[k]][2], 1.0f, 1.0f, 1.0f});
+            v.insert(v.end(), {c[edge[k]][0], c[edge[k]][1], c[edge[k]][2], 1.0f, 1.0f,
+                               1.0f, 0.0f, 0.0f});  // uploadMesh expects pos+color+uv
     return v;
 }
 
