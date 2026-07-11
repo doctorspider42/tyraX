@@ -722,7 +722,10 @@ void App::drawViewportWindow() {
                     project::sculptHeightmap(project_, brushX, brushZ, brushRadius_,
                                              delta);
                 }
-                applyProjectToViewport();  // live mesh rebuild
+                // Live rebuild of just the chunks under the brush - a full
+                // applyProjectToViewport would rebuild the whole map per frame.
+                viewport_.updateTerrainRegion(project_.active().heights, brushX, brushZ,
+                                              brushRadius_);
                 sculptStroke_ = true;
             }
         }
@@ -6706,8 +6709,8 @@ void App::drawNewSceneModal() {
         return;
 
     ImGui::InputText("Name", newSceneName_, sizeof(newSceneName_));
-    ImGui::DragInt("Terrain width", &newSceneWidth_, 1.0f, 8, 512, "%d units");
-    ImGui::DragInt("Terrain depth", &newSceneDepth_, 1.0f, 8, 512, "%d units");
+    ImGui::DragInt("Terrain width", &newSceneWidth_, 1.0f, 8, 4096, "%d units");
+    ImGui::DragInt("Terrain depth", &newSceneDepth_, 1.0f, 8, 4096, "%d units");
     if (!newSceneError_.empty())
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", newSceneError_.c_str());
 
@@ -7391,9 +7394,54 @@ void App::drawPreferencesModal() {
                                                                                 : prefTerrain_.width;
     prefTerrain_.depth = prefTerrain_.depth < 1 ? 1 : prefTerrain_.depth > 4096 ? 4096
                                                                                 : prefTerrain_.depth;
-    ImGui::SliderInt("Detail (max grid cells)", &prefSettings_.terrainDetail, 4, 128);
+    ImGui::SliderInt("Detail (max grid cells)", &prefSettings_.terrainDetail, 4, 512);
     ImGui::TextDisabled("More cells = smaller triangles = fewer clipping artifacts,");
     ImGui::TextDisabled("but more geometry for the PS2 to push.");
+
+    ImGui::DragFloat("View distance", &prefSettings_.terrainViewDistance, 1.0f, 0.0f,
+                     2000.0f,
+                     prefSettings_.terrainViewDistance > 0.0f ? "%.0f units"
+                                                              : "off (whole map)");
+    if (prefSettings_.terrainViewDistance < 0.0f)
+        prefSettings_.terrainViewDistance = 0.0f;
+    ImGui::TextDisabled(
+        "The game keeps only the terrain chunks within this range of the\n"
+        "camera in memory; the rest streams in as the player moves. Pair it\n"
+        "with fog (view distance ~ fog end) to hide the pop-in. 0 keeps the\n"
+        "whole map resident. Meant for FPP - orbit showcases see the whole\n"
+        "map at once and should leave it 0.");
+
+    // Worst-case resident mesh memory so oversized configs are caught here,
+    // not by an out-of-memory PS2. Mirrors the generated game: 6 verts/cell,
+    // 32 B untextured / 48 B textured, chunks of 16x16 cells.
+    {
+        const SceneData& sc = project_.active();
+        const int cellsX = sc.terrain.width < prefSettings_.terrainDetail
+                               ? sc.terrain.width
+                               : prefSettings_.terrainDetail;
+        const int cellsZ = sc.terrain.depth < prefSettings_.terrainDetail
+                               ? sc.terrain.depth
+                               : prefSettings_.terrainDetail;
+        const int bytesPerVert = prefSettings_.terrainTexture.empty() ? 32 : 48;
+        double cells = (double)cellsX * cellsZ;
+        if (prefSettings_.terrainViewDistance > 0.0f) {
+            // resident rect in chunks (16 cells each), as in the generated game
+            const float spanX = 16.0f * (float)sc.terrain.width / (float)cellsX;
+            const float spanZ = 16.0f * (float)sc.terrain.depth / (float)cellsZ;
+            const double nx = (int)(2.0f * prefSettings_.terrainViewDistance / spanX) + 3;
+            const double nz = (int)(2.0f * prefSettings_.terrainViewDistance / spanZ) + 3;
+            const double rectCells = nx * nz * 16.0 * 16.0;
+            if (rectCells < cells) cells = rectCells;
+        }
+        const double mb = cells * 6.0 * bytesPerVert / (1024.0 * 1024.0);
+        if (mb > 8.0)
+            ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+                               "Resident terrain mesh: ~%.1f MB of the PS2's 32 MB - set"
+                               " a view distance or lower the detail.",
+                               mb);
+        else
+            ImGui::TextDisabled("Resident terrain mesh: ~%.1f MB (active scene).", mb);
+    }
 
     ImGui::SeparatorText("Rendering");
     int clipMode = prefSettings_.clipping == "fast" ? 1 : 0;

@@ -205,6 +205,47 @@ Each finished feature lands as its own commit.
   garbage; only native F8-via-PostMessage to the spidertest window, read from
   snaps/, worked. See the pcsx2-test-environment memory.)
 
+- (63) **Terrain chunking + camera-ring streaming (large maps)** — the terrain
+  mesh is no longer one monolithic StaPip bag. The generated game cuts the
+  heightmap grid into 16x16-cell chunks (`TERRAIN_CHUNK_CELLS`), each with its
+  own `StaPipBag` pointing into a pool slot's vectors; the engine's whole-bag
+  bbox frustum check (stapip_core.cpp early-out) then rejects off-screen chunks
+  EE-side before any packaging/clipping work — terrain behind the camera no
+  longer costs EE time (the 98k-vert clipbench scene spent ~9 ms/frame there).
+  On top of that, a new **Preferences > Terrain > View distance**
+  (`terrainViewDistance`, 0 = off/whole map) keeps only the chunks within that
+  range of the view focus resident: `updateTerrainChunks()` evicts tiles that
+  leave the focus rect (one tile of hysteresis) and builds missing ones
+  nearest-first at 2 chunks/frame — same trickle pattern as the layer
+  streaming; `loadScene` drains the start ring synchronously behind the
+  loading screen. Mesh RAM becomes constant in map size (ring rect x ~49 KB
+  per untextured chunk). Gameplay is unaffected by unbuilt chunks — physics
+  samples the `TERRAIN_HEIGHTS` table, not the mesh — so pop-in is purely
+  visual (pair view distance with fog). Reused slots bump `bboxVersion`
+  (same bag pointer, new content — otherwise the bbox cacher culls with stale
+  boxes, the exact trap entry 61 documented). **Detail cap raised 128 -> 512**
+  (slider + load clamp; heights file cap 1025 already allowed it) and the
+  Preferences panel now shows a resident-mesh estimate with an orange warning
+  above ~8 MB, since 512x512 cells fully resident would be ~75 MB — far past
+  the PS2's 32 MB. New-scene terrain size cap aligned to 4096 (the New Project
+  dialog already allowed it). **Editor viewport chunked the same way** (64-cell
+  chunks): sculpting now rebuilds only the chunks under the brush
+  (`Viewport::updateTerrainRegion`, +2-cell shading margin) instead of the
+  whole map every stroke frame, and above 128x128 total cells the per-cell
+  grid lines drop to chunk borders only (a full grid on 512x512 is solid
+  noise and tens of MB of line vertices). Terrain stays outside the layer
+  system by design — chunk residency is camera-driven, layers are
+  script-driven. **Verified**: clean editor build; headless `--new` codegen
+  grep (chunk functions present, no `generateTerrainGrid` outside the V1
+  legacy templates); two Docker builds + PCSX2 boots on the **software
+  renderer**: 96x96 FPP default (view distance 0 — whole map resident,
+  continuous checker, no chunk seams, 50 FPS) and 512x512 at detail 256 with
+  view distance 60 + fog 20-58 (ring builds around spawn, fog hides the ring
+  edge, 50 FPS, EE% same as the small map); editor GUI opened on the 512 map
+  (chunk-border grid renders, fog preview correct). samples/script-demo
+  regenerated + rebuilt OK. Walking across chunk borders (pad) and sculpt
+  brush feel on a 512 map still want a hands-on human pass.
+
 - (62) **Decal object type (transparent textured quad)** — a new
   `PrimitiveType::Decal = 13` for signs/posters/text on walls. A flat unit quad
   in the XY plane facing +Z, textured through the object's assigned material

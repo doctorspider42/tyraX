@@ -470,6 +470,8 @@ std::string save(const Project& p) {
          << "    \"meshLodDistance\": " << fmtFloat(p.settings.meshLodDistance)
          << ",\n"
          << "    \"terrainDetail\": " << p.settings.terrainDetail << ",\n"
+         << "    \"terrainViewDistance\": " << fmtFloat(p.settings.terrainViewDistance)
+         << ",\n"
          << "    \"skyColor\": " << fmtVec3(p.settings.skyColor) << ",\n"
          << "    \"skyTopColor\": " << fmtVec3(p.settings.skyTopColor) << ",\n"
          << "    \"skyDome\": " << (p.settings.skyDome ? "true" : "false") << ",\n"
@@ -1043,7 +1045,11 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = s->find("terrainDetail"))
             st.terrainDetail = (int)v->numberOr(32);
         if (st.terrainDetail < 4) st.terrainDetail = 4;
-        if (st.terrainDetail > 128) st.terrainDetail = 128;
+        if (st.terrainDetail > 512) st.terrainDetail = 512;
+        if (const auto* v = s->find("terrainViewDistance")) {
+            st.terrainViewDistance = (float)v->numberOr(0.0);
+            if (st.terrainViewDistance < 0.0f) st.terrainViewDistance = 0.0f;
+        }
         readVec3(s->find("skyColor"), st.skyColor);
         readVec3(s->find("skyTopColor"), st.skyTopColor);
         if (const auto* v = s->find("skyDome"))

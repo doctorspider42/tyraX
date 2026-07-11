@@ -297,6 +297,13 @@ struct ProjectSettings {
     float meshLodDistance = 0.0f;
 
     int terrainDetail = 32;  // max terrain grid cells per axis (quality vs perf)
+
+    // Terrain streaming: the generated game builds the terrain in 16x16-cell
+    // chunks; with a view distance > 0 only the chunks within that range of
+    // the camera stay in memory (the ring streams in as the player moves,
+    // like the layer streaming). 0 = whole map resident. Large maps at high
+    // detail NEED this - the full mesh would not fit in the PS2's 32 MB.
+    float terrainViewDistance = 0.0f;  // world units, 0 = off
     float skyColor[3] = {0.25f, 0.55f, 0.78f};   // horizon / clear color
     float skyTopColor[3] = {0.08f, 0.3f, 0.65f};  // zenith (gradient dome)
     bool skyDome = true;  // render a gradient sky dome (vs flat clear color)
@@ -367,6 +374,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
            a.meshLodDistance == b.meshLodDistance &&
            a.terrainDetail == b.terrainDetail &&
+           a.terrainViewDistance == b.terrainViewDistance &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.eyeHeight == b.eyeHeight &&
            a.walkSpeed == b.walkSpeed && a.lookSpeed == b.lookSpeed &&
