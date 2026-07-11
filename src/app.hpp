@@ -198,6 +198,7 @@ private:
     void drawSaveDataSection();
     void drawMenusWindow();
     void drawGradingWindow();
+    void drawAmbienceWindow();
     // UI Editor (Tools > UI Editor): the screen stack - HUD images plus the
     // full-screen effects layer (bloom/grain), reorderable so effects can sit
     // under the crosshair/text instead of blurring them.
@@ -329,6 +330,13 @@ private:
     int selectedGrading_ = -1;
     bool gradingPreview_ = true;
 
+    // Ambience Editor (Tools > Ambience Editor): selected sky/light/fog preset
+    // and whether the viewport previews the edited preset over the scene's.
+    bool showAmbienceEditor_ = false;
+    int selectedAmbience_ = -1;
+    bool ambiencePreview_ = true;
+    bool ambiencePreviewPushed_ = false;  // preset pushed to the viewport?
+
     // Material Editor (Tools > Material Editor). Materials are the project's
     // .mtl asset files, edited in place: matEdMats_ stages the open file's
     // entries (color/brightness split out of Kd for the UI), every committed
@@ -436,6 +444,7 @@ private:
     int scenePrefScene_ = -1;  // scene index the staging belongs to
     ProjectSettings scenePrefSettings_;
     SceneOverrides scenePrefOverrides_;
+    std::string scenePrefAmbience_;  // staged SceneData::ambiencePreset
 
     std::string statusMessage_;
 };

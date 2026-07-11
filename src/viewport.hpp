@@ -43,7 +43,8 @@ public:
     float terrainHeight(float x, float z) const;  // bilinear, 0 when flat
 
     // horizon + zenith colors; gradient=false renders a flat horizon color
-    void setSky(const float* horizonRgb, const float* topRgb, bool gradient);
+    void setSky(const float* horizonRgb, const float* topRgb, bool gradient,
+                float zenithSize = 0.5f);
 
     // directional light baked into mesh shading (matches the PS2 output)
     void setLighting(const float* dir, float ambient, float diffuse, const float* color,
@@ -153,6 +154,7 @@ private:
     float sky_[3] = {0.25f, 0.55f, 0.78f};
     float skyTop_[3] = {0.08f, 0.3f, 0.65f};
     bool skyGradient_ = true;
+    float skyZenithSize_ = 0.5f;  // gradient bias, see setSky / the dome build
     Mesh skyQuad_;
     bool skyQuadDirty_ = true;
     ViewMode viewMode_ = ViewMode::Solid;

@@ -9,6 +9,47 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (68) **Ambience Editor + Properties docked right + sky dome preview** — three
+  related changes. **(a) Docking default:** the first-run DockBuilder layout now
+  puts **Properties in a docked column on the right** (Project left, Viewport
+  center, Output/Debug bottom) instead of under Project on the left; the
+  pre-Properties migration path docks it on the right too. Existing projects
+  keep their saved layout. **(b) Sky gradient preview:** the editor viewport
+  sky was a flat screen-space quad that ignored the camera. It is now a
+  world-space **hemisphere dome** centered on the camera (mirrors the PS2
+  `buildSkyDome`): horizon→zenith colors interpolate by elevation over the 90°
+  up-arc, so the full 180° horizon-through-zenith sweep reads as one coherent
+  dome that tracks camera pitch (clear color still fills below the horizon).
+  The generated game dome was already elevation-linear, so its formula is
+  unchanged except for a new **Zenith size** control (`ProjectSettings::
+  zenithSize` / `AmbiencePreset::zenithSize`, 0.05..0.95, default 0.5 = linear):
+  both the preview dome and the generated dome remap the elevation fraction by
+  `pow(t, (1-size)/size)`, so a larger value spreads the zenith color down
+  toward the horizon (bigger zenith cap) and a smaller one keeps it near the
+  top. Codegen bakes it as the precomputed exponent `SKY_ZENITH_EXPS` per
+  scene. **(c) Ambience Editor** (Tools > Ambience
+  Editor): a new project-wide collection of **AmbiencePreset** bundles (sky
+  gradient + baked lighting + distance fog), one markable default — mirrors the
+  Color Grading preset system end-to-end. The sky/lighting/fog controls moved
+  **out of the crowded Project Preferences** (global + per-scene override
+  categories) into this editor; per-scene Preferences now picks a preset
+  (empty = default), and the new **Set Ambience** flow node (Scene category)
+  repaints the sky from a named preset at runtime (lighting/fog are baked per
+  scene at build, so only the sky changes live — like Set Sky Color).
+  `project::resolvedSettings` overlays the resolved preset's sky/lighting/fog on
+  top of the scene, so all downstream codegen/viewport keeps reading the same
+  `ProjectSettings` fields unchanged. New projects seed a "Default" preset;
+  loading a pre-Ambience project migrates its global + per-scene sky/lighting/fog
+  into presets (a Default plus one per overriding scene) so the look is
+  preserved. Verified: editor builds clean; a scratch project round-trips the
+  presets + per-scene `ambiencePreset` through save/load; a scene pointed at a
+  dark "night" preset bakes the expected `SKY_RS`/`SCENE_AMBIENTS` (5.1F / 0.2F)
+  into `scene_data.hpp`; a `Set Ambience` node compiles to
+  `ctx.skyColor = Tyra::Color(5.1F, 5.1F, 20.4F)`; GUI screenshots confirm
+  Properties on the right, the sky dome gradient, and the Ambience Editor window
+  (preset list + sky/light/fog controls). Not yet booted in PCSX2 — the runtime
+  Set Ambience sky repaint still wants a hands-on in-game check.
+
 - (67) **HUD images baked to a PS2-valid texture at build (size + bit depth)**
   — the engine hard-asserts textures must be 8/16/32/64/128/256/512 in each
   dimension (`texture.cpp`), and it only fires when the game boots, so a HUD

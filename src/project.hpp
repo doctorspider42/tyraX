@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "ambience.hpp"
 #include "flowgraph.hpp"
 #include "grading.hpp"
 
@@ -307,6 +308,12 @@ struct ProjectSettings {
     float skyColor[3] = {0.25f, 0.55f, 0.78f};   // horizon / clear color
     float skyTopColor[3] = {0.08f, 0.3f, 0.65f};  // zenith (gradient dome)
     bool skyDome = true;  // render a gradient sky dome (vs flat clear color)
+    // How much of the dome the zenith color fills. 0.5 = linear (color scales
+    // linearly with elevation); higher = zenith reaches lower toward the
+    // horizon (bigger zenith cap); lower = zenith stays near the top. Both the
+    // viewport preview and the generated dome remap the gradient by
+    // pow(t, (1-size)/size), t = 0 horizon .. 1 zenith.
+    float zenithSize = 0.5f;  // 0.05 .. 0.95
 
     // FPP template
     float eyeHeight = 1.8f;
@@ -378,7 +385,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.terrainDetail == b.terrainDetail &&
            a.terrainViewDistance == b.terrainViewDistance &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
-           a.skyDome == b.skyDome && a.eyeHeight == b.eyeHeight &&
+           a.skyDome == b.skyDome && a.zenithSize == b.zenithSize &&
+           a.eyeHeight == b.eyeHeight &&
            a.walkSpeed == b.walkSpeed && a.lookSpeed == b.lookSpeed &&
            a.stickDeadzoneL == b.stickDeadzoneL &&
            a.stickDeadzoneR == b.stickDeadzoneR &&
@@ -487,13 +495,20 @@ struct SceneData {
     // final value (an inactive category's stored values are stale).
     ProjectSettings settings;
     SceneOverrides overrides;
+
+    // Ambience preset this scene uses (name into Project::ambiencePresets).
+    // Empty = the project default preset (Project::defaultAmbience). When a
+    // preset resolves, project::resolvedSettings overlays its sky/lighting/fog
+    // over this scene's settings.
+    std::string ambiencePreset;
 };
 
 inline bool operator==(const SceneData& a, const SceneData& b) {
     return a.name == b.name && a.objects == b.objects && a.layers == b.layers &&
            a.terrain.width == b.terrain.width && a.terrain.depth == b.terrain.depth &&
            a.heights == b.heights && a.hmW == b.hmW && a.hmD == b.hmD &&
-           a.overrides == b.overrides && a.settings == b.settings;
+           a.overrides == b.overrides && a.settings == b.settings &&
+           a.ambiencePreset == b.ambiencePreset;
 }
 
 // One selectable row of a generated in-game menu.
@@ -676,6 +691,13 @@ struct Project {
     // presets at runtime (the switch persists across scene changes).
     std::vector<ColorGradingPreset> gradings;
     int defaultGrading = -1;
+    // Ambience presets (Tools > Ambience Editor): project-wide sky/lighting/fog
+    // "mood" bundles. defaultAmbience is the preset a scene uses when it names
+    // none (-1 = fall back to the raw project/scene settings). A scene picks
+    // its preset by name (SceneData::ambiencePreset); the Set Ambience flow
+    // node repaints the sky at runtime.
+    std::vector<AmbiencePreset> ambiencePresets;
+    int defaultAmbience = -1;
 
     // --- Editor-side state, persisted in the .tyra project file ------------
     // Not game data and not part of undo/redo (undo lives in the history
@@ -712,6 +734,11 @@ std::string create(Project& out, const std::string& name, const std::string& par
 // replaced by the scene's own values where its override flag is set. All
 // codegen and viewport code reads scene-visual settings through this.
 ProjectSettings resolvedSettings(const Project& p, const SceneData& s);
+
+// Index into Project::ambiencePresets of the preset a scene resolves to:
+// its named preset if it exists, otherwise the project default. -1 = none
+// (no presets, or a dangling/empty name with no default).
+int ambienceIndexFor(const Project& p, const SceneData& s);
 
 // A terrain material resolved to what the terrain actually needs.
 struct TerrainMaterial {
