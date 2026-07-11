@@ -9,6 +9,26 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (50) **Viewport camera recenter buttons + toolbar cleanup** — two new
+  camera actions plus a reorganization of the viewport overlay controls.
+  **Center view** calls the new `Viewport::resetView()`, which restores the
+  orbit pivot to the world origin, the default yaw/pitch, and a distance
+  framing the whole terrain (the exact framing `setTerrain` picks on first
+  load, so a fresh scene and a reset look identical). **Center selection**
+  snaps the pivot onto the selected object via the existing `setTarget()` and
+  updates `navFocusedIndex_` so the "orbit around selection" preference stays
+  consistent; `BeginDisabled` when nothing is selected. Neither touches the
+  project model, so no `commitChange()`/serialization.
+  **Overlay layout** (per user request): the top-left row now holds only the
+  tools (Move/Rotate/Scale + Sculpt, shortcuts 1-4); the gizmo axis space
+  (World/Camera) moved to the bottom-right corner and the two camera-recenter
+  buttons to the bottom-left (both bottom rows anchored to `imgPos + avail`,
+  right edge measured from `CalcTextSize`+FramePadding); the render-mode switch
+  (Solid/Wireframe/Wire+Solid) and the PAL/NTSC TV-safe frames moved out of the
+  overlay into the menu-bar **View** menu (render mode disabled without a
+  project since it persists via `saveAll`). Verified: clean editor build; the
+  reorganized toolbar and View-menu items confirmed in the GUI by the user.
+
 - (49) **Fog emitter upgraded to the Silent Hill swirl** — instead of a new
   object type, the existing particle emitter's fog kind (2) grew the two
   things the SH roll needed: per-puff **rotation in the camera plane**

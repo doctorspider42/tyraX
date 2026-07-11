@@ -1470,6 +1470,18 @@ void Viewport::setTarget(const float target[3]) {
     target_[2] = target[2];
 }
 
+void Viewport::resetView() {
+    // Match the initial framing chosen when a terrain is first loaded
+    // (see setTerrain): pivot on the world origin, distance from the terrain
+    // diagonal, and the default orbit orientation.
+    target_[0] = target_[1] = target_[2] = 0.0f;
+    yaw_ = 0.8f;
+    pitch_ = 0.6f;
+    float diag =
+        (float)(terrain_.width > terrain_.depth ? terrain_.width : terrain_.depth);
+    distance_ = diag > 0.0f ? diag * 1.4f : 90.0f;
+}
+
 void Viewport::pan(float dx, float dy) {
     // Slide the orbit target in the view plane; speed scales with distance
     // so a pixel of drag covers the same fraction of the screen at any zoom.
