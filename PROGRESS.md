@@ -39,6 +39,46 @@ Each finished feature lands as its own commit.
   (keyboard does), so the final click + on-disk removal still wants a hands-on
   human confirmation.
 
+- (63) **Animated models (.glb) render their material colors in-game (was
+  gray)** — an animated model authored with per-material Base Colors (e.g.
+  `spider2.glb`: red body, black legs, gray tee) showed those colors in the
+  editor viewport but rendered a flat gray on the PS2. **Root cause**: the
+  animated pass is the *only* editor-generated geometry that draws through the
+  StaPip **dynamic-lighting** path (`bag->lighting` set); every other path
+  pre-bakes lighting into per-vertex colors and draws unlit (`lighting =
+  nullptr`). The lit StaPip VU1 programs (`stapip_cull_d_vu1` / `_td` and the
+  `as_is` twins) compute the output color *purely* from the directional lights
+  and normals via `CalculateTyraDirectionalLights` — they never read the
+  vertex/material RGBA — so every animated mesh came out in the plain scene
+  light color, i.e. gray. The per-part `mat->ambient` the setup code set (and
+  the object-color multiply on it) was silently discarded by the shader.
+  **Fix** (codegen only, no engine/VU1 change): fold each part's material
+  albedo (glTF `baseColorFactor`, already carried in the `.tskl`) into that
+  part's own light + ambient colors, since `outputColor = Σ lightColor·(L·N) +
+  ambient` means scaling the colors by albedo M yields `M · sceneLighting`
+  exactly. Each `AnimPart` now owns a `PipelineDirLightsBag` + `litColors[4]`
+  built in `setupAnimObject` (scene diffuse/ambient × baseColor; directions
+  stay shared). This matches the viewport, which tints the baked mesh by
+  `shadeOf(n) · baseColor`. Dropped the old object-color multiply so the
+  in-game look equals the editor's (the viewport does not tint animated models
+  by object color; a non-white default color would otherwise recolor every
+  imported .glb). Touches the `AnimPart` struct in both game-header templates
+  (orbit + fpp) and the shared `setupAnimObject` body in templates.cpp.
+  **Editor UI**: the animated-model Properties block gained a **Materials**
+  summary (color swatch + name, "(textured)" tag) from a new `GlbInfo::
+  materials` list, so the model's materials are visible where you set the clip.
+  Verified: clean editor build; Docker build of a spider2 scene compiles the
+  regenerated `terrain_game.cpp` (litColors fold present at lines 903-918) and
+  links; `spider2.tskl` carries the three material names + exact colors
+  `(1,0,0)`/`(0,0,0)`/`(0.8,0.8,0.8)`; the ELF boots and executes in PCSX2 with
+  no assert (emulog). **PCSX2 F8 screenshot confirms the spider renders with a
+  red body, black legs and a gray tee — the same colors the editor shows, no
+  longer flat gray.** (Capture note: several parallel editor sessions shared
+  the single PCSX2 install — each one's `--run` `taskkill`s all PCSX2 and
+  steals focus — and this box has no real GPU, so GDI/PrintWindow grabs were
+  garbage; only native F8-via-PostMessage to the spidertest window, read from
+  snaps/, worked. See the pcsx2-test-environment memory.)
+
 - (62) **Decal object type (transparent textured quad)** — a new
   `PrimitiveType::Decal = 13` for signs/posters/text on walls. A flat unit quad
   in the XY plane facing +Z, textured through the object's assigned material

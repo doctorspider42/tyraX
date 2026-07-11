@@ -381,6 +381,15 @@ class TerrainGame : public Tyra::Game {
       std::unique_ptr<Tyra::StaPipColorBag> colorBag;
       std::unique_ptr<Tyra::StaPipTextureBag> texBag;
       std::unique_ptr<Tyra::StaPipLightingBag> lightBag;
+      // The lit StaPip VU1 programs (_d/_td) derive the vertex color purely
+      // from the directional lights - they never read a base/vertex color -
+      // so an untextured mesh would render in the plain scene light color
+      // (i.e. gray). This part's material albedo is folded into its own light
+      // and ambient colors instead (outputColor = albedo * sceneLighting),
+      // matching how the editor viewport tints the .glb. Directions stay
+      // shared (animLightDirs); only the colors carry the per-part tint.
+      std::unique_ptr<Tyra::PipelineDirLightsBag> animLights;
+      Tyra::Vec4 litColors[4];
     };
     std::vector<AnimPart> animParts;
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
@@ -652,6 +661,15 @@ class TerrainGame : public Tyra::Game {
       std::unique_ptr<Tyra::StaPipColorBag> colorBag;
       std::unique_ptr<Tyra::StaPipTextureBag> texBag;
       std::unique_ptr<Tyra::StaPipLightingBag> lightBag;
+      // The lit StaPip VU1 programs (_d/_td) derive the vertex color purely
+      // from the directional lights - they never read a base/vertex color -
+      // so an untextured mesh would render in the plain scene light color
+      // (i.e. gray). This part's material albedo is folded into its own light
+      // and ambient colors instead (outputColor = albedo * sceneLighting),
+      // matching how the editor viewport tints the .glb. Directions stay
+      // shared (animLightDirs); only the colors carry the per-part tint.
+      std::unique_ptr<Tyra::PipelineDirLightsBag> animLights;
+      Tyra::Vec4 litColors[4];
     };
     std::vector<AnimPart> animParts;
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
@@ -1979,11 +1997,12 @@ void TerrainGame::setupAnimObject(int index) {
     // texture links are per material id and every instance has fresh ids
     if (m < gam.textures.size() && gam.textures[m])
       gam.textures[m]->addLink(mat->id);
-    // per-instance tint: object color multiplies the material base color
+    // material albedo (glTF baseColorFactor). The lit VU1 programs ignore
+    // this single color - it rides in the per-part light colors below - but
+    // it is kept in sync for any single-color path that may read it.
     const float* base = gam.src->parts[m].color;
-    mat->ambient.set(base[0] * 128.0F * o.data.color[0],
-                     base[1] * 128.0F * o.data.color[1],
-                     base[2] * 128.0F * o.data.color[2], 128.0F);
+    mat->ambient.set(base[0] * 128.0F, base[1] * 128.0F, base[2] * 128.0F,
+                     128.0F);
   }
 
   // Static-pipeline bags around the skinned arrays (rebuilt in place every
@@ -2005,7 +2024,24 @@ void TerrainGame::setupAnimObject(int index) {
     ap.lightBag = std::make_unique<StaPipLightingBag>();
     ap.lightBag->lightMatrix = &g.animMat;
     ap.lightBag->normals = frame->normals;
-    ap.lightBag->dirLights = &animDirLights;
+    // Fold this part's material albedo into its light colors so the lit VU1
+    // program renders the .glb material color (outputColor = albedo * light),
+    // not the plain scene light color (gray). Scene light/ambient here mirror
+    // updateAndRenderAnimObjects; directions stay shared (animLightDirs).
+    {
+      const float* base = gam.src->parts[m].color;
+      const float amb = 128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT;
+      const float dif = 128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE;
+      ap.litColors[0].set(dif * SCENE_LIGHT_COL_R * base[0],
+                          dif * SCENE_LIGHT_COL_G * base[1],
+                          dif * SCENE_LIGHT_COL_B * base[2], 1.0F);
+      ap.litColors[1].set(0.0F, 0.0F, 0.0F, 1.0F);
+      ap.litColors[2].set(0.0F, 0.0F, 0.0F, 1.0F);
+      ap.litColors[3].set(amb * base[0], amb * base[1], amb * base[2], 128.0F);
+      ap.animLights = std::make_unique<PipelineDirLightsBag>(true);
+      ap.animLights->setLightsManually(ap.litColors, animLightDirs);
+      ap.lightBag->dirLights = ap.animLights.get();
+    }
     ap.bag = std::make_unique<StaPipBag>();
     ap.bag->info = g.animInfoBag.get();
     ap.bag->color = ap.colorBag.get();

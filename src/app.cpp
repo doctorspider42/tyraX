@@ -1784,6 +1784,15 @@ const App::GlbInfo& App::glbInfo(const std::string& relPath) {
         info.vertexCount = baked.totalVertexCount();
         info.frameCount = baked.frameCount;
         info.warnings = baked.warnings;
+        for (const glbparser::Part& p : baked.parts) {
+            GlbInfo::Material mat;
+            mat.name = p.material.empty() ? "material" : p.material;
+            mat.color[0] = p.baseColor[0];
+            mat.color[1] = p.baseColor[1];
+            mat.color[2] = p.baseColor[2];
+            mat.textured = p.image >= 0;
+            info.materials.push_back(std::move(mat));
+        }
     }
     return glbInfoCache_.emplace(relPath, std::move(info)).first->second;
 }
@@ -2416,6 +2425,29 @@ void App::drawPropertiesWindow() {
                 for (const std::string& w : info.warnings)
                     ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s",
                                        w.c_str());
+                // Baked materials (from the .glb): the colors the game renders
+                // the mesh with. Authored in the modelling tool (Blender:
+                // material Base Color) and baked into the .tskl at build.
+                if (!info.materials.empty()) {
+                    ImGui::SeparatorText("Materials");
+                    for (const GlbInfo::Material& mat : info.materials) {
+                        ImGui::ColorButton(
+                            ("##animmat" + mat.name).c_str(),
+                            ImVec4(mat.color[0], mat.color[1], mat.color[2],
+                                   1.0f),
+                            ImGuiColorEditFlags_NoTooltip |
+                                ImGuiColorEditFlags_NoDragDrop,
+                            ImVec2(14, 14));
+                        ImGui::SameLine();
+                        if (mat.textured)
+                            ImGui::Text("%s (textured)", mat.name.c_str());
+                        else
+                            ImGui::TextUnformatted(mat.name.c_str());
+                    }
+                    ImGui::TextDisabled(
+                        "Colors come from the model; edit them in the\n"
+                        "modelling tool and re-export the .glb.");
+                }
                 ImGui::SeparatorText("Animation");
                 const std::string clipLabel =
                     o.animClip.empty()
