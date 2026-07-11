@@ -210,7 +210,13 @@ static std::string objectJson(const SceneObject& o) {
                 ", \"lookSpeed\": " + fmtFloat(o.playerLookSpeed) +
                 ", \"eyeHeight\": " + fmtFloat(o.playerEyeHeight) +
                 ", \"jumpSpeed\": " + fmtFloat(o.playerJumpSpeed) +
-                ", \"canJump\": " + (o.playerCanJump ? "true" : "false") + " }";
+                ", \"canJump\": " + (o.playerCanJump ? "true" : "false") +
+                ", \"flashlight\": { \"enabled\": " +
+                (o.flashlightEnabled ? "true" : "false") + ", \"color\": " +
+                fmtVec3(o.flashlightColor) + ", \"range\": " +
+                fmtFloat(o.flashlightRange) + ", \"angle\": " +
+                fmtFloat(o.flashlightAngle) + ", \"toggle\": \"" +
+                o.flashlightToggleButton + "\" }" + " }";
     }
     if (o.type == PrimitiveType::Emitter) {
         static const char* kinds[] = {"fire", "smoke", "fog", "sparks", "rain",
@@ -287,10 +293,6 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << ", \"grain\": " << fmtFloat(s.grain) << " }, \"fog\": { \"enabled\": "
       << (s.fogEnabled ? "true" : "false") << ", \"color\": " << fmtVec3(s.fogColor)
       << ", \"start\": " << fmtFloat(s.fogStart) << ", \"end\": " << fmtFloat(s.fogEnd)
-      << " }, \"flashlight\": { \"enabled\": "
-      << (s.flashlightEnabled ? "true" : "false") << ", \"color\": "
-      << fmtVec3(s.flashlightColor) << ", \"range\": " << fmtFloat(s.flashlightRange)
-      << ", \"angle\": " << fmtFloat(s.flashlightAngle)
       << " }, \"highlight\": { \"usable\": "
       << (s.highlightUsable ? "true" : "false") << ", \"distance\": "
       << fmtFloat(s.highlightDistance) << ", \"color\": " << fmtVec3(s.highlightColor)
@@ -302,7 +304,6 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << (o.clipping ? "true" : "false") << ", \"terrainTex\": "
       << (o.terrainTex ? "true" : "false") << ", \"postFx\": " << (o.postFx ? "true" : "false")
       << ", \"fog\": " << (o.fog ? "true" : "false")
-      << ", \"flashlight\": " << (o.flashlight ? "true" : "false")
       << ", \"highlight\": " << (o.highlight ? "true" : "false") << " }";
 }
 
@@ -342,15 +343,6 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
                 if (const auto* v = fg->find("start")) s.fogStart = (float)v->numberOr(15.0);
                 if (const auto* v = fg->find("end")) s.fogEnd = (float)v->numberOr(120.0);
             }
-            if (const auto* fl = st->find("flashlight")) {
-                if (const auto* v = fl->find("enabled"))
-                    s.flashlightEnabled = v->boolOr(false);
-                readVec3(fl->find("color"), s.flashlightColor);
-                if (const auto* v = fl->find("range"))
-                    s.flashlightRange = (float)v->numberOr(30.0);
-                if (const auto* v = fl->find("angle"))
-                    s.flashlightAngle = (float)v->numberOr(20.0);
-            }
             if (const auto* hl = st->find("highlight")) {
                 if (const auto* v = hl->find("usable")) s.highlightUsable = v->boolOr(false);
                 if (const auto* v = hl->find("distance"))
@@ -368,8 +360,6 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
             ov->find("terrainTex") ? ov->find("terrainTex")->boolOr(false) : false;
         sc.overrides.postFx = ov->find("postFx") ? ov->find("postFx")->boolOr(false) : false;
         sc.overrides.fog = ov->find("fog") ? ov->find("fog")->boolOr(false) : false;
-        sc.overrides.flashlight =
-            ov->find("flashlight") ? ov->find("flashlight")->boolOr(false) : false;
         sc.overrides.highlight =
             ov->find("highlight") ? ov->find("highlight")->boolOr(false) : false;
     } else {
@@ -396,9 +386,6 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
     if (s.highlightSteps > 8) s.highlightSteps = 8;
     if (s.fogStart < 0.0f) s.fogStart = 0.0f;
     if (s.fogEnd <= s.fogStart + 1.0f) s.fogEnd = s.fogStart + 1.0f;
-    if (s.flashlightRange < 1.0f) s.flashlightRange = 1.0f;
-    if (s.flashlightAngle < 2.0f) s.flashlightAngle = 2.0f;
-    if (s.flashlightAngle > 80.0f) s.flashlightAngle = 80.0f;
 }
 
 ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
@@ -426,12 +413,6 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         for (int i = 0; i < 3; ++i) r.fogColor[i] = o.fogColor[i];
         r.fogStart = o.fogStart;
         r.fogEnd = o.fogEnd;
-    }
-    if (s.overrides.flashlight) {
-        r.flashlightEnabled = o.flashlightEnabled;
-        for (int i = 0; i < 3; ++i) r.flashlightColor[i] = o.flashlightColor[i];
-        r.flashlightRange = o.flashlightRange;
-        r.flashlightAngle = o.flashlightAngle;
     }
     if (s.overrides.highlight) {
         r.highlightUsable = o.highlightUsable;
@@ -488,14 +469,6 @@ std::string save(const Project& p) {
          << "    \"fogColor\": " << fmtVec3(p.settings.fogColor) << ",\n"
          << "    \"fogStart\": " << fmtFloat(p.settings.fogStart) << ",\n"
          << "    \"fogEnd\": " << fmtFloat(p.settings.fogEnd) << ",\n"
-         << "    \"flashlightEnabled\": "
-         << (p.settings.flashlightEnabled ? "true" : "false") << ",\n"
-         << "    \"flashlightColor\": " << fmtVec3(p.settings.flashlightColor)
-         << ",\n"
-         << "    \"flashlightRange\": " << fmtFloat(p.settings.flashlightRange)
-         << ",\n"
-         << "    \"flashlightAngle\": " << fmtFloat(p.settings.flashlightAngle)
-         << ",\n"
          << "    \"highlightUsable\": "
          << (p.settings.highlightUsable ? "true" : "false") << ",\n"
          << "    \"highlightDistance\": " << fmtFloat(p.settings.highlightDistance)
@@ -890,6 +863,20 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 o.playerJumpSpeed = (float)v->numberOr(4.5);
             if (const auto* v = pl->find("canJump"))
                 o.playerCanJump = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (const auto* fl = pl->find("flashlight")) {
+                if (const auto* v = fl->find("enabled"))
+                    o.flashlightEnabled = v->boolOr(false);
+                readVec3(fl->find("color"), o.flashlightColor);
+                if (const auto* v = fl->find("range"))
+                    o.flashlightRange = (float)v->numberOr(30.0);
+                if (const auto* v = fl->find("angle"))
+                    o.flashlightAngle = (float)v->numberOr(20.0);
+                if (const auto* v = fl->find("toggle"))
+                    o.flashlightToggleButton = v->stringOr("");
+                if (o.flashlightRange < 1.0f) o.flashlightRange = 1.0f;
+                if (o.flashlightAngle < 2.0f) o.flashlightAngle = 2.0f;
+                if (o.flashlightAngle > 80.0f) o.flashlightAngle = 80.0f;
+            }
         }
         if (const auto* em = jo.find("emitter")) {
             if (const auto* v = em->find("kind")) {
@@ -1066,16 +1053,6 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = s->find("fogEnd")) st.fogEnd = (float)v->numberOr(120.0);
         if (st.fogStart < 0.0f) st.fogStart = 0.0f;
         if (st.fogEnd <= st.fogStart + 1.0f) st.fogEnd = st.fogStart + 1.0f;
-        if (const auto* v = s->find("flashlightEnabled"))
-            st.flashlightEnabled = v->type == json::Value::Type::Bool && v->boolean;
-        readVec3(s->find("flashlightColor"), st.flashlightColor);
-        if (const auto* v = s->find("flashlightRange"))
-            st.flashlightRange = (float)v->numberOr(30.0);
-        if (const auto* v = s->find("flashlightAngle"))
-            st.flashlightAngle = (float)v->numberOr(20.0);
-        if (st.flashlightRange < 1.0f) st.flashlightRange = 1.0f;
-        if (st.flashlightAngle < 2.0f) st.flashlightAngle = 2.0f;
-        if (st.flashlightAngle > 80.0f) st.flashlightAngle = 80.0f;
         if (const auto* v = s->find("highlightUsable"))
             st.highlightUsable = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = s->find("highlightDistance"))

@@ -186,6 +186,11 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // overrides the object's position.
         {"TeleportPlayer", "Spawn Player At", "Player", false, FlowParamKind::ObjectName,
          0, {}, FlowParamKind::None, true, true, true, false, false},
+        // Sets the player's flashlight master switch (the Player object's
+        // "Enabled"). On = 1 turns it on, 0 off. The optional toggle button on
+        // the player still gates the beam on/off, but only while enabled.
+        {"SetFlashlight", "Set Flashlight", "Player", false, FlowParamKind::None, 1,
+         {"On"}, FlowParamKind::None, false, false},
         // Scene
         {"SetSky", "Set Sky Color", "Scene", false, FlowParamKind::None, 3, {},
          FlowParamKind::Color, false, false},

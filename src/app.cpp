@@ -2421,7 +2421,7 @@ void App::drawPropertiesWindow() {
                              "%.2f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
             ImGui::TextDisabled(
-                "Slowly swirling puffs. For the Silent Hill roll: big spawn\n"
+                "Slowly swirling puffs. For a thick rolling fog: big spawn\n"
                 "area, Follow player on, a soft-alpha texture, and match the\n"
                 "color to the distance fog color (Preferences > Distance fog).");
         }
@@ -2549,6 +2549,44 @@ void App::drawPropertiesWindow() {
         }
         ImGui::TextDisabled("First player in the scene drives the camera in the game.");
         ImGui::TextDisabled("Noclip: X up, Square down. Walk: X jumps.");
+
+        ImGui::SeparatorText("Flashlight");
+        committed |= ImGui::Checkbox("Enabled", &o.flashlightEnabled);
+        if (o.flashlightEnabled) {
+            ImGui::ColorEdit3("Light color", o.flashlightColor);
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Reach (units)", &o.flashlightRange, 0.5f, 1.0f, 200.0f,
+                             "%.1f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Cone half-angle (deg)", &o.flashlightAngle, 0.5f, 2.0f,
+                             80.0f, "%.1f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        // Optional pad button the player presses to turn the beam on/off. The
+        // on/off state only shows while Enabled (it respects Enabled), and the
+        // flow graph can flip Enabled with the Set Flashlight node.
+        const char* toggleBtns[] = {"<none>",   "Cross",    "Circle",    "Square",
+                                    "Triangle", "DpadUp",   "DpadDown",  "DpadLeft",
+                                    "DpadRight", "L1",      "L2",        "L3",
+                                    "R1",       "R2",       "R3",        "Start",
+                                    "Select"};
+        const std::string cur =
+            o.flashlightToggleButton.empty() ? "<none>" : o.flashlightToggleButton;
+        if (ImGui::BeginCombo("Toggle button", cur.c_str())) {
+            for (const char* b : toggleBtns) {
+                const bool isNone = std::strcmp(b, "<none>") == 0;
+                const bool selected =
+                    isNone ? o.flashlightToggleButton.empty() : o.flashlightToggleButton == b;
+                if (ImGui::Selectable(b, selected)) {
+                    o.flashlightToggleButton = isNone ? std::string() : std::string(b);
+                    committed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::TextDisabled("Enabled is the master switch (Set Flashlight flow node\n"
+                            "can change it). The toggle button gates the beam on/off\n"
+                            "at runtime, but only while Enabled.");
     }
 
     // Attached scripts (Unity-style components): class names registered in
@@ -3113,9 +3151,9 @@ void App::drawFlowGraphWindow() {
             ImGui::TextDisabled("Position: from link");
             firstNum = 3;
         }
-        if (n.type == "SetVarBool") {
+        if (n.type == "SetVarBool" || n.type == "SetFlashlight") {
             bool v = n.num[0] != 0.0f;
-            if (ImGui::Checkbox("Value", &v)) {
+            if (ImGui::Checkbox(t->numLabels[0], &v)) {
                 n.num[0] = v ? 1.0f : 0.0f;
                 changed = true;
             }
@@ -3418,6 +3456,7 @@ void App::drawFlowGraphWindow() {
                     }
                     if (std::string(t.key) == "SetMusicVolume") n.num[0] = 80.0f;
                     if (std::string(t.key) == "SetVarBool") n.num[0] = 1.0f;
+                    if (std::string(t.key) == "SetFlashlight") n.num[0] = 1.0f;
                     if (std::string(t.key) == "PlaySound") {
                         n.num[0] = 100.0f;  // volume
                         n.num[1] = -1.0f;   // channel: auto
@@ -6232,8 +6271,21 @@ void App::applyProjectToViewport() {
     viewport_.setUsableHighlight(rs.highlightUsable, rs.highlightColor);
     viewport_.setLighting(rs.lightDir, rs.ambient, rs.diffuse, rs.lightColor, rs.brightness);
     viewport_.setFog(rs.fogEnabled, rs.fogColor, rs.fogStart, rs.fogEnd);
-    viewport_.setFlashlight(rs.flashlightEnabled, rs.flashlightColor,
-                            rs.flashlightRange, rs.flashlightAngle);
+    // The flashlight is a Player object property; preview the first player's
+    // (its Enabled flag is the initial state - the toggle button / flow graph
+    // only act at runtime, which the editor preview cannot simulate).
+    const SceneObject* player = nullptr;
+    for (const SceneObject& o : sc.objects)
+        if (o.type == PrimitiveType::Player) {
+            player = &o;
+            break;
+        }
+    const float offColor[3] = {0.75f, 0.75f, 0.62f};
+    if (player && player->flashlightEnabled)
+        viewport_.setFlashlight(true, player->flashlightColor, player->flashlightRange,
+                                player->flashlightAngle);
+    else
+        viewport_.setFlashlight(false, offColor, 30.0f, 20.0f);
 }
 
 void App::drawPreferencesModal() {
@@ -6375,22 +6427,8 @@ void App::drawPreferencesModal() {
     }
     ImGui::TextDisabled(
         "PS2 GS hardware fog: geometry fades to the fog color with distance\n"
-        "(free on the GS). Match the fog color with the sky color for a\n"
-        "Silent Hill style fade-out that hides the draw distance.");
-
-    ImGui::SeparatorText("Flashlight");
-    ImGui::Checkbox("Camera flashlight", &prefSettings_.flashlightEnabled);
-    if (prefSettings_.flashlightEnabled) {
-        ImGui::ColorEdit3("Light color", prefSettings_.flashlightColor);
-        ImGui::DragFloat("Reach (units)", &prefSettings_.flashlightRange, 0.5f,
-                         1.0f, 200.0f, "%.1f");
-        ImGui::DragFloat("Cone half-angle (deg)", &prefSettings_.flashlightAngle,
-                         0.5f, 2.0f, 80.0f, "%.1f");
-    }
-    ImGui::TextDisabled(
-        "Spot light attached to the camera, computed per vertex on VU1 on\n"
-        "top of the baked shading (the Silent Hill flashlight). Dense or\n"
-        "well-tessellated geometry gives the smoothest cone.");
+        "(free on the GS). Match the fog color with the sky color for an\n"
+        "atmospheric fade-out that hides the draw distance.");
 
     ImGui::SeparatorText("Scenes");
     ImGui::Checkbox("Loading screen between scenes", &prefSettings_.loadingScreen);
@@ -6662,14 +6700,6 @@ void App::drawScenePreferencesModal() {
         ImGui::DragFloat("Fog start (units)", &s.fogStart, 0.5f, 0.0f, 1000.0f, "%.1f");
         ImGui::DragFloat("Fog end (units)", &s.fogEnd, 0.5f, 1.0f, 2000.0f, "%.1f");
         if (s.fogEnd <= s.fogStart + 1.0f) s.fogEnd = s.fogStart + 1.0f;
-    });
-
-    category("Flashlight", ov.flashlight, [&] {
-        ImGui::Checkbox("Camera flashlight", &s.flashlightEnabled);
-        ImGui::ColorEdit3("Light color", s.flashlightColor);
-        ImGui::DragFloat("Reach (units)", &s.flashlightRange, 0.5f, 1.0f, 200.0f, "%.1f");
-        ImGui::DragFloat("Cone half-angle (deg)", &s.flashlightAngle, 0.5f, 2.0f,
-                         80.0f, "%.1f");
     });
 
     category("Usable objects", ov.highlight, [&] {

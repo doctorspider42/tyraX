@@ -131,6 +131,20 @@ struct SceneObject {
     float playerJumpSpeed = 4.5f;  // units/s (walk mode, X button)
     bool playerCanJump = true;     // walk mode: X jumps
 
+    // Camera-attached spot light carried by the player (used when type ==
+    // Player). Additive cone + distance falloff computed per vertex on VU1, on
+    // top of the baked shading (no N.L - the PS2 color pipelines carry no
+    // normals). `flashlightEnabled` is the master switch: it is the initial
+    // state and the flow graph can flip it at runtime (Set Flashlight node).
+    // `flashlightToggleButton` (empty = none) is an optional pad button the
+    // player presses to turn the beam on/off; that on/off state only shows
+    // while the master is enabled (it respects flashlightEnabled).
+    bool flashlightEnabled = false;
+    float flashlightColor[3] = {0.75f, 0.75f, 0.62f};
+    float flashlightRange = 30.0f;  // world units
+    float flashlightAngle = 20.0f;  // cone half-angle, degrees
+    std::string flashlightToggleButton;  // pad button name, e.g. "Circle"; "" = none
+
     // Particle emitter parameters (used when type == Emitter). The particle
     // texture comes from the shared materialPath (first material's map_Kd);
     // scale X/Z = spawn area, color = tint.
@@ -209,7 +223,13 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.playerLookSpeed == b.playerLookSpeed &&
            a.playerEyeHeight == b.playerEyeHeight &&
            a.playerJumpSpeed == b.playerJumpSpeed &&
-           a.playerCanJump == b.playerCanJump && a.emitterKind == b.emitterKind &&
+           a.playerCanJump == b.playerCanJump &&
+           a.flashlightEnabled == b.flashlightEnabled &&
+           eq3(a.flashlightColor, b.flashlightColor) &&
+           a.flashlightRange == b.flashlightRange &&
+           a.flashlightAngle == b.flashlightAngle &&
+           a.flashlightToggleButton == b.flashlightToggleButton &&
+           a.emitterKind == b.emitterKind &&
            a.emitterCount == b.emitterCount && a.emitterSize == b.emitterSize &&
            a.emitterEnabled == b.emitterEnabled &&
            a.emitterFollowPlayer == b.emitterFollowPlayer &&
@@ -310,7 +330,7 @@ struct ProjectSettings {
     float bloom = 0.0f;  // downsample + blur + additive re-add (glow)
     float grain = 0.0f;  // animated film grain noise overlay
 
-    // GS hardware distance fog (Silent Hill style fade-out). Geometry blends
+    // GS hardware distance fog (atmospheric fade-out). Geometry blends
     // toward fogColor between fogStart and fogEnd view distances; free on the
     // GS (per-vertex coefficient computed on VU1). Match fogColor with the
     // sky/clear color and keep fogEnd at (or before) the far plane.
@@ -318,14 +338,6 @@ struct ProjectSettings {
     float fogColor[3] = {0.5f, 0.5f, 0.55f};
     float fogStart = 15.0f;   // world units from the camera
     float fogEnd = 120.0f;    // full fog at/after this distance
-
-    // Camera-attached spot light (Silent Hill flashlight). Additive cone +
-    // distance falloff computed per vertex on VU1, on top of the baked
-    // shading (no N.L - the PS2 color pipelines carry no normals).
-    bool flashlightEnabled = false;
-    float flashlightColor[3] = {0.75f, 0.75f, 0.62f};
-    float flashlightRange = 30.0f;  // world units
-    float flashlightAngle = 20.0f;  // cone half-angle, degrees
 
     // Scene switches show res/hud/loading.png centered on black for a
     // moment (a generated placeholder is written when the file is missing).
@@ -364,10 +376,6 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.grain == b.grain && a.fogEnabled == b.fogEnabled &&
            eq3(a.fogColor, b.fogColor) && a.fogStart == b.fogStart &&
            a.fogEnd == b.fogEnd &&
-           a.flashlightEnabled == b.flashlightEnabled &&
-           eq3(a.flashlightColor, b.flashlightColor) &&
-           a.flashlightRange == b.flashlightRange &&
-           a.flashlightAngle == b.flashlightAngle &&
            a.loadingScreen == b.loadingScreen &&
            a.highlightUsable == b.highlightUsable &&
            a.highlightDistance == b.highlightDistance &&
@@ -387,15 +395,13 @@ struct SceneOverrides {
     bool terrainTex = false;  // terrainTexture, terrainTexScale
     bool postFx = false;      // bloom, grain
     bool fog = false;         // fogEnabled, fogColor, fogStart, fogEnd
-    bool flashlight = false;  // flashlightEnabled + color/range/angle
     bool highlight = false;   // highlightUsable + distance/color/width/steps
 };
 
 inline bool operator==(const SceneOverrides& a, const SceneOverrides& b) {
     return a.lighting == b.lighting && a.sky == b.sky && a.clipping == b.clipping &&
            a.terrainTex == b.terrainTex && a.postFx == b.postFx &&
-           a.fog == b.fog && a.flashlight == b.flashlight &&
-           a.highlight == b.highlight;
+           a.fog == b.fog && a.highlight == b.highlight;
 }
 
 class History;

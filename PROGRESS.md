@@ -9,6 +9,33 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (63) **Flashlight moved from a project preference to a Player property** — the
+  camera flashlight used to be a scene-visual category on `ProjectSettings`
+  (project default + per-scene override). It is now a property of the Player
+  object (`SceneObject::flashlight*`): color/range/cone half-angle plus an
+  **Enabled** master switch and an optional **toggle button**. Enabled is
+  runtime-controllable — the new **Set Flashlight** flow node (Player category)
+  writes `ScriptContext::flashlight` (0/1), which the game folds into a
+  `g_flashEnabled` global; loadScene seeds it per scene from the player's
+  Enabled flag. The optional toggle button (a pad button on the player) flips a
+  separate `g_flashOn` state via the generated `flashlightTogglePressed()`
+  helper (a per-scene switch over each player's button); the beam shows only
+  while `g_flashEnabled && g_flashOn`, so the toggle **respects Enabled**. The
+  per-scene `FLASHLIGHT_*` codegen tables now read the scene's first Player
+  object instead of resolved settings; no player = no flashlight. Editor: the
+  Preferences and Scene-override flashlight sections are gone, replaced by a
+  Flashlight block in the Player object properties (Enabled + color/reach/angle
+  + toggle-button combo). Also removed **all "Silent Hill" mentions** from the
+  codebase (comments in `project.hpp`, `app.cpp`, `templates.cpp`,
+  `vendor/tyra` renderer_core, and PROGRESS entries 47-49) per request.
+  Verified: editor builds clean; a scratch fpp project with the flashlight
+  enabled + toggle=Circle + an On Start → Set Flashlight graph round-trips
+  through save/load, generates the expected `scene_data.hpp` tables, toggle
+  helper (`case 0: return engine->pad.getClicked().Circle;`) and flow code
+  (`ctx.flashlight = 1;`), compiles under the PS2DEV toolchain (Docker build
+  exit 0), and boots in PCSX2 (SW renderer) showing the lit flashlight cone on
+  the terrain. Interactive toggle-button press still wants a hands-on pad test.
+
 - (62) **Decal object type (transparent textured quad)** — a new
   `PrimitiveType::Decal = 13` for signs/posters/text on walls. A flat unit quad
   in the XY plane facing +Z, textured through the object's assigned material
@@ -83,9 +110,9 @@ Each finished feature lands as its own commit.
   project since it persists via `saveAll`). Verified: clean editor build; the
   reorganized toolbar and View-menu items confirmed in the GUI by the user.
 
-- (49) **Fog emitter upgraded to the Silent Hill swirl** — instead of a new
+- (49) **Fog emitter upgraded to a swirling roll** — instead of a new
   object type, the existing particle emitter's fog kind (2) grew the two
-  things the SH roll needed: per-puff **rotation in the camera plane**
+  things the rolling fog needed: per-puff **rotation in the camera plane**
   (angle = golden-angle phase per particle + slow spin, direction
   alternating per puff - billboards get a full 3D right vector so the
   rotation shows) and a **density knob** (the existing Opacity field now
@@ -100,11 +127,11 @@ Each finished feature lands as its own commit.
   texture (stb_image_write is already in the editor) is the natural
   follow-up.
 
-- (48) **Camera flashlight (Silent Hill spot light)** â€” dynamic spot light
+- (48) **Camera flashlight (dynamic spot light)** â€” dynamic spot light
   computed per vertex on VU1 in the StaPip color programs (cull C/TC), the
   paths every editor-generated game renders through. No N.L term (the color
-  paths carry no normals - the same flat cone + distance falloff trick the
-  SH era used): `I = clamp((tÂ˛-cosÂ˛Î¸Â·distÂ˛)Â·invSoft) Â· clamp(1-distÂ˛/rangeÂ˛)`
+  paths carry no normals - the same flat cone + distance falloff trick early
+  hardware-lit games used): `I = clamp((tÂ˛-cosÂ˛Î¸Â·distÂ˛)Â·invSoft) Â· clamp(1-distÂ˛/rangeÂ˛)`
   where t is the distance along the beam - no sqrt and no extra DIV on VU1
   (the cone test compares squares). The world light is transformed per mesh
   into object space on the EE via a new affine inverse in
@@ -125,7 +152,7 @@ Each finished feature lands as its own commit.
   yet; single-color bags only get it on the cull path (all editor bags are
   multicolor); non-uniform mesh scale distorts the cone slightly.
 
-- (47) **GS hardware distance fog (Silent Hill style)** â€” per-vertex fog
+- (47) **GS hardware distance fog (atmospheric fade-out)** â€” per-vertex fog
   coefficient computed on VU1, blended by the GS toward `FOGCOL` for free at
   the pixel level. Engine (`vendor/tyra`): all 8 StaPip + 4 DynPip VU1
   programs now send packed **XYZF2** instead of XYZ2 (new
