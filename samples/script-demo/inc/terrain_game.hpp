@@ -2,7 +2,9 @@
 #pragma once
 
 #include <tyra>
+#include <map>
 #include <memory>
+#include <string>
 #include <vector>
 #include "save_system.gen.hpp"
 #include "scripts/script.hpp"
@@ -61,9 +63,10 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
     std::unique_ptr<Tyra::StaPipColorBag> hullColorBag;
   };
-  // Custom .obj models, loaded once at startup (paths in model_data.gen.hpp):
-  // geometry split per MTL material with optional per-material textures, the
-  // real mesh AABB for box collision, a CollisionMesh for mesh collision.
+  // Custom .obj models (paths in model_data.gen.hpp): geometry split per MTL
+  // material with optional per-material textures, the real mesh AABB for box
+  // collision, a CollisionMesh for mesh collision. Loaded on demand by the
+  // layer streaming - only models some resident layer uses stay in memory.
   struct GameModelPart {
     std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
     Tyra::Texture* texture = nullptr;
@@ -74,9 +77,11 @@ class TerrainGame : public Tyra::Game {
     float mn[3] = {-0.5F, -0.5F, -0.5F};
     float mx[3] = {0.5F, 0.5F, 0.5F};
     Tyra::CollisionMesh collider;  // built only when a scene needs mesh mode
+    std::vector<std::string> texPaths;  // texture-cache refs this model holds
   };
   std::vector<GameModel> gameModels;
-  void loadModels();
+  void loadModelAsset(int index);
+  void freeModelAsset(int index);
   // Animated .glb models: serialized by the editor to .tskl skeletal files
   // (paths in model_data.gen.hpp) - bone keyframe tracks + bind-pose mesh.
   // Poses are evaluated and skinned on the EE per frame (SkelInstance) and
@@ -88,9 +93,11 @@ class TerrainGame : public Tyra::Game {
   struct GameAnimModel {
     std::unique_ptr<Tyra::SkelModel> src;   // skeleton + mesh + clip tracks
     std::vector<Tyra::Texture*> textures;   // per part, nullptr = untextured
+    std::vector<std::string> texPaths;      // texture-cache refs held
   };
   std::vector<GameAnimModel> gameAnimModels;
-  void loadAnimModels();
+  void loadAnimModelAsset(int index);
+  void freeAnimModelAsset(int index);
   void setupAnimObject(int index);  // per-object instance + playback state
   void updateAndRenderAnimObjects();
   // Directional light for the dynamic pass, mirroring the baked static look
@@ -108,10 +115,40 @@ class TerrainGame : public Tyra::Game {
   struct GameMaterial {
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
+    std::string texPath;  // texture-cache ref held ("" = untextured)
   };
   std::vector<GameMaterial> gameMaterials;
-  void loadMaterials();
+  void loadMaterialAsset(int index);
+  void freeMaterialAsset(int index);
   std::vector<Tyra::Texture*> loadedTextures;
+
+  // Streaming layers (SCENE_LAYER_* tables): an asset is resident only while
+  // some active-scene object in a resident layer (or with no layer) uses it.
+  // Load Layer queues the layer's missing assets and the queue drains one
+  // asset per frame (loads spread out - no long stall); Unload Layer drops
+  // the layer's objects immediately and frees whatever nothing else needs.
+  // Textures shared between layers/models are reference-counted by path.
+  struct TexEntry {
+    Tyra::Texture* tex = nullptr;
+    int refs = 0;
+  };
+  std::map<std::string, TexEntry> texCache;
+  Tyra::Texture* acquireTexture(const std::string& path);
+  void releaseTexture(const std::string& path);
+  void loadSceneTexture(int index);
+  void freeSceneTexture(int index);
+  std::vector<unsigned char> modelLoaded, materialLoaded, animModelLoaded,
+      sceneTexLoaded;
+  bool layerOn(int layer) const;  // desired residency of an object's layer
+  void applyLayerResidency();     // free unneeded assets, queue missing ones
+  void processOneStreamJob();
+  void activateObject(int index);
+  void deactivateObject(int index);
+  void updateLayerStreaming();
+  std::vector<unsigned char> layerState;   // 0 unloaded, 1 loading, 2 loaded
+  std::vector<unsigned char> layerTarget;  // desired residency per layer
+  std::vector<signed char> layerRequest;   // script requests (-1 = none)
+  std::vector<int> streamQueue;            // (kind << 16) | asset index
   std::vector<Tyra::Vec4> terrainSts;
   Tyra::StaPipTextureBag terrainTexBag;
   std::vector<RuntimeObject> runtimeObjects;

@@ -44,19 +44,25 @@ struct SceneObjectData {
   int animAutoplay;      // animated models: 1 = play at scene start
   int animLoop;          // animated models: 1 = starting clip loops
   float animSpeed;       // animated models: playback speed multiplier
+  int layer;      // streaming layer (SCENE_LAYER_* tables), -1 = none:
+                  // always resident, never streamed out
 };
 
 constexpr int SCENE_COUNT = 1;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[3] = {
-    {4, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, -1, "", 1, 1, 1.0F},  // spawn-1
-    {0, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.8F, 0.35F, 0.25F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, -1, "", 1, 1, 1.0F},  // box-1
-    {5, {-7.0F, 0.0F, 9.0F}, {0.0F, 30.0F, 0.0F}, {2.5F, 2.5F, 2.5F}, {0.9F, 0.85F, 0.7F}, 0, 0, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, -1, "", 1, 1, 1.0F},  // house-1
+    {4, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, -1, "", 1, 1, 1.0F, -1},  // spawn-1
+    {0, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.8F, 0.35F, 0.25F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, -1, "", 1, 1, 1.0F, -1},  // box-1
+    {5, {-7.0F, 0.0F, 9.0F}, {0.0F, 30.0F, 0.0F}, {2.5F, 2.5F, 2.5F}, {0.9F, 0.85F, 0.7F}, 0, 0, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, -1, "", 1, 1, 1.0F, -1},  // house-1
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {3};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
+
+constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
+constexpr int SCENE_MAX_LAYERS = 1;
+constexpr bool SCENE_LAYER_STARTS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{true}};
 
 constexpr int SND_COUNT = 0;
 inline const char* SND_PATHS[1] = {""};
@@ -146,6 +152,8 @@ inline int everyFrames(float seconds) {
 }
 #define SCENE_OBJECT_COUNT SCENE_OBJECT_COUNTS[g_activeScene]
 #define SCENE_OBJECTS SCENE_OBJECT_TABLES[g_activeScene]
+#define SCENE_LAYER_COUNT SCENE_LAYER_COUNTS[g_activeScene]
+#define SCENE_LAYER_START SCENE_LAYER_STARTS[g_activeScene]
 #define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
 #define PLAYER_MODE PLAYER_MODES[g_activeScene]
 #define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[g_activeScene]

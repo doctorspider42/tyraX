@@ -1830,6 +1830,57 @@ Each finished feature lands as its own commit.
   byte-identical match must keep working).
 
 
+- (60) **Streaming layers: per-scene object groups the game loads/evicts at
+  runtime (GTA3-style interior streaming)** - `SceneData::layers` (name +
+  `startLoaded` + editor-only `editorVisible`), `SceneObject::layer` (by
+  name, "" = always resident), serialized in the `.tyra` scene block and the
+  history file. Editor: a "Layers" section in the Project panel (add /
+  rename-in-place / delete, eye toggle, "start" checkbox, per-layer object
+  count; rename remaps object + flow-node references, delete unassigns), a
+  Layer combo in Properties, and hidden layers vanish from the viewport
+  (render, click picking, gizmo, light preview, emitter previews) via a
+  hidden-index mask passed to the viewport; the object list dims them with
+  a [hidden] tag. Flow graph: Load Layer / Unload Layer actions and a pure
+  Is Layer Loaded bool (new `FlowParamKind::LayerName` combo), compiled to
+  writes into new `ScriptContext` fields (`layerRequest`/`layerState`,
+  mirroring the requestScene pattern). Runtime (generated game, both orbit
+  and FPP): asset residency is now demand-driven - `buildScene()` no longer
+  loads every scene's models/materials/anim models/terrain textures at
+  boot; `loadScene()` computes what the scene's start-resident layers need,
+  loads it synchronously behind the existing loading screen and frees what
+  nothing needs any more (scene switches now also evict the previous
+  scene's assets instead of keeping everything forever). During gameplay
+  `updateLayerStreaming()` applies script requests: unload drops the
+  layer's objects the same frame (new `RuntimeObject::active` gates render,
+  collision, USE, sounds, physics, anim pass and particle pools) and frees
+  assets no resident layer uses; load streams missing assets from a queue
+  at ONE asset per frame, then trickle-activates the layer's objects 4 per
+  frame - the whole cost hides in a corridor walk, no frame stall. Shared
+  textures are reference-counted by path in a texture cache
+  (`TextureRepository::free` releases the GS buffer + destructs); models
+  free their geometry, collider and texture refs. Layer state resets to the
+  authored defaults on scene (re)load, like the rest of the runtime state;
+  point lights stay baked (an unloaded layer's light keeps shining exactly
+  as a hidden light does today). Legacy V1 templates untouched. Verified:
+  clean editor build; scratch FPP project (short path) with an "exterior"
+  start layer (spheres, one with a stone .mtl texture) + non-start
+  "interior" (boxes, a brick-textured box, house.obj with mesh collision)
+  and an OnStart -> Delay 4s -> Load Layer interior / Delay 8s -> Unload
+  Layer exterior graph, built in Docker and run in PCSX2 at 50 FPS: timed
+  screenshots show exterior-only -> both (the house model + brick texture
+  visibly stream in mid-game) -> interior-only; `IsLayerLoaded ->
+  OnCondition -> Log` printed INTERIOR-NOW-LOADED to host log.txt; the
+  debug MEM overlay dropped 4.8 -> 4.4 MB after the unload in the
+  primitive-only variant (freed vertex buffers + texture). Editor side:
+  layers round-trip the .tyra through a GUI reopen (screenshot shows both
+  rows incl. a persisted eye-off state); sample script-demo regenerated and
+  builds (zero-layer degenerate case). Hands-on pending (no synthetic
+  input from automation): clicking the eye/rename/delete controls and
+  walking a real corridor with a pad. Testing fix that cost three runs:
+  the bundled screenshot-window.ps1 captured a scaled-up crop of the
+  window's top-left corner on a display scaled above 100% - the script now
+  calls SetProcessDPIAware() first.
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

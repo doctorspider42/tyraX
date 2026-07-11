@@ -15,6 +15,12 @@ struct RuntimeObject {
   bool visible = true;
   float velocityY = 0.0F;  // vertical velocity (object physics)
   bool dirty = true;
+  // False while the object's streaming layer is not resident: the object is
+  // fully out of the game (no render, collision, sound, USE, physics) and
+  // its geometry/assets may be freed. Managed by the game's layer streaming
+  // - scripts should use the Load/Unload Layer flow nodes (or
+  // ctx.layerRequest) instead of writing this directly.
+  bool active = true;
 
   // Animated models (.glb) playback state; ignored on everything else.
   // To switch clips set animClip (resolve names with ctx.resolveClip or the
@@ -78,6 +84,16 @@ struct ScriptContext {
   int scene = 0;
   unsigned int sceneGeneration = 0;
   int requestScene = -1;
+
+  // Streaming layers (SCENE_LAYER_* tables, per active scene). layerState[i]:
+  // 0 = unloaded, 1 = loading (assets streaming in over frames), 2 = loaded.
+  // Write 1 into layerRequest[i] to start loading a layer, 0 to unload it
+  // (the game applies requests after this frame's scripts; -1 = none).
+  // Loading is incremental - GTA3 style: request the next area's layer a
+  // corridor early and it pops in without a hitch.
+  const unsigned char* layerState = nullptr;
+  signed char* layerRequest = nullptr;
+  int layerCount = 0;
 
   // Animated models: clip-name -> clip-index lookup for an object (-1 =
   // unknown clip / not an animated model). Set by the game at startup.
