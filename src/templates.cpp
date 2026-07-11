@@ -1025,10 +1025,10 @@ void addCone(std::vector<Vec4>& verts, std::vector<Color>& cols,
   }
 }
 
-/** Debug-profile HUD (Project > Preferences > Build): FPS and free-EE-RAM
- * readouts in the top-left corner, drawn from the 8x8 glyph strip
- * res/hud/debugfont.png. Compiles to nothing in a release build (the
- * DEBUG_SHOW_* constants in terrain_config.hpp fold the calls away). */
+/** Debug-profile HUD (Project > Preferences > Build): FPS and RAM
+ * (used/total EE MB) readouts in the top-left corner, drawn from the 8x8
+ * glyph strip res/hud/debugfont.png. Compiles to nothing in a release build
+ * (the DEBUG_SHOW_* constants in terrain_config.hpp fold the calls away). */
 void drawDebugHud(Engine* engine) {
   if (!DEBUG_SHOW_FPS && !DEBUG_SHOW_MEM) return;
   static Sprite glyph;
@@ -1047,7 +1047,7 @@ void drawDebugHud(Engine* engine) {
   // Glyph order in the atlas - must match the editor's debugFontPng().
   // Cells are 16px apart: the glyph sits in the left 8px, the right 8px are
   // transparent padding so bilinear sampling never bleeds the next glyph.
-  static const char* atlas = "0123456789.FPSMBE";
+  static const char* atlas = "0123456789.FPSMBE/";
   auto drawText = [&](const char* s, float x, float y) {
     for (; *s; ++s, x += 14.0F) {
       if (*s == ' ') continue;
@@ -1067,12 +1067,13 @@ void drawDebugHud(Engine* engine) {
   }
   if (DEBUG_SHOW_MEM) {
     // getAvailableRAM() probes the heap with mallocs - too expensive to run
-    // every frame, so the readout refreshes every ~2 seconds.
+    // every frame, so the readout refreshes every ~2 seconds. Shown as
+    // used/total: the EE has 32 MB, so MEM 6.1/32 MB = 6.1 MB in use.
     if (memRefresh-- <= 0) {
       memFreeMB = engine->info.getAvailableRAM();
       memRefresh = everyFrames(2.0F);
     }
-    snprintf(line, sizeof(line), "MEM %.1f MB", memFreeMB);
+    snprintf(line, sizeof(line), "MEM %.1f/32 MB", 32.0F - memFreeMB);
     drawText(line, 16.0F, y);
   }
 }
@@ -1740,6 +1741,12 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
   }
 }
 
+// Last volume/pan sent to each emitter channel (16-23). audsrv RPCs are
+// synchronous and share one client lock with the music stream, so
+// updateSoundEmitters only issues an RPC when the quantized value changes.
+static int sndChVol[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+static int sndChPan[8] = {-999, -999, -999, -999, -999, -999, -999, -999};
+
 // Switches the runtime state to a scene from scene_data.hpp. Assets
 // (textures, models) are loaded once for all scenes at startup, so this
 // only rebuilds the runtime objects: vectors and per-object bags are
@@ -1818,7 +1825,10 @@ void TerrainGame::loadScene(int sceneIndex) {
   // Sound emitters: fresh retrigger state; mute the emitter channels (an
   // ADPCM sample can't be stopped - it plays out, but silently).
   sndTimers.assign(runtimeObjects.size(), 0);
-  for (int ch = 16; ch < 24; ++ch) engine->audio.adpcm.setVolume(0, (s8)ch);
+  for (int ch = 16; ch < 24; ++ch) {
+    engine->audio.adpcm.setVolume(0, (s8)ch);
+    sndChVol[ch - 16] = 0;  // keep the RPC cache in sync with the mute
+  }
 
   // A loaded save targeting this scene: apply the stored object state now
   if (pendingObjScene == sceneIndex && !pendingObjState.empty())
@@ -1842,8 +1852,12 @@ void TerrainGame::updateSoundEmitters() {
     if (o.data.snd < 0 || o.data.snd >= (int)sndSamples.size()) continue;
     if (!sndSamples[o.data.snd]) continue;  // sample failed to load (too big for SPU2?)
     const s8 ch = (s8)(16 + (i & 7));  // emitters own channels 16-23
+    const int chIdx = i & 7;
     if (!o.visible) {
-      engine->audio.adpcm.setVolume(0, ch);
+      if (sndChVol[chIdx] != 0) {
+        engine->audio.adpcm.setVolume(0, ch);
+        sndChVol[chIdx] = 0;
+      }
       continue;
     }
     int vol = 100;
@@ -1874,7 +1888,19 @@ void TerrainGame::updateSoundEmitters() {
         }
       }
     }
-    engine->audio.adpcm.setVolumeAndPan((u8)vol, (s8)pan, ch);
+    // audsrv RPCs are synchronous and share one client lock with the music
+    // stream - an RPC per emitter per frame stalls the main thread whenever
+    // the song thread holds the lock (measured 50 -> 42 FPS in PCSX2 with
+    // one emitter + music). Quantize and only send real changes; a static
+    // player near a static emitter then costs zero RPCs per frame.
+    vol = ((vol + 2) / 5) * 5;
+    if (vol > 100) vol = 100;
+    pan = pan >= 0 ? ((pan + 5) / 10) * 10 : -(((-pan + 5) / 10) * 10);
+    if (vol != sndChVol[chIdx] || pan != sndChPan[chIdx]) {
+      engine->audio.adpcm.setVolumeAndPan((u8)vol, (s8)pan, ch);
+      sndChVol[chIdx] = vol;
+      sndChPan[chIdx] = pan;
+    }
     if (vol <= 0) continue;
     if (sndTimers[i] > 0) {
       --sndTimers[i];
@@ -3369,13 +3395,13 @@ const unsigned char* usePromptPng(size_t& size) {
 }
 
 // 512x8 glyph strip for the debug-profile HUD, rendered from an embedded
-// 8x8 pixel font and encoded on first use. 17 glyphs ("0123456789.FPSMBE"),
+// 8x8 pixel font and encoded on first use. 18 glyphs ("0123456789.FPSMBE/"),
 // one per 16px cell; the right half of each cell stays transparent so the
 // GS's bilinear filter never samples the neighboring glyph.
 const std::vector<unsigned char>& debugFontPng() {
     static std::vector<unsigned char> png = [] {
         // Classic CP437-style 8x8 glyphs, one byte per row, MSB = left pixel.
-        static const unsigned char rows[17][8] = {
+        static const unsigned char rows[18][8] = {
             {0x7C, 0xC6, 0xCE, 0xDE, 0xF6, 0xE6, 0x7C, 0x00},  // 0
             {0x30, 0x70, 0x30, 0x30, 0x30, 0x30, 0xFC, 0x00},  // 1
             {0x78, 0xCC, 0x0C, 0x38, 0x60, 0xCC, 0xFC, 0x00},  // 2
@@ -3393,10 +3419,11 @@ const std::vector<unsigned char>& debugFontPng() {
             {0xC6, 0xEE, 0xFE, 0xFE, 0xD6, 0xC6, 0xC6, 0x00},  // M
             {0xFC, 0x66, 0x66, 0x7C, 0x66, 0x66, 0xFC, 0x00},  // B
             {0xFE, 0x62, 0x68, 0x78, 0x68, 0x62, 0xFE, 0x00},  // E
+            {0x06, 0x0C, 0x18, 0x30, 0x60, 0xC0, 0x80, 0x00},  // /
         };
         const int w = 512, h = 8;  // PS2 textures need power-of-two sizes
         std::vector<unsigned char> rgba(w * h * 4, 0);
-        for (int g = 0; g < 17; ++g)
+        for (int g = 0; g < 18; ++g)
             for (int y = 0; y < 8; ++y)
                 for (int x = 0; x < 8; ++x) {
                     if (!(rows[g][y] & (0x80 >> x))) continue;

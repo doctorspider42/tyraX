@@ -14,6 +14,13 @@ tools/ps2client/bin/*
 !tools/ps2client/bin/ps2client.exe
 !tools/ps2client/nodelay.patch
 !tools/ps2client/README.md
+# ...and the SPU silencer used by Stop on PS2 (source + prebuilt ELF; see
+# tools/silencer/Makefile - it builds inside the toolchain container)
+!tools/silencer/
+tools/silencer/*
+!tools/silencer/main.c
+!tools/silencer/Makefile
+!tools/silencer/silencer.elf
 
 # Vendored dependencies are fetched separately (see README)...
 vendor/*

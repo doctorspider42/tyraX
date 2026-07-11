@@ -446,6 +446,17 @@ std::string save(const Project& p) {
     for (size_t i = 0; i < p.music.size(); ++i)
         json << (i ? ", " : "") << "\"" << p.music[i] << "\"";
     json << "]";
+    {
+        bool first = true;
+        for (const auto& [path, opt] : p.musicBuild) {
+            if (opt.rate == 0 && !opt.mono) continue;  // default = as-is
+            json << (first ? ",\n  \"musicBuild\": [\n    " : ",\n    ")
+                 << "{ \"path\": \"" << jsonEscape(path) << "\", \"rate\": " << opt.rate
+                 << ", \"mono\": " << (opt.mono ? "true" : "false") << " }";
+            first = false;
+        }
+        if (!first) json << "\n  ]";
+    }
     json << ",\n  \"sounds\": [";
     for (size_t i = 0; i < p.sounds.size(); ++i)
         json << (i ? ", " : "") << "\"" << p.sounds[i] << "\"";
@@ -1027,6 +1038,19 @@ std::string load(Project& out, const std::string& projectDir) {
         }
     }
 
+    if (const auto* mb = root.find("musicBuild");
+        mb && mb->type == json::Value::Type::Array) {
+        for (const auto& jo : mb->arr) {
+            std::string path;
+            Project::MusicBuildOpt opt;
+            if (const auto* v = jo.find("path")) path = v->stringOr("");
+            if (const auto* v = jo.find("rate")) opt.rate = (int)v->numberOr(0);
+            if (const auto* v = jo.find("mono"))
+                opt.mono = v->type == json::Value::Type::Bool && v->boolean;
+            if (!path.empty() && (opt.rate != 0 || opt.mono)) out.musicBuild[path] = opt;
+        }
+    }
+
     if (const auto* sounds = root.find("sounds");
         sounds && sounds->type == json::Value::Type::Array) {
         for (const auto& s : sounds->arr) {
@@ -1388,18 +1412,18 @@ std::string refreshGenerated(const Project& p) {
         }
     }
     // Debug-HUD glyph strip, needed only when a debug-profile overlay is on.
+    // Always rewritten: the glyph set evolves with the overlay (the "/" for
+    // MEM used/total came later) and a stale strip renders as blank glyphs.
     if (p.settings.buildProfile == "debug" &&
         (p.settings.showFps || p.settings.showMemory)) {
         const fs::path fontPng = fs::path(p.dir) / "res" / "hud" / "debugfont.png";
         std::error_code ec;
-        if (!fs::exists(fontPng, ec)) {
-            const auto& png = templates::debugFontPng();
-            fs::create_directories(fontPng.parent_path(), ec);
-            std::ofstream f(fontPng, std::ios::binary);
-            if (f)
-                f.write(reinterpret_cast<const char*>(png.data()),
-                        (std::streamsize)png.size());
-        }
+        const auto& png = templates::debugFontPng();
+        fs::create_directories(fontPng.parent_path(), ec);
+        std::ofstream f(fontPng, std::ios::binary);
+        if (f)
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
     }
     for (const templates::BuiltinAsset& a : templates::saveMenuAssets()) {
         const fs::path png = fs::path(p.dir) / "res" / "hud" / a.fileName;

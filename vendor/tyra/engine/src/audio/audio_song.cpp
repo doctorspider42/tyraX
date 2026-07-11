@@ -12,15 +12,31 @@
 # rate audsrv accepts - it resamples to 48kHz on the IOP) and the data chunk
 # gives the real sample offset and byte count, so playback starts at the
 # samples and stops before any trailing metadata.
+#
+# Also added: a dedicated streamer thread between the file and the audsrv
+# feed. Over a network host: (ps2link dev deploys) every fread is a round
+# trip with jitter; any read on the audio thread races the audsrv ring,
+# which holds under ~1/9th s of audio - the fillbuf callback fires when the
+# ring is nearly EMPTY, so a slow read at that moment is a guaranteed
+# audible underrun. The streamer keeps a 96 KB ring topped up in the
+# background (single-producer/single-consumer, EE is one core so aligned
+# u32 counter writes are atomic); the audio thread only memcpys from
+# memory and never blocks on the network. Repositioning (load / rewind /
+# unload) hands the file to the streamer through a generation handshake -
+# the streamer owns all FILE access while active.
 */
 
 #include "audio/audio_song.hpp"
 #include "debug/debug.hpp"
+#include "thread/threading.hpp"
 #include <tamtypes.h>
+#include <kernel.h>
 #include <malloc.h>
 #include <cstdlib>
 #include <cstring>
 #include <audsrv.h>
+
+extern void* _gp;
 
 namespace Tyra {
 
@@ -41,6 +57,77 @@ u32 songBytesLeft = 0xFFFFFFFF;
 // callback never fires and playback stays silent. Small formats stream in
 // smaller chunks with a matching threshold instead.
 s32 songChunkBytes = 4 * 1024;
+
+// Streamer ring (see the header comment). Producer = the streamer thread
+// (owns all FILE access while active), consumer = the audio thread's
+// work(). produced/consumed are monotonically increasing byte counters
+// (u32 wrap-safe subtraction); ring positions are counter % kStageSize.
+constexpr u32 kStageSize = 96 * 1024;
+constexpr u32 kReadBlock = 16 * 1024;
+char* stageBuf = nullptr;
+volatile u32 stageProduced = 0;
+volatile u32 stageConsumed = 0;
+// No more file bytes to pull (EOF, data chunk exhausted, or stream parked).
+volatile bool fileEnd = true;
+// Producer-owned while streaming: data bytes not yet pulled from the file.
+// 0xFFFFFFFF = unknown (legacy headerless path) - read until a short fread.
+u32 fileBytesLeft = 0;
+FILE* streamWav = nullptr;
+volatile bool streamActive = false;
+// Reposition/park handshake: the control side fills seekPos/seekBytes and
+// bumps seekReqGen; the streamer performs the fseek + ring reset between
+// its own freads and acks. The control side polls for the ack, so at most
+// one in-flight fread of stale data delays it (and gets discarded).
+volatile u32 seekReqGen = 0;
+volatile u32 seekAckGen = 0;
+u32 seekPos = 0;
+u32 seekBytes = 0;
+
+void streamerStep() {
+  if (seekAckGen != seekReqGen) {
+    if (streamWav && streamActive) fseek(streamWav, seekPos, SEEK_SET);
+    stageConsumed = stageProduced;  // consumer is parked awaiting the ack
+    fileBytesLeft = seekBytes;
+    fileEnd = !streamActive || fileBytesLeft == 0;
+    seekAckGen = seekReqGen;
+    return;
+  }
+  if (!streamActive || fileEnd || !streamWav || !stageBuf) return;
+  if (stageProduced - stageConsumed >= kStageSize - kReadBlock) return;
+  const u32 wpos = stageProduced % kStageSize;
+  u32 room = kStageSize - wpos;  // contiguous bytes until the ring wraps
+  if (room > kReadBlock) room = kReadBlock;
+  if (fileBytesLeft != 0xFFFFFFFF && room > fileBytesLeft) room = fileBytesLeft;
+  const u32 got = room > 0 ? (u32)fread(stageBuf + wpos, 1, room, streamWav) : 0;
+  stageProduced += got;
+  if (fileBytesLeft != 0xFFFFFFFF) fileBytesLeft -= got;
+  if (got < room || fileBytesLeft == 0) fileEnd = true;
+}
+
+// Parks/repositions the streamer and waits until it acknowledged - after
+// this the ring is empty and the FILE is untouched by the producer.
+void requestStream(FILE* f, u32 pos, u32 bytes, bool active) {
+  streamWav = f;
+  streamActive = active;
+  seekPos = pos;
+  seekBytes = bytes;
+  seekReqGen = seekReqGen + 1;
+  while (seekAckGen != seekReqGen) Threading::sleep(1);
+}
+
+int streamerThreadId = -1;
+
+}  // namespace
+
+// Thread entry (plain function pointer for CreateThread, like audioThread).
+static void songStreamerThread(void*) {
+  while (true) {
+    Threading::sleep(2);
+    streamerStep();
+  }
+}
+
+namespace {
 
 u32 readU16(const u8* p) { return p[0] | (p[1] << 8); }
 u32 readU32(const u8* p) {
@@ -120,6 +207,21 @@ AudioSong::~AudioSong() {
 
 void AudioSong::init() {
   chunk = static_cast<char*>(memalign(sizeof(char), chunkSize));
+  stageBuf = static_cast<char*>(memalign(64, kStageSize));
+
+  // The streamer thread pulls file bytes into the ring in the background
+  // so work() never blocks on (network) file IO. Priority sits just below
+  // the audio thread (0x5); it spends its life blocked on IO anyway.
+  static u8 streamerStack[16 * 1024] __attribute__((aligned(16)));
+  ee_thread_t th;
+  th.gp_reg = &_gp;
+  th.func = reinterpret_cast<void*>(songStreamerThread);
+  th.stack = streamerStack;
+  th.stack_size = sizeof(streamerStack);
+  th.initial_priority = 0x6;
+  streamerThreadId = CreateThread(&th);
+  TYRA_ASSERT(streamerThreadId >= 0, "Create song streamer thread failed!");
+  StartThread(streamerThreadId, nullptr);
 
   initSema();
   initAUDSRV();
@@ -220,15 +322,17 @@ void AudioSong::initSema() {
  */
 void AudioSong::unloadSong() {
   songLoaded = false;
+  // Park the streamer first - it may be mid-fread on this FILE.
+  requestStream(nullptr, 0, 0, false);
   fclose(wav);
 }
 
-/** Fseek to the first sample of the data chunk. */
+/** Hand the file to the streamer, positioned at the first sample. */
 void AudioSong::rewindSongToStart() {
-  if (wav != nullptr) fseek(wav, songDataStart, SEEK_SET);
   songBytesLeft = songDataBytes;
   chunkReadStatus = 0;
   songFinished = false;
+  if (wav != nullptr) requestStream(wav, songDataStart, songDataBytes, true);
 }
 
 /** Default WAV format (16bit, 22050Hz, stereo) - used until a song is
@@ -273,12 +377,27 @@ void AudioSong::work() {
       songListeners[i]->listener->onAudioTick();
   }
 
-  // Read only up to the end of the data chunk - trailing metadata chunks
-  // (LIST/INFO/id3) must not be fed to the speakers.
+  // Cut the next chunk from the streamer ring - pure memcpy, no file IO on
+  // this thread. Feed only up to the end of the data chunk (trailing
+  // LIST/INFO/id3 metadata must not reach the speakers).
   const u32 want =
       songBytesLeft < (u32)songChunkBytes ? songBytesLeft : (u32)songChunkBytes;
-  chunkReadStatus = want > 0 ? fread(chunk, 1, want, wav) : 0;
-  if (chunkReadStatus > 0) songBytesLeft -= (u32)chunkReadStatus;
+  const u32 avail = stageProduced - stageConsumed;
+  u32 take = want < avail ? want : avail;
+  if (take > 0) {
+    const u32 rpos = stageConsumed % kStageSize;
+    u32 first = kStageSize - rpos;
+    if (first > take) first = take;
+    memcpy(chunk, stageBuf + rpos, first);
+    if (take > first) memcpy(chunk + first, stageBuf, take - first);
+    stageConsumed = stageConsumed + take;
+    songBytesLeft -= take;
+  }
+  chunkReadStatus = (s32)take;
+  // take == 0 with the file not exhausted = transient starvation (the
+  // streamer is mid-refill): chunkReadStatus stays 0, so the next work()
+  // iteration skips the callback wait and retries the pop immediately -
+  // playback resumes as soon as bytes land, without a lost fillbuf signal.
 
   // 8-bit WAV stores unsigned samples (0x80 = silence) but audsrv mixes
   // them as signed - without this the waveform wraps at every zero
@@ -288,7 +407,11 @@ void AudioSong::work() {
     for (s32 i = 0; i < chunkReadStatus; i++) samples[i] ^= 0x80;
   }
 
-  if (chunkReadStatus < (s32)want || songBytesLeft == 0) songFinished = true;
+  // Finished only on true end-of-data - a short pop with the streamer still
+  // pulling bytes is transient starvation, not the end of the song.
+  if (songBytesLeft == 0 ||
+      (fileEnd && stageProduced == stageConsumed && chunkReadStatus < (s32)want))
+    songFinished = true;
 }
 
 u32 AudioSong::addListener(AudioListener* t_listener) {
