@@ -85,6 +85,7 @@ enum class FlowParamKind {
     MenuName,   // name of a Project::menus entry
     VarName,    // name of a flow variable (free text; created on first use)
     SaveText,   // name of a Project::saveTexts entry
+    GradingName,  // name of a Project::gradings preset ("" = neutral/off)
 };
 
 struct FlowNodeType {
@@ -193,6 +194,11 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // state resets; textures/models stay loaded (shared across scenes).
         {"SwitchScene", "Switch Scene", "Scene", false, FlowParamKind::SceneName, 0, {},
          FlowParamKind::None, false, false},
+        // Applies a color grading preset (Tools > Color Grading) as the
+        // frame's GS post pass; "<none>" restores the ungraded image. The
+        // switch is global and persists across scene changes.
+        {"SetGrading", "Set Color Grading", "Scene", false, FlowParamKind::GradingName,
+         0, {}, FlowParamKind::None, false, false},
         // HUD (all HUD images at once; the USE prompt is unaffected)
         {"ShowHud", "Show HUD", "HUD", false, FlowParamKind::None, 0, {},
          FlowParamKind::None, false, false},

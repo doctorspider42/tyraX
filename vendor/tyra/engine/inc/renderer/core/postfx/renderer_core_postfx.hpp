@@ -18,17 +18,22 @@
 namespace Tyra {
 
 /**
- * Full screen post effects. There are no pixel shaders on the PS2 - both
+ * Full screen post effects. There are no pixel shaders on the PS2 - all
  * effects are GS framebuffer blits at the end of the frame:
  *
  * - Bloom: the framebuffer is downsampled (bilinear) into a quarter-res
  *   VRAM buffer, softened with a few offset blits, and drawn back over the
  *   frame with additive blending. The bilinear filter is the blur.
+ * - Color grading: flat full-screen sprites driven by the GS blender
+ *   ((A - B) * C >> 7 + D). Per-channel gain multiplies the frame through
+ *   FBMSK-masked Cd * FIX sprites, per-channel lift adds/subtracts a flat
+ *   color, and a final alpha-blend sprite mixes the frame toward a constant
+ *   color (tint / desaturation approximation).
  * - Film grain: a small noise texture is drawn over the frame twice
  *   (subtractive, then additive) with different random offsets every frame,
  *   which yields zero-mean grain out of unsigned GS math.
  *
- * Total cost is 8 textured sprites per frame - GS fill only, no EE/VU work.
+ * Total cost is a handful of sprites per frame - GS fill only, no EE/VU work.
  */
 class RendererCorePostFx {
  public:
@@ -46,8 +51,35 @@ class RendererCorePostFx {
   u8 getBloom() const { return bloom; }
   u8 getGrain() const { return grain; }
 
+  /**
+   * Color grading, applied between bloom and grain. Per channel:
+   * out = mix(clamp(in * gain[c] / 128 + lift[c]), mixColor[c], mixAmt / 128)
+   * gain: 128 = 1x (range 0..~2x). lift: -255..255 added. mixAmt: 0 = off,
+   * 128 = the frame fully replaced by mixColor. Every step clamps to 0..255
+   * exactly like the GS blender does.
+   */
+  void setGrading(const unsigned char gain[3], const short lift[3],
+                  const unsigned char mixColor[3], unsigned char mixAmt) {
+    for (int i = 0; i < 3; i++) {
+      gGain[i] = gain[i];
+      gLift[i] = lift[i];
+      gMix[i] = mixColor[i];
+    }
+    gMixAmt = mixAmt > 128 ? 128 : mixAmt;
+  }
+
+  /** Back to the untouched frame (neutral grading). */
+  void clearGrading() {
+    for (int i = 0; i < 3; i++) {
+      gGain[i] = 128;
+      gLift[i] = 0;
+      gMix[i] = 128;
+    }
+    gMixAmt = 0;
+  }
+
   /** True when any effect is active, i.e. apply() will draw something. */
-  bool isEnabled() const { return bloom != 0 || grain != 0; }
+  bool isEnabled() const { return bloom != 0 || grain != 0 || hasGrading(); }
 
   /** Called by RendererCore::endFrame() right before the buffer flip. */
   void apply();
@@ -59,7 +91,16 @@ class RendererCorePostFx {
   RendererCoreGS* gs;
   packet2_t* packet;
   u8 bloom, grain;
+  u8 gGain[3];   // per-channel multiplier, 128 = 1x
+  s16 gLift[3];  // per-channel offset, -255..255
+  u8 gMix[3];    // mix target color
+  u8 gMixAmt;    // 0..128 mix amount
   u32 rng;
+
+  bool hasGrading() const {
+    return gGain[0] != 128 || gGain[1] != 128 || gGain[2] != 128 ||
+           gLift[0] != 0 || gLift[1] != 0 || gLift[2] != 0 || gMixAmt != 0;
+  }
 
   int fbW, fbH;      // frame size in pixels
   int lowW, lowH;    // quarter-res working size
@@ -76,6 +117,15 @@ class RendererCorePostFx {
                 int u0, int v0, int u1, int v1, int dstVram, int dstBufW,
                 int x0, int y0, int x1, int y1, bool linear, bool wrap,
                 int abe, u64 alpha);
+
+  /** One untextured full-screen sprite: flat RGBAQ color, blended over the
+   * frame by `alpha`; `fbmsk` bits protect framebuffer bits from the write
+   * (per-channel gain masks everything but its channel). */
+  qword_t* flatQuad(qword_t* q, int dstVram, int dstBufW, u32 fbmsk, u8 r,
+                    u8 g, u8 b, u8 a, u64 alpha);
+
+  /** The color grading sprites (gain -> lift -> mix), see setGrading(). */
+  qword_t* gradingQuads(qword_t* q, int fbVram, int fbBufW);
 };
 
 }  // namespace Tyra

@@ -142,7 +142,8 @@ class TerrainGame : public Tyra::Game {
   unsigned int sceneGeneration = 0;
 
   // Particle emitters (type 7): fixed pools sized at scene load, zero
-  // per-frame allocations; camera-facing color quads, one bag per emitter.
+  // per-frame allocations; camera-facing quads (textured when the emitter
+  // has a material with a map_Kd), one bag per emitter.
   struct ParticleSystem {
     int objectIndex = -1;
     unsigned int rng = 1;
@@ -150,9 +151,11 @@ class TerrainGame : public Tyra::Game {
     std::vector<float> life, maxLife;
     std::vector<Tyra::Vec4> verts;
     std::vector<Tyra::Color> cols;
+    std::vector<Tyra::Vec4> sts;  // fixed per-quad UVs (textured emitters)
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
   };
   std::vector<ParticleSystem> particles;
   void buildParticles();

@@ -124,6 +124,7 @@ private:
     void importSoundEffect();
     void drawSaveDataSection();
     void drawMenusWindow();
+    void drawGradingWindow();
     void handleFileDrop(int count, const char** paths);
     void saveProject();
 
@@ -199,6 +200,12 @@ private:
     bool menuPreviewClipped_ = false;  // content hit the 512px texture cap
     int menuPreviewMode_ = 0;      // 0 = panel 1:1, 1 = TV PAL, 2 = TV NTSC
     std::string menuPreviewKey_;  // serialized menu the texture was baked from
+
+    // Color grading (Tools > Color Grading): selected preset + whether the
+    // viewport previews grading (the edited preset wins over the default)
+    bool showGradingEditor_ = false;
+    int selectedGrading_ = -1;
+    bool gradingPreview_ = true;
     struct HudTexture {
         unsigned tex = 0;
         int w = 0, h = 0;
