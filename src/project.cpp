@@ -527,9 +527,12 @@ std::string save(const Project& p) {
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << h.name << "\", \"image\": \""
              << h.imagePath << "\", \"pos\": [" << fmtFloat(h.pos[0]) << ", "
              << fmtFloat(h.pos[1]) << "], \"size\": [" << fmtFloat(h.size[0]) << ", "
-             << fmtFloat(h.size[1]) << "] }";
+             << fmtFloat(h.size[1]) << "], \"texW\": " << h.texW << ", \"texH\": "
+             << h.texH << ", \"texQuant\": \"" << h.texQuant << "\" }";
     }
     json << (p.hud.empty() ? "]" : "\n  ]");
+    json << ",\n  \"hudBloomLayer\": " << p.hudBloomLayer;
+    json << ",\n  \"hudGrainLayer\": " << p.hudGrainLayer;
     json << ",\n  \"music\": [";
     for (size_t i = 0; i < p.music.size(); ++i)
         json << (i ? ", " : "") << "\"" << p.music[i] << "\"";
@@ -1163,9 +1166,35 @@ std::string load(Project& out, const std::string& projectDir) {
                 h.size[0] = (float)v->arr[0].numberOr(64);
                 h.size[1] = (float)v->arr[1].numberOr(64);
             }
+            // Bake settings; absent (older projects) = auto size, full color.
+            if (const auto* v = jh.find("texW")) h.texW = (int)v->numberOr(0);
+            if (const auto* v = jh.find("texH")) h.texH = (int)v->numberOr(0);
+            if (const auto* v = jh.find("texQuant")) {
+                const std::string q = v->stringOr("");
+                h.texQuant =
+                    (q == "none" || q == "8bit" || q == "4bit") ? q : "";
+            }
             if (!h.imagePath.empty()) out.hud.push_back(std::move(h));
         }
     }
+    // Effect layer positions; absent (older projects) or out of range = -1,
+    // i.e. the effect applies over everything at end of frame - the old
+    // behavior. "hudPostFxLayer" is the pre-split key (bloom+grain shared one
+    // layer); migrate it to both.
+    int legacyLayer = -1;
+    if (const auto* v = root.find("hudPostFxLayer"))
+        legacyLayer = (int)v->numberOr(-1.0);
+    out.hudBloomLayer = legacyLayer;
+    out.hudGrainLayer = legacyLayer;
+    if (const auto* v = root.find("hudBloomLayer"))
+        out.hudBloomLayer = (int)v->numberOr(-1.0);
+    if (const auto* v = root.find("hudGrainLayer"))
+        out.hudGrainLayer = (int)v->numberOr(-1.0);
+    auto clampLayer = [&](int& L) {
+        if (L < -1 || L >= (int)out.hud.size()) L = -1;
+    };
+    clampLayer(out.hudBloomLayer);
+    clampLayer(out.hudGrainLayer);
 
     if (const auto* music = root.find("music");
         music && music->type == json::Value::Type::Array) {
