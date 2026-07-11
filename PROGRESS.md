@@ -9,6 +9,25 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (44) **PS2 deploy: Stop / second launch hung the console (thread-priority
+  regression)** — first network deploy worked, but Stop on PS2 and every
+  redeploy left the console frozen on the old game. Root cause: entry (40)'s
+  audio work demoted the game's main thread to priority 0x10 so the audio
+  threads (0x5/0x6) could preempt it — but ps2link's EE command thread (the
+  one that services `ps2client reset`/`execee` while a game runs, verified
+  in ps2link's `ee/cmdHandler.c`) runs at priority 20, and the EE scheduler
+  is strictly priority-based. Since the engine's GS/vsync waits are
+  busy-spins that never block, a priority-16 game starved ps2link forever
+  and the reset UDP command was received (IOP side) but never processed
+  (EE side). Fix (`vendor/tyra/engine/src/engine.cpp`): demote to 0x40
+  instead — identical to ps2link's own user-program priority, so audio
+  (0x5/0x6) and ps2link (20) both preempt the render loop; PCSX2/ISO boots
+  keep the same audio-over-game ordering as before. Verified: engine +
+  game rebuild clean (libtyra re-archived, ps2net relinked); the actual
+  stop → redeploy cycle on the real console needs a hands-on test. Note:
+  a console already stuck with the old ELF must be power-cycled back into
+  PS2LINK once — the fix rides in the game binary.
+
 - (43) **Viewport wire boxes rendered as garbage lines** — the selection
   outline and the "Highlight usable objects" boxes drew as random
   criss-crossing lines instead of cubes: `unitWireCube()` (viewport.cpp)
