@@ -2005,6 +2005,27 @@ Each finished feature lands as its own commit.
   eyeball - the GDI window capture only grabbed a fixed strip of the 4K editor
   window (Project panel) and the top sky band of the PCSX2 output, so neither
   framed the objects.
+  Follow-up: extended the control to **Box** so every geometry primitive is
+  authorable (requested; box subdivision also gives baked point-light gradients
+  something to shade). `primDetail` is now type-aware: for a box it counts
+  subdivisions per edge (1 = the plain 12-tri box, capped at 16 -> 3072 tris
+  since box triangles grow quadratically), for curved shapes it stays radial
+  segments (3..64). Added `kDefaultBoxDetail`/`primDetailMin`/`primDetailMax`/
+  `defaultPrimDetail` and made `clampPrimDetail` take the type (project.hpp);
+  `unitBox`/`addBox` now tessellate each face into an n x n grid (UVs span 0..1
+  per face, so textures don't tile with detail; at detail 1 the output is
+  byte-identical to the old box, and winding was checked face-by-face). The
+  Properties slider shows for all four shapes with per-type range and a
+  "segments"/"subdivisions" label, and re-fits the value when the Type combo
+  switches shape; `addObject` seeds the type's default. Load defaults a box with
+  no `"detail"` key to 1, so old projects keep their plain boxes. It is freely
+  editable any time (no write-once lock - the slider reads the live value every
+  frame and commits one undo step per edit). Verified: clean editor build;
+  editor launched on a 2-box scene (plain + detail-6) rendered without crashing
+  (exercises the box mesh cache / `uploadMesh(unitBox(6))` on the draw path);
+  Docker PS2 build `=== Build OK ===`; `scene_data.hpp` emits `plainBox` -> `1`
+  (no key, backward-compatible) and `subBox` -> `6` (432 tris). Same 4K/PCSX2
+  capture limitation still blocks an automated visual poly-count diff.
 
 
 ## Backlog (rough order)

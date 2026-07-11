@@ -144,10 +144,10 @@ private:
     Mesh box_, sphere_, cylinder_, cone_, spawnMarker_, playerMarker_;
     Mesh lightGizmo_;  // small unshaded bulb marking a point light
     Mesh wireSphere_;  // unit-radius ring sphere, scaled to a light's radius
-    // Per-detail curved-primitive meshes (Sphere/Cylinder/Cone), built lazily
-    // and shared across objects with the same detail. The fixed sphere_ /
-    // cylinder_ / cone_ above stay at kDefaultPrimDetail (markers, previews).
-    std::map<int, Mesh> sphereMeshes_, cylinderMeshes_, coneMeshes_;
+    // Per-detail primitive meshes (Box/Sphere/Cylinder/Cone), built lazily and
+    // shared across objects with the same detail. The fixed box_ / sphere_ /
+    // cylinder_ / cone_ above stay at the default detail (markers, previews).
+    std::map<int, Mesh> boxMeshes_, sphereMeshes_, cylinderMeshes_, coneMeshes_;
     const Mesh& primMesh(PrimitiveType type, int detail);
     void clearPrimMeshCache();
     std::string projectDir_;

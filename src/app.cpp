@@ -1398,6 +1398,7 @@ void App::addObject(PrimitiveType type) {
     SceneObject o;
     o.name = name;
     o.type = type;
+    o.primDetail = defaultPrimDetail(type);  // box baseline 1, curved 16
     if (type == PrimitiveType::SpawnPoint) {
         o.position[1] = 0.0f;  // marker sits on the ground
         o.color[0] = 0.15f, o.color[1] = 0.9f, o.color[2] = 0.9f;
@@ -2125,6 +2126,9 @@ void App::drawPropertiesWindow() {
         const char* typeNames[] = {"Box", "Sphere", "Cylinder", "Cone"};
         if (ImGui::Combo("Type", &typeIdx, typeNames, 4)) {
             o.type = (PrimitiveType)typeIdx;
+            // Detail means different things (segments vs box subdivisions) and
+            // has different ranges per shape - re-fit the value to the new one.
+            o.primDetail = clampPrimDetail(o.type, o.primDetail);
             committed = true;
         }
     } else {
@@ -2132,12 +2136,16 @@ void App::drawPropertiesWindow() {
         ImGui::SameLine();
         ImGui::TextUnformatted(typeLabel(o.type));
     }
-    // Curved primitives: how many radial segments (= triangles) build the mesh.
-    if (o.type == PrimitiveType::Sphere || o.type == PrimitiveType::Cylinder ||
-        o.type == PrimitiveType::Cone) {
+    // Geometry primitives: how many segments (curved) or edge subdivisions
+    // (box) the mesh is built from. Editable any time, updates live.
+    if (o.type == PrimitiveType::Box || o.type == PrimitiveType::Sphere ||
+        o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone) {
+        const bool box = o.type == PrimitiveType::Box;
         int detail = o.primDetail;
-        if (ImGui::DragInt("Detail", &detail, 0.2f, 3, 64, "%d segments"))
-            o.primDetail = clampPrimDetail(detail);
+        if (ImGui::DragInt("Detail", &detail, 0.2f, primDetailMin(o.type),
+                           primDetailMax(o.type), box ? "%d subdivisions"
+                                                      : "%d segments"))
+            o.primDetail = clampPrimDetail(o.type, detail);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::SameLine();
         ImGui::TextDisabled("(%d tris)", primTriangleCount(o.type, o.primDetail));
