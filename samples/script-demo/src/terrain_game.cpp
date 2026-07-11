@@ -153,26 +153,51 @@ V3 shadeOf(const V3& n) {
   return s;
 }
 
-/** Point lights (SceneObject type 9) in the active scene, baked additively on
- * top of the directional term. Linear distance falloff * N.L, tinted by the
- * light color and scaled by its brightness. wp = world-space vertex position. */
-V3 pointLightAt(const V3& wp, const V3& n) {
-  V3 add = {0.0F, 0.0F, 0.0F};
+/** Point lights (SceneObject type 9) of the active scene, collected once per
+ * scene load. pointLightAt runs PER VERTEX while baking terrain chunks and
+ * object meshes; scanning the whole SCENE_OBJECTS table there thrashes the
+ * EE's 16 KB dcache on big scenes - an 1100-object scene cost ~170 ms per
+ * 16x16 terrain chunk (a visible hitch on every chunk-border crossing).
+ * Lights are static authored data, so the tiny list is exact. */
+struct BakedPointLight {
+  V3 pos;
+  float color[3];
+  float radius, bright;
+};
+std::vector<BakedPointLight> g_scenePointLights;
+void collectScenePointLights() {
+  g_scenePointLights.clear();
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     const SceneObjectData& L = SCENE_OBJECTS[i];
     if (L.type != 9) continue;
-    const float radius = L.lightRadius > 0.01F ? L.lightRadius : 0.01F;
-    V3 d = {L.position[0] - wp.x, L.position[1] - wp.y, L.position[2] - wp.z};
+    BakedPointLight b;
+    b.pos = {L.position[0], L.position[1], L.position[2]};
+    b.color[0] = L.color[0];
+    b.color[1] = L.color[1];
+    b.color[2] = L.color[2];
+    b.radius = L.lightRadius > 0.01F ? L.lightRadius : 0.01F;
+    b.bright = L.lightBright;
+    g_scenePointLights.push_back(b);
+  }
+}
+
+/** Point lights baked additively on top of the directional term. Linear
+ * distance falloff * N.L, tinted by the light color and scaled by its
+ * brightness. wp = world-space vertex position. */
+V3 pointLightAt(const V3& wp, const V3& n) {
+  V3 add = {0.0F, 0.0F, 0.0F};
+  for (const BakedPointLight& L : g_scenePointLights) {
+    V3 d = {L.pos.x - wp.x, L.pos.y - wp.y, L.pos.z - wp.z};
     const float dist = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
-    if (dist >= radius) continue;
-    float atten = 1.0F - dist / radius;
+    if (dist >= L.radius) continue;
+    float atten = 1.0F - dist / L.radius;
     atten *= atten;  // softer, rounder pool of light
     float ndotl = 1.0F;
     if (dist > 0.0001F) {
       ndotl = (n.x * d.x + n.y * d.y + n.z * d.z) / dist;
       if (ndotl < 0.0F) ndotl = 0.0F;
     }
-    const float k = L.lightBright * atten * ndotl;
+    const float k = L.bright * atten * ndotl;
     add.x += k * L.color[0];
     add.y += k * L.color[1];
     add.z += k * L.color[2];
@@ -1599,6 +1624,9 @@ void TerrainGame::loadScene(int sceneIndex) {
   currentScene = sceneIndex;
   g_activeScene = sceneIndex;
   sceneGeneration++;  // scene scripts see this and reset their state
+  // Before any mesh baking: terrain chunks and object geometry shade with
+  // this scene's point lights (see collectScenePointLights).
+  collectScenePointLights();
 
   // Streaming layers: desired residency from the scene's authored defaults.
   {
