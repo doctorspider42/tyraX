@@ -33,6 +33,14 @@
 // plane may classify either way, which is harmless. C++ side only.
 #define VU1_CLIP_GUARD 4096.0F
 
+// X/Y band the clip programs cut to, as a fraction of w. Must be < 1.0:
+// a vertex at exactly |x| = w scales to GS coordinate 4096.0, one past the
+// 12.4 XYZ2 maximum - it wraps to the far side of the raster window and
+// smears a wedge across the screen. 0.9 stays well inside (coord 3891)
+// while still covering the whole visible frustum (screen edge = 0.5 w),
+// so the GS scissor produces pixel-identical output. C++ side only.
+#define VU1_CLIP_XY_BAND 0.9F
+
 // Buffer data (xtop)
 #define VU1_STAPIP_VERT_DATA_ADDR 2
 
