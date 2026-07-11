@@ -286,6 +286,12 @@ private:
     int flowGraphObject_ = -1;           // object whose graph is open in the editor
     bool flowPositionsApplied_ = false;  // node positions pushed to imnodes per graph
     float flowZoom_ = 1.0f;              // canvas zoom (imnodes emulation, 0.4-1.8)
+    // Set every frame by drawFlowGraphWindow(): the Flow Graph window (or one of
+    // its children) has keyboard focus, so Ctrl+C/V copy nodes, not scene objects.
+    bool flowGraphFocused_ = false;
+    // Clipboard for flow-graph copy/paste: the copied nodes plus the links that
+    // connect two of them (dangling links are dropped). nextId is unused.
+    FlowGraph flowClipboard_;
 
     // Viewport overlays: TV frames (PAL 4:3 and NTSC, which shows a
     // slightly wider slice of the same 512x448 buffer)

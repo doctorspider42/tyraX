@@ -9,6 +9,31 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (65) **Copy/paste flow-graph nodes with Ctrl+C/V** — before this, Ctrl+C/V in
+  the Flow Graph window always hit the global handler and copied the *scene
+  objects* selected in the viewport, so there was no way to duplicate graph
+  nodes. Copy/paste is now focus-aware: `drawFlowGraphWindow()` sets a
+  per-frame `flowGraphFocused_` flag (via `IsWindowFocused(ChildWindows)`, the
+  same test the node-delete path uses) and, while that window has focus and no
+  node param is being typed into, handles Ctrl+C/V on the graph itself. The
+  global shortcut handler (which runs later the same frame, after the window is
+  drawn) now stands down whenever `flowGraphFocused_` is set, so object
+  copy/paste is unaffected everywhere else. Copy grabs the imnodes-selected
+  nodes into a `FlowGraph flowClipboard_` plus only the links whose *both*
+  endpoints are in the copied set (dangling links dropped). Paste re-ids every
+  node from the target graph's `nextId` (so it works into the same graph or a
+  different object's graph without collisions), remaps the copied links to the
+  new ids, offsets positions by (+20,+20) so the copy sits beside the source,
+  resets `flowPositionsApplied_` to push the new positions to imnodes, and goes
+  through `commitChange()` for one undo step. Pure editor state — no `.tyra`
+  format, codegen or PS2 runtime change. Verified: clean editor build
+  (`build.ps1`, link OK). The keyboard-focus routing itself (copy nodes vs
+  objects depending on which window is focused) is reasoned from the call order
+  — the flow-graph window is drawn before the global shortcut block within the
+  same frame, so the flag is fresh — and still wants a hands-on pass, since
+  synthetic keyboard-into-GLFW input against the node editor is not reliably
+  automatable in this environment (noted on entries 63/64).
+
 - (63) **Flashlight moved from a project preference to a Player property** — the
   camera flashlight used to be a scene-visual category on `ProjectSettings`
   (project default + per-scene override). It is now a property of the Player
