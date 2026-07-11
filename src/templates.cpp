@@ -298,6 +298,16 @@ constexpr bool LOADING_SCREEN = {{LOADING_SCREEN}};
 // wait before the flip - continuous frame rate, screen tearing possible.
 constexpr bool FRAME_LIMIT = {{FRAME_LIMIT}};
 
+// Animation LOD (Preferences > Rendering): animated instances farther than
+// this refresh pose/skinning every 2nd frame, every 4th beyond twice the
+// distance (staggered per object). 0 = off. Playback time is unaffected.
+constexpr float ANIM_LOD_DISTANCE = {{ANIM_LOD_DISTANCE}};
+
+// Mesh LOD (Preferences > Rendering): instances farther than this render
+// the ~50%-vertex variant baked into the .tskl, beyond twice the distance
+// the ~25% one. 0 = off (the build then bakes no LOD chains at all).
+constexpr float MESH_LOD_DISTANCE = {{MESH_LOD_DISTANCE}};
+
 // Debug-profile HUD (Project > Preferences > Build). Both are forced false
 // in a release-profile build, which folds the overlay code away entirely.
 constexpr bool DEBUG_SHOW_FPS = {{DEBUG_SHOW_FPS}};
@@ -373,6 +383,7 @@ class TerrainGame : public Tyra::Game {
     std::vector<AnimPart> animParts;
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
+    u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
     // Usable-object highlight: fading shells grown around the object
     // center, drawn after the scene (see renderHighlightHull)
     std::vector<Tyra::Vec4> hullVerts;
@@ -418,6 +429,7 @@ class TerrainGame : public Tyra::Game {
   Tyra::Vec4 animLightColors[4];
   Tyra::Vec4 animLightDirs[3];
   Tyra::PipelineDirLightsBag animDirLights{true};
+  u32 animLodTick = 0;  // frame counter for the ANIM_LOD_DISTANCE stagger
 
  public:
   // Clip-name lookup for scripts/flow graph (ScriptContext::resolveClip).
@@ -605,6 +617,7 @@ class TerrainGame : public Tyra::Game {
     std::vector<AnimPart> animParts;
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
+    u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
     // Usable-object highlight: fading shells grown around the object
     // center, drawn after the scene (see renderHighlightHull)
     std::vector<Tyra::Vec4> hullVerts;
@@ -650,6 +663,7 @@ class TerrainGame : public Tyra::Game {
   Tyra::Vec4 animLightColors[4];
   Tyra::Vec4 animLightDirs[3];
   Tyra::PipelineDirLightsBag animDirLights{true};
+  u32 animLodTick = 0;  // frame counter for the ANIM_LOD_DISTANCE stagger
 
  public:
   // Clip-name lookup for scripts/flow graph (ScriptContext::resolveClip).
@@ -784,6 +798,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <algorithm>
 #include <map>
 #include <string>
 
@@ -1601,6 +1616,7 @@ void TerrainGame::setupAnimObject(int index) {
   g.animInst.reset();
   g.animParts.clear();  // bags point into the instance - drop them together
   g.animInfoBag.reset();
+  g.animLastTick = 0;  // fresh instance skins on its first in-view frame
   if (o.data.type != 5 || o.data.animModel < 0 ||
       o.data.animModel >= (int)gameAnimModels.size())
     return;
@@ -1679,12 +1695,22 @@ void TerrainGame::setupAnimObject(int index) {
 //    skip pose/skin/submit entirely (playback still advances, so
 //    animFinished and re-entry poses stay honest);
 //  - instances striking the identical pose (same clip advanced in lockstep,
-//    the ambient-prop / enemy-pack case) share one skinned mesh - the first
-//    skins, the rest re-point their bags at its arrays;
+//    the ambient-prop / enemy-pack case) share one skinned mesh - the
+//    nearest one skins, the rest re-point their bags at its arrays;
+//  - with ANIM_LOD_DISTANCE set (Preferences > Rendering), far instances
+//    refresh their pose every 2nd frame and every 4th beyond twice the
+//    distance, staggered per object; playback time is unaffected and a
+//    just-(re)appeared instance always skins immediately;
+//  - with MESH_LOD_DISTANCE set, far instances render the decimated
+//    variants baked into the .tskl (~50% verts, ~25% beyond twice the
+//    distance) - less skinning, packing, clipping and VU1 per instance;
 //  - the skinned arrays render through the SAME static pipeline as the rest
 //    of the scene: one submission per vertex (DynPip uploads every vertex
 //    twice for its from/to lerp), no VU1 program swap mid-frame, and the
 //    EE clipper handles screen-edge crossers like all other geometry.
+// In-view instances draw nearest-first: the front-to-back order lets the GS
+// z-reject overdraw and makes each pose group's mesh owner its closest
+// on-screen member (the LOD refresh rate follows the closest copy).
 // One directional light matches the baked static lighting (point lights are
 // baked into static vertex colors and cannot follow animated meshes).
 void TerrainGame::updateAndRenderAnimObjects() {
@@ -1706,15 +1732,14 @@ void TerrainGame::updateAndRenderAnimObjects() {
   animLightDirs[1].set(0.0F, 0.0F, 0.0F, 1.0F);
   animLightDirs[2].set(0.0F, 0.0F, 0.0F, 1.0F);
 
-  // in-view instances rendered so far this frame: object index + the object
-  // whose instance owns the skinned arrays it drew with (itself, or the
-  // group leader it followed)
-  struct RenderedAnim {
+  // pass 1: playback bookkeeping for every instance; collect the in-view
+  // ones with their camera distance
+  struct VisibleAnim {
     int obj;
-    int meshOwner;
+    float dist2;
   };
-  static std::vector<RenderedAnim> rendered;
-  rendered.clear();
+  static std::vector<VisibleAnim> inView;
+  inView.clear();
 
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     RuntimeObject& o = runtimeObjects[i];
@@ -1738,8 +1763,15 @@ void TerrainGame::updateAndRenderAnimObjects() {
     const float step = o.animPlaying ? g_frameDt * o.animSpeed : 0.0F;
     o.animFinished = inst->advance(step);
 
-    // draw-distance cut-off, same rule as the static path in renderScene
-    if (beyondDrawDistance(o.data, cameraPosition)) continue;
+    // draw-distance cut-off (same rule as the static path in renderScene);
+    // the distance doubles as the LOD tier and the draw-order key below
+    const float dx = o.data.position[0] - cameraPosition.x;
+    const float dy = o.data.position[1] - cameraPosition.y;
+    const float dz = o.data.position[2] - cameraPosition.z;
+    const float dist2 = dx * dx + dy * dy + dz * dz;
+    if (o.data.drawDistance > 0.0F &&
+        dist2 > o.data.drawDistance * o.data.drawDistance)
+      continue;
 
     // model matrix straight from the object data: T * R(X,Y,Z) * S, the
     // same transform the static path bakes through pushVert()/rotated()
@@ -1761,27 +1793,82 @@ void TerrainGame::updateAndRenderAnimObjects() {
         CoreBBoxFrustum::OUTSIDE_FRUSTUM)
       continue;
 
+    inView.push_back({i, dist2});
+  }
+  if (inView.empty()) return;
+  std::sort(inView.begin(), inView.end(),
+            [](const VisibleAnim& a, const VisibleAnim& b) {
+              return a.dist2 < b.dist2;
+            });
+  ++animLodTick;
+
+  // pass 2, nearest first: group equal poses per mesh-LOD tier, gate far
+  // skins, submit
+  struct RenderedAnim {
+    int obj;
+    int meshOwner;
+    u8 meshLod;
+  };
+  static std::vector<RenderedAnim> rendered;
+  rendered.clear();
+
+  for (const VisibleAnim& va : inView) {
+    const int i = va.obj;
+    RuntimeObject& o = runtimeObjects[i];
+    ObjectGeometry& g = objectGeometry[i];
+    SkelInstance* inst = g.animInst.get();
+
+    // mesh LOD tier: which baked variant this instance renders (the .tskl
+    // clamps per part - a file without chains always renders the full mesh)
+    u8 meshLod = 0;
+    if (MESH_LOD_DISTANCE > 0.0F) {
+      const float m2 = MESH_LOD_DISTANCE * MESH_LOD_DISTANCE;
+      meshLod = va.dist2 > m2 * 4.0F ? 2 : va.dist2 > m2 ? 1 : 0;
+    }
+
     // pose sharing: follow an already-rendered instance in the same pose
+    // AND the same tier (each tier holds its own skinned buffers)
     int meshOwner = i;
     for (const RenderedAnim& r : rendered) {
+      if (r.meshLod != meshLod) continue;
       if (runtimeObjects[r.obj].data.animModel != o.data.animModel) continue;
       if (!inst->poseEquals(*objectGeometry[r.obj].animInst)) continue;
       meshOwner = r.meshOwner;
       break;
     }
 
+    // animation LOD: a far mesh owner refreshes its pose every 2nd frame
+    // (every 4th beyond twice the distance), staggered by object index. An
+    // instance that just (re)entered the view skins immediately - its held
+    // pose could be arbitrarily stale.
+    bool allowSkin = true;
+    if (ANIM_LOD_DISTANCE > 0.0F && meshOwner == i &&
+        g.animLastTick != 0 && animLodTick - g.animLastTick <= 4) {
+      const float lod2 = ANIM_LOD_DISTANCE * ANIM_LOD_DISTANCE;
+      if (va.dist2 > lod2 * 4.0F)
+        allowSkin = ((animLodTick + (u32)i) & 3) == 0;
+      else if (va.dist2 > lod2)
+        allowSkin = ((animLodTick + (u32)i) & 1) == 0;
+    }
+    g.animLastTick = animLodTick;
+
     ObjectGeometry& owner = objectGeometry[meshOwner];
+    SkelInstance* ownerInst = owner.animInst.get();
+    // a tier switch always re-skins (the other tier's buffers hold an older
+    // skin, or the bind pose before their first ever use)
     const bool reskinned =
-        meshOwner == i ? inst->ensurePose() : false;
-    DynamicMesh* srcMesh = owner.animInst->mesh.get();
+        meshOwner == i && (allowSkin || inst->currentLod() != meshLod)
+            ? inst->ensurePose(meshLod)
+            : false;
     for (size_t p = 0; p < g.animParts.size(); ++p) {
       ObjectGeometry::AnimPart& ap = g.animParts[p];
       if (!ap.bag) continue;
-      // bags may still point at another frame's group leader - re-aim them
-      MeshMaterialFrame* frame = srcMesh->materials[p]->frames[0];
-      ap.bag->vertices = frame->vertices;
-      ap.lightBag->normals = frame->normals;
-      if (ap.texBag) ap.texBag->coordinates = frame->textureCoords;
+      // bags may point at another frame's group leader or tier - re-aim
+      const SkelInstance::LodArrays la = ownerInst->lodArrays(p, meshLod);
+      ap.bag->vertices = la.vertices;
+      ap.bag->count = la.count;
+      ap.lightBag->normals = la.normals;
+      if (ap.texBag) ap.texBag->coordinates = la.textureCoords;
       if (meshOwner == i) {
         if (reskinned) ap.bag->bboxVersion++;  // skinned in place
       } else {
@@ -1791,7 +1878,7 @@ void TerrainGame::updateAndRenderAnimObjects() {
       }
       stapip.core.render(ap.bag.get());
     }
-    rendered.push_back({i, meshOwner});
+    rendered.push_back({i, meshOwner, meshLod});
   }
 }
 
@@ -4801,6 +4888,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{JUMP_SPEED}}", floatLit(st.jumpSpeed));
     s = replaceAll(s, "{{LOADING_SCREEN}}", st.loadingScreen ? "true" : "false");
     s = replaceAll(s, "{{FRAME_LIMIT}}", st.disableVsync ? "false" : "true");
+    s = replaceAll(s, "{{ANIM_LOD_DISTANCE}}", floatLit(st.animLodDistance));
+    s = replaceAll(s, "{{MESH_LOD_DISTANCE}}", floatLit(st.meshLodDistance));
     s = replaceAll(s, "{{VIDEO_MODE}}", st.videoSystem == "pal"    ? "PAL"
                                         : st.videoSystem == "ntsc" ? "NTSC"
                                                                    : "Auto");
@@ -6363,6 +6452,10 @@ std::vector<File> bakeAnimAssets(const Project& p,
             continue;
         }
         for (const std::string& w : skel.warnings) warn(relPath + ": " + w);
+        // Distance LODs ride in the .tskl only when the project uses them -
+        // the engine keeps every loaded LOD (plus per-instance skinning
+        // buffers) in the PS2's 32 MB, so an unused chain is pure waste.
+        if (p.settings.meshLodDistance > 0.0f) glbparser::generateSkelLods(skel);
 
         // Extracted textures land next to the .tskl, prefixed with the model
         // stem so two models' equally-named images cannot collide. The game

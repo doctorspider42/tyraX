@@ -1292,8 +1292,263 @@ bool parseSkel(const std::string& path, Skel& out, std::string& error) {
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// Bake-time mesh LOD: quadric-error half-edge collapse on the bind-pose
+// triangle list. Chosen shape:
+//  - HALF-edge collapse (a snaps onto b, b keeps its attributes): normals,
+//    uvs and skin bindings are never blended, so skinning stays valid by
+//    construction and no new attribute values appear at any LOD;
+//  - vertices are welded by their full attribute tuple first, which makes uv
+//    and hard-normal seams distinct vertices - collapses cannot cross a
+//    seam. Seam borders and open mesh borders are locked (never moved), so
+//    silhouettes shrink from the inside out;
+//  - collapses run in sorted-cost rounds instead of a mutating heap: within
+//    a round each vertex participates in at most one collapse, then
+//    adjacency and quadrics rebuild. Slightly worse than a true greedy heap,
+//    a fraction of the code.
+// ---------------------------------------------------------------------------
+namespace {
+
+struct Quadric {
+    double m[10] = {};  // symmetric 4x4: xx xy xz xw yy yz yw zz zw ww
+    void addPlane(double a, double b, double c, double d) {
+        m[0] += a * a; m[1] += a * b; m[2] += a * c; m[3] += a * d;
+        m[4] += b * b; m[5] += b * c; m[6] += b * d;
+        m[7] += c * c; m[8] += c * d; m[9] += d * d;
+    }
+    void add(const Quadric& q) {
+        for (int i = 0; i < 10; ++i) m[i] += q.m[i];
+    }
+    double error(const float* v) const {
+        const double x = v[0], y = v[1], z = v[2];
+        return m[0] * x * x + 2 * m[1] * x * y + 2 * m[2] * x * z +
+               2 * m[3] * x + m[4] * y * y + 2 * m[5] * y * z + 2 * m[6] * y +
+               m[7] * z * z + 2 * m[8] * z + m[9];
+    }
+};
+
+/** One welded vertex: the full attribute tuple of the flat-list corner. */
+struct WeldedMesh {
+    std::vector<float> pos, nrm, uv;             // per welded vertex
+    std::vector<unsigned char> joints, weights;  // per welded vertex * 4
+    std::vector<uint32_t> tris;                  // 3 indices per triangle
+    bool hasUv = false;
+};
+
+WeldedMesh weldPart(const SkelPart& part) {
+    WeldedMesh w;
+    w.hasUv = !part.uvs.empty();
+    std::map<std::string, uint32_t> lookup;  // attr bytes -> welded index
+    std::string key;
+    for (int v = 0; v < part.vertexCount; ++v) {
+        key.assign(reinterpret_cast<const char*>(&part.positions[v * 3]),
+                   3 * sizeof(float));
+        key.append(reinterpret_cast<const char*>(&part.normals[v * 3]),
+                   3 * sizeof(float));
+        if (w.hasUv)
+            key.append(reinterpret_cast<const char*>(&part.uvs[v * 2]),
+                       2 * sizeof(float));
+        key.append(reinterpret_cast<const char*>(&part.joints[v * 4]), 4);
+        key.append(reinterpret_cast<const char*>(&part.weights[v * 4]), 4);
+        auto it = lookup.find(key);
+        uint32_t idx;
+        if (it == lookup.end()) {
+            idx = (uint32_t)(w.pos.size() / 3);
+            lookup.emplace(key, idx);
+            w.pos.insert(w.pos.end(), &part.positions[v * 3],
+                         &part.positions[v * 3] + 3);
+            w.nrm.insert(w.nrm.end(), &part.normals[v * 3],
+                         &part.normals[v * 3] + 3);
+            if (w.hasUv)
+                w.uv.insert(w.uv.end(), &part.uvs[v * 2],
+                            &part.uvs[v * 2] + 2);
+            w.joints.insert(w.joints.end(), &part.joints[v * 4],
+                            &part.joints[v * 4] + 4);
+            w.weights.insert(w.weights.end(), &part.weights[v * 4],
+                             &part.weights[v * 4] + 4);
+        } else {
+            idx = it->second;
+        }
+        w.tris.push_back(idx);
+    }
+    return w;
+}
+
+/** Decimates a welded mesh to <= targetVerts live vertices. Returns the
+ * remap (vertex -> live vertex it ended up in) and rewrites w.tris. */
+void decimate(WeldedMesh& w, size_t targetVerts) {
+    const size_t vertCount = w.pos.size() / 3;
+    std::vector<uint32_t> remap(vertCount);
+    for (size_t i = 0; i < vertCount; ++i) remap[i] = (uint32_t)i;
+    auto resolve = [&](uint32_t v) {
+        while (remap[v] != v) v = remap[v];
+        return v;
+    };
+    size_t alive = vertCount;
+
+    // "position twin" seams: the same position with different attributes
+    // (uv/normal seams). Locked - moving one copy but not its twin would
+    // crack the surface open.
+    std::vector<uint8_t> locked(vertCount, 0);
+    {
+        std::map<std::string, uint32_t> firstAt;
+        std::string pkey;
+        for (size_t i = 0; i < vertCount; ++i) {
+            pkey.assign(reinterpret_cast<const char*>(&w.pos[i * 3]),
+                        3 * sizeof(float));
+            auto it = firstAt.find(pkey);
+            if (it == firstAt.end()) {
+                firstAt.emplace(pkey, (uint32_t)i);
+            } else {
+                locked[i] = locked[it->second] = 1;
+            }
+        }
+    }
+
+    for (int round = 0; round < 64 && alive > targetVerts; ++round) {
+        // live triangles + per-vertex quadrics + edge -> use count
+        std::vector<Quadric> quadrics(vertCount);
+        std::map<std::pair<uint32_t, uint32_t>, int> edgeUses;
+        for (size_t t = 0; t + 2 < w.tris.size() + 1 && t < w.tris.size();
+             t += 3) {
+            uint32_t a = resolve(w.tris[t]), b = resolve(w.tris[t + 1]),
+                     c = resolve(w.tris[t + 2]);
+            if (a == b || b == c || a == c) continue;  // degenerate
+            const float* pa = &w.pos[a * 3];
+            const float* pb = &w.pos[b * 3];
+            const float* pc = &w.pos[c * 3];
+            const double ux = pb[0] - pa[0], uy = pb[1] - pa[1],
+                         uz = pb[2] - pa[2];
+            const double vx = pc[0] - pa[0], vy = pc[1] - pa[1],
+                         vz = pc[2] - pa[2];
+            double nx = uy * vz - uz * vy, ny = uz * vx - ux * vz,
+                   nz = ux * vy - uy * vx;
+            const double len = std::sqrt(nx * nx + ny * ny + nz * nz);
+            if (len < 1e-12) continue;
+            nx /= len, ny /= len, nz /= len;
+            const double d = -(nx * pa[0] + ny * pa[1] + nz * pa[2]);
+            Quadric q;
+            q.addPlane(nx, ny, nz, d);
+            quadrics[a].add(q);
+            quadrics[b].add(q);
+            quadrics[c].add(q);
+            const uint32_t e[3][2] = {{a, b}, {b, c}, {c, a}};
+            for (auto& ed : e)
+                edgeUses[{std::min(ed[0], ed[1]), std::max(ed[0], ed[1])}]++;
+        }
+        if (edgeUses.empty()) break;
+
+        // open-border vertices (edge used by a single triangle) are locked
+        // for this round so silhouette outlines and part borders hold still
+        std::vector<uint8_t> border(vertCount, 0);
+        for (const auto& eu : edgeUses)
+            if (eu.second == 1)
+                border[eu.first.first] = border[eu.first.second] = 1;
+
+        struct Candidate {
+            double cost;
+            uint32_t from, to;
+        };
+        std::vector<Candidate> cands;
+        cands.reserve(edgeUses.size());
+        for (const auto& eu : edgeUses) {
+            const uint32_t a = eu.first.first, b = eu.first.second;
+            const bool aMovable = !locked[a] && !border[a];
+            const bool bMovable = !locked[b] && !border[b];
+            const double costAtoB = quadrics[a].error(&w.pos[b * 3]);
+            const double costBtoA = quadrics[b].error(&w.pos[a * 3]);
+            if (aMovable && (costAtoB <= costBtoA || !bMovable))
+                cands.push_back({costAtoB, a, b});
+            else if (bMovable)
+                cands.push_back({costBtoA, b, a});
+        }
+        if (cands.empty()) break;
+        std::sort(cands.begin(), cands.end(),
+                  [](const Candidate& x, const Candidate& y) {
+                      return x.cost < y.cost;
+                  });
+
+        // cap the round so quadrics never go too stale between rebuilds
+        size_t budget = alive > targetVerts ? alive - targetVerts : 0;
+        if (budget > alive / 4 + 1) budget = alive / 4 + 1;
+        std::vector<uint8_t> touched(vertCount, 0);
+        size_t done = 0;
+        for (const Candidate& c : cands) {
+            if (done >= budget) break;
+            const uint32_t from = resolve(c.from), to = resolve(c.to);
+            if (from == to || touched[from] || touched[to]) continue;
+            remap[from] = to;
+            touched[from] = touched[to] = 1;
+            --alive;
+            ++done;
+        }
+        if (done == 0) break;
+    }
+
+    // rewrite the index list through the remap, dropping degenerates
+    std::vector<uint32_t> tris;
+    tris.reserve(w.tris.size());
+    for (size_t t = 0; t + 2 < w.tris.size(); t += 3) {
+        const uint32_t a = resolve(w.tris[t]), b = resolve(w.tris[t + 1]),
+                       c = resolve(w.tris[t + 2]);
+        if (a == b || b == c || a == c) continue;
+        tris.push_back(a);
+        tris.push_back(b);
+        tris.push_back(c);
+    }
+    w.tris.swap(tris);
+}
+
+/** Expands the (decimated) welded mesh back to the flat triangle list. */
+SkelLod unweld(const WeldedMesh& w) {
+    SkelLod lod;
+    lod.vertexCount = (int)w.tris.size();
+    lod.positions.reserve(w.tris.size() * 3);
+    lod.normals.reserve(w.tris.size() * 3);
+    if (w.hasUv) lod.uvs.reserve(w.tris.size() * 2);
+    lod.joints.reserve(w.tris.size() * 4);
+    lod.weights.reserve(w.tris.size() * 4);
+    for (uint32_t idx : w.tris) {
+        lod.positions.insert(lod.positions.end(), &w.pos[idx * 3],
+                             &w.pos[idx * 3] + 3);
+        lod.normals.insert(lod.normals.end(), &w.nrm[idx * 3],
+                           &w.nrm[idx * 3] + 3);
+        if (w.hasUv)
+            lod.uvs.insert(lod.uvs.end(), &w.uv[idx * 2], &w.uv[idx * 2] + 2);
+        lod.joints.insert(lod.joints.end(), &w.joints[idx * 4],
+                          &w.joints[idx * 4] + 4);
+        lod.weights.insert(lod.weights.end(), &w.weights[idx * 4],
+                           &w.weights[idx * 4] + 4);
+    }
+    return lod;
+}
+
+}  // namespace
+
+void generateSkelLods(Skel& skel) {
+    // Below ~2x this floor a decimated variant saves nothing worth the RAM.
+    constexpr int kMinVerts = 96;
+    constexpr float kRatios[] = {0.5f, 0.25f};  // of the WELDED vertex count
+    for (SkelPart& part : skel.parts) {
+        part.lods.clear();
+        if (part.vertexCount < kMinVerts * 2) continue;
+        for (float ratio : kRatios) {
+            WeldedMesh w = weldPart(part);
+            const size_t target =
+                (size_t)((w.pos.size() / 3) * ratio + 0.5f);
+            decimate(w, target < 3 ? 3 : target);
+            SkelLod lod = unweld(w);
+            // a LOD that failed to shrink meaningfully is dead weight
+            if (lod.vertexCount == 0 ||
+                lod.vertexCount > part.vertexCount * (ratio + 0.15f))
+                break;
+            part.lods.push_back(std::move(lod));
+        }
+    }
+}
+
 // Layout (little-endian; keep in sync with the engine's tskl_loader.cpp):
-//   "TSKL" u32(version=1)
+//   "TSKL" u32(version=2)      (v1 files = the same layout without lodCount)
 //   u32 nodeCount, u32 paletteCount, u32 partCount, u32 clipCount
 //   f32 min[3], f32 max[3]           (pose AABB union over all clips, sampled)
 //   nodeCount * { s32 parent; u32 flags(bit0 = hasMatrix);
@@ -1311,13 +1566,16 @@ bool parseSkel(const std::string& path, Skel& out, std::string& error) {
 //     if (texture[0]) f32 uv[vertexCount*2]
 //     f32 pos[vertexCount*3]; f32 nrm[vertexCount*3];
 //     u8 joints[vertexCount*4]; u8 weights[vertexCount*4]
+//     v2 only: u32 lodCount; lodCount * {
+//       u32 vertexCount; if (texture[0]) f32 uv[...];
+//       f32 pos[...]; f32 nrm[...]; u8 joints[...]; u8 weights[...] }
 //   }
 std::string writeTskl(const Skel& skel,
                       const std::vector<std::string>& textureNames) {
     std::string out;
     out.reserve(4096 + (size_t)skel.totalVertexCount() * 40);
     out += "TSKL";
-    appendU32(out, 1);
+    appendU32(out, 2);
     appendU32(out, (uint32_t)skel.nodes.size());
     appendU32(out, (uint32_t)skel.palette.size());
     appendU32(out, (uint32_t)skel.parts.size());
@@ -1383,6 +1641,19 @@ std::string writeTskl(const Skel& skel,
                     (size_t)part.vertexCount * 3 * sizeof(float));
         appendBytes(out, part.joints.data(), (size_t)part.vertexCount * 4);
         appendBytes(out, part.weights.data(), (size_t)part.vertexCount * 4);
+        appendU32(out, (uint32_t)part.lods.size());
+        for (const SkelLod& lod : part.lods) {
+            appendU32(out, (uint32_t)lod.vertexCount);
+            if (!tex.empty())
+                appendBytes(out, lod.uvs.data(),
+                            (size_t)lod.vertexCount * 2 * sizeof(float));
+            appendBytes(out, lod.positions.data(),
+                        (size_t)lod.vertexCount * 3 * sizeof(float));
+            appendBytes(out, lod.normals.data(),
+                        (size_t)lod.vertexCount * 3 * sizeof(float));
+            appendBytes(out, lod.joints.data(), (size_t)lod.vertexCount * 4);
+            appendBytes(out, lod.weights.data(), (size_t)lod.vertexCount * 4);
+        }
     }
     return out;
 }
