@@ -560,7 +560,8 @@ std::string save(const Project& p) {
     json << (p.menus.empty() ? "]" : "\n  ]");
     // Editor-side state + window layout: the .tyra file is the whole project.
     json << ",\n  \"editor\": { \"selectedObject\": " << p.selectedObject
-         << ", \"gizmo\": " << p.gizmoOp << ", \"viewMode\": " << p.viewMode
+         << ", \"gizmo\": " << p.gizmoOp << ", \"gizmoSpace\": " << p.gizmoSpace
+         << ", \"viewMode\": " << p.viewMode
          << ", \"emulatorPath\": \"" << jsonEscape(p.emulatorPath) << "\""
          << ", \"ps2LinkIp\": \"" << jsonEscape(p.ps2LinkIp) << "\" }";
     json << ",\n  \"layout\": \"" << jsonEscape(p.windowLayout) << "\"";
@@ -1241,6 +1242,8 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = ed->find("selectedObject"))
             out.selectedObject = (int)v->numberOr(-1);
         if (const auto* v = ed->find("gizmo")) out.gizmoOp = (int)v->numberOr(0);
+        if (const auto* v = ed->find("gizmoSpace"))
+            out.gizmoSpace = (int)v->numberOr(0);
         if (const auto* v = ed->find("viewMode")) out.viewMode = (int)v->numberOr(0);
         if (const auto* v = ed->find("emulatorPath")) out.emulatorPath = v->stringOr("");
         if (const auto* v = ed->find("ps2LinkIp")) out.ps2LinkIp = v->stringOr("");

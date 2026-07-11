@@ -704,8 +704,6 @@ void App::drawViewportWindow() {
             const ImGuizmo::OPERATION ops[] = {ImGuizmo::TRANSLATE, ImGuizmo::ROTATE,
                                                ImGuizmo::SCALE};
             const ImGuizmo::OPERATION op = ops[gizmoOp_];
-            const ImGuizmo::MODE mode =
-                op == ImGuizmo::TRANSLATE ? ImGuizmo::WORLD : ImGuizmo::LOCAL;
 
             // Hold Ctrl to snap: 0.5 units / 15 degrees / 0.25 scale
             const float snapValues[3] = {op == ImGuizmo::ROTATE ? 15.0f
@@ -715,15 +713,94 @@ void App::drawViewportWindow() {
                                          op == ImGuizmo::TRANSLATE ? 0.5f : 0.0f};
             const float* snap = io.KeyCtrl ? snapValues : nullptr;
 
-            // Same TRS composition as the viewport / PS2 code
-            float model[16];
-            ImGuizmo::RecomposeMatrixFromComponents(o.position, o.rotation, o.scale, model);
-            if (ImGuizmo::Manipulate(viewport_.viewMatrix(), viewport_.projMatrix(), op, mode,
-                                     model, nullptr, snap)) {
-                ImGuizmo::DecomposeMatrixToComponents(model, o.position, o.rotation, o.scale);
-                for (float& s : o.scale)
-                    if (s < 0.01f) s = 0.01f;
+            if (gizmoSpace_ == 0) {
+                // Absolute: move and rotate along the world axes. ImGuizmo
+                // forces SCALE onto the object's own axes regardless of the
+                // mode (world-axis scale would skew the TRS matrix).
+                // Same TRS composition as the viewport / PS2 code.
+                float model[16];
+                ImGuizmo::RecomposeMatrixFromComponents(o.position, o.rotation, o.scale,
+                                                        model);
+                if (ImGuizmo::Manipulate(viewport_.viewMatrix(), viewport_.projMatrix(),
+                                         op, ImGuizmo::WORLD, model, nullptr, snap)) {
+                    ImGuizmo::DecomposeMatrixToComponents(model, o.position, o.rotation,
+                                                          o.scale);
+                }
+            } else {
+                // Camera-relative: ImGuizmo only knows LOCAL/WORLD frames, so
+                // manipulate a unit-scale proxy whose local frame is the
+                // camera frame, then map the result back onto the object.
+                // (float[16] here are OpenGL-style column-major, so the proxy
+                // rotation is the transpose of the view rotation.)
+                const float* view = viewport_.viewMatrix();
+                float proxy[16] = {};
+                for (int r = 0; r < 3; ++r)
+                    for (int c = 0; c < 3; ++c) proxy[c * 4 + r] = view[r * 4 + c];
+                for (int i = 0; i < 3; ++i) proxy[12 + i] = o.position[i];
+                proxy[15] = 1.0f;
+
+                // Scale deltas are cumulative over the whole drag - remember
+                // the object's scale from before the drag started.
+                if (!ImGuizmo::IsUsing())
+                    for (int i = 0; i < 3; ++i) gizmoDragScale0_[i] = o.scale[i];
+
+                float delta[16];
+                if (ImGuizmo::Manipulate(view, viewport_.projMatrix(), op,
+                                         ImGuizmo::LOCAL, proxy, delta, snap)) {
+                    if (op == ImGuizmo::TRANSLATE) {
+                        // Translation lands directly in the proxy position
+                        for (int i = 0; i < 3; ++i) o.position[i] = proxy[12 + i];
+                    } else if (op == ImGuizmo::ROTATE) {
+                        // World-space delta W = proxyOut * proxyIn^-1; proxyIn
+                        // is the camera rotation, whose inverse is the view
+                        // rotation itself. Rotating about the object's own
+                        // position keeps it in place, so only the linear part
+                        // of the model changes: model' = W * model.
+                        float W[3][3];
+                        for (int r = 0; r < 3; ++r)
+                            for (int c = 0; c < 3; ++c) {
+                                float s = 0.0f;
+                                for (int k = 0; k < 3; ++k)
+                                    s += proxy[k * 4 + r] * view[c * 4 + k];
+                                W[r][c] = s;
+                            }
+                        float model[16];
+                        ImGuizmo::RecomposeMatrixFromComponents(o.position, o.rotation,
+                                                                o.scale, model);
+                        float rotated[16];
+                        std::memcpy(rotated, model, sizeof(rotated));
+                        for (int r = 0; r < 3; ++r)
+                            for (int c = 0; c < 3; ++c) {
+                                float s = 0.0f;
+                                for (int k = 0; k < 3; ++k)
+                                    s += W[r][k] * model[c * 4 + k];
+                                rotated[c * 4 + r] = s;
+                            }
+                        // W is orthogonal, so position and scale are unchanged
+                        // by construction - only take the rotation to avoid
+                        // accumulating float drift in the other components.
+                        float pos[3], scl[3];
+                        ImGuizmo::DecomposeMatrixToComponents(rotated, pos, o.rotation,
+                                                              scl);
+                    } else {
+                        // Per-camera-axis scale cannot be stored in a TRS
+                        // (it shears rotated objects), so apply the dominant
+                        // drag factor uniformly to all object axes.
+                        float f = 1.0f, best = 0.0f;
+                        for (int i = 0; i < 3; ++i) {
+                            const float s = delta[i * 5];  // diagonal: 0, 5, 10
+                            if (std::fabs(s - 1.0f) > best) {
+                                best = std::fabs(s - 1.0f);
+                                f = s;
+                            }
+                        }
+                        for (int i = 0; i < 3; ++i)
+                            o.scale[i] = gizmoDragScale0_[i] * f;
+                    }
+                }
             }
+            for (float& s : o.scale)
+                if (s < 0.01f) s = 0.01f;
         }
 
         // Commit once per completed gizmo drag (not every frame)
@@ -842,6 +919,25 @@ void App::drawViewportWindow() {
             if (active) ImGui::PopStyleColor();
         }
 
+        // Gizmo axis space (persisted in the .tyra project file like the tool)
+        ImGui::SameLine(0.0f, 24.0f);
+        const char* spaceNames[] = {"World", "Camera"};
+        const char* spaceTips[] = {
+            "Absolute axes: move and rotate along the world X/Y/Z.\n"
+            "Scale always works on the object's own axes. Toggle with 5.",
+            "Camera-relative axes: move along the view right/up/forward\n"
+            "and rotate around them; scale is uniform. Toggle with 5."};
+        for (int i = 0; i < 2; ++i) {
+            if (i) ImGui::SameLine();
+            const bool active = gizmoSpace_ == i;
+            if (active)
+                ImGui::PushStyleColor(ImGuiCol_Button,
+                                      ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+            if (ImGui::SmallButton(spaceNames[i])) gizmoSpace_ = i;
+            if (active) ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", spaceTips[i]);
+        }
+
         // View mode switch (persisted in the .tyra project file via saveAll)
         ImGui::SameLine(0.0f, 24.0f);
         const char* modeNames[] = {"Solid", "Wire", "Wire+Solid"};
@@ -913,8 +1009,9 @@ void App::drawViewportWindow() {
             if (ImGui::IsKeyPressed(ImGuiKey_2)) gizmoOp_ = 1;
             if (ImGui::IsKeyPressed(ImGuiKey_3)) gizmoOp_ = 2;
             if (ImGui::IsKeyPressed(ImGuiKey_4)) sculptMode_ = !sculptMode_;
+            if (ImGui::IsKeyPressed(ImGuiKey_5)) gizmoSpace_ = 1 - gizmoSpace_;
 
-            // WASD: fly the camera over the terrain (tools live on 1-4)
+            // WASD: fly the camera over the terrain (tools live on 1-5)
             const float fwd = (ImGui::IsKeyDown(ImGuiKey_W) ? 1.0f : 0.0f) -
                               (ImGui::IsKeyDown(ImGuiKey_S) ? 1.0f : 0.0f);
             const float strafe = (ImGui::IsKeyDown(ImGuiKey_D) ? 1.0f : 0.0f) -
@@ -1019,6 +1116,7 @@ void App::saveProject() {
     // The .tyra file carries the editor-side state and window layout too.
     project_.selectedObject = selectedObject_;
     project_.gizmoOp = gizmoOp_;
+    project_.gizmoSpace = gizmoSpace_;
     project_.viewMode = (int)viewport_.viewMode();
     // While a layout load is pending, the on-screen layout still belongs to
     // the previously shown project - keep the stored one instead of clobbering
@@ -1104,6 +1202,7 @@ void App::attachProject() {
     selectedObject_ = project_.selectedObject;
     if (selectedObject_ >= (int)project_.objects().size()) selectedObject_ = -1;
     gizmoOp_ = (project_.gizmoOp >= 0 && project_.gizmoOp <= 2) ? project_.gizmoOp : 0;
+    gizmoSpace_ = project_.gizmoSpace == 1 ? 1 : 0;
     const int viewMode =
         (project_.viewMode >= 0 && project_.viewMode <= 2) ? project_.viewMode : 0;
     viewport_.setViewMode((Viewport::ViewMode)viewMode);

@@ -164,6 +164,11 @@ private:
 
     // Transform gizmo: 0 = move, 1 = rotate, 2 = scale
     int gizmoOp_ = 0;
+    // Gizmo axes: 0 = absolute (world), 1 = relative to the camera
+    int gizmoSpace_ = 0;
+    // Object scale when a camera-space scale drag started (ImGuizmo reports
+    // scale deltas cumulatively over the whole drag, not per frame)
+    float gizmoDragScale0_[3] = {1.0f, 1.0f, 1.0f};
     bool gizmoWasUsing_ = false;
 
     // Terrain sculpting brush
