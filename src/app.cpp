@@ -550,6 +550,23 @@ void App::drawMenuBar() {
                                 uiScaleUser_ == 0.0f ? " (auto)" : "");
             ImGui::Separator();
             if (ImGui::MenuItem("Navigation controls...")) openNavigationPopup_ = true;
+
+            ImGui::Separator();
+            ImGui::TextDisabled("Render mode");
+            const char* modeNames[] = {"Solid", "Wireframe", "Wire + Solid"};
+            for (int i = 0; i < 3; ++i) {
+                const bool active = (int)viewport_.viewMode() == i;
+                if (ImGui::MenuItem(modeNames[i], nullptr, active, hasProject_) && !active) {
+                    viewport_.setViewMode((Viewport::ViewMode)i);
+                    saveAll("Saved");  // persist the view mode in the project file
+                }
+            }
+
+            ImGui::Separator();
+            ImGui::TextDisabled("TV safe frame");
+            if (ImGui::MenuItem("PAL 4:3 frame", nullptr, showPal_)) showPal_ = !showPal_;
+            if (ImGui::MenuItem("NTSC frame", nullptr, showNtsc_)) showNtsc_ = !showNtsc_;
+
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Scene", hasProject_)) {
@@ -1000,7 +1017,11 @@ void App::drawViewportWindow() {
             }
         }
 
-        // --- Tool buttons overlay (top-left corner of the viewport) ---
+        // --- Tools overlay (top-left corner of the viewport) ---
+        // Transform gizmo modes + the sculpt toggle share this row; they map to
+        // the 1-4 shortcuts. Render mode and the TV-safe frames now live in the
+        // menu bar (View menu); the gizmo axis space and the camera-recenter
+        // buttons sit in the bottom corners below.
         ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, imgPos.y + 8));
         const char* toolNames[] = {"Move (1)", "Rotate (2)", "Scale (3)"};
         for (int i = 0; i < 3; ++i) {
@@ -1013,14 +1034,51 @@ void App::drawViewportWindow() {
             if (active) ImGui::PopStyleColor();
         }
 
-        // Gizmo axis space (persisted in the .tyra project file like the tool)
+        // Terrain sculpting toggle stays with the tools (shortcut 4).
         ImGui::SameLine(0.0f, 24.0f);
+        if (sculptMode_)
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        if (ImGui::SmallButton("Sculpt (4)")) sculptMode_ = !sculptMode_;
+        if (sculptMode_) ImGui::PopStyleColor();
+
+        // Geometry for the bottom-corner overlays. SmallButton keeps
+        // FramePadding.x, so its width is the label plus twice that padding.
+        auto smallBtnW = [](const char* s) {
+            return ImGui::CalcTextSize(s).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        };
+        const float bottomY = imgPos.y + avail.y - ImGui::GetFrameHeight() - 8.0f;
+
+        // --- Camera recenter (bottom-left) ---
+        ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, bottomY));
+        if (ImGui::SmallButton("Center view")) viewport_.resetView();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Reset the camera to the terrain center\n"
+                              "with the default orientation and zoom.");
+        {
+            const bool objSel = selectedObject_ >= 0 &&
+                                selectedObject_ < (int)project_.objects().size();
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!objSel);
+            if (ImGui::SmallButton("Center selection") && objSel) {
+                viewport_.setTarget(project_.objects()[selectedObject_].position);
+                navFocusedIndex_ = selectedObject_;  // keep orbit-around-selection in sync
+            }
+            ImGui::EndDisabled();
+            if (objSel && ImGui::IsItemHovered())
+                ImGui::SetTooltip("Move the camera pivot to the selected object.");
+        }
+
+        // --- Gizmo axis space (bottom-right) ---
         const char* spaceNames[] = {"World", "Camera"};
         const char* spaceTips[] = {
             "Absolute axes: move and rotate along the world X/Y/Z.\n"
             "Scale always works on the object's own axes. Toggle with 5.",
             "Camera-relative axes: move along the view right/up/forward\n"
             "and rotate around them; scale is uniform. Toggle with 5."};
+        const float spaceW = smallBtnW(spaceNames[0]) + ImGui::GetStyle().ItemSpacing.x +
+                             smallBtnW(spaceNames[1]);
+        ImGui::SetCursorScreenPos(ImVec2(imgPos.x + avail.x - spaceW - 8.0f, bottomY));
         for (int i = 0; i < 2; ++i) {
             if (i) ImGui::SameLine();
             const bool active = gizmoSpace_ == i;
@@ -1031,49 +1089,6 @@ void App::drawViewportWindow() {
             if (active) ImGui::PopStyleColor();
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", spaceTips[i]);
         }
-
-        // View mode switch (persisted in the .tyra project file via saveAll)
-        ImGui::SameLine(0.0f, 24.0f);
-        const char* modeNames[] = {"Solid", "Wire", "Wire+Solid"};
-        for (int i = 0; i < 3; ++i) {
-            if (i) ImGui::SameLine();
-            const bool active = (int)viewport_.viewMode() == i;
-            if (active)
-                ImGui::PushStyleColor(ImGuiCol_Button,
-                                      ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-            if (ImGui::SmallButton(modeNames[i]) && !active) {
-                viewport_.setViewMode((Viewport::ViewMode)i);
-                saveAll("Saved");  // persist the view mode in the project file
-            }
-            if (active) ImGui::PopStyleColor();
-        }
-
-        // Terrain sculpting toggle + brush parameters
-        ImGui::SameLine(0.0f, 24.0f);
-        if (sculptMode_)
-            ImGui::PushStyleColor(ImGuiCol_Button,
-                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::SmallButton("Sculpt (4)")) sculptMode_ = !sculptMode_;
-        if (sculptMode_) ImGui::PopStyleColor();
-
-        // TV frame toggles (PAL 4:3, NTSC slightly wider)
-        ImGui::SameLine(0.0f, 24.0f);
-        if (showPal_)
-            ImGui::PushStyleColor(ImGuiCol_Button,
-                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::SmallButton("PAL")) showPal_ = !showPal_;
-        if (showPal_) ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("4:3 frame - what a PAL TV shows.");
-        ImGui::SameLine();
-        if (showNtsc_)
-            ImGui::PushStyleColor(ImGuiCol_Button,
-                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::SmallButton("NTSC")) showNtsc_ = !showNtsc_;
-        if (showNtsc_) ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("NTSC has fewer active lines - the same 512x448\n"
-                              "buffer looks slightly wider (~10:7) on screen.");
 
         if (sculptMode_) {
             ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, imgPos.y + 32));
@@ -1385,6 +1400,15 @@ void App::addEmpty() {
     o.collisionMode = 2;  // pure transform - never blocks the player
     saveAll("Saved");
 }
+void App::addDecal() {
+    addObject(PrimitiveType::Decal);
+    SceneObject& o = project_.objects().back();
+    o.position[1] = 1.5f;  // eye height on a wall
+    // white so the texture shows untinted (color modulates the map_Kd)
+    o.color[0] = o.color[1] = o.color[2] = 1.0f;
+    o.collisionMode = 2;  // visual overlay - never blocks the player
+    saveAll("Saved");
+}
 void App::addSavePoint() {
     addObject(PrimitiveType::SavePoint);
     SceneObject& o = project_.objects().back();
@@ -1409,6 +1433,7 @@ void App::addObject(PrimitiveType type) {
     SceneObject o;
     o.name = name;
     o.type = type;
+    o.primDetail = defaultPrimDetail(type);  // box baseline 1, curved 16
     if (type == PrimitiveType::SpawnPoint) {
         o.position[1] = 0.0f;  // marker sits on the ground
         o.color[0] = 0.15f, o.color[1] = 0.9f, o.color[2] = 0.9f;
@@ -2006,6 +2031,7 @@ void App::drawAddObjectMenu() {
             if (ImGui::MenuItem("Sphere")) addObject(PrimitiveType::Sphere);
             if (ImGui::MenuItem("Cylinder")) addObject(PrimitiveType::Cylinder);
             if (ImGui::MenuItem("Cone")) addObject(PrimitiveType::Cone);
+            if (ImGui::MenuItem("Plane")) addObject(PrimitiveType::Plane);
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Model")) {
@@ -2022,6 +2048,9 @@ void App::drawAddObjectMenu() {
                 ImGui::TextDisabled("No models - Import one in Project > Assets.");
             ImGui::EndMenu();
         }
+        // Textured quad with transparency (sign/poster/text on a wall). Assign
+        // a material whose map_Kd PNG has an alpha channel in the Properties.
+        if (ImGui::MenuItem("Decal")) addDecal();
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Gameplay")) {
@@ -2227,6 +2256,8 @@ static const char* typeLabel(PrimitiveType t) {
         case PrimitiveType::Sphere: return "Sphere";
         case PrimitiveType::Cylinder: return "Cylinder";
         case PrimitiveType::Cone: return "Cone";
+        case PrimitiveType::Plane: return "Plane";
+        case PrimitiveType::Decal: return "Decal";
         case PrimitiveType::SpawnPoint: return "Spawn point";
         case PrimitiveType::Model: return "3D model";
         case PrimitiveType::Player: return "Player";
@@ -2265,7 +2296,8 @@ void App::drawPropertiesWindow() {
     // Real geometry in the game: rendered, collidable, texturable.
     const bool isShape =
         o.type == PrimitiveType::Box || o.type == PrimitiveType::Sphere ||
-        o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone;
+        o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone ||
+        o.type == PrimitiveType::Plane;
     const bool isSolid =
         isShape || o.type == PrimitiveType::Model || o.type == PrimitiveType::SavePoint;
 
@@ -2295,16 +2327,40 @@ void App::drawPropertiesWindow() {
     }
 
     if (isShape) {
-        int typeIdx = (int)o.type;
-        const char* typeNames[] = {"Box", "Sphere", "Cylinder", "Cone"};
-        if (ImGui::Combo("Type", &typeIdx, typeNames, 4)) {
-            o.type = (PrimitiveType)typeIdx;
+        // Plane's enum value isn't contiguous with the other shapes, so map
+        // combo indices through an explicit list instead of casting directly.
+        static const PrimitiveType kShapeTypes[] = {
+            PrimitiveType::Box, PrimitiveType::Sphere, PrimitiveType::Cylinder,
+            PrimitiveType::Cone, PrimitiveType::Plane};
+        const char* typeNames[] = {"Box", "Sphere", "Cylinder", "Cone", "Plane"};
+        int typeIdx = 0;
+        for (int i = 0; i < IM_ARRAYSIZE(kShapeTypes); ++i)
+            if (kShapeTypes[i] == o.type) typeIdx = i;
+        if (ImGui::Combo("Type", &typeIdx, typeNames, IM_ARRAYSIZE(typeNames))) {
+            o.type = kShapeTypes[typeIdx];
+            // Detail means different things (segments vs box subdivisions) and
+            // has different ranges per shape - re-fit the value to the new one.
+            o.primDetail = clampPrimDetail(o.type, o.primDetail);
             committed = true;
         }
     } else {
         ImGui::Text("Type:");
         ImGui::SameLine();
         ImGui::TextUnformatted(typeLabel(o.type));
+    }
+    // Geometry primitives: how many segments (curved) or edge subdivisions
+    // (box) the mesh is built from. Editable any time, updates live.
+    if (o.type == PrimitiveType::Box || o.type == PrimitiveType::Sphere ||
+        o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone) {
+        const bool box = o.type == PrimitiveType::Box;
+        int detail = o.primDetail;
+        if (ImGui::DragInt("Detail", &detail, 0.2f, primDetailMin(o.type),
+                           primDetailMax(o.type), box ? "%d subdivisions"
+                                                      : "%d segments"))
+            o.primDetail = clampPrimDetail(o.type, detail);
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SameLine();
+        ImGui::TextDisabled("(%d tris)", primTriangleCount(o.type, o.primDetail));
     }
     if (o.type == PrimitiveType::Model) {
         // model file: pick among the project's res/models assets
@@ -2405,23 +2461,26 @@ void App::drawPropertiesWindow() {
     // Empties are pure transforms - scripts read the whole transform (and the
     // color, as a free per-object parameter), so every field stays editable.
     const bool isEmpty = o.type == PrimitiveType::Empty;
+    // Decal: a textured quad. Transform + color + material stay editable, but
+    // it carries no physics/collision/usable game state (pure visual overlay).
+    const bool isDecal = o.type == PrimitiveType::Decal;
 
     ImGui::DragFloat3("Position", o.position, 0.1f);
     committed |= ImGui::IsItemDeactivatedAfterEdit();
     // custom emitters rotate too - the rotation aims the emission direction
-    if (isSolid || isEmpty ||
+    if (isSolid || isEmpty || isDecal ||
         (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
         ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
-    if (isSolid || isEmpty || o.type == PrimitiveType::Emitter) {
+    if (isSolid || isEmpty || isDecal || o.type == PrimitiveType::Emitter) {
         ImGui::DragFloat3("Scale", o.scale, 0.05f, 0.01f, 1000.0f);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
     // Color: mesh tint for solids, particle tint for emitters, light color
-    // for point lights, marker tint + free script parameter for empties.
-    // The remaining markers draw in fixed editor colors.
-    if (isSolid || isEmpty || o.type == PrimitiveType::Emitter ||
+    // for point lights, marker tint + free script parameter for empties,
+    // texture tint for decals. The remaining markers draw in fixed colors.
+    if (isSolid || isEmpty || isDecal || o.type == PrimitiveType::Emitter ||
         o.type == PrimitiveType::PointLight) {
         ImGui::ColorEdit3("Color", o.color);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -2429,7 +2488,9 @@ void App::drawPropertiesWindow() {
 
     const bool animatedModel =
         o.type == PrimitiveType::Model && isAnimatedModelPath(o.modelPath);
-    if (isSolid) {
+    // Material picker: solids texture their surface with it; a decal uses its
+    // map_Kd (with alpha) as the decal image.
+    if (isSolid || isDecal) {
         // Material (.mtl asset): primitives take the file's first material
         // (Kd + map_Kd on their UVs, modulated by the object color), models
         // use it as an override replacing their own libraries. Animated .glb
@@ -2453,7 +2514,12 @@ void App::drawPropertiesWindow() {
                                    "Material file missing/empty - plain color.");
             }
         }
-
+        if (isDecal)
+            ImGui::TextDisabled(
+                "Assign a material whose map_Kd PNG has transparency.\n"
+                "Sits just in front of its origin; place it on a surface.");
+    }
+    if (isSolid) {
         if (ImGui::Checkbox("Physics (falls with gravity)", &o.physics)) committed = true;
         if (o.type == PrimitiveType::SavePoint) {
             ImGui::TextDisabled("Always usable - USE opens the save menu.");
@@ -2475,9 +2541,9 @@ void App::drawPropertiesWindow() {
     if (isSolid) {
         if (animatedModel) {
             // mesh collision is a static-model feature; animated models
-            // collide as their baked frame-0 AABB or not at all
+            // collide as their baked all-clips AABB or not at all
             bool solid = o.collisionMode != 2;
-            if (ImGui::Checkbox("Collision (blocks the player, frame-0 AABB)",
+            if (ImGui::Checkbox("Collision (blocks the player, animation AABB)",
                                 &solid)) {
                 o.collisionMode = solid ? 0 : 2;
                 committed = true;
@@ -2498,6 +2564,18 @@ void App::drawPropertiesWindow() {
         }
     }
 
+    // Rendering cut-off - the cheapest LOD. Only drawing stops beyond the
+    // distance; collision, sounds and scripts keep running.
+    if (isSolid) {
+        ImGui::DragFloat("Draw distance", &o.drawDistance, 0.5f, 0.0f, 2000.0f,
+                         o.drawDistance > 0.0f ? "%.0f units" : "unlimited");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (o.drawDistance > 0.0f)
+            ImGui::TextDisabled(
+                "Skipped at draw time when the camera is farther than this;\n"
+                "collision and logic still run. 0 = always drawn.");
+    }
+
     if (o.type == PrimitiveType::Emitter) {
         ImGui::SeparatorText("Particle emitter");
         const char* kinds[] = {"Fire", "Smoke", "Fog", "Sparks", "Rain", "Custom"};
@@ -2511,6 +2589,15 @@ void App::drawPropertiesWindow() {
         if (!o.materialPath.empty()) {
             ImGui::SameLine();
             if (ImGui::SmallButton("Edit...")) openMaterialEditor(o.materialPath);
+        }
+        if (o.emitterKind == 2) {  // fog density
+            ImGui::DragFloat("Opacity", &o.emitterOpacity, 0.01f, 0.0f, 1.0f,
+                             "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::TextDisabled(
+                "Slowly swirling puffs. For the Silent Hill roll: big spawn\n"
+                "area, Follow player on, a soft-alpha texture, and match the\n"
+                "color to the distance fog color (Preferences > Distance fog).");
         }
         if (o.emitterKind == 5) {  // custom physics knobs
             ImGui::DragFloat("Speed", &o.emitterSpeed, 0.05f, 0.0f, 50.0f,
@@ -6333,6 +6420,9 @@ void App::applyProjectToViewport() {
     viewport_.setSky(rs.skyColor, rs.skyTopColor, rs.skyDome);
     viewport_.setUsableHighlight(rs.highlightUsable, rs.highlightColor);
     viewport_.setLighting(rs.lightDir, rs.ambient, rs.diffuse, rs.lightColor, rs.brightness);
+    viewport_.setFog(rs.fogEnabled, rs.fogColor, rs.fogStart, rs.fogEnd);
+    viewport_.setFlashlight(rs.flashlightEnabled, rs.flashlightColor,
+                            rs.flashlightRange, rs.flashlightAngle);
 }
 
 void App::drawPreferencesModal() {
@@ -6402,6 +6492,24 @@ void App::drawPreferencesModal() {
     if (ImGui::Combo("Triangles", &clipMode, clipNames, 2))
         prefSettings_.clipping = clipMode == 1 ? "fast" : "precise";
 
+    ImGui::DragFloat("Animation LOD distance", &prefSettings_.animLodDistance,
+                     0.5f, 0.0f, 2000.0f,
+                     prefSettings_.animLodDistance > 0.0f ? "%.0f units" : "off");
+    if (prefSettings_.animLodDistance < 0.0f) prefSettings_.animLodDistance = 0.0f;
+    ImGui::TextDisabled(
+        "Animated models farther than this refresh their pose every 2nd frame\n"
+        "(every 4th beyond twice the distance). Playback time is unaffected.\n"
+        "Cuts the per-instance EE cost of distant animated crowds.");
+
+    ImGui::DragFloat("Mesh LOD distance", &prefSettings_.meshLodDistance,
+                     0.5f, 0.0f, 2000.0f,
+                     prefSettings_.meshLodDistance > 0.0f ? "%.0f units" : "off");
+    if (prefSettings_.meshLodDistance < 0.0f) prefSettings_.meshLodDistance = 0.0f;
+    ImGui::TextDisabled(
+        "The build bakes ~50%% and ~25%%-vertex variants of animated models;\n"
+        "instances farther than this render the reduced meshes. Costs RAM\n"
+        "and .tskl size; the editor viewport always shows the full mesh.");
+
     // Texture quantization - the PS2-native "compression" (palettized
     // PSMT8/PSMT4 textures). Applied at build time into .res-baked; per
     // model/material overrides live in the Assets section.
@@ -6442,6 +6550,36 @@ void App::drawPreferencesModal() {
         "GS framebuffer tricks, applied in-game at the end of every frame.\n"
         "Bloom: quarter-res blur re-added over the frame (soft glow).\n"
         "Film grain: animated noise overlay. Subtle values work best.");
+
+    ImGui::SeparatorText("Distance fog");
+    ImGui::Checkbox("Enable fog", &prefSettings_.fogEnabled);
+    if (prefSettings_.fogEnabled) {
+        ImGui::ColorEdit3("Fog color", prefSettings_.fogColor);
+        ImGui::DragFloat("Fog start (units)", &prefSettings_.fogStart, 0.5f, 0.0f,
+                         1000.0f, "%.1f");
+        ImGui::DragFloat("Fog end (units)", &prefSettings_.fogEnd, 0.5f, 1.0f,
+                         2000.0f, "%.1f");
+        if (prefSettings_.fogEnd <= prefSettings_.fogStart + 1.0f)
+            prefSettings_.fogEnd = prefSettings_.fogStart + 1.0f;
+    }
+    ImGui::TextDisabled(
+        "PS2 GS hardware fog: geometry fades to the fog color with distance\n"
+        "(free on the GS). Match the fog color with the sky color for a\n"
+        "Silent Hill style fade-out that hides the draw distance.");
+
+    ImGui::SeparatorText("Flashlight");
+    ImGui::Checkbox("Camera flashlight", &prefSettings_.flashlightEnabled);
+    if (prefSettings_.flashlightEnabled) {
+        ImGui::ColorEdit3("Light color", prefSettings_.flashlightColor);
+        ImGui::DragFloat("Reach (units)", &prefSettings_.flashlightRange, 0.5f,
+                         1.0f, 200.0f, "%.1f");
+        ImGui::DragFloat("Cone half-angle (deg)", &prefSettings_.flashlightAngle,
+                         0.5f, 2.0f, 80.0f, "%.1f");
+    }
+    ImGui::TextDisabled(
+        "Spot light attached to the camera, computed per vertex on VU1 on\n"
+        "top of the baked shading (the Silent Hill flashlight). Dense or\n"
+        "well-tessellated geometry gives the smoothest cone.");
 
     ImGui::SeparatorText("Scenes");
     ImGui::Checkbox("Loading screen between scenes", &prefSettings_.loadingScreen);
@@ -6705,6 +6843,22 @@ void App::drawScenePreferencesModal() {
     category("Post effects", ov.postFx, [&] {
         ImGui::SliderFloat("Bloom", &s.bloom, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Film grain", &s.grain, 0.0f, 1.0f, "%.2f");
+    });
+
+    category("Distance fog", ov.fog, [&] {
+        ImGui::Checkbox("Enable fog", &s.fogEnabled);
+        ImGui::ColorEdit3("Fog color", s.fogColor);
+        ImGui::DragFloat("Fog start (units)", &s.fogStart, 0.5f, 0.0f, 1000.0f, "%.1f");
+        ImGui::DragFloat("Fog end (units)", &s.fogEnd, 0.5f, 1.0f, 2000.0f, "%.1f");
+        if (s.fogEnd <= s.fogStart + 1.0f) s.fogEnd = s.fogStart + 1.0f;
+    });
+
+    category("Flashlight", ov.flashlight, [&] {
+        ImGui::Checkbox("Camera flashlight", &s.flashlightEnabled);
+        ImGui::ColorEdit3("Light color", s.flashlightColor);
+        ImGui::DragFloat("Reach (units)", &s.flashlightRange, 0.5f, 1.0f, 200.0f, "%.1f");
+        ImGui::DragFloat("Cone half-angle (deg)", &s.flashlightAngle, 0.5f, 2.0f,
+                         80.0f, "%.1f");
     });
 
     category("Usable objects", ov.highlight, [&] {

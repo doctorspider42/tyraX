@@ -8,8 +8,11 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
-// Modified by tyra-editor: PipelineZTest_TestOnly branch in sendObjectData.
+// Modified by tyra-editor: PipelineZTest_TestOnly branch in sendObjectData;
+// per-mesh object-space spot light (flashlight) upload for the color VU1
+// programs + EE clipper.
 
+#include <math.h>
 #include "renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp"
 #include "renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h"
 #include "packet2/packet2_tyra_utils.hpp"
@@ -59,7 +62,8 @@ StaPipQBufferRenderer::StaPipQBufferRenderer() {
 
 void StaPipQBufferRenderer::allocateOnUse() {
   staticDataPacket = packet2_create(3, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
-  objectDataPacket = packet2_create(20, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
+  // Modified by tyra-editor: +6 qwords for the spot light unpack.
+  objectDataPacket = packet2_create(26, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
 
   packets = new packet2_t*[2];
   for (u16 i = 0; i < 2; i++)
@@ -115,8 +119,85 @@ void StaPipQBufferRenderer::reinitVU1() {
   setDoubleBuffer();
 }
 
+namespace {
+// Inverse of an affine model matrix (rotation * scale + translation).
+// M4x4 is column-major: data[0..3] = X basis, [4..7] = Y, [8..11] = Z,
+// [12..14] = translation. inv3x3 comes out row-major.
+void invertAffine(const float* m, float* inv3x3, float* invT) {
+  const float a = m[0], b = m[4], c = m[8];
+  const float d = m[1], e = m[5], f = m[9];
+  const float g = m[2], h = m[6], i = m[10];
+  float det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+  if (det > -1e-12F && det < 1e-12F) det = 1e-12F;
+  const float id = 1.0F / det;
+  inv3x3[0] = (e * i - f * h) * id;
+  inv3x3[1] = (c * h - b * i) * id;
+  inv3x3[2] = (b * f - c * e) * id;
+  inv3x3[3] = (f * g - d * i) * id;
+  inv3x3[4] = (a * i - c * g) * id;
+  inv3x3[5] = (c * d - a * f) * id;
+  inv3x3[6] = (d * h - e * g) * id;
+  inv3x3[7] = (b * g - a * h) * id;
+  inv3x3[8] = (a * e - b * d) * id;
+  invT[0] = -(inv3x3[0] * m[12] + inv3x3[1] * m[13] + inv3x3[2] * m[14]);
+  invT[1] = -(inv3x3[3] * m[12] + inv3x3[4] * m[13] + inv3x3[5] * m[14]);
+  invT[2] = -(inv3x3[6] * m[12] + inv3x3[7] * m[13] + inv3x3[8] * m[14]);
+}
+
+// Builds the object-space spot light for this mesh: transforms the world
+// light through the inverse model matrix, expresses the range in object
+// units via the (assumed near-uniform) mesh scale, and precomputes the
+// constants the cull VU1 programs and the EE clipper both consume.
+StaPipClipperSpot buildSpotForBag(const RendererCoreSpotLight& spot,
+                                  const M4x4* model) {
+  StaPipClipperSpot out;
+  out.enabled = spot.enabled;
+  if (!spot.enabled) return out;
+
+  float inv[9], invT[3];
+  invertAffine(model->data, inv, invT);
+
+  out.position.x = inv[0] * spot.position.x + inv[1] * spot.position.y +
+                   inv[2] * spot.position.z + invT[0];
+  out.position.y = inv[3] * spot.position.x + inv[4] * spot.position.y +
+                   inv[5] * spot.position.z + invT[1];
+  out.position.z = inv[6] * spot.position.x + inv[7] * spot.position.y +
+                   inv[8] * spot.position.z + invT[2];
+  out.position.w = 1.0F;
+
+  Vec4 dir;
+  dir.x = inv[0] * spot.direction.x + inv[1] * spot.direction.y +
+          inv[2] * spot.direction.z;
+  dir.y = inv[3] * spot.direction.x + inv[4] * spot.direction.y +
+          inv[5] * spot.direction.z;
+  dir.z = inv[6] * spot.direction.x + inv[7] * spot.direction.y +
+          inv[8] * spot.direction.z;
+  float dirLen2 = dir.x * dir.x + dir.y * dir.y + dir.z * dir.z;
+  if (dirLen2 < 1e-10F) dirLen2 = 1.0F;
+
+  // A world direction through the inverse scales by 1/s (uniform scale s),
+  // so |dir|^2 = 1/s^2 - reuse it to express the range in object units.
+  const float objRange2 = spot.range * spot.range * dirLen2;
+
+  const float invDirLen = 1.0F / sqrtf(dirLen2);
+  out.direction.x = dir.x * invDirLen;
+  out.direction.y = dir.y * invDirLen;
+  out.direction.z = dir.z * invDirLen;
+  out.direction.w = 0.0F;
+
+  out.color[0] = spot.color.r;
+  out.color[1] = spot.color.g;
+  out.color[2] = spot.color.b;
+  out.invRange2 = 1.0F / objRange2;
+  out.cosCut2 = spot.cosCutoff * spot.cosCutoff;
+  const float coneBase = objRange2 * (1.0F - out.cosCut2);
+  out.invSoft = coneBase > 1e-10F ? spot.softness / coneBase : 0.0F;
+  return out;
+}
+}  // namespace
+
 void StaPipQBufferRenderer::sendObjectData(
-    StaPipBag* bag, M4x4* mvp, RendererCoreTextureBuffers* texBuffers) const {
+    StaPipBag* bag, M4x4* mvp, RendererCoreTextureBuffers* texBuffers) {
   packet2_reset(objectDataPacket, false);
   packet2_utils_vu_add_unpack_data(objectDataPacket, VU1_MVP_MATRIX_ADDR,
                                    mvp->data, 4, false);
@@ -134,6 +215,36 @@ void StaPipQBufferRenderer::sendObjectData(
                                      4, false);
   }
 
+  // Modified by tyra-editor: spot light (flashlight) for the color programs.
+  // The dir-lights addresses are free when the bag has no lighting - the
+  // C/TC programs read the three spot quads from there. Always uploaded
+  // (the programs always compute; a zero color makes it a no-op) and the
+  // same numbers go to the EE clipper for the as_is path.
+  if (!bag->lighting) {
+    const auto meshSpot = buildSpotForBag(rendererCore->spot, bag->info->model);
+    clipper.setSpot(meshSpot);
+
+    packet2_utils_vu_open_unpack(objectDataPacket, VU1_LIGHTS_DIRS_ADDR, false);
+    {
+      packet2_add_float(objectDataPacket, meshSpot.position.x);
+      packet2_add_float(objectDataPacket, meshSpot.position.y);
+      packet2_add_float(objectDataPacket, meshSpot.position.z);
+      packet2_add_float(objectDataPacket, meshSpot.invRange2);
+      packet2_add_float(objectDataPacket, meshSpot.direction.x);
+      packet2_add_float(objectDataPacket, meshSpot.direction.y);
+      packet2_add_float(objectDataPacket, meshSpot.direction.z);
+      packet2_add_float(objectDataPacket, meshSpot.cosCut2);
+      packet2_add_float(objectDataPacket, meshSpot.enabled ? meshSpot.color[0]
+                                                           : 0.0F);
+      packet2_add_float(objectDataPacket, meshSpot.enabled ? meshSpot.color[1]
+                                                           : 0.0F);
+      packet2_add_float(objectDataPacket, meshSpot.enabled ? meshSpot.color[2]
+                                                           : 0.0F);
+      packet2_add_float(objectDataPacket, meshSpot.invSoft);
+    }
+    packet2_utils_vu_close_unpack(objectDataPacket);
+  }
+
   u8 singleColorEnabled = bag->color->single != nullptr;
 
   if (singleColorEnabled)  // Color is placed in 4th slot of
@@ -145,9 +256,10 @@ void StaPipQBufferRenderer::sendObjectData(
   {
     packet2_add_u32(objectDataPacket,
                     singleColorEnabled);   // Single color enabled.
-    packet2_add_u32(objectDataPacket, 0);  // not used, padding
-    packet2_add_u32(objectDataPacket, 0);  // not used, padding
-    packet2_add_u32(objectDataPacket, 0);  // not used, padding
+    packet2_add_u32(objectDataPacket, 0);  // not used (dynpip lerp slot)
+    // Modified by tyra-editor: GS hardware fog params (see RendererCoreFog)
+    packet2_add_float(objectDataPacket, rendererCore->fog.scale);
+    packet2_add_float(objectDataPacket, rendererCore->fog.offset);
 
     packet2_utils_gs_add_lod(objectDataPacket, lod);
 

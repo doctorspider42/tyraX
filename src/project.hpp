@@ -42,7 +42,54 @@ enum class PrimitiveType {
     // Empty: a pure transform with no geometry in the game (sphere marker in
     // the editor). Anchor for attached scripts, waypoints, flow-graph logic.
     Empty = 11,
+    // Plane: a flat unit square in the XZ plane (a floor/wall tile). Rendered
+    // double-sided so it is visible from both faces.
+    Plane = 12,
+    // Decal: a flat unit quad in the XY plane facing +Z, textured through the
+    // assigned material's map_Kd with transparency (cutout + alpha blend). Sits
+    // slightly in front of its origin along +Z to avoid z-fighting the surface
+    // it is stuck on. Never collides. For signs, posters, text on walls.
+    Decal = 13,
 };
+
+// Tessellation detail for the geometry primitives, stored per object in
+// SceneObject::primDetail. Its meaning depends on the shape: for the curved
+// shapes (Sphere, Cylinder, Cone) it is the number of radial segments; for a
+// Box it is the number of subdivisions per edge (1 = the plain 12-triangle
+// box). Higher = more triangles = smoother/finer baked lighting, at PS2 vertex
+// cost. Box grows quadratically, so it has a tighter cap. The same formulas run
+// in three places that must stay in sync: the editor viewport (viewport.cpp
+// unitBox/unitSphere/unitCylinder/unitCone), the generated PS2 runtime
+// (templates.cpp addBox/addSphere/addCylinder/addCone) and primTriangleCount.
+constexpr int kDefaultPrimDetail = 16;  // curved shapes (radial segments)
+constexpr int kDefaultBoxDetail = 1;    // Box (subdivisions per edge)
+
+inline int primDetailMin(PrimitiveType t) { return t == PrimitiveType::Box ? 1 : 3; }
+inline int primDetailMax(PrimitiveType t) { return t == PrimitiveType::Box ? 16 : 64; }
+inline int clampPrimDetail(PrimitiveType t, int d) {
+    const int lo = primDetailMin(t), hi = primDetailMax(t);
+    return d < lo ? lo : (d > hi ? hi : d);
+}
+inline int defaultPrimDetail(PrimitiveType t) {
+    return t == PrimitiveType::Box ? kDefaultBoxDetail : kDefaultPrimDetail;
+}
+// Sphere vertical rings derived from the radial segment count (~5:7 ratio).
+inline int primSphereStacks(int detail) {
+    const int s = detail * 5 / 7;
+    return s < 2 ? 2 : s;
+}
+// Triangles a primitive tessellates to at the given detail - for the UI
+// readout. Marker/geometry-less types report 0.
+inline int primTriangleCount(PrimitiveType type, int detail) {
+    const int d = clampPrimDetail(type, detail);
+    switch (type) {
+        case PrimitiveType::Box: return 12 * d * d;  // 6 faces * 2 * d^2 subquads
+        case PrimitiveType::Sphere: return primSphereStacks(d) * d * 2;
+        case PrimitiveType::Cylinder: return d * 4;  // side (2/seg) + 2 caps
+        case PrimitiveType::Cone: return d * 2;      // side + base (1/seg each)
+        default: return 0;
+    }
+}
 
 // Unit primitives fit a 1x1x1 cube centered at origin and are transformed by
 // scale -> rotation (X, then Y, then Z) -> translation.
@@ -52,7 +99,7 @@ struct SceneObject {
     float position[3] = {0.0f, 0.5f, 0.0f};
     float rotation[3] = {0.0f, 0.0f, 0.0f};  // degrees
     float scale[3] = {1.0f, 1.0f, 1.0f};
-    float color[3] = {0.8f, 0.35f, 0.25f};
+    float color[3] = {0.6f, 0.6f, 0.6f};  // neutral gray (specialized types override)
     bool physics = false;     // falls with gravity in the game
     bool usable = false;      // shows the USE prompt up close; BTN_USE fires On Used
     bool saveState = false;   // position/color/visibility persisted in save slots
@@ -63,6 +110,15 @@ struct SceneObject {
     // Empty = no layer: always resident in the game, always shown in the
     // editor. Objects reference layers by name (renames remap references).
     std::string layer;
+    // Tessellation detail for the geometry primitives: radial segments for
+    // Sphere/Cylinder/Cone, subdivisions per edge for Box. More = smoother +
+    // more triangles. Type-dependent range/default - see clampPrimDetail /
+    // defaultPrimDetail / primTriangleCount.
+    int primDetail = kDefaultPrimDetail;
+    // Rendering cut-off: farther than this from the camera the object is not
+    // drawn at all (collision, sounds and scripts still run). 0 = unlimited.
+    // The cheapest LOD there is - era-correct for dense scenes.
+    float drawDistance = 0.0f;
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     // Material library (.mtl) assigned to the object, e.g.
     // "res/materials/walls.mtl". Primitives take the file's FIRST material
@@ -150,7 +206,9 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
            a.physics == b.physics && a.usable == b.usable &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
-           a.layer == b.layer && a.modelPath == b.modelPath &&
+           a.layer == b.layer &&
+           a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
+           a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.playerMode == b.playerMode &&
            a.playerWalkSpeed == b.playerWalkSpeed &&
            a.playerLookSpeed == b.playerLookSpeed &&
@@ -205,6 +263,19 @@ struct ProjectSettings {
     // that extend far beyond the screen.
     std::string clipping = "precise";
 
+    // Animation LOD: animated-model instances farther than this from the
+    // camera refresh their pose/skinning every 2nd frame (every 4th beyond
+    // twice the distance), staggered across objects so the cost spreads.
+    // Playback time is unaffected - the pose catches up on the next
+    // refresh. 0 = off (every instance skins every frame).
+    float animLodDistance = 0.0f;
+
+    // Mesh LOD: the build bakes decimated variants (~50% and ~25% vertices,
+    // quadric-error collapse) of every animated model into the .tskl;
+    // instances farther than this render the 50% mesh, beyond twice the
+    // distance the 25% one. 0 = off (no LODs baked or kept in RAM).
+    float meshLodDistance = 0.0f;
+
     int terrainDetail = 32;  // max terrain grid cells per axis (quality vs perf)
     float skyColor[3] = {0.25f, 0.55f, 0.78f};   // horizon / clear color
     float skyTopColor[3] = {0.08f, 0.3f, 0.65f};  // zenith (gradient dome)
@@ -244,6 +315,23 @@ struct ProjectSettings {
     float bloom = 0.0f;  // downsample + blur + additive re-add (glow)
     float grain = 0.0f;  // animated film grain noise overlay
 
+    // GS hardware distance fog (Silent Hill style fade-out). Geometry blends
+    // toward fogColor between fogStart and fogEnd view distances; free on the
+    // GS (per-vertex coefficient computed on VU1). Match fogColor with the
+    // sky/clear color and keep fogEnd at (or before) the far plane.
+    bool fogEnabled = false;
+    float fogColor[3] = {0.5f, 0.5f, 0.55f};
+    float fogStart = 15.0f;   // world units from the camera
+    float fogEnd = 120.0f;    // full fog at/after this distance
+
+    // Camera-attached spot light (Silent Hill flashlight). Additive cone +
+    // distance falloff computed per vertex on VU1, on top of the baked
+    // shading (no N.L - the PS2 color pipelines carry no normals).
+    bool flashlightEnabled = false;
+    float flashlightColor[3] = {0.75f, 0.75f, 0.62f};
+    float flashlightRange = 30.0f;  // world units
+    float flashlightAngle = 20.0f;  // cone half-angle, degrees
+
     // Scene switches show res/hud/loading.png centered on black for a
     // moment (a generated placeholder is written when the file is missing).
     bool loadingScreen = true;
@@ -264,7 +352,9 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
     return a.videoSystem == b.videoSystem && a.buildProfile == b.buildProfile &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.disableVsync == b.disableVsync &&
-           a.clipping == b.clipping && a.terrainDetail == b.terrainDetail &&
+           a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
+           a.meshLodDistance == b.meshLodDistance &&
+           a.terrainDetail == b.terrainDetail &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.eyeHeight == b.eyeHeight &&
            a.walkSpeed == b.walkSpeed && a.lookSpeed == b.lookSpeed &&
@@ -276,7 +366,14 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            eq3(a.lightColor, b.lightColor) && a.brightness == b.brightness &&
            a.terrainTexture == b.terrainTexture &&
            a.terrainTexScale == b.terrainTexScale && a.bloom == b.bloom &&
-           a.grain == b.grain && a.loadingScreen == b.loadingScreen &&
+           a.grain == b.grain && a.fogEnabled == b.fogEnabled &&
+           eq3(a.fogColor, b.fogColor) && a.fogStart == b.fogStart &&
+           a.fogEnd == b.fogEnd &&
+           a.flashlightEnabled == b.flashlightEnabled &&
+           eq3(a.flashlightColor, b.flashlightColor) &&
+           a.flashlightRange == b.flashlightRange &&
+           a.flashlightAngle == b.flashlightAngle &&
+           a.loadingScreen == b.loadingScreen &&
            a.highlightUsable == b.highlightUsable &&
            a.highlightDistance == b.highlightDistance &&
            eq3(a.highlightColor, b.highlightColor) &&
@@ -294,12 +391,15 @@ struct SceneOverrides {
     bool clipping = false;    // clipping mode
     bool terrainTex = false;  // terrainTexture, terrainTexScale
     bool postFx = false;      // bloom, grain
+    bool fog = false;         // fogEnabled, fogColor, fogStart, fogEnd
+    bool flashlight = false;  // flashlightEnabled + color/range/angle
     bool highlight = false;   // highlightUsable + distance/color/width/steps
 };
 
 inline bool operator==(const SceneOverrides& a, const SceneOverrides& b) {
     return a.lighting == b.lighting && a.sky == b.sky && a.clipping == b.clipping &&
            a.terrainTex == b.terrainTex && a.postFx == b.postFx &&
+           a.fog == b.fog && a.flashlight == b.flashlight &&
            a.highlight == b.highlight;
 }
 

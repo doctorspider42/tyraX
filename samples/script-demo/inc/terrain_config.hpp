@@ -30,6 +30,16 @@ constexpr bool LOADING_SCREEN = true;
 // wait before the flip - continuous frame rate, screen tearing possible.
 constexpr bool FRAME_LIMIT = true;
 
+// Animation LOD (Preferences > Rendering): animated instances farther than
+// this refresh pose/skinning every 2nd frame, every 4th beyond twice the
+// distance (staggered per object). 0 = off. Playback time is unaffected.
+constexpr float ANIM_LOD_DISTANCE = 0.0F;
+
+// Mesh LOD (Preferences > Rendering): instances farther than this render
+// the ~50%-vertex variant baked into the .tskl, beyond twice the distance
+// the ~25% one. 0 = off (the build then bakes no LOD chains at all).
+constexpr float MESH_LOD_DISTANCE = 0.0F;
+
 // Debug-profile HUD (Project > Preferences > Build). Both are forced false
 // in a release-profile build, which folds the overlay code away entirely.
 constexpr bool DEBUG_SHOW_FPS = false;

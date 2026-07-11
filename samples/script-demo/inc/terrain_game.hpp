@@ -67,6 +67,7 @@ class TerrainGame : public Tyra::Game {
     std::vector<AnimPart> animParts;
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
+    u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
     // Usable-object highlight: fading shells grown around the object
     // center, drawn after the scene (see renderHighlightHull)
     std::vector<Tyra::Vec4> hullVerts;
@@ -117,6 +118,7 @@ class TerrainGame : public Tyra::Game {
   Tyra::Vec4 animLightColors[4];
   Tyra::Vec4 animLightDirs[3];
   Tyra::PipelineDirLightsBag animDirLights{true};
+  u32 animLodTick = 0;  // frame counter for the ANIM_LOD_DISTANCE stagger
 
  public:
   // Clip-name lookup for scripts/flow graph (ScriptContext::resolveClip).

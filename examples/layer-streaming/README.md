@@ -19,10 +19,12 @@ through the door into the corridor and keep going:
    the building behind you vanishes from memory.
 3. Walk back and the mirrored triggers swap them again. Endlessly.
 
-The debug overlay (enabled in this project's preferences) shows it
-happening: **MEM** drops every time a building unloads and climbs while
-one streams in, and **FPS** stays at full rate — loads are spread one
-asset per frame, so there is no hitch.
+To watch it happening, enable **Show FPS** and **Show memory usage**
+(Project > Preferences > Build, debug profile): **MEM** drops every time
+a building unloads and climbs while one streams in, and **FPS** stays at
+full rate — loads are spread one asset per frame, so there is no hitch.
+(The overlay ships disabled here while a known engine regression makes it
+freeze the first frame — unrelated to layers.)
 
 ## How it is wired
 

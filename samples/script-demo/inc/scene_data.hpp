@@ -39,11 +39,14 @@ struct SceneObjectData {
   float lightRadius; // point lights (type 9): falloff radius
   int saveState;  // 1 = position/color/visibility persisted in saves
   int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none
+  float drawDistance;  // not drawn farther than this from the camera;
+                       // 0 = unlimited (collision/logic always run)
   int animModel;  // animated models: index into ANIM_MODEL_PATHS, -1 = none
   const char* animClip;  // animated models: starting clip ("" = first)
   int animAutoplay;      // animated models: 1 = play at scene start
   int animLoop;          // animated models: 1 = starting clip loops
   float animSpeed;       // animated models: playback speed multiplier
+  int primDetail;        // segments (curved) or box subdivisions/edge
   int layer;      // streaming layer (SCENE_LAYER_* tables), -1 = none:
                   // always resident, never streamed out
 };
@@ -52,9 +55,9 @@ constexpr int SCENE_COUNT = 1;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[3] = {
-    {4, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, -1, "", 1, 1, 1.0F, -1},  // spawn-1
-    {0, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.8F, 0.35F, 0.25F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, -1, "", 1, 1, 1.0F, -1},  // box-1
-    {5, {-7.0F, 0.0F, 9.0F}, {0.0F, 30.0F, 0.0F}, {2.5F, 2.5F, 2.5F}, {0.9F, 0.85F, 0.7F}, 0, 0, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, -1, "", 1, 1, 1.0F, -1},  // house-1
+    {4, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // spawn-1
+    {0, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.8F, 0.35F, 0.25F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // box-1
+    {5, {-7.0F, 0.0F, 9.0F}, {0.0F, 30.0F, 0.0F}, {2.5F, 2.5F, 2.5F}, {0.9F, 0.85F, 0.7F}, 0, 0, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // house-1
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {3};
@@ -96,6 +99,18 @@ constexpr float SKY_TOP_GS[SCENE_COUNT] = {76.5F};
 constexpr float SKY_TOP_BS[SCENE_COUNT] = {165.75F};
 constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {0};
 constexpr int POSTFX_GRAINS[SCENE_COUNT] = {0};
+constexpr bool FOG_ENABLEDS[SCENE_COUNT] = {false};
+constexpr float FOG_RS[SCENE_COUNT] = {127.5F};
+constexpr float FOG_GS[SCENE_COUNT] = {127.5F};
+constexpr float FOG_BS[SCENE_COUNT] = {140.25F};
+constexpr float FOG_STARTS[SCENE_COUNT] = {15.0F};
+constexpr float FOG_ENDS[SCENE_COUNT] = {120.0F};
+constexpr bool FLASHLIGHT_ENABLEDS[SCENE_COUNT] = {false};
+constexpr float FLASHLIGHT_RS[SCENE_COUNT] = {96.0F};
+constexpr float FLASHLIGHT_GS[SCENE_COUNT] = {96.0F};
+constexpr float FLASHLIGHT_BS[SCENE_COUNT] = {79.36F};
+constexpr float FLASHLIGHT_RANGES[SCENE_COUNT] = {30.0F};
+constexpr float FLASHLIGHT_ANGLES[SCENE_COUNT] = {20.0F};
 constexpr bool HIGHLIGHT_USABLES[SCENE_COUNT] = {false};
 constexpr float HIGHLIGHT_DISTANCES[SCENE_COUNT] = {6.0F};
 constexpr float HIGHLIGHT_RS[SCENE_COUNT] = {255.0F};
@@ -188,6 +203,18 @@ inline int everyFrames(float seconds) {
 #define SKY_TOP_B SKY_TOP_BS[g_activeScene]
 #define POSTFX_BLOOM POSTFX_BLOOMS[g_activeScene]
 #define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
+#define FOG_ENABLED FOG_ENABLEDS[g_activeScene]
+#define FOG_R FOG_RS[g_activeScene]
+#define FOG_G FOG_GS[g_activeScene]
+#define FOG_B FOG_BS[g_activeScene]
+#define FOG_START FOG_STARTS[g_activeScene]
+#define FOG_END FOG_ENDS[g_activeScene]
+#define FLASHLIGHT_ENABLED FLASHLIGHT_ENABLEDS[g_activeScene]
+#define FLASHLIGHT_R FLASHLIGHT_RS[g_activeScene]
+#define FLASHLIGHT_G FLASHLIGHT_GS[g_activeScene]
+#define FLASHLIGHT_B FLASHLIGHT_BS[g_activeScene]
+#define FLASHLIGHT_RANGE FLASHLIGHT_RANGES[g_activeScene]
+#define FLASHLIGHT_ANGLE FLASHLIGHT_ANGLES[g_activeScene]
 #define HIGHLIGHT_USABLE HIGHLIGHT_USABLES[g_activeScene]
 #define HIGHLIGHT_DISTANCE HIGHLIGHT_DISTANCES[g_activeScene]
 #define HIGHLIGHT_R HIGHLIGHT_RS[g_activeScene]

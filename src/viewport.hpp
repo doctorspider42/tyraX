@@ -43,6 +43,16 @@ public:
     void setLighting(const float* dir, float ambient, float diffuse, const float* color,
                      float brightness);
 
+    // GS hardware distance fog preview (Preferences > Distance fog); geometry
+    // blends toward rgb between the start/end view distances, sky excluded -
+    // same as the generated game.
+    void setFog(bool enabled, const float* rgb, float start, float end);
+
+    // Camera flashlight preview (Preferences > Flashlight): additive cone
+    // from the editor camera, the exact formula the PS2 runs on VU1.
+    void setFlashlight(bool enabled, const float* rgb, float range,
+                       float halfAngleDeg);
+
     // project root for resolving relative model paths (clears the model cache)
     void setProjectDir(const std::string& dir);
 
@@ -95,6 +105,10 @@ public:
     // keeping the current yaw/pitch/distance. Used by "orbit around selection".
     void setTarget(const float target[3]);
 
+    // Recenter the camera on the terrain center (world origin) and restore the
+    // default orientation and a distance framing the whole terrain.
+    void resetView();
+
     // View/projection of the last render() call (column-major, OpenGL style) -
     // used by the transform gizmo.
     const float* viewMatrix() const { return viewM_; }
@@ -142,18 +156,37 @@ private:
     int uMvp_ = -1;
     int uTint_ = -1;
     int uUseTex_ = -1;
+    int uAlpha_ = -1;  // decal cutout/blend toggle
     // Live point-light preview (fragment shader, world-space)
     int uModel_ = -1;
     int uLit_ = -1;
     int uLightCount_ = -1;
     int uLightPos_ = -1;
     int uLightCol_ = -1;
+    // GS hardware fog preview
+    int uFogOn_ = -1, uFogColor_ = -1, uFogStart_ = -1, uFogEnd_ = -1;
+    int uFogEye_ = -1, uFogFwd_ = -1;
+    bool fogOn_ = false;
+    float fogColor_[3] = {0.5f, 0.5f, 0.55f};
+    float fogStart_ = 15.0f, fogEnd_ = 120.0f;
+    // Camera flashlight preview
+    int uFlashOn_ = -1, uFlashCol_ = -1, uFlashInvR2_ = -1, uFlashCut2_ = -1;
+    int uFlashSoft_ = -1;
+    bool flashOn_ = false;
+    float flashColor_[3] = {0.75f, 0.75f, 0.62f};
+    float flashRange_ = 30.0f, flashAngle_ = 20.0f;
 
     Mesh terrain_mesh_;
     Mesh lines_;  // terrain grid + axes
-    Mesh box_, sphere_, cylinder_, cone_, spawnMarker_, playerMarker_;
+    Mesh box_, sphere_, cylinder_, cone_, plane_, decal_, spawnMarker_, playerMarker_;
     Mesh lightGizmo_;  // small unshaded bulb marking a point light
     Mesh wireSphere_;  // unit-radius ring sphere, scaled to a light's radius
+    // Per-detail primitive meshes (Box/Sphere/Cylinder/Cone), built lazily and
+    // shared across objects with the same detail. The fixed box_ / sphere_ /
+    // cylinder_ / cone_ above stay at the default detail (markers, previews).
+    std::map<int, Mesh> boxMeshes_, sphereMeshes_, cylinderMeshes_, coneMeshes_;
+    const Mesh& primMesh(PrimitiveType type, int detail);
+    void clearPrimMeshCache();
     std::string projectDir_;
     // .obj models split per material (MTL): each part carries its own GL mesh
     // (Kd baked into the vertex colors) and map_Kd texture.
