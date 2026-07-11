@@ -30,6 +30,12 @@ public:
     void setTerrain(const TerrainConfig& terrain, int maxCells = 32,
                     const std::vector<float>& heights = {}, int hmW = 0, int hmD = 0);
 
+    // Sculpt fast path: takes the freshly brushed heightmap (same dims as the
+    // last setTerrain) and rebuilds only the terrain chunks under the brush
+    // circle - a stroke on a large map stays interactive.
+    void updateTerrainRegion(const std::vector<float>& heights, float worldX,
+                             float worldZ, float radius);
+
     // Casts a ray through normalized image coords onto the terrain surface.
     // Returns false when the ray misses; used by the sculpting brush.
     bool terrainRaycast(float u, float v, float& outX, float& outZ) const;
@@ -56,8 +62,12 @@ public:
     // project root for resolving relative model paths (clears the model cache)
     void setProjectDir(const std::string& dir);
 
-    // terrain texture (PNG, tiled; empty = checker colors) + world units per tile
-    void setTerrainTexture(const std::string& relPath, float scale);
+    // Terrain material, pre-resolved by the caller: the first material's
+    // map_Kd texture (empty = flat color), its Kd tint, whether a material is
+    // assigned (false = checker greens), and the map's "-s" tiling (texture
+    // repeats per world unit, per axis u/v).
+    void setTerrainMaterial(const std::string& texRelPath, const float kd[3],
+                            bool hasMaterial, const float tile[2]);
 
     // "Highlight usable objects" preference: marks usable objects with a wire
     // box in the highlight color (proximity is a game-runtime condition)
@@ -177,8 +187,19 @@ private:
     float flashColor_[3] = {0.75f, 0.75f, 0.62f};
     float flashRange_ = 30.0f, flashAngle_ = 20.0f;
 
-    Mesh terrain_mesh_;
-    Mesh lines_;  // terrain grid + axes
+    // Terrain in chunks of kTerrainChunkCells^2 cells (mesh + grid lines per
+    // chunk) so sculpting rebuilds only the chunks under the brush. Grid
+    // lines drop to chunk borders only above kTerrainFullGridCells total
+    // cells - a full per-cell grid on a 512x512 map is solid noise (and tens
+    // of MB of line vertices).
+    static constexpr int kTerrainChunkCells = 64;
+    static constexpr int kTerrainFullGridCells = 128 * 128;
+    std::vector<Mesh> terrainChunkMeshes_;  // tcChunksX_ * tcChunksZ_, row-major
+    std::vector<Mesh> terrainLineMeshes_;
+    int tcChunksX_ = 0, tcChunksZ_ = 0;
+    int tcCellsX_ = 0, tcCellsZ_ = 0;
+    void buildTerrainChunkMesh(int cx, int cz);
+    Mesh axes_;  // world axes
     Mesh box_, sphere_, cylinder_, cone_, plane_, decal_, spawnMarker_, playerMarker_;
     Mesh lightGizmo_;  // small unshaded bulb marking a point light
     Mesh wireSphere_;  // unit-radius ring sphere, scaled to a light's radius
@@ -259,8 +280,10 @@ private:
     void drawEmitterPreviews(const std::vector<SceneObject>& objects,
                              const float* viewProj, const float* eye,
                              const float* fwd);
-    std::string terrainTexture_;
-    float terrainTexScale_ = 4.0f;
+    std::string terrainTexture_;  // resolved map_Kd of the terrain material
+    float terrainTile_[2] = {1.0f, 1.0f};  // map_Kd -s: repeats per world unit
+    float terrainKd_[3] = {1.0f, 1.0f, 1.0f};  // terrain material Kd tint
+    bool terrainHasMaterial_ = false;  // false = checker greens fallback
     Mesh wireCube_;  // selection outline (unit cube edges)
     bool usableHighlight_ = false;  // wire box on usable objects
     float usableHighlightCol_[3] = {1.0f, 0.85f, 0.15f};

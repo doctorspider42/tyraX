@@ -106,9 +106,9 @@ constexpr float FOG_BS[SCENE_COUNT] = {140.25F};
 constexpr float FOG_STARTS[SCENE_COUNT] = {15.0F};
 constexpr float FOG_ENDS[SCENE_COUNT] = {120.0F};
 constexpr bool FLASHLIGHT_ENABLEDS[SCENE_COUNT] = {false};
-constexpr float FLASHLIGHT_RS[SCENE_COUNT] = {96.0F};
-constexpr float FLASHLIGHT_GS[SCENE_COUNT] = {96.0F};
-constexpr float FLASHLIGHT_BS[SCENE_COUNT] = {79.36F};
+constexpr float FLASHLIGHT_RS[SCENE_COUNT] = {0.0F};
+constexpr float FLASHLIGHT_GS[SCENE_COUNT] = {0.0F};
+constexpr float FLASHLIGHT_BS[SCENE_COUNT] = {0.0F};
 constexpr float FLASHLIGHT_RANGES[SCENE_COUNT] = {30.0F};
 constexpr float FLASHLIGHT_ANGLES[SCENE_COUNT] = {20.0F};
 constexpr bool HIGHLIGHT_USABLES[SCENE_COUNT] = {false};
@@ -160,6 +160,21 @@ extern int g_activeScene;
 extern float g_frameRate;   // vsync rate: 50 (PAL) or 60 (NTSC)
 extern float g_frameDt;     // 1 / g_frameRate
 extern float g_frameScale;  // 50 / g_frameRate
+
+// Camera flashlight runtime state (a Player object property), defined in the
+// game cpp. g_flashEnabled is the master switch (Set Flashlight flow node);
+// g_flashOn is the on/off toggle state the player controls with the optional
+// toggle button. The beam shows only while both are set.
+extern bool g_flashEnabled;
+extern bool g_flashOn;
+template <typename TEngine>
+inline bool flashlightTogglePressed(TEngine* engine) {
+  (void)engine;
+  switch (g_activeScene) {
+    default: break;
+  }
+  return false;
+}
 // Frames per `seconds` of wall-clock time (>= 1), for frame-counter timers.
 inline int everyFrames(float seconds) {
   const int f = (int)(seconds * g_frameRate);
@@ -191,7 +206,12 @@ inline int everyFrames(float seconds) {
 #define HM_D HM_DS[g_activeScene]
 #define TERRAIN_HEIGHTS TERRAIN_HEIGHTS_TABLES[g_activeScene]
 #define TERRAIN_TEXTURE TERRAIN_TEXTURES[g_activeScene]
-#define TERRAIN_TEX_SCALE TERRAIN_TEX_SCALES[g_activeScene]
+#define TERRAIN_TILE_U TERRAIN_TILE_US[g_activeScene]
+#define TERRAIN_TILE_V TERRAIN_TILE_VS[g_activeScene]
+#define TERRAIN_HAS_MATERIAL TERRAIN_HAS_MATERIALS[g_activeScene]
+#define TERRAIN_TINT_R TERRAIN_TINTS[g_activeScene][0]
+#define TERRAIN_TINT_G TERRAIN_TINTS[g_activeScene][1]
+#define TERRAIN_TINT_B TERRAIN_TINTS[g_activeScene][2]
 // Per-scene sky / clipping / post-FX / usable-highlight (Scene > Preferences)
 #define CLIP_PRECISE CLIP_PRECISES[g_activeScene]
 #define SKY_R SKY_RS[g_activeScene]

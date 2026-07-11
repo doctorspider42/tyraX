@@ -58,6 +58,11 @@ struct ScriptContext {
   // Write to show/hide all HUD images (the USE prompt is unaffected).
   bool hudVisible = true;
 
+  // Camera flashlight master switch (the Player object's "Enabled"). Write 1
+  // to turn it on, 0 to turn it off, -1 to leave it unchanged; the game
+  // applies and resets it. The optional toggle button still gates the beam.
+  int flashlight = -1;
+
   // Save data: named values persisted in memory card slots (SAVE_VALUE_NAMES
   // order, scene_data.hpp). Set openSaveMenu = true to open the in-game
   // save/load menu (also opened by using a Save point object); the game

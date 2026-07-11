@@ -14,11 +14,35 @@ namespace {
 struct Material {
     float kd[3] = {1.0f, 1.0f, 1.0f};
     std::string texture;  // map_Kd, relative to its .mtl's directory
+    float scale[2] = {1.0f, 1.0f};  // map_Kd -s (u, v); UV multiplier
 };
 
+// Parses the tokens after "map_Kd" into a texture filename (the last token)
+// and the optional "-s <u> [v] [w]" scale option. Other map options (-o, -bm,
+// -clamp, ...) are ignored; the filename is always the trailing token.
+static void parseMapKd(std::istringstream& ss, std::string& outTexture, float outScale[2]) {
+    std::vector<std::string> toks;
+    for (std::string t; ss >> t;) toks.push_back(t);
+    if (toks.empty()) return;
+    outTexture = toks.back();
+    for (char& c : outTexture)
+        if (c == '\\') c = '/';
+    // -s takes up to 3 floats; never consume the trailing filename token.
+    for (size_t i = 0; i + 1 < toks.size(); ++i) {
+        if (toks[i] != "-s") continue;
+        for (int a = 0; a < 2 && i + 1 + (size_t)a < toks.size() - 1; ++a) {
+            char* end = nullptr;
+            const float v = std::strtof(toks[i + 1 + a].c_str(), &end);
+            if (end == toks[i + 1 + a].c_str()) break;  // not a number
+            outScale[a] = v;
+        }
+        break;
+    }
+}
+
 // Parses newmtl/Kd/map_Kd from one .mtl file. Texture paths keep any relative
-// subdirectories (normalized to forward slashes); options of map_Kd (rare
-// "-s 1 1 tex.png" forms) are skipped by taking the last token.
+// subdirectories (normalized to forward slashes); the map_Kd "-s <u> <v>"
+// scale option (a UV multiplier) is read, other options are ignored.
 // order (optional) records material names in file order.
 bool parseMtl(const std::filesystem::path& path,
               std::map<std::string, Material>& materials,
@@ -39,11 +63,8 @@ bool parseMtl(const std::filesystem::path& path,
             Material& m = materials[current];
             ss >> m.kd[0] >> m.kd[1] >> m.kd[2];
         } else if (tag == "map_Kd" && !current.empty()) {
-            std::string tok, last;
-            while (ss >> tok) last = tok;
-            for (char& c : last)
-                if (c == '\\') c = '/';
-            materials[current].texture = last;
+            Material& m = materials[current];
+            parseMapKd(ss, m.texture, m.scale);
         }
     }
     return true;
@@ -63,6 +84,8 @@ bool loadMtl(const std::string& path, std::vector<MtlMaterial>& out) {
         m.kd[0] = materials[name].kd[0];
         m.kd[1] = materials[name].kd[1];
         m.kd[2] = materials[name].kd[2];
+        m.scale[0] = materials[name].scale[0];
+        m.scale[1] = materials[name].scale[1];
         out.push_back(std::move(m));
     }
     return !out.empty();

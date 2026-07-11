@@ -724,7 +724,10 @@ void App::drawViewportWindow() {
                     project::sculptHeightmap(project_, brushX, brushZ, brushRadius_,
                                              delta);
                 }
-                applyProjectToViewport();  // live mesh rebuild
+                // Live rebuild of just the chunks under the brush - a full
+                // applyProjectToViewport would rebuild the whole map per frame.
+                viewport_.updateTerrainRegion(project_.active().heights, brushX, brushZ,
+                                              brushRadius_);
                 sculptStroke_ = true;
             }
         }
@@ -2056,6 +2059,31 @@ bool App::drawMaterialCombo(SceneObject& o) {
             if (ImGui::Selectable(label.c_str(), rel == o.materialPath) &&
                 rel != o.materialPath) {
                 o.materialPath = rel;
+                changed = true;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    return changed;
+}
+
+// Terrain material picker. Lists the project's .mtl assets (res/materials +
+// the models' own libraries); "<none>" clears it back to the checker greens.
+bool App::drawTerrainMaterialCombo(const char* label, std::string& matPath) {
+    const char* noneLabel = "<none - checker greens>";
+    std::string current = matPath.empty() ? noneLabel : matPath;
+    if (current.rfind("res/", 0) == 0) current = current.substr(4);
+
+    bool changed = false;
+    if (ImGui::BeginCombo(label, current.c_str())) {
+        if (ImGui::Selectable(noneLabel, matPath.empty()) && !matPath.empty()) {
+            matPath.clear();
+            changed = true;
+        }
+        for (const std::string& rel : listMaterialAssets()) {
+            const std::string item = rel.substr(4);  // drop "res/"
+            if (ImGui::Selectable(item.c_str(), rel == matPath) && rel != matPath) {
+                matPath = rel;
                 changed = true;
             }
         }
@@ -5625,11 +5653,19 @@ bool App::loadMaterialFile(const std::string& relPath) {
         if (tag == "Kd") {
             ss >> e.color[0] >> e.color[1] >> e.color[2];
         } else if (tag == "map_Kd") {
-            std::string tok, last;  // options of map_Kd (rare) are dropped
-            while (ss >> tok) last = tok;
-            for (char& c : last)
-                if (c == '\\') c = '/';
-            e.texture = last;
+            std::vector<std::string> toks;  // "<options> filename"; filename last
+            for (std::string t; ss >> t;) toks.push_back(t);
+            if (!toks.empty()) {
+                e.texture = toks.back();
+                for (char& c : e.texture)
+                    if (c == '\\') c = '/';
+                // -s <u> [v] [w]: tiling (a UV multiplier); take the u factor.
+                for (size_t i = 0; i + 1 < toks.size(); ++i)
+                    if (toks[i] == "-s") {
+                        std::istringstream(toks[i + 1]) >> e.tile;
+                        break;
+                    }
+            }
         } else if (tag == "#") {
             std::string what;
             ss >> what;
@@ -5693,7 +5729,16 @@ void App::saveMaterialFile() {
         };
         std::snprintf(buf, sizeof(buf), "Kd %.4f %.4f %.4f", kd(0), kd(1), kd(2));
         out << buf << "\n";
-        if (!e.texture.empty()) out << "map_Kd " << e.texture << "\n";
+        if (!e.texture.empty()) {
+            // -s tiling (repeats per world unit) matters only for terrain; skip
+            // it at the default 1 to keep files clean. Wavefront: "-s u v w".
+            out << "map_Kd";
+            if (e.tile != 1.0f) {
+                std::snprintf(buf, sizeof(buf), " -s %.4g %.4g 1", e.tile, e.tile);
+                out << buf;
+            }
+            out << " " << e.texture << "\n";
+        }
         for (const std::string& x : e.extra) out << x << "\n";
         out << "\n";
     }
@@ -5951,6 +5996,17 @@ void App::drawMaterialEditorWindow() {
                     ImGui::TextDisabled("%dx%d", tw, th);
             }
         }
+
+        // Tiling (map_Kd -s): how densely the texture repeats. Used by terrain
+        // (which generates its own UVs); objects carry baked UVs and ignore it.
+        ImGui::SetNextItemWidth(180.0f);
+        ImGui::DragFloat("Tile repeat", &e.tile, 0.05f, 0.01f, 64.0f, "%.2f/unit");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (e.tile < 0.01f) e.tile = 0.01f;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Terrain only: texture repeats per world unit.\n"
+                              "Higher = smaller, denser tiles. Objects use their\n"
+                              "mesh UVs and ignore this.");
     }
 
     ImGui::Spacing();
@@ -6870,6 +6926,12 @@ void App::performAssetDelete(const PendingAssetDelete& d) {
             for (SceneData& scene : project_.scenes)
                 for (SceneObject& o : scene.objects)
                     if (o.materialPath == d.relPath) o.materialPath.clear();
+            // A terrain that used it falls back to the checker greens.
+            if (project_.settings.terrainMaterial == d.relPath)
+                project_.settings.terrainMaterial.clear();
+            for (SceneData& scene : project_.scenes)
+                if (scene.settings.terrainMaterial == d.relPath)
+                    scene.settings.terrainMaterial.clear();
             modelInfoCache_.clear();
             statusMessage_ = "Deleted " + d.label;
             commitChange();
@@ -6949,8 +7011,8 @@ void App::drawNewSceneModal() {
         return;
 
     ImGui::InputText("Name", newSceneName_, sizeof(newSceneName_));
-    ImGui::DragInt("Terrain width", &newSceneWidth_, 1.0f, 8, 512, "%d units");
-    ImGui::DragInt("Terrain depth", &newSceneDepth_, 1.0f, 8, 512, "%d units");
+    ImGui::DragInt("Terrain width", &newSceneWidth_, 1.0f, 8, 4096, "%d units");
+    ImGui::DragInt("Terrain depth", &newSceneDepth_, 1.0f, 8, 4096, "%d units");
     if (!newSceneError_.empty())
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", newSceneError_.c_str());
 
@@ -7555,7 +7617,9 @@ void App::applyProjectToViewport() {
     // Scene-visual settings resolve project defaults + this scene's overrides.
     const ProjectSettings rs = project::resolvedSettings(project_, sc);
     viewport_.setProjectDir(project_.dir);
-    viewport_.setTerrainTexture(rs.terrainTexture, rs.terrainTexScale);
+    const project::TerrainMaterial tm =
+        project::resolveTerrainMaterial(project_, rs.terrainMaterial);
+    viewport_.setTerrainMaterial(tm.texture, tm.kd, tm.present, tm.tile);
     viewport_.setTerrain(sc.terrain, project_.settings.terrainDetail, sc.heights, sc.hmW,
                          sc.hmD);
     viewport_.setSky(rs.skyColor, rs.skyTopColor, rs.skyDome);
@@ -7634,9 +7698,54 @@ void App::drawPreferencesModal() {
                                                                                 : prefTerrain_.width;
     prefTerrain_.depth = prefTerrain_.depth < 1 ? 1 : prefTerrain_.depth > 4096 ? 4096
                                                                                 : prefTerrain_.depth;
-    ImGui::SliderInt("Detail (max grid cells)", &prefSettings_.terrainDetail, 4, 128);
+    ImGui::SliderInt("Detail (max grid cells)", &prefSettings_.terrainDetail, 4, 512);
     ImGui::TextDisabled("More cells = smaller triangles = fewer clipping artifacts,");
     ImGui::TextDisabled("but more geometry for the PS2 to push.");
+
+    ImGui::DragFloat("View distance", &prefSettings_.terrainViewDistance, 1.0f, 0.0f,
+                     2000.0f,
+                     prefSettings_.terrainViewDistance > 0.0f ? "%.0f units"
+                                                              : "off (whole map)");
+    if (prefSettings_.terrainViewDistance < 0.0f)
+        prefSettings_.terrainViewDistance = 0.0f;
+    ImGui::TextDisabled(
+        "The game keeps only the terrain chunks within this range of the\n"
+        "camera in memory; the rest streams in as the player moves. Pair it\n"
+        "with fog (view distance ~ fog end) to hide the pop-in. 0 keeps the\n"
+        "whole map resident. Meant for FPP - orbit showcases see the whole\n"
+        "map at once and should leave it 0.");
+
+    // Worst-case resident mesh memory so oversized configs are caught here,
+    // not by an out-of-memory PS2. Mirrors the generated game: 6 verts/cell,
+    // 32 B untextured / 48 B textured, chunks of 16x16 cells.
+    {
+        const SceneData& sc = project_.active();
+        const int cellsX = sc.terrain.width < prefSettings_.terrainDetail
+                               ? sc.terrain.width
+                               : prefSettings_.terrainDetail;
+        const int cellsZ = sc.terrain.depth < prefSettings_.terrainDetail
+                               ? sc.terrain.depth
+                               : prefSettings_.terrainDetail;
+        const int bytesPerVert = prefSettings_.terrainMaterial.empty() ? 32 : 48;
+        double cells = (double)cellsX * cellsZ;
+        if (prefSettings_.terrainViewDistance > 0.0f) {
+            // resident rect in chunks (16 cells each), as in the generated game
+            const float spanX = 16.0f * (float)sc.terrain.width / (float)cellsX;
+            const float spanZ = 16.0f * (float)sc.terrain.depth / (float)cellsZ;
+            const double nx = (int)(2.0f * prefSettings_.terrainViewDistance / spanX) + 3;
+            const double nz = (int)(2.0f * prefSettings_.terrainViewDistance / spanZ) + 3;
+            const double rectCells = nx * nz * 16.0 * 16.0;
+            if (rectCells < cells) cells = rectCells;
+        }
+        const double mb = cells * 6.0 * bytesPerVert / (1024.0 * 1024.0);
+        if (mb > 8.0)
+            ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+                               "Resident terrain mesh: ~%.1f MB of the PS2's 32 MB - set"
+                               " a view distance or lower the detail.",
+                               mb);
+        else
+            ImGui::TextDisabled("Resident terrain mesh: ~%.1f MB (active scene).", mb);
+    }
 
     ImGui::SeparatorText("Rendering");
     int clipMode = prefSettings_.clipping == "fast" ? 1 : 0;
@@ -7682,17 +7791,10 @@ void App::drawPreferencesModal() {
         "model/material in the Assets section - e.g. keep the hero's textures\n"
         "full color while everything else goes 4-bit.");
 
-    ImGui::TextDisabled(
-        "Terrain texture: %s",
-        prefSettings_.terrainTexture.empty() ? "<none>" : prefSettings_.terrainTexture.c_str());
-    ImGui::SameLine();
-    pickProjectTexture("##pick_terrain_texture", prefSettings_.terrainTexture);
-    if (!prefSettings_.terrainTexture.empty()) {
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Clear##terrtex")) prefSettings_.terrainTexture.clear();
-        ImGui::DragFloat("Texture tile (units)", &prefSettings_.terrainTexScale, 0.25f, 0.25f,
-                         64.0f, "%.2f");
-    }
+    drawTerrainMaterialCombo("Terrain material", prefSettings_.terrainMaterial);
+    ImGui::TextDisabled("The material's color tints the terrain; its texture (map_Kd),\n"
+                        "if any, tiles across it - set the tiling on the material's\n"
+                        "texture in the Material Editor. Import .mtl in the Assets section.");
     ImGui::ColorEdit3("Sky horizon color", prefSettings_.skyColor);
     ImGui::ColorEdit3("Sky zenith color", prefSettings_.skyTopColor);
     ImGui::Checkbox("Gradient sky dome", &prefSettings_.skyDome);
@@ -7965,17 +8067,8 @@ void App::drawScenePreferencesModal() {
             s.clipping = clipMode == 1 ? "fast" : "precise";
     });
 
-    category("Terrain texture", ov.terrainTex, [&] {
-        ImGui::TextDisabled("Texture: %s",
-                            s.terrainTexture.empty() ? "<none>" : s.terrainTexture.c_str());
-        ImGui::SameLine();
-        pickProjectTexture("##pick_scene_terrain_texture", s.terrainTexture);
-        if (!s.terrainTexture.empty()) {
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Clear")) s.terrainTexture.clear();
-            ImGui::DragFloat("Texture tile (units)", &s.terrainTexScale, 0.25f, 0.25f, 64.0f,
-                             "%.2f");
-        }
+    category("Terrain material", ov.terrainMat, [&] {
+        drawTerrainMaterialCombo("Material", s.terrainMaterial);
     });
 
     category("Post effects", ov.postFx, [&] {
