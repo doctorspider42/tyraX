@@ -24,6 +24,7 @@ void RendererSettings::copy(RendererSettings* out, const RendererSettings* in) {
   out->interlacedHeightF = in->interlacedHeightF;
   out->interlacedHeightUI = in->interlacedHeightUI;
   out->videoMode = in->videoMode;
+  out->displayMode = in->displayMode;  // Modified by tyra-editor
 }
 
 void RendererSettings::set(const RendererSettings& v) { copy(this, &v); }

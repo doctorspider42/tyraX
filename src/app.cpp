@@ -7894,6 +7894,20 @@ void App::drawPreferencesModal() {
         "Video signal of the built game (also on exported ISOs). Auto follows\n"
         "the console region. Game speed is normalized - PAL (50 Hz) and NTSC\n"
         "(60 Hz) play at the same wall-clock speed.");
+    int dispMode = prefSettings_.displayMode == "1080i"         ? 2
+                   : prefSettings_.displayMode == "progressive" ? 1
+                                                                : 0;
+    const char* dispModeNames[] = {"Interlaced (480i/576i)",
+                                   "Progressive scan (480p)", "1080i (HD)"};
+    if (ImGui::Combo("Display mode", &dispMode, dispModeNames, 3))
+        prefSettings_.displayMode =
+            dispMode == 2 ? "1080i" : dispMode == 1 ? "progressive" : "interlaced";
+    ImGui::TextDisabled(
+        "Scan mode of the built game. Interlaced is the stock TV signal and\n"
+        "follows Target system. Progressive (flicker-free 480p) and 1080i\n"
+        "always run at 60 Hz and need component (YPbPr) cables on a real\n"
+        "console - PCSX2 displays every mode. 1080i renders a 448x540 frame\n"
+        "(sharper vertically) and leaves less VRAM for textures.");
     int profile = prefSettings_.buildProfile == "debug" ? 1 : 0;
     const char* profileNames[] = {"Release", "Debug"};
     if (ImGui::Combo("Profile", &profile, profileNames, 2))

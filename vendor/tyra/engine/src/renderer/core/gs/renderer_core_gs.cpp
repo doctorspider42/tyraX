@@ -80,30 +80,87 @@ void RendererCoreGS::allocateBuffers() {
                                : VideoMode::NTSC);
   }
 
-  // Same call sequence as ps2sdk's graph_initialize, with the mode explicit
-  // (region-resolved Auto, or forced PAL/NTSC from EngineOptions). The
-  // 512x448 framebuffer is kept for both signals; PAL just outputs at 50 Hz.
-  const int mode = settings->getVideoMode() == VideoMode::PAL ? GRAPH_MODE_PAL
-                                                              : GRAPH_MODE_NTSC;
-  graph_set_mode(GRAPH_MODE_INTERLACED, mode, GRAPH_MODE_FIELD, GRAPH_ENABLE);
-  graph_set_screen(0, 0, frameBuffers[1].width, frameBuffers[1].height);
+  // Modified by tyra-editor: DTV scan modes next to the stock interlaced one.
+  switch (settings->getDisplayMode()) {
+    case DisplayMode::Progressive480p:
+      // 448x448 buffer scanned out at 3x horizontally into the 1440-VCK
+      // 480p raster: a 1344x448 window inside 1440x480 - exactly 4:3,
+      // centered, with a thin overscan border.
+      graph_set_mode(GRAPH_MODE_NONINTERLACED, GRAPH_MODE_HDTV_480P,
+                     GRAPH_MODE_FRAME, GRAPH_DISABLE);
+      setDtvDisplay(232, 35, 1440, 480, 3, 1, false);
+      break;
+    case DisplayMode::HiDef1080i:
+      // 448x540 buffer in interlaced FIELD mode with 2x vertical
+      // magnification: at MAGV 2x each field steps through EVERY buffer
+      // line (raster lines 2n/2n+1 both map to line n), so the two fields
+      // draw the same 540 lines one raster line apart - a stable
+      // line-doubled picture, no field jitter, no flicker filter needed.
+      // 3x horizontal -> a 1344x1080 window pillarboxed inside the 16:9
+      // 1920x1080 raster (~4:3 picture).
+      graph_set_mode(GRAPH_MODE_INTERLACED, GRAPH_MODE_HDTV_1080I,
+                     GRAPH_MODE_FIELD, GRAPH_DISABLE);
+      setDtvDisplay(236, 38, 1920, 1080, 3, 2, true);
+      break;
+    default: {
+      // Same call sequence as ps2sdk's graph_initialize, with the mode
+      // explicit (region-resolved Auto, or forced PAL/NTSC from
+      // EngineOptions). The 512x448 framebuffer is kept for both signals;
+      // PAL just outputs at 50 Hz.
+      const int mode = settings->getVideoMode() == VideoMode::PAL
+                           ? GRAPH_MODE_PAL
+                           : GRAPH_MODE_NTSC;
+      graph_set_mode(GRAPH_MODE_INTERLACED, mode, GRAPH_MODE_FIELD,
+                     GRAPH_ENABLE);
+      graph_set_screen(0, 0, frameBuffers[1].width, frameBuffers[1].height);
+      break;
+    }
+  }
   graph_set_bgcolor(0, 0, 0);
-  graph_set_framebuffer_filtered(frameBuffers[1].address, frameBuffers[1].width,
-                                 frameBuffers[1].psm, 0, 0);
+  presentFrameBuffer(1);
   graph_enable_output();
 
-  // Interlacing tests
-  // graph_set_mode(GRAPH_MODE_INTERLACED, GRAPH_MODE_NTSC, GRAPH_MODE_FRAME,
-  //                GRAPH_ENABLE);
-  // graph_set_screen(0, 0, static_cast<int>(settings->getWidth()),
-  //                  static_cast<int>(settings->getHeight()));
-  // graph_set_bgcolor(0, 0, 0);
-  // graph_set_framebuffer_filtered(frameBuffers[1].address,
-  // frameBuffers[1].width,
-  //                                frameBuffers[1].psm, 0, 0);
-  // graph_enable_output();
-
   TYRA_LOG("Framebuffers, zBuffer set and allocated!");
+}
+
+// Modified by tyra-editor: display window for the DTV modes. ps2sdk's
+// graph_set_screen always programs the mode's full VCK width into DW, which
+// only scans 1:1 when the framebuffer width divides it exactly - and no
+// 64-aligned buffer width divides the 1440/1920-VCK DTV rasters, so the GS
+// would scan garbage past the buffer's right edge. Program DISPLAY1/2
+// directly instead: window sized to framebuffer * magnification, centered
+// in the mode's raster (the gsKit recipe, proven by OPL and friends).
+void RendererCoreGS::setDtvDisplay(int modeX, int modeY, int modeDW,
+                                   int modeDH, int magH, int magV,
+                                   bool interlaced) {
+  const int width = static_cast<int>(settings->getWidth());
+  const int height = static_cast<int>(settings->getHeight());
+  const int dw = width * magH;
+  const int dh = height * magV;
+  int dx = modeX + (modeDW - dw) / 2;
+  int dy = modeY + (modeDH - dh) / 2;
+  // Keep the odd/even field start alignment in interlaced modes.
+  if (interlaced) dy &= ~1;
+  const int magVReg = magV - 1;
+  const u64 display =
+      GS_SET_DISPLAY(dx, dy, magH - 1, magVReg, dw - 1, dh - 1);
+  *GS_REG_DISPLAY1 = display;
+  *GS_REG_DISPLAY2 = display;
+}
+
+// Modified by tyra-editor: scan-out selection per display mode. The stock
+// interlaced mode keeps ps2sdk's flicker filter (both read circuits, the
+// second offset by one line). The DTV modes run with the filter off, where
+// graph_enable_output displays read circuit 2 alone - it must scan from
+// line 0, not the +1 line the _filtered variant programs.
+void RendererCoreGS::presentFrameBuffer(u8 index) {
+  auto& fb = frameBuffers[index];
+  if (settings->getDisplayMode() == DisplayMode::Interlaced) {
+    graph_set_framebuffer_filtered(fb.address, fb.width, fb.psm, 0, 0);
+  } else {
+    graph_set_framebuffer(0, fb.address, fb.width, fb.psm, 0, 0);
+    graph_set_framebuffer(1, fb.address, fb.width, fb.psm, 0, 0);
+  }
 }
 
 // Modified by tyra-editor: GS hardware fog color register.
@@ -170,9 +227,7 @@ qword_t* RendererCoreGS::setXYOffset(qword_t* q, const int& drawContext,
 }
 
 void RendererCoreGS::flipBuffers() {
-  graph_set_framebuffer_filtered(frameBuffers[context].address,
-                                 frameBuffers[context].width,
-                                 frameBuffers[context].psm, 0, 0);
+  presentFrameBuffer(context);  // Modified by tyra-editor (DTV modes)
 
   context ^= 1;
 

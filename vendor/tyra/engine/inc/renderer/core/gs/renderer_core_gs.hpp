@@ -51,6 +51,11 @@ class RendererCoreGS {
   void initDrawingEnvironment();
   void initChannels();
   void updateCurrentField();
+  // Modified by tyra-editor: DTV scan modes (480p/1080i) need a custom
+  // display window and an unfiltered framebuffer scan-out.
+  void setDtvDisplay(int modeX, int modeY, int modeDW, int modeDH, int magH,
+                     int magV, bool interlaced);
+  void presentFrameBuffer(u8 index);
   qword_t* setXYOffset(qword_t* q, const int& drawContext, const float& x,
                        const float& y);
 };

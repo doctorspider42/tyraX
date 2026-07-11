@@ -18,8 +18,10 @@ namespace Tyra {
 RendererCore::RendererCore() { isFrameLimitOn = true; }
 RendererCore::~RendererCore() {}
 
-void RendererCore::init(VideoMode videoMode) {
+void RendererCore::init(VideoMode videoMode, DisplayMode displayMode) {
   settings.setVideoMode(videoMode);
+  // Must precede gs.init - it sizes the frame/z buffers (tyra-editor fork).
+  settings.setDisplayMode(displayMode);
   path3.init(&settings);
   sync.init(&path3, &path1);
   gs.init(&settings);

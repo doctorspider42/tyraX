@@ -85,6 +85,15 @@ TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot).
   ~10 units from the camera; generated games override it.
 - Judge rendering correctness on **PCSX2's software renderer** — it is the
   honest one. See tyra-testing for how.
+- **DTV display modes (480p/1080i)**: ps2sdk's `graph_set_screen` always
+  programs the mode's full VCK width into DISPLAY.DW, and no 64-aligned
+  framebuffer width divides the 1440/1920-VCK DTV rasters — the GS scans
+  garbage past the buffer's right edge. `RendererCoreGS::setDtvDisplay`
+  programs DISPLAY1/2 directly instead. Also: the gsKit/OPL 1080i recipe
+  (interlaced FRAME mode + MagV--) **hard-crashes PCSX2 v2.3.205** (the
+  process dies seconds after SetGsCrt, no crash dialog); 1080i in FIELD
+  mode with MAGV=2x is visually equivalent (both fields step through every
+  buffer line) and works.
 
 **Audio**
 - audsrv streams PCM only; ADPCM is for one-shots (`adpcm.tryPlay`), and ADPCM

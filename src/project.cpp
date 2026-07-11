@@ -510,6 +510,7 @@ std::string save(const Project& p) {
          << "  \"template\": \"" << p.gameTemplate << "\",\n"
          << "  \"settings\": {\n"
          << "    \"videoSystem\": \"" << p.settings.videoSystem << "\",\n"
+         << "    \"displayMode\": \"" << p.settings.displayMode << "\",\n"
          << "    \"buildProfile\": \"" << p.settings.buildProfile << "\",\n"
          << "    \"textureQuant\": \"" << p.settings.textureQuant << "\",\n"
          << "    \"showFps\": " << (p.settings.showFps ? "true" : "false") << ",\n"
@@ -1102,6 +1103,11 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = s->find("videoSystem")) {
             const std::string sys = v->stringOr("auto");
             st.videoSystem = (sys == "pal" || sys == "ntsc") ? sys : "auto";
+        }
+        if (const auto* v = s->find("displayMode")) {
+            const std::string dm = v->stringOr("interlaced");
+            st.displayMode =
+                (dm == "progressive" || dm == "1080i") ? dm : "interlaced";
         }
         if (const auto* v = s->find("buildProfile"))
             st.buildProfile = v->stringOr("release") == "debug" ? "debug" : "release";

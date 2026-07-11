@@ -259,6 +259,10 @@ int main(int argc, char** argv) {
   // Target system (Project > Preferences > Build): Auto follows the console
   // region, NTSC forces 60 Hz, PAL forces 50 Hz.
   options.videoMode = Tyra::VideoMode::{{VIDEO_MODE}};
+  // Scan mode (Project > Preferences > Build > Display mode): interlaced
+  // 480i/576i, progressive 480p, or 1080i. The DTV modes need component
+  // cables on a real console and always run at 60 Hz.
+  options.displayMode = Tyra::DisplayMode::{{DISPLAY_MODE}};
   Tyra::Engine engine(options);
   {{NAME_UPPER_NS}}::TerrainGame game(&engine);
   engine.run(&game);
@@ -5827,6 +5831,10 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{VIDEO_MODE}}", st.videoSystem == "pal"    ? "PAL"
                                         : st.videoSystem == "ntsc" ? "NTSC"
                                                                    : "Auto");
+    s = replaceAll(s, "{{DISPLAY_MODE}}",
+                   st.displayMode == "1080i"         ? "HiDef1080i"
+                   : st.displayMode == "progressive" ? "Progressive480p"
+                                                     : "Interlaced");
     const bool debugProfile = st.buildProfile == "debug";
     s = replaceAll(s, "{{DEBUG_SHOW_FPS}}",
                    debugProfile && st.showFps ? "true" : "false");

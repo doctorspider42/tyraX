@@ -31,6 +31,12 @@ struct EngineOptions {
 
   /** Forced output video signal; Auto follows the console region. */
   VideoMode videoMode = VideoMode::Auto;
+
+  /** Output scan mode (tyra-editor fork): stock interlaced 480i/576i,
+   * progressive 480p, or 1080i. The DTV modes need component cables on
+   * real hardware and always run at 60 Hz (videoMode only picks the
+   * region/refresh of the interlaced mode). */
+  DisplayMode displayMode = DisplayMode::Interlaced;
 };
 
 class Engine {

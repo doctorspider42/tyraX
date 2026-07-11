@@ -2503,7 +2503,9 @@ void TerrainGame::buildSkyDome() {
   skyDome.vertices.clear();
   skyDome.colors.clear();
   for (int st = 0; st < stacks; ++st) {
-    const float t0 = (float)st / stacks, t1 = (float)(st + 1) / stacks;
+    // Zenith-size bias: pow(elevation fraction, SKY_ZENITH_EXP). exp 1 = linear.
+    const float t0 = powf((float)st / stacks, SKY_ZENITH_EXP),
+                t1 = powf((float)(st + 1) / stacks, SKY_ZENITH_EXP);
     for (int sl = 0; sl < slices; ++sl) {
       const Vec4 v00 = domeVert(st, sl), v01 = domeVert(st, sl + 1);
       const Vec4 v10 = domeVert(st + 1, sl), v11 = domeVert(st + 1, sl + 1);

@@ -9,6 +9,41 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (69) **Alternative display modes: progressive 480p and 1080i** — new
+  Preferences > Build > **Display mode** combo (`ProjectSettings::displayMode`:
+  "interlaced" default / "progressive" / "1080i", serialized with a
+  backward-compatible default) baked into the generated `main.cpp` as
+  `EngineOptions::displayMode`. Engine side (`DisplayMode` enum,
+  `RendererSettings::setDisplayMode`, `RendererCoreGS`): **Progressive480p**
+  renders 448x448 and scans it out non-interlaced at MAGH 3x — a 1344x448
+  window centered in the 1440-VCK 480p raster, exactly 4:3, slightly *less*
+  VRAM than the stock 512x448. **HiDef1080i** renders 448x540 (sharper
+  vertically than 480i) shown as a 1344x1080 pillarboxed ~4:3 window in the
+  16:9 raster; frame+z buffers grow to 2.9 MB of VRAM, so ~1.1 MB is left
+  for textures (the UI warns). Both DTV modes bypass `graph_set_screen` —
+  it always programs the mode's full VCK width into DW, and **no 64-aligned
+  framebuffer width divides the 1440/1920-VCK rasters**, so the GS would
+  scan garbage past the buffer's right edge; `setDtvDisplay()` programs
+  DISPLAY1/2 directly (gsKit-style window math, centered). The projection
+  aspect deliberately stays at the constructor's 512/448 in every mode so
+  world proportions match across modes. Flicker filter stays on the stock
+  interlaced path only; DTV modes present via both DISPFB circuits at y=0
+  (`presentFrameBuffer`). `getRefreshRate()` returns 60 for the DTV modes
+  regardless of region, so wall-clock speed normalization keeps working.
+  **Pitfall burned into the code comments:** the gsKit/OPL "interlaced FRAME
+  mode, MagV--" recipe for 1080i **hard-crashes PCSX2 v2.3.205** (process
+  dies ~4 s in, no crash dialog, SW and HW renderers alike); 1080i in FIELD
+  mode with MAGV=2x is visually equivalent (each field steps through every
+  buffer line - a stable line-doubled 540p picture) and PCSX2 is fine with
+  it. Verified in PCSX2 (software renderer, scratch orbit project, one boot
+  per mode, status-bar + screenshot each): interlaced baseline "PAL
+  Interlaced (Field) 512x448" at 50 FPS unchanged; "SDTV 480p Progressive
+  448x448" at 60 FPS, clean right edge (the graph_set_screen overrun would
+  show there); "HDTV 1080i 448x540" at 60 FPS, pillarboxed and full-height.
+  Codegen + .tyra round-trip checked headlessly; samples/script-demo
+  regenerated. Real-hardware check (component cables) still wants a human -
+  PCSX2 does not emulate the analog signal path.
+
 - (68) **Ambience Editor + Properties docked right + sky dome preview** — three
   related changes. **(a) Docking default:** the first-run DockBuilder layout now
   puts **Properties in a docked column on the right** (Project left, Viewport

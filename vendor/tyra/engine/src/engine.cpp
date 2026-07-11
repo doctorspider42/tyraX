@@ -55,7 +55,7 @@ void Engine::initAll(const EngineOptions& options) {
 
   srand(time(nullptr));
   irx.loadAll(options.loadUsbDriver, info.writeLogsToFile);
-  renderer.init(options.videoMode);
+  renderer.init(options.videoMode, options.displayMode);
   banner.show(&renderer);
   audio.init();
   pad.init();

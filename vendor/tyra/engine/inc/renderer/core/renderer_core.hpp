@@ -98,7 +98,8 @@ class RendererCore {
   bool drained3DFor2D = false;
 
   /** Called by renderer */
-  void init(VideoMode videoMode = VideoMode::Auto);
+  void init(VideoMode videoMode = VideoMode::Auto,
+            DisplayMode displayMode = DisplayMode::Interlaced);
 
   /** World background color */
   void setClearScreenColor(const Color& color);
