@@ -34,7 +34,7 @@ class FlowGraphScript_0_0 : public Script {
       }
     }
     if (ctx.engine->pad.getClicked().Select) {
-      ctx.openMenu = 2;  // "options"
+      ctx.openMenu = 1;  // "options"
     }
     if (ctx.menuEvent == 0) {  // "fog-on"
       ctx.fog = 1;
@@ -197,7 +197,7 @@ class FlowGraphScript_1_0 : public Script {
       ctx.flashlight = 1;
     }
     if (ctx.engine->pad.getClicked().Select) {
-      ctx.openMenu = 2;  // "options"
+      ctx.openMenu = 1;  // "options"
     }
     if (ctx.menuEvent == 0) {  // "fog-on"
       ctx.fog = 1;

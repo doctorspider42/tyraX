@@ -40,7 +40,7 @@ checked in.
   override in the cavern).
 - **Post-processing & grading** — bloom + film grain, and two colour-grading
   presets (`Golden Hour` outdoors, `Nightfall` switched on in the cavern).
-- **Extras** — a title-screen menu and a pause menu, a HUD crosshair, a
+- **Extras** — a pause menu (Start), a HUD crosshair, a
   first-person player with a toggleable flashlight, a save point + a save
   value (`orbs`) collected from a usable relic, usable-object highlighting, a
   gradient sky dome, ambient music and a spatial campfire sound, and a portal

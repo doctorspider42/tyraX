@@ -46,8 +46,8 @@
     ],
     "brightness": 1,
     "terrainMaterial": "res/materials/ground.mtl",
-    "bloom": 0,
-    "grain": 0,
+    "bloom": 0.35,
+    "grain": 0.14,
     "fogEnabled": true,
     "fogColor": [
       0.82,
@@ -587,7 +587,7 @@
           "physics": false,
           "emitter": {
             "kind": "fire",
-            "count": 18,
+            "count": 40,
             "size": 0.55,
             "enabled": true,
             "followPlayer": false
@@ -619,8 +619,8 @@
           "physics": false,
           "emitter": {
             "kind": "smoke",
-            "count": 12,
-            "size": 0.75,
+            "count": 26,
+            "size": 0.8,
             "enabled": true,
             "followPlayer": false
           }
@@ -1035,7 +1035,7 @@
             1.7
           ],
           "color": [
-            0.2079,
+            0.188,
             0.42,
             0.16
           ],
@@ -1092,7 +1092,7 @@
             1.7
           ],
           "color": [
-            0.2221,
+            0.2235,
             0.42,
             0.16
           ],
@@ -1149,7 +1149,7 @@
             1.7
           ],
           "color": [
-            0.2208,
+            0.2076,
             0.42,
             0.16
           ],
@@ -1206,7 +1206,7 @@
             1.7
           ],
           "color": [
-            0.2,
+            0.1926,
             0.42,
             0.16
           ],
@@ -1263,7 +1263,7 @@
             1.7
           ],
           "color": [
-            0.1827,
+            0.2156,
             0.42,
             0.16
           ],
@@ -1320,7 +1320,7 @@
             1.7
           ],
           "color": [
-            0.2017,
+            0.2128,
             0.42,
             0.16
           ],
@@ -1377,7 +1377,7 @@
             1.7
           ],
           "color": [
-            0.1817,
+            0.1901,
             0.42,
             0.16
           ],
@@ -1434,7 +1434,7 @@
             1.7
           ],
           "color": [
-            0.1885,
+            0.2288,
             0.42,
             0.16
           ],
@@ -1491,7 +1491,7 @@
             1.7
           ],
           "color": [
-            0.2208,
+            0.1986,
             0.42,
             0.16
           ],
@@ -1548,7 +1548,7 @@
             1.7
           ],
           "color": [
-            0.2009,
+            0.2062,
             0.42,
             0.16
           ],
@@ -1746,9 +1746,9 @@
             0
           ],
           "scale": [
-            14,
+            16,
             1,
-            14
+            16
           ],
           "color": [
             0.6,
@@ -1759,7 +1759,7 @@
           "layer": "weather",
           "emitter": {
             "kind": "rain",
-            "count": 34,
+            "count": 120,
             "size": 0.12,
             "enabled": true,
             "followPlayer": true
@@ -2102,7 +2102,7 @@
           "layer": "village",
           "emitter": {
             "kind": "smoke",
-            "count": 10,
+            "count": 20,
             "size": 0.7,
             "enabled": true,
             "followPlayer": false
@@ -2270,7 +2270,7 @@
           "layer": "ruins",
           "emitter": {
             "kind": "sparks",
-            "count": 18,
+            "count": 40,
             "size": 0.14,
             "enabled": true,
             "followPlayer": false
@@ -2290,9 +2290,9 @@
             0
           ],
           "scale": [
-            6,
+            8,
             1,
-            6
+            8
           ],
           "color": [
             0.55,
@@ -2303,8 +2303,8 @@
           "layer": "ruins",
           "emitter": {
             "kind": "fog",
-            "count": 12,
-            "size": 1.6,
+            "count": 30,
+            "size": 3,
             "enabled": true,
             "followPlayer": false
           }
@@ -2509,8 +2509,8 @@
         "clipping": "precise",
         "terrainMaterial": "",
         "postfx": {
-          "bloom": 0,
-          "grain": 0
+          "bloom": 0.5,
+          "grain": 0.25
         },
         "fog": {
           "enabled": true,
@@ -3326,9 +3326,9 @@
             0
           ],
           "scale": [
-            14,
+            20,
             1,
-            14
+            20
           ],
           "color": [
             0.4,
@@ -3339,8 +3339,8 @@
           "layer": "crystals",
           "emitter": {
             "kind": "fog",
-            "count": 14,
-            "size": 2,
+            "count": 40,
+            "size": 4,
             "enabled": true,
             "followPlayer": false
           }
@@ -3372,7 +3372,7 @@
           "layer": "crystals",
           "emitter": {
             "kind": "sparks",
-            "count": 16,
+            "count": 30,
             "size": 0.1,
             "enabled": true,
             "followPlayer": false
@@ -3445,8 +3445,8 @@
         "clipping": "precise",
         "terrainMaterial": "",
         "postfx": {
-          "bloom": 0,
-          "grain": 0
+          "bloom": 0.5,
+          "grain": 0.25
         },
         "fog": {
           "enabled": true,
@@ -3557,35 +3557,6 @@
   ],
   "defaultGrading": 0,
   "menus": [
-    {
-      "name": "title",
-      "title": "TYRA SHOWCASE",
-      "titleScreen": true,
-      "pause": true,
-      "accent": [
-        0.5,
-        0.85,
-        1
-      ],
-      "panelW": 256,
-      "screenPos": [
-        0.5,
-        0.5
-      ],
-      "images": [
-        {
-          "path": "res/ui/logo.png",
-          "slot": "above-title",
-          "scale": 1
-        }
-      ],
-      "entries": [
-        {
-          "label": "Enter the Vale",
-          "action": "close"
-        }
-      ]
-    },
     {
       "name": "pause",
       "title": "PAUSED",

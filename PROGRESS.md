@@ -1709,6 +1709,21 @@ Each finished feature lands as its own commit.
   showFps/showMemory off (a `gen_project` comment notes this) once perf is
   dialed in on hardware.
 
+- (70) **showcase: the title screen was the real perf killer; removed it, restored
+  effects** -- turning the graphics toggles on hardware showed the ~8 FPS was the
+  boot **title-screen menu**, not the scene: a paused menu still renders the whole
+  scene behind it every frame plus its panel + full-screen dim overlay, which
+  dropped even PCSX2 to ~17 FPS (50 in gameplay). Dropped the title screen so the
+  game boots straight into the vale (the pause menu on Start and the floating
+  options menu on Select stay). With that gone the scene holds ~50 FPS, so the
+  earlier defensive cuts were reverted: **bloom + film grain back on**, particle
+  pools back to full (rain 120, campfire/ruins/cavern emitters). Kept the cheap,
+  near-invisible geometry wins (terrain chunking, lean skeletal model + LOD, draw
+  distances). The FPS/RAM overlay + options menu stay on so the fuller effect set
+  can still be confirmed on hardware (flip buildProfile to release when happy).
+  Verified: `--build` exit 0; PCSX2 boots directly into gameplay with fog, bloom,
+  grain and the full particle set at ~50 FPS.
+
 ## Done
 
 - Core editor: project creation (orbit/FPP templates), solution files + undo history,
