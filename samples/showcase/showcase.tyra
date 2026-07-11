@@ -44,8 +44,7 @@
       0.6
     ],
     "brightness": 1,
-    "terrainTexture": "res/textures/ground.png",
-    "terrainTexScale": 8,
+    "terrainMaterial": "res/materials/ground.mtl",
     "bloom": 0.35,
     "grain": 0.14,
     "fogEnabled": true,
@@ -702,7 +701,7 @@
             1.7
           ],
           "color": [
-            0.2279,
+            0.2257,
             0.42,
             0.16
           ],
@@ -759,7 +758,7 @@
             1.7
           ],
           "color": [
-            0.2129,
+            0.2196,
             0.42,
             0.16
           ],
@@ -816,7 +815,7 @@
             1.7
           ],
           "color": [
-            0.1824,
+            0.2217,
             0.42,
             0.16
           ],
@@ -873,7 +872,7 @@
             1.7
           ],
           "color": [
-            0.2044,
+            0.2002,
             0.42,
             0.16
           ],
@@ -930,7 +929,7 @@
             1.7
           ],
           "color": [
-            0.1966,
+            0.1839,
             0.42,
             0.16
           ],
@@ -987,7 +986,7 @@
             1.7
           ],
           "color": [
-            0.2202,
+            0.1925,
             0.42,
             0.16
           ],
@@ -1044,7 +1043,7 @@
             1.7
           ],
           "color": [
-            0.2289,
+            0.184,
             0.42,
             0.16
           ],
@@ -1101,7 +1100,7 @@
             1.7
           ],
           "color": [
-            0.1874,
+            0.181,
             0.42,
             0.16
           ],
@@ -1158,7 +1157,7 @@
             1.7
           ],
           "color": [
-            0.1973,
+            0.1819,
             0.42,
             0.16
           ],
@@ -1215,7 +1214,7 @@
             1.7
           ],
           "color": [
-            0.2116,
+            0.1865,
             0.42,
             0.16
           ],
@@ -1272,7 +1271,7 @@
             1.7
           ],
           "color": [
-            0.1954,
+            0.2226,
             0.42,
             0.16
           ],
@@ -1329,7 +1328,7 @@
             1.7
           ],
           "color": [
-            0.1992,
+            0.2284,
             0.42,
             0.16
           ],
@@ -1386,7 +1385,7 @@
             1.7
           ],
           "color": [
-            0.1808,
+            0.1965,
             0.42,
             0.16
           ],
@@ -1443,7 +1442,7 @@
             1.7
           ],
           "color": [
-            0.2009,
+            0.2215,
             0.42,
             0.16
           ],
@@ -2367,7 +2366,7 @@
         "lighting": false,
         "sky": false,
         "clipping": false,
-        "terrainTex": false,
+        "terrainMat": false,
         "postFx": false,
         "fog": false,
         "highlight": false
@@ -2402,8 +2401,7 @@
           "dome": true
         },
         "clipping": "precise",
-        "terrainTexture": "",
-        "terrainTexScale": 4,
+        "terrainMaterial": "",
         "postfx": {
           "bloom": 0.5,
           "grain": 0.25
@@ -3006,8 +3004,7 @@
           "dome": true
         },
         "clipping": "precise",
-        "terrainTexture": "",
-        "terrainTexScale": 4,
+        "terrainMaterial": "",
         "postfx": {
           "bloom": 0.5,
           "grain": 0.25
@@ -3038,7 +3035,7 @@
         "lighting": true,
         "sky": true,
         "clipping": false,
-        "terrainTex": false,
+        "terrainMat": false,
         "postFx": true,
         "fog": true,
         "highlight": false

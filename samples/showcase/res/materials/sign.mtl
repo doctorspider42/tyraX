@@ -1,4 +1,4 @@
 newmtl sign
 Kd 1 1 1
 d 1
-map_Kd ../textures/sign.png
+map_Kd sign.png

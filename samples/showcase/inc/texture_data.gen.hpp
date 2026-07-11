@@ -5,10 +5,13 @@ namespace Showcase {
 
 constexpr int TEXTURE_COUNT = 1;
 inline const char* TEXTURE_PATHS[TEXTURE_COUNT > 0 ? TEXTURE_COUNT : 1] = {
-    "textures/ground.png",
+    "materials/ground.png",
 };
 
 constexpr int TERRAIN_TEXTURES[2] = {0, 0};
-constexpr float TERRAIN_TEX_SCALES[2] = {8.0F, 8.0F};
+constexpr float TERRAIN_TILE_US[2] = {0.125F, 0.125F};
+constexpr float TERRAIN_TILE_VS[2] = {0.125F, 0.125F};
+constexpr bool TERRAIN_HAS_MATERIALS[2] = {true, true};
+constexpr float TERRAIN_TINTS[2][3] = {{1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}};
 
 }  // namespace Showcase
