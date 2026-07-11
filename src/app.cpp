@@ -2301,9 +2301,9 @@ void App::drawPropertiesWindow() {
     if (isSolid) {
         if (animatedModel) {
             // mesh collision is a static-model feature; animated models
-            // collide as their baked frame-0 AABB or not at all
+            // collide as their baked all-clips AABB or not at all
             bool solid = o.collisionMode != 2;
-            if (ImGui::Checkbox("Collision (blocks the player, frame-0 AABB)",
+            if (ImGui::Checkbox("Collision (blocks the player, animation AABB)",
                                 &solid)) {
                 o.collisionMode = solid ? 0 : 2;
                 committed = true;
@@ -2322,6 +2322,18 @@ void App::drawPropertiesWindow() {
                 committed = true;
             }
         }
+    }
+
+    // Rendering cut-off - the cheapest LOD. Only drawing stops beyond the
+    // distance; collision, sounds and scripts keep running.
+    if (isSolid) {
+        ImGui::DragFloat("Draw distance", &o.drawDistance, 0.5f, 0.0f, 2000.0f,
+                         o.drawDistance > 0.0f ? "%.0f units" : "unlimited");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (o.drawDistance > 0.0f)
+            ImGui::TextDisabled(
+                "Skipped at draw time when the camera is farther than this;\n"
+                "collision and logic still run. 0 = always drawn.");
     }
 
     if (o.type == PrimitiveType::Emitter) {
@@ -6224,6 +6236,24 @@ void App::drawPreferencesModal() {
         "Fast culling (fastest; big near triangles may vanish)"};
     if (ImGui::Combo("Triangles", &clipMode, clipNames, 2))
         prefSettings_.clipping = clipMode == 1 ? "fast" : "precise";
+
+    ImGui::DragFloat("Animation LOD distance", &prefSettings_.animLodDistance,
+                     0.5f, 0.0f, 2000.0f,
+                     prefSettings_.animLodDistance > 0.0f ? "%.0f units" : "off");
+    if (prefSettings_.animLodDistance < 0.0f) prefSettings_.animLodDistance = 0.0f;
+    ImGui::TextDisabled(
+        "Animated models farther than this refresh their pose every 2nd frame\n"
+        "(every 4th beyond twice the distance). Playback time is unaffected.\n"
+        "Cuts the per-instance EE cost of distant animated crowds.");
+
+    ImGui::DragFloat("Mesh LOD distance", &prefSettings_.meshLodDistance,
+                     0.5f, 0.0f, 2000.0f,
+                     prefSettings_.meshLodDistance > 0.0f ? "%.0f units" : "off");
+    if (prefSettings_.meshLodDistance < 0.0f) prefSettings_.meshLodDistance = 0.0f;
+    ImGui::TextDisabled(
+        "The build bakes ~50%% and ~25%%-vertex variants of animated models;\n"
+        "instances farther than this render the reduced meshes. Costs RAM\n"
+        "and .tskl size; the editor viewport always shows the full mesh.");
 
     // Texture quantization - the PS2-native "compression" (palettized
     // PSMT8/PSMT4 textures). Applied at build time into .res-baked; per

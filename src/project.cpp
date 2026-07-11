@@ -187,6 +187,10 @@ static std::string objectJson(const SceneObject& o) {
         // collision: box is the default and stays implicit
         (o.collisionMode == 1 ? ", \"collision\": \"mesh\""
                               : o.collisionMode == 2 ? ", \"collision\": \"none\"" : "") +
+        // 0 = unlimited (default) stays implicit
+        (o.drawDistance > 0.0f
+             ? ", \"drawDistance\": " + fmtFloat(o.drawDistance)
+             : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + o.modelPath + "\"") +
         (o.materialPath.empty() ? "" : ", \"material\": \"" + o.materialPath + "\"");
     if (o.type == PrimitiveType::Player) {
@@ -444,6 +448,10 @@ std::string save(const Project& p) {
          << "    \"disableVsync\": "
          << (p.settings.disableVsync ? "true" : "false") << ",\n"
          << "    \"clipping\": \"" << p.settings.clipping << "\",\n"
+         << "    \"animLodDistance\": " << fmtFloat(p.settings.animLodDistance)
+         << ",\n"
+         << "    \"meshLodDistance\": " << fmtFloat(p.settings.meshLodDistance)
+         << ",\n"
          << "    \"terrainDetail\": " << p.settings.terrainDetail << ",\n"
          << "    \"skyColor\": " << fmtVec3(p.settings.skyColor) << ",\n"
          << "    \"skyTopColor\": " << fmtVec3(p.settings.skyTopColor) << ",\n"
@@ -847,6 +855,10 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             const std::string mode = v->stringOr("box");
             o.collisionMode = mode == "mesh" ? 1 : mode == "none" ? 2 : 0;
         }
+        if (const auto* v = jo.find("drawDistance")) {
+            o.drawDistance = (float)v->numberOr(0.0);
+            if (o.drawDistance < 0.0f) o.drawDistance = 0.0f;
+        }
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
         // pre-materials projects had a per-object "texture" PNG - dropped
@@ -987,6 +999,14 @@ std::string load(Project& out, const std::string& projectDir) {
             st.disableVsync = v->boolOr(false);
         if (const auto* v = s->find("clipping"))
             st.clipping = v->stringOr("precise") == "fast" ? "fast" : "precise";
+        if (const auto* v = s->find("animLodDistance")) {
+            st.animLodDistance = (float)v->numberOr(0.0);
+            if (st.animLodDistance < 0.0f) st.animLodDistance = 0.0f;
+        }
+        if (const auto* v = s->find("meshLodDistance")) {
+            st.meshLodDistance = (float)v->numberOr(0.0);
+            if (st.meshLodDistance < 0.0f) st.meshLodDistance = 0.0f;
+        }
         if (const auto* v = s->find("terrainDetail"))
             st.terrainDetail = (int)v->numberOr(32);
         if (st.terrainDetail < 4) st.terrainDetail = 4;

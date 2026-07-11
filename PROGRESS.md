@@ -79,6 +79,64 @@ Each finished feature lands as its own commit.
   paths exercised (precise clipping); pixel-sampled the gradient. DynPip
   fog compiles but needs an animated-model scene for a visual pass.
 - (45) **Material Editor (Tools > Material Editor) with a live preview** â€”
+- (49) **Auto-generated mesh LOD for animated models (LOD tier 2)** — new
+  Preferences > Rendering > `Mesh LOD distance` (0 = off): the build bakes
+  decimated variants of every .tskl part (~50% and ~25% of the welded
+  vertex count) and instances render them beyond the distance / twice the
+  distance. **Baker** (glbparser): quadric-error HALF-edge collapse - a
+  vertex snaps onto a neighbor, so normals/uvs/skin bindings are never
+  blended and skinning stays valid by construction; vertices weld by their
+  full attribute tuple (uv/normal seams can't be crossed), seam twins and
+  open borders are locked, collapses run in sorted-cost rounds. Spider
+  test model: legs 1050 -> 456 -> 162 verts. **Format**: .tskl v2 (per
+  part: lodCount + arrays); the loader accepts v1, part merging merges LOD
+  chains with base-array fallback. **Engine**: SkelInstance holds repacked
+  bind data + skin buffers per (part, LOD); ensurePose(lod) re-skins on a
+  pose change OR a tier switch (other tiers' buffers hold older skins);
+  lodArrays()/lodCount()/currentLod() expose the renderable arrays.
+  **Codegen**: tier by camera distance; pose-sharing groups key on the
+  tier too. LODs are baked only when the preference is on (they cost RAM
+  and file size; spider2.tskl 97 -> 117 KB). Verified: PCSX2 boot shows
+  full-detail near spiders and visibly simplified far ones at 50 FPS
+  (quality note: tune the distance so reduced meshes are small on
+  screen); real-PS2 PERF on the 15-desynced-spider stress scene (12 in
+  view, camera 4 units from the nearest): anim+submit 22.9 ms (hard
+  25 FPS) -> 17.6 (mesh LOD 8u) -> 14.2 (+anim LOD 8u) -> 11.1 ms (both
+  at 5u; the frame then hovers at the vsync boundary, mixed 20/40 ms).
+  The stress scene stays extreme by design - real scenes tune distances.
+
+- (48) **Animation LOD (LOD tier 1)** — new Preferences > Rendering >
+  `Animation LOD distance` (0 = off): animated-model instances farther than
+  this refresh their pose/skinning every 2nd frame, and every 4th beyond
+  twice the distance, staggered by object index so refreshes spread across
+  frames. Playback time is unaffected (the pose catches up on the next
+  refresh) and an instance that just (re)entered the view always skins
+  immediately - a held pose can be arbitrarily stale after off-screen time.
+  The animated pass now draws in-view instances **nearest first** (two-pass:
+  collect + sort by camera distance): the pose-sharing mesh owner becomes
+  the group's closest on-screen member (LOD rate follows the closest copy)
+  and the GS gets front-to-back z-rejection for free. Verified on the real
+  PS2 (15 desynced spiders - unique speeds, so no pose sharing - fixed at
+  the heaviest angle, 12 in view): pose+skin 10.36 ms -> 6.51 ms (-37%,
+  most instances in the half-rate band), submit 12.5 -> 11.0 ms; the scene
+  is still submit-bound at this density (mesh LOD is the next tier).
+  LOD off = numbers identical to the previous build.
+
+- (47) **Per-object draw distance (LOD tier 0)** — new `Draw distance`
+  property on solid objects (Properties panel, 0 = unlimited): farther than
+  this from the camera the object is skipped at draw time in both the
+  static and the animated pass (`beyondDrawDistance()` in the generated
+  game); collision, sounds and scripts still run, and animated instances
+  keep advancing playback time so `animFinished` stays honest. Serialized
+  as `"drawDistance"` in the object JSON (omitted at the default 0 - old
+  projects load unchanged); baked as a new `SceneObjectData.drawDistance`
+  column. The editor viewport intentionally ignores it (perf setting, not a
+  look). Also fixed a stale Properties label: animated-model collision box
+  is the all-clips AABB since (45), not "frame-0". Verified: editor + Docker
+  game build clean; PCSX2 boot of a 15-spider scene with `drawDistance = 8`
+  on every second spider shows exactly the near ones (screenshot), 50 FPS.
+
+- (45) **Material Editor (Tools > Material Editor) with a live preview** —
   create/edit the `.mtl` materials the pipeline already consumes, without
   leaving the editor. **No new data model**: materials stay plain Wavefront
   files under `res/` (the same files `SceneObject::materialPath` references

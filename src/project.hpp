@@ -59,6 +59,10 @@ struct SceneObject {
     // Player collision: 0 = box (models use their real mesh AABB), 1 = mesh
     // (models only: per-triangle - ramps/stairs are walkable), 2 = none
     int collisionMode = 0;
+    // Rendering cut-off: farther than this from the camera the object is not
+    // drawn at all (collision, sounds and scripts still run). 0 = unlimited.
+    // The cheapest LOD there is - era-correct for dense scenes.
+    float drawDistance = 0.0f;
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     // Material library (.mtl) assigned to the object, e.g.
     // "res/materials/walls.mtl". Primitives take the file's FIRST material
@@ -146,7 +150,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
            a.physics == b.physics && a.usable == b.usable &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
-           a.modelPath == b.modelPath &&
+           a.drawDistance == b.drawDistance && a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.playerMode == b.playerMode &&
            a.playerWalkSpeed == b.playerWalkSpeed &&
            a.playerLookSpeed == b.playerLookSpeed &&
@@ -200,6 +204,19 @@ struct ProjectSettings {
     // costs EE time. "fast": VU1 cull only - fastest, may drop triangles
     // that extend far beyond the screen.
     std::string clipping = "precise";
+
+    // Animation LOD: animated-model instances farther than this from the
+    // camera refresh their pose/skinning every 2nd frame (every 4th beyond
+    // twice the distance), staggered across objects so the cost spreads.
+    // Playback time is unaffected - the pose catches up on the next
+    // refresh. 0 = off (every instance skins every frame).
+    float animLodDistance = 0.0f;
+
+    // Mesh LOD: the build bakes decimated variants (~50% and ~25% vertices,
+    // quadric-error collapse) of every animated model into the .tskl;
+    // instances farther than this render the 50% mesh, beyond twice the
+    // distance the 25% one. 0 = off (no LODs baked or kept in RAM).
+    float meshLodDistance = 0.0f;
 
     int terrainDetail = 32;  // max terrain grid cells per axis (quality vs perf)
     float skyColor[3] = {0.25f, 0.55f, 0.78f};   // horizon / clear color
@@ -277,7 +294,9 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
     return a.videoSystem == b.videoSystem && a.buildProfile == b.buildProfile &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.disableVsync == b.disableVsync &&
-           a.clipping == b.clipping && a.terrainDetail == b.terrainDetail &&
+           a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
+           a.meshLodDistance == b.meshLodDistance &&
+           a.terrainDetail == b.terrainDetail &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.eyeHeight == b.eyeHeight &&
            a.walkSpeed == b.walkSpeed && a.lookSpeed == b.lookSpeed &&
