@@ -36,6 +36,8 @@
     LoadTyraStaticData{ gifSetTag }
     MatrixLoad{ mvp, VU1_MVP_MATRIX_ADDR, vi00 }
     LoadTyraTagsTexture{ lodGifTag, testsTag, texBufferClutGifTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR, VU1_CLUT_ADDR }
+    ; Modified by tyra-editor: GS hardware fog (packed XYZF2)
+    MakeTyraAdcMask{ adcMask }
 
 begin:
     xtop buffer
@@ -55,7 +57,9 @@ begin:
     iadd    kickAddress,        kickAddress,    vertexCount
 
     StoreTyraGifTagsTexture{ gifSetTag, lodGifTag, texBufferClutGifTag, primTag, testsTag, destAddress }
-    LoadTyraLerpValue{ interp, VU1_OPTIONS_ADDR }
+    ; Modified by tyra-editor: full options quad - y is still the lerp
+    ; value, z/w carry the fog params
+    LoadTyraFogParams{ interp, VU1_OPTIONS_ADDR }
     LoadTyraScaleValue{ scale, buffer }
 
     ;--- Loop
@@ -81,7 +85,8 @@ vertexLoop:
 
         ;--- Vertex 1 - Calculate
         MatrixMultiplyVertex{ vertex1, mvp, vertex1 }
-        PerformClipCheck{ vertex1, destAddress, XYZ2_STORE_OFFSET }
+        CalculateTyraFog{ fogInt, vertex1, interp }
+        PerformTyraFogClipCheck{ vertex1, destAddress, XYZ2_STORE_OFFSET, fogInt, adcMask }
         VertexPersCorr{ vertex1, vertex1 }
         ScaleVertexToGSFormat{ scale, vertex1 }
         PerformTexturePerspectiveCorrection{ outputStq1, stq1 }
@@ -111,7 +116,8 @@ vertexLoop:
 
         ;--- Vertex 2 - Calculate
         MatrixMultiplyVertex{ vertex2, mvp, vertex2 }
-        PerformClipCheck{ vertex2, destAddress, XYZ2_STORE_OFFSET+3 }
+        CalculateTyraFog{ fogInt, vertex2, interp }
+        PerformTyraFogClipCheck{ vertex2, destAddress, XYZ2_STORE_OFFSET+3, fogInt, adcMask }
         VertexPersCorr{ vertex2, vertex2 }
         ScaleVertexToGSFormat{ scale, vertex2 }
         PerformTexturePerspectiveCorrection{ outputStq2, stq2 }
@@ -141,7 +147,8 @@ vertexLoop:
 
         ;--- Vertex 3 - Calculate
         MatrixMultiplyVertex{ vertex3, mvp, vertex3 }
-        PerformClipCheck{ vertex3, destAddress, XYZ2_STORE_OFFSET+6 }
+        CalculateTyraFog{ fogInt, vertex3, interp }
+        PerformTyraFogClipCheck{ vertex3, destAddress, XYZ2_STORE_OFFSET+6, fogInt, adcMask }
         VertexPersCorr{ vertex3, vertex3 }
         ScaleVertexToGSFormat{ scale, vertex3 }
         PerformTexturePerspectiveCorrection{ outputStq3, stq3 }

@@ -20,7 +20,7 @@ StaPipAsIsTDVU1Program::StaPipAsIsTDVU1Program()
     : StaPipVU1Program(StaPipAsIsTextureDirLights, &StaPipVU1As_Is_TD_CodeStart,
                        &StaPipVU1As_Is_TD_CodeEnd,
                        ((u64)GIF_REG_ST) << 0 | ((u64)GIF_REG_RGBAQ) << 4 |
-                           ((u64)GIF_REG_XYZ2) << 8,
+                           ((u64)GIF_REG_XYZF2) << 8,
                        3, 4) {}
 
 StaPipAsIsTDVU1Program::~StaPipAsIsTDVU1Program() {}

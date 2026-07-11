@@ -234,6 +234,15 @@ struct ProjectSettings {
     float bloom = 0.0f;  // downsample + blur + additive re-add (glow)
     float grain = 0.0f;  // animated film grain noise overlay
 
+    // GS hardware distance fog (Silent Hill style fade-out). Geometry blends
+    // toward fogColor between fogStart and fogEnd view distances; free on the
+    // GS (per-vertex coefficient computed on VU1). Match fogColor with the
+    // sky/clear color and keep fogEnd at (or before) the far plane.
+    bool fogEnabled = false;
+    float fogColor[3] = {0.5f, 0.5f, 0.55f};
+    float fogStart = 15.0f;   // world units from the camera
+    float fogEnd = 120.0f;    // full fog at/after this distance
+
     // Scene switches show res/hud/loading.png centered on black for a
     // moment (a generated placeholder is written when the file is missing).
     bool loadingScreen = true;
@@ -265,7 +274,9 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            eq3(a.lightColor, b.lightColor) && a.brightness == b.brightness &&
            a.terrainTexture == b.terrainTexture &&
            a.terrainTexScale == b.terrainTexScale && a.bloom == b.bloom &&
-           a.grain == b.grain && a.loadingScreen == b.loadingScreen &&
+           a.grain == b.grain && a.fogEnabled == b.fogEnabled &&
+           eq3(a.fogColor, b.fogColor) && a.fogStart == b.fogStart &&
+           a.fogEnd == b.fogEnd && a.loadingScreen == b.loadingScreen &&
            a.highlightUsable == b.highlightUsable &&
            a.highlightDistance == b.highlightDistance &&
            eq3(a.highlightColor, b.highlightColor) &&
@@ -283,13 +294,14 @@ struct SceneOverrides {
     bool clipping = false;    // clipping mode
     bool terrainTex = false;  // terrainTexture, terrainTexScale
     bool postFx = false;      // bloom, grain
+    bool fog = false;         // fogEnabled, fogColor, fogStart, fogEnd
     bool highlight = false;   // highlightUsable + distance/color/width/steps
 };
 
 inline bool operator==(const SceneOverrides& a, const SceneOverrides& b) {
     return a.lighting == b.lighting && a.sky == b.sky && a.clipping == b.clipping &&
            a.terrainTex == b.terrainTex && a.postFx == b.postFx &&
-           a.highlight == b.highlight;
+           a.fog == b.fog && a.highlight == b.highlight;
 }
 
 class History;

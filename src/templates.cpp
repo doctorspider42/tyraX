@@ -1112,6 +1112,12 @@ void TerrainGame::init() {
 
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  // GS hardware distance fog (Scene/Project > Preferences > Fog).
+  if (FOG_ENABLED)
+    engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START,
+                                 FOG_END);
+  else
+    engine->renderer.core.disableFog();
   // Default color grading look (Tools > Color Grading); no-op when -1.
   // Grading is global - scene switches keep whatever preset is active.
   applySceneGrading(engine, GRADING_DEFAULT);
@@ -1787,6 +1793,12 @@ void TerrainGame::loadScene(int sceneIndex) {
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  // GS hardware distance fog (Scene/Project > Preferences > Fog).
+  if (FOG_ENABLED)
+    engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START,
+                                 FOG_END);
+  else
+    engine->renderer.core.disableFog();
 
   runtimeObjects.assign(SCENE_OBJECT_COUNT, RuntimeObject());
   objectGeometry.clear();
@@ -2591,6 +2603,10 @@ void TerrainGame::buildSkyDome() {
   // Static geometry crossing the screen edges all the time - needs clipping
   skyDome.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
   skyDome.infoBag->fullClipChecks = true;
+  // The dome sits past the fog end distance - hardware fog would paint it
+  // solid fog color, so it opts out (the horizon still fades into the fog
+  // because the terrain and objects do get fogged).
+  skyDome.infoBag->fogDisabled = true;
   skyDome.colorBag = std::make_unique<StaPipColorBag>();
   skyDome.colorBag->many = skyDome.colors.data();
   skyDome.bag = std::make_unique<StaPipBag>();
@@ -3002,6 +3018,12 @@ void TerrainGame::init() {
 
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  // GS hardware distance fog (Scene/Project > Preferences > Fog).
+  if (FOG_ENABLED)
+    engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START,
+                                 FOG_END);
+  else
+    engine->renderer.core.disableFog();
   // Default color grading look (Tools > Color Grading); no-op when -1.
   // Grading is global - scene switches keep whatever preset is active.
   applySceneGrading(engine, GRADING_DEFAULT);
@@ -4395,6 +4417,12 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     sceneFloats("SKY_TOP_BS", [&](int si) { return floatLit(rs[si].skyTopColor[2] * 255.0f); });
     sceneInts("POSTFX_BLOOMS", [&](int si) { return fx128(rs[si].bloom); });
     sceneInts("POSTFX_GRAINS", [&](int si) { return fx128(rs[si].grain); });
+    sceneBools("FOG_ENABLEDS", [&](int si) { return rs[si].fogEnabled; });
+    sceneFloats("FOG_RS", [&](int si) { return floatLit(rs[si].fogColor[0] * 255.0f); });
+    sceneFloats("FOG_GS", [&](int si) { return floatLit(rs[si].fogColor[1] * 255.0f); });
+    sceneFloats("FOG_BS", [&](int si) { return floatLit(rs[si].fogColor[2] * 255.0f); });
+    sceneFloats("FOG_STARTS", [&](int si) { return floatLit(rs[si].fogStart); });
+    sceneFloats("FOG_ENDS", [&](int si) { return floatLit(rs[si].fogEnd); });
     sceneBools("HIGHLIGHT_USABLES", [&](int si) { return rs[si].highlightUsable; });
     sceneFloats("HIGHLIGHT_DISTANCES", [&](int si) { return floatLit(rs[si].highlightDistance); });
     sceneFloats("HIGHLIGHT_RS", [&](int si) { return floatLit(rs[si].highlightColor[0] * 255.0f); });
@@ -4571,6 +4599,12 @@ inline int everyFrames(float seconds) {
 #define SKY_TOP_B SKY_TOP_BS[g_activeScene]
 #define POSTFX_BLOOM POSTFX_BLOOMS[g_activeScene]
 #define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
+#define FOG_ENABLED FOG_ENABLEDS[g_activeScene]
+#define FOG_R FOG_RS[g_activeScene]
+#define FOG_G FOG_GS[g_activeScene]
+#define FOG_B FOG_BS[g_activeScene]
+#define FOG_START FOG_STARTS[g_activeScene]
+#define FOG_END FOG_ENDS[g_activeScene]
 #define HIGHLIGHT_USABLE HIGHLIGHT_USABLES[g_activeScene]
 #define HIGHLIGHT_DISTANCE HIGHLIGHT_DISTANCES[g_activeScene]
 #define HIGHLIGHT_R HIGHLIGHT_RS[g_activeScene]

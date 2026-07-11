@@ -19,7 +19,7 @@ namespace Tyra {
 StaPipAsIsDVU1Program::StaPipAsIsDVU1Program()
     : StaPipVU1Program(StaPipAsIsDirLights, &StaPipVU1As_Is_D_CodeStart,
                        &StaPipVU1As_Is_D_CodeEnd,
-                       ((u64)GIF_REG_RGBAQ) << 0 | ((u64)GIF_REG_XYZ2) << 4, 2,
+                       ((u64)GIF_REG_RGBAQ) << 0 | ((u64)GIF_REG_XYZF2) << 4, 2,
                        3) {}
 
 StaPipAsIsDVU1Program::~StaPipAsIsDVU1Program() {}

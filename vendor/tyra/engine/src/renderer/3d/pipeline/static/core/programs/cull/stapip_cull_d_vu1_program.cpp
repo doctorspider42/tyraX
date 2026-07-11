@@ -19,7 +19,7 @@ namespace Tyra {
 StaPipCullDVU1Program::StaPipCullDVU1Program()
     : StaPipVU1Program(StaPipCullDirLights, &StaPipVU1Cull_D_CodeStart,
                        &StaPipVU1Cull_D_CodeEnd,
-                       ((u64)GIF_REG_RGBAQ) << 0 | ((u64)GIF_REG_XYZ2) << 4, 2,
+                       ((u64)GIF_REG_RGBAQ) << 0 | ((u64)GIF_REG_XYZF2) << 4, 2,
                        3) {}
 
 StaPipCullDVU1Program::~StaPipCullDVU1Program() {}

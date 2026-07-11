@@ -5628,6 +5628,7 @@ void App::applyProjectToViewport() {
     viewport_.setSky(rs.skyColor, rs.skyTopColor, rs.skyDome);
     viewport_.setUsableHighlight(rs.highlightUsable, rs.highlightColor);
     viewport_.setLighting(rs.lightDir, rs.ambient, rs.diffuse, rs.lightColor, rs.brightness);
+    viewport_.setFog(rs.fogEnabled, rs.fogColor, rs.fogStart, rs.fogEnd);
 }
 
 void App::drawPreferencesModal() {
@@ -5732,6 +5733,22 @@ void App::drawPreferencesModal() {
         "GS framebuffer tricks, applied in-game at the end of every frame.\n"
         "Bloom: quarter-res blur re-added over the frame (soft glow).\n"
         "Film grain: animated noise overlay. Subtle values work best.");
+
+    ImGui::SeparatorText("Distance fog");
+    ImGui::Checkbox("Enable fog", &prefSettings_.fogEnabled);
+    if (prefSettings_.fogEnabled) {
+        ImGui::ColorEdit3("Fog color", prefSettings_.fogColor);
+        ImGui::DragFloat("Fog start (units)", &prefSettings_.fogStart, 0.5f, 0.0f,
+                         1000.0f, "%.1f");
+        ImGui::DragFloat("Fog end (units)", &prefSettings_.fogEnd, 0.5f, 1.0f,
+                         2000.0f, "%.1f");
+        if (prefSettings_.fogEnd <= prefSettings_.fogStart + 1.0f)
+            prefSettings_.fogEnd = prefSettings_.fogStart + 1.0f;
+    }
+    ImGui::TextDisabled(
+        "PS2 GS hardware fog: geometry fades to the fog color with distance\n"
+        "(free on the GS). Match the fog color with the sky color for a\n"
+        "Silent Hill style fade-out that hides the draw distance.");
 
     ImGui::SeparatorText("Scenes");
     ImGui::Checkbox("Loading screen between scenes", &prefSettings_.loadingScreen);
@@ -5921,6 +5938,14 @@ void App::drawScenePreferencesModal() {
     category("Post effects", ov.postFx, [&] {
         ImGui::SliderFloat("Bloom", &s.bloom, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Film grain", &s.grain, 0.0f, 1.0f, "%.2f");
+    });
+
+    category("Distance fog", ov.fog, [&] {
+        ImGui::Checkbox("Enable fog", &s.fogEnabled);
+        ImGui::ColorEdit3("Fog color", s.fogColor);
+        ImGui::DragFloat("Fog start (units)", &s.fogStart, 0.5f, 0.0f, 1000.0f, "%.1f");
+        ImGui::DragFloat("Fog end (units)", &s.fogEnd, 0.5f, 1.0f, 2000.0f, "%.1f");
+        if (s.fogEnd <= s.fogStart + 1.0f) s.fogEnd = s.fogStart + 1.0f;
     });
 
     category("Usable objects", ov.highlight, [&] {

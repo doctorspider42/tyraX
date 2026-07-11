@@ -9,6 +9,34 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (45) **GS hardware distance fog (Silent Hill style)** — per-vertex fog
+  coefficient computed on VU1, blended by the GS toward `FOGCOL` for free at
+  the pixel level. Engine (`vendor/tyra`): all 8 StaPip + 4 DynPip VU1
+  programs now send packed **XYZF2** instead of XYZ2 (new
+  `CalculateTyraFog`/`PerformTyraFogClipCheck`/`StoreTyraFog` macros in
+  `tyra_macros.i`; F = clamp(w*scale+offset, 0..255) from the clip-space W,
+  ftoi4 lands F<<4 exactly in XYZF2's bit 4-11 field). The cull path masks
+  the upstream 0x7FFF ADC word down to bit 15 before OR-ing fog bits in
+  (XYZ2 ignored the low bits, XYZF2 reads F from them); the as_is C/D
+  programs now load the full vertex quad (W carries view distance through
+  the EE clipper - its `operator/=` divides xyz only). Z scale went from
+  `0xFFFFFF/32` to `0xFFFFFF/2` because XYZF2 reads Z from bits 4-27 -
+  numerically identical depth values as before (utility lines and mcpip
+  stay consistent without changes), z-buffer stays PSMZ32. Fog params ride
+  in the previously-padded words of the per-mesh VU1 options quad (zero
+  extra DMA); `RendererCore::setFog/disableFog` + FOGCOL register write;
+  per-bag `fogDisabled` opt-out used by the sky dome (it sits past fog end
+  and would go solid gray). Fixed in passing: dynpip_d stored vertex 2/3
+  ADC at vertex 1's offset (upstream copy-paste bug). Editor: fog is a new
+  scene-visual category (project + per-scene override), serialized in
+  `.tyra`, codegen emits `FOG_*` per-scene arrays and the game applies
+  setFog at init/scene switch; the viewport previews the same coefficient
+  in GLSL (sky excluded, same as the game). Verified e2e: fogtest scene in
+  PCSX2 **software renderer** - near boxes saturated, far boxes/terrain
+  fade to fog gray, sky stays blue, 50 FPS steady, both cull and as_is
+  paths exercised (precise clipping); pixel-sampled the gradient. DynPip
+  fog compiles but needs an animated-model scene for a visual pass.
+
 - (44) **PS2 deploy: Stop / second launch hung the console (thread-priority
   regression)** — first network deploy worked, but Stop on PS2 and every
   redeploy left the console frozen on the old game. Root cause: entry (40)'s

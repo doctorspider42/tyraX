@@ -165,3 +165,70 @@
    mul   temp2,      temp1,   t_interp[y]
    add   t_output,   temp2,   t_from
 #endmacro
+
+;//---------------------------------------------------------
+;// Modified by tyra-editor: GS hardware distance fog.
+;//
+;// LoadTyraFogParams - Load the options quadword. Fog uses:
+;//   z - fogScale  = -255 / (fogEnd - fogStart)
+;//   w - fogOffset = 255 * fogEnd / (fogEnd - fogStart)
+;// (x holds singleColorEnabled, y holds dynpip interpolation)
+;//---------------------------------------------------------
+#macro LoadTyraFogParams: t_fogParams, t_optionsAddr
+   lq          t_fogParams,   t_optionsAddr(vi00)
+#endmacro
+
+;//---------------------------------------------------------
+;// MakeTyraAdcMask - Build the 0x8000 ADC bit mask once per
+;// program run (iaddiu immediates are 15-bit, so add twice).
+;//---------------------------------------------------------
+#macro MakeTyraAdcMask: t_adcMask
+   iaddiu      t_adcMask,     vi00,          0x4000
+   iadd        t_adcMask,     t_adcMask,     t_adcMask
+#endmacro
+
+;//---------------------------------------------------------
+;// CalculateTyraFog - Per-vertex GS fog coefficient.
+;// t_vertex.w must still hold the clip-space W (view distance);
+;// every macro in the pipeline leaves W untouched, so this can
+;// run right before the vertex store.
+;// F = clamp(w * fogScale + fogOffset, 0, 255). ftoi4 yields
+;// F<<4, which is exactly the F field position of packed XYZF2
+;// (word3 bits 4-11; the 4 fraction bits fall into ignored
+;// bits 0-3). GS blends Cout = (F*Cin + (255-F)*FOGCOL) >> 8,
+;// so F=255 means no fog.
+;//---------------------------------------------------------
+#macro CalculateTyraFog: t_fogInt, t_vertex, t_fogParams
+   add.x       fogAccum,      vf00,          t_vertex[w]
+   mul.x       fogAccum,      fogAccum,      t_fogParams[z]
+   add.x       fogAccum,      fogAccum,      t_fogParams[w]
+   loi         255
+   mini.x      fogAccum,      fogAccum,      i
+   max.x       fogAccum,      fogAccum,      vf00[x]
+   ftoi4.x     fogAccum,      fogAccum
+   mtir        t_fogInt,      fogAccum[x]
+#endmacro
+
+;//---------------------------------------------------------
+;// PerformTyraFogClipCheck - PerformClipCheck variant that also
+;// stores the fog coefficient. Upstream stores 0x7FFF/0x8000 in
+;// the W word (only bit 15 = ADC matters for XYZ2), but packed
+;// XYZF2 reads F from bits 4-11, so the ADC decision is masked
+;// down to bit 15 before OR-ing the fog bits in.
+;//---------------------------------------------------------
+#macro PerformTyraFogClipCheck: t_vertex, t_destAddress, t_destAddressOffset, t_fogInt, t_adcMask
+   clipw.xyz   t_vertex,      t_vertex
+   fcand       VI01,          0x3FFFF
+   iaddiu      adcBit,        VI01,          0x7FFF
+   iand        adcBit,        adcBit,        t_adcMask
+   ior         adcBit,        adcBit,        t_fogInt
+   isw.w       adcBit,        t_destAddressOffset(t_destAddress)
+#endmacro
+
+;//---------------------------------------------------------
+;// StoreTyraFog - Store the fog coefficient with ADC = 0, for
+;// the as_is programs (geometry already clipped on the EE).
+;//---------------------------------------------------------
+#macro StoreTyraFog: t_fogInt, t_destAddress, t_destAddressOffset
+   isw.w       t_fogInt,      t_destAddressOffset(t_destAddress)
+#endmacro

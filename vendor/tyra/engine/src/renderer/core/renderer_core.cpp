@@ -10,6 +10,7 @@
 
 #include "renderer/core/renderer_core.hpp"
 #include "thread/threading.hpp"
+#include "debug/debug.hpp"
 
 namespace Tyra {
 
@@ -30,6 +31,27 @@ void RendererCore::init(VideoMode videoMode) {
 }
 
 void RendererCore::setClearScreenColor(const Color& color) { bgColor = color; }
+
+// Modified by tyra-editor: GS hardware distance fog.
+void RendererCore::setFog(const Color& color, const float& start,
+                          const float& end) {
+  TYRA_ASSERT(end > start, "Fog end distance must be greater than start!");
+  fog.enabled = true;
+  fog.color = color;
+  fog.start = start;
+  fog.end = end;
+  const float range = end - start;
+  fog.scale = -255.0F / range;
+  fog.offset = 255.0F * end / range;
+  gs.setFogColor(static_cast<u8>(color.r), static_cast<u8>(color.g),
+                 static_cast<u8>(color.b));
+}
+
+void RendererCore::disableFog() {
+  fog.enabled = false;
+  fog.scale = 0.0F;
+  fog.offset = 255.0F;
+}
 
 void RendererCore::beginFrame() {
   renderer3D.update();

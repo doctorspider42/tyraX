@@ -6,6 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by tyra-editor: per-bag fogDisabled flag (GS hardware fog opt-out)
 */
 
 #pragma once
@@ -32,6 +33,7 @@ class PipelineInfoBag {
     model = nullptr;
     frustumCulling = PipelineInfoBagFrustumCulling_None;
     zTestType = PipelineZTest_Standard;
+    fogDisabled = false;
   }
   ~PipelineInfoBag() {}
 
@@ -58,6 +60,13 @@ class PipelineInfoBag {
 
   /** Type of frustum culling */
   PipelineInfoBagFrustumCulling frustumCulling;
+
+  /**
+   * Opt this bag out of GS hardware distance fog even when
+   * RendererCore::setFog is active (e.g. the sky dome, which sits past the
+   * fog end distance and would otherwise be painted solid fog color).
+   */
+  bool fogDisabled;
 };
 
 }  // namespace Tyra

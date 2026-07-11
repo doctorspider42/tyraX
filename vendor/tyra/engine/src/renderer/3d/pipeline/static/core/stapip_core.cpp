@@ -77,6 +77,13 @@ u32 StaPipCore::getMaxVertCountByParams(const bool& isSingleColor,
 void StaPipCore::render(StaPipBag* bag) {
   if (bag->count <= 0) return;
 
+  // Modified by tyra-editor: GS hardware fog - the PRIM FGE bit follows the
+  // renderer-level fog state (see RendererCore::setFog), with a per-bag
+  // opt-out (sky dome).
+  prim.fogging = rendererCore->fog.enabled && !bag->info->fogDisabled
+                     ? DRAW_ENABLE
+                     : DRAW_DISABLE;
+
   bool frustumCull =
       bag->info->frustumCulling == PipelineInfoBagFrustumCulling_Precise;
 

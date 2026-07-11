@@ -174,6 +174,12 @@ uniform int uLit;                // 0: lines/markers/sky - skip point lights
 uniform int uLightCount;
 uniform vec4 uLightPos[8];       // xyz = world position, w = radius
 uniform vec4 uLightCol[8];       // rgb = color, w = brightness
+uniform int uFogOn;              // GS hardware fog preview (lit geometry only)
+uniform vec3 uFogColor;
+uniform float uFogStart;
+uniform float uFogEnd;
+uniform vec3 uFogEye;            // camera position (world)
+uniform vec3 uFogFwd;            // camera forward (world, normalized)
 out vec4 FragColor;
 void main() {
     vec3 tex = uUseTex != 0 ? texture(uTex, vUV).rgb : vec3(1.0);
@@ -193,7 +199,15 @@ void main() {
         }
         shade = min(shade + add, vec3(1.0));
     }
-    FragColor = vec4(shade * uTint * tex, 1.0);
+    vec3 color = shade * uTint * tex;
+    if (uFogOn != 0 && uLit != 0) {
+        // View-plane distance, same metric as the PS2 (clip-space W); the
+        // sky is excluded like the game's fogDisabled sky dome bag.
+        float viewDist = dot(vWorld - uFogEye, uFogFwd);
+        float f = clamp((uFogEnd - viewDist) / (uFogEnd - uFogStart), 0.0, 1.0);
+        color = mix(uFogColor, color, f);
+    }
+    FragColor = vec4(color, 1.0);
 }
 )";
 
@@ -599,6 +613,12 @@ bool Viewport::init() {
     uLightCount_ = glGetUniformLocation(program_, "uLightCount");
     uLightPos_ = glGetUniformLocation(program_, "uLightPos");
     uLightCol_ = glGetUniformLocation(program_, "uLightCol");
+    uFogOn_ = glGetUniformLocation(program_, "uFogOn");
+    uFogColor_ = glGetUniformLocation(program_, "uFogColor");
+    uFogStart_ = glGetUniformLocation(program_, "uFogStart");
+    uFogEnd_ = glGetUniformLocation(program_, "uFogEnd");
+    uFogEye_ = glGetUniformLocation(program_, "uFogEye");
+    uFogFwd_ = glGetUniformLocation(program_, "uFogFwd");
 
     GLuint gvs = compile(GL_VERTEX_SHADER, GRADE_VS);
     GLuint gfs = compile(GL_FRAGMENT_SHADER, GRADE_FS);
@@ -1062,6 +1082,13 @@ void Viewport::setLighting(const float* dir, float ambient, float diffuse,
     }
 }
 
+void Viewport::setFog(bool enabled, const float* rgb, float start, float end) {
+    fogOn_ = enabled;
+    fogColor_[0] = rgb[0], fogColor_[1] = rgb[1], fogColor_[2] = rgb[2];
+    fogStart_ = start;
+    fogEnd_ = end;
+}
+
 void Viewport::setProjectDir(const std::string& dir) {
     if (projectDir_ == dir) return;
     projectDir_ = dir;
@@ -1398,6 +1425,19 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     }
 
     glUseProgram(program_);
+
+    // GS hardware fog preview: same coefficient the VU1 computes in-game.
+    {
+        Vec3 fwd{tgt.x - eye.x, tgt.y - eye.y, tgt.z - eye.z};
+        float len = std::sqrt(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
+        if (len > 1e-5f) fwd = {fwd.x / len, fwd.y / len, fwd.z / len};
+        glUniform1i(uFogOn_, fogOn_ ? 1 : 0);
+        glUniform3f(uFogColor_, fogColor_[0], fogColor_[1], fogColor_[2]);
+        glUniform1f(uFogStart_, fogStart_);
+        glUniform1f(uFogEnd_, fogEnd_ > fogStart_ + 1.0f ? fogEnd_ : fogStart_ + 1.0f);
+        glUniform3f(uFogEye_, eye.x, eye.y, eye.z);
+        glUniform3f(uFogFwd_, fwd.x, fwd.y, fwd.z);
+    }
 
     // Point lights in the scene -> fragment shader uniforms (live preview of
     // what the game bakes into vertex colors; capped at the shader's 8).
