@@ -470,6 +470,21 @@ std::string save(const Project& p) {
              << jsonEscape(p.saveTexts[i].name) << "\", \"default\": \""
              << jsonEscape(p.saveTexts[i].value) << "\" }";
     json << (p.saveTexts.empty() ? "]" : "\n  ]");
+    json << ",\n  \"gradings\": [";
+    for (size_t i = 0; i < p.gradings.size(); ++i) {
+        const ColorGradingPreset& g = p.gradings[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \""
+             << jsonEscape(g.name) << "\", \"brightness\": " << fmtFloat(g.brightness)
+             << ", \"contrast\": " << fmtFloat(g.contrast)
+             << ", \"saturation\": " << fmtFloat(g.saturation)
+             << ", \"temperature\": " << fmtFloat(g.temperature)
+             << ", \"tint\": " << fmtVec3(g.tint)
+             << ", \"tintAmount\": " << fmtFloat(g.tintAmount)
+             << ", \"lift\": " << fmtVec3(g.lift)
+             << ", \"gain\": " << fmtVec3(g.gain) << " }";
+    }
+    json << (p.gradings.empty() ? "]" : "\n  ]");
+    json << ",\n  \"defaultGrading\": " << p.defaultGrading;
     json << ",\n  \"menus\": [";
     static const char* kMenuActions[] = {"close",     "scene",     "save-menu",
                                          "menu",      "set-value", "add-value",
@@ -1048,6 +1063,33 @@ std::string load(Project& out, const std::string& projectDir) {
             if (!v.name.empty()) out.saveTexts.push_back(std::move(v));
         }
     }
+
+    if (const auto* gradings = root.find("gradings");
+        gradings && gradings->type == json::Value::Type::Array) {
+        for (const auto& jg : gradings->arr) {
+            ColorGradingPreset g;
+            if (const auto* v = jg.find("name")) g.name = v->stringOr("");
+            if (const auto* v = jg.find("brightness"))
+                g.brightness = (float)v->numberOr(1.0);
+            if (const auto* v = jg.find("contrast"))
+                g.contrast = (float)v->numberOr(1.0);
+            if (const auto* v = jg.find("saturation"))
+                g.saturation = (float)v->numberOr(1.0);
+            if (const auto* v = jg.find("temperature"))
+                g.temperature = (float)v->numberOr(0.0);
+            readVec3(jg.find("tint"), g.tint);
+            if (const auto* v = jg.find("tintAmount"))
+                g.tintAmount = (float)v->numberOr(0.0);
+            readVec3(jg.find("lift"), g.lift);
+            readVec3(jg.find("gain"), g.gain);
+            if (!g.name.empty()) out.gradings.push_back(std::move(g));
+        }
+    }
+    if (const auto* v = root.find("defaultGrading"))
+        out.defaultGrading = (int)v->numberOr(-1.0);
+    if (out.defaultGrading < -1 ||
+        out.defaultGrading >= (int)out.gradings.size())
+        out.defaultGrading = -1;
 
     if (const auto* menus = root.find("menus");
         menus && menus->type == json::Value::Type::Array) {

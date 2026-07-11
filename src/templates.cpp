@@ -1111,6 +1111,9 @@ void TerrainGame::init() {
 
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  // Default color grading look (Tools > Color Grading); no-op when -1.
+  // Grading is global - scene switches keep whatever preset is active.
+  applySceneGrading(engine, GRADING_DEFAULT);
 
   engine->renderer.setClearScreenColor(Color(SKY_R, SKY_G, SKY_B));
 
@@ -2971,6 +2974,9 @@ void TerrainGame::init() {
 
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  // Default color grading look (Tools > Color Grading); no-op when -1.
+  // Grading is global - scene switches keep whatever preset is active.
+  applySceneGrading(engine, GRADING_DEFAULT);
 
   engine->renderer.setClearScreenColor(Color(SKY_R, SKY_G, SKY_B));
 
@@ -4304,6 +4310,63 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     sceneFloats("HIGHLIGHT_WIDTHS", [&](int si) { return floatLit(rs[si].highlightWidth); });
     sceneInts("HIGHLIGHT_STEPS_S", [&](int si) { return rs[si].highlightSteps; });
 
+    // Color grading presets (Tools > Color Grading), compiled to the raw
+    // GS-level parameters RendererCorePostFx::setGrading takes (the editor
+    // viewport previews the same quantized numbers). GRADING_DEFAULT is
+    // applied at boot; the Set Color Grading flow node switches at runtime.
+    const size_t gradingCount = p.gradings.size();
+    std::vector<CompiledGrading> compiled;
+    for (const auto& g : p.gradings) compiled.push_back(compileGrading(g));
+    out << "\nconstexpr int GRADING_COUNT = " << gradingCount << ";\n"
+        << "inline const char* GRADING_NAMES[GRADING_COUNT > 0 ? "
+           "GRADING_COUNT : 1] = {";
+    if (gradingCount == 0) {
+        out << "\"\"";
+    } else {
+        for (size_t i = 0; i < gradingCount; ++i)
+            out << (i ? ", " : "") << "\"" << p.gradings[i].name << "\"";
+    }
+    out << "};\n";
+    auto gradingTriples = [&](const char* type, const char* name, auto get) {
+        out << "constexpr " << type << " " << name
+            << "[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {";
+        if (gradingCount == 0) out << "{0, 0, 0}";
+        for (size_t i = 0; i < gradingCount; ++i) {
+            const int* v = get(compiled[i]);
+            out << (i ? ", " : "") << "{" << v[0] << ", " << v[1] << ", " << v[2]
+                << "}";
+        }
+        out << "};\n";
+    };
+    gradingTriples("unsigned char", "GRADING_GAINS",
+                   [](const CompiledGrading& c) { return c.gain; });
+    gradingTriples("short", "GRADING_LIFTS",
+                   [](const CompiledGrading& c) { return c.lift; });
+    gradingTriples("unsigned char", "GRADING_MIX_COLORS",
+                   [](const CompiledGrading& c) { return c.mixColor; });
+    out << "constexpr unsigned char GRADING_MIX_AMTS[GRADING_COUNT > 0 ? "
+           "GRADING_COUNT : 1] = {";
+    if (gradingCount == 0) out << "0";
+    for (size_t i = 0; i < gradingCount; ++i)
+        out << (i ? ", " : "") << compiled[i].mixAmt;
+    out << "};\n";
+    const int defGrading =
+        (p.defaultGrading >= 0 && p.defaultGrading < (int)gradingCount)
+            ? p.defaultGrading
+            : -1;
+    out << "constexpr int GRADING_DEFAULT = " << defGrading << ";\n"
+        << "\n"
+           "// Template so this header stays engine-include-free; instantiated\n"
+           "// where Tyra::Engine is complete. index -1 (or any out of range)\n"
+           "// is a no-op.\n"
+           "template <typename TEngine>\n"
+           "inline void applySceneGrading(TEngine* engine, int index) {\n"
+           "  if (index < 0 || index >= GRADING_COUNT) return;\n"
+           "  engine->renderer.core.postFx.setGrading(\n"
+           "      GRADING_GAINS[index], GRADING_LIFTS[index],\n"
+           "      GRADING_MIX_COLORS[index], GRADING_MIX_AMTS[index]);\n"
+           "}\n";
+
     // Save system: custom values (Project panel, Save data) and the largest
     // scene object count - sizes the fixed save-slot payload at compile time.
     const size_t valueCount = p.saveValues.size();
@@ -4503,6 +4566,11 @@ std::string flowGraphScript(const Project& p) {
     auto sceneIndexOf = [&](const std::string& name) {
         for (size_t i = 0; i < p.scenes.size(); ++i)
             if (p.scenes[i].name == name) return (int)i;
+        return -1;
+    };
+    auto gradingIndexOf = [&](const std::string& name) {
+        for (size_t i = 0; i < p.gradings.size(); ++i)
+            if (p.gradings[i].name == name) return (int)i;
         return -1;
     };
     auto saveValueIndex = [&](const std::string& name) {
@@ -4899,6 +4967,19 @@ std::string flowGraphScript(const Project& p) {
                 } else {
                     c << pad << "ctx.requestScene = " << target << ";  // \"" << n.str
                       << "\"\n";
+                }
+            } else if (n.type == "SetGrading") {
+                if (n.str.empty()) {
+                    c << pad << "ctx.engine->renderer.core.postFx.clearGrading();\n";
+                } else {
+                    const int gi = gradingIndexOf(n.str);
+                    if (gi < 0) {
+                        c << pad << "// node " << n.id
+                          << " (SetGrading): unknown preset '" << n.str << "'\n";
+                    } else {
+                        c << pad << "applySceneGrading(ctx.engine, " << gi
+                          << ");  // \"" << n.str << "\"\n";
+                    }
                 }
             } else if (n.type == "ShowObject") {
                 c << pad << obj << ".visible = true;\n";

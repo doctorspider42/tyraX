@@ -39,6 +39,68 @@ Each finished feature lands as its own commit.
   ps2link memory-card install). The 0- and >=3-influence paths compile but
   no test asset exercises them (the >=3 block is the pixel-verified naive
   blend with sorted slots). Docs updated (animated-models.md).
+- (34) **Color grading** — DaVinci-style per-project looks, applied as a GS
+  post pass (zero EE cost, like bloom/grain). **Engine**:
+  `RendererCorePostFx::setGrading/clearGrading` draws flat full-screen
+  sprites between bloom and grain — per-channel gain via FBMSK-masked
+  `(Cd-0)*FIX` sprites (equal gains collapse to one), per-channel lift as
+  additive/subtractive flat colors, and one alpha-blend sprite mixing toward
+  a constant color (tint + the saturation approximation; two lerps toward
+  constants fold into one). Worst case 6 extra sprites, alpha byte always
+  FBMSK-protected, z writes stay masked; postfx packet grew 160 -> 224 qw.
+  **Model**: `ColorGradingPreset` (brightness/contrast/saturation/
+  temperature/tint/lift/gain) + `compileGrading()` in the new grading.hpp —
+  the ONE place that folds the friendly controls into quantized GS numbers
+  (contrast pivot into gain+lift, saturation as a mix toward mid-gray — the
+  GS has no per-pixel luma, documented as an approximation);
+  `Project::gradings` + `defaultGrading`, saved/loaded with defaults for old
+  projects (not part of undo snapshots, same as menus). **UI**: Tools >
+  Color Grading window (preset list, quick looks, sliders, live "GS pass:"
+  readout of the compiled numbers). **Viewport twin**: a fullscreen
+  post pass (GRADE_FS) replicates the integer GS math incl. the 0..255
+  clamp per blend step; previews the edited preset while the window is
+  open, else the project default (gl_loader gained Uniform1f). **Codegen**:
+  GRADING_* tables + templated `applySceneGrading()` in scene_data.hpp
+  (header stays engine-include-free), `applySceneGrading(engine,
+  GRADING_DEFAULT)` in both game templates' init (grading is global —
+  scene switches keep the active preset), new **Set Color Grading** flow
+  node (Scene category, preset picker, "<none>" = clearGrading). Verified:
+  editor builds clean; scratch fpp project with two presets round-trips the
+  JSON; generated tables hand-checked against compileGrading math; Docker
+  build OK (engine + empty- and 2-preset tables compile on the PS2
+  toolchain); PCSX2 e2e on the software renderer — timed screenshots show
+  boot applying the sepia default (sky measured (157,156,148) vs computed
+  (151,148,145)) and an Every-6s -> Set Color Grading("night") graph
+  switching the frame to the night look at runtime; viewport A/B
+  screenshots confirm the editor preview matches. **Color wheels**: Lift and
+  Gain are edited through Resolve-style trackballs (custom ImDrawList
+  widget: hue disc, draggable puck, double-click reset) - the puck carries
+  the zero-mean between-channel tint (exactly the wheel's 2 DOF, so
+  puck <-> rgb roundtrips), a master slider under each wheel carries the
+  common level, and a compact drag row shows the numbers; commits once per
+  gesture (live mutation while dragging, commitChange on release). Window
+  rendering verified via a temporary auto-open build + GDI screenshot
+  (presets, quick looks, sliders, both wheels and the GS readout all
+  render); the drag FEEL still needs a quick human pass (no safe way to
+  drive ImGui with synthetic input while the user works the machine).
+- (34) **UI (DPI) scaling** — the editor was near-unreadable on high-DPI small
+  screens (a 4K laptop). On startup it now auto-matches the monitor's content
+  scale via `ImGui_ImplGlfw_GetContentScaleForWindow` (a 4K laptop reports e.g.
+  2.0-2.5x), so it "just works" with zero config. A new always-available
+  **View** menu (plus `Ctrl+=` / `Ctrl+-` zoom and `Ctrl+0` for auto) lets the
+  user override: presets 100-300% or auto. `applyUiScale()` resets the style to
+  a `baseStyle_` captured once at init, then `ScaleAllSizes(scale)` +
+  `FontScaleMain = scale` - resetting from the base each time means repeated
+  changes never compound. Fonts stay crisp because this ImGui (1.92) rasterizes
+  dynamically and the GL3 backend advertises `RendererHasTextures` (rebuilds the
+  atlas on scale change). The override is machine-level, not project data, so it
+  lives in a tiny global config `%LOCALAPPDATA%\tyra-editor\editor.ini`
+  (`uiScale=<float>`, 0 == auto) - the same editor-owned dir already used for the
+  PS2SDK IntelliSense cache; the per-project `.tyra` format is untouched.
+  Verified: editor builds clean; launched and screenshotted at forced 100% and
+  200% (UI visibly doubles, text stays crisp) and with no config (auto detected
+  this machine's ~2.5x DPI and scaled accordingly) - all without crashing.
+  Gizmo/ImNodes use screen/clip-space sizing so they were already DPI-neutral.
 
 - (33) **Custom particle kind: full physics knobs (jets, leaks, steam)** —
   sixth emitter kind "Custom" exposes the simulation instead of a preset:
