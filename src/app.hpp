@@ -131,6 +131,15 @@ private:
         std::vector<std::string> clips;
         int vertexCount = 0, frameCount = 0;
         std::vector<std::string> warnings;
+        // Baked materials (glTF), one per draw part: the color the game and
+        // the viewport tint the mesh with. name + baseColorFactor; textured
+        // parts also carry a texture flag.
+        struct Material {
+            std::string name;
+            float color[3] = {1, 1, 1};
+            bool textured = false;
+        };
+        std::vector<Material> materials;
     };
     std::map<std::string, GlbInfo> glbInfoCache_;
     const GlbInfo& glbInfo(const std::string& relPath);
