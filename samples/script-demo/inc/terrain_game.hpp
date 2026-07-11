@@ -147,6 +147,10 @@ class TerrainGame : public Tyra::Game {
  public:
   // Clip-name lookup for scripts/flow graph (ScriptContext::resolveClip).
   int resolveClipIndex(int objectIndex, const char* clipName) const;
+  // Dynamic spawning for scripts/flow graph (ScriptContext::spawnObject /
+  // despawnObject): clone an authored object into the spawn pool / free it.
+  int spawnObjectAt(int templateIndex, float x, float y, float z, float yaw);
+  void despawnObjectAt(int index);
 
  private:
   // Primitive materials: .mtl assigned to a box/sphere/... - the file's

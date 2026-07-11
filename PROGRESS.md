@@ -9,6 +9,49 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (70) **Dynamic object spawning: Spawn Object / Despawn Object flow nodes** —
+  runtime clones of authored objects, the missing piece for GTA-style traffic
+  (spawn the same few templates around the player, despawn what fell behind).
+  **Spawn Object** (Object category) clones its target (object link > name >
+  self) into a pool slot past the authored objects: the clone starts at the
+  linked position (or the template's own), faces the Yaw param, and the
+  node's **object output is the CLONE**, not the template - the first
+  runtime-valued object reference in the flow graph. Codegen assigns each
+  Spawn Object node a global handle (`flowSpawned[k]`, -1 = none, reset with
+  the script's scene-generation state); `targetExpr()` walks object-link
+  chains like `resolveTarget()` but stops at a Spawn Object source and
+  substitutes the handle expression, so **Despawn Object / Set Position /
+  Show/Hide / Play Animation / Is Visible / Get Position and the
+  Near/Used/AnimFinished triggers all work on clones** (actions wrap in a
+  handle-validity guard; Move Object To stays static-only for now, emits a
+  comment). **Runtime**: `ScriptContext.spawnObject/despawnObject` function
+  pointers (thunk pattern like resolveClip) into
+  `TerrainGame::spawnObjectAt/despawnObjectAt`; a 32-slot pool after
+  SCENE_OBJECT_COUNT (slots recycle, geometry builds lazily through the
+  existing dirty path, `setupAnimObject` runs for skeletal clones, emitter
+  clones rebuild the particle pools). Clones keep the template's layer -
+  unloading that layer despawns them; `applyLayerResidency` pins the assets
+  of live clones and a clone spawned before its model streamed in re-arms
+  when the asset lands (`processOneStreamJob`). Save slots never persist
+  clones. **Fixed latent OOB bugs this exposed**: `buildParticles`, the
+  layer unload/activate/completion loops and the save-state scan indexed
+  `SCENE_OBJECTS[i]` with `i` ranging over `runtimeObjects` - fine while the
+  two were the same length, out-of-bounds with the pool appended (unload now
+  reads the runtime copy `data.layer`, the others clamp to
+  SCENE_OBJECT_COUNT); loadScene also clears all active flags before the
+  first residency pass so a previous scene's clones cannot pin assets under
+  new-scene indices. **Verified**: clean editor build; scratch scene
+  (template box BEHIND the spawn, marker in front, EverySeconds(20) ->
+  Spawn Object with a Get Position link + Yaw 45, EverySeconds(8) ->
+  Despawn Object via the object link, Log nodes on both triggers);
+  generated flow_graph.gen.cpp inspected (handle global, generation reset,
+  live marker-position read, guarded despawn + handle reset); Docker build
+  OK; **PCSX2 (software renderer), event-driven screenshots keyed off the
+  game log**: after a SPAWN-TICK the red clone stands at the MARKER's
+  position rotated 45 deg (no authored box exists there), after the next
+  DESPAWN-TICK it is gone - cycle repeats. Spawning under real gameplay
+  (pad) and clones of animated/emitter templates still want a hands-on pass.
+
 - (69) **Layer auto-streaming (zone pivot + radius) + per-layer RAM readout** —
   GTA-style zone streaming without wiring the flow graph. A layer can opt in
   to **Auto stream** (Layers panel): it gets a zone center (world X/Z, with a
