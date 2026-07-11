@@ -1347,9 +1347,18 @@ void Viewport::orbit(float dx, float dy) {
 }
 
 void Viewport::zoom(float wheel) {
-    distance_ *= (wheel > 0 ? 0.9f : 1.1f);
+    // Continuous dolly: each unit of wheel scales distance by 0.9, so the old
+    // one-notch feel (0.9x) is preserved while fractional/scaled input (dolly
+    // drag, sensitivity multipliers) moves proportionally.
+    distance_ *= std::pow(0.9f, wheel);
     if (distance_ < 2.0f) distance_ = 2.0f;
     if (distance_ > 2000.0f) distance_ = 2000.0f;
+}
+
+void Viewport::setTarget(const float target[3]) {
+    target_[0] = target[0];
+    target_[1] = target[1];
+    target_[2] = target[2];
 }
 
 void Viewport::pan(float dx, float dy) {

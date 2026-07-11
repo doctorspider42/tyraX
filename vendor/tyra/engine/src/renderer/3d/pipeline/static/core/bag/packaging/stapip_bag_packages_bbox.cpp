@@ -58,6 +58,19 @@ StaPipBagPackagesBBox::~StaPipBagPackagesBBox() {
   delete mainBBox;
 }
 
+// Modified by tyra-editor: skinned meshes rewrite the same vertex buffer
+// every frame - rebuild the boxes in place instead of a fresh cache entry.
+void StaPipBagPackagesBBox::recalculate(const Vec4* t_vertices,
+                                        const u32& t_maxVertCount) {
+  u32 splitPartSize = t_maxVertCount / 3;
+  for (u32 i = 0; i < partsCount; i++) {
+    u32 partSize =
+        i == partsCount - 1 ? vertexCount - i * splitPartSize : splitPartSize;
+    (*bboxParts)[i] = CoreBBox(t_vertices + i * splitPartSize, partSize);
+  }
+  *mainBBox = RenderBBox(*bboxParts, 0, partsCount);
+}
+
 const RenderBBox& StaPipBagPackagesBBox::getChildBBox1By3(
     const u32& index) const {
   TYRA_ASSERT(index < partsCount,

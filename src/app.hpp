@@ -14,6 +14,31 @@
 
 struct GLFWwindow;
 
+// Viewport navigation preferences. These are a machine/muscle-memory property,
+// not project data, so they live in the global editor config (editor.ini in
+// %LOCALAPPDATA%), never in the per-project .tyra. See NavConfig persistence in
+// app.cpp.
+enum class NavScheme {
+    Default = 0,  // tyra: LMB/RMB orbit, MMB pan
+    Blender = 1,  // MMB orbit, Shift+MMB pan (LMB stays free for selection)
+    Maya = 2,     // Alt+LMB orbit, Alt+MMB pan, Alt+RMB dolly
+    Unity = 3,    // RMB orbit, MMB pan
+};
+enum class NavMoveKeys {
+    WASD = 0,
+    Arrows = 1,
+};
+struct NavConfig {
+    NavScheme scheme = NavScheme::Default;
+    NavMoveKeys moveKeys = NavMoveKeys::WASD;
+    float orbitSensitivity = 1.0f;  // 0.2 .. 3.0, multiplies pixel deltas
+    float panSensitivity = 1.0f;
+    float zoomSensitivity = 1.0f;
+    bool invertX = false;  // reverse horizontal orbit direction
+    bool invertY = false;  // reverse vertical orbit direction
+    bool orbitAroundSelection = true;  // pivot snaps to the selected object
+};
+
 class App {
 public:
     // initialProjectDir: optional project to open on startup (may be empty)
@@ -46,6 +71,7 @@ private:
     void drawDiscLayoutWindow();
     void drawNewProjectModal();
     void drawPreferencesModal();
+    void drawNavigationModal();  // global viewport-navigation settings
     void drawScenePreferencesModal();
     void openScenePreferences();  // stage the active scene into scenePref* + open
     void openProjectDialog();
@@ -156,6 +182,13 @@ private:
     float uiScaleUser_ = 0.0f;     // 0 == auto (match display DPI)
     float uiScaleApplied_ = 1.0f;  // effective scale currently in effect
     ImGuiStyle baseStyle_;
+
+    // Viewport navigation (global editor config, see editor.ini persistence).
+    NavConfig nav_;
+    bool openNavigationPopup_ = false;
+    // Selection index the orbit pivot was last snapped to; -1 = none. Lets
+    // "orbit around selection" re-center only when the selection changes.
+    int navFocusedIndex_ = -1;
 
     Project project_;
     bool hasProject_ = false;

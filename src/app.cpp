@@ -52,11 +52,17 @@ enum class PickKind { Folder, Solution, ObjModel, Mtl, Png, Wav, Ttf, Executable
 static HWND g_dialogOwner = nullptr;
 
 // ---------------------------------------------------------------------------
-// Global editor config. UI scale is a machine/display property (a 4K laptop
-// wants a different scale than a 1080p desktop), so it lives outside the
-// per-project .tyra - in %LOCALAPPDATA%\tyra-editor\editor.ini. This is the
-// only truly global editor setting today; keep the file format trivial.
+// Global editor config. These are machine/muscle-memory properties (a 4K laptop
+// wants a different UI scale than a 1080p desktop; navigation is personal
+// preference), so they live outside the per-project .tyra - in
+// %LOCALAPPDATA%\tyra-editor\editor.ini. Trivial key=value lines; the whole
+// file is rewritten on any change, so load once and save the full struct.
 // ---------------------------------------------------------------------------
+struct EditorConfig {
+    float uiScale = 0.0f;  // 0 == auto (follow the display DPI)
+    NavConfig nav;
+};
+
 static std::filesystem::path editorConfigPath() {
     const char* base = getenv("LOCALAPPDATA");
     if (!base || !*base) base = getenv("USERPROFILE");
@@ -64,32 +70,53 @@ static std::filesystem::path editorConfigPath() {
     return std::filesystem::path(base) / "tyra-editor" / "editor.ini";
 }
 
-// Returns 0.0 (== "auto") when the file is missing or has no valid uiScale.
-static float loadUiScalePref() {
+static EditorConfig loadEditorConfig() {
+    EditorConfig cfg;
     const auto path = editorConfigPath();
-    if (path.empty()) return 0.0f;
+    if (path.empty()) return cfg;
     std::ifstream f(path);
     std::string line;
+    auto match = [&line](const char* key, std::string& out) {
+        const std::string k = std::string(key) + "=";
+        if (line.rfind(k, 0) != 0) return false;
+        out = line.substr(k.size());
+        return true;
+    };
+    std::string v;
+    auto toF = [](const std::string& s, float d) { try { return std::stof(s); } catch (...) { return d; } };
+    auto toI = [](const std::string& s, int d) { try { return std::stoi(s); } catch (...) { return d; } };
+    auto clampScheme = [](int i) { return (i < 0 || i > 3) ? NavScheme::Default : (NavScheme)i; };
     while (std::getline(f, line)) {
-        const std::string key = "uiScale=";
-        if (line.rfind(key, 0) == 0) {
-            try {
-                return std::stof(line.substr(key.size()));
-            } catch (...) {
-                return 0.0f;
-            }
-        }
+        if (match("uiScale", v)) cfg.uiScale = toF(v, cfg.uiScale);
+        else if (match("navScheme", v)) cfg.nav.scheme = clampScheme(toI(v, 0));
+        else if (match("navMoveKeys", v)) cfg.nav.moveKeys = toI(v, 0) == 1 ? NavMoveKeys::Arrows : NavMoveKeys::WASD;
+        else if (match("navOrbitSens", v)) cfg.nav.orbitSensitivity = toF(v, 1.0f);
+        else if (match("navPanSens", v)) cfg.nav.panSensitivity = toF(v, 1.0f);
+        else if (match("navZoomSens", v)) cfg.nav.zoomSensitivity = toF(v, 1.0f);
+        else if (match("navInvertX", v)) cfg.nav.invertX = toI(v, 0) != 0;
+        else if (match("navInvertY", v)) cfg.nav.invertY = toI(v, 0) != 0;
+        else if (match("navOrbitSelection", v)) cfg.nav.orbitAroundSelection = toI(v, 1) != 0;
     }
-    return 0.0f;
+    return cfg;
 }
 
-static void saveUiScalePref(float scale) {
+static void saveEditorConfig(const EditorConfig& cfg) {
     const auto path = editorConfigPath();
     if (path.empty()) return;
     std::error_code ec;
     std::filesystem::create_directories(path.parent_path(), ec);
     std::ofstream f(path, std::ios::trunc);
-    if (f) f << "uiScale=" << scale << "\n";
+    if (!f) return;
+    const NavConfig& n = cfg.nav;
+    f << "uiScale=" << cfg.uiScale << "\n"
+      << "navScheme=" << (int)n.scheme << "\n"
+      << "navMoveKeys=" << (int)n.moveKeys << "\n"
+      << "navOrbitSens=" << n.orbitSensitivity << "\n"
+      << "navPanSens=" << n.panSensitivity << "\n"
+      << "navZoomSens=" << n.zoomSensitivity << "\n"
+      << "navInvertX=" << (n.invertX ? 1 : 0) << "\n"
+      << "navInvertY=" << (n.invertY ? 1 : 0) << "\n"
+      << "navOrbitSelection=" << (n.orbitAroundSelection ? 1 : 0) << "\n";
 }
 
 static std::string wideToUtf8(const wchar_t* path) {
@@ -274,7 +301,11 @@ int App::run(const std::string& initialProjectDir) {
     // Scale the UI for the display: the saved override if any, else auto-match
     // the monitor's content scale (a 4K laptop reports e.g. 2.0). Fonts are
     // rasterized dynamically in this ImGui, so scaling stays crisp.
-    uiScaleUser_ = loadUiScalePref();
+    {
+        const EditorConfig cfg = loadEditorConfig();
+        uiScaleUser_ = cfg.uiScale;
+        nav_ = cfg.nav;
+    }
     applyUiScale();
 
     // Drag & drop from Explorer: the dialog-free import path (PNGs land in
@@ -412,6 +443,7 @@ void App::drawUI() {
     drawMaterialEditorWindow();
     drawNewProjectModal();
     drawPreferencesModal();
+    drawNavigationModal();
     drawScenePreferencesModal();
     drawNewScriptModal();
     drawNewSceneModal();
@@ -474,7 +506,7 @@ void App::applyUiScale() {
 void App::setUiScale(float userScale) {
     uiScaleUser_ = userScale;  // 0 == auto (follow the display DPI)
     applyUiScale();
-    saveUiScalePref(uiScaleUser_);
+    saveEditorConfig({uiScaleUser_, nav_});
 }
 
 void App::drawMenuBar() {
@@ -516,6 +548,8 @@ void App::drawMenuBar() {
             ImGui::Separator();
             ImGui::TextDisabled("Current: %d%%%s", (int)std::lround(uiScaleApplied_ * 100.0f),
                                 uiScaleUser_ == 0.0f ? " (auto)" : "");
+            ImGui::Separator();
+            if (ImGui::MenuItem("Navigation controls...")) openNavigationPopup_ = true;
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Scene", hasProject_)) {
@@ -597,7 +631,11 @@ void App::drawMenuBar() {
 
 void App::drawViewportWindow() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::Begin("Viewport");
+    // NoNav: keep ImGui keyboard navigation out of the viewport. Otherwise the
+    // arrow keys cycle focus through the overlay tool buttons (Move/Rotate/...)
+    // instead of - or on top of - flying the camera when arrow-key movement is
+    // selected. The buttons all have 1/2/3/5 hotkeys, so nothing is lost.
+    ImGui::Begin("Viewport", nullptr, ImGuiWindowFlags_NoNav);
     ImGui::PopStyleVar();
 
     if (!hasProject_) {
@@ -814,15 +852,46 @@ void App::drawViewportWindow() {
 
         // --- Camera + selection input ---
         if (imageHovered && !gizmoBusy) {
-            // In sculpt mode LMB paints, so only RMB orbits
-            if ((!sculptMode_ && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) ||
-                ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
-                viewport_.orbit(io.MouseDelta.x, io.MouseDelta.y);
+            // Which drag orbits vs pans depends on the chosen navigation scheme
+            // (see NavScheme). Sculpt mode paints with LMB, so any scheme that
+            // orbits on plain LMB yields it to the brush. The wheel always
+            // zooms; some schemes add a drag-dolly.
+            const bool lmb = ImGui::IsMouseDragging(ImGuiMouseButton_Left);
+            const bool rmb = ImGui::IsMouseDragging(ImGuiMouseButton_Right);
+            const bool mmb = ImGui::IsMouseDragging(ImGuiMouseButton_Middle);
+            const bool alt = io.KeyAlt, shift = io.KeyShift;
+            bool doOrbit = false, doPan = false;
+            float dolly = 0.0f;  // extra wheel-equivalent zoom from a drag
+            switch (nav_.scheme) {
+                case NavScheme::Blender:
+                    doOrbit = mmb && !shift;
+                    doPan = mmb && shift;
+                    break;
+                case NavScheme::Maya:
+                    doOrbit = alt && lmb;
+                    doPan = alt && mmb;
+                    if (alt && rmb) dolly = io.MouseDelta.x * 0.02f;  // drag right = in
+                    break;
+                case NavScheme::Unity:
+                    doOrbit = rmb;
+                    doPan = mmb;
+                    break;
+                case NavScheme::Default:
+                default:
+                    doOrbit = (!sculptMode_ && lmb) || rmb;
+                    doPan = mmb;
+                    break;
             }
-            // Middle mouse: pan the camera target in the view plane
-            if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle))
-                viewport_.pan(io.MouseDelta.x, io.MouseDelta.y);
-            if (io.MouseWheel != 0.0f) viewport_.zoom(io.MouseWheel);
+            if (doOrbit) {
+                const float sx = nav_.orbitSensitivity * (nav_.invertX ? -1.0f : 1.0f);
+                const float sy = nav_.orbitSensitivity * (nav_.invertY ? -1.0f : 1.0f);
+                viewport_.orbit(io.MouseDelta.x * sx, io.MouseDelta.y * sy);
+            }
+            if (doPan)
+                viewport_.pan(io.MouseDelta.x * nav_.panSensitivity,
+                              io.MouseDelta.y * nav_.panSensitivity);
+            if (io.MouseWheel != 0.0f || dolly != 0.0f)
+                viewport_.zoom(io.MouseWheel * nav_.zoomSensitivity + dolly);
 
             // Click (no drag) = pick object under cursor
             if (!sculptMode_ && ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
@@ -831,6 +900,19 @@ void App::drawViewportWindow() {
                 const float v = (io.MousePos.y - imgPos.y) / avail.y;
                 selectedObject_ = viewport_.pick(u, v, project_.objects());
             }
+        }
+
+        // Orbit around the selected object: snap the pivot to it whenever the
+        // selection changes (independent of the transform gizmo mode). Panning
+        // or flying afterward still moves freely until the next selection.
+        {
+            const bool objSel =
+                selectedObject_ >= 0 && selectedObject_ < (int)project_.objects().size();
+            if (nav_.orbitAroundSelection && objSel && selectedObject_ != navFocusedIndex_) {
+                viewport_.setTarget(project_.objects()[selectedObject_].position);
+                navFocusedIndex_ = selectedObject_;
+            }
+            if (!objSel) navFocusedIndex_ = -1;
         }
 
         // --- TV frames: what a PAL / NTSC set shows of the 512x448 buffer ---
@@ -1013,11 +1095,17 @@ void App::drawViewportWindow() {
             if (ImGui::IsKeyPressed(ImGuiKey_4)) sculptMode_ = !sculptMode_;
             if (ImGui::IsKeyPressed(ImGuiKey_5)) gizmoSpace_ = 1 - gizmoSpace_;
 
-            // WASD: fly the camera over the terrain (tools live on 1-5)
-            const float fwd = (ImGui::IsKeyDown(ImGuiKey_W) ? 1.0f : 0.0f) -
-                              (ImGui::IsKeyDown(ImGuiKey_S) ? 1.0f : 0.0f);
-            const float strafe = (ImGui::IsKeyDown(ImGuiKey_D) ? 1.0f : 0.0f) -
-                                 (ImGui::IsKeyDown(ImGuiKey_A) ? 1.0f : 0.0f);
+            // Fly the camera over the terrain. WASD or the arrow keys per the
+            // navigation preference (tools live on 1-5, so WASD stays free).
+            const bool arrows = nav_.moveKeys == NavMoveKeys::Arrows;
+            const ImGuiKey kF = arrows ? ImGuiKey_UpArrow : ImGuiKey_W;
+            const ImGuiKey kB = arrows ? ImGuiKey_DownArrow : ImGuiKey_S;
+            const ImGuiKey kR = arrows ? ImGuiKey_RightArrow : ImGuiKey_D;
+            const ImGuiKey kL = arrows ? ImGuiKey_LeftArrow : ImGuiKey_A;
+            const float fwd = (ImGui::IsKeyDown(kF) ? 1.0f : 0.0f) -
+                              (ImGui::IsKeyDown(kB) ? 1.0f : 0.0f);
+            const float strafe = (ImGui::IsKeyDown(kR) ? 1.0f : 0.0f) -
+                                 (ImGui::IsKeyDown(kL) ? 1.0f : 0.0f);
             viewport_.fly(fwd, strafe, io.DeltaTime);
             if (objectSelected && ImGui::IsKeyPressed(ImGuiKey_Delete)) {
                 project_.objects().erase(project_.objects().begin() + selectedObject_);
@@ -6093,6 +6181,11 @@ void App::drawPreferencesModal() {
     const char* profileNames[] = {"Release", "Debug"};
     if (ImGui::Combo("Profile", &profile, profileNames, 2))
         prefSettings_.buildProfile = profile == 1 ? "debug" : "release";
+    ImGui::Checkbox("Disable VSync (experimental)", &prefSettings_.disableVsync);
+    ImGui::TextDisabled(
+        "Skips the vsync wait before the buffer flip. The frame rate becomes\n"
+        "continuous instead of snapping between 50 and 25 (PAL), at the cost\n"
+        "of screen tearing. Gameplay speed is unaffected either way.");
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("Show FPS", &prefSettings_.showFps);
     ImGui::Checkbox("Show memory usage", &prefSettings_.showMemory);
@@ -6257,6 +6350,80 @@ void App::drawPreferencesModal() {
     }
     ImGui::SameLine();
     if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+}
+
+void App::drawNavigationModal() {
+    if (openNavigationPopup_) {
+        ImGui::OpenPopup("Navigation controls");
+        openNavigationPopup_ = false;
+    }
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(520, 0), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal("Navigation controls", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+
+    // Global editor config (not project data): every change is persisted to
+    // editor.ini immediately, so there is no OK/Cancel staging.
+    bool changed = false;
+
+    ImGui::SeparatorText("Mouse scheme");
+    int scheme = (int)nav_.scheme;
+    const char* schemeNames[] = {"Tyra (default)", "Blender", "Maya", "Unity"};
+    if (ImGui::Combo("Scheme", &scheme, schemeNames, 4)) {
+        nav_.scheme = (NavScheme)scheme;
+        changed = true;
+    }
+    const char* schemeHelp[] = {
+        "Left or right drag orbits, middle drag pans, wheel zooms.",
+        "Middle drag orbits, Shift+middle pans, wheel zooms.\n"
+        "Left mouse stays free for selection.",
+        "Alt+left orbits, Alt+middle pans, Alt+right dollies, wheel zooms.",
+        "Right drag orbits, middle drag pans, wheel zooms.\n"
+        "Left mouse stays free for selection.",
+    };
+    ImGui::TextDisabled("%s", schemeHelp[scheme]);
+
+    ImGui::SeparatorText("Movement keys");
+    int keys = (int)nav_.moveKeys;
+    const char* keyNames[] = {"WASD", "Arrow keys"};
+    if (ImGui::Combo("Fly keys", &keys, keyNames, 2)) {
+        nav_.moveKeys = (NavMoveKeys)keys;
+        changed = true;
+    }
+    ImGui::TextDisabled("Move the camera across the scene. Tool shortcuts stay on 1-5.");
+
+    ImGui::SeparatorText("Sensitivity");
+    changed |= ImGui::SliderFloat("Orbit", &nav_.orbitSensitivity, 0.2f, 3.0f, "%.2fx");
+    changed |= ImGui::SliderFloat("Pan", &nav_.panSensitivity, 0.2f, 3.0f, "%.2fx");
+    changed |= ImGui::SliderFloat("Zoom", &nav_.zoomSensitivity, 0.2f, 3.0f, "%.2fx");
+    changed |= ImGui::Checkbox("Invert horizontal", &nav_.invertX);
+    ImGui::SameLine();
+    changed |= ImGui::Checkbox("Invert vertical", &nav_.invertY);
+
+    ImGui::SeparatorText("Focus");
+    changed |= ImGui::Checkbox("Orbit around selected object", &nav_.orbitAroundSelection);
+    ImGui::TextDisabled(
+        "When on, selecting an object recenters the camera pivot on it,\n"
+        "regardless of the transform gizmo mode. Pan/fly still move freely.");
+
+    if (changed) {
+        saveEditorConfig({uiScaleUser_, nav_});
+        // Re-snap the pivot on the next frame if a selection is already active.
+        navFocusedIndex_ = -1;
+    }
+
+    ImGui::Separator();
+    if (ImGui::Button("Restore defaults", ImVec2(140, 0))) {
+        nav_ = NavConfig{};
+        saveEditorConfig({uiScaleUser_, nav_});
+        navFocusedIndex_ = -1;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Close", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
 }
 

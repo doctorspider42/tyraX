@@ -213,6 +213,36 @@ std::unique_ptr<SkelModel> TsklLoader::load(const std::string& relativePath) {
     model->parts.push_back(std::move(part));
   }
 
+  // Merge parts that share texture and color: every part becomes a draw bag
+  // per instance per frame (object-data DMA + packager run each), and models
+  // commonly split one material into several tiny parts. Merging is safe -
+  // vertices carry their own joints/weights and draw order among equal
+  // materials is irrelevant under z-testing.
+  for (size_t a = 0; a + 1 < model->parts.size(); a++) {
+    SkelPart& dst = model->parts[a];
+    for (size_t b = a + 1; b < model->parts.size();) {
+      SkelPart& src = model->parts[b];
+      const bool same =
+          dst.texturePath == src.texturePath &&
+          memcmp(dst.color, src.color, sizeof(dst.color)) == 0;
+      if (!same) {
+        ++b;
+        continue;
+      }
+      dst.positions.insert(dst.positions.end(), src.positions.begin(),
+                           src.positions.end());
+      dst.normals.insert(dst.normals.end(), src.normals.begin(),
+                         src.normals.end());
+      dst.uvs.insert(dst.uvs.end(), src.uvs.begin(), src.uvs.end());
+      dst.joints.insert(dst.joints.end(), src.joints.begin(),
+                        src.joints.end());
+      dst.weights.insert(dst.weights.end(), src.weights.begin(),
+                         src.weights.end());
+      dst.vertexCount += src.vertexCount;
+      model->parts.erase(model->parts.begin() + b);
+    }
+  }
+
   return model;
 }
 

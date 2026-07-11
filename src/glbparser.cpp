@@ -1201,69 +1201,90 @@ bool parseSkel(const std::string& path, Skel& out, std::string& error) {
     }
     if (out.clips.empty()) out.clips.push_back({"default", 0.0f, {}});
 
-    // --- AABB of clip 0 at t=0 (matches bake()'s frame-0 box) ----------------
+    // --- AABB: union over every clip, sampled along each duration -----------
+    // The runtime culls whole instances with this box (skipping pose+skin for
+    // offscreen ones), so it must cover every pose the model can strike, not
+    // just clip 0 at t=0. Linear sampling can straddle an extreme between two
+    // samples; the runtime pads the box 10% per axis on load.
     {
-        std::vector<Node> pose = P.nodes;
-        if (!P.clips.empty()) {
-            const ClipSrc& clip = P.clips[0];
-            for (const Channel& ch : clip.channels) {
-                Node& n = pose[ch.node];
-                n.hasMatrix = false;
-                if (ch.path == 0) sampleChannel(ch, clip.start, n.t);
-                else if (ch.path == 1) sampleChannel(ch, clip.start, n.r);
-                else sampleChannel(ch, clip.start, n.s);
-            }
-        }
-        std::vector<M16> globals;
-        computeGlobals(pose, P.order, P.parent, globals);
         bool first = true;
-        for (const PrimRef& ref : P.prims) {
-            // per-vertex blended matrix, same math as bake()'s appendFrame
-            std::vector<M16> palette;
-            if (ref.skin >= 0 && ref.skin < (int)P.skins.size()) {
-                const Skin& skin = P.skins[ref.skin];
-                palette.resize(skin.joints.size());
-                for (size_t j = 0; j < skin.joints.size(); ++j) {
-                    M16 ibm;
-                    std::memcpy(ibm.m, &skin.ibm[j * 16], sizeof(ibm.m));
-                    const int jn = skin.joints[j];
-                    palette[j] = jn >= 0 && jn < (int)P.nodes.size()
-                                     ? mul(globals[jn], ibm)
-                                     : identity();
+        auto foldPoseAabb = [&](const ClipSrc* clip, float t) {
+            std::vector<Node> pose = P.nodes;
+            if (clip) {
+                for (const Channel& ch : clip->channels) {
+                    Node& n = pose[ch.node];
+                    n.hasMatrix = false;
+                    if (ch.path == 0) sampleChannel(ch, t, n.t);
+                    else if (ch.path == 1) sampleChannel(ch, t, n.r);
+                    else sampleChannel(ch, t, n.s);
                 }
             }
-            const M16 rigid = globals[ref.node];
-            for (uint32_t idx : ref.indices) {
-                M16 blended;
-                const float* src = &ref.pos[idx * 3];
-                if (!palette.empty()) {
-                    std::memset(blended.m, 0, sizeof(blended.m));
-                    const float* w = &ref.weights[idx * 4];
-                    const float* j = &ref.joints[idx * 4];
-                    float wsum = w[0] + w[1] + w[2] + w[3];
-                    if (wsum < 1e-5f) wsum = 1.0f;
-                    for (int k = 0; k < 4; ++k) {
-                        const int joint = (int)(j[k] + 0.5f);
-                        if (w[k] <= 0.0f || joint < 0 ||
-                            joint >= (int)palette.size())
-                            continue;
-                        const float wk = w[k] / wsum;
-                        for (int c = 0; c < 16; ++c)
-                            blended.m[c] += palette[joint].m[c] * wk;
+            std::vector<M16> globals;
+            computeGlobals(pose, P.order, P.parent, globals);
+            for (const PrimRef& ref : P.prims) {
+                // per-vertex blended matrix, same math as bake()'s appendFrame
+                std::vector<M16> palette;
+                if (ref.skin >= 0 && ref.skin < (int)P.skins.size()) {
+                    const Skin& skin = P.skins[ref.skin];
+                    palette.resize(skin.joints.size());
+                    for (size_t j = 0; j < skin.joints.size(); ++j) {
+                        M16 ibm;
+                        std::memcpy(ibm.m, &skin.ibm[j * 16], sizeof(ibm.m));
+                        const int jn = skin.joints[j];
+                        palette[j] = jn >= 0 && jn < (int)P.nodes.size()
+                                         ? mul(globals[jn], ibm)
+                                         : identity();
                     }
-                } else {
-                    blended = rigid;
                 }
-                const float* m = blended.m;
-                const float p[3] = {
-                    m[0] * src[0] + m[4] * src[1] + m[8] * src[2] + m[12],
-                    m[1] * src[0] + m[5] * src[1] + m[9] * src[2] + m[13],
-                    m[2] * src[0] + m[6] * src[1] + m[10] * src[2] + m[14]};
-                for (int c = 0; c < 3; ++c) {
-                    if (first || p[c] < out.min[c]) out.min[c] = p[c];
-                    if (first || p[c] > out.max[c]) out.max[c] = p[c];
+                const M16 rigid = globals[ref.node];
+                for (uint32_t idx : ref.indices) {
+                    M16 blended;
+                    const float* src = &ref.pos[idx * 3];
+                    if (!palette.empty()) {
+                        std::memset(blended.m, 0, sizeof(blended.m));
+                        const float* w = &ref.weights[idx * 4];
+                        const float* j = &ref.joints[idx * 4];
+                        float wsum = w[0] + w[1] + w[2] + w[3];
+                        if (wsum < 1e-5f) wsum = 1.0f;
+                        for (int k = 0; k < 4; ++k) {
+                            const int joint = (int)(j[k] + 0.5f);
+                            if (w[k] <= 0.0f || joint < 0 ||
+                                joint >= (int)palette.size())
+                                continue;
+                            const float wk = w[k] / wsum;
+                            for (int c = 0; c < 16; ++c)
+                                blended.m[c] += palette[joint].m[c] * wk;
+                        }
+                    } else {
+                        blended = rigid;
+                    }
+                    const float* m = blended.m;
+                    const float p[3] = {
+                        m[0] * src[0] + m[4] * src[1] + m[8] * src[2] + m[12],
+                        m[1] * src[0] + m[5] * src[1] + m[9] * src[2] + m[13],
+                        m[2] * src[0] + m[6] * src[1] + m[10] * src[2] + m[14]};
+                    for (int c = 0; c < 3; ++c) {
+                        if (first || p[c] < out.min[c]) out.min[c] = p[c];
+                        if (first || p[c] > out.max[c]) out.max[c] = p[c];
+                    }
+                    first = false;
                 }
-                first = false;
+            }
+        };
+        if (P.clips.empty()) {
+            foldPoseAabb(nullptr, 0.0f);
+        } else {
+            const int samples = 8;
+            for (const ClipSrc& clip : P.clips) {
+                const float duration =
+                    clip.end > clip.start ? clip.end - clip.start : 0.0f;
+                if (duration <= 0.0f) {
+                    foldPoseAabb(&clip, clip.start);
+                    continue;
+                }
+                for (int s = 0; s < samples; ++s)
+                    foldPoseAabb(&clip, clip.start +
+                                            duration * s / (samples - 1));
             }
         }
     }
@@ -1274,7 +1295,7 @@ bool parseSkel(const std::string& path, Skel& out, std::string& error) {
 // Layout (little-endian; keep in sync with the engine's tskl_loader.cpp):
 //   "TSKL" u32(version=1)
 //   u32 nodeCount, u32 paletteCount, u32 partCount, u32 clipCount
-//   f32 min[3], f32 max[3]                      (clip-0 t=0 pose AABB)
+//   f32 min[3], f32 max[3]           (pose AABB union over all clips, sampled)
 //   nodeCount * { s32 parent; u32 flags(bit0 = hasMatrix);
 //                 f32 t[3]; f32 r[4]; f32 s[3]; f32 matrix[16] }
 //   paletteCount * { u32 node; f32 ibm[16] }
