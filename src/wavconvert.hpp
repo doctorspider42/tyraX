@@ -18,9 +18,10 @@ bool readFormat(const std::string& path, int& audioFormat, int& channels,
 // so the project never stores a second copy. Decodes integer PCM
 // (8/16/24/32-bit) and 32-bit float, mono or stereo; downsampling
 // box-averages the source span per output sample (a crude but alias-safe
-// low-pass), upsampling interpolates linearly. On failure the original file
-// is left untouched and `error` says why.
+// low-pass), upsampling interpolates linearly. toMono averages the channels
+// (halves the PS2 streaming byte rate). On failure the original file is
+// left untouched and `error` says why.
 bool convertTo16(const std::filesystem::path& path, int targetRate,
-                 std::string& error);
+                 std::string& error, bool toMono = false);
 
 }  // namespace wavconvert

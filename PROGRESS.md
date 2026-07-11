@@ -54,6 +54,94 @@ Each finished feature lands as its own commit.
   user guide added (docs/object-scripts.md: lifecycle, self/ScriptContext
   reference, Empty objects, performance, troubleshooting).
 - (34) **Skeletal animation skinning moved from the EE FPU to VU0 (macro
+- (42) **Main thread demoted below the audio threads (music dragged at low
+  FPS)** — music played cleanly at 50 FPS but audibly slowed when a heavy
+  scene dropped the game to 25: the EE is one core, the engine's GS waits
+  are busy-spins that never yield, and depending on the boot path the main
+  thread arrives at priority 0 - so a compute-bound frame starved the audio
+  thread (0x5) and the song streamer (0x6), which could never preempt it.
+  Engine::initAll now drops the main thread to 0x10; the audio threads cost
+  microseconds per wake, so the game loses nothing. Verified in PCSX2 (50
+  FPS, steady music, overlay fine); the 25-FPS-scene behavior needs the
+  real console. Also: MEM reads used/total, the music PS2-build row fits
+  the mono checkbox again (a wide combo pushed it out of the panel).
+
+- (41) **Song streamer thread + EE-load overlay** — the last structural fix
+  for network music: the fillbuf callback fires when the audsrv ring is
+  nearly EMPTY, so any file read on the audio thread races a ring holding
+  under ~1/9th s of audio - one slow network round trip at that moment is a
+  guaranteed audible underrun (the remaining "skipping slow-mo" after the
+  RPC fix). AudioSong now runs a dedicated streamer thread (priority 0x6,
+  16 KB stack) that keeps a 96 KB single-producer/single-consumer ring
+  topped up with 16 KB freads in the background; work() only memcpys from
+  memory and never blocks on IO. Wrap-safe u32 produced/consumed counters
+  (EE is single-core, aligned word writes are atomic); load/rewind/unload
+  reposition the FILE through a generation handshake (the streamer owns all
+  file access while active, so an in-flight fread of stale data is simply
+  discarded); transient starvation feeds a short chunk and retries without
+  waiting for a fillbuf signal that would never come; songFinished now
+  requires true end-of-data. Verified in PCSX2: OnStart tone plays with a
+  flat WASAPI peak across the loop point. **EE-load overlay**: the debug
+  FPS line gains "EE nn" - T3 ticks (576 kHz) between loop() entry and
+  drawDebugHud as a percentage of the frame budget, i.e. the game's
+  main-thread work before it starts waiting on the GS; works on real
+  hardware (unlike PCSX2's emulator-side EE% readout).
+
+- (40) **Music + sound emitters = FPS drop: audsrv RPC contention fix** —
+  reproduced in PCSX2 (finally an EE-side bug, not the network): a scene
+  with one sound emitter ran 50 FPS silent but 42 FPS with music playing,
+  while a scene with music and NO emitters held 50. Mechanism:
+  updateSoundEmitters issued a synchronous audsrv RPC per emitter per frame
+  (setVolumeAndPan, even when nothing changed), and every audsrv call
+  shares one client-side completion semaphore with the music thread's
+  wait_audio/play_audio transactions - the main thread queued behind the
+  stream several times a second. The generated game now caches the last
+  volume/pan per channel (quantized 5/10 steps so a moving player does not
+  defeat the cache) and only issues the RPC on a real change; the
+  scene-switch mute keeps the cache in sync. Verified in PCSX2: the same
+  emitter+music scene is back to 50 FPS. Also confirmed the debug FPS/MEM
+  overlay has no emulator gate - it renders on real hardware too (the "not
+  on the console" report was a stale pre-debug-profile deploy).
+
+- (39) **Per-track music build conversion + Stop on PS2** — the experiment
+  window for network music: every Music-panel track gets "PS2 build"
+  controls (rate: keep/48000/32000/22050/11025 + mono; only rates audsrv has
+  an upsampler for - a first cut offered 16000, which audsrv does NOT
+  support). Key insight from audsrv sources: 48000 Hz 16-bit is SPU2-native
+  and its "upsampler" is a plain channel demux with zero arithmetic - after
+  TCP_NODELAY the bottleneck is the 36 MHz IOP (which also runs the ps2link
+  network stack and answers the main thread's per-frame pad/audsrv RPCs -
+  the observed "FPS drops when music starts"), so upsampling ON THE PC to
+  48 kHz and streaming more bytes is the win, not less. The res/audio source
+  stays untouched; after every build the Runner re-converts the bin/audio
+  copy the game actually streams (wavconvert grew a mono downmix - channel
+  average before resampling), so PCSX2, PS2 deploys and exported ISOs all
+  hear the downgraded version and each step halves the streamed byte rate.
+  Stored as a path-keyed map in the .tyra (absent = ship as-is). Verified:
+  a 22050 stereo tone with rate=11025+mono builds a bin copy exactly 1/4
+  the size (mono, 11025 Hz per the WAV header) with the source untouched,
+  and PCSX2 plays it with a steady WASAPI peak - the low-byte-rate
+  small-chunk path works with the read-ahead stage. **Stop on PS2** (Build
+  menu): kills the ps2client file server and resets ps2link, so the console
+  reboots back into its listening state instead of hanging on dead file
+  handles when you just want the game gone.
+
+- (38) **Song read-ahead stage (network music without hiccups)** — feeding
+  audsrv straight from per-chunk freads gives every read a hard deadline of
+  one chunk of audio (46 ms at 22 kHz stereo); over ps2link any latency
+  outlier is an audible hiccup ("almost right, still snags" on the real
+  console after the 22 kHz conversion). AudioSong now pulls the file through
+  a 24 KB read-ahead stage - one large sequential fread every ~6 chunks,
+  amortized against the audsrv ring (~1/9th s) - so only a sustained
+  throughput drop below the byte rate can starve playback, not a single slow
+  round trip. Loop/rewind resets the stage; the legacy headerless path keeps
+  its read-until-EOF semantics (short fread ends the stream). Verified in
+  PCSX2 with a generated 440 Hz 22 kHz stereo tone wired OnStart -> PlayMusic:
+  WASAPI peak meter shows a rock-steady level for the whole window (a
+  starving stream shows dropouts); real-console listen pending. Also
+  upstreamed the ps2client TCP_NODELAY fix as ps2dev/ps2client#25.
+
+- (37) **Skeletal animation skinning moved from the EE FPU to VU0 (macro
   mode)** — the backlog's era-correct split (animation on VU0, 3D on VU1,
   game code on EE), engine-fork only, zero authoring/codegen changes. The
   `SkelInstance::skinParts` vertex loop is now COP2 inline asm (the
@@ -83,7 +171,7 @@ Each finished feature lands as its own commit.
   ps2link memory-card install). The 0- and >=3-influence paths compile but
   no test asset exercises them (the >=3 block is the pixel-verified naive
   blend with sorted slots). Docs updated (animated-models.md).
-- (34) **Color grading** — DaVinci-style per-project looks, applied as a GS
+- (36) **Color grading** — DaVinci-style per-project looks, applied as a GS
   post pass (zero EE cost, like bloom/grain). **Engine**:
   `RendererCorePostFx::setGrading/clearGrading` draws flat full-screen
   sprites between bloom and grain — per-channel gain via FBMSK-masked
@@ -127,7 +215,7 @@ Each finished feature lands as its own commit.
   (presets, quick looks, sliders, both wheels and the GS readout all
   render); the drag FEEL still needs a quick human pass (no safe way to
   drive ImGui with synthetic input while the user works the machine).
-- (34) **UI (DPI) scaling** — the editor was near-unreadable on high-DPI small
+- (35) **UI (DPI) scaling** — the editor was near-unreadable on high-DPI small
   screens (a 4K laptop). On startup it now auto-matches the monitor's content
   scale via `ImGui_ImplGlfw_GetContentScaleForWindow` (a 4K laptop reports e.g.
   2.0-2.5x), so it "just works" with zero config. A new always-available
@@ -146,7 +234,7 @@ Each finished feature lands as its own commit.
   this machine's ~2.5x DPI and scaled accordingly) - all without crashing.
   Gizmo/ImNodes use screen/clip-space sizing so they were already DPI-neutral.
 
-- (33) **Custom particle kind: full physics knobs (jets, leaks, steam)** —
+- (34) **Custom particle kind: full physics knobs (jets, leaks, steam)** —
   sixth emitter kind "Custom" exposes the simulation instead of a preset:
   **Speed** (u/s, +-20% jitter) along the emitter's **+Y axis rotated by the
   object rotation** (emitters gained the Rotation field for this - tilt 90
@@ -175,7 +263,7 @@ Each finished feature lands as its own commit.
   suspected color bug was a contrast illusion against the sky). Hands-on
   pass left for a human: knob feel while watching the live preview.
 
-- (32) **Particle emitters v2: live viewport preview, rain, textures,
+- (33) **Particle emitters v2: live viewport preview, rain, textures,
   enabled + follow-player** — emitters no longer render as scaled cones in
   the editor: the viewport now runs the same per-kind particle simulation as
   the generated game (spawn/velocity/size/alpha formulas copied from

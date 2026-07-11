@@ -563,6 +563,11 @@ void App::drawMenuBar() {
                 runner_.buildAndRunPs2(project_, false);
             if (!ps2Ready && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Set 'PS2 (ps2link) IP' in Project > Preferences first.");
+            if (ImGui::MenuItem("Stop on PS2", nullptr, false, !busy && ps2Ready))
+                runner_.stopPs2(project_);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Kills the file server and resets ps2link - the "
+                                  "console reboots back to its listening state.");
             ImGui::Separator();
             if (ImGui::MenuItem("Cancel Build", nullptr, false, busy)) runner_.cancel();
             if (ImGui::MenuItem("Clean", nullptr, false, !busy))
@@ -3260,8 +3265,6 @@ void App::importMusicTrack() {
         formatWarning = std::to_string(channels) + "-channel WAV";
     } else if (rate < 11025 || rate > 48000) {
         formatWarning = std::to_string(rate) + " Hz sample rate";
-    } else if (rate > 22050) {
-        formatWarning = std::to_string(rate) + " Hz (too heavy for a real PS2)";
     }
 
     const std::filesystem::path srcPath(src);
@@ -3394,10 +3397,12 @@ const std::string& App::wavIssue(const std::string& relPath, bool sfx) {
         if (audioFormat != 1 || (bits != 8 && bits != 16) || channels > 2 ||
             rate < 11025 || rate > 48000)
             issue = "not streamable (needs 8/16-bit PCM, mono/stereo, 11-48 kHz)";
-        else if (rate > 22050)
+        else if (rate != 11025 && rate != 12000 && rate != 22050 && rate != 24000 &&
+                 rate != 32000 && rate != 44100 && rate != 48000)
             issue = std::to_string(rate) +
-                    " Hz - streams in PCSX2 but starves into slow motion on a "
-                    "real PS2 over the network; Convert resamples to 22050 Hz";
+                    " Hz - audsrv has no upsampler for this rate (supported: "
+                    "11025/12000/22050/24000/32000/44100/48000); use the PS2 "
+                    "build controls below or Convert";
     }
     return wavIssueCache_.emplace(key, std::move(issue)).first->second;
 }
@@ -3444,10 +3449,56 @@ void App::drawMusicSection() {
         ImGui::SameLine();
         if (ImGui::SmallButton("x")) {
             removeAudioTrack(project_, project_.music[i], true);
+            project_.musicBuild.erase(project_.music[i]);
             project_.music.erase(project_.music.begin() + i);
             changed = true;
             ImGui::PopID();
             break;
+        }
+
+        // Build-time conversion knobs: applied to the bin/audio copy after
+        // every build (the res/ source stays untouched). Only rates audsrv
+        // has an upsampler for (find_upsampler fails on anything else -
+        // 16000 was offered here once and is NOT supported). 48000 is
+        // special: SPU2-native, the IOP does a plain channel demux with zero
+        // resampling arithmetic - the lever when the 36 MHz IOP is the
+        // bottleneck (network deploys share it with the ps2link stack);
+        // lower rates are the lever when the network itself cannot keep up.
+        {
+            auto it = project_.musicBuild.find(project_.music[i]);
+            Project::MusicBuildOpt opt =
+                it != project_.musicBuild.end() ? it->second : Project::MusicBuildOpt{};
+            int rateIdx = opt.rate == 48000 ? 1 : opt.rate == 32000 ? 2
+                          : opt.rate == 22050 ? 3 : opt.rate == 11025 ? 4 : 0;
+            // Labels stay short so the mono checkbox on the same line fits
+            // inside the (narrow) Project panel - a wider combo pushed it
+            // past the clip rect and it silently disappeared.
+            const char* rateNames[] = {"keep rate", "48000 Hz", "32000 Hz",
+                                       "22050 Hz", "11025 Hz"};
+            ImGui::Indent();
+            ImGui::TextDisabled("PS2 build:");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(110.0f);
+            bool edited = ImGui::Combo("##mbrate", &rateIdx, rateNames, 5);
+            ImGui::SameLine();
+            edited |= ImGui::Checkbox("mono##mb", &opt.mono);
+            if (ImGui::IsItemHovered() || (ImGui::IsItemHovered(ImGuiHoveredFlags_None)))
+                ImGui::SetTooltip(
+                    "Converts the bin\\ copy after every build (source WAV stays\n"
+                    "untouched). For network deploys try 48000 Hz stereo first:\n"
+                    "SPU2-native, so the IOP skips resampling entirely (that CPU\n"
+                    "also runs the ps2link network stack). Drop the rate only\n"
+                    "when the network itself cannot keep up.");
+            ImGui::Unindent();
+            if (edited) {
+                opt.rate = rateIdx == 1 ? 48000 : rateIdx == 2 ? 32000
+                           : rateIdx == 3 ? 22050 : rateIdx == 4 ? 11025 : 0;
+                if (opt.rate == 0 && !opt.mono)
+                    project_.musicBuild.erase(project_.music[i]);
+                else
+                    project_.musicBuild[project_.music[i]] = opt;
+                saveAll("Music build settings saved - rebuild to apply");
+            }
         }
         ImGui::PopID();
     }

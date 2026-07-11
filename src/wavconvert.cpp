@@ -39,7 +39,7 @@ bool readFormat(const std::string& path, int& audioFormat, int& channels,
 }
 
 bool convertTo16(const std::filesystem::path& path, int targetRate,
-                 std::string& error) {
+                 std::string& error, bool toMono) {
     std::ifstream in(path, std::ios::binary);
     if (!in) {
         error = "cannot open file";
@@ -136,11 +136,17 @@ bool convertTo16(const std::filesystem::path& path, int targetRate,
         error = "conversion would produce no samples";
         return false;
     }
-    std::vector<int16_t> out(outFrames * channels);
+    const int outChannels = toMono ? 1 : channels;
+    // Mono downmix: average the source channels before resampling.
+    auto srcSample = [&](size_t frame, int outCh) -> float {
+        if (!toMono || channels == 1) return sampleAt(frame, outCh);
+        return (sampleAt(frame, 0) + sampleAt(frame, 1)) * 0.5f;
+    };
+    std::vector<int16_t> out(outFrames * outChannels);
     const double step = (double)srcRate / (double)targetRate;
     for (size_t i = 0; i < outFrames; ++i) {
         const double s0 = i * step, s1 = s0 + step;
-        for (int ch = 0; ch < channels; ++ch) {
+        for (int ch = 0; ch < outChannels; ++ch) {
             float v;
             if (step > 1.5) {
                 // downsample: average the source span (box low-pass)
@@ -148,18 +154,18 @@ bool convertTo16(const std::filesystem::path& path, int targetRate,
                 if (b >= srcFrames) b = srcFrames - 1;
                 float acc = 0;
                 int n = 0;
-                for (size_t f = a; f <= b; ++f, ++n) acc += sampleAt(f, ch);
+                for (size_t f = a; f <= b; ++f, ++n) acc += srcSample(f, ch);
                 v = n ? acc / n : 0.0f;
             } else {
                 // near-1:1 or upsample: linear interpolation
                 const size_t a = (size_t)s0;
                 const size_t b = a + 1 < srcFrames ? a + 1 : a;
                 const float t = (float)(s0 - a);
-                v = sampleAt(a, ch) * (1.0f - t) + sampleAt(b, ch) * t;
+                v = srcSample(a, ch) * (1.0f - t) + srcSample(b, ch) * t;
             }
             if (v > 1.0f) v = 1.0f;
             if (v < -1.0f) v = -1.0f;
-            out[i * channels + ch] = (int16_t)(v * 32767.0f);
+            out[i * outChannels + ch] = (int16_t)(v * 32767.0f);
         }
     }
 
@@ -172,8 +178,8 @@ bool convertTo16(const std::filesystem::path& path, int targetRate,
             return false;
         }
         const uint32_t dataBytes = (uint32_t)(out.size() * 2);
-        const uint32_t byteRate = (uint32_t)targetRate * channels * 2;
-        const uint16_t blockAlign = (uint16_t)(channels * 2);
+        const uint32_t byteRate = (uint32_t)targetRate * outChannels * 2;
+        const uint16_t blockAlign = (uint16_t)(outChannels * 2);
         auto w16 = [&](uint16_t v) { o.write((const char*)&v, 2); };
         auto w32 = [&](uint32_t v) { o.write((const char*)&v, 4); };
         o.write("RIFF", 4);
@@ -182,7 +188,7 @@ bool convertTo16(const std::filesystem::path& path, int targetRate,
         o.write("fmt ", 4);
         w32(16);
         w16(1);  // integer PCM
-        w16((uint16_t)channels);
+        w16((uint16_t)outChannels);
         w32((uint32_t)targetRate);
         w32(byteRate);
         w16(blockAlign);

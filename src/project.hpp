@@ -469,6 +469,17 @@ struct Project {
     // Music tracks (16-bit 22kHz stereo WAV in res/audio/), played via the
     // flow graph (Play Music / Stop Music / Set Music Volume actions).
     std::vector<std::string> music;
+    // Per-track build-time conversion (Music panel, "PS2 build" controls):
+    // the res/audio source stays untouched; after every build the Runner
+    // re-converts the bin/audio copy the game actually streams. Lower rates
+    // and mono are the knobs when music snags on a real console over the
+    // network deploy (each halves the byte rate). Keyed by the music relPath;
+    // absent entry = ship as-is. rate 0 = keep the source rate.
+    struct MusicBuildOpt {
+        int rate = 0;
+        bool mono = false;
+    };
+    std::map<std::string, MusicBuildOpt> musicBuild;
     // Sound effects (16-bit 22kHz WAV in res/sfx/, converted to ADPCM by the
     // toolchain at build). One-shots via the flow graph Play Sound action.
     std::vector<std::string> sounds;
