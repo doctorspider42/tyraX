@@ -3620,6 +3620,37 @@ void App::drawFlowGraphWindow() {
         flowPositionsApplied_ = false;
     }
 
+    // Project-defined custom nodes: reload the flow-nodes/ folder, scaffold a
+    // starter file, or open the folder (see docs/custom-flow-nodes.md).
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Custom nodes...")) ImGui::OpenPopup("##customnodes");
+    if (ImGui::BeginPopup("##customnodes")) {
+        ImGui::TextDisabled("%d loaded from flow-nodes/", (int)customFlowNodes().size());
+        ImGui::Separator();
+        if (ImGui::MenuItem("Reload from folder")) {
+            const std::string msg = flownode::loadForProject(project_.dir);
+            statusMessage_ =
+                msg.empty() ? "No custom nodes found in flow-nodes/" : msg;
+        }
+        if (ImGui::MenuItem("New starter node (example.flownode)")) {
+            const std::string path = flownode::writeExample(project_.dir);
+            if (path.rfind("error:", 0) == 0) {
+                statusMessage_ = path;
+            } else {
+                flownode::loadForProject(project_.dir);
+                statusMessage_ = "Wrote " + path + " - edit it, then Reload";
+            }
+        }
+        if (ImGui::MenuItem("Open flow-nodes folder")) {
+            std::error_code ec;
+            std::filesystem::create_directories(flownode::dirForProject(project_.dir), ec);
+            ShellExecuteA(nullptr, "open",
+                          flownode::dirForProject(project_.dir).c_str(), nullptr,
+                          nullptr, SW_SHOWNORMAL);
+        }
+        ImGui::EndPopup();
+    }
+
     SceneObject& owner = project_.objects()[flowGraphObject_];
     FlowGraph& fg = owner.flowGraph;
     bool changed = false;
@@ -4371,7 +4402,8 @@ void App::drawFlowGraphWindow() {
         const ImVec2 clickPos = ImGui::GetMousePosOnOpeningCurrentPopup();
         for (const char* cat : flowNodeCategories()) {
             if (!ImGui::BeginMenu(cat)) continue;
-            for (const FlowNodeType& t : flowNodeTypes()) {
+            for (const FlowNodeType* tp : flowAllNodeTypes()) {
+                const FlowNodeType& t = *tp;
                 if (std::strcmp(t.category, cat) != 0) continue;
                 if (ImGui::MenuItem(t.title)) {
                     FlowNode n;

@@ -1090,6 +1090,10 @@ std::string load(Project& out, const std::string& projectDir) {
 
     out = Project{};
     out.dir = fs::path(projectDir).string();
+    // Register the project's custom flow nodes BEFORE the graphs are parsed:
+    // readFlowGraph drops any node whose type is unknown (line ~156), so a
+    // "custom:*" node only survives the load if its .flownode file is present.
+    flownode::loadForProject(out.dir);
     if (const auto* v = root.find("name")) out.name = v->stringOr("");
     if (out.name.empty())
         return tyraPath.filename().string() + " is malformed (no name)";

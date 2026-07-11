@@ -53,7 +53,8 @@ Two sibling skills cover the rest of the system:
 | `app.cpp/.hpp` | 2751 | The whole ImGui shell: menus, all panels (Project, Scene, Scripts, HUD, Music, Sounds, Output, Disc Layout, Flow Graph), modals, gizmo + sculpt input, undo/redo, clipboard, wiring viewport ↔ project ↔ runner. |
 | `project.cpp/.hpp` | 979 | **Data model + JSON (de)serialization + generated-file refresh.** `Project`, `SceneData`, `SceneObject`, `TerrainConfig`, `ProjectSettings`. `save()`/`load()` (the single `<name>.tyra`: game data + editor state + window layout), `create()`, `saveHeights()/loadHeights()`, `saveHistory()/loadHistory()` (`<name>.history` undo stack), `refreshGenerated()`. |
 | `templates.cpp/.hpp` | 3522 | **All code generation.** `templates::generate(Project)` returns `vector<File>` (relativePath + content). Scene tables, terrain game sources, flow-graph compilation, Dockerfile/Makefile/compose, VS Code IntelliSense config. |
-| `flowgraph.hpp` | 216 | Flow-graph data model: `FlowNode`, `FlowLink` (exec / object-id / position / bool link kinds), `FlowGraph`. Per-object graphs, stored inside objects in the `.tyra` file. |
+| `flowgraph.hpp` | 216 | Flow-graph data model: `FlowNode`, `FlowLink` (exec / object-id / position / bool link kinds), `FlowGraph`, the built-in `flowNodeTypes()` registry, and the project-scoped custom-node registry (`CustomFlowNode`, `customFlowNodes()`). Per-object graphs, stored inside objects in the `.tyra` file. |
+| `flownode.cpp` | 190 | Loads project-defined **custom flow nodes** from `<project>/flow-nodes/*.flownode` text files into the global `customFlowNodes()` registry (`flownode::loadForProject`). Called by `project::load` *before* graphs are parsed. Also scaffolds the starter file (`writeExample`). See `docs/custom-flow-nodes.md`. |
 | `viewport.cpp/.hpp` | 1184 | Offscreen GL 3.3 preview: unit-primitive meshes, terrain grid + heightmap, sky dome, selection outline, live point-light shader, sculpt-brush raycast, orbit/pan camera. |
 | `runner.cpp/.hpp` | 301 | Docker + PCSX2 pipeline on a worker thread (states Idle/Running/Success/Failed). `buildAndRun()`, `runEmulatorOnly()`, `exportIso()`. |
 | `pcsx2_config.cpp` | 86 | Finds PCSX2.ini (portable dir first, then the Documents known folder — beware OneDrive redirection) and force-enables `HostFs = true` before launch. |
@@ -114,7 +115,12 @@ codegen + runtime as above.
 in the flow-graph editor in app.cpp → codegen in `flowGraphScript()`
 (templates.cpp), which compiles graphs to `src/scripts/flow_graph.gen.cpp` — one
 script class per object graph; object references resolve to indices at codegen;
-bool logic folds into inline C++ expressions.
+bool logic folds into inline C++ expressions. (If the node is project-specific
+rather than a general editor feature, prefer a **custom node**: a
+`flow-nodes/*.flownode` file, no C++ change — see `flownode.cpp` and
+`docs/custom-flow-nodes.md`. Custom action nodes plug into the same
+`flowNodeType()` lookup, the add-menu via `flowAllNodeTypes()`, and a
+`flowCustomNode()` branch in `actionCode()`.)
 
 **New preference** → `ProjectSettings` → save/load in project.cpp → Preferences
 dialog in app.cpp → usually a constant baked into `inc/terrain_config.hpp` or

@@ -1724,6 +1724,38 @@ Each finished feature lands as its own commit.
   Verified: `--build` exit 0; PCSX2 boots directly into gameplay with fog, bloom,
   grain and the full particle set at ~50 FPS.
 
+- (71) **Custom flow-graph nodes (per-project, file-based)** — a project can now
+  define its own Flow Graph **action** nodes without touching the editor's C++.
+  Each node is a `<project>/flow-nodes/<name>.flownode` text file: a `key = value`
+  header (`title`, `category`, `string = none|text|object`, `num0..3` labels), a
+  `---` line, then a raw C++ body emitted verbatim into `flow_graph.gen.cpp` when
+  an exec link fires the node, with `{obj}`/`{self}` (object indices),
+  `{num0..3}`/`{int0..3}` and `{str}` placeholders substituted at build. New
+  `src/flownode.cpp` scans the folder into a global registry
+  (`customFlowNodes()` in flowgraph.hpp, `unique_ptr` for stable `FlowNodeType`
+  char* addresses); `flowNodeType()` and a new `flowAllNodeTypes()` fold the
+  custom nodes into the existing lookup, add-menu and category derivation, so a
+  custom node renders and edits exactly like a built-in one (object dropdown /
+  text field / drag params, `> do` exec-in). Codegen gets one `flowCustomNode()`
+  branch in `actionCode()`. **Load order matters:** `readFlowGraph` drops nodes
+  whose type is unknown, so `project::load` registers the folder *before* parsing
+  graphs — which is also why custom nodes live in files, not the `.tyra`: copying
+  the `.flownode` file (its name is the node identity, `custom:<stem>`) is how you
+  move a node to another project; forget the file and its nodes vanish on load.
+  Editor UI: **Flow Graph ▸ Custom nodes…** popup (reload folder, scaffold a
+  commented `example.flownode`, open the folder). The `.tyra` model/serialization
+  is unchanged (nodes already carry an arbitrary `type` string + `str`/`num`).
+  Docs: new `docs/custom-flow-nodes.md` (format, placeholders, transfer
+  instructions), README + docs index + tyra-editor-dev source map/chain notes.
+  Verified end-to-end: editor builds clean; a scratch fpp project with two custom
+  nodes (an `object`-kind "Nudge Up" and a `text`-kind "Announce") wired to
+  On Start round-trips through `project::load` and generates the expected
+  `ctx.objects[0].data.position[1] += 5.0F;` and
+  `for (int i = 0; i < 3; ++i) TYRA_LOG("hi there");` — and the whole game
+  **compiled to an ELF in Docker** (`=== Build OK ===`), proving the emitted C++
+  is valid. GUI screenshot confirms both custom nodes render with their params /
+  pins in the Flow Graph and the Custom nodes… control is present.
+
 ## Done
 
 - Core editor: project creation (orbit/FPP templates), solution files + undo history,

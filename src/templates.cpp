@@ -6573,6 +6573,23 @@ std::string flowGraphScript(const Project& p) {
                   << floatLit(speed) << ", " << floatLit(fade) << ");\n";
             } else if (n.type == "StopAnimation") {
                 c << pad << "stopAnimation(ctx, " << idx << ");\n";
+            } else if (const CustomFlowNode* cn = flowCustomNode(n.type)) {
+                // Project-defined custom node: emit its C++ snippet with the
+                // {placeholders} resolved. Each line is padded so the body
+                // nests correctly inside the trigger's action block.
+                std::string body = cn->code;
+                body = replaceAll(body, "{self}", std::to_string((int)ownerIdx));
+                body = replaceAll(body, "{obj}", std::to_string(idx));
+                body = replaceAll(body, "{str}", "\"" + escapeCString(n.str) + "\"");
+                for (int a = 0; a < 4; ++a) {
+                    const std::string ai = std::to_string(a);
+                    body = replaceAll(body, "{num" + ai + "}", floatLit(n.num[a]));
+                    body = replaceAll(body, "{int" + ai + "}", intLit(n.num[a]));
+                }
+                c << pad << "// node " << n.id << " (" << n.type << ")\n";
+                std::istringstream lines(body);
+                std::string ln;
+                while (std::getline(lines, ln)) c << pad << ln << "\n";
             }
             return c.str();
         };
