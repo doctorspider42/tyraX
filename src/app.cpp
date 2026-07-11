@@ -6225,6 +6225,15 @@ void App::drawPreferencesModal() {
     if (ImGui::Combo("Triangles", &clipMode, clipNames, 2))
         prefSettings_.clipping = clipMode == 1 ? "fast" : "precise";
 
+    ImGui::DragFloat("Animation LOD distance", &prefSettings_.animLodDistance,
+                     0.5f, 0.0f, 2000.0f,
+                     prefSettings_.animLodDistance > 0.0f ? "%.0f units" : "off");
+    if (prefSettings_.animLodDistance < 0.0f) prefSettings_.animLodDistance = 0.0f;
+    ImGui::TextDisabled(
+        "Animated models farther than this refresh their pose every 2nd frame\n"
+        "(every 4th beyond twice the distance). Playback time is unaffected.\n"
+        "Cuts the per-instance EE cost of distant animated crowds.");
+
     // Texture quantization - the PS2-native "compression" (palettized
     // PSMT8/PSMT4 textures). Applied at build time into .res-baked; per
     // model/material overrides live in the Assets section.

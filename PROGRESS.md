@@ -9,6 +9,23 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (48) **Animation LOD (LOD tier 1)** — new Preferences > Rendering >
+  `Animation LOD distance` (0 = off): animated-model instances farther than
+  this refresh their pose/skinning every 2nd frame, and every 4th beyond
+  twice the distance, staggered by object index so refreshes spread across
+  frames. Playback time is unaffected (the pose catches up on the next
+  refresh) and an instance that just (re)entered the view always skins
+  immediately - a held pose can be arbitrarily stale after off-screen time.
+  The animated pass now draws in-view instances **nearest first** (two-pass:
+  collect + sort by camera distance): the pose-sharing mesh owner becomes
+  the group's closest on-screen member (LOD rate follows the closest copy)
+  and the GS gets front-to-back z-rejection for free. Verified on the real
+  PS2 (15 desynced spiders - unique speeds, so no pose sharing - fixed at
+  the heaviest angle, 12 in view): pose+skin 10.36 ms -> 6.51 ms (-37%,
+  most instances in the half-rate band), submit 12.5 -> 11.0 ms; the scene
+  is still submit-bound at this density (mesh LOD is the next tier).
+  LOD off = numbers identical to the previous build.
+
 - (47) **Per-object draw distance (LOD tier 0)** — new `Draw distance`
   property on solid objects (Properties panel, 0 = unlimited): farther than
   this from the camera the object is skipped at draw time in both the
