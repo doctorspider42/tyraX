@@ -475,14 +475,22 @@ void App::drawUI() {
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_0))
             setUiScale(0.0f);
     }
-    if (hasProject_ && !runner_.busy() && ImGui::IsKeyPressed(ImGuiKey_F5))
-        runner_.buildAndRun(project_, true);
-    if (hasProject_ && !runner_.busy() && !project_.ps2LinkIp.empty() &&
-        ImGui::IsKeyPressed(ImGuiKey_F6))
-        runner_.buildAndRunPs2(project_, true);
-    if (hasProject_ && !runner_.busy() &&
-        ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_B))
-        runner_.buildAndRun(project_, false);
+    // Run shortcuts. IsKeyChordPressed matches the modifier state exactly, so
+    // plain F5 and Ctrl+F5 stay distinct: F5/F6 build && run, Ctrl+F5/Ctrl+F6
+    // run the existing ELF without building.
+    if (hasProject_ && !runner_.busy()) {
+        const bool ps2Ready = !project_.ps2LinkIp.empty();
+        if (ImGui::IsKeyChordPressed(ImGuiKey_F5))
+            runner_.buildAndRun(project_, true);
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F5))
+            runner_.runEmulatorOnly(project_);
+        if (ps2Ready && ImGui::IsKeyChordPressed(ImGuiKey_F6))
+            runner_.buildAndRunPs2(project_, true);
+        if (ps2Ready && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F6))
+            runner_.buildAndRunPs2(project_, false);
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_B))
+            runner_.buildAndRun(project_, false);
+    }
     if (hasProject_) {
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S)) saveAll("Saved");
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Comma)) {
@@ -628,13 +636,13 @@ void App::drawMenuBar() {
                 runner_.buildAndRun(project_, false);
             if (ImGui::MenuItem("Build && Run in PCSX2", "F5", false, !busy))
                 runner_.buildAndRun(project_, true);
-            if (ImGui::MenuItem("Run in PCSX2 (no build)", nullptr, false, !busy))
+            if (ImGui::MenuItem("Run in PCSX2 (no build)", "Ctrl+F5", false, !busy))
                 runner_.runEmulatorOnly(project_);
             ImGui::Separator();
             const bool ps2Ready = !project_.ps2LinkIp.empty();
             if (ImGui::MenuItem("Build && Run on PS2", "F6", false, !busy && ps2Ready))
                 runner_.buildAndRunPs2(project_, true);
-            if (ImGui::MenuItem("Run on PS2 (no build)", nullptr, false, !busy && ps2Ready))
+            if (ImGui::MenuItem("Run on PS2 (no build)", "Ctrl+F6", false, !busy && ps2Ready))
                 runner_.buildAndRunPs2(project_, false);
             if (!ps2Ready && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Set 'PS2 (ps2link) IP' in Project > Preferences first.");
@@ -839,18 +847,18 @@ void App::drawToolbar() {
     // Dropdown menus for the two Play carets (anchored just under each caret).
     ImGui::SetNextWindowPos(emuMenuAnchor);
     if (ImGui::BeginPopup("emu_run_menu")) {
-        if (ImGui::MenuItem("Run in PCSX2 (no build)", nullptr, false, !busy))
+        if (ImGui::MenuItem("Run in PCSX2 (no build)", "Ctrl+F5", false, !busy))
             runner_.runEmulatorOnly(project_);
-        if (ImGui::MenuItem("Build (no run)", nullptr, false, !busy))
+        if (ImGui::MenuItem("Build (no run)", "Ctrl+Shift+B", false, !busy))
             runner_.buildAndRun(project_, false);
         ImGui::EndPopup();
     }
     ImGui::SetNextWindowPos(ps2MenuAnchor);
     if (ImGui::BeginPopup("ps2_run_menu")) {
-        if (ImGui::MenuItem("Run on PS2 (no build)", nullptr, false,
+        if (ImGui::MenuItem("Run on PS2 (no build)", "Ctrl+F6", false,
                             !busy && ps2Ready))
             runner_.buildAndRunPs2(project_, false);
-        if (ImGui::MenuItem("Build (no run)", nullptr, false, !busy))
+        if (ImGui::MenuItem("Build (no run)", "Ctrl+Shift+B", false, !busy))
             runner_.buildAndRun(project_, false);
         ImGui::EndPopup();
     }

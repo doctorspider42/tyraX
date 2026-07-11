@@ -36,7 +36,12 @@ Each finished feature lands as its own commit.
   anchored under the caret) offering *Run (no build)* and *Build (no run)*. Each
   Stop cancels a running build when one is in progress, otherwise closes the
   emulator (`Runner::stopEmulator()`) or stops the game on the console
-  (`Runner::stopPs2()`); the PS2 pair dims until a ps2link IP is set. Spacing is
+  (`Runner::stopPs2()`); the PS2 pair dims until a ps2link IP is set. Run
+  shortcuts (switched to `IsKeyChordPressed` so the modifier state matches
+  exactly): **F5** build && run in PCSX2, **Ctrl+F5** run in PCSX2 without
+  building; **F6** build && run on PS2, **Ctrl+F6** run on PS2 without building;
+  **Ctrl+Shift+B** build only. The no-build shortcuts also show in the caret
+  dropdowns and the top-level Build menu. Spacing is
   set explicitly per button (not the default ImGui item spacing) so pairs read
   as groups at any UI scale. Icons are vector-drawn on
   the menu-bar draw list — the editor loads no icon font — so they stay crisp
