@@ -10,11 +10,15 @@
 */
 
 #include "renderer/core/paths/path1/path1.hpp"
+#include "debug/debug.hpp"
 
 extern u32 VU1DrawFinish_CodeStart __attribute__((section(".vudata")));
 extern u32 VU1DrawFinish_CodeEnd __attribute__((section(".vudata")));
 
 namespace Tyra {
+
+// VU1 micro memory holds 2048 instructions (16 KB / 8 bytes).
+static constexpr u32 VU1_MICRO_MEM_SIZE = 2048;
 
 Path1::Path1() {
   vu1Configured = false;
@@ -28,7 +32,17 @@ void Path1::uploadDrawFinishProgram() {
   int count = (&VU1DrawFinish_CodeEnd - &VU1DrawFinish_CodeStart) / 2;
   if (count & 1) count++;
 
-  drawFinishAddr = 1000 - count;
+  // Modified by tyra-editor: park the draw-finish helper at the very top of
+  // VU1 micro memory (2048 instructions) instead of the old 1000 - count.
+  // The pipeline caches upload their programs from address 0 upward, and the
+  // GS-hardware-fog VU1 programs pushed the static pipeline's eight programs
+  // to ~1064 instructions total - straight through 1000 - count, overwriting
+  // this helper. A clobbered draw-finish program never emits its GS FINISH,
+  // so RendererCoreSync::align3D() (the post-fx PATH1 barrier) spin-waited
+  // forever and any bloom/grain/grading scene froze on the Tyra splash. The
+  // top of micro memory keeps it clear of the pipeline programs; the assert in
+  // createProgramsCache() catches a future overflow loudly instead.
+  drawFinishAddr = VU1_MICRO_MEM_SIZE - count;
 
   packet2_t* packet2 = packet2_create(10, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
   packet2_vif_add_micro_program(packet2, drawFinishAddr,
@@ -119,6 +133,12 @@ packet2_t* Path1::createProgramsCache(VU1Program** programs, const u32& count,
                                   programs[i]->getEnd());
     currentAddr += programs[i]->getProgramSize() + 1;
   }
+
+  // The programs must stay below the draw-finish helper parked at the top of
+  // micro memory - otherwise they overwrite it and the post-fx PATH1 barrier
+  // (RendererCoreSync::align3D) hangs waiting for a GS FINISH that never comes.
+  TYRA_ASSERT(currentAddr <= drawFinishAddr,
+              "VU1 pipeline programs overflow into the draw-finish program");
 
   packet2_utils_vu_add_end_tag(packet2);
 

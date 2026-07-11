@@ -9,6 +9,36 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (63) **Delete assets from the editor (with confirmation)** — until now the
+  only way to remove a model, material, texture or HUD image was to delete the
+  file by hand in Explorer, and the Music/Sounds `x` deleted the file instantly
+  with no prompt. Added a single confirmation modal, `drawDeleteAssetModal()`
+  (mirrors `drawDeleteSceneModal`), staged via `requestAssetDelete(kind, relPath,
+  label, hudIndex)` into `assetDeletePending_`. New `x` buttons on every model
+  (.obj/.glb) and material (.mtl) row in Project > Assets; the Music/Sounds `x`
+  and the HUD **Delete HUD image** button now route through the same modal
+  instead of deleting on the spot. The dialog spells out what still references
+  the asset (`countAssetUsers` counts scene objects across all scenes + audio
+  flow-graph nodes) and warns that the file removal cannot be undone. On confirm
+  `performAssetDelete` deletes the res/ file and clears the dangling references:
+  materials reset the referencing objects' `materialPath` (empty = plain color /
+  the model's own .mtl); sounds clear `SoundEmitter.soundPath` on top of the
+  Play-Sound flow nodes `removeAudioTrack` already handled; models are left
+  pointing at the now-missing file (shown as "missing", same as a hand delete)
+  and the caches (`modelInfoCache_`/`glbInfoCache_`) + `textureQuality` override
+  are dropped; HUD deletes the file only when no other HUD entry still uses that
+  path. Audio/model/material deletes go through `commitChange()` (HUD stays on
+  `saveAll`, matching the section's existing behavior). Verified: clean editor
+  build; launched on a scratch project holding a model, material, music and sfx
+  plus scene objects referencing them (a model object + a sound emitter) — the
+  new `x` buttons render on the cube.obj / walls.mtl / song.wav rows
+  (PrintWindow capture) and triggering a delete opens the confirmation modal
+  (ImGui modal dim-backdrop over the panel). The interactive click-through of
+  the modal's Delete/Cancel buttons could not be automated here: synthetic mouse
+  input does not register against the GLFW/OpenGL window in this environment
+  (keyboard does), so the final click + on-disk removal still wants a hands-on
+  human confirmation.
+
 - (63) **Animated models (.glb) render their material colors in-game (was
   gray)** — an animated model authored with per-material Base Colors (e.g.
   `spider2.glb`: red body, black legs, gray tee) showed those colors in the
@@ -2254,6 +2284,132 @@ Each finished feature lands as its own commit.
   (no key, backward-compatible) and `subBox` -> `6` (432 tris). Same 4K/PCSX2
   capture limitation still blocks an automated visual poly-count diff.
 
+
+- (60) **Streaming layers: per-scene object groups the game loads/evicts at
+  runtime (GTA3-style interior streaming)** - `SceneData::layers` (name +
+  `startLoaded` + editor-only `editorVisible`), `SceneObject::layer` (by
+  name, "" = always resident), serialized in the `.tyra` scene block and the
+  history file. Editor: a "Layers" section in the Project panel (add /
+  rename-in-place / delete, eye toggle, "start" checkbox, per-layer object
+  count; rename remaps object + flow-node references, delete unassigns), a
+  Layer combo in Properties, and hidden layers vanish from the viewport
+  (render, click picking, gizmo, light preview, emitter previews) via a
+  hidden-index mask passed to the viewport; the object list dims them with
+  a [hidden] tag. Flow graph: Load Layer / Unload Layer actions and a pure
+  Is Layer Loaded bool (new `FlowParamKind::LayerName` combo), compiled to
+  writes into new `ScriptContext` fields (`layerRequest`/`layerState`,
+  mirroring the requestScene pattern). Runtime (generated game, both orbit
+  and FPP): asset residency is now demand-driven - `buildScene()` no longer
+  loads every scene's models/materials/anim models/terrain textures at
+  boot; `loadScene()` computes what the scene's start-resident layers need,
+  loads it synchronously behind the existing loading screen and frees what
+  nothing needs any more (scene switches now also evict the previous
+  scene's assets instead of keeping everything forever). During gameplay
+  `updateLayerStreaming()` applies script requests: unload drops the
+  layer's objects the same frame (new `RuntimeObject::active` gates render,
+  collision, USE, sounds, physics, anim pass and particle pools) and frees
+  assets no resident layer uses; load streams missing assets from a queue
+  at ONE asset per frame, then trickle-activates the layer's objects 4 per
+  frame - the whole cost hides in a corridor walk, no frame stall. Shared
+  textures are reference-counted by path in a texture cache
+  (`TextureRepository::free` releases the GS buffer + destructs); models
+  free their geometry, collider and texture refs. Layer state resets to the
+  authored defaults on scene (re)load, like the rest of the runtime state;
+  point lights stay baked (an unloaded layer's light keeps shining exactly
+  as a hidden light does today). Legacy V1 templates untouched. Verified:
+  clean editor build; scratch FPP project (short path) with an "exterior"
+  start layer (spheres, one with a stone .mtl texture) + non-start
+  "interior" (boxes, a brick-textured box, house.obj with mesh collision)
+  and an OnStart -> Delay 4s -> Load Layer interior / Delay 8s -> Unload
+  Layer exterior graph, built in Docker and run in PCSX2 at 50 FPS: timed
+  screenshots show exterior-only -> both (the house model + brick texture
+  visibly stream in mid-game) -> interior-only; `IsLayerLoaded ->
+  OnCondition -> Log` printed INTERIOR-NOW-LOADED to host log.txt; the
+  debug MEM overlay dropped 4.8 -> 4.4 MB after the unload in the
+  primitive-only variant (freed vertex buffers + texture). Editor side:
+  layers round-trip the .tyra through a GUI reopen (screenshot shows both
+  rows incl. a persisted eye-off state); sample script-demo regenerated and
+  builds (zero-layer degenerate case). Hands-on pending (no synthetic
+  input from automation): clicking the eye/rename/delete controls and
+  walking a real corridor with a pad. Testing fix that cost three runs:
+  the bundled screenshot-window.ps1 captured a scaled-up crop of the
+  window's top-left corner on a display scaled above 100% - the script now
+  calls SetProcessDPIAware() first. Follow-up in the same PR: user docs
+  (docs/streaming-layers.md, linked from docs/README.md and the root
+  README) and a new `examples/` folder ("one runnable project per
+  feature") whose first entry, examples/layer-streaming, is the canonical
+  two-buildings-and-a-corridor scene: four Near Object trigger markers in
+  the corridor swap the buildings' layers bidirectionally (each direction
+  passes a harmless no-op unload first, then the load for the building
+  ahead, then - close to the far door - the unload for the one behind, so
+  walking back and forth needs no extra logic), debug MEM/FPS overlay on.
+  Verified: Docker build exit 0 from the repo checkout; the compiled
+  trigger graphs inspected in flow_graph.gen.cpp (four correct
+  layerRequest writes). A PCSX2 boot check collided with a parallel
+  session's emulator run (the runner taskkills the shared PCSX2 on every
+  launch), so the pad walkthrough stays a hands-on check - the streaming
+  runtime itself was e2e-verified above through the same codepaths.
+
+- (61) **Layer streaming stability: stale bbox cache, leaked GS VRAM,
+  mid-frame texture uploads** - user repro on the layer-streaming example:
+  streamed-in objects sometimes rendered wrong/misplaced, and longer play
+  hit the `index < partsCount` assert in stapip_bag_packages_bbox.cpp:76.
+  Three root causes, all firsts exposed by streaming (nothing ever freed
+  buffers or textures mid-game before):
+  1. *Bbox-cache aliasing.* The engine's frustum-bbox cache is keyed by
+     (vertex pointer, bboxVersion). Streaming frees vertex buffers and the
+     next layer's vectors can land on the recycled heap address; with
+     per-bag counters both sides often sit at version 1, so the new buffer
+     inherited the dead buffer's cached boxes - packages misclassify
+     (smeared/vanishing geometry) or the package index runs past the cached
+     part count (the assert). Fix: generated games stamp every rebuilt bag
+     from one monotonic `g_bboxStamp` (all sites: object parts, terrain,
+     particles, sky dome, hulls, anim parts - pose-sharing followers still
+     copy the owner's stamp), plus a defensive count check in the engine
+     cacher (`stapip_bag_bboxes_cacher.cpp`) for non-regenerated games.
+  2. *TextureRepository::free leaked the GS side.* `removeBufferId()` only
+     tombstones the allocation entry (id = -1): the VRAM pages and both
+     texbuffer_t structs leaked on every free. Engine fix: the repository
+     now calls a new `RendererCoreTexture::freeTextureBuffers()`
+     (sender.deallocate + unregisterAllocation) from free()/removeById();
+     the old tombstone path remains only for a repository initialized
+     without its core.
+  3. *Mid-frame PATH3 uploads.* Pipelines upload a texture to GS VRAM on
+     first use - in the middle of a rendered frame, racing the in-flight
+     VU1/GIF work. Boot-time loads got away with it on the first
+     near-empty frames; textures streamed in by Load Layer hit it
+     repeatedly mid-gameplay and eventually hung the frame (the stress
+     repro froze after 3 load/unload cycles with no assert logged).
+     Fix: the generated game's acquireTexture() calls
+     `renderer.core.texture.useTexture()` right after the repository add -
+     updateLayerStreaming/loadScene run outside beginFrame/endFrame, so
+     the upload happens with the GIF quiet.
+  Verified: stress scene (EverySeconds 6 -> load interior/unload exterior,
+  Delay 3 -> swap back; models + two textures churned every 3 s) in PCSX2:
+  before the fixes it froze after 3 cycles; after, 63 cycles over ~10
+  minutes at the exact 6 s cadence, log clean (0 asserts, 0 warns), process
+  alive until killed. Editor clean build; example + sample regenerate and
+  build (engine relinked). Visual spot-check of this run was blocked by
+  window occlusion (the desktop was in use; PrintWindow cannot see the GS
+  surface, only CopyFromScreen can) - the earlier phased screenshots plus
+  the assert-free 10-minute run carry the verification; a pad walk on the
+  example remains the standing hands-on check.
+
+- (62) **Known regression on main: the debug FPS/MEM overlay freezes the
+  first frame** - found while re-verifying layer streaming after merging
+  the fog/flashlight/LOD batch (#31/#34/#35...). NOT caused by the layers
+  branch: a pure origin/main editor build with a fresh no-layers FPP
+  scratch project (fog off) freezes the same way the moment
+  `showFps`/`showMemory` are on - an EverySeconds(2)->Log ticker printed
+  0 lines in 40 s with the overlay, 17 without. TYRA_LOG probes place the
+  hang after renderScene() completes on frame 0, in the 2D block - most
+  likely drawDebugHud()'s first renderer2D.render() (lazy PATH3 upload of
+  debugfont.png and/or the 3D->2D drain) against the merged VU1/qbuffer
+  changes; renderer/2d and path3 sources are untouched by those PRs.
+  Workaround in this branch: examples/layer-streaming ships with the
+  overlay off (its README says how to re-enable); a separate task tracks
+  the real fix. Layer streaming re-verified post-merge with the overlay
+  off: 24 stress cycles over ~140 s at the exact 6 s cadence, 0 asserts.
 
 ## Backlog (rough order)
 

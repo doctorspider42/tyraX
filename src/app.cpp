@@ -448,6 +448,7 @@ void App::drawUI() {
     drawNewScriptModal();
     drawNewSceneModal();
     drawDeleteSceneModal();
+    drawDeleteAssetModal();
 
     // Keyboard shortcuts
     ImGuiIO& io = ImGui::GetIO();
@@ -677,6 +678,14 @@ void App::drawViewportWindow() {
             viewport_.setGrading(
                 on, on ? compileGrading(project_.gradings[gi]) : CompiledGrading{});
         }
+        // Layer eye toggles: objects on hidden layers vanish from the render
+        // and the click picking (mask indices parallel project_.objects()).
+        {
+            std::vector<char> hidden(project_.objects().size(), 0);
+            for (size_t i = 0; i < project_.objects().size(); ++i)
+                hidden[i] = isObjectHiddenInEditor(project_.objects()[i]) ? 1 : 0;
+            viewport_.setHiddenMask(std::move(hidden));
+        }
         uint32_t tex =
             viewport_.render((int)avail.x, (int)avail.y, project_.objects(), selectedObject_);
         // Flip vertically: GL texture origin is bottom-left
@@ -748,9 +757,11 @@ void App::drawViewportWindow() {
             }
         }
 
-        // --- Transform gizmo on the selected object (disabled while sculpting) ---
+        // --- Transform gizmo on the selected object (disabled while sculpting;
+        // objects on a hidden layer can't be grabbed either) ---
         bool objectSelected = !sculptMode_ && selectedObject_ >= 0 &&
-                              selectedObject_ < (int)project_.objects().size();
+                              selectedObject_ < (int)project_.objects().size() &&
+                              !isObjectHiddenInEditor(project_.objects()[selectedObject_]);
         if (objectSelected) {
             SceneObject& o = project_.objects()[selectedObject_];
 
@@ -1194,6 +1205,7 @@ void App::drawProjectWindow() {
     }
 
     drawSceneSection();
+    drawLayersSection();
     drawAssetsSection();
     drawHudSection();
     drawMusicSection();
@@ -1894,6 +1906,10 @@ void App::drawAssetsSection() {
         ImGui::Bullet();
         ImGui::SameLine();
         ImGui::TextUnformatted(m.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton(("x##delmodel" + m).c_str()))
+            requestAssetDelete(PendingAssetDelete::Model, "res/models/" + m, m);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this model from the project");
         qualityCombo("res/models/" + m);
         const ModelInfo& info = modelInfo("res/models/" + m);
         if (info.ok) {
@@ -1918,6 +1934,10 @@ void App::drawAssetsSection() {
         ImGui::Bullet();
         ImGui::SameLine();
         ImGui::TextUnformatted(m.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton(("x##delglb" + m).c_str()))
+            requestAssetDelete(PendingAssetDelete::Model, "res/models/" + m, m);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this model from the project");
         const GlbInfo& info = glbInfo("res/models/" + m);
         if (info.ok) {
             ImGui::SameLine();
@@ -1968,6 +1988,10 @@ void App::drawAssetsSection() {
         ImGui::SameLine();
         if (ImGui::SmallButton(("Edit##mat" + m).c_str()))
             openMaterialEditor("res/materials/" + m);
+        ImGui::SameLine();
+        if (ImGui::SmallButton(("x##delmat" + m).c_str()))
+            requestAssetDelete(PendingAssetDelete::Material, "res/materials/" + m, m);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this material from the project");
         qualityCombo("res/materials/" + m);
         const ModelInfo& info = materialInfo("res/materials/" + m);
         if (info.ok) {
@@ -2092,15 +2116,158 @@ void App::drawSceneSection() {
         ImGui::BeginChild("##objects", ImVec2(0, 130), ImGuiChildFlags_Borders);
         for (int i = 0; i < (int)project_.objects().size(); ++i) {
             const SceneObject& o = project_.objects()[i];
-            std::string label = o.name + "  (" + primitiveTypeName(o.type) + ")##obj" +
+            const bool hidden = isObjectHiddenInEditor(o);
+            std::string label = o.name + "  (" + primitiveTypeName(o.type) + ")" +
+                                (hidden ? "  [hidden]" : "") + "##obj" +
                                 std::to_string(i);
+            if (hidden)
+                ImGui::PushStyleColor(ImGuiCol_Text,
+                                      ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
             if (ImGui::Selectable(label.c_str(), selectedObject_ == i)) selectedObject_ = i;
+            if (hidden) ImGui::PopStyleColor();
         }
         ImGui::EndChild();
     }
 
     if (selectedObject_ >= 0 && selectedObject_ < (int)project_.objects().size())
         ImGui::TextDisabled("Edit the selection in the Properties window.");
+}
+
+// True when the object sits on a layer whose editor eye is off - the
+// viewport skips it (render and picking) and the object list dims it.
+// Unknown layer names count as visible.
+bool App::isObjectHiddenInEditor(const SceneObject& o) const {
+    if (o.layer.empty()) return false;
+    for (const SceneLayer& l : project_.active().layers)
+        if (l.name == o.layer) return !l.editorVisible;
+    return false;
+}
+
+// Streaming layers of the ACTIVE scene: named object groups the game can
+// evict from / pull into memory at runtime (Load/Unload Layer flow nodes).
+// The eye checkbox hides a layer in the editor only; "start" marks it
+// resident when the scene starts.
+void App::drawLayersSection() {
+    // starts open once the scene actually uses layers
+    const ImGuiTreeNodeFlags flags =
+        project_.active().layers.empty() ? 0 : ImGuiTreeNodeFlags_DefaultOpen;
+    if (!ImGui::CollapsingHeader("Layers", flags)) return;
+
+    SceneData& sc = project_.active();
+    if (ImGui::SmallButton("+ Layer")) {
+        auto exists = [&](const std::string& name) {
+            for (const SceneLayer& e : sc.layers)
+                if (e.name == name) return true;
+            return false;
+        };
+        SceneLayer l;
+        int n = (int)sc.layers.size() + 1;
+        do {
+            l.name = "Layer " + std::to_string(n++);
+        } while (exists(l.name));
+        sc.layers.push_back(l);
+        commitChange();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Streaming layers (per scene). Assign objects to a layer in\n"
+            "Properties; the game can then drop the whole layer from memory\n"
+            "and stream it back with the Load / Unload Layer flow nodes -\n"
+            "GTA3-style interior streaming. The eye hides the layer in the\n"
+            "editor only; \"start\" = in memory when the scene starts.\n"
+            "Deleting a layer keeps its objects (they become unassigned).");
+
+    if (sc.layers.empty()) {
+        ImGui::TextDisabled("No layers - every object is always in memory.");
+        return;
+    }
+
+    bool committed = false;
+    int deleteIdx = -1;
+    for (int i = 0; i < (int)sc.layers.size(); ++i) {
+        SceneLayer& l = sc.layers[i];
+        ImGui::PushID(i + 4000);
+
+        bool vis = l.editorVisible;
+        if (ImGui::Checkbox("##vis", &vis)) {
+            l.editorVisible = vis;
+            committed = true;
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show in editor");
+
+        // rename in place; object/flow references remap when the edit ends
+        ImGui::SameLine();
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%s", l.name.c_str());
+        const std::string before = l.name;
+        ImGui::SetNextItemWidth(-118.0f);
+        if (ImGui::InputText("##name", buf, sizeof(buf))) l.name = buf;
+        if (ImGui::IsItemActivated()) {
+            layerRenameFrom_ = before;
+            layerRenameIdx_ = i;
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            const std::string from =
+                layerRenameIdx_ == i ? layerRenameFrom_ : before;
+            layerRenameIdx_ = -1;
+            const std::string to = l.name;
+            bool dup = false;
+            for (int k = 0; k < (int)sc.layers.size(); ++k)
+                dup |= (k != i && sc.layers[k].name == to);
+            if (to.empty() || dup) {
+                l.name = from;  // keep names unique and non-empty
+            } else if (to != from) {
+                for (SceneObject& o : sc.objects) {
+                    if (o.layer == from) o.layer = to;
+                    for (FlowNode& fn : o.flowGraph.nodes) {
+                        const FlowNodeType* t = flowNodeType(fn.type);
+                        if (t && t->strKind == FlowParamKind::LayerName &&
+                            fn.str == from)
+                            fn.str = to;
+                    }
+                }
+            }
+            committed = true;
+        }
+
+        ImGui::SameLine();
+        bool start = l.startLoaded;
+        if (ImGui::Checkbox("start", &start)) {
+            l.startLoaded = start;
+            committed = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("In memory when the scene starts");
+
+        ImGui::SameLine();
+        int count = 0;
+        for (const SceneObject& o : sc.objects)
+            if (o.layer == l.name) ++count;
+        ImGui::TextDisabled("%d", count);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Objects on this layer");
+
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - 22.0f);
+        if (ImGui::SmallButton("x")) deleteIdx = i;
+        ImGui::PopID();
+    }
+
+    if (deleteIdx >= 0) {
+        const std::string name = sc.layers[deleteIdx].name;
+        for (SceneObject& o : sc.objects) {
+            if (o.layer == name) o.layer.clear();
+            for (FlowNode& fn : o.flowGraph.nodes) {
+                const FlowNodeType* t = flowNodeType(fn.type);
+                if (t && t->strKind == FlowParamKind::LayerName && fn.str == name)
+                    fn.str.clear();
+            }
+        }
+        sc.layers.erase(sc.layers.begin() + deleteIdx);
+        committed = true;
+    }
+
+    if (committed) commitChange();
 }
 
 // Display names for the Type field (primitiveTypeName() is the serialized
@@ -2160,6 +2327,26 @@ void App::drawPropertiesWindow() {
     std::snprintf(nameBuf, sizeof(nameBuf), "%s", o.name.c_str());
     if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) o.name = nameBuf;
     committed |= ImGui::IsItemDeactivatedAfterEdit();
+
+    // Streaming layer (Project panel > Layers). Shown as soon as the scene
+    // has layers - or when the object still references a deleted-scene name.
+    if (!project_.active().layers.empty() || !o.layer.empty()) {
+        const std::string current = o.layer.empty() ? "<none>" : o.layer;
+        if (ImGui::BeginCombo("Layer", current.c_str())) {
+            if (ImGui::Selectable("<none>", o.layer.empty()) && !o.layer.empty()) {
+                o.layer.clear();
+                committed = true;
+            }
+            for (const SceneLayer& l : project_.active().layers) {
+                if (ImGui::Selectable(l.name.c_str(), l.name == o.layer) &&
+                    o.layer != l.name) {
+                    o.layer = l.name;
+                    committed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+    }
 
     if (isShape) {
         // Plane's enum value isn't contiguous with the other shapes, so map
@@ -3047,6 +3234,18 @@ void App::drawFlowGraphWindow() {
                 }
                 ImGui::EndCombo();
             }
+        } else if (t->strKind == FlowParamKind::LayerName) {
+            if (ImGui::BeginCombo("Layer", n.str.empty() ? "<none>" : n.str.c_str())) {
+                for (const SceneLayer& l : project_.active().layers) {
+                    if (ImGui::Selectable(l.name.c_str(), l.name == n.str)) {
+                        n.str = l.name;
+                        changed = true;
+                    }
+                }
+                if (project_.active().layers.empty())
+                    ImGui::TextDisabled("Add layers in the\nProject panel (Layers).");
+                ImGui::EndCombo();
+            }
         } else if (t->strKind == FlowParamKind::SaveValue) {
             if (ImGui::BeginCombo("Value", n.str.empty() ? "<none>" : n.str.c_str())) {
                 for (const SaveValue& v : project_.saveValues) {
@@ -3449,6 +3648,9 @@ void App::drawFlowGraphWindow() {
                         if (!project_.music.empty()) n.str = project_.music.front();
                     }
                     if (std::string(t.key) == "SetMusicVolume") n.num[0] = 80.0f;
+                    if (t.strKind == FlowParamKind::LayerName &&
+                        !project_.active().layers.empty())
+                        n.str = project_.active().layers.front().name;
                     if (std::string(t.key) == "SetVarBool") n.num[0] = 1.0f;
                     if (std::string(t.key) == "PlaySound") {
                         n.num[0] = 100.0f;  // volume
@@ -3557,11 +3759,8 @@ void App::drawHudSection() {
         changed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::DragFloat2("Size (px)##hud", h.size, 1.0f, 1.0f, 512.0f, "%.0f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::Button("Delete HUD image")) {
-            project_.hud.erase(project_.hud.begin() + selectedHud_);
-            selectedHud_ = -1;
-            changed = true;
-        }
+        if (ImGui::Button("Delete HUD image"))
+            requestAssetDelete(PendingAssetDelete::Hud, h.imagePath, h.name, selectedHud_);
     }
     if (changed) saveAll("Saved");
 }
@@ -3751,7 +3950,6 @@ void App::drawMusicSection() {
                           "converted at import; hand-dropped files get a Convert\n"
                           "button. Play via Flow Graph: On Start -> Play Music.");
 
-    bool changed = false;
     for (int i = 0; i < (int)project_.music.size(); ++i) {
         const std::string name = std::filesystem::path(project_.music[i]).filename().string();
         ImGui::PushID(i);
@@ -3775,14 +3973,8 @@ void App::drawMusicSection() {
             }
         }
         ImGui::SameLine();
-        if (ImGui::SmallButton("x")) {
-            removeAudioTrack(project_, project_.music[i], true);
-            project_.musicBuild.erase(project_.music[i]);
-            project_.music.erase(project_.music.begin() + i);
-            changed = true;
-            ImGui::PopID();
-            break;
-        }
+        if (ImGui::SmallButton("x"))
+            requestAssetDelete(PendingAssetDelete::Music, project_.music[i], name);
 
         // Build-time conversion knobs: applied to the bin/audio copy after
         // every build (the res/ source stays untouched). Only rates audsrv
@@ -3831,7 +4023,6 @@ void App::drawMusicSection() {
         ImGui::PopID();
     }
     if (project_.music.empty()) ImGui::TextDisabled("No music tracks.");
-    if (changed) commitChange();  // graphs live in objects - undoable
 }
 
 void App::importSoundEffect() {
@@ -3908,7 +4099,6 @@ void App::drawSoundsSection() {
                           "All sounds are loaded into SPU2's ~2 MB sample RAM at\n"
                           "scene start, so keep them short - use Music for full tracks.");
 
-    bool changed = false;
     uintmax_t totalAdpcm = 0;
     for (int i = 0; i < (int)project_.sounds.size(); ++i) {
         const std::string name =
@@ -3951,13 +4141,8 @@ void App::drawSoundsSection() {
                 ImGui::TextDisabled(fmt, val);
             ImGui::SameLine();
         }
-        if (ImGui::SmallButton("x")) {
-            removeAudioTrack(project_, project_.sounds[i], false);
-            project_.sounds.erase(project_.sounds.begin() + i);
-            changed = true;
-            ImGui::PopID();
-            break;
-        }
+        if (ImGui::SmallButton("x"))
+            requestAssetDelete(PendingAssetDelete::Sound, project_.sounds[i], name);
         ImGui::PopID();
     }
     if (project_.sounds.empty()) {
@@ -3971,7 +4156,6 @@ void App::drawSoundsSection() {
         else
             ImGui::TextDisabled("SPU2 sample RAM: ~%.1f / 2.0 MB", totalMb);
     }
-    if (changed) commitChange();
 }
 
 // Custom values persisted in memory card save slots. Flow graph "Save"
@@ -5637,6 +5821,202 @@ void App::drawDeleteSceneModal() {
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
+}
+
+void App::requestAssetDelete(PendingAssetDelete::Kind kind, const std::string& relPath,
+                             const std::string& label, int hudIndex) {
+    assetDeletePending_ = PendingAssetDelete{kind, relPath, label, hudIndex};
+    assetDeleteActive_ = true;
+}
+
+// Scene objects (across every scene) and flow-graph audio nodes still pointing
+// at the staged asset. Drives the confirmation dialog's warning and the
+// reference cleanup on confirm.
+void App::countAssetUsers(const PendingAssetDelete& d, int& objectUsers,
+                          int& nodeUsers) const {
+    objectUsers = 0;
+    nodeUsers = 0;
+    for (const SceneData& scene : project_.scenes) {
+        for (const SceneObject& o : scene.objects) {
+            switch (d.kind) {
+                case PendingAssetDelete::Model:
+                    if (o.type == PrimitiveType::Model && o.modelPath == d.relPath)
+                        ++objectUsers;
+                    break;
+                case PendingAssetDelete::Material:
+                    if (o.materialPath == d.relPath) ++objectUsers;
+                    break;
+                case PendingAssetDelete::Sound:
+                    if (o.type == PrimitiveType::SoundEmitter &&
+                        o.soundPath == d.relPath)
+                        ++objectUsers;
+                    break;
+                default:
+                    break;
+            }
+            if (d.kind == PendingAssetDelete::Music ||
+                d.kind == PendingAssetDelete::Sound) {
+                for (const FlowNode& n : o.flowGraph.nodes) {
+                    const FlowNodeType* t = flowNodeType(n.type);
+                    if (!t || n.str != d.relPath) continue;
+                    if ((d.kind == PendingAssetDelete::Music &&
+                         t->strKind == FlowParamKind::MusicTrack) ||
+                        (d.kind == PendingAssetDelete::Sound &&
+                         t->strKind == FlowParamKind::SoundTrack))
+                        ++nodeUsers;
+                }
+            }
+        }
+    }
+}
+
+void App::drawDeleteAssetModal() {
+    if (assetDeleteActive_ && !ImGui::IsPopupOpen("Delete Asset?"))
+        ImGui::OpenPopup("Delete Asset?");
+    if (!assetDeleteActive_) return;
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal("Delete Asset?", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+
+    const PendingAssetDelete& d = assetDeletePending_;
+    const char* kindName = d.kind == PendingAssetDelete::Model      ? "model"
+                           : d.kind == PendingAssetDelete::Material ? "material"
+                           : d.kind == PendingAssetDelete::Music    ? "music track"
+                           : d.kind == PendingAssetDelete::Sound    ? "sound"
+                                                                    : "HUD image";
+    ImGui::Text("Delete %s \"%s\"?", kindName, d.label.c_str());
+
+    int objUsers = 0, nodeUsers = 0;
+    countAssetUsers(d, objUsers, nodeUsers);
+    const ImVec4 warn(1.0f, 0.75f, 0.3f, 1.0f);
+    switch (d.kind) {
+        case PendingAssetDelete::Model:
+            if (objUsers > 0)
+                ImGui::TextColored(warn,
+                    "Used by %d object(s) - they will show as missing until you\n"
+                    "repoint or delete them.", objUsers);
+            break;
+        case PendingAssetDelete::Material:
+            if (objUsers > 0)
+                ImGui::TextColored(warn,
+                    "Assigned to %d object(s) - they revert to plain color /\n"
+                    "the model's own materials.", objUsers);
+            break;
+        case PendingAssetDelete::Music:
+            if (nodeUsers > 0)
+                ImGui::TextColored(warn,
+                    "Referenced by %d Music flow node(s) - they will be cleared.",
+                    nodeUsers);
+            break;
+        case PendingAssetDelete::Sound:
+            if (objUsers > 0 || nodeUsers > 0)
+                ImGui::TextColored(warn,
+                    "Used by %d sound emitter(s) and %d flow node(s) -\n"
+                    "the references will be cleared.", objUsers, nodeUsers);
+            break;
+        case PendingAssetDelete::Hud:
+            break;
+    }
+    ImGui::TextDisabled("The file is removed from res/. This cannot be undone.");
+
+    ImGui::Separator();
+    if (ImGui::Button("Delete", ImVec2(120, 0))) {
+        performAssetDelete(d);
+        assetDeleteActive_ = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+        assetDeleteActive_ = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
+// Deletes the staged asset file and clears the project references the dialog
+// warned about. Model/material live on the filesystem (the Assets lists rescan
+// them); music/sound/hud also carry a project-list entry to drop.
+void App::performAssetDelete(const PendingAssetDelete& d) {
+    std::error_code ec;
+    const std::filesystem::path full = std::filesystem::path(project_.dir) / d.relPath;
+
+    switch (d.kind) {
+        case PendingAssetDelete::Model:
+            std::filesystem::remove(full, ec);
+            project_.textureQuality.erase(d.relPath);
+            modelInfoCache_.clear();
+            glbInfoCache_.clear();
+            statusMessage_ = "Deleted " + d.label;
+            commitChange();
+            break;
+
+        case PendingAssetDelete::Material:
+            std::filesystem::remove(full, ec);
+            project_.textureQuality.erase(d.relPath);
+            // Objects keep working: an empty material is plain color for a
+            // primitive and the model's own .mtl for a model.
+            for (SceneData& scene : project_.scenes)
+                for (SceneObject& o : scene.objects)
+                    if (o.materialPath == d.relPath) o.materialPath.clear();
+            modelInfoCache_.clear();
+            statusMessage_ = "Deleted " + d.label;
+            commitChange();
+            break;
+
+        case PendingAssetDelete::Music:
+            // removeAudioTrack clears Play/Stop Music nodes and deletes the file.
+            removeAudioTrack(project_, d.relPath, true);
+            project_.musicBuild.erase(d.relPath);
+            for (size_t i = 0; i < project_.music.size(); ++i)
+                if (project_.music[i] == d.relPath) {
+                    project_.music.erase(project_.music.begin() + i);
+                    break;
+                }
+            wavIssueCache_.clear();
+            statusMessage_ = "Deleted " + d.label;
+            commitChange();
+            break;
+
+        case PendingAssetDelete::Sound:
+            // Clears Play Sound nodes and deletes the file; sound emitters point
+            // at it through soundPath, which removeAudioTrack does not touch.
+            removeAudioTrack(project_, d.relPath, false);
+            for (SceneData& scene : project_.scenes)
+                for (SceneObject& o : scene.objects)
+                    if (o.type == PrimitiveType::SoundEmitter &&
+                        o.soundPath == d.relPath)
+                        o.soundPath.clear();
+            for (size_t i = 0; i < project_.sounds.size(); ++i)
+                if (project_.sounds[i] == d.relPath) {
+                    project_.sounds.erase(project_.sounds.begin() + i);
+                    break;
+                }
+            wavIssueCache_.clear();
+            statusMessage_ = "Deleted " + d.label;
+            commitChange();
+            break;
+
+        case PendingAssetDelete::Hud: {
+            // Drop the list entry first; delete the file only if no other HUD
+            // entry still references it (imports can duplicate a path).
+            if (d.hudIndex >= 0 && d.hudIndex < (int)project_.hud.size())
+                project_.hud.erase(project_.hud.begin() + d.hudIndex);
+            selectedHud_ = -1;
+            bool stillUsed = false;
+            for (const HudImage& h : project_.hud)
+                stillUsed |= (h.imagePath == d.relPath);
+            if (!stillUsed) {
+                std::filesystem::remove(full, ec);
+                hudTexCache_.erase(d.relPath);
+            }
+            statusMessage_ = "Deleted " + d.label;
+            saveAll("Saved");  // HUD edits are not on the undo stack
+            break;
+        }
+    }
 }
 
 void App::drawNewSceneModal() {

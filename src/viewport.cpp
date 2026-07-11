@@ -1189,6 +1189,7 @@ int Viewport::pick(float u, float v, const std::vector<SceneObject>& objects) co
     int best = -1;
     float bestT = 1e9f;
     for (size_t i = 0; i < objects.size(); ++i) {
+        if (hiddenAt(i)) continue;  // hidden layers are unclickable
         const SceneObject& o = objects[i];
         // Transform the ray into the object's unit-box space
         Vec3 lo = rotateInverse(sub(eye, {o.position[0], o.position[1], o.position[2]}),
@@ -1632,8 +1633,10 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         float pos[8 * 4] = {};
         float col[8 * 4] = {};
         int count = 0;
-        for (const SceneObject& o : objects) {
+        for (size_t oi = 0; oi < objects.size(); ++oi) {
+            const SceneObject& o = objects[oi];
             if (o.type != PrimitiveType::PointLight || count >= 8) continue;
+            if (hiddenAt(oi)) continue;  // hidden layer - light preview off too
             pos[count * 4 + 0] = o.position[0];
             pos[count * 4 + 1] = o.position[1];
             pos[count * 4 + 2] = o.position[2];
@@ -1700,7 +1703,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             asLines ? 0 : glTexture(terrainTexture_);  // wire passes stay untextured
         draw(terrain_mesh_, GL_TRIANGLES, viewProj, tintScale, tintScale, tintScale,
              terrainTex, asLines ? nullptr : &identityM);
-        for (const SceneObject& o : objects) {
+        for (size_t oi = 0; oi < objects.size(); ++oi) {
+            if (hiddenAt(oi)) continue;
+            const SceneObject& o = objects[oi];
             // Emitters preview as live particles (drawn after the scene); in
             // the scene pass they only get a small fixed-size cone marker so
             // the gizmo has something to grab. Dimmed when disabled.
@@ -1781,8 +1786,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     // Point-light reach: a ring sphere at each light, scaled to its radius and
     // tinted with the light color (a rough preview of the lit volume).
-    for (const SceneObject& o : objects) {
-        if (o.type != PrimitiveType::PointLight) continue;
+    for (size_t oi = 0; oi < objects.size(); ++oi) {
+        const SceneObject& o = objects[oi];
+        if (o.type != PrimitiveType::PointLight || hiddenAt(oi)) continue;
         const float r = o.lightRadius > 0.01f ? o.lightRadius : 0.01f;
         const Mat4 m = mul(translation(o.position[0], o.position[1], o.position[2]),
                            scaleM(r, r, r));
@@ -1793,15 +1799,17 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // around every usable object (the proximity condition only applies
     // in-game; the editor just shows which objects qualify and the color).
     if (usableHighlight_) {
-        for (const SceneObject& o : objects) {
-            if (!o.usable) continue;
+        for (size_t oi = 0; oi < objects.size(); ++oi) {
+            const SceneObject& o = objects[oi];
+            if (!o.usable || hiddenAt(oi)) continue;
             const Mat4 mvp = mul(viewProj, modelMatrix(o));
             draw(wireCube_, GL_LINES, mvp, usableHighlightCol_[0],
                  usableHighlightCol_[1], usableHighlightCol_[2]);
         }
     }
 
-    if (selectedIndex >= 0 && selectedIndex < (int)objects.size()) {
+    if (selectedIndex >= 0 && selectedIndex < (int)objects.size() &&
+        !hiddenAt((size_t)selectedIndex)) {
         const Mat4 mvp = mul(viewProj, modelMatrix(objects[selectedIndex]));
         draw(wireCube_, GL_LINES, mvp, 1.0f, 0.6f, 0.1f);
     }
@@ -1967,12 +1975,14 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
     std::erase_if(emitterPreviews_, [&](const auto& kv) {
         return kv.first >= (int)objects.size() ||
                objects[(size_t)kv.first].type != PrimitiveType::Emitter ||
-               !objects[(size_t)kv.first].emitterEnabled;
+               !objects[(size_t)kv.first].emitterEnabled ||
+               hiddenAt((size_t)kv.first);
     });
 
     bool any = false;
-    for (const SceneObject& o : objects)
-        any |= (o.type == PrimitiveType::Emitter && o.emitterEnabled);
+    for (size_t oi = 0; oi < objects.size(); ++oi)
+        any |= (objects[oi].type == PrimitiveType::Emitter &&
+                objects[oi].emitterEnabled && !hiddenAt(oi));
     if (!any) return;
 
     // Camera right/up shared by every billboard (same construction as the game)
@@ -2001,7 +2011,8 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
     std::vector<float> buf;
     for (size_t oi = 0; oi < objects.size(); ++oi) {
         const SceneObject& o = objects[oi];
-        if (o.type != PrimitiveType::Emitter || !o.emitterEnabled) continue;
+        if (o.type != PrimitiveType::Emitter || !o.emitterEnabled || hiddenAt(oi))
+            continue;
         const int count =
             o.emitterCount < 1 ? 1 : o.emitterCount > 256 ? 256 : o.emitterCount;
         EmitterPreview& ep = emitterPreviews_[(int)oi];

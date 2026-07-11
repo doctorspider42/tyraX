@@ -9,6 +9,7 @@
 */
 
 #include "renderer/core/texture/texture_repository.hpp"
+#include "renderer/core/texture/renderer_core_texture.hpp"
 
 namespace Tyra {
 
@@ -23,8 +24,10 @@ TextureRepository::~TextureRepository() {
 }
 
 void TextureRepository::init(
-    std::vector<RendererCoreTextureBuffers>* t_textureBuffers) {
+    std::vector<RendererCoreTextureBuffers>* t_textureBuffers,
+    RendererCoreTexture* t_coreTexture) {
   textureBuffers = t_textureBuffers;
+  coreTexture = t_coreTexture;  // Modified by tyra-editor (see header)
 }
 
 Texture* TextureRepository::getBySpriteId(const u32& t_id) const {
@@ -75,7 +78,13 @@ void TextureRepository::removeById(const u32& t_texId) {
   s32 index = getIndexOf(t_texId);
   TYRA_ASSERT(index != -1, "Cant remove texture, because it was not found!");
   removeByIndex(index);
-  removeBufferId(t_texId);
+  // Modified by tyra-editor: release the GS VRAM + texbuffer structs for
+  // real; removeBufferId() only tombstoned the allocation entry and leaked
+  // both (harmless when nothing was ever freed, fatal for layer streaming).
+  if (coreTexture != nullptr)
+    coreTexture->freeTextureBuffers(t_texId);
+  else
+    removeBufferId(t_texId);
 }
 
 void TextureRepository::freeByMesh(const Mesh& mesh) {
@@ -108,7 +117,12 @@ void TextureRepository::free(const u32& t_texId) {
 
   TYRA_ASSERT(index != -1, "Cant remove texture, because it was not found!");
   removeByIndex(index);
-  removeBufferId(t_texId);
+  // Modified by tyra-editor: same as removeById() - actually free the GS
+  // buffers instead of tombstoning the allocation entry.
+  if (coreTexture != nullptr)
+    coreTexture->freeTextureBuffers(t_texId);
+  else
+    removeBufferId(t_texId);
 
   delete tex;
 }
