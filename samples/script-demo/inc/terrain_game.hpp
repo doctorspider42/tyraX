@@ -21,7 +21,10 @@ class TerrainGame : public Tyra::Game {
 
  private:
   void buildScene();
-  void generateTerrainGrid();
+  void resetTerrainChunks();
+  void buildTerrainChunk(int slot, int cx, int cz);
+  void updateTerrainChunks(float focusX, float focusZ, int budget);
+  void renderTerrain();
   void updatePlayer();
 
   Tyra::Engine* engine;
@@ -31,13 +34,25 @@ class TerrainGame : public Tyra::Game {
   float playerX, playerZ, yaw, pitch;
   float playerY, playerVelY;  // feet height + vertical velocity (physics)
 
-  std::vector<Tyra::Vec4> vertices;
-  std::vector<Tyra::Color> colors;
+  // Terrain chunks: the heightmap grid is cut into TERRAIN_CHUNK_CELLS-sized
+  // square tiles, one StaPip bag each (see the chunk functions in the .cpp).
+  // Slots live in a pool sized once per scene load (resetTerrainChunks) and
+  // never move afterwards - each bag points into its own slot's vectors.
+  struct TerrainChunk {
+    std::vector<Tyra::Vec4> vertices;
+    std::vector<Tyra::Color> colors;
+    std::vector<Tyra::Vec4> sts;  // texture coordinates (textured terrain)
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    Tyra::StaPipTextureBag texBag;
+    int cx = -1, cz = -1;  // chunk coords; -1 = free pool slot
+  };
+  std::vector<TerrainChunk> terrainChunks;  // slot pool
+  std::vector<short> terrainChunkSlot;      // chunk index -> slot, -1 = unbuilt
+  int terrainChunksX = 0, terrainChunksZ = 0;
 
   Tyra::M4x4 model;
-  std::unique_ptr<Tyra::StaPipBag> bag;
-  std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
-  std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+  std::unique_ptr<Tyra::StaPipInfoBag> infoBag;  // shared by all chunk bags
 
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])
@@ -174,8 +189,6 @@ class TerrainGame : public Tyra::Game {
   std::vector<signed char> layerRequest;   // script requests (-1 = none)
   std::vector<unsigned char> layerAutoInside;  // auto zones: focus inside?
   std::vector<int> streamQueue;            // (kind << 16) | asset index
-  std::vector<Tyra::Vec4> terrainSts;
-  Tyra::StaPipTextureBag terrainTexBag;
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
   GeoPart skyDome;

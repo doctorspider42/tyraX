@@ -78,11 +78,28 @@ class RendererCorePostFx {
     gMixAmt = 0;
   }
 
-  /** True when any effect is active, i.e. apply() will draw something. */
-  bool isEnabled() const { return bloom != 0 || grain != 0 || hasGrading(); }
+  /**
+   * Which effects a given apply() runs. Bloom, color grading and film grain
+   * can be composited at different points in the frame (tyra-editor: the UI
+   * Editor screen stack) - e.g. bloom under the HUD, grain over everything.
+   * Grading pairs with bloom (it colour-corrects the same scene image).
+   */
+  enum Pass { PassBloom = 1, PassGrading = 2, PassGrain = 4, PassAll = 7 };
 
-  /** Called by RendererCore::endFrame() right before the buffer flip. */
-  void apply();
+  /** True when any of the selected effects is active (apply draws something). */
+  bool isEnabled(int passes = PassAll) const {
+    return (((passes & PassBloom) && bloom != 0) ||
+            ((passes & PassGrading) && hasGrading()) ||
+            ((passes & PassGrain) && grain != 0));
+  }
+
+  /**
+   * Composite the selected effects over the current framebuffer. Called by
+   * RendererCore::endFrame() with PassAll (whatever is left), or mid-frame by
+   * RendererCore::applyPostFx() with a subset so 2D drawn afterwards stays on
+   * top of it.
+   */
+  void apply(int passes = PassAll);
 
  private:
   static constexpr int noiseSize = 64;  // texels, power of two

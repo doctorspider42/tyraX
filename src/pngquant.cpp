@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <climits>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -10,11 +11,13 @@
 
 #include <stb_image.h>
 
-// stb_image_write's zlib compressor (used for the IDAT chunk). The function
-// is public API but only declared inside the implementation region of the
-// header; the implementation itself lives in menubake.cpp.
+// stb_image_write's zlib compressor (used for the IDAT chunk) and PNG writer
+// (full-color output). Public API, but only declared inside the header's
+// implementation region; the implementation itself lives in menubake.cpp.
 extern "C" unsigned char* stbi_zlib_compress(unsigned char* data, int data_len,
                                              int* out_len, int quality);
+extern "C" int stbi_write_png(char const* filename, int w, int h, int comp,
+                              const void* data, int stride_in_bytes);
 
 namespace pngquant {
 
@@ -164,21 +167,76 @@ void putChunk(std::vector<uint8_t>& out, const char* type, const uint8_t* data,
 
 bool quantize(const std::string& srcPath, const std::string& dstPath, int colors,
               std::string& error) {
-    if (colors != 16 && colors != 256) {
-        error = "palette size must be 16 or 256";
-        return false;
-    }
-    const int bitDepth = colors == 16 ? 4 : 8;
-
     int w = 0, h = 0, comp = 0;
     unsigned char* pixels = stbi_load(srcPath.c_str(), &w, &h, &comp, 4);
     if (!pixels) {
         error = "cannot decode PNG";
         return false;
     }
+    const bool ok = quantizeRGBA(dstPath, pixels, w, h, colors, error);
+    stbi_image_free(pixels);
+    return ok;
+}
+
+std::vector<unsigned char> resizeRGBA(const unsigned char* rgba, int sw, int sh,
+                                      int dw, int dh) {
+    std::vector<unsigned char> out((size_t)dw * dh * 4);
+    if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) return out;
+    // Bilinear sample of source centers. HUD sprites are tiny, so a plain
+    // bilinear tap is enough; downscaling by more than 2x is rare here.
+    for (int y = 0; y < dh; ++y) {
+        const float fy =
+            dh == 1 ? 0.0f : ((y + 0.5f) * sh / dh - 0.5f);
+        int y0 = (int)std::floor(fy);
+        float wy = fy - y0;
+        int y1 = y0 + 1;
+        if (y0 < 0) { y0 = 0; wy = 0.0f; }
+        if (y1 > sh - 1) y1 = sh - 1;
+        if (y0 > sh - 1) y0 = sh - 1;
+        for (int x = 0; x < dw; ++x) {
+            const float fx =
+                dw == 1 ? 0.0f : ((x + 0.5f) * sw / dw - 0.5f);
+            int x0 = (int)std::floor(fx);
+            float wx = fx - x0;
+            int x1 = x0 + 1;
+            if (x0 < 0) { x0 = 0; wx = 0.0f; }
+            if (x1 > sw - 1) x1 = sw - 1;
+            if (x0 > sw - 1) x0 = sw - 1;
+            const unsigned char* p00 = rgba + ((size_t)y0 * sw + x0) * 4;
+            const unsigned char* p10 = rgba + ((size_t)y0 * sw + x1) * 4;
+            const unsigned char* p01 = rgba + ((size_t)y1 * sw + x0) * 4;
+            const unsigned char* p11 = rgba + ((size_t)y1 * sw + x1) * 4;
+            unsigned char* d = out.data() + ((size_t)y * dw + x) * 4;
+            for (int c = 0; c < 4; ++c) {
+                const float top = p00[c] * (1 - wx) + p10[c] * wx;
+                const float bot = p01[c] * (1 - wx) + p11[c] * wx;
+                const float v = top * (1 - wy) + bot * wy;
+                d[c] = (unsigned char)(v < 0 ? 0 : v > 255 ? 255 : v + 0.5f);
+            }
+        }
+    }
+    return out;
+}
+
+bool writePngRGBA(const std::string& dstPath, const unsigned char* rgba, int w,
+                  int h, std::string& error) {
+    if (!stbi_write_png(dstPath.c_str(), w, h, 4, rgba, w * 4)) {
+        error = "cannot write " + dstPath;
+        return false;
+    }
+    return true;
+}
+
+bool quantizeRGBA(const std::string& dstPath, const unsigned char* pixels, int w,
+                  int h, int colors, std::string& error) {
+    if (colors != 16 && colors != 256) {
+        error = "palette size must be 16 or 256";
+        return false;
+    }
+    const int bitDepth = colors == 16 ? 4 : 8;
+
     // the engine's 4bpp path packs two pixels per byte - odd widths would skew
     if (bitDepth == 4 && (w & 1)) {
-        stbi_image_free(pixels);
         error = "4-bit textures need an even width";
         return false;
     }
@@ -248,7 +306,6 @@ bool quantize(const std::string& srcPath, const std::string& dstPath, int colors
                 spread(1, 1, 1.0f / 16.0f);
             }
     }
-    stbi_image_free(pixels);
 
     // scanlines: filter byte 0 + packed indices
     const int rowBytes = bitDepth == 4 ? w / 2 : w;

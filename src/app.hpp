@@ -163,7 +163,6 @@ private:
     // (16-bit PCM 22050 Hz); music = the song player rules.
     const std::string& wavIssue(const std::string& relPath, bool sfx);
     std::map<std::string, std::string> wavIssueCache_;
-    void drawHudSection();
     void importHudImage();
     void drawMusicSection();
     void importMusicTrack();
@@ -199,6 +198,11 @@ private:
     void drawSaveDataSection();
     void drawMenusWindow();
     void drawGradingWindow();
+    void drawAmbienceWindow();
+    // UI Editor (Tools > UI Editor): the screen stack - HUD images plus the
+    // full-screen effects layer (bloom/grain), reorderable so effects can sit
+    // under the crosshair/text instead of blurring them.
+    void drawUiEditorWindow();
     // Material Editor (Tools > Material Editor): authors the .mtl files the
     // whole pipeline already consumes (newmtl/Kd/map_Kd) with a live preview.
     void drawMaterialEditorWindow();
@@ -302,8 +306,12 @@ private:
     bool showNtsc_ = false;
     bool showHudInEditor_ = false;  // HUD preview overlay (default hidden)
 
-    // HUD editing
+    // UI Editor (Tools > UI Editor): selected screen-stack entry - a HUD image
+    // (uiFxSel_ == 0, index in selectedHud_) or an effect layer (uiFxSel_ 1 =
+    // bloom + color grading, 2 = film grain).
+    bool showUiEditor_ = false;
     int selectedHud_ = -1;
+    int uiFxSel_ = 0;
 
     // Menus editing (Menu Editor window): selected menu + a live preview of
     // the baked panel (re-baked whenever the menu's content changes)
@@ -321,6 +329,13 @@ private:
     bool showGradingEditor_ = false;
     int selectedGrading_ = -1;
     bool gradingPreview_ = true;
+
+    // Ambience Editor (Tools > Ambience Editor): selected sky/light/fog preset
+    // and whether the viewport previews the edited preset over the scene's.
+    bool showAmbienceEditor_ = false;
+    int selectedAmbience_ = -1;
+    bool ambiencePreview_ = true;
+    bool ambiencePreviewPushed_ = false;  // preset pushed to the viewport?
 
     // Material Editor (Tools > Material Editor). Materials are the project's
     // .mtl asset files, edited in place: matEdMats_ stages the open file's
@@ -436,6 +451,7 @@ private:
     int scenePrefScene_ = -1;  // scene index the staging belongs to
     ProjectSettings scenePrefSettings_;
     SceneOverrides scenePrefOverrides_;
+    std::string scenePrefAmbience_;  // staged SceneData::ambiencePreset
 
     std::string statusMessage_;
 };

@@ -18,7 +18,11 @@
 //    wins (full > 8-bit > 4-bit) - important textures stay sharp
 //  - unreferenced PNGs under res/models|materials|textures follow the
 //    project-wide ProjectSettings::textureQuant
-//  - res/hud and res/fonts are never quantized (UI legibility)
+//  - res/fonts is never touched (UI legibility)
+//  - res/hud PNGs referenced by a Project::hud entry are resized to a
+//    PS2-valid power-of-two (HudImage::texW/texH; 0 = nearest) and optionally
+//    palette-quantized (HudImage::texQuant), so a mis-sized import can no
+//    longer assert at runtime; built-in HUD assets are copied verbatim
 namespace texbake {
 
 // Returns "" on success or an error message. log receives progress lines.

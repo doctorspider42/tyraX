@@ -11,6 +11,15 @@ namespace Script_demo {
 // overridden per scene and live as SCENE_COUNT arrays in scene_data.hpp
 // (reached through the accessor macros defined in scene_data.hpp).
 constexpr int TERRAIN_MAX_CELLS = 32;
+
+// Terrain streaming (Preferences > Terrain). The terrain mesh is built in
+// TERRAIN_CHUNK_CELLS x TERRAIN_CHUNK_CELLS tiles; with a view distance > 0
+// only the tiles within that range of the view focus are kept in memory
+// (the rest streams in as the player moves - pair with fog to hide pop-in).
+// 0 keeps the whole map resident, like before chunking existed.
+constexpr int TERRAIN_CHUNK_CELLS = 16;
+constexpr float TERRAIN_VIEW_DISTANCE = 0.0F;
+
 constexpr float EYE_HEIGHT = 1.8F;
 constexpr float WALK_SPEED = 0.4F;
 constexpr float LOOK_SPEED = 1.0F;    // multiplier
