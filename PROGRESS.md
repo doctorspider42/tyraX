@@ -9,6 +9,57 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (64) **Multi-object selection, group transform, copy & multi-edit** — the
+  editor now works on a *set* of objects, not one at a time. A new
+  `std::vector<int> selection_` carries the full selection while the old
+  `selectedObject_` stays as its *primary* (anchor) member, always
+  `selection_.back()` — so the ~30 existing single-select reads (orbit pivot,
+  flow-graph "from selected", script-attach target...) keep working unchanged.
+  All the scattered `selectedObject_ =` writes went through four helpers
+  (`selectOnly`/`toggleSelect`/`clearSelection`/`pruneSelection`) that keep the
+  invariant; `pruneSelection` drops stale indices after undo/scene changes.
+  **Selecting**: Ctrl/Shift+click (viewport or Project list) toggles an object
+  in/out; plain click replaces. Left-drag draws a rubber-band marquee and
+  selects every object whose screen-space bounds overlap it (8 unit-box corners
+  projected with the same view/proj math as the sculpt-brush overlay, rotated
+  Rz·Ry·Rx to match `modelMatrix`); Ctrl+drag extends. To free left-drag for the
+  marquee the Default nav scheme now orbits on right-drag only (it already did).
+  All selected objects get an amber outline in the viewport, the primary
+  brighter (`Viewport::render` now takes the selection vector + primary).
+  **Transforming**: with >1 selected the gizmo manipulates a proxy at the
+  group centroid, captures ImGuizmo's world-space `deltaMatrix`, and applies
+  `delta · model` to every object (decompose back to TRS) — translate /
+  rotate-about-pivot / scale-about-pivot for the whole group, one undo step per
+  drag. The single-object path (world/camera-relative + snapping) is untouched.
+  **Copy/paste/delete** all operate on the set: the clipboard is a
+  `vector<SceneObject>`; paste offsets the group by a shared `(+1,0,+1)` so it
+  keeps its shape and selects the new copies; delete erases high-index-first.
+  **Multi-edit Properties panel** (`drawMultiProperties`): shows only fields
+  common to every selected object (intersection of the same isShape/isSolid/
+  isEmpty/emitter/light predicates the single view uses). Transforms apply
+  *relatively* — a drag nudges the whole group by the same delta, seeded from
+  the anchor, so the arrangement is kept. Every other shared field (color,
+  physics, usable, collision, draw distance, type/detail, save state, emitter &
+  point-light params) is set-all with a "mixed" dash via
+  `ImGuiItemFlags_MixedValue` while the values differ; small
+  `multiCheck`/`multiDragF`/`multiCombo` lambdas (pointer-to-member) keep it
+  terse. A header tallies the selection ("3 Box"); inherently per-object fields
+  (name, model/material/sound, scripts) are noted as single-object-only.
+  Selection is pure editor state — no `.tyra` format change (only the primary
+  persists, as before), no codegen, no PS2 runtime touched.
+  Verified: clean editor build; launched on a 3-box scratch scene (distinct
+  positions/colors/detail, one with physics). The full pipeline was confirmed
+  by screenshot — all three boxes highlighted in the Project list + "3 objects
+  selected" hint, and the multi-edit panel rendering "3 objects selected /
+  3 Box", relative transforms seeded from the anchor, and the mixed-value dash
+  correctly on Physics (one object differs) vs a normal check on Collision (all
+  same). The interactive *gestures* themselves — box-drag feel and the group
+  gizmo drag — still want a hands-on human pass: synthetic mouse input would not
+  register in the GLFW window in this environment (mouse_event and SendInput
+  both failed to reach it despite correct focus), so those were verified by
+  code review + compile only, while the selection→highlight→panel pipeline they
+  feed is confirmed working.
+
 - (63) **Delete assets from the editor (with confirmation)** — until now the
   only way to remove a model, material, texture or HUD image was to delete the
   file by hand in Explorer, and the Music/Sounds `x` deleted the file instantly
