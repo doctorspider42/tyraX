@@ -9,6 +9,20 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (47) **Per-object draw distance (LOD tier 0)** — new `Draw distance`
+  property on solid objects (Properties panel, 0 = unlimited): farther than
+  this from the camera the object is skipped at draw time in both the
+  static and the animated pass (`beyondDrawDistance()` in the generated
+  game); collision, sounds and scripts still run, and animated instances
+  keep advancing playback time so `animFinished` stays honest. Serialized
+  as `"drawDistance"` in the object JSON (omitted at the default 0 - old
+  projects load unchanged); baked as a new `SceneObjectData.drawDistance`
+  column. The editor viewport intentionally ignores it (perf setting, not a
+  look). Also fixed a stale Properties label: animated-model collision box
+  is the all-clips AABB since (45), not "frame-0". Verified: editor + Docker
+  game build clean; PCSX2 boot of a 15-spider scene with `drawDistance = 8`
+  on every second spider shows exactly the near ones (screenshot), 50 FPS.
+
 - (46) **Frame drops no longer halve gameplay speed + "Disable VSync
   (experimental)" preference** — with double-buffered vsync a PAL game is
   quantized to 50/25/16.7 FPS (a 20.1 ms frame waits for the next vblank),

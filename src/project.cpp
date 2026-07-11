@@ -187,6 +187,10 @@ static std::string objectJson(const SceneObject& o) {
         // collision: box is the default and stays implicit
         (o.collisionMode == 1 ? ", \"collision\": \"mesh\""
                               : o.collisionMode == 2 ? ", \"collision\": \"none\"" : "") +
+        // 0 = unlimited (default) stays implicit
+        (o.drawDistance > 0.0f
+             ? ", \"drawDistance\": " + fmtFloat(o.drawDistance)
+             : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + o.modelPath + "\"") +
         (o.materialPath.empty() ? "" : ", \"material\": \"" + o.materialPath + "\"");
     if (o.type == PrimitiveType::Player) {
@@ -789,6 +793,10 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* v = jo.find("collision")) {
             const std::string mode = v->stringOr("box");
             o.collisionMode = mode == "mesh" ? 1 : mode == "none" ? 2 : 0;
+        }
+        if (const auto* v = jo.find("drawDistance")) {
+            o.drawDistance = (float)v->numberOr(0.0);
+            if (o.drawDistance < 0.0f) o.drawDistance = 0.0f;
         }
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");

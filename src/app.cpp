@@ -2283,9 +2283,9 @@ void App::drawPropertiesWindow() {
     if (isSolid) {
         if (animatedModel) {
             // mesh collision is a static-model feature; animated models
-            // collide as their baked frame-0 AABB or not at all
+            // collide as their baked all-clips AABB or not at all
             bool solid = o.collisionMode != 2;
-            if (ImGui::Checkbox("Collision (blocks the player, frame-0 AABB)",
+            if (ImGui::Checkbox("Collision (blocks the player, animation AABB)",
                                 &solid)) {
                 o.collisionMode = solid ? 0 : 2;
                 committed = true;
@@ -2304,6 +2304,18 @@ void App::drawPropertiesWindow() {
                 committed = true;
             }
         }
+    }
+
+    // Rendering cut-off - the cheapest LOD. Only drawing stops beyond the
+    // distance; collision, sounds and scripts keep running.
+    if (isSolid) {
+        ImGui::DragFloat("Draw distance", &o.drawDistance, 0.5f, 0.0f, 2000.0f,
+                         o.drawDistance > 0.0f ? "%.0f units" : "unlimited");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (o.drawDistance > 0.0f)
+            ImGui::TextDisabled(
+                "Skipped at draw time when the camera is farther than this;\n"
+                "collision and logic still run. 0 = always drawn.");
     }
 
     if (o.type == PrimitiveType::Emitter) {
