@@ -683,8 +683,20 @@ void TerrainGame::loop() {
   {
     engine->renderer.renderer3D.usePipeline(stapip);
     renderScene();
-    if (scriptCtx.hudVisible)
-      for (auto& sprite : hudSprites) engine->renderer.renderer2D.render(sprite);
+    // Full-screen effects can sit inside the HUD stack (Tools > UI Editor):
+    // bloom (with color grading) and film grain composite at independent
+    // points, so sprites drawn afterwards stay crisp on top of them. -1 = the
+    // pass applies at endFrame, over everything (menus included).
+    for (int i = 0; i < (int)hudSprites.size(); ++i) {
+      if (i == HUD_BLOOM_LAYER)
+        engine->renderer.core.applyPostFx(
+            Tyra::RendererCorePostFx::PassBloom |
+            Tyra::RendererCorePostFx::PassGrading);
+      if (i == HUD_GRAIN_LAYER)
+        engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassGrain);
+      if (scriptCtx.hudVisible)
+        engine->renderer.renderer2D.render(hudSprites[i]);
+    }
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
     renderGameMenu();
     renderSaveMenu();
