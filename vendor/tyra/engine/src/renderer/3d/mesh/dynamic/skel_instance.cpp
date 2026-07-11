@@ -150,13 +150,59 @@ void sampleChannel(const SkelChannel& ch, float t, u32* cursor, float* out) {
 
 }  // namespace
 
+namespace {
+
+/** Repacks one mesh variant's bind data for the VU0 loop (see the header
+ * comment on PartLod): aligned qwords, normalized weights, joints sorted by
+ * descending weight, influence counts for the dispatch. */
+void repackBind(const float* positions, const float* normals, const u8* joints,
+                const u8* weights, u32 count, SkelInstance::PartLod& pl) {
+  pl.count = count;
+  pl.bindPositions.resize(count);
+  pl.bindNormals.resize(count);
+  pl.skinWeights.resize(count);
+  pl.sortedJoints.resize((size_t)count * 4);
+  pl.influences.resize(count);
+  for (u32 v = 0; v < count; v++) {
+    pl.bindPositions[v].set(positions[(size_t)v * 3],
+                            positions[(size_t)v * 3 + 1],
+                            positions[(size_t)v * 3 + 2], 1.0F);
+    pl.bindNormals[v].set(normals[(size_t)v * 3], normals[(size_t)v * 3 + 1],
+                          normals[(size_t)v * 3 + 2], 0.0F);
+    const u8* jj = &joints[(size_t)v * 4];
+    const u8* ww = &weights[(size_t)v * 4];
+    u8 idx[4] = {0, 1, 2, 3};  // slot order by descending weight
+    for (int a = 1; a < 4; a++)
+      for (int b = a; b > 0 && ww[idx[b]] > ww[idx[b - 1]]; b--) {
+        const u8 t = idx[b];
+        idx[b] = idx[b - 1];
+        idx[b - 1] = t;
+      }
+    const u32 wsum = (u32)ww[0] + ww[1] + ww[2] + ww[3];
+    const float inv = wsum > 0 ? 1.0F / (float)wsum : 0.0F;
+    float wf[4];
+    u8 n = 0;
+    for (int k = 0; k < 4; k++) {
+      wf[k] = (float)ww[idx[k]] * inv;
+      pl.sortedJoints[(size_t)v * 4 + k] = jj[idx[k]];
+      if (ww[idx[k]] > 0) n++;
+    }
+    pl.skinWeights[v].set(wf[0], wf[1], wf[2], wf[3]);
+    pl.influences[v] = n;
+  }
+}
+
+}  // namespace
+
 SkelInstance::SkelInstance(const SkelModel* t_model) : model(t_model) {
   // Single-frame builder data in bind pose; the DynamicMesh takes ownership
   // of the arrays, we keep the pointers and overwrite them every update.
   MeshBuilderData data;
   data.loadNormals = true;
   data.loadLightmap = false;
-  for (const SkelPart& part : model->parts) {
+  partLods.resize(model->parts.size());
+  for (size_t pi = 0; pi < model->parts.size(); pi++) {
+    const SkelPart& part = model->parts[pi];
     auto* material = new MeshBuilderMaterialData();
     data.materials.push_back(material);
     material->name = part.name;
@@ -184,47 +230,35 @@ SkelInstance::SkelInstance(const SkelModel* t_model) : model(t_model) {
         frame->textureCoords[v].set(part.uvs[(size_t)v * 2],
                                     part.uvs[(size_t)v * 2 + 1], 1.0F, 0.0F);
     }
-    outVertices.push_back(frame->vertices);
-    outNormals.push_back(frame->normals);
 
-    // repack the bind pose for the VU0 skinning loop (see the header): the
-    // weight normalization and the sort-by-weight move here, out of the
-    // per-frame hot path
-    std::vector<Vec4> bp(part.vertexCount), bn(part.vertexCount),
-        bw(part.vertexCount);
-    std::vector<u8> js((size_t)part.vertexCount * 4), nf(part.vertexCount);
-    for (u32 v = 0; v < part.vertexCount; v++) {
-      bp[v].set(part.positions[(size_t)v * 3],
-                part.positions[(size_t)v * 3 + 1],
-                part.positions[(size_t)v * 3 + 2], 1.0F);
-      bn[v].set(part.normals[(size_t)v * 3], part.normals[(size_t)v * 3 + 1],
-                part.normals[(size_t)v * 3 + 2], 0.0F);
-      const u8* jj = &part.joints[(size_t)v * 4];
-      const u8* ww = &part.weights[(size_t)v * 4];
-      u8 idx[4] = {0, 1, 2, 3};  // slot order by descending weight
-      for (int a = 1; a < 4; a++)
-        for (int b = a; b > 0 && ww[idx[b]] > ww[idx[b - 1]]; b--) {
-          const u8 t = idx[b];
-          idx[b] = idx[b - 1];
-          idx[b - 1] = t;
-        }
-      const u32 wsum = (u32)ww[0] + ww[1] + ww[2] + ww[3];
-      const float inv = wsum > 0 ? 1.0F / (float)wsum : 0.0F;
-      float wf[4];
-      u8 n = 0;
-      for (int k = 0; k < 4; k++) {
-        wf[k] = (float)ww[idx[k]] * inv;
-        js[(size_t)v * 4 + k] = jj[idx[k]];
-        if (ww[idx[k]] > 0) n++;
+    // level 0 = the full mesh, skinning straight into the frame arrays
+    auto& chain = partLods[pi];
+    chain.resize(1 + part.lods.size());
+    repackBind(part.positions.data(), part.normals.data(), part.joints.data(),
+               part.weights.data(), part.vertexCount, chain[0]);
+    chain[0].outV = frame->vertices;
+    chain[0].outN = frame->normals;
+    chain[0].uvPtr = frame->textureCoords;  // nullptr when untextured
+
+    // deeper levels: baked decimated variants with their own skin buffers
+    for (size_t l = 0; l < part.lods.size(); l++) {
+      const SkelLod& src = part.lods[l];
+      PartLod& pl = chain[1 + l];
+      repackBind(src.positions.data(), src.normals.data(), src.joints.data(),
+                 src.weights.data(), src.vertexCount, pl);
+      pl.ownVertices.resize(src.vertexCount);
+      pl.ownNormals.resize(src.vertexCount);
+      pl.outV = pl.ownVertices.data();
+      pl.outN = pl.ownNormals.data();
+      if (!part.texturePath.empty()) {
+        pl.uvs.resize(src.vertexCount);
+        for (u32 v = 0; v < src.vertexCount; v++)
+          pl.uvs[v].set(src.uvs[(size_t)v * 2], src.uvs[(size_t)v * 2 + 1],
+                        1.0F, 0.0F);
+        pl.uvPtr = pl.uvs.data();
       }
-      bw[v].set(wf[0], wf[1], wf[2], wf[3]);
-      nf[v] = n;
     }
-    bindPositions.push_back(std::move(bp));
-    bindNormals.push_back(std::move(bn));
-    skinWeights.push_back(std::move(bw));
-    sortedJoints.push_back(std::move(js));
-    influences.push_back(std::move(nf));
+    if (chain.size() > maxLodLevels) maxLodLevels = (u8)chain.size();
   }
   mesh = std::make_unique<DynamicMesh>(&data);
 
@@ -302,18 +336,28 @@ bool SkelInstance::advance(float dt) {
   return finished;
 }
 
-bool SkelInstance::ensurePose() {
-  if (!poseDirty) return false;
-  evalPose();
-  skinParts();
+bool SkelInstance::ensurePose(u8 lod) {
+  if (lod >= maxLodLevels) lod = maxLodLevels - 1;
+  if (!poseDirty && lod == lastSkinnedLod) return false;
+  // a pure LOD switch reuses the current palette - only the skin reruns
+  if (poseDirty) evalPose();
+  skinParts(lod);
   poseDirty = false;
+  lastSkinnedLod = lod;
   return true;
 }
 
 bool SkelInstance::update(float dt) {
   const bool finished = advance(dt);
-  ensurePose();
+  ensurePose(lastSkinnedLod);
   return finished;
+}
+
+SkelInstance::LodArrays SkelInstance::lodArrays(size_t part, u8 lod) {
+  const auto& chain = partLods[part];
+  if (lod >= chain.size()) lod = (u8)(chain.size() - 1);
+  const PartLod& pl = chain[lod];
+  return {pl.outV, pl.outN, pl.uvPtr, pl.count};
 }
 
 void SkelInstance::evalLocals(Layer& layer, std::vector<float>& locals,
@@ -395,7 +439,7 @@ void SkelInstance::evalPose() {
           model->palette[j].ibm.data);
 }
 
-void SkelInstance::skinParts() {
+void SkelInstance::skinParts(u8 lod) {
   // The whole per-vertex job runs on VU0 in macro mode (the era-correct
   // split: animation on VU0, 3D on VU1, game code on EE): build the blended
   // palette matrix in $vf5-$vf8 - dispatching on the vertex's influence
@@ -421,17 +465,19 @@ void SkelInstance::skinParts() {
       : [bmin] "r"(bmin), [bmax] "r"(bmax));
 
   const M4x4* pal = palette.data();
-  for (size_t pi = 0; pi < model->parts.size(); pi++) {
-    const SkelPart& part = model->parts[pi];
-    Vec4* outV = outVertices[pi];
-    Vec4* outN = outNormals[pi];
-    const Vec4* srcP = bindPositions[pi].data();
-    const Vec4* srcN = bindNormals[pi].data();
-    const Vec4* wq = skinWeights[pi].data();
-    const u8* joints = sortedJoints[pi].data();
-    const u8* infl = influences[pi].data();
+  for (size_t pi = 0; pi < partLods.size(); pi++) {
+    const auto& chain = partLods[pi];
+    const PartLod& plod =
+        chain[lod < chain.size() ? lod : (u8)(chain.size() - 1)];
+    Vec4* outV = plod.outV;
+    Vec4* outN = plod.outN;
+    const Vec4* srcP = plod.bindPositions.data();
+    const Vec4* srcN = plod.bindNormals.data();
+    const Vec4* wq = plod.skinWeights.data();
+    const u8* joints = plod.sortedJoints.data();
+    const u8* infl = plod.influences.data();
 
-    for (u32 v = 0; v < part.vertexCount; v++) {
+    for (u32 v = 0; v < plod.count; v++) {
       const u8* j = &joints[(size_t)v * 4];
       const u8 n = infl[v];
 

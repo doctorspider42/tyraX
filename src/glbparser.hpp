@@ -123,6 +123,17 @@ struct SkelClip {
     std::vector<SkelChannel> channels;
 };
 
+// A decimated variant of a part's mesh (same attribute layout, fewer
+// triangles). Generated at bake time by generateSkelLods().
+struct SkelLod {
+    int vertexCount = 0;
+    std::vector<float> positions;
+    std::vector<float> normals;
+    std::vector<float> uvs;
+    std::vector<unsigned char> joints;
+    std::vector<unsigned char> weights;
+};
+
 // One draw batch (all triangles of one glTF material) in bind pose, expanded
 // to a flat triangle list, with per-vertex palette bindings.
 struct SkelPart {
@@ -135,6 +146,7 @@ struct SkelPart {
     std::vector<float> uvs;             // vertexCount * 2
     std::vector<unsigned char> joints;  // vertexCount * 4 palette slots
     std::vector<unsigned char> weights; // vertexCount * 4, sums to 255
+    std::vector<SkelLod> lods;          // [0] ~50% verts, [1] ~25% (optional)
 };
 
 struct Skel {
@@ -159,6 +171,13 @@ struct Skel {
 // Parses a .glb into the skeletal representation above. Same support matrix
 // and failure conditions as bake().
 bool parseSkel(const std::string& path, Skel& out, std::string& error);
+
+// Generates the distance LODs (SkelPart::lods) by quadric-error half-edge
+// collapse on the bind-pose mesh: ~50% and ~25% of the base vertex count.
+// Attributes (normals, uvs, skin bindings) ride along unchanged - a collapse
+// snaps one vertex onto another, it never invents blended attributes. Parts
+// too small to gain anything are skipped (no lods emitted).
+void generateSkelLods(Skel& skel);
 
 // Serializes to the .tskl binary consumed by the PS2 engine's TsklLoader.
 // `textureNames` maps Skel::images indices to game-relative texture paths,

@@ -18,7 +18,14 @@ whose conservative all-clips AABB is outside the frustum skip pose
 evaluation, skinning and submission entirely (playback time still advances),
 and instances striking the identical pose - the same clip autoplaying in
 lockstep, the usual ambient-prop or enemy-pack setup - share one skinned
-mesh. You get smooth, named, scriptable, *blendable* clips at a fraction of
+mesh. Two optional distance LODs stack on top (Preferences > Rendering):
+**Animation LOD distance** makes far instances refresh their pose every
+2nd/4th frame (playback time unaffected), and **Mesh LOD distance** bakes
+~50% and ~25%-vertex variants of every part into the `.tskl`
+(quadric-error collapse; attributes and skin bindings ride along
+unchanged) and renders them beyond the distance. Expect visible
+simplification on the reduced meshes - pick a distance at which the
+model is already small on screen. You get smooth, named, scriptable, *blendable* clips at a fraction of
 the memory the old baked-frame path needed.
 
 ```
@@ -105,7 +112,7 @@ what ships.
 | **Loop** | On = wraps forever; off = plays once and freezes on the last frame. |
 | **Speed** | Playback multiplier (1.00x = authored speed). |
 | **Color** | Multiplies the model's material colors (tint), like on primitives. |
-| **Collision** | Box from the first clip's first-frame AABB, or none. Per-triangle mesh collision is a static-model (.obj) feature. |
+| **Collision** | Box from the model's all-clips pose AABB, or none. Per-triangle mesh collision is a static-model (.obj) feature. |
 
 Material (.mtl) overrides do not apply to .glb models - their materials come
 from the file itself.
