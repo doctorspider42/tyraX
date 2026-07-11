@@ -110,6 +110,9 @@ class StaPipQBufferRenderer {
   StaPipProgramsRepository repository;
 
   u16 bufferSize, nextBufferIndex, currentBufferIndex;
+  // Modified by tyra-editor: VU1 buffer capacity, used by clip() to drain the
+  // clipper output in buffer-sized chunks.
+  u32 maxVertCount = 0;
   u8 context;
 };
 

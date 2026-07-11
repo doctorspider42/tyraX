@@ -46,7 +46,23 @@ class StaPipClipper {
  public:
   StaPipClipper();
   ~StaPipClipper();
-  void clip(StaPipQBuffer* buffer);
+
+  /**
+   * Modified by tyra-editor: clipping is drained in VU1-buffer-sized chunks.
+   * A single triangle clipped against the frustum fans out into up to 7
+   * triangles (21 verts), so one subpackage can produce more verts than a VU1
+   * buffer holds (maxVertCount). clipToPool() runs the whole clip into an
+   * internal, perspective-divided pool and returns its vertex count; the
+   * renderer then copies it out with writeChunk() across as many VU1 draws as
+   * needed. Splitting like this avoids the "Max buffer size in VU1" assert in
+   * stapip_qbuffer.cpp.
+   */
+  u32 clipToPool(StaPipQBuffer* buffer);
+
+  /** Copies [start, start + count) pooled verts into buffer. count must be
+   * <= maxVertCount and a multiple of 3; buffer->bag must already be set. */
+  void writeChunk(StaPipQBuffer* buffer, u32 start, u32 count);
+
   void init(const RendererSettings& settings);
   void setMaxVertCount(const u32& count);
   void setMVP(M4x4* mvp);
