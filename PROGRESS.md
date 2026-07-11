@@ -2536,6 +2536,26 @@ Each finished feature lands as its own commit.
   overlay off (its README says how to re-enable); a separate task tracks
   the real fix. Layer streaming re-verified post-merge with the overlay
   off: 24 stress cycles over ~140 s at the exact 6 s cadence, 0 asserts.
+- (63) **Wall see-through fix (near clip vs collision clearance)** - pressing
+  the camera against scene geometry let you look inside/through it: the
+  generated games' near clip plane sat 0.5 units in front of the camera
+  (clipMargin = -(near+0.5)) while collision keeps the eye only 0.35
+  (playerRadius) from a wall face, so any face closer than 0.5 was clipped
+  away - thin walls vanished entirely, boxes showed their inside. The clip
+  distance is now 0.15: past the real near plane (0.1), and safely under the
+  worst-case in-frustum depth of a face at the 0.35 collision distance
+  (~0.25 at the default 60-deg FOV). The clearance now holds vertically too:
+  collidePlayer gained a `ceiling` out-param (lowest box underside overhead;
+  in mesh mode an upward ray, so door lintels/floors count) and both walkers
+  clamp jumps so the eye stays EYE_CLEARANCE (0.2, > clip 0.15) below
+  overhead geometry; boxes with less than that eye room refuse walking
+  under (with an escape hatch when the player is already beneath them).
+  Side effect: jumping head-first through mesh floors from below no longer
+  works (it used to land you on top). Verified A/B in PCSX2 (SW renderer,
+  50 FPS both ways): FPP scratch scene, 0.1-thick wall 0.39 units from the
+  spawned eye - the old 0.5 build renders sky/terrain straight through the
+  wall, the 0.15 build a solid wall. Ceiling clamp compiles (PS2 toolchain)
+  and the codegen was inspected in both walkers; jump feel needs a pad test.
 
 ## Backlog (rough order)
 
