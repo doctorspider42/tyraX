@@ -1366,6 +1366,40 @@ Each finished feature lands as its own commit.
   physics ball, pillar, HUD, starter flow graph). Fresh copy every time, so the
   shared sample no longer gets wrecked by experiments. Verified in PCSX2.
 
+- (65) **"Showcase" sample project** -- a second, much larger checked-in sample
+  under `samples/showcase` that exercises most of the editor's feature set in
+  one game, added on request ("a bigger project for the examples"). Two scenes
+  reachable through a usable portal pair: `vale` (a 192x192 heightmapped valley,
+  golden-hour dusk) and `cavern` (a dark, blue-fogged interior with a Nightfall
+  grading override). It demonstrates: streaming layers loaded *dynamically*
+  (`village`/`ruins` start unloaded; two `Near Object` gates `Load Layer` the
+  district you approach and `Unload Layer` the other), a purpose-built skeletal
+  model (`res/models/wobbler.glb` -- a cylinder skinned to a 5-joint chain with
+  `Wiggle`/`Twist` clips, baked to `.tskl`), object draw-distance + animation
+  LOD + baked mesh LOD, a baked directional sun plus point lights (campfire,
+  lanterns, ruins, crystals), particle emitters (fire/smoke/rain/sparks/fog/
+  fireflies), GS distance fog, bloom + film grain, two colour-grading presets,
+  a title + pause menu, a HUD crosshair, a first-person player with a
+  toggleable flashlight, a save point + a save value collected from a usable
+  relic, usable-object highlighting, a gradient sky dome, and ambient music +
+  a spatial campfire sound. The project (`showcase.tyra` + authored `res/`
+  assets + `terrain-*.heights`) was authored programmatically (Node generators
+  that emit the loader-format JSON, procedural heightmaps/ground texture, the
+  WAVs, and a hand-built glTF); the generated game tree is committed like
+  `script-demo` (the `Makefile` is create-only, so a sample cannot be
+  source-only), with `res/.gitignore` keeping the authored assets while
+  ignoring the built-in `hud/`/`menus/` and the baked `.tskl`. Verified: the
+  `.glb` parses through the real `glbparser` (`bake` + `parseSkel`, 1248 verts,
+  5 joints, 2 mesh LODs); `--build samples/showcase` refreshes codegen, bakes
+  the `.tskl`, quantizes the ground texture and converts the sfx, compiles
+  under the PS2DEV toolchain and links (exit 0); PCSX2 (software renderer)
+  boots both scenes at 50 FPS / 100% speed -- the title menu, the vale (wobblers
+  visibly bent mid-wiggle, trees, fog, bloom, grain, highlighted portal) and
+  the cavern (flashlight cone, glowing crystals, blue fog, Nightfall look) all
+  render. Interactive paths (walking the streaming boundary to see a district
+  page in/out, USE on the portal/relic, pad flashlight toggle, hearing the
+  audio) still want a hands-on pad test.
+
 ## Done
 
 - Core editor: project creation (orbit/FPP templates), solution files + undo history,

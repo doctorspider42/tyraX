@@ -1,0 +1,5 @@
+obj/
+bin/*.elf
+*.history
+.vscode/
+.res-baked/
