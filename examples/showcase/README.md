@@ -1,11 +1,11 @@
 # Showcase
 
-A larger sample project that exercises most of the editor's feature set in one
+A larger example project that exercises most of the editor's feature set in one
 game. It is a checked-in tyra-editor project (like `script-demo`): open it in
 the editor, or build it headless with
 
 ```powershell
-build\tyra-editor.exe --build samples\showcase --run
+build\tyra-editor.exe --build examples\showcase --run
 ```
 
 The source of truth is `showcase.tyra` + the authored assets under `res/` +

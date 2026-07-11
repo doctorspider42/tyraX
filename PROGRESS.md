@@ -1436,7 +1436,7 @@ Each finished feature lands as its own commit.
   shared sample no longer gets wrecked by experiments. Verified in PCSX2.
 
 - (65) **"Showcase" sample project** -- a second, much larger checked-in sample
-  under `samples/showcase` that exercises most of the editor's feature set in
+  under `examples/showcase` that exercises most of the editor's feature set in
   one game, added on request ("a bigger project for the examples"). Two scenes
   reachable through a usable portal pair: `vale` (a 192x192 heightmapped valley,
   golden-hour dusk) and `cavern` (a dark, blue-fogged interior with a Nightfall
@@ -1459,7 +1459,7 @@ Each finished feature lands as its own commit.
   source-only), with `res/.gitignore` keeping the authored assets while
   ignoring the built-in `hud/`/`menus/` and the baked `.tskl`. Verified: the
   `.glb` parses through the real `glbparser` (`bake` + `parseSkel`, 1248 verts,
-  5 joints, 2 mesh LODs); `--build samples/showcase` refreshes codegen, bakes
+  5 joints, 2 mesh LODs); `--build examples/showcase` refreshes codegen, bakes
   the `.tskl`, quantizes the ground texture and converts the sfx, compiles
   under the PS2DEV toolchain and links (exit 0); PCSX2 (software renderer)
   boots both scenes at 50 FPS / 100% speed -- the title menu, the vale (wobblers
@@ -1468,6 +1468,19 @@ Each finished feature lands as its own commit.
   render. Interactive paths (walking the streaming boundary to see a district
   page in/out, USE on the portal/relic, pad flashlight toggle, hearing the
   audio) still want a hands-on pad test.
+
+- (66) **Consolidated `samples/` + `examples/` into one `examples/` dir** -- the
+  repo had grown two parallel homes for checked-in projects (`samples/` for the
+  playground + showcase, `examples/` for per-feature demos). Merged them: moved
+  `script-demo` and `showcase` under `examples/` (git rename, history preserved),
+  deleted `samples/`. Updated all references -- `README.md` (the example-projects
+  section + the Structure list), the three skills that pointed at
+  `samples/script-demo/` (`tyra-editor-dev`, `tyra-pr`, `tyra-testing`), and
+  `examples/showcase/README.md`'s build command. Also added a **`tyra-docs`
+  skill** stating the standing rule: every change updates the docs in the same
+  commit (README, PROGRESS, the relevant skills, example READMEs, and regenerate
+  any affected example project). No code or generated files changed; the moved
+  projects still build unchanged (paths in `.tyra`/compose are relative).
 
 ## Done
 
