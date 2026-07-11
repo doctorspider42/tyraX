@@ -48,6 +48,9 @@ public:
 private:
     void drawUI();
     void drawMenuBar();
+    // Icon toolbar drawn inline in the main menu bar (Save / Run in PCSX2 /
+    // Run on PS2 / Stop). Custom vector-drawn - the editor loads no icon font.
+    void drawToolbar();
     // UI (DPI) scaling. uiScaleUser_ == 0 means "auto" (follow the monitor's
     // content scale); a value > 0 is an explicit multiplier (1.0 == 100%).
     // applyUiScale() recomputes the effective scale and re-applies it to the
@@ -209,12 +212,28 @@ private:
     void saveProject();
 
     // Editing model: mutate project_ freely, then commitChange() once per
-    // logical action - it pushes an undo snapshot and saves everything.
+    // logical action - it pushes an undo snapshot and marks the project dirty.
+    // The project is written to disk only on demand (Save / Ctrl+S / the
+    // toolbar button); there is no autosave.
     void commitChange();
     void saveAll(const char* status);
     void applySnapshot(const SceneSnapshot& s);
     void undo();
     void redo();
+    // Dirty tracking: unsaved model edits since the last save. setDirty keeps
+    // the window title's "*" marker in sync.
+    void setDirty(bool dirty);
+    void updateWindowTitle();
+
+    // Guarded actions that would discard unsaved edits (Exit / Open / New).
+    // When the project is dirty they open a confirm modal instead of running
+    // immediately; the modal's Save/Discard buttons then run the pending one.
+    enum class PendingAction { None, Exit, Open, New };
+    void requestExit();
+    void requestOpenProject();
+    void requestNewProject();
+    void performPendingAction();
+    void drawDiscardModal();
     void copyObject();
     void pasteObject();
 
@@ -251,6 +270,18 @@ private:
 
     Project project_;
     bool hasProject_ = false;
+    // Unsaved model edits since the last save (drives the title "*" and the
+    // discard-confirmation guard). Layout/docking changes do not set this -
+    // they fold into the .tyra only when the user saves the project.
+    bool dirty_ = false;
+    bool titleShowsDirty_ = false;  // last title state pushed to GLFW
+    std::string titleName_;         // project name currently in the title
+    // Discard guard (Exit/Open/New while dirty). pendingAction_ is what runs
+    // once the user resolves the modal; exitConfirmed_ lets the main loop close
+    // after a confirmed Exit without re-prompting.
+    PendingAction pendingAction_ = PendingAction::None;
+    bool openDiscardPopup_ = false;
+    bool exitConfirmed_ = false;
     // Set by attachProject(): apply project_.windowLayout at the next frame
     // boundary (ImGui cannot reload settings between NewFrame and EndFrame).
     bool layoutLoadPending_ = false;

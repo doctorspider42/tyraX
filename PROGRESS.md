@@ -9,6 +9,42 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (66) **On-demand save (no autosave) + menu-bar icon toolbar** — the editor
+  used to autosave the whole `.tyra` on *every* edit (`commitChange()` called
+  `saveAll()`), plus a second autosave whenever ImGui settled a layout/docking
+  change, plus a forced save on exit. That's gone. `commitChange()` now only
+  pushes an undo snapshot and, when the snapshot actually differed
+  (`History::push()` returns a bool now), flips a `dirty_` flag; the project is
+  written only when the user asks (File > Save, Ctrl+S, or the new toolbar
+  button). `dirty_` drives a `*` in the window title and an amber tint on the
+  Save icon. Losing unsaved work is guarded: Exit / Open Project / New Project
+  route through `requestExit/requestOpenProject/requestNewProject`, which pop an
+  "Unsaved Changes" modal (Save / Don't Save / Cancel) when dirty; the main
+  loop intercepts the window-close (`while(true)` + `glfwWindowShouldClose`
+  check) so the X button is guarded too. Terrain heightmaps used to be written
+  to disk on every sculpt stroke and on undo/redo; they're now kept in memory
+  (they already ride along in the undo snapshot) and persisted only in
+  `saveProject()` alongside the `.tyra`, so a discard truly discards terrain
+  edits. Freshly opened/created projects reset `dirty_` after
+  `attachProject()`'s asset rescan (rescan-found assets are rediscovered on
+  every open, so they don't count as unsaved). The new **toolbar** sits inline
+  in the main menu bar after Tools (`drawToolbar()`): a floppy **Save**
+  (amber when dirty), a green **Play** = Build && Run in PCSX2, a blue **Play**
+  = Build && Run on PS2 (dimmed until a ps2link IP is set), and a red **Stop**
+  (context-aware: cancel a running build, else stop a game on the PS2, else
+  close PCSX2 via the new `Runner::stopEmulator()`). Icons are vector-drawn on
+  the menu-bar draw list — the editor loads no icon font — so they stay crisp
+  at any UI scale. Editor-only change: no `.tyra` format, codegen or PS2
+  runtime impact. Verified end-to-end by driving the running editor (synthetic
+  mouse/keyboard) on an FPP scratch project and screenshotting each step:
+  paste-an-object → title gains `*`, Save icon turns amber, **but `grep` of the
+  on-disk `.tyra` shows the edit is NOT there** (no autosave); click the Save
+  icon → `.tyra` now contains it and `*` clears; Alt+F4 with unsaved edits →
+  the "Unsaved Changes" modal appears and the window stays open; "Don't Save" →
+  editor exits and the discarded edit is absent from the `.tyra`; "Cancel" →
+  editor stays open. Selecting an object (no edit) does not set dirty. Clean
+  editor build both before and after the button-label auto-size fix.
+
 - (65) **Copy/paste flow-graph nodes with Ctrl+C/V** — before this, Ctrl+C/V in
   the Flow Graph window always hit the global handler and copied the *scene
   objects* selected in the viewport, so there was no way to duplicate graph
