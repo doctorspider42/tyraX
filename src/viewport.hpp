@@ -166,6 +166,12 @@ private:
     Mesh box_, sphere_, cylinder_, cone_, spawnMarker_, playerMarker_;
     Mesh lightGizmo_;  // small unshaded bulb marking a point light
     Mesh wireSphere_;  // unit-radius ring sphere, scaled to a light's radius
+    // Per-detail primitive meshes (Box/Sphere/Cylinder/Cone), built lazily and
+    // shared across objects with the same detail. The fixed box_ / sphere_ /
+    // cylinder_ / cone_ above stay at the default detail (markers, previews).
+    std::map<int, Mesh> boxMeshes_, sphereMeshes_, cylinderMeshes_, coneMeshes_;
+    const Mesh& primMesh(PrimitiveType type, int detail);
+    void clearPrimMeshCache();
     std::string projectDir_;
     // .obj models split per material (MTL): each part carries its own GL mesh
     // (Kd baked into the vertex colors) and map_Kd texture.

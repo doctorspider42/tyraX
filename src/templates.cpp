@@ -1019,21 +1019,42 @@ void pushQuad(std::vector<Vec4>& verts, std::vector<Color>& cols,
 
 void addBox(std::vector<Vec4>& verts, std::vector<Color>& cols,
             std::vector<Vec4>& sts, const SceneObjectData& o) {
-  const float h = 0.5F;
-  pushQuad(verts, cols, sts, o, {h, -h, -h}, {h, h, -h}, {h, h, h}, {h, -h, h}, {1, 0, 0});
-  pushQuad(verts, cols, sts, o, {-h, -h, h}, {-h, h, h}, {-h, h, -h}, {-h, -h, -h},
-           {-1, 0, 0});
-  pushQuad(verts, cols, sts, o, {-h, h, -h}, {-h, h, h}, {h, h, h}, {h, h, -h}, {0, 1, 0});
-  pushQuad(verts, cols, sts, o, {-h, -h, h}, {-h, -h, -h}, {h, -h, -h}, {h, -h, h},
-           {0, -1, 0});
-  pushQuad(verts, cols, sts, o, {-h, -h, h}, {h, -h, h}, {h, h, h}, {-h, h, h}, {0, 0, 1});
-  pushQuad(verts, cols, sts, o, {h, -h, -h}, {-h, -h, -h}, {-h, h, -h}, {h, h, -h},
-           {0, 0, -1});
+  // Detail = subdivisions per edge (1 = plain 6-quad box); each face is an
+  // n x n grid, UVs span 0..1 per face. Mirror of the editor's unitBox.
+  const int n = o.primDetail < 1 ? 1 : (o.primDetail > 16 ? 16 : o.primDetail);
+  const float h = 0.5F, H = 1.0F;
+  auto face = [&](V3 c0, V3 du, V3 dv, V3 nrm) {
+    for (int i = 0; i < n; ++i)
+      for (int j = 0; j < n; ++j) {
+        const float s0 = (float)i / n, s1 = (float)(i + 1) / n;
+        const float t0 = (float)j / n, t1 = (float)(j + 1) / n;
+        auto P = [&](float s, float t) -> V3 {
+          return {c0.x + du.x * s + dv.x * t, c0.y + du.y * s + dv.y * t,
+                  c0.z + du.z * s + dv.z * t};
+        };
+        pushVert(verts, cols, sts, o, P(s0, t0), nrm, s0, t0);
+        pushVert(verts, cols, sts, o, P(s1, t0), nrm, s1, t0);
+        pushVert(verts, cols, sts, o, P(s1, t1), nrm, s1, t1);
+        pushVert(verts, cols, sts, o, P(s0, t0), nrm, s0, t0);
+        pushVert(verts, cols, sts, o, P(s1, t1), nrm, s1, t1);
+        pushVert(verts, cols, sts, o, P(s0, t1), nrm, s0, t1);
+      }
+  };
+  face({h, -h, -h}, {0, H, 0}, {0, 0, H}, {1, 0, 0});    // +X
+  face({-h, -h, h}, {0, H, 0}, {0, 0, -H}, {-1, 0, 0});  // -X
+  face({-h, h, -h}, {0, 0, H}, {H, 0, 0}, {0, 1, 0});    // +Y
+  face({-h, -h, h}, {0, 0, -H}, {H, 0, 0}, {0, -1, 0});  // -Y
+  face({-h, -h, h}, {H, 0, 0}, {0, H, 0}, {0, 0, 1});    // +Z
+  face({h, -h, -h}, {-H, 0, 0}, {0, H, 0}, {0, 0, -1});  // -Z
 }
 
 void addSphere(std::vector<Vec4>& verts, std::vector<Color>& cols,
                std::vector<Vec4>& sts, const SceneObjectData& o) {
-  const int stacks = 10, slices = 14;
+  // Detail = radial segments; stacks ~5:7 of that (mirror of the editor's
+  // primSphereStacks in project.hpp - keep the two in sync).
+  int slices = o.primDetail < 3 ? 3 : (o.primDetail > 64 ? 64 : o.primDetail);
+  int stacks = slices * 5 / 7;
+  if (stacks < 2) stacks = 2;
   const float r = 0.5F;
   for (int st = 0; st < stacks; ++st) {
     const float t0 = PI * st / stacks, t1 = PI * (st + 1) / stacks;
@@ -1062,7 +1083,7 @@ void addSphere(std::vector<Vec4>& verts, std::vector<Color>& cols,
 
 void addCylinder(std::vector<Vec4>& verts, std::vector<Color>& cols,
                  std::vector<Vec4>& sts, const SceneObjectData& o) {
-  const int seg = 16;
+  const int seg = o.primDetail < 3 ? 3 : (o.primDetail > 64 ? 64 : o.primDetail);
   const float r = 0.5F, h = 0.5F;
   for (int i = 0; i < seg; ++i) {
     const float a0 = 2.0F * PI * i / seg, a1 = 2.0F * PI * (i + 1) / seg;
@@ -1089,7 +1110,7 @@ void addCylinder(std::vector<Vec4>& verts, std::vector<Color>& cols,
 
 void addCone(std::vector<Vec4>& verts, std::vector<Color>& cols,
              std::vector<Vec4>& sts, const SceneObjectData& o) {
-  const int seg = 16;
+  const int seg = o.primDetail < 3 ? 3 : (o.primDetail > 64 ? 64 : o.primDetail);
   const float r = 0.5F, h = 0.5F;
   const float nl = 0.894F, ny = 0.447F;  // side normal for r=0.5, h=1
   for (int i = 0; i < seg; ++i) {
@@ -4531,6 +4552,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int animAutoplay;      // animated models: 1 = play at scene start\n"
            "  int animLoop;          // animated models: 1 = starting clip loops\n"
            "  float animSpeed;       // animated models: playback speed multiplier\n"
+           "  int primDetail;        // segments (curved) or box subdivisions/edge\n"
            "};\n"
            "\n";
 
@@ -4549,7 +4571,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
                    "0, 0, 0.0F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, "
                    "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, \"\", 1, 1, "
-                   "1.0F},\n";
+                   "1.0F, 1},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
                 for (size_t i = 0; i < p.sounds.size(); ++i)
@@ -4584,7 +4606,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << floatLit(o.drawDistance) << ", " << animModelIndexOf(p, o)
                     << ", \"" << escapeCString(o.animClip) << "\", "
                     << (o.animAutoplay ? 1 : 0) << ", " << (o.animLoop ? 1 : 0)
-                    << ", " << floatLit(o.animSpeed) << "},  // " << o.name << "\n";
+                    << ", " << floatLit(o.animSpeed) << ", "
+                    << clampPrimDetail(o.type, o.primDetail) << "},  // " << o.name
+                    << "\n";
             }
         }
         out << "};\n";

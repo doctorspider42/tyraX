@@ -344,21 +344,48 @@ void pushQuadShaded(std::vector<float>& v, Vec3 a, Vec3 b, Vec3 c, Vec3 d, Vec3 
     pushShaded(v, d, n, 0, 1);
 }
 
-std::vector<float> unitBox() {
+// detail = subdivisions per edge; at 1 this emits exactly the original 6-quad
+// box. Each face is an n x n grid; UVs span 0..1 over the whole face (texture
+// does not tile with detail). Kept in sync with the PS2 runtime addBox.
+std::vector<float> unitBox(int detail = kDefaultBoxDetail) {
     std::vector<float> v;
-    const float h = 0.5f;
-    pushQuadShaded(v, {h, -h, -h}, {h, h, -h}, {h, h, h}, {h, -h, h}, {1, 0, 0});
-    pushQuadShaded(v, {-h, -h, h}, {-h, h, h}, {-h, h, -h}, {-h, -h, -h}, {-1, 0, 0});
-    pushQuadShaded(v, {-h, h, -h}, {-h, h, h}, {h, h, h}, {h, h, -h}, {0, 1, 0});
-    pushQuadShaded(v, {-h, -h, h}, {-h, -h, -h}, {h, -h, -h}, {h, -h, h}, {0, -1, 0});
-    pushQuadShaded(v, {-h, -h, h}, {h, -h, h}, {h, h, h}, {-h, h, h}, {0, 0, 1});
-    pushQuadShaded(v, {h, -h, -h}, {-h, -h, -h}, {-h, h, -h}, {h, h, -h}, {0, 0, -1});
+    const int n = clampPrimDetail(PrimitiveType::Box, detail);
+    const float h = 0.5f, H = 1.0f;  // half-extent, full edge
+    // Face grid spanning c0 + s*du + t*dv (s,t in [0,1]); du x dv points along
+    // nrm so the winding stays CCW-outward.
+    auto face = [&](Vec3 c0, Vec3 du, Vec3 dv, Vec3 nrm) {
+        auto P = [&](float s, float t) -> Vec3 {
+            return {c0.x + du.x * s + dv.x * t, c0.y + du.y * s + dv.y * t,
+                    c0.z + du.z * s + dv.z * t};
+        };
+        for (int i = 0; i < n; ++i)
+            for (int j = 0; j < n; ++j) {
+                const float s0 = (float)i / n, s1 = (float)(i + 1) / n;
+                const float t0 = (float)j / n, t1 = (float)(j + 1) / n;
+                const Vec3 a = P(s0, t0), b = P(s1, t0), c = P(s1, t1), d = P(s0, t1);
+                pushShaded(v, a, nrm, s0, t0);
+                pushShaded(v, b, nrm, s1, t0);
+                pushShaded(v, c, nrm, s1, t1);
+                pushShaded(v, a, nrm, s0, t0);
+                pushShaded(v, c, nrm, s1, t1);
+                pushShaded(v, d, nrm, s0, t1);
+            }
+    };
+    face({h, -h, -h}, {0, H, 0}, {0, 0, H}, {1, 0, 0});    // +X
+    face({-h, -h, h}, {0, H, 0}, {0, 0, -H}, {-1, 0, 0});  // -X
+    face({-h, h, -h}, {0, 0, H}, {H, 0, 0}, {0, 1, 0});    // +Y
+    face({-h, -h, h}, {0, 0, -H}, {H, 0, 0}, {0, -1, 0});  // -Y
+    face({-h, -h, h}, {H, 0, 0}, {0, H, 0}, {0, 0, 1});    // +Z
+    face({h, -h, -h}, {-H, 0, 0}, {0, H, 0}, {0, 0, -1});  // -Z
     return v;
 }
 
-std::vector<float> unitSphere() {
+// detail = radial segment count; see project.hpp for the shared tessellation
+// formulas (kept in sync with the PS2 runtime in templates.cpp addSphere).
+std::vector<float> unitSphere(int detail = kDefaultPrimDetail) {
     std::vector<float> v;
-    const int stacks = 12, slices = 18;
+    const int slices = clampPrimDetail(PrimitiveType::Sphere, detail);
+    const int stacks = primSphereStacks(slices);
     const float r = 0.5f;
     auto at = [&](float t, float p) -> Vec3 {
         return {r * std::sin(t) * std::cos(p), r * std::cos(t), r * std::sin(t) * std::sin(p)};
@@ -382,9 +409,9 @@ std::vector<float> unitSphere() {
     return v;
 }
 
-std::vector<float> unitCylinder() {
+std::vector<float> unitCylinder(int detail = kDefaultPrimDetail) {
     std::vector<float> v;
-    const int seg = 24;
+    const int seg = clampPrimDetail(PrimitiveType::Cylinder, detail);
     const float r = 0.5f, h = 0.5f;
     for (int i = 0; i < seg; ++i) {
         const float a0 = 2 * kPi * i / seg, a1 = 2 * kPi * (i + 1) / seg;
@@ -409,9 +436,9 @@ std::vector<float> unitCylinder() {
     return v;
 }
 
-std::vector<float> unitCone() {
+std::vector<float> unitCone(int detail = kDefaultPrimDetail) {
     std::vector<float> v;
-    const int seg = 24;
+    const int seg = clampPrimDetail(PrimitiveType::Cone, detail);
     const float r = 0.5f, h = 0.5f;
     const float nl = 0.894f, ny = 0.447f;
     for (int i = 0; i < seg; ++i) {
@@ -718,6 +745,7 @@ void Viewport::shutdown() {
     destroyMesh(wireCube_);
     destroyMesh(lightGizmo_);
     destroyMesh(wireSphere_);
+    clearPrimMeshCache();
     destroyMesh(skyQuad_);
     destroyMesh(prevBg_);
     destroyMesh(prevFloor_);
@@ -847,6 +875,32 @@ void Viewport::buildPrimitiveMeshes() {
     wireCube_ = uploadMesh(unitWireCube());
     lightGizmo_ = uploadMesh(unitLightBulb());
     wireSphere_ = uploadMesh(unitWireSphere());
+}
+
+const Viewport::Mesh& Viewport::primMesh(PrimitiveType type, int detail) {
+    const int d = clampPrimDetail(type, detail);
+    std::map<int, Mesh>* cache;
+    switch (type) {
+        case PrimitiveType::Box: cache = &boxMeshes_; break;
+        case PrimitiveType::Sphere: cache = &sphereMeshes_; break;
+        case PrimitiveType::Cylinder: cache = &cylinderMeshes_; break;
+        case PrimitiveType::Cone: cache = &coneMeshes_; break;
+        default: return box_;
+    }
+    if (auto it = cache->find(d); it != cache->end()) return it->second;
+    const Mesh m = type == PrimitiveType::Box        ? uploadMesh(unitBox(d))
+                   : type == PrimitiveType::Sphere   ? uploadMesh(unitSphere(d))
+                   : type == PrimitiveType::Cylinder ? uploadMesh(unitCylinder(d))
+                                                     : uploadMesh(unitCone(d));
+    return cache->emplace(d, m).first->second;
+}
+
+void Viewport::clearPrimMeshCache() {
+    for (std::map<int, Mesh>* c :
+         {&boxMeshes_, &sphereMeshes_, &cylinderMeshes_, &coneMeshes_}) {
+        for (auto& [detail, m] : *c) destroyMesh(m);
+        c->clear();
+    }
 }
 
 void Viewport::buildTerrainMesh() {
@@ -1564,9 +1618,10 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     auto meshFor = [&](const SceneObject& o) -> const Mesh* {
         switch (o.type) {
-            case PrimitiveType::Sphere: return &sphere_;
-            case PrimitiveType::Cylinder: return &cylinder_;
-            case PrimitiveType::Cone: return &cone_;
+            case PrimitiveType::Box:
+            case PrimitiveType::Sphere:
+            case PrimitiveType::Cylinder:
+            case PrimitiveType::Cone: return &primMesh(o.type, o.primDetail);
             case PrimitiveType::SpawnPoint: return &spawnMarker_;
             case PrimitiveType::Player: return &playerMarker_;
             case PrimitiveType::SoundEmitter: return &sphere_;  // speaker-ish marker

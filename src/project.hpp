@@ -44,6 +44,45 @@ enum class PrimitiveType {
     Empty = 11,
 };
 
+// Tessellation detail for the geometry primitives, stored per object in
+// SceneObject::primDetail. Its meaning depends on the shape: for the curved
+// shapes (Sphere, Cylinder, Cone) it is the number of radial segments; for a
+// Box it is the number of subdivisions per edge (1 = the plain 12-triangle
+// box). Higher = more triangles = smoother/finer baked lighting, at PS2 vertex
+// cost. Box grows quadratically, so it has a tighter cap. The same formulas run
+// in three places that must stay in sync: the editor viewport (viewport.cpp
+// unitBox/unitSphere/unitCylinder/unitCone), the generated PS2 runtime
+// (templates.cpp addBox/addSphere/addCylinder/addCone) and primTriangleCount.
+constexpr int kDefaultPrimDetail = 16;  // curved shapes (radial segments)
+constexpr int kDefaultBoxDetail = 1;    // Box (subdivisions per edge)
+
+inline int primDetailMin(PrimitiveType t) { return t == PrimitiveType::Box ? 1 : 3; }
+inline int primDetailMax(PrimitiveType t) { return t == PrimitiveType::Box ? 16 : 64; }
+inline int clampPrimDetail(PrimitiveType t, int d) {
+    const int lo = primDetailMin(t), hi = primDetailMax(t);
+    return d < lo ? lo : (d > hi ? hi : d);
+}
+inline int defaultPrimDetail(PrimitiveType t) {
+    return t == PrimitiveType::Box ? kDefaultBoxDetail : kDefaultPrimDetail;
+}
+// Sphere vertical rings derived from the radial segment count (~5:7 ratio).
+inline int primSphereStacks(int detail) {
+    const int s = detail * 5 / 7;
+    return s < 2 ? 2 : s;
+}
+// Triangles a primitive tessellates to at the given detail - for the UI
+// readout. Marker/geometry-less types report 0.
+inline int primTriangleCount(PrimitiveType type, int detail) {
+    const int d = clampPrimDetail(type, detail);
+    switch (type) {
+        case PrimitiveType::Box: return 12 * d * d;  // 6 faces * 2 * d^2 subquads
+        case PrimitiveType::Sphere: return primSphereStacks(d) * d * 2;
+        case PrimitiveType::Cylinder: return d * 4;  // side (2/seg) + 2 caps
+        case PrimitiveType::Cone: return d * 2;      // side + base (1/seg each)
+        default: return 0;
+    }
+}
+
 // Unit primitives fit a 1x1x1 cube centered at origin and are transformed by
 // scale -> rotation (X, then Y, then Z) -> translation.
 struct SceneObject {
@@ -59,6 +98,11 @@ struct SceneObject {
     // Player collision: 0 = box (models use their real mesh AABB), 1 = mesh
     // (models only: per-triangle - ramps/stairs are walkable), 2 = none
     int collisionMode = 0;
+    // Tessellation detail for the geometry primitives: radial segments for
+    // Sphere/Cylinder/Cone, subdivisions per edge for Box. More = smoother +
+    // more triangles. Type-dependent range/default - see clampPrimDetail /
+    // defaultPrimDetail / primTriangleCount.
+    int primDetail = kDefaultPrimDetail;
     // Rendering cut-off: farther than this from the camera the object is not
     // drawn at all (collision, sounds and scripts still run). 0 = unlimited.
     // The cheapest LOD there is - era-correct for dense scenes.
@@ -150,7 +194,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
            a.physics == b.physics && a.usable == b.usable &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
-           a.drawDistance == b.drawDistance && a.modelPath == b.modelPath &&
+           a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
+           a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.playerMode == b.playerMode &&
            a.playerWalkSpeed == b.playerWalkSpeed &&
            a.playerLookSpeed == b.playerLookSpeed &&

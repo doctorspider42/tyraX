@@ -187,6 +187,12 @@ static std::string objectJson(const SceneObject& o) {
         // collision: box is the default and stays implicit
         (o.collisionMode == 1 ? ", \"collision\": \"mesh\""
                               : o.collisionMode == 2 ? ", \"collision\": \"none\"" : "") +
+        // geometry primitives only; the type's default detail stays implicit
+        (((o.type == PrimitiveType::Box || o.type == PrimitiveType::Sphere ||
+           o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone) &&
+          o.primDetail != defaultPrimDetail(o.type))
+             ? ", \"detail\": " + std::to_string(o.primDetail)
+             : "") +
         // 0 = unlimited (default) stays implicit
         (o.drawDistance > 0.0f
              ? ", \"drawDistance\": " + fmtFloat(o.drawDistance)
@@ -855,6 +861,11 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             const std::string mode = v->stringOr("box");
             o.collisionMode = mode == "mesh" ? 1 : mode == "none" ? 2 : 0;
         }
+        // Default depends on the shape (box baseline is 1, curved is 16); old
+        // projects with no "detail" key keep each shape's plain look.
+        o.primDetail = defaultPrimDetail(o.type);
+        if (const auto* v = jo.find("detail"))
+            o.primDetail = clampPrimDetail(o.type, (int)v->numberOr(o.primDetail));
         if (const auto* v = jo.find("drawDistance")) {
             o.drawDistance = (float)v->numberOr(0.0);
             if (o.drawDistance < 0.0f) o.drawDistance = 0.0f;
