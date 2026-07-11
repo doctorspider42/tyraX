@@ -55,6 +55,18 @@ class TerrainGame : public Tyra::Game {
     // Animated models (.glb): this object's skeletal instance (own
     // playback state + skinned output mesh, samples the shared SkelModel).
     std::unique_ptr<Tyra::SkelInstance> animInst;
+    // StaPip bags pointing straight into animInst's skinned arrays; the
+    // skinned vertices stay in model space, so the object transform rides
+    // in animMat (info bag + light matrix), not in the vertex data.
+    struct AnimPart {
+      std::unique_ptr<Tyra::StaPipBag> bag;
+      std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+      std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+      std::unique_ptr<Tyra::StaPipLightingBag> lightBag;
+    };
+    std::vector<AnimPart> animParts;
+    std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
+    Tyra::M4x4 animMat;
     // Usable-object highlight: fading shells grown around the object
     // center, drawn after the scene (see renderHighlightHull)
     std::vector<Tyra::Vec4> hullVerts;
@@ -84,26 +96,27 @@ class TerrainGame : public Tyra::Game {
   void freeModelAsset(int index);
   // Animated .glb models: serialized by the editor to .tskl skeletal files
   // (paths in model_data.gen.hpp) - bone keyframe tracks + bind-pose mesh.
-  // Poses are evaluated and skinned on the EE per frame (SkelInstance) and
-  // rendered through the dynamic pipeline. Both pipelines stay initialized
-  // side by side; renderScene() re-uploads the right VU1 programs when it
-  // switches passes (renderer3D.usePipeline would reallocate every buffer
-  // on every switch instead).
-  Tyra::DynamicPipeline dynpip;
+  // Poses are evaluated and skinned on the EE/VU0 (SkelInstance) for the
+  // in-view instances only; the skinned arrays render through the SAME
+  // static pipeline as the rest of the scene (single vertex upload, no VU1
+  // program swap, EE clipping). See updateAndRenderAnimObjects for the
+  // real-hardware numbers behind this design - PCSX2's fast EE hides them.
   struct GameAnimModel {
     std::unique_ptr<Tyra::SkelModel> src;   // skeleton + mesh + clip tracks
     std::vector<Tyra::Texture*> textures;   // per part, nullptr = untextured
     std::vector<std::string> texPaths;      // texture-cache refs held
+    Tyra::CoreBBox cullBox;  // local AABB over all clips + margin (see load)
   };
   std::vector<GameAnimModel> gameAnimModels;
   void loadAnimModelAsset(int index);
   void freeAnimModelAsset(int index);
   void setupAnimObject(int index);  // per-object instance + playback state
   void updateAndRenderAnimObjects();
-  // Directional light for the dynamic pass, mirroring the baked static look
-  Tyra::Color animAmbient;
-  Tyra::Color animDirColors[3];
-  Tyra::Vec4 animDirDirs[3];
+  // Directional light for the animated pass, mirroring the baked static
+  // look. The manual dir-lights layout: colors[0..2] + ambient in [3].
+  Tyra::Vec4 animLightColors[4];
+  Tyra::Vec4 animLightDirs[3];
+  Tyra::PipelineDirLightsBag animDirLights{true};
 
  public:
   // Clip-name lookup for scripts/flow graph (ScriptContext::resolveClip).

@@ -679,11 +679,16 @@ void Viewport::shutdown() {
     destroyMesh(lightGizmo_);
     destroyMesh(wireSphere_);
     destroyMesh(skyQuad_);
+    destroyMesh(prevBg_);
+    destroyMesh(prevFloor_);
     clearModelCache();
     clearTexCache();
     if (fbo_) glDeleteFramebuffers(1, &fbo_);
     if (colorTex_) glDeleteTextures(1, &colorTex_);
     if (depthRbo_) glDeleteRenderbuffers(1, &depthRbo_);
+    if (prevFbo_) glDeleteFramebuffers(1, &prevFbo_);
+    if (prevTex_) glDeleteTextures(1, &prevTex_);
+    if (prevDepth_) glDeleteRenderbuffers(1, &prevDepth_);
     if (gradeProgram_) glDeleteProgram(gradeProgram_);
     if (gradeFbo_) glDeleteFramebuffers(1, &gradeFbo_);
     if (gradeTex_) glDeleteTextures(1, &gradeTex_);
@@ -937,6 +942,35 @@ void Viewport::ensureFramebuffer(int width, int height) {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
+// Material Editor preview target. Separate from fbo_ - render() resizes that
+// one to the viewport window every frame, and both draw within one UI frame.
+void Viewport::ensurePreviewFramebuffer(int width, int height) {
+    if (prevFbo_ && width == prevW_ && height == prevH_) return;
+    prevW_ = width;
+    prevH_ = height;
+
+    if (!prevFbo_) glGenFramebuffers(1, &prevFbo_);
+    if (!prevTex_) glGenTextures(1, &prevTex_);
+    if (!prevDepth_) glGenRenderbuffers(1, &prevDepth_);
+
+    glBindTexture(GL_TEXTURE_2D, prevTex_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    glBindRenderbuffer(GL_RENDERBUFFER, prevDepth_);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, prevFbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, prevTex_, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER,
+                              prevDepth_);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::fprintf(stderr, "material preview framebuffer incomplete\n");
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
 namespace {
 
 // Forward euler rotation (X, then Y, then Z) - matches the generated game's
@@ -1086,6 +1120,11 @@ void Viewport::clearTexCache() {
     for (auto& [path, tex] : texCache_)
         if (tex) glDeleteTextures(1, &tex);
     texCache_.clear();
+}
+
+void Viewport::invalidateAssets() {
+    clearModelCache();  // also drops materialCache_
+    clearTexCache();
 }
 
 uint32_t Viewport::glTexture(const std::string& relPath) {
@@ -1309,9 +1348,18 @@ void Viewport::orbit(float dx, float dy) {
 }
 
 void Viewport::zoom(float wheel) {
-    distance_ *= (wheel > 0 ? 0.9f : 1.1f);
+    // Continuous dolly: each unit of wheel scales distance by 0.9, so the old
+    // one-notch feel (0.9x) is preserved while fractional/scaled input (dolly
+    // drag, sensitivity multipliers) moves proportionally.
+    distance_ *= std::pow(0.9f, wheel);
     if (distance_ < 2.0f) distance_ = 2.0f;
     if (distance_ > 2000.0f) distance_ = 2000.0f;
+}
+
+void Viewport::setTarget(const float target[3]) {
+    target_[0] = target[0];
+    target_[1] = target[1];
+    target_[2] = target[2];
 }
 
 void Viewport::pan(float dx, float dy) {
@@ -1614,6 +1662,101 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     return colorTex_;
+}
+
+// Material Editor live preview: gradient backdrop, checker floor and one unit
+// primitive with the material's Kd tint + map_Kd texture. Shares the scene
+// shader and unit meshes, so the shading matches the viewport (and the PS2
+// bake). The camera orbits instead of the shape spinning - the directional
+// shade is baked into the mesh vertex colors, so rotating the mesh would drag
+// the light along with it.
+uint32_t Viewport::renderMaterialPreview(int width, int height, const float* kd,
+                                         const std::string& texRel, int shape,
+                                         float angleDeg) {
+    if (!program_) return 0;
+    if (width < 1) width = 1;
+    if (height < 1) height = 1;
+    ensurePreviewFramebuffer(width, height);
+
+    if (!prevBg_.vao) {
+        std::vector<float> q;
+        const float bot[3] = {0.09f, 0.10f, 0.13f}, top[3] = {0.24f, 0.27f, 0.34f};
+        pushVertexColor(q, -1, -1, 0, bot[0], bot[1], bot[2]);
+        pushVertexColor(q, 1, -1, 0, bot[0], bot[1], bot[2]);
+        pushVertexColor(q, 1, 1, 0, top[0], top[1], top[2]);
+        pushVertexColor(q, -1, -1, 0, bot[0], bot[1], bot[2]);
+        pushVertexColor(q, 1, 1, 0, top[0], top[1], top[2]);
+        pushVertexColor(q, -1, 1, 0, top[0], top[1], top[2]);
+        prevBg_ = uploadMesh(q);
+    }
+    if (!prevFloor_.vao) {
+        // 8x8 checker plate right under the unit shape
+        std::vector<float> f;
+        const int n = 8;
+        const float ext = 2.0f, cell = 2.0f * ext / n, y = -0.501f;
+        for (int z = 0; z < n; ++z)
+            for (int x = 0; x < n; ++x) {
+                const float g = ((x + z) % 2 == 0) ? 0.30f : 0.235f;
+                const float ax = -ext + x * cell, az = -ext + z * cell;
+                const float bx = ax + cell, bz = az + cell;
+                pushVertexColor(f, ax, y, az, g, g, g);
+                pushVertexColor(f, bx, y, az, g, g, g);
+                pushVertexColor(f, ax, y, bz, g, g, g);
+                pushVertexColor(f, bx, y, az, g, g, g);
+                pushVertexColor(f, bx, y, bz, g, g, g);
+                pushVertexColor(f, ax, y, bz, g, g, g);
+            }
+        prevFloor_ = uploadMesh(f);
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, prevFbo_);
+    glViewport(0, 0, width, height);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+    glUseProgram(program_);
+    glUniform1i(uLightCount_, 0);  // no point lights in the preview
+
+    const Mat4 id = identity();
+    auto draw = [&](const Mesh& mesh, const Mat4& mvp, float r, float g, float b,
+                    uint32_t texture) {
+        glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
+        glUniformMatrix4fv(uModel_, 1, GL_FALSE, id.m);
+        glUniform1i(uLit_, 0);
+        glUniform3f(uTint_, r, g, b);
+        glUniform1i(uUseTex_, texture ? 1 : 0);
+        if (texture) glBindTexture(GL_TEXTURE_2D, texture);
+        glBindVertexArray(mesh.vao);
+        glDrawArrays(GL_TRIANGLES, 0, mesh.vertexCount);
+    };
+
+    // backdrop: NDC-space gradient quad, no depth
+    glDisable(GL_DEPTH_TEST);
+    draw(prevBg_, id, 1.0f, 1.0f, 1.0f, 0);
+    glEnable(GL_DEPTH_TEST);
+
+    const float a = angleDeg * kPi / 180.0f;
+    const float dist = 2.1f;
+    const Vec3 eye{dist * std::cos(a), 1.05f, dist * std::sin(a)};
+    const Mat4 view = lookAt(eye, {0.0f, -0.08f, 0.0f}, {0, 1, 0});
+    const Mat4 proj =
+        perspective(45.0f * kPi / 180.0f, (float)width / (float)height, 0.1f, 50.0f);
+    const Mat4 viewProj = mul(proj, view);
+
+    draw(prevFloor_, viewProj, 1.0f, 1.0f, 1.0f, 0);
+
+    const Mesh* mesh = shape == 0   ? &box_
+                       : shape == 2 ? &cylinder_
+                       : shape == 3 ? &cone_
+                                    : &sphere_;
+    draw(*mesh, viewProj, kd[0], kd[1], kd[2], glTexture(texRel));
+
+    glBindVertexArray(0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return prevTex_;
 }
 
 // Live preview of every enabled particle emitter. The per-kind spawn /

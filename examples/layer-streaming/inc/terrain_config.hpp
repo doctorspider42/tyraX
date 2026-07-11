@@ -26,6 +26,10 @@ constexpr float JUMP_SPEED = 4.5F;    // units/s
 // Scene switches show res/hud/loading.png on black for a moment
 constexpr bool LOADING_SCREEN = true;
 
+// Experimental (Preferences > Build > Disable VSync): false skips the vsync
+// wait before the flip - continuous frame rate, screen tearing possible.
+constexpr bool FRAME_LIMIT = true;
+
 // Debug-profile HUD (Project > Preferences > Build). Both are forced false
 // in a release-profile build, which folds the overlay code away entirely.
 constexpr bool DEBUG_SHOW_FPS = true;

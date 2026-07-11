@@ -75,7 +75,10 @@ struct SkelModel {
   std::vector<SkelJoint> palette;
   std::vector<SkelClip> clips;  // >= 1
   std::vector<SkelPart> parts;
-  float min[3] = {0.0F, 0.0F, 0.0F};  // clip-0 t=0 pose AABB (box collision)
+  // Pose AABB, union over every clip (sampled by the baker; files written
+  // before 2026-07 carry the clip-0 t=0 box). Used for box collision and,
+  // padded, for whole-instance frustum culling.
+  float min[3] = {0.0F, 0.0F, 0.0F};
   float max[3] = {0.0F, 0.0F, 0.0F};
 };
 

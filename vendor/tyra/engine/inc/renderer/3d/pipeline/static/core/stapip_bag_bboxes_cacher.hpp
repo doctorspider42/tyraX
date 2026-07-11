@@ -8,6 +8,11 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
+// Modified by tyra-editor: version-aware entries. A bag whose vertex buffer
+// is rewritten in place (skinned meshes, particles) bumps its bboxVersion;
+// the cacher recomputes that entry instead of piling up a new one per frame
+// (250-frame retention made per-frame versions leak entries and allocations).
+
 #pragma once
 
 #include <tamtypes.h>
@@ -21,6 +26,7 @@ namespace Tyra {
 struct StapipBagBBoxesCacheItem {
   u32 vu1MaxVertCount;
   u32 id;
+  u32 version;  // bag's bboxVersion at computation time
   std::unique_ptr<StaPipBagPackagesBBox> bboxes;
   int framesLeftToDestroy;
 };
@@ -36,7 +42,8 @@ class StapipBagBBoxesCacher {
   void onFrameEnd();
 
   StaPipBagPackagesBBox* getBBoxes(const Vec4* vertices, const u32& count,
-                                   const u32& id, const u32& maxVertCount);
+                                   const u32& id, const u32& version,
+                                   const u32& maxVertCount);
 
  private:
   StapipBagBBoxesCacheItem* getCache(const u32& maxVertCount, const u32& id);

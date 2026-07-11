@@ -25,10 +25,13 @@ namespace Tyra {
  * mode - runs on COP2 next to the EE, no microprogram involved).
  *
  * The skinned result lives in an owned single-frame DynamicMesh whose
- * vertex/normal arrays are overwritten in place every update - render it
- * through the ordinary DynamicPipeline; with one frame the pipeline submits
- * verticesFrom == verticesTo (interpolation 0), so no new VU1 code is
- * involved. Set the mesh's translation/rotation/scale like any other mesh.
+ * vertex/normal arrays are overwritten in place every update. Render the
+ * arrays (mesh->materials[i]->frames[0]) through StaPip like any static
+ * geometry: one vertex upload, no VU1 program swap, EE clipping - and use
+ * advance()/ensurePose() to skip the pose+skin work for culled instances
+ * (~0.9 ms per 1092-vert instance on real hardware; PCSX2's fast EE hides
+ * it). DynamicPipeline rendering still works (one frame = verticesFrom ==
+ * verticesTo, interpolation 0) but submits every vertex twice.
  */
 class SkelInstance {
  public:
@@ -62,6 +65,29 @@ class SkelInstance {
    * contract of tyra-editor games).
    */
   bool update(float dt);
+
+  /** Playback bookkeeping only - the expensive pose evaluation and skinning
+   * are deferred until ensurePose(). For instances culled away from the
+   * camera: time (and the animFinished contract) keeps running, the mesh
+   * keeps its last skinned pose. Same return contract as update(). */
+  bool advance(float dt);
+
+  /** Evaluates the pose and skins into the mesh if playback moved since the
+   * last skin. Call before reading the mesh arrays of a visible instance.
+   * @returns true when the mesh arrays were rewritten (bbox caches keyed on
+   * the buffers should be invalidated), false when the pose was current. */
+  bool ensurePose();
+
+  /** True when both instances strike the identical pose this frame (same
+   * model, same clip at the same time, no crossfade in flight) - their
+   * skinned meshes are interchangeable, so a renderer can skin one and draw
+   * it for every instance in the group (with per-instance matrix/color).
+   * Instances autoplaying the same clip from scene load stay equal forever;
+   * a scripted play()/speed change simply splits the group. */
+  bool poseEquals(const SkelInstance& other) const {
+    return model == other.model && cur.clip == other.cur.clip &&
+           cur.time == other.cur.time && fadeT >= 1.0F && other.fadeT >= 1.0F;
+  }
 
  private:
   struct Layer {

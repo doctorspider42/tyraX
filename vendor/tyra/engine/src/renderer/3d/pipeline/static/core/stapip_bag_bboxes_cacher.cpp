@@ -32,12 +32,23 @@ void StapipBagBBoxesCacher::onFrameEnd() {
 }
 
 StaPipBagPackagesBBox* StapipBagBBoxesCacher::getBBoxes(
-    const Vec4* vertices, const u32& count, const u32& id,
+    const Vec4* vertices, const u32& count, const u32& id, const u32& version,
     const u32& maxVertCount) {
   auto* cache = getCache(maxVertCount, id);
 
   if (cache) {
     cache->framesLeftToDestroy = cacheFramesCount * cacheSecondsCount;
+    // Modified by tyra-editor: same buffer, new content - recompute in
+    // place; a changed vertex count needs a fresh part split.
+    if (cache->version != version) {
+      if (cache->bboxes->getVertexCount() == count) {
+        cache->bboxes->recalculate(vertices, maxVertCount);
+      } else {
+        cache->bboxes = std::make_unique<StaPipBagPackagesBBox>(vertices, count,
+                                                                maxVertCount);
+      }
+      cache->version = version;
+    }
     return cache->bboxes.get();
   }
 
@@ -45,7 +56,7 @@ StaPipBagPackagesBBox* StapipBagBBoxesCacher::getBBoxes(
       std::make_unique<StaPipBagPackagesBBox>(vertices, count, maxVertCount);
 
   storage.push_back(
-      StapipBagBBoxesCacheItem{maxVertCount, id, std::move(bboxes),
+      StapipBagBBoxesCacheItem{maxVertCount, id, version, std::move(bboxes),
                                cacheFramesCount * cacheSecondsCount});
 
   return storage.back().bboxes.get();

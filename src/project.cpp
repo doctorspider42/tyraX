@@ -423,6 +423,8 @@ std::string save(const Project& p) {
          << "    \"showFps\": " << (p.settings.showFps ? "true" : "false") << ",\n"
          << "    \"showMemory\": " << (p.settings.showMemory ? "true" : "false")
          << ",\n"
+         << "    \"disableVsync\": "
+         << (p.settings.disableVsync ? "true" : "false") << ",\n"
          << "    \"clipping\": \"" << p.settings.clipping << "\",\n"
          << "    \"terrainDetail\": " << p.settings.terrainDetail << ",\n"
          << "    \"skyColor\": " << fmtVec3(p.settings.skyColor) << ",\n"
@@ -955,6 +957,8 @@ std::string load(Project& out, const std::string& projectDir) {
         }
         if (const auto* v = s->find("showFps")) st.showFps = v->boolOr(false);
         if (const auto* v = s->find("showMemory")) st.showMemory = v->boolOr(false);
+        if (const auto* v = s->find("disableVsync"))
+            st.disableVsync = v->boolOr(false);
         if (const auto* v = s->find("clipping"))
             st.clipping = v->stringOr("precise") == "fast" ? "fast" : "precise";
         if (const auto* v = s->find("terrainDetail"))

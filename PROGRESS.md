@@ -9,6 +9,103 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (45) **Material Editor (Tools > Material Editor) with a live preview** —
+  create/edit the `.mtl` materials the pipeline already consumes, without
+  leaving the editor. **No new data model**: materials stay plain Wavefront
+  files under `res/` (the same files `SceneObject::materialPath` references
+  and the PS2 `LeanObjLoader` parses), edited in place; the editor reads and
+  writes the pipeline subset (`newmtl`/`Kd`/`map_Kd`) and preserves unknown
+  lines of hand-imported files verbatim. **Brightness**: a 0-2 slider
+  multiplied into the written `Kd` (so both the game and the viewport pick it
+  up with zero runtime changes) plus a `# tyra-brightness` comment hint so
+  the color x brightness split round-trips exactly; parsers all ignore
+  comments. Kd is capped at 1.99 (PS2 texture modulation tops out at
+  255/128 = ~2x) and the generated `pushVert` now clamps the final vertex
+  color at 255 so a bright material cannot wrap the GS color on untextured
+  primitives. **Window**: file list + "New material..." (also reachable from
+  Project > Assets and an "Edit..." button next to every Material combo in
+  Properties), per-file entry management (add/remove/reorder - first entry =
+  what primitives/emitters use), name/color/brightness/texture editing that
+  saves to disk on every committed change and invalidates the caches
+  (`Viewport::invalidateAssets` + modelInfoCache), so the scene viewport
+  updates live. Texture combo lists PNGs next to the `.mtl` (map_Kd resolves
+  relative to it - same rule as the game), offers Import PNG, and warns on
+  non-power-of-two sizes. **Preview** (`Viewport::renderMaterialPreview`):
+  own FBO + gradient backdrop + checker floor + a turntable
+  box/sphere/cylinder/cone drawn with the shared scene shader and unit
+  meshes, camera orbiting (not the mesh spinning - the directional shade is
+  baked into the vertex colors). Verified: clean build; a scratch project
+  with a hand-written `rusty.mtl` (`# tyra-brightness 1.5`,
+  `Kd 1.35 0.9 0.525`, 64x64 checker map_Kd) opened in the GUI - the window
+  screenshot shows color decomposed back to (230,153,89) + brightness 1.50,
+  the "64x64" size line, the lit textured preview sphere, and the crate in
+  the scene viewport textured by the same material; a second shot shows the
+  turntable advanced and a "Saved res/materials/rusty.mtl" status from a
+  live edit, with the on-disk file byte-identical on reload. Full Docker
+  build of the scratch project: `=== Build OK ===`, generated
+  `terrain_game.cpp` carries the `c255` clamp, `scene_data.hpp` the
+  MATERIAL_PATHS entry, and `bin/materials/rusty.mtl` ships. In-game visuals
+  of a >1-brightness material on a real console still merit a human eyeball.
+- (46) **Frame drops no longer halve gameplay speed + "Disable VSync
+  (experimental)" preference** — with double-buffered vsync a PAL game is
+  quantized to 50/25/16.7 FPS (a 20.1 ms frame waits for the next vblank),
+  and the generated games set `g_frameDt`/`g_frameScale` once at init
+  assuming full rate - so dropping to 25 FPS also meant *half-speed*
+  gameplay. Now `updateFrameClock()` (generated prolog, called first thing
+  in both loop() variants) measures the real frame time (EE COP0 Count,
+  wrap-safe) and refreshes dt/scale every frame: within ±10% of the nominal
+  vsync step it snaps to exactly nominal (full-rate behavior stays
+  bit-identical), longer/shorter frames pass through clamped to [1/4, 4x]
+  nominal (a scene load is a hitch, not a gameplay leap). Known gap,
+  documented: frame-counter timers (`everyFrames` - flow-graph Every N
+  Seconds, sound-emitter intervals, HUD holds) still count rendered frames
+  and stretch at 25 FPS. Second half: **Project > Preferences > Build >
+  "Disable VSync (experimental)"** (`ProjectSettings::disableVsync`, saved
+  to .tyra, baked as `FRAME_LIMIT` into terrain_config.hpp; init calls
+  `setFrameLimit(false)`) - skips the vsync wait before the flip, making
+  the frame rate continuous instead of snapping 50 -> 25, at the cost of
+  tearing. Verified on the real PS2 (15-spider scene, PERF telemetry,
+  full sweeps): vsync ON - 50 FPS up to 11 spiders in view, 25 FPS zone at
+  14-15 with `dtus` flipping 19999 -> 40000 exactly when frames double
+  (compensation active); vsync OFF - endFrame wait collapses ~12 ms ->
+  0.53 ms and frame times go continuous: 7.1 ms empty view (~140 FPS),
+  15.8 ms at 11 spiders (~63), 23.2 ms at 15 (~43 FPS instead of a hard
+  25). A by-eye TV check of tearing severity stays with a human.
+
+- (45) **Animated models: 50 FPS on real hardware (was 25 at most camera
+  angles)** — the anim-test-many scene (7 skeletal 1092-vert spiders) halved
+  to exactly 25 FPS whenever several were on screen, PCSX2 never showed it.
+  Diagnosed with a throwaway instrumented build (COP0 frame-phase timers +
+  auto-spinning camera, PERF lines over ps2link): the frame was **EE-bound**
+  — every instance paid ~0.9 ms pose+skin plus ~1 ms DynPip submit every
+  frame, visible or not (~9.6 ms with zero spiders on screen), and with 7 in
+  view the busy time alone crossed the 20 ms PAL budget. (An earlier
+  guard-band-raster theory did not survive measurement: exact EE clipping
+  changed nothing at the bad angles - the "skip one spider" experiment had
+  merely removed ~1.5 ms of EE work.) Fix, all four parts measured on the
+  console: **(a)** skinned meshes render through **StaPip** instead of
+  DynPip - one vertex upload (DynPip sends from/to pairs and lerps them for
+  nothing on single-frame skeletal meshes), no VU1 program swap mid-frame,
+  EE clipping, per-package culling; **(b)** whole-instance frustum culling
+  with the .tskl AABB (now baked as a sampled union over every clip - the
+  runtime pads it 10%/axis; also fattens the collision box of clips that
+  reach out) - culled instances only advance playback time
+  (`SkelInstance::advance()/ensurePose()` split, engine); **(c)** instances
+  striking the identical pose (same clip advanced in lockstep - autoplayed
+  packs/props) share one skinned mesh via `SkelInstance::poseEquals`;
+  **(d)** TsklLoader merges parts with equal texture+color (fewer bags =
+  fewer object-data DMAs/packager runs), and the StaPip bbox cacher
+  recomputes version-bumped entries **in place** (per-frame `bboxVersion`
+  bumps used to pile up 250-frame-retention cache entries). Verified on the
+  real PS2 (360° sweeps, PERF telemetry): 50 FPS at every angle (worst
+  angle was 39.6 ms/frame, now 19.99 ms with ~7 ms vsync idle); offscreen
+  anim cost 9.6 ms -> ~6 us; 7 synced spiders skin once (anim 6.0 ms ->
+  0.86 ms); a mixed-clip variant (5 synced + 1 stand + 1 slow) shows exactly
+  3x the single-skin cost - groups split correctly - still 50 FPS. PCSX2 SW
+  renderer: spiders at the old worst angle render identically to the DynPip
+  path (lighting formula and light-data layout are shared between the
+  pipelines). Docs updated (animated-models.md).
+
 - (44) **PS2 deploy: Stop / second launch hung the console (thread-priority
   regression)** — first network deploy worked, but Stop on PS2 and every
   redeploy left the console frozen on the old game. Root cause: entry (40)'s
@@ -1828,6 +1925,39 @@ Each finished feature lands as its own commit.
   codegen would read 1.2/s on NTSC). Both modes verified booting at their
   vsync rate (status bar 50/60 VPS). Legacy V1 templates untouched (their
   byte-identical match must keep working).
+- (60) **Configurable viewport navigation + orbit around selection** - the
+  camera controls were hard-coded (LMB/RMB orbit, MMB pan, WASD fly) and the
+  orbit pivot was a free point, never the selection. Added a global `NavConfig`
+  (app.hpp): mouse **scheme** (Tyra/Blender/Maya/Unity - each maps which
+  drag+modifier orbits vs pans; Blender/Unity free the LMB for selection, Maya
+  adds an Alt+RMB dolly), **fly keys** (WASD or arrow keys), orbit/pan/zoom
+  **sensitivity** multipliers, invert X/Y, and an **orbit-around-selection**
+  toggle. These are machine/muscle-memory prefs, not project data, so they
+  extend the existing global `editor.ini` in %LOCALAPPDATA% (the old single-key
+  uiScale reader/writer became a full `EditorConfig` load/save; whole file
+  rewritten on any change). Input in `drawViewportWindow` now switches on the
+  scheme and scales/inverts pixel deltas; `Viewport::zoom` became continuous
+  (`distance *= 0.9^wheel`) so sensitivity and drag-dolly move proportionally
+  while one wheel notch keeps the old 0.9x feel; new `Viewport::setTarget`
+  snaps the orbit pivot to the selected object's position whenever the
+  selection index changes (independent of the transform gizmo mode) - pan/fly
+  afterward still move the pivot freely. New "View > Navigation controls..."
+  modal (clone of the Preferences modal pattern) edits it all live and persists
+  on every change, with a Restore-defaults button. Verified: clean build;
+  editor launched on a scratch fpp project and ran the new per-frame nav code
+  (scheme gating + focus snapping execute every frame) without crashing;
+  `editor.ini` round-trip confirmed by triggering a save (Ctrl+= -> setUiScale)
+  and reading back all nine nav keys at their defaults, then restoring auto DPI.
+  The interactive mouse feel per scheme (Blender/Maya/Unity muscle memory,
+  invert/sensitivity tuning) still wants a hands-on human pass - the GDI
+  screenshot tool can't capture ImGui's multi-viewport menu popups.
+  Follow-up: with arrow-key movement, ImGui's keyboard nav (NavEnableKeyboard,
+  on globally) was cycling focus through the viewport overlay tool buttons
+  (Move/Rotate/Scale, World/Camera, view mode) as the arrows were pressed. Fixed
+  by giving the Viewport window `ImGuiWindowFlags_NoNav` - those buttons keep
+  their 1/2/3/5 hotkeys, so nothing is lost. Verified: forced arrow mode in
+  editor.ini, focused the viewport, sent 6x Down + 6x Right - the tool stayed on
+  Move (no focus migration), screenshot-confirmed.
 
 
 - (60) **Streaming layers: per-scene object groups the game loads/evicts at
