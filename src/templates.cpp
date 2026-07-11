@@ -839,6 +839,17 @@ bool assetFileExists(const std::string& cwdRel) {
   return f != nullptr;
 }
 
+/** Per-object rendering cut-off (Properties > Draw distance) measured from
+ * the object center - the cheapest LOD. Draw-time only: collision, sounds
+ * and scripts elsewhere never consult this. 0 = unlimited. */
+bool beyondDrawDistance(const SceneObjectData& d, const Vec4& cam) {
+  if (d.drawDistance <= 0.0F) return false;
+  const float dx = d.position[0] - cam.x;
+  const float dy = d.position[1] - cam.y;
+  const float dz = d.position[2] - cam.z;
+  return dx * dx + dy * dy + dz * dz > d.drawDistance * d.drawDistance;
+}
+
 struct V3 {
   float x, y, z;
 };
@@ -1745,6 +1756,9 @@ void TerrainGame::updateAndRenderAnimObjects() {
     // visible or not - animFinished stays honest for offscreen instances
     const float step = o.animPlaying ? g_frameDt * o.animSpeed : 0.0F;
     o.animFinished = inst->advance(step);
+
+    // draw-distance cut-off, same rule as the static path in renderScene
+    if (beyondDrawDistance(o.data, cameraPosition)) continue;
 
     // model matrix straight from the object data: T * R(X,Y,Z) * S, the
     // same transform the static path bakes through pushVert()/rotated()
@@ -2917,6 +2931,7 @@ void TerrainGame::renderScene() {
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
     if (!runtimeObjects[i].visible) continue;
+    if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag) stapip.core.render(part.bag.get());
   }
@@ -4376,6 +4391,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  float lightRadius; // point lights (type 9): falloff radius\n"
            "  int saveState;  // 1 = position/color/visibility persisted in saves\n"
            "  int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none\n"
+           "  float drawDistance;  // not drawn farther than this from the camera;\n"
+           "                       // 0 = unlimited (collision/logic always run)\n"
            "  int animModel;  // animated models: index into ANIM_MODEL_PATHS, -1 = none\n"
            "  const char* animClip;  // animated models: starting clip (\"\" = first)\n"
            "  int animAutoplay;      // animated models: 1 = play at scene start\n"
@@ -4398,7 +4415,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         if (objs.empty()) {
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
                    "0, 0, 0.0F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, "
-                   "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, -1, \"\", 1, 1, 1.0F},\n";
+                   "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, \"\", 1, 1, "
+                   "1.0F},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
                 for (size_t i = 0; i < p.sounds.size(); ++i)
@@ -4429,7 +4447,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << floatLit(o.soundInterval) << ", " << (o.soundOnPlayer ? 1 : 0)
                     << ", " << floatLit(o.lightBright)
                     << ", " << floatLit(o.lightRadius) << ", " << (o.saveState ? 1 : 0)
-                    << ", " << o.collisionMode << ", " << animModelIndexOf(p, o)
+                    << ", " << o.collisionMode << ", "
+                    << floatLit(o.drawDistance) << ", " << animModelIndexOf(p, o)
                     << ", \"" << escapeCString(o.animClip) << "\", "
                     << (o.animAutoplay ? 1 : 0) << ", " << (o.animLoop ? 1 : 0)
                     << ", " << floatLit(o.animSpeed) << "},  // " << o.name << "\n";

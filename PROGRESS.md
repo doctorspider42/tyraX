@@ -63,6 +63,20 @@ Each finished feature lands as its own commit.
   quad code; an on-screen viewport pixel check of the plane still wants a
   human/interactive pass (the GDI grab only caught the 4K window's top-left).
 
+- (47) **Per-object draw distance (LOD tier 0)** — new `Draw distance`
+  property on solid objects (Properties panel, 0 = unlimited): farther than
+  this from the camera the object is skipped at draw time in both the
+  static and the animated pass (`beyondDrawDistance()` in the generated
+  game); collision, sounds and scripts still run, and animated instances
+  keep advancing playback time so `animFinished` stays honest. Serialized
+  as `"drawDistance"` in the object JSON (omitted at the default 0 - old
+  projects load unchanged); baked as a new `SceneObjectData.drawDistance`
+  column. The editor viewport intentionally ignores it (perf setting, not a
+  look). Also fixed a stale Properties label: animated-model collision box
+  is the all-clips AABB since (45), not "frame-0". Verified: editor + Docker
+  game build clean; PCSX2 boot of a 15-spider scene with `drawDistance = 8`
+  on every second spider shows exactly the near ones (screenshot), 50 FPS.
+
 - (45) **Material Editor (Tools > Material Editor) with a live preview** —
   create/edit the `.mtl` materials the pipeline already consumes, without
   leaving the editor. **No new data model**: materials stay plain Wavefront
