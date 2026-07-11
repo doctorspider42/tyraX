@@ -1995,6 +1995,7 @@ void App::drawAddObjectMenu() {
             if (ImGui::MenuItem("Sphere")) addObject(PrimitiveType::Sphere);
             if (ImGui::MenuItem("Cylinder")) addObject(PrimitiveType::Cylinder);
             if (ImGui::MenuItem("Cone")) addObject(PrimitiveType::Cone);
+            if (ImGui::MenuItem("Plane")) addObject(PrimitiveType::Plane);
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Model")) {
@@ -2073,6 +2074,7 @@ static const char* typeLabel(PrimitiveType t) {
         case PrimitiveType::Sphere: return "Sphere";
         case PrimitiveType::Cylinder: return "Cylinder";
         case PrimitiveType::Cone: return "Cone";
+        case PrimitiveType::Plane: return "Plane";
         case PrimitiveType::SpawnPoint: return "Spawn point";
         case PrimitiveType::Model: return "3D model";
         case PrimitiveType::Player: return "Player";
@@ -2111,7 +2113,8 @@ void App::drawPropertiesWindow() {
     // Real geometry in the game: rendered, collidable, texturable.
     const bool isShape =
         o.type == PrimitiveType::Box || o.type == PrimitiveType::Sphere ||
-        o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone;
+        o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone ||
+        o.type == PrimitiveType::Plane;
     const bool isSolid =
         isShape || o.type == PrimitiveType::Model || o.type == PrimitiveType::SavePoint;
 
@@ -2121,10 +2124,17 @@ void App::drawPropertiesWindow() {
     committed |= ImGui::IsItemDeactivatedAfterEdit();
 
     if (isShape) {
-        int typeIdx = (int)o.type;
-        const char* typeNames[] = {"Box", "Sphere", "Cylinder", "Cone"};
-        if (ImGui::Combo("Type", &typeIdx, typeNames, 4)) {
-            o.type = (PrimitiveType)typeIdx;
+        // Plane's enum value isn't contiguous with the other shapes, so map
+        // combo indices through an explicit list instead of casting directly.
+        static const PrimitiveType kShapeTypes[] = {
+            PrimitiveType::Box, PrimitiveType::Sphere, PrimitiveType::Cylinder,
+            PrimitiveType::Cone, PrimitiveType::Plane};
+        const char* typeNames[] = {"Box", "Sphere", "Cylinder", "Cone", "Plane"};
+        int typeIdx = 0;
+        for (int i = 0; i < IM_ARRAYSIZE(kShapeTypes); ++i)
+            if (kShapeTypes[i] == o.type) typeIdx = i;
+        if (ImGui::Combo("Type", &typeIdx, typeNames, IM_ARRAYSIZE(typeNames))) {
+            o.type = kShapeTypes[typeIdx];
             committed = true;
         }
     } else {

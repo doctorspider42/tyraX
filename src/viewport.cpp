@@ -402,6 +402,16 @@ std::vector<float> unitCone() {
     return v;
 }
 
+// Flat unit square in the XZ plane, double-sided (top +Y and bottom -Y faces)
+// so it is visible from both above and below.
+std::vector<float> unitPlane() {
+    std::vector<float> v;
+    const float h = 0.5f;
+    pushQuadShaded(v, {-h, 0, -h}, {-h, 0, h}, {h, 0, h}, {h, 0, -h}, {0, 1, 0});
+    pushQuadShaded(v, {-h, 0, h}, {-h, 0, -h}, {h, 0, -h}, {h, 0, h}, {0, -1, 0});
+    return v;
+}
+
 // Spawn point marker: a pole with an arrow pointing +Z (the facing direction,
 // i.e. object yaw = player start yaw in the FPP template).
 std::vector<float> unitSpawnMarker() {
@@ -673,6 +683,7 @@ void Viewport::shutdown() {
     destroyMesh(sphere_);
     destroyMesh(cylinder_);
     destroyMesh(cone_);
+    destroyMesh(plane_);
     destroyMesh(spawnMarker_);
     destroyMesh(playerMarker_);
     destroyMesh(wireCube_);
@@ -793,6 +804,7 @@ void Viewport::buildPrimitiveMeshes() {
     destroyMesh(sphere_);
     destroyMesh(cylinder_);
     destroyMesh(cone_);
+    destroyMesh(plane_);
     destroyMesh(spawnMarker_);
     destroyMesh(playerMarker_);
     destroyMesh(wireCube_);
@@ -802,6 +814,7 @@ void Viewport::buildPrimitiveMeshes() {
     sphere_ = uploadMesh(unitSphere());
     cylinder_ = uploadMesh(unitCylinder());
     cone_ = uploadMesh(unitCone());
+    plane_ = uploadMesh(unitPlane());
     spawnMarker_ = uploadMesh(unitSpawnMarker());
     playerMarker_ = uploadMesh(unitPlayerMarker());
     wireCube_ = uploadMesh(unitWireCube());
@@ -1488,6 +1501,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             case PrimitiveType::Sphere: return &sphere_;
             case PrimitiveType::Cylinder: return &cylinder_;
             case PrimitiveType::Cone: return &cone_;
+            case PrimitiveType::Plane: return &plane_;
             case PrimitiveType::SpawnPoint: return &spawnMarker_;
             case PrimitiveType::Player: return &playerMarker_;
             case PrimitiveType::SoundEmitter: return &sphere_;  // speaker-ish marker

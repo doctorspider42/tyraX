@@ -9,6 +9,32 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (61) **Plane primitive + gray default for simple objects** — added a `Plane`
+  shape (`PrimitiveType::Plane = 12`, kept non-contiguous but stable): a flat
+  unit square in the XZ plane, rendered **double-sided** (top +Y and bottom -Y
+  quads) so it's visible from both faces. Full chain: enum + `operator==` is
+  unaffected (no new field), `primitiveTypeName`/`primitiveTypeFromName`
+  (`"plane"`), `unitPlane()` + `plane_` mesh in the viewport (build/destroy/
+  `meshFor`), `addPlane()` + dispatch `case 12` in the game codegen
+  (`templates.cpp`), Insert > Shapes > Plane and `typeLabel` in the UI. The
+  Properties "Type" combo can't cast index→enum anymore (Plane=12 isn't
+  adjacent to Box..Cone=0..3), so it now maps through an explicit `kShapeTypes`
+  list; `isShape` includes Plane so it gets rotation/scale/color/material +
+  box collision like the other primitives. **Gray default**: changed the
+  `SceneObject::color` struct default from the terracotta `{0.8,0.35,0.25}` to
+  neutral `{0.6,0.6,0.6}`. Safe because every specialized type (spawn, player,
+  emitter, sound, light, empty, save point) overrides its color explicitly and
+  `color` is always emitted in the `.tyra` save, so only fresh Box/Sphere/
+  Cylinder/Cone/Plane/Model objects pick up the new gray; existing projects
+  load their stored color unchanged. **Verified**: clean editor build; a
+  scratch project with a hand-injected `"type":"plane"` object round-tripped
+  through load/save intact and emitted `{12, ..., {0.6F,0.6F,0.6F}, ...}` in
+  `inc/scene_data.hpp`; the full Docker + PS2 `make` e2e build succeeded
+  (`=== Build OK ===`), so the generated `addPlane` compiles on the PS2
+  toolchain. Editor viewport render path reuses the proven `pushQuadShaded`
+  quad code; an on-screen viewport pixel check of the plane still wants a
+  human/interactive pass (the GDI grab only caught the 4K window's top-left).
+
 - (45) **Material Editor (Tools > Material Editor) with a live preview** —
   create/edit the `.mtl` materials the pipeline already consumes, without
   leaving the editor. **No new data model**: materials stay plain Wavefront

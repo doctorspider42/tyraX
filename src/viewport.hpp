@@ -141,7 +141,7 @@ private:
 
     Mesh terrain_mesh_;
     Mesh lines_;  // terrain grid + axes
-    Mesh box_, sphere_, cylinder_, cone_, spawnMarker_, playerMarker_;
+    Mesh box_, sphere_, cylinder_, cone_, plane_, spawnMarker_, playerMarker_;
     Mesh lightGizmo_;  // small unshaded bulb marking a point light
     Mesh wireSphere_;  // unit-radius ring sphere, scaled to a light's radius
     std::string projectDir_;

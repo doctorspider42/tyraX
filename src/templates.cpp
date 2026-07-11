@@ -1061,6 +1061,14 @@ void addCylinder(std::vector<Vec4>& verts, std::vector<Color>& cols,
   }
 }
 
+// Flat unit square in the XZ plane, double-sided (visible from both faces).
+void addPlane(std::vector<Vec4>& verts, std::vector<Color>& cols,
+              std::vector<Vec4>& sts, const SceneObjectData& o) {
+  const float h = 0.5F;
+  pushQuad(verts, cols, sts, o, {-h, 0, -h}, {-h, 0, h}, {h, 0, h}, {h, 0, -h}, {0, 1, 0});
+  pushQuad(verts, cols, sts, o, {-h, 0, h}, {-h, 0, -h}, {h, 0, -h}, {h, 0, h}, {0, -1, 0});
+}
+
 void addCone(std::vector<Vec4>& verts, std::vector<Color>& cols,
              std::vector<Vec4>& sts, const SceneObjectData& o) {
   const int seg = 16;
@@ -2813,6 +2821,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
       case 8: break;   // sound emitter - marker only, no geometry
       case 9: break;   // point light - invisible source, no geometry
       case 11: break;  // empty - pure transform, no geometry
+      case 12: addPlane(p0.vertices, p0.colors, p0.sts, o.data); break;
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
     g_primKd = nullptr;
