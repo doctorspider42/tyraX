@@ -9,6 +9,20 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (43) **Viewport wire boxes rendered as garbage lines** — the selection
+  outline and the "Highlight usable objects" boxes drew as random
+  criss-crossing lines instead of cubes: `unitWireCube()` (viewport.cpp)
+  emitted 6 floats per vertex (pos+color) while `uploadMesh()` reads the
+  interleaved buffer as the 8-float pos(3)+color(3)+uv(2) layout, so the
+  GPU sampled positions at shifted offsets (and vertexCount came out 18
+  instead of 24). Present since the wire cube was written; every other
+  mesh builder already pads uv. Fix: emit uv 0,0 per vertex. Verified:
+  clean build, then a scratch project (usable box/cylinder/cone with
+  rotations + a selected sphere, highlightUsable and selectedObject
+  pre-set in the .tyra so no synthetic input needed) opened in the GUI -
+  the GDI screenshot shows proper yellow highlight cubes hugging each
+  usable object (rotation/scale respected) and the orange selection box
+  around the sphere, instead of the previous line spray.
 - (35) **Unity-style object scripts + the Empty object type** — scripts are
   now attachable components instead of always-running globals. **Model**:
   `SceneObject::scripts` (list of class names; part of `operator==`, undo,
