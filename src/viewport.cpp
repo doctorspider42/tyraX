@@ -174,6 +174,17 @@ uniform int uLit;                // 0: lines/markers/sky - skip point lights
 uniform int uLightCount;
 uniform vec4 uLightPos[8];       // xyz = world position, w = radius
 uniform vec4 uLightCol[8];       // rgb = color, w = brightness
+uniform int uFogOn;              // GS hardware fog preview (lit geometry only)
+uniform vec3 uFogColor;
+uniform float uFogStart;
+uniform float uFogEnd;
+uniform vec3 uFogEye;            // camera position (world) - also flashlight
+uniform vec3 uFogFwd;            // camera forward (world, normalized)
+uniform int uFlashOn;            // camera flashlight preview (VU1 twin)
+uniform vec3 uFlashCol;
+uniform float uFlashInvR2;       // 1/range^2
+uniform float uFlashCut2;        // cos^2(half-angle)
+uniform float uFlashSoft;        // softness/(range^2*(1-cos^2))
 out vec4 FragColor;
 void main() {
     vec3 tex = uUseTex != 0 ? texture(uTex, vUV).rgb : vec3(1.0);
@@ -193,7 +204,25 @@ void main() {
         }
         shade = min(shade + add, vec3(1.0));
     }
-    FragColor = vec4(shade * uTint * tex, 1.0);
+    if (uFlashOn != 0 && uLit != 0) {
+        // Camera flashlight - the exact per-vertex formula the PS2 runs on
+        // VU1 (CalculateTyraSpotLight): cone + distance falloff, no N.L.
+        vec3 d = vWorld - uFogEye;
+        float dist2 = dot(d, d);
+        float t = max(dot(d, uFogFwd), 0.0);
+        float cone = clamp((t * t - uFlashCut2 * dist2) * uFlashSoft, 0.0, 1.0);
+        float axial = clamp(1.0 - dist2 * uFlashInvR2, 0.0, 1.0);
+        shade = min(shade + uFlashCol * (cone * axial), vec3(1.0));
+    }
+    vec3 color = shade * uTint * tex;
+    if (uFogOn != 0 && uLit != 0) {
+        // View-plane distance, same metric as the PS2 (clip-space W); the
+        // sky is excluded like the game's fogDisabled sky dome bag.
+        float viewDist = dot(vWorld - uFogEye, uFogFwd);
+        float f = clamp((uFogEnd - viewDist) / (uFogEnd - uFogStart), 0.0, 1.0);
+        color = mix(uFogColor, color, f);
+    }
+    FragColor = vec4(color, 1.0);
 }
 )";
 
@@ -599,6 +628,17 @@ bool Viewport::init() {
     uLightCount_ = glGetUniformLocation(program_, "uLightCount");
     uLightPos_ = glGetUniformLocation(program_, "uLightPos");
     uLightCol_ = glGetUniformLocation(program_, "uLightCol");
+    uFogOn_ = glGetUniformLocation(program_, "uFogOn");
+    uFogColor_ = glGetUniformLocation(program_, "uFogColor");
+    uFogStart_ = glGetUniformLocation(program_, "uFogStart");
+    uFogEnd_ = glGetUniformLocation(program_, "uFogEnd");
+    uFogEye_ = glGetUniformLocation(program_, "uFogEye");
+    uFogFwd_ = glGetUniformLocation(program_, "uFogFwd");
+    uFlashOn_ = glGetUniformLocation(program_, "uFlashOn");
+    uFlashCol_ = glGetUniformLocation(program_, "uFlashCol");
+    uFlashInvR2_ = glGetUniformLocation(program_, "uFlashInvR2");
+    uFlashCut2_ = glGetUniformLocation(program_, "uFlashCut2");
+    uFlashSoft_ = glGetUniformLocation(program_, "uFlashSoft");
 
     GLuint gvs = compile(GL_VERTEX_SHADER, GRADE_VS);
     GLuint gfs = compile(GL_FRAGMENT_SHADER, GRADE_FS);
@@ -1096,6 +1136,21 @@ void Viewport::setLighting(const float* dir, float ambient, float diffuse,
     }
 }
 
+void Viewport::setFog(bool enabled, const float* rgb, float start, float end) {
+    fogOn_ = enabled;
+    fogColor_[0] = rgb[0], fogColor_[1] = rgb[1], fogColor_[2] = rgb[2];
+    fogStart_ = start;
+    fogEnd_ = end;
+}
+
+void Viewport::setFlashlight(bool enabled, const float* rgb, float range,
+                             float halfAngleDeg) {
+    flashOn_ = enabled;
+    flashColor_[0] = rgb[0], flashColor_[1] = rgb[1], flashColor_[2] = rgb[2];
+    flashRange_ = range < 1.0f ? 1.0f : range;
+    flashAngle_ = halfAngleDeg < 2.0f ? 2.0f : (halfAngleDeg > 80.0f ? 80.0f : halfAngleDeg);
+}
+
 void Viewport::setProjectDir(const std::string& dir) {
     if (projectDir_ == dir) return;
     projectDir_ = dir;
@@ -1458,6 +1513,30 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     }
 
     glUseProgram(program_);
+
+    // GS hardware fog preview: same coefficient the VU1 computes in-game.
+    {
+        Vec3 fwd{tgt.x - eye.x, tgt.y - eye.y, tgt.z - eye.z};
+        float len = std::sqrt(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
+        if (len > 1e-5f) fwd = {fwd.x / len, fwd.y / len, fwd.z / len};
+        glUniform1i(uFogOn_, fogOn_ ? 1 : 0);
+        glUniform3f(uFogColor_, fogColor_[0], fogColor_[1], fogColor_[2]);
+        glUniform1f(uFogStart_, fogStart_);
+        glUniform1f(uFogEnd_, fogEnd_ > fogStart_ + 1.0f ? fogEnd_ : fogStart_ + 1.0f);
+        glUniform3f(uFogEye_, eye.x, eye.y, eye.z);
+        glUniform3f(uFogFwd_, fwd.x, fwd.y, fwd.z);
+
+        // Camera flashlight preview (same constants the engine derives)
+        glUniform1i(uFlashOn_, flashOn_ ? 1 : 0);
+        glUniform3f(uFlashCol_, flashColor_[0], flashColor_[1], flashColor_[2]);
+        const float r2 = flashRange_ * flashRange_;
+        const float cosCut = std::cos(flashAngle_ * kPi / 180.0f);
+        const float cut2 = cosCut * cosCut;
+        const float coneBase = r2 * (1.0f - cut2);
+        glUniform1f(uFlashInvR2_, 1.0f / r2);
+        glUniform1f(uFlashCut2_, cut2);
+        glUniform1f(uFlashSoft_, coneBase > 1e-10f ? 3.0f / coneBase : 0.0f);
+    }
 
     // Point lights in the scene -> fragment shader uniforms (live preview of
     // what the game bakes into vertex colors; capped at the shader's 8).
@@ -1937,7 +2016,9 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
                 alpha = 40.0f * t / 128.0f;
             } else if (kind == 2) {
                 size *= 3.0f;
-                alpha = 18.0f * (t < 0.5f ? t * 2.0f : (1.0f - t) * 2.0f) / 128.0f;
+                // density knob: Opacity 0..1 -> peak alpha 0..60 (game twin)
+                alpha = o.emitterOpacity * 60.0f *
+                        (t < 0.5f ? t * 2.0f : (1.0f - t) * 2.0f) / 128.0f;
             } else if (kind == 4) {
                 sizeUp = size * 0.5f;  // size = streak length
                 size *= 0.06f;         // thin
@@ -1951,16 +2032,33 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
             }
 
             // rain streaks stay vertical (world-up quads); everything else is
-            // a full camera-facing billboard
-            const float Rx = rx * size, Rz = rz * size;
-            const float Ux = sizeUp > 0.0f ? 0.0f : ux * size;
-            const float Uy = sizeUp > 0.0f ? sizeUp : uy * size;
-            const float Uz = sizeUp > 0.0f ? 0.0f : uz * size;
+            // a full camera-facing billboard. Fog puffs swirl in the camera
+            // plane, alternating direction per puff - same formula as the
+            // game's updateParticles() (keep in sync).
+            float brx = rx, bry = 0.0f, brz = rz;
+            float bux = ux, buy = uy, buz = uz;
+            if (kind == 2) {
+                const int pi = (int)(&p - ep.parts.data());
+                const float age = p.maxLife - p.life;
+                const float ang =
+                    (float)pi * 2.4f + (pi & 1 ? 0.3f : -0.3f) * age;
+                const float ca = std::cos(ang), sa = std::sin(ang);
+                brx = rx * ca + ux * sa;
+                bry = uy * sa;
+                brz = rz * ca + uz * sa;
+                bux = ux * ca - rx * sa;
+                buy = uy * ca;
+                buz = uz * ca - rz * sa;
+            }
+            const float Rx = brx * size, Ry = bry * size, Rz = brz * size;
+            const float Ux = sizeUp > 0.0f ? 0.0f : bux * size;
+            const float Uy = sizeUp > 0.0f ? sizeUp : buy * size;
+            const float Uz = sizeUp > 0.0f ? 0.0f : buz * size;
             const float X = p.pos[0], Y = p.pos[1], Z = p.pos[2];
-            const float v0[3] = {X - Rx - Ux, Y - Uy, Z - Rz - Uz};
-            const float v1[3] = {X + Rx - Ux, Y - Uy, Z + Rz - Uz};
-            const float v2[3] = {X + Rx + Ux, Y + Uy, Z + Rz + Uz};
-            const float v3[3] = {X - Rx + Ux, Y + Uy, Z - Rz + Uz};
+            const float v0[3] = {X - Rx - Ux, Y - Ry - Uy, Z - Rz - Uz};
+            const float v1[3] = {X + Rx - Ux, Y + Ry - Uy, Z + Rz - Uz};
+            const float v2[3] = {X + Rx + Ux, Y + Ry + Uy, Z + Rz + Uz};
+            const float v3[3] = {X - Rx + Ux, Y - Ry + Uy, Z - Rz + Uz};
             auto vert = [&](const float* v, float tu, float tv) {
                 buf.insert(buf.end(),
                            {v[0], v[1], v[2], cr, cg, cb, alpha, tu, tv});

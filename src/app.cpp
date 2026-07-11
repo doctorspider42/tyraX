@@ -2373,6 +2373,15 @@ void App::drawPropertiesWindow() {
             ImGui::SameLine();
             if (ImGui::SmallButton("Edit...")) openMaterialEditor(o.materialPath);
         }
+        if (o.emitterKind == 2) {  // fog density
+            ImGui::DragFloat("Opacity", &o.emitterOpacity, 0.01f, 0.0f, 1.0f,
+                             "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::TextDisabled(
+                "Slowly swirling puffs. For the Silent Hill roll: big spawn\n"
+                "area, Follow player on, a soft-alpha texture, and match the\n"
+                "color to the distance fog color (Preferences > Distance fog).");
+        }
         if (o.emitterKind == 5) {  // custom physics knobs
             ImGui::DragFloat("Speed", &o.emitterSpeed, 0.05f, 0.0f, 50.0f,
                              "%.2f u/s");
@@ -6179,6 +6188,9 @@ void App::applyProjectToViewport() {
     viewport_.setSky(rs.skyColor, rs.skyTopColor, rs.skyDome);
     viewport_.setUsableHighlight(rs.highlightUsable, rs.highlightColor);
     viewport_.setLighting(rs.lightDir, rs.ambient, rs.diffuse, rs.lightColor, rs.brightness);
+    viewport_.setFog(rs.fogEnabled, rs.fogColor, rs.fogStart, rs.fogEnd);
+    viewport_.setFlashlight(rs.flashlightEnabled, rs.flashlightColor,
+                            rs.flashlightRange, rs.flashlightAngle);
 }
 
 void App::drawPreferencesModal() {
@@ -6306,6 +6318,36 @@ void App::drawPreferencesModal() {
         "GS framebuffer tricks, applied in-game at the end of every frame.\n"
         "Bloom: quarter-res blur re-added over the frame (soft glow).\n"
         "Film grain: animated noise overlay. Subtle values work best.");
+
+    ImGui::SeparatorText("Distance fog");
+    ImGui::Checkbox("Enable fog", &prefSettings_.fogEnabled);
+    if (prefSettings_.fogEnabled) {
+        ImGui::ColorEdit3("Fog color", prefSettings_.fogColor);
+        ImGui::DragFloat("Fog start (units)", &prefSettings_.fogStart, 0.5f, 0.0f,
+                         1000.0f, "%.1f");
+        ImGui::DragFloat("Fog end (units)", &prefSettings_.fogEnd, 0.5f, 1.0f,
+                         2000.0f, "%.1f");
+        if (prefSettings_.fogEnd <= prefSettings_.fogStart + 1.0f)
+            prefSettings_.fogEnd = prefSettings_.fogStart + 1.0f;
+    }
+    ImGui::TextDisabled(
+        "PS2 GS hardware fog: geometry fades to the fog color with distance\n"
+        "(free on the GS). Match the fog color with the sky color for a\n"
+        "Silent Hill style fade-out that hides the draw distance.");
+
+    ImGui::SeparatorText("Flashlight");
+    ImGui::Checkbox("Camera flashlight", &prefSettings_.flashlightEnabled);
+    if (prefSettings_.flashlightEnabled) {
+        ImGui::ColorEdit3("Light color", prefSettings_.flashlightColor);
+        ImGui::DragFloat("Reach (units)", &prefSettings_.flashlightRange, 0.5f,
+                         1.0f, 200.0f, "%.1f");
+        ImGui::DragFloat("Cone half-angle (deg)", &prefSettings_.flashlightAngle,
+                         0.5f, 2.0f, 80.0f, "%.1f");
+    }
+    ImGui::TextDisabled(
+        "Spot light attached to the camera, computed per vertex on VU1 on\n"
+        "top of the baked shading (the Silent Hill flashlight). Dense or\n"
+        "well-tessellated geometry gives the smoothest cone.");
 
     ImGui::SeparatorText("Scenes");
     ImGui::Checkbox("Loading screen between scenes", &prefSettings_.loadingScreen);
@@ -6569,6 +6611,22 @@ void App::drawScenePreferencesModal() {
     category("Post effects", ov.postFx, [&] {
         ImGui::SliderFloat("Bloom", &s.bloom, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Film grain", &s.grain, 0.0f, 1.0f, "%.2f");
+    });
+
+    category("Distance fog", ov.fog, [&] {
+        ImGui::Checkbox("Enable fog", &s.fogEnabled);
+        ImGui::ColorEdit3("Fog color", s.fogColor);
+        ImGui::DragFloat("Fog start (units)", &s.fogStart, 0.5f, 0.0f, 1000.0f, "%.1f");
+        ImGui::DragFloat("Fog end (units)", &s.fogEnd, 0.5f, 1.0f, 2000.0f, "%.1f");
+        if (s.fogEnd <= s.fogStart + 1.0f) s.fogEnd = s.fogStart + 1.0f;
+    });
+
+    category("Flashlight", ov.flashlight, [&] {
+        ImGui::Checkbox("Camera flashlight", &s.flashlightEnabled);
+        ImGui::ColorEdit3("Light color", s.flashlightColor);
+        ImGui::DragFloat("Reach (units)", &s.flashlightRange, 0.5f, 1.0f, 200.0f, "%.1f");
+        ImGui::DragFloat("Cone half-angle (deg)", &s.flashlightAngle, 0.5f, 2.0f,
+                         80.0f, "%.1f");
     });
 
     category("Usable objects", ov.highlight, [&] {

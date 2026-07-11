@@ -106,6 +106,29 @@ void RendererCoreGS::allocateBuffers() {
   TYRA_LOG("Framebuffers, zBuffer set and allocated!");
 }
 
+// Modified by tyra-editor: GS hardware fog color register.
+#ifndef GS_REG_FOGCOL
+#define GS_REG_FOGCOL 0x3D
+#endif
+#ifndef GS_SET_FOGCOL
+#define GS_SET_FOGCOL(R, G, B) \
+  ((u64)(R) | ((u64)(G) << 8) | ((u64)(B) << 16))
+#endif
+
+void RendererCoreGS::setFogColor(const u8& r, const u8& g, const u8& b) {
+  packet2_t* packet2 = packet2_create(4, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
+  qword_t* q = packet2->base;
+  PACK_GIFTAG(q, GIF_SET_TAG(1, 1, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  PACK_GIFTAG(q, GS_SET_FOGCOL(r, g, b), GS_REG_FOGCOL);
+  q++;
+  packet2_update(packet2, q);
+  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  dma_channel_send_packet2(packet2, DMA_CHANNEL_GIF, true);
+  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_free(packet2);
+}
+
 void RendererCoreGS::enableZTests() {
   packet2_reset(zTestPacket, false);
   packet2_update(zTestPacket,

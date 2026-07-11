@@ -37,6 +37,8 @@
     LoadTyraSingleColor{ singleColor, singleColorEnabled, VU1_SINGLE_COLOR_ADDR, VU1_OPTIONS_ADDR }
     LoadTyraTags{ lodGifTag, testsTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR }
     FixColor{ singleColor }
+    ; Modified by tyra-editor: GS hardware fog (packed XYZF2)
+    MakeTyraAdcMask{ adcMask }
 
 begin:
     xtop buffer
@@ -50,7 +52,9 @@ begin:
     iadd    kickAddress,        kickAddress,    vertexCount
 
     StoreTyraGifTags{ gifSetTag, lodGifTag, primTag, testsTag, destAddress }
-    LoadTyraLerpValue{ interp, VU1_OPTIONS_ADDR }
+    ; Modified by tyra-editor: full options quad - y is still the lerp
+    ; value, z/w carry the fog params
+    LoadTyraFogParams{ interp, VU1_OPTIONS_ADDR }
     LoadTyraScaleValue{ scale, buffer }
 
     ;--- Loop
@@ -66,7 +70,8 @@ vertexLoop:
 
         ;--- Vertex 1 - Calculate
         MatrixMultiplyVertex{ vertex1, mvp, vertex1 }
-        PerformClipCheck{ vertex1, destAddress, XYZ2_STORE_OFFSET }
+        CalculateTyraFog{ fogInt, vertex1, interp }
+        PerformTyraFogClipCheck{ vertex1, destAddress, XYZ2_STORE_OFFSET, fogInt, adcMask }
         VertexPersCorr{ vertex1, vertex1 }
         ScaleVertexToGSFormat{ scale, vertex1 }
 
@@ -83,7 +88,8 @@ vertexLoop:
 
         ;--- Vertex 2 - Calculate
         MatrixMultiplyVertex{ vertex2, mvp, vertex2 }
-        PerformClipCheck{ vertex2, destAddress, XYZ2_STORE_OFFSET+2 }
+        CalculateTyraFog{ fogInt, vertex2, interp }
+        PerformTyraFogClipCheck{ vertex2, destAddress, XYZ2_STORE_OFFSET+2, fogInt, adcMask }
         VertexPersCorr{ vertex2, vertex2 }
         ScaleVertexToGSFormat{ scale, vertex2 }
 
@@ -100,7 +106,8 @@ vertexLoop:
 
         ;--- Vertex 3 - Calculate
         MatrixMultiplyVertex{ vertex3, mvp, vertex3 }
-        PerformClipCheck{ vertex3, destAddress, XYZ2_STORE_OFFSET+4 }
+        CalculateTyraFog{ fogInt, vertex3, interp }
+        PerformTyraFogClipCheck{ vertex3, destAddress, XYZ2_STORE_OFFSET+4, fogInt, adcMask }
         VertexPersCorr{ vertex3, vertex3 }
         ScaleVertexToGSFormat{ scale, vertex3 }
 

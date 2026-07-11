@@ -20,7 +20,7 @@ StaPipCullTCVU1Program::StaPipCullTCVU1Program()
     : StaPipVU1Program(StaPipCullTextureColor, &StaPipVU1Cull_TC_CodeStart,
                        &StaPipVU1Cull_TC_CodeEnd,
                        ((u64)GIF_REG_ST) << 0 | ((u64)GIF_REG_RGBAQ) << 4 |
-                           ((u64)GIF_REG_XYZ2) << 8,
+                           ((u64)GIF_REG_XYZF2) << 8,
                        3, 3) {}
 
 StaPipCullTCVU1Program::~StaPipCullTCVU1Program() {}

@@ -33,6 +33,8 @@
     LoadTyraStaticData{ gifSetTag }
     LoadTyraDirectionalLights{ lightMatrix, lightDirections, lightColors, ambientColor, VU1_LIGHTS_DIRS_ADDR, VU1_LIGHTS_COLORS_ADDR, VU1_LIGHTS_MATRIX_ADDR }
     LoadTyraTags{ lodGifTag, testsTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR }
+    ; Modified by tyra-editor: GS hardware fog (packed XYZF2)
+    LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
 
 begin:
     xtop buffer
@@ -49,17 +51,17 @@ begin:
     ;--- Loop
     iadd vertexCounter, buffer, vertexCount
 vertexLoop:
-        ;--- Load vertex1
-        lq.xyz  vertex1,  (vertexData)
-        lq.xyz  normal1,  (normalData) 
+        ;--- Load vertex1 (full quad - W carries the view distance for fog)
+        lq      vertex1,  (vertexData)
+        lq.xyz  normal1,  (normalData)
 
         ;--- Load vertex2
-        lq.xyz  vertex2,  1(vertexData)
-        lq.xyz  normal2,  1(normalData) 
+        lq      vertex2,  1(vertexData)
+        lq.xyz  normal2,  1(normalData)
 
         ;--- Load vertex3
-        lq.xyz  vertex3,  2(vertexData)
-        lq.xyz  normal3,  2(normalData) 
+        lq      vertex3,  2(vertexData)
+        lq.xyz  normal3,  2(normalData)
 
         ;--- Calculate vertex1
         ScaleVertexToGSFormat{ scale, vertex1 }
@@ -76,10 +78,13 @@ vertexLoop:
         CalculateTyraDirectionalLights{ outputColor3, normal3, lightDirections, lightColors, lightMatrix, ambientColor }
         FixColor{ outputColor3 }
 
-        iaddiu      adcBit,     VI00, 0x0
-        isw.w       adcBit,     XYZ2_STORE_OFFSET(destAddress)
-        isw.w       adcBit,     XYZ2_STORE_OFFSET+2(destAddress)
-        isw.w       adcBit,     XYZ2_STORE_OFFSET+4(destAddress)
+        ; Modified by tyra-editor: fog coefficient replaces the zero ADC word
+        CalculateTyraFog{ fogInt, vertex1, fogParams }
+        StoreTyraFog{ fogInt, destAddress, XYZ2_STORE_OFFSET }
+        CalculateTyraFog{ fogInt, vertex2, fogParams }
+        StoreTyraFog{ fogInt, destAddress, XYZ2_STORE_OFFSET+2 }
+        CalculateTyraFog{ fogInt, vertex3, fogParams }
+        StoreTyraFog{ fogInt, destAddress, XYZ2_STORE_OFFSET+4 }
 
         ;--- Store vertex1
         sq      outputColor1,   RGBA_STORE_OFFSET(destAddress)

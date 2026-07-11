@@ -20,7 +20,7 @@ DynPipTDVU1Program::DynPipTDVU1Program()
     : DynPipVU1Program(DynPipTextureDirLights, &DynPipVU1_TD_CodeStart,
                        &DynPipVU1_TD_CodeEnd,
                        ((u64)GIF_REG_ST) << 0 | ((u64)GIF_REG_RGBAQ) << 4 |
-                           ((u64)GIF_REG_XYZ2) << 8,
+                           ((u64)GIF_REG_XYZF2) << 8,
                        3, 3) {}
 
 DynPipTDVU1Program::~DynPipTDVU1Program() {}

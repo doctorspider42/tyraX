@@ -43,6 +43,16 @@ public:
     void setLighting(const float* dir, float ambient, float diffuse, const float* color,
                      float brightness);
 
+    // GS hardware distance fog preview (Preferences > Distance fog); geometry
+    // blends toward rgb between the start/end view distances, sky excluded -
+    // same as the generated game.
+    void setFog(bool enabled, const float* rgb, float start, float end);
+
+    // Camera flashlight preview (Preferences > Flashlight): additive cone
+    // from the editor camera, the exact formula the PS2 runs on VU1.
+    void setFlashlight(bool enabled, const float* rgb, float range,
+                       float halfAngleDeg);
+
     // project root for resolving relative model paths (clears the model cache)
     void setProjectDir(const std::string& dir);
 
@@ -142,6 +152,18 @@ private:
     int uLightCount_ = -1;
     int uLightPos_ = -1;
     int uLightCol_ = -1;
+    // GS hardware fog preview
+    int uFogOn_ = -1, uFogColor_ = -1, uFogStart_ = -1, uFogEnd_ = -1;
+    int uFogEye_ = -1, uFogFwd_ = -1;
+    bool fogOn_ = false;
+    float fogColor_[3] = {0.5f, 0.5f, 0.55f};
+    float fogStart_ = 15.0f, fogEnd_ = 120.0f;
+    // Camera flashlight preview
+    int uFlashOn_ = -1, uFlashCol_ = -1, uFlashInvR2_ = -1, uFlashCut2_ = -1;
+    int uFlashSoft_ = -1;
+    bool flashOn_ = false;
+    float flashColor_[3] = {0.75f, 0.75f, 0.62f};
+    float flashRange_ = 30.0f, flashAngle_ = 20.0f;
 
     Mesh terrain_mesh_;
     Mesh lines_;  // terrain grid + axes

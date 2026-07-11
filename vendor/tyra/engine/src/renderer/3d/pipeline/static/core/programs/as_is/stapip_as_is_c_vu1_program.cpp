@@ -19,7 +19,7 @@ namespace Tyra {
 StaPipAsIsCVU1Program::StaPipAsIsCVU1Program()
     : StaPipVU1Program(StaPipAsIsColor, &StaPipVU1As_Is_C_CodeStart,
                        &StaPipVU1As_Is_C_CodeEnd,
-                       ((u64)GIF_REG_RGBAQ) << 0 | ((u64)GIF_REG_XYZ2) << 4, 2,
+                       ((u64)GIF_REG_RGBAQ) << 0 | ((u64)GIF_REG_XYZF2) << 4, 2,
                        2) {}
 
 StaPipAsIsCVU1Program::~StaPipAsIsCVU1Program() {}

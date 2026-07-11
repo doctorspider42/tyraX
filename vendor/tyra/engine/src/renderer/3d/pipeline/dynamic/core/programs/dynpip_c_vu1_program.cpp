@@ -19,7 +19,7 @@ namespace Tyra {
 DynPipCVU1Program::DynPipCVU1Program()
     : DynPipVU1Program(
           DynPipColor, &DynPipVU1_C_CodeStart, &DynPipVU1_C_CodeEnd,
-          ((u64)GIF_REG_RGBAQ) << 0 | ((u64)GIF_REG_XYZ2) << 4, 2, 1) {}
+          ((u64)GIF_REG_RGBAQ) << 0 | ((u64)GIF_REG_XYZF2) << 4, 2, 1) {}
 
 DynPipCVU1Program::~DynPipCVU1Program() {}
 
