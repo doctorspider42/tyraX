@@ -71,6 +71,10 @@ public:
     void pan(float dxPixels, float dyPixels);
     void fly(float forward, float strafe, float dt);
 
+    // Snap the orbit pivot to a world-space point (e.g. the selected object),
+    // keeping the current yaw/pitch/distance. Used by "orbit around selection".
+    void setTarget(const float target[3]);
+
     // View/projection of the last render() call (column-major, OpenGL style) -
     // used by the transform gizmo.
     const float* viewMatrix() const { return viewM_; }
