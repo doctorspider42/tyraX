@@ -9,6 +9,32 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (49) **Auto-generated mesh LOD for animated models (LOD tier 2)** — new
+  Preferences > Rendering > `Mesh LOD distance` (0 = off): the build bakes
+  decimated variants of every .tskl part (~50% and ~25% of the welded
+  vertex count) and instances render them beyond the distance / twice the
+  distance. **Baker** (glbparser): quadric-error HALF-edge collapse - a
+  vertex snaps onto a neighbor, so normals/uvs/skin bindings are never
+  blended and skinning stays valid by construction; vertices weld by their
+  full attribute tuple (uv/normal seams can't be crossed), seam twins and
+  open borders are locked, collapses run in sorted-cost rounds. Spider
+  test model: legs 1050 -> 456 -> 162 verts. **Format**: .tskl v2 (per
+  part: lodCount + arrays); the loader accepts v1, part merging merges LOD
+  chains with base-array fallback. **Engine**: SkelInstance holds repacked
+  bind data + skin buffers per (part, LOD); ensurePose(lod) re-skins on a
+  pose change OR a tier switch (other tiers' buffers hold older skins);
+  lodArrays()/lodCount()/currentLod() expose the renderable arrays.
+  **Codegen**: tier by camera distance; pose-sharing groups key on the
+  tier too. LODs are baked only when the preference is on (they cost RAM
+  and file size; spider2.tskl 97 -> 117 KB). Verified: PCSX2 boot shows
+  full-detail near spiders and visibly simplified far ones at 50 FPS
+  (quality note: tune the distance so reduced meshes are small on
+  screen); real-PS2 PERF on the 15-desynced-spider stress scene (12 in
+  view, camera 4 units from the nearest): anim+submit 22.9 ms (hard
+  25 FPS) -> 17.6 (mesh LOD 8u) -> 14.2 (+anim LOD 8u) -> 11.1 ms (both
+  at 5u; the frame then hovers at the vsync boundary, mixed 20/40 ms).
+  The stress scene stays extreme by design - real scenes tune distances.
+
 - (48) **Animation LOD (LOD tier 1)** — new Preferences > Rendering >
   `Animation LOD distance` (0 = off): animated-model instances farther than
   this refresh their pose/skinning every 2nd frame, and every 4th beyond

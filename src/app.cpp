@@ -6234,6 +6234,15 @@ void App::drawPreferencesModal() {
         "(every 4th beyond twice the distance). Playback time is unaffected.\n"
         "Cuts the per-instance EE cost of distant animated crowds.");
 
+    ImGui::DragFloat("Mesh LOD distance", &prefSettings_.meshLodDistance,
+                     0.5f, 0.0f, 2000.0f,
+                     prefSettings_.meshLodDistance > 0.0f ? "%.0f units" : "off");
+    if (prefSettings_.meshLodDistance < 0.0f) prefSettings_.meshLodDistance = 0.0f;
+    ImGui::TextDisabled(
+        "The build bakes ~50%% and ~25%%-vertex variants of animated models;\n"
+        "instances farther than this render the reduced meshes. Costs RAM\n"
+        "and .tskl size; the editor viewport always shows the full mesh.");
+
     // Texture quantization - the PS2-native "compression" (palettized
     // PSMT8/PSMT4 textures). Applied at build time into .res-baked; per
     // model/material overrides live in the Assets section.

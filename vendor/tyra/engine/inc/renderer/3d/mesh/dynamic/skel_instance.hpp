@@ -73,10 +73,54 @@ class SkelInstance {
   bool advance(float dt);
 
   /** Evaluates the pose and skins into the mesh if playback moved since the
-   * last skin. Call before reading the mesh arrays of a visible instance.
-   * @returns true when the mesh arrays were rewritten (bbox caches keyed on
-   * the buffers should be invalidated), false when the pose was current. */
-  bool ensurePose();
+   * last skin (or the requested LOD differs from the last one skinned).
+   * Call before reading the arrays of a visible instance.
+   * @param lod 0 = full mesh; higher levels use the decimated variants
+   * baked into the .tskl, clamped per part to what the file carries.
+   * @returns true when the arrays were rewritten (bbox caches keyed on
+   * the buffers should be invalidated), false when everything was current. */
+  bool ensurePose(u8 lod = 0);
+
+  /** LOD levels available (including the full mesh: always >= 1). Parts can
+   * carry different chain lengths; this is the longest one - lodArrays()
+   * clamps per part. */
+  u8 lodCount() const { return maxLodLevels; }
+
+  /** The level the out arrays currently hold (last ensurePose target). A
+   * renderer throttling pose refreshes must still call ensurePose when the
+   * wanted level differs - other levels' buffers hold older skins (or the
+   * bind pose before their first ever skin). */
+  u8 currentLod() const { return lastSkinnedLod; }
+
+  /** The renderable arrays of one part at one LOD level (clamped to the
+   * part's chain). Valid after the matching ensurePose(lod). */
+  struct LodArrays {
+    Vec4* vertices;
+    Vec4* normals;
+    Vec4* textureCoords;  // nullptr on untextured parts
+    u32 count;
+  };
+  LodArrays lodArrays(size_t part, u8 lod);
+
+  // Implementation detail, public only so the .cpp's file-local repack
+  // helper can fill it: one part at one LOD level - bind-pose data repacked
+  // into 16-byte-aligned qwords for the VU0 skinning loop (positions w = 1,
+  // normals w = 0 so the translation column drops out; weights
+  // pre-normalized to sum 1; joints re-sorted per vertex by descending
+  // weight with the nonzero count in `influences`, so skinParts dispatches
+  // to a blend of exactly 0, 1, 2 or 4 matrices) plus the skin output.
+  // Level 0 outputs alias the mesh's frame arrays (ownVertices stays
+  // empty); deeper levels own theirs.
+  struct PartLod {
+    std::vector<Vec4> bindPositions, bindNormals, skinWeights;
+    std::vector<u8> sortedJoints, influences;
+    std::vector<Vec4> ownVertices, ownNormals;  // levels > 0
+    std::vector<Vec4> uvs;  // packed texture coords, levels > 0 (static)
+    Vec4* outV = nullptr;   // skin destination (own or mesh frame)
+    Vec4* outN = nullptr;
+    Vec4* uvPtr = nullptr;  // nullptr on untextured parts
+    u32 count = 0;
+  };
 
   /** True when both instances strike the identical pose this frame (same
    * model, same clip at the same time, no crossfade in flight) - their
@@ -102,30 +146,22 @@ class SkelInstance {
   float fadeT = 1.0F;             // 0 = all prev, 1 = all cur (fade done)
   bool poseDirty = true;          // initial pose not yet skinned
   bool oneShotDone = false;
+  u8 lastSkinnedLod = 0;          // which level the out arrays hold
+  u8 maxLodLevels = 1;            // longest per-part chain incl. the base
 
   // scratch buffers, sized once in the constructor
   std::vector<float> localsCur, localsPrev;  // nodes * 10: t[3] r[4] s[3]
   std::vector<u8> animatedCur, animatedPrev; // node had a channel this pose
   std::vector<M4x4> globals;                 // per node
   std::vector<M4x4> palette;                 // per palette slot
-  std::vector<Vec4*> outVertices, outNormals;  // per part, into mesh frame 0
 
-  // bind-pose data repacked per part into 16-byte-aligned qwords for the
-  // VU0 skinning loop: positions carry w = 1, normals w = 0 (so the
-  // translation column drops out of the transform), and weights are
-  // pre-normalized to sum 1 (all-zero rows stay zero - the vertex collapses
-  // to the origin exactly like the EE loop used to produce). Joints and
-  // weights are re-sorted per vertex by descending weight with the nonzero
-  // count in `influences`, so skinParts dispatches to a blend of exactly
-  // 0, 1, 2 or 4 matrices instead of always paying for 4.
-  std::vector<std::vector<Vec4>> bindPositions, bindNormals, skinWeights;
-  std::vector<std::vector<u8>> sortedJoints, influences;
+  std::vector<std::vector<PartLod>> partLods;  // [part][lod]
 
   void advanceLayer(Layer& layer, float dt);
   void evalLocals(Layer& layer, std::vector<float>& locals,
                   std::vector<u8>& animated);
   void evalPose();
-  void skinParts();
+  void skinParts(u8 lod);
 };
 
 }  // namespace Tyra

@@ -406,6 +406,8 @@ std::string save(const Project& p) {
          << "    \"clipping\": \"" << p.settings.clipping << "\",\n"
          << "    \"animLodDistance\": " << fmtFloat(p.settings.animLodDistance)
          << ",\n"
+         << "    \"meshLodDistance\": " << fmtFloat(p.settings.meshLodDistance)
+         << ",\n"
          << "    \"terrainDetail\": " << p.settings.terrainDetail << ",\n"
          << "    \"skyColor\": " << fmtVec3(p.settings.skyColor) << ",\n"
          << "    \"skyTopColor\": " << fmtVec3(p.settings.skyTopColor) << ",\n"
@@ -943,6 +945,10 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = s->find("animLodDistance")) {
             st.animLodDistance = (float)v->numberOr(0.0);
             if (st.animLodDistance < 0.0f) st.animLodDistance = 0.0f;
+        }
+        if (const auto* v = s->find("meshLodDistance")) {
+            st.meshLodDistance = (float)v->numberOr(0.0);
+            if (st.meshLodDistance < 0.0f) st.meshLodDistance = 0.0f;
         }
         if (const auto* v = s->find("terrainDetail"))
             st.terrainDetail = (int)v->numberOr(32);
