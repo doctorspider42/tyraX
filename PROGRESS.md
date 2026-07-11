@@ -9,6 +9,32 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (46) **Frame drops no longer halve gameplay speed + "Disable VSync
+  (experimental)" preference** — with double-buffered vsync a PAL game is
+  quantized to 50/25/16.7 FPS (a 20.1 ms frame waits for the next vblank),
+  and the generated games set `g_frameDt`/`g_frameScale` once at init
+  assuming full rate - so dropping to 25 FPS also meant *half-speed*
+  gameplay. Now `updateFrameClock()` (generated prolog, called first thing
+  in both loop() variants) measures the real frame time (EE COP0 Count,
+  wrap-safe) and refreshes dt/scale every frame: within ±10% of the nominal
+  vsync step it snaps to exactly nominal (full-rate behavior stays
+  bit-identical), longer/shorter frames pass through clamped to [1/4, 4x]
+  nominal (a scene load is a hitch, not a gameplay leap). Known gap,
+  documented: frame-counter timers (`everyFrames` - flow-graph Every N
+  Seconds, sound-emitter intervals, HUD holds) still count rendered frames
+  and stretch at 25 FPS. Second half: **Project > Preferences > Build >
+  "Disable VSync (experimental)"** (`ProjectSettings::disableVsync`, saved
+  to .tyra, baked as `FRAME_LIMIT` into terrain_config.hpp; init calls
+  `setFrameLimit(false)`) - skips the vsync wait before the flip, making
+  the frame rate continuous instead of snapping 50 -> 25, at the cost of
+  tearing. Verified on the real PS2 (15-spider scene, PERF telemetry,
+  full sweeps): vsync ON - 50 FPS up to 11 spiders in view, 25 FPS zone at
+  14-15 with `dtus` flipping 19999 -> 40000 exactly when frames double
+  (compensation active); vsync OFF - endFrame wait collapses ~12 ms ->
+  0.53 ms and frame times go continuous: 7.1 ms empty view (~140 FPS),
+  15.8 ms at 11 spiders (~63), 23.2 ms at 15 (~43 FPS instead of a hard
+  25). A by-eye TV check of tearing severity stays with a human.
+
 - (45) **Animated models: 50 FPS on real hardware (was 25 at most camera
   angles)** — the anim-test-many scene (7 skeletal 1092-vert spiders) halved
   to exactly 25 FPS whenever several were on screen, PCSX2 never showed it.

@@ -5665,6 +5665,11 @@ void App::drawPreferencesModal() {
     const char* profileNames[] = {"Release", "Debug"};
     if (ImGui::Combo("Profile", &profile, profileNames, 2))
         prefSettings_.buildProfile = profile == 1 ? "debug" : "release";
+    ImGui::Checkbox("Disable VSync (experimental)", &prefSettings_.disableVsync);
+    ImGui::TextDisabled(
+        "Skips the vsync wait before the buffer flip. The frame rate becomes\n"
+        "continuous instead of snapping between 50 and 25 (PAL), at the cost\n"
+        "of screen tearing. Gameplay speed is unaffected either way.");
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("Show FPS", &prefSettings_.showFps);
     ImGui::Checkbox("Show memory usage", &prefSettings_.showMemory);

@@ -294,6 +294,10 @@ constexpr float JUMP_SPEED = {{JUMP_SPEED}};    // units/s
 // Scene switches show res/hud/loading.png on black for a moment
 constexpr bool LOADING_SCREEN = {{LOADING_SCREEN}};
 
+// Experimental (Preferences > Build > Disable VSync): false skips the vsync
+// wait before the flip - continuous frame rate, screen tearing possible.
+constexpr bool FRAME_LIMIT = {{FRAME_LIMIT}};
+
 // Debug-profile HUD (Project > Preferences > Build). Both are forced false
 // in a release-profile build, which folds the overlay code away entirely.
 constexpr bool DEBUG_SHOW_FPS = {{DEBUG_SHOW_FPS}};
@@ -787,12 +791,37 @@ static const char* TPL_GAME_CPP_PROLOG =
 // defines the SCENE_*/SKY_*/... accessor macros so scripts see them too).
 int g_activeScene = 0;
 
-// Wall-clock normalization globals declared in scene_data.hpp; set in
-// TerrainGame::init() from the resolved video mode (PAL 50 / NTSC 60), so
-// the game plays at the same real-time speed on both.
+// Wall-clock normalization globals declared in scene_data.hpp; seeded in
+// TerrainGame::init() from the resolved video mode (PAL 50 / NTSC 60) and
+// refreshed every frame from the measured frame time (updateFrameClock), so
+// the game plays at the same real-time speed on both systems AND under
+// frame drops (a vsynced PAL game that misses the budget snaps to 25 FPS -
+// without compensation that also meant half-speed gameplay).
 float g_frameRate = 50.0F;
 float g_frameDt = 1.0F / 50.0F;
 float g_frameScale = 1.0F;
+
+// Measures the real time since the previous frame (EE COP0 Count register,
+// 294.912 MHz, wrap-safe) and folds it into g_frameDt / g_frameScale.
+// Within 10% of the nominal vsync step it snaps to exactly nominal, so a
+// full-rate game is bit-identical to the fixed-dt behavior; longer (frame
+// drop) or shorter (vsync disabled) frames pass through, clamped to
+// [1/4, 4x] nominal - a scene load is a hitch, not a gameplay leap.
+static u32 g_frameClockLast = 0;
+static void updateFrameClock() {
+  u32 now;
+  asm volatile("mfc0 %0, $9" : "=r"(now));
+  const u32 delta = now - g_frameClockLast;
+  const bool first = g_frameClockLast == 0;
+  g_frameClockLast = now ? now : 1;
+  const float nominal = 1.0F / g_frameRate;
+  float dt = first ? nominal : (float)delta * (1.0F / 294912000.0F);
+  if (dt > nominal * 0.9F && dt < nominal * 1.1F) dt = nominal;
+  if (dt < nominal * 0.25F) dt = nominal * 0.25F;
+  if (dt > nominal * 4.0F) dt = nominal * 4.0F;
+  g_frameDt = dt;
+  g_frameScale = dt * 50.0F;
+}
 
 namespace {{NAME_UPPER_NS}} {
 
@@ -1124,9 +1153,15 @@ void TerrainGame::init() {
 
   // Wall-clock normalization: per-frame steps below are tuned for 50 Hz;
   // g_frameScale stretches them so NTSC's 60 Hz plays at the same speed.
+  // These are the seeds - updateFrameClock() refreshes both every frame
+  // from the measured frame time (frame drops slow the picture, not the
+  // game; also what makes the vsync-off build play at the right speed).
   g_frameRate = engine->renderer.core.getSettings().getRefreshRate();
   g_frameDt = 1.0F / g_frameRate;
   g_frameScale = 50.0F / g_frameRate;
+  // Experimental (Project > Preferences > Build): skip the vsync wait -
+  // continuous frame rate instead of the 50/25 vsync snap, with tearing.
+  if (!FRAME_LIMIT) engine->renderer.core.setFrameLimit(false);
 
   stapip.setRenderer(&engine->renderer.core);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
@@ -1190,6 +1225,7 @@ void TerrainGame::init() {
 }
 
 void TerrainGame::loop() {
+  updateFrameClock();  // real dt: frame drops slow the picture, not the game
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
   const bool menuActive = saveMenuActive || gameMenuPausing;
@@ -3104,9 +3140,15 @@ void TerrainGame::init() {
 
   // Wall-clock normalization: per-frame steps below are tuned for 50 Hz;
   // g_frameScale stretches them so NTSC's 60 Hz plays at the same speed.
+  // These are the seeds - updateFrameClock() refreshes both every frame
+  // from the measured frame time (frame drops slow the picture, not the
+  // game; also what makes the vsync-off build play at the right speed).
   g_frameRate = engine->renderer.core.getSettings().getRefreshRate();
   g_frameDt = 1.0F / g_frameRate;
   g_frameScale = 50.0F / g_frameRate;
+  // Experimental (Project > Preferences > Build): skip the vsync wait -
+  // continuous frame rate instead of the 50/25 vsync snap, with tearing.
+  if (!FRAME_LIMIT) engine->renderer.core.setFrameLimit(false);
 
   stapip.setRenderer(&engine->renderer.core);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
@@ -3179,6 +3221,7 @@ void TerrainGame::init() {
 }
 
 void TerrainGame::loop() {
+  updateFrameClock();  // real dt: frame drops slow the picture, not the game
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
   const bool menuActive = saveMenuActive || gameMenuPausing;
@@ -4734,6 +4777,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{GRAVITY}}", floatLit(st.gravity));
     s = replaceAll(s, "{{JUMP_SPEED}}", floatLit(st.jumpSpeed));
     s = replaceAll(s, "{{LOADING_SCREEN}}", st.loadingScreen ? "true" : "false");
+    s = replaceAll(s, "{{FRAME_LIMIT}}", st.disableVsync ? "false" : "true");
     s = replaceAll(s, "{{VIDEO_MODE}}", st.videoSystem == "pal"    ? "PAL"
                                         : st.videoSystem == "ntsc" ? "NTSC"
                                                                    : "Auto");
