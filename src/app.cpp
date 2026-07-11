@@ -550,6 +550,23 @@ void App::drawMenuBar() {
                                 uiScaleUser_ == 0.0f ? " (auto)" : "");
             ImGui::Separator();
             if (ImGui::MenuItem("Navigation controls...")) openNavigationPopup_ = true;
+
+            ImGui::Separator();
+            ImGui::TextDisabled("Render mode");
+            const char* modeNames[] = {"Solid", "Wireframe", "Wire + Solid"};
+            for (int i = 0; i < 3; ++i) {
+                const bool active = (int)viewport_.viewMode() == i;
+                if (ImGui::MenuItem(modeNames[i], nullptr, active, hasProject_) && !active) {
+                    viewport_.setViewMode((Viewport::ViewMode)i);
+                    saveAll("Saved");  // persist the view mode in the project file
+                }
+            }
+
+            ImGui::Separator();
+            ImGui::TextDisabled("TV safe frame");
+            if (ImGui::MenuItem("PAL 4:3 frame", nullptr, showPal_)) showPal_ = !showPal_;
+            if (ImGui::MenuItem("NTSC frame", nullptr, showNtsc_)) showNtsc_ = !showNtsc_;
+
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Scene", hasProject_)) {
@@ -990,7 +1007,11 @@ void App::drawViewportWindow() {
             }
         }
 
-        // --- Tool buttons overlay (top-left corner of the viewport) ---
+        // --- Tools overlay (top-left corner of the viewport) ---
+        // Transform gizmo modes + the sculpt toggle share this row; they map to
+        // the 1-4 shortcuts. Render mode and the TV-safe frames now live in the
+        // menu bar (View menu); the gizmo axis space and the camera-recenter
+        // buttons sit in the bottom corners below.
         ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, imgPos.y + 8));
         const char* toolNames[] = {"Move (1)", "Rotate (2)", "Scale (3)"};
         for (int i = 0; i < 3; ++i) {
@@ -1003,50 +1024,27 @@ void App::drawViewportWindow() {
             if (active) ImGui::PopStyleColor();
         }
 
-        // Gizmo axis space (persisted in the .tyra project file like the tool)
+        // Terrain sculpting toggle stays with the tools (shortcut 4).
         ImGui::SameLine(0.0f, 24.0f);
-        const char* spaceNames[] = {"World", "Camera"};
-        const char* spaceTips[] = {
-            "Absolute axes: move and rotate along the world X/Y/Z.\n"
-            "Scale always works on the object's own axes. Toggle with 5.",
-            "Camera-relative axes: move along the view right/up/forward\n"
-            "and rotate around them; scale is uniform. Toggle with 5."};
-        for (int i = 0; i < 2; ++i) {
-            if (i) ImGui::SameLine();
-            const bool active = gizmoSpace_ == i;
-            if (active)
-                ImGui::PushStyleColor(ImGuiCol_Button,
-                                      ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-            if (ImGui::SmallButton(spaceNames[i])) gizmoSpace_ = i;
-            if (active) ImGui::PopStyleColor();
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", spaceTips[i]);
-        }
+        if (sculptMode_)
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        if (ImGui::SmallButton("Sculpt (4)")) sculptMode_ = !sculptMode_;
+        if (sculptMode_) ImGui::PopStyleColor();
 
-        // View mode switch (persisted in the .tyra project file via saveAll)
-        ImGui::SameLine(0.0f, 24.0f);
-        const char* modeNames[] = {"Solid", "Wire", "Wire+Solid"};
-        for (int i = 0; i < 3; ++i) {
-            if (i) ImGui::SameLine();
-            const bool active = (int)viewport_.viewMode() == i;
-            if (active)
-                ImGui::PushStyleColor(ImGuiCol_Button,
-                                      ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-            if (ImGui::SmallButton(modeNames[i]) && !active) {
-                viewport_.setViewMode((Viewport::ViewMode)i);
-                saveAll("Saved");  // persist the view mode in the project file
-            }
-            if (active) ImGui::PopStyleColor();
-        }
+        // Geometry for the bottom-corner overlays. SmallButton keeps
+        // FramePadding.x, so its width is the label plus twice that padding.
+        auto smallBtnW = [](const char* s) {
+            return ImGui::CalcTextSize(s).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        };
+        const float bottomY = imgPos.y + avail.y - ImGui::GetFrameHeight() - 8.0f;
 
-        // Recenter the orbit camera on the terrain center (world origin).
-        ImGui::SameLine(0.0f, 24.0f);
+        // --- Camera recenter (bottom-left) ---
+        ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, bottomY));
         if (ImGui::SmallButton("Center view")) viewport_.resetView();
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Reset the camera to the terrain center\n"
                               "with the default orientation and zoom.");
-
-        // Snap the orbit pivot onto the selected object, keeping the current
-        // orientation and zoom. Disabled when nothing is selected.
         {
             const bool objSel = selectedObject_ >= 0 &&
                                 selectedObject_ < (int)project_.objects().size();
@@ -1061,32 +1059,26 @@ void App::drawViewportWindow() {
                 ImGui::SetTooltip("Move the camera pivot to the selected object.");
         }
 
-        // Terrain sculpting toggle + brush parameters
-        ImGui::SameLine(0.0f, 24.0f);
-        if (sculptMode_)
-            ImGui::PushStyleColor(ImGuiCol_Button,
-                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::SmallButton("Sculpt (4)")) sculptMode_ = !sculptMode_;
-        if (sculptMode_) ImGui::PopStyleColor();
-
-        // TV frame toggles (PAL 4:3, NTSC slightly wider)
-        ImGui::SameLine(0.0f, 24.0f);
-        if (showPal_)
-            ImGui::PushStyleColor(ImGuiCol_Button,
-                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::SmallButton("PAL")) showPal_ = !showPal_;
-        if (showPal_) ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("4:3 frame - what a PAL TV shows.");
-        ImGui::SameLine();
-        if (showNtsc_)
-            ImGui::PushStyleColor(ImGuiCol_Button,
-                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::SmallButton("NTSC")) showNtsc_ = !showNtsc_;
-        if (showNtsc_) ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("NTSC has fewer active lines - the same 512x448\n"
-                              "buffer looks slightly wider (~10:7) on screen.");
+        // --- Gizmo axis space (bottom-right) ---
+        const char* spaceNames[] = {"World", "Camera"};
+        const char* spaceTips[] = {
+            "Absolute axes: move and rotate along the world X/Y/Z.\n"
+            "Scale always works on the object's own axes. Toggle with 5.",
+            "Camera-relative axes: move along the view right/up/forward\n"
+            "and rotate around them; scale is uniform. Toggle with 5."};
+        const float spaceW = smallBtnW(spaceNames[0]) + ImGui::GetStyle().ItemSpacing.x +
+                             smallBtnW(spaceNames[1]);
+        ImGui::SetCursorScreenPos(ImVec2(imgPos.x + avail.x - spaceW - 8.0f, bottomY));
+        for (int i = 0; i < 2; ++i) {
+            if (i) ImGui::SameLine();
+            const bool active = gizmoSpace_ == i;
+            if (active)
+                ImGui::PushStyleColor(ImGuiCol_Button,
+                                      ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+            if (ImGui::SmallButton(spaceNames[i])) gizmoSpace_ = i;
+            if (active) ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", spaceTips[i]);
+        }
 
         if (sculptMode_) {
             ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, imgPos.y + 32));
