@@ -212,6 +212,12 @@ struct ProjectSettings {
     // refresh. 0 = off (every instance skins every frame).
     float animLodDistance = 0.0f;
 
+    // Mesh LOD: the build bakes decimated variants (~50% and ~25% vertices,
+    // quadric-error collapse) of every animated model into the .tskl;
+    // instances farther than this render the 50% mesh, beyond twice the
+    // distance the 25% one. 0 = off (no LODs baked or kept in RAM).
+    float meshLodDistance = 0.0f;
+
     int terrainDetail = 32;  // max terrain grid cells per axis (quality vs perf)
     float skyColor[3] = {0.25f, 0.55f, 0.78f};   // horizon / clear color
     float skyTopColor[3] = {0.08f, 0.3f, 0.65f};  // zenith (gradient dome)
@@ -272,6 +278,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.disableVsync == b.disableVsync &&
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
+           a.meshLodDistance == b.meshLodDistance &&
            a.terrainDetail == b.terrainDetail &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.eyeHeight == b.eyeHeight &&
