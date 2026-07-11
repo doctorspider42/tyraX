@@ -1412,18 +1412,18 @@ std::string refreshGenerated(const Project& p) {
         }
     }
     // Debug-HUD glyph strip, needed only when a debug-profile overlay is on.
+    // Always rewritten: the glyph set evolves with the overlay (the "/" for
+    // MEM used/total came later) and a stale strip renders as blank glyphs.
     if (p.settings.buildProfile == "debug" &&
         (p.settings.showFps || p.settings.showMemory)) {
         const fs::path fontPng = fs::path(p.dir) / "res" / "hud" / "debugfont.png";
         std::error_code ec;
-        if (!fs::exists(fontPng, ec)) {
-            const auto& png = templates::debugFontPng();
-            fs::create_directories(fontPng.parent_path(), ec);
-            std::ofstream f(fontPng, std::ios::binary);
-            if (f)
-                f.write(reinterpret_cast<const char*>(png.data()),
-                        (std::streamsize)png.size());
-        }
+        const auto& png = templates::debugFontPng();
+        fs::create_directories(fontPng.parent_path(), ec);
+        std::ofstream f(fontPng, std::ios::binary);
+        if (f)
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
     }
     for (const templates::BuiltinAsset& a : templates::saveMenuAssets()) {
         const fs::path png = fs::path(p.dir) / "res" / "hud" / a.fileName;
