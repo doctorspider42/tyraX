@@ -112,7 +112,8 @@ static int materialIndexOf(const Project& p, const SceneObject& o) {
 }
 
 // Unique texture paths (terrain only - objects are textured via materials),
-// first-use order. The index == TERRAIN_TEXTURE in generated code.
+// first-use order. The index == TERRAIN_TEXTURE in generated code. Each
+// terrain material contributes its first material's map_Kd (if any).
 static std::vector<std::string> collectTexturePaths(const Project& p) {
     std::vector<std::string> paths;
     auto add = [&](const std::string& t) {
@@ -122,7 +123,8 @@ static std::vector<std::string> collectTexturePaths(const Project& p) {
         paths.push_back(t);
     };
     for (const SceneData& sc : p.scenes)
-        add(project::resolvedSettings(p, sc).terrainTexture);
+        add(project::resolveTerrainMaterial(p, project::resolvedSettings(p, sc).terrainMaterial)
+                .texture);
     return paths;
 }
 
@@ -524,9 +526,12 @@ class TerrainGame : public Tyra::Game {
   void buildSkyDome();
   void rebuildObjectGeometry(int index);
   // Player-vs-objects collision shared by both walkers: box (scale box or
-  // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision
+  // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision.
+  // ceiling receives the lowest overhead surface so the walkers can keep the
+  // camera from poking into geometry from below (jump clamp).
   void collidePlayer(float prevX, float prevZ, float* nextX, float* nextZ,
-                     float feetY, float eyeHeight, float* ground);
+                     float feetY, float eyeHeight, float* ground,
+                     float* ceiling);
   void updateObjectPhysics();
   void renderScene();
   void renderHighlightHull(int index);
@@ -817,9 +822,12 @@ class TerrainGame : public Tyra::Game {
   void buildSkyDome();
   void rebuildObjectGeometry(int index);
   // Player-vs-objects collision shared by both walkers: box (scale box or
-  // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision
+  // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision.
+  // ceiling receives the lowest overhead surface so the walkers can keep the
+  // camera from poking into geometry from below (jump clamp).
   void collidePlayer(float prevX, float prevZ, float* nextX, float* nextZ,
-                     float feetY, float eyeHeight, float* ground);
+                     float feetY, float eyeHeight, float* ground,
+                     float* ceiling);
   void updateObjectPhysics();
   void renderScene();
   void renderHighlightHull(int index);
@@ -1361,10 +1369,13 @@ TerrainGame::~TerrainGame() {}
 void TerrainGame::init() {
   // Engine clipper fix: the default clipMargin (-10.0F) moves the near
   // clipping plane ~10 units away from the camera, cutting away nearby
-  // geometry. Clip right in front of the real near plane instead.
-  // (read by the clipper during setRenderer below)
+  // geometry. Clip 0.15 units in front of the camera instead - just past
+  // the real near plane (0.1) and closer than the collision clearance the
+  // walkers guarantee (playerRadius 0.35, EYE_CLEARANCE 0.2), so a wall
+  // the player presses against can never fall in front of the clip plane
+  // and open a see-through hole. (read during setRenderer below)
   PlanesClipAlgorithm::clipMargin =
-      -(engine->renderer.core.getSettings().getNear() + 0.5F);
+      -(engine->renderer.core.getSettings().getNear() + 0.15F);
 
   // Wall-clock normalization: per-frame steps below are tuned for 50 Hz;
   // g_frameScale stretches them so NTSC's 60 Hz plays at the same speed.
@@ -2298,15 +2309,22 @@ void TerrainGame::updateAndRenderAnimObjects() {
   }
 }
 
+// Minimum gap kept between the camera eye and any surface overhead. Must
+// stay larger than the near clip distance (0.15, see clipMargin in init())
+// or looking up at a ceiling the head touches would open a see-through hole.
+constexpr float EYE_CLEARANCE = 0.2F;
+
 // Shared player-vs-scene collision (both walkers). Box mode reproduces the
 // classic behavior (XZ box + stand-on-top + step up 0.5), with models sized
 // by their real mesh AABB instead of the unit scale box. Mesh mode collides
 // with the model's triangles in object-local space: a downward ray finds the
 // walkable ground (ramps/stairs work) and steep faces push the player out
 // like walls. Rotation is honored in mesh mode and ignored in box mode.
+// ceiling collects the lowest surface overhead (box undersides, mesh hits of
+// an upward ray) so the walkers can clamp jumps below it.
 void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
                                 float* nextZ, float feetY, float eyeHeight,
-                                float* ground) {
+                                float* ground, float* ceiling) {
   const float playerRadius = 0.35F;
   for (const RuntimeObject& o : runtimeObjects) {
     if (!o.active || !o.visible || o.data.type == 4 || o.data.type == 6 ||
@@ -2365,6 +2383,24 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
           if (hit.y > *ground) *ground = hit.y;
         }
       }
+
+      // ceiling: a ray from step height straight up past the head finds the
+      // underside of overhead geometry (door lintels, floors jumped against)
+      const V3 co = toLocal(*nextX, feetY + 0.5F, *nextZ);
+      const V3 cq =
+          toLocal(*nextX, feetY + eyeHeight + EYE_CLEARANCE + 1.0F, *nextZ);
+      V3 cd = {cq.x - co.x, cq.y - co.y, cq.z - co.z};
+      const float cl = sqrtf(cd.x * cd.x + cd.y * cd.y + cd.z * cd.z);
+      if (cl > 0.0001F) {
+        cd.x /= cl, cd.y /= cl, cd.z /= cl;
+        float t;
+        if (gm->collider.raycast(Vec4(co.x, co.y, co.z, 1.0F),
+                                 Vec4(cd.x, cd.y, cd.z, 0.0F), cl, &t)) {
+          const V3 hit =
+              toWorld({co.x + cd.x * t, co.y + cd.y * t, co.z + cd.z * t});
+          if (hit.y < *ceiling) *ceiling = hit.y;
+        }
+      }
       continue;
     }
 
@@ -2401,7 +2437,23 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     if (feetY + 0.5F >= top) {
       // low enough to walk onto - candidate floor
       if (top > *ground) *ground = top;
-    } else if (feetY < top && feetY + eyeHeight > bottom) {
+    } else if (bottom >= feetY + eyeHeight) {
+      // box entirely above the head - overhead surface for the jump clamp
+      if (bottom < *ceiling) *ceiling = bottom;
+      if (bottom < feetY + eyeHeight + EYE_CLEARANCE) {
+        // walking under would leave the eye closer than the clip plane -
+        // block, unless the player is already under it (let them walk out)
+        const bool wasInsideX = prevX > cx - hx && prevX < cx + hx;
+        const bool wasInsideZ = prevZ > cz - hz && prevZ < cz + hz;
+        if (!wasInsideX || !wasInsideZ) {
+          if (!wasInsideX) *nextX = prevX;
+          if (!wasInsideZ) *nextZ = prevZ;
+        }
+      }
+    } else if (feetY < top) {
+      // vertical overlap: also the lowest surface overhead when the box sank
+      // onto the player (moving platforms) - lets the clamp push them out
+      if (bottom >= feetY && bottom < *ceiling) *ceiling = bottom;
       // blocked - cancel the axes that entered the box this frame
       const bool wasInsideX = prevX > cx - hx && prevX < cx + hx;
       const bool wasInsideZ = prevZ > cz - hz && prevZ < cz + hz;
@@ -3242,12 +3294,21 @@ bool TerrainGame::updatePlayerEntity() {
   if (nextZ < -limZ) nextZ = -limZ;
 
   float ground = terrainHeightAt(nextX, nextZ);
-  collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground);
+  float ceiling = 1e30F;
+  collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground,
+                &ceiling);
   entX = nextX;
   entZ = nextZ;
 
   entVelY -= GRAVITY * g_frameDt * g_frameDt;  // GRAVITY is units/s^2
   entY += entVelY;
+  // Jump clamp: keep the eye EYE_CLEARANCE below overhead geometry so the
+  // camera never pokes into it (skipped when the gap is too low to stand in)
+  const float maxY = ceiling - PLAYER_EYE_HEIGHT - EYE_CLEARANCE;
+  if (entY > maxY && maxY >= ground) {
+    entY = maxY;
+    if (entVelY > 0.0F) entVelY = 0.0F;
+  }
   if (entY <= ground) {
     entY = ground;
     entVelY = 0.0F;
@@ -3672,13 +3733,18 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     return s;
   };
 
-  // Untextured: two greens in a checker pattern. Textured: a neutral gray
-  // that modulates the texture 1:1 (PS2 modulation: 128 = 1.0).
+  // No material: two greens in a checker pattern. With a material, the Kd
+  // tint colors every cell uniformly - textured terrain modulates the map
+  // (PS2 modulation: 128 = 1.0, so Kd*128), flat terrain uses Kd*255.
   const bool textured = TERRAIN_TEXTURE >= 0;
-  const float baseA[3] = {textured ? 128.0F : 96.0F, textured ? 128.0F : 160.0F,
-                          textured ? 128.0F : 72.0F};
-  const float baseB[3] = {textured ? 128.0F : 74.0F, textured ? 128.0F : 128.0F,
-                          textured ? 128.0F : 56.0F};
+  const bool hasMat = TERRAIN_HAS_MATERIAL;
+  const float k = textured ? 128.0F : 255.0F;
+  const float baseA[3] = {hasMat ? TERRAIN_TINT_R * k : 96.0F,
+                          hasMat ? TERRAIN_TINT_G * k : 160.0F,
+                          hasMat ? TERRAIN_TINT_B * k : 72.0F};
+  const float baseB[3] = {hasMat ? TERRAIN_TINT_R * k : 74.0F,
+                          hasMat ? TERRAIN_TINT_G * k : 128.0F,
+                          hasMat ? TERRAIN_TINT_B * k : 56.0F};
 
   const int gx0 = cx * TERRAIN_CHUNK_CELLS;
   const int gz0 = cz * TERRAIN_CHUNK_CELLS;
@@ -3711,7 +3777,7 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       };
       auto st = [&](float wx, float wz) {
         ch.sts.push_back(
-            Vec4(wx / TERRAIN_TEX_SCALE, wz / TERRAIN_TEX_SCALE, 1.0F, 0.0F));
+            Vec4(wx * TERRAIN_TILE_U, wz * TERRAIN_TILE_V, 1.0F, 0.0F));
       };
 
       ch.vertices.push_back(Vec4(x0, h00, z0, 1.0F));
@@ -3870,10 +3936,13 @@ TerrainGame::~TerrainGame() {}
 void TerrainGame::init() {
   // Engine clipper fix: the default clipMargin (-10.0F) moves the near
   // clipping plane ~10 units away from the camera, cutting away nearby
-  // geometry. Clip right in front of the real near plane instead.
-  // (read by the clipper during setRenderer below)
+  // geometry. Clip 0.15 units in front of the camera instead - just past
+  // the real near plane (0.1) and closer than the collision clearance the
+  // walkers guarantee (playerRadius 0.35, EYE_CLEARANCE 0.2), so a wall
+  // the player presses against can never fall in front of the clip plane
+  // and open a see-through hole. (read during setRenderer below)
   PlanesClipAlgorithm::clipMargin =
-      -(engine->renderer.core.getSettings().getNear() + 0.5F);
+      -(engine->renderer.core.getSettings().getNear() + 0.15F);
 
   // Wall-clock normalization: per-frame steps below are tuned for 50 Hz;
   // g_frameScale stretches them so NTSC's 60 Hz plays at the same speed.
@@ -4130,13 +4199,22 @@ void TerrainGame::updatePlayer() {
   // + standing on top of them. Player can step ~0.5 units up.
   // The floor is the sculpted terrain.
   float ground = terrainHeightAt(nextX, nextZ);
-  collidePlayer(playerX, playerZ, &nextX, &nextZ, playerY, EYE_HEIGHT, &ground);
+  float ceiling = 1e30F;
+  collidePlayer(playerX, playerZ, &nextX, &nextZ, playerY, EYE_HEIGHT, &ground,
+                &ceiling);
   playerX = nextX;
   playerZ = nextZ;
 
   // Gravity & jumping (X). GRAVITY: units/s^2, JUMP_SPEED: units/s.
   playerVelY -= GRAVITY * g_frameDt * g_frameDt;
   playerY += playerVelY;
+  // Jump clamp: keep the eye EYE_CLEARANCE below overhead geometry so the
+  // camera never pokes into it (skipped when the gap is too low to stand in)
+  const float maxY = ceiling - EYE_HEIGHT - EYE_CLEARANCE;
+  if (playerY > maxY && maxY >= ground) {
+    playerY = maxY;
+    if (playerVelY > 0.0F) playerVelY = 0.0F;
+  }
   if (playerY <= ground) {
     playerY = ground;
     playerVelY = 0.0F;
@@ -5597,7 +5675,12 @@ inline int everyFrames(float seconds) {
 #define HM_D HM_DS[g_activeScene]
 #define TERRAIN_HEIGHTS TERRAIN_HEIGHTS_TABLES[g_activeScene]
 #define TERRAIN_TEXTURE TERRAIN_TEXTURES[g_activeScene]
-#define TERRAIN_TEX_SCALE TERRAIN_TEX_SCALES[g_activeScene]
+#define TERRAIN_TILE_U TERRAIN_TILE_US[g_activeScene]
+#define TERRAIN_TILE_V TERRAIN_TILE_VS[g_activeScene]
+#define TERRAIN_HAS_MATERIAL TERRAIN_HAS_MATERIALS[g_activeScene]
+#define TERRAIN_TINT_R TERRAIN_TINTS[g_activeScene][0]
+#define TERRAIN_TINT_G TERRAIN_TINTS[g_activeScene][1]
+#define TERRAIN_TINT_B TERRAIN_TINTS[g_activeScene][2]
 // Per-scene sky / clipping / post-FX / usable-highlight (Scene > Preferences)
 #define CLIP_PRECISE CLIP_PRECISES[g_activeScene]
 #define SKY_R SKY_RS[g_activeScene]
@@ -6741,16 +6824,35 @@ static std::string textureDataHeader(const Project& p) {
             out << "    \"" << binPath << "\",\n";
         }
     }
+    // Per scene: the terrain material's map_Kd texture index (-1 = none), the
+    // tiling scale, whether a material is assigned at all, and its Kd tint.
+    std::vector<project::TerrainMaterial> terrain(p.scenes.size());
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        terrain[si] = project::resolveTerrainMaterial(
+            p, project::resolvedSettings(p, p.scenes[si]).terrainMaterial);
     out << "};\n\n"
         << "constexpr int TERRAIN_TEXTURES[" << p.scenes.size() << "] = {";
     for (size_t si = 0; si < p.scenes.size(); ++si)
-        out << (si ? ", " : "")
-            << textureIndexOf(p, project::resolvedSettings(p, p.scenes[si]).terrainTexture);
+        out << (si ? ", " : "") << textureIndexOf(p, terrain[si].texture);
     out << "};\n"
-        << "constexpr float TERRAIN_TEX_SCALES[" << p.scenes.size() << "] = {";
+        // Texture tiling from the material's map_Kd "-s" option: UV repeats per
+        // world unit, per axis (u across X, v across Z).
+        << "constexpr float TERRAIN_TILE_US[" << p.scenes.size() << "] = {";
     for (size_t si = 0; si < p.scenes.size(); ++si)
-        out << (si ? ", " : "")
-            << floatLit(project::resolvedSettings(p, p.scenes[si]).terrainTexScale);
+        out << (si ? ", " : "") << floatLit(terrain[si].tile[0]);
+    out << "};\n"
+        << "constexpr float TERRAIN_TILE_VS[" << p.scenes.size() << "] = {";
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        out << (si ? ", " : "") << floatLit(terrain[si].tile[1]);
+    out << "};\n"
+        << "constexpr bool TERRAIN_HAS_MATERIALS[" << p.scenes.size() << "] = {";
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        out << (si ? ", " : "") << (terrain[si].present ? "true" : "false");
+    out << "};\n"
+        << "constexpr float TERRAIN_TINTS[" << p.scenes.size() << "][3] = {";
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        out << (si ? ", " : "") << "{" << floatLit(terrain[si].kd[0]) << ", "
+            << floatLit(terrain[si].kd[1]) << ", " << floatLit(terrain[si].kd[2]) << "}";
     out << "};\n\n}  // namespace " << ns << "\n";
     return out.str();
 }

@@ -111,6 +111,50 @@ Each finished feature lands as its own commit.
   code review + compile only, while the selection→highlight→panel pipeline they
   feed is confirmed working.
 
+- (66) **Terrain picks a material, not a raw texture — tiling comes from the
+  material too** — the terrain used to take a loose PNG
+  (`ProjectSettings::terrainTexture` + a `terrainTexScale` slider, project-wide
+  + per-scene override); it now takes a Wavefront **material** (`.mtl`) like
+  every solid object, so the terrain carries its color, texture *and* tiling
+  from one asset. The model field is `terrainMaterial` (the whole
+  `terrainTexScale` field is gone); the override flag
+  `SceneOverrides::terrainTex` became `terrainMat` (the loader still reads the
+  old `"terrainTex"` key so existing per-scene overrides survive). The first
+  material's **Kd** tints the terrain, its **map_Kd** (when present) textures
+  it, and the map's **`-s <u> <v>`** option (standard Wavefront texture-scale,
+  a UV multiplier) drives tiling as *repeats per world unit, per axis* —
+  previously discarded by the parser, now read by `objparser` into
+  `MtlMaterial::scale[2]`. A material with no texture yields a flat Kd-colored
+  surface; no material at all keeps the two-green checker. Old projects lose
+  their raw terrain texture and its tiling (a PNG can't become a material) per
+  an explicit product decision. A shared resolver
+  `project::resolveTerrainMaterial()` returns a `TerrainMaterial{present,
+  texture, kd, tile}` so codegen, the editor viewport and the ISO planner
+  agree. Codegen (`texture_data.gen.hpp`) emits `TERRAIN_HAS_MATERIALS[]`,
+  `TERRAIN_TINTS[][3]`, and `TERRAIN_TILE_US[]`/`TERRAIN_TILE_VS[]` (replacing
+  `TERRAIN_TEX_SCALES[]`) next to `TERRAIN_TEXTURES[]`; the terrain runtime
+  folds the tint into the per-cell base color (textured → Kd·128 modulation,
+  flat → Kd·255) and its UVs become `worldPos·tile`, and the viewport mirrors
+  both formulas. The material is compiled away — only its texture reaches the
+  disc — so the ISO planner groups that texture, not the `.mtl`. Editor: the
+  Preferences and Scene-override "Terrain texture" pickers (and the tile slider)
+  are replaced by a "Terrain material" combo listing the project's `.mtl`
+  assets; the **Material Editor gained a "Tile repeat" field** that reads/writes
+  the `map_Kd -s` option (uniform in the UI, per-axis preserved for hand-edited
+  files); deleting a material asset now also clears any terrain that referenced
+  it. Verified: editor builds clean; a scratch fpp project set to a textured
+  material (`Kd 0.6 0.4 0.2` + `map_Kd`) generates `TERRAIN_TEXTURES={0}`,
+  `TERRAIN_HAS_MATERIALS={true}`, `TERRAIN_TINTS={{0.6,0.4,0.2}}`; with no `-s`
+  the tiles are `{1.0}`, and with `map_Kd -s 0.25 0.5 1` they become
+  `TERRAIN_TILE_US={0.25}` / `TERRAIN_TILE_VS={0.5}` (per-axis parse); a
+  color-only material generates `TERRAIN_TEXTURES={-1}` with the same tint —
+  all compile under the PS2DEV toolchain (Docker build exit 0). The editor
+  viewport and PCSX2 (SW renderer, 50 FPS) both render the terrain as the
+  texture tinted warm brown and tiled per `-s`, confirming the twin
+  editor/game formulas match. (Material Editor slider round-trip verified by
+  code + the hand-authored `-s` parse; the in-GUI drag still wants a human
+  pass — synthetic mouse input doesn't reach the GLFW window here.)
+
 - (65) **Scene objects list groups by layer, with drag-and-drop assignment** —
   the "Scene objects" section in the Project panel used to be one flat list of
   every object. When the active scene has layers it now renders a tree: one
@@ -2577,6 +2621,26 @@ Each finished feature lands as its own commit.
   overlay off (its README says how to re-enable); a separate task tracks
   the real fix. Layer streaming re-verified post-merge with the overlay
   off: 24 stress cycles over ~140 s at the exact 6 s cadence, 0 asserts.
+- (63) **Wall see-through fix (near clip vs collision clearance)** - pressing
+  the camera against scene geometry let you look inside/through it: the
+  generated games' near clip plane sat 0.5 units in front of the camera
+  (clipMargin = -(near+0.5)) while collision keeps the eye only 0.35
+  (playerRadius) from a wall face, so any face closer than 0.5 was clipped
+  away - thin walls vanished entirely, boxes showed their inside. The clip
+  distance is now 0.15: past the real near plane (0.1), and safely under the
+  worst-case in-frustum depth of a face at the 0.35 collision distance
+  (~0.25 at the default 60-deg FOV). The clearance now holds vertically too:
+  collidePlayer gained a `ceiling` out-param (lowest box underside overhead;
+  in mesh mode an upward ray, so door lintels/floors count) and both walkers
+  clamp jumps so the eye stays EYE_CLEARANCE (0.2, > clip 0.15) below
+  overhead geometry; boxes with less than that eye room refuse walking
+  under (with an escape hatch when the player is already beneath them).
+  Side effect: jumping head-first through mesh floors from below no longer
+  works (it used to land you on top). Verified A/B in PCSX2 (SW renderer,
+  50 FPS both ways): FPP scratch scene, 0.1-thick wall 0.39 units from the
+  spawned eye - the old 0.5 build renders sky/terrain straight through the
+  wall, the 0.15 build a solid wall. Ceiling clamp compiles (PS2 toolchain)
+  and the codegen was inspected in both walkers; jump feel needs a pad test.
 
 ## Backlog (rough order)
 

@@ -197,9 +197,12 @@ class TerrainGame : public Tyra::Game {
   void buildSkyDome();
   void rebuildObjectGeometry(int index);
   // Player-vs-objects collision shared by both walkers: box (scale box or
-  // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision
+  // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision.
+  // ceiling receives the lowest overhead surface so the walkers can keep the
+  // camera from poking into geometry from below (jump clamp).
   void collidePlayer(float prevX, float prevZ, float* nextX, float* nextZ,
-                     float feetY, float eyeHeight, float* ground);
+                     float feetY, float eyeHeight, float* ground,
+                     float* ceiling);
   void updateObjectPhysics();
   void renderScene();
   void renderHighlightHull(int index);
