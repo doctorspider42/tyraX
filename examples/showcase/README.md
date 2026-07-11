@@ -16,8 +16,11 @@ checked in.
 
 ## What it demonstrates
 
-- **Large terrain** — a 192×192 heightmapped valley (`vale`) with rolling
-  hills and a background ridge, plus a smaller `cavern` scene.
+- **Large terrain with chunk streaming** — a 192×192 heightmapped valley
+  (`vale`) with rolling hills, plus a smaller `cavern` scene. The valley uses
+  `terrainViewDistance` (camera-ring terrain chunk streaming) so only the
+  terrain near the camera is resident — needed for smooth playback on real
+  PS2 hardware; the fog is tuned so the streaming edge stays hidden.
 - **Streaming layers, loaded dynamically** — the `village` and `ruins`
   districts start unloaded; two `Near Object` gate triggers `Load Layer` the
   district you approach and `Unload Layer` the other (GTA-style budget). The

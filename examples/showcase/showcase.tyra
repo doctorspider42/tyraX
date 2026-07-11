@@ -12,6 +12,7 @@
     "animLodDistance": 35,
     "meshLodDistance": 45,
     "terrainDetail": 64,
+    "terrainViewDistance": 88,
     "skyColor": [
       0.86,
       0.5,
@@ -53,8 +54,8 @@
       0.55,
       0.4
     ],
-    "fogStart": 32,
-    "fogEnd": 168,
+    "fogStart": 20,
+    "fogEnd": 82,
     "highlightUsable": true,
     "highlightDistance": 6,
     "highlightColor": [
@@ -680,7 +681,7 @@
           "physics": false,
           "layer": "forest",
           "detail": 8,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cone-1",
@@ -701,7 +702,7 @@
             1.7
           ],
           "color": [
-            0.2257,
+            0.1991,
             0.42,
             0.16
           ],
@@ -709,7 +710,7 @@
           "collision": "none",
           "layer": "forest",
           "detail": 10,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cylinder-3",
@@ -737,7 +738,7 @@
           "physics": false,
           "layer": "forest",
           "detail": 8,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cone-2",
@@ -758,7 +759,7 @@
             1.7
           ],
           "color": [
-            0.2196,
+            0.1808,
             0.42,
             0.16
           ],
@@ -766,7 +767,7 @@
           "collision": "none",
           "layer": "forest",
           "detail": 10,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cylinder-4",
@@ -794,7 +795,7 @@
           "physics": false,
           "layer": "forest",
           "detail": 8,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cone-3",
@@ -815,7 +816,7 @@
             1.7
           ],
           "color": [
-            0.2217,
+            0.1885,
             0.42,
             0.16
           ],
@@ -823,7 +824,7 @@
           "collision": "none",
           "layer": "forest",
           "detail": 10,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cylinder-5",
@@ -851,7 +852,7 @@
           "physics": false,
           "layer": "forest",
           "detail": 8,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cone-4",
@@ -872,7 +873,7 @@
             1.7
           ],
           "color": [
-            0.2002,
+            0.2054,
             0.42,
             0.16
           ],
@@ -880,7 +881,7 @@
           "collision": "none",
           "layer": "forest",
           "detail": 10,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cylinder-6",
@@ -908,7 +909,7 @@
           "physics": false,
           "layer": "forest",
           "detail": 8,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cone-5",
@@ -929,7 +930,7 @@
             1.7
           ],
           "color": [
-            0.1839,
+            0.2067,
             0.42,
             0.16
           ],
@@ -937,7 +938,7 @@
           "collision": "none",
           "layer": "forest",
           "detail": 10,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cylinder-7",
@@ -965,7 +966,7 @@
           "physics": false,
           "layer": "forest",
           "detail": 8,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cone-6",
@@ -986,7 +987,7 @@
             1.7
           ],
           "color": [
-            0.1925,
+            0.2165,
             0.42,
             0.16
           ],
@@ -994,7 +995,7 @@
           "collision": "none",
           "layer": "forest",
           "detail": 10,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cylinder-8",
@@ -1022,7 +1023,7 @@
           "physics": false,
           "layer": "forest",
           "detail": 8,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cone-7",
@@ -1043,7 +1044,7 @@
             1.7
           ],
           "color": [
-            0.184,
+            0.2006,
             0.42,
             0.16
           ],
@@ -1051,7 +1052,7 @@
           "collision": "none",
           "layer": "forest",
           "detail": 10,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cylinder-9",
@@ -1079,7 +1080,7 @@
           "physics": false,
           "layer": "forest",
           "detail": 8,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cone-8",
@@ -1100,7 +1101,7 @@
             1.7
           ],
           "color": [
-            0.181,
+            0.2148,
             0.42,
             0.16
           ],
@@ -1108,7 +1109,7 @@
           "collision": "none",
           "layer": "forest",
           "detail": 10,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cylinder-10",
@@ -1136,7 +1137,7 @@
           "physics": false,
           "layer": "forest",
           "detail": 8,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cone-9",
@@ -1157,7 +1158,7 @@
             1.7
           ],
           "color": [
-            0.1819,
+            0.2021,
             0.42,
             0.16
           ],
@@ -1165,7 +1166,7 @@
           "collision": "none",
           "layer": "forest",
           "detail": 10,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cylinder-11",
@@ -1193,7 +1194,7 @@
           "physics": false,
           "layer": "forest",
           "detail": 8,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cone-10",
@@ -1214,7 +1215,7 @@
             1.7
           ],
           "color": [
-            0.1865,
+            0.2267,
             0.42,
             0.16
           ],
@@ -1222,7 +1223,7 @@
           "collision": "none",
           "layer": "forest",
           "detail": 10,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cylinder-12",
@@ -1250,7 +1251,7 @@
           "physics": false,
           "layer": "forest",
           "detail": 8,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cone-11",
@@ -1271,7 +1272,7 @@
             1.7
           ],
           "color": [
-            0.2226,
+            0.188,
             0.42,
             0.16
           ],
@@ -1279,7 +1280,7 @@
           "collision": "none",
           "layer": "forest",
           "detail": 10,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cylinder-13",
@@ -1307,7 +1308,7 @@
           "physics": false,
           "layer": "forest",
           "detail": 8,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cone-12",
@@ -1328,7 +1329,7 @@
             1.7
           ],
           "color": [
-            0.2284,
+            0.2091,
             0.42,
             0.16
           ],
@@ -1336,7 +1337,7 @@
           "collision": "none",
           "layer": "forest",
           "detail": 10,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cylinder-14",
@@ -1364,7 +1365,7 @@
           "physics": false,
           "layer": "forest",
           "detail": 8,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cone-13",
@@ -1385,7 +1386,7 @@
             1.7
           ],
           "color": [
-            0.1965,
+            0.2172,
             0.42,
             0.16
           ],
@@ -1393,7 +1394,7 @@
           "collision": "none",
           "layer": "forest",
           "detail": 10,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cylinder-15",
@@ -1421,7 +1422,7 @@
           "physics": false,
           "layer": "forest",
           "detail": 8,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "cone-14",
@@ -1442,7 +1443,7 @@
             1.7
           ],
           "color": [
-            0.2215,
+            0.1849,
             0.42,
             0.16
           ],
@@ -1450,7 +1451,7 @@
           "collision": "none",
           "layer": "forest",
           "detail": 10,
-          "drawDistance": 135
+          "drawDistance": 84
         },
         {
           "name": "sphere-1",
@@ -1477,7 +1478,7 @@
           ],
           "physics": false,
           "detail": 20,
-          "drawDistance": 120
+          "drawDistance": 82
         },
         {
           "name": "sphere-2",
@@ -1504,7 +1505,7 @@
           ],
           "physics": false,
           "detail": 20,
-          "drawDistance": 120
+          "drawDistance": 82
         },
         {
           "name": "sphere-3",
@@ -1531,7 +1532,7 @@
           ],
           "physics": false,
           "detail": 20,
-          "drawDistance": 120
+          "drawDistance": 82
         },
         {
           "name": "sphere-4",
@@ -1558,7 +1559,7 @@
           ],
           "physics": false,
           "detail": 20,
-          "drawDistance": 120
+          "drawDistance": 82
         },
         {
           "name": "model-1",

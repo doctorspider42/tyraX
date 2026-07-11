@@ -1540,6 +1540,24 @@ Each finished feature lands as its own commit.
   any affected example project). No code or generated files changed; the moved
   projects still build unchanged (paths in `.tyra`/compose are relative).
 
+- (67) **showcase: terrain chunking + tighter LOD ring (hardware perf)** -- the
+  showcase ran slowly on real PS2 hardware. After merging main's terrain
+  chunking + camera-ring streaming (PR #52), turned it on for the big vale:
+  `terrainViewDistance = 88`, so only the terrain chunks near the camera stay
+  resident instead of the whole 192x192 mesh. The small cavern (64) fits inside
+  the ring and stays whole. Verified LOD was already enabled (animLodDistance
+  35, meshLodDistance 45, per-object drawDistance) -- and tightened it: props
+  now cull with the ring (trees 84, rocks 82, down from 135/120, which exceeded
+  the map extent and never culled). Pulled the fog in (start 20, end 82, from
+  32/168) so the streaming edge sits in full fog and the cutoff is invisible;
+  the trade-off is a foggier, more compact vista. Regenerated the project
+  against the chunking codegen. Verified: `--build examples/showcase` exit 0;
+  PCSX2 boots the vale at 50 FPS with the terrain fading cleanly into fog (no
+  visible chunk edge). The real win is on hardware (PCSX2 was already at 50) --
+  chunking bounds the resident/clipped terrain instead of it growing with the
+  whole map; `terrainViewDistance` / `fogEnd` can be lowered further together if
+  more headroom is needed.
+
 ## Done
 
 - Core editor: project creation (orbit/FPP templates), solution files + undo history,
