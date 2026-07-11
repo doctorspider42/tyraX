@@ -9,6 +9,18 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (42) **Main thread demoted below the audio threads (music dragged at low
+  FPS)** — music played cleanly at 50 FPS but audibly slowed when a heavy
+  scene dropped the game to 25: the EE is one core, the engine's GS waits
+  are busy-spins that never yield, and depending on the boot path the main
+  thread arrives at priority 0 - so a compute-bound frame starved the audio
+  thread (0x5) and the song streamer (0x6), which could never preempt it.
+  Engine::initAll now drops the main thread to 0x10; the audio threads cost
+  microseconds per wake, so the game loses nothing. Verified in PCSX2 (50
+  FPS, steady music, overlay fine); the 25-FPS-scene behavior needs the
+  real console. Also: MEM reads used/total, the music PS2-build row fits
+  the mono checkbox again (a wide combo pushed it out of the panel).
+
 - (41) **Song streamer thread + EE-load overlay** — the last structural fix
   for network music: the fillbuf callback fires when the audsrv ring is
   nearly EMPTY, so any file read on the audio thread races a ring holding
