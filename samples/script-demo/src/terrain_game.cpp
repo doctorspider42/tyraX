@@ -930,7 +930,8 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
   const float playerRadius = 0.35F;
   for (const RuntimeObject& o : runtimeObjects) {
     if (!o.visible || o.data.type == 4 || o.data.type == 6 ||
-        o.data.type == 7 || o.data.type == 8 || o.data.type == 9)
+        o.data.type == 7 || o.data.type == 8 || o.data.type == 9 ||
+        o.data.type == 11)
       continue;
     if (o.data.collision == 2) continue;  // none
 
@@ -1430,7 +1431,7 @@ void TerrainGame::updateUseTarget() {
     const RuntimeObject& o = runtimeObjects[i];
     if (!o.data.usable || !o.visible) continue;
     if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
-        o.data.type == 8 || o.data.type == 9)
+        o.data.type == 8 || o.data.type == 9 || o.data.type == 11)
       continue;
 
     const float dx = o.data.position[0] - cameraPosition.x;
@@ -1918,11 +1919,12 @@ void TerrainGame::rebuildObjectGeometry(int index) {
       case 1: addSphere(p0.vertices, p0.colors, p0.sts, o.data); break;
       case 2: addCylinder(p0.vertices, p0.colors, p0.sts, o.data); break;
       case 3: addCone(p0.vertices, p0.colors, p0.sts, o.data); break;
-      case 4: break;  // spawn point - marker only
-      case 6: break;  // player - marker only
-      case 7: break;  // emitter - particles are built by updateParticles()
-      case 8: break;  // sound emitter - marker only, no geometry
-      case 9: break;  // point light - invisible source, no geometry
+      case 4: break;   // spawn point - marker only
+      case 6: break;   // player - marker only
+      case 7: break;   // emitter - particles are built by updateParticles()
+      case 8: break;   // sound emitter - marker only, no geometry
+      case 9: break;   // point light - invisible source, no geometry
+      case 11: break;  // empty - pure transform, no geometry
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
     g_primKd = nullptr;

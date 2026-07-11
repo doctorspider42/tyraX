@@ -1170,6 +1170,16 @@ void App::addPointLight() {
     o.lightRadius = 8.0f;
     saveAll("Saved");
 }
+void App::addEmpty() {
+    addObject(PrimitiveType::Empty);
+    SceneObject& o = project_.objects().back();
+    // small neutral sphere marker, floats where scripts expect an anchor
+    o.position[1] = 1.0f;
+    o.scale[0] = o.scale[1] = o.scale[2] = 0.5f;
+    o.color[0] = o.color[1] = o.color[2] = 0.75f;
+    o.collisionMode = 2;  // pure transform - never blocks the player
+    saveAll("Saved");
+}
 void App::addSavePoint() {
     addObject(PrimitiveType::SavePoint);
     SceneObject& o = project_.objects().back();
@@ -1770,6 +1780,9 @@ void App::addModelObject(const std::string& relPath) {
 // Categorized object palette, shared by the Scene menu and the "+ Add"
 // button in the Project panel.
 void App::drawAddObjectMenu() {
+    // Pure transform without game geometry - a scene anchor for attached
+    // scripts, waypoints and flow-graph logic (sphere marker in the editor).
+    if (ImGui::MenuItem("Empty")) addEmpty();
     if (ImGui::BeginMenu("Object")) {
         if (ImGui::BeginMenu("Simple")) {
             if (ImGui::MenuItem("Box")) addObject(PrimitiveType::Box);
@@ -1861,6 +1874,7 @@ static const char* typeLabel(PrimitiveType t) {
         case PrimitiveType::SoundEmitter: return "Sound emitter";
         case PrimitiveType::PointLight: return "Point light";
         case PrimitiveType::SavePoint: return "Save point";
+        case PrimitiveType::Empty: return "Empty";
     }
     return "Object";
 }
@@ -2008,21 +2022,26 @@ void App::drawPropertiesWindow() {
         }
     }
 
+    // Empties are pure transforms - scripts read the whole transform (and the
+    // color, as a free per-object parameter), so every field stays editable.
+    const bool isEmpty = o.type == PrimitiveType::Empty;
+
     ImGui::DragFloat3("Position", o.position, 0.1f);
     committed |= ImGui::IsItemDeactivatedAfterEdit();
     // custom emitters rotate too - the rotation aims the emission direction
-    if (isSolid ||
+    if (isSolid || isEmpty ||
         (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
         ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
-    if (isSolid || o.type == PrimitiveType::Emitter) {
+    if (isSolid || isEmpty || o.type == PrimitiveType::Emitter) {
         ImGui::DragFloat3("Scale", o.scale, 0.05f, 0.01f, 1000.0f);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
     // Color: mesh tint for solids, particle tint for emitters, light color
-    // for point lights. Markers draw in fixed editor colors.
-    if (isSolid || o.type == PrimitiveType::Emitter ||
+    // for point lights, marker tint + free script parameter for empties.
+    // The remaining markers draw in fixed editor colors.
+    if (isSolid || isEmpty || o.type == PrimitiveType::Emitter ||
         o.type == PrimitiveType::PointLight) {
         ImGui::ColorEdit3("Color", o.color);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -2059,8 +2078,9 @@ void App::drawPropertiesWindow() {
         }
     }
     // Show/Hide Object nodes toggle emitters/sounds too - their on/off state
-    // is worth saving; lights are baked at build, markers have no game state.
-    if (isSolid || o.type == PrimitiveType::Emitter ||
+    // is worth saving; empties can be moved around by scripts. Lights are
+    // baked at build, the remaining markers have no game state.
+    if (isSolid || isEmpty || o.type == PrimitiveType::Emitter ||
         o.type == PrimitiveType::SoundEmitter) {
         if (ImGui::Checkbox("Save state (position/color/visibility in saves)",
                             &o.saveState))
@@ -2204,6 +2224,13 @@ void App::drawPropertiesWindow() {
                             "values, the player position and the scene.");
     }
 
+    if (isEmpty) {
+        ImGui::SeparatorText("Empty");
+        ImGui::TextDisabled("Pure transform - invisible in the game, no collision.\n"
+                            "An anchor for attached scripts, a waypoint for flow\n"
+                            "graphs; scripts read position/rotation/scale/color.");
+    }
+
     if (o.type == PrimitiveType::Player) {
         ImGui::SeparatorText("Player");
         const char* modes[] = {"Walk (FPP)", "Noclip (fly)"};
@@ -2223,6 +2250,67 @@ void App::drawPropertiesWindow() {
         ImGui::TextDisabled("Noclip: X up, Square down. Walk: X jumps.");
     }
 
+    // Attached scripts (Unity-style components): class names registered in
+    // src/scripts/*.cpp with TYRA_OBJECT_SCRIPT(Name). The game creates one
+    // instance per attachment at scene load - the same class on five objects
+    // runs as five independent instances, each seeing its object as `self`.
+    ImGui::SeparatorText("Scripts");
+    {
+        const std::vector<std::string> registered = objectScriptNames();
+        auto isRegistered = [&](const std::string& n) {
+            for (const std::string& r : registered)
+                if (r == n) return true;
+            return false;
+        };
+        for (int i = 0; i < (int)o.scripts.size();) {
+            ImGui::PushID(i);
+            const bool removed = ImGui::SmallButton("x");
+            ImGui::SameLine();
+            if (isRegistered(o.scripts[i])) {
+                ImGui::TextUnformatted(o.scripts[i].c_str());
+            } else {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s - not found",
+                                   o.scripts[i].c_str());
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("No TYRA_OBJECT_SCRIPT(%s) in src\\scripts\\*.cpp\n"
+                                      "- the game skips it (with a log line).",
+                                      o.scripts[i].c_str());
+            }
+            ImGui::PopID();
+            if (removed) {
+                o.scripts.erase(o.scripts.begin() + i);
+                committed = true;
+            } else {
+                ++i;
+            }
+        }
+        ImGui::SetNextItemWidth(ImGui::CalcItemWidth());
+        if (ImGui::BeginCombo("##attach_script", "Attach script...")) {
+            bool any = false;
+            for (const std::string& r : registered) {
+                bool attached = false;
+                for (const std::string& s : o.scripts) attached |= (s == r);
+                if (attached) continue;
+                any = true;
+                if (ImGui::Selectable(r.c_str(), false)) {
+                    o.scripts.push_back(r);
+                    committed = true;
+                }
+            }
+            if (!any)
+                ImGui::TextDisabled(registered.empty()
+                                        ? "No object scripts in src\\scripts yet."
+                                        : "Every script is already attached.");
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("New script...")) {
+            openNewScriptPopup_ = true;
+            newScriptError_.clear();
+            newScriptAttachTo_ = selectedObject_;
+        }
+    }
+
     ImGui::Separator();
     if (ImGui::Button("Delete object")) {
         project_.objects().erase(project_.objects().begin() + selectedObject_);
@@ -2232,6 +2320,51 @@ void App::drawPropertiesWindow() {
 
     if (committed) commitChange();
     ImGui::End();
+}
+
+// Class names registered with TYRA_OBJECT_SCRIPT(...) across src/scripts,
+// sorted and deduplicated. The directory is walked on every call (the
+// Scripts panel already pays that price per frame); file contents are
+// cached by write time so files are only re-read after edits.
+std::vector<std::string> App::objectScriptNames() {
+    std::vector<std::string> names;
+    const std::filesystem::path dir =
+        std::filesystem::path(project_.dir) / "src" / "scripts";
+    std::error_code ec;
+    if (!std::filesystem::exists(dir, ec)) return names;
+    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+        if (entry.path().extension() != ".cpp") continue;
+        const std::string key = entry.path().string();
+        const auto mtime = std::filesystem::last_write_time(entry.path(), ec);
+        auto it = scriptScanCache_.find(key);
+        if (it == scriptScanCache_.end() || it->second.mtime != mtime) {
+            ScriptFileScan scan;
+            scan.mtime = mtime;
+            std::ifstream f(entry.path(), std::ios::binary);
+            std::stringstream ss;
+            ss << f.rdbuf();
+            const std::string src = ss.str();
+            static const std::string kMacro = "TYRA_OBJECT_SCRIPT(";
+            for (size_t pos = src.find(kMacro); pos != std::string::npos;
+                 pos = src.find(kMacro, pos + kMacro.size())) {
+                const size_t end = src.find(')', pos + kMacro.size());
+                if (end == std::string::npos) break;
+                std::string n =
+                    src.substr(pos + kMacro.size(), end - pos - kMacro.size());
+                while (!n.empty() && isspace((unsigned char)n.front())) n.erase(n.begin());
+                while (!n.empty() && isspace((unsigned char)n.back())) n.pop_back();
+                if (!n.empty()) scan.names.push_back(n);
+            }
+            it = scriptScanCache_.insert_or_assign(key, std::move(scan)).first;
+        }
+        for (const std::string& n : it->second.names) {
+            bool seen = false;
+            for (const std::string& e : names) seen |= (e == n);
+            if (!seen) names.push_back(n);
+        }
+    }
+    std::sort(names.begin(), names.end());
+    return names;
 }
 
 std::vector<std::string> App::flowVarNames(const std::string& nodeType) const {
@@ -4575,6 +4708,7 @@ void App::drawScriptsSection() {
     if (ImGui::SmallButton("New script...")) {
         openNewScriptPopup_ = true;
         newScriptError_.clear();
+        newScriptAttachTo_ = -1;  // created loose - attach later in Properties
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("Open in VS Code")) openInVSCode();
@@ -4591,7 +4725,13 @@ void App::drawScriptsSection() {
             any = true;
         }
     }
-    if (!any) ImGui::TextDisabled("No scripts yet.");
+    if (!any) {
+        ImGui::TextDisabled("No scripts yet.");
+    } else {
+        ImGui::TextDisabled("Object scripts (TYRA_OBJECT_SCRIPT) run when attached\n"
+                            "to objects: Properties > Scripts. Plain TYRA_SCRIPT\n"
+                            "classes run globally every frame.");
+    }
 }
 
 void App::drawNewScriptModal() {
@@ -4608,6 +4748,9 @@ void App::drawNewScriptModal() {
 
     ImGui::InputText("File name", newScriptName_, sizeof(newScriptName_));
     ImGui::TextDisabled("Creates src\\scripts\\%s.cpp", newScriptName_);
+    if (newScriptAttachTo_ >= 0 && newScriptAttachTo_ < (int)project_.objects().size())
+        ImGui::TextDisabled("Attaches it to \"%s\".",
+                            project_.objects()[newScriptAttachTo_].name.c_str());
 
     if (!newScriptError_.empty())
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", newScriptError_.c_str());
@@ -4638,7 +4781,20 @@ void App::drawNewScriptModal() {
                 std::ofstream f(path, std::ios::binary);
                 if (f) {
                     f << templates::scriptStub(project_, className, name + ".cpp");
-                    statusMessage_ = "Created " + name + ".cpp";
+                    f.close();
+                    // Invoked from Properties > Scripts: attach the new class
+                    // to the object right away.
+                    if (newScriptAttachTo_ >= 0 &&
+                        newScriptAttachTo_ < (int)project_.objects().size()) {
+                        project_.objects()[newScriptAttachTo_].scripts.push_back(
+                            className);
+                        commitChange();
+                        statusMessage_ = "Created " + name + ".cpp and attached " +
+                                         className;
+                    } else {
+                        statusMessage_ = "Created " + name + ".cpp";
+                    }
+                    newScriptAttachTo_ = -1;
                     ImGui::CloseCurrentPopup();
                 } else {
                     newScriptError_ = "Cannot write " + path.string();
@@ -4647,7 +4803,10 @@ void App::drawNewScriptModal() {
         }
     }
     ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+    if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+        newScriptAttachTo_ = -1;
+        ImGui::CloseCurrentPopup();
+    }
     ImGui::EndPopup();
 }
 

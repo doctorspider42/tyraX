@@ -1636,7 +1636,8 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
   const float playerRadius = 0.35F;
   for (const RuntimeObject& o : runtimeObjects) {
     if (!o.visible || o.data.type == 4 || o.data.type == 6 ||
-        o.data.type == 7 || o.data.type == 8 || o.data.type == 9)
+        o.data.type == 7 || o.data.type == 8 || o.data.type == 9 ||
+        o.data.type == 11)
       continue;
     if (o.data.collision == 2) continue;  // none
 
@@ -2136,7 +2137,7 @@ void TerrainGame::updateUseTarget() {
     const RuntimeObject& o = runtimeObjects[i];
     if (!o.data.usable || !o.visible) continue;
     if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
-        o.data.type == 8 || o.data.type == 9)
+        o.data.type == 8 || o.data.type == 9 || o.data.type == 11)
       continue;
 
     const float dx = o.data.position[0] - cameraPosition.x;
@@ -2624,11 +2625,12 @@ void TerrainGame::rebuildObjectGeometry(int index) {
       case 1: addSphere(p0.vertices, p0.colors, p0.sts, o.data); break;
       case 2: addCylinder(p0.vertices, p0.colors, p0.sts, o.data); break;
       case 3: addCone(p0.vertices, p0.colors, p0.sts, o.data); break;
-      case 4: break;  // spawn point - marker only
-      case 6: break;  // player - marker only
-      case 7: break;  // emitter - particles are built by updateParticles()
-      case 8: break;  // sound emitter - marker only, no geometry
-      case 9: break;  // point light - invisible source, no geometry
+      case 4: break;   // spawn point - marker only
+      case 6: break;   // player - marker only
+      case 7: break;   // emitter - particles are built by updateParticles()
+      case 8: break;   // sound emitter - marker only, no geometry
+      case 9: break;   // point light - invisible source, no geometry
+      case 11: break;  // empty - pure transform, no geometry
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
     g_primKd = nullptr;
@@ -3820,7 +3822,9 @@ inline bool animationFinished(const ScriptContext& ctx, int objectIndex) {
   return ctx.objects[objectIndex].animFinished;
 }
 
-/** Base class for game scripts. Put .cpp files in src/scripts/. */
+/** Base class for GLOBAL game scripts: registered with TYRA_SCRIPT, one
+ * instance for the whole game, update() runs every frame in every scene.
+ * For per-object behavior prefer ObjectScript below. */
 class Script {
  public:
   virtual ~Script() {}
@@ -3833,6 +3837,47 @@ inline std::vector<Script*>& getScripts() {
   return scripts;
 }
 
+/** Base class for OBJECT scripts (Unity-style components). Write a class in
+ * src/scripts/, register it with TYRA_OBJECT_SCRIPT(MyScript); inside your
+ * namespace, then attach it to objects in the editor (Properties > Scripts).
+ *
+ * The game creates one instance per attachment when a scene (re)loads and
+ * deletes it when the scene is left - the same class attached to five
+ * objects runs as five independent instances, each with its own members and
+ * its own `self`. Only attached scripts run; an unattached class costs
+ * nothing. */
+class ObjectScript {
+ public:
+  virtual ~ObjectScript() {}
+
+  /** The object this instance is attached to - mutate self->data (position/
+   * rotation/scale/color), self->visible or self->velocityY, then set
+   * self->dirty = true. Equals &ctx.objects[selfIndex]; refreshed by the
+   * game every frame before onUpdate. */
+  RuntimeObject* self = nullptr;
+  int selfIndex = -1;
+
+  /** Scene (re)loaded: self is valid, runs before the first onUpdate. */
+  virtual void onStart(ScriptContext&) {}
+  /** Every frame while the owning scene is active. */
+  virtual void onUpdate(ScriptContext&) {}
+  /** The player pressed USE on self this frame (usable objects only). */
+  virtual void onUsed(ScriptContext&) {}
+};
+
+/** Object-script classes register here by name (via TYRA_OBJECT_SCRIPT);
+ * the generated object_scripts.gen.cpp instantiates attachments by name at
+ * scene load. */
+struct ObjectScriptFactory {
+  const char* name;
+  ObjectScript* (*create)();
+};
+
+inline std::vector<ObjectScriptFactory>& getObjectScriptFactories() {
+  static std::vector<ObjectScriptFactory> factories;
+  return factories;
+}
+
 }  // namespace {{NAME_UPPER_NS}}
 
 /** Registers a script class. Put TYRA_SCRIPT(MyScript); at file scope. */
@@ -3842,6 +3887,18 @@ inline std::vector<Script*>& getScripts() {
   static const bool TYRA_SCRIPT_CONCAT(_tyraScript_, __COUNTER__) = []() { \
     {{NAME_UPPER_NS}}::getScripts().push_back(new ClassName());            \
     return true;                                                           \
+  }()
+
+/** Registers an object script class under its (stringized) name - the name
+ * the editor's Properties > Scripts attach list shows. Put
+ * TYRA_OBJECT_SCRIPT(MyScript); at file scope INSIDE your namespace. */
+#define TYRA_OBJECT_SCRIPT(ClassName)                                         \
+  static const bool TYRA_SCRIPT_CONCAT(_tyraObjScript_, __COUNTER__) = []() { \
+    {{NAME_UPPER_NS}}::getObjectScriptFactories().push_back(                  \
+        {#ClassName, []() -> {{NAME_UPPER_NS}}::ObjectScript* {               \
+          return new ClassName();                                             \
+        }});                                                                  \
+    return true;                                                              \
   }()
 )";
 
@@ -3919,30 +3976,37 @@ class ExampleInteraction : public Script {
 TYRA_SCRIPT({{NAME_UPPER_NS}}::ExampleInteraction);
 )";
 
-// Stub for "New script..." in the editor.
+// Stub for "New script..." in the editor: an attachable object script.
 static const char* TPL_SCRIPT_STUB =
     R"(// {{SCRIPT_FILE}} - created by tyra-editor. This file is yours.
 #include "scripts/script.hpp"
 
 namespace {{NAME_UPPER_NS}} {
 
-class {{SCRIPT_CLASS}} : public Script {
+// Attach me to objects in the editor: Properties > Scripts. Every attached
+// object runs its own instance of this class - `self` is that object.
+class {{SCRIPT_CLASS}} : public ObjectScript {
  public:
-  void init(ScriptContext& ctx) override {
-    // Called once at game start.
+  void onStart(ScriptContext& ctx) override {
+    // Scene (re)loaded - self is valid, one call before the first onUpdate.
   }
 
-  void update(ScriptContext& ctx) override {
+  void onUpdate(ScriptContext& ctx) override {
     // Called every frame. Examples:
+    //   self->data.rotation[1] += 60.0F * g_frameDt;  // spin self
+    //   self->dirty = true;                           // geometry changed
     //   ctx.engine->pad.getClicked().Cross  - X pressed this frame
     //   ctx.playerPosition                  - camera/player position
-    //   ctx.skyColor = Tyra::Color(255.0F, 0.0F, 0.0F);
+  }
+
+  void onUsed(ScriptContext& ctx) override {
+    // Player pressed USE on self (objects with "Usable" checked).
   }
 };
 
-}  // namespace {{NAME_UPPER_NS}}
+TYRA_OBJECT_SCRIPT({{SCRIPT_CLASS}});
 
-TYRA_SCRIPT({{NAME_UPPER_NS}}::{{SCRIPT_CLASS}});
+}  // namespace {{NAME_UPPER_NS}}
 )";
 
 static const char* TPL_RUN_PS1 = R"($ConfigFile = Join-Path $PSScriptRoot './windows-pcsx2.ps1'
@@ -4073,7 +4137,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         << " {\n"
            "\n"
            "struct SceneObjectData {\n"
-           "  int type;  // 0=box 1=sphere 2=cylinder 3=cone 4=spawn-point\n"
+           "  int type;  // 0=box 1=sphere 2=cylinder 3=cone 4=spawn-point 5=model\n"
+           "             // 6=player 7=emitter 8=sound 9=point-light 10=save-point\n"
+           "             // 11=empty (pure transform, no geometry/collision)\n"
            "  float position[3];\n"
            "  float rotation[3];  // degrees\n"
            "  float scale[3];\n"
@@ -6114,6 +6180,117 @@ std::vector<File> bakeAnimAssets(const Project& p,
     return files;
 }
 
+// src/scripts/object_scripts.gen.cpp - the object-script runtime: attachment
+// table (scene index, object index, class name - straight from the editor's
+// Properties > Scripts) plus a driver that owns the instances. The driver is
+// a regular global Script, so any generated game runs it without changes to
+// the (user-ownable) terrain_game.cpp: on a scene (re)load it deletes the old
+// instances and creates one per attachment via the TYRA_OBJECT_SCRIPT factory
+// registry; every frame it refreshes `self` and forwards onUpdate/onUsed.
+static std::string objectScriptsSource(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+
+    struct Attach {
+        int scene, object;
+        std::string script, comment;
+    };
+    std::vector<Attach> attaches;
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        for (size_t oi = 0; oi < p.scenes[si].objects.size(); ++oi)
+            for (const std::string& s : p.scenes[si].objects[oi].scripts)
+                attaches.push_back({(int)si, (int)oi, s,
+                                    p.scenes[si].name + " / " +
+                                        p.scenes[si].objects[oi].name});
+
+    std::ostringstream out;
+    out << "// Generated by tyra-editor from the per-object script attachments. Do\n"
+           "// not edit - regenerated on every build. Attach/detach scripts on\n"
+           "// objects in the editor: Properties > Scripts.\n"
+           "#include <string.h>\n"
+           "\n"
+           "#include <vector>\n"
+           "\n"
+           "#include \"scripts/script.hpp\"\n"
+           "\n"
+           "namespace "
+        << ns
+        << " {\n"
+           "\n"
+           "struct ObjectScriptAttach {\n"
+           "  int scene;            // scene_data.hpp scene index\n"
+           "  int object;           // object index within that scene\n"
+           "  const char* script;   // TYRA_OBJECT_SCRIPT registration name\n"
+           "};\n"
+           "\n"
+        << "constexpr int OBJECT_SCRIPT_ATTACH_COUNT = " << attaches.size() << ";\n"
+        << "constexpr ObjectScriptAttach OBJECT_SCRIPT_ATTACHES["
+        << (attaches.empty() ? (size_t)1 : attaches.size()) << "] = {\n";
+    if (attaches.empty()) out << "    {0, 0, \"\"},\n";
+    for (const Attach& a : attaches)
+        out << "    {" << a.scene << ", " << a.object << ", \""
+            << escapeCString(a.script) << "\"},  // " << a.comment << "\n";
+    out << "};\n"
+           "\n"
+           "/** Owns the live ObjectScript instances (one per attachment of the\n"
+           " * active scene). Rebuilds them when the scene generation changes;\n"
+           " * unattached classes and other scenes' attachments cost nothing. */\n"
+           "class ObjectScriptDriver : public Script {\n"
+           " public:\n"
+           "  void update(ScriptContext& ctx) override {\n"
+           "    if (first || ctx.sceneGeneration != generation) {\n"
+           "      first = false;\n"
+           "      generation = ctx.sceneGeneration;\n"
+           "      rebuild(ctx);\n"
+           "    }\n"
+           "    for (ObjectScript* s : instances) {\n"
+           "      // runtimeObjects is rebuilt per scene - re-resolve every frame\n"
+           "      s->self = &ctx.objects[s->selfIndex];\n"
+           "      s->onUpdate(ctx);\n"
+           "    }\n"
+           "    if (ctx.usedObject >= 0)\n"
+           "      for (ObjectScript* s : instances)\n"
+           "        if (s->selfIndex == ctx.usedObject) s->onUsed(ctx);\n"
+           "  }\n"
+           "\n"
+           " private:\n"
+           "  void rebuild(ScriptContext& ctx) {\n"
+           "    for (ObjectScript* s : instances) delete s;\n"
+           "    instances.clear();\n"
+           "    for (int i = 0; i < OBJECT_SCRIPT_ATTACH_COUNT; ++i) {\n"
+           "      const ObjectScriptAttach& a = OBJECT_SCRIPT_ATTACHES[i];\n"
+           "      if (a.scene != ctx.scene) continue;\n"
+           "      if (a.object < 0 || a.object >= ctx.objectCount) continue;\n"
+           "      ObjectScript* s = nullptr;\n"
+           "      for (const ObjectScriptFactory& f : getObjectScriptFactories())\n"
+           "        if (strcmp(f.name, a.script) == 0) {\n"
+           "          s = f.create();\n"
+           "          break;\n"
+           "        }\n"
+           "      if (!s) {\n"
+           "        TYRA_LOG(\"Object script not registered: \", a.script);\n"
+           "        continue;\n"
+           "      }\n"
+           "      s->selfIndex = a.object;\n"
+           "      s->self = &ctx.objects[a.object];\n"
+           "      instances.push_back(s);\n"
+           "      s->onStart(ctx);\n"
+           "    }\n"
+           "  }\n"
+           "\n"
+           "  std::vector<ObjectScript*> instances;\n"
+           "  unsigned int generation = 0;\n"
+           "  bool first = true;\n"
+           "};\n"
+           "\n"
+           "}  // namespace "
+        << ns
+        << "\n"
+           "\n"
+           "TYRA_SCRIPT("
+        << ns << "::ObjectScriptDriver);\n";
+    return out.str();
+}
+
 std::vector<File> generate(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
     auto fill = [&](const char* tpl) { return fillTemplate(p, tpl); };
@@ -6145,6 +6322,7 @@ std::vector<File> generate(const Project& p) {
         {"inc\\menu_data.gen.hpp", menuDataHeader(p)},
         {"inc\\scripts\\script.hpp", fill(TPL_SCRIPT_HPP)},
         {"src\\scripts\\flow_graph.gen.cpp", flowGraphScript(p)},
+        {"src\\scripts\\object_scripts.gen.cpp", objectScriptsSource(p)},
         {"src\\scripts\\example_interaction.cpp",
          fill(fpp ? TPL_EXAMPLE_SCRIPT_FPP : TPL_EXAMPLE_SCRIPT_ORBIT)},
         {".vscode\\c_cpp_properties.json", vscodeCppProperties()},

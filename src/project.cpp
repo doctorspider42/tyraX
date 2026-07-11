@@ -26,6 +26,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::SoundEmitter: return "sound";
         case PrimitiveType::PointLight: return "point-light";
         case PrimitiveType::SavePoint: return "save-point";
+        case PrimitiveType::Empty: return "empty";
     }
     return "box";
 }
@@ -41,6 +42,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "sound") return PrimitiveType::SoundEmitter;
     if (s == "point-light") return PrimitiveType::PointLight;
     if (s == "save-point") return PrimitiveType::SavePoint;
+    if (s == "empty") return PrimitiveType::Empty;
     return PrimitiveType::Box;
 }
 
@@ -233,6 +235,12 @@ static std::string objectJson(const SceneObject& o) {
                 "\", \"autoplay\": " + (o.animAutoplay ? "true" : "false") +
                 ", \"loop\": " + (o.animLoop ? "true" : "false") +
                 ", \"speed\": " + fmtFloat(o.animSpeed) + " }";
+    }
+    if (!o.scripts.empty()) {
+        json += ", \"scripts\": [";
+        for (size_t i = 0; i < o.scripts.size(); ++i)
+            json += (i ? ", \"" : "\"") + o.scripts[i] + "\"";
+        json += "]";
     }
     if (!o.flowGraph.empty()) json += ", \"flowGraph\": " + flowGraphJson(o.flowGraph);
     return json + " }";
@@ -847,6 +855,12 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (o.animSpeed < 0.05f) o.animSpeed = 0.05f;
             if (o.animSpeed > 10.0f) o.animSpeed = 10.0f;
         }
+        if (const auto* sc = jo.find("scripts");
+            sc && sc->type == json::Value::Type::Array) {
+            for (const auto& s : sc->arr)
+                if (s.type == json::Value::Type::String && !s.str.empty())
+                    o.scripts.push_back(s.str);
+        }
         if (const auto* fg = jo.find("flowGraph")) readFlowGraph(*fg, o.flowGraph);
         out.push_back(std::move(o));
     }
@@ -1318,6 +1332,7 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\scene_data.hpp" ||
             f.relativePath == ".vscode\\c_cpp_properties.json" ||
             f.relativePath == "src\\scripts\\flow_graph.gen.cpp" ||
+            f.relativePath == "src\\scripts\\object_scripts.gen.cpp" ||
             f.relativePath == "inc\\model_data.gen.hpp" ||
             f.relativePath == "inc\\hud_data.gen.hpp" ||
             f.relativePath == "inc\\terrain_heights.gen.hpp" ||

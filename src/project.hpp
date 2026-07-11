@@ -39,6 +39,9 @@ enum class PrimitiveType {
     // Save point: a solid box that is implicitly usable; pressing USE on it
     // in the game opens the memory card save menu (3 slots on mc0:).
     SavePoint = 10,
+    // Empty: a pure transform with no geometry in the game (sphere marker in
+    // the editor). Anchor for attached scripts, waypoints, flow-graph logic.
+    Empty = 11,
 };
 
 // Unit primitives fit a 1x1x1 cube centered at origin and are transformed by
@@ -119,6 +122,12 @@ struct SceneObject {
     // Per-object logic. Object-referencing nodes default to this object
     // ("self"), so a copied object brings a working copy of its behavior.
     FlowGraph flowGraph;
+
+    // Attached object scripts: class names registered in src/scripts/*.cpp
+    // with TYRA_OBJECT_SCRIPT(Name). Each attachment becomes its own script
+    // instance in the game (Unity-style components); the same class can be
+    // attached to any number of objects across scenes.
+    std::vector<std::string> scripts;
 };
 
 const char* primitiveTypeName(PrimitiveType t);
@@ -158,7 +167,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
            a.animClip == b.animClip && a.animAutoplay == b.animAutoplay &&
            a.animLoop == b.animLoop && a.animSpeed == b.animSpeed &&
-           a.flowGraph == b.flowGraph;
+           a.flowGraph == b.flowGraph && a.scripts == b.scripts;
 }
 
 // General project preferences (Project > Preferences in the editor).
