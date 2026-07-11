@@ -485,8 +485,12 @@ void App::drawUI() {
         if (!io.WantTextInput) {
             if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Z)) undo();
             if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Y)) redo();
-            if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) copyObject();
-            if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V)) pasteObject();
+            // While the Flow Graph window has focus, Ctrl+C/V act on its nodes
+            // (handled in drawFlowGraphWindow); otherwise they copy scene objects.
+            if (!flowGraphFocused_) {
+                if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) copyObject();
+                if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V)) pasteObject();
+            }
         }
     }
 }
@@ -3517,6 +3521,7 @@ std::vector<std::string> App::flowVarNames(const std::string& nodeType) const {
 }
 
 void App::drawFlowGraphWindow() {
+    flowGraphFocused_ = false;  // recomputed below; gates the global Ctrl+C/V
     ImGui::Begin("Flow Graph");
     if (!hasProject_) {
         ImGui::TextDisabled("No project open.");
@@ -4191,6 +4196,68 @@ void App::drawFlowGraphWindow() {
                 fg.links.push_back(l);
                 changed = true;
             }
+        }
+    }
+
+    // Copy/paste nodes. When this window has focus, Ctrl+C/V operate on the
+    // graph instead of the scene objects (the global handler stands down while
+    // flowGraphFocused_ is set). Skip while typing in a node param so Ctrl+C
+    // still copies text there.
+    const bool fgFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
+    flowGraphFocused_ = fgFocused;
+    if (fgFocused && !ImGui::GetIO().WantTextInput) {
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) {
+            const int numSel = ImNodes::NumSelectedNodes();
+            if (numSel > 0) {
+                std::vector<int> ids(numSel);
+                ImNodes::GetSelectedNodes(ids.data());
+                flowClipboard_ = FlowGraph{};
+                for (int id : ids)
+                    for (const FlowNode& n : fg.nodes)
+                        if (n.id == id) flowClipboard_.nodes.push_back(n);
+                auto copied = [&](int id) {
+                    for (const FlowNode& n : flowClipboard_.nodes)
+                        if (n.id == id) return true;
+                    return false;
+                };
+                for (const FlowLink& l : fg.links)
+                    if (copied(l.fromNode) && copied(l.toNode))
+                        flowClipboard_.links.push_back(l);
+                statusMessage_ =
+                    "Copied " + std::to_string(flowClipboard_.nodes.size()) +
+                    (flowClipboard_.nodes.size() == 1 ? " node" : " nodes");
+            }
+        }
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V) &&
+            !flowClipboard_.nodes.empty()) {
+            // Fresh ids from the target graph so a paste into the same or a
+            // different graph never collides; links are remapped to them.
+            std::vector<std::pair<int, int>> idMap;  // old id -> new id
+            for (const FlowNode& src : flowClipboard_.nodes) {
+                FlowNode n = src;
+                n.id = fg.nextId++;
+                n.pos[0] += 20.0f;  // offset so the paste sits beside the source
+                n.pos[1] += 20.0f;
+                idMap.push_back({src.id, n.id});
+                fg.nodes.push_back(n);
+            }
+            auto mapId = [&](int old) {
+                for (const auto& p : idMap)
+                    if (p.first == old) return p.second;
+                return -1;
+            };
+            for (const FlowLink& src : flowClipboard_.links) {
+                FlowLink l = src;
+                l.id = fg.nextId++;
+                l.fromNode = mapId(src.fromNode);
+                l.toNode = mapId(src.toNode);
+                fg.links.push_back(l);
+            }
+            flowPositionsApplied_ = false;  // push the pasted node positions
+            changed = true;
+            statusMessage_ =
+                "Pasted " + std::to_string(flowClipboard_.nodes.size()) +
+                (flowClipboard_.nodes.size() == 1 ? " node" : " nodes");
         }
     }
 
