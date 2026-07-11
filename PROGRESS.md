@@ -2364,4 +2364,24 @@ Each finished feature lands as its own commit.
   by VU memory (~24-32 bones).
 - Engine perf, next targets: packager allocates its package array per frame
   (poolable); the real endgame is the engine author's own TODO in
-  stapip_clipper.hpp - move clipping to VU1 entirely ("too much time")
+  stapip_clipper.hpp - move clipping to VU1 entirely ("too much time").
+  **Measured on real PS2 (2026-07-11**; clipbench: 128x128 terrain at detail
+  128 = ~98k verts, spinning FPP camera, COP0 timers around `clipper.clip` +
+  loop/pre-endFrame markers, 4 runs x ~2400 frames): the EE clipper costs
+  **8.6-9.8 ms per frame (max 11.6 ms)** in "precise" mode - ~28% of the
+  frame - at ~1.3 us per crossing-package vertex; ~52% of surviving packages
+  crossed the frustum. The frame is **100% EE-bound**: with vsync off, EE
+  work is ~33 ms and endFrame is 0.5 ms (GS/VU1 idle). But the same scene in
+  "fast" mode still misses 50 FPS (EE ~26.5 ms, and it submits 841 vs 356
+  packages because only the precise path classifies per package), so moving
+  clipping to VU1 *alone* gets this scene to ~24.4 ms EE - still 25 FPS
+  vsync-locked (~41 FPS with vsync off, up from ~30). Real payoffs: ~9-11 ms
+  of EE headroom, scenes hovering just over the 20 ms budget flip 25->50,
+  the sky dome / animated objects / particles (hardcoded fullClipChecks=true)
+  come along for free, and "fast" mode's vanishing-triangle artifacts stop
+  being the price of speed. Worth doing **together with packager pooling**
+  to actually reach <20 ms on heavy scenes. Full design + milestones:
+  `docs/vu1-clipping-plan.md`; PCSX2 undercounts the clip cost ~15-20%, so
+  measure on hardware. Reusable instrumented scene:
+  %TEMP%\tyra-editor-test\clipbench (terrain_game.cpp owns a perfTick() +
+  auto-spin patch, codegen marker removed).
