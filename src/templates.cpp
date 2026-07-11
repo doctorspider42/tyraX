@@ -3388,7 +3388,9 @@ void TerrainGame::buildSkyDome() {
   skyDome.vertices.clear();
   skyDome.colors.clear();
   for (int st = 0; st < stacks; ++st) {
-    const float t0 = (float)st / stacks, t1 = (float)(st + 1) / stacks;
+    // Zenith-size bias: pow(elevation fraction, SKY_ZENITH_EXP). exp 1 = linear.
+    const float t0 = powf((float)st / stacks, SKY_ZENITH_EXP),
+                t1 = powf((float)(st + 1) / stacks, SKY_ZENITH_EXP);
     for (int sl = 0; sl < slices; ++sl) {
       const Vec4 v00 = domeVert(st, sl), v01 = domeVert(st, sl + 1);
       const Vec4 v10 = domeVert(st + 1, sl), v11 = domeVert(st + 1, sl + 1);
@@ -5506,6 +5508,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     sceneFloats("SKY_GS", [&](int si) { return floatLit(rs[si].skyColor[1] * 255.0f); });
     sceneFloats("SKY_BS", [&](int si) { return floatLit(rs[si].skyColor[2] * 255.0f); });
     sceneBools("SKY_DOMES", [&](int si) { return rs[si].skyDome; });
+    // Zenith-size gradient exponent, precomputed: pow(t, exp), exp=(1-size)/size
+    // (0.5 => 1 linear). The dome build raises the elevation fraction to it.
+    sceneFloats("SKY_ZENITH_EXPS", [&](int si) {
+        float z = rs[si].zenithSize;
+        z = z < 0.05f ? 0.05f : (z > 0.95f ? 0.95f : z);
+        return floatLit((1.0f - z) / z);
+    });
     sceneFloats("SKY_TOP_RS", [&](int si) { return floatLit(rs[si].skyTopColor[0] * 255.0f); });
     sceneFloats("SKY_TOP_GS", [&](int si) { return floatLit(rs[si].skyTopColor[1] * 255.0f); });
     sceneFloats("SKY_TOP_BS", [&](int si) { return floatLit(rs[si].skyTopColor[2] * 255.0f); });
@@ -5739,6 +5748,7 @@ inline int everyFrames(float seconds) {
 #define SKY_G SKY_GS[g_activeScene]
 #define SKY_B SKY_BS[g_activeScene]
 #define SKY_DOME SKY_DOMES[g_activeScene]
+#define SKY_ZENITH_EXP SKY_ZENITH_EXPS[g_activeScene]
 #define SKY_TOP_R SKY_TOP_RS[g_activeScene]
 #define SKY_TOP_G SKY_TOP_GS[g_activeScene]
 #define SKY_TOP_B SKY_TOP_BS[g_activeScene]
@@ -5853,6 +5863,11 @@ std::string flowGraphScript(const Project& p) {
     auto gradingIndexOf = [&](const std::string& name) {
         for (size_t i = 0; i < p.gradings.size(); ++i)
             if (p.gradings[i].name == name) return (int)i;
+        return -1;
+    };
+    auto ambienceIndexOf = [&](const std::string& name) {
+        for (size_t i = 0; i < p.ambiencePresets.size(); ++i)
+            if (p.ambiencePresets[i].name == name) return (int)i;
         return -1;
     };
     auto saveValueIndex = [&](const std::string& name) {
@@ -6286,6 +6301,22 @@ std::string flowGraphScript(const Project& p) {
                         c << pad << "applySceneGrading(ctx.engine, " << gi
                           << ");  // \"" << n.str << "\"\n";
                     }
+                }
+            } else if (n.type == "SetAmbience") {
+                // Runtime repaint of the sky from a named preset (resolved to a
+                // literal here). Lighting/fog are baked per-scene at build, so
+                // only the sky changes live - like the Set Sky Color node.
+                const int ai = ambienceIndexOf(n.str);
+                if (n.str.empty() || ai < 0) {
+                    c << pad << "// node " << n.id
+                      << " (SetAmbience): unknown preset '" << n.str << "'\n";
+                } else {
+                    const AmbiencePreset& a = p.ambiencePresets[ai];
+                    c << pad << "ctx.skyColor = Tyra::Color("
+                      << floatLit(a.skyColor[0] * 255.0f) << ", "
+                      << floatLit(a.skyColor[1] * 255.0f) << ", "
+                      << floatLit(a.skyColor[2] * 255.0f) << ");  // \"" << n.str
+                      << "\"\n";
                 }
             } else if (n.type == "ShowObject") {
                 c << pad << obj << ".visible = true;\n";
