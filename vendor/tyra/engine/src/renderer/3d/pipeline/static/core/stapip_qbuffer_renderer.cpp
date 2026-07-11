@@ -431,25 +431,48 @@ void StaPipQBufferRenderer::clip(StaPipQBuffer* buffer) {
     return;
   }
 
-  dBufferPrograms[getQBufferIndex(buffer)] = getAsIsProgramByBag(buffer->bag);
+  // Modified by tyra-editor: a subpackage clipped against the frustum can fan
+  // out into more verts than one VU1 buffer holds (maxVertCount). Drain the
+  // clip result across as many buffer slots / VU1 draws as needed instead of
+  // overflowing a single buffer (that tripped the "Max buffer size in VU1"
+  // assert in stapip_qbuffer.cpp while walking around a scene).
+  StaPipBag* bag = buffer->bag;
+  const u32 total = clipper.clipToPool(buffer);
 
-  clipper.clip(buffer);
+  // chunk is a multiple of 3 so a triangle is never split across two draws.
+  const u32 chunk = (maxVertCount / 3) * 3;
 
-  Verbose("Add clip[", getQBufferIndex(buffer), "]: ", buffer->size);
+  u32 emitted = 0;
+  StaPipQBuffer* target = buffer;  // reuse the slot the caller already acquired
+  do {
+    const u32 remaining = total - emitted;
+    const u32 n = remaining < chunk ? remaining : chunk;
 
-  auto is1stDBuffer = is1stDBufferFlushTime();
-  auto is2ndDBuffer = is2ndDBufferFlushTime();
+    target->bag = bag;
+    clipper.writeChunk(target, emitted, n);  // n == 0 -> empty slot, skipped
+    dBufferPrograms[getQBufferIndex(target)] = getAsIsProgramByBag(bag);
 
-  if (is1stDBuffer || is2ndDBuffer) {
-    auto from = is1stDBuffer ? 0 : buffersCount / 2;
-    auto to = from + buffersCount / 2;
+    Verbose("Add clip[", getQBufferIndex(target), "]: ", target->size);
 
-    Verbose("-- Half flush at ", getQBufferIndex(buffer), ". from: ", from,
-            " to: ", to);
+    auto is1stDBuffer = is1stDBufferFlushTime();
+    auto is2ndDBuffer = is2ndDBufferFlushTime();
 
-    addBuffersDataToPacket(from, to);
-    sendPacket();
-  }
+    if (is1stDBuffer || is2ndDBuffer) {
+      auto from = is1stDBuffer ? 0 : buffersCount / 2;
+      auto to = from + buffersCount / 2;
+
+      Verbose("-- Half flush at ", getQBufferIndex(target), ". from: ", from,
+              " to: ", to);
+
+      addBuffersDataToPacket(from, to);
+      sendPacket();
+    }
+
+    emitted += n;
+    if (emitted >= total) break;
+
+    target = getBuffer();  // next slot for the next chunk
+  } while (true);
 }
 
 void StaPipQBufferRenderer::clearLastProgramName() {
@@ -500,6 +523,7 @@ void StaPipQBufferRenderer::sendPacket() {
 }
 
 void StaPipQBufferRenderer::setMaxVertCount(const u32& count) {
+  maxVertCount = count;
   for (u32 i = 0; i < buffersCount; i++) {
     buffers[i]->setMaxVertCount(count);
   }
