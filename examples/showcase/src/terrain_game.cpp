@@ -706,8 +706,20 @@ void TerrainGame::loop() {
   {
     engine->renderer.renderer3D.usePipeline(stapip);
     renderScene();
-    if (scriptCtx.hudVisible)
-      for (auto& sprite : hudSprites) engine->renderer.renderer2D.render(sprite);
+    // Full-screen effects can sit inside the HUD stack (Tools > UI Editor):
+    // bloom (with color grading) and film grain composite at independent
+    // points, so sprites drawn afterwards stay crisp on top of them. -1 = the
+    // pass applies at endFrame, over everything (menus included).
+    for (int i = 0; i < (int)hudSprites.size(); ++i) {
+      if (i == HUD_BLOOM_LAYER)
+        engine->renderer.core.applyPostFx(
+            Tyra::RendererCorePostFx::PassBloom |
+            Tyra::RendererCorePostFx::PassGrading);
+      if (i == HUD_GRAIN_LAYER)
+        engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassGrain);
+      if (scriptCtx.hudVisible)
+        engine->renderer.renderer2D.render(hudSprites[i]);
+    }
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
     renderGameMenu();
     renderSaveMenu();
@@ -2514,7 +2526,9 @@ void TerrainGame::buildSkyDome() {
   skyDome.vertices.clear();
   skyDome.colors.clear();
   for (int st = 0; st < stacks; ++st) {
-    const float t0 = (float)st / stacks, t1 = (float)(st + 1) / stacks;
+    // Zenith-size bias: pow(elevation fraction, SKY_ZENITH_EXP). exp 1 = linear.
+    const float t0 = powf((float)st / stacks, SKY_ZENITH_EXP),
+                t1 = powf((float)(st + 1) / stacks, SKY_ZENITH_EXP);
     for (int sl = 0; sl < slices; ++sl) {
       const Vec4 v00 = domeVert(st, sl), v01 = domeVert(st, sl + 1);
       const Vec4 v10 = domeVert(st + 1, sl), v11 = domeVert(st + 1, sl + 1);
