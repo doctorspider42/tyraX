@@ -276,7 +276,7 @@ void SkelInstance::advanceLayer(Layer& layer, float dt) {
   }
 }
 
-bool SkelInstance::update(float dt) {
+bool SkelInstance::advance(float dt) {
   bool finished = false;
   if (cur.clip >= 0 && dt > 0.0F) {
     const SkelClip& clip = model->clips[cur.clip];
@@ -299,11 +299,20 @@ bool SkelInstance::update(float dt) {
       poseDirty = true;
     }
   }
-  if (poseDirty) {
-    evalPose();
-    skinParts();
-    poseDirty = false;
-  }
+  return finished;
+}
+
+bool SkelInstance::ensurePose() {
+  if (!poseDirty) return false;
+  evalPose();
+  skinParts();
+  poseDirty = false;
+  return true;
+}
+
+bool SkelInstance::update(float dt) {
+  const bool finished = advance(dt);
+  ensurePose();
   return finished;
 }
 

@@ -143,7 +143,7 @@ struct Skel {
     std::vector<SkelPart> parts;
     std::vector<SkelClip> clips;  // >= 1; static .glb gets a 0s "default"
     std::vector<Image> images;
-    float min[3] = {0, 0, 0}, max[3] = {0, 0, 0};  // clip-0 t=0 pose AABB
+    float min[3] = {0, 0, 0}, max[3] = {0, 0, 0};  // pose AABB, all-clips union
     std::vector<std::string> warnings;
 
     int totalVertexCount() const {

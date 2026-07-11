@@ -357,6 +357,18 @@ class TerrainGame : public Tyra::Game {
     // Animated models (.glb): this object's skeletal instance (own
     // playback state + skinned output mesh, samples the shared SkelModel).
     std::unique_ptr<Tyra::SkelInstance> animInst;
+    // StaPip bags pointing straight into animInst's skinned arrays; the
+    // skinned vertices stay in model space, so the object transform rides
+    // in animMat (info bag + light matrix), not in the vertex data.
+    struct AnimPart {
+      std::unique_ptr<Tyra::StaPipBag> bag;
+      std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+      std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+      std::unique_ptr<Tyra::StaPipLightingBag> lightBag;
+    };
+    std::vector<AnimPart> animParts;
+    std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
+    Tyra::M4x4 animMat;
     // Usable-object highlight: fading shells grown around the object
     // center, drawn after the scene (see renderHighlightHull)
     std::vector<Tyra::Vec4> hullVerts;
@@ -383,24 +395,25 @@ class TerrainGame : public Tyra::Game {
   void loadModels();
   // Animated .glb models: serialized by the editor to .tskl skeletal files
   // (paths in model_data.gen.hpp) - bone keyframe tracks + bind-pose mesh.
-  // Poses are evaluated and skinned on the EE per frame (SkelInstance) and
-  // rendered through the dynamic pipeline. Both pipelines stay initialized
-  // side by side; renderScene() re-uploads the right VU1 programs when it
-  // switches passes (renderer3D.usePipeline would reallocate every buffer
-  // on every switch instead).
-  Tyra::DynamicPipeline dynpip;
+  // Poses are evaluated and skinned on the EE/VU0 (SkelInstance) for the
+  // in-view instances only; the skinned arrays render through the SAME
+  // static pipeline as the rest of the scene (single vertex upload, no VU1
+  // program swap, EE clipping). See updateAndRenderAnimObjects for the
+  // real-hardware numbers behind this design - PCSX2's fast EE hides them.
   struct GameAnimModel {
     std::unique_ptr<Tyra::SkelModel> src;   // skeleton + mesh + clip tracks
     std::vector<Tyra::Texture*> textures;   // per part, nullptr = untextured
+    Tyra::CoreBBox cullBox;  // local AABB over all clips + margin (see load)
   };
   std::vector<GameAnimModel> gameAnimModels;
   void loadAnimModels();
   void setupAnimObject(int index);  // per-object instance + playback state
   void updateAndRenderAnimObjects();
-  // Directional light for the dynamic pass, mirroring the baked static look
-  Tyra::Color animAmbient;
-  Tyra::Color animDirColors[3];
-  Tyra::Vec4 animDirDirs[3];
+  // Directional light for the animated pass, mirroring the baked static
+  // look. The manual dir-lights layout: colors[0..2] + ambient in [3].
+  Tyra::Vec4 animLightColors[4];
+  Tyra::Vec4 animLightDirs[3];
+  Tyra::PipelineDirLightsBag animDirLights{true};
 
  public:
   // Clip-name lookup for scripts/flow graph (ScriptContext::resolveClip).
@@ -576,6 +589,18 @@ class TerrainGame : public Tyra::Game {
     // Animated models (.glb): this object's skeletal instance (own
     // playback state + skinned output mesh, samples the shared SkelModel).
     std::unique_ptr<Tyra::SkelInstance> animInst;
+    // StaPip bags pointing straight into animInst's skinned arrays; the
+    // skinned vertices stay in model space, so the object transform rides
+    // in animMat (info bag + light matrix), not in the vertex data.
+    struct AnimPart {
+      std::unique_ptr<Tyra::StaPipBag> bag;
+      std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+      std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+      std::unique_ptr<Tyra::StaPipLightingBag> lightBag;
+    };
+    std::vector<AnimPart> animParts;
+    std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
+    Tyra::M4x4 animMat;
     // Usable-object highlight: fading shells grown around the object
     // center, drawn after the scene (see renderHighlightHull)
     std::vector<Tyra::Vec4> hullVerts;
@@ -602,24 +627,25 @@ class TerrainGame : public Tyra::Game {
   void loadModels();
   // Animated .glb models: serialized by the editor to .tskl skeletal files
   // (paths in model_data.gen.hpp) - bone keyframe tracks + bind-pose mesh.
-  // Poses are evaluated and skinned on the EE per frame (SkelInstance) and
-  // rendered through the dynamic pipeline. Both pipelines stay initialized
-  // side by side; renderScene() re-uploads the right VU1 programs when it
-  // switches passes (renderer3D.usePipeline would reallocate every buffer
-  // on every switch instead).
-  Tyra::DynamicPipeline dynpip;
+  // Poses are evaluated and skinned on the EE/VU0 (SkelInstance) for the
+  // in-view instances only; the skinned arrays render through the SAME
+  // static pipeline as the rest of the scene (single vertex upload, no VU1
+  // program swap, EE clipping). See updateAndRenderAnimObjects for the
+  // real-hardware numbers behind this design - PCSX2's fast EE hides them.
   struct GameAnimModel {
     std::unique_ptr<Tyra::SkelModel> src;   // skeleton + mesh + clip tracks
     std::vector<Tyra::Texture*> textures;   // per part, nullptr = untextured
+    Tyra::CoreBBox cullBox;  // local AABB over all clips + margin (see load)
   };
   std::vector<GameAnimModel> gameAnimModels;
   void loadAnimModels();
   void setupAnimObject(int index);  // per-object instance + playback state
   void updateAndRenderAnimObjects();
-  // Directional light for the dynamic pass, mirroring the baked static look
-  Tyra::Color animAmbient;
-  Tyra::Color animDirColors[3];
-  Tyra::Vec4 animDirDirs[3];
+  // Directional light for the animated pass, mirroring the baked static
+  // look. The manual dir-lights layout: colors[0..2] + ambient in [3].
+  Tyra::Vec4 animLightColors[4];
+  Tyra::Vec4 animLightDirs[3];
+  Tyra::PipelineDirLightsBag animDirLights{true};
 
  public:
   // Clip-name lookup for scripts/flow graph (ScriptContext::resolveClip).
@@ -1103,13 +1129,6 @@ void TerrainGame::init() {
   g_frameScale = 50.0F / g_frameRate;
 
   stapip.setRenderer(&engine->renderer.core);
-  if (ANIM_MODEL_COUNT > 0) {
-    // Dynamic pipeline for animated models, initialized once next to the
-    // static one - renderScene() swaps VU1 programs between the passes.
-    dynpip.setRenderer(&engine->renderer.core);
-    dynpip.onUse();
-  }
-
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
   // Default color grading look (Tools > Color Grading); no-op when -1.
@@ -1487,8 +1506,27 @@ void TerrainGame::loadAnimModels() {
       else  // missing texture degrades the part to its plain color
         model->parts[m].texturePath.clear();
     }
+    // Local-space cull box: the .tskl AABB is a union over every clip
+    // (sampled by the baker), padded 10% per axis for pose positions
+    // between the bake samples. Culling skips pose+skin+submit entirely,
+    // so the box must stay conservative.
+    {
+      float lo[3], hi[3];
+      for (int c = 0; c < 3; ++c) {
+        const float pad = 0.1F * (model->max[c] - model->min[c]);
+        lo[c] = model->min[c] - pad;
+        hi[c] = model->max[c] + pad;
+      }
+      Vec4 corners[2];
+      corners[0].set(lo[0], lo[1], lo[2], 1.0F);
+      corners[1].set(hi[0], hi[1], hi[2], 1.0F);
+      gam.cullBox = CoreBBox(corners, 2);
+    }
     gam.src = std::move(model);
   }
+  // One shared directional-light set for every animated instance; the
+  // arrays are member storage, values refresh each frame in the anim pass.
+  animDirLights.setLightsManually(animLightColors, animLightDirs);
 }
 
 int TerrainGame::resolveClipIndex(int objectIndex, const char* clipName) const {
@@ -1510,6 +1548,8 @@ void TerrainGame::setupAnimObject(int index) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
   g.animInst.reset();
+  g.animParts.clear();  // bags point into the instance - drop them together
+  g.animInfoBag.reset();
   if (o.data.type != 5 || o.data.animModel < 0 ||
       o.data.animModel >= (int)gameAnimModels.size())
     return;
@@ -1530,6 +1570,40 @@ void TerrainGame::setupAnimObject(int index) {
                      base[2] * 128.0F * o.data.color[2], 128.0F);
   }
 
+  // Static-pipeline bags around the skinned arrays (rebuilt in place every
+  // skin; bboxVersion bumps keep the frustum boxes honest). One info bag
+  // per object carries the model matrix; parts share it.
+  g.animMat.identity();
+  g.animInfoBag = std::make_unique<StaPipInfoBag>();
+  g.animInfoBag->model = &g.animMat;
+  g.animInfoBag->shadingType = TyraShadingGouraud;  // per-vertex lighting
+  g.animInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+  g.animInfoBag->fullClipChecks = true;  // near-camera geometry, like objects
+  g.animParts.clear();
+  g.animParts.resize(mesh->materials.size());
+  for (size_t m = 0; m < mesh->materials.size(); ++m) {
+    ObjectGeometry::AnimPart& ap = g.animParts[m];
+    MeshMaterialFrame* frame = mesh->materials[m]->frames[0];
+    ap.colorBag = std::make_unique<StaPipColorBag>();
+    ap.colorBag->single = &mesh->materials[m]->ambient;
+    ap.lightBag = std::make_unique<StaPipLightingBag>();
+    ap.lightBag->lightMatrix = &g.animMat;
+    ap.lightBag->normals = frame->normals;
+    ap.lightBag->dirLights = &animDirLights;
+    ap.bag = std::make_unique<StaPipBag>();
+    ap.bag->info = g.animInfoBag.get();
+    ap.bag->color = ap.colorBag.get();
+    ap.bag->vertices = frame->vertices;
+    ap.bag->count = frame->count;
+    ap.bag->lighting = ap.lightBag.get();
+    if (m < gam.textures.size() && gam.textures[m] && frame->textureCoords) {
+      ap.texBag = std::make_unique<StaPipTextureBag>();
+      ap.texBag->texture = gam.textures[m];
+      ap.texBag->coordinates = frame->textureCoords;
+      ap.bag->texture = ap.texBag.get();
+    }
+  }
+
   o.animClip = resolveClipIndex(index, o.data.animClip);
   if (o.animClip < 0) {
     if (o.data.animClip && o.data.animClip[0])
@@ -1544,11 +1618,24 @@ void TerrainGame::setupAnimObject(int index) {
   o.animFade = 0.0F;
 }
 
-// The dynamic-pipeline pass at the end of the scene render: applies pending
-// playback state, advances/poses/skins every visible instance on the EE and
-// renders it with a directional light matching the baked static lighting
-// (point lights are baked into static vertex colors and cannot follow
-// animated meshes).
+// The animated-models pass of the scene render. Real-hardware numbers drove
+// this shape (PCSX2's fast EE hides all of it): each visible 1092-vert
+// instance costs ~0.9 ms pose+skin plus ~1 ms submit on the EE, and the old
+// code paid it for every instance every frame - 7 spiders saturated the
+// 20 ms PAL budget on their own and halved the frame rate to 25.
+// Three measures keep the pass inside the budget:
+//  - instances whose conservative all-clips AABB is outside the frustum
+//    skip pose/skin/submit entirely (playback still advances, so
+//    animFinished and re-entry poses stay honest);
+//  - instances striking the identical pose (same clip advanced in lockstep,
+//    the ambient-prop / enemy-pack case) share one skinned mesh - the first
+//    skins, the rest re-point their bags at its arrays;
+//  - the skinned arrays render through the SAME static pipeline as the rest
+//    of the scene: one submission per vertex (DynPip uploads every vertex
+//    twice for its from/to lerp), no VU1 program swap mid-frame, and the
+//    EE clipper handles screen-edge crossers like all other geometry.
+// One directional light matches the baked static lighting (point lights are
+// baked into static vertex colors and cannot follow animated meshes).
 void TerrainGame::updateAndRenderAnimObjects() {
   if (gameAnimModels.empty()) return;
   bool any = false;
@@ -1556,35 +1643,32 @@ void TerrainGame::updateAndRenderAnimObjects() {
     any = runtimeObjects[i].visible && objectGeometry[i].animInst != nullptr;
   if (!any) return;
 
-  animAmbient.set(128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT,
-                  128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT,
-                  128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT, 128.0F);
+  const float amb = 128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT;
   const float dif = 128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE;
-  animDirColors[0].set(dif * SCENE_LIGHT_COL_R, dif * SCENE_LIGHT_COL_G,
-                       dif * SCENE_LIGHT_COL_B, 1.0F);
-  animDirColors[1].set(0.0F, 0.0F, 0.0F, 1.0F);
-  animDirColors[2].set(0.0F, 0.0F, 0.0F, 1.0F);
-  animDirDirs[0].set(SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z, 1.0F);
-  animDirDirs[1].set(0.0F, 0.0F, 0.0F, 1.0F);
-  animDirDirs[2].set(0.0F, 0.0F, 0.0F, 1.0F);
+  // manual dir-lights layout: [0..2] directional colors, [3] ambient
+  animLightColors[0].set(dif * SCENE_LIGHT_COL_R, dif * SCENE_LIGHT_COL_G,
+                         dif * SCENE_LIGHT_COL_B, 1.0F);
+  animLightColors[1].set(0.0F, 0.0F, 0.0F, 1.0F);
+  animLightColors[2].set(0.0F, 0.0F, 0.0F, 1.0F);
+  animLightColors[3].set(amb, amb, amb, 128.0F);
+  animLightDirs[0].set(SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z, 1.0F);
+  animLightDirs[1].set(0.0F, 0.0F, 0.0F, 1.0F);
+  animLightDirs[2].set(0.0F, 0.0F, 0.0F, 1.0F);
 
-  PipelineLightingOptions lighting;
-  lighting.ambientColor = &animAmbient;
-  lighting.directionalColors = animDirColors;
-  lighting.directionalDirections = animDirDirs;
-
-  DynPipOptions options;
-  options.frustumCulling = PipelineFrustumCulling_Precise;
-  options.shadingType = TyraShadingGouraud;
-  options.blendingEnabled = true;
-  options.antiAliasingEnabled = false;
-  options.lighting = &lighting;
-
-  dynpip.core.reinitVU1Programs();  // swap VU1 to the dynamic programs
+  // in-view instances rendered so far this frame: object index + the object
+  // whose instance owns the skinned arrays it drew with (itself, or the
+  // group leader it followed)
+  struct RenderedAnim {
+    int obj;
+    int meshOwner;
+  };
+  static std::vector<RenderedAnim> rendered;
+  rendered.clear();
 
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     RuntimeObject& o = runtimeObjects[i];
-    SkelInstance* inst = objectGeometry[i].animInst.get();
+    ObjectGeometry& g = objectGeometry[i];
+    SkelInstance* inst = g.animInst.get();
     if (!inst || !o.visible) continue;
     const GameAnimModel& gam = gameAnimModels[o.data.animModel];
 
@@ -1598,19 +1682,17 @@ void TerrainGame::updateAndRenderAnimObjects() {
       o.animFade = 0.0F;  // consumed by this restart
     }
     inst->setLoop(o.animLoop);
-    // the pose advances by wall-clock seconds; speed scales the step
+    // time always advances by wall-clock seconds (speed scales the step),
+    // visible or not - animFinished stays honest for offscreen instances
     const float step = o.animPlaying ? g_frameDt * o.animSpeed : 0.0F;
-    o.animFinished = inst->update(step);
+    o.animFinished = inst->advance(step);
 
     // model matrix straight from the object data: T * R(X,Y,Z) * S, the
     // same transform the static path bakes through pushVert()/rotated()
-    DynamicMesh* mesh = inst->mesh.get();
     const V3 bx = rotated({o.data.scale[0], 0.0F, 0.0F}, o.data.rotation);
     const V3 by = rotated({0.0F, o.data.scale[1], 0.0F}, o.data.rotation);
     const V3 bz = rotated({0.0F, 0.0F, o.data.scale[2]}, o.data.rotation);
-    mesh->translation.identity();
-    mesh->scale.identity();
-    M4x4& m = mesh->rotation;  // carries the full model matrix
+    M4x4& m = g.animMat;  // the info bag and light matrix point here
     m.identity();
     m.data[0] = bx.x, m.data[1] = bx.y, m.data[2] = bx.z;
     m.data[4] = by.x, m.data[5] = by.y, m.data[6] = by.z;
@@ -1619,10 +1701,44 @@ void TerrainGame::updateAndRenderAnimObjects() {
     m.data[13] = o.data.position[1];
     m.data[14] = o.data.position[2];
 
-    dynpip.render(mesh, &options);
-  }
+    // pose + skin + submit only when the conservative box touches the view
+    if (gam.cullBox.frustumCheck(
+            engine->renderer.core.renderer3D.frustumPlanes.getAll(), m) ==
+        CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+      continue;
 
-  stapip.core.reinitVU1Programs();  // restore the static programs
+    // pose sharing: follow an already-rendered instance in the same pose
+    int meshOwner = i;
+    for (const RenderedAnim& r : rendered) {
+      if (runtimeObjects[r.obj].data.animModel != o.data.animModel) continue;
+      if (!inst->poseEquals(*objectGeometry[r.obj].animInst)) continue;
+      meshOwner = r.meshOwner;
+      break;
+    }
+
+    ObjectGeometry& owner = objectGeometry[meshOwner];
+    const bool reskinned =
+        meshOwner == i ? inst->ensurePose() : false;
+    DynamicMesh* srcMesh = owner.animInst->mesh.get();
+    for (size_t p = 0; p < g.animParts.size(); ++p) {
+      ObjectGeometry::AnimPart& ap = g.animParts[p];
+      if (!ap.bag) continue;
+      // bags may still point at another frame's group leader - re-aim them
+      MeshMaterialFrame* frame = srcMesh->materials[p]->frames[0];
+      ap.bag->vertices = frame->vertices;
+      ap.lightBag->normals = frame->normals;
+      if (ap.texBag) ap.texBag->coordinates = frame->textureCoords;
+      if (meshOwner == i) {
+        if (reskinned) ap.bag->bboxVersion++;  // skinned in place
+      } else {
+        // identical pointer + version = followers reuse the owner's cached
+        // frustum boxes instead of recomputing them per instance
+        ap.bag->bboxVersion = owner.animParts[p].bag->bboxVersion;
+      }
+      stapip.core.render(ap.bag.get());
+    }
+    rendered.push_back({i, meshOwner});
+  }
 }
 
 // Shared player-vs-scene collision (both walkers). Box mode reproduces the
@@ -1696,8 +1812,8 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     }
 
     // --- box mode --- (models: real mesh AABB; primitives: unit scale box;
-    // animated models: the baked frame-0 AABB - mesh mode is a static-model
-    // feature, so .glb objects always collide as boxes)
+    // animated models: the baked AABB, a union over every clip's poses -
+    // mesh mode is a static-model feature, so .glb objects collide as boxes)
     const SkelModel* anim = nullptr;
     if (o.data.type == 5 && o.data.animModel >= 0 &&
         o.data.animModel < (int)gameAnimModels.size())
@@ -2743,8 +2859,8 @@ void TerrainGame::renderScene() {
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag) stapip.core.render(part.bag.get());
   }
-  // Animated models: the dynamic-pipeline pass (advances + draws them; a
-  // no-op without visible animated objects, so the VU1 programs stay put)
+  // Animated models: advance playback, then skin + draw the in-view ones
+  // through the same static pipeline (see updateAndRenderAnimObjects)
   updateAndRenderAnimObjects();
   // Highlight rims after every object so their depth is in the z-buffer:
   // the rim is depth-tested against the finished scene and can no longer be
@@ -2993,13 +3109,6 @@ void TerrainGame::init() {
   g_frameScale = 50.0F / g_frameRate;
 
   stapip.setRenderer(&engine->renderer.core);
-  if (ANIM_MODEL_COUNT > 0) {
-    // Dynamic pipeline for animated models, initialized once next to the
-    // static one - renderScene() swaps VU1 programs between the passes.
-    dynpip.setRenderer(&engine->renderer.core);
-    dynpip.onUse();
-  }
-
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
   // Default color grading look (Tools > Color Grading); no-op when -1.
