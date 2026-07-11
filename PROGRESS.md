@@ -50,7 +50,9 @@ Each finished feature lands as its own commit.
   Empty properties + Scripts list with the not-found marker. `onUsed` (USE
   on a usable object with an attached script) compiles and mirrors the flow
   graph's On Used dispatch but still needs a hands-on pad test.
-  samples/script-demo regenerated with the new templates. README updated.
+  samples/script-demo regenerated with the new templates. README updated;
+  user guide added (docs/object-scripts.md: lifecycle, self/ScriptContext
+  reference, Empty objects, performance, troubleshooting).
 - (34) **Skeletal animation skinning moved from the EE FPU to VU0 (macro
   mode)** — the backlog's era-correct split (animation on VU0, 3D on VU1,
   game code on EE), engine-fork only, zero authoring/codegen changes. The
