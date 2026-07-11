@@ -11,3 +11,7 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   C++ scripts and attaching them to objects, the ObjectScript lifecycle
   (`self`, onStart/onUpdate/onUsed), ScriptContext reference, Empty
   objects, global scripts, performance, troubleshooting.
+- [Streaming layers](streaming-layers.md) - grouping objects into layers
+  the game loads/unloads from memory at runtime (GTA3-style interior
+  streaming): the Layers panel, the Load / Unload / Is Layer Loaded flow
+  nodes, the corridor trigger pattern, what gets freed, troubleshooting.

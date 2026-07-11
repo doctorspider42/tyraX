@@ -1879,7 +1879,21 @@ Each finished feature lands as its own commit.
   walking a real corridor with a pad. Testing fix that cost three runs:
   the bundled screenshot-window.ps1 captured a scaled-up crop of the
   window's top-left corner on a display scaled above 100% - the script now
-  calls SetProcessDPIAware() first.
+  calls SetProcessDPIAware() first. Follow-up in the same PR: user docs
+  (docs/streaming-layers.md, linked from docs/README.md and the root
+  README) and a new `examples/` folder ("one runnable project per
+  feature") whose first entry, examples/layer-streaming, is the canonical
+  two-buildings-and-a-corridor scene: four Near Object trigger markers in
+  the corridor swap the buildings' layers bidirectionally (each direction
+  passes a harmless no-op unload first, then the load for the building
+  ahead, then - close to the far door - the unload for the one behind, so
+  walking back and forth needs no extra logic), debug MEM/FPS overlay on.
+  Verified: Docker build exit 0 from the repo checkout; the compiled
+  trigger graphs inspected in flow_graph.gen.cpp (four correct
+  layerRequest writes). A PCSX2 boot check collided with a parallel
+  session's emulator run (the runner taskkills the shared PCSX2 on every
+  launch), so the pad walkthrough stays a hands-on check - the streaming
+  runtime itself was e2e-verified above through the same codepaths.
 
 ## Backlog (rough order)
 
