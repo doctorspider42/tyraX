@@ -674,47 +674,55 @@ void App::drawMenuBar() {
 }
 
 // Icon toolbar drawn inline in the main menu bar, after the menus. Layout:
-// Save, then two run/stop pairs - [green Play=PCSX2, Stop PCSX2] and
-// [blue Play=PS2, Stop PS2]. Icons are vector-drawn on the menu-bar draw list
-// (the editor loads no icon font) so they stay crisp at any UI scale. Spacing
-// is set explicitly: pairs sit tight, groups are separated by a wider gap.
+// Save, Build, then two run/stop pairs - [green Play=PCSX2, dropdown, Stop] and
+// [blue Play=PS2, dropdown, Stop]. Each Play has a Visual-Studio-style caret
+// dropdown for the "run without build" variant. Icons are vector-drawn on the
+// menu-bar draw list (the editor loads no icon font) so they stay crisp at any
+// UI scale. Spacing is explicit: a pair sits tight, groups get a wider gap.
 void App::drawToolbar() {
     if (!hasProject_) return;
 
     const bool busy = runner_.busy();
     const bool ps2Ready = !project_.ps2LinkIp.empty();
     const ImU32 colDim = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+    const ImU32 colText = ImGui::GetColorU32(ImGuiCol_Text);
     const ImU32 colStop = IM_COL32(225, 95, 85, 255);
     const float h = ImGui::GetFrameHeight();
     const float round = ImGui::GetStyle().FrameRounding;
     const float gapPair = ImMax(2.0f, h * 0.08f);   // within a play/stop pair
     const float gapGroup = h * 0.55f;               // between button groups
 
-    // A square icon button on the menu-bar line, `lead` px to the left of the
-    // previous item. `paint(dl, a, b, enabled)` draws the glyph into the padded
+    // An icon button on the menu-bar line, `lead` px left of the previous item
+    // and `bw` wide. `paint(dl, a, b, enabled)` draws the glyph into the padded
     // inner rect [a,b]. Returns true on click (ignored while disabled - the
     // icon dims instead).
-    auto iconButton = [&](const char* id, float lead, bool enabled,
-                          const char* tip, auto&& paint) -> bool {
+    auto button = [&](const char* id, float lead, float bw, bool enabled,
+                      const char* tip, auto&& paint) -> bool {
         ImGui::SameLine(0.0f, lead);
         ImDrawList* dl = ImGui::GetWindowDrawList();
         const ImVec2 p = ImGui::GetCursorScreenPos();
-        ImGui::InvisibleButton(id, ImVec2(h, h));
+        ImGui::InvisibleButton(id, ImVec2(bw, h));
         const bool hovered =
             ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
         const bool held = enabled && ImGui::IsItemActive();
         const bool clicked = enabled && ImGui::IsItemClicked();
         if (enabled && hovered)
-            dl->AddRectFilled(p, ImVec2(p.x + h, p.y + h),
+            dl->AddRectFilled(p, ImVec2(p.x + bw, p.y + h),
                               ImGui::GetColorU32(held ? ImGuiCol_ButtonActive
                                                       : ImGuiCol_ButtonHovered),
                               round);
         const float pad = h * 0.28f;
-        const ImVec2 a(p.x + pad, p.y + pad);
-        const ImVec2 b(p.x + h - pad, p.y + h - pad);
+        // Square glyph rect regardless of button width (carets are narrower).
+        const float cx = p.x + bw * 0.5f;
+        const ImVec2 a(cx - (h * 0.5f - pad), p.y + pad);
+        const ImVec2 b(cx + (h * 0.5f - pad), p.y + h - pad);
         paint(dl, a, b, enabled);
         if (tip && hovered) ImGui::SetTooltip("%s", tip);
         return clicked;
+    };
+    auto iconButton = [&](const char* id, float lead, bool enabled,
+                          const char* tip, auto&& paint) -> bool {
+        return button(id, lead, h, enabled, tip, paint);
     };
 
     // Reusable glyph painters.
@@ -731,6 +739,35 @@ void App::drawToolbar() {
             dl->AddRectFilled(a, b, c, (b.x - a.x) * 0.14f);
         };
     };
+    // Small downward caret centered in the (narrow) button rect.
+    auto paintCaret = [h](ImU32 c) {
+        return [c, h](ImDrawList* dl, ImVec2 a, ImVec2 b, bool) {
+            const float cx = (a.x + b.x) * 0.5f, cy = (a.y + b.y) * 0.5f;
+            const float s = h * 0.13f;
+            dl->AddTriangleFilled(ImVec2(cx - s, cy - s * 0.5f),
+                                  ImVec2(cx + s, cy - s * 0.5f),
+                                  ImVec2(cx, cy + s * 0.7f), c);
+        };
+    };
+
+    // A Play button immediately followed by a narrow caret dropdown. `run` is
+    // the default (build + run) action; the caret opens `popupId`, whose menu
+    // items the caller renders after all buttons (BeginPopup below). Anchors
+    // the popup just under the caret via `anchor`.
+    const float caretW = h * 0.55f;
+    auto playWithMenu = [&](const char* playId, const char* caretId,
+                            const char* popupId, ImVec2& anchor, bool enabled,
+                            ImU32 color, const char* tip, auto&& onRun) {
+        if (button(playId, gapGroup, h, enabled, tip,
+                   paintPlay(enabled ? color : colDim)))
+            onRun();
+        ImGui::SameLine(0.0f, 1.0f);
+        const ImVec2 cp = ImGui::GetCursorScreenPos();
+        anchor = ImVec2(cp.x, cp.y + h);
+        if (button(caretId, 1.0f, caretW, enabled, "More run options...",
+                   paintCaret(enabled ? colText : colDim)))
+            ImGui::OpenPopup(popupId);
+    };
 
     // Save (floppy): normal when clean, amber when there are unsaved edits.
     // Always enabled - saving also folds in layout/docking changes.
@@ -738,8 +775,7 @@ void App::drawToolbar() {
             "##tb_save", gapGroup, true,
             dirty_ ? "Save - unsaved changes (Ctrl+S)" : "Save (Ctrl+S)",
             [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool) {
-                const ImU32 c = dirty_ ? IM_COL32(240, 175, 70, 255)
-                                       : ImGui::GetColorU32(ImGuiCol_Text);
+                const ImU32 c = dirty_ ? IM_COL32(240, 175, 70, 255) : colText;
                 const float w = b.x - a.x, hh = b.y - a.y;
                 dl->AddRect(a, b, c, w * 0.12f, 0, 1.6f);            // body
                 dl->AddRectFilled(ImVec2(a.x + w * 0.22f, a.y),       // shutter
@@ -750,10 +786,29 @@ void App::drawToolbar() {
             }))
         saveAll("Saved");
 
-    // --- Emulator group: green Play + Stop PCSX2 -------------------------
-    if (iconButton("##tb_run_emu", gapGroup, !busy, "Build && Run in PCSX2 (F5)",
-                   paintPlay(!busy ? IM_COL32(95, 200, 115, 255) : colDim)))
-        runner_.buildAndRun(project_, true);
+    // Build only (no run) - a hammer, so it reads apart from the Play triangles.
+    if (iconButton("##tb_build", gapGroup, !busy,
+                   "Build (no run) (Ctrl+Shift+B)",
+                   [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool en) {
+                       const ImU32 c = en ? IM_COL32(210, 180, 120, 255) : colDim;
+                       const float w = b.x - a.x, hh = b.y - a.y;
+                       // handle: lower-left up to the head
+                       dl->AddLine(ImVec2(a.x + 0.30f * w, b.y),
+                                   ImVec2(a.x + 0.66f * w, a.y + 0.34f * hh), c,
+                                   ImMax(2.0f, w * 0.13f));
+                       // head: a thick short bar across the top of the handle
+                       dl->AddLine(ImVec2(a.x + 0.40f * w, a.y + 0.12f * hh),
+                                   ImVec2(b.x, a.y + 0.42f * hh), c,
+                                   ImMax(3.0f, w * 0.26f));
+                   }))
+        runner_.buildAndRun(project_, false);
+
+    // --- Emulator group: green Play (+dropdown) + Stop PCSX2 -------------
+    ImVec2 emuMenuAnchor, ps2MenuAnchor;
+    playWithMenu("##tb_run_emu", "##tb_run_emu_more", "emu_run_menu",
+                 emuMenuAnchor, !busy, IM_COL32(95, 200, 115, 255),
+                 "Build && Run in PCSX2 (F5)",
+                 [&] { runner_.buildAndRun(project_, true); });
     // Stop PCSX2: cancels a running build, else closes the emulator. Always
     // available (can't detect a stray PCSX2; taskkill is a no-op if none runs).
     if (iconButton("##tb_stop_emu", gapPair, true,
@@ -762,14 +817,13 @@ void App::drawToolbar() {
         else runner_.stopEmulator();
     }
 
-    // --- Console group: blue Play + Stop PS2 ----------------------------
+    // --- Console group: blue Play (+dropdown) + Stop PS2 ----------------
     // Both disabled until a ps2link IP is configured (Project > Preferences).
-    if (iconButton("##tb_run_ps2", gapGroup, !busy && ps2Ready,
-                   ps2Ready ? "Build && Run on PS2 (F6)"
-                            : "Set 'PS2 (ps2link) IP' in Project > Preferences first.",
-                   paintPlay(!busy && ps2Ready ? IM_COL32(80, 160, 245, 255)
-                                               : colDim)))
-        runner_.buildAndRunPs2(project_, true);
+    playWithMenu("##tb_run_ps2", "##tb_run_ps2_more", "ps2_run_menu",
+                 ps2MenuAnchor, !busy && ps2Ready, IM_COL32(80, 160, 245, 255),
+                 ps2Ready ? "Build && Run on PS2 (F6)"
+                          : "Set 'PS2 (ps2link) IP' in Project > Preferences first.",
+                 [&] { runner_.buildAndRunPs2(project_, true); });
     // Stop PS2: cancels a running build, else stops the game on the console
     // (kills the file server + resets ps2link + silences the SPU).
     const bool stopPs2Enabled = busy || ps2Ready;
@@ -780,6 +834,25 @@ void App::drawToolbar() {
                    paintStop(stopPs2Enabled ? colStop : colDim))) {
         if (busy) runner_.cancel();
         else runner_.stopPs2(project_);
+    }
+
+    // Dropdown menus for the two Play carets (anchored just under each caret).
+    ImGui::SetNextWindowPos(emuMenuAnchor);
+    if (ImGui::BeginPopup("emu_run_menu")) {
+        if (ImGui::MenuItem("Run in PCSX2 (no build)", nullptr, false, !busy))
+            runner_.runEmulatorOnly(project_);
+        if (ImGui::MenuItem("Build (no run)", nullptr, false, !busy))
+            runner_.buildAndRun(project_, false);
+        ImGui::EndPopup();
+    }
+    ImGui::SetNextWindowPos(ps2MenuAnchor);
+    if (ImGui::BeginPopup("ps2_run_menu")) {
+        if (ImGui::MenuItem("Run on PS2 (no build)", nullptr, false,
+                            !busy && ps2Ready))
+            runner_.buildAndRunPs2(project_, false);
+        if (ImGui::MenuItem("Build (no run)", nullptr, false, !busy))
+            runner_.buildAndRun(project_, false);
+        ImGui::EndPopup();
     }
 }
 

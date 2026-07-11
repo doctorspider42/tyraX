@@ -29,14 +29,16 @@ Each finished feature lands as its own commit.
   `attachProject()`'s asset rescan (rescan-found assets are rediscovered on
   every open, so they don't count as unsaved). The new **toolbar** sits inline
   in the main menu bar after Tools (`drawToolbar()`): a floppy **Save** (amber
-  when dirty), then two tight run/stop pairs separated by a wider gap —
-  **[green Play = Build && Run in PCSX2, red Stop PCSX2]** and **[blue Play =
-  Build && Run on PS2, red Stop PS2]**. Each Stop cancels a running build when
-  one is in progress, otherwise closes the emulator (`Runner::stopEmulator()`)
-  or stops the game on the console (`Runner::stopPs2()`); the PS2 pair dims
-  until a ps2link IP is set. Spacing is set explicitly per button (not the
-  default ImGui item spacing) so pairs read as groups at any UI scale. Icons
-  are vector-drawn on
+  when dirty), a **Build** (no run) hammer, then two tight run/stop pairs
+  separated by a wider gap — **[green Play = Build && Run in PCSX2, ▾, red Stop
+  PCSX2]** and **[blue Play = Build && Run on PS2, ▾, red Stop PS2]**. Each Play
+  has a Visual-Studio-style caret **dropdown** (`##..._more` → `BeginPopup`
+  anchored under the caret) offering *Run (no build)* and *Build (no run)*. Each
+  Stop cancels a running build when one is in progress, otherwise closes the
+  emulator (`Runner::stopEmulator()`) or stops the game on the console
+  (`Runner::stopPs2()`); the PS2 pair dims until a ps2link IP is set. Spacing is
+  set explicitly per button (not the default ImGui item spacing) so pairs read
+  as groups at any UI scale. Icons are vector-drawn on
   the menu-bar draw list — the editor loads no icon font — so they stay crisp
   at any UI scale. Editor-only change: no `.tyra` format, codegen or PS2
   runtime impact. Verified end-to-end by driving the running editor (synthetic
