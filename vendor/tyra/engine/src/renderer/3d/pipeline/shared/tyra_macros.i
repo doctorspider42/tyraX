@@ -165,3 +165,126 @@
    mul   temp2,      temp1,   t_interp[y]
    add   t_output,   temp2,   t_from
 #endmacro
+
+;//---------------------------------------------------------
+;// Modified by tyra-editor: GS hardware distance fog.
+;//
+;// LoadTyraFogParams - Load the options quadword. Fog uses:
+;//   z - fogScale  = -255 / (fogEnd - fogStart)
+;//   w - fogOffset = 255 * fogEnd / (fogEnd - fogStart)
+;// (x holds singleColorEnabled, y holds dynpip interpolation)
+;//---------------------------------------------------------
+#macro LoadTyraFogParams: t_fogParams, t_optionsAddr
+   lq          t_fogParams,   t_optionsAddr(vi00)
+#endmacro
+
+;//---------------------------------------------------------
+;// MakeTyraAdcMask - Build the 0x8000 ADC bit mask once per
+;// program run (iaddiu immediates are 15-bit, so add twice).
+;//---------------------------------------------------------
+#macro MakeTyraAdcMask: t_adcMask
+   iaddiu      t_adcMask,     vi00,          0x4000
+   iadd        t_adcMask,     t_adcMask,     t_adcMask
+#endmacro
+
+;//---------------------------------------------------------
+;// CalculateTyraFog - Per-vertex GS fog coefficient.
+;// t_vertex.w must still hold the clip-space W (view distance);
+;// every macro in the pipeline leaves W untouched, so this can
+;// run right before the vertex store.
+;// F = clamp(w * fogScale + fogOffset, 0, 255). ftoi4 yields
+;// F<<4, which is exactly the F field position of packed XYZF2
+;// (word3 bits 4-11; the 4 fraction bits fall into ignored
+;// bits 0-3). GS blends Cout = (F*Cin + (255-F)*FOGCOL) >> 8,
+;// so F=255 means no fog.
+;//---------------------------------------------------------
+#macro CalculateTyraFog: t_fogInt, t_vertex, t_fogParams
+   add.x       fogAccum,      vf00,          t_vertex[w]
+   mul.x       fogAccum,      fogAccum,      t_fogParams[z]
+   add.x       fogAccum,      fogAccum,      t_fogParams[w]
+   loi         255
+   mini.x      fogAccum,      fogAccum,      i
+   max.x       fogAccum,      fogAccum,      vf00[x]
+   ftoi4.x     fogAccum,      fogAccum
+   mtir        t_fogInt,      fogAccum[x]
+#endmacro
+
+;//---------------------------------------------------------
+;// PerformTyraFogClipCheck - PerformClipCheck variant that also
+;// stores the fog coefficient. Upstream stores 0x7FFF/0x8000 in
+;// the W word (only bit 15 = ADC matters for XYZ2), but packed
+;// XYZF2 reads F from bits 4-11, so the ADC decision is masked
+;// down to bit 15 before OR-ing the fog bits in.
+;//---------------------------------------------------------
+#macro PerformTyraFogClipCheck: t_vertex, t_destAddress, t_destAddressOffset, t_fogInt, t_adcMask
+   clipw.xyz   t_vertex,      t_vertex
+   fcand       VI01,          0x3FFFF
+   iaddiu      adcBit,        VI01,          0x7FFF
+   iand        adcBit,        adcBit,        t_adcMask
+   ior         adcBit,        adcBit,        t_fogInt
+   isw.w       adcBit,        t_destAddressOffset(t_destAddress)
+#endmacro
+
+;//---------------------------------------------------------
+;// StoreTyraFog - Store the fog coefficient with ADC = 0, for
+;// the as_is programs (geometry already clipped on the EE).
+;//---------------------------------------------------------
+#macro StoreTyraFog: t_fogInt, t_destAddress, t_destAddressOffset
+   isw.w       t_fogInt,      t_destAddressOffset(t_destAddress)
+#endmacro
+
+;//---------------------------------------------------------
+;// Modified by tyra-editor: dynamic spot light (flashlight).
+;//
+;// LoadTyraSpotLight - Load the three spot light quads. The
+;// dir-lights addresses are reused - they are free in the
+;// color (C/TC) programs. Layout (built on the EE, in mesh
+;// object space - see StaPipQBufferRenderer::sendObjectData):
+;//   quad0: position.xyz,  w = 1/objRange^2
+;//   quad1: direction.xyz, w = cos^2(halfAngle)
+;//   quad2: color.rgb,     w = softness/(objRange^2*(1-cos^2))
+;//---------------------------------------------------------
+#macro LoadTyraSpotLight: t_spotPos, t_spotDir, t_spotCol, t_addr
+   lq          t_spotPos,     t_addr+0(vi00)
+   lq          t_spotDir,     t_addr+1(vi00)
+   lq          t_spotCol,     t_addr+2(vi00)
+#endmacro
+
+;//---------------------------------------------------------
+;// CalculateTyraSpotLight - additive cone + distance falloff
+;// on top of the baked vertex color, no N.L (the color paths
+;// carry no normals). Works on the OBJECT-space vertex, so it
+;// must run before MatrixMultiplyVertex overwrites it.
+;// Mirrors addSpotToColor in stapip_clipper.cpp (the EE bakes
+;// the same formula into colors for EE-clipped triangles) -
+;// keep the two in sync.
+;//   d      = vertex - spotPos
+;//   dist2  = d.d
+;//   t      = max(0, d.spotDir)
+;//   cone   = clamp((t^2 - cos^2 * dist2) * invSoft, 0, 1)
+;//   axial  = clamp(1 - dist2 * invRange2, 0, 1)
+;//   color += spotColor.rgb * cone * axial
+;//---------------------------------------------------------
+#macro CalculateTyraSpotLight: t_color, t_vertex, t_spotPos, t_spotDir, t_spotCol
+   sub.xyz     spotD,         t_vertex,      t_spotPos
+   mul.xyz     spotSq,        spotD,         spotD
+   add.x       spotDist,      spotSq,        spotSq[y]
+   add.x       spotDist,      spotDist,      spotSq[z]
+   mul.xyz     spotTm,        spotD,         t_spotDir
+   add.x       spotT,         spotTm,        spotTm[y]
+   add.x       spotT,         spotT,         spotTm[z]
+   max.x       spotT,         spotT,         vf00[x]
+   mul.x       spotT,         spotT,         spotT
+   mul.x       spotC,         spotDist,      t_spotDir[w]
+   sub.x       spotC,         spotT,         spotC
+   mul.x       spotC,         spotC,         t_spotCol[w]
+   mini.x      spotC,         spotC,         vf00[w]
+   max.x       spotC,         spotC,         vf00[x]
+   adda.x      acc,           vf00,          vf00[w]
+   msub.x      spotA,         spotDist,      t_spotPos[w]
+   mini.x      spotA,         spotA,         vf00[w]
+   max.x       spotA,         spotA,         vf00[x]
+   mul.x       spotC,         spotC,         spotA
+   mul.xyz     spotAdd,       t_spotCol,     spotC[x]
+   add.xyz     t_color,       t_color,       spotAdd
+#endmacro

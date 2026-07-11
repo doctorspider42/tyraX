@@ -30,6 +30,9 @@ class RendererCoreGS {
 
   void enableZTests();
 
+  /** Set the GS FOGCOL register (tyra-editor fork, hardware fog). */
+  void setFogColor(const u8& r, const u8& g, const u8& b);
+
   /** The buffer currently being drawn to (tyra-editor fork, for post fx). */
   framebuffer_t* getCurrentFrameBuffer() { return &frameBuffers[context]; }
 

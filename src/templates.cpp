@@ -1196,6 +1196,12 @@ void TerrainGame::init() {
   stapip.setRenderer(&engine->renderer.core);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  // GS hardware distance fog (Scene/Project > Preferences > Fog).
+  if (FOG_ENABLED)
+    engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START,
+                                 FOG_END);
+  else
+    engine->renderer.core.disableFog();
   // Default color grading look (Tools > Color Grading); no-op when -1.
   // Grading is global - scene switches keep whatever preset is active.
   applySceneGrading(engine, GRADING_DEFAULT);
@@ -1313,6 +1319,15 @@ void TerrainGame::loop() {
   updateParticles();
   updateSoundEmitters();
 
+  // Camera-attached flashlight (Scene/Project > Preferences > Flashlight).
+  if (FLASHLIGHT_ENABLED) {
+    Vec4 flashDir = cameraLookAt - cameraPosition;
+    engine->renderer.core.setSpotLight(
+        Color(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B), cameraPosition,
+        flashDir, FLASHLIGHT_RANGE, FLASHLIGHT_ANGLE);
+  } else {
+    engine->renderer.core.disableSpotLight();
+  }
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -2044,6 +2059,12 @@ void TerrainGame::loadScene(int sceneIndex) {
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  // GS hardware distance fog (Scene/Project > Preferences > Fog).
+  if (FOG_ENABLED)
+    engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START,
+                                 FOG_END);
+  else
+    engine->renderer.core.disableFog();
 
   runtimeObjects.assign(SCENE_OBJECT_COUNT, RuntimeObject());
   objectGeometry.clear();
@@ -2363,7 +2384,9 @@ void TerrainGame::updateParticles() {
         alpha = 40.0F * t;
       } else if (kind == 2) {
         size *= 3.0F;
-        alpha = 18.0F * (t < 0.5F ? t * 2.0F : (1.0F - t) * 2.0F);  // fade in+out
+        // density knob: Opacity 0..1 -> peak alpha 0..60 (old look ~= 0.3)
+        alpha = d.emitOpacity * 60.0F *
+                (t < 0.5F ? t * 2.0F : (1.0F - t) * 2.0F);  // fade in+out
       } else if (kind == 4) {
         sizeUp = size * 0.5F;  // size = streak length
         size *= 0.06F;         // thin
@@ -2377,16 +2400,32 @@ void TerrainGame::updateParticles() {
       }
 
       // rain streaks stay vertical (world-up quads); everything else is a
-      // full camera-facing billboard
-      const float Rx = rx * size, Rz = rz * size;
-      const float Ux = sizeUp > 0.0F ? 0.0F : ux * size;
-      const float Uy = sizeUp > 0.0F ? sizeUp : uy * size;
-      const float Uz = sizeUp > 0.0F ? 0.0F : uz * size;
+      // full camera-facing billboard. Fog puffs additionally swirl: the
+      // billboard slowly rotates in the camera plane, alternating direction
+      // per puff (the Silent Hill roll) - keep in sync with the viewport
+      // preview (drawEmitterPreviews).
+      float brx = rx, bry = 0.0F, brz = rz;
+      float bux = ux, buy = uy, buz = uz;
+      if (kind == 2) {
+        const float age = ps.maxLife[i] - ps.life[i];
+        const float ang = (float)i * 2.4F + (i & 1 ? 0.3F : -0.3F) * age;
+        const float ca = cosf(ang), sa = sinf(ang);
+        brx = rx * ca + ux * sa;
+        bry = uy * sa;
+        brz = rz * ca + uz * sa;
+        bux = ux * ca - rx * sa;
+        buy = uy * ca;
+        buz = uz * ca - rz * sa;
+      }
+      const float Rx = brx * size, Ry = bry * size, Rz = brz * size;
+      const float Ux = sizeUp > 0.0F ? 0.0F : bux * size;
+      const float Uy = sizeUp > 0.0F ? sizeUp : buy * size;
+      const float Uz = sizeUp > 0.0F ? 0.0F : buz * size;
       const Vec4& P = ps.pos[i];
-      const Vec4 v0(P.x - Rx - Ux, P.y - Uy, P.z - Rz - Uz, 1.0F);
-      const Vec4 v1(P.x + Rx - Ux, P.y - Uy, P.z + Rz - Uz, 1.0F);
-      const Vec4 v2(P.x + Rx + Ux, P.y + Uy, P.z + Rz + Uz, 1.0F);
-      const Vec4 v3(P.x - Rx + Ux, P.y + Uy, P.z - Rz + Uz, 1.0F);
+      const Vec4 v0(P.x - Rx - Ux, P.y - Ry - Uy, P.z - Rz - Uz, 1.0F);
+      const Vec4 v1(P.x + Rx - Ux, P.y + Ry - Uy, P.z + Rz - Uz, 1.0F);
+      const Vec4 v2(P.x + Rx + Ux, P.y + Ry + Uy, P.z + Rz + Uz, 1.0F);
+      const Vec4 v3(P.x - Rx + Ux, P.y - Ry + Uy, P.z - Rz + Uz, 1.0F);
       const int b = i * 6;
       ps.verts[b] = v0;
       ps.verts[b + 1] = v1;
@@ -2848,6 +2887,10 @@ void TerrainGame::buildSkyDome() {
   // Static geometry crossing the screen edges all the time - needs clipping
   skyDome.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
   skyDome.infoBag->fullClipChecks = true;
+  // The dome sits past the fog end distance - hardware fog would paint it
+  // solid fog color, so it opts out (the horizon still fades into the fog
+  // because the terrain and objects do get fogged).
+  skyDome.infoBag->fogDisabled = true;
   skyDome.colorBag = std::make_unique<StaPipColorBag>();
   skyDome.colorBag->many = skyDome.colors.data();
   skyDome.bag = std::make_unique<StaPipBag>();
@@ -3259,6 +3302,12 @@ void TerrainGame::init() {
   stapip.setRenderer(&engine->renderer.core);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  // GS hardware distance fog (Scene/Project > Preferences > Fog).
+  if (FOG_ENABLED)
+    engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START,
+                                 FOG_END);
+  else
+    engine->renderer.core.disableFog();
   // Default color grading look (Tools > Color Grading); no-op when -1.
   // Grading is global - scene switches keep whatever preset is active.
   applySceneGrading(engine, GRADING_DEFAULT);
@@ -3412,6 +3461,15 @@ void TerrainGame::loop() {
   updateParticles();
   updateSoundEmitters();
 
+  // Camera-attached flashlight (Scene/Project > Preferences > Flashlight).
+  if (FLASHLIGHT_ENABLED) {
+    Vec4 flashDir = cameraLookAt - cameraPosition;
+    engine->renderer.core.setSpotLight(
+        Color(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B), cameraPosition,
+        flashDir, FLASHLIGHT_RANGE, FLASHLIGHT_ANGLE);
+  } else {
+    engine->renderer.core.disableSpotLight();
+  }
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -3903,6 +3961,15 @@ void TerrainGame::init() {
 void TerrainGame::loop() {
   updateCameraOrbit();
 
+  // Camera-attached flashlight (Scene/Project > Preferences > Flashlight).
+  if (FLASHLIGHT_ENABLED) {
+    Vec4 flashDir = cameraLookAt - cameraPosition;
+    engine->renderer.core.setSpotLight(
+        Color(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B), cameraPosition,
+        flashDir, FLASHLIGHT_RANGE, FLASHLIGHT_ANGLE);
+  } else {
+    engine->renderer.core.disableSpotLight();
+  }
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -4657,6 +4724,23 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     sceneFloats("SKY_TOP_BS", [&](int si) { return floatLit(rs[si].skyTopColor[2] * 255.0f); });
     sceneInts("POSTFX_BLOOMS", [&](int si) { return fx128(rs[si].bloom); });
     sceneInts("POSTFX_GRAINS", [&](int si) { return fx128(rs[si].grain); });
+    sceneBools("FOG_ENABLEDS", [&](int si) { return rs[si].fogEnabled; });
+    sceneFloats("FOG_RS", [&](int si) { return floatLit(rs[si].fogColor[0] * 255.0f); });
+    sceneFloats("FOG_GS", [&](int si) { return floatLit(rs[si].fogColor[1] * 255.0f); });
+    sceneFloats("FOG_BS", [&](int si) { return floatLit(rs[si].fogColor[2] * 255.0f); });
+    sceneFloats("FOG_STARTS", [&](int si) { return floatLit(rs[si].fogStart); });
+    sceneFloats("FOG_ENDS", [&](int si) { return floatLit(rs[si].fogEnd); });
+    sceneBools("FLASHLIGHT_ENABLEDS", [&](int si) { return rs[si].flashlightEnabled; });
+    sceneFloats("FLASHLIGHT_RS",
+                [&](int si) { return floatLit(rs[si].flashlightColor[0] * 128.0f); });
+    sceneFloats("FLASHLIGHT_GS",
+                [&](int si) { return floatLit(rs[si].flashlightColor[1] * 128.0f); });
+    sceneFloats("FLASHLIGHT_BS",
+                [&](int si) { return floatLit(rs[si].flashlightColor[2] * 128.0f); });
+    sceneFloats("FLASHLIGHT_RANGES",
+                [&](int si) { return floatLit(rs[si].flashlightRange); });
+    sceneFloats("FLASHLIGHT_ANGLES",
+                [&](int si) { return floatLit(rs[si].flashlightAngle); });
     sceneBools("HIGHLIGHT_USABLES", [&](int si) { return rs[si].highlightUsable; });
     sceneFloats("HIGHLIGHT_DISTANCES", [&](int si) { return floatLit(rs[si].highlightDistance); });
     sceneFloats("HIGHLIGHT_RS", [&](int si) { return floatLit(rs[si].highlightColor[0] * 255.0f); });
@@ -4833,6 +4917,18 @@ inline int everyFrames(float seconds) {
 #define SKY_TOP_B SKY_TOP_BS[g_activeScene]
 #define POSTFX_BLOOM POSTFX_BLOOMS[g_activeScene]
 #define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
+#define FOG_ENABLED FOG_ENABLEDS[g_activeScene]
+#define FOG_R FOG_RS[g_activeScene]
+#define FOG_G FOG_GS[g_activeScene]
+#define FOG_B FOG_BS[g_activeScene]
+#define FOG_START FOG_STARTS[g_activeScene]
+#define FOG_END FOG_ENDS[g_activeScene]
+#define FLASHLIGHT_ENABLED FLASHLIGHT_ENABLEDS[g_activeScene]
+#define FLASHLIGHT_R FLASHLIGHT_RS[g_activeScene]
+#define FLASHLIGHT_G FLASHLIGHT_GS[g_activeScene]
+#define FLASHLIGHT_B FLASHLIGHT_BS[g_activeScene]
+#define FLASHLIGHT_RANGE FLASHLIGHT_RANGES[g_activeScene]
+#define FLASHLIGHT_ANGLE FLASHLIGHT_ANGLES[g_activeScene]
 #define HIGHLIGHT_USABLE HIGHLIGHT_USABLES[g_activeScene]
 #define HIGHLIGHT_DISTANCE HIGHLIGHT_DISTANCES[g_activeScene]
 #define HIGHLIGHT_R HIGHLIGHT_RS[g_activeScene]
