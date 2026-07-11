@@ -9,6 +9,51 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (35) **Unity-style object scripts + the Empty object type** — scripts are
+  now attachable components instead of always-running globals. **Model**:
+  `SceneObject::scripts` (list of class names; part of `operator==`, undo,
+  copy/paste and the `.tyra` round-trip - `"scripts": [...]` emitted only
+  when non-empty, old projects load with none) and `PrimitiveType::Empty
+  = 11`, a pure transform: sphere marker in the editor (`viewport.cpp`
+  meshFor), no geometry/collision/USE in the game (type-11 guards in the
+  `rebuildObjectGeometry` switch, `collidePlayer`, `updateUseTarget`),
+  editable rotation/scale/color (color doubles as a free script parameter)
+  and save-state. **Script API** (`script.hpp`, marker-owned): class
+  `ObjectScript` with `self`/`selfIndex` and `onStart`/`onUpdate`/`onUsed`
+  virtuals + `TYRA_OBJECT_SCRIPT(Name);` which registers a factory under
+  the stringized class name; the old global `Script`/`TYRA_SCRIPT` pair
+  stays (flow graphs and existing user scripts untouched). **Codegen**: new
+  always-regenerated `src/scripts/object_scripts.gen.cpp` - a
+  (scene, object, class-name) attachment table straight from the editor
+  plus an `ObjectScriptDriver` global script that rebuilds instances on
+  every `sceneGeneration` bump (one `new` per attachment of the active
+  scene, `onStart` once, delete on scene switch), refreshes `self` and
+  forwards `onUpdate`/`onUsed` - so user-owned `terrain_game.cpp` files
+  keep working with zero changes, and per-frame cost is one virtual call
+  per attached instance (nothing attached = an empty loop; factory lookup
+  is scene-load only). Unregistered attachments log
+  "Object script not registered" and are skipped. **UI**: Properties >
+  Scripts on every object type (attach combo fed by scanning
+  `src/scripts/*.cpp` for `TYRA_OBJECT_SCRIPT(...)` with an mtime cache,
+  red "not found" for stale names, per-entry remove, "New script..." which
+  writes the stub - now an `ObjectScript` - and auto-attaches it to the
+  selected object); `+ Add object > Empty`. Verified e2e (Docker + PCSX2):
+  scratch orbit project with `Spinner` attached to two boxes and `SkyTint`
+  + a bogus `MissingScript` on an Empty - sky renders in the Empty's color
+  (onStart + self on a marker object), per-instance marker files written
+  from `onUpdate` read `rotY=270.0` and `rotY=315.0` after 150 frames (90
+  deg/s from 0 and 45 deg starts - independent per-instance state,
+  wall-clock dt), no sphere rendered in-game at the Empty's position, the
+  missing script only logs (seen in the editor Debug panel via bin/log.txt)
+  and the game runs on; save/load round-trip checked with a host harness
+  linking project.cpp.obj (`ROUNDTRIP OK`); editor GUI screenshot shows the
+  Empty properties + Scripts list with the not-found marker. `onUsed` (USE
+  on a usable object with an attached script) compiles and mirrors the flow
+  graph's On Used dispatch but still needs a hands-on pad test.
+  samples/script-demo regenerated with the new templates. README updated;
+  user guide added (docs/object-scripts.md: lifecycle, self/ScriptContext
+  reference, Empty objects, performance, troubleshooting).
+- (34) **Skeletal animation skinning moved from the EE FPU to VU0 (macro
 - (42) **Main thread demoted below the audio threads (music dragged at low
   FPS)** — music played cleanly at 50 FPS but audibly slowed when a heavy
   scene dropped the game to 25: the EE is one core, the engine's GS waits

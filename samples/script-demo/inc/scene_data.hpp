@@ -4,7 +4,9 @@
 namespace Script_demo {
 
 struct SceneObjectData {
-  int type;  // 0=box 1=sphere 2=cylinder 3=cone 4=spawn-point
+  int type;  // 0=box 1=sphere 2=cylinder 3=cone 4=spawn-point 5=model
+             // 6=player 7=emitter 8=sound 9=point-light 10=save-point
+             // 11=empty (pure transform, no geometry/collision)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];

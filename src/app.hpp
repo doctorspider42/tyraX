@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <map>
 #include <string>
 
@@ -54,6 +55,7 @@ private:
     void addSoundEmitter();
     void addPointLight();
     void addSavePoint();
+    void addEmpty();
     void drawAddObjectMenu();
     // Copies a picked .obj (with its .mtl + textures, references rewritten to
     // the sanitized names) into res/models. Returns the project-relative path
@@ -226,10 +228,23 @@ private:
     int newTemplate_ = 0;  // 0 = empty, 1 = fpp
     std::string newProjectError_;
 
-    // "New script" modal state
+    // "New script" modal state. newScriptAttachTo_ >= 0 = attach the created
+    // script to that object of the active scene (Properties > Scripts flow).
     bool openNewScriptPopup_ = false;
     char newScriptName_[64] = "my_script";
     std::string newScriptError_;
+    int newScriptAttachTo_ = -1;
+
+    // Object script classes registered in src/scripts/*.cpp with
+    // TYRA_OBJECT_SCRIPT(Name), for the Properties attach UI. Per-file cache
+    // keyed by write time - directories are cheap to walk every frame, file
+    // reads are not.
+    struct ScriptFileScan {
+        std::filesystem::file_time_type mtime;
+        std::vector<std::string> names;
+    };
+    std::map<std::string, ScriptFileScan> scriptScanCache_;
+    std::vector<std::string> objectScriptNames();
 
     // "New scene" modal state
     int deleteScenePending_ = -1;  // scene index awaiting delete confirmation

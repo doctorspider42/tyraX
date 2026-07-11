@@ -1443,6 +1443,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             case PrimitiveType::SpawnPoint: return &spawnMarker_;
             case PrimitiveType::Player: return &playerMarker_;
             case PrimitiveType::SoundEmitter: return &sphere_;  // speaker-ish marker
+            case PrimitiveType::Empty: return &sphere_;  // pure-transform marker
             case PrimitiveType::PointLight: return &lightGizmo_;  // glowing bulb
             case PrimitiveType::Model: return &box_;  // placeholder (see model path below)
             default: return &box_;

@@ -115,7 +115,9 @@ inline bool animationFinished(const ScriptContext& ctx, int objectIndex) {
   return ctx.objects[objectIndex].animFinished;
 }
 
-/** Base class for game scripts. Put .cpp files in src/scripts/. */
+/** Base class for GLOBAL game scripts: registered with TYRA_SCRIPT, one
+ * instance for the whole game, update() runs every frame in every scene.
+ * For per-object behavior prefer ObjectScript below. */
 class Script {
  public:
   virtual ~Script() {}
@@ -128,6 +130,47 @@ inline std::vector<Script*>& getScripts() {
   return scripts;
 }
 
+/** Base class for OBJECT scripts (Unity-style components). Write a class in
+ * src/scripts/, register it with TYRA_OBJECT_SCRIPT(MyScript); inside your
+ * namespace, then attach it to objects in the editor (Properties > Scripts).
+ *
+ * The game creates one instance per attachment when a scene (re)loads and
+ * deletes it when the scene is left - the same class attached to five
+ * objects runs as five independent instances, each with its own members and
+ * its own `self`. Only attached scripts run; an unattached class costs
+ * nothing. */
+class ObjectScript {
+ public:
+  virtual ~ObjectScript() {}
+
+  /** The object this instance is attached to - mutate self->data (position/
+   * rotation/scale/color), self->visible or self->velocityY, then set
+   * self->dirty = true. Equals &ctx.objects[selfIndex]; refreshed by the
+   * game every frame before onUpdate. */
+  RuntimeObject* self = nullptr;
+  int selfIndex = -1;
+
+  /** Scene (re)loaded: self is valid, runs before the first onUpdate. */
+  virtual void onStart(ScriptContext&) {}
+  /** Every frame while the owning scene is active. */
+  virtual void onUpdate(ScriptContext&) {}
+  /** The player pressed USE on self this frame (usable objects only). */
+  virtual void onUsed(ScriptContext&) {}
+};
+
+/** Object-script classes register here by name (via TYRA_OBJECT_SCRIPT);
+ * the generated object_scripts.gen.cpp instantiates attachments by name at
+ * scene load. */
+struct ObjectScriptFactory {
+  const char* name;
+  ObjectScript* (*create)();
+};
+
+inline std::vector<ObjectScriptFactory>& getObjectScriptFactories() {
+  static std::vector<ObjectScriptFactory> factories;
+  return factories;
+}
+
 }  // namespace Script_demo
 
 /** Registers a script class. Put TYRA_SCRIPT(MyScript); at file scope. */
@@ -137,4 +180,16 @@ inline std::vector<Script*>& getScripts() {
   static const bool TYRA_SCRIPT_CONCAT(_tyraScript_, __COUNTER__) = []() { \
     Script_demo::getScripts().push_back(new ClassName());            \
     return true;                                                           \
+  }()
+
+/** Registers an object script class under its (stringized) name - the name
+ * the editor's Properties > Scripts attach list shows. Put
+ * TYRA_OBJECT_SCRIPT(MyScript); at file scope INSIDE your namespace. */
+#define TYRA_OBJECT_SCRIPT(ClassName)                                         \
+  static const bool TYRA_SCRIPT_CONCAT(_tyraObjScript_, __COUNTER__) = []() { \
+    Script_demo::getObjectScriptFactories().push_back(                  \
+        {#ClassName, []() -> Script_demo::ObjectScript* {               \
+          return new ClassName();                                             \
+        }});                                                                  \
+    return true;                                                              \
   }()
