@@ -59,6 +59,10 @@ struct SceneObject {
     // Player collision: 0 = box (models use their real mesh AABB), 1 = mesh
     // (models only: per-triangle - ramps/stairs are walkable), 2 = none
     int collisionMode = 0;
+    // Rendering cut-off: farther than this from the camera the object is not
+    // drawn at all (collision, sounds and scripts still run). 0 = unlimited.
+    // The cheapest LOD there is - era-correct for dense scenes.
+    float drawDistance = 0.0f;
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     // Material library (.mtl) assigned to the object, e.g.
     // "res/materials/walls.mtl". Primitives take the file's FIRST material
@@ -146,7 +150,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
            a.physics == b.physics && a.usable == b.usable &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
-           a.modelPath == b.modelPath &&
+           a.drawDistance == b.drawDistance && a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.playerMode == b.playerMode &&
            a.playerWalkSpeed == b.playerWalkSpeed &&
            a.playerLookSpeed == b.playerLookSpeed &&
