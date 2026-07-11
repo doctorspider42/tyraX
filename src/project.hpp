@@ -326,9 +326,11 @@ struct ProjectSettings {
     float lightColor[3] = {1.0f, 1.0f, 1.0f};    // tints the diffuse term
     float brightness = 1.0f;                     // global multiplier (0..2)
 
-    // Terrain texture (PNG, tiled; empty = checker colors)
-    std::string terrainTexture;
-    float terrainTexScale = 4.0f;  // world units per texture tile
+    // Terrain material (.mtl asset; empty = checker greens). The first
+    // material's Kd tints the terrain; its map_Kd (when present) textures it,
+    // tiled by the map's "-s" scale (repeats per world unit), otherwise the
+    // terrain is a flat Kd-colored surface.
+    std::string terrainMaterial;
 
     // Post effects (GS framebuffer blits at the end of every frame; no
     // pixel shaders on the PS2). 0 = off, 1 = maximum.
@@ -376,8 +378,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.jumpSpeed == b.jumpSpeed && eq3(a.lightDir, b.lightDir) &&
            a.ambient == b.ambient && a.diffuse == b.diffuse &&
            eq3(a.lightColor, b.lightColor) && a.brightness == b.brightness &&
-           a.terrainTexture == b.terrainTexture &&
-           a.terrainTexScale == b.terrainTexScale && a.bloom == b.bloom &&
+           a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
            a.grain == b.grain && a.fogEnabled == b.fogEnabled &&
            eq3(a.fogColor, b.fogColor) && a.fogStart == b.fogStart &&
            a.fogEnd == b.fogEnd &&
@@ -397,7 +398,7 @@ struct SceneOverrides {
     bool lighting = false;    // lightDir, ambient, diffuse, lightColor, brightness
     bool sky = false;         // skyColor, skyTopColor, skyDome
     bool clipping = false;    // clipping mode
-    bool terrainTex = false;  // terrainTexture, terrainTexScale
+    bool terrainMat = false;  // terrainMaterial
     bool postFx = false;      // bloom, grain
     bool fog = false;         // fogEnabled, fogColor, fogStart, fogEnd
     bool highlight = false;   // highlightUsable + distance/color/width/steps
@@ -405,7 +406,7 @@ struct SceneOverrides {
 
 inline bool operator==(const SceneOverrides& a, const SceneOverrides& b) {
     return a.lighting == b.lighting && a.sky == b.sky && a.clipping == b.clipping &&
-           a.terrainTex == b.terrainTex && a.postFx == b.postFx &&
+           a.terrainMat == b.terrainMat && a.postFx == b.postFx &&
            a.fog == b.fog && a.highlight == b.highlight;
 }
 
@@ -667,10 +668,25 @@ std::string create(Project& out, const std::string& name, const std::string& par
                    const TerrainConfig& terrain, const std::string& preset = "empty");
 
 // The effective settings for a scene: the project defaults with each scene
-// category (lighting, sky, clipping, terrain texture, post-FX, highlight)
+// category (lighting, sky, clipping, terrain material, post-FX, highlight)
 // replaced by the scene's own values where its override flag is set. All
 // codegen and viewport code reads scene-visual settings through this.
 ProjectSettings resolvedSettings(const Project& p, const SceneData& s);
+
+// A terrain material resolved to what the terrain actually needs.
+struct TerrainMaterial {
+    bool present = false;            // false = no material -> checker greens
+    std::string texture;             // res-relative map_Kd ("" = flat color)
+    float kd[3] = {1.0f, 1.0f, 1.0f};  // tint (defaults to white)
+    float tile[2] = {1.0f, 1.0f};    // texture repeats per world unit (u, v)
+};
+
+// Resolves a terrain material (.mtl asset, res-relative, e.g. from
+// resolvedSettings(...).terrainMaterial) to its first material's map_Kd
+// texture, Kd tint and "-s" tiling. `present` is false when unassigned or the
+// .mtl is unreadable. Codegen, the editor viewport and the ISO planner resolve
+// through this so they agree on the terrain's texture, color and tiling.
+TerrainMaterial resolveTerrainMaterial(const Project& p, const std::string& matRel);
 
 // Loads the single <name>.tyra project file from an existing project
 // directory (game data + editor-side state + window layout).

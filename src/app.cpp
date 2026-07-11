@@ -485,8 +485,12 @@ void App::drawUI() {
         if (!io.WantTextInput) {
             if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Z)) undo();
             if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Y)) redo();
-            if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) copyObject();
-            if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V)) pasteObject();
+            // While the Flow Graph window has focus, Ctrl+C/V act on its nodes
+            // (handled in drawFlowGraphWindow); otherwise they copy scene objects.
+            if (!flowGraphFocused_) {
+                if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) copyObject();
+                if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V)) pasteObject();
+            }
         }
     }
 }
@@ -2058,6 +2062,31 @@ bool App::drawMaterialCombo(SceneObject& o) {
     return changed;
 }
 
+// Terrain material picker. Lists the project's .mtl assets (res/materials +
+// the models' own libraries); "<none>" clears it back to the checker greens.
+bool App::drawTerrainMaterialCombo(const char* label, std::string& matPath) {
+    const char* noneLabel = "<none - checker greens>";
+    std::string current = matPath.empty() ? noneLabel : matPath;
+    if (current.rfind("res/", 0) == 0) current = current.substr(4);
+
+    bool changed = false;
+    if (ImGui::BeginCombo(label, current.c_str())) {
+        if (ImGui::Selectable(noneLabel, matPath.empty()) && !matPath.empty()) {
+            matPath.clear();
+            changed = true;
+        }
+        for (const std::string& rel : listMaterialAssets()) {
+            const std::string item = rel.substr(4);  // drop "res/"
+            if (ImGui::Selectable(item.c_str(), rel == matPath) && rel != matPath) {
+                matPath = rel;
+                changed = true;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    return changed;
+}
+
 // Project-wide asset lists (models + textures), mirrored straight from res/
 // on every draw - hand-dropped files show up without any bookkeeping. The
 // Import... buttons are the only file dialogs; everything else picks from
@@ -3517,6 +3546,7 @@ std::vector<std::string> App::flowVarNames(const std::string& nodeType) const {
 }
 
 void App::drawFlowGraphWindow() {
+    flowGraphFocused_ = false;  // recomputed below; gates the global Ctrl+C/V
     ImGui::Begin("Flow Graph");
     if (!hasProject_) {
         ImGui::TextDisabled("No project open.");
@@ -4191,6 +4221,68 @@ void App::drawFlowGraphWindow() {
                 fg.links.push_back(l);
                 changed = true;
             }
+        }
+    }
+
+    // Copy/paste nodes. When this window has focus, Ctrl+C/V operate on the
+    // graph instead of the scene objects (the global handler stands down while
+    // flowGraphFocused_ is set). Skip while typing in a node param so Ctrl+C
+    // still copies text there.
+    const bool fgFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
+    flowGraphFocused_ = fgFocused;
+    if (fgFocused && !ImGui::GetIO().WantTextInput) {
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) {
+            const int numSel = ImNodes::NumSelectedNodes();
+            if (numSel > 0) {
+                std::vector<int> ids(numSel);
+                ImNodes::GetSelectedNodes(ids.data());
+                flowClipboard_ = FlowGraph{};
+                for (int id : ids)
+                    for (const FlowNode& n : fg.nodes)
+                        if (n.id == id) flowClipboard_.nodes.push_back(n);
+                auto copied = [&](int id) {
+                    for (const FlowNode& n : flowClipboard_.nodes)
+                        if (n.id == id) return true;
+                    return false;
+                };
+                for (const FlowLink& l : fg.links)
+                    if (copied(l.fromNode) && copied(l.toNode))
+                        flowClipboard_.links.push_back(l);
+                statusMessage_ =
+                    "Copied " + std::to_string(flowClipboard_.nodes.size()) +
+                    (flowClipboard_.nodes.size() == 1 ? " node" : " nodes");
+            }
+        }
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V) &&
+            !flowClipboard_.nodes.empty()) {
+            // Fresh ids from the target graph so a paste into the same or a
+            // different graph never collides; links are remapped to them.
+            std::vector<std::pair<int, int>> idMap;  // old id -> new id
+            for (const FlowNode& src : flowClipboard_.nodes) {
+                FlowNode n = src;
+                n.id = fg.nextId++;
+                n.pos[0] += 20.0f;  // offset so the paste sits beside the source
+                n.pos[1] += 20.0f;
+                idMap.push_back({src.id, n.id});
+                fg.nodes.push_back(n);
+            }
+            auto mapId = [&](int old) {
+                for (const auto& p : idMap)
+                    if (p.first == old) return p.second;
+                return -1;
+            };
+            for (const FlowLink& src : flowClipboard_.links) {
+                FlowLink l = src;
+                l.id = fg.nextId++;
+                l.fromNode = mapId(src.fromNode);
+                l.toNode = mapId(src.toNode);
+                fg.links.push_back(l);
+            }
+            flowPositionsApplied_ = false;  // push the pasted node positions
+            changed = true;
+            statusMessage_ =
+                "Pasted " + std::to_string(flowClipboard_.nodes.size()) +
+                (flowClipboard_.nodes.size() == 1 ? " node" : " nodes");
         }
     }
 
@@ -5324,11 +5416,19 @@ bool App::loadMaterialFile(const std::string& relPath) {
         if (tag == "Kd") {
             ss >> e.color[0] >> e.color[1] >> e.color[2];
         } else if (tag == "map_Kd") {
-            std::string tok, last;  // options of map_Kd (rare) are dropped
-            while (ss >> tok) last = tok;
-            for (char& c : last)
-                if (c == '\\') c = '/';
-            e.texture = last;
+            std::vector<std::string> toks;  // "<options> filename"; filename last
+            for (std::string t; ss >> t;) toks.push_back(t);
+            if (!toks.empty()) {
+                e.texture = toks.back();
+                for (char& c : e.texture)
+                    if (c == '\\') c = '/';
+                // -s <u> [v] [w]: tiling (a UV multiplier); take the u factor.
+                for (size_t i = 0; i + 1 < toks.size(); ++i)
+                    if (toks[i] == "-s") {
+                        std::istringstream(toks[i + 1]) >> e.tile;
+                        break;
+                    }
+            }
         } else if (tag == "#") {
             std::string what;
             ss >> what;
@@ -5392,7 +5492,16 @@ void App::saveMaterialFile() {
         };
         std::snprintf(buf, sizeof(buf), "Kd %.4f %.4f %.4f", kd(0), kd(1), kd(2));
         out << buf << "\n";
-        if (!e.texture.empty()) out << "map_Kd " << e.texture << "\n";
+        if (!e.texture.empty()) {
+            // -s tiling (repeats per world unit) matters only for terrain; skip
+            // it at the default 1 to keep files clean. Wavefront: "-s u v w".
+            out << "map_Kd";
+            if (e.tile != 1.0f) {
+                std::snprintf(buf, sizeof(buf), " -s %.4g %.4g 1", e.tile, e.tile);
+                out << buf;
+            }
+            out << " " << e.texture << "\n";
+        }
         for (const std::string& x : e.extra) out << x << "\n";
         out << "\n";
     }
@@ -5650,6 +5759,17 @@ void App::drawMaterialEditorWindow() {
                     ImGui::TextDisabled("%dx%d", tw, th);
             }
         }
+
+        // Tiling (map_Kd -s): how densely the texture repeats. Used by terrain
+        // (which generates its own UVs); objects carry baked UVs and ignore it.
+        ImGui::SetNextItemWidth(180.0f);
+        ImGui::DragFloat("Tile repeat", &e.tile, 0.05f, 0.01f, 64.0f, "%.2f/unit");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (e.tile < 0.01f) e.tile = 0.01f;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Terrain only: texture repeats per world unit.\n"
+                              "Higher = smaller, denser tiles. Objects use their\n"
+                              "mesh UVs and ignore this.");
     }
 
     ImGui::Spacing();
@@ -6569,6 +6689,12 @@ void App::performAssetDelete(const PendingAssetDelete& d) {
             for (SceneData& scene : project_.scenes)
                 for (SceneObject& o : scene.objects)
                     if (o.materialPath == d.relPath) o.materialPath.clear();
+            // A terrain that used it falls back to the checker greens.
+            if (project_.settings.terrainMaterial == d.relPath)
+                project_.settings.terrainMaterial.clear();
+            for (SceneData& scene : project_.scenes)
+                if (scene.settings.terrainMaterial == d.relPath)
+                    scene.settings.terrainMaterial.clear();
             modelInfoCache_.clear();
             statusMessage_ = "Deleted " + d.label;
             commitChange();
@@ -7245,7 +7371,9 @@ void App::applyProjectToViewport() {
     // Scene-visual settings resolve project defaults + this scene's overrides.
     const ProjectSettings rs = project::resolvedSettings(project_, sc);
     viewport_.setProjectDir(project_.dir);
-    viewport_.setTerrainTexture(rs.terrainTexture, rs.terrainTexScale);
+    const project::TerrainMaterial tm =
+        project::resolveTerrainMaterial(project_, rs.terrainMaterial);
+    viewport_.setTerrainMaterial(tm.texture, tm.kd, tm.present, tm.tile);
     viewport_.setTerrain(sc.terrain, project_.settings.terrainDetail, sc.heights, sc.hmW,
                          sc.hmD);
     viewport_.setSky(rs.skyColor, rs.skyTopColor, rs.skyDome);
@@ -7372,17 +7500,10 @@ void App::drawPreferencesModal() {
         "model/material in the Assets section - e.g. keep the hero's textures\n"
         "full color while everything else goes 4-bit.");
 
-    ImGui::TextDisabled(
-        "Terrain texture: %s",
-        prefSettings_.terrainTexture.empty() ? "<none>" : prefSettings_.terrainTexture.c_str());
-    ImGui::SameLine();
-    pickProjectTexture("##pick_terrain_texture", prefSettings_.terrainTexture);
-    if (!prefSettings_.terrainTexture.empty()) {
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Clear##terrtex")) prefSettings_.terrainTexture.clear();
-        ImGui::DragFloat("Texture tile (units)", &prefSettings_.terrainTexScale, 0.25f, 0.25f,
-                         64.0f, "%.2f");
-    }
+    drawTerrainMaterialCombo("Terrain material", prefSettings_.terrainMaterial);
+    ImGui::TextDisabled("The material's color tints the terrain; its texture (map_Kd),\n"
+                        "if any, tiles across it - set the tiling on the material's\n"
+                        "texture in the Material Editor. Import .mtl in the Assets section.");
     ImGui::ColorEdit3("Sky horizon color", prefSettings_.skyColor);
     ImGui::ColorEdit3("Sky zenith color", prefSettings_.skyTopColor);
     ImGui::Checkbox("Gradient sky dome", &prefSettings_.skyDome);
@@ -7657,17 +7778,8 @@ void App::drawScenePreferencesModal() {
             s.clipping = clipMode == 1 ? "fast" : "precise";
     });
 
-    category("Terrain texture", ov.terrainTex, [&] {
-        ImGui::TextDisabled("Texture: %s",
-                            s.terrainTexture.empty() ? "<none>" : s.terrainTexture.c_str());
-        ImGui::SameLine();
-        pickProjectTexture("##pick_scene_terrain_texture", s.terrainTexture);
-        if (!s.terrainTexture.empty()) {
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Clear")) s.terrainTexture.clear();
-            ImGui::DragFloat("Texture tile (units)", &s.terrainTexScale, 0.25f, 0.25f, 64.0f,
-                             "%.2f");
-        }
+    category("Terrain material", ov.terrainMat, [&] {
+        drawTerrainMaterialCombo("Material", s.terrainMaterial);
     });
 
     category("Post effects", ov.postFx, [&] {

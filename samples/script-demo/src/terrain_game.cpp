@@ -29,6 +29,14 @@ float g_frameRate = 50.0F;
 float g_frameDt = 1.0F / 50.0F;
 float g_frameScale = 1.0F;
 
+// Camera flashlight runtime state (a Player object property; declared in
+// scene_data.hpp). g_flashEnabled is the master switch - seeded per scene from
+// the player's Enabled flag in loadScene, flipped by the Set Flashlight flow
+// node. g_flashOn is the on/off state the optional toggle button drives; the
+// beam only shows while BOTH are set, so the toggle respects Enabled.
+bool g_flashEnabled = false;
+bool g_flashOn = true;
+
 // Measures the real time since the previous frame (EE COP0 Count register,
 // 294.912 MHz, wrap-safe) and folds it into g_frameDt / g_frameScale.
 // Within 10% of the nominal vsync step it snaps to exactly nominal, so a
@@ -443,10 +451,13 @@ TerrainGame::~TerrainGame() {}
 void TerrainGame::init() {
   // Engine clipper fix: the default clipMargin (-10.0F) moves the near
   // clipping plane ~10 units away from the camera, cutting away nearby
-  // geometry. Clip right in front of the real near plane instead.
-  // (read by the clipper during setRenderer below)
+  // geometry. Clip 0.15 units in front of the camera instead - just past
+  // the real near plane (0.1) and closer than the collision clearance the
+  // walkers guarantee (playerRadius 0.35, EYE_CLEARANCE 0.2), so a wall
+  // the player presses against can never fall in front of the clip plane
+  // and open a see-through hole. (read during setRenderer below)
   PlanesClipAlgorithm::clipMargin =
-      -(engine->renderer.core.getSettings().getNear() + 0.5F);
+      -(engine->renderer.core.getSettings().getNear() + 0.15F);
 
   // Wall-clock normalization: per-frame steps below are tuned for 50 Hz;
   // g_frameScale stretches them so NTSC's 60 Hz plays at the same speed.
@@ -626,8 +637,16 @@ void TerrainGame::loop() {
   updateParticles();
   updateSoundEmitters();
 
-  // Camera-attached flashlight (Scene/Project > Preferences > Flashlight).
-  if (FLASHLIGHT_ENABLED) {
+  // Camera flashlight (Player object > Flashlight). The Set Flashlight flow
+  // node drives the master (scriptCtx.flashlight: 0 off / 1 on / -1 = leave);
+  // the optional toggle button flips the on/off state. The beam shows only
+  // while both are set, so the toggle respects the Enabled master.
+  if (scriptCtx.flashlight >= 0) {
+    g_flashEnabled = scriptCtx.flashlight != 0;
+    scriptCtx.flashlight = -1;
+  }
+  if (flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
+  if (g_flashEnabled && g_flashOn) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
     engine->renderer.core.setSpotLight(
         Color(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B), cameraPosition,
@@ -1155,11 +1174,12 @@ void TerrainGame::setupAnimObject(int index) {
     // texture links are per material id and every instance has fresh ids
     if (m < gam.textures.size() && gam.textures[m])
       gam.textures[m]->addLink(mat->id);
-    // per-instance tint: object color multiplies the material base color
+    // material albedo (glTF baseColorFactor). The lit VU1 programs ignore
+    // this single color - it rides in the per-part light colors below - but
+    // it is kept in sync for any single-color path that may read it.
     const float* base = gam.src->parts[m].color;
-    mat->ambient.set(base[0] * 128.0F * o.data.color[0],
-                     base[1] * 128.0F * o.data.color[1],
-                     base[2] * 128.0F * o.data.color[2], 128.0F);
+    mat->ambient.set(base[0] * 128.0F, base[1] * 128.0F, base[2] * 128.0F,
+                     128.0F);
   }
 
   // Static-pipeline bags around the skinned arrays (rebuilt in place every
@@ -1181,7 +1201,24 @@ void TerrainGame::setupAnimObject(int index) {
     ap.lightBag = std::make_unique<StaPipLightingBag>();
     ap.lightBag->lightMatrix = &g.animMat;
     ap.lightBag->normals = frame->normals;
-    ap.lightBag->dirLights = &animDirLights;
+    // Fold this part's material albedo into its light colors so the lit VU1
+    // program renders the .glb material color (outputColor = albedo * light),
+    // not the plain scene light color (gray). Scene light/ambient here mirror
+    // updateAndRenderAnimObjects; directions stay shared (animLightDirs).
+    {
+      const float* base = gam.src->parts[m].color;
+      const float amb = 128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT;
+      const float dif = 128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE;
+      ap.litColors[0].set(dif * SCENE_LIGHT_COL_R * base[0],
+                          dif * SCENE_LIGHT_COL_G * base[1],
+                          dif * SCENE_LIGHT_COL_B * base[2], 1.0F);
+      ap.litColors[1].set(0.0F, 0.0F, 0.0F, 1.0F);
+      ap.litColors[2].set(0.0F, 0.0F, 0.0F, 1.0F);
+      ap.litColors[3].set(amb * base[0], amb * base[1], amb * base[2], 128.0F);
+      ap.animLights = std::make_unique<PipelineDirLightsBag>(true);
+      ap.animLights->setLightsManually(ap.litColors, animLightDirs);
+      ap.lightBag->dirLights = ap.animLights.get();
+    }
     ap.bag = std::make_unique<StaPipBag>();
     ap.bag->info = g.animInfoBag.get();
     ap.bag->color = ap.colorBag.get();
@@ -1408,15 +1445,22 @@ void TerrainGame::updateAndRenderAnimObjects() {
   }
 }
 
+// Minimum gap kept between the camera eye and any surface overhead. Must
+// stay larger than the near clip distance (0.15, see clipMargin in init())
+// or looking up at a ceiling the head touches would open a see-through hole.
+constexpr float EYE_CLEARANCE = 0.2F;
+
 // Shared player-vs-scene collision (both walkers). Box mode reproduces the
 // classic behavior (XZ box + stand-on-top + step up 0.5), with models sized
 // by their real mesh AABB instead of the unit scale box. Mesh mode collides
 // with the model's triangles in object-local space: a downward ray finds the
 // walkable ground (ramps/stairs work) and steep faces push the player out
 // like walls. Rotation is honored in mesh mode and ignored in box mode.
+// ceiling collects the lowest surface overhead (box undersides, mesh hits of
+// an upward ray) so the walkers can clamp jumps below it.
 void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
                                 float* nextZ, float feetY, float eyeHeight,
-                                float* ground) {
+                                float* ground, float* ceiling) {
   const float playerRadius = 0.35F;
   for (const RuntimeObject& o : runtimeObjects) {
     if (!o.active || !o.visible || o.data.type == 4 || o.data.type == 6 ||
@@ -1475,6 +1519,24 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
           if (hit.y > *ground) *ground = hit.y;
         }
       }
+
+      // ceiling: a ray from step height straight up past the head finds the
+      // underside of overhead geometry (door lintels, floors jumped against)
+      const V3 co = toLocal(*nextX, feetY + 0.5F, *nextZ);
+      const V3 cq =
+          toLocal(*nextX, feetY + eyeHeight + EYE_CLEARANCE + 1.0F, *nextZ);
+      V3 cd = {cq.x - co.x, cq.y - co.y, cq.z - co.z};
+      const float cl = sqrtf(cd.x * cd.x + cd.y * cd.y + cd.z * cd.z);
+      if (cl > 0.0001F) {
+        cd.x /= cl, cd.y /= cl, cd.z /= cl;
+        float t;
+        if (gm->collider.raycast(Vec4(co.x, co.y, co.z, 1.0F),
+                                 Vec4(cd.x, cd.y, cd.z, 0.0F), cl, &t)) {
+          const V3 hit =
+              toWorld({co.x + cd.x * t, co.y + cd.y * t, co.z + cd.z * t});
+          if (hit.y < *ceiling) *ceiling = hit.y;
+        }
+      }
       continue;
     }
 
@@ -1511,7 +1573,23 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     if (feetY + 0.5F >= top) {
       // low enough to walk onto - candidate floor
       if (top > *ground) *ground = top;
-    } else if (feetY < top && feetY + eyeHeight > bottom) {
+    } else if (bottom >= feetY + eyeHeight) {
+      // box entirely above the head - overhead surface for the jump clamp
+      if (bottom < *ceiling) *ceiling = bottom;
+      if (bottom < feetY + eyeHeight + EYE_CLEARANCE) {
+        // walking under would leave the eye closer than the clip plane -
+        // block, unless the player is already under it (let them walk out)
+        const bool wasInsideX = prevX > cx - hx && prevX < cx + hx;
+        const bool wasInsideZ = prevZ > cz - hz && prevZ < cz + hz;
+        if (!wasInsideX || !wasInsideZ) {
+          if (!wasInsideX) *nextX = prevX;
+          if (!wasInsideZ) *nextZ = prevZ;
+        }
+      }
+    } else if (feetY < top) {
+      // vertical overlap: also the lowest surface overhead when the box sank
+      // onto the player (moving platforms) - lets the clamp push them out
+      if (bottom >= feetY && bottom < *ceiling) *ceiling = bottom;
       // blocked - cancel the axes that entered the box this frame
       const bool wasInsideX = prevX > cx - hx && prevX < cx + hx;
       const bool wasInsideZ = prevZ > cz - hz && prevZ < cz + hz;
@@ -1590,6 +1668,12 @@ void TerrainGame::loadScene(int sceneIndex) {
                                  FOG_END);
   else
     engine->renderer.core.disableFog();
+
+  // Camera flashlight is a Player property: reset the runtime master to this
+  // scene's player Enabled flag (the flow graph can change it later); the
+  // on/off toggle starts on.
+  g_flashEnabled = FLASHLIGHT_ENABLED;
+  g_flashOn = true;
 
   runtimeObjects.assign(SCENE_OBJECT_COUNT, RuntimeObject());
   objectGeometry.clear();
@@ -1938,7 +2022,7 @@ void TerrainGame::updateParticles() {
       // rain streaks stay vertical (world-up quads); everything else is a
       // full camera-facing billboard. Fog puffs additionally swirl: the
       // billboard slowly rotates in the camera plane, alternating direction
-      // per puff (the Silent Hill roll) - keep in sync with the viewport
+      // per puff (the swirling fog roll) - keep in sync with the viewport
       // preview (drawEmitterPreviews).
       float brx = rx, bry = 0.0F, brz = rz;
       float bux = ux, buy = uy, buz = uz;
@@ -2353,12 +2437,21 @@ bool TerrainGame::updatePlayerEntity() {
   if (nextZ < -limZ) nextZ = -limZ;
 
   float ground = terrainHeightAt(nextX, nextZ);
-  collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground);
+  float ceiling = 1e30F;
+  collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground,
+                &ceiling);
   entX = nextX;
   entZ = nextZ;
 
   entVelY -= GRAVITY * g_frameDt * g_frameDt;  // GRAVITY is units/s^2
   entY += entVelY;
+  // Jump clamp: keep the eye EYE_CLEARANCE below overhead geometry so the
+  // camera never pokes into it (skipped when the gap is too low to stand in)
+  const float maxY = ceiling - PLAYER_EYE_HEIGHT - EYE_CLEARANCE;
+  if (entY > maxY && maxY >= ground) {
+    entY = maxY;
+    if (entVelY > 0.0F) entVelY = 0.0F;
+  }
   if (entY <= ground) {
     entY = ground;
     entVelY = 0.0F;
@@ -2832,13 +2925,22 @@ void TerrainGame::updatePlayer() {
   // + standing on top of them. Player can step ~0.5 units up.
   // The floor is the sculpted terrain.
   float ground = terrainHeightAt(nextX, nextZ);
-  collidePlayer(playerX, playerZ, &nextX, &nextZ, playerY, EYE_HEIGHT, &ground);
+  float ceiling = 1e30F;
+  collidePlayer(playerX, playerZ, &nextX, &nextZ, playerY, EYE_HEIGHT, &ground,
+                &ceiling);
   playerX = nextX;
   playerZ = nextZ;
 
   // Gravity & jumping (X). GRAVITY: units/s^2, JUMP_SPEED: units/s.
   playerVelY -= GRAVITY * g_frameDt * g_frameDt;
   playerY += playerVelY;
+  // Jump clamp: keep the eye EYE_CLEARANCE below overhead geometry so the
+  // camera never pokes into it (skipped when the gap is too low to stand in)
+  const float maxY = ceiling - EYE_HEIGHT - EYE_CLEARANCE;
+  if (playerY > maxY && maxY >= ground) {
+    playerY = maxY;
+    if (playerVelY > 0.0F) playerVelY = 0.0F;
+  }
   if (playerY <= ground) {
     playerY = ground;
     playerVelY = 0.0F;
