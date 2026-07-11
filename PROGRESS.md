@@ -9,6 +9,31 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (65) **Copy/paste flow-graph nodes with Ctrl+C/V** — before this, Ctrl+C/V in
+  the Flow Graph window always hit the global handler and copied the *scene
+  objects* selected in the viewport, so there was no way to duplicate graph
+  nodes. Copy/paste is now focus-aware: `drawFlowGraphWindow()` sets a
+  per-frame `flowGraphFocused_` flag (via `IsWindowFocused(ChildWindows)`, the
+  same test the node-delete path uses) and, while that window has focus and no
+  node param is being typed into, handles Ctrl+C/V on the graph itself. The
+  global shortcut handler (which runs later the same frame, after the window is
+  drawn) now stands down whenever `flowGraphFocused_` is set, so object
+  copy/paste is unaffected everywhere else. Copy grabs the imnodes-selected
+  nodes into a `FlowGraph flowClipboard_` plus only the links whose *both*
+  endpoints are in the copied set (dangling links dropped). Paste re-ids every
+  node from the target graph's `nextId` (so it works into the same graph or a
+  different object's graph without collisions), remaps the copied links to the
+  new ids, offsets positions by (+20,+20) so the copy sits beside the source,
+  resets `flowPositionsApplied_` to push the new positions to imnodes, and goes
+  through `commitChange()` for one undo step. Pure editor state — no `.tyra`
+  format, codegen or PS2 runtime change. Verified: clean editor build
+  (`build.ps1`, link OK). The keyboard-focus routing itself (copy nodes vs
+  objects depending on which window is focused) is reasoned from the call order
+  — the flow-graph window is drawn before the global shortcut block within the
+  same frame, so the flag is fresh — and still wants a hands-on pass, since
+  synthetic keyboard-into-GLFW input against the node editor is not reliably
+  automatable in this environment (noted on entries 63/64).
+
 - (63) **Flashlight moved from a project preference to a Player property** — the
   camera flashlight used to be a scene-visual category on `ProjectSettings`
   (project default + per-scene override). It is now a property of the Player
@@ -86,7 +111,7 @@ Each finished feature lands as its own commit.
   code review + compile only, while the selection→highlight→panel pipeline they
   feed is confirmed working.
 
-- (65) **Terrain picks a material, not a raw texture — tiling comes from the
+- (66) **Terrain picks a material, not a raw texture — tiling comes from the
   material too** — the terrain used to take a loose PNG
   (`ProjectSettings::terrainTexture` + a `terrainTexScale` slider, project-wide
   + per-scene override); it now takes a Wavefront **material** (`.mtl`) like
@@ -129,6 +154,30 @@ Each finished feature lands as its own commit.
   editor/game formulas match. (Material Editor slider round-trip verified by
   code + the hand-authored `-s` parse; the in-GUI drag still wants a human
   pass — synthetic mouse input doesn't reach the GLFW window here.)
+
+- (65) **Scene objects list groups by layer, with drag-and-drop assignment** —
+  the "Scene objects" section in the Project panel used to be one flat list of
+  every object. When the active scene has layers it now renders a tree: one
+  collapsible node per layer (header shows the layer name, its object count and
+  a `[hidden]` tag / dimmed text when the layer's editor eye is off), then an
+  **Unassigned** group for objects with no layer (or a stale name left by a
+  deleted layer). Each layer node expands/collapses to show only its objects.
+  Scenes without layers keep the old flat list unchanged. **Assigning is now
+  drag-and-drop**: drag any object row (or, if it is part of the current
+  selection, the whole selection — the drag tooltip reads "Move N objects")
+  onto a layer header to set `SceneObject::layer`, or onto Unassigned to clear
+  it; the drop is deferred until after the child so the render loop stays
+  stable, and applies as a single `commitChange()` undo step. The existing
+  Properties `Layer` combo still works. Object rows keep their multi-select
+  clicks (Ctrl/Shift) and hidden-layer dimming. Only `drawSceneSection()` in
+  `app.cpp` changed — the data model, serialization and codegen are untouched
+  (layers already carried `SceneObject::layer`). Verified: editor builds clean;
+  launched on `examples/layer-streaming` and confirmed via screenshot that the
+  two building layers render as collapsible nodes with their walls nested
+  underneath and the drag hint showing. The drag *gesture* itself wants a
+  hands-on human pass — synthetic mouse input does not reach the GLFW window in
+  this environment (see entry 64) — but the tree/grouping/drop-target wiring is
+  standard ImGui and confirmed compiling + rendering.
 
 - (63) **Delete assets from the editor (with confirmation)** — until now the
   only way to remove a model, material, texture or HUD image was to delete the
