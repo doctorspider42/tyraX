@@ -8,6 +8,7 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
+#include <math.h>
 #include "renderer/core/renderer_core.hpp"
 #include "thread/threading.hpp"
 #include "debug/debug.hpp"
@@ -51,6 +52,31 @@ void RendererCore::disableFog() {
   fog.enabled = false;
   fog.scale = 0.0F;
   fog.offset = 255.0F;
+}
+
+// Modified by tyra-editor: dynamic spot light (flashlight).
+void RendererCore::setSpotLight(const Color& color, const Vec4& position,
+                                const Vec4& direction, const float& range,
+                                const float& cutoffDegrees,
+                                const float& softness) {
+  TYRA_ASSERT(range > 0.0F, "Spot light range must be positive!");
+  spot.enabled = true;
+  spot.color = color;
+  spot.position = position;
+  spot.direction = direction;
+  const float len = sqrtf(direction.x * direction.x +
+                          direction.y * direction.y +
+                          direction.z * direction.z);
+  if (len > 1e-5F) {
+    spot.direction.x /= len;
+    spot.direction.y /= len;
+    spot.direction.z /= len;
+  }
+  spot.direction.w = 0.0F;
+  spot.range = range;
+  const float halfAngle = cutoffDegrees * 3.14159265F / 180.0F;
+  spot.cosCutoff = cosf(halfAngle);
+  spot.softness = softness < 1.0F ? 1.0F : softness;
 }
 
 void RendererCore::beginFrame() {

@@ -243,6 +243,14 @@ struct ProjectSettings {
     float fogStart = 15.0f;   // world units from the camera
     float fogEnd = 120.0f;    // full fog at/after this distance
 
+    // Camera-attached spot light (Silent Hill flashlight). Additive cone +
+    // distance falloff computed per vertex on VU1, on top of the baked
+    // shading (no N.L - the PS2 color pipelines carry no normals).
+    bool flashlightEnabled = false;
+    float flashlightColor[3] = {0.75f, 0.75f, 0.62f};
+    float flashlightRange = 30.0f;  // world units
+    float flashlightAngle = 20.0f;  // cone half-angle, degrees
+
     // Scene switches show res/hud/loading.png centered on black for a
     // moment (a generated placeholder is written when the file is missing).
     bool loadingScreen = true;
@@ -276,7 +284,12 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.terrainTexScale == b.terrainTexScale && a.bloom == b.bloom &&
            a.grain == b.grain && a.fogEnabled == b.fogEnabled &&
            eq3(a.fogColor, b.fogColor) && a.fogStart == b.fogStart &&
-           a.fogEnd == b.fogEnd && a.loadingScreen == b.loadingScreen &&
+           a.fogEnd == b.fogEnd &&
+           a.flashlightEnabled == b.flashlightEnabled &&
+           eq3(a.flashlightColor, b.flashlightColor) &&
+           a.flashlightRange == b.flashlightRange &&
+           a.flashlightAngle == b.flashlightAngle &&
+           a.loadingScreen == b.loadingScreen &&
            a.highlightUsable == b.highlightUsable &&
            a.highlightDistance == b.highlightDistance &&
            eq3(a.highlightColor, b.highlightColor) &&
@@ -295,13 +308,15 @@ struct SceneOverrides {
     bool terrainTex = false;  // terrainTexture, terrainTexScale
     bool postFx = false;      // bloom, grain
     bool fog = false;         // fogEnabled, fogColor, fogStart, fogEnd
+    bool flashlight = false;  // flashlightEnabled + color/range/angle
     bool highlight = false;   // highlightUsable + distance/color/width/steps
 };
 
 inline bool operator==(const SceneOverrides& a, const SceneOverrides& b) {
     return a.lighting == b.lighting && a.sky == b.sky && a.clipping == b.clipping &&
            a.terrainTex == b.terrainTex && a.postFx == b.postFx &&
-           a.fog == b.fog && a.highlight == b.highlight;
+           a.fog == b.fog && a.flashlight == b.flashlight &&
+           a.highlight == b.highlight;
 }
 
 class History;

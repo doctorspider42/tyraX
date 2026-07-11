@@ -1234,6 +1234,15 @@ void TerrainGame::loop() {
   updateParticles();
   updateSoundEmitters();
 
+  // Camera-attached flashlight (Scene/Project > Preferences > Flashlight).
+  if (FLASHLIGHT_ENABLED) {
+    Vec4 flashDir = cameraLookAt - cameraPosition;
+    engine->renderer.core.setSpotLight(
+        Color(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B), cameraPosition,
+        flashDir, FLASHLIGHT_RANGE, FLASHLIGHT_ANGLE);
+  } else {
+    engine->renderer.core.disableSpotLight();
+  }
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -3176,6 +3185,15 @@ void TerrainGame::loop() {
   updateParticles();
   updateSoundEmitters();
 
+  // Camera-attached flashlight (Scene/Project > Preferences > Flashlight).
+  if (FLASHLIGHT_ENABLED) {
+    Vec4 flashDir = cameraLookAt - cameraPosition;
+    engine->renderer.core.setSpotLight(
+        Color(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B), cameraPosition,
+        flashDir, FLASHLIGHT_RANGE, FLASHLIGHT_ANGLE);
+  } else {
+    engine->renderer.core.disableSpotLight();
+  }
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -3667,6 +3685,15 @@ void TerrainGame::init() {
 void TerrainGame::loop() {
   updateCameraOrbit();
 
+  // Camera-attached flashlight (Scene/Project > Preferences > Flashlight).
+  if (FLASHLIGHT_ENABLED) {
+    Vec4 flashDir = cameraLookAt - cameraPosition;
+    engine->renderer.core.setSpotLight(
+        Color(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B), cameraPosition,
+        flashDir, FLASHLIGHT_RANGE, FLASHLIGHT_ANGLE);
+  } else {
+    engine->renderer.core.disableSpotLight();
+  }
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -4423,6 +4450,17 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     sceneFloats("FOG_BS", [&](int si) { return floatLit(rs[si].fogColor[2] * 255.0f); });
     sceneFloats("FOG_STARTS", [&](int si) { return floatLit(rs[si].fogStart); });
     sceneFloats("FOG_ENDS", [&](int si) { return floatLit(rs[si].fogEnd); });
+    sceneBools("FLASHLIGHT_ENABLEDS", [&](int si) { return rs[si].flashlightEnabled; });
+    sceneFloats("FLASHLIGHT_RS",
+                [&](int si) { return floatLit(rs[si].flashlightColor[0] * 128.0f); });
+    sceneFloats("FLASHLIGHT_GS",
+                [&](int si) { return floatLit(rs[si].flashlightColor[1] * 128.0f); });
+    sceneFloats("FLASHLIGHT_BS",
+                [&](int si) { return floatLit(rs[si].flashlightColor[2] * 128.0f); });
+    sceneFloats("FLASHLIGHT_RANGES",
+                [&](int si) { return floatLit(rs[si].flashlightRange); });
+    sceneFloats("FLASHLIGHT_ANGLES",
+                [&](int si) { return floatLit(rs[si].flashlightAngle); });
     sceneBools("HIGHLIGHT_USABLES", [&](int si) { return rs[si].highlightUsable; });
     sceneFloats("HIGHLIGHT_DISTANCES", [&](int si) { return floatLit(rs[si].highlightDistance); });
     sceneFloats("HIGHLIGHT_RS", [&](int si) { return floatLit(rs[si].highlightColor[0] * 255.0f); });
@@ -4605,6 +4643,12 @@ inline int everyFrames(float seconds) {
 #define FOG_B FOG_BS[g_activeScene]
 #define FOG_START FOG_STARTS[g_activeScene]
 #define FOG_END FOG_ENDS[g_activeScene]
+#define FLASHLIGHT_ENABLED FLASHLIGHT_ENABLEDS[g_activeScene]
+#define FLASHLIGHT_R FLASHLIGHT_RS[g_activeScene]
+#define FLASHLIGHT_G FLASHLIGHT_GS[g_activeScene]
+#define FLASHLIGHT_B FLASHLIGHT_BS[g_activeScene]
+#define FLASHLIGHT_RANGE FLASHLIGHT_RANGES[g_activeScene]
+#define FLASHLIGHT_ANGLE FLASHLIGHT_ANGLES[g_activeScene]
 #define HIGHLIGHT_USABLE HIGHLIGHT_USABLES[g_activeScene]
 #define HIGHLIGHT_DISTANCE HIGHLIGHT_DISTANCES[g_activeScene]
 #define HIGHLIGHT_R HIGHLIGHT_RS[g_activeScene]

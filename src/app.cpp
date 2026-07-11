@@ -5629,6 +5629,8 @@ void App::applyProjectToViewport() {
     viewport_.setUsableHighlight(rs.highlightUsable, rs.highlightColor);
     viewport_.setLighting(rs.lightDir, rs.ambient, rs.diffuse, rs.lightColor, rs.brightness);
     viewport_.setFog(rs.fogEnabled, rs.fogColor, rs.fogStart, rs.fogEnd);
+    viewport_.setFlashlight(rs.flashlightEnabled, rs.flashlightColor,
+                            rs.flashlightRange, rs.flashlightAngle);
 }
 
 void App::drawPreferencesModal() {
@@ -5749,6 +5751,20 @@ void App::drawPreferencesModal() {
         "PS2 GS hardware fog: geometry fades to the fog color with distance\n"
         "(free on the GS). Match the fog color with the sky color for a\n"
         "Silent Hill style fade-out that hides the draw distance.");
+
+    ImGui::SeparatorText("Flashlight");
+    ImGui::Checkbox("Camera flashlight", &prefSettings_.flashlightEnabled);
+    if (prefSettings_.flashlightEnabled) {
+        ImGui::ColorEdit3("Light color", prefSettings_.flashlightColor);
+        ImGui::DragFloat("Reach (units)", &prefSettings_.flashlightRange, 0.5f,
+                         1.0f, 200.0f, "%.1f");
+        ImGui::DragFloat("Cone half-angle (deg)", &prefSettings_.flashlightAngle,
+                         0.5f, 2.0f, 80.0f, "%.1f");
+    }
+    ImGui::TextDisabled(
+        "Spot light attached to the camera, computed per vertex on VU1 on\n"
+        "top of the baked shading (the Silent Hill flashlight). Dense or\n"
+        "well-tessellated geometry gives the smoothest cone.");
 
     ImGui::SeparatorText("Scenes");
     ImGui::Checkbox("Loading screen between scenes", &prefSettings_.loadingScreen);
@@ -5946,6 +5962,14 @@ void App::drawScenePreferencesModal() {
         ImGui::DragFloat("Fog start (units)", &s.fogStart, 0.5f, 0.0f, 1000.0f, "%.1f");
         ImGui::DragFloat("Fog end (units)", &s.fogEnd, 0.5f, 1.0f, 2000.0f, "%.1f");
         if (s.fogEnd <= s.fogStart + 1.0f) s.fogEnd = s.fogStart + 1.0f;
+    });
+
+    category("Flashlight", ov.flashlight, [&] {
+        ImGui::Checkbox("Camera flashlight", &s.flashlightEnabled);
+        ImGui::ColorEdit3("Light color", s.flashlightColor);
+        ImGui::DragFloat("Reach (units)", &s.flashlightRange, 0.5f, 1.0f, 200.0f, "%.1f");
+        ImGui::DragFloat("Cone half-angle (deg)", &s.flashlightAngle, 0.5f, 2.0f,
+                         80.0f, "%.1f");
     });
 
     category("Usable objects", ov.highlight, [&] {

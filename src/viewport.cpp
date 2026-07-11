@@ -178,8 +178,13 @@ uniform int uFogOn;              // GS hardware fog preview (lit geometry only)
 uniform vec3 uFogColor;
 uniform float uFogStart;
 uniform float uFogEnd;
-uniform vec3 uFogEye;            // camera position (world)
+uniform vec3 uFogEye;            // camera position (world) - also flashlight
 uniform vec3 uFogFwd;            // camera forward (world, normalized)
+uniform int uFlashOn;            // camera flashlight preview (VU1 twin)
+uniform vec3 uFlashCol;
+uniform float uFlashInvR2;       // 1/range^2
+uniform float uFlashCut2;        // cos^2(half-angle)
+uniform float uFlashSoft;        // softness/(range^2*(1-cos^2))
 out vec4 FragColor;
 void main() {
     vec3 tex = uUseTex != 0 ? texture(uTex, vUV).rgb : vec3(1.0);
@@ -198,6 +203,16 @@ void main() {
             add += uLightCol[i].rgb * (uLightCol[i].w * atten * ndotl);
         }
         shade = min(shade + add, vec3(1.0));
+    }
+    if (uFlashOn != 0 && uLit != 0) {
+        // Camera flashlight - the exact per-vertex formula the PS2 runs on
+        // VU1 (CalculateTyraSpotLight): cone + distance falloff, no N.L.
+        vec3 d = vWorld - uFogEye;
+        float dist2 = dot(d, d);
+        float t = max(dot(d, uFogFwd), 0.0);
+        float cone = clamp((t * t - uFlashCut2 * dist2) * uFlashSoft, 0.0, 1.0);
+        float axial = clamp(1.0 - dist2 * uFlashInvR2, 0.0, 1.0);
+        shade = min(shade + uFlashCol * (cone * axial), vec3(1.0));
     }
     vec3 color = shade * uTint * tex;
     if (uFogOn != 0 && uLit != 0) {
@@ -619,6 +634,11 @@ bool Viewport::init() {
     uFogEnd_ = glGetUniformLocation(program_, "uFogEnd");
     uFogEye_ = glGetUniformLocation(program_, "uFogEye");
     uFogFwd_ = glGetUniformLocation(program_, "uFogFwd");
+    uFlashOn_ = glGetUniformLocation(program_, "uFlashOn");
+    uFlashCol_ = glGetUniformLocation(program_, "uFlashCol");
+    uFlashInvR2_ = glGetUniformLocation(program_, "uFlashInvR2");
+    uFlashCut2_ = glGetUniformLocation(program_, "uFlashCut2");
+    uFlashSoft_ = glGetUniformLocation(program_, "uFlashSoft");
 
     GLuint gvs = compile(GL_VERTEX_SHADER, GRADE_VS);
     GLuint gfs = compile(GL_FRAGMENT_SHADER, GRADE_FS);
@@ -1089,6 +1109,14 @@ void Viewport::setFog(bool enabled, const float* rgb, float start, float end) {
     fogEnd_ = end;
 }
 
+void Viewport::setFlashlight(bool enabled, const float* rgb, float range,
+                             float halfAngleDeg) {
+    flashOn_ = enabled;
+    flashColor_[0] = rgb[0], flashColor_[1] = rgb[1], flashColor_[2] = rgb[2];
+    flashRange_ = range < 1.0f ? 1.0f : range;
+    flashAngle_ = halfAngleDeg < 2.0f ? 2.0f : (halfAngleDeg > 80.0f ? 80.0f : halfAngleDeg);
+}
+
 void Viewport::setProjectDir(const std::string& dir) {
     if (projectDir_ == dir) return;
     projectDir_ = dir;
@@ -1437,6 +1465,17 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniform1f(uFogEnd_, fogEnd_ > fogStart_ + 1.0f ? fogEnd_ : fogStart_ + 1.0f);
         glUniform3f(uFogEye_, eye.x, eye.y, eye.z);
         glUniform3f(uFogFwd_, fwd.x, fwd.y, fwd.z);
+
+        // Camera flashlight preview (same constants the engine derives)
+        glUniform1i(uFlashOn_, flashOn_ ? 1 : 0);
+        glUniform3f(uFlashCol_, flashColor_[0], flashColor_[1], flashColor_[2]);
+        const float r2 = flashRange_ * flashRange_;
+        const float cosCut = std::cos(flashAngle_ * kPi / 180.0f);
+        const float cut2 = cosCut * cosCut;
+        const float coneBase = r2 * (1.0f - cut2);
+        glUniform1f(uFlashInvR2_, 1.0f / r2);
+        glUniform1f(uFlashCut2_, cut2);
+        glUniform1f(uFlashSoft_, coneBase > 1e-10f ? 3.0f / coneBase : 0.0f);
     }
 
     // Point lights in the scene -> fragment shader uniforms (live preview of

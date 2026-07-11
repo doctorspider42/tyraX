@@ -19,6 +19,23 @@
 namespace Tyra {
 
 /**
+ * Modified by tyra-editor: per-mesh spot light state. The as_is VU1 programs
+ * cannot evaluate the spot light (vertices reach them already clipped and
+ * perspective-divided), so the EE injects it into the vertex colors before
+ * clipping interpolates them - keeps screen-edge triangles consistent with
+ * the cull path, which computes the same formula on VU1.
+ */
+struct StaPipClipperSpot {
+  bool enabled = false;
+  Vec4 position;   // object space
+  Vec4 direction;  // object space, normalized
+  float color[3] = {0.0F, 0.0F, 0.0F};
+  float invRange2 = 0.0F;
+  float cosCut2 = 0.0F;
+  float invSoft = 0.0F;
+};
+
+/**
  * @brief This class requires VU1 buffer with max buffsize/3 vertices.
  * It will clip triangles and fill the buffer.
  *
@@ -33,11 +50,13 @@ class StaPipClipper {
   void init(const RendererSettings& settings);
   void setMaxVertCount(const u32& count);
   void setMVP(M4x4* mvp);
+  void setSpot(const StaPipClipperSpot& t_spot) { spot = t_spot; }
 
  private:
   u32 maxVertCount;
   PlanesClipAlgorithm algorithm;
   M4x4* mvp;
+  StaPipClipperSpot spot;
 
   Vec4 inputVerts[3];
   PlanesClipVertexPtrs inputTriangle[3];

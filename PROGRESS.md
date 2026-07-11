@@ -9,6 +9,31 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (46) **Camera flashlight (Silent Hill spot light)** — dynamic spot light
+  computed per vertex on VU1 in the StaPip color programs (cull C/TC), the
+  paths every editor-generated game renders through. No N.L term (the color
+  paths carry no normals - the same flat cone + distance falloff trick the
+  SH era used): `I = clamp((t²-cos²θ·dist²)·invSoft) · clamp(1-dist²/range²)`
+  where t is the distance along the beam - no sqrt and no extra DIV on VU1
+  (the cone test compares squares). The world light is transformed per mesh
+  into object space on the EE via a new affine inverse in
+  `stapip_qbuffer_renderer.cpp` (range rescaled by the mesh scale, correct
+  for uniform scales); the three spot quads ride the dir-lights VU1
+  addresses, which are free in the color programs. EE-clipped triangles get
+  the same formula baked into local color copies before clip interpolation
+  (`StaPipClipper` + `addSpotToColor` - keep in sync with
+  `CalculateTyraSpotLight` in tyra_macros.i), so screen-edge geometry shows
+  no seams. Engine API: `RendererCore::setSpotLight/disableSpotLight`;
+  generated games re-aim it at the camera every frame before beginFrame.
+  Editor: flashlight is a scene-visual category (enabled/color/range/cone
+  half-angle, project + per-scene override), viewport previews the exact
+  formula from the editor camera. Verified e2e in PCSX2 software renderer
+  (dark scene + fog + flashlight): visible beam brightening the terrain
+  strip ahead of the camera and box faces inside the cone, 50 FPS steady.
+  Known limits: DynPip (animated models) does not receive the flashlight
+  yet; single-color bags only get it on the cull path (all editor bags are
+  multicolor); non-uniform mesh scale distorts the cone slightly.
+
 - (45) **GS hardware distance fog (Silent Hill style)** — per-vertex fog
   coefficient computed on VU1, blended by the GS toward `FOGCOL` for free at
   the pixel level. Engine (`vendor/tyra`): all 8 StaPip + 4 DynPip VU1
