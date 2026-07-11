@@ -673,26 +673,30 @@ void App::drawMenuBar() {
     }
 }
 
-// Icon toolbar drawn inline in the main menu bar, after the menus: Save, a
-// green Play (build & run in PCSX2), a blue Play (build & run on PS2), and a
-// Stop. Icons are vector-drawn on the menu-bar draw list - the editor loads no
-// icon font - so they stay crisp at any UI scale.
+// Icon toolbar drawn inline in the main menu bar, after the menus. Layout:
+// Save, then two run/stop pairs - [green Play=PCSX2, Stop PCSX2] and
+// [blue Play=PS2, Stop PS2]. Icons are vector-drawn on the menu-bar draw list
+// (the editor loads no icon font) so they stay crisp at any UI scale. Spacing
+// is set explicitly: pairs sit tight, groups are separated by a wider gap.
 void App::drawToolbar() {
     if (!hasProject_) return;
 
     const bool busy = runner_.busy();
     const bool ps2Ready = !project_.ps2LinkIp.empty();
-    const bool ps2Running = runner_.ps2ClientAlive();
     const ImU32 colDim = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+    const ImU32 colStop = IM_COL32(225, 95, 85, 255);
     const float h = ImGui::GetFrameHeight();
     const float round = ImGui::GetStyle().FrameRounding;
+    const float gapPair = ImMax(2.0f, h * 0.08f);   // within a play/stop pair
+    const float gapGroup = h * 0.55f;               // between button groups
 
-    // A square icon button on the menu-bar line. `paint(dl, a, b, enabled)`
-    // draws the glyph into the padded inner rect [a,b]. Returns true on click
-    // (clicks ignored while disabled; the icon dims instead).
-    auto iconButton = [&](const char* id, bool enabled, const char* tip,
-                          auto&& paint) -> bool {
-        ImGui::SameLine();
+    // A square icon button on the menu-bar line, `lead` px to the left of the
+    // previous item. `paint(dl, a, b, enabled)` draws the glyph into the padded
+    // inner rect [a,b]. Returns true on click (ignored while disabled - the
+    // icon dims instead).
+    auto iconButton = [&](const char* id, float lead, bool enabled,
+                          const char* tip, auto&& paint) -> bool {
+        ImGui::SameLine(0.0f, lead);
         ImDrawList* dl = ImGui::GetWindowDrawList();
         const ImVec2 p = ImGui::GetCursorScreenPos();
         ImGui::InvisibleButton(id, ImVec2(h, h));
@@ -713,18 +717,25 @@ void App::drawToolbar() {
         return clicked;
     };
 
-    // Small horizontal gap between button groups.
-    auto gap = [&] {
-        ImGui::SameLine();
-        ImGui::Dummy(ImVec2(h * 0.35f, 0.0f));
+    // Reusable glyph painters.
+    auto paintPlay = [](ImU32 c) {
+        return [c](ImDrawList* dl, ImVec2 a, ImVec2 b, bool) {
+            const float w = b.x - a.x, hh = b.y - a.y;
+            dl->AddTriangleFilled(ImVec2(a.x + w * 0.08f, a.y),
+                                  ImVec2(a.x + w * 0.08f, b.y),
+                                  ImVec2(b.x, a.y + hh * 0.5f), c);
+        };
     };
-
-    gap();
+    auto paintStop = [](ImU32 c) {
+        return [c](ImDrawList* dl, ImVec2 a, ImVec2 b, bool) {
+            dl->AddRectFilled(a, b, c, (b.x - a.x) * 0.14f);
+        };
+    };
 
     // Save (floppy): normal when clean, amber when there are unsaved edits.
     // Always enabled - saving also folds in layout/docking changes.
     if (iconButton(
-            "##tb_save", true,
+            "##tb_save", gapGroup, true,
             dirty_ ? "Save - unsaved changes (Ctrl+S)" : "Save (Ctrl+S)",
             [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool) {
                 const ImU32 c = dirty_ ? IM_COL32(240, 175, 70, 255)
@@ -739,54 +750,36 @@ void App::drawToolbar() {
             }))
         saveAll("Saved");
 
-    gap();
-
-    // Green Play: build & run in the PCSX2 emulator (F5).
-    if (iconButton(
-            "##tb_run_emu", !busy, "Build && Run in PCSX2 (F5)",
-            [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool en) {
-                const ImU32 c = en ? IM_COL32(95, 200, 115, 255) : colDim;
-                const float w = b.x - a.x, hh = b.y - a.y;
-                dl->AddTriangleFilled(ImVec2(a.x + w * 0.08f, a.y),
-                                      ImVec2(a.x + w * 0.08f, b.y),
-                                      ImVec2(b.x, a.y + hh * 0.5f), c);
-            }))
+    // --- Emulator group: green Play + Stop PCSX2 -------------------------
+    if (iconButton("##tb_run_emu", gapGroup, !busy, "Build && Run in PCSX2 (F5)",
+                   paintPlay(!busy ? IM_COL32(95, 200, 115, 255) : colDim)))
         runner_.buildAndRun(project_, true);
+    // Stop PCSX2: cancels a running build, else closes the emulator. Always
+    // available (can't detect a stray PCSX2; taskkill is a no-op if none runs).
+    if (iconButton("##tb_stop_emu", gapPair, true,
+                   busy ? "Cancel build" : "Stop PCSX2", paintStop(colStop))) {
+        if (busy) runner_.cancel();
+        else runner_.stopEmulator();
+    }
 
-    // Blue Play: build & run on a real PS2 over ps2link (F6). Disabled until an
-    // IP is configured (Project > Preferences).
-    if (iconButton(
-            "##tb_run_ps2", !busy && ps2Ready,
-            ps2Ready ? "Build && Run on PS2 (F6)"
-                     : "Set 'PS2 (ps2link) IP' in Project > Preferences first.",
-            [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool en) {
-                const ImU32 c = en ? IM_COL32(80, 160, 245, 255) : colDim;
-                const float w = b.x - a.x, hh = b.y - a.y;
-                dl->AddTriangleFilled(ImVec2(a.x + w * 0.08f, a.y),
-                                      ImVec2(a.x + w * 0.08f, b.y),
-                                      ImVec2(b.x, a.y + hh * 0.5f), c);
-            }))
+    // --- Console group: blue Play + Stop PS2 ----------------------------
+    // Both disabled until a ps2link IP is configured (Project > Preferences).
+    if (iconButton("##tb_run_ps2", gapGroup, !busy && ps2Ready,
+                   ps2Ready ? "Build && Run on PS2 (F6)"
+                            : "Set 'PS2 (ps2link) IP' in Project > Preferences first.",
+                   paintPlay(!busy && ps2Ready ? IM_COL32(80, 160, 245, 255)
+                                               : colDim)))
         runner_.buildAndRunPs2(project_, true);
-
-    gap();
-
-    // Stop (square): context-aware - cancel a running build, stop a game on the
-    // PS2, or close a running PCSX2. Always available; a no-op if nothing runs.
-    if (iconButton(
-            "##tb_stop", true,
-            busy ? "Cancel build"
-                 : ps2Running ? "Stop the game on the PS2"
-                              : "Stop PCSX2",
-            [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool) {
-                dl->AddRectFilled(a, b, IM_COL32(225, 95, 85, 255),
-                                  (b.x - a.x) * 0.14f);
-            })) {
-        if (busy)
-            runner_.cancel();
-        else if (ps2Running)
-            runner_.stopPs2(project_);
-        else
-            runner_.stopEmulator();
+    // Stop PS2: cancels a running build, else stops the game on the console
+    // (kills the file server + resets ps2link + silences the SPU).
+    const bool stopPs2Enabled = busy || ps2Ready;
+    if (iconButton("##tb_stop_ps2", gapPair, stopPs2Enabled,
+                   busy ? "Cancel build"
+                        : ps2Ready ? "Stop the game on the PS2"
+                                   : "Set 'PS2 (ps2link) IP' in Project > Preferences first.",
+                   paintStop(stopPs2Enabled ? colStop : colDim))) {
+        if (busy) runner_.cancel();
+        else runner_.stopPs2(project_);
     }
 }
 

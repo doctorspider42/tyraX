@@ -28,11 +28,15 @@ Each finished feature lands as its own commit.
   edits. Freshly opened/created projects reset `dirty_` after
   `attachProject()`'s asset rescan (rescan-found assets are rediscovered on
   every open, so they don't count as unsaved). The new **toolbar** sits inline
-  in the main menu bar after Tools (`drawToolbar()`): a floppy **Save**
-  (amber when dirty), a green **Play** = Build && Run in PCSX2, a blue **Play**
-  = Build && Run on PS2 (dimmed until a ps2link IP is set), and a red **Stop**
-  (context-aware: cancel a running build, else stop a game on the PS2, else
-  close PCSX2 via the new `Runner::stopEmulator()`). Icons are vector-drawn on
+  in the main menu bar after Tools (`drawToolbar()`): a floppy **Save** (amber
+  when dirty), then two tight run/stop pairs separated by a wider gap —
+  **[green Play = Build && Run in PCSX2, red Stop PCSX2]** and **[blue Play =
+  Build && Run on PS2, red Stop PS2]**. Each Stop cancels a running build when
+  one is in progress, otherwise closes the emulator (`Runner::stopEmulator()`)
+  or stops the game on the console (`Runner::stopPs2()`); the PS2 pair dims
+  until a ps2link IP is set. Spacing is set explicitly per button (not the
+  default ImGui item spacing) so pairs read as groups at any UI scale. Icons
+  are vector-drawn on
   the menu-bar draw list — the editor loads no icon font — so they stay crisp
   at any UI scale. Editor-only change: no `.tyra` format, codegen or PS2
   runtime impact. Verified end-to-end by driving the running editor (synthetic
