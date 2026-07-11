@@ -193,6 +193,10 @@ static std::string objectJson(const SceneObject& o) {
           o.primDetail != kDefaultPrimDetail)
              ? ", \"detail\": " + std::to_string(o.primDetail)
              : "") +
+        // 0 = unlimited (default) stays implicit
+        (o.drawDistance > 0.0f
+             ? ", \"drawDistance\": " + fmtFloat(o.drawDistance)
+             : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + o.modelPath + "\"") +
         (o.materialPath.empty() ? "" : ", \"material\": \"" + o.materialPath + "\"");
     if (o.type == PrimitiveType::Player) {
@@ -798,6 +802,10 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         }
         if (const auto* v = jo.find("detail"))
             o.primDetail = clampPrimDetail((int)v->numberOr(kDefaultPrimDetail));
+        if (const auto* v = jo.find("drawDistance")) {
+            o.drawDistance = (float)v->numberOr(0.0);
+            if (o.drawDistance < 0.0f) o.drawDistance = 0.0f;
+        }
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
         // pre-materials projects had a per-object "texture" PNG - dropped
