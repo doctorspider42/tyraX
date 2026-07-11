@@ -1,7 +1,8 @@
 /*
 # Modified by tyra-editor - no heap allocations per clip call; spot light
 # (flashlight) injected into vertex colors before clipping (see the
-# StaPipClipperSpot comment in the header).
+# StaPipClipperSpot comment in the header); clip output drained in
+# VU1-buffer-sized chunks so a fanned-out triangle can't overflow the buffer.
 # Based on the original by Sandro Sobczynski (h4570/tyra), Apache License 2.0.
 */
 
@@ -50,7 +51,7 @@ void StaPipClipper::init(const RendererSettings& settings) {
 
 void StaPipClipper::setMaxVertCount(const u32& count) { maxVertCount = count; }
 
-void StaPipClipper::clip(StaPipQBuffer* buffer) {
+u32 StaPipClipper::clipToPool(StaPipQBuffer* buffer) {
   TYRA_ASSERT(buffer->size <= maxVertCount / 3, "Buffer should have max ",
               maxVertCount / 3, " verts if we want to clip it.");
 
@@ -99,12 +100,17 @@ void StaPipClipper::clip(StaPipQBuffer* buffer) {
   for (u32 i = 0; i < outCount; i++)
     clippedPool[i].position /= clippedPool[i].position.w;
 
-  buffer->reallocateManually(outCount);
-  for (u32 i = 0; i < outCount; i++) {
-    buffer->vertices[i] = clippedPool[i].position;
-    if (buffer->bag->texture) buffer->sts[i] = clippedPool[i].st;
-    if (buffer->bag->color->many) buffer->colors[i] = clippedPool[i].color;
-    if (buffer->bag->lighting) buffer->normals[i] = clippedPool[i].normal;
+  return outCount;
+}
+
+void StaPipClipper::writeChunk(StaPipQBuffer* buffer, u32 start, u32 count) {
+  buffer->reallocateManually(count);
+  for (u32 i = 0; i < count; i++) {
+    const PlanesClipVertex& v = clippedPool[start + i];
+    buffer->vertices[i] = v.position;
+    if (buffer->bag->texture) buffer->sts[i] = v.st;
+    if (buffer->bag->color->many) buffer->colors[i] = v.color;
+    if (buffer->bag->lighting) buffer->normals[i] = v.normal;
   }
 }
 
