@@ -1,8 +1,8 @@
-name: script-demo
+name: showcase
 volumes:
   tyra-game-volume:
   tyra-engine:
-    name: tyra-engine-7fefa487
+    name: tyra-engine-35c830b1
 services:
   compiler:
     environment:
@@ -16,4 +16,4 @@ services:
       - tyra-game-volume:/src
       - tyra-engine:/tyra
       - ./:/host
-      - "F:/Projects/tyra-editor/.claude/worktrees/layer-memory-management-f4d140/vendor/tyra:/engine-src:ro"
+      - "D:/tyra-editor/.claude/worktrees/hubspot-calendar-sync-bug-b1cbcd/vendor/tyra:/engine-src:ro"

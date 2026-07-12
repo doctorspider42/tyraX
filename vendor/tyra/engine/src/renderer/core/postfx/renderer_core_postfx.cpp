@@ -208,8 +208,8 @@ qword_t* RendererCorePostFx::gradingQuads(qword_t* q, int fbVram,
   return q;
 }
 
-void RendererCorePostFx::apply() {
-  if ((bloom == 0 && grain == 0 && !hasGrading()) || gs == nullptr) return;
+void RendererCorePostFx::apply(int passes) {
+  if (!isEnabled(passes) || gs == nullptr) return;
 
   auto* fb = gs->getCurrentFrameBuffer();
   const int fbVram = static_cast<int>(fb->address);
@@ -249,7 +249,7 @@ void RendererCorePostFx::apply() {
               GS_REG_TEST_1);
   q++;
 
-  if (bloom > 0) {
+  if ((passes & PassBloom) && bloom > 0) {
     const int w4 = lowW << 4, h4 = lowH << 4;
     // Downsample the frame to quarter res (bilinear averages 2x2).
     q = blit(q, fbVram, fbBufW, fbW, fbH, 0, 0, fbW << 4, fbH << 4, lowVram[0],
@@ -273,9 +273,9 @@ void RendererCorePostFx::apply() {
 
   // Grading between bloom (glows come from the ungraded scene) and grain
   // (film grain sits on top of the graded image).
-  if (hasGrading()) q = gradingQuads(q, fbVram, fbBufW);
+  if ((passes & PassGrading) && hasGrading()) q = gradingQuads(q, fbVram, fbBufW);
 
-  if (grain > 0) {
+  if ((passes & PassGrain) && grain > 0) {
     u8 g = grain >> 1;
     if (g == 0) g = 1;
     // Two noise passes with independent offsets: subtract one, add the

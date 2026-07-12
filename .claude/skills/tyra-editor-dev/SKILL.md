@@ -63,7 +63,7 @@ Two sibling skills cover the rest of the system:
 | `history.hpp` | 59 | Undo/redo snapshot stack. |
 | `gl_loader.h/.cpp` | 137 | Minimal hand-rolled GL 3.3 loader (only what the viewport needs). |
 
-`samples/script-demo/` is a complete generated project checked into the repo.
+`examples/script-demo/` is a complete generated project checked into the repo.
 Its generated files are only as fresh as the last time someone rebuilt it — if
 codegen changed since, they drift silently. Regenerate (load + save +
 `refreshGenerated`, or a `--build`) before trusting it as a reference for what

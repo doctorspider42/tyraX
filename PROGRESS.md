@@ -9,7 +9,7 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (66) **StaPip clipping moved from the EE to VU1 (hidden "vu1" mode, M1–M3
+- (69) **StaPip clipping moved from the EE to VU1 (hidden "vu1" mode, M1–M3
   of docs/vu1-clipping-plan.md)** — the engine-fork TODO from
   stapip_clipper.hpp, behind `"clipping": "vu1"` in project.json (no UI
   yet; M4 flips the preference after a real-PS2 pass). A new StaPip `clip`
@@ -41,6 +41,123 @@ Each finished feature lands as its own commit.
   (clipbench) and the SW-vs-hardware ADC check are pending - M4 (making
   "precise" route to VU1 + retiring StaPipClipper/PlanesClipAlgorithm)
   waits for them.
+
+- (68) **Ambience Editor + Properties docked right + sky dome preview** — three
+  related changes. **(a) Docking default:** the first-run DockBuilder layout now
+  puts **Properties in a docked column on the right** (Project left, Viewport
+  center, Output/Debug bottom) instead of under Project on the left; the
+  pre-Properties migration path docks it on the right too. Existing projects
+  keep their saved layout. **(b) Sky gradient preview:** the editor viewport
+  sky was a flat screen-space quad that ignored the camera. It is now a
+  world-space **hemisphere dome** centered on the camera (mirrors the PS2
+  `buildSkyDome`): horizon→zenith colors interpolate by elevation over the 90°
+  up-arc, so the full 180° horizon-through-zenith sweep reads as one coherent
+  dome that tracks camera pitch (clear color still fills below the horizon).
+  The generated game dome was already elevation-linear, so its formula is
+  unchanged except for a new **Zenith size** control (`ProjectSettings::
+  zenithSize` / `AmbiencePreset::zenithSize`, 0.05..0.95, default 0.5 = linear):
+  both the preview dome and the generated dome remap the elevation fraction by
+  `pow(t, (1-size)/size)`, so a larger value spreads the zenith color down
+  toward the horizon (bigger zenith cap) and a smaller one keeps it near the
+  top. Codegen bakes it as the precomputed exponent `SKY_ZENITH_EXPS` per
+  scene. **(c) Ambience Editor** (Tools > Ambience
+  Editor): a new project-wide collection of **AmbiencePreset** bundles (sky
+  gradient + baked lighting + distance fog), one markable default — mirrors the
+  Color Grading preset system end-to-end. The sky/lighting/fog controls moved
+  **out of the crowded Project Preferences** (global + per-scene override
+  categories) into this editor; per-scene Preferences now picks a preset
+  (empty = default), and the new **Set Ambience** flow node (Scene category)
+  repaints the sky from a named preset at runtime (lighting/fog are baked per
+  scene at build, so only the sky changes live — like Set Sky Color).
+  `project::resolvedSettings` overlays the resolved preset's sky/lighting/fog on
+  top of the scene, so all downstream codegen/viewport keeps reading the same
+  `ProjectSettings` fields unchanged. New projects seed a "Default" preset;
+  loading a pre-Ambience project migrates its global + per-scene sky/lighting/fog
+  into presets (a Default plus one per overriding scene) so the look is
+  preserved. Verified: editor builds clean; a scratch project round-trips the
+  presets + per-scene `ambiencePreset` through save/load; a scene pointed at a
+  dark "night" preset bakes the expected `SKY_RS`/`SCENE_AMBIENTS` (5.1F / 0.2F)
+  into `scene_data.hpp`; a `Set Ambience` node compiles to
+  `ctx.skyColor = Tyra::Color(5.1F, 5.1F, 20.4F)`; GUI screenshots confirm
+  Properties on the right, the sky dome gradient, and the Ambience Editor window
+  (preset list + sky/light/fog controls). Not yet booted in PCSX2 — the runtime
+  Set Ambience sky repaint still wants a hands-on in-game check.
+
+- (67) **HUD images baked to a PS2-valid texture at build (size + bit depth)**
+  — the engine hard-asserts textures must be 8/16/32/64/128/256/512 in each
+  dimension (`texture.cpp`), and it only fires when the game boots, so a HUD
+  PNG imported at, say, 100x40 crashed at runtime with no editor-side warning.
+  Now HUD images referenced by the project are resized into `.res-baked/hud`
+  (the mirror the game actually ships) to a valid power-of-two, so a mis-sized
+  import just works. Per-image controls in Tools > UI Editor, mirroring the
+  per-asset material texture quality: Width / Height combos (Auto = nearest
+  valid size, or a chosen one) and a Colors combo `Project default / Full
+  color / 256 / 16`. The Colors default *follows* Preferences > Textures (so
+  the HUD quantizes along with the rest of the project to save VRAM), and any
+  element can be overridden - e.g. a crosshair or logo kept full color while
+  the rest is 4-bit, or vice versa. Live readout of the source size (orange
+  warning when it is not a PS2 size) and the resulting baked size + effective
+  depth ("(from project)" when inherited). The on-screen sprite size is
+  unchanged — the sprite is stretched, so resizing the texture never changes
+  how the HUD looks, only its stored resolution/quality. Model:
+  `HudImage::texW` / `texH` (0 = auto) + `texQuant` ("" = follow the project
+  `ProjectSettings::textureQuant`, "none" = full-color override, "8bit" /
+  "4bit"), serialized in the `hud` array, defaulted for older projects.
+  `pngquant` gained `resizeRGBA` (bilinear), `writePngRGBA` (full color via
+  stb_image_write), and a buffer-based `quantizeRGBA` (the old file-path
+  `quantize` now loads then calls it); `texbake` resolves each HUD entry's
+  depth (falling back to the project default) then resizes+quantizes the PNG
+  (built-in HUD assets like use.png/loading.png/save-*.png are not project
+  entries, so they copy verbatim). Verified: clean editor build; a scratch
+  project (project default 4-bit) with a 100x40 PNG (auto size, follow
+  project) and a 130x50 PNG (auto, explicit 4-bit) — pre-fix both would
+  assert. After `--build`, `.res-baked` shows: badhud 128x32 4-bit and
+  crosshair 32x32 4-bit (both inheriting the project default), ammo2 128x64
+  4-bit (explicit), and vignette 64x64 full RGBA (a "none" override proving an
+  element can keep more color than the project). PCSX2 boot (`-elf`) reached
+  "is executing" with no assertion; an F8 snap shows the images rendering
+  (gradient resized, boxes palettized). UI checked by scripted clicks: the
+  bake section renders, and the mis-sized image shows "Source 100x40 is not a
+  PS2 size" + "Baked: 128x32".
+
+- (66) **UI Editor tool: HUD + full-screen effects as a reorderable screen
+  stack, bloom and grain as independent layers** — HUD image configuration
+  moved out of the Project panel and the bloom/grain sliders out of Project >
+  Preferences into a new Tools > UI Editor window. It shows the whole 2D
+  composition as a "screen stack" (top entry draws last): every HUD image plus
+  two effect layers — `[ Bloom + color grading ]` and `[ Film grain ]` —
+  drag-to-reorder. The point: each effect can sit *under* the HUD (so it does
+  not smear the crosshair/text) or *over* it, independently. Canonical split:
+  bloom under the HUD, film grain at the very top as a filmic overlay over the
+  whole screen. Model: `Project::hudBloomLayer` + `hudGrainLayer` (grading
+  rides with bloom). `-1` = the pass applies at end of frame over everything
+  incl. menus (the old behavior and the load default); `k` = applies before
+  HUD sprite `k`, sprites above draw crisp. Serialized as `"hudBloomLayer"` /
+  `"hudGrainLayer"` next to `"hud"`; the pre-split `"hudPostFxLayer"` key
+  migrates to both; HUD deletion re-indexes both. Engine (vendor/tyra):
+  `RendererCorePostFx::apply(int passes)` gained a `Pass` bitmask
+  (`PassBloom | PassGrading | PassGrain`) so a subset composites per call;
+  `RendererCore::applyPostFx(passes)` applies only the not-yet-applied passes,
+  runs the PATH1 drain barrier once (before the first pass that actually
+  draws), and `endFrame()` composites whatever is left. Codegen:
+  `hud_data.gen.hpp` gains `HUD_BLOOM_LAYER` / `HUD_GRAIN_LAYER`; both game
+  templates run the HUD loop applying `PassBloom|PassGrading` at the bloom slot
+  and `PassGrain` at the grain slot. Scene Preferences per-scene bloom/grain
+  strength overrides are untouched (the layer positions are project-wide, like
+  the HUD). The viewport HUD overlay also shows while the UI Editor is open,
+  with the selected image outlined. Verified: clean editor build; scratch
+  project round-trip (`hudBloomLayer`/`hudGrainLayer` save/load + clamp +
+  legacy migration); codegen inspected (`HUD_BLOOM_LAYER = 1`,
+  `HUD_GRAIN_LAYER = -1`); GUI exercised by scripted clicks (window opens,
+  stack lists the images + both effect rows, selecting each shows its slider,
+  dragging saves the layer); full Docker build OK (engine + game relinked);
+  PCSX2 boot (`-elf`, emulog "is executing") with bloom 0.9 + grain 0.4.
+  Quantified the split from F8 snaps (PIL mean |dx| grain proxy): with grain
+  under the HUD the ammo-box UI element scored 0.97 (clean) vs 2.85 on the
+  sky; moving grain to the top layer took the ammo box to 3.06 — grain now
+  overlays the UI to the same level as the scene — while bloom stayed under
+  the HUD (crosshair/ammo render sharp, not glowing). No mid-frame barrier
+  hang across either config.
 
 - (65) **Copy/paste flow-graph nodes with Ctrl+C/V** — before this, Ctrl+C/V in
   the Flow Graph window always hit the global handler and copied the *scene
@@ -281,6 +398,64 @@ Each finished feature lands as its own commit.
   steals focus — and this box has no real GPU, so GDI/PrintWindow grabs were
   garbage; only native F8-via-PostMessage to the spidertest window, read from
   snaps/, worked. See the pcsx2-test-environment memory.)
+
+- (63) **Terrain chunking + camera-ring streaming (large maps)** — the terrain
+  mesh is no longer one monolithic StaPip bag. The generated game cuts the
+  heightmap grid into 16x16-cell chunks (`TERRAIN_CHUNK_CELLS`), each with its
+  own `StaPipBag` pointing into a pool slot's vectors; the engine's whole-bag
+  bbox frustum check (stapip_core.cpp early-out) then rejects off-screen chunks
+  EE-side before any packaging/clipping work — terrain behind the camera no
+  longer costs EE time (the 98k-vert clipbench scene spent ~9 ms/frame there).
+  On top of that, a new **Preferences > Terrain > View distance**
+  (`terrainViewDistance`, 0 = off/whole map) keeps only the chunks within that
+  range of the view focus resident: `updateTerrainChunks()` evicts tiles that
+  leave the focus rect (one tile of hysteresis) and builds missing ones
+  nearest-first at 2 chunks/frame — same trickle pattern as the layer
+  streaming; `loadScene` drains the start ring synchronously behind the
+  loading screen. Mesh RAM becomes constant in map size (ring rect x ~49 KB
+  per untextured chunk). Gameplay is unaffected by unbuilt chunks — physics
+  samples the `TERRAIN_HEIGHTS` table, not the mesh — so pop-in is purely
+  visual (pair view distance with fog). Reused slots bump `bboxVersion`
+  (same bag pointer, new content — otherwise the bbox cacher culls with stale
+  boxes, the exact trap entry 61 documented). **Detail cap raised 128 -> 512**
+  (slider + load clamp; heights file cap 1025 already allowed it) and the
+  Preferences panel now shows a resident-mesh estimate with an orange warning
+  above ~8 MB, since 512x512 cells fully resident would be ~75 MB — far past
+  the PS2's 32 MB. New-scene terrain size cap aligned to 4096 (the New Project
+  dialog already allowed it). **Editor viewport chunked the same way** (64-cell
+  chunks): sculpting now rebuilds only the chunks under the brush
+  (`Viewport::updateTerrainRegion`, +2-cell shading margin) instead of the
+  whole map every stroke frame, and above 128x128 total cells the per-cell
+  grid lines drop to chunk borders only (a full grid on 512x512 is solid
+  noise and tens of MB of line vertices). Terrain stays outside the layer
+  system by design — chunk residency is camera-driven, layers are
+  script-driven. **Verified**: clean editor build; headless `--new` codegen
+  grep (chunk functions present, no `generateTerrainGrid` outside the V1
+  legacy templates); two Docker builds + PCSX2 boots on the **software
+  renderer**: 96x96 FPP default (view distance 0 — whole map resident,
+  continuous checker, no chunk seams, 50 FPS) and 512x512 at detail 256 with
+  view distance 60 + fog 20-58 (ring builds around spawn, fog hides the ring
+  edge, 50 FPS, EE% same as the small map); editor GUI opened on the 512 map
+  (chunk-border grid renders, fog preview correct). samples/script-demo
+  regenerated + rebuilt OK. Walking across chunk borders (pad) and sculpt
+  brush feel on a 512 map still want a hands-on human pass.
+  **Real-PS2 follow-up (same day, bigdemo stress scene: 2048x2048 at detail
+  512, view distance 70 + fog 25-66, 1100 draw-distance objects, 30 skeletal
+  spiders with anim/mesh LOD, COP0 PERF lines over ps2link):** steady state
+  held a locked 50 FPS while walking (frame_avg ~19.99 ms), but every
+  chunk-border crossing hitched one frame to a quantized ~340 ms (17
+  vsyncs). Root cause was NOT the chunk mesh work itself: `pointLightAt`
+  scanned the whole SCENE_OBJECTS table per vertex looking for point
+  lights, and at 1131 objects that streams the ~250 KB table through the
+  EE's 16 KB dcache 1024 times per chunk (~170 ms/chunk x 2-chunk budget).
+  The old monolithic build paid the same cost once, behind the loading
+  screen - chunk streaming moved it into gameplay and exposed it. Fix in
+  the game template: point lights are collected once per scene load into a
+  small list (`collectScenePointLights`, called at the top of `loadScene`);
+  `pointLightAt` iterates that list, so scenes without point lights bake
+  chunks in microseconds. PS2-toolchain compile verified in the bigdemo
+  container; the console re-test of the fixed build is in the user's hands
+  (pad session was live while this landed).
 
 - (62) **Decal object type (transparent textured quad)** — a new
   `PrimitiveType::Decal = 13` for signs/posters/text on walls. A flat unit quad
@@ -1467,6 +1642,120 @@ Each finished feature lands as its own commit.
   with all features (built-in house.obj + crosshair.png embedded in the editor,
   physics ball, pillar, HUD, starter flow graph). Fresh copy every time, so the
   shared sample no longer gets wrecked by experiments. Verified in PCSX2.
+
+- (65) **"Showcase" sample project** -- a second, much larger checked-in sample
+  under `examples/showcase` that exercises most of the editor's feature set in
+  one game, added on request ("a bigger project for the examples"). Two scenes
+  reachable through a usable portal pair: `vale` (a 192x192 heightmapped valley,
+  golden-hour dusk) and `cavern` (a dark, blue-fogged interior with a Nightfall
+  grading override). It demonstrates: streaming layers loaded *dynamically*
+  (`village`/`ruins` start unloaded; two `Near Object` gates `Load Layer` the
+  district you approach and `Unload Layer` the other), a purpose-built skeletal
+  model (`res/models/wobbler.glb` -- a cylinder skinned to a 5-joint chain with
+  `Wiggle`/`Twist` clips, baked to `.tskl`), object draw-distance + animation
+  LOD + baked mesh LOD, a baked directional sun plus point lights (campfire,
+  lanterns, ruins, crystals), particle emitters (fire/smoke/rain/sparks/fog/
+  fireflies), GS distance fog, bloom + film grain, two colour-grading presets,
+  a title + pause menu, a HUD crosshair, a first-person player with a
+  toggleable flashlight, a save point + a save value collected from a usable
+  relic, usable-object highlighting, a gradient sky dome, and ambient music +
+  a spatial campfire sound. The project (`showcase.tyra` + authored `res/`
+  assets + `terrain-*.heights`) was authored programmatically (Node generators
+  that emit the loader-format JSON, procedural heightmaps/ground texture, the
+  WAVs, and a hand-built glTF); the generated game tree is committed like
+  `script-demo` (the `Makefile` is create-only, so a sample cannot be
+  source-only), with `res/.gitignore` keeping the authored assets while
+  ignoring the built-in `hud/`/`menus/` and the baked `.tskl`. Verified: the
+  `.glb` parses through the real `glbparser` (`bake` + `parseSkel`, 1248 verts,
+  5 joints, 2 mesh LODs); `--build examples/showcase` refreshes codegen, bakes
+  the `.tskl`, quantizes the ground texture and converts the sfx, compiles
+  under the PS2DEV toolchain and links (exit 0); PCSX2 (software renderer)
+  boots both scenes at 50 FPS / 100% speed -- the title menu, the vale (wobblers
+  visibly bent mid-wiggle, trees, fog, bloom, grain, highlighted portal) and
+  the cavern (flashlight cone, glowing crystals, blue fog, Nightfall look) all
+  render. Interactive paths (walking the streaming boundary to see a district
+  page in/out, USE on the portal/relic, pad flashlight toggle, hearing the
+  audio) still want a hands-on pad test.
+
+- (66) **Consolidated `samples/` + `examples/` into one `examples/` dir** -- the
+  repo had grown two parallel homes for checked-in projects (`samples/` for the
+  playground + showcase, `examples/` for per-feature demos). Merged them: moved
+  `script-demo` and `showcase` under `examples/` (git rename, history preserved),
+  deleted `samples/`. Updated all references -- `README.md` (the example-projects
+  section + the Structure list), the three skills that pointed at
+  `samples/script-demo/` (`tyra-editor-dev`, `tyra-pr`, `tyra-testing`), and
+  `examples/showcase/README.md`'s build command. Also added a **`tyra-docs`
+  skill** stating the standing rule: every change updates the docs in the same
+  commit (README, PROGRESS, the relevant skills, example READMEs, and regenerate
+  any affected example project). No code or generated files changed; the moved
+  projects still build unchanged (paths in `.tyra`/compose are relative).
+
+- (67) **showcase: terrain chunking + tighter LOD ring (hardware perf)** -- the
+  showcase ran slowly on real PS2 hardware. After merging main's terrain
+  chunking + camera-ring streaming (PR #52), turned it on for the big vale:
+  `terrainViewDistance = 88`, so only the terrain chunks near the camera stay
+  resident instead of the whole 192x192 mesh. The small cavern (64) fits inside
+  the ring and stays whole. Verified LOD was already enabled (animLodDistance
+  35, meshLodDistance 45, per-object drawDistance) -- and tightened it: props
+  now cull with the ring (trees 84, rocks 82, down from 135/120, which exceeded
+  the map extent and never culled). Pulled the fog in (start 20, end 82, from
+  32/168) so the streaming edge sits in full fog and the cutoff is invisible;
+  the trade-off is a foggier, more compact vista. Regenerated the project
+  against the chunking codegen. Verified: `--build examples/showcase` exit 0;
+  PCSX2 boots the vale at 50 FPS with the terrain fading cleanly into fog (no
+  visible chunk edge). The real win is on hardware (PCSX2 was already at 50) --
+  chunking bounds the resident/clipped terrain instead of it growing with the
+  whole map; `terrainViewDistance` / `fogEnd` can be lowered further together if
+  more headroom is needed.
+
+- (68) **Runtime graphics-toggle flow nodes (Set Fog / Bloom / Grain / Particles)**
+  -- four new Scene-category flow nodes that change graphics settings at
+  runtime, mirroring how Set Flashlight / Set Grading already work. Set Fog
+  (On) re-applies the active scene's own fog or disables it; Set Bloom / Set
+  Grain take a 0..1 amount (compiled to the engine's 0..128 fixed point); Set
+  Particles is a global switch that makes `updateParticles` skip all emitter
+  simulation + draw (a new `g_particlesOn`). Each writes a `ScriptContext`
+  field (`fog`/`bloom`/`grain`/`particles`, -1 = leave) that both game loops
+  (orbit + fpp) apply and reset next to the flashlight block; the engine
+  already exposed `setFog`/`disableFog`/`postFx.setBloom`/`setGrain`. UI is the
+  generic flow-node renderer (On = checkbox like Set Flashlight, Amount =
+  DragFloat). Motivating use: wire them to On Menu Event entries so a game can
+  offer a graphics-options menu / let players trade effects for frame rate on
+  real hardware. Verified: editor builds clean; the showcase's options menu
+  generates the expected `ctx.fog/bloom/grain/particles` calls (`0.35 -> 45`,
+  `0.14 -> 18`), compiles under PS2DEV, and an `On Start -> Set Fog(0) + Set
+  Particles(0)` test in PCSX2 visibly removed the fog (terrain extends to the
+  horizon) and every particle. Interactive menu navigation still wants a pad test.
+- (69) **showcase: perf pass + graphics options menu** -- the showcase ran at
+  ~8 FPS on real PS2 hardware (50 in PCSX2, whose software renderer hides GS
+  fill-rate + EE geometry cost). Lightened the scene: the animated wobbler
+  model dropped from 1248 to 123 base verts (skeletal skinning is EE-bound),
+  terrainDetail 64 -> 48, particle pools + the big `fog`-emitter quad sizes cut
+  hard (rain 120 -> 34, cave/ruins fog counts + sizes down), post-FX bloom +
+  grain off by default, tree count 14 -> 10, animLod/meshLod onset pulled in
+  (24 / 30). Added a floating **GRAPHICS options menu** (open with Select) wired
+  to the new Set Fog/Bloom/Grain/Particles nodes so the effects can be toggled
+  live while the on-screen **FPS + free-RAM overlay** (now enabled -- buildProfile
+  debug) is watched, to pinpoint the hardware cost. Verified: `--build` exit 0;
+  PCSX2 boots both scenes at 50 FPS with the overlay, and the toggle nodes work
+  end-to-end. The overlay/debug profile is diagnostic -- flip to release +
+  showFps/showMemory off (a `gen_project` comment notes this) once perf is
+  dialed in on hardware.
+
+- (70) **showcase: the title screen was the real perf killer; removed it, restored
+  effects** -- turning the graphics toggles on hardware showed the ~8 FPS was the
+  boot **title-screen menu**, not the scene: a paused menu still renders the whole
+  scene behind it every frame plus its panel + full-screen dim overlay, which
+  dropped even PCSX2 to ~17 FPS (50 in gameplay). Dropped the title screen so the
+  game boots straight into the vale (the pause menu on Start and the floating
+  options menu on Select stay). With that gone the scene holds ~50 FPS, so the
+  earlier defensive cuts were reverted: **bloom + film grain back on**, particle
+  pools back to full (rain 120, campfire/ruins/cavern emitters). Kept the cheap,
+  near-invisible geometry wins (terrain chunking, lean skeletal model + LOD, draw
+  distances). The FPS/RAM overlay + options menu stay on so the fuller effect set
+  can still be confirmed on hardware (flip buildProfile to release when happy).
+  Verified: `--build` exit 0; PCSX2 boots directly into gameplay with fog, bloom,
+  grain and the full particle set at ~50 FPS.
 
 ## Done
 
