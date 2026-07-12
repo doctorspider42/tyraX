@@ -31,6 +31,10 @@ public:
     // Stops the game running on the console: kills the ps2client file server
     // and resets ps2link, so the PS2 reboots back into its listening state.
     void stopPs2(const Project& p);
+    // Closes a running PCSX2 instance (by process name - the editor does not
+    // keep the emulator's handle after launch). Best-effort and instant; a
+    // no-op when nothing is running.
+    void stopEmulator();
     // Builds <project>/<name>.iso from bin/ (see isoexport.hpp for layout).
     void exportIso(const Project& p);
     // VS-style Clean: wipes the build products - obj/ and bin/ in the

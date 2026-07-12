@@ -26,8 +26,10 @@ public:
         index_ = 0;
     }
 
-    void push(SceneSnapshot s) {
-        if (index_ >= 0 && entries_[index_] == s) return;  // no-op change
+    // Returns true when the snapshot differed and was pushed (a real edit);
+    // false for a no-op change, so callers can skip marking the project dirty.
+    bool push(SceneSnapshot s) {
+        if (index_ >= 0 && entries_[index_] == s) return false;  // no-op change
         entries_.resize(index_ + 1);
         entries_.push_back(std::move(s));
         ++index_;
@@ -35,6 +37,7 @@ public:
             entries_.erase(entries_.begin());
             --index_;
         }
+        return true;
     }
 
     bool canUndo() const { return index_ > 0; }
