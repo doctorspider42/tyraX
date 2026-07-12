@@ -9,8 +9,8 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (71) **examples/video-modes - display-mode test bed** - a minimal example
-  project for exercising (69)+(70) on a pad: a white center sphere (the
+- (72) **examples/video-modes - display-mode test bed** - a minimal example
+  project for exercising (70)+(71) on a pad: a white center sphere (the
   aspect-ratio judge - it must stay round in every mode/aspect on a real
   TV), four colored compass pillars (how much world fits horizontally),
   and a flow graph on the sphere wiring Square/Triangle/Circle -> Set
@@ -25,8 +25,8 @@ Each finished feature lands as its own commit.
   need a pad - the graph compiles to the same ctx.requestDisplayMode /
   ctx.widescreen writes the scratch-project e2e in (70) already proved.
 
-- (70) **Runtime display-mode switching (with keep-or-revert prompt) +
-  widescreen 16:9** — follow-up to (69). **(a) Runtime switch:**
+- (71) **Runtime display-mode switching (with keep-or-revert prompt) +
+  widescreen 16:9** — follow-up to (70). **(a) Runtime switch:**
   `RendererCore::setDisplayOutput(mode, widescreen)` (fork) re-selects the
   scan mode between frames: the VRAM bump allocator resets, frame/z buffers
   and the post-fx scratch buffers rebuild at the new size, every texture is
@@ -64,7 +64,7 @@ Each finished feature lands as its own commit.
   nodes. Hands-on still wanted: the X-confirm path (needs a pad; synthetic
   input is off-limits on this machine) and real-hardware output.
 
-- (69) **Alternative display modes: progressive 480p and 1080i** — new
+- (70) **Alternative display modes: progressive 480p and 1080i** — new
   Preferences > Build > **Display mode** combo (`ProjectSettings::displayMode`:
   "interlaced" default / "progressive" / "1080i", serialized with a
   backward-compatible default) baked into the generated `main.cpp` as
@@ -98,6 +98,42 @@ Each finished feature lands as its own commit.
   Codegen + .tyra round-trip checked headlessly; samples/script-demo
   regenerated. Real-hardware check (component cables) still wants a human -
   PCSX2 does not emulate the analog signal path.
+- (69) **Usable-highlight rims moved off the EE (matrix shells + apron ring)** —
+  the in-game usable-object highlight could tank the frame rate: every frame,
+  for every nearby usable object, `renderHighlightHull` grew `steps × n` hull
+  vertices on the EE (9 muls **plus a bilinear `terrainHeightAt` per vertex**
+  for the ground clamp), wrote `2 × steps × n × 16 B` of vertex/color arrays,
+  and its per-frame `bboxVersion` bump forced a package-bbox recompute over
+  all of them — with the default 4 steps a few-thousand-vert usable model
+  near the player cost milliseconds of EE time, and the frame is EE-bound
+  (see the clipbench measurements in the backlog), so it fell straight to
+  the next vsync divisor.
+  The rewrite exploits that both per-vertex ops are uniform point scales
+  (grow about the object center, depth pushback about the eye): they compose
+  into a **single scale+translation model matrix**, so each shell now
+  re-submits the object's **own vertex arrays** with a per-shell `hullMat` +
+  per-shell single color — StaPip applies the matrix on VU1 (and in frustum
+  classify + the EE clipper via the composed MVP), the EE never touches a
+  vertex, and the shell's package bboxes ride the part's own `bboxVersion`
+  (their own cache slot — single color changes the package size — recomputed
+  only when the part rebuilds, never per frame). One game-level hull bag
+  replaces the per-object bag + `steps × n` vertex/color copies (a 6k-vert
+  usable model used to hold ~750 KB of hull arrays on a 32 MB console).
+  The one thing that genuinely needed per-vertex terrain sampling — the
+  ground-clamp that turned the bottom rim into a glow apron hugging the
+  terrain — is replaced by `buildHighlightApron`: a small terrain-following
+  annulus around the base (one band per shell, same growth radii and alpha
+  series, 24 segments ≈ 576 verts at 4 steps), world-space and
+  camera-independent, built once and cached until `rebuildObjectGeometry`
+  invalidates it (move/resize/scene switch). The repaint pass that erases
+  shell wash off receding side faces is unchanged. Verified: editor builds
+  clean; scratch FPP project (usable box + usable sphere + plain box near
+  spawn, highlight on) compiles in Docker and runs in PCSX2 — SW-renderer
+  screenshot shows the fading rim around the usable sphere only, clean
+  interior, the ground apron around the base, 50 VPS / 100% speed;
+  samples/script-demo regenerated + recompiled. Real-PS2 A/B timing of the
+  before/after EE cost still needs a hardware session (the COP0 PERF recipe
+  from the clipbench notes in the backlog applies as-is).
 
 - (68) **Ambience Editor + Properties docked right + sky dome preview** — three
   related changes. **(a) Docking default:** the first-run DockBuilder layout now
