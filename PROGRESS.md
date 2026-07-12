@@ -9,6 +9,31 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (70) **Unique sprite/mesh ids — fixes HUD garbling when a menu opens** — a
+  bug report showed the debug HUD (FPS/MEM readout) rendering black blocks over
+  glyphs, "often" right after opening the pause menu. Root cause was in the
+  engine: `Sprite`, `Mesh`, `MeshFrame`, `MeshMaterial` and `MeshMaterialFrame`
+  all took their `id` from `rand() % 1000000`, and `srand()` is never called
+  (so the sequence is fixed per build). Those ids share **one** lookup namespace
+  in `TextureRepository`: a texture is bound to a sprite/material by
+  `addLink(id)` and resolved at draw time by the FIRST texture whose link set
+  contains that id (`getBySpriteId` / `getByMeshMaterialId`). Two objects handed
+  the same id → the sprite draws with the wrong texture (the black blocks).
+  Opening a menu allocates a burst of new sprites at once (dim + panel + cursor
+  + save sprites), which sharply raised the odds of a collision with the
+  always-present debug-HUD glyph — hence "often, when the menu opens". Fix:
+  new `renderer/models/unique_id.hpp` `generateUniqueId()` (a monotonic u32
+  counter, EE-thread only, skips 0 to stay clear of the texture-buffer
+  "unallocated" sentinel) replaces all eight `rand()` id assignments in the
+  rendering path. `audio_song.cpp` keeps `rand()` on purpose: its id is a
+  separate (audio) namespace and it is assigned on the audio thread, where the
+  non-atomic counter would race. Verified: engine recompiled and `libtyra.a`
+  relinked in Docker (fpp scratch project, `--build` = Build OK, clean on the
+  five touched files); the collision class is removed by construction. A
+  hands-on menu-open check on a menu-bearing project (e.g. the showcase) is the
+  remaining human confirmation — the failure was probabilistic/per-build, so it
+  cannot be forced to reproduce on demand.
+
 - (69) **Usable-highlight rims moved off the EE (matrix shells + apron ring)** —
   the in-game usable-object highlight could tank the frame rate: every frame,
   for every nearby usable object, `renderHighlightHull` grew `steps × n` hull

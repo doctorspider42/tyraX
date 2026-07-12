@@ -16,11 +16,12 @@
 #include "math/vec4.hpp"
 #include "renderer/models/color.hpp"
 #include "renderer/3d/mesh/mesh_frame.hpp"
+#include "renderer/models/unique_id.hpp"
 
 namespace Tyra {
 
 MeshFrame::MeshFrame(const MeshBuilderData& data, const u32& index) {
-  id = rand() % 1000000;
+  id = generateUniqueId();
 
   auto bboxes = new CoreBBox*[data.materials.size()];
   for (u32 i = 0; i < data.materials.size(); i++) {
@@ -37,7 +38,7 @@ MeshFrame::MeshFrame(const MeshBuilderData& data, const u32& index) {
 }
 
 MeshFrame::MeshFrame(const MeshFrame& frame) {
-  id = rand() % 1000000;
+  id = generateUniqueId();
 
   bbox = frame.bbox;
 
