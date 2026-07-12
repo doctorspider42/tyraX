@@ -171,6 +171,19 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          FlowParamKind::None, true, true, false, false, true, false, true},
         {"SetPosition", "Set Object Position", "Object", false, FlowParamKind::ObjectName,
          3, {"X", "Y", "Z"}, FlowParamKind::None, true, true, true, true, false},
+        // Dynamic spawning: Spawn Object clones its target object (link >
+        // name > self) into a free runtime slot - the clone starts at the
+        // linked position (or the template's own) with the given yaw, and the
+        // node's object output is the CLONE, not the template (wire it into
+        // Despawn Object / Set Position / Play Animation / ...). The pool
+        // holds 32 live clones; spawning past that fails silently (-1).
+        // Despawn Object removes a clone immediately (frees its slot); on an
+        // authored object it only deactivates it (layer streaming can bring
+        // authored objects back).
+        {"SpawnObject", "Spawn Object", "Object", false, FlowParamKind::ObjectName, 1,
+         {"Yaw"}, FlowParamKind::None, true, true, true, false, false},
+        {"DespawnObject", "Despawn Object", "Object", false, FlowParamKind::ObjectName,
+         0, {}, FlowParamKind::None, true, false},
         // Animation (animated .glb model objects; no-ops on anything else).
         // Play Animation: str = clip name ("" = the model's first clip); the
         // target object comes from an object link or defaults to self (the

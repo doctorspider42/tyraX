@@ -103,6 +103,18 @@ struct ScriptContext {
   // Animated models: clip-name -> clip-index lookup for an object (-1 =
   // unknown clip / not an animated model). Set by the game at startup.
   int (*resolveClip)(int objectIndex, const char* clipName) = nullptr;
+
+  // Dynamic spawning (Spawn Object / Despawn Object flow nodes). spawnObject
+  // clones the authored object at templateIndex (the template itself is
+  // untouched) into a free runtime slot past the authored objects and
+  // returns its index into `objects` (-1 = pool full / bad template). The
+  // clone starts at (x, y, z) facing yaw degrees and carries the template's
+  // layer, so unloading that layer despawns it. despawnObject frees a
+  // spawned slot immediately; on an authored index it only deactivates (the
+  // layer streaming can re-activate authored objects). Set by the game.
+  int (*spawnObject)(int templateIndex, float x, float y, float z,
+                     float yaw) = nullptr;
+  void (*despawnObject)(int objectIndex) = nullptr;
 };
 
 /** Plays a named clip on an animated model object ("" = its first clip).
