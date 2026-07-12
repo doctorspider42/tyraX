@@ -259,6 +259,12 @@ int main(int argc, char** argv) {
   // Target system (Project > Preferences > Build): Auto follows the console
   // region, NTSC forces 60 Hz, PAL forces 50 Hz.
   options.videoMode = Tyra::VideoMode::{{VIDEO_MODE}};
+  // Scan mode (Project > Preferences > Build > Display mode): interlaced
+  // 480i/576i, progressive 480p, or 1080i. The DTV modes need component
+  // cables on a real console and always run at 60 Hz.
+  options.displayMode = Tyra::DisplayMode::{{DISPLAY_MODE}};
+  // 16:9 anamorphic output (Preferences > Build > Widescreen).
+  options.widescreen = {{WIDESCREEN}};
   Tyra::Engine engine(options);
   {{NAME_UPPER_NS}}::TerrainGame game(&engine);
   engine.run(&game);
@@ -421,13 +427,12 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
     u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
-    // Usable-object highlight: fading shells grown around the object
-    // center, drawn after the scene (see renderHighlightHull)
-    std::vector<Tyra::Vec4> hullVerts;
-    std::vector<Tyra::Color> hullCols;
-    std::unique_ptr<Tyra::StaPipBag> hullBag;
-    std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
-    std::unique_ptr<Tyra::StaPipColorBag> hullColorBag;
+    // Usable-object highlight: terrain-hugging glow ring around the base,
+    // built when first highlighted, cleared whenever the object rebuilds
+    // (see buildHighlightApron)
+    std::vector<Tyra::Vec4> apronVerts;
+    std::vector<Tyra::Color> apronCols;
+    u32 apronStamp = 0;
   };
   // Custom .obj models (paths in model_data.gen.hpp): geometry split per MTL
   // material with optional per-material textures, the real mesh AABB for box
@@ -535,6 +540,21 @@ class TerrainGame : public Tyra::Game {
   void updateObjectPhysics();
   void renderScene();
   void renderHighlightHull(int index);
+  void buildHighlightApron(int index, float half);
+  // Usable-object highlight: one shared bag re-submitted for every part of
+  // every shell. The grow about the object center and the pushback about
+  // the eye compose into a single scale+translation model matrix (hullMat),
+  // so VU1 does all per-vertex work on the object's own vertex arrays.
+  // Shell colors need persistent storage - the single-color pointer is
+  // DMA-referenced at submit time, not copied.
+  Tyra::M4x4 hullMat;
+  std::vector<Tyra::Color> hullShellCols;
+  std::unique_ptr<Tyra::StaPipBag> hullBag;
+  std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
+  std::unique_ptr<Tyra::StaPipColorBag> hullColorBag;
+  std::unique_ptr<Tyra::StaPipBag> apronBag;
+  std::unique_ptr<Tyra::StaPipInfoBag> apronInfoBag;
+  std::unique_ptr<Tyra::StaPipColorBag> apronColorBag;
 
   // Player entity (PLAYER_INDEXES in scene_data.hpp); overrides the template
   // camera when present. Returns false when the scene has no player.
@@ -717,13 +737,12 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
     u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
-    // Usable-object highlight: fading shells grown around the object
-    // center, drawn after the scene (see renderHighlightHull)
-    std::vector<Tyra::Vec4> hullVerts;
-    std::vector<Tyra::Color> hullCols;
-    std::unique_ptr<Tyra::StaPipBag> hullBag;
-    std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
-    std::unique_ptr<Tyra::StaPipColorBag> hullColorBag;
+    // Usable-object highlight: terrain-hugging glow ring around the base,
+    // built when first highlighted, cleared whenever the object rebuilds
+    // (see buildHighlightApron)
+    std::vector<Tyra::Vec4> apronVerts;
+    std::vector<Tyra::Color> apronCols;
+    u32 apronStamp = 0;
   };
   // Custom .obj models (paths in model_data.gen.hpp): geometry split per MTL
   // material with optional per-material textures, the real mesh AABB for box
@@ -831,6 +850,21 @@ class TerrainGame : public Tyra::Game {
   void updateObjectPhysics();
   void renderScene();
   void renderHighlightHull(int index);
+  void buildHighlightApron(int index, float half);
+  // Usable-object highlight: one shared bag re-submitted for every part of
+  // every shell. The grow about the object center and the pushback about
+  // the eye compose into a single scale+translation model matrix (hullMat),
+  // so VU1 does all per-vertex work on the object's own vertex arrays.
+  // Shell colors need persistent storage - the single-color pointer is
+  // DMA-referenced at submit time, not copied.
+  Tyra::M4x4 hullMat;
+  std::vector<Tyra::Color> hullShellCols;
+  std::unique_ptr<Tyra::StaPipBag> hullBag;
+  std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
+  std::unique_ptr<Tyra::StaPipColorBag> hullColorBag;
+  std::unique_ptr<Tyra::StaPipBag> apronBag;
+  std::unique_ptr<Tyra::StaPipInfoBag> apronInfoBag;
+  std::unique_ptr<Tyra::StaPipColorBag> apronColorBag;
 
   // Player entity (PLAYER_INDEXES in scene_data.hpp); overrides the template
   // camera when present. Returns false when the scene has no player.
@@ -950,6 +984,12 @@ int g_activeScene = 0;
 float g_frameRate = 50.0F;
 float g_frameDt = 1.0F / 50.0F;
 float g_frameScale = 1.0F;
+
+// True while a pausing menu owns the frame (set at the top of loop()). Read by
+// the effect systems that would otherwise keep running under a pause -
+// particle simulation and skeletal-animation playback freeze on their last
+// frame instead of advancing behind the menu.
+bool g_gameplayPaused = false;
 
 // Camera flashlight runtime state (a Player object property; declared in
 // scene_data.hpp). g_flashEnabled is the master switch - seeded per scene from
@@ -1331,16 +1371,13 @@ void addCone(std::vector<Vec4>& verts, std::vector<Color>& cols,
   }
 }
 
-/** Debug-profile HUD (Project > Preferences > Build): FPS and RAM
- * (used/total EE MB) readouts in the top-left corner, drawn from the 8x8
- * glyph strip res/hud/debugfont.png. Compiles to nothing in a release build
- * (the DEBUG_SHOW_* constants in terrain_config.hpp fold the calls away). */
-void drawDebugHud(Engine* engine) {
-  if (!DEBUG_SHOW_FPS && !DEBUG_SHOW_MEM) return;
+/** 8x8 glyph text from the res/hud/debugfont.png strip (digits, letters and
+ * a few symbols - the atlas below must match the editor's debugFontPng()).
+ * Shared by the debug-profile overlays and the video-mode confirm prompt,
+ * so the strip ships with every build. */
+void drawHudText(Engine* engine, const char* s, float x, float y) {
   static Sprite glyph;
   static bool glyphReady = false;
-  static int memRefresh = 0;
-  static float memFreeMB = 0.0F;
   if (!glyphReady) {
     glyph.mode = SpriteMode::MODE_REPEAT;
     glyph.size = Vec2(8.0F, 8.0F);  // one atlas cell
@@ -1350,25 +1387,36 @@ void drawDebugHud(Engine* engine) {
     texture->addLink(glyph.id);
     glyphReady = true;
   }
-  // Glyph order in the atlas - must match the editor's debugFontPng().
-  // Cells are 16px apart: the glyph sits in the left 8px, the right 8px are
-  // transparent padding so bilinear sampling never bleeds the next glyph.
-  static const char* atlas = "0123456789.FPSMBE/";
-  auto drawText = [&](const char* s, float x, float y) {
-    for (; *s; ++s, x += 14.0F) {
-      if (*s == ' ') continue;
-      const char* hit = strchr(atlas, *s);
-      if (!hit) continue;
-      glyph.offset = Vec2((float)(hit - atlas) * 16.0F, 0.0F);
-      glyph.position = Vec2(x, y);
-      engine->renderer.renderer2D.render(glyph);
-    }
-  };
+  // 32 cells of 16px per atlas row (the glyph sits in the left 8px, the
+  // right 8px stay transparent so bilinear sampling never bleeds the next
+  // glyph), rows 8px apart.
+  static const char* atlas = "0123456789.FPSMBE/ACDGHIJKLNOQRTUVWXYZ?=-:";
+  for (; *s; ++s, x += 14.0F) {
+    if (*s == ' ') continue;
+    const char* hit = strchr(atlas, *s);
+    if (!hit) continue;
+    const int idx = (int)(hit - atlas);
+    glyph.offset = Vec2((float)(idx % 32) * 16.0F, (float)(idx / 32) * 8.0F);
+    glyph.position = Vec2(x, y);
+    engine->renderer.renderer2D.render(glyph);
+  }
+}
+
+float hudTextWidth(const char* s) { return (float)strlen(s) * 14.0F; }
+
+/** Debug-profile HUD (Project > Preferences > Build): FPS and RAM
+ * (used/total EE MB) readouts in the top-left corner. Compiles to nothing
+ * in a release build (the DEBUG_SHOW_* constants in terrain_config.hpp fold
+ * the calls away). */
+void drawDebugHud(Engine* engine) {
+  if (!DEBUG_SHOW_FPS && !DEBUG_SHOW_MEM) return;
+  static int memRefresh = 0;
+  static float memFreeMB = 0.0F;
   char line[32];
   float y = 16.0F;
   if (DEBUG_SHOW_FPS) {
     snprintf(line, sizeof(line), "FPS %d", (int)engine->info.getFps());
-    drawText(line, 16.0F, y);
+    drawHudText(engine, line, 16.0F, y);
     y += 20.0F;
   }
   if (DEBUG_SHOW_MEM) {
@@ -1380,8 +1428,82 @@ void drawDebugHud(Engine* engine) {
       memRefresh = everyFrames(2.0F);
     }
     snprintf(line, sizeof(line), "MEM %.1f/32 MB", 32.0F - memFreeMB);
-    drawText(line, 16.0F, y);
+    drawHudText(engine, line, 16.0F, y);
   }
+}
+
+// Runtime scan-mode switch with keep-or-revert confirmation (the Set
+// Display Mode flow node). A mode the player's TV can't display would
+// strand them on a black screen, so with a confirm window armed the game
+// automatically reverts to the previous mode unless X is pressed in time -
+// the same safety net PC display settings use.
+struct VideoConfirm {
+  bool active = false;
+  Tyra::DisplayMode prevMode = Tyra::DisplayMode::Interlaced;
+  float secondsLeft = 0.0F;
+};
+VideoConfirm g_videoConfirm;
+
+/** Applies the Set Display Mode / Set Widescreen flow-node requests and
+ * ticks the confirm countdown. Must run between frames (before
+ * beginFrame): a scan-mode switch rebuilds the VRAM layout. Returns true
+ * the frame a scan-mode switch happens - the caller closes any open game
+ * menu then, so the player judges the new picture unobstructed and the
+ * confirm prompt's X press is not also a menu select. */
+bool applyVideoRequests(Engine* engine, ScriptContext& ctx) {
+  auto& core = engine->renderer.core;
+  bool switched = false;
+  if (ctx.widescreen >= 0) {
+    core.setDisplayOutput(core.getSettings().getDisplayMode(),
+                          ctx.widescreen != 0);
+    ctx.widescreen = -1;
+  }
+  if (ctx.requestDisplayMode >= 0) {
+    const auto mode = (Tyra::DisplayMode)ctx.requestDisplayMode;
+    const auto prev = core.getSettings().getDisplayMode();
+    if (mode != prev) {
+      core.setDisplayOutput(mode, core.getSettings().getWidescreen());
+      // The vertical refresh may change (PAL 50 <-> DTV 60) - reseed the
+      // frame clock so gameplay speed stays wall-clock normalized.
+      g_frameRate = engine->renderer.core.getSettings().getRefreshRate();
+      switched = true;
+      if (ctx.displayConfirmSec > 0.0F) {
+        g_videoConfirm.active = true;
+        g_videoConfirm.prevMode = prev;
+        g_videoConfirm.secondsLeft = ctx.displayConfirmSec;
+      } else {
+        g_videoConfirm.active = false;  // blind switch - no prompt armed
+      }
+    }
+    ctx.requestDisplayMode = -1;
+    ctx.displayConfirmSec = 0.0F;
+  }
+  if (!g_videoConfirm.active) return switched;
+  if (!switched && engine->pad.getClicked().Cross) {
+    g_videoConfirm.active = false;  // player kept the new mode
+    return switched;
+  }
+  g_videoConfirm.secondsLeft -= g_frameDt;
+  if (g_videoConfirm.secondsLeft <= 0.0F) {
+    core.setDisplayOutput(g_videoConfirm.prevMode,
+                          core.getSettings().getWidescreen());
+    g_frameRate = engine->renderer.core.getSettings().getRefreshRate();
+    g_videoConfirm.active = false;
+  }
+  return switched;
+}
+
+/** The keep-or-revert prompt, drawn in the 2D phase (with the other HUD). */
+void drawVideoConfirm(Engine* engine) {
+  if (!g_videoConfirm.active) return;
+  const float w = engine->renderer.core.getSettings().getWidth();
+  const float h = engine->renderer.core.getSettings().getHeight();
+  const char* ask = "KEEP VIDEO MODE? X = YES";
+  drawHudText(engine, ask, (w - hudTextWidth(ask)) * 0.5F, h * 0.5F - 22.0F);
+  char line[24];
+  snprintf(line, sizeof(line), "BACK IN %d",
+           (int)g_videoConfirm.secondsLeft + 1);
+  drawHudText(engine, line, (w - hudTextWidth(line)) * 0.5F, h * 0.5F + 2.0F);
 }
 
 }  // namespace
@@ -1492,6 +1614,7 @@ void TerrainGame::loop() {
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
   const bool menuActive = saveMenuActive || gameMenuPausing;
+  g_gameplayPaused = menuActive;  // freezes particles + animation playback
   if (!menuActive) {
     if (!updatePlayerEntity()) updateCameraOrbit();
     updateUseTarget();
@@ -1578,6 +1701,15 @@ void TerrainGame::loop() {
     g_particlesOn = scriptCtx.particles != 0;
     scriptCtx.particles = -1;
   }
+  // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
+  // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
+  // switch rebuilds the VRAM layout between frames. A switch closes any
+  // open game menu: the player judges the new picture unobstructed and the
+  // confirm prompt's X press cannot double as a menu select.
+  if (applyVideoRequests(engine, scriptCtx)) {
+    gameMenuIndex = -1;
+    gameMenuStackDepth = 0;
+  }
   if (flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
   if (g_flashEnabled && g_flashOn) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
@@ -1609,6 +1741,7 @@ void TerrainGame::loop() {
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine);
+    drawVideoConfirm(engine);
   }
   engine->renderer.endFrame();
 }
@@ -2250,7 +2383,8 @@ void TerrainGame::updateAndRenderAnimObjects() {
     inst->setLoop(o.animLoop);
     // time always advances by wall-clock seconds (speed scales the step),
     // visible or not - animFinished stays honest for offscreen instances
-    const float step = o.animPlaying ? g_frameDt * o.animSpeed : 0.0F;
+    const float step =
+        (o.animPlaying && !g_gameplayPaused) ? g_frameDt * o.animSpeed : 0.0F;
     o.animFinished = inst->advance(step);
 
     // draw-distance cut-off (same rule as the static path in renderScene);
@@ -2800,6 +2934,9 @@ void TerrainGame::buildParticles() {
 
 void TerrainGame::updateParticles() {
   if (particles.empty() || !g_particlesOn) return;  // Set Particles switch
+  // Paused: leave every billboard bag exactly as it was last built - the
+  // scene render still draws them, so particles hang frozen behind the menu.
+  if (g_gameplayPaused) return;
   const float dt = g_frameDt;
 
   // camera right/up shared by every billboard this frame
@@ -3463,6 +3600,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
   o.dirty = false;
+  g.apronVerts.clear();  // position/size changed - the highlight ring follows
 
   // models: one draw part per MTL material; everything else fills parts[0]
   const GameModel* gm = nullptr;
@@ -3624,20 +3762,26 @@ void TerrainGame::renderScene() {
 }
 
 // Usable-object highlight (Project > Preferences): a soft colored rim around
-// the object silhouette. Three concentric copies of the object, grown around
-// its center with fading alpha, drawn after the scene with z-test but no
-// z-write (PipelineZTest_TestOnly). Each shell is additionally pushed away
-// from the camera by a uniform scale around the eye point - that keeps its
-// screen silhouette identical but places it behind the object's own depth,
-// so the z-buffer rejects the interior and only the rim survives, correctly
-// occluded by anything nearer. Proximity uses the same reference point as
-// the USE interaction (the camera / player eye).
+// the object silhouette. HIGHLIGHT_STEPS concentric copies of the object,
+// grown around its center with fading alpha, drawn after the scene with
+// z-test but no z-write (PipelineZTest_TestOnly). Each shell is additionally
+// pushed away from the camera by a uniform scale around the eye point - that
+// keeps its screen silhouette identical but places it behind the object's
+// own depth, so the z-buffer rejects the interior and only the rim survives,
+// correctly occluded by anything nearer. Proximity uses the same reference
+// point as the USE interaction (the camera / player eye).
+//
+// Both the grow (scale about the object center) and the pushback (scale
+// about the eye) are uniform point scales, so each shell collapses into ONE
+// scale+translation model matrix over the object's own vertex arrays - VU1
+// applies it during transform and the EE never touches a vertex. (The first
+// version grew and terrain-clamped every vertex of every shell on the EE
+// each frame plus a full bbox recompute; with the default 4 steps a
+// few-thousand-vert usable model near the player cost milliseconds of
+// EE time - the frame is EE-bound, so it fell to the next vsync divisor.)
 void TerrainGame::renderHighlightHull(int index) {
   const RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
-  size_t n = 0;  // hull spans every draw part of the object
-  for (const GeoPart& part : g.parts) n += part.vertices.size();
-  if (n == 0) return;
 
   float half = o.data.scale[0];
   if (o.data.scale[1] > half) half = o.data.scale[1];
@@ -3651,11 +3795,16 @@ void TerrainGame::renderHighlightHull(int index) {
   const float dist2 = dx * dx + dy * dy + dz * dz;
   const float reach = HIGHLIGHT_DISTANCE + half;
   if (dist2 > reach * reach) return;
-  const float dist = sqrtf(dist2);
 
-  // HIGHLIGHT_STEPS concentric shells up to HIGHLIGHT_WIDTH wide (both from
-  // Project > Preferences), alpha roughly halving outward. Near the
-  // silhouette all shells overlap - solid color fading outward.
+  bool any = false;  // marker-only objects have no draw parts
+  for (const GeoPart& part : g.parts)
+    if (part.bag) {
+      any = true;
+      break;
+    }
+  if (!any) return;
+
+  const float dist = sqrtf(dist2);
   const float cx = o.data.position[0], cy = o.data.position[1],
               cz = o.data.position[2];
   // How far in front of the object the camera is - the pushback must move
@@ -3663,69 +3812,158 @@ void TerrainGame::renderHighlightHull(int index) {
   // right behind it.
   float behind = dist - half;
   if (behind < 0.5F) behind = 0.5F;
-
-  g.hullVerts.resize(n * HIGHLIGHT_STEPS);
-  g.hullCols.resize(n * HIGHLIGHT_STEPS);
   // One pushback for all shells (sized for the widest) - per-shell depths
   // would make the terrain/scene cut each shell on a different line and the
   // rim edge turns into visible steps.
   float growMax = HIGHLIGHT_WIDTH / half;
   if (growMax > 0.6F) growMax = 0.6F;
   const float k = 1.0F + (growMax * half + 0.15F) / behind;
+
+  if (!hullBag) {
+    hullInfoBag = std::make_unique<StaPipInfoBag>();
+    hullInfoBag->model = &hullMat;
+    hullInfoBag->shadingType = TyraShadingFlat;
+    hullInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    hullInfoBag->fullClipChecks = true;
+    hullInfoBag->zTestType = PipelineZTest_TestOnly;
+    hullColorBag = std::make_unique<StaPipColorBag>();
+    hullBag = std::make_unique<StaPipBag>();
+    hullBag->info = hullInfoBag.get();
+    hullBag->color = hullColorBag.get();
+    hullBag->texture = nullptr;
+    hullBag->lighting = nullptr;
+  }
+
+  // Shell colors, alpha roughly halving outward - near the silhouette all
+  // shells overlap into solid color fading outward. Refreshed every call
+  // (scene switches change the prefs; same values otherwise).
+  hullShellCols.resize(HIGHLIGHT_STEPS);
   float alpha = HIGHLIGHT_STEPS > 1 ? 72.0F : 100.0F;  // single step = solid
+  for (int s = 0; s < HIGHLIGHT_STEPS; ++s) {
+    hullShellCols[s] = Color(HIGHLIGHT_R, HIGHLIGHT_G, HIGHLIGHT_B, alpha);
+    alpha *= 0.55F;
+  }
+
   for (int s = 0; s < HIGHLIGHT_STEPS; ++s) {
     // uniform growth - rotated objects stay unskewed
     float grow = (HIGHLIGHT_WIDTH * (s + 1)) / (HIGHLIGHT_STEPS * half);
     if (grow > 0.6F) grow = 0.6F;
     const float f = 1.0F + grow;
-    const Color c(HIGHLIGHT_R, HIGHLIGHT_G, HIGHLIGHT_B, alpha);
-    alpha *= 0.55F;
-    size_t v = 0;
-    for (const GeoPart& part : g.parts)
-      for (const Vec4& p : part.vertices) {
-        float hx = cx + (p.x - cx) * f;
-        float hy = cy + (p.y - cy) * f;
-        float hz = cz + (p.z - cz) * f;
-        hx = cameraPosition.x + (hx - cameraPosition.x) * k;
-        hy = cameraPosition.y + (hy - cameraPosition.y) * k;
-        hz = cameraPosition.z + (hz - cameraPosition.z) * k;
-        // Shell parts of grounded objects dip below the terrain and the
-        // ground in front z-rejects them (no bottom rim from a low camera).
-        // Lift them just above the surface - the bottom rim becomes a glow
-        // apron hugging the ground around the base.
-        const float ground = terrainHeightAt(hx, hz) + 0.02F;
-        if (hy < ground) hy = ground;
-        g.hullVerts[s * n + v] = Vec4(hx, hy, hz, 1.0F);
-        g.hullCols[s * n + v] = c;
-        ++v;
-      }
+    // shell = eye + k*((c + f*(p - c)) - eye) = (k*f)*p + offset
+    const float a = k * f;
+    hullMat.identity();
+    hullMat.data[0] = a;
+    hullMat.data[5] = a;
+    hullMat.data[10] = a;
+    hullMat.data[12] = k * (1.0F - f) * cx + (1.0F - k) * cameraPosition.x;
+    hullMat.data[13] = k * (1.0F - f) * cy + (1.0F - k) * cameraPosition.y;
+    hullMat.data[14] = k * (1.0F - f) * cz + (1.0F - k) * cameraPosition.z;
+    hullColorBag->single = &hullShellCols[s];
+    for (GeoPart& part : g.parts) {
+      if (!part.bag) continue;
+      hullBag->vertices = part.bag->vertices;
+      hullBag->count = part.bag->count;
+      // Same pointer + version as the part: the shell's package boxes live
+      // in their own cache slot (single color changes the package size) and
+      // recompute only when the part itself rebuilds - never per frame.
+      hullBag->bboxVersion = part.bag->bboxVersion;
+      stapip.core.render(hullBag.get());
+    }
   }
 
-  if (!g.hullBag) {
-    g.hullInfoBag = std::make_unique<StaPipInfoBag>();
-    g.hullInfoBag->model = &model;
-    g.hullInfoBag->shadingType = TyraShadingFlat;
-    g.hullInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
-    g.hullInfoBag->fullClipChecks = true;
-    g.hullInfoBag->zTestType = PipelineZTest_TestOnly;
-    g.hullColorBag = std::make_unique<StaPipColorBag>();
-    g.hullBag = std::make_unique<StaPipBag>();
-    g.hullBag->info = g.hullInfoBag.get();
-    g.hullBag->color = g.hullColorBag.get();
-    g.hullBag->texture = nullptr;
-    g.hullBag->lighting = nullptr;
+  // Grounded objects: the shells dip below the terrain and the ground in
+  // front z-rejects them - no bottom rim from a low camera. The old code
+  // fixed that by terrain-clamping every shell vertex (the expensive part);
+  // a small terrain-following annulus around the base gives the same glow
+  // apron for a fraction of a percent of the vertices.
+  if (cy - 0.5F * o.data.scale[1] <=
+      terrainHeightAt(cx, cz) + HIGHLIGHT_WIDTH + 0.25F) {
+    if (g.apronVerts.empty()) buildHighlightApron(index, half);
+    if (!g.apronVerts.empty()) {
+      if (!apronBag) {
+        apronInfoBag = std::make_unique<StaPipInfoBag>();
+        apronInfoBag->model = &model;  // world-space, camera-independent
+        apronInfoBag->shadingType = TyraShadingFlat;
+        apronInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+        apronInfoBag->fullClipChecks = true;
+        apronInfoBag->zTestType = PipelineZTest_TestOnly;
+        apronColorBag = std::make_unique<StaPipColorBag>();
+        apronBag = std::make_unique<StaPipBag>();
+        apronBag->info = apronInfoBag.get();
+        apronBag->color = apronColorBag.get();
+        apronBag->texture = nullptr;
+        apronBag->lighting = nullptr;
+      }
+      apronColorBag->many = g.apronCols.data();
+      apronBag->vertices = g.apronVerts.data();
+      apronBag->count = static_cast<u32>(g.apronVerts.size());
+      apronBag->bboxVersion = g.apronStamp;
+      stapip.core.render(apronBag.get());
+    }
   }
-  g.hullColorBag->many = g.hullCols.data();
-  g.hullBag->vertices = g.hullVerts.data();
-  g.hullBag->count = static_cast<u32>(g.hullVerts.size());
-  g.hullBag->bboxVersion = ++g_bboxStamp;  // rebuilt every frame while shown
-  stapip.core.render(g.hullBag.get());
+
   // The pushback clears the object's front face but not its receding side
   // faces - shells still blend over those at glancing angles. Repainting
   // the object wins the equal-depth test (GEQUAL) and erases the wash
   // without touching the rim outside the silhouette.
   for (GeoPart& part : g.parts)
     if (part.bag) stapip.core.render(part.bag.get());
+}
+
+// The terrain-hugging glow ring around a grounded usable object's base: one
+// annulus band per shell with the shell's growth radius and alpha, following
+// the terrain height at every ring point. World-space and camera-independent,
+// so it's built once and redrawn from cache until rebuildObjectGeometry
+// invalidates it (move/resize) or a scene switch recreates the geometry.
+void TerrainGame::buildHighlightApron(int index, float half) {
+  const RuntimeObject& o = runtimeObjects[index];
+  ObjectGeometry& g = objectGeometry[index];
+  const float cx = o.data.position[0], cz = o.data.position[2];
+  // Elliptical footprint so stretched objects keep a snug ring
+  float rx = 0.5F * o.data.scale[0];
+  float rz = 0.5F * o.data.scale[2];
+  if (rx < 0.05F) rx = 0.05F;
+  if (rz < 0.05F) rz = 0.05F;
+
+  const int SEG = 24;
+  Vec4 inner[SEG + 1], outer[SEG + 1];
+  for (int j = 0; j <= SEG; ++j) {
+    const float t = (2.0F * PI * j) / SEG;
+    const float px = cx + rx * cosf(t);
+    const float pz = cz + rz * sinf(t);
+    inner[j] = Vec4(px, terrainHeightAt(px, pz) + 0.02F, pz, 1.0F);
+  }
+
+  g.apronVerts.clear();
+  g.apronCols.clear();
+  g.apronVerts.reserve((size_t)HIGHLIGHT_STEPS * SEG * 6);
+  g.apronCols.reserve((size_t)HIGHLIGHT_STEPS * SEG * 6);
+
+  float alpha = HIGHLIGHT_STEPS > 1 ? 72.0F : 100.0F;
+  for (int s = 0; s < HIGHLIGHT_STEPS; ++s) {
+    float grow = (HIGHLIGHT_WIDTH * (s + 1)) / (HIGHLIGHT_STEPS * half);
+    if (grow > 0.6F) grow = 0.6F;
+    const float f = 1.0F + grow;
+    const Color c(HIGHLIGHT_R, HIGHLIGHT_G, HIGHLIGHT_B, alpha);
+    alpha *= 0.55F;
+    for (int j = 0; j <= SEG; ++j) {
+      const float t = (2.0F * PI * j) / SEG;
+      const float px = cx + rx * f * cosf(t);
+      const float pz = cz + rz * f * sinf(t);
+      outer[j] = Vec4(px, terrainHeightAt(px, pz) + 0.02F, pz, 1.0F);
+    }
+    for (int j = 0; j < SEG; ++j) {
+      g.apronVerts.push_back(inner[j]);
+      g.apronVerts.push_back(outer[j]);
+      g.apronVerts.push_back(outer[j + 1]);
+      g.apronVerts.push_back(inner[j]);
+      g.apronVerts.push_back(outer[j + 1]);
+      g.apronVerts.push_back(inner[j + 1]);
+      for (int v = 0; v < 6; ++v) g.apronCols.push_back(c);
+    }
+    for (int j = 0; j <= SEG; ++j) inner[j] = outer[j];
+  }
+  g.apronStamp = ++g_bboxStamp;
 }
 
 // --- Terrain chunks ---------------------------------------------------------
@@ -4110,6 +4348,7 @@ void TerrainGame::loop() {
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
   const bool menuActive = saveMenuActive || gameMenuPausing;
+  g_gameplayPaused = menuActive;  // freezes particles + animation playback
   if (!menuActive) {
     if (!updatePlayerEntity()) updatePlayer();
     updateUseTarget();
@@ -4223,6 +4462,15 @@ void TerrainGame::loop() {
     g_particlesOn = scriptCtx.particles != 0;
     scriptCtx.particles = -1;
   }
+  // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
+  // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
+  // switch rebuilds the VRAM layout between frames. A switch closes any
+  // open game menu: the player judges the new picture unobstructed and the
+  // confirm prompt's X press cannot double as a menu select.
+  if (applyVideoRequests(engine, scriptCtx)) {
+    gameMenuIndex = -1;
+    gameMenuStackDepth = 0;
+  }
   if (flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
   if (g_flashEnabled && g_flashOn) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
@@ -4254,6 +4502,7 @@ void TerrainGame::loop() {
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine);
+    drawVideoConfirm(engine);
   }
   engine->renderer.endFrame();
 }
@@ -4495,14 +4744,16 @@ const unsigned char* usePromptPng(size_t& size) {
     return data;
 }
 
-// 512x8 glyph strip for the debug-profile HUD, rendered from an embedded
-// 8x8 pixel font and encoded on first use. 18 glyphs ("0123456789.FPSMBE/"),
-// one per 16px cell; the right half of each cell stays transparent so the
-// GS's bilinear filter never samples the neighboring glyph.
+// 512x16 glyph strip for the in-game HUD text (debug overlays + the video
+// mode confirm prompt), rendered from an embedded 8x8 pixel font and
+// encoded on first use. 42 glyphs in two rows of 32 cells of 16px - the
+// order must match drawHudText's atlas string in the game template; the
+// right half of each cell stays transparent so the GS's bilinear filter
+// never samples the neighboring glyph.
 const std::vector<unsigned char>& debugFontPng() {
     static std::vector<unsigned char> png = [] {
         // Classic CP437-style 8x8 glyphs, one byte per row, MSB = left pixel.
-        static const unsigned char rows[18][8] = {
+        static const unsigned char rows[42][8] = {
             {0x7C, 0xC6, 0xCE, 0xDE, 0xF6, 0xE6, 0x7C, 0x00},  // 0
             {0x30, 0x70, 0x30, 0x30, 0x30, 0x30, 0xFC, 0x00},  // 1
             {0x78, 0xCC, 0x0C, 0x38, 0x60, 0xCC, 0xFC, 0x00},  // 2
@@ -4521,14 +4772,39 @@ const std::vector<unsigned char>& debugFontPng() {
             {0xFC, 0x66, 0x66, 0x7C, 0x66, 0x66, 0xFC, 0x00},  // B
             {0xFE, 0x62, 0x68, 0x78, 0x68, 0x62, 0xFE, 0x00},  // E
             {0x06, 0x0C, 0x18, 0x30, 0x60, 0xC0, 0x80, 0x00},  // /
+            {0x30, 0x78, 0xCC, 0xCC, 0xFC, 0xCC, 0xCC, 0x00},  // A
+            {0x3C, 0x66, 0xC0, 0xC0, 0xC0, 0x66, 0x3C, 0x00},  // C
+            {0xF8, 0x6C, 0x66, 0x66, 0x66, 0x6C, 0xF8, 0x00},  // D
+            {0x3C, 0x66, 0xC0, 0xC0, 0xCE, 0x66, 0x3E, 0x00},  // G
+            {0xCC, 0xCC, 0xCC, 0xFC, 0xCC, 0xCC, 0xCC, 0x00},  // H
+            {0x78, 0x30, 0x30, 0x30, 0x30, 0x30, 0x78, 0x00},  // I
+            {0x1E, 0x0C, 0x0C, 0x0C, 0xCC, 0xCC, 0x78, 0x00},  // J
+            {0xE6, 0x66, 0x6C, 0x78, 0x6C, 0x66, 0xE6, 0x00},  // K
+            {0xF0, 0x60, 0x60, 0x60, 0x62, 0x66, 0xFE, 0x00},  // L
+            {0xC6, 0xE6, 0xF6, 0xDE, 0xCE, 0xC6, 0xC6, 0x00},  // N
+            {0x38, 0x6C, 0xC6, 0xC6, 0xC6, 0x6C, 0x38, 0x00},  // O
+            {0x78, 0xCC, 0xCC, 0xCC, 0xDC, 0x78, 0x1C, 0x00},  // Q
+            {0xFC, 0x66, 0x66, 0x7C, 0x6C, 0x66, 0xE6, 0x00},  // R
+            {0xFC, 0xB4, 0x30, 0x30, 0x30, 0x30, 0x78, 0x00},  // T
+            {0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xFC, 0x00},  // U
+            {0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0x78, 0x30, 0x00},  // V
+            {0xC6, 0xC6, 0xC6, 0xD6, 0xFE, 0xEE, 0xC6, 0x00},  // W
+            {0xC6, 0xC6, 0x6C, 0x38, 0x38, 0x6C, 0xC6, 0x00},  // X
+            {0xCC, 0xCC, 0xCC, 0x78, 0x30, 0x30, 0x78, 0x00},  // Y
+            {0xFE, 0xC6, 0x8C, 0x18, 0x32, 0x66, 0xFE, 0x00},  // Z
+            {0x78, 0xCC, 0x0C, 0x18, 0x30, 0x00, 0x30, 0x00},  // ?
+            {0x00, 0x00, 0xFC, 0x00, 0x00, 0xFC, 0x00, 0x00},  // =
+            {0x00, 0x00, 0x00, 0xFC, 0x00, 0x00, 0x00, 0x00},  // -
+            {0x00, 0x30, 0x30, 0x00, 0x00, 0x30, 0x30, 0x00},  // :
         };
-        const int w = 512, h = 8;  // PS2 textures need power-of-two sizes
+        const int w = 512, h = 16;  // PS2 textures need power-of-two sizes
         std::vector<unsigned char> rgba(w * h * 4, 0);
-        for (int g = 0; g < 18; ++g)
+        for (int g = 0; g < 42; ++g)
             for (int y = 0; y < 8; ++y)
                 for (int x = 0; x < 8; ++x) {
                     if (!(rows[g][y] & (0x80 >> x))) continue;
-                    unsigned char* px = &rgba[(y * w + g * 16 + x) * 4];
+                    unsigned char* px =
+                        &rgba[(((g / 32) * 8 + y) * w + (g % 32) * 16 + x) * 4];
                     px[0] = px[1] = px[2] = px[3] = 255;
                 }
         std::vector<unsigned char> out;
@@ -4912,6 +5188,18 @@ struct ScriptContext {
   int bloom = -1;
   int grain = -1;
   int particles = -1;
+
+  // Runtime video output (Set Display Mode / Set Widescreen flow nodes).
+  // requestDisplayMode: -1 = leave, else a Tyra::DisplayMode value (0 =
+  // interlaced, 1 = progressive 480p, 2 = 1080i). displayConfirmSec > 0
+  // arms the keep-or-revert prompt: the game switches, asks the player to
+  // confirm with X and reverts to the previous mode automatically when the
+  // timer runs out (a mode the TV can't display would otherwise strand the
+  // player on a black screen). widescreen: -1 = leave, 0/1 = 4:3 / 16:9.
+  // The game applies and resets all three.
+  int requestDisplayMode = -1;
+  float displayConfirmSec = 0.0F;
+  int widescreen = -1;
 
   // Save data: named values persisted in memory card slots (SAVE_VALUE_NAMES
   // order, scene_data.hpp). Set openSaveMenu = true to open the in-game
@@ -5891,6 +6179,11 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{VIDEO_MODE}}", st.videoSystem == "pal"    ? "PAL"
                                         : st.videoSystem == "ntsc" ? "NTSC"
                                                                    : "Auto");
+    s = replaceAll(s, "{{DISPLAY_MODE}}",
+                   st.displayMode == "1080i"         ? "HiDef1080i"
+                   : st.displayMode == "progressive" ? "Progressive480p"
+                                                     : "Interlaced");
+    s = replaceAll(s, "{{WIDESCREEN}}", st.widescreen ? "true" : "false");
     const bool debugProfile = st.buildProfile == "debug";
     s = replaceAll(s, "{{DEBUG_SHOW_FPS}}",
                    debugProfile && st.showFps ? "true" : "false");
@@ -6491,6 +6784,16 @@ std::string flowGraphScript(const Project& p) {
                 if (v > 128) v = 128;
                 c << pad << "ctx." << (n.type == "SetBloom" ? "bloom" : "grain")
                   << " = " << v << ";\n";
+            } else if (n.type == "SetDisplayMode") {
+                int mode = (int)n.num[0];
+                mode = mode < 0 ? 0 : mode > 2 ? 2 : mode;
+                float confirm = n.num[1] < 0.0f ? 0.0f : n.num[1];
+                c << pad << "ctx.requestDisplayMode = " << mode << ";\n";
+                c << pad << "ctx.displayConfirmSec = " << floatLit(confirm)
+                  << ";\n";
+            } else if (n.type == "SetWidescreen") {
+                c << pad << "ctx.widescreen = " << (n.num[0] != 0.0f ? "1" : "0")
+                  << ";\n";
             } else if (n.type == "ShowHud") {
                 c << pad << "ctx.hudVisible = true;\n";
             } else if (n.type == "HideHud") {

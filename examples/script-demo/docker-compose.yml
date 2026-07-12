@@ -2,7 +2,7 @@ name: script-demo
 volumes:
   tyra-game-volume:
   tyra-engine:
-    name: tyra-engine-f782bfb9
+    name: tyra-engine-05180ec9
 services:
   compiler:
     environment:
@@ -16,4 +16,4 @@ services:
       - tyra-game-volume:/src
       - tyra-engine:/tyra
       - ./:/host
-      - "F:/Projects/tyra-editor/.claude/worktrees/terrain-chunking-large-maps-cb55f4/vendor/tyra:/engine-src:ro"
+      - "F:/Projects/tyra-editor/.claude/worktrees/alternative-display-modes-d4baee/vendor/tyra:/engine-src:ro"

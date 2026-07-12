@@ -47,6 +47,11 @@ class RendererCoreTexture {
    * path only tombstoned the allocation entry and leaked both. */
   void freeTextureBuffers(const u32& texId);
 
+  /** Modified by tyra-editor: drop every VRAM texture allocation (the
+   * runtime display-mode switch rebuilds the whole VRAM layout). Textures
+   * re-upload lazily on their next use. */
+  void evictAll();
+
  private:
   std::vector<RendererCoreTextureBuffers> currentAllocations;
 

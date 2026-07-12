@@ -10,6 +10,7 @@
 */
 
 #include "renderer/3d/mesh/mesh.hpp"
+#include "renderer/models/unique_id.hpp"
 
 namespace Tyra {
 
@@ -63,7 +64,7 @@ Mesh::~Mesh() {
 }
 
 void Mesh::init() {
-  id = rand() % 1000000;
+  id = generateUniqueId();
   translation = M4x4::Identity;
   rotation = M4x4::Identity;
   scale = M4x4::Identity;
