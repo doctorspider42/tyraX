@@ -433,6 +433,14 @@ class TerrainGame : public Tyra::Game {
     std::vector<Tyra::Vec4> apronVerts;
     std::vector<Tyra::Color> apronCols;
     u32 apronStamp = 0;
+    // Low-detail stand-in the highlight shells are drawn from (positions
+    // only - shells are single-color flat). Subdividing a primitive never
+    // changes its silhouette, so a detail-1 box / low-segment curve gives a
+    // pixel-near-identical rim for a fraction of the clip/transform cost
+    // (see buildHighlightProxy). Built when first highlighted, cleared
+    // whenever the object rebuilds.
+    std::vector<Tyra::Vec4> hullProxyVerts;
+    u32 hullProxyStamp = 0;
   };
   // Custom .obj models (paths in model_data.gen.hpp): geometry split per MTL
   // material with optional per-material textures, the real mesh AABB for box
@@ -551,6 +559,8 @@ class TerrainGame : public Tyra::Game {
   void renderScene();
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
+  void buildHighlightProxy(int index);
+  bool highlightInReach(int index) const;
   // Usable-object highlight: one shared bag re-submitted for every part of
   // every shell. The grow about the object center and the pushback about
   // the eye compose into a single scale+translation model matrix (hullMat),
@@ -765,6 +775,14 @@ class TerrainGame : public Tyra::Game {
     std::vector<Tyra::Vec4> apronVerts;
     std::vector<Tyra::Color> apronCols;
     u32 apronStamp = 0;
+    // Low-detail stand-in the highlight shells are drawn from (positions
+    // only - shells are single-color flat). Subdividing a primitive never
+    // changes its silhouette, so a detail-1 box / low-segment curve gives a
+    // pixel-near-identical rim for a fraction of the clip/transform cost
+    // (see buildHighlightProxy). Built when first highlighted, cleared
+    // whenever the object rebuilds.
+    std::vector<Tyra::Vec4> hullProxyVerts;
+    u32 hullProxyStamp = 0;
   };
   // Custom .obj models (paths in model_data.gen.hpp): geometry split per MTL
   // material with optional per-material textures, the real mesh AABB for box
@@ -883,6 +901,8 @@ class TerrainGame : public Tyra::Game {
   void renderScene();
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
+  void buildHighlightProxy(int index);
+  bool highlightInReach(int index) const;
   // Usable-object highlight: one shared bag re-submitted for every part of
   // every shell. The grow about the object center and the pushback about
   // the eye compose into a single scale+translation model matrix (hullMat),
@@ -3911,6 +3931,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
   ObjectGeometry& g = objectGeometry[index];
   o.dirty = false;
   g.apronVerts.clear();  // position/size changed - the highlight ring follows
+  g.hullProxyVerts.clear();  // and the shell proxy re-bakes the transform
 
   // models: one draw part per MTL material; everything else fills parts[0]
   const GameModel* gm = nullptr;
@@ -4056,28 +4077,83 @@ void TerrainGame::renderScene() {
   // before any packaging or clipping work happens.
   updateTerrainChunks(cameraLookAt.x, cameraLookAt.z, 2);
   renderTerrain();
+  // Highlighted-in-reach usables are deferred out of the main pass: their
+  // shells draw first and the body once AFTER them, erasing the shell wash
+  // over the object's own receding faces without a second full draw of the
+  // mesh (the old order needed main-pass draw + repaint - two exact-clip
+  // passes of the whole object per frame).
+  int hlDeferred[8];
+  float hlDeferredD2[8];
+  int hlDeferredCount = 0;
+  const bool hlActive = HIGHLIGHT_USABLE;
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (!runtimeObjects[i].active) continue;  // streamed out with its layer
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
     if (!runtimeObjects[i].visible) continue;
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
+    if (hlActive && hlDeferredCount < 8 && runtimeObjects[i].data.usable &&
+        highlightInReach(i)) {
+      const float ddx = runtimeObjects[i].data.position[0] - cameraPosition.x;
+      const float ddy = runtimeObjects[i].data.position[1] - cameraPosition.y;
+      const float ddz = runtimeObjects[i].data.position[2] - cameraPosition.z;
+      hlDeferred[hlDeferredCount] = i;
+      hlDeferredD2[hlDeferredCount++] = ddx * ddx + ddy * ddy + ddz * ddz;
+      continue;
+    }
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag) stapip.core.render(part.bag.get());
   }
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
   updateAndRenderAnimObjects();
-  // Highlight rims after every object so their depth is in the z-buffer:
-  // the rim is depth-tested against the finished scene and can no longer be
-  // punched through by an object drawn later in the loop.
-  if (HIGHLIGHT_USABLE)
-    for (int i = 0; i < (int)runtimeObjects.size(); ++i)
-      if (runtimeObjects[i].active && runtimeObjects[i].visible &&
-          runtimeObjects[i].data.usable && !objectGeometry[i].parts.empty())
-        renderHighlightHull(i);  // proximity-checked inside; no-op when far
+  // Highlight rims after every other object so their depth is in the
+  // z-buffer: the rim is depth-tested against the finished scene and can no
+  // longer be punched through by an object drawn later in the loop. Each
+  // deferred body draws right after its own shells; far-to-near order keeps
+  // a nearer body correctly covering a farther object's rim.
+  for (int a = 0; a < hlDeferredCount; ++a)  // insertion sort, farthest first
+    for (int b = a + 1; b < hlDeferredCount; ++b)
+      if (hlDeferredD2[b] > hlDeferredD2[a]) {
+        const int ti = hlDeferred[a];
+        hlDeferred[a] = hlDeferred[b];
+        hlDeferred[b] = ti;
+        const float td = hlDeferredD2[a];
+        hlDeferredD2[a] = hlDeferredD2[b];
+        hlDeferredD2[b] = td;
+      }
+  for (int a = 0; a < hlDeferredCount; ++a) {
+    const int i = hlDeferred[a];
+    renderHighlightHull(i);  // shells + ground apron (body drawn below)
+    for (GeoPart& part : objectGeometry[i].parts)
+      if (part.bag) stapip.core.render(part.bag.get());
+  }
   // particles last - alpha blended over the scene
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
+}
+
+// True when the usable object sits inside the highlight distance (same
+// reference point as the USE interaction) and has anything to draw.
+bool TerrainGame::highlightInReach(int index) const {
+  const RuntimeObject& o = runtimeObjects[index];
+  const ObjectGeometry& g = objectGeometry[index];
+  bool any = false;  // marker-only objects have no draw parts
+  for (const GeoPart& part : g.parts)
+    if (part.bag) {
+      any = true;
+      break;
+    }
+  if (!any) return false;
+  float half = o.data.scale[0];
+  if (o.data.scale[1] > half) half = o.data.scale[1];
+  if (o.data.scale[2] > half) half = o.data.scale[2];
+  half *= 0.5F;
+  if (half < 0.01F) half = 0.01F;
+  const float dx = o.data.position[0] - cameraPosition.x;
+  const float dy = o.data.position[1] - cameraPosition.y;
+  const float dz = o.data.position[2] - cameraPosition.z;
+  const float reach = HIGHLIGHT_DISTANCE + half;
+  return dx * dx + dy * dy + dz * dz <= reach * reach;
 }
 
 // Usable-object highlight (Project > Preferences): a soft colored rim around
@@ -4115,13 +4191,10 @@ void TerrainGame::renderHighlightHull(int index) {
   const float reach = HIGHLIGHT_DISTANCE + half;
   if (dist2 > reach * reach) return;
 
-  bool any = false;  // marker-only objects have no draw parts
-  for (const GeoPart& part : g.parts)
-    if (part.bag) {
-      any = true;
-      break;
-    }
-  if (!any) return;
+  // Shells draw from the low-detail proxy, not the object's own (possibly
+  // heavily subdivided) mesh - built lazily, cleared on geometry rebuilds.
+  if (g.hullProxyVerts.empty()) buildHighlightProxy(index);
+  if (g.hullProxyVerts.empty()) return;  // marker-only object
 
   const float dist = sqrtf(dist2);
   const float cx = o.data.position[0], cy = o.data.position[1],
@@ -4178,16 +4251,13 @@ void TerrainGame::renderHighlightHull(int index) {
     hullMat.data[13] = k * (1.0F - f) * cy + (1.0F - k) * cameraPosition.y;
     hullMat.data[14] = k * (1.0F - f) * cz + (1.0F - k) * cameraPosition.z;
     hullColorBag->single = &hullShellCols[s];
-    for (GeoPart& part : g.parts) {
-      if (!part.bag) continue;
-      hullBag->vertices = part.bag->vertices;
-      hullBag->count = part.bag->count;
-      // Same pointer + version as the part: the shell's package boxes live
-      // in their own cache slot (single color changes the package size) and
-      // recompute only when the part itself rebuilds - never per frame.
-      hullBag->bboxVersion = part.bag->bboxVersion;
-      stapip.core.render(hullBag.get());
-    }
+    // One submit per shell over the proxy positions; the package boxes live
+    // in their own cache slot (keyed by the proxy pointer) and recompute
+    // only when the proxy rebuilds - never per frame.
+    hullBag->vertices = g.hullProxyVerts.data();
+    hullBag->count = static_cast<u32>(g.hullProxyVerts.size());
+    hullBag->bboxVersion = g.hullProxyStamp;
+    stapip.core.render(hullBag.get());
   }
 
   // Grounded objects: the shells dip below the terrain and the ground in
@@ -4222,11 +4292,62 @@ void TerrainGame::renderHighlightHull(int index) {
   }
 
   // The pushback clears the object's front face but not its receding side
-  // faces - shells still blend over those at glancing angles. Repainting
-  // the object wins the equal-depth test (GEQUAL) and erases the wash
-  // without touching the rim outside the silhouette.
-  for (GeoPart& part : g.parts)
-    if (part.bag) stapip.core.render(part.bag.get());
+  // faces - shells still blend over those at glancing angles. The caller
+  // draws the deferred body right after this call; painting it over the
+  // shells wins the equal-depth test (GEQUAL) and erases the wash without
+  // touching the rim outside the silhouette - and without drawing the mesh
+  // twice like the old main-pass-draw + repaint order did.
+}
+
+// Builds the shells' low-detail stand-in (world-space positions only).
+// Primitives regenerate through their own builders with the subdivision
+// forced down - a subdivided box/plane has the same silhouette at detail 1,
+// and a curved primitive at 12 segments is within a couple of percent of
+// its full-detail silhouette, invisible under the soft rim. Models have no
+// cheaper source, so their parts are concatenated as-is (one submit per
+// shell instead of one per part).
+void TerrainGame::buildHighlightProxy(int index) {
+  const RuntimeObject& o = runtimeObjects[index];
+  ObjectGeometry& g = objectGeometry[index];
+  g.hullProxyVerts.clear();
+
+  if (o.data.type == 5) {
+    size_t total = 0;
+    for (const GeoPart& part : g.parts) total += part.vertices.size();
+    g.hullProxyVerts.reserve(total);
+    for (const GeoPart& part : g.parts)
+      if (part.bag)
+        g.hullProxyVerts.insert(g.hullProxyVerts.end(), part.vertices.begin(),
+                                part.vertices.end());
+  } else {
+    SceneObjectData low = o.data;
+    low.primDetail = 1;
+    switch (o.data.type) {
+      case 1:
+      case 2:
+      case 3:
+        low.primDetail = o.data.primDetail < 12 ? o.data.primDetail : 12;
+        break;
+      default:
+        break;  // boxes, planes, decals: detail 1
+    }
+    // The builders emit colors/sts too; shells only need positions, the
+    // rest is discarded (built once per geometry rebuild).
+    std::vector<Color> cols;
+    std::vector<Vec4> sts;
+    switch (o.data.type) {
+      case 1: addSphere(g.hullProxyVerts, cols, sts, low); break;
+      case 2: addCylinder(g.hullProxyVerts, cols, sts, low); break;
+      case 3: addCone(g.hullProxyVerts, cols, sts, low); break;
+      case 12: addPlane(g.hullProxyVerts, cols, sts, low); break;
+      case 13: addDecal(g.hullProxyVerts, cols, sts, low); break;
+      default:
+        if (!g.parts.empty() && g.parts[0].bag)
+          addBox(g.hullProxyVerts, cols, sts, low);
+        break;  // marker-only types keep the proxy empty
+    }
+  }
+  if (!g.hullProxyVerts.empty()) g.hullProxyStamp = ++g_bboxStamp;
 }
 
 // The terrain-hugging glow ring around a grounded usable object's base: one

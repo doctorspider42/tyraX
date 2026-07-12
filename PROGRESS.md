@@ -9,6 +9,40 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (71) **Usable-highlight perf, round 2: low-detail shell proxy + deferred
+  body draw (no repaint)** — the PR #64 rims still dropped the showcase to
+  ~25 FPS in PCSX2 near a highlighted object. Measured with COP0 phase
+  timers in an owned terrain_game.cpp plus temporary counters inside the
+  engine's StaPipCore (deterministic camera orbit around the save shrine,
+  250-frame A/B windows, on-screen HUD readout): the highlight pass alone
+  was 25 ms of EE time, all of it in the PARTIALLY_IN_FRUSTUM branch of
+  `StaPipCore::render` — the shrine is a default-detail-16 box (~9.2k
+  verts), a near object always straddles the frustum, and the effect
+  submitted that mesh 5 extra times per frame (4 shells + repaint), each
+  submit re-running subpackage classification + the EE clipper (~370 clip
+  calls/frame vs ~160 baseline). DMA waits, the bbox cache and the z-test
+  mode were all measured innocent. Fix, all in the generated runtime
+  (templates.cpp): (1) shells now draw a **low-detail proxy** built by
+  `buildHighlightProxy` — primitives re-emit through their own builders
+  with subdivision forced down (boxes/planes/decals: detail 1 — identical
+  silhouette; curved: capped at 12 segments), models concatenate their
+  parts into one array (one submit per shell instead of per part); cached
+  in ObjectGeometry, cleared by rebuildObjectGeometry, own bbox stamp;
+  (2) highlighted-in-reach usables are **deferred out of the main pass**
+  (`highlightInReach`, ≤8 per frame, sorted far-to-near) and their body
+  draws once AFTER their shells — the body erases the shell wash over its
+  own receding faces exactly like the old repaint did, so the second full
+  draw of the mesh is gone; nearer bodies still cover farther rims, and
+  everything else keeps drawing before any rim. **Verified in PCSX2 (SW
+  renderer)**: same instrumented A/B on the rebuilt showcase — highlight
+  render cost fell from ~23 ms to ~1.7 ms per frame (scene+highlight
+  sums 15.7 vs 14.0 ms; whole frame 56 -> 25 ms on the worst-case orbit
+  view), rim/apron/USE visuals unchanged by screenshot comparison against
+  the pre-fix build. All four examples regenerated. Real-PS2 A/B still
+  pending, same as PR #64. Left open: the partial-frustum path itself
+  costs the base scene ~12-14 ms on that view (default primDetail 16
+  everywhere is heavy) — separate backlog item.
+
 - (70) **Dynamic object spawning: Spawn Object / Despawn Object flow nodes** —
   runtime clones of authored objects, the missing piece for GTA-style traffic
   (spawn the same few templates around the player, despawn what fell behind).
