@@ -716,6 +716,8 @@ std::string save(const Project& p) {
              << ", \"skippable\": " << (s.skippable ? "true" : "false")
              << ", \"fadeIn\": " << fmtFloat(s.fadeIn)
              << ", \"fadeOut\": " << fmtFloat(s.fadeOut)
+             << ", \"barsSlideIn\": " << fmtFloat(s.barsSlideIn)
+             << ", \"barsSlideOut\": " << fmtFloat(s.barsSlideOut)
              << ", \"tracks\": [";
         for (size_t ti = 0; ti < s.tracks.size(); ++ti) {
             const SeqTrack& t = s.tracks[ti];
@@ -1562,6 +1564,14 @@ std::string load(Project& out, const std::string& projectDir) {
             if (const auto* v = js.find("fadeOut")) s.fadeOut = (float)v->numberOr(0.0);
             if (s.fadeIn < 0.0f) s.fadeIn = 0.0f;
             if (s.fadeOut < 0.0f) s.fadeOut = 0.0f;
+            // Absent on projects authored before the bars-slide controls: keep
+            // the historical fixed 0.4 s slide so they look unchanged.
+            if (const auto* v = js.find("barsSlideIn"))
+                s.barsSlideIn = (float)v->numberOr(kSeqBarsSlideDefault);
+            if (const auto* v = js.find("barsSlideOut"))
+                s.barsSlideOut = (float)v->numberOr(kSeqBarsSlideDefault);
+            if (s.barsSlideIn < 0.0f) s.barsSlideIn = 0.0f;
+            if (s.barsSlideOut < 0.0f) s.barsSlideOut = 0.0f;
             if (const auto* jt = js.find("tracks"); jt && jt->type == json::Value::Type::Array) {
                 for (const auto& jtr : jt->arr) {
                     SeqTrack t;

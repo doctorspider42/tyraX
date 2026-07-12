@@ -7066,7 +7066,9 @@ const std::vector<SceneObject>& App::cutscenePosedObjects() {
     // Widescreen bars + fades preview, overlaid on the viewport image where
     // it is drawn (same envelope math as the PS2 player).
     seqBarsStyleNow_ = s.bars;
-    seqBarsNow_ = s.bars != kSeqBarsNone ? seqBarsAmount(t, s.duration) : 0.0f;
+    seqBarsNow_ = s.bars != kSeqBarsNone
+                      ? seqBarsAmount(t, s.duration, s.barsSlideIn, s.barsSlideOut)
+                      : 0.0f;
     seqFadeNow_ = seqFadeAlpha(t, s.duration, s.fadeIn, s.fadeOut);
 
     return seqPosed_;
@@ -7202,8 +7204,28 @@ void App::drawCutsceneWindow() {
         changed = true;
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Solid black masks while the cutscene plays; they\n"
-                          "slide in at the start and out before the end.");
-    ImGui::SameLine(0.0f, 14.0f);
+                          "slide in at the start and out before the end (times\n"
+                          "below; 0 = they appear/vanish instantly).");
+    // Bars slide-in/out times, only meaningful when bars are on. Authored
+    // just like the fades, right next to them.
+    if (s.bars != kSeqBarsNone) {
+        ImGui::SameLine(0.0f, 14.0f);
+        ImGui::SetNextItemWidth(76.0f);
+        if (ImGui::DragFloat("Bars in", &s.barsSlideIn, 0.05f, 0.0f, 10.0f, "%.2f s"))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How long the bars take to slide in at the start.\n"
+                              "0 = they are there from the first frame.");
+        ImGui::SameLine(0.0f, 10.0f);
+        ImGui::SetNextItemWidth(76.0f);
+        if (ImGui::DragFloat("Bars out", &s.barsSlideOut, 0.05f, 0.0f, 10.0f, "%.2f s"))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How long the bars take to slide out before the\n"
+                              "end. 0 = they stay until the last frame.");
+        if (s.barsSlideIn < 0.0f) s.barsSlideIn = 0.0f;
+        if (s.barsSlideOut < 0.0f) s.barsSlideOut = 0.0f;
+    }
     ImGui::SetNextItemWidth(76.0f);
     if (ImGui::DragFloat("Fade in", &s.fadeIn, 0.05f, 0.0f, 10.0f, "%.2f s"))
         changed = true;

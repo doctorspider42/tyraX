@@ -6711,6 +6711,7 @@ std::string sequencesScript(const Project& p) {
            "                float shake; int ease; int camScene; int camObj; };\n"
            "struct Seq { const char* name; float duration; int loop; int camEnabled;\n"
            "             int bars; int skippable; float fadeIn; float fadeOut;\n"
+           "             float barsSlideIn; float barsSlideOut;  // bars reveal, s\n"
            "             float barTB; float barLR;  // mask coverage per edge\n"
            "             const Track* tracks; int trackCount;\n"
            "             const CamKey* camKeys; int camKeyCount; };\n\n";
@@ -6805,13 +6806,14 @@ std::string sequencesScript(const Project& p) {
             << floatLit(s.duration) << ", " << (s.loop ? 1 : 0) << ", "
             << (s.cameraEnabled ? 1 : 0) << ", " << s.bars << ", "
             << (s.skippable ? 1 : 0) << ", " << floatLit(s.fadeIn) << ", "
-            << floatLit(s.fadeOut) << ", " << floatLit(bt) << ", " << floatLit(bl)
-            << ", " << sp << "Tracks, " << s.tracks.size() << ", " << sp << "Cam, "
-            << s.cameraKeys.size() << "}";
+            << floatLit(s.fadeOut) << ", " << floatLit(s.barsSlideIn) << ", "
+            << floatLit(s.barsSlideOut) << ", " << floatLit(bt) << ", "
+            << floatLit(bl) << ", " << sp << "Tracks, " << s.tracks.size() << ", "
+            << sp << "Cam, " << s.cameraKeys.size() << "}";
     }
     if (p.sequences.empty())
-        out << "{\"\", 0.0F, 0, 0, 0, 0, 0.0F, 0.0F, 0.0F, 0.0F, nullptr, 0, "
-               "nullptr, 0}";  // non-empty array
+        out << "{\"\", 0.0F, 0, 0, 0, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, "
+               "nullptr, 0, nullptr, 0}";  // non-empty array
     out << "\n};\n"
         << "static const int kSeqCount = " << p.sequences.size() << ";\n\n";
 
@@ -6993,13 +6995,18 @@ class SequenceDirector : public Script {
       ctx.cameraAt.z = at[2];
       applyFov(ctx, fov);
     }
-    // Presentation: bars slide in/out over 0.4 s (mirrors seqBarsAmount),
-    // fades ramp from/to black (mirrors seqFadeAlpha).
+    // Presentation: bars slide in/out over the sequence's reveal times
+    // (mirrors seqBarsAmount; 0 = instant), fades ramp from/to black (mirrors
+    // seqFadeAlpha).
     if (s.bars > 0) {
       float a = 1.0F;
-      if (time_ < 0.4F) a = time_ / 0.4F;
-      const float left = s.duration - time_;
-      if (left < 0.4F && left / 0.4F < a) a = left / 0.4F;
+      if (s.barsSlideIn > 0.0F && time_ < s.barsSlideIn)
+        a = time_ / s.barsSlideIn;
+      if (s.barsSlideOut > 0.0F) {
+        const float left = s.duration - time_;
+        if (left < s.barsSlideOut && left / s.barsSlideOut < a)
+          a = left / s.barsSlideOut;
+      }
       ctx.barsStyle = s.bars;
       ctx.barsAmount = a < 0.0F ? 0.0F : (a > 1.0F ? 1.0F : a);
     } else {

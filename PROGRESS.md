@@ -144,6 +144,23 @@ Each finished feature lands as its own commit.
   bars overlay); the interactive feel of all four changes needs the user's
   hands-on pass.
 
+  **Configurable bars slide** (user request, same PR). The widescreen bars
+  used to slide in/out over a hardcoded 0.4 s; now each sequence carries
+  `barsSlideIn` / `barsSlideOut` (seconds, default 0.4, authored right next
+  to fade in/out and only shown when bars are on). 0 = the bars snap to full
+  coverage at the first frame / stay until the last one; larger = a slower
+  reveal. `seqBarsAmount()` takes the two times (the single source both the
+  editor preview and the emitted PS2 player call), the `Seq` codegen table
+  gained the two floats, and the runtime envelope reads them instead of the
+  0.4 constant (`kSeqBarsSlide` -> `kSeqBarsSlideDefault`). Projects authored
+  before this default the two to 0.4 on load, so they look unchanged.
+  Verified: editor rebuild links clean; the regenerated cutscene-demo
+  `sequences.gen.cpp` shows the `Seq` row carrying `0.4F, 0.4F` (the
+  backward-compat default, since the example predates the fields) and the
+  runtime envelope gated on `s.barsSlideIn`/`s.barsSlideOut`; the Docker
+  build compiled the widened struct clean. Exact slide timing on-screen
+  (vs the already-measured 2.40:1 bar coverage) wants a human eye.
+
   **Example project:** `examples/cutscene-demo` — a 14 s cutscene ("The
   Reveal") exercising every director feature at once: three Camera entities
   (one of them dollied by an object track), Step-easing hard cuts, shake,
