@@ -58,6 +58,14 @@ struct ScriptContext {
   // Write to show/hide all HUD images (the USE prompt is unaffected).
   bool hudVisible = true;
 
+  // On-screen texts (HUD_TEXTS order, hud_data.gen.hpp). Write 1 into
+  // textRequest[i] to show a text, 0 to hide it (-1 = leave). When showing,
+  // textDuration[i] > 0 auto-hides after that many seconds, 0 = the text
+  // stays until hidden. The game applies and resets requests every frame.
+  signed char* textRequest = nullptr;
+  float* textDuration = nullptr;
+  int textCount = 0;
+
   // Camera flashlight master switch (the Player object's "Enabled"). Write 1
   // to turn it on, 0 to turn it off, -1 to leave it unchanged; the game
   // applies and resets it. The optional toggle button still gates the beam.
@@ -123,6 +131,41 @@ struct ScriptContext {
   // Animated models: clip-name -> clip-index lookup for an object (-1 =
   // unknown clip / not an animated model). Set by the game at startup.
   int (*resolveClip)(int objectIndex, const char* clipName) = nullptr;
+
+  // Dynamic spawning (Spawn Object / Despawn Object flow nodes). spawnObject
+  // clones the authored object at templateIndex (the template itself is
+  // untouched) into a free runtime slot past the authored objects and
+  // returns its index into `objects` (-1 = pool full / bad template). The
+  // clone starts at (x, y, z) facing yaw degrees and carries the template's
+  // layer, so unloading that layer despawns it. despawnObject frees a
+  // spawned slot immediately; on an authored index it only deactivates (the
+  // layer streaming can re-activate authored objects). Set by the game.
+  int (*spawnObject)(int templateIndex, float x, float y, float z,
+                     float yaw) = nullptr;
+  void (*despawnObject)(int objectIndex) = nullptr;
+};
+
+/** Inputs and outputs of a custom flow-graph node (see flow_nodes.hpp).
+ * A `call = fn` custom node runs when an exec link reaches it; the game fills
+ * the input fields, calls fn(ctx, io), then latches whatever fn wrote into the
+ * output fields so downstream nodes (custom or built-in) can read them. Only
+ * the pins the node declared in its .flownode are meaningful; the rest keep
+ * their defaults. Object fields are indices into ctx.objects (-1 = none). */
+struct FlowNodeIO {
+  int self = -1;                 // object that owns the graph
+  // --- inputs (resolved fresh for this call) ---
+  int object = -1;               // the "target" object input (or self); -1 invalid
+  Tyra::Vec4 position;           // wired position input (0,0,0 if none)
+  bool boolIn = false;           // OR of wired bool inputs
+  const char* text = "";         // first wired text input ("" if none)
+  const float* num = nullptr;    // the node's num0..3 params
+  const char* str = "";          // the string param (when string = text)
+  // --- outputs (write the ones your node declares) ---
+  int objectOut = -1;            // an object index, e.g. a raycast/pick result
+  Tyra::Vec4 positionOut;
+  bool boolOut = false;
+  char* textOut = nullptr;       // write up to textOutCap bytes (NUL-terminated)
+  int textOutCap = 0;
 };
 
 /** Plays a named clip on an animated model object ("" = its first clip).

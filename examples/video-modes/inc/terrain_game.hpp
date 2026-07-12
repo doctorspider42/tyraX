@@ -145,6 +145,10 @@ class TerrainGame : public Tyra::Game {
  public:
   // Clip-name lookup for scripts/flow graph (ScriptContext::resolveClip).
   int resolveClipIndex(int objectIndex, const char* clipName) const;
+  // Dynamic spawning for scripts/flow graph (ScriptContext::spawnObject /
+  // despawnObject): clone an authored object into the spawn pool / free it.
+  int spawnObjectAt(int templateIndex, float x, float y, float z, float yaw);
+  void despawnObjectAt(int index);
 
  private:
   // Primitive materials: .mtl assigned to a box/sphere/... - the file's
@@ -185,10 +189,16 @@ class TerrainGame : public Tyra::Game {
   std::vector<unsigned char> layerState;   // 0 unloaded, 1 loading, 2 loaded
   std::vector<unsigned char> layerTarget;  // desired residency per layer
   std::vector<signed char> layerRequest;   // script requests (-1 = none)
+  std::vector<unsigned char> layerAutoInside;  // auto zones: focus inside?
   std::vector<int> streamQueue;            // (kind << 16) | asset index
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
   GeoPart skyDome;
+  // Re-centered on the camera every frame (renderScene) so a large map can
+  // never let the player walk (or climb) out from under the sky. The dome
+  // geometry stays static; only this translation matrix moves - one matrix
+  // set per frame, so following the camera costs nothing measurable.
+  Tyra::M4x4 skyMat = Tyra::M4x4::Identity;
   float skyHorizonR = 0, skyHorizonG = 0, skyHorizonB = 0;
   std::vector<Tyra::Sprite> hudSprites;
 
@@ -292,6 +302,18 @@ class TerrainGame : public Tyra::Game {
   bool updateGameMenu();
   void renderGameMenu();
   std::vector<Tyra::Sprite> menuSprites;
+  // Toggle/Choice entry values: one sub-rect sprite per menu into its baked
+  // value strip (menu_data.gen.hpp; only menus with such entries have one).
+  std::vector<Tyra::Sprite> menuValueSprites;
+
+  // On-screen texts (hud_data.gen.hpp): baked text sprites the Show Text /
+  // Hide Text flow nodes flip via ScriptContext; a positive timer auto-hides.
+  void updateAndRenderHudTexts();
+  std::vector<Tyra::Sprite> hudTextSprites;
+  std::vector<signed char> hudTextReq;   // ScriptContext::textRequest
+  std::vector<float> hudTextDur;         // ScriptContext::textDuration
+  std::vector<unsigned char> hudTextOn;  // visible this frame
+  std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;

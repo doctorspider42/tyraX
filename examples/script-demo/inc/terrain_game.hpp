@@ -303,6 +303,18 @@ class TerrainGame : public Tyra::Game {
   bool updateGameMenu();
   void renderGameMenu();
   std::vector<Tyra::Sprite> menuSprites;
+  // Toggle/Choice entry values: one sub-rect sprite per menu into its baked
+  // value strip (menu_data.gen.hpp; only menus with such entries have one).
+  std::vector<Tyra::Sprite> menuValueSprites;
+
+  // On-screen texts (hud_data.gen.hpp): baked text sprites the Show Text /
+  // Hide Text flow nodes flip via ScriptContext; a positive timer auto-hides.
+  void updateAndRenderHudTexts();
+  std::vector<Tyra::Sprite> hudTextSprites;
+  std::vector<signed char> hudTextReq;   // ScriptContext::textRequest
+  std::vector<float> hudTextDur;         // ScriptContext::textDuration
+  std::vector<unsigned char> hudTextOn;  // visible this frame
+  std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;

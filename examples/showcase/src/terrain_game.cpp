@@ -239,6 +239,17 @@ int animResolveClipThunk(int objectIndex, const char* clipName) {
   return g_animGame ? g_animGame->resolveClipIndex(objectIndex, clipName) : -1;
 }
 
+// Dynamic spawn pool size: at most this many live clones (Spawn Object flow
+// node) on top of the authored scene objects. Slots are recycled on despawn.
+constexpr int MAX_SPAWNED_OBJECTS = 32;
+int spawnObjectThunk(int templateIndex, float x, float y, float z, float yaw) {
+  return g_animGame ? g_animGame->spawnObjectAt(templateIndex, x, y, z, yaw)
+                    : -1;
+}
+void despawnObjectThunk(int objectIndex) {
+  if (g_animGame) g_animGame->despawnObjectAt(objectIndex);
+}
+
 // kd: material diffuse (MTL) multiplied into the object color, null = white.
 // textured: this batch draws with a texture (a model part's map_Kd or a
 // primitive material's) - switches the color to modulation scale (128 = 1.0).
@@ -588,6 +599,9 @@ void TerrainGame::init() {
   if (!FRAME_LIMIT) engine->renderer.core.setFrameLimit(false);
 
   stapip.setRenderer(&engine->renderer.core);
+  // Hidden "clipping": "vu1" mode: frustum-crossing packages are clipped by
+  // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
+  stapip.core.setVU1Clipping(CLIP_VU1);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
   // GS hardware distance fog (Scene/Project > Preferences > Fog).
@@ -669,16 +683,22 @@ void TerrainGame::init() {
 void TerrainGame::loop() {
   updateFrameClock();  // real dt: frame drops slow the picture, not the game
   const bool saveMenuActive = updateSaveMenu();
+  const bool gameMenuWasOpen = gameMenuIndex >= 0;  // before updateGameMenu()
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
   const bool menuActive = saveMenuActive || gameMenuPausing;
+  // An open menu owns the pad even when it doesn't pause the world (overlay
+  // menus, and the frame X closes a pausing menu): gameplay must not read that
+  // same press too, or the X that drives the menu also makes the player jump.
+  const bool menuOwnsPad =
+      saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0;
   g_gameplayPaused = menuActive;  // freezes particles + animation playback
-  if (!menuActive) {
+  if (!menuOwnsPad) {
     if (!updatePlayerEntity()) updatePlayer();
     updateUseTarget();
   }
 
   scriptCtx.playerPosition = cameraPosition;
-  if (menuActive) scriptCtx.usedObject = -1;
+  if (menuOwnsPad) { scriptCtx.usedObject = -1; useTargetIndex = -1; }
   // Menus pause scripts - except the frame a menu entry fires a flow event,
   // which must reach the On Menu Event triggers.
   if (!menuActive || scriptCtx.menuEvent >= 0)
@@ -794,7 +814,7 @@ void TerrainGame::loop() {
     gameMenuIndex = -1;
     gameMenuStackDepth = 0;
   }
-  if (flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
+  if (!menuOwnsPad && flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
   if (g_flashEnabled && g_flashOn) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
     engine->renderer.core.setSpotLight(
@@ -849,6 +869,8 @@ void TerrainGame::buildScene() {
   animDirLights.setLightsManually(animLightColors, animLightDirs);
   g_animGame = this;
   scriptCtx.resolveClip = &animResolveClipThunk;
+  scriptCtx.spawnObject = &spawnObjectThunk;
+  scriptCtx.despawnObject = &despawnObjectThunk;
 
   infoBag = std::make_unique<StaPipInfoBag>();
   infoBag->model = &model;
@@ -1187,6 +1209,19 @@ void TerrainGame::applyLayerResidency() {
     if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
       animNeed[d.animModel] = 1;
   }
+  // Active spawn-pool clones keep their template's assets resident even when
+  // the template's own layer is out (a clone from a no-layer template must
+  // never lose its model mid-frame; clones OF an unloading layer are already
+  // deactivated before this runs).
+  for (int i = SCENE_OBJECT_COUNT; i < (int)runtimeObjects.size(); ++i) {
+    if (!runtimeObjects[i].active) continue;
+    const SceneObjectData& d = runtimeObjects[i].data;
+    if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
+    if (d.material >= 0 && d.material < (int)materialNeed.size())
+      materialNeed[d.material] = 1;
+    if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
+      animNeed[d.animModel] = 1;
+  }
   if (TERRAIN_TEXTURE >= 0 && TERRAIN_TEXTURE < (int)texNeed.size())
     texNeed[TERRAIN_TEXTURE] = 1;
 
@@ -1224,6 +1259,20 @@ void TerrainGame::processOneStreamJob() {
     loadAnimModelAsset(index);
   else
     loadSceneTexture(index);
+
+  // A clone spawned before its template's assets were resident built empty
+  // geometry - re-arm it now that the asset landed (authored objects go
+  // through activateObject after the queue drains instead).
+  for (int i = SCENE_OBJECT_COUNT; i < (int)runtimeObjects.size(); ++i) {
+    RuntimeObject& o = runtimeObjects[i];
+    if (!o.active) continue;
+    if ((kind == 0 && o.data.model == index) ||
+        (kind == 1 && o.data.material == index) ||
+        (kind == 2 && o.data.animModel == index)) {
+      o.dirty = true;
+      if (kind == 2) setupAnimObject(i);
+    }
+  }
 }
 
 // Brings a streamed-in object back with fresh runtime state from the scene
@@ -1249,6 +1298,55 @@ void TerrainGame::deactivateObject(int i) {
   objectGeometry[i] = ObjectGeometry();
 }
 
+// --- Dynamic spawning (Spawn Object / Despawn Object flow nodes) ------------
+// Clones an authored scene object into a free pool slot past
+// SCENE_OBJECT_COUNT and returns its runtimeObjects index (-1 = pool full or
+// bad template). The template itself is untouched. The clone keeps the
+// template's layer, so unloading that layer despawns it too; its assets are
+// pinned by applyLayerResidency while it lives, and a clone spawned before
+// its model streamed in re-arms its geometry when the asset lands
+// (processOneStreamJob).
+int TerrainGame::spawnObjectAt(int templateIndex, float x, float y, float z,
+                               float yaw) {
+  if (templateIndex < 0 || templateIndex >= SCENE_OBJECT_COUNT) return -1;
+  int slot = -1;
+  for (int i = SCENE_OBJECT_COUNT; i < (int)runtimeObjects.size(); ++i)
+    if (!runtimeObjects[i].active) {
+      slot = i;
+      break;
+    }
+  if (slot < 0) return -1;  // MAX_SPAWNED_OBJECTS clones already live
+  RuntimeObject& o = runtimeObjects[slot];
+  o = RuntimeObject();
+  o.data = SCENE_OBJECTS[templateIndex];
+  o.data.position[0] = x;
+  o.data.position[1] = y;
+  o.data.position[2] = z;
+  o.data.rotation[1] = yaw;
+  o.data.saveState = false;  // clones are never persisted in save slots
+  // Same visibility rules as activateObject: markers stay invisible,
+  // disabled emitters too.
+  o.visible = o.data.type != 4 && o.data.type != 6 &&
+              !(o.data.type == 7 && !o.data.emitEnabled);
+  o.dirty = true;
+  objectGeometry[slot] = ObjectGeometry();
+  setupAnimObject(slot);
+  applyLayerResidency();  // queue the template's assets if not resident yet
+  if (o.data.type == 7) buildParticles();
+  return slot;
+}
+
+// Despawns a spawned clone immediately (its slot recycles). On an authored
+// object it only deactivates - the layer streaming can bring those back.
+void TerrainGame::despawnObjectAt(int index) {
+  if (index < 0 || index >= (int)runtimeObjects.size()) return;
+  if (!runtimeObjects[index].active) return;
+  const bool emitter = runtimeObjects[index].data.type == 7;
+  deactivateObject(index);
+  applyLayerResidency();  // free whatever only this clone still needed
+  if (emitter) buildParticles();
+}
+
 // Once per frame: applies the scripts' Load/Unload Layer requests, frees
 // unloading layers immediately, streams missing assets in ONE per frame and
 // then trickle-activates the loaded layer's objects a few per frame - the
@@ -1256,6 +1354,32 @@ void TerrainGame::deactivateObject(int i) {
 void TerrainGame::updateLayerStreaming() {
   const int lc = (int)layerTarget.size();
   if (lc == 0) return;
+
+  // Auto-streamed layers (Layers panel > Auto stream): crossing a zone
+  // boundary queues the same request a Load/Unload Layer node would, so
+  // scripts can still override a zone until the next crossing. The unload
+  // edge sits a hysteresis band beyond the radius - pacing along the border
+  // doesn't thrash. Focus = cameraLookAt (the player in FPP, the terrain
+  // center for orbit showcases).
+  if ((int)layerAutoInside.size() == lc) {
+    const float px = cameraLookAt.x;
+    const float pz = cameraLookAt.z;
+    for (int l = 0; l < lc; ++l) {
+      const float r = SCENE_LAYER_STREAM_R[l];
+      if (r <= 0.0F) continue;
+      const float dx = px - SCENE_LAYER_STREAM_X[l];
+      const float dz = pz - SCENE_LAYER_STREAM_Z[l];
+      const float d2 = dx * dx + dz * dz;
+      const float rOut = r * 1.15F + 8.0F;
+      if (!layerAutoInside[l] && d2 < r * r) {
+        layerAutoInside[l] = 1;
+        layerRequest[l] = 1;
+      } else if (layerAutoInside[l] && d2 > rOut * rOut) {
+        layerAutoInside[l] = 0;
+        layerRequest[l] = 0;
+      }
+    }
+  }
 
   bool changed = false;
   for (int l = 0; l < lc; ++l) {
@@ -1278,7 +1402,9 @@ void TerrainGame::updateLayerStreaming() {
     // pool may still point at a freed texture).
     bool anyOut = false;
     for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
-      const int l = SCENE_OBJECTS[i].layer;
+      // data.layer (the runtime copy) so spawned clones despawn with the
+      // layer their template belongs to - authored objects read the same.
+      const int l = runtimeObjects[i].data.layer;
       if (l >= 0 && l < lc && layerTarget[l] == 0 && runtimeObjects[i].active) {
         deactivateObject(i);
         anyOut = true;
@@ -1301,7 +1427,8 @@ void TerrainGame::updateLayerStreaming() {
   for (int l = 0; l < lc; ++l) anyLoading |= (layerState[l] == 1);
   if (!anyLoading) return;
   int budget = 4;
-  for (int i = 0; i < (int)runtimeObjects.size() && budget > 0; ++i) {
+  // Authored objects only: spawn-pool slots activate through spawnObjectAt.
+  for (int i = 0; i < SCENE_OBJECT_COUNT && budget > 0; ++i) {
     const int l = SCENE_OBJECTS[i].layer;
     if (l < 0 || l >= lc || layerState[l] != 1 || runtimeObjects[i].active)
       continue;
@@ -1312,7 +1439,7 @@ void TerrainGame::updateLayerStreaming() {
   for (int l = 0; l < lc; ++l) {
     if (layerState[l] != 1) continue;
     bool pending = false;
-    for (int i = 0; i < (int)runtimeObjects.size(); ++i)
+    for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
       if (SCENE_OBJECTS[i].layer == l && !runtimeObjects[i].active)
         pending = true;
     if (!pending) {
@@ -1811,11 +1938,41 @@ void TerrainGame::loadScene(int sceneIndex) {
 
   // Streaming layers: desired residency from the scene's authored defaults.
   {
+    // The previous scene's runtime objects (spawn-pool clones included) are
+    // gone from here on - drop their active flags BEFORE the residency math
+    // so no stale clone pins the old scene's assets under new-scene indices.
+    for (RuntimeObject& o : runtimeObjects) o.active = false;
     const int lc = SCENE_LAYER_COUNT;
     layerTarget.assign(lc > 0 ? lc : 0, 0);
     layerState.assign(lc > 0 ? lc : 0, 0);
     layerRequest.assign(lc > 0 ? lc : 0, -1);
-    for (int l = 0; l < lc; ++l) layerTarget[l] = SCENE_LAYER_START[l] ? 1 : 0;
+    layerAutoInside.assign(lc > 0 ? lc : 0, 0);
+    // Auto-streamed layers start resident only when the spawn point is
+    // inside their zone; everything else follows the authored Start loaded.
+    float spawnX = 0.0F, spawnZ = 0.0F;
+    if (PLAYER_INDEX >= 0) {
+      spawnX = SCENE_OBJECTS[PLAYER_INDEX].position[0];
+      spawnZ = SCENE_OBJECTS[PLAYER_INDEX].position[2];
+    } else {
+      for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+        if (SCENE_OBJECTS[i].type == 4) {  // spawn point (built-in FPP)
+          spawnX = SCENE_OBJECTS[i].position[0];
+          spawnZ = SCENE_OBJECTS[i].position[2];
+          break;
+        }
+    }
+    for (int l = 0; l < lc; ++l) {
+      const float r = SCENE_LAYER_STREAM_R[l];
+      if (r > 0.0F) {
+        const float dx = spawnX - SCENE_LAYER_STREAM_X[l];
+        const float dz = spawnZ - SCENE_LAYER_STREAM_Z[l];
+        const bool inside = dx * dx + dz * dz < r * r;
+        layerTarget[l] = inside ? 1 : 0;
+        layerAutoInside[l] = inside ? 1 : 0;
+      } else {
+        layerTarget[l] = SCENE_LAYER_START[l] ? 1 : 0;
+      }
+    }
     applyLayerResidency();
     while (!streamQueue.empty()) processOneStreamJob();
     for (int l = 0; l < lc; ++l) layerState[l] = layerTarget[l] ? 2 : 0;
@@ -1831,6 +1988,8 @@ void TerrainGame::loadScene(int sceneIndex) {
     skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
     buildSkyDome();
   }
+  // Per-scene clipping override may flip the hidden VU1 clipping mode.
+  stapip.core.setVU1Clipping(CLIP_VU1);
   // Per-scene sky color (the loop paints the clear screen from ctx.skyColor)
   // and post effects.
   scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
@@ -1850,9 +2009,17 @@ void TerrainGame::loadScene(int sceneIndex) {
   g_flashEnabled = FLASHLIGHT_ENABLED;
   g_flashOn = true;
 
-  runtimeObjects.assign(SCENE_OBJECT_COUNT, RuntimeObject());
+  // Authored objects + the dynamic spawn pool (Spawn Object flow node).
+  runtimeObjects.assign(SCENE_OBJECT_COUNT + MAX_SPAWNED_OBJECTS,
+                        RuntimeObject());
   objectGeometry.clear();
-  objectGeometry.resize(SCENE_OBJECT_COUNT);
+  objectGeometry.resize(SCENE_OBJECT_COUNT + MAX_SPAWNED_OBJECTS);
+  // Pool slots start empty - data arrives from a template at spawn time.
+  for (int i = SCENE_OBJECT_COUNT; i < (int)runtimeObjects.size(); ++i) {
+    runtimeObjects[i].active = false;
+    runtimeObjects[i].visible = false;
+    runtimeObjects[i].dirty = false;
+  }
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     runtimeObjects[i].data = SCENE_OBJECTS[i];
     // spawn points and the player are editor markers, not geometry; emitters
@@ -2010,7 +2177,7 @@ void TerrainGame::buildParticles() {
     ParticleSystem ps;
     ps.objectIndex = i;
     ps.rng = 12345u + (unsigned int)i * 7919u;
-    int n = SCENE_OBJECTS[i].emitCount;
+    int n = runtimeObjects[i].data.emitCount;  // data copy: spawn slots too
     if (n < 1) n = 1;
     if (n > 256) n = 256;
     ps.pos.assign(n, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
@@ -2034,7 +2201,7 @@ void TerrainGame::buildParticles() {
     // Textured particles: the emitter's material supplies the map (its Kd is
     // ignored - the emitter color is the tint). UVs are fixed per quad in the
     // v0,v1,v2 / v0,v2,v3 vertex order used by updateParticles().
-    const int mi = SCENE_OBJECTS[i].material;
+    const int mi = runtimeObjects[i].data.material;  // data copy: spawn slots too
     if (mi >= 0 && mi < (int)gameMaterials.size() && gameMaterials[mi].texture) {
       ps.sts.reserve((size_t)n * 6);
       for (int q = 0; q < n; ++q) {
@@ -2366,8 +2533,8 @@ void TerrainGame::doSave(int slot) {
     snprintf(d.texts[i], SAVE_TEXT_LEN, "%s", &saveTexts[i * SAVE_TEXT_LEN]);
   d.objectCount = 0;
   for (int i = 0;
-       i < (int)runtimeObjects.size() && d.objectCount < SAVE_OBJECT_MAX; ++i) {
-    if (!SCENE_OBJECTS[i].saveState) continue;
+       i < SCENE_OBJECT_COUNT && d.objectCount < SAVE_OBJECT_MAX; ++i) {
+    if (!SCENE_OBJECTS[i].saveState) continue;  // spawn clones never persist
     SaveObjectState& st = d.objects[d.objectCount++];
     st.index = i;
     for (int a = 0; a < 3; ++a) st.position[a] = runtimeObjects[i].data.position[a];

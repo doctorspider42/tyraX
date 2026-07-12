@@ -3415,6 +3415,29 @@ Each finished feature lands as its own commit.
   wall, the 0.15 build a solid wall. Ceiling clamp compiles (PS2 toolchain)
   and the codegen was inspected in both walkers; jump feel needs a pad test.
 
+- (64) **Open menu blocks gameplay input** - pressing X while a menu was open
+  also reached the player (the character jumped, use targets fired) because
+  the loop gated player movement, the use target and the flashlight toggle on
+  `menuActive` = "a *pausing* menu is open". Overlay (non-pausing) menus, and
+  the single frame X closes a pausing menu, left `menuActive` false, so the
+  same click that drove the menu also drove gameplay. Both walkers (orbit/
+  terrain loop and the FPP loop) now compute a separate `menuOwnsPad` -
+  `saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0` (a game menu open
+  at any point this frame, plus the save menu which already owns its pad
+  through its close frame) - and gate `updatePlayerEntity`/`updatePlayer`/
+  `updateCameraOrbit`, `updateUseTarget` and `flashlightTogglePressed` on it,
+  also clearing `usedObject`/`useTargetIndex` while a menu owns the pad so a
+  stale USE prompt/trigger can't leak through an overlay menu. `menuActive`
+  still gates world-sim pausing (physics, particles, animation, scripts) so
+  overlay menus keep the world running as before. Codegen inspected in both
+  loop templates; needs a PCSX2 pad test (open an overlay menu, press X - the
+  entry selects and the player no longer jumps). All five example projects
+  (custom-nodes, layer-streaming, script-demo, showcase, video-modes) were
+  regenerated in the same commit and rebuilt clean in Docker ("Build OK"), so
+  the generated game (this fix included) compiles on the PS2 toolchain; the
+  regen also pulled in accumulated codegen drift these samples had missed
+  (VU1-clipping toggle, data-driven USE prompt, menu value strips).
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)
