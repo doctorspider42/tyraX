@@ -1135,6 +1135,10 @@ std::string load(Project& out, const std::string& projectDir) {
 
     out = Project{};
     out.dir = fs::path(projectDir).string();
+    // Register the project's custom flow nodes BEFORE the graphs are parsed:
+    // readFlowGraph drops any node whose type is unknown (line ~156), so a
+    // "custom:*" node only survives the load if its .flownode file is present.
+    flownode::loadForProject(out.dir);
     if (const auto* v = root.find("name")) out.name = v->stringOr("");
     if (out.name.empty())
         return tyraPath.filename().string() + " is malformed (no name)";
@@ -1796,7 +1800,8 @@ std::string refreshGenerated(const Project& p) {
         } else if (f.relativePath == "src\\terrain_game.cpp" ||
                    f.relativePath == "inc\\terrain_game.hpp" ||
                    f.relativePath == "inc\\controls.hpp" ||
-                   f.relativePath == "inc\\scripts\\script.hpp") {
+                   f.relativePath == "inc\\scripts\\script.hpp" ||
+                   f.relativePath == "inc\\scripts\\flow_nodes.hpp") {
             // Regenerate while the ownership marker is present, or when the
             // file is byte-identical to an old template (never user-edited).
             std::ifstream existing(path, std::ios::binary);

@@ -15,6 +15,12 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the game loads/unloads from memory at runtime (GTA3-style interior
   streaming): the Layers panel, the Load / Unload / Is Layer Loaded flow
   nodes, the corridor trigger pattern, what gets freed, troubleshooting.
+- [Custom flow-graph nodes](custom-flow-nodes.md) - defining your own Flow
+  Graph action nodes in `.flownode` text files (no editor rebuild): inline C++
+  snippets with `{placeholders}`, or `call = fn` nodes backed by a real
+  function in `flow_nodes.hpp` with input/output pins of any kind (object
+  outputs work as runtime refs into built-in nodes), and how to copy a node to
+  another project.
 
 Developer design docs (internals, not user guides):
 

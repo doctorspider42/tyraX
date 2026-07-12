@@ -1,0 +1,9 @@
+# Inline custom node (no C++ file needed): a few lines with {placeholders}
+# substituted at build. Adds {num0} degrees to the target object's yaw.
+title = Spin By
+category = Custom
+string = object
+num0 = Degrees
+---
+ctx.objects[{obj}].data.rotation[1] += {num0};
+ctx.objects[{obj}].dirty = true;

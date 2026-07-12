@@ -47,6 +47,16 @@ whatever the change affected.
   generated files drift silently otherwise) and update their READMEs. See
   `tyra-editor-dev` for the regenerate flow and `tyra-testing` for verifying it.
 
+- **A new example project** — for a **larger, user-facing feature** (a new
+  flow-node family, object type, editor subsystem, whole workflow), proactively
+  **propose adding a small dedicated demo under `examples/`** — a focused
+  per-feature project (like `examples/layer-streaming` or `examples/custom-nodes`)
+  with its own README saying what to do and how it's wired. Examples are the
+  most discoverable docs there are. Scaffold via `--new`, overlay the scene/
+  assets, `--build` so the committed generated files are fresh, and verify it
+  boots (see `tyra-testing`). Don't force one for a small tweak; do offer it
+  whenever a feature is big enough that a user would want to see it in action.
+
 - **`CLAUDE.md`** — only when a project-wide, always-on rule changes (it is the
   always-loaded instruction file; keep it tiny).
 
