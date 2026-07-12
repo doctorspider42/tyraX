@@ -628,6 +628,18 @@ class TerrainGame : public Tyra::Game {
   bool updateGameMenu();
   void renderGameMenu();
   std::vector<Tyra::Sprite> menuSprites;
+  // Toggle/Choice entry values: one sub-rect sprite per menu into its baked
+  // value strip (menu_data.gen.hpp; only menus with such entries have one).
+  std::vector<Tyra::Sprite> menuValueSprites;
+
+  // On-screen texts (hud_data.gen.hpp): baked text sprites the Show Text /
+  // Hide Text flow nodes flip via ScriptContext; a positive timer auto-hides.
+  void updateAndRenderHudTexts();
+  std::vector<Tyra::Sprite> hudTextSprites;
+  std::vector<signed char> hudTextReq;   // ScriptContext::textRequest
+  std::vector<float> hudTextDur;         // ScriptContext::textDuration
+  std::vector<unsigned char> hudTextOn;  // visible this frame
+  std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
@@ -938,6 +950,18 @@ class TerrainGame : public Tyra::Game {
   bool updateGameMenu();
   void renderGameMenu();
   std::vector<Tyra::Sprite> menuSprites;
+  // Toggle/Choice entry values: one sub-rect sprite per menu into its baked
+  // value strip (menu_data.gen.hpp; only menus with such entries have one).
+  std::vector<Tyra::Sprite> menuValueSprites;
+
+  // On-screen texts (hud_data.gen.hpp): baked text sprites the Show Text /
+  // Hide Text flow nodes flip via ScriptContext; a positive timer auto-hides.
+  void updateAndRenderHudTexts();
+  std::vector<Tyra::Sprite> hudTextSprites;
+  std::vector<signed char> hudTextReq;   // ScriptContext::textRequest
+  std::vector<float> hudTextDur;         // ScriptContext::textDuration
+  std::vector<unsigned char> hudTextOn;  // visible this frame
+  std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
@@ -1585,13 +1609,16 @@ void TerrainGame::init() {
     texture->addLink(hudSprites.back().id);
   }
 
-  // "USE" prompt (res/hud/use.png), shown while looking at a usable object
+  // "USE" prompt, shown while looking at a usable object. Placement and
+  // image come from hud_data.gen.hpp (Tools > UI Editor - the built-in
+  // hud/use.png unless a custom sprite replaces it).
   usePromptSprite.mode = SpriteMode::MODE_STRETCH;
-  usePromptSprite.size = Vec2(128.0F, 32.0F);
-  usePromptSprite.position = Vec2((screen.getWidth() - 128.0F) * 0.5F,
-                                  screen.getHeight() * 0.72F);
-  auto* useTexture =
-      engine->renderer.getTextureRepository().add(FileUtils::fromCwd("hud/use.png"));
+  usePromptSprite.size = Vec2(USE_PROMPT_W, USE_PROMPT_H);
+  usePromptSprite.position =
+      Vec2(USE_PROMPT_X * screen.getWidth() - USE_PROMPT_W * 0.5F,
+           USE_PROMPT_Y * screen.getHeight() - USE_PROMPT_H * 0.5F);
+  auto* useTexture = engine->renderer.getTextureRepository().add(
+      FileUtils::fromCwd(USE_PROMPT_PATH));
   useTexture->addLink(usePromptSprite.id);
 
   // Loading screen sprite (res/hud/loading.png), shown on scene switches
@@ -1738,6 +1765,7 @@ void TerrainGame::loop() {
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
+    updateAndRenderHudTexts();
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine);
@@ -1840,9 +1868,51 @@ void TerrainGame::buildScene() {
           FileUtils::fromCwd(m.panel));
       t->addLink(menuSprites.back().id);
     }
+    // Toggle/Choice value strips: a sub-rect sprite per menu (MODE_REPEAT
+    // samples [offset, offset+size] texels - the debug glyph atlas trick).
+    // renderGameMenu moves offset/position to the active cell each frame.
+    menuValueSprites.clear();
+    menuValueSprites.reserve(MENU_COUNT);
+    for (int i = 0; i < MENU_COUNT; ++i) {
+      const MenuData& m = MENUS[i];
+      Sprite s;
+      s.mode = SpriteMode::MODE_REPEAT;
+      s.size = Vec2((float)m.valueCellW, (float)m.valueCellH);
+      menuValueSprites.push_back(s);
+      if (m.values[0] == '\0') continue;  // no value entries in this menu
+      auto* t = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd(m.values));
+      t->addLink(menuValueSprites.back().id);
+    }
     setupSprite(menuCursorSprite, "hud/save-cursor.png", 16, 16, 0.0F, 0.0F);
     setupSprite(menuDimSprite, "hud/menu-dim.png", scr.getWidth(),
                 scr.getHeight(), 0.0F, 0.0F);
+
+    // On-screen texts (hud_data.gen.hpp): baked sprites toggled by the
+    // Show Text / Hide Text flow nodes through scriptCtx (wired here, before
+    // the scripts' init runs from the game init).
+    hudTextSprites.clear();
+    hudTextSprites.reserve(HUD_TEXT_COUNT);
+    hudTextReq.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, -1);
+    hudTextDur.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, 0.0F);
+    hudTextOn.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, 0);
+    hudTextTimer.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, 0.0F);
+    for (int i = 0; i < HUD_TEXT_COUNT; ++i) {
+      const HudTextData& t = HUD_TEXTS[i];
+      Sprite s;
+      s.mode = SpriteMode::MODE_STRETCH;
+      s.size = Vec2((float)t.w, (float)t.h);
+      s.position = Vec2(t.x * scr.getWidth() - t.w * 0.5F,
+                        t.y * scr.getHeight() - t.h * 0.5F);
+      hudTextSprites.push_back(s);
+      auto* tex = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd(t.path));
+      tex->addLink(hudTextSprites.back().id);
+      hudTextOn[i] = (unsigned char)t.visible;
+    }
+    scriptCtx.textRequest = hudTextReq.data();
+    scriptCtx.textDuration = hudTextDur.data();
+    scriptCtx.textCount = HUD_TEXT_COUNT;
     if (TITLE_MENU >= 0) {
       gameMenuIndex = TITLE_MENU;
       gameMenuCursor = 0;
@@ -3377,6 +3447,24 @@ bool TerrainGame::updateGameMenu() {
   if (clicked.DpadDown && m.entryCount > 0)
     gameMenuCursor = (gameMenuCursor + 1) % m.entryCount;
 
+  // Toggle/Choice rows: the state is the bound save value (the option
+  // index). Cross and dpad right cycle forward, dpad left backward.
+  auto cycleValue = [&](const MenuEntryData& e, int dir) {
+    if (e.param < 0 || e.param >= SAVE_VALUE_COUNT || e.optionCount <= 0)
+      return;
+    int v = (int)saveValues[e.param];
+    if (v < 0) v = 0;
+    if (v >= e.optionCount) v = e.optionCount - 1;
+    saveValues[e.param] = (float)((v + dir + e.optionCount) % e.optionCount);
+  };
+  if (gameMenuCursor >= 0 && gameMenuCursor < m.entryCount) {
+    const MenuEntryData& cur = m.entries[gameMenuCursor];
+    if (cur.action == 7 || cur.action == 8) {
+      if (clicked.DpadLeft) cycleValue(cur, -1);
+      if (clicked.DpadRight) cycleValue(cur, 1);
+    }
+  }
+
   if (clicked.Triangle) {
     if (gameMenuStackDepth > 0) {
       gameMenuIndex = gameMenuStack[--gameMenuStackDepth];
@@ -3425,6 +3513,10 @@ bool TerrainGame::updateGameMenu() {
       case 6:  // flow event: scripts run this frame to catch it
         scriptCtx.menuEvent = e.param;
         break;
+      case 7:  // toggle - flip/cycle the bound save value (menu stays open)
+      case 8:  // choice
+        cycleValue(e, 1);
+        break;
     }
   }
   return pausing();
@@ -3442,6 +3534,46 @@ void TerrainGame::renderGameMenu() {
         Vec2(panel.position.x + 32.0F,
              panel.position.y + m.row0Y + gameMenuCursor * m.rowH + 1.0F);
     engine->renderer.renderer2D.render(menuCursorSprite);
+  }
+  // Toggle/Choice rows: the current option label, a cell of the baked value
+  // strip drawn right-aligned on the row (cell right edge 24px from the
+  // panel's right border - the mirror of the 56px label margin).
+  if (m.values[0] != '\0' &&
+      gameMenuIndex < (int)menuValueSprites.size()) {
+    Sprite& vs = menuValueSprites[gameMenuIndex];
+    for (int i = 0; i < m.entryCount; ++i) {
+      const MenuEntryData& e = m.entries[i];
+      if (e.cell < 0 || e.optionCount <= 0) continue;
+      int v = (e.param >= 0 && e.param < SAVE_VALUE_COUNT)
+                  ? (int)saveValues[e.param]
+                  : 0;
+      if (v < 0) v = 0;
+      if (v >= e.optionCount) v = e.optionCount - 1;
+      vs.offset = Vec2(0.0F, (float)((e.cell + v) * m.valuePitch));
+      vs.position = Vec2(panel.position.x + m.valueX,
+                         panel.position.y + m.row0Y + i * m.rowH);
+      engine->renderer.renderer2D.render(vs);
+    }
+  }
+}
+
+// On-screen texts: apply the frame's Show/Hide Text requests, tick the
+// auto-hide timers, draw what is visible. Baked sprites - one 2D quad each.
+void TerrainGame::updateAndRenderHudTexts() {
+  for (int i = 0; i < (int)hudTextSprites.size(); ++i) {
+    if (scriptCtx.textRequest && scriptCtx.textRequest[i] >= 0) {
+      hudTextOn[i] = scriptCtx.textRequest[i] != 0 ? 1 : 0;
+      hudTextTimer[i] = hudTextOn[i] ? scriptCtx.textDuration[i] : 0.0F;
+      scriptCtx.textRequest[i] = -1;
+    }
+    if (hudTextOn[i] && hudTextTimer[i] > 0.0F) {
+      hudTextTimer[i] -= g_frameDt;
+      if (hudTextTimer[i] <= 0.0F) {
+        hudTextOn[i] = 0;
+        hudTextTimer[i] = 0.0F;
+      }
+    }
+    if (hudTextOn[i]) engine->renderer.renderer2D.render(hudTextSprites[i]);
   }
 }
 
@@ -4319,13 +4451,16 @@ void TerrainGame::init() {
     texture->addLink(hudSprites.back().id);
   }
 
-  // "USE" prompt (res/hud/use.png), shown while looking at a usable object
+  // "USE" prompt, shown while looking at a usable object. Placement and
+  // image come from hud_data.gen.hpp (Tools > UI Editor - the built-in
+  // hud/use.png unless a custom sprite replaces it).
   usePromptSprite.mode = SpriteMode::MODE_STRETCH;
-  usePromptSprite.size = Vec2(128.0F, 32.0F);
-  usePromptSprite.position = Vec2((screen.getWidth() - 128.0F) * 0.5F,
-                                  screen.getHeight() * 0.72F);
-  auto* useTexture =
-      engine->renderer.getTextureRepository().add(FileUtils::fromCwd("hud/use.png"));
+  usePromptSprite.size = Vec2(USE_PROMPT_W, USE_PROMPT_H);
+  usePromptSprite.position =
+      Vec2(USE_PROMPT_X * screen.getWidth() - USE_PROMPT_W * 0.5F,
+           USE_PROMPT_Y * screen.getHeight() - USE_PROMPT_H * 0.5F);
+  auto* useTexture = engine->renderer.getTextureRepository().add(
+      FileUtils::fromCwd(USE_PROMPT_PATH));
   useTexture->addLink(usePromptSprite.id);
 
   // Loading screen sprite (res/hud/loading.png), shown on scene switches
@@ -4499,6 +4634,7 @@ void TerrainGame::loop() {
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
+    updateAndRenderHudTexts();
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine);
@@ -5176,6 +5312,14 @@ struct ScriptContext {
   // Write to show/hide all HUD images (the USE prompt is unaffected).
   bool hudVisible = true;
 
+  // On-screen texts (HUD_TEXTS order, hud_data.gen.hpp). Write 1 into
+  // textRequest[i] to show a text, 0 to hide it (-1 = leave). When showing,
+  // textDuration[i] > 0 auto-hides after that many seconds, 0 = the text
+  // stays until hidden. The game applies and resets requests every frame.
+  signed char* textRequest = nullptr;
+  float* textDuration = nullptr;
+  int textCount = 0;
+
   // Camera flashlight master switch (the Player object's "Enabled"). Write 1
   // to turn it on, 0 to turn it off, -1 to leave it unchanged; the game
   // applies and resets it. The optional toggle button still gates the beam.
@@ -5522,11 +5666,16 @@ function RunPCSX2 {
 }
 )PS1";
 
+// docker-compose.yml is regenerated on every build (refreshGenerated) and
+// carries a machine-specific absolute path to the engine sources plus a hash
+// derived from it - never worth committing (it just churns and leaks the
+// author's local path).
 static const char* TPL_GITIGNORE = R"(obj/
 bin/*.elf
 *.history
 .vscode/
 .res-baked/
+docker-compose.yml
 )";
 
 static const char* TPL_DIR_KEEP = "*\n!.gitignore\n";
@@ -6242,6 +6391,11 @@ std::string flowGraphScript(const Project& p) {
             if (p.menus[i].name == name) return (int)i;
         return -1;
     };
+    auto hudTextIndex = [&](const std::string& name) {
+        for (size_t i = 0; i < p.hudTexts.size(); ++i)
+            if (p.hudTexts[i].name == name) return (int)i;
+        return -1;
+    };
     // Same list as menu_data.gen.hpp MENU_EVENTS - indices must agree.
     const std::vector<std::string> menuEvents = collectMenuEvents(p);
     auto menuEventIndex = [&](const std::string& name) {
@@ -6800,6 +6954,23 @@ std::string flowGraphScript(const Project& p) {
                 c << pad << "ctx.hudVisible = false;\n";
             } else if (n.type == "ToggleHud") {
                 c << pad << "ctx.hudVisible = !ctx.hudVisible;\n";
+            } else if (n.type == "ShowText" || n.type == "HideText") {
+                const int ti = hudTextIndex(n.str);
+                if (ti < 0) {
+                    // Texts removed from the project just stop being shown.
+                    c << pad << "// node " << n.id << " (" << n.type
+                      << "): unknown text '" << n.str << "'\n";
+                } else if (n.type == "ShowText") {
+                    float secs = n.num[0];
+                    if (secs < 0.0f) secs = 0.0f;
+                    c << pad << "ctx.textRequest[" << ti << "] = 1;  // \"" << n.str
+                      << "\"\n"
+                      << pad << "ctx.textDuration[" << ti << "] = " << floatLit(secs)
+                      << ";\n";
+                } else {
+                    c << pad << "ctx.textRequest[" << ti << "] = 0;  // \"" << n.str
+                      << "\"\n";
+                }
             } else if (n.type == "StopMusic") {
                 c << pad << "ctx.engine->audio.song.stop();\n";
             } else if (n.type == "PlaySound") {
@@ -7352,7 +7523,46 @@ static std::string hudDataHeader(const Project& p) {
            "// top. -1 = at end of frame, over everything including menus. Bloom\n"
            "// carries color grading; film grain is placed independently.\n"
         << "constexpr int HUD_BLOOM_LAYER = " << p.hudBloomLayer << ";\n"
-        << "constexpr int HUD_GRAIN_LAYER = " << p.hudGrainLayer << ";\n"
+        << "constexpr int HUD_GRAIN_LAYER = " << p.hudGrainLayer << ";\n";
+
+    // The USE prompt (Tools > UI Editor): the built-in hud/use.png unless a
+    // custom image replaces it; placement is normalized, center anchor.
+    std::string usePath = p.usePrompt.imagePath;
+    if (usePath.rfind("res/", 0) == 0) usePath = usePath.substr(4);
+    if (usePath.empty()) usePath = "hud/use.png";
+    out << "\n// The USE prompt sprite (shown while looking at a usable object)\n"
+        << "constexpr const char* USE_PROMPT_PATH = \"" << usePath << "\";\n"
+        << "constexpr float USE_PROMPT_X = " << floatLit(p.usePrompt.pos[0])
+        << ";  // normalized, center anchor\n"
+        << "constexpr float USE_PROMPT_Y = " << floatLit(p.usePrompt.pos[1]) << ";\n"
+        << "constexpr float USE_PROMPT_W = " << floatLit(p.usePrompt.size[0])
+        << ";  // on-screen pixels\n"
+        << "constexpr float USE_PROMPT_H = " << floatLit(p.usePrompt.size[1]) << ";\n";
+
+    // On-screen texts, baked to res/hud/text-*.png sprites by the editor
+    // (menubake). Shown/hidden by the Show Text / Hide Text flow nodes.
+    out << "\nstruct HudTextData {\n"
+           "  const char* path;  // baked text sprite, relative to the ELF\n"
+           "  float x, y;        // normalized screen position, center anchor\n"
+           "  int w, h;          // texture size (pow2; content centered)\n"
+           "  int visible;       // 1 = shown when the game starts\n"
+           "};\n\n"
+        << "constexpr int HUD_TEXT_COUNT = " << p.hudTexts.size() << ";\n"
+        << "inline const HudTextData HUD_TEXTS[HUD_TEXT_COUNT > 0 ? "
+           "HUD_TEXT_COUNT : 1] = {\n";
+    if (p.hudTexts.empty()) {
+        out << "    {\"\", 0, 0, 0, 0, 0},\n";
+    } else {
+        for (const HudText& t : p.hudTexts) {
+            int tw = 8, th = 8;  // fallback if no usable font (bake errors out)
+            menubake::textLayout(t, p.dir, tw, th);
+            out << "    {\"hud/" << menubake::textFileName(t.name) << "\", "
+                << floatLit(t.pos[0]) << ", " << floatLit(t.pos[1]) << ", " << tw
+                << ", " << th << ", " << (t.visibleAtStart ? 1 : 0) << "},  // "
+                << t.name << "\n";
+        }
+    }
+    out << "};\n"
         << "\n}  // namespace " << ns << "\n";
     return out.str();
 }
@@ -7406,11 +7616,15 @@ static std::string menuDataHeader(const Project& p) {
         << " {\n\n"
            "// Menu entry actions: 0 close, 1 switch scene, 2 open save menu,\n"
            "// 3 open menu (submenu), 4 set save value, 5 add to save value,\n"
-           "// 6 fire flow event. param = resolved index, -1 = unknown target.\n"
+           "// 6 fire flow event, 7 toggle, 8 choice (7/8: param = the save\n"
+           "// value holding the option index). param = resolved index, -1 =\n"
+           "// unknown target.\n"
            "struct MenuEntryData {\n"
            "  int action;\n"
            "  int param;\n"
            "  float amount;\n"
+           "  int optionCount;  // toggle/choice: how many options cycle\n"
+           "  int cell;         // first cell in the value strip (-1 = none)\n"
            "};\n\n"
            "struct MenuData {\n"
            "  const char* panel;  // baked panel sprite, relative to the ELF\n"
@@ -7422,6 +7636,11 @@ static std::string menuDataHeader(const Project& p) {
            "  int titleScreen;    // 1 = opens at game start\n"
            "  int pause;          // 1 = gameplay freezes + dim overlay\n"
            "  float screenX, screenY;  // normalized panel-center position\n"
+           "  // Toggle/Choice value strip (\"\" = this menu has none): cell\n"
+           "  // geometry mirrors menubake::valueStripLayout; valueX is the\n"
+           "  // cell's left edge relative to the panel's left edge.\n"
+           "  const char* values;\n"
+           "  int valueCellW, valueCellH, valuePitch, valueX;\n"
            "};\n\n"
         << "constexpr int MENU_COUNT = " << p.menus.size() << ";\n\n";
 
@@ -7430,11 +7649,12 @@ static std::string menuDataHeader(const Project& p) {
         const int entries = (int)m.entries.size() > menubake::kMaxEntries
                                 ? menubake::kMaxEntries
                                 : (int)m.entries.size();
+        const menubake::ValueStripLayout vl = menubake::valueStripLayout(m);
         out << "// menu \"" << m.name << "\"\n"
             << "constexpr MenuEntryData MENU_" << mi << "_ENTRIES["
             << (entries > 0 ? entries : 1) << "] = {\n";
         if (entries == 0) {
-            out << "    {0, -1, 0.0F},\n";
+            out << "    {0, -1, 0.0F, 0, -1},\n";
         } else {
             for (int e = 0; e < entries; ++e) {
                 const MenuEntry& en = m.entries[e];
@@ -7443,18 +7663,24 @@ static std::string menuDataHeader(const Project& p) {
                     case MenuEntry::SwitchScene: param = sceneIndexOf(en.param); break;
                     case MenuEntry::OpenMenu: param = menuIndexOf(en.param); break;
                     case MenuEntry::SetValue:
-                    case MenuEntry::AddValue: param = valueIndexOf(en.param); break;
+                    case MenuEntry::AddValue:
+                    case MenuEntry::Toggle:
+                    case MenuEntry::Choice: param = valueIndexOf(en.param); break;
                     case MenuEntry::FlowEvent: param = eventIndexOf(en.param); break;
                     default: break;
                 }
+                const int optionCount =
+                    (int)menubake::entryOptionLabels(en).size();
+                const int cell = e < (int)vl.firstCell.size() ? vl.firstCell[e] : -1;
                 out << "    {" << en.action << ", " << param << ", "
-                    << floatLit(en.amount) << "},  // " << en.label << "\n";
+                    << floatLit(en.amount) << ", " << optionCount << ", " << cell
+                    << "},  // " << en.label << "\n";
             }
         }
         out << "};\n";
     }
     if (p.menus.empty())
-        out << "constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F}};\n";
+        out << "constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F, 0, -1}};\n";
 
     int titleMenu = -1;
     for (size_t mi = 0; mi < p.menus.size(); ++mi)
@@ -7466,7 +7692,8 @@ static std::string menuDataHeader(const Project& p) {
 
     out << "\ninline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {\n";
     if (p.menus.empty()) {
-        out << "    {\"\", 0, 0, 0, 0, 0, 0, MENU_0_ENTRIES, 0, 0, 0.5F, 0.45F},\n";
+        out << "    {\"\", 0, 0, 0, 0, 0, 0, MENU_0_ENTRIES, 0, 0, 0.5F, 0.45F, "
+               "\"\", 0, 0, 0, 0},\n";
         // (unreachable - MENU_COUNT is 0; the dummy keeps the array valid)
     } else {
         for (size_t mi = 0; mi < p.menus.size(); ++mi) {
@@ -7477,12 +7704,21 @@ static std::string menuDataHeader(const Project& p) {
             // Layout depends on the custom images (flow blocks push the
             // cursor rows down) - the baker is the single source of truth.
             const menubake::PanelLayout l = menubake::panelLayout(m, p.dir);
+            const menubake::ValueStripLayout vl = menubake::valueStripLayout(m);
+            const bool hasValues = menubake::menuHasValueEntries(m);
             out << "    {\"menus/" << menubake::panelFileName(m.name) << "\", "
                 << l.panelW << ", " << l.canvasH << ", " << l.contentH << ", "
                 << l.row0Y << ", " << l.rowH << ", " << entries
                 << ", MENU_" << mi << "_ENTRIES, " << (m.titleScreen ? 1 : 0)
                 << ", " << (m.pauseGame ? 1 : 0) << ", " << floatLit(m.screenPos[0])
-                << ", " << floatLit(m.screenPos[1]) << "},  // " << m.name << "\n";
+                << ", " << floatLit(m.screenPos[1]) << ", ";
+            if (hasValues)
+                out << "\"menus/" << menubake::valueStripFileName(m.name) << "\", "
+                    << vl.cellW << ", " << vl.cellH << ", " << vl.pitch << ", "
+                    << (l.panelW - 24 - vl.cellW);
+            else
+                out << "\"\", 0, 0, 0, 0";
+            out << "},  // " << m.name << "\n";
         }
     }
     out << "};\n\n"

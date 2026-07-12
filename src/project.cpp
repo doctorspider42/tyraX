@@ -593,6 +593,26 @@ std::string save(const Project& p) {
              << h.texH << ", \"texQuant\": \"" << h.texQuant << "\" }";
     }
     json << (p.hud.empty() ? "]" : "\n  ]");
+    // The USE prompt HUD element (non-deletable; imagePath "" = built-in).
+    json << ",\n  \"usePrompt\": { \"image\": \"" << p.usePrompt.imagePath
+         << "\", \"pos\": [" << fmtFloat(p.usePrompt.pos[0]) << ", "
+         << fmtFloat(p.usePrompt.pos[1]) << "], \"size\": ["
+         << fmtFloat(p.usePrompt.size[0]) << ", " << fmtFloat(p.usePrompt.size[1])
+         << "], \"texW\": " << p.usePrompt.texW << ", \"texH\": " << p.usePrompt.texH
+         << ", \"texQuant\": \"" << p.usePrompt.texQuant << "\" }";
+    json << ",\n  \"hudTexts\": [";
+    for (size_t i = 0; i < p.hudTexts.size(); ++i) {
+        const HudText& t = p.hudTexts[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << jsonEscape(t.name)
+             << "\", \"text\": \"" << jsonEscape(t.text) << "\", \"pos\": ["
+             << fmtFloat(t.pos[0]) << ", " << fmtFloat(t.pos[1]) << "], \"size\": "
+             << t.size << ", \"color\": " << fmtVec3(t.color)
+             << (t.fontPath.empty() ? "" : ", \"font\": \"" + t.fontPath + "\"")
+             << ", \"shadow\": " << (t.shadow ? "true" : "false")
+             << ", \"visibleAtStart\": " << (t.visibleAtStart ? "true" : "false")
+             << " }";
+    }
+    json << (p.hudTexts.empty() ? "]" : "\n  ]");
     json << ",\n  \"hudBloomLayer\": " << p.hudBloomLayer;
     json << ",\n  \"hudGrainLayer\": " << p.hudGrainLayer;
     json << ",\n  \"music\": [";
@@ -672,7 +692,7 @@ std::string save(const Project& p) {
     json << ",\n  \"menus\": [";
     static const char* kMenuActions[] = {"close",     "scene",     "save-menu",
                                          "menu",      "set-value", "add-value",
-                                         "event"};
+                                         "event",     "toggle",    "choice"};
     for (size_t i = 0; i < p.menus.size(); ++i) {
         const GameMenu& m = p.menus[i];
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << m.name
@@ -713,12 +733,19 @@ std::string save(const Project& p) {
         json << ",\n      \"entries\": [";
         for (size_t e = 0; e < m.entries.size(); ++e) {
             const MenuEntry& en = m.entries[e];
-            const int a = (en.action >= 0 && en.action <= 6) ? en.action : 0;
+            const int a = (en.action >= 0 && en.action <= 8) ? en.action : 0;
             json << (e ? ",\n        " : "\n        ") << "{ \"label\": \""
                  << en.label << "\", \"action\": \"" << kMenuActions[a] << "\""
                  << (en.param.empty() ? "" : ", \"param\": \"" + en.param + "\"")
-                 << (en.amount != 0.0f ? ", \"amount\": " + fmtFloat(en.amount) : "")
-                 << " }";
+                 << (en.amount != 0.0f ? ", \"amount\": " + fmtFloat(en.amount) : "");
+            if (!en.options.empty()) {
+                json << ", \"options\": [";
+                for (size_t o = 0; o < en.options.size(); ++o)
+                    json << (o ? ", " : "") << "\"" << jsonEscape(en.options[o])
+                         << "\"";
+                json << "]";
+            }
+            json << " }";
         }
         json << (m.entries.empty() ? "]" : "\n      ]") << " }";
     }
@@ -1279,6 +1306,52 @@ std::string load(Project& out, const std::string& projectDir) {
             if (!h.imagePath.empty()) out.hud.push_back(std::move(h));
         }
     }
+    // The USE prompt element; absent (older projects) = the classic built-in
+    // sprite at its hardcoded placement (defaultUsePrompt in project.hpp).
+    if (const auto* up = root.find("usePrompt")) {
+        HudImage h = defaultUsePrompt();
+        if (const auto* v = up->find("image")) h.imagePath = v->stringOr("");
+        if (const auto* v = up->find("pos");
+            v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+            h.pos[0] = (float)v->arr[0].numberOr(h.pos[0]);
+            h.pos[1] = (float)v->arr[1].numberOr(h.pos[1]);
+        }
+        if (const auto* v = up->find("size");
+            v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+            h.size[0] = (float)v->arr[0].numberOr(h.size[0]);
+            h.size[1] = (float)v->arr[1].numberOr(h.size[1]);
+        }
+        if (const auto* v = up->find("texW")) h.texW = (int)v->numberOr(0);
+        if (const auto* v = up->find("texH")) h.texH = (int)v->numberOr(0);
+        if (const auto* v = up->find("texQuant")) {
+            const std::string q = v->stringOr("");
+            h.texQuant = (q == "none" || q == "8bit" || q == "4bit") ? q : "";
+        }
+        out.usePrompt = std::move(h);
+    }
+    if (const auto* texts = root.find("hudTexts");
+        texts && texts->type == json::Value::Type::Array) {
+        for (const auto& jt : texts->arr) {
+            HudText t;
+            if (const auto* v = jt.find("name")) t.name = v->stringOr("text");
+            if (const auto* v = jt.find("text")) t.text = v->stringOr("");
+            if (const auto* v = jt.find("pos");
+                v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                t.pos[0] = (float)v->arr[0].numberOr(0.5);
+                t.pos[1] = (float)v->arr[1].numberOr(0.8);
+            }
+            if (const auto* v = jt.find("size")) t.size = (int)v->numberOr(16);
+            if (t.size < 8) t.size = 8;
+            if (t.size > 48) t.size = 48;
+            readVec3(jt.find("color"), t.color);
+            if (const auto* v = jt.find("font")) t.fontPath = v->stringOr("");
+            if (const auto* v = jt.find("shadow"))
+                t.shadow = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (const auto* v = jt.find("visibleAtStart"))
+                t.visibleAtStart = v->type == json::Value::Type::Bool && v->boolean;
+            if (!t.name.empty()) out.hudTexts.push_back(std::move(t));
+        }
+    }
     // Effect layer positions; absent (older projects) or out of range = -1,
     // i.e. the effect applies over everything at end of frame - the old
     // behavior. "hudPostFxLayer" is the pre-split key (bloom+grain shared one
@@ -1538,11 +1611,20 @@ std::string load(Project& out, const std::string& projectDir) {
                                     : a == "set-value" ? MenuEntry::SetValue
                                     : a == "add-value" ? MenuEntry::AddValue
                                     : a == "event"     ? MenuEntry::FlowEvent
+                                    : a == "toggle"    ? MenuEntry::Toggle
+                                    : a == "choice"    ? MenuEntry::Choice
                                                        : MenuEntry::Close;
                     }
                     if (const auto* v = je.find("param")) en.param = v->stringOr("");
                     if (const auto* v = je.find("amount"))
                         en.amount = (float)v->numberOr(0.0);
+                    if (const auto* v = je.find("options");
+                        v && v->type == json::Value::Type::Array) {
+                        for (const auto& jo : v->arr) {
+                            const std::string s = jo.stringOr("");
+                            if (!s.empty()) en.options.push_back(s);
+                        }
+                    }
                     m.entries.push_back(std::move(en));
                 }
             }
@@ -1796,6 +1878,34 @@ std::string refreshGenerated(const Project& p) {
         fs::create_directories(path.parent_path(), ec);
         std::ofstream f(path, std::ios::binary);
         if (!f) return "Cannot write menu panel: " + path.string();
+        f.write(reinterpret_cast<const char*>(png.data()), (std::streamsize)png.size());
+
+        // Toggle/Choice value labels ride in a second per-menu strip texture.
+        if (menubake::menuHasValueEntries(m)) {
+            std::vector<unsigned char> strip;
+            if (!menubake::bakeValueStripPNG(m, p.dir, strip))
+                return "Menu value bake failed (no usable TTF font found)";
+            const fs::path vpath = fs::path(p.dir) / "res" / "menus" /
+                                   menubake::valueStripFileName(m.name);
+            std::ofstream vf(vpath, std::ios::binary);
+            if (!vf) return "Cannot write menu value strip: " + vpath.string();
+            vf.write(reinterpret_cast<const char*>(strip.data()),
+                     (std::streamsize)strip.size());
+        }
+    }
+
+    // HUD texts: baked text sprites, always rebaked (derived from project
+    // data like the menu panels).
+    for (const HudText& t : p.hudTexts) {
+        std::vector<unsigned char> png;
+        if (!menubake::bakeTextPNG(t, p.dir, png))
+            return "HUD text bake failed (no usable TTF font found)";
+        const fs::path path =
+            fs::path(p.dir) / "res" / "hud" / menubake::textFileName(t.name);
+        std::error_code ec;
+        fs::create_directories(path.parent_path(), ec);
+        std::ofstream f(path, std::ios::binary);
+        if (!f) return "Cannot write HUD text sprite: " + path.string();
         f.write(reinterpret_cast<const char*>(png.data()), (std::streamsize)png.size());
     }
     return "";

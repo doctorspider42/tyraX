@@ -88,6 +88,7 @@ enum class FlowParamKind {
     GradingName,  // name of a Project::gradings preset ("" = neutral/off)
     AmbienceName,  // name of a Project::ambiencePresets entry ("" = none)
     LayerName,  // name of a SceneData::layers entry (streaming layer)
+    HudTextName,  // name of a Project::hudTexts entry (baked text sprite)
 };
 
 struct FlowNodeType {
@@ -252,6 +253,13 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         {"HideHud", "Hide HUD", "HUD", false, FlowParamKind::None, 0, {},
          FlowParamKind::None, false, false},
         {"ToggleHud", "Toggle HUD", "HUD", false, FlowParamKind::None, 0, {},
+         FlowParamKind::None, false, false},
+        // On-screen texts (Tools > UI Editor > Texts; baked to sprites at
+        // build). Show Text: Seconds > 0 auto-hides after that long, 0 =
+        // stays until a Hide Text (subtitles, tutorial hints, pickup toasts).
+        {"ShowText", "Show Text", "HUD", false, FlowParamKind::HudTextName, 1,
+         {"Seconds"}, FlowParamKind::None, false, false},
+        {"HideText", "Hide Text", "HUD", false, FlowParamKind::HudTextName, 0, {},
          FlowParamKind::None, false, false},
         // Audio (music: 16-bit 22kHz stereo WAV; sounds: ADPCM one-shots)
         {"PlayMusic", "Play Music", "Audio", false, FlowParamKind::MusicTrack, 2,

@@ -151,9 +151,12 @@ std::string bake(const Project& p,
     }
 
     // HUD images referenced by the project, keyed by res path (last wins if a
-    // file is used by several entries - a rare, contradictory case).
+    // file is used by several entries - a rare, contradictory case). A custom
+    // USE prompt image is baked the same way (pow2 resize + quantization).
     std::map<std::string, const HudImage*> hudBake;
     for (const HudImage& h : p.hud) hudBake[h.imagePath] = &h;
+    if (!p.usePrompt.imagePath.empty())
+        hudBake[p.usePrompt.imagePath] = &p.usePrompt;
 
     // --- mirror res/ into .res-baked/ --------------------------------------
     const std::string defaultQ = p.settings.textureQuant;  // none/8bit/4bit
