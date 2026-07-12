@@ -30,6 +30,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Empty: return "empty";
         case PrimitiveType::Plane: return "plane";
         case PrimitiveType::Decal: return "decal";
+        case PrimitiveType::Camera: return "camera";
     }
     return "box";
 }
@@ -48,6 +49,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "empty") return PrimitiveType::Empty;
     if (s == "plane") return PrimitiveType::Plane;
     if (s == "decal") return PrimitiveType::Decal;
+    if (s == "camera") return PrimitiveType::Camera;
     return PrimitiveType::Box;
 }
 
@@ -251,6 +253,9 @@ static std::string objectJson(const SceneObject& o) {
     if (o.type == PrimitiveType::PointLight) {
         json += ", \"light\": { \"brightness\": " + fmtFloat(o.lightBright) +
                 ", \"radius\": " + fmtFloat(o.lightRadius) + " }";
+    }
+    if (o.type == PrimitiveType::Camera) {
+        json += ", \"camera\": { \"fov\": " + fmtFloat(o.cameraFov) + " }";
     }
     if (o.type == PrimitiveType::Model && isAnimatedModelPath(o.modelPath)) {
         json += ", \"anim\": { \"clip\": \"" + o.animClip +
@@ -669,6 +674,10 @@ std::string save(const Project& p) {
              << "\", \"duration\": " << fmtFloat(s.duration)
              << ", \"loop\": " << (s.loop ? "true" : "false")
              << ", \"cameraEnabled\": " << (s.cameraEnabled ? "true" : "false")
+             << ", \"bars\": " << s.bars
+             << ", \"skippable\": " << (s.skippable ? "true" : "false")
+             << ", \"fadeIn\": " << fmtFloat(s.fadeIn)
+             << ", \"fadeOut\": " << fmtFloat(s.fadeOut)
              << ", \"tracks\": [";
         for (size_t ti = 0; ti < s.tracks.size(); ++ti) {
             const SeqTrack& t = s.tracks[ti];
@@ -695,7 +704,10 @@ std::string save(const Project& p) {
             const SeqCameraKey& k = s.cameraKeys[ci];
             json << (ci ? ", " : "") << "{ \"t\": " << fmtFloat(k.time)
                  << ", \"eye\": " << fmtVec3(k.eye) << ", \"target\": " << fmtVec3(k.target)
-                 << ", \"fov\": " << fmtFloat(k.fov) << ", \"ease\": " << k.easing << " }";
+                 << ", \"fov\": " << fmtFloat(k.fov)
+                 << (k.shake > 0.0f ? ", \"shake\": " + fmtFloat(k.shake) : "")
+                 << (k.camera.empty() ? "" : ", \"camera\": \"" + jsonEscape(k.camera) + "\"")
+                 << ", \"ease\": " << k.easing << " }";
         }
         json << "] }";
     }
@@ -1084,6 +1096,11 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 o.lightRadius = (float)v->numberOr(8.0);
             if (o.lightRadius < 0.1f) o.lightRadius = 0.1f;
         }
+        if (const auto* cm = jo.find("camera")) {
+            if (const auto* v = cm->find("fov")) o.cameraFov = (float)v->numberOr(60.0);
+            if (o.cameraFov < 20.0f) o.cameraFov = 20.0f;
+            if (o.cameraFov > 110.0f) o.cameraFov = 110.0f;
+        }
         if (const auto* an = jo.find("anim")) {
             if (const auto* v = an->find("clip")) o.animClip = v->stringOr("");
             if (const auto* v = an->find("autoplay"))
@@ -1436,6 +1453,13 @@ std::string load(Project& out, const std::string& projectDir) {
             if (const auto* v = js.find("duration")) s.duration = (float)v->numberOr(5.0);
             if (const auto* v = js.find("loop")) s.loop = v->boolOr(false);
             if (const auto* v = js.find("cameraEnabled")) s.cameraEnabled = v->boolOr(false);
+            if (const auto* v = js.find("bars")) s.bars = (int)v->numberOr(0.0);
+            if (s.bars < 0 || s.bars >= kSeqBarsStyleCount) s.bars = kSeqBarsNone;
+            if (const auto* v = js.find("skippable")) s.skippable = v->boolOr(false);
+            if (const auto* v = js.find("fadeIn")) s.fadeIn = (float)v->numberOr(0.0);
+            if (const auto* v = js.find("fadeOut")) s.fadeOut = (float)v->numberOr(0.0);
+            if (s.fadeIn < 0.0f) s.fadeIn = 0.0f;
+            if (s.fadeOut < 0.0f) s.fadeOut = 0.0f;
             if (const auto* jt = js.find("tracks"); jt && jt->type == json::Value::Type::Array) {
                 for (const auto& jtr : jt->arr) {
                     SeqTrack t;
@@ -1469,6 +1493,8 @@ std::string load(Project& out, const std::string& projectDir) {
                     readVec3(jck.find("eye"), k.eye);
                     readVec3(jck.find("target"), k.target);
                     if (const auto* v = jck.find("fov")) k.fov = (float)v->numberOr(60.0);
+                    if (const auto* v = jck.find("shake")) k.shake = (float)v->numberOr(0.0);
+                    if (const auto* v = jck.find("camera")) k.camera = v->stringOr("");
                     if (const auto* v = jck.find("ease")) k.easing = (int)v->numberOr(1.0);
                     s.cameraKeys.push_back(k);
                 }

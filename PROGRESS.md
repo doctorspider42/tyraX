@@ -62,6 +62,57 @@ Each finished feature lands as its own commit.
   pass over the timeline (drag-scrub feel, per-key editing) still wants a human
   (synthetic clicks don't drive the ImGui menus).
 
+  **Second pass — the director grows into a real cinematics tool** (same PR).
+  **(a) Dopesheet UI:** the tracks/keys widget lists became a custom
+  ImDrawList dopesheet — one lane per object track plus a camera lane, keys as
+  draggable diamonds (click select, drag retime with 10 ms snap, right-click
+  easing/delete, double-click a lane to drop a key at that time), a click/drag
+  scrubbed adaptive time ruler with a zoom slider, a playhead line with
+  grabber, a pinned label column ([+] = snapshot @ playhead, right-click = the
+  track-setup popup with the object combo + channel checkboxes) and a
+  selected-key inspector below (time/easing plus channel-gated pose fields, or
+  the camera-shot editor). Key fills encode the outgoing easing; entity-bound
+  shots draw as circles. **(b) Camera entity:** `PrimitiveType::Camera = 14`
+  (`+ Add object > Gameplay > Camera`) — a film-camera body marker plus a
+  GL_LINES FOV frustum wedge (+Z lens, scaled by tan(fov/2) so the wedge shows
+  the true shot; `unitCameraBody`/`unitCameraFrustum` in viewport.cpp), a
+  `cameraFov` property (20-110 deg), invisible/non-colliding in the game but a
+  full `RuntimeObject`. Camera-track keys are now *shots*: free (stored
+  eye/at/fov) or **bound to a Camera entity by name** — bound shots film from
+  the entity's CURRENT pose at runtime (`ctx.objects`), so keyframing the
+  entity in an object track makes a dolly/crane move; the entity's authored
+  pose + FOV are baked at codegen as the fallback for a non-active scene.
+  Renaming an object now remaps track/shot references (`objRenameFrom_`), the
+  way layer renames do. **(c) Real FOV + shake + skip:** the director applies
+  the blended shot FOV to the actual PS2 projection
+  (`renderer.core.renderer3D.setFov`, frustum planes recompute) and restores
+  the pre-cutscene FOV on end/stop/skip; per-key `shake` interpolates a 3-band
+  sine handheld offset (`seqShakeOffset`, mirrored EE-side); a `skippable`
+  sequence ends early on START (`pad.getClicked().Start`). The new cleanup
+  path also fixes a first-pass bug: `ctx.cameraOverride` was never written
+  back to false, so the game camera stayed frozen after a cutscene ended.
+  **(d) Widescreen bars + fades:** per-sequence mask styles (Cinema 2.39:1,
+  Wide 16:9, Pillarbox, Frame — fractions from `seqBarsFractions`, one source
+  for editor preview + codegen) slide in/out over 0.4 s, plus fade-from/to-
+  black times; drawn on the PS2 as stretched solid-black sprites (new built-in
+  `res/hud/seq-black.png`, 8x8 opaque; the sprite alpha carries the fade) by
+  `sequences::renderOverlay()` after the HUD and under the pause menus, and
+  previewed 1:1 as ImDrawList rects over the viewport image. New
+  `ScriptContext` fields: `barsStyle`/`barsAmount`/`fadeAlpha`. Verified:
+  editor builds clean (Layer 0) and opens a scratch project whose viewport
+  renders both camera frustum wedges (GUI screenshot); the generated
+  `sequences.gen.cpp` inspected (bound shots resolved to (scene,obj) with
+  baked fallbacks + entity FOVs 75/35, bars fraction 0.22106, skip/fade
+  fields, `renderOverlay`) (Layer 2); the Docker build compiled it all with
+  `-Wall` into `cutshow.elf` and **PCSX2 ran the 8 s looping cutscene**:
+  screenshot measurement shows the visible image at **2.40:1 inside the 4:3
+  frame** (cinema bars exactly at the baked fraction), two distinct
+  entity-bound shots (wide 75 deg vs tele 35 deg) with the cube translating
+  AND rotating from its track, and center brightness 87.7 (no fade) → 34.7
+  (partial) → 1.1 (full black) proving the fade compositor blends (Layer 3).
+  Still for a human with a pad: START-skip, shake feel in motion, and the
+  dopesheet drag ergonomics.
+
 - (68) **Ambience Editor + Properties docked right + sky dome preview** — three
   related changes. **(a) Docking default:** the first-run DockBuilder layout now
   puts **Properties in a docked column on the right** (Project left, Viewport

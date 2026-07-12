@@ -346,12 +346,20 @@ private:
     // Cutscene Director (Tools > Cutscene Director): the keyframe timeline.
     bool showCutsceneEditor_ = false;
     int selectedSequence_ = -1;   // index into project_.sequences
-    int selectedSeqTrack_ = -1;   // index into the sequence's tracks (-1 = camera)
+    int selectedSeqTrack_ = -1;   // dopesheet lane of the selected key
+                                  // (-1 = camera lane, >= 0 = object track)
+    int selectedSeqKey_ = -1;     // selected key within that lane (-1 = none)
     float seqPlayhead_ = 0.0f;    // scrub time in seconds
     bool seqPreview_ = true;      // pose the viewport at the playhead
     bool seqPlaying_ = false;     // auto-advance the playhead (preview playback)
+    float seqZoom_ = 1.0f;        // dopesheet horizontal zoom (1 = fit duration)
     bool seqCameraPushed_ = false;  // camera override handed to the viewport?
     std::vector<SceneObject> seqPosed_;  // scratch: objects posed at the playhead
+    // Widescreen bars + fade preview, computed at the playhead by
+    // cutscenePosedObjects() and overlaid on the viewport image.
+    int seqBarsStyleNow_ = 0;     // kSeqBars* while previewing, else 0
+    float seqBarsNow_ = 0.0f;     // bars slide-in envelope 0..1
+    float seqFadeNow_ = 0.0f;     // fade-to-black overlay alpha 0..1
 
     // Material Editor (Tools > Material Editor). Materials are the project's
     // .mtl asset files, edited in place: matEdMats_ stages the open file's
@@ -419,6 +427,12 @@ private:
     // so object and flow-node references remap from it when editing ends.
     std::string layerRenameFrom_;
     int layerRenameIdx_ = -1;
+
+    // Object rename-in-place: Cutscene Director tracks and camera-shot
+    // bindings reference objects by name; they remap from this captured name
+    // when the Properties name edit ends.
+    std::string objRenameFrom_;
+    int objRenameIdx_ = -1;
 
     // "New scene" modal state
     int deleteScenePending_ = -1;  // scene index awaiting delete confirmation

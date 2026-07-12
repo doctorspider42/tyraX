@@ -232,6 +232,8 @@ private:
     Mesh box_, sphere_, cylinder_, cone_, plane_, decal_, spawnMarker_, playerMarker_;
     Mesh lightGizmo_;  // small unshaded bulb marking a point light
     Mesh wireSphere_;  // unit-radius ring sphere, scaled to a light's radius
+    Mesh cameraBody_;     // Camera entity marker (film camera, lens = +Z)
+    Mesh cameraFrustum_;  // FOV wedge lines, scaled to the entity's FOV
     // Per-detail primitive meshes (Box/Sphere/Cylinder/Cone), built lazily and
     // shared across objects with the same detail. The fixed box_ / sphere_ /
     // cylinder_ / cone_ above stay at the default detail (markers, previews).

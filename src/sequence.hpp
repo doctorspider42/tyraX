@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -59,17 +60,25 @@ inline bool operator==(const SeqTrack& a, const SeqTrack& b) {
            a.animVis == b.animVis && a.keys == b.keys;
 }
 
-// A camera keyframe: eye position, look-at target and field of view. When a
+// A camera keyframe: a shot. Either a free shot (explicit eye position +
+// look-at target + FOV) or a shot bound to a Camera entity in the scene
+// (`camera` = the entity's name): then eye/at/FOV come from the entity's
+// transform + Camera FOV property - at runtime too, so a camera entity that is
+// itself animated by an object track becomes a dolly/crane shot. When a
 // sequence has a camera track and cameraEnabled is set, the runtime overrides
 // the game camera (orbit / player) for the duration of playback and hands it
-// back when the sequence ends. FOV drives the editor preview only (the PS2
-// projection is fixed at build).
+// back when the sequence ends. FOV is applied to the real PS2 projection
+// (RendererCore3D::setFov) and restored afterwards. `shake` is a handheld
+// noise amplitude (world units) interpolated like the other channels. Cut
+// hard between two shots with Step easing; anything else blends the shots.
 struct SeqCameraKey {
     float time = 0.0f;
     float eye[3] = {0.0f, 12.0f, 24.0f};
     float target[3] = {0.0f, 1.0f, 0.0f};
-    float fov = 60.0f;  // degrees (editor preview only)
+    float fov = 60.0f;   // degrees (free shots; bound shots use the entity's)
+    float shake = 0.0f;  // camera shake amplitude, world units (0 = steady)
     int easing = 1;
+    std::string camera;  // Camera entity name; empty = free shot
 };
 
 inline bool operator==(const SeqCameraKey& a, const SeqCameraKey& b) {
@@ -77,21 +86,41 @@ inline bool operator==(const SeqCameraKey& a, const SeqCameraKey& b) {
         return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
     };
     return a.time == b.time && eq3(a.eye, b.eye) && eq3(a.target, b.target) &&
-           a.fov == b.fov && a.easing == b.easing;
+           a.fov == b.fov && a.shake == b.shake && a.easing == b.easing &&
+           a.camera == b.camera;
 }
+
+// Widescreen mask styles (Sequence::bars): solid black masks composited over
+// the frame while the sequence plays (over the 3D scene and the HUD, under
+// the pause menus). They slide in/out over kSeqBarsSlide seconds.
+enum : int {
+    kSeqBarsNone = 0,
+    kSeqBarsCinema = 1,     // 2.39:1 letterbox (film scope)
+    kSeqBarsWide = 2,       // 16:9 letterbox (TV widescreen)
+    kSeqBarsPillar = 3,     // vertical pillarbox (dream / flashback)
+    kSeqBarsFrame = 4,      // all four edges (vintage vignette frame)
+};
+constexpr int kSeqBarsStyleCount = 5;
+constexpr float kSeqBarsSlide = 0.4f;  // bars slide-in/out time, seconds
 
 struct Sequence {
     std::string name = "Cutscene";
     float duration = 5.0f;         // seconds; playback ends (or loops) here
     bool loop = false;             // restart at 0 instead of ending
     bool cameraEnabled = false;    // drive the game camera from cameraKeys
+    int bars = kSeqBarsNone;       // widescreen mask style while playing
+    bool skippable = false;        // START ends the cutscene early
+    float fadeIn = 0.0f;           // seconds: fade from black at the start
+    float fadeOut = 0.0f;          // seconds: fade to black before the end
     std::vector<SeqTrack> tracks;
     std::vector<SeqCameraKey> cameraKeys;  // empty = no camera control
 };
 
 inline bool operator==(const Sequence& a, const Sequence& b) {
     return a.name == b.name && a.duration == b.duration && a.loop == b.loop &&
-           a.cameraEnabled == b.cameraEnabled && a.tracks == b.tracks &&
+           a.cameraEnabled == b.cameraEnabled && a.bars == b.bars &&
+           a.skippable == b.skippable && a.fadeIn == b.fadeIn &&
+           a.fadeOut == b.fadeOut && a.tracks == b.tracks &&
            a.cameraKeys == b.cameraKeys;
 }
 
@@ -126,4 +155,65 @@ inline float seqSample(const float* times, const float* values, const int* easin
     const float u = span > 1e-6f ? (t - times[i]) / span : 0.0f;
     const float e = seqEase(easings[i], u);
     return values[i] + (values[i + 1] - values[i]) * e;
+}
+
+// Screen fraction each widescreen mask covers per edge, assuming the 4:3
+// display the PS2 outputs. Cinema/Wide letterbox to 2.39:1 / 16:9 inside the
+// 4:3 image; Pillar/Frame are stylistic. Codegen bakes these numbers into the
+// generated player, the editor overlays them on the viewport - one source.
+inline void seqBarsFractions(int style, float& top, float& bottom, float& left,
+                             float& right) {
+    top = bottom = left = right = 0.0f;
+    switch (style) {
+        case kSeqBarsCinema: top = bottom = 0.5f * (1.0f - (4.0f / 3.0f) / 2.39f); break;
+        case kSeqBarsWide: top = bottom = 0.5f * (1.0f - (4.0f / 3.0f) / (16.0f / 9.0f)); break;
+        case kSeqBarsPillar: left = right = 0.13f; break;
+        case kSeqBarsFrame: top = bottom = left = right = 0.08f; break;
+        default: break;
+    }
+}
+
+// Bars slide-in/out envelope (0..1 of the full coverage) at time t of a
+// sequence lasting `duration`. Mirrored in the generated PS2 player.
+inline float seqBarsAmount(float t, float duration) {
+    float a = 1.0f;
+    if (t < kSeqBarsSlide) a = t / kSeqBarsSlide;
+    const float left = duration - t;
+    if (left < kSeqBarsSlide && left / kSeqBarsSlide < a) a = left / kSeqBarsSlide;
+    return a < 0.0f ? 0.0f : (a > 1.0f ? 1.0f : a);
+}
+
+// Fade-from/to-black overlay alpha (0..1) at time t. Mirrored in the
+// generated PS2 player.
+inline float seqFadeAlpha(float t, float duration, float fadeIn, float fadeOut) {
+    float a = 0.0f;
+    if (fadeIn > 0.0f && t < fadeIn) a = 1.0f - t / fadeIn;
+    if (fadeOut > 0.0f) {
+        const float o = 1.0f - (duration - t) / fadeOut;
+        if (o > a) a = o;
+    }
+    return a < 0.0f ? 0.0f : (a > 1.0f ? 1.0f : a);
+}
+
+// Handheld camera-shake offset at time t for amplitude `amp` (world units).
+// Three incommensurate sine bands so the motion never visibly repeats.
+// Mirrored in the generated PS2 player - keep the frequencies in sync.
+inline void seqShakeOffset(float t, float amp, float out[3]) {
+    out[0] = amp * (0.6f * std::sin(t * 23.7f) + 0.4f * std::sin(t * 7.3f + 1.7f));
+    out[1] = amp * (0.6f * std::sin(t * 19.1f + 0.9f) + 0.4f * std::sin(t * 9.7f));
+    out[2] = amp * 0.3f * std::sin(t * 13.9f + 2.3f);
+}
+
+// The +Z "lens" direction of a Camera entity rotated by its Euler rotation
+// (degrees, applied Z*Y*X like the editor gizmo / modelMatrix). The look-at
+// of a bound shot is eye + this. Mirrored in the generated PS2 player.
+inline void seqCameraForward(const float rotDeg[3], float out[3]) {
+    const float d2r = 3.14159265f / 180.0f;
+    const float sx = std::sin(rotDeg[0] * d2r), cx = std::cos(rotDeg[0] * d2r);
+    const float sy = std::sin(rotDeg[1] * d2r), cy = std::cos(rotDeg[1] * d2r);
+    const float sz = std::sin(rotDeg[2] * d2r), cz = std::cos(rotDeg[2] * d2r);
+    // Rz * Ry * Rx * (0,0,1)
+    out[0] = cx * sy * cz + sx * sz;
+    out[1] = cx * sy * sz - sx * cz;
+    out[2] = cx * cy;
 }
