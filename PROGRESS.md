@@ -113,6 +113,37 @@ Each finished feature lands as its own commit.
   Still for a human with a pad: START-skip, shake feel in motion, and the
   dopesheet drag ergonomics.
 
+  **Workflow pass** (user feedback from hands-on use, same PR). **(a) No more
+  blind posing:** while playback is paused, SELECTED objects are exempt from
+  the preview posing in `cutscenePosedObjects()` — previously a tracked
+  object snapped back to its interpolated pose every frame, so dragging the
+  gizmo at a new playhead time was blind. Now the gizmo edits what you see;
+  bound camera shots read the posed copy, so aiming a selected Camera entity
+  updates its shot live. **(b) Auto-key:** a transport checkbox; finishing a
+  gizmo drag drops a keyframe at the playhead for every selected object with
+  a track in the selected sequence (`cutsceneAutoKey()`, running just before
+  the drag's `commitChange()` so the keys share the drag's undo snapshot; the
+  snapshot logic moved from a window-local lambda into
+  `cutsceneSnapshotObjectKey()`). **(c) Add-track picker:** "+ Add object
+  track" no longer silently targets the first object (usually the player) -
+  it opens a popup with **Add selected (N)** (one track per selected object,
+  already-tracked ones skipped) and the full object list with tracked entries
+  disabled; a fresh track immediately gets a starting key at the playhead
+  from the object's current pose. **(d) Look-through camera:** a "View:"
+  control in the viewport corner (and a "Look through" button in a Camera
+  entity's Properties) renders the viewport from any Camera entity - live
+  pose + FOV, via the same `setCameraOverride` path - with "Free camera" one
+  click away; the Cutscene Director camera preview takes precedence while
+  active, renames remap the reference, deleting the entity falls back to the
+  orbit camera. Also made key retiming discoverable: a horizontal-resize
+  cursor + tooltip on keyframe hover and a slightly larger hit box (the drag
+  itself already existed). Verified: full rebuild links clean in a side
+  build dir (the user's editor instance held the main exe lock) and the
+  post-merge Docker build of `examples/cutscene-demo` compiled the merged
+  codegen (HUD texts + video modes from main composited under the cutscene
+  bars overlay); the interactive feel of all four changes needs the user's
+  hands-on pass.
+
   **Example project:** `examples/cutscene-demo` — a 14 s cutscene ("The
   Reveal") exercising every director feature at once: three Camera entities
   (one of them dollied by an object track), Step-easing hard cuts, shake,

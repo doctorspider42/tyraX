@@ -928,6 +928,29 @@ void App::drawViewportWindow() {
         // Cutscene Director preview: pose the objects (and maybe fly the
         // camera) at the playhead. Returns the raw objects when not previewing.
         const std::vector<SceneObject>& renderObjects = cutscenePosedObjects();
+        // Look-through camera ("View:" overlay / camera Properties): render
+        // from the chosen Camera entity's pose + FOV. The cutscene camera
+        // track wins while it previews; reading the POSED objects means a
+        // dollied camera entity is followed live. A stale name (deleted
+        // entity) falls back to the free orbit camera.
+        if (!seqCameraPushed_) {
+            const SceneObject* cam = nullptr;
+            if (!lookThroughCam_.empty())
+                for (const SceneObject& o : renderObjects)
+                    if (o.name == lookThroughCam_ &&
+                        o.type == PrimitiveType::Camera) {
+                        cam = &o;
+                        break;
+                    }
+            if (cam) {
+                float fwd[3], at[3];
+                seqCameraForward(cam->rotation, fwd);
+                for (int c = 0; c < 3; ++c) at[c] = cam->position[c] + fwd[c];
+                viewport_.setCameraOverride(cam->position, at, cam->cameraFov);
+            } else {
+                viewport_.clearCameraOverride();
+            }
+        }
         uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
                                         selection_, selectedObject_);
         // Flip vertically: GL texture origin is bottom-left
@@ -1176,9 +1199,13 @@ void App::drawViewportWindow() {
                 if (s < 0.01f) s = 0.01f;
         }
 
-        // Commit once per completed gizmo drag (not every frame)
+        // Commit once per completed gizmo drag (not every frame). Auto-key
+        // first: the dropped cutscene keys share the drag's undo snapshot.
         const bool usingGizmo = ImGuizmo::IsUsing();
-        if (gizmoWasUsing_ && !usingGizmo) commitChange();
+        if (gizmoWasUsing_ && !usingGizmo) {
+            cutsceneAutoKey();
+            commitChange();
+        }
         gizmoWasUsing_ = usingGizmo;
 
         const bool gizmoBusy = usingGizmo || (objectSelected && ImGuizmo::IsOver());
@@ -1454,6 +1481,44 @@ void App::drawViewportWindow() {
             ImGui::EndDisabled();
             if (objSel && ImGui::IsItemHovered())
                 ImGui::SetTooltip("Move the camera pivot to the selected object.");
+        }
+
+        // --- Look-through camera (next to the recenter buttons) ---
+        // Shown as soon as the scene has a Camera entity: render the preview
+        // from a chosen camera (its pose + FOV, live), "Free" returns to the
+        // orbit camera. The Cutscene Director camera preview overrides it.
+        {
+            bool anyCam = !lookThroughCam_.empty();
+            for (const SceneObject& o : project_.objects())
+                if (o.type == PrimitiveType::Camera) {
+                    anyCam = true;
+                    break;
+                }
+            if (anyCam) {
+                ImGui::SameLine(0.0f, 16.0f);
+                const std::string viewLbl =
+                    "View: " + (lookThroughCam_.empty() ? std::string("Free")
+                                                        : lookThroughCam_);
+                if (ImGui::SmallButton(viewLbl.c_str()))
+                    ImGui::OpenPopup("##lookthrough");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Render the viewport through a Camera entity (its\n"
+                        "position, rotation and FOV, followed live). Pick\n"
+                        "\"Free camera\" to return to the orbit camera.");
+                if (ImGui::BeginPopup("##lookthrough")) {
+                    if (ImGui::MenuItem("Free camera", nullptr,
+                                        lookThroughCam_.empty()))
+                        lookThroughCam_.clear();
+                    ImGui::Separator();
+                    for (const SceneObject& o : project_.objects())
+                        if (o.type == PrimitiveType::Camera)
+                            if (ImGui::MenuItem(o.name.c_str(), nullptr,
+                                                o.name == lookThroughCam_))
+                                lookThroughCam_ = o.name;
+                    ImGui::EndPopup();
+                }
+            }
         }
 
         // --- Gizmo axis space (bottom-right) ---
@@ -3228,6 +3293,7 @@ void App::drawPropertiesWindow() {
                 for (SeqCameraKey& k : s.cameraKeys)
                     if (k.camera == from) k.camera = o.name;
             }
+            if (lookThroughCam_ == from) lookThroughCam_ = o.name;
         }
     }
 
@@ -3656,6 +3722,16 @@ void App::drawPropertiesWindow() {
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         if (o.cameraFov < 20.0f) o.cameraFov = 20.0f;
         if (o.cameraFov > 110.0f) o.cameraFov = 110.0f;
+        const bool looking = lookThroughCam_ == o.name;
+        if (ImGui::Button(looking ? "Stop looking through" : "Look through")) {
+            if (looking)
+                lookThroughCam_.clear();
+            else
+                lookThroughCam_ = o.name;  // editor view state - no undo entry
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Render the viewport from this camera (also in the\n"
+                              "\"View:\" control in the viewport corner).");
         ImGui::TextDisabled("A Cutscene Director shot marker - invisible in the\n"
                             "game. Bind a camera-track keyframe to it (Tools >\n"
                             "Cutscene Director) and the shot films from here,\n"
@@ -6787,6 +6863,57 @@ void App::drawAmbienceWindow() {
 
 // --- Cutscene Director -------------------------------------------------------
 
+// Snapshots the track target's current static pose into a key at `time`.
+// A key within 1/60 s of that time is replaced instead (keeping its easing
+// and visibility flag); the key list stays sorted.
+bool App::cutsceneSnapshotObjectKey(SeqTrack& tr, float time) {
+    const SceneObject* src = nullptr;
+    for (const SceneObject& o : project_.objects())
+        if (o.name == tr.target) {
+            src = &o;
+            break;
+        }
+    if (!src) return false;
+    SeqObjectKey k;
+    k.time = time;
+    for (int c = 0; c < 3; ++c) {
+        k.position[c] = src->position[c];
+        k.rotation[c] = src->rotation[c];
+        k.scale[c] = src->scale[c];
+        k.color[c] = src->color[c];
+    }
+    int repl = -1;
+    for (int i = 0; i < (int)tr.keys.size(); ++i)
+        if (std::fabs(tr.keys[i].time - k.time) < 0.017f) repl = i;
+    if (repl >= 0) {
+        k.easing = tr.keys[repl].easing;
+        k.visible = tr.keys[repl].visible;
+        tr.keys[repl] = k;
+    } else {
+        tr.keys.push_back(k);
+    }
+    std::sort(tr.keys.begin(), tr.keys.end(),
+              [](const SeqObjectKey& a, const SeqObjectKey& b) {
+                  return a.time < b.time;
+              });
+    return true;
+}
+
+// Auto-key: called when a gizmo drag ends, just before its commitChange(), so
+// the dropped keys ride the same undo snapshot as the transform edit itself.
+void App::cutsceneAutoKey() {
+    if (!seqAutoKey_ || !showCutsceneEditor_ || !seqPreview_ || !hasProject_) return;
+    if (selectedSequence_ < 0 || selectedSequence_ >= (int)project_.sequences.size())
+        return;
+    Sequence& s = project_.sequences[selectedSequence_];
+    for (int sel : selection_) {
+        if (sel < 0 || sel >= (int)project_.objects().size()) continue;
+        const std::string& name = project_.objects()[sel].name;
+        for (SeqTrack& tr : s.tracks)
+            if (tr.target == name) cutsceneSnapshotObjectKey(tr, seqPlayhead_);
+    }
+}
+
 // Poses a copy of the active scene's objects at the playhead using the SAME
 // interpolation the PS2 runtime uses (sequence.hpp seqSample/seqEase), and -
 // for a sequence with a camera track - flies the viewport camera along it. So
@@ -6815,6 +6942,16 @@ const std::vector<SceneObject>& App::cutscenePosedObjects() {
     for (size_t i = 0; i < seqPosed_.size(); ++i)
         hidden[i] = isObjectHiddenInEditor(seqPosed_[i]) ? 1 : 0;
 
+    // While paused, SELECTED objects keep their real (static) transform so
+    // the gizmo edits what you see - otherwise posing an object between two
+    // keys is blind (the track keeps snapping the preview back). Playback
+    // poses everything. Bound camera shots read seqPosed_, so aiming a
+    // selected Camera entity updates its shot live too.
+    std::vector<char> editing(seqPosed_.size(), 0);
+    if (!seqPlaying_)
+        for (int sel : selection_)
+            if (sel >= 0 && sel < (int)editing.size()) editing[sel] = 1;
+
     for (const SeqTrack& tr : s.tracks) {
         int idx = -1;
         for (size_t i = 0; i < seqPosed_.size(); ++i)
@@ -6823,6 +6960,7 @@ const std::vector<SceneObject>& App::cutscenePosedObjects() {
                 break;
             }
         if (idx < 0 || tr.keys.empty()) continue;
+        if (editing[idx]) continue;  // selected: leave it editable
 
         std::vector<SeqObjectKey> keys = tr.keys;
         std::sort(keys.begin(), keys.end(),
@@ -7086,6 +7224,17 @@ void App::drawCutsceneWindow() {
     }
     ImGui::SameLine(0.0f, 14.0f);
     ImGui::Checkbox("Preview in viewport", &seqPreview_);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Pose the scene at the playhead. Objects you have\n"
+                          "SELECTED stay at their real transform while paused,\n"
+                          "so the gizmo edits what you see - snapshot or\n"
+                          "auto-key to turn that pose into a keyframe.");
+    ImGui::SameLine(0.0f, 14.0f);
+    ImGui::Checkbox("Auto-key", &seqAutoKey_);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Finishing a gizmo drag drops a keyframe at the\n"
+                          "playhead for every selected object that has a\n"
+                          "track in this sequence.");
     ImGui::SameLine(0.0f, 14.0f);
     ImGui::SetNextItemWidth(100.0f);
     ImGui::SliderFloat("Zoom", &seqZoom_, 1.0f, 8.0f, "%.1fx");
@@ -7122,33 +7271,7 @@ void App::drawCutsceneWindow() {
                   });
     };
     auto snapshotObjectKey = [&](SeqTrack& tr, float time) {
-        const SceneObject* src = nullptr;
-        for (const SceneObject& o : project_.objects())
-            if (o.name == tr.target) {
-                src = &o;
-                break;
-            }
-        if (!src) return false;
-        SeqObjectKey k;
-        k.time = time;
-        for (int c = 0; c < 3; ++c) {
-            k.position[c] = src->position[c];
-            k.rotation[c] = src->rotation[c];
-            k.scale[c] = src->scale[c];
-            k.color[c] = src->color[c];
-        }
-        int repl = -1;
-        for (int i = 0; i < (int)tr.keys.size(); ++i)
-            if (std::fabs(tr.keys[i].time - k.time) < 0.017f) repl = i;
-        if (repl >= 0) {
-            k.easing = tr.keys[repl].easing;
-            k.visible = tr.keys[repl].visible;
-            tr.keys[repl] = k;
-        } else {
-            tr.keys.push_back(k);
-        }
-        sortObjKeys(tr);
-        return true;
+        return cutsceneSnapshotObjectKey(tr, time);
     };
     auto snapshotCameraKey = [&](float time) {
         SeqCameraKey k;
@@ -7307,15 +7430,21 @@ void App::drawCutsceneWindow() {
             const float cy = laneY0 + li * laneH + laneH * 0.5f;
             const float r = 6.0f;
             ImGui::PushID((lane + 2) * 1000 + ki);
-            ImGui::SetCursorScreenPos(ImVec2(cx - r - 2.0f, cy - r - 2.0f));
-            ImGui::InvisibleButton("##key", ImVec2(2.0f * (r + 2.0f), 2.0f * (r + 2.0f)));
+            ImGui::SetCursorScreenPos(ImVec2(cx - r - 4.0f, cy - r - 4.0f));
+            ImGui::InvisibleButton("##key", ImVec2(2.0f * (r + 4.0f), 2.0f * (r + 4.0f)));
             const bool hovered = ImGui::IsItemHovered();
+            const bool dragging = ImGui::IsItemActive();
+            // the horizontal-resize cursor + tooltip make retiming discoverable
+            if (hovered || dragging)
+                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+            if (hovered && !dragging)
+                ImGui::SetTooltip("%.2f s - drag to retime,\nright-click for easing/delete",
+                                  time);
             if (ImGui::IsItemActivated()) {
                 selectedSeqTrack_ = lane;
                 selectedSeqKey_ = ki;
             }
-            if (ImGui::IsItemActive() &&
-                ImGui::IsMouseDragging(ImGuiMouseButton_Left, 1.0f)) {
+            if (dragging && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 1.0f)) {
                 time = timeAtMouse();
                 seqPlayhead_ = time;
                 result = 1;
@@ -7532,13 +7661,50 @@ void App::drawCutsceneWindow() {
         if (selectedSeqTrack_ == deleteTrack) selectedSeqTrack_ = -1, selectedSeqKey_ = -1;
         changed = true;
     }
-    if (ImGui::SmallButton("+ Add object track")) {
-        SeqTrack tr;
-        if (!project_.objects().empty()) tr.target = project_.objects().front().name;
-        s.tracks.push_back(std::move(tr));
-        selectedSeqTrack_ = (int)s.tracks.size() - 1;
-        selectedSeqKey_ = -1;
-        changed = true;
+    if (ImGui::SmallButton("+ Add object track")) ImGui::OpenPopup("##addtrack");
+    if (ImGui::BeginPopup("##addtrack")) {
+        auto hasTrack = [&](const std::string& name) {
+            for (const SeqTrack& tr : s.tracks)
+                if (tr.target == name) return true;
+            return false;
+        };
+        // one track per object; a fresh track gets a starting key at the
+        // playhead from the object's current pose, so it animates immediately
+        auto addTrackFor = [&](const std::string& name) {
+            SeqTrack tr;
+            tr.target = name;
+            cutsceneSnapshotObjectKey(tr, seqPlayhead_);
+            s.tracks.push_back(std::move(tr));
+            selectedSeqTrack_ = (int)s.tracks.size() - 1;
+            selectedSeqKey_ = -1;
+            changed = true;
+        };
+        int freshSelected = 0;
+        for (int sel : selection_)
+            if (sel >= 0 && sel < (int)project_.objects().size() &&
+                !hasTrack(project_.objects()[sel].name))
+                ++freshSelected;
+        char selLabel[48];
+        std::snprintf(selLabel, sizeof(selLabel), "Add selected (%d)", freshSelected);
+        if (ImGui::MenuItem(selLabel, nullptr, false, freshSelected > 0)) {
+            for (int sel : selection_)
+                if (sel >= 0 && sel < (int)project_.objects().size() &&
+                    !hasTrack(project_.objects()[sel].name))
+                    addTrackFor(project_.objects()[sel].name);
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("One track per selected object (objects that\n"
+                              "already have a track are skipped).");
+        ImGui::Separator();
+        for (const SceneObject& o : project_.objects()) {
+            const bool tracked = hasTrack(o.name);
+            if (ImGui::MenuItem(o.name.c_str(), tracked ? "tracked" : nullptr,
+                                false, !tracked))
+                addTrackFor(o.name);
+        }
+        if (project_.objects().empty())
+            ImGui::TextDisabled("No objects in this scene.");
+        ImGui::EndPopup();
     }
     ImGui::SameLine();
     ImGui::TextDisabled("Double-click a lane to drop a key - right-click keys & labels.");

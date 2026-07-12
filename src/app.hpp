@@ -384,6 +384,14 @@ private:
     bool ambiencePreview_ = true;
     bool ambiencePreviewPushed_ = false;  // preset pushed to the viewport?
 
+    // Snapshots the track target's current static pose into a key at `time`
+    // (replacing a key within 1/60 s). Used by the dopesheet buttons,
+    // double-click drops and auto-key. Returns false if the target is gone.
+    bool cutsceneSnapshotObjectKey(SeqTrack& tr, float time);
+    // Auto-key: a finished gizmo drag drops keys at the playhead for every
+    // selected object tracked by the selected sequence (seqAutoKey_).
+    void cutsceneAutoKey();
+
     // Cutscene Director (Tools > Cutscene Director): the keyframe timeline.
     bool showCutsceneEditor_ = false;
     int selectedSequence_ = -1;   // index into project_.sequences
@@ -393,6 +401,7 @@ private:
     float seqPlayhead_ = 0.0f;    // scrub time in seconds
     bool seqPreview_ = true;      // pose the viewport at the playhead
     bool seqPlaying_ = false;     // auto-advance the playhead (preview playback)
+    bool seqAutoKey_ = false;     // gizmo release drops a key at the playhead
     float seqZoom_ = 1.0f;        // dopesheet horizontal zoom (1 = fit duration)
     bool seqCameraPushed_ = false;  // camera override handed to the viewport?
     std::vector<SceneObject> seqPosed_;  // scratch: objects posed at the playhead
@@ -401,6 +410,11 @@ private:
     int seqBarsStyleNow_ = 0;     // kSeqBars* while previewing, else 0
     float seqBarsNow_ = 0.0f;     // bars slide-in envelope 0..1
     float seqFadeNow_ = 0.0f;     // fade-to-black overlay alpha 0..1
+
+    // Look-through camera: the viewport renders from this Camera entity's
+    // pose + FOV ("" = free orbit camera). Editor-side state, not persisted;
+    // the Cutscene Director camera-track preview takes precedence.
+    std::string lookThroughCam_;
 
     // Material Editor (Tools > Material Editor). Materials are the project's
     // .mtl asset files, edited in place: matEdMats_ stages the open file's
