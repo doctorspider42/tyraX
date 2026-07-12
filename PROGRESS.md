@@ -34,6 +34,109 @@ Each finished feature lands as its own commit.
   remaining human confirmation — the failure was probabilistic/per-build, so it
   cannot be forced to reproduce on demand.
 
+- (72) **examples/video-modes - a VIDEO OPTIONS menu test bed + the
+  runtime-widescreen freeze fix** - an example project for exercising
+  (70)+(71) on a pad. A baked game menu ("VIDEO OPTIONS", title screen at
+  boot AND the Start pause menu) lists the three scan modes, 4:3 / 16:9
+  and CLOSE; the entries fire flow events consumed by On Menu Event ->
+  Set Display Mode (confirm 8 s) / Set Widescreen on the `aspect-ball`
+  object. The scene is a calibration set: a white center sphere (the
+  aspect judge - must stay round in every mode/aspect on a real TV), four
+  colored compass pillars (horizontal FOV), and an overlay hint
+  (res/ui/controls.png, rendered from the same CP437 8x8 glyphs as the
+  engine's debugfont). Template change: `applyVideoRequests` returns true
+  on a scan-mode switch and the loop then CLOSES any open game menu - the
+  player judges the new picture unobstructed, and the confirm prompt's X
+  can't double as a menu select (the switch frame also skips the Cross
+  check, so the selecting press can't insta-confirm). **Bug found by a
+  hands-on test of (71): the runtime Set Widescreen froze the picture**
+  (EE kept running - pad logs still flowed - but the GS stopped drawing):
+  reprogramDisplay() went through the full programDisplay(), whose
+  graph_set_mode does a GS reset that wipes the drawing environment only
+  the full reinit() path re-creates. Fixed: a widescreen-only change now
+  rewrites JUST the DISPLAY window registers. res/.gitignore is customized
+  showcase-style (/hud/ and /menus/ ignored, authored res/ui checked in -
+  the file is only written at project creation, so it survives builds).
+  Verified: Docker build exits 0; PCSX2 boot screenshot shows the
+  title-screen menu (panel, cursor, X OK / Triangle BACK hints, dim
+  overlay) over the scene at "PAL Interlaced (Field) 512x448" 50 FPS; the
+  runtime widescreen path re-verified after the fix with an unattended
+  OnStart -> Delay -> Set Widescreen graph (scene keeps rendering,
+  geometry goes anamorphic). Menu navigation itself still wants a pad.
+
+- (71) **Runtime display-mode switching (with keep-or-revert prompt) +
+  widescreen 16:9** — follow-up to (70). **(a) Runtime switch:**
+  `RendererCore::setDisplayOutput(mode, widescreen)` (fork) re-selects the
+  scan mode between frames: the VRAM bump allocator resets, frame/z buffers
+  and the post-fx scratch buffers rebuild at the new size, every texture is
+  evicted (`RendererCoreTexture::evictAll`, lazy re-upload) and the
+  projection re-derives - `RendererCoreGS` grew `reinit()` /
+  `reprogramDisplay()` (mode setup split into `programDisplay()`).
+  **(b) Flow nodes:** **Set Display Mode** (mode combo + "Confirm s") and
+  **Set Widescreen** (Scene category) - new `ScriptContext` fields applied
+  in both game loops right before `beginFrame` (the safe point). With
+  Confirm > 0 the generated game arms a **keep-or-revert countdown**: it
+  switches, draws "KEEP VIDEO MODE? X = YES / BACK IN n" centered on
+  screen, and reverts to the previous mode automatically when the timer
+  (real g_frameDt seconds) expires without an X press - the PC-settings
+  safety net, since a mode the TV can't show is a black screen. The prompt
+  draws via a new shared `drawHudText` (refactored out of drawDebugHud);
+  the embedded 8x8 glyph strip grew A-Z + "?=-:" (42 glyphs, 512x16, two
+  rows) and `debugfont.png` is now written to every project on refresh
+  (release builds need it for the prompt), with the atlas string kept in
+  sync between `debugFontPng()` and the game template. **(c) Widescreen:**
+  `ProjectSettings::widescreen` (Preferences > Build checkbox, serialized,
+  default false) -> `EngineOptions::widescreen`. The projection aspect now
+  derives from the physical shape of each mode's display window
+  (`RendererSettings::updateGeometry`): SDTV modes keep their signal and
+  let the TV stretch (anamorphic), 1080i widens its GS window from 3x to
+  4x MAGH (1792/1920 VCK). Verified in PCSX2 (SW renderer, scratch orbit
+  project with OnStart -> Delay 4s -> Set Display Mode(480p, confirm 5s)):
+  boot in 480i -> switch at ~4s with the prompt rendering the new glyphs
+  over a healthy scene (textures re-uploaded after the VRAM rebuild) ->
+  countdown ticks -> prompt clears on timeout with the scene still healthy
+  after the second rebuild (the revert is the only inputless path that
+  clears the prompt; the final-mode status-bar text could not be read -
+  the PCSX2 window sat under the taskbar in captures). Widescreen build
+  verified by geometry: the same scene renders visibly narrower
+  (anamorphic squeeze) with widescreen on. Codegen inspected for both
+  nodes. Hands-on still wanted: the X-confirm path (needs a pad; synthetic
+  input is off-limits on this machine) and real-hardware output.
+
+- (70) **Alternative display modes: progressive 480p and 1080i** — new
+  Preferences > Build > **Display mode** combo (`ProjectSettings::displayMode`:
+  "interlaced" default / "progressive" / "1080i", serialized with a
+  backward-compatible default) baked into the generated `main.cpp` as
+  `EngineOptions::displayMode`. Engine side (`DisplayMode` enum,
+  `RendererSettings::setDisplayMode`, `RendererCoreGS`): **Progressive480p**
+  renders 448x448 and scans it out non-interlaced at MAGH 3x — a 1344x448
+  window centered in the 1440-VCK 480p raster, exactly 4:3, slightly *less*
+  VRAM than the stock 512x448. **HiDef1080i** renders 448x540 (sharper
+  vertically than 480i) shown as a 1344x1080 pillarboxed ~4:3 window in the
+  16:9 raster; frame+z buffers grow to 2.9 MB of VRAM, so ~1.1 MB is left
+  for textures (the UI warns). Both DTV modes bypass `graph_set_screen` —
+  it always programs the mode's full VCK width into DW, and **no 64-aligned
+  framebuffer width divides the 1440/1920-VCK rasters**, so the GS would
+  scan garbage past the buffer's right edge; `setDtvDisplay()` programs
+  DISPLAY1/2 directly (gsKit-style window math, centered). The projection
+  aspect deliberately stays at the constructor's 512/448 in every mode so
+  world proportions match across modes. Flicker filter stays on the stock
+  interlaced path only; DTV modes present via both DISPFB circuits at y=0
+  (`presentFrameBuffer`). `getRefreshRate()` returns 60 for the DTV modes
+  regardless of region, so wall-clock speed normalization keeps working.
+  **Pitfall burned into the code comments:** the gsKit/OPL "interlaced FRAME
+  mode, MagV--" recipe for 1080i **hard-crashes PCSX2 v2.3.205** (process
+  dies ~4 s in, no crash dialog, SW and HW renderers alike); 1080i in FIELD
+  mode with MAGV=2x is visually equivalent (each field steps through every
+  buffer line - a stable line-doubled 540p picture) and PCSX2 is fine with
+  it. Verified in PCSX2 (software renderer, scratch orbit project, one boot
+  per mode, status-bar + screenshot each): interlaced baseline "PAL
+  Interlaced (Field) 512x448" at 50 FPS unchanged; "SDTV 480p Progressive
+  448x448" at 60 FPS, clean right edge (the graph_set_screen overrun would
+  show there); "HDTV 1080i 448x540" at 60 FPS, pillarboxed and full-height.
+  Codegen + .tyra round-trip checked headlessly; samples/script-demo
+  regenerated. Real-hardware check (component cables) still wants a human -
+  PCSX2 does not emulate the analog signal path.
 - (69) **Pause now freezes particles and skeletal animation** — a pausing menu
   (a menu with the pause flag, or the save menu) already stopped player
   movement, scripts, object physics and the use target, but two effect systems

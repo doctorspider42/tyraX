@@ -1,0 +1,89 @@
+{
+  "name": "video-modes",
+  "template": "orbit",
+  "settings": {
+    "videoSystem": "auto",
+    "displayMode": "interlaced",
+    "widescreen": false,
+    "buildProfile": "release",
+    "textureQuant": "4bit",
+    "showFps": false,
+    "showMemory": false,
+    "disableVsync": false,
+    "clipping": "precise",
+    "animLodDistance": 0,
+    "meshLodDistance": 0,
+    "terrainDetail": 32,
+    "terrainViewDistance": 0,
+    "skyColor": [0.25, 0.55, 0.78],
+    "skyTopColor": [0.08, 0.3, 0.65],
+    "skyDome": true,
+    "zenithSize": 0.5,
+    "eyeHeight": 1.8,
+    "walkSpeed": 0.4,
+    "lookSpeed": 1,
+    "stickDeadzoneL": 0.2,
+    "stickDeadzoneR": 0.2,
+    "orbitSpeed": 1,
+    "gravity": 9.8,
+    "jumpSpeed": 4.5,
+    "lightDir": [0.37, 0.82, 0.44],
+    "ambient": 0.55,
+    "diffuse": 0.45,
+    "lightColor": [1, 1, 1],
+    "brightness": 1,
+    "terrainMaterial": "",
+    "bloom": 0,
+    "grain": 0,
+    "fogEnabled": false,
+    "fogColor": [0.5, 0.5, 0.55],
+    "fogStart": 15,
+    "fogEnd": 120,
+    "highlightUsable": false,
+    "highlightDistance": 6,
+    "highlightColor": [1, 0.85, 0.15],
+    "highlightWidth": 0.35,
+    "highlightSteps": 4,
+    "loadingScreen": true
+  },
+  "scenes": [
+    { "name": "main",
+      "terrain": { "width": 64, "depth": 64 },
+      "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "precise", "terrainMaterial": "", "postfx": { "bloom": 0, "grain": 0 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4 } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
+      "objects": [
+      { "name": "aspect-ball", "type": "sphere", "position": [0, 4, 0], "rotation": [0, 0, 0], "scale": [3, 3, 3], "color": [1, 1, 1], "physics": false, "flowGraph": { "nextId": 16, "nodes": [{ "id": 1, "type": "OnMenuEvent", "pos": [0, 0], "str": "video-480i", "num": [0, 0, 0, 0] }, { "id": 2, "type": "SetDisplayMode", "pos": [260, 0], "str": "", "num": [0, 8, 0, 0] }, { "id": 3, "type": "OnMenuEvent", "pos": [0, 130], "str": "video-480p", "num": [0, 0, 0, 0] }, { "id": 4, "type": "SetDisplayMode", "pos": [260, 130], "str": "", "num": [1, 8, 0, 0] }, { "id": 5, "type": "OnMenuEvent", "pos": [0, 260], "str": "video-1080i", "num": [0, 0, 0, 0] }, { "id": 6, "type": "SetDisplayMode", "pos": [260, 260], "str": "", "num": [2, 8, 0, 0] }, { "id": 7, "type": "OnMenuEvent", "pos": [0, 390], "str": "video-ws-off", "num": [0, 0, 0, 0] }, { "id": 8, "type": "SetWidescreen", "pos": [260, 390], "str": "", "num": [0, 0, 0, 0] }, { "id": 9, "type": "OnMenuEvent", "pos": [0, 520], "str": "video-ws-on", "num": [0, 0, 0, 0] }, { "id": 10, "type": "SetWidescreen", "pos": [260, 520], "str": "", "num": [1, 0, 0, 0] }], "links": [{ "id": 11, "from": 1, "to": 2 }, { "id": 12, "from": 3, "to": 4 }, { "id": 13, "from": 5, "to": 6 }, { "id": 14, "from": 7, "to": 8 }, { "id": 15, "from": 9, "to": 10 }] } },
+      { "name": "north", "type": "box", "position": [0, 2, -24], "rotation": [0, 0, 0], "scale": [2, 4, 2], "color": [0.9, 0.25, 0.25], "physics": false },
+      { "name": "south", "type": "box", "position": [0, 2, 24], "rotation": [0, 0, 0], "scale": [2, 4, 2], "color": [0.25, 0.5, 0.9], "physics": false },
+      { "name": "west", "type": "box", "position": [-24, 2, 0], "rotation": [0, 0, 0], "scale": [2, 4, 2], "color": [0.95, 0.8, 0.2], "physics": false },
+      { "name": "east", "type": "box", "position": [24, 2, 0], "rotation": [0, 0, 0], "scale": [2, 4, 2], "color": [0.3, 0.8, 0.35], "physics": false }
+    ] }
+  ],
+  "hud": [
+    { "name": "controls", "image": "res/ui/controls.png", "pos": [0.5, 0.08], "size": [360, 24], "texW": 0, "texH": 0, "texQuant": "" }
+  ],
+  "hudBloomLayer": -1,
+  "hudGrainLayer": -1,
+  "music": [],
+  "sounds": [],
+  "saveValues": [],
+  "saveTexts": [],
+  "gradings": [],
+  "defaultGrading": -1,
+  "ambience": [
+    { "name": "Default", "skyColor": [0.25, 0.55, 0.78], "skyTopColor": [0.08, 0.3, 0.65], "skyDome": true, "zenithSize": 0.5, "lightDir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "lightColor": [1, 1, 1], "brightness": 1, "fogEnabled": false, "fogColor": [0.5, 0.5, 0.55], "fogStart": 15, "fogEnd": 120 }
+  ],
+  "defaultAmbience": 0,
+  "menus": [
+    { "name": "video", "title": "VIDEO OPTIONS", "titleScreen": true, "pauseMenu": true, "screenPos": [0.5, 0.45], "accent": [0.47, 0.82, 1],
+      "entries": [
+        { "label": "INTERLACED 480I", "action": "event", "param": "video-480i" },
+        { "label": "PROGRESSIVE 480P", "action": "event", "param": "video-480p" },
+        { "label": "HD 1080I", "action": "event", "param": "video-1080i" },
+        { "label": "STANDARD 4:3", "action": "event", "param": "video-ws-off" },
+        { "label": "WIDESCREEN 16:9", "action": "event", "param": "video-ws-on" },
+        { "label": "CLOSE", "action": "close" }
+      ] }
+  ],
+  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "emulatorPath": "", "ps2LinkIp": "" },
+  "layout": "[Window][Project]\nPos=0,19\nSize=460,998\nCollapsed=0\nDockId=0x00000001,0\nLastUsed=20260712\n\n[Window][Properties]\nPos=1541,19\nSize=379,998\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260712\n\n[Window][Output]\nPos=462,753\nSize=1077,264\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260712\n\n[Window][Debug]\nPos=462,753\nSize=1077,264\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260712\n\n[Window][Flow Graph]\nPos=462,19\nSize=1077,732\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260712\n\n[Window][Viewport]\nPos=462,19\nSize=1077,732\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260712\n\n[Window][WindowOverViewport_11111111]\nPos=0,19\nSize=1920,998\nCollapsed=0\nLastUsed=20260712\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260712\n\n[Docking][Data]\nDockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,19 Size=1920,998 Split=X\n  DockNode      ID=0x00000001 Parent=0x08BD597D SizeRef=460,1017 Selected=0x9C21DE82\n  DockNode      ID=0x00000002 Parent=0x08BD597D SizeRef=1458,1017 Split=X\n    DockNode    ID=0x00000003 Parent=0x00000002 SizeRef=1077,1017 Split=Y\n      DockNode  ID=0x00000005 Parent=0x00000003 SizeRef=1077,751 CentralNode=1 Selected=0xC450F867\n      DockNode  ID=0x00000006 Parent=0x00000003 SizeRef=1077,264 Selected=0x1E7E18E3\n    DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=379,1017 Selected=0x8C72BEA8\n\n"
+}

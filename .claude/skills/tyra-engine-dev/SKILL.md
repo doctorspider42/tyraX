@@ -98,6 +98,22 @@ and `renderer/models/unique_id.hpp` (`generateUniqueId()`) replacing upstream's
   `renderer/models/unique_id.hpp` `generateUniqueId()`. Use it for any new
   id-bearing render object; don't reintroduce `rand()` ids. (`audio_song.cpp`
   intentionally keeps `rand()` — separate namespace, assigned off-thread.)
+- **DTV display modes (480p/1080i)**: ps2sdk's `graph_set_screen` always
+  programs the mode's full VCK width into DISPLAY.DW, and no 64-aligned
+  framebuffer width divides the 1440/1920-VCK DTV rasters — the GS scans
+  garbage past the buffer's right edge. `RendererCoreGS::setDtvDisplay`
+  programs DISPLAY1/2 directly instead. Also: the gsKit/OPL 1080i recipe
+  (interlaced FRAME mode + MagV--) **hard-crashes PCSX2 v2.3.205** (the
+  process dies seconds after SetGsCrt, no crash dialog); 1080i in FIELD
+  mode with MAGV=2x is visually equivalent (both fields step through every
+  buffer line) and works.
+- **Runtime display switching**: `RendererCore::setDisplayOutput(mode, ws)`
+  (tyra-editor fork) switches the scan mode / widescreen between frames.
+  A mode change resets the whole VRAM bump allocator (`vram.reset()`),
+  rebuilds frame/z buffers + post fx, and `texture.evictAll()` drops every
+  texture allocation (they lazily re-upload) — never call it mid-frame.
+  The projection aspect lives in `RendererSettings::updateGeometry`
+  (fixed 4:3-baseline look; widescreen scales it anamorphically).
 
 **Audio**
 - audsrv streams PCM only; ADPCM is for one-shots (`adpcm.tryPlay`), and ADPCM

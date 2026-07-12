@@ -29,6 +29,12 @@ float g_frameRate = 50.0F;
 float g_frameDt = 1.0F / 50.0F;
 float g_frameScale = 1.0F;
 
+// True while a pausing menu owns the frame (set at the top of loop()). Read by
+// the effect systems that would otherwise keep running under a pause -
+// particle simulation and skeletal-animation playback freeze on their last
+// frame instead of advancing behind the menu.
+bool g_gameplayPaused = false;
+
 // Camera flashlight runtime state (a Player object property; declared in
 // scene_data.hpp). g_flashEnabled is the master switch - seeded per scene from
 // the player's Enabled flag in loadScene, flipped by the Set Flashlight flow
@@ -409,16 +415,13 @@ void addCone(std::vector<Vec4>& verts, std::vector<Color>& cols,
   }
 }
 
-/** Debug-profile HUD (Project > Preferences > Build): FPS and RAM
- * (used/total EE MB) readouts in the top-left corner, drawn from the 8x8
- * glyph strip res/hud/debugfont.png. Compiles to nothing in a release build
- * (the DEBUG_SHOW_* constants in terrain_config.hpp fold the calls away). */
-void drawDebugHud(Engine* engine) {
-  if (!DEBUG_SHOW_FPS && !DEBUG_SHOW_MEM) return;
+/** 8x8 glyph text from the res/hud/debugfont.png strip (digits, letters and
+ * a few symbols - the atlas below must match the editor's debugFontPng()).
+ * Shared by the debug-profile overlays and the video-mode confirm prompt,
+ * so the strip ships with every build. */
+void drawHudText(Engine* engine, const char* s, float x, float y) {
   static Sprite glyph;
   static bool glyphReady = false;
-  static int memRefresh = 0;
-  static float memFreeMB = 0.0F;
   if (!glyphReady) {
     glyph.mode = SpriteMode::MODE_REPEAT;
     glyph.size = Vec2(8.0F, 8.0F);  // one atlas cell
@@ -428,25 +431,36 @@ void drawDebugHud(Engine* engine) {
     texture->addLink(glyph.id);
     glyphReady = true;
   }
-  // Glyph order in the atlas - must match the editor's debugFontPng().
-  // Cells are 16px apart: the glyph sits in the left 8px, the right 8px are
-  // transparent padding so bilinear sampling never bleeds the next glyph.
-  static const char* atlas = "0123456789.FPSMBE/";
-  auto drawText = [&](const char* s, float x, float y) {
-    for (; *s; ++s, x += 14.0F) {
-      if (*s == ' ') continue;
-      const char* hit = strchr(atlas, *s);
-      if (!hit) continue;
-      glyph.offset = Vec2((float)(hit - atlas) * 16.0F, 0.0F);
-      glyph.position = Vec2(x, y);
-      engine->renderer.renderer2D.render(glyph);
-    }
-  };
+  // 32 cells of 16px per atlas row (the glyph sits in the left 8px, the
+  // right 8px stay transparent so bilinear sampling never bleeds the next
+  // glyph), rows 8px apart.
+  static const char* atlas = "0123456789.FPSMBE/ACDGHIJKLNOQRTUVWXYZ?=-:";
+  for (; *s; ++s, x += 14.0F) {
+    if (*s == ' ') continue;
+    const char* hit = strchr(atlas, *s);
+    if (!hit) continue;
+    const int idx = (int)(hit - atlas);
+    glyph.offset = Vec2((float)(idx % 32) * 16.0F, (float)(idx / 32) * 8.0F);
+    glyph.position = Vec2(x, y);
+    engine->renderer.renderer2D.render(glyph);
+  }
+}
+
+float hudTextWidth(const char* s) { return (float)strlen(s) * 14.0F; }
+
+/** Debug-profile HUD (Project > Preferences > Build): FPS and RAM
+ * (used/total EE MB) readouts in the top-left corner. Compiles to nothing
+ * in a release build (the DEBUG_SHOW_* constants in terrain_config.hpp fold
+ * the calls away). */
+void drawDebugHud(Engine* engine) {
+  if (!DEBUG_SHOW_FPS && !DEBUG_SHOW_MEM) return;
+  static int memRefresh = 0;
+  static float memFreeMB = 0.0F;
   char line[32];
   float y = 16.0F;
   if (DEBUG_SHOW_FPS) {
     snprintf(line, sizeof(line), "FPS %d", (int)engine->info.getFps());
-    drawText(line, 16.0F, y);
+    drawHudText(engine, line, 16.0F, y);
     y += 20.0F;
   }
   if (DEBUG_SHOW_MEM) {
@@ -458,8 +472,82 @@ void drawDebugHud(Engine* engine) {
       memRefresh = everyFrames(2.0F);
     }
     snprintf(line, sizeof(line), "MEM %.1f/32 MB", 32.0F - memFreeMB);
-    drawText(line, 16.0F, y);
+    drawHudText(engine, line, 16.0F, y);
   }
+}
+
+// Runtime scan-mode switch with keep-or-revert confirmation (the Set
+// Display Mode flow node). A mode the player's TV can't display would
+// strand them on a black screen, so with a confirm window armed the game
+// automatically reverts to the previous mode unless X is pressed in time -
+// the same safety net PC display settings use.
+struct VideoConfirm {
+  bool active = false;
+  Tyra::DisplayMode prevMode = Tyra::DisplayMode::Interlaced;
+  float secondsLeft = 0.0F;
+};
+VideoConfirm g_videoConfirm;
+
+/** Applies the Set Display Mode / Set Widescreen flow-node requests and
+ * ticks the confirm countdown. Must run between frames (before
+ * beginFrame): a scan-mode switch rebuilds the VRAM layout. Returns true
+ * the frame a scan-mode switch happens - the caller closes any open game
+ * menu then, so the player judges the new picture unobstructed and the
+ * confirm prompt's X press is not also a menu select. */
+bool applyVideoRequests(Engine* engine, ScriptContext& ctx) {
+  auto& core = engine->renderer.core;
+  bool switched = false;
+  if (ctx.widescreen >= 0) {
+    core.setDisplayOutput(core.getSettings().getDisplayMode(),
+                          ctx.widescreen != 0);
+    ctx.widescreen = -1;
+  }
+  if (ctx.requestDisplayMode >= 0) {
+    const auto mode = (Tyra::DisplayMode)ctx.requestDisplayMode;
+    const auto prev = core.getSettings().getDisplayMode();
+    if (mode != prev) {
+      core.setDisplayOutput(mode, core.getSettings().getWidescreen());
+      // The vertical refresh may change (PAL 50 <-> DTV 60) - reseed the
+      // frame clock so gameplay speed stays wall-clock normalized.
+      g_frameRate = engine->renderer.core.getSettings().getRefreshRate();
+      switched = true;
+      if (ctx.displayConfirmSec > 0.0F) {
+        g_videoConfirm.active = true;
+        g_videoConfirm.prevMode = prev;
+        g_videoConfirm.secondsLeft = ctx.displayConfirmSec;
+      } else {
+        g_videoConfirm.active = false;  // blind switch - no prompt armed
+      }
+    }
+    ctx.requestDisplayMode = -1;
+    ctx.displayConfirmSec = 0.0F;
+  }
+  if (!g_videoConfirm.active) return switched;
+  if (!switched && engine->pad.getClicked().Cross) {
+    g_videoConfirm.active = false;  // player kept the new mode
+    return switched;
+  }
+  g_videoConfirm.secondsLeft -= g_frameDt;
+  if (g_videoConfirm.secondsLeft <= 0.0F) {
+    core.setDisplayOutput(g_videoConfirm.prevMode,
+                          core.getSettings().getWidescreen());
+    g_frameRate = engine->renderer.core.getSettings().getRefreshRate();
+    g_videoConfirm.active = false;
+  }
+  return switched;
+}
+
+/** The keep-or-revert prompt, drawn in the 2D phase (with the other HUD). */
+void drawVideoConfirm(Engine* engine) {
+  if (!g_videoConfirm.active) return;
+  const float w = engine->renderer.core.getSettings().getWidth();
+  const float h = engine->renderer.core.getSettings().getHeight();
+  const char* ask = "KEEP VIDEO MODE? X = YES";
+  drawHudText(engine, ask, (w - hudTextWidth(ask)) * 0.5F, h * 0.5F - 22.0F);
+  char line[24];
+  snprintf(line, sizeof(line), "BACK IN %d",
+           (int)g_videoConfirm.secondsLeft + 1);
+  drawHudText(engine, line, (w - hudTextWidth(line)) * 0.5F, h * 0.5F + 2.0F);
 }
 
 }  // namespace
@@ -580,6 +668,7 @@ void TerrainGame::loop() {
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
   const bool menuActive = saveMenuActive || gameMenuPausing;
+  g_gameplayPaused = menuActive;  // freezes particles + animation playback
   if (!menuActive) {
     if (!updatePlayerEntity()) updatePlayer();
     updateUseTarget();
@@ -693,6 +782,15 @@ void TerrainGame::loop() {
     g_particlesOn = scriptCtx.particles != 0;
     scriptCtx.particles = -1;
   }
+  // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
+  // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
+  // switch rebuilds the VRAM layout between frames. A switch closes any
+  // open game menu: the player judges the new picture unobstructed and the
+  // confirm prompt's X press cannot double as a menu select.
+  if (applyVideoRequests(engine, scriptCtx)) {
+    gameMenuIndex = -1;
+    gameMenuStackDepth = 0;
+  }
   if (flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
   if (g_flashEnabled && g_flashOn) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
@@ -724,6 +822,7 @@ void TerrainGame::loop() {
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine);
+    drawVideoConfirm(engine);
   }
   engine->renderer.endFrame();
 }
@@ -1362,7 +1461,8 @@ void TerrainGame::updateAndRenderAnimObjects() {
     inst->setLoop(o.animLoop);
     // time always advances by wall-clock seconds (speed scales the step),
     // visible or not - animFinished stays honest for offscreen instances
-    const float step = o.animPlaying ? g_frameDt * o.animSpeed : 0.0F;
+    const float step =
+        (o.animPlaying && !g_gameplayPaused) ? g_frameDt * o.animSpeed : 0.0F;
     o.animFinished = inst->advance(step);
 
     // draw-distance cut-off (same rule as the static path in renderScene);
@@ -1910,6 +2010,9 @@ void TerrainGame::buildParticles() {
 
 void TerrainGame::updateParticles() {
   if (particles.empty() || !g_particlesOn) return;  // Set Particles switch
+  // Paused: leave every billboard bag exactly as it was last built - the
+  // scene render still draws them, so particles hang frozen behind the menu.
+  if (g_gameplayPaused) return;
   const float dt = g_frameDt;
 
   // camera right/up shared by every billboard this frame
