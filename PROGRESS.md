@@ -11,9 +11,9 @@ Each finished feature lands as its own commit.
 
 - (79) **Tool windows scale their layout with the UI scale (fix 250% clipping)** —
   the floating Tools windows (Menu Editor, Material Editor, Color Grading,
-  Ambience, UI Editor, Disc Layout) and the modal dialogs baked their widget
-  widths, child-region sizes, `SameLine`/`Indent` offsets and preview sizes as
-  raw pixel literals. `applyUiScale()` scales fonts (`FontScaleMain`) and style
+  Ambience, UI Editor, Disc Layout, Cutscene Director) and the modal dialogs
+  baked their widget widths, child-region sizes, `SameLine`/`Indent` offsets and
+  preview sizes as raw pixel literals. `applyUiScale()` scales fonts (`FontScaleMain`) and style
   spacing (`ScaleAllSizes`) but not code literals, so at 250% (a 4K laptop the
   user actually runs) combos and inputs were too narrow for the 2.5×-tall text —
   "apply a preset…" showed "apply a", "256 px" showed "25(", the entry action
@@ -23,13 +23,21 @@ Each finished feature lands as its own commit.
   `##*_list` child widths, all `SetNextItemWidth`, absolute `SameLine`/`Indent`,
   the menu 1:1/TV preview sizes and clamps, the disc table column widths, and the
   short-label dialog buttons `ImVec2(120/140, 0)`); `gradingWheel()` took a
-  `scale` param so the two Resolve-style trackballs scale too. This finishes the
-  job the UI Editor had already done inline (its 3 sites now use the helper).
+  `scale` param so the two Resolve-style trackballs scale too. The Cutscene
+  Director (which merged in from main mid-PR) got the full treatment including
+  its hand-drawn dopesheet canvas - the lane height / ruler height / label-column
+  width and the per-element offsets (key-diamond radius + hit padding, playhead
+  triangle, pinned-label text positions, channel-letter spacing, tick-label
+  crowding threshold) all route through `scaled()`. This finishes the job the UI
+  Editor had already done inline (its 3 sites now use the helper).
   Verified at the user's real 250% scale by scripting the GUI (DPI-aware screen
-  capture + synthetic clicks/scroll): the Menu Editor now shows every field in
-  full and a properly sized baked-panel preview (MENU / Continue / Sound·Off /
-  Difficulty·Low / Start Game), and Color Grading renders its quick-look buttons
-  and both hue wheels side by side without clipping. Editor builds clean.
+  capture + synthetic clicks/scroll): the Menu Editor shows every field in full
+  and a properly sized baked-panel preview (MENU / Continue / Sound·Off /
+  Difficulty·Low / Start Game); Color Grading renders its quick-look buttons and
+  both hue wheels side by side; the Cutscene Director lays out its whole
+  transport row, dopesheet (ruler ticks, "[*] Camera (2)" lane label, key
+  diamonds + retime tooltip, playhead) and Key inspector without clipping.
+  Editor builds clean.
 
 - (69) **Cutscene Director — a keyframe timeline sequencer (cinematic cutscenes
   on the PS2)** — the editor's first full animation-authoring tool. A
