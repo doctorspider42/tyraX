@@ -94,6 +94,7 @@ constexpr float SKY_RS[SCENE_COUNT] = {63.75F};
 constexpr float SKY_GS[SCENE_COUNT] = {140.25F};
 constexpr float SKY_BS[SCENE_COUNT] = {198.9F};
 constexpr bool SKY_DOMES[SCENE_COUNT] = {true};
+constexpr float SKY_ZENITH_EXPS[SCENE_COUNT] = {1.0F};
 constexpr float SKY_TOP_RS[SCENE_COUNT] = {20.4F};
 constexpr float SKY_TOP_GS[SCENE_COUNT] = {76.5F};
 constexpr float SKY_TOP_BS[SCENE_COUNT] = {165.75F};
@@ -218,6 +219,7 @@ inline int everyFrames(float seconds) {
 #define SKY_G SKY_GS[g_activeScene]
 #define SKY_B SKY_BS[g_activeScene]
 #define SKY_DOME SKY_DOMES[g_activeScene]
+#define SKY_ZENITH_EXP SKY_ZENITH_EXPS[g_activeScene]
 #define SKY_TOP_R SKY_TOP_RS[g_activeScene]
 #define SKY_TOP_G SKY_TOP_GS[g_activeScene]
 #define SKY_TOP_B SKY_TOP_BS[g_activeScene]

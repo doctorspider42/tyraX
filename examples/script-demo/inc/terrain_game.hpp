@@ -92,13 +92,12 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
     u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
-    // Usable-object highlight: fading shells grown around the object
-    // center, drawn after the scene (see renderHighlightHull)
-    std::vector<Tyra::Vec4> hullVerts;
-    std::vector<Tyra::Color> hullCols;
-    std::unique_ptr<Tyra::StaPipBag> hullBag;
-    std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
-    std::unique_ptr<Tyra::StaPipColorBag> hullColorBag;
+    // Usable-object highlight: terrain-hugging glow ring around the base,
+    // built when first highlighted, cleared whenever the object rebuilds
+    // (see buildHighlightApron)
+    std::vector<Tyra::Vec4> apronVerts;
+    std::vector<Tyra::Color> apronCols;
+    u32 apronStamp = 0;
   };
   // Custom .obj models (paths in model_data.gen.hpp): geometry split per MTL
   // material with optional per-material textures, the real mesh AABB for box
@@ -191,6 +190,11 @@ class TerrainGame : public Tyra::Game {
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
   GeoPart skyDome;
+  // Re-centered on the camera every frame (renderScene) so a large map can
+  // never let the player walk (or climb) out from under the sky. The dome
+  // geometry stays static; only this translation matrix moves - one matrix
+  // set per frame, so following the camera costs nothing measurable.
+  Tyra::M4x4 skyMat = Tyra::M4x4::Identity;
   float skyHorizonR = 0, skyHorizonG = 0, skyHorizonB = 0;
   std::vector<Tyra::Sprite> hudSprites;
 
@@ -206,6 +210,21 @@ class TerrainGame : public Tyra::Game {
   void updateObjectPhysics();
   void renderScene();
   void renderHighlightHull(int index);
+  void buildHighlightApron(int index, float half);
+  // Usable-object highlight: one shared bag re-submitted for every part of
+  // every shell. The grow about the object center and the pushback about
+  // the eye compose into a single scale+translation model matrix (hullMat),
+  // so VU1 does all per-vertex work on the object's own vertex arrays.
+  // Shell colors need persistent storage - the single-color pointer is
+  // DMA-referenced at submit time, not copied.
+  Tyra::M4x4 hullMat;
+  std::vector<Tyra::Color> hullShellCols;
+  std::unique_ptr<Tyra::StaPipBag> hullBag;
+  std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
+  std::unique_ptr<Tyra::StaPipColorBag> hullColorBag;
+  std::unique_ptr<Tyra::StaPipBag> apronBag;
+  std::unique_ptr<Tyra::StaPipInfoBag> apronInfoBag;
+  std::unique_ptr<Tyra::StaPipColorBag> apronColorBag;
 
   // Player entity (PLAYER_INDEXES in scene_data.hpp); overrides the template
   // camera when present. Returns false when the scene has no player.

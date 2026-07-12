@@ -58,13 +58,18 @@ static/dynamic pipelines, core GS/VU1 code), `thread`, `time`; plus
 (`*.i`, `*.vcl` — preprocessed by vclpp inside the container).
 
 Editor-specific engine additions so far: Cohen–Sutherland outcodes in the EE
-clipper, static pools in `stapip_clipper.cpp` / `stapip_qbuffer.cpp`,
+clipper, the StaPip `clip` VU1 program family (on-VU1 Sutherland–Hodgman
+behind the hidden `"clipping": "vu1"` project mode — design + status in
+`docs/vu1-clipping-plan.md`), static pools in `stapip_clipper.cpp` /
+`stapip_qbuffer.cpp`,
 `RendererCorePostFx` (bloom + film grain via GS blits), WAV-header-aware song
 player, `bboxVersion` on `StaPipBag` for moving geometry, `LeanObjLoader`
 (OBJ+MTL, host:/cdrom0:-safe; parsing semantics mirror the editor's
 `src/objparser.cpp` — keep the two in sync), `physics/CollisionMesh` (XZ-grid
-triangle collider) + `Ray::intersectTriangle`, and a guard in `debug.cpp` so
-TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot).
+triangle collider) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
+TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot),
+and `renderer/models/unique_id.hpp` (`generateUniqueId()`) replacing upstream's
+`rand() % 1000000` object ids (see the pitfall below).
 
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
@@ -74,10 +79,18 @@ TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot).
   polygons". PCSX2's HW renderer often *masks* this; the SW renderer and real
   hardware show it. This was the root cause of a long-standing corruption bug —
   not the clipper patches (all were bisected; even pure upstream reproduced it).
-- **VU1 guard-band clipping is retired.** Three variants were tried; all
-  corrupted ADC bits. The failed approaches are documented in `vcl_sml.i`. The
-  EE clipper (with outcode + pool optimizations) handles the near-plane band;
-  don't resurrect the guard band without reading that history.
+- **Widening the cull programs' ADC test is retired; real VU1 clipping is a
+  separate program family.** Three attempts at a guard band inside
+  `PerformClipCheck` all corrupted ADC bits (documented in `vcl_sml.i`); the
+  working approach is the StaPip `clip` programs (hidden `"clipping": "vu1"`
+  mode), which never derive ADC from clip flags. VU1 microcode traps already
+  paid for there: `fcand` sets VI01 to 0/1 (any-bit), NOT the masked bit
+  pattern; a vertex clipped to exactly |x| = w scales to GS coordinate 4096.0
+  and wraps the 12.4 XYZ2 field (clip the sides at 0.9w, let the scissor
+  finish); every VU1 vertex-loop count must be a multiple of 3 or the loop
+  runs off into memory; overflowing the 2048-instruction micro memory is
+  SILENT in release builds (the assert is compiled out) - check program sizes
+  with nm on the .o files when adding VU1 code.
 - The engine bbox cache is keyed by bag pointer — geometry that changes at
   runtime must bump `bboxVersion` on its `StaPipBag`, or culling uses stale
   boxes.
@@ -85,6 +98,33 @@ TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot).
   ~10 units from the camera; generated games override it.
 - Judge rendering correctness on **PCSX2's software renderer** — it is the
   honest one. See tyra-testing for how.
+- **Object ids must be unique, not random.** `Sprite`/`Mesh`/`MeshFrame`/
+  `MeshMaterial`/`MeshMaterialFrame` share ONE lookup namespace in
+  `TextureRepository`: `addLink(id)` binds a texture to a sprite/material and
+  `getBySpriteId`/`getByMeshMaterialId` return the FIRST texture whose links
+  contain that id. Upstream drew ids from `rand() % 1000000` (never seeded), so
+  a collision bound the wrong texture to a sprite → garbled/black HUD sprites,
+  worst right after opening a menu (a burst of new sprites raises the collision
+  odds against the always-present debug-HUD glyph). Fixed with
+  `renderer/models/unique_id.hpp` `generateUniqueId()`. Use it for any new
+  id-bearing render object; don't reintroduce `rand()` ids. (`audio_song.cpp`
+  intentionally keeps `rand()` — separate namespace, assigned off-thread.)
+- **DTV display modes (480p/1080i)**: ps2sdk's `graph_set_screen` always
+  programs the mode's full VCK width into DISPLAY.DW, and no 64-aligned
+  framebuffer width divides the 1440/1920-VCK DTV rasters — the GS scans
+  garbage past the buffer's right edge. `RendererCoreGS::setDtvDisplay`
+  programs DISPLAY1/2 directly instead. Also: the gsKit/OPL 1080i recipe
+  (interlaced FRAME mode + MagV--) **hard-crashes PCSX2 v2.3.205** (the
+  process dies seconds after SetGsCrt, no crash dialog); 1080i in FIELD
+  mode with MAGV=2x is visually equivalent (both fields step through every
+  buffer line) and works.
+- **Runtime display switching**: `RendererCore::setDisplayOutput(mode, ws)`
+  (tyra-editor fork) switches the scan mode / widescreen between frames.
+  A mode change resets the whole VRAM bump allocator (`vram.reset()`),
+  rebuilds frame/z buffers + post fx, and `texture.evictAll()` drops every
+  texture allocation (they lazily re-upload) — never call it mid-frame.
+  The projection aspect lives in `RendererSettings::updateGeometry`
+  (fixed 4:3-baseline look; widescreen scales it anamorphically).
 
 **Audio**
 - audsrv streams PCM only; ADPCM is for one-shots (`adpcm.tryPlay`), and ADPCM

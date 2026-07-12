@@ -18,8 +18,12 @@ namespace Tyra {
 RendererCore::RendererCore() { isFrameLimitOn = true; }
 RendererCore::~RendererCore() {}
 
-void RendererCore::init(VideoMode videoMode) {
+void RendererCore::init(VideoMode videoMode, DisplayMode displayMode,
+                        bool widescreen) {
   settings.setVideoMode(videoMode);
+  // Must precede gs.init - it sizes the frame/z buffers (tyra-editor fork).
+  settings.setDisplayMode(displayMode);
+  settings.setWidescreen(widescreen);
   path3.init(&settings);
   sync.init(&path3, &path1);
   gs.init(&settings);
@@ -32,6 +36,36 @@ void RendererCore::init(VideoMode videoMode) {
 }
 
 void RendererCore::setClearScreenColor(const Color& color) { bgColor = color; }
+
+// Modified by tyra-editor: runtime video output switch - see the header.
+void RendererCore::setDisplayOutput(const DisplayMode& mode,
+                                    const bool& widescreen) {
+  const bool modeChanged = settings.getDisplayMode() != mode;
+  const bool wsChanged = settings.getWidescreen() != widescreen;
+  if (!modeChanged && !wsChanged) return;
+
+  settings.setDisplayMode(mode);
+  settings.setWidescreen(widescreen);
+
+  if (modeChanged) {
+    // The framebuffer size changes, so the whole VRAM layout does: drop
+    // every texture allocation (they lazily re-upload), rebuild the
+    // frame/z buffers + display, and re-place the post-fx scratch buffers
+    // right above them (same order as init, so texture eviction can never
+    // reclaim them).
+    texture.evictAll();
+    gs.reinit();
+    postFx.init(&settings, &gs);
+  } else {
+    // Same buffers - only the display window shape changes (1080i widens;
+    // the SDTV modes are stretched by the TV, their window stays as-is).
+    gs.reprogramDisplay();
+  }
+
+  // Re-derive the projection (and thus next frame's frustum planes) from
+  // the new framebuffer size / aspect.
+  renderer3D.setFov(renderer3D.getFov());
+}
 
 // Modified by tyra-editor: GS hardware distance fog.
 void RendererCore::setFog(const Color& color, const float& start,
