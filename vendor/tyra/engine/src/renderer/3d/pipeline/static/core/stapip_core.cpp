@@ -201,8 +201,7 @@ void StaPipCore::render(StaPipBag* bag) {
       renderPkgs(packages, doClip, packagesCount);
       delete[] packages;
     } else {
-      auto subpkgs =
-          packager.create(&packagesCount, bag, maxVertCount / clipDivisor());
+      auto subpkgs = packager.create(&packagesCount, bag, clipPackageSize());
       Verbose("Material - partial. Subpackages: ", packagesCount);
       renderSubpkgs(subpkgs, packagesCount);
       delete[] subpkgs;
@@ -229,8 +228,8 @@ void StaPipCore::renderPkgs(StaPipBagPackage* packages, const bool& doClip,
       qbufferRenderer.cull(buffer);
     } else if (doSubpkgs) {
       u16 subpkgsSize = 0;
-      auto packages1By3 = packager.create(&subpkgsSize, packages[i],
-                                          maxVertCount / clipDivisor());
+      auto packages1By3 =
+          packager.create(&subpkgsSize, packages[i], clipPackageSize());
       Verbose(i, " - partial package. Created subpkgs: ", subpkgsSize);
 
       renderSubpkgs(packages1By3, subpkgsSize);
@@ -310,6 +309,15 @@ void StaPipCore::setMaxVertCount(const u32& count) {
 // output area of one VU1 double-buffer half for every program variant.
 u32 StaPipCore::clipDivisor() const {
   return qbufferRenderer.isVU1ClippingEnabled() ? 5 : 3;
+}
+
+// The size must stay a multiple of 3 - a package boundary through the middle
+// of a triangle corrupts the geometry, and the VU1 clip programs loop by
+// whole triangles (maxVertCount/5 is NOT always a multiple of 3: 72/5 = 14
+// sent the tc program into an infinite loop over VU1 memory).
+u32 StaPipCore::clipPackageSize() const {
+  const u32 size = maxVertCount / clipDivisor();
+  return (size / 3) * 3;
 }
 
 }  // namespace Tyra

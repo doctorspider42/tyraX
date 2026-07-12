@@ -17,15 +17,19 @@
 ;   scissor trims the overhang pixel-exactly) and the exact near/far
 ;   planes (constant z in Tyra's clip space; folded into a second clipw
 ;   judgement via the biased constants at VU1_CLIP_CONSTS_ADDR).
-; - all 3 verts inside -> emit unchanged (the common case)
-; - all 3 outside one plane -> dropped
-; - crossing -> Sutherland-Hodgman against the 6 planes uploaded at
+; - the three verts + attributes go to the scratch polygon; crossing
+;   triangles are cut by Sutherland-Hodgman against the 6 planes at
 ;   VU1_CLIP_PLANES_ADDR (near plane FIRST: everything that survives it
-;   has w > 0, so the w-relative side planes are safe), then the result
-;   polygon is fan-triangulated and emitted.
-; The prim giftag NLOOP is patched with the emitted vertex count.
+;   has w > 0, so the w-relative side planes are safe), fully-inside
+;   triangles skip straight to the emitter (all four program variants
+;   share this single-emitter structure - VU1 micro memory cannot fit
+;   separate inline fast paths on top of four clippers).
+; - the polygon is fan-triangulated and emitted; the prim giftag NLOOP
+;   is patched with the emitted vertex count.
 ; ADC bits are never derived from clip flags (the historically fragile
 ; path) - every emitted vertex stores ADC = 0 plus the fog coefficient.
+; NOTE: fcand sets VI01 to 0/1 (any-masked-bit-set), not to the bit
+; pattern - every judgement below is read that way.
 ; Colors
 ;---------------------------------------------------------------
 
@@ -38,9 +42,6 @@
 #include "src/renderer/3d/pipeline/shared/vcl_sml.i"
 #include "src/renderer/3d/pipeline/shared/tyra_macros.i"
 #include "inc/renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h"
-
-#define RGBA_STORE_OFFSET   0
-#define XYZ2_STORE_OFFSET   1
 
 ; scratch polygon vertex: [pos, color] (stride 2)
 
@@ -89,11 +90,11 @@
     LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
     ; Modified by tyra-editor: spot light (flashlight)
     LoadTyraSpotLight{ spotPos, spotDirV, spotColV, VU1_LIGHTS_DIRS_ADDR }
-    ; single color (also reloaded as an int flag per triangle - VI pressure)
+    ; single color (the enabled flag is reloaded per triangle - VI pressure)
     lq          singleColor, VU1_SINGLE_COLOR_ADDR(vi00)
     ; clip constants: x = nearZ-GUARD, y = -farZ-GUARD, z = 0, w = GUARD
     lq          cvec,       VU1_CLIP_CONSTS_ADDR(vi00)
-    ; judge vertex: x/y rewritten per use, z stays 0, w stays GUARD
+    ; judge vertex: x/y/w rewritten per use
     move        sjudge,     cvec
 
 begin:
@@ -145,11 +146,7 @@ processing:
         MatrixMultiplyVertex{ vertex2, mvp, vertex2 }
         MatrixMultiplyVertex{ vertex3, mvp, vertex3 }
 
-        ; --- crossing judgement. fcand sets VI01 to 0/1 (any masked bit
-        ; set), so per-vertex we learn "outside something", not which
-        ; plane - enough to route the triangle. Real vertex bits 0-3:
-        ; +x,-x,+y,-y = outside the X/Y guard band; judge vertex: -x
-        ; (bit 1) = near violated, -y (bit 3) = far violated.
+        ; --- crossing judgement ---
         clipw.xyz   vertex1,    vertex1
         fcand       VI01,       0xF
         iadd        triOr,      VI01,       vi00
@@ -180,42 +177,7 @@ processing:
         fcand       VI01,       0xA
         ior         triOr,      triOr,      VI01
 
-        ; any vert outside any plane -> real clipping (fully-outside
-        ; triangles come out of Sutherland-Hodgman empty)
-        ibne        triOr,      vi00,       triClip
-
-        ; --- fast path: triangle entirely inside ---
-        CalculateTyraFog{ fogInt, vertex1, fogParams }
-        StoreTyraFog{ fogInt, destAddress, XYZ2_STORE_OFFSET }
-        VertexPersCorr{ vertex1, vertex1 }
-        ScaleVertexToGSFormat{ scale, vertex1 }
-        FixColor{ color1 }
-
-        CalculateTyraFog{ fogInt, vertex2, fogParams }
-        StoreTyraFog{ fogInt, destAddress, XYZ2_STORE_OFFSET+2 }
-        VertexPersCorr{ vertex2, vertex2 }
-        ScaleVertexToGSFormat{ scale, vertex2 }
-        FixColor{ color2 }
-
-        CalculateTyraFog{ fogInt, vertex3, fogParams }
-        StoreTyraFog{ fogInt, destAddress, XYZ2_STORE_OFFSET+4 }
-        VertexPersCorr{ vertex3, vertex3 }
-        ScaleVertexToGSFormat{ scale, vertex3 }
-        FixColor{ color3 }
-
-        sq      color1,         RGBA_STORE_OFFSET(destAddress)
-        sq.xyz  vertex1,        XYZ2_STORE_OFFSET(destAddress)
-        sq      color2,         RGBA_STORE_OFFSET+2(destAddress)
-        sq.xyz  vertex2,        XYZ2_STORE_OFFSET+2(destAddress)
-        sq      color3,         RGBA_STORE_OFFSET+4(destAddress)
-        sq.xyz  vertex3,        XYZ2_STORE_OFFSET+4(destAddress)
-
-        iaddiu  destAddress,    destAddress,    6
-        iaddiu  outCount,       outCount,       3
-        b       triNext
-
-triClip:
-        ; --- Sutherland-Hodgman in the scratch area ---
+        ; --- clip-space triangle to the scratch polygon ---
         sq      vertex1,    VU1_CLIP_POLY_A_ADDR+0(vi00)
         sq      color1,     VU1_CLIP_POLY_A_ADDR+1(vi00)
         sq      vertex2,    VU1_CLIP_POLY_A_ADDR+2(vi00)
@@ -223,10 +185,15 @@ triClip:
         sq      vertex3,    VU1_CLIP_POLY_A_ADDR+4(vi00)
         sq      color3,     VU1_CLIP_POLY_A_ADDR+5(vi00)
 
-        iaddiu  planePtr,   vi00,       VU1_CLIP_PLANES_ADDR
         iaddiu  srcBase,    vi00,       VU1_CLIP_POLY_A_ADDR
-        iaddiu  dstBase,    vi00,       VU1_CLIP_POLY_B_ADDR
         iaddiu  srcEnd,     srcBase,    6
+
+        ; fully inside -> no clipping, straight to the emitter
+        ibeq    triOr,      vi00,       fanStart
+
+        ; --- Sutherland-Hodgman against the 6 planes ---
+        iaddiu  planePtr,   vi00,       VU1_CLIP_PLANES_ADDR
+        iaddiu  dstBase,    vi00,       VU1_CLIP_POLY_B_ADDR
 
 planeLoop:
         lq      planeV,     0(planePtr)
@@ -256,8 +223,7 @@ edgeLoop:
 
         ; sign of pd / cd through one clipw judgement:
         ; sjudge = (pd - GUARD, cd - GUARD, ?, GUARD)
-        ; -x bit = pd < 0 (prev outside), -y bit = cd < 0 (cur outside).
-        ; fcand yields 0/1, so the two bits are read with separate fcands.
+        ; -x bit = pd < 0 (prev outside), -y bit = cd < 0 (cur outside)
         add.x   sjudge,     vf00,       pd[x]
         add.y   sjudge,     vf00,       cd[x]
         sub.xy  sjudge,     sjudge,     cvec[w]
@@ -272,7 +238,6 @@ edgeLoop:
         b       edgeEmitCur                             ; both inside
 
 edgeCross:
-        ; edge crosses the plane -> emit the intersection
         ; t = pd / (pd - cd); out = prev + (cur - prev) * t
         sub.x   dtmp,       pd,         cd[x]
         div     q,          pd[x],      dtmp[x]
@@ -309,6 +274,7 @@ edgeAdvance:
         iaddiu  vertMask,   vi00,       VU1_CLIP_PLANES_ADDR+12
         ibne    planePtr,   vertMask,   planeLoop
 
+fanStart:
         ; fewer than 3 verts left -> nothing to draw
         iaddiu  vertMask,   srcBase,    6
         isub    vertMask,   srcEnd,     vertMask
@@ -332,7 +298,7 @@ triNext:
         iaddiu  vertexData,     vertexData,     3
         iaddiu  colorData,      colorData,      3
         iaddi   vertexCounter,  vertexCounter,  -3
-        ibne    vertexCounter,  vi00,   triLoop
+        ibgtz   vertexCounter,  triLoop
 
     ; rebuild the kick address (xtop is stable within one activation) and
     ; patch the prim giftag NLOOP (word 0 = outCount | EOP)

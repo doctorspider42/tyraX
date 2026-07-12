@@ -10,8 +10,12 @@
 ;---------------------------------------------------------------
 ; Triangle list
 ; Clip = replaces the EE clipper for frustum-crossing packages.
-; M1 skeleton: transform + clipw ADC accept (cull behaviour) -
-; the real Sutherland-Hodgman clipper lands in M2/M3.
+; Same structure as stapip_clip_c_vu1.vclpp (see the design notes
+; there). Directional lighting is evaluated on the ORIGINAL three
+; vertices and the resulting colors are interpolated through the
+; cuts - equivalent to what Gouraud shading does across the
+; uncut triangle, and it keeps the light registers out of the
+; Sutherland-Hodgman block (they are reloaded per triangle).
 ; Directional lights
 ;---------------------------------------------------------------
 
@@ -28,6 +32,38 @@
 #define RGBA_STORE_OFFSET   0
 #define XYZ2_STORE_OFFSET   1
 
+; scratch polygon vertex: [pos, lit color] (stride 2)
+
+;---------------------------------------------------------
+; EmitClipVertexD - identical to clip_c's emit: the color
+; in scratch is already lit. Raw instructions only.
+;---------------------------------------------------------
+#macro EmitClipVertexD: t_ptr, t_dest, t_scale, t_fogParams
+   lq          ecPos,      0(t_ptr)
+   lq          ecCol,      1(t_ptr)
+   add.x       ecFogF,     vf00,       ecPos[w]
+   mul.x       ecFogF,     ecFogF,     t_fogParams[z]
+   add.x       ecFogF,     ecFogF,     t_fogParams[w]
+   loi         255
+   mini.x      ecFogF,     ecFogF,     i
+   max.x       ecFogF,     ecFogF,     vf00[x]
+   ftoi4.x     ecFogF,     ecFogF
+   mtir        ecFog,      ecFogF[x]
+   isw.w       ecFog,      1(t_dest)
+   div         q,          vf00[w],    ecPos[w]
+   mul.xyz     ecPos,      ecPos,      q
+   mula.xyz    acc,        t_scale,    vf00[w]
+   madd.xyz    ecPos,      ecPos,      t_scale
+   ftoi4.xyz   ecPos,      ecPos
+   loi         255
+   mini.xyz    ecCol,      ecCol,      i
+   max.xyz     ecCol,      ecCol,      vf00[x]
+   ftoi0       ecCol,      ecCol
+   sq          ecCol,      0(t_dest)
+   sq.xyz      ecPos,      1(t_dest)
+   iaddiu      t_dest,     t_dest,     2
+#endmacro
+
 --enter
 --endenter
 
@@ -36,11 +72,13 @@
     ResetClipFlags{ }
     LoadTyraStaticData{ gifSetTag }
     MatrixLoad{ mvp, VU1_MVP_MATRIX_ADDR, vi00 }
-    LoadTyraDirectionalLights{ lightMatrix, lightDirections, lightColors, ambientColor, VU1_LIGHTS_DIRS_ADDR, VU1_LIGHTS_COLORS_ADDR, VU1_LIGHTS_MATRIX_ADDR }
     LoadTyraTags{ lodGifTag, testsTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR }
     ; Modified by tyra-editor: GS hardware fog (packed XYZF2)
     LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
-    MakeTyraAdcMask{ adcMask }
+    ; clip constants: x = nearZ-GUARD, y = -farZ-GUARD, z = 0, w = GUARD
+    lq          cvec,       VU1_CLIP_CONSTS_ADDR(vi00)
+    ; judge vertex: x/y/w rewritten per use
+    move        sjudge,     cvec
 
 begin:
     xtop buffer
@@ -49,76 +87,196 @@ begin:
     iaddiu  vertexData,         buffer,         VU1_STAPIP_VERT_DATA_ADDR
     ilw.w   vertexCount,        0(buffer)
     iadd    normalData,         vertexData,     vertexCount
-    iadd    kickAddress,        normalData,     vertexCount
     iadd    destAddress,        normalData,     vertexCount
 
     StoreTyraGifTags{ gifSetTag, lodGifTag, primTag, testsTag, destAddress }
 
-    ;--- Loop
-    iadd vertexCounter, buffer, vertexCount
-vertexLoop:
-        ;--- Load vertex1
+    iaddiu  outCount,       vi00,           0
+    iadd    vertexCounter,  vi00,           vertexCount
+triLoop:
+
         lq      vertex1,  (vertexData)
-        lq.xyz  normal1,  (normalData)
-
-        ;--- Load vertex2
         lq      vertex2,  1(vertexData)
-        lq.xyz  normal2,  1(normalData)
-
-        ;--- Load vertex3
         lq      vertex3,  2(vertexData)
+        lq.xyz  normal1,  (normalData)
+        lq.xyz  normal2,  1(normalData)
         lq.xyz  normal3,  2(normalData)
 
-        ;--- Calculate vertex1
+        ; light the original verts; colors are interpolated through the
+        ; cuts (the light registers are reloaded per triangle so they do
+        ; not stay live across the Sutherland-Hodgman block)
+        LoadTyraDirectionalLights{ lightMatrix, lightDirections, lightColors, ambientColor, VU1_LIGHTS_DIRS_ADDR, VU1_LIGHTS_COLORS_ADDR, VU1_LIGHTS_MATRIX_ADDR }
+        CalculateTyraDirectionalLights{ color1, normal1, lightDirections, lightColors, lightMatrix, ambientColor }
+        CalculateTyraDirectionalLights{ color2, normal2, lightDirections, lightColors, lightMatrix, ambientColor }
+        CalculateTyraDirectionalLights{ color3, normal3, lightDirections, lightColors, lightMatrix, ambientColor }
+
         MatrixMultiplyVertex{ vertex1, mvp, vertex1 }
-        CalculateTyraFog{ fogInt, vertex1, fogParams }
-        PerformTyraFogClipCheck{ vertex1, destAddress, XYZ2_STORE_OFFSET, fogInt, adcMask }
-        VertexPersCorr{ vertex1, vertex1 }
-        ScaleVertexToGSFormat{ scale, vertex1 }
-        CalculateTyraDirectionalLights{ outputColor1, normal1, lightDirections, lightColors, lightMatrix, ambientColor }
-        FixColor{ outputColor1 }
-
-        ;--- Calculate vertex2
         MatrixMultiplyVertex{ vertex2, mvp, vertex2 }
-        CalculateTyraFog{ fogInt, vertex2, fogParams }
-        PerformTyraFogClipCheck{ vertex2, destAddress, XYZ2_STORE_OFFSET+2, fogInt, adcMask }
-        VertexPersCorr{ vertex2, vertex2 }
-        ScaleVertexToGSFormat{ scale, vertex2 }
-        CalculateTyraDirectionalLights{ outputColor2, normal2, lightDirections, lightColors, lightMatrix, ambientColor }
-        FixColor{ outputColor2 }
-
-        ;--- Calculate vertex3
         MatrixMultiplyVertex{ vertex3, mvp, vertex3 }
-        CalculateTyraFog{ fogInt, vertex3, fogParams }
-        PerformTyraFogClipCheck{ vertex3, destAddress, XYZ2_STORE_OFFSET+4, fogInt, adcMask }
-        VertexPersCorr{ vertex3, vertex3 }
-        ScaleVertexToGSFormat{ scale, vertex3 }
-        CalculateTyraDirectionalLights{ outputColor3, normal3, lightDirections, lightColors, lightMatrix, ambientColor }
-        FixColor{ outputColor3 }
 
-        ;--- Store vertex1
-        sq      outputColor1,   RGBA_STORE_OFFSET(destAddress)
-        sq.xyz  vertex1,        XYZ2_STORE_OFFSET(destAddress)
+        ; --- crossing judgement (see stapip_clip_c_vu1.vclpp) ---
+        clipw.xyz   vertex1,    vertex1
+        fcand       VI01,       0xF
+        iadd        triOr,      VI01,       vi00
+        sub.x       sjudge,     cvec,       vertex1[z]
+        add.y       sjudge,     cvec,       vertex1[z]
+        mul.w       sjudge,     vf00,       cvec[w]
+        clipw.xyz   sjudge,     sjudge
+        fcand       VI01,       0xA
+        ior         triOr,      triOr,      VI01
 
-        ;--- Store vertex2
-        sq      outputColor2,   RGBA_STORE_OFFSET+2(destAddress)
-        sq.xyz  vertex2,        XYZ2_STORE_OFFSET+2(destAddress)
+        clipw.xyz   vertex2,    vertex2
+        fcand       VI01,       0xF
+        ior         triOr,      triOr,      VI01
+        sub.x       sjudge,     cvec,       vertex2[z]
+        add.y       sjudge,     cvec,       vertex2[z]
+        mul.w       sjudge,     vf00,       cvec[w]
+        clipw.xyz   sjudge,     sjudge
+        fcand       VI01,       0xA
+        ior         triOr,      triOr,      VI01
 
-        ;--- Store vertex3
-        sq      outputColor3,   RGBA_STORE_OFFSET+4(destAddress)
-        sq.xyz  vertex3,        XYZ2_STORE_OFFSET+4(destAddress)
+        clipw.xyz   vertex3,    vertex3
+        fcand       VI01,       0xF
+        ior         triOr,      triOr,      VI01
+        sub.x       sjudge,     cvec,       vertex3[z]
+        add.y       sjudge,     cvec,       vertex3[z]
+        mul.w       sjudge,     vf00,       cvec[w]
+        clipw.xyz   sjudge,     sjudge
+        fcand       VI01,       0xA
+        ior         triOr,      triOr,      VI01
 
-        ;-------------------------------
+        ; --- clip-space triangle to the scratch polygon (stride 2) ---
+        sq      vertex1,    VU1_CLIP_POLY_A_ADDR+0(vi00)
+        sq      color1,     VU1_CLIP_POLY_A_ADDR+1(vi00)
+        sq      vertex2,    VU1_CLIP_POLY_A_ADDR+2(vi00)
+        sq      color2,     VU1_CLIP_POLY_A_ADDR+3(vi00)
+        sq      vertex3,    VU1_CLIP_POLY_A_ADDR+4(vi00)
+        sq      color3,     VU1_CLIP_POLY_A_ADDR+5(vi00)
 
+        iaddiu  srcBase,    vi00,       VU1_CLIP_POLY_A_ADDR
+        iaddiu  srcEnd,     srcBase,    6
+
+        ; fully inside -> no clipping, straight to the emitter
+        ibeq    triOr,      vi00,       fanStart
+
+        ; --- Sutherland-Hodgman against the 6 planes ---
+        iaddiu  planePtr,   vi00,       VU1_CLIP_PLANES_ADDR
+        iaddiu  dstBase,    vi00,       VU1_CLIP_POLY_B_ADDR
+
+planeLoop:
+        lq      planeV,     0(planePtr)
+        lq      planeE,     1(planePtr)
+
+        ; prev = last polygon vertex, pd = dot4(prev, plane) + E
+        iaddi   prevPtr,    srcEnd,     -2
+        lq      ppos,       0(prevPtr)
+        lq      pcol,       1(prevPtr)
+        mul     dtmp,       ppos,       planeV
+        add.x   dtmp,       dtmp,       dtmp[y]
+        add.x   dtmp,       dtmp,       dtmp[z]
+        add.x   dtmp,       dtmp,       dtmp[w]
+        add.x   pd,         dtmp,       planeE[x]
+
+        iadd    curPtr,     srcBase,    vi00
+        iadd    dstPtr,     dstBase,    vi00
+
+edgeLoop:
+        lq      cpos,       0(curPtr)
+        lq      ccol,       1(curPtr)
+        mul     dtmp,       cpos,       planeV
+        add.x   dtmp,       dtmp,       dtmp[y]
+        add.x   dtmp,       dtmp,       dtmp[z]
+        add.x   dtmp,       dtmp,       dtmp[w]
+        add.x   cd,         dtmp,       planeE[x]
+
+        ; sign of pd / cd through one clipw judgement (see clip_c)
+        add.x   sjudge,     vf00,       pd[x]
+        add.y   sjudge,     vf00,       cd[x]
+        sub.xy  sjudge,     sjudge,     cvec[w]
+        mul.w   sjudge,     vf00,       cvec[w]
+        clipw.xyz sjudge,   sjudge
+        fcand   VI01,       0x2                         ; prev outside?
+        iadd    vertMask,   VI01,       vi00
+        fcand   VI01,       0x8                         ; cur outside?
+
+        ibne    vertMask,   VI01,       edgeCross       ; signs differ
+        ibne    VI01,       vi00,       edgeAdvance     ; both outside
+        b       edgeEmitCur                             ; both inside
+
+edgeCross:
+        ; t = pd / (pd - cd); out = prev + (cur - prev) * t
+        sub.x   dtmp,       pd,         cd[x]
+        div     q,          pd[x],      dtmp[x]
+        sub     lerpP,      cpos,       ppos
+        mul     lerpP,      lerpP,      q
+        add     lerpP,      lerpP,      ppos
+        sub     lerpC,      ccol,       pcol
+        mul     lerpC,      lerpC,      q
+        add     lerpC,      lerpC,      pcol
+        sq      lerpP,      0(dstPtr)
+        sq      lerpC,      1(dstPtr)
+        iaddiu  dstPtr,     dstPtr,     2
+        ; when cur is inside too, it is emitted as well
+        ibne    VI01,       vi00,       edgeAdvance     ; cur outside
+edgeEmitCur:
+        sq      cpos,       0(dstPtr)
+        sq      ccol,       1(dstPtr)
+        iaddiu  dstPtr,     dstPtr,     2
+edgeAdvance:
+        move    ppos,       cpos
+        move    pcol,       ccol
+        add.x   pd,         vf00,       cd[x]
+        iaddiu  curPtr,     curPtr,     2
+        ibne    curPtr,     srcEnd,     edgeLoop
+
+        ; polygon fully clipped away?
+        ibeq    dstPtr,     dstBase,    triNext
+        ; swap src <-> dst for the next plane
+        iadd    srcEnd,     dstPtr,     vi00
+        iadd    vertMask,   srcBase,    vi00
+        iadd    srcBase,    dstBase,    vi00
+        iadd    dstBase,    vertMask,   vi00
+        iaddiu  planePtr,   planePtr,   2
+        iaddiu  vertMask,   vi00,       VU1_CLIP_PLANES_ADDR+12
+        ibne    planePtr,   vertMask,   planeLoop
+
+fanStart:
+        ; fewer than 3 verts left -> nothing to draw
+        iaddiu  vertMask,   srcBase,    6
+        isub    vertMask,   srcEnd,     vertMask
+        ibltz   vertMask,   triNext
+
+        ; fan-triangulate: (P0, Pj, Pj+1) for j = 1 .. n-2
+        iaddiu  fanPtr,     srcBase,    2
+fanLoop:
+        iaddiu  fanNext,    fanPtr,     2
+        ibeq    fanNext,    srcEnd,     triNext
+
+        EmitClipVertexD{ srcBase, destAddress, scale, fogParams }
+        EmitClipVertexD{ fanPtr,  destAddress, scale, fogParams }
+        EmitClipVertexD{ fanNext, destAddress, scale, fogParams }
+        iaddiu  outCount,   outCount,   3
+
+        iadd    fanPtr,     fanNext,    vi00
+        b       fanLoop
+
+triNext:
         iaddiu  vertexData,     vertexData,     3
         iaddiu  normalData,     normalData,     3
-        iaddiu  destAddress,    destAddress,    6
+        iaddi   vertexCounter,  vertexCounter,  -3
+        ibgtz   vertexCounter,  triLoop
 
-        ;--- Fix loop
-        iaddi   vertexCounter,  vertexCounter,  -3  ; decrement the loop counter
-        ibne    vertexCounter,  buffer, vertexLoop  ; and repeat if needed
+    ; rebuild the kick address and patch the prim giftag NLOOP
+    xtop    buffer
+    iaddiu  vertexData, buffer,     VU1_STAPIP_VERT_DATA_ADDR
+    ilw.w   vertexCount, 0(buffer)
+    iadd    vertexData, vertexData, vertexCount
+    iadd    vertexData, vertexData, vertexCount
+    iaddiu  vertMask,   outCount,   0x4000
+    iaddiu  vertMask,   vertMask,   0x4000
+    isw.x   vertMask,   4(vertexData)
 
-    xgkick kickAddress ; dispatch to the GS rasterizer.
+    xgkick vertexData ; dispatch to the GS rasterizer.
 
 --barrier ; Why the hell I must add barrier AFTER XGKICK? VCL does not adds E bit without it...
 --cont

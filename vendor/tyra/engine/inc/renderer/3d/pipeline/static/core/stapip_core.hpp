@@ -75,6 +75,7 @@ class StaPipCore {
   void setMaxVertCount(const u32& count);
   // Modified by tyra-editor: VU1 clipping.
   u32 clipDivisor() const;
+  u32 clipPackageSize() const;
   StaPipBagPackager packager;
   StaPipQBufferRenderer qbufferRenderer;
   void renderPkgs(StaPipBagPackage* packages, const bool& doClip, u16 count);
