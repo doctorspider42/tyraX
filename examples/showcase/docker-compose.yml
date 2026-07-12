@@ -2,7 +2,7 @@ name: showcase
 volumes:
   tyra-game-volume:
   tyra-engine:
-    name: tyra-engine-35c830b1
+    name: tyra-engine-2c4a002b
 services:
   compiler:
     environment:
@@ -16,4 +16,4 @@ services:
       - tyra-game-volume:/src
       - tyra-engine:/tyra
       - ./:/host
-      - "D:/tyra-editor/.claude/worktrees/hubspot-calendar-sync-bug-b1cbcd/vendor/tyra:/engine-src:ro"
+      - "F:/Projects/tyra-editor/.claude/worktrees/menu-toggles-ui-customization-27a649/vendor/tyra:/engine-src:ro"

@@ -19,11 +19,21 @@ class FlowGraphScript_0_0 : public Script {
       generation = ctx.sceneGeneration;
       frame = 0;
       started = false;
+      cond10 = false;
+      cond13 = false;
+      cond16 = false;
+      cond19 = false;
+      cond22 = false;
+      cond25 = false;
+      cond28 = false;
+      cond31 = false;
     }
     frame++;
     if (!started) {
       started = true;
       applySceneGrading(ctx.engine, 0);  // "Golden Hour"
+      ctx.textRequest[0] = 1;  // "options-hint"
+      ctx.textDuration[0] = 6.0F;
       {
         auto& song = ctx.engine->audio.song;
         song.stop();
@@ -36,29 +46,61 @@ class FlowGraphScript_0_0 : public Script {
     if (ctx.engine->pad.getClicked().Select) {
       ctx.openMenu = 1;  // "options"
     }
-    if (ctx.menuEvent == 0) {  // "fog-on"
+    {
+      const bool c = ((ctx.saveValues[1] >= 1.0F));
+      if (c && !cond10) {
       ctx.fog = 1;
+      }
+      cond10 = c;
     }
-    if (ctx.menuEvent == 1) {  // "fog-off"
+    {
+      const bool c = ((!((ctx.saveValues[1] >= 1.0F))));
+      if (c && !cond13) {
       ctx.fog = 0;
+      }
+      cond13 = c;
     }
-    if (ctx.menuEvent == 2) {  // "grain-on"
+    {
+      const bool c = ((ctx.saveValues[2] >= 1.0F));
+      if (c && !cond16) {
       ctx.grain = 18;
+      }
+      cond16 = c;
     }
-    if (ctx.menuEvent == 3) {  // "grain-off"
+    {
+      const bool c = ((!((ctx.saveValues[2] >= 1.0F))));
+      if (c && !cond19) {
       ctx.grain = 0;
+      }
+      cond19 = c;
     }
-    if (ctx.menuEvent == 4) {  // "bloom-on"
+    {
+      const bool c = ((ctx.saveValues[3] >= 1.0F));
+      if (c && !cond22) {
       ctx.bloom = 45;
+      }
+      cond22 = c;
     }
-    if (ctx.menuEvent == 5) {  // "bloom-off"
+    {
+      const bool c = ((!((ctx.saveValues[3] >= 1.0F))));
+      if (c && !cond25) {
       ctx.bloom = 0;
+      }
+      cond25 = c;
     }
-    if (ctx.menuEvent == 6) {  // "part-on"
+    {
+      const bool c = ((ctx.saveValues[4] >= 1.0F));
+      if (c && !cond28) {
       ctx.particles = 1;
+      }
+      cond28 = c;
     }
-    if (ctx.menuEvent == 7) {  // "part-off"
+    {
+      const bool c = ((!((ctx.saveValues[4] >= 1.0F))));
+      if (c && !cond31) {
       ctx.particles = 0;
+      }
+      cond31 = c;
     }
   }
 
@@ -66,6 +108,14 @@ class FlowGraphScript_0_0 : public Script {
   unsigned int generation = 0;
   int frame = 0;
   bool started = false;
+  bool cond10 = false;
+  bool cond13 = false;
+  bool cond16 = false;
+  bool cond19 = false;
+  bool cond22 = false;
+  bool cond25 = false;
+  bool cond28 = false;
+  bool cond31 = false;
 };
 
 // Scene "vale": graph of "portal-to-cavern" (object 7)
@@ -189,6 +239,14 @@ class FlowGraphScript_1_0 : public Script {
       generation = ctx.sceneGeneration;
       frame = 0;
       started = false;
+      cond10 = false;
+      cond13 = false;
+      cond16 = false;
+      cond19 = false;
+      cond22 = false;
+      cond25 = false;
+      cond28 = false;
+      cond31 = false;
     }
     frame++;
     if (!started) {
@@ -199,29 +257,61 @@ class FlowGraphScript_1_0 : public Script {
     if (ctx.engine->pad.getClicked().Select) {
       ctx.openMenu = 1;  // "options"
     }
-    if (ctx.menuEvent == 0) {  // "fog-on"
+    {
+      const bool c = ((ctx.saveValues[1] >= 1.0F));
+      if (c && !cond10) {
       ctx.fog = 1;
+      }
+      cond10 = c;
     }
-    if (ctx.menuEvent == 1) {  // "fog-off"
+    {
+      const bool c = ((!((ctx.saveValues[1] >= 1.0F))));
+      if (c && !cond13) {
       ctx.fog = 0;
+      }
+      cond13 = c;
     }
-    if (ctx.menuEvent == 2) {  // "grain-on"
+    {
+      const bool c = ((ctx.saveValues[2] >= 1.0F));
+      if (c && !cond16) {
       ctx.grain = 18;
+      }
+      cond16 = c;
     }
-    if (ctx.menuEvent == 3) {  // "grain-off"
+    {
+      const bool c = ((!((ctx.saveValues[2] >= 1.0F))));
+      if (c && !cond19) {
       ctx.grain = 0;
+      }
+      cond19 = c;
     }
-    if (ctx.menuEvent == 4) {  // "bloom-on"
+    {
+      const bool c = ((ctx.saveValues[3] >= 1.0F));
+      if (c && !cond22) {
       ctx.bloom = 45;
+      }
+      cond22 = c;
     }
-    if (ctx.menuEvent == 5) {  // "bloom-off"
+    {
+      const bool c = ((!((ctx.saveValues[3] >= 1.0F))));
+      if (c && !cond25) {
       ctx.bloom = 0;
+      }
+      cond25 = c;
     }
-    if (ctx.menuEvent == 6) {  // "part-on"
+    {
+      const bool c = ((ctx.saveValues[4] >= 1.0F));
+      if (c && !cond28) {
       ctx.particles = 1;
+      }
+      cond28 = c;
     }
-    if (ctx.menuEvent == 7) {  // "part-off"
+    {
+      const bool c = ((!((ctx.saveValues[4] >= 1.0F))));
+      if (c && !cond31) {
       ctx.particles = 0;
+      }
+      cond31 = c;
     }
   }
 
@@ -229,6 +319,14 @@ class FlowGraphScript_1_0 : public Script {
   unsigned int generation = 0;
   int frame = 0;
   bool started = false;
+  bool cond10 = false;
+  bool cond13 = false;
+  bool cond16 = false;
+  bool cond19 = false;
+  bool cond22 = false;
+  bool cond25 = false;
+  bool cond28 = false;
+  bool cond31 = false;
 };
 
 // Scene "cavern": graph of "portal-to-vale" (object 1)

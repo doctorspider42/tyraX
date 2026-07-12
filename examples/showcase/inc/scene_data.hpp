@@ -213,9 +213,9 @@ inline void applySceneGrading(TEngine* engine, int index) {
       GRADING_MIX_COLORS[index], GRADING_MIX_AMTS[index]);
 }
 
-constexpr int SAVE_VALUE_COUNT = 1;
-inline const char* SAVE_VALUE_NAMES[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {"orbs"};
-constexpr float SAVE_VALUE_DEFAULTS[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {0.0F};
+constexpr int SAVE_VALUE_COUNT = 5;
+inline const char* SAVE_VALUE_NAMES[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {"orbs", "gfx-fog", "gfx-grain", "gfx-bloom", "gfx-part"};
+constexpr float SAVE_VALUE_DEFAULTS[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {0.0F, 1.0F, 1.0F, 1.0F, 1.0F};
 constexpr int SAVE_TEXT_COUNT = 0;
 constexpr int SAVE_TEXT_LEN = 32;  // incl. the terminating NUL
 inline const char* SAVE_TEXT_NAMES[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};

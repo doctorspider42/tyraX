@@ -9,6 +9,45 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (69) **Menu Toggle/Choice rows + USE prompt as a HUD element + triggerable
+  on-screen texts** — three UI-customization features in one pass. **(a) Menu
+  toggles:** two new menu entry actions, **Toggle** (Off/On, labels editable)
+  and **Choice** (up to 8 option labels). The state is a save value (param =
+  its name) holding the option index — its default is the initial state, it
+  persists in save slots, and flow graphs react through the existing pure
+  bool chain (*Value At Least* → *On Condition*). Since panels are single
+  baked sprites, every option label is baked into a second per-menu strip
+  texture (`res/menus/<name>-values.png`, `menubake::bakeValueStripPNG`); the
+  game draws the active cell as a MODE_REPEAT sub-rect sprite (the debug-font
+  atlas trick) right-aligned on the row. Cross / dpad right cycle forward,
+  dpad left backward; the Menus panel edits options inline and the preview
+  composites the initial states. **(b) USE prompt:** now a pinned,
+  non-deletable entry in Tools > UI Editor (`Project::usePrompt`, a HudImage)
+  — position/size editable, sprite replaceable with a custom PNG (baked to
+  PS2-valid size/quantization like any HUD image; "Reset to built-in"
+  restores the embedded 128x32 sprite). Codegen emits `USE_PROMPT_*`
+  constants in `hud_data.gen.hpp`; defaults reproduce the old hardcoded
+  placement, so existing projects render identically. **(c) HUD texts:**
+  `Project::hudTexts` (UI Editor > Texts) — named multi-line texts with font
+  (shared TTF picker, now `App::fontCombo`), size, color, drop shadow, baked
+  to centered pow2 sprites (`res/hud/text-<name>.png`) on every build. New
+  HUD flow nodes **Show Text** (optional auto-hide after N seconds) and
+  **Hide Text** drive them via new `ScriptContext::textRequest/textDuration`
+  arrays; `visibleAtStart` texts show from boot. Editor: texts render in the
+  viewport overlay (visible-at-start + the selected one), renames follow into
+  flow graphs, live baked preview in the panel. **Showcase updated:** the
+  GRAPHICS menu's eight "X: On / X: Off" event-entry pairs became four Toggle
+  rows bound to `gfx-*` save values (flow graphs rewired to VA→OC→Set), plus
+  an `options-hint` text shown 6 s on scene start. Verified: editor builds
+  clean; scratch project (`%TEMP%\tyra-editor-test\menutest`) with toggles,
+  a choice, texts and Show/Hide Text nodes generates correct
+  `menu_data`/`hud_data`/`flow_graph.gen.cpp` and **compiles in Docker (exit
+  0)**, showcase regenerates + compiles too; PCSX2 boot screenshot shows the
+  title-screen menu rendering "Fog  On" / "Quality  High" from the value
+  strip at the right row positions, a visible-at-start two-line shadowed
+  text, 50 FPS. Interactive cycling (Cross/dpad) still wants a human pad
+  test.
+
 - (68) **Ambience Editor + Properties docked right + sky dome preview** — three
   related changes. **(a) Docking default:** the first-run DockBuilder layout now
   puts **Properties in a docked column on the right** (Project left, Viewport

@@ -551,13 +551,16 @@ void TerrainGame::init() {
     texture->addLink(hudSprites.back().id);
   }
 
-  // "USE" prompt (res/hud/use.png), shown while looking at a usable object
+  // "USE" prompt, shown while looking at a usable object. Placement and
+  // image come from hud_data.gen.hpp (Tools > UI Editor - the built-in
+  // hud/use.png unless a custom sprite replaces it).
   usePromptSprite.mode = SpriteMode::MODE_STRETCH;
-  usePromptSprite.size = Vec2(128.0F, 32.0F);
-  usePromptSprite.position = Vec2((screen.getWidth() - 128.0F) * 0.5F,
-                                  screen.getHeight() * 0.72F);
-  auto* useTexture =
-      engine->renderer.getTextureRepository().add(FileUtils::fromCwd("hud/use.png"));
+  usePromptSprite.size = Vec2(USE_PROMPT_W, USE_PROMPT_H);
+  usePromptSprite.position =
+      Vec2(USE_PROMPT_X * screen.getWidth() - USE_PROMPT_W * 0.5F,
+           USE_PROMPT_Y * screen.getHeight() - USE_PROMPT_H * 0.5F);
+  auto* useTexture = engine->renderer.getTextureRepository().add(
+      FileUtils::fromCwd(USE_PROMPT_PATH));
   useTexture->addLink(usePromptSprite.id);
 
   // Loading screen sprite (res/hud/loading.png), shown on scene switches
@@ -721,6 +724,7 @@ void TerrainGame::loop() {
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
+    updateAndRenderHudTexts();
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine);
@@ -819,9 +823,51 @@ void TerrainGame::buildScene() {
           FileUtils::fromCwd(m.panel));
       t->addLink(menuSprites.back().id);
     }
+    // Toggle/Choice value strips: a sub-rect sprite per menu (MODE_REPEAT
+    // samples [offset, offset+size] texels - the debug glyph atlas trick).
+    // renderGameMenu moves offset/position to the active cell each frame.
+    menuValueSprites.clear();
+    menuValueSprites.reserve(MENU_COUNT);
+    for (int i = 0; i < MENU_COUNT; ++i) {
+      const MenuData& m = MENUS[i];
+      Sprite s;
+      s.mode = SpriteMode::MODE_REPEAT;
+      s.size = Vec2((float)m.valueCellW, (float)m.valueCellH);
+      menuValueSprites.push_back(s);
+      if (m.values[0] == '\0') continue;  // no value entries in this menu
+      auto* t = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd(m.values));
+      t->addLink(menuValueSprites.back().id);
+    }
     setupSprite(menuCursorSprite, "hud/save-cursor.png", 16, 16, 0.0F, 0.0F);
     setupSprite(menuDimSprite, "hud/menu-dim.png", scr.getWidth(),
                 scr.getHeight(), 0.0F, 0.0F);
+
+    // On-screen texts (hud_data.gen.hpp): baked sprites toggled by the
+    // Show Text / Hide Text flow nodes through scriptCtx (wired here, before
+    // the scripts' init runs from the game init).
+    hudTextSprites.clear();
+    hudTextSprites.reserve(HUD_TEXT_COUNT);
+    hudTextReq.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, -1);
+    hudTextDur.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, 0.0F);
+    hudTextOn.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, 0);
+    hudTextTimer.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, 0.0F);
+    for (int i = 0; i < HUD_TEXT_COUNT; ++i) {
+      const HudTextData& t = HUD_TEXTS[i];
+      Sprite s;
+      s.mode = SpriteMode::MODE_STRETCH;
+      s.size = Vec2((float)t.w, (float)t.h);
+      s.position = Vec2(t.x * scr.getWidth() - t.w * 0.5F,
+                        t.y * scr.getHeight() - t.h * 0.5F);
+      hudTextSprites.push_back(s);
+      auto* tex = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd(t.path));
+      tex->addLink(hudTextSprites.back().id);
+      hudTextOn[i] = (unsigned char)t.visible;
+    }
+    scriptCtx.textRequest = hudTextReq.data();
+    scriptCtx.textDuration = hudTextDur.data();
+    scriptCtx.textCount = HUD_TEXT_COUNT;
     if (TITLE_MENU >= 0) {
       gameMenuIndex = TITLE_MENU;
       gameMenuCursor = 0;
@@ -2350,6 +2396,24 @@ bool TerrainGame::updateGameMenu() {
   if (clicked.DpadDown && m.entryCount > 0)
     gameMenuCursor = (gameMenuCursor + 1) % m.entryCount;
 
+  // Toggle/Choice rows: the state is the bound save value (the option
+  // index). Cross and dpad right cycle forward, dpad left backward.
+  auto cycleValue = [&](const MenuEntryData& e, int dir) {
+    if (e.param < 0 || e.param >= SAVE_VALUE_COUNT || e.optionCount <= 0)
+      return;
+    int v = (int)saveValues[e.param];
+    if (v < 0) v = 0;
+    if (v >= e.optionCount) v = e.optionCount - 1;
+    saveValues[e.param] = (float)((v + dir + e.optionCount) % e.optionCount);
+  };
+  if (gameMenuCursor >= 0 && gameMenuCursor < m.entryCount) {
+    const MenuEntryData& cur = m.entries[gameMenuCursor];
+    if (cur.action == 7 || cur.action == 8) {
+      if (clicked.DpadLeft) cycleValue(cur, -1);
+      if (clicked.DpadRight) cycleValue(cur, 1);
+    }
+  }
+
   if (clicked.Triangle) {
     if (gameMenuStackDepth > 0) {
       gameMenuIndex = gameMenuStack[--gameMenuStackDepth];
@@ -2398,6 +2462,10 @@ bool TerrainGame::updateGameMenu() {
       case 6:  // flow event: scripts run this frame to catch it
         scriptCtx.menuEvent = e.param;
         break;
+      case 7:  // toggle - flip/cycle the bound save value (menu stays open)
+      case 8:  // choice
+        cycleValue(e, 1);
+        break;
     }
   }
   return pausing();
@@ -2415,6 +2483,46 @@ void TerrainGame::renderGameMenu() {
         Vec2(panel.position.x + 32.0F,
              panel.position.y + m.row0Y + gameMenuCursor * m.rowH + 1.0F);
     engine->renderer.renderer2D.render(menuCursorSprite);
+  }
+  // Toggle/Choice rows: the current option label, a cell of the baked value
+  // strip drawn right-aligned on the row (cell right edge 24px from the
+  // panel's right border - the mirror of the 56px label margin).
+  if (m.values[0] != '\0' &&
+      gameMenuIndex < (int)menuValueSprites.size()) {
+    Sprite& vs = menuValueSprites[gameMenuIndex];
+    for (int i = 0; i < m.entryCount; ++i) {
+      const MenuEntryData& e = m.entries[i];
+      if (e.cell < 0 || e.optionCount <= 0) continue;
+      int v = (e.param >= 0 && e.param < SAVE_VALUE_COUNT)
+                  ? (int)saveValues[e.param]
+                  : 0;
+      if (v < 0) v = 0;
+      if (v >= e.optionCount) v = e.optionCount - 1;
+      vs.offset = Vec2(0.0F, (float)((e.cell + v) * m.valuePitch));
+      vs.position = Vec2(panel.position.x + m.valueX,
+                         panel.position.y + m.row0Y + i * m.rowH);
+      engine->renderer.renderer2D.render(vs);
+    }
+  }
+}
+
+// On-screen texts: apply the frame's Show/Hide Text requests, tick the
+// auto-hide timers, draw what is visible. Baked sprites - one 2D quad each.
+void TerrainGame::updateAndRenderHudTexts() {
+  for (int i = 0; i < (int)hudTextSprites.size(); ++i) {
+    if (scriptCtx.textRequest && scriptCtx.textRequest[i] >= 0) {
+      hudTextOn[i] = scriptCtx.textRequest[i] != 0 ? 1 : 0;
+      hudTextTimer[i] = hudTextOn[i] ? scriptCtx.textDuration[i] : 0.0F;
+      scriptCtx.textRequest[i] = -1;
+    }
+    if (hudTextOn[i] && hudTextTimer[i] > 0.0F) {
+      hudTextTimer[i] -= g_frameDt;
+      if (hudTextTimer[i] <= 0.0F) {
+        hudTextOn[i] = 0;
+        hudTextTimer[i] = 0.0F;
+      }
+    }
+    if (hudTextOn[i]) engine->renderer.renderer2D.render(hudTextSprites[i]);
   }
 }
 

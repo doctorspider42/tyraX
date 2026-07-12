@@ -458,6 +458,45 @@ inline bool operator==(const HudImage& a, const HudImage& b) {
            a.texW == b.texW && a.texH == b.texH && a.texQuant == b.texQuant;
 }
 
+// The built-in "USE" prompt as a customizable HUD element (Tools > UI
+// Editor, a non-deletable entry). imagePath "" = the embedded built-in
+// use.png sprite; a custom PNG replaces it (baked like any HUD image). The
+// defaults reproduce the classic hardcoded placement: centered, top edge at
+// 72% of the 448px screen, 128x32 px.
+inline HudImage defaultUsePrompt() {
+    HudImage h;
+    h.name = "USE prompt";
+    h.pos[0] = 0.5f;
+    h.pos[1] = 0.72f + 16.0f / 448.0f;  // center anchor of the old top-at-72%
+    h.size[0] = 128.0f;
+    h.size[1] = 32.0f;
+    return h;
+}
+
+// An on-screen text (Tools > UI Editor > Texts): baked to a PNG sprite at
+// build (res/hud/text-<name>.png - the engine has no font), shown/hidden at
+// runtime by the Show Text / Hide Text flow nodes. Multi-line on '\n'.
+struct HudText {
+    std::string name = "text";
+    std::string text = "New text";
+    float pos[2] = {0.5f, 0.8f};   // normalized screen position (center anchor)
+    int size = 16;                 // font pixel height
+    float color[3] = {1.0f, 1.0f, 1.0f};
+    // Baked text font, GameMenu::fontPath semantics: "" = default (Consolas
+    // Bold chain), "res/fonts/x.ttf" = project font, bare name = Windows font.
+    std::string fontPath;
+    bool shadow = true;           // 1px dark offset behind the glyphs
+    bool visibleAtStart = false;  // shown when the scene starts
+};
+
+inline bool operator==(const HudText& a, const HudText& b) {
+    return a.name == b.name && a.text == b.text && a.pos[0] == b.pos[0] &&
+           a.pos[1] == b.pos[1] && a.size == b.size &&
+           a.color[0] == b.color[0] && a.color[1] == b.color[1] &&
+           a.color[2] == b.color[2] && a.fontPath == b.fontPath &&
+           a.shadow == b.shadow && a.visibleAtStart == b.visibleAtStart;
+}
+
 // A streaming layer: a named group of scene objects that the game can load
 // into / evict from memory at runtime (Load Layer / Unload Layer flow nodes)
 // - GTA3-style interior streaming. Also doubles as an editor visibility
@@ -515,7 +554,8 @@ inline bool operator==(const SceneData& a, const SceneData& b) {
 struct MenuEntry {
     std::string label = "New entry";
     // What Cross does on this row. Close/scene/save-menu also dismiss the
-    // menu; set/add value and events keep it open (add a Close entry).
+    // menu; set/add value, events and toggles/choices keep it open (add a
+    // Close entry).
     enum Action {
         Close = 0,       // dismiss the menu (a title screen's "Start")
         SwitchScene = 1, // param = scene name
@@ -524,15 +564,26 @@ struct MenuEntry {
         SetValue = 4,    // param = save value name, amount = new value
         AddValue = 5,    // param = save value name, amount = delta
         FlowEvent = 6,   // param = event name (fires On Menu Event triggers)
+        // Stateful rows. The state lives in a save value (param = its name):
+        // the value holds the option index, the save value's default is the
+        // initial state, and flow graphs react through the pure bool sources
+        // (Value At Least -> On Condition). Cross / dpad right cycle forward,
+        // dpad left backward. The current option label renders right-aligned
+        // on the row from the baked value strip (menubake).
+        Toggle = 7,      // two options, "Off"/"On" unless customized
+        Choice = 8,      // one of `options`, cycled in order
     };
     int action = Close;
     std::string param;
     float amount = 0.0f;
+    // Toggle/Choice option labels (value = index into this list). Toggle
+    // treats an empty list as {"Off", "On"}.
+    std::vector<std::string> options;
 };
 
 inline bool operator==(const MenuEntry& a, const MenuEntry& b) {
     return a.label == b.label && a.action == b.action && a.param == b.param &&
-           a.amount == b.amount;
+           a.amount == b.amount && a.options == b.options;
 }
 
 // One image composited into a menu's baked panel (see GameMenu::images).
@@ -645,6 +696,12 @@ struct Project {
     const std::vector<SceneObject>& objects() const { return active().objects; }
 
     std::vector<HudImage> hud;
+    // The USE prompt as an overridable HUD element (see defaultUsePrompt).
+    // Always present - the UI Editor edits it but cannot delete it.
+    HudImage usePrompt = defaultUsePrompt();
+    // On-screen texts baked to sprites at build, triggered by the Show Text /
+    // Hide Text flow nodes (Tools > UI Editor > Texts).
+    std::vector<HudText> hudTexts;
     // Where the full-screen post effects sit in the screen stack (Tools > UI
     // Editor). Bloom (with color grading) and film grain are placed
     // independently: the effect applies right before the HUD sprite at that
