@@ -113,6 +113,19 @@ Each finished feature lands as its own commit.
   Still for a human with a pad: START-skip, shake feel in motion, and the
   dopesheet drag ergonomics.
 
+  **Example project:** `examples/cutscene-demo` — a 14 s cutscene ("The
+  Reveal") exercising every director feature at once: three Camera entities
+  (one of them dollied by an object track), Step-easing hard cuts, shake,
+  per-shot FOV (65/90/45/55/60), Cinema bars, fade in/out, skippable, an
+  On Start auto-play plus an On Used replay from a usable pedestal, and a
+  sparks emitter switched on mid-scene through a visibility track. Verified
+  by a Docker build from the checked-in folder (exit 0) and a PCSX2 run:
+  screenshots caught the letterboxed dolly shot mid-travel and the low-angle
+  finale with the hero ascending, and after the cutscene ended the camera
+  handed back to the FPP player with the aftermath intact (hero aloft,
+  sparks running) — the release path live. Same versioning shape as
+  layer-streaming (bin/res gitignored, regenerated on build).
+
 - (68) **Ambience Editor + Properties docked right + sky dome preview** — three
   related changes. **(a) Docking default:** the first-run DockBuilder layout now
   puts **Properties in a docked column on the right** (Project left, Viewport

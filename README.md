@@ -117,6 +117,7 @@ All example projects live under [examples/](examples): a general playground, a l
 - [examples/script-demo](examples/script-demo) — a complete FPP project with the example script: walk up to the box and press X and the sky changes color. Open it via `File > Open Project` and pick its `script-demo.tyra` (the `.history` undo file and `.vscode/` IntelliSense config are local state — the editor recreates them on open/build), then Build & Run.
 - [examples/showcase](examples/showcase) — a large, multi-feature project: two scenes joined by a portal, streaming layers, a skeletal-animated model, LOD, fog, baked lights, particles, menus, post-FX and audio (see its [README](examples/showcase/README.md)).
 - [examples/layer-streaming](examples/layer-streaming) — [streaming layers](docs/streaming-layers.md): two buildings joined by a corridor — walking through swaps which building is in memory, GTA3-style (watch the MEM overlay).
+- [examples/cutscene-demo](examples/cutscene-demo) — the **Cutscene Director**: a 14 s in-engine cutscene with shots bound to Camera entities, a dolly tracking shot, a hard cut, camera shake, animated FOV, Cinema 2.39:1 bars and fades; plays on boot, replays from a usable pedestal, skippable with START (see its [README](examples/cutscene-demo/README.md)).
 
 ## Structure
 
