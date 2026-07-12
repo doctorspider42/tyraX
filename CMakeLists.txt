@@ -29,6 +29,7 @@ target_link_libraries(imgui PUBLIC glfw)
 add_executable(tyra-editor
     src/main.cpp
     src/app.cpp
+    src/flownode.cpp
     src/gl_loader.cpp
     src/glbparser.cpp
     src/json.cpp

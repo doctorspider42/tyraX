@@ -5,7 +5,7 @@
 #include <vector>
 #include "scene_data.hpp"
 
-namespace Cutscene_demo {
+namespace Custom_nodes {
 
 /** A scene object at runtime. Mutate `data` (position/rotation/scale/color),
  * `visible` or `velocityY`, then set `dirty = true` so the geometry gets
@@ -43,25 +43,6 @@ struct ScriptContext {
   RuntimeObject* objects = nullptr;  // mutable scene objects
   int objectCount = 0;
   Tyra::Color skyColor;  // write to change the clear color
-
-  // Cutscene camera override (a Cutscene Director sequence with a camera
-  // track, driven by the Play/Stop Sequence flow nodes). The generated
-  // sequence player writes cameraOverride = true + cameraEye/cameraAt every
-  // frame such a cutscene is active; the game applies them to the frame camera
-  // just before rendering, and the player writes false when the cutscene ends.
-  bool cameraOverride = false;
-  Tyra::Vec4 cameraEye;
-  Tyra::Vec4 cameraAt;
-
-  // Cutscene presentation, also written by the sequence player every frame a
-  // cutscene is active (and zeroed when it ends): widescreen mask style
-  // (0 none, 1 cinema 2.39:1, 2 wide 16:9, 3 pillarbox, 4 frame) with its
-  // slide-in coverage envelope, and a fade-to-black overlay alpha. The game
-  // composites them as solid 2D quads over the scene and the HUD, under the
-  // pause menus (sequences::renderOverlay in sequences.gen.cpp).
-  int barsStyle = 0;
-  float barsAmount = 0.0F;  // 0..1 of the style's full coverage
-  float fadeAlpha = 0.0F;   // 0..1 black overlay
 
   // Set teleport = true and teleportPos to move the player (Player entity or
   // the FPP template player) there; the game applies and clears it.
@@ -274,14 +255,14 @@ inline std::vector<ObjectScriptFactory>& getObjectScriptFactories() {
   return factories;
 }
 
-}  // namespace Cutscene_demo
+}  // namespace Custom_nodes
 
 /** Registers a script class. Put TYRA_SCRIPT(MyScript); at file scope. */
 #define TYRA_SCRIPT_CONCAT_INNER(a, b) a##b
 #define TYRA_SCRIPT_CONCAT(a, b) TYRA_SCRIPT_CONCAT_INNER(a, b)
 #define TYRA_SCRIPT(ClassName)                                             \
   static const bool TYRA_SCRIPT_CONCAT(_tyraScript_, __COUNTER__) = []() { \
-    Cutscene_demo::getScripts().push_back(new ClassName());            \
+    Custom_nodes::getScripts().push_back(new ClassName());            \
     return true;                                                           \
   }()
 
@@ -290,8 +271,8 @@ inline std::vector<ObjectScriptFactory>& getObjectScriptFactories() {
  * TYRA_OBJECT_SCRIPT(MyScript); at file scope INSIDE your namespace. */
 #define TYRA_OBJECT_SCRIPT(ClassName)                                         \
   static const bool TYRA_SCRIPT_CONCAT(_tyraObjScript_, __COUNTER__) = []() { \
-    Cutscene_demo::getObjectScriptFactories().push_back(                  \
-        {#ClassName, []() -> Cutscene_demo::ObjectScript* {               \
+    Custom_nodes::getObjectScriptFactories().push_back(                  \
+        {#ClassName, []() -> Custom_nodes::ObjectScript* {               \
           return new ClassName();                                             \
         }});                                                                  \
     return true;                                                              \
