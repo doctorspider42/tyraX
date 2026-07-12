@@ -88,6 +88,7 @@ enum class FlowParamKind {
     GradingName,  // name of a Project::gradings preset ("" = neutral/off)
     AmbienceName,  // name of a Project::ambiencePresets entry ("" = none)
     LayerName,  // name of a SceneData::layers entry (streaming layer)
+    SequenceName,  // name of a Project::sequences entry (Cutscene Director)
 };
 
 struct FlowNodeType {
@@ -234,6 +235,15 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // and fog are baked per scene at build, so only the sky changes live
         // (assign presets per scene, or switch scenes, for the full mood).
         {"SetAmbience", "Set Ambience", "Scene", false, FlowParamKind::AmbienceName,
+         0, {}, FlowParamKind::None, false, false},
+        // Cutscene Director (Tools > Cutscene Director). Play Sequence starts a
+        // named keyframe timeline: it poses the referenced objects (and, if the
+        // sequence has a camera track, drives the camera) until it ends or is
+        // stopped. Retriggering restarts it from t=0. Stop Sequence ends the
+        // active cutscene and hands the camera back to the game.
+        {"PlaySequence", "Play Sequence", "Scene", false, FlowParamKind::SequenceName,
+         0, {}, FlowParamKind::None, false, false},
+        {"StopSequence", "Stop Sequence", "Scene", false, FlowParamKind::None,
          0, {}, FlowParamKind::None, false, false},
         // HUD (all HUD images at once; the USE prompt is unaffected)
         {"ShowHud", "Show HUD", "HUD", false, FlowParamKind::None, 0, {},

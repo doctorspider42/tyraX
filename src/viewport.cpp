@@ -1672,13 +1672,21 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         skyQuad_ = uploadMesh(q);
     }
 
-    const Vec3 tgt{target_[0], target_[1], target_[2]};
+    Vec3 tgt{target_[0], target_[1], target_[2]};
     Vec3 eye{tgt.x + distance_ * std::cos(pitch_) * std::cos(yaw_),
              tgt.y + distance_ * std::sin(pitch_),
              tgt.z + distance_ * std::cos(pitch_) * std::sin(yaw_)};
+    float fovDeg = 50.0f;
+    // Cutscene Director camera-track preview: fly the preview camera along the
+    // sequence's keyframed eye/look-at (the same values the PS2 runtime uses).
+    if (camOverride_) {
+        eye = {camEye_[0], camEye_[1], camEye_[2]};
+        tgt = {camTarget_[0], camTarget_[1], camTarget_[2]};
+        fovDeg = camFov_;
+    }
     Mat4 view = lookAt(eye, tgt, {0, 1, 0});
     float diag = (float)(terrain_.width > terrain_.depth ? terrain_.width : terrain_.depth);
-    Mat4 proj = perspective(50.0f * kPi / 180.0f, (float)width / (float)height, 0.1f,
+    Mat4 proj = perspective(fovDeg * kPi / 180.0f, (float)width / (float)height, 0.1f,
                             diag * 10.0f + 100.0f);
     Mat4 viewProj = mul(proj, view);
     for (int i = 0; i < 16; ++i) {

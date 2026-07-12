@@ -199,6 +199,12 @@ private:
     void drawMenusWindow();
     void drawGradingWindow();
     void drawAmbienceWindow();
+    void drawCutsceneWindow();
+    // Poses a copy of the active scene's objects at the Cutscene Director
+    // playhead (the same interpolation the PS2 runtime uses) so the viewport
+    // previews the cutscene live. Returns the raw objects unchanged when no
+    // sequence preview is active. May also drive the viewport camera.
+    const std::vector<SceneObject>& cutscenePosedObjects();
     // UI Editor (Tools > UI Editor): the screen stack - HUD images plus the
     // full-screen effects layer (bloom/grain), reorderable so effects can sit
     // under the crosshair/text instead of blurring them.
@@ -336,6 +342,16 @@ private:
     int selectedAmbience_ = -1;
     bool ambiencePreview_ = true;
     bool ambiencePreviewPushed_ = false;  // preset pushed to the viewport?
+
+    // Cutscene Director (Tools > Cutscene Director): the keyframe timeline.
+    bool showCutsceneEditor_ = false;
+    int selectedSequence_ = -1;   // index into project_.sequences
+    int selectedSeqTrack_ = -1;   // index into the sequence's tracks (-1 = camera)
+    float seqPlayhead_ = 0.0f;    // scrub time in seconds
+    bool seqPreview_ = true;      // pose the viewport at the playhead
+    bool seqPlaying_ = false;     // auto-advance the playhead (preview playback)
+    bool seqCameraPushed_ = false;  // camera override handed to the viewport?
+    std::vector<SceneObject> seqPosed_;  // scratch: objects posed at the playhead
 
     // Material Editor (Tools > Material Editor). Materials are the project's
     // .mtl asset files, edited in place: matEdMats_ stages the open file's

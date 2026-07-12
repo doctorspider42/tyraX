@@ -7,6 +7,7 @@
 #include "ambience.hpp"
 #include "flowgraph.hpp"
 #include "grading.hpp"
+#include "sequence.hpp"
 
 struct TerrainConfig {
     int width = 64;   // world units, X axis
@@ -698,6 +699,11 @@ struct Project {
     // node repaints the sky at runtime.
     std::vector<AmbiencePreset> ambiencePresets;
     int defaultAmbience = -1;
+    // Cutscene Director sequences (Tools > Cutscene Director): project-wide
+    // keyframe timelines that pose scene objects + the camera over time. Like
+    // the preset collections above they persist through save() but are not part
+    // of undo/redo. The Play/Stop Sequence flow nodes drive them at runtime.
+    std::vector<Sequence> sequences;
 
     // --- Editor-side state, persisted in the .tyra project file ------------
     // Not game data and not part of undo/redo (undo lives in the history

@@ -9,6 +9,59 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (69) **Cutscene Director — a keyframe timeline sequencer (cinematic cutscenes
+  on the PS2)** — the editor's first full animation-authoring tool. A
+  **Sequence** is a project-wide keyframe timeline that poses scene objects
+  **and the game camera** over time; it is authored by scrubbing a playhead and
+  snapshotting poses, previewed live in the viewport, compiled to a PS2 runtime
+  player, and fired from the flow graph. **Model** (`src/sequence.hpp`, new):
+  `Sequence` (name, duration, loop, cameraEnabled) holds `SeqTrack`s (each binds
+  one object by name + per-channel flags pos/rot/scale/color/visible + a list of
+  `SeqObjectKey` full-pose keyframes) and a camera track (`SeqCameraKey`:
+  eye + look-at + FOV). Each key carries an easing (0 linear / 1 smoothstep /
+  2 step-hold) for its outgoing segment; the shared `seqEase`/`seqSample`
+  helpers are the single source of truth used by both the editor preview and
+  the emitted PS2 code. Sequences are project-wide like the grading/ambience
+  presets — persisted through `save()`, not part of undo/redo. **UI** (Tools >
+  Cutscene Director): sequence list + a timeline with duration/loop/camera
+  toggles, Play/Pause/Rewind transport, a playhead scrubber, per-object tracks
+  (object combo, channel checkboxes, "Set key from object @ playhead", editable
+  key list with easing + Go/Delete) and a camera track ("Set camera key from
+  view @ playhead"). **Viewport scrubbing:** `cutscenePosedObjects()` poses a
+  copy of the active scene's objects at the playhead with the exact
+  `seqSample` interpolation the console runs and hands it to `render()`; a new
+  `Viewport::setCameraOverride(eye, target, fov)` flies the preview camera along
+  the camera track, and `currentCamera()` reads the orbit camera back out to
+  snapshot a camera key. **Codegen:** a new global Script
+  `src/scripts/sequences.gen.cpp` (+ `inc/scripts/sequences.gen.hpp`) compiles
+  the keyframe tables (object names resolved to (scene, runtime object index)
+  here) and, each frame a sequence is active, writes `ctx.objects[i].data.*` +
+  `dirty` and — for a camera track — a new `ScriptContext` camera override
+  (`cameraOverride`/`cameraEye`/`cameraAt`) that both game loops apply to the
+  frame camera right before `beginFrame`. Playback advances by the real frame
+  dt (fixed wall-clock speed PAL/NTSC). **Flow graph:** new **Play Sequence**
+  (SequenceName param) and **Stop Sequence** nodes (category Scene) compile to
+  `sequences::play(index)` / `sequences::stop()`; a `FlowParamKind::SequenceName`
+  combo lists the project's sequences, and renames/deletes remap the nodes like
+  the grading/ambience presets do. `refreshGenerated` always overwrites the two
+  new `.gen` files. Verified: editor builds clean (Layer 0); a save→load
+  round-trip harness (linked against the built objects) round-trips a sequence
+  with object + camera tracks, mixed easings, loop and camera flags
+  byte-for-byte through `operator==`; a scratch fpp project with a `hero` box
+  (OnStart→Play Sequence "Intro") and an Intro sequence (hero pos/rot track +
+  a 2-key camera track) generated the expected tables
+  (`kS0T0K`/`kS0Tracks`/`kS0Cam`, `sequences::play(0)`, the loop's
+  `if (scriptCtx.cameraOverride) { cameraPosition = ...; }`); the full Docker
+  build compiled + linked all generated sources (`sequences.gen.cpp`,
+  `flow_graph.gen.cpp`, `terrain_game.cpp`) into `cutscene.elf` (Layer 3), and
+  **PCSX2 booted it** — two screenshots seconds apart show the cutscene camera
+  framing the red cube from a keyframed angle and, later, from a different angle
+  with the cube risen along +Y (both the camera track and the object track
+  animating live, looping, at 50 FPS). The timeline UI compiles clean and
+  mirrors the verified Color Grading / Ambience tool windows; a hands-on mouse
+  pass over the timeline (drag-scrub feel, per-key editing) still wants a human
+  (synthetic clicks don't drive the ImGui menus).
+
 - (68) **Ambience Editor + Properties docked right + sky dome preview** — three
   related changes. **(a) Docking default:** the first-run DockBuilder layout now
   puts **Properties in a docked column on the right** (Project left, Viewport
