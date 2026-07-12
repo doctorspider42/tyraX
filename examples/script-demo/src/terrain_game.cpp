@@ -2651,7 +2651,9 @@ void TerrainGame::buildSkyDome() {
   }
 
   skyDome.infoBag = std::make_unique<StaPipInfoBag>();
-  skyDome.infoBag->model = &model;
+  // Not the shared identity `model`: renderScene keeps skyMat centered on the
+  // camera so the dome follows the player instead of sitting at world origin.
+  skyDome.infoBag->model = &skyMat;
   skyDome.infoBag->shadingType = TyraShadingGouraud;
   // Static geometry crossing the screen edges all the time - needs clipping
   skyDome.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
@@ -2806,7 +2808,16 @@ void TerrainGame::renderScene() {
     skyHorizonB = scriptCtx.skyColor.b;
     buildSkyDome();
   }
-  if (skyDome.bag) stapip.core.render(skyDome.bag.get());
+  if (skyDome.bag) {
+    // Follow the camera: park the dome's centre on the eye so however big the
+    // map is, the horizon and zenith always wrap around the player. Only the
+    // translation moves; the dome vertices never rebuild for this.
+    skyMat.identity();
+    skyMat.data[12] = cameraPosition.x;
+    skyMat.data[13] = cameraPosition.y;
+    skyMat.data[14] = cameraPosition.z;
+    stapip.core.render(skyDome.bag.get());
+  }
   // Terrain: stream the chunk ring around the view focus (budgeted, so the
   // build cost spreads over frames), then submit the built chunks - the
   // engine drops whole out-of-frustum chunks EE-side (main-bbox classify)

@@ -525,6 +525,11 @@ class TerrainGame : public Tyra::Game {
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
   GeoPart skyDome;
+  // Re-centered on the camera every frame (renderScene) so a large map can
+  // never let the player walk (or climb) out from under the sky. The dome
+  // geometry stays static; only this translation matrix moves - one matrix
+  // set per frame, so following the camera costs nothing measurable.
+  Tyra::M4x4 skyMat = Tyra::M4x4::Identity;
   float skyHorizonR = 0, skyHorizonG = 0, skyHorizonB = 0;
   std::vector<Tyra::Sprite> hudSprites;
 
@@ -847,6 +852,11 @@ class TerrainGame : public Tyra::Game {
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
   GeoPart skyDome;
+  // Re-centered on the camera every frame (renderScene) so a large map can
+  // never let the player walk (or climb) out from under the sky. The dome
+  // geometry stays static; only this translation matrix moves - one matrix
+  // set per frame, so following the camera costs nothing measurable.
+  Tyra::M4x4 skyMat = Tyra::M4x4::Identity;
   float skyHorizonR = 0, skyHorizonG = 0, skyHorizonB = 0;
   std::vector<Tyra::Sprite> hudSprites;
 
@@ -3707,7 +3717,9 @@ void TerrainGame::buildSkyDome() {
   }
 
   skyDome.infoBag = std::make_unique<StaPipInfoBag>();
-  skyDome.infoBag->model = &model;
+  // Not the shared identity `model`: renderScene keeps skyMat centered on the
+  // camera so the dome follows the player instead of sitting at world origin.
+  skyDome.infoBag->model = &skyMat;
   skyDome.infoBag->shadingType = TyraShadingGouraud;
   // Static geometry crossing the screen edges all the time - needs clipping
   skyDome.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
@@ -3862,7 +3874,16 @@ void TerrainGame::renderScene() {
     skyHorizonB = scriptCtx.skyColor.b;
     buildSkyDome();
   }
-  if (skyDome.bag) stapip.core.render(skyDome.bag.get());
+  if (skyDome.bag) {
+    // Follow the camera: park the dome's centre on the eye so however big the
+    // map is, the horizon and zenith always wrap around the player. Only the
+    // translation moves; the dome vertices never rebuild for this.
+    skyMat.identity();
+    skyMat.data[12] = cameraPosition.x;
+    skyMat.data[13] = cameraPosition.y;
+    skyMat.data[14] = cameraPosition.z;
+    stapip.core.render(skyDome.bag.get());
+  }
   // Terrain: stream the chunk ring around the view focus (budgeted, so the
   // build cost spreads over frames), then submit the built chunks - the
   // engine drops whole out-of-frustum chunks EE-side (main-bbox classify)

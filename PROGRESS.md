@@ -9,6 +9,25 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (71) **Sky dome follows the camera (no more walking out of the sky)** — on a
+  large enough map the player could travel past the sky dome, which was baked
+  once at world origin with the shared identity `model` matrix and a radius
+  capped at 450, so the horizon and zenith stopped surrounding you and the
+  scene fell out into the bare clear color. The dome now gets its own
+  `skyMat` translation matrix that `renderScene` re-centers on `cameraPosition`
+  every frame (X/Y/Z), so the dome always wraps the eye no matter how far the
+  map extends — horizontally or up a tall climb. The geometry never rebuilds
+  for this (only the matrix moves), the precise frustum/clip flags and
+  `fogDisabled` are unchanged, and it costs one matrix set per frame — so no
+  measurable perf hit (the concern the request called out). Fix lives in the
+  codegen (`src/templates.cpp` `buildSkyDome`/`renderScene`, both camera-mode
+  headers get the `skyMat` member); all three example projects (showcase,
+  script-demo, layer-streaming) carry the regenerated code. Verified end-to-end:
+  editor builds clean, the generated showcase compiles in Docker and boots in
+  PCSX2 (software renderer) holding 50 FPS / 100% speed with the sunset dome
+  rendering correctly and the horizon still fading into the fog. The
+  interactive "walk to the map edge and confirm the sky no longer drops out"
+  check still wants a human with a pad on a deliberately huge map.
 - (74) **Stop committing generated `docker-compose.yml` (machine-specific path
   leak + merge magnet)** — the compose file is regenerated on every build
   (`refreshGenerated`, always-overwritten list) and bind-mounts the engine

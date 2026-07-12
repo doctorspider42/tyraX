@@ -190,6 +190,11 @@ class TerrainGame : public Tyra::Game {
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
   GeoPart skyDome;
+  // Re-centered on the camera every frame (renderScene) so a large map can
+  // never let the player walk (or climb) out from under the sky. The dome
+  // geometry stays static; only this translation matrix moves - one matrix
+  // set per frame, so following the camera costs nothing measurable.
+  Tyra::M4x4 skyMat = Tyra::M4x4::Identity;
   float skyHorizonR = 0, skyHorizonG = 0, skyHorizonB = 0;
   std::vector<Tyra::Sprite> hudSprites;
 
