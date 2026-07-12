@@ -28,6 +28,106 @@ Each finished feature lands as its own commit.
   rendering correctly and the horizon still fading into the fog. The
   interactive "walk to the map edge and confirm the sky no longer drops out"
   check still wants a human with a pad on a deliberately huge map.
+- (69) **Pause now freezes particles and skeletal animation** — a pausing menu
+  (a menu with the pause flag, or the save menu) already stopped player
+  movement, scripts, object physics and the use target, but two effect systems
+  kept advancing behind the menu: particle emitters and skeletal-animation
+  playback, both driven off `g_frameDt` in `loop()` with no `menuActive` gate.
+  Added a `g_gameplayPaused` flag set at the top of `loop()` (both the orbit
+  and FPP game-cpp variants). `updateParticles()` early-returns while paused so
+  every billboard bag hangs on its last-built frame — the scene render still
+  draws it, so particles freeze in place instead of vanishing. Its sibling guard
+  from the Set Particles switch (`!g_particlesOn`) stays intact.
+  `updateAndRenderAnimObjects()` zeroes the playback step while paused, freezing
+  the pose while still skinning and rendering it. Overlay menus (pause flag off)
+  keep gameplay running as before. Verified: editor builds clean; codegen for
+  fresh FPP and orbit projects emits all changes; the `script-demo` example
+  (particles + animated models) compiles on the PS2 toolchain in Docker and
+  links (Build OK, exit 0). The visual freeze-on-pause still wants a hands-on
+  pad test in PCSX2 (open the pause menu, confirm rain/smoke and animations
+  stop).
+- (69) **On-demand save (no autosave) + menu-bar icon toolbar** — the editor
+  used to autosave the whole `.tyra` on *every* edit (`commitChange()` called
+  `saveAll()`), plus a second autosave whenever ImGui settled a layout/docking
+  change, plus a forced save on exit. That's gone. `commitChange()` now only
+  pushes an undo snapshot and, when the snapshot actually differed
+  (`History::push()` returns a bool now), flips a `dirty_` flag; the project is
+  written only when the user asks (File > Save, Ctrl+S, or the new toolbar
+  button). `dirty_` drives a `*` in the window title and an amber tint on the
+  Save icon. Losing unsaved work is guarded: Exit / Open Project / New Project
+  route through `requestExit/requestOpenProject/requestNewProject`, which pop an
+  "Unsaved Changes" modal (Save / Don't Save / Cancel) when dirty; the main
+  loop intercepts the window-close (`while(true)` + `glfwWindowShouldClose`
+  check) so the X button is guarded too. Terrain heightmaps used to be written
+  to disk on every sculpt stroke and on undo/redo; they're now kept in memory
+  (they already ride along in the undo snapshot) and persisted only in
+  `saveProject()` alongside the `.tyra`, so a discard truly discards terrain
+  edits. Freshly opened/created projects reset `dirty_` after
+  `attachProject()`'s asset rescan (rescan-found assets are rediscovered on
+  every open, so they don't count as unsaved). The new **toolbar** sits inline
+  in the main menu bar after Tools (`drawToolbar()`): a floppy **Save** (amber
+  when dirty), a **Build** (no run) hammer, then two tight run/stop pairs
+  separated by a wider gap — **[green Play = Build && Run in PCSX2, ▾, red Stop
+  PCSX2]** and **[blue Play = Build && Run on PS2, ▾, red Stop PS2]**. Each Play
+  has a Visual-Studio-style caret **dropdown** (`##..._more` → `BeginPopup`
+  anchored under the caret) offering *Run (no build)* and *Build (no run)*. Each
+  Stop cancels a running build when one is in progress, otherwise closes the
+  emulator (`Runner::stopEmulator()`) or stops the game on the console
+  (`Runner::stopPs2()`); the PS2 pair dims until a ps2link IP is set. Run
+  shortcuts (switched to `IsKeyChordPressed` so the modifier state matches
+  exactly): **F5** build && run in PCSX2, **Ctrl+F5** run in PCSX2 without
+  building; **F6** build && run on PS2, **Ctrl+F6** run on PS2 without building;
+  **Ctrl+Shift+B** build only. The no-build shortcuts also show in the caret
+  dropdowns and the top-level Build menu. Spacing is
+  set explicitly per button (not the default ImGui item spacing) so pairs read
+  as groups at any UI scale. Icons are vector-drawn on
+  the menu-bar draw list — the editor loads no icon font — so they stay crisp
+  at any UI scale. Editor-only change: no `.tyra` format, codegen or PS2
+  runtime impact. Verified end-to-end by driving the running editor (synthetic
+  mouse/keyboard) on an FPP scratch project and screenshotting each step:
+  paste-an-object → title gains `*`, Save icon turns amber, **but `grep` of the
+  on-disk `.tyra` shows the edit is NOT there** (no autosave); click the Save
+  icon → `.tyra` now contains it and `*` clears; Alt+F4 with unsaved edits →
+  the "Unsaved Changes" modal appears and the window stays open; "Don't Save" →
+  editor exits and the discarded edit is absent from the `.tyra`; "Cancel" →
+  editor stays open. Selecting an object (no edit) does not set dirty. Clean
+  editor build both before and after the button-label auto-size fix.
+- (69) **Usable-highlight rims moved off the EE (matrix shells + apron ring)** —
+  the in-game usable-object highlight could tank the frame rate: every frame,
+  for every nearby usable object, `renderHighlightHull` grew `steps × n` hull
+  vertices on the EE (9 muls **plus a bilinear `terrainHeightAt` per vertex**
+  for the ground clamp), wrote `2 × steps × n × 16 B` of vertex/color arrays,
+  and its per-frame `bboxVersion` bump forced a package-bbox recompute over
+  all of them — with the default 4 steps a few-thousand-vert usable model
+  near the player cost milliseconds of EE time, and the frame is EE-bound
+  (see the clipbench measurements in the backlog), so it fell straight to
+  the next vsync divisor.
+  The rewrite exploits that both per-vertex ops are uniform point scales
+  (grow about the object center, depth pushback about the eye): they compose
+  into a **single scale+translation model matrix**, so each shell now
+  re-submits the object's **own vertex arrays** with a per-shell `hullMat` +
+  per-shell single color — StaPip applies the matrix on VU1 (and in frustum
+  classify + the EE clipper via the composed MVP), the EE never touches a
+  vertex, and the shell's package bboxes ride the part's own `bboxVersion`
+  (their own cache slot — single color changes the package size — recomputed
+  only when the part rebuilds, never per frame). One game-level hull bag
+  replaces the per-object bag + `steps × n` vertex/color copies (a 6k-vert
+  usable model used to hold ~750 KB of hull arrays on a 32 MB console).
+  The one thing that genuinely needed per-vertex terrain sampling — the
+  ground-clamp that turned the bottom rim into a glow apron hugging the
+  terrain — is replaced by `buildHighlightApron`: a small terrain-following
+  annulus around the base (one band per shell, same growth radii and alpha
+  series, 24 segments ≈ 576 verts at 4 steps), world-space and
+  camera-independent, built once and cached until `rebuildObjectGeometry`
+  invalidates it (move/resize/scene switch). The repaint pass that erases
+  shell wash off receding side faces is unchanged. Verified: editor builds
+  clean; scratch FPP project (usable box + usable sphere + plain box near
+  spawn, highlight on) compiles in Docker and runs in PCSX2 — SW-renderer
+  screenshot shows the fading rim around the usable sphere only, clean
+  interior, the ground apron around the base, 50 VPS / 100% speed;
+  samples/script-demo regenerated + recompiled. Real-PS2 A/B timing of the
+  before/after EE cost still needs a hardware session (the COP0 PERF recipe
+  from the clipbench notes in the backlog applies as-is).
 
 - (68) **Ambience Editor + Properties docked right + sky dome preview** — three
   related changes. **(a) Docking default:** the first-run DockBuilder layout now
