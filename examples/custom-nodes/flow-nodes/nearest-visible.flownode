@@ -1,0 +1,9 @@
+# C++-backed custom node: outputs an object picked at RUNTIME (the nearest
+# visible one), so its object output can drive a built-in Hide Object. See
+# inc/scripts/flow_nodes.hpp for flowNearestVisible().
+title = Nearest Visible
+category = Custom
+out = object
+exec_out = true
+call = flowNearestVisible
+---

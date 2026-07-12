@@ -9,7 +9,7 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (71) **Usable-highlight perf, round 2: low-detail shell proxy + deferred
+- (79) **Usable-highlight perf, round 2: low-detail shell proxy + deferred
   body draw (no repaint)** — the PR #64 rims still dropped the showcase to
   ~25 FPS in PCSX2 near a highlighted object. Measured with COP0 phase
   timers in an owned terrain_game.cpp plus temporary counters inside the
@@ -42,6 +42,116 @@ Each finished feature lands as its own commit.
   pending, same as PR #64. Left open: the partial-frustum path itself
   costs the base scene ~12-14 ms on that view (default primDetail 16
   everywhere is heavy) — separate backlog item.
+
+- (78) **"Open in VS Code" jumps to a file (scripts + custom nodes)** —
+  `App::openInVSCode` gained an optional `file` arg: it now runs
+  `code "<projectDir>" -g "<file>"`, opening (or reusing) the whole-project
+  workspace AND landing on a specific file, so IntelliSense resolves against the
+  project. Wired up: the Flow Graph **Custom nodes…** popup drops "Open
+  flow-nodes folder" for **Open in VS Code (flow_nodes.hpp)** plus a **Jump to
+  node file** submenu (each custom node opens its own `.flownode`, via the
+  registry's stored `sourceFile`); the Project **Scripts** list entries became
+  clickable — clicking one opens that `src/scripts/*.cpp` in VS Code. On the
+  "should we ship a `.flownode` IntelliSense extension" question: no — a
+  `call = fn` body already gets full C++ IntelliSense because it lives in a real
+  project header (`flow_nodes.hpp`) covered by the generated
+  `.vscode/c_cpp_properties.json`; the `.flownode` stays a thin manifest.
+  Documented the VS Code options + that rationale in `docs/custom-flow-nodes.md`.
+  Verified: editor builds clean; `code "<proj>" -g "<file>"` confirmed to launch
+  VS Code with the file; GUI screenshot shows the reworked popup (Open in VS
+  Code / Jump to node file) over the example graph.
+
+- (77) **examples/custom-nodes + "propose an example" doc rule** — a focused
+  per-feature demo for the custom flow nodes (75)/(76): an FPP scene with three
+  crates where **Cross** runs a C++-backed node (`flowNearestVisible` in the
+  project-owned `inc/scripts/flow_nodes.hpp`) whose runtime **object output**
+  feeds a built-in **Hide Object** (hides crates one at a time), and **Square**
+  runs an **inline-snippet** node that spins a crate — covering both flavors and
+  the runtime-object-ref feature end to end. Shipped with its own README and
+  listed in the top-level README examples. Also added a `tyra-docs` rule:
+  proactively propose a small `examples/` demo when a feature is large/
+  user-facing enough that someone would want to see it in action. Verified:
+  `--build` exit 0 (game compiled to ELF); the generated flow graph shows the
+  guarded `ctx.objects[objOut2].visible = false` and `rotation[1] += 45.0F`;
+  hit a real footgun first — a comment containing the literal phrase "Generated
+  by tyra-editor" in the owned `flow_nodes.hpp`'s first line tripped the
+  ownership check and got the file regenerated, fixed by rewording; PCSX2 boots
+  the ELF and the F8 snap shows the three crates (red near, green mid, blue far)
+  on the terrain. Pad interaction (Cross/Square) not hand-driven; codegen + boot
+  are the bar.
+
+- (75) **Custom flow-graph nodes (per-project, file-based)** — a project can now
+  define its own Flow Graph **action** nodes without touching the editor's C++.
+  Each node is a `<project>/flow-nodes/<name>.flownode` text file: a `key = value`
+  header (`title`, `category`, `string = none|text|object`, `num0..3` labels), a
+  `---` line, then a raw C++ body emitted verbatim into `flow_graph.gen.cpp` when
+  an exec link fires the node, with `{obj}`/`{self}` (object indices),
+  `{num0..3}`/`{int0..3}` and `{str}` placeholders substituted at build. New
+  `src/flownode.cpp` scans the folder into a global registry
+  (`customFlowNodes()` in flowgraph.hpp, `unique_ptr` for stable `FlowNodeType`
+  char* addresses); `flowNodeType()` and a new `flowAllNodeTypes()` fold the
+  custom nodes into the existing lookup, add-menu and category derivation, so a
+  custom node renders and edits exactly like a built-in one (object dropdown /
+  text field / drag params, `> do` exec-in). Codegen gets one `flowCustomNode()`
+  branch in `actionCode()`. **Load order matters:** `readFlowGraph` drops nodes
+  whose type is unknown, so `project::load` registers the folder *before* parsing
+  graphs — which is also why custom nodes live in files, not the `.tyra`: copying
+  the `.flownode` file (its name is the node identity, `custom:<stem>`) is how you
+  move a node to another project; forget the file and its nodes vanish on load.
+  Editor UI: **Flow Graph ▸ Custom nodes…** popup (reload folder, scaffold a
+  commented `example.flownode`, open the folder). The `.tyra` model/serialization
+  is unchanged (nodes already carry an arbitrary `type` string + `str`/`num`).
+  Docs: new `docs/custom-flow-nodes.md` (format, placeholders, transfer
+  instructions), README + docs index + tyra-editor-dev source map/chain notes.
+  Verified end-to-end: editor builds clean; a scratch fpp project with two custom
+  nodes (an `object`-kind "Nudge Up" and a `text`-kind "Announce") wired to
+  On Start round-trips through `project::load` and generates the expected
+  `ctx.objects[0].data.position[1] += 5.0F;` and
+  `for (int i = 0; i < 3; ++i) TYRA_LOG("hi there");` — and the whole game
+  **compiled to an ELF in Docker** (`=== Build OK ===`), proving the emitted C++
+  is valid. GUI screenshot confirms both custom nodes render with their params /
+  pins in the Flow Graph and the Custom nodes… control is present.
+
+- (76) **Custom flow nodes, part 2: real C++ bodies + full runtime I/O** —
+  extends (71) so a custom node isn't limited to an inline snippet. A
+  `.flownode` manifest can now set `call = fn`, binding the node to a function
+  the user writes in a new marker-owned `inc/scripts/flow_nodes.hpp`
+  (`void fn(ScriptContext&, FlowNodeIO&)`), plus declare `in`/`out` pins (any of
+  object/position/bool/text) and `exec_out`. The node is exec-driven: on run the
+  codegen builds a `FlowNodeIO` from the resolved inputs, calls the function, and
+  **latches** its outputs into per-node class members (`objOut<id>`,
+  `boolOut<id>`, `posOut<id>[3]`, `textOut<id>`) that downstream nodes read.
+  bool/text/position outputs drop straight into the existing expression planes
+  (they're just variable refs); the interesting one is **object output**, which
+  is a *runtime* value (e.g. "the object the player is looking at") — so
+  `resolveTarget()` was changed from returning a codegen-time `int` to a C++
+  int-*expression* string (a literal index for built-in sources, `objOut<id>`
+  for a custom node's output), letting a custom node's picked object drive ANY
+  consumer including built-in Hide/Move/Show Object. Built-in object actions fed
+  such a ref are bounds-guarded (`isRuntimeIdx`) so an invalid pick (-1) is a
+  no-op, not an out-of-range access. `exec_out` custom nodes fire their
+  downstream inline right after they run (via a new recursive `emitExec` with a
+  cycle guard, replacing `linkedActions`), which sequences the data dependency
+  (raycast runs → sets output → built-in reads it). `FlowNodeIO` lives in
+  `script.hpp`; `flow_graph.gen.cpp` includes `flow_nodes.hpp`. The UI needed no
+  changes — the flow-graph editor already renders every pin kind from the
+  `FlowNodeType` flags. The `.tyra` model/serialization is still unchanged.
+  Scaffolded example is now a working C++-backed "Nearest Object" node
+  (`flowExampleNearest`) demonstrating object-out → built-in Hide Object.
+  Docs: `docs/custom-flow-nodes.md` rewritten (two flavors, the `FlowNodeIO`
+  contract, runtime object refs, transfer now also copies the `flow_nodes.hpp`
+  function), README/docs-index/tyra-editor-dev updated. Verified end-to-end: the
+  editor builds clean; a scratch fpp project wiring **On Button → Nearest Object
+  (custom, object out) → built-in Hide Object** (object input from the custom
+  node's runtime output, exec-chained) round-trips through load and generates
+  `flowExampleNearest(ctx, io); objOut2 = io.objectOut;` then
+  `if ((objOut2) >= 0 && (objOut2) < ctx.objectCount) { ctx.objects[objOut2].visible = false; }`
+  — and the whole game **compiled to an ELF in Docker** (`=== Build OK ===`). The
+  part-(75) inline-snippet project still generates the same literal-index code
+  (no regression from the `resolveTarget` refactor). GUI screenshot confirms the
+  custom node renders its object-output and exec-output pins and Hide Object
+  reads "Object: from id link". Not hand-tested with a pad in PCSX2 (the graph
+  only fires on Cross); the ELF compile + codegen are the verification bar here.
 
 - (70) **Dynamic object spawning: Spawn Object / Despawn Object flow nodes** —
   runtime clones of authored objects, the missing piece for GTA-style traffic

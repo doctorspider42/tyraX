@@ -74,7 +74,10 @@ private:
     // Names used by same-type "Variables" nodes across every scene's graphs
     // (the int / bool / position namespaces are separate).
     std::vector<std::string> flowVarNames(const std::string& nodeType) const;
-    void openInVSCode();
+    // Open the project in VS Code. A non-empty `file` (project-relative or
+    // absolute) is also opened in that window - jump straight to a script /
+    // custom node while keeping the whole project in context.
+    void openInVSCode(const std::string& file = "");
     void drawOutputWindow();
     void drawDebugWindow();
     void drawDiscLayoutWindow();
