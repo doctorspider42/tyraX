@@ -9,6 +9,24 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (78) **"Open in VS Code" jumps to a file (scripts + custom nodes)** —
+  `App::openInVSCode` gained an optional `file` arg: it now runs
+  `code "<projectDir>" -g "<file>"`, opening (or reusing) the whole-project
+  workspace AND landing on a specific file, so IntelliSense resolves against the
+  project. Wired up: the Flow Graph **Custom nodes…** popup drops "Open
+  flow-nodes folder" for **Open in VS Code (flow_nodes.hpp)** plus a **Jump to
+  node file** submenu (each custom node opens its own `.flownode`, via the
+  registry's stored `sourceFile`); the Project **Scripts** list entries became
+  clickable — clicking one opens that `src/scripts/*.cpp` in VS Code. On the
+  "should we ship a `.flownode` IntelliSense extension" question: no — a
+  `call = fn` body already gets full C++ IntelliSense because it lives in a real
+  project header (`flow_nodes.hpp`) covered by the generated
+  `.vscode/c_cpp_properties.json`; the `.flownode` stays a thin manifest.
+  Documented the VS Code options + that rationale in `docs/custom-flow-nodes.md`.
+  Verified: editor builds clean; `code "<proj>" -g "<file>"` confirmed to launch
+  VS Code with the file; GUI screenshot shows the reworked popup (Open in VS
+  Code / Jump to node file) over the example graph.
+
 - (77) **examples/custom-nodes + "propose an example" doc rule** — a focused
   per-feature demo for the custom flow nodes (75)/(76): an FPP scene with three
   crates where **Cross** runs a C++-backed node (`flowNearestVisible` in the

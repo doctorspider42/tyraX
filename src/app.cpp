@@ -4106,7 +4106,8 @@ void App::drawFlowGraphWindow() {
     }
 
     // Project-defined custom nodes: reload the flow-nodes/ folder, scaffold a
-    // starter file, or open the folder (see docs/custom-flow-nodes.md).
+    // starter file, or open the project in VS Code (jumping to the C++ bodies
+    // or a specific node file). See docs/custom-flow-nodes.md.
     ImGui::SameLine();
     if (ImGui::SmallButton("Custom nodes...")) ImGui::OpenPopup("##customnodes");
     if (ImGui::BeginPopup("##customnodes")) {
@@ -4126,12 +4127,16 @@ void App::drawFlowGraphWindow() {
                 statusMessage_ = "Wrote " + path + " - edit it, then Reload";
             }
         }
-        if (ImGui::MenuItem("Open flow-nodes folder")) {
-            std::error_code ec;
-            std::filesystem::create_directories(flownode::dirForProject(project_.dir), ec);
-            ShellExecuteA(nullptr, "open",
-                          flownode::dirForProject(project_.dir).c_str(), nullptr,
-                          nullptr, SW_SHOWNORMAL);
+        ImGui::Separator();
+        // Open in VS Code, in the whole-project context. The C++ bodies file is
+        // the natural landing spot for `call = fn` nodes; the submenu jumps to
+        // an individual .flownode definition.
+        if (ImGui::MenuItem("Open in VS Code (flow_nodes.hpp)"))
+            openInVSCode("inc\\scripts\\flow_nodes.hpp");
+        if (ImGui::BeginMenu("Jump to node file", !customFlowNodes().empty())) {
+            for (const auto& c : customFlowNodes())
+                if (ImGui::MenuItem(c->title.c_str())) openInVSCode(c->sourceFile);
+            ImGui::EndMenu();
         }
         ImGui::EndPopup();
     }
@@ -4961,9 +4966,20 @@ void App::drawFlowGraphWindow() {
     ImGui::End();
 }
 
-void App::openInVSCode() {
-    // `code` is a .cmd shim, so it has to go through cmd.exe
-    std::string cmd = "cmd.exe /S /C \"code \"" + project_.dir + "\"\"";
+void App::openInVSCode(const std::string& file) {
+    // `code` is a .cmd shim, so it has to go through cmd.exe. Passing the
+    // project dir opens (or reuses) that workspace; an extra file path opens it
+    // in the same window (-g = goto), so we can jump straight to a script or a
+    // custom-node file while keeping the whole project in context.
+    std::string cmd = "cmd.exe /S /C \"code \"" + project_.dir + "\"";
+    if (!file.empty()) {
+        std::filesystem::path fp(file);
+        const std::string abs =
+            fp.is_absolute() ? fp.string()
+                             : (std::filesystem::path(project_.dir) / fp).string();
+        cmd += " -g \"" + abs + "\"";
+    }
+    cmd += "\"";
     STARTUPINFOA si{};
     si.cb = sizeof(si);
     PROCESS_INFORMATION pi{};
@@ -7763,14 +7779,20 @@ void App::drawScriptsSection() {
     if (ImGui::SmallButton("Open in VS Code")) openInVSCode();
 
     // List src/scripts/*.cpp (user scripts live there and are compiled
-    // automatically by the project Makefile)
+    // automatically by the project Makefile). Click one to open it in VS Code
+    // in the project context.
     const std::filesystem::path dir = std::filesystem::path(project_.dir) / "src" / "scripts";
     std::error_code ec;
     bool any = false;
     if (std::filesystem::exists(dir, ec)) {
         for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
             if (entry.path().extension() != ".cpp") continue;
-            ImGui::BulletText("%s", entry.path().filename().string().c_str());
+            const std::string fname = entry.path().filename().string();
+            ImGui::Bullet();
+            ImGui::SameLine();
+            if (ImGui::Selectable(fname.c_str())) openInVSCode("src\\scripts\\" + fname);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Open in VS Code");
             any = true;
         }
     }

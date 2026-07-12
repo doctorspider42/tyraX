@@ -24,7 +24,7 @@ see [Moving nodes to another project](#moving-nodes-to-another-project).
 
 1. Open the **Flow Graph** tab → **Custom nodes… ▸ New starter node**. This writes
    `flow-nodes/example.flownode` (a working "Nearest Object" C++-backed node) and
-   reloads. *Or* **Open flow-nodes folder** and create a file by hand.
+   reloads.
 2. Edit the file (format below), then **Custom nodes… ▸ Reload from folder**. The
    node appears in the add-menu under its `category`.
 3. Right-click the canvas → your category → your node. Wire it up, build. Your
@@ -209,8 +209,15 @@ tool when you want the logic to be **triggered from and wired into the graph**
   (that is the add-menu order within a category).
 - Loaded on project open and on **Custom nodes… ▸ Reload from folder** (picks up
   new files and edits without reopening).
+- **Custom nodes… ▸ Open in VS Code** opens the project (whole-project context,
+  so IntelliSense resolves) and jumps to `flow_nodes.hpp`; **Jump to node file**
+  opens a specific `.flownode`.
 - C++ bodies live in `inc/scripts/flow_nodes.hpp` (marker-owned; delete the first
   line to keep your edits). `FlowNodeIO` is defined in `inc/scripts/script.hpp`.
+  Because it is a normal project header, `call = fn` bodies get **full C++
+  IntelliSense** in VS Code (via the generated `.vscode/c_cpp_properties.json`) -
+  the reason there is no dedicated `.flownode` editor extension: write real logic
+  in `flow_nodes.hpp`, keep the `.flownode` a thin manifest.
 - Parse / duplicate-id problems are reported in the editor status bar on reload.
 - Implementation: `src/flownode.cpp` (loader/parser), `src/flowgraph.hpp`
   (registry + `CustomFlowNode`), code generation in `flowGraphScript()`
