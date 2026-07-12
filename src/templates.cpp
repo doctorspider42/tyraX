@@ -5370,11 +5370,16 @@ function RunPCSX2 {
 }
 )PS1";
 
+// docker-compose.yml is regenerated on every build (refreshGenerated) and
+// carries a machine-specific absolute path to the engine sources plus a hash
+// derived from it - never worth committing (it just churns and leaks the
+// author's local path).
 static const char* TPL_GITIGNORE = R"(obj/
 bin/*.elf
 *.history
 .vscode/
 .res-baked/
+docker-compose.yml
 )";
 
 static const char* TPL_DIR_KEEP = "*\n!.gitignore\n";

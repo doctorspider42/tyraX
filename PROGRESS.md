@@ -9,6 +9,23 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (70) **Stop committing generated `docker-compose.yml` (machine-specific path
+  leak + merge magnet)** — the compose file is regenerated on every build
+  (`refreshGenerated`, always-overwritten list) and bind-mounts the engine
+  sources by an **absolute path** computed from the editor exe location
+  (`engineSourceDir`), plus a volume-name hash derived from that same path.
+  So the checked-in `examples/*/docker-compose.yml` carried whoever-built-it-
+  last's local worktree path (script-demo still held a stale
+  `terrain-chunking-large-maps-cb55f4` path; showcase flipped to each build's
+  worktree) — a constant source of merge conflicts and a leak of local paths.
+  Added `docker-compose.yml` to `TPL_GITIGNORE` and to both example
+  `.gitignore`s, and `git rm --cached` the two tracked copies. The file still
+  generates locally on every build (verified: `--new` scaffolds it and lists
+  it in `.gitignore`; `git check-ignore` confirms both examples' copies are
+  ignored), so nothing about building changes - it just stops being tracked.
+  Verified: editor builds clean; a fresh `--new` project ignores its compose
+  while still producing it on disk.
+
 - (69) **Menu Toggle/Choice rows + USE prompt as a HUD element + triggerable
   on-screen texts** — three UI-customization features in one pass. **(a) Menu
   toggles:** two new menu entry actions, **Toggle** (Off/On, labels editable)
