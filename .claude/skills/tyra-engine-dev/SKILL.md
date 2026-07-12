@@ -63,8 +63,10 @@ clipper, static pools in `stapip_clipper.cpp` / `stapip_qbuffer.cpp`,
 player, `bboxVersion` on `StaPipBag` for moving geometry, `LeanObjLoader`
 (OBJ+MTL, host:/cdrom0:-safe; parsing semantics mirror the editor's
 `src/objparser.cpp` — keep the two in sync), `physics/CollisionMesh` (XZ-grid
-triangle collider) + `Ray::intersectTriangle`, and a guard in `debug.cpp` so
-TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot).
+triangle collider) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
+TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot),
+and `renderer/models/unique_id.hpp` (`generateUniqueId()`) replacing upstream's
+`rand() % 1000000` object ids (see the pitfall below).
 
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
@@ -85,6 +87,17 @@ TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot).
   ~10 units from the camera; generated games override it.
 - Judge rendering correctness on **PCSX2's software renderer** — it is the
   honest one. See tyra-testing for how.
+- **Object ids must be unique, not random.** `Sprite`/`Mesh`/`MeshFrame`/
+  `MeshMaterial`/`MeshMaterialFrame` share ONE lookup namespace in
+  `TextureRepository`: `addLink(id)` binds a texture to a sprite/material and
+  `getBySpriteId`/`getByMeshMaterialId` return the FIRST texture whose links
+  contain that id. Upstream drew ids from `rand() % 1000000` (never seeded), so
+  a collision bound the wrong texture to a sprite → garbled/black HUD sprites,
+  worst right after opening a menu (a burst of new sprites raises the collision
+  odds against the always-present debug-HUD glyph). Fixed with
+  `renderer/models/unique_id.hpp` `generateUniqueId()`. Use it for any new
+  id-bearing render object; don't reintroduce `rand()` ids. (`audio_song.cpp`
+  intentionally keeps `rand()` — separate namespace, assigned off-thread.)
 - **DTV display modes (480p/1080i)**: ps2sdk's `graph_set_screen` always
   programs the mode's full VCK width into DISPLAY.DW, and no 64-aligned
   framebuffer width divides the 1440/1920-VCK DTV rasters — the GS scans
