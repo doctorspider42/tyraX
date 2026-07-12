@@ -1316,22 +1316,62 @@ void App::drawViewportWindow() {
         // --- HUD preview overlay (matches the PS2 512x448 screen mapping;
         // hidden by default - toggle in the UI Editor, which also shows it
         // while open) ---
-        if ((showHudInEditor_ || showUiEditor_) && !project_.hud.empty()) {
+        if (showHudInEditor_ || showUiEditor_) {
             ImDrawList* dl = ImGui::GetWindowDrawList();
+            auto screenRect = [&](const float* pos, const float* size,
+                                  ImVec2& pMin, ImVec2& pMax) {
+                const float w = size[0] / 512.0f * frameSize.x;
+                const float h = size[1] / 448.0f * frameSize.y;
+                const ImVec2 c(frameMin.x + pos[0] * frameSize.x,
+                               frameMin.y + pos[1] * frameSize.y);
+                pMin = ImVec2(c.x - w * 0.5f, c.y - h * 0.5f);
+                pMax = ImVec2(c.x + w * 0.5f, c.y + h * 0.5f);
+            };
             for (int i = 0; i < (int)project_.hud.size(); ++i) {
                 const HudImage& hi = project_.hud[i];
-                const float w = hi.size[0] / 512.0f * frameSize.x;
-                const float h = hi.size[1] / 448.0f * frameSize.y;
-                const ImVec2 c(frameMin.x + hi.pos[0] * frameSize.x,
-                               frameMin.y + hi.pos[1] * frameSize.y);
-                const ImVec2 pMin(c.x - w * 0.5f, c.y - h * 0.5f);
-                const ImVec2 pMax(c.x + w * 0.5f, c.y + h * 0.5f);
+                ImVec2 pMin, pMax;
+                screenRect(hi.pos, hi.size, pMin, pMax);
                 if (const HudTexture* t = hudTexture(hi.imagePath))
                     dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax);
                 else
                     dl->AddRect(pMin, pMax, IM_COL32(255, 100, 100, 200));
                 if (showUiEditor_ && uiFxSel_ == 0 && i == selectedHud_)
                     dl->AddRect(pMin, pMax, IM_COL32(255, 160, 30, 255), 0.0f, 0, 2.0f);
+            }
+            // The USE prompt (custom image or the embedded built-in sprite);
+            // in the game it only shows near usable objects - here it is a
+            // layout aid, drawn whenever the overlay is on.
+            {
+                const HudImage& up = project_.usePrompt;
+                ImVec2 pMin, pMax;
+                screenRect(up.pos, up.size, pMin, pMax);
+                const HudTexture* t = up.imagePath.empty()
+                                          ? builtinUseTexture()
+                                          : hudTexture(up.imagePath);
+                if (t)
+                    dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax);
+                else
+                    dl->AddRect(pMin, pMax, IM_COL32(255, 100, 100, 200));
+                if (showUiEditor_ && uiFxSel_ == 3)
+                    dl->AddRect(pMin, pMax, IM_COL32(255, 160, 30, 255), 0.0f, 0,
+                                2.0f);
+            }
+            // On-screen texts: the ones visible at game start, plus the one
+            // being edited (so hidden subtitles can still be placed).
+            for (int i = 0; i < (int)project_.hudTexts.size(); ++i) {
+                const HudText& ht = project_.hudTexts[i];
+                const bool isSel =
+                    showUiEditor_ && uiFxSel_ == 4 && i == selectedText_;
+                if (!ht.visibleAtStart && !isSel) continue;
+                if (const HudTexture* t = hudTextTexture(ht)) {
+                    const float size[2] = {(float)t->w, (float)t->h};
+                    ImVec2 pMin, pMax;
+                    screenRect(ht.pos, size, pMin, pMax);
+                    dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax);
+                    if (isSel)
+                        dl->AddRect(pMin, pMax, IM_COL32(255, 160, 30, 255),
+                                    0.0f, 0, 2.0f);
+                }
             }
         }
 
@@ -4313,6 +4353,18 @@ void App::drawFlowGraphWindow() {
                     ImGui::TextDisabled("Add menus in the\nProject panel (Menus).");
                 ImGui::EndCombo();
             }
+        } else if (t->strKind == FlowParamKind::HudTextName) {
+            if (ImGui::BeginCombo("Text", n.str.empty() ? "<none>" : n.str.c_str())) {
+                for (const HudText& ht : project_.hudTexts) {
+                    if (ImGui::Selectable(ht.name.c_str(), ht.name == n.str)) {
+                        n.str = ht.name;
+                        changed = true;
+                    }
+                }
+                if (project_.hudTexts.empty())
+                    ImGui::TextDisabled("Add texts in\nTools > UI Editor (Texts).");
+                ImGui::EndCombo();
+            }
         } else if (t->strKind == FlowParamKind::VarName) {
             char buf[64];
             std::snprintf(buf, sizeof(buf), "%s", n.str.c_str());
@@ -4347,12 +4399,28 @@ void App::drawFlowGraphWindow() {
             firstNum = 3;
         }
         if (n.type == "SetVarBool" || n.type == "SetFlashlight" ||
-            n.type == "SetFog" || n.type == "SetParticles") {
+            n.type == "SetFog" || n.type == "SetParticles" ||
+            n.type == "SetWidescreen") {
             bool v = n.num[0] != 0.0f;
             if (ImGui::Checkbox(t->numLabels[0], &v)) {
                 n.num[0] = v ? 1.0f : 0.0f;
                 changed = true;
             }
+        } else if (n.type == "SetDisplayMode") {
+            const char* modes[] = {"Interlaced (480i/576i)",
+                                   "Progressive (480p)", "1080i"};
+            int mode = (int)n.num[0];
+            mode = mode < 0 ? 0 : mode > 2 ? 2 : mode;
+            if (ImGui::Combo("Mode", &mode, modes, 3)) {
+                n.num[0] = (float)mode;
+                changed = true;
+            }
+            ImGui::DragFloat("Confirm s", &n.num[1], 0.5f, 0.0f, 60.0f, "%.0f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::TextDisabled(
+                "Confirm > 0: the game asks to keep the\n"
+                "mode (X = yes) and reverts automatically\n"
+                "when the timer runs out. 0 = switch blind.");
         } else if (t->numKind == FlowParamKind::Color) {
             ImGui::ColorEdit3("Color", n.num, ImGuiColorEditFlags_NoInputs);
             changed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -4776,6 +4844,143 @@ const App::HudTexture* App::hudTexture(const std::string& relPath) {
     return entry.tex ? &hudTexCache_[relPath] : nullptr;
 }
 
+// The embedded built-in USE prompt sprite as a GL texture (lazy; process
+// lifetime). Shown in the viewport overlay while no custom image overrides it.
+const App::HudTexture* App::builtinUseTexture() {
+    if (builtinUseTex_.tex) return &builtinUseTex_;
+    size_t n = 0;
+    const unsigned char* png = templates::usePromptPng(n);
+    int w = 0, h = 0, comp = 0;
+    unsigned char* pixels =
+        stbi_load_from_memory(png, (int)n, &w, &h, &comp, 4);
+    if (!pixels) return nullptr;
+    glGenTextures(1, &builtinUseTex_.tex);
+    glBindTexture(GL_TEXTURE_2D, builtinUseTex_.tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 pixels);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    stbi_image_free(pixels);
+    builtinUseTex_.w = w;
+    builtinUseTex_.h = h;
+    return &builtinUseTex_;
+}
+
+// A HUD text as a GL texture for the viewport overlay, re-baked when its
+// content changes (keyed by name; a handful of small textures at most).
+const App::HudTexture* App::hudTextTexture(const HudText& t) {
+    const std::string key = t.text + "\x1f" + t.fontPath + "\x1f" +
+                            std::to_string(t.size) + "\x1f" +
+                            std::to_string(t.shadow) + "\x1f" +
+                            std::to_string(t.color[0]) + "," +
+                            std::to_string(t.color[1]) + "," +
+                            std::to_string(t.color[2]);
+    TextTexture& entry = textTexCache_[t.name];
+    if (entry.tex && entry.key == key) return &entry.hud;
+    std::vector<unsigned char> rgba;
+    int w = 0, h = 0;
+    if (!menubake::bakeTextRGBA(t, project_.dir, rgba, w, h)) return nullptr;
+    if (!entry.tex) glGenTextures(1, &entry.tex);
+    glBindTexture(GL_TEXTURE_2D, entry.tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 rgba.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    entry.key = key;
+    entry.hud = {entry.tex, w, h};
+    return &entry.hud;
+}
+
+// Shared TTF picker combo (menus, HUD texts): default chain / fonts imported
+// into the project (res/fonts) / a curated set of stock Windows fonts
+// (existence-checked) / import a new TTF. Returns true when fontPath changed.
+bool App::fontCombo(std::string& fontPath) {
+    bool changed = false;
+    std::string current = "Default (Consolas Bold)";
+    if (!fontPath.empty())
+        current = std::filesystem::path(fontPath).filename().string();
+    ImGui::SetNextItemWidth(200.0f);
+    if (ImGui::BeginCombo("Font", current.c_str())) {
+        if (ImGui::Selectable("Default (Consolas Bold)", fontPath.empty())) {
+            fontPath.clear();
+            changed = true;
+        }
+        // fonts shipped inside the project (res/fonts)
+        const std::filesystem::path fontsDir =
+            std::filesystem::path(project_.dir) / "res" / "fonts";
+        std::error_code ec;
+        if (std::filesystem::exists(fontsDir, ec)) {
+            for (const auto& entry :
+                 std::filesystem::directory_iterator(fontsDir, ec)) {
+                std::string ext = entry.path().extension().string();
+                for (char& c : ext) c = (char)tolower((unsigned char)c);
+                if (ext != ".ttf" && ext != ".otf") continue;
+                const std::string rel =
+                    "res/fonts/" + entry.path().filename().string();
+                if (ImGui::Selectable(
+                        (entry.path().filename().string() + "  [project]").c_str(),
+                        fontPath == rel)) {
+                    fontPath = rel;
+                    changed = true;
+                }
+            }
+        }
+        // stock Windows fonts (bare file name - resolved via \Windows\Fonts)
+        struct SysFont {
+            const char* label;
+            const char* file;
+        };
+        static const SysFont kSysFonts[] = {
+            {"Arial Bold", "arialbd.ttf"},
+            {"Comic Sans MS Bold", "comicbd.ttf"},
+            {"Courier New Bold", "courbd.ttf"},
+            {"Georgia Bold", "georgiab.ttf"},
+            {"Impact", "impact.ttf"},
+            {"Segoe UI Bold", "segoeuib.ttf"},
+            {"Times New Roman Bold", "timesbd.ttf"},
+            {"Trebuchet MS Bold", "trebucbd.ttf"},
+            {"Verdana Bold", "verdanab.ttf"},
+        };
+        char windir[MAX_PATH] = {};
+        GetWindowsDirectoryA(windir, MAX_PATH);
+        for (const SysFont& sf : kSysFonts) {
+            const std::filesystem::path p =
+                std::filesystem::path(windir) / "Fonts" / sf.file;
+            if (!std::filesystem::exists(p, ec)) continue;
+            if (ImGui::Selectable(sf.label, fontPath == sf.file)) {
+                fontPath = sf.file;
+                changed = true;
+            }
+        }
+        ImGui::Separator();
+        if (ImGui::Selectable("Import TTF into the project...")) {
+            const std::string src = pickTtfFile();
+            if (!src.empty()) {
+                const std::filesystem::path srcPath(src);
+                const std::string fileName =
+                    sanitizeAssetName(srcPath.filename().string());
+                std::filesystem::create_directories(fontsDir, ec);
+                std::filesystem::copy_file(
+                    srcPath, fontsDir / fileName,
+                    std::filesystem::copy_options::overwrite_existing, ec);
+                if (!ec) {
+                    fontPath = "res/fonts/" + fileName;
+                    changed = true;
+                }
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Rasterized at build time - any TTF works, nothing\n"
+                          "ships to the PS2 but pixels. Project fonts\n"
+                          "(res/fonts) travel with the project; Windows fonts\n"
+                          "depend on this machine.");
+    return changed;
+}
+
 void App::importHudImage() {
     const std::string src = pickPngFile();
     if (src.empty()) return;
@@ -4804,6 +5009,87 @@ void App::importHudImage() {
     selectedHud_ = (int)project_.hud.size() - 1;
     uiFxSel_ = 0;
     saveAll("Saved");
+}
+
+// Texture-bake controls shared by HUD images and the USE prompt: the PS2
+// only accepts 8/16/32/64/128/256/512-sized textures; the build resizes the
+// imported PNG into .res-baked to that. "Auto" picks the nearest valid size,
+// so a mis-sized import just works. Returns true when a setting changed.
+bool App::hudBakeControls(HudImage& h) {
+    bool changed = false;
+    auto nearestValid = [](int v) {
+        static const int V[] = {8, 16, 32, 64, 128, 256, 512};
+        int best = V[0], bd = 1 << 30;
+        for (int d : V) {
+            const int dd = v > d ? v - d : d - v;
+            if (dd < bd) { bd = dd; best = d; }
+        }
+        return best;
+    };
+    auto isValid = [&](int v) { return v > 0 && v == nearestValid(v); };
+    auto dimCombo = [&](const char* label, int& dim) {
+        static const int vals[] = {0, 8, 16, 32, 64, 128, 256, 512};
+        static const char* names[] = {"Auto", "8",   "16",  "32",
+                                      "64",   "128", "256", "512"};
+        int cur = 0;
+        for (int i = 0; i < 8; ++i)
+            if (vals[i] == dim) { cur = i; break; }
+        if (ImGui::Combo(label, &cur, names, 8)) {
+            dim = vals[cur];
+            changed = true;
+        }
+    };
+
+    ImGui::SeparatorText("Texture (baked for PS2)");
+    int sw = 0, sh = 0;
+    if (const HudTexture* t = hudTexture(h.imagePath)) { sw = t->w; sh = t->h; }
+    if (sw > 0) {
+        const bool bad = !isValid(sw) || !isValid(sh);
+        if (bad)
+            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f),
+                               "Source %dx%d is not a PS2 size", sw, sh);
+        else
+            ImGui::TextDisabled("Source: %dx%d px", sw, sh);
+    }
+    ImGui::PushItemWidth(90.0f * uiScaleApplied_);
+    dimCombo("Width##texw", h.texW);
+    ImGui::SameLine();
+    dimCombo("Height##texh", h.texH);
+    ImGui::PopItemWidth();
+
+    // Colors: like the per-asset material quality, "(project default)"
+    // follows Preferences > Textures; the others override - e.g. keep an
+    // important element full color while the rest of the HUD is quantized.
+    int q = h.texQuant == "none" ? 1
+            : h.texQuant == "8bit" ? 2
+            : h.texQuant == "4bit" ? 3
+                                   : 0;
+    const char* qn[] = {"Project default", "Full color (32-bit)",
+                        "256 colors (8-bit)", "16 colors (4-bit)"};
+    if (ImGui::Combo("Colors##hudq", &q, qn, 4)) {
+        h.texQuant = q == 1 ? "none" : q == 2 ? "8bit" : q == 3 ? "4bit" : "";
+        changed = true;
+    }
+
+    // Resolve "(project default)" for the baked readout.
+    auto colorLabel = [](const std::string& qv) {
+        return qv == "8bit"   ? "256 colors (8-bit)"
+               : qv == "4bit" ? "16 colors (4-bit)"
+                              : "Full color (32-bit)";
+    };
+    const std::string effQ =
+        h.texQuant.empty() ? project_.settings.textureQuant : h.texQuant;
+    const int bw = h.texW > 0 ? h.texW : (sw > 0 ? nearestValid(sw) : 0);
+    const int bh = h.texH > 0 ? h.texH : (sh > 0 ? nearestValid(sh) : 0);
+    if (h.texQuant.empty())
+        ImGui::TextDisabled("Baked: %dx%d, %s (from project)", bw, bh,
+                            colorLabel(effQ));
+    else
+        ImGui::TextDisabled("Baked: %dx%d, %s", bw, bh, colorLabel(effQ));
+    ImGui::TextDisabled(
+        "Resized at build (source in res/hud stays untouched). The\n"
+        "on-screen size above is separate - the sprite is stretched.");
+    return changed;
 }
 
 // UI Editor window (Tools > UI Editor): everything composited over the 3D
@@ -4876,8 +5162,48 @@ void App::drawUiEditorWindow() {
                       ImGuiChildFlags_Borders);
     if (ImGui::Button("Import image (PNG)...", ImVec2(-1, 0))) importHudImage();
     ImGui::Checkbox("Show in viewport", &showHudInEditor_);
+
+    // Triggerable on-screen texts. They draw above the whole HUD stack
+    // (under menus), so they sit above the reorderable list.
+    ImGui::SeparatorText("Texts");
+    for (int i = 0; i < (int)project_.hudTexts.size(); ++i) {
+        ImGui::PushID(1000 + i);
+        if (ImGui::Selectable(project_.hudTexts[i].name.c_str(),
+                              uiFxSel_ == 4 && selectedText_ == i)) {
+            uiFxSel_ = 4;
+            selectedText_ = i;
+        }
+        ImGui::PopID();
+    }
+    if (ImGui::SmallButton("+ Add text")) {
+        HudText t;
+        // unique name: "text", "text-2", ... (referenced by flow nodes)
+        int suffix = 1;
+        auto taken = [&](const std::string& n) {
+            for (const HudText& e : project_.hudTexts)
+                if (e.name == n) return true;
+            return false;
+        };
+        while (taken(suffix == 1 ? "text" : "text-" + std::to_string(suffix)))
+            ++suffix;
+        t.name = suffix == 1 ? "text" : "text-" + std::to_string(suffix);
+        project_.hudTexts.push_back(std::move(t));
+        uiFxSel_ = 4;
+        selectedText_ = (int)project_.hudTexts.size() - 1;
+        changed = true;
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Baked to PNG sprites at build (the PS2 engine has no font).\n"
+            "Show/hide them from the flow graph: Show Text / Hide Text.");
+
     ImGui::SeparatorText("Screen stack");
     ImGui::TextDisabled("Top entry draws last (on top).\nDrag to reorder.");
+    // The USE prompt is part of the screen, but pinned: it always draws
+    // above the HUD stack (and under menus), and cannot be deleted.
+    if (ImGui::Selectable("[ USE prompt ]", uiFxSel_ == 3)) uiFxSel_ = 3;
     for (int r = 0; r < (int)order.size(); ++r) {
         const int id = order[r];
         ImGui::PushID(r);
@@ -4965,6 +5291,169 @@ void App::drawUiEditorWindow() {
         ImGui::TextDisabled(
             "Per-scene grain strength: Scene > Scene Preferences > Post "
             "effects.");
+    } else if (uiFxSel_ == 3) {
+        // --- the pinned USE prompt ------------------------------------------
+        HudImage& h = project_.usePrompt;
+        ImGui::SeparatorText("USE prompt");
+        ImGui::TextWrapped(
+            "Shown while the player looks at a usable object up close. "
+            "Always draws above the HUD stack (and under menus); cannot be "
+            "deleted.");
+        ImGui::Spacing();
+        ImGui::DragFloat2("Position##use", h.pos, 0.005f, 0.0f, 1.0f, "%.3f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat2("Size (px)##use", h.size, 1.0f, 1.0f, 512.0f, "%.0f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+
+        ImGui::SeparatorText("Image");
+        if (h.imagePath.empty()) {
+            ImGui::TextDisabled("Built-in \"USE\" sprite (res/hud/use.png).");
+            if (ImGui::Button("Custom image (PNG)...")) {
+                const std::string src = pickPngFile();
+                if (!src.empty()) {
+                    const std::filesystem::path srcPath(src);
+                    const std::string fileName =
+                        sanitizeAssetName(srcPath.filename().string());
+                    const std::filesystem::path destDir =
+                        std::filesystem::path(project_.dir) / "res" / "hud";
+                    std::error_code ec;
+                    std::filesystem::create_directories(destDir, ec);
+                    std::filesystem::copy_file(
+                        srcPath, destDir / fileName,
+                        std::filesystem::copy_options::overwrite_existing, ec);
+                    if (!ec) {
+                        h.imagePath = "res/hud/" + fileName;
+                        hudTexCache_.erase(h.imagePath);  // reload if replaced
+                        changed = true;
+                    } else {
+                        statusMessage_ =
+                            "USE prompt import failed: " + ec.message();
+                    }
+                }
+            }
+        } else {
+            ImGui::TextDisabled("Custom: %s", h.imagePath.c_str());
+            if (ImGui::Button("Replace image (PNG)...")) {
+                const std::string src = pickPngFile();
+                if (!src.empty()) {
+                    const std::filesystem::path srcPath(src);
+                    const std::string fileName =
+                        sanitizeAssetName(srcPath.filename().string());
+                    const std::filesystem::path destDir =
+                        std::filesystem::path(project_.dir) / "res" / "hud";
+                    std::error_code ec;
+                    std::filesystem::create_directories(destDir, ec);
+                    std::filesystem::copy_file(
+                        srcPath, destDir / fileName,
+                        std::filesystem::copy_options::overwrite_existing, ec);
+                    if (!ec) {
+                        h.imagePath = "res/hud/" + fileName;
+                        hudTexCache_.erase(h.imagePath);
+                        changed = true;
+                    }
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Reset to built-in")) {
+                h.imagePath.clear();
+                changed = true;
+            }
+            // The bake (pow2 resize + quantization) only applies to custom
+            // images; the built-in sprite is already a valid PS2 texture.
+            changed |= hudBakeControls(h);
+        }
+    } else if (uiFxSel_ == 4 && selectedText_ >= 0 &&
+               selectedText_ < (int)project_.hudTexts.size()) {
+        // --- a triggerable on-screen text -----------------------------------
+        HudText& t = project_.hudTexts[selectedText_];
+        ImGui::SeparatorText(t.name.c_str());
+        {
+            char nameBuf[64];
+            std::snprintf(nameBuf, sizeof(nameBuf), "%s", t.name.c_str());
+            ImGui::SetNextItemWidth(160.0f);
+            if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
+                // Renames follow into the flow graphs (Show/Hide Text nodes
+                // reference texts by name), like layer renames do.
+                const std::string oldName = t.name;
+                t.name = nameBuf;
+                for (SceneData& sc : project_.scenes)
+                    for (SceneObject& o : sc.objects)
+                        for (FlowNode& fn : o.flowGraph.nodes) {
+                            const FlowNodeType* ft = flowNodeType(fn.type);
+                            if (ft && ft->strKind == FlowParamKind::HudTextName &&
+                                fn.str == oldName)
+                                fn.str = t.name;
+                        }
+            }
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        {
+            // multiline: '\n' becomes a new line in the baked sprite
+            char textBuf[512];
+            std::snprintf(textBuf, sizeof(textBuf), "%s", t.text.c_str());
+            if (ImGui::InputTextMultiline("Text", textBuf, sizeof(textBuf),
+                                          ImVec2(-1.0f, 80.0f * uiScaleApplied_)))
+                t.text = textBuf;
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        changed |= fontCombo(t.fontPath);
+        ImGui::SetNextItemWidth(120.0f);
+        if (ImGui::DragInt("Font size", &t.size, 0.2f, 8, 48, "%d px"))
+            t.size = t.size < 8 ? 8 : t.size > 48 ? 48 : t.size;
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::ColorEdit3("Color##text", t.color,
+                              ImGuiColorEditFlags_NoInputs))
+            changed = true;
+        ImGui::DragFloat2("Position##text", t.pos, 0.005f, 0.0f, 1.0f, "%.3f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::Checkbox("Drop shadow", &t.shadow)) changed = true;
+        if (ImGui::Checkbox("Visible at game start", &t.visibleAtStart))
+            changed = true;
+        ImGui::TextDisabled(
+            "Show/hide from the flow graph: HUD > Show Text (with an\n"
+            "optional auto-hide after N seconds) and Hide Text.");
+
+        // Live preview: the exact sprite the build will bake.
+        {
+            std::string key = t.name + "\x1f" + t.text + "\x1f" + t.fontPath +
+                              "\x1f" + std::to_string(t.size) + "\x1f" +
+                              std::to_string(t.shadow) + "\x1f" +
+                              std::to_string(t.color[0]) + "," +
+                              std::to_string(t.color[1]) + "," +
+                              std::to_string(t.color[2]);
+            if (key != textPreviewKey_) {
+                std::vector<unsigned char> rgba;
+                int w = 0, h = 0;
+                if (menubake::bakeTextRGBA(t, project_.dir, rgba, w, h)) {
+                    if (!textPreviewTex_) glGenTextures(1, &textPreviewTex_);
+                    glBindTexture(GL_TEXTURE_2D, textPreviewTex_);
+                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA,
+                                 GL_UNSIGNED_BYTE, rgba.data());
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                                    GL_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
+                                    GL_LINEAR);
+                    textPreviewW_ = w;
+                    textPreviewH_ = h;
+                }
+                textPreviewKey_ = key;
+            }
+            if (textPreviewTex_) {
+                ImGui::SeparatorText("Preview");
+                ImGui::Image((ImTextureID)(intptr_t)textPreviewTex_,
+                             ImVec2((float)textPreviewW_, (float)textPreviewH_));
+                ImGui::TextDisabled("Texture: %dx%d px", textPreviewW_,
+                                    textPreviewH_);
+            }
+        }
+
+        ImGui::Spacing();
+        if (ImGui::Button("Delete text")) {
+            project_.hudTexts.erase(project_.hudTexts.begin() + selectedText_);
+            selectedText_ = -1;
+            uiFxSel_ = 0;
+            changed = true;
+        }
     } else if (selectedHud_ >= 0 && selectedHud_ < n) {
         HudImage& h = project_.hud[selectedHud_];
         ImGui::SeparatorText(h.name.c_str());
@@ -4973,82 +5462,7 @@ void App::drawUiEditorWindow() {
         ImGui::DragFloat2("Size (px)##hud", h.size, 1.0f, 1.0f, 512.0f, "%.0f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
 
-        // --- Texture bake ----------------------------------------------------
-        // The PS2 only accepts 8/16/32/64/128/256/512-sized textures; the build
-        // resizes the imported PNG into .res-baked to that. "Auto" picks the
-        // nearest valid size, so a mis-sized import just works.
-        auto nearestValid = [](int v) {
-            static const int V[] = {8, 16, 32, 64, 128, 256, 512};
-            int best = V[0], bd = 1 << 30;
-            for (int d : V) {
-                const int dd = v > d ? v - d : d - v;
-                if (dd < bd) { bd = dd; best = d; }
-            }
-            return best;
-        };
-        auto isValid = [&](int v) { return v > 0 && v == nearestValid(v); };
-        auto dimCombo = [&](const char* label, int& dim) {
-            static const int vals[] = {0, 8, 16, 32, 64, 128, 256, 512};
-            static const char* names[] = {"Auto", "8",   "16",  "32",
-                                          "64",   "128", "256", "512"};
-            int cur = 0;
-            for (int i = 0; i < 8; ++i)
-                if (vals[i] == dim) { cur = i; break; }
-            if (ImGui::Combo(label, &cur, names, 8)) {
-                dim = vals[cur];
-                changed = true;
-            }
-        };
-
-        ImGui::SeparatorText("Texture (baked for PS2)");
-        int sw = 0, sh = 0;
-        if (const HudTexture* t = hudTexture(h.imagePath)) { sw = t->w; sh = t->h; }
-        if (sw > 0) {
-            const bool bad = !isValid(sw) || !isValid(sh);
-            if (bad)
-                ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f),
-                                   "Source %dx%d is not a PS2 size", sw, sh);
-            else
-                ImGui::TextDisabled("Source: %dx%d px", sw, sh);
-        }
-        ImGui::PushItemWidth(90.0f * uiScaleApplied_);
-        dimCombo("Width##texw", h.texW);
-        ImGui::SameLine();
-        dimCombo("Height##texh", h.texH);
-        ImGui::PopItemWidth();
-
-        // Colors: like the per-asset material quality, "(project default)"
-        // follows Preferences > Textures; the others override - e.g. keep an
-        // important element full color while the rest of the HUD is quantized.
-        int q = h.texQuant == "none" ? 1
-                : h.texQuant == "8bit" ? 2
-                : h.texQuant == "4bit" ? 3
-                                       : 0;
-        const char* qn[] = {"Project default", "Full color (32-bit)",
-                            "256 colors (8-bit)", "16 colors (4-bit)"};
-        if (ImGui::Combo("Colors##hudq", &q, qn, 4)) {
-            h.texQuant = q == 1 ? "none" : q == 2 ? "8bit" : q == 3 ? "4bit" : "";
-            changed = true;
-        }
-
-        // Resolve "(project default)" for the baked readout.
-        auto colorLabel = [](const std::string& qv) {
-            return qv == "8bit"   ? "256 colors (8-bit)"
-                   : qv == "4bit" ? "16 colors (4-bit)"
-                                  : "Full color (32-bit)";
-        };
-        const std::string effQ =
-            h.texQuant.empty() ? project_.settings.textureQuant : h.texQuant;
-        const int bw = h.texW > 0 ? h.texW : (sw > 0 ? nearestValid(sw) : 0);
-        const int bh = h.texH > 0 ? h.texH : (sh > 0 ? nearestValid(sh) : 0);
-        if (h.texQuant.empty())
-            ImGui::TextDisabled("Baked: %dx%d, %s (from project)", bw, bh,
-                                colorLabel(effQ));
-        else
-            ImGui::TextDisabled("Baked: %dx%d, %s", bw, bh, colorLabel(effQ));
-        ImGui::TextDisabled(
-            "Resized at build (source in res/hud stays untouched). The\n"
-            "on-screen size above is separate - the sprite is stretched.");
+        changed |= hudBakeControls(h);
 
         ImGui::Spacing();
         if (ImGui::Button("Delete HUD image"))
@@ -6789,90 +7203,7 @@ void App::drawMenusWindow() {
 
     // Font: default chain / fonts imported into the project / a curated set
     // of stock Windows fonts (existence-checked) / import a new TTF.
-    {
-        std::string current = "Default (Consolas Bold)";
-        if (!m.fontPath.empty())
-            current = std::filesystem::path(m.fontPath).filename().string();
-        ImGui::SetNextItemWidth(200.0f);
-        if (ImGui::BeginCombo("Font", current.c_str())) {
-            if (ImGui::Selectable("Default (Consolas Bold)", m.fontPath.empty())) {
-                m.fontPath.clear();
-                changed = true;
-            }
-            // fonts shipped inside the project (res/fonts)
-            const std::filesystem::path fontsDir =
-                std::filesystem::path(project_.dir) / "res" / "fonts";
-            std::error_code ec;
-            if (std::filesystem::exists(fontsDir, ec)) {
-                for (const auto& entry :
-                     std::filesystem::directory_iterator(fontsDir, ec)) {
-                    std::string ext = entry.path().extension().string();
-                    for (char& c : ext) c = (char)tolower((unsigned char)c);
-                    if (ext != ".ttf" && ext != ".otf") continue;
-                    const std::string rel =
-                        "res/fonts/" + entry.path().filename().string();
-                    if (ImGui::Selectable(
-                            (entry.path().filename().string() + "  [project]").c_str(),
-                            m.fontPath == rel)) {
-                        m.fontPath = rel;
-                        changed = true;
-                    }
-                }
-            }
-            // stock Windows fonts (bare file name - resolved via \Windows\Fonts)
-            struct SysFont {
-                const char* label;
-                const char* file;
-            };
-            static const SysFont kSysFonts[] = {
-                {"Arial Bold", "arialbd.ttf"},
-                {"Comic Sans MS Bold", "comicbd.ttf"},
-                {"Courier New Bold", "courbd.ttf"},
-                {"Georgia Bold", "georgiab.ttf"},
-                {"Impact", "impact.ttf"},
-                {"Segoe UI Bold", "segoeuib.ttf"},
-                {"Times New Roman Bold", "timesbd.ttf"},
-                {"Trebuchet MS Bold", "trebucbd.ttf"},
-                {"Verdana Bold", "verdanab.ttf"},
-            };
-            char windir[MAX_PATH] = {};
-            GetWindowsDirectoryA(windir, MAX_PATH);
-            for (const SysFont& sf : kSysFonts) {
-                const std::filesystem::path p =
-                    std::filesystem::path(windir) / "Fonts" / sf.file;
-                if (!std::filesystem::exists(p, ec)) continue;
-                if (ImGui::Selectable(sf.label, m.fontPath == sf.file)) {
-                    m.fontPath = sf.file;
-                    changed = true;
-                }
-            }
-            ImGui::Separator();
-            if (ImGui::Selectable("Import TTF into the project...")) {
-                const std::string src = pickTtfFile();
-                if (!src.empty()) {
-                    const std::filesystem::path srcPath(src);
-                    const std::string fileName =
-                        sanitizeAssetName(srcPath.filename().string());
-                    std::filesystem::create_directories(fontsDir, ec);
-                    std::filesystem::copy_file(
-                        srcPath, fontsDir / fileName,
-                        std::filesystem::copy_options::overwrite_existing, ec);
-                    if (!ec) {
-                        m.fontPath = "res/fonts/" + fileName;
-                        changed = true;
-                    }
-                }
-            }
-            ImGui::EndCombo();
-        }
-        ImGui::SameLine();
-        ImGui::TextDisabled("(?)");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Rasterized into the panel at build time - any TTF\n"
-                              "works, nothing ships to the PS2 but pixels.\n"
-                              "Project fonts (res/fonts) travel with the project;\n"
-                              "Windows fonts depend on this machine.");
-    }
+    changed |= fontCombo(m.fontPath);
     {
         int sizes[2] = {m.titleSize, m.entrySize};
         ImGui::SetNextItemWidth(140.0f);
@@ -6978,7 +7309,8 @@ void App::drawMenusWindow() {
     ImGui::SeparatorText("Entries (dpad rows)");
     static const char* kActionNames[] = {
         "Close menu",     "Switch scene",      "Open save menu", "Open menu",
-        "Set save value", "Add to save value", "Flow event"};
+        "Set save value", "Add to save value", "Flow event",     "Toggle",
+        "Choice"};
     for (int e = 0; e < (int)m.entries.size(); ++e) {
         MenuEntry& en = m.entries[e];
         ImGui::PushID(e);
@@ -7008,8 +7340,16 @@ void App::drawMenusWindow() {
         changed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::SameLine();
         ImGui::SetNextItemWidth(150.0f);
-        if (ImGui::Combo("##action", &en.action, kActionNames, 7)) {
+        if (ImGui::Combo("##action", &en.action, kActionNames, 9)) {
             en.param.clear();
+            // Stateful rows start with a sensible option set; everything
+            // else drops the list so it does not linger in the file.
+            if (en.action == MenuEntry::Toggle)
+                en.options = {"Off", "On"};
+            else if (en.action == MenuEntry::Choice)
+                en.options = {"Low", "Medium", "High"};
+            else
+                en.options.clear();
             changed = true;
         }
         ImGui::SameLine();
@@ -7055,6 +7395,15 @@ void App::drawMenusWindow() {
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Event name for the On Menu Event flow trigger.");
             ImGui::SameLine();
+        } else if (en.action == MenuEntry::Toggle ||
+                   en.action == MenuEntry::Choice) {
+            paramCombo("##togglevalue", "<value>", project_.saveValues,
+                       [](const SaveValue& v) -> const std::string& { return v.name; });
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Save value holding the state (the option index).\n"
+                    "Its default is the initial state; flow graphs react\n"
+                    "via Value At Least -> On Condition.");
         }
 
         if (ImGui::SmallButton("x##delete")) {
@@ -7062,6 +7411,59 @@ void App::drawMenusWindow() {
             changed = true;
             ImGui::PopID();
             break;
+        }
+
+        // Option labels on their own row (Toggle: off/on pair; Choice: a
+        // reorderable-by-editing list). Cross / dpad cycle these in-game.
+        if (en.action == MenuEntry::Toggle || en.action == MenuEntry::Choice) {
+            ImGui::Indent(46.0f);
+            if (en.action == MenuEntry::Toggle) {
+                if (en.options.size() < 2) en.options = {"Off", "On"};
+                char offBuf[32], onBuf[32];
+                std::snprintf(offBuf, sizeof(offBuf), "%s", en.options[0].c_str());
+                std::snprintf(onBuf, sizeof(onBuf), "%s", en.options[1].c_str());
+                ImGui::SetNextItemWidth(90.0f);
+                if (ImGui::InputText("Off label", offBuf, sizeof(offBuf)))
+                    en.options[0] = offBuf;
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(90.0f);
+                if (ImGui::InputText("On label", onBuf, sizeof(onBuf)))
+                    en.options[1] = onBuf;
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+            } else {
+                for (int o = 0; o < (int)en.options.size(); ++o) {
+                    ImGui::PushID(o);
+                    char optBuf[32];
+                    std::snprintf(optBuf, sizeof(optBuf), "%s",
+                                  en.options[o].c_str());
+                    ImGui::SetNextItemWidth(110.0f);
+                    if (ImGui::InputText("##opt", optBuf, sizeof(optBuf)))
+                        en.options[o] = optBuf;
+                    changed |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::SameLine();
+                    ImGui::BeginDisabled((int)en.options.size() <= 1);
+                    if (ImGui::SmallButton("x##optdel")) {
+                        en.options.erase(en.options.begin() + o);
+                        changed = true;
+                        ImGui::EndDisabled();
+                        ImGui::PopID();
+                        break;
+                    }
+                    ImGui::EndDisabled();
+                    if (o + 1 < (int)en.options.size() ||
+                        (int)en.options.size() < menubake::kMaxOptions)
+                        ImGui::SameLine();
+                    ImGui::PopID();
+                }
+                if ((int)en.options.size() < menubake::kMaxOptions) {
+                    if (ImGui::SmallButton("+##optadd")) {
+                        en.options.push_back("Option");
+                        changed = true;
+                    }
+                }
+            }
+            ImGui::Unindent(46.0f);
         }
         ImGui::PopID();
     }
@@ -7094,12 +7496,27 @@ void App::drawMenusWindow() {
             key += "\x1f" + img.path + "|" + std::to_string(img.slot) + "|" +
                    std::to_string(img.scale) + "|" + std::to_string(img.offset[0]) +
                    "," + std::to_string(img.offset[1]);
-        for (const MenuEntry& en : m.entries)
-            key += "\x1f" + en.label + "|" + std::to_string(en.action);
+        for (const MenuEntry& en : m.entries) {
+            key += "\x1f" + en.label + "|" + std::to_string(en.action) + "|" +
+                   en.param;
+            for (const std::string& opt : en.options) key += "," + opt;
+        }
+        // Toggle/Choice initial states (save value defaults) show in the
+        // preview - refresh when they change too.
+        for (const SaveValue& sv : project_.saveValues)
+            key += "\x1f" + sv.name + "=" + std::to_string((int)sv.value);
         if (key != menuPreviewKey_) {
             std::vector<unsigned char> rgba;
             int w = 0, h = 0;
             if (menubake::bakePanelRGBA(m, project_.dir, rgba, w, h)) {
+                // Composite each Toggle/Choice row's initial option label
+                // where the game draws the value strip cell.
+                std::vector<int> current(m.entries.size(), 0);
+                for (size_t e = 0; e < m.entries.size(); ++e)
+                    for (const SaveValue& sv : project_.saveValues)
+                        if (sv.name == m.entries[e].param)
+                            current[e] = (int)sv.value;
+                menubake::overlayValuePreview(m, project_.dir, current, rgba, w, h);
                 if (!menuPreviewTex_) glGenTextures(1, &menuPreviewTex_);
                 glBindTexture(GL_TEXTURE_2D, menuPreviewTex_);
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA,
@@ -8214,6 +8631,28 @@ void App::drawPreferencesModal() {
         "Video signal of the built game (also on exported ISOs). Auto follows\n"
         "the console region. Game speed is normalized - PAL (50 Hz) and NTSC\n"
         "(60 Hz) play at the same wall-clock speed.");
+    int dispMode = prefSettings_.displayMode == "1080i"         ? 2
+                   : prefSettings_.displayMode == "progressive" ? 1
+                                                                : 0;
+    const char* dispModeNames[] = {"Interlaced (480i/576i)",
+                                   "Progressive scan (480p)", "1080i (HD)"};
+    if (ImGui::Combo("Display mode", &dispMode, dispModeNames, 3))
+        prefSettings_.displayMode =
+            dispMode == 2 ? "1080i" : dispMode == 1 ? "progressive" : "interlaced";
+    ImGui::TextDisabled(
+        "Scan mode of the built game. Interlaced is the stock TV signal and\n"
+        "follows Target system. Progressive (flicker-free 480p) and 1080i\n"
+        "always run at 60 Hz and need component (YPbPr) cables on a real\n"
+        "console - PCSX2 displays every mode. 1080i renders a 448x540 frame\n"
+        "(sharper vertically) and leaves less VRAM for textures. Both can\n"
+        "also be switched at runtime with the Set Display Mode flow node,\n"
+        "which shows a keep-or-revert prompt with an automatic rollback.");
+    ImGui::Checkbox("Widescreen (16:9)", &prefSettings_.widescreen);
+    ImGui::TextDisabled(
+        "Widens the projection so proportions are correct on a 16:9 TV\n"
+        "(anamorphic - on a 4:3 set the picture looks squeezed). In 1080i\n"
+        "the picture also fills more of the screen. HUD sprites stretch\n"
+        "with the screen. Runtime switch: the Set Widescreen flow node.");
     int profile = prefSettings_.buildProfile == "debug" ? 1 : 0;
     const char* profileNames[] = {"Release", "Debug"};
     if (ImGui::Combo("Profile", &profile, profileNames, 2))

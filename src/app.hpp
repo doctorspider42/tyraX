@@ -167,6 +167,9 @@ private:
     const std::string& wavIssue(const std::string& relPath, bool sfx);
     std::map<std::string, std::string> wavIssueCache_;
     void importHudImage();
+    // Shared TTF picker (menus, HUD texts): default chain / project fonts /
+    // stock Windows fonts / import. Returns true when fontPath changed.
+    bool fontCombo(std::string& fontPath);
     void drawMusicSection();
     void importMusicTrack();
     void drawSoundsSection();
@@ -338,11 +341,18 @@ private:
     bool showHudInEditor_ = false;  // HUD preview overlay (default hidden)
 
     // UI Editor (Tools > UI Editor): selected screen-stack entry - a HUD image
-    // (uiFxSel_ == 0, index in selectedHud_) or an effect layer (uiFxSel_ 1 =
-    // bloom + color grading, 2 = film grain).
+    // (uiFxSel_ == 0, index in selectedHud_), an effect layer (uiFxSel_ 1 =
+    // bloom + color grading, 2 = film grain), the pinned USE prompt (3) or a
+    // HUD text (4, index in selectedText_).
     bool showUiEditor_ = false;
     int selectedHud_ = -1;
     int uiFxSel_ = 0;
+    int selectedText_ = -1;
+    // Baked preview of the selected HUD text (menubake::bakeTextRGBA),
+    // re-rasterized whenever its content changes.
+    unsigned textPreviewTex_ = 0;
+    int textPreviewW_ = 0, textPreviewH_ = 0;
+    std::string textPreviewKey_;
 
     // Menus editing (Menu Editor window): selected menu + a live preview of
     // the baked panel (re-baked whenever the menu's content changes)
@@ -398,6 +408,20 @@ private:
     };
     std::map<std::string, HudTexture> hudTexCache_;
     const HudTexture* hudTexture(const std::string& relPath);
+    // Texture-bake controls (pow2 size + quantization) shared by HUD images
+    // and the USE prompt in the UI Editor. Returns true on change.
+    bool hudBakeControls(HudImage& h);
+    // The embedded built-in USE prompt sprite (viewport overlay preview).
+    const HudTexture* builtinUseTexture();
+    HudTexture builtinUseTex_;
+    // Viewport overlay textures of the HUD texts, re-baked on content change.
+    struct TextTexture {
+        unsigned tex = 0;
+        std::string key;  // content the texture was baked from
+        HudTexture hud;
+    };
+    std::map<std::string, TextTexture> textTexCache_;
+    const HudTexture* hudTextTexture(const HudText& t);
 
 
     Viewport viewport_;

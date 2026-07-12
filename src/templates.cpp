@@ -259,6 +259,12 @@ int main(int argc, char** argv) {
   // Target system (Project > Preferences > Build): Auto follows the console
   // region, NTSC forces 60 Hz, PAL forces 50 Hz.
   options.videoMode = Tyra::VideoMode::{{VIDEO_MODE}};
+  // Scan mode (Project > Preferences > Build > Display mode): interlaced
+  // 480i/576i, progressive 480p, or 1080i. The DTV modes need component
+  // cables on a real console and always run at 60 Hz.
+  options.displayMode = Tyra::DisplayMode::{{DISPLAY_MODE}};
+  // 16:9 anamorphic output (Preferences > Build > Widescreen).
+  options.widescreen = {{WIDESCREEN}};
   Tyra::Engine engine(options);
   {{NAME_UPPER_NS}}::TerrainGame game(&engine);
   engine.run(&game);
@@ -627,6 +633,18 @@ class TerrainGame : public Tyra::Game {
   bool updateGameMenu();
   void renderGameMenu();
   std::vector<Tyra::Sprite> menuSprites;
+  // Toggle/Choice entry values: one sub-rect sprite per menu into its baked
+  // value strip (menu_data.gen.hpp; only menus with such entries have one).
+  std::vector<Tyra::Sprite> menuValueSprites;
+
+  // On-screen texts (hud_data.gen.hpp): baked text sprites the Show Text /
+  // Hide Text flow nodes flip via ScriptContext; a positive timer auto-hides.
+  void updateAndRenderHudTexts();
+  std::vector<Tyra::Sprite> hudTextSprites;
+  std::vector<signed char> hudTextReq;   // ScriptContext::textRequest
+  std::vector<float> hudTextDur;         // ScriptContext::textDuration
+  std::vector<unsigned char> hudTextOn;  // visible this frame
+  std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
@@ -942,6 +960,18 @@ class TerrainGame : public Tyra::Game {
   bool updateGameMenu();
   void renderGameMenu();
   std::vector<Tyra::Sprite> menuSprites;
+  // Toggle/Choice entry values: one sub-rect sprite per menu into its baked
+  // value strip (menu_data.gen.hpp; only menus with such entries have one).
+  std::vector<Tyra::Sprite> menuValueSprites;
+
+  // On-screen texts (hud_data.gen.hpp): baked text sprites the Show Text /
+  // Hide Text flow nodes flip via ScriptContext; a positive timer auto-hides.
+  void updateAndRenderHudTexts();
+  std::vector<Tyra::Sprite> hudTextSprites;
+  std::vector<signed char> hudTextReq;   // ScriptContext::textRequest
+  std::vector<float> hudTextDur;         // ScriptContext::textDuration
+  std::vector<unsigned char> hudTextOn;  // visible this frame
+  std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
@@ -1375,16 +1405,13 @@ void addCone(std::vector<Vec4>& verts, std::vector<Color>& cols,
   }
 }
 
-/** Debug-profile HUD (Project > Preferences > Build): FPS and RAM
- * (used/total EE MB) readouts in the top-left corner, drawn from the 8x8
- * glyph strip res/hud/debugfont.png. Compiles to nothing in a release build
- * (the DEBUG_SHOW_* constants in terrain_config.hpp fold the calls away). */
-void drawDebugHud(Engine* engine) {
-  if (!DEBUG_SHOW_FPS && !DEBUG_SHOW_MEM) return;
+/** 8x8 glyph text from the res/hud/debugfont.png strip (digits, letters and
+ * a few symbols - the atlas below must match the editor's debugFontPng()).
+ * Shared by the debug-profile overlays and the video-mode confirm prompt,
+ * so the strip ships with every build. */
+void drawHudText(Engine* engine, const char* s, float x, float y) {
   static Sprite glyph;
   static bool glyphReady = false;
-  static int memRefresh = 0;
-  static float memFreeMB = 0.0F;
   if (!glyphReady) {
     glyph.mode = SpriteMode::MODE_REPEAT;
     glyph.size = Vec2(8.0F, 8.0F);  // one atlas cell
@@ -1394,25 +1421,36 @@ void drawDebugHud(Engine* engine) {
     texture->addLink(glyph.id);
     glyphReady = true;
   }
-  // Glyph order in the atlas - must match the editor's debugFontPng().
-  // Cells are 16px apart: the glyph sits in the left 8px, the right 8px are
-  // transparent padding so bilinear sampling never bleeds the next glyph.
-  static const char* atlas = "0123456789.FPSMBE/";
-  auto drawText = [&](const char* s, float x, float y) {
-    for (; *s; ++s, x += 14.0F) {
-      if (*s == ' ') continue;
-      const char* hit = strchr(atlas, *s);
-      if (!hit) continue;
-      glyph.offset = Vec2((float)(hit - atlas) * 16.0F, 0.0F);
-      glyph.position = Vec2(x, y);
-      engine->renderer.renderer2D.render(glyph);
-    }
-  };
+  // 32 cells of 16px per atlas row (the glyph sits in the left 8px, the
+  // right 8px stay transparent so bilinear sampling never bleeds the next
+  // glyph), rows 8px apart.
+  static const char* atlas = "0123456789.FPSMBE/ACDGHIJKLNOQRTUVWXYZ?=-:";
+  for (; *s; ++s, x += 14.0F) {
+    if (*s == ' ') continue;
+    const char* hit = strchr(atlas, *s);
+    if (!hit) continue;
+    const int idx = (int)(hit - atlas);
+    glyph.offset = Vec2((float)(idx % 32) * 16.0F, (float)(idx / 32) * 8.0F);
+    glyph.position = Vec2(x, y);
+    engine->renderer.renderer2D.render(glyph);
+  }
+}
+
+float hudTextWidth(const char* s) { return (float)strlen(s) * 14.0F; }
+
+/** Debug-profile HUD (Project > Preferences > Build): FPS and RAM
+ * (used/total EE MB) readouts in the top-left corner. Compiles to nothing
+ * in a release build (the DEBUG_SHOW_* constants in terrain_config.hpp fold
+ * the calls away). */
+void drawDebugHud(Engine* engine) {
+  if (!DEBUG_SHOW_FPS && !DEBUG_SHOW_MEM) return;
+  static int memRefresh = 0;
+  static float memFreeMB = 0.0F;
   char line[32];
   float y = 16.0F;
   if (DEBUG_SHOW_FPS) {
     snprintf(line, sizeof(line), "FPS %d", (int)engine->info.getFps());
-    drawText(line, 16.0F, y);
+    drawHudText(engine, line, 16.0F, y);
     y += 20.0F;
   }
   if (DEBUG_SHOW_MEM) {
@@ -1424,8 +1462,82 @@ void drawDebugHud(Engine* engine) {
       memRefresh = everyFrames(2.0F);
     }
     snprintf(line, sizeof(line), "MEM %.1f/32 MB", 32.0F - memFreeMB);
-    drawText(line, 16.0F, y);
+    drawHudText(engine, line, 16.0F, y);
   }
+}
+
+// Runtime scan-mode switch with keep-or-revert confirmation (the Set
+// Display Mode flow node). A mode the player's TV can't display would
+// strand them on a black screen, so with a confirm window armed the game
+// automatically reverts to the previous mode unless X is pressed in time -
+// the same safety net PC display settings use.
+struct VideoConfirm {
+  bool active = false;
+  Tyra::DisplayMode prevMode = Tyra::DisplayMode::Interlaced;
+  float secondsLeft = 0.0F;
+};
+VideoConfirm g_videoConfirm;
+
+/** Applies the Set Display Mode / Set Widescreen flow-node requests and
+ * ticks the confirm countdown. Must run between frames (before
+ * beginFrame): a scan-mode switch rebuilds the VRAM layout. Returns true
+ * the frame a scan-mode switch happens - the caller closes any open game
+ * menu then, so the player judges the new picture unobstructed and the
+ * confirm prompt's X press is not also a menu select. */
+bool applyVideoRequests(Engine* engine, ScriptContext& ctx) {
+  auto& core = engine->renderer.core;
+  bool switched = false;
+  if (ctx.widescreen >= 0) {
+    core.setDisplayOutput(core.getSettings().getDisplayMode(),
+                          ctx.widescreen != 0);
+    ctx.widescreen = -1;
+  }
+  if (ctx.requestDisplayMode >= 0) {
+    const auto mode = (Tyra::DisplayMode)ctx.requestDisplayMode;
+    const auto prev = core.getSettings().getDisplayMode();
+    if (mode != prev) {
+      core.setDisplayOutput(mode, core.getSettings().getWidescreen());
+      // The vertical refresh may change (PAL 50 <-> DTV 60) - reseed the
+      // frame clock so gameplay speed stays wall-clock normalized.
+      g_frameRate = engine->renderer.core.getSettings().getRefreshRate();
+      switched = true;
+      if (ctx.displayConfirmSec > 0.0F) {
+        g_videoConfirm.active = true;
+        g_videoConfirm.prevMode = prev;
+        g_videoConfirm.secondsLeft = ctx.displayConfirmSec;
+      } else {
+        g_videoConfirm.active = false;  // blind switch - no prompt armed
+      }
+    }
+    ctx.requestDisplayMode = -1;
+    ctx.displayConfirmSec = 0.0F;
+  }
+  if (!g_videoConfirm.active) return switched;
+  if (!switched && engine->pad.getClicked().Cross) {
+    g_videoConfirm.active = false;  // player kept the new mode
+    return switched;
+  }
+  g_videoConfirm.secondsLeft -= g_frameDt;
+  if (g_videoConfirm.secondsLeft <= 0.0F) {
+    core.setDisplayOutput(g_videoConfirm.prevMode,
+                          core.getSettings().getWidescreen());
+    g_frameRate = engine->renderer.core.getSettings().getRefreshRate();
+    g_videoConfirm.active = false;
+  }
+  return switched;
+}
+
+/** The keep-or-revert prompt, drawn in the 2D phase (with the other HUD). */
+void drawVideoConfirm(Engine* engine) {
+  if (!g_videoConfirm.active) return;
+  const float w = engine->renderer.core.getSettings().getWidth();
+  const float h = engine->renderer.core.getSettings().getHeight();
+  const char* ask = "KEEP VIDEO MODE? X = YES";
+  drawHudText(engine, ask, (w - hudTextWidth(ask)) * 0.5F, h * 0.5F - 22.0F);
+  char line[24];
+  snprintf(line, sizeof(line), "BACK IN %d",
+           (int)g_videoConfirm.secondsLeft + 1);
+  drawHudText(engine, line, (w - hudTextWidth(line)) * 0.5F, h * 0.5F + 2.0F);
 }
 
 }  // namespace
@@ -1462,6 +1574,9 @@ void TerrainGame::init() {
   if (!FRAME_LIMIT) engine->renderer.core.setFrameLimit(false);
 
   stapip.setRenderer(&engine->renderer.core);
+  // Hidden "clipping": "vu1" mode: frustum-crossing packages are clipped by
+  // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
+  stapip.core.setVU1Clipping(CLIP_VU1);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
   // GS hardware distance fog (Scene/Project > Preferences > Fog).
@@ -1504,13 +1619,16 @@ void TerrainGame::init() {
     texture->addLink(hudSprites.back().id);
   }
 
-  // "USE" prompt (res/hud/use.png), shown while looking at a usable object
+  // "USE" prompt, shown while looking at a usable object. Placement and
+  // image come from hud_data.gen.hpp (Tools > UI Editor - the built-in
+  // hud/use.png unless a custom sprite replaces it).
   usePromptSprite.mode = SpriteMode::MODE_STRETCH;
-  usePromptSprite.size = Vec2(128.0F, 32.0F);
-  usePromptSprite.position = Vec2((screen.getWidth() - 128.0F) * 0.5F,
-                                  screen.getHeight() * 0.72F);
-  auto* useTexture =
-      engine->renderer.getTextureRepository().add(FileUtils::fromCwd("hud/use.png"));
+  usePromptSprite.size = Vec2(USE_PROMPT_W, USE_PROMPT_H);
+  usePromptSprite.position =
+      Vec2(USE_PROMPT_X * screen.getWidth() - USE_PROMPT_W * 0.5F,
+           USE_PROMPT_Y * screen.getHeight() - USE_PROMPT_H * 0.5F);
+  auto* useTexture = engine->renderer.getTextureRepository().add(
+      FileUtils::fromCwd(USE_PROMPT_PATH));
   useTexture->addLink(usePromptSprite.id);
 
   // Loading screen sprite (res/hud/loading.png), shown on scene switches
@@ -1620,6 +1738,15 @@ void TerrainGame::loop() {
     g_particlesOn = scriptCtx.particles != 0;
     scriptCtx.particles = -1;
   }
+  // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
+  // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
+  // switch rebuilds the VRAM layout between frames. A switch closes any
+  // open game menu: the player judges the new picture unobstructed and the
+  // confirm prompt's X press cannot double as a menu select.
+  if (applyVideoRequests(engine, scriptCtx)) {
+    gameMenuIndex = -1;
+    gameMenuStackDepth = 0;
+  }
   if (flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
   if (g_flashEnabled && g_flashOn) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
@@ -1648,9 +1775,11 @@ void TerrainGame::loop() {
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
+    updateAndRenderHudTexts();
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine);
+    drawVideoConfirm(engine);
   }
   engine->renderer.endFrame();
 }
@@ -1749,9 +1878,51 @@ void TerrainGame::buildScene() {
           FileUtils::fromCwd(m.panel));
       t->addLink(menuSprites.back().id);
     }
+    // Toggle/Choice value strips: a sub-rect sprite per menu (MODE_REPEAT
+    // samples [offset, offset+size] texels - the debug glyph atlas trick).
+    // renderGameMenu moves offset/position to the active cell each frame.
+    menuValueSprites.clear();
+    menuValueSprites.reserve(MENU_COUNT);
+    for (int i = 0; i < MENU_COUNT; ++i) {
+      const MenuData& m = MENUS[i];
+      Sprite s;
+      s.mode = SpriteMode::MODE_REPEAT;
+      s.size = Vec2((float)m.valueCellW, (float)m.valueCellH);
+      menuValueSprites.push_back(s);
+      if (m.values[0] == '\0') continue;  // no value entries in this menu
+      auto* t = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd(m.values));
+      t->addLink(menuValueSprites.back().id);
+    }
     setupSprite(menuCursorSprite, "hud/save-cursor.png", 16, 16, 0.0F, 0.0F);
     setupSprite(menuDimSprite, "hud/menu-dim.png", scr.getWidth(),
                 scr.getHeight(), 0.0F, 0.0F);
+
+    // On-screen texts (hud_data.gen.hpp): baked sprites toggled by the
+    // Show Text / Hide Text flow nodes through scriptCtx (wired here, before
+    // the scripts' init runs from the game init).
+    hudTextSprites.clear();
+    hudTextSprites.reserve(HUD_TEXT_COUNT);
+    hudTextReq.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, -1);
+    hudTextDur.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, 0.0F);
+    hudTextOn.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, 0);
+    hudTextTimer.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, 0.0F);
+    for (int i = 0; i < HUD_TEXT_COUNT; ++i) {
+      const HudTextData& t = HUD_TEXTS[i];
+      Sprite s;
+      s.mode = SpriteMode::MODE_STRETCH;
+      s.size = Vec2((float)t.w, (float)t.h);
+      s.position = Vec2(t.x * scr.getWidth() - t.w * 0.5F,
+                        t.y * scr.getHeight() - t.h * 0.5F);
+      hudTextSprites.push_back(s);
+      auto* tex = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd(t.path));
+      tex->addLink(hudTextSprites.back().id);
+      hudTextOn[i] = (unsigned char)t.visible;
+    }
+    scriptCtx.textRequest = hudTextReq.data();
+    scriptCtx.textDuration = hudTextDur.data();
+    scriptCtx.textCount = HUD_TEXT_COUNT;
     if (TITLE_MENU >= 0) {
       gameMenuIndex = TITLE_MENU;
       gameMenuCursor = 0;
@@ -2616,6 +2787,8 @@ void TerrainGame::loadScene(int sceneIndex) {
     skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
     buildSkyDome();
   }
+  // Per-scene clipping override may flip the hidden VU1 clipping mode.
+  stapip.core.setVU1Clipping(CLIP_VU1);
   // Per-scene sky color (the loop paints the clear screen from ctx.skyColor)
   // and post effects.
   scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
@@ -3284,6 +3457,24 @@ bool TerrainGame::updateGameMenu() {
   if (clicked.DpadDown && m.entryCount > 0)
     gameMenuCursor = (gameMenuCursor + 1) % m.entryCount;
 
+  // Toggle/Choice rows: the state is the bound save value (the option
+  // index). Cross and dpad right cycle forward, dpad left backward.
+  auto cycleValue = [&](const MenuEntryData& e, int dir) {
+    if (e.param < 0 || e.param >= SAVE_VALUE_COUNT || e.optionCount <= 0)
+      return;
+    int v = (int)saveValues[e.param];
+    if (v < 0) v = 0;
+    if (v >= e.optionCount) v = e.optionCount - 1;
+    saveValues[e.param] = (float)((v + dir + e.optionCount) % e.optionCount);
+  };
+  if (gameMenuCursor >= 0 && gameMenuCursor < m.entryCount) {
+    const MenuEntryData& cur = m.entries[gameMenuCursor];
+    if (cur.action == 7 || cur.action == 8) {
+      if (clicked.DpadLeft) cycleValue(cur, -1);
+      if (clicked.DpadRight) cycleValue(cur, 1);
+    }
+  }
+
   if (clicked.Triangle) {
     if (gameMenuStackDepth > 0) {
       gameMenuIndex = gameMenuStack[--gameMenuStackDepth];
@@ -3332,6 +3523,10 @@ bool TerrainGame::updateGameMenu() {
       case 6:  // flow event: scripts run this frame to catch it
         scriptCtx.menuEvent = e.param;
         break;
+      case 7:  // toggle - flip/cycle the bound save value (menu stays open)
+      case 8:  // choice
+        cycleValue(e, 1);
+        break;
     }
   }
   return pausing();
@@ -3349,6 +3544,46 @@ void TerrainGame::renderGameMenu() {
         Vec2(panel.position.x + 32.0F,
              panel.position.y + m.row0Y + gameMenuCursor * m.rowH + 1.0F);
     engine->renderer.renderer2D.render(menuCursorSprite);
+  }
+  // Toggle/Choice rows: the current option label, a cell of the baked value
+  // strip drawn right-aligned on the row (cell right edge 24px from the
+  // panel's right border - the mirror of the 56px label margin).
+  if (m.values[0] != '\0' &&
+      gameMenuIndex < (int)menuValueSprites.size()) {
+    Sprite& vs = menuValueSprites[gameMenuIndex];
+    for (int i = 0; i < m.entryCount; ++i) {
+      const MenuEntryData& e = m.entries[i];
+      if (e.cell < 0 || e.optionCount <= 0) continue;
+      int v = (e.param >= 0 && e.param < SAVE_VALUE_COUNT)
+                  ? (int)saveValues[e.param]
+                  : 0;
+      if (v < 0) v = 0;
+      if (v >= e.optionCount) v = e.optionCount - 1;
+      vs.offset = Vec2(0.0F, (float)((e.cell + v) * m.valuePitch));
+      vs.position = Vec2(panel.position.x + m.valueX,
+                         panel.position.y + m.row0Y + i * m.rowH);
+      engine->renderer.renderer2D.render(vs);
+    }
+  }
+}
+
+// On-screen texts: apply the frame's Show/Hide Text requests, tick the
+// auto-hide timers, draw what is visible. Baked sprites - one 2D quad each.
+void TerrainGame::updateAndRenderHudTexts() {
+  for (int i = 0; i < (int)hudTextSprites.size(); ++i) {
+    if (scriptCtx.textRequest && scriptCtx.textRequest[i] >= 0) {
+      hudTextOn[i] = scriptCtx.textRequest[i] != 0 ? 1 : 0;
+      hudTextTimer[i] = hudTextOn[i] ? scriptCtx.textDuration[i] : 0.0F;
+      scriptCtx.textRequest[i] = -1;
+    }
+    if (hudTextOn[i] && hudTextTimer[i] > 0.0F) {
+      hudTextTimer[i] -= g_frameDt;
+      if (hudTextTimer[i] <= 0.0F) {
+        hudTextOn[i] = 0;
+        hudTextTimer[i] = 0.0F;
+      }
+    }
+    if (hudTextOn[i]) engine->renderer.renderer2D.render(hudTextSprites[i]);
   }
 }
 
@@ -4183,6 +4418,9 @@ void TerrainGame::init() {
   if (!FRAME_LIMIT) engine->renderer.core.setFrameLimit(false);
 
   stapip.setRenderer(&engine->renderer.core);
+  // Hidden "clipping": "vu1" mode: frustum-crossing packages are clipped by
+  // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
+  stapip.core.setVU1Clipping(CLIP_VU1);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
   // GS hardware distance fog (Scene/Project > Preferences > Fog).
@@ -4234,13 +4472,16 @@ void TerrainGame::init() {
     texture->addLink(hudSprites.back().id);
   }
 
-  // "USE" prompt (res/hud/use.png), shown while looking at a usable object
+  // "USE" prompt, shown while looking at a usable object. Placement and
+  // image come from hud_data.gen.hpp (Tools > UI Editor - the built-in
+  // hud/use.png unless a custom sprite replaces it).
   usePromptSprite.mode = SpriteMode::MODE_STRETCH;
-  usePromptSprite.size = Vec2(128.0F, 32.0F);
-  usePromptSprite.position = Vec2((screen.getWidth() - 128.0F) * 0.5F,
-                                  screen.getHeight() * 0.72F);
-  auto* useTexture =
-      engine->renderer.getTextureRepository().add(FileUtils::fromCwd("hud/use.png"));
+  usePromptSprite.size = Vec2(USE_PROMPT_W, USE_PROMPT_H);
+  usePromptSprite.position =
+      Vec2(USE_PROMPT_X * screen.getWidth() - USE_PROMPT_W * 0.5F,
+           USE_PROMPT_Y * screen.getHeight() - USE_PROMPT_H * 0.5F);
+  auto* useTexture = engine->renderer.getTextureRepository().add(
+      FileUtils::fromCwd(USE_PROMPT_PATH));
   useTexture->addLink(usePromptSprite.id);
 
   // Loading screen sprite (res/hud/loading.png), shown on scene switches
@@ -4377,6 +4618,15 @@ void TerrainGame::loop() {
     g_particlesOn = scriptCtx.particles != 0;
     scriptCtx.particles = -1;
   }
+  // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
+  // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
+  // switch rebuilds the VRAM layout between frames. A switch closes any
+  // open game menu: the player judges the new picture unobstructed and the
+  // confirm prompt's X press cannot double as a menu select.
+  if (applyVideoRequests(engine, scriptCtx)) {
+    gameMenuIndex = -1;
+    gameMenuStackDepth = 0;
+  }
   if (flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
   if (g_flashEnabled && g_flashOn) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
@@ -4405,9 +4655,11 @@ void TerrainGame::loop() {
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
+    updateAndRenderHudTexts();
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine);
+    drawVideoConfirm(engine);
   }
   engine->renderer.endFrame();
 }
@@ -4649,14 +4901,16 @@ const unsigned char* usePromptPng(size_t& size) {
     return data;
 }
 
-// 512x8 glyph strip for the debug-profile HUD, rendered from an embedded
-// 8x8 pixel font and encoded on first use. 18 glyphs ("0123456789.FPSMBE/"),
-// one per 16px cell; the right half of each cell stays transparent so the
-// GS's bilinear filter never samples the neighboring glyph.
+// 512x16 glyph strip for the in-game HUD text (debug overlays + the video
+// mode confirm prompt), rendered from an embedded 8x8 pixel font and
+// encoded on first use. 42 glyphs in two rows of 32 cells of 16px - the
+// order must match drawHudText's atlas string in the game template; the
+// right half of each cell stays transparent so the GS's bilinear filter
+// never samples the neighboring glyph.
 const std::vector<unsigned char>& debugFontPng() {
     static std::vector<unsigned char> png = [] {
         // Classic CP437-style 8x8 glyphs, one byte per row, MSB = left pixel.
-        static const unsigned char rows[18][8] = {
+        static const unsigned char rows[42][8] = {
             {0x7C, 0xC6, 0xCE, 0xDE, 0xF6, 0xE6, 0x7C, 0x00},  // 0
             {0x30, 0x70, 0x30, 0x30, 0x30, 0x30, 0xFC, 0x00},  // 1
             {0x78, 0xCC, 0x0C, 0x38, 0x60, 0xCC, 0xFC, 0x00},  // 2
@@ -4675,14 +4929,39 @@ const std::vector<unsigned char>& debugFontPng() {
             {0xFC, 0x66, 0x66, 0x7C, 0x66, 0x66, 0xFC, 0x00},  // B
             {0xFE, 0x62, 0x68, 0x78, 0x68, 0x62, 0xFE, 0x00},  // E
             {0x06, 0x0C, 0x18, 0x30, 0x60, 0xC0, 0x80, 0x00},  // /
+            {0x30, 0x78, 0xCC, 0xCC, 0xFC, 0xCC, 0xCC, 0x00},  // A
+            {0x3C, 0x66, 0xC0, 0xC0, 0xC0, 0x66, 0x3C, 0x00},  // C
+            {0xF8, 0x6C, 0x66, 0x66, 0x66, 0x6C, 0xF8, 0x00},  // D
+            {0x3C, 0x66, 0xC0, 0xC0, 0xCE, 0x66, 0x3E, 0x00},  // G
+            {0xCC, 0xCC, 0xCC, 0xFC, 0xCC, 0xCC, 0xCC, 0x00},  // H
+            {0x78, 0x30, 0x30, 0x30, 0x30, 0x30, 0x78, 0x00},  // I
+            {0x1E, 0x0C, 0x0C, 0x0C, 0xCC, 0xCC, 0x78, 0x00},  // J
+            {0xE6, 0x66, 0x6C, 0x78, 0x6C, 0x66, 0xE6, 0x00},  // K
+            {0xF0, 0x60, 0x60, 0x60, 0x62, 0x66, 0xFE, 0x00},  // L
+            {0xC6, 0xE6, 0xF6, 0xDE, 0xCE, 0xC6, 0xC6, 0x00},  // N
+            {0x38, 0x6C, 0xC6, 0xC6, 0xC6, 0x6C, 0x38, 0x00},  // O
+            {0x78, 0xCC, 0xCC, 0xCC, 0xDC, 0x78, 0x1C, 0x00},  // Q
+            {0xFC, 0x66, 0x66, 0x7C, 0x6C, 0x66, 0xE6, 0x00},  // R
+            {0xFC, 0xB4, 0x30, 0x30, 0x30, 0x30, 0x78, 0x00},  // T
+            {0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xFC, 0x00},  // U
+            {0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0x78, 0x30, 0x00},  // V
+            {0xC6, 0xC6, 0xC6, 0xD6, 0xFE, 0xEE, 0xC6, 0x00},  // W
+            {0xC6, 0xC6, 0x6C, 0x38, 0x38, 0x6C, 0xC6, 0x00},  // X
+            {0xCC, 0xCC, 0xCC, 0x78, 0x30, 0x30, 0x78, 0x00},  // Y
+            {0xFE, 0xC6, 0x8C, 0x18, 0x32, 0x66, 0xFE, 0x00},  // Z
+            {0x78, 0xCC, 0x0C, 0x18, 0x30, 0x00, 0x30, 0x00},  // ?
+            {0x00, 0x00, 0xFC, 0x00, 0x00, 0xFC, 0x00, 0x00},  // =
+            {0x00, 0x00, 0x00, 0xFC, 0x00, 0x00, 0x00, 0x00},  // -
+            {0x00, 0x30, 0x30, 0x00, 0x00, 0x30, 0x30, 0x00},  // :
         };
-        const int w = 512, h = 8;  // PS2 textures need power-of-two sizes
+        const int w = 512, h = 16;  // PS2 textures need power-of-two sizes
         std::vector<unsigned char> rgba(w * h * 4, 0);
-        for (int g = 0; g < 18; ++g)
+        for (int g = 0; g < 42; ++g)
             for (int y = 0; y < 8; ++y)
                 for (int x = 0; x < 8; ++x) {
                     if (!(rows[g][y] & (0x80 >> x))) continue;
-                    unsigned char* px = &rgba[(y * w + g * 16 + x) * 4];
+                    unsigned char* px =
+                        &rgba[(((g / 32) * 8 + y) * w + (g % 32) * 16 + x) * 4];
                     px[0] = px[1] = px[2] = px[3] = 255;
                 }
         std::vector<unsigned char> out;
@@ -5054,6 +5333,14 @@ struct ScriptContext {
   // Write to show/hide all HUD images (the USE prompt is unaffected).
   bool hudVisible = true;
 
+  // On-screen texts (HUD_TEXTS order, hud_data.gen.hpp). Write 1 into
+  // textRequest[i] to show a text, 0 to hide it (-1 = leave). When showing,
+  // textDuration[i] > 0 auto-hides after that many seconds, 0 = the text
+  // stays until hidden. The game applies and resets requests every frame.
+  signed char* textRequest = nullptr;
+  float* textDuration = nullptr;
+  int textCount = 0;
+
   // Camera flashlight master switch (the Player object's "Enabled"). Write 1
   // to turn it on, 0 to turn it off, -1 to leave it unchanged; the game
   // applies and resets it. The optional toggle button still gates the beam.
@@ -5066,6 +5353,18 @@ struct ScriptContext {
   int bloom = -1;
   int grain = -1;
   int particles = -1;
+
+  // Runtime video output (Set Display Mode / Set Widescreen flow nodes).
+  // requestDisplayMode: -1 = leave, else a Tyra::DisplayMode value (0 =
+  // interlaced, 1 = progressive 480p, 2 = 1080i). displayConfirmSec > 0
+  // arms the keep-or-revert prompt: the game switches, asks the player to
+  // confirm with X and reverts to the previous mode automatically when the
+  // timer runs out (a mode the TV can't display would otherwise strand the
+  // player on a black screen). widescreen: -1 = leave, 0/1 = 4:3 / 16:9.
+  // The game applies and resets all three.
+  int requestDisplayMode = -1;
+  float displayConfirmSec = 0.0F;
+  int widescreen = -1;
 
   // Save data: named values persisted in memory card slots (SAVE_VALUE_NAMES
   // order, scene_data.hpp). Set openSaveMenu = true to open the in-game
@@ -5388,11 +5687,16 @@ function RunPCSX2 {
 }
 )PS1";
 
+// docker-compose.yml is regenerated on every build (refreshGenerated) and
+// carries a machine-specific absolute path to the engine sources plus a hash
+// derived from it - never worth committing (it just churns and leaks the
+// author's local path).
 static const char* TPL_GITIGNORE = R"(obj/
 bin/*.elf
 *.history
 .vscode/
 .res-baked/
+docker-compose.yml
 )";
 
 static const char* TPL_DIR_KEEP = "*\n!.gitignore\n";
@@ -5717,6 +6021,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // Per-scene sky, clipping, post-FX and usable-highlight (Scene > Preferences
     // overrides of Project > Preferences). Accessor macros drop the trailing S.
     sceneBools("CLIP_PRECISES", [&](int si) { return rs[si].clipping != "fast"; });
+    // Hidden third clipping mode ("clipping": "vu1" in project.json, no UI):
+    // per-package classification stays (CLIP_PRECISE is true for it), but
+    // crossing packages are clipped on VU1 instead of the EE.
+    sceneBools("CLIP_VU1S", [&](int si) { return rs[si].clipping == "vu1"; });
     sceneFloats("SKY_RS", [&](int si) { return floatLit(rs[si].skyColor[0] * 255.0f); });
     sceneFloats("SKY_GS", [&](int si) { return floatLit(rs[si].skyColor[1] * 255.0f); });
     sceneFloats("SKY_BS", [&](int si) { return floatLit(rs[si].skyColor[2] * 255.0f); });
@@ -5957,6 +6265,7 @@ inline int everyFrames(float seconds) {
 #define TERRAIN_TINT_B TERRAIN_TINTS[g_activeScene][2]
 // Per-scene sky / clipping / post-FX / usable-highlight (Scene > Preferences)
 #define CLIP_PRECISE CLIP_PRECISES[g_activeScene]
+#define CLIP_VU1 CLIP_VU1S[g_activeScene]
 #define SKY_R SKY_RS[g_activeScene]
 #define SKY_G SKY_GS[g_activeScene]
 #define SKY_B SKY_BS[g_activeScene]
@@ -6040,6 +6349,11 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{VIDEO_MODE}}", st.videoSystem == "pal"    ? "PAL"
                                         : st.videoSystem == "ntsc" ? "NTSC"
                                                                    : "Auto");
+    s = replaceAll(s, "{{DISPLAY_MODE}}",
+                   st.displayMode == "1080i"         ? "HiDef1080i"
+                   : st.displayMode == "progressive" ? "Progressive480p"
+                                                     : "Interlaced");
+    s = replaceAll(s, "{{WIDESCREEN}}", st.widescreen ? "true" : "false");
     const bool debugProfile = st.buildProfile == "debug";
     s = replaceAll(s, "{{DEBUG_SHOW_FPS}}",
                    debugProfile && st.showFps ? "true" : "false");
@@ -6096,6 +6410,11 @@ std::string flowGraphScript(const Project& p) {
     auto menuIndexOf = [&](const std::string& name) {
         for (size_t i = 0; i < p.menus.size(); ++i)
             if (p.menus[i].name == name) return (int)i;
+        return -1;
+    };
+    auto hudTextIndex = [&](const std::string& name) {
+        for (size_t i = 0; i < p.hudTexts.size(); ++i)
+            if (p.hudTexts[i].name == name) return (int)i;
         return -1;
     };
     // Same list as menu_data.gen.hpp MENU_EVENTS - indices must agree.
@@ -6640,12 +6959,39 @@ std::string flowGraphScript(const Project& p) {
                 if (v > 128) v = 128;
                 c << pad << "ctx." << (n.type == "SetBloom" ? "bloom" : "grain")
                   << " = " << v << ";\n";
+            } else if (n.type == "SetDisplayMode") {
+                int mode = (int)n.num[0];
+                mode = mode < 0 ? 0 : mode > 2 ? 2 : mode;
+                float confirm = n.num[1] < 0.0f ? 0.0f : n.num[1];
+                c << pad << "ctx.requestDisplayMode = " << mode << ";\n";
+                c << pad << "ctx.displayConfirmSec = " << floatLit(confirm)
+                  << ";\n";
+            } else if (n.type == "SetWidescreen") {
+                c << pad << "ctx.widescreen = " << (n.num[0] != 0.0f ? "1" : "0")
+                  << ";\n";
             } else if (n.type == "ShowHud") {
                 c << pad << "ctx.hudVisible = true;\n";
             } else if (n.type == "HideHud") {
                 c << pad << "ctx.hudVisible = false;\n";
             } else if (n.type == "ToggleHud") {
                 c << pad << "ctx.hudVisible = !ctx.hudVisible;\n";
+            } else if (n.type == "ShowText" || n.type == "HideText") {
+                const int ti = hudTextIndex(n.str);
+                if (ti < 0) {
+                    // Texts removed from the project just stop being shown.
+                    c << pad << "// node " << n.id << " (" << n.type
+                      << "): unknown text '" << n.str << "'\n";
+                } else if (n.type == "ShowText") {
+                    float secs = n.num[0];
+                    if (secs < 0.0f) secs = 0.0f;
+                    c << pad << "ctx.textRequest[" << ti << "] = 1;  // \"" << n.str
+                      << "\"\n"
+                      << pad << "ctx.textDuration[" << ti << "] = " << floatLit(secs)
+                      << ";\n";
+                } else {
+                    c << pad << "ctx.textRequest[" << ti << "] = 0;  // \"" << n.str
+                      << "\"\n";
+                }
             } else if (n.type == "StopMusic") {
                 c << pad << "ctx.engine->audio.song.stop();\n";
             } else if (n.type == "PlaySound") {
@@ -7198,7 +7544,46 @@ static std::string hudDataHeader(const Project& p) {
            "// top. -1 = at end of frame, over everything including menus. Bloom\n"
            "// carries color grading; film grain is placed independently.\n"
         << "constexpr int HUD_BLOOM_LAYER = " << p.hudBloomLayer << ";\n"
-        << "constexpr int HUD_GRAIN_LAYER = " << p.hudGrainLayer << ";\n"
+        << "constexpr int HUD_GRAIN_LAYER = " << p.hudGrainLayer << ";\n";
+
+    // The USE prompt (Tools > UI Editor): the built-in hud/use.png unless a
+    // custom image replaces it; placement is normalized, center anchor.
+    std::string usePath = p.usePrompt.imagePath;
+    if (usePath.rfind("res/", 0) == 0) usePath = usePath.substr(4);
+    if (usePath.empty()) usePath = "hud/use.png";
+    out << "\n// The USE prompt sprite (shown while looking at a usable object)\n"
+        << "constexpr const char* USE_PROMPT_PATH = \"" << usePath << "\";\n"
+        << "constexpr float USE_PROMPT_X = " << floatLit(p.usePrompt.pos[0])
+        << ";  // normalized, center anchor\n"
+        << "constexpr float USE_PROMPT_Y = " << floatLit(p.usePrompt.pos[1]) << ";\n"
+        << "constexpr float USE_PROMPT_W = " << floatLit(p.usePrompt.size[0])
+        << ";  // on-screen pixels\n"
+        << "constexpr float USE_PROMPT_H = " << floatLit(p.usePrompt.size[1]) << ";\n";
+
+    // On-screen texts, baked to res/hud/text-*.png sprites by the editor
+    // (menubake). Shown/hidden by the Show Text / Hide Text flow nodes.
+    out << "\nstruct HudTextData {\n"
+           "  const char* path;  // baked text sprite, relative to the ELF\n"
+           "  float x, y;        // normalized screen position, center anchor\n"
+           "  int w, h;          // texture size (pow2; content centered)\n"
+           "  int visible;       // 1 = shown when the game starts\n"
+           "};\n\n"
+        << "constexpr int HUD_TEXT_COUNT = " << p.hudTexts.size() << ";\n"
+        << "inline const HudTextData HUD_TEXTS[HUD_TEXT_COUNT > 0 ? "
+           "HUD_TEXT_COUNT : 1] = {\n";
+    if (p.hudTexts.empty()) {
+        out << "    {\"\", 0, 0, 0, 0, 0},\n";
+    } else {
+        for (const HudText& t : p.hudTexts) {
+            int tw = 8, th = 8;  // fallback if no usable font (bake errors out)
+            menubake::textLayout(t, p.dir, tw, th);
+            out << "    {\"hud/" << menubake::textFileName(t.name) << "\", "
+                << floatLit(t.pos[0]) << ", " << floatLit(t.pos[1]) << ", " << tw
+                << ", " << th << ", " << (t.visibleAtStart ? 1 : 0) << "},  // "
+                << t.name << "\n";
+        }
+    }
+    out << "};\n"
         << "\n}  // namespace " << ns << "\n";
     return out.str();
 }
@@ -7252,11 +7637,15 @@ static std::string menuDataHeader(const Project& p) {
         << " {\n\n"
            "// Menu entry actions: 0 close, 1 switch scene, 2 open save menu,\n"
            "// 3 open menu (submenu), 4 set save value, 5 add to save value,\n"
-           "// 6 fire flow event. param = resolved index, -1 = unknown target.\n"
+           "// 6 fire flow event, 7 toggle, 8 choice (7/8: param = the save\n"
+           "// value holding the option index). param = resolved index, -1 =\n"
+           "// unknown target.\n"
            "struct MenuEntryData {\n"
            "  int action;\n"
            "  int param;\n"
            "  float amount;\n"
+           "  int optionCount;  // toggle/choice: how many options cycle\n"
+           "  int cell;         // first cell in the value strip (-1 = none)\n"
            "};\n\n"
            "struct MenuData {\n"
            "  const char* panel;  // baked panel sprite, relative to the ELF\n"
@@ -7268,6 +7657,11 @@ static std::string menuDataHeader(const Project& p) {
            "  int titleScreen;    // 1 = opens at game start\n"
            "  int pause;          // 1 = gameplay freezes + dim overlay\n"
            "  float screenX, screenY;  // normalized panel-center position\n"
+           "  // Toggle/Choice value strip (\"\" = this menu has none): cell\n"
+           "  // geometry mirrors menubake::valueStripLayout; valueX is the\n"
+           "  // cell's left edge relative to the panel's left edge.\n"
+           "  const char* values;\n"
+           "  int valueCellW, valueCellH, valuePitch, valueX;\n"
            "};\n\n"
         << "constexpr int MENU_COUNT = " << p.menus.size() << ";\n\n";
 
@@ -7276,11 +7670,12 @@ static std::string menuDataHeader(const Project& p) {
         const int entries = (int)m.entries.size() > menubake::kMaxEntries
                                 ? menubake::kMaxEntries
                                 : (int)m.entries.size();
+        const menubake::ValueStripLayout vl = menubake::valueStripLayout(m);
         out << "// menu \"" << m.name << "\"\n"
             << "constexpr MenuEntryData MENU_" << mi << "_ENTRIES["
             << (entries > 0 ? entries : 1) << "] = {\n";
         if (entries == 0) {
-            out << "    {0, -1, 0.0F},\n";
+            out << "    {0, -1, 0.0F, 0, -1},\n";
         } else {
             for (int e = 0; e < entries; ++e) {
                 const MenuEntry& en = m.entries[e];
@@ -7289,18 +7684,24 @@ static std::string menuDataHeader(const Project& p) {
                     case MenuEntry::SwitchScene: param = sceneIndexOf(en.param); break;
                     case MenuEntry::OpenMenu: param = menuIndexOf(en.param); break;
                     case MenuEntry::SetValue:
-                    case MenuEntry::AddValue: param = valueIndexOf(en.param); break;
+                    case MenuEntry::AddValue:
+                    case MenuEntry::Toggle:
+                    case MenuEntry::Choice: param = valueIndexOf(en.param); break;
                     case MenuEntry::FlowEvent: param = eventIndexOf(en.param); break;
                     default: break;
                 }
+                const int optionCount =
+                    (int)menubake::entryOptionLabels(en).size();
+                const int cell = e < (int)vl.firstCell.size() ? vl.firstCell[e] : -1;
                 out << "    {" << en.action << ", " << param << ", "
-                    << floatLit(en.amount) << "},  // " << en.label << "\n";
+                    << floatLit(en.amount) << ", " << optionCount << ", " << cell
+                    << "},  // " << en.label << "\n";
             }
         }
         out << "};\n";
     }
     if (p.menus.empty())
-        out << "constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F}};\n";
+        out << "constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F, 0, -1}};\n";
 
     int titleMenu = -1;
     for (size_t mi = 0; mi < p.menus.size(); ++mi)
@@ -7312,7 +7713,8 @@ static std::string menuDataHeader(const Project& p) {
 
     out << "\ninline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {\n";
     if (p.menus.empty()) {
-        out << "    {\"\", 0, 0, 0, 0, 0, 0, MENU_0_ENTRIES, 0, 0, 0.5F, 0.45F},\n";
+        out << "    {\"\", 0, 0, 0, 0, 0, 0, MENU_0_ENTRIES, 0, 0, 0.5F, 0.45F, "
+               "\"\", 0, 0, 0, 0},\n";
         // (unreachable - MENU_COUNT is 0; the dummy keeps the array valid)
     } else {
         for (size_t mi = 0; mi < p.menus.size(); ++mi) {
@@ -7323,12 +7725,21 @@ static std::string menuDataHeader(const Project& p) {
             // Layout depends on the custom images (flow blocks push the
             // cursor rows down) - the baker is the single source of truth.
             const menubake::PanelLayout l = menubake::panelLayout(m, p.dir);
+            const menubake::ValueStripLayout vl = menubake::valueStripLayout(m);
+            const bool hasValues = menubake::menuHasValueEntries(m);
             out << "    {\"menus/" << menubake::panelFileName(m.name) << "\", "
                 << l.panelW << ", " << l.canvasH << ", " << l.contentH << ", "
                 << l.row0Y << ", " << l.rowH << ", " << entries
                 << ", MENU_" << mi << "_ENTRIES, " << (m.titleScreen ? 1 : 0)
                 << ", " << (m.pauseGame ? 1 : 0) << ", " << floatLit(m.screenPos[0])
-                << ", " << floatLit(m.screenPos[1]) << "},  // " << m.name << "\n";
+                << ", " << floatLit(m.screenPos[1]) << ", ";
+            if (hasValues)
+                out << "\"menus/" << menubake::valueStripFileName(m.name) << "\", "
+                    << vl.cellW << ", " << vl.cellH << ", " << vl.pitch << ", "
+                    << (l.panelW - 24 - vl.cellW);
+            else
+                out << "\"\", 0, 0, 0, 0";
+            out << "},  // " << m.name << "\n";
         }
     }
     out << "};\n\n"

@@ -2,3 +2,4 @@ obj/
 bin/*.elf
 *.history
 .vscode/
+docker-compose.yml

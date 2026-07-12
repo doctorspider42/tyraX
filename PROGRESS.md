@@ -28,6 +28,223 @@ Each finished feature lands as its own commit.
   rendering correctly and the horizon still fading into the fog. The
   interactive "walk to the map edge and confirm the sky no longer drops out"
   check still wants a human with a pad on a deliberately huge map.
+- (74) **Stop committing generated `docker-compose.yml` (machine-specific path
+  leak + merge magnet)** — the compose file is regenerated on every build
+  (`refreshGenerated`, always-overwritten list) and bind-mounts the engine
+  sources by an **absolute path** computed from the editor exe location
+  (`engineSourceDir`), plus a volume-name hash derived from that same path.
+  So the checked-in `examples/*/docker-compose.yml` carried whoever-built-it-
+  last's local worktree path (script-demo still held a stale
+  `terrain-chunking-large-maps-cb55f4` path; showcase flipped to each build's
+  worktree) — a constant source of merge conflicts and a leak of local paths.
+  Added `docker-compose.yml` to `TPL_GITIGNORE` and to both example
+  `.gitignore`s, and `git rm --cached` the two tracked copies. The file still
+  generates locally on every build (verified: `--new` scaffolds it and lists
+  it in `.gitignore`; `git check-ignore` confirms both examples' copies are
+  ignored), so nothing about building changes - it just stops being tracked.
+  Verified: editor builds clean; a fresh `--new` project ignores its compose
+  while still producing it on disk.
+
+- (73) **Menu Toggle/Choice rows + USE prompt as a HUD element + triggerable
+  on-screen texts** — three UI-customization features in one pass. **(a) Menu
+  toggles:** two new menu entry actions, **Toggle** (Off/On, labels editable)
+  and **Choice** (up to 8 option labels). The state is a save value (param =
+  its name) holding the option index — its default is the initial state, it
+  persists in save slots, and flow graphs react through the existing pure
+  bool chain (*Value At Least* → *On Condition*). Since panels are single
+  baked sprites, every option label is baked into a second per-menu strip
+  texture (`res/menus/<name>-values.png`, `menubake::bakeValueStripPNG`); the
+  game draws the active cell as a MODE_REPEAT sub-rect sprite (the debug-font
+  atlas trick) right-aligned on the row. Cross / dpad right cycle forward,
+  dpad left backward; the Menus panel edits options inline and the preview
+  composites the initial states. **(b) USE prompt:** now a pinned,
+  non-deletable entry in Tools > UI Editor (`Project::usePrompt`, a HudImage)
+  — position/size editable, sprite replaceable with a custom PNG (baked to
+  PS2-valid size/quantization like any HUD image; "Reset to built-in"
+  restores the embedded 128x32 sprite). Codegen emits `USE_PROMPT_*`
+  constants in `hud_data.gen.hpp`; defaults reproduce the old hardcoded
+  placement, so existing projects render identically. **(c) HUD texts:**
+  `Project::hudTexts` (UI Editor > Texts) — named multi-line texts with font
+  (shared TTF picker, now `App::fontCombo`), size, color, drop shadow, baked
+  to centered pow2 sprites (`res/hud/text-<name>.png`) on every build. New
+  HUD flow nodes **Show Text** (optional auto-hide after N seconds) and
+  **Hide Text** drive them via new `ScriptContext::textRequest/textDuration`
+  arrays; `visibleAtStart` texts show from boot. Editor: texts render in the
+  viewport overlay (visible-at-start + the selected one), renames follow into
+  flow graphs, live baked preview in the panel. **Showcase updated:** the
+  GRAPHICS menu's eight "X: On / X: Off" event-entry pairs became four Toggle
+  rows bound to `gfx-*` save values (flow graphs rewired to VA→OC→Set), plus
+  an `options-hint` text shown 6 s on scene start. Verified: editor builds
+  clean; scratch project (`%TEMP%\tyra-editor-test\menutest`) with toggles,
+  a choice, texts and Show/Hide Text nodes generates correct
+  `menu_data`/`hud_data`/`flow_graph.gen.cpp` and **compiles in Docker (exit
+  0)**, showcase regenerates + compiles too; PCSX2 boot screenshot shows the
+  title-screen menu rendering "Fog  On" / "Quality  High" from the value
+  strip at the right row positions, a visible-at-start two-line shadowed
+  text, 50 FPS. Interactive cycling (Cross/dpad) still wants a human pad
+  test.
+
+- (69) **StaPip clipping moved from the EE to VU1 (hidden "vu1" mode, M1–M3
+  of docs/vu1-clipping-plan.md)** — the engine-fork TODO from
+  stapip_clipper.hpp, behind `"clipping": "vu1"` in project.json (no UI
+  yet; M4 flips the preference after a real-PS2 pass). A new StaPip `clip`
+  VU1 program family (c/d/tc/td) receives raw object-space vertices like
+  the cull programs and per triangle: judges the verts against the X/Y
+  guard band (clipw) plus the exact near/far planes (constant-z in Tyra's
+  clip space, biased into a second clipw judgement), emits fully-inside
+  triangles untouched, and Sutherland-Hodgman-clips crossing ones in a
+  scratch area above the shrunken double buffer (near plane first so w>0
+  for the w-relative side planes), fanning the result and patching the
+  prim giftag NLOOP. The EE clipper and as_is programs are bypassed
+  entirely in this mode (clip replaces as_is in micro memory - all three
+  families don't fit); spot light evaluates on raw verts in c/tc, d/td
+  light the original verts and lerp the lit colors, fog recomputes from
+  the lerped clip-space w. EE-side: clip packages are capped at
+  maxVertCount/5 floored to a multiple of 3 (bounded 7x fan-out; 72/5=14
+  split a triangle across packages and ran the VU1 loop off into memory),
+  and sub-1/3 packages are classified against the merged bbox of every
+  1/3-grid part they overlap (start-bbox-only misclassified visible
+  geometry as outside). Pitfalls burned in comments: fcand yields 0/1 not
+  a bit pattern; a vertex clipped to exactly |x|=w scales to GS 4096.0 and
+  wraps the 12.4 XYZ2 field (side planes cut at 0.9w; scissor equalizes).
+  Verified in PCSX2 SW renderer: detail-8 near-plane/guard-band stress
+  scene and a full showcase scene (dome, terrain, textured boxes, models)
+  are pixel-identical (0 diff) to the EE precise clipper; a textured box
+  straddling the camera differs 0.065% (LSB texel shifts on cut edges);
+  fast mode differs 31% on the stress scene (proves the scenes exercise
+  clipping); animated d/td scene holds 50 FPS. Real-PS2 PERF re-run
+  (clipbench) and the SW-vs-hardware ADC check are pending - M4 (making
+  "precise" route to VU1 + retiring StaPipClipper/PlanesClipAlgorithm)
+  waits for them.
+- (70) **Unique sprite/mesh ids — fixes HUD garbling when a menu opens** — a
+  bug report showed the debug HUD (FPS/MEM readout) rendering black blocks over
+  glyphs, "often" right after opening the pause menu. Root cause was in the
+  engine: `Sprite`, `Mesh`, `MeshFrame`, `MeshMaterial` and `MeshMaterialFrame`
+  all took their `id` from `rand() % 1000000`, and `srand()` is never called
+  (so the sequence is fixed per build). Those ids share **one** lookup namespace
+  in `TextureRepository`: a texture is bound to a sprite/material by
+  `addLink(id)` and resolved at draw time by the FIRST texture whose link set
+  contains that id (`getBySpriteId` / `getByMeshMaterialId`). Two objects handed
+  the same id → the sprite draws with the wrong texture (the black blocks).
+  Opening a menu allocates a burst of new sprites at once (dim + panel + cursor
+  + save sprites), which sharply raised the odds of a collision with the
+  always-present debug-HUD glyph — hence "often, when the menu opens". Fix:
+  new `renderer/models/unique_id.hpp` `generateUniqueId()` (a monotonic u32
+  counter, EE-thread only, skips 0 to stay clear of the texture-buffer
+  "unallocated" sentinel) replaces all eight `rand()` id assignments in the
+  rendering path. `audio_song.cpp` keeps `rand()` on purpose: its id is a
+  separate (audio) namespace and it is assigned on the audio thread, where the
+  non-atomic counter would race. Verified: engine recompiled and `libtyra.a`
+  relinked in Docker (fpp scratch project, `--build` = Build OK, clean on the
+  five touched files); the collision class is removed by construction. A
+  hands-on menu-open check on a menu-bearing project (e.g. the showcase) is the
+  remaining human confirmation — the failure was probabilistic/per-build, so it
+  cannot be forced to reproduce on demand.
+
+- (72) **examples/video-modes - a VIDEO OPTIONS menu test bed + the
+  runtime-widescreen freeze fix** - an example project for exercising
+  (70)+(71) on a pad. A baked game menu ("VIDEO OPTIONS", title screen at
+  boot AND the Start pause menu) lists the three scan modes, 4:3 / 16:9
+  and CLOSE; the entries fire flow events consumed by On Menu Event ->
+  Set Display Mode (confirm 8 s) / Set Widescreen on the `aspect-ball`
+  object. The scene is a calibration set: a white center sphere (the
+  aspect judge - must stay round in every mode/aspect on a real TV), four
+  colored compass pillars (horizontal FOV), and an overlay hint
+  (res/ui/controls.png, rendered from the same CP437 8x8 glyphs as the
+  engine's debugfont). Template change: `applyVideoRequests` returns true
+  on a scan-mode switch and the loop then CLOSES any open game menu - the
+  player judges the new picture unobstructed, and the confirm prompt's X
+  can't double as a menu select (the switch frame also skips the Cross
+  check, so the selecting press can't insta-confirm). **Bug found by a
+  hands-on test of (71): the runtime Set Widescreen froze the picture**
+  (EE kept running - pad logs still flowed - but the GS stopped drawing):
+  reprogramDisplay() went through the full programDisplay(), whose
+  graph_set_mode does a GS reset that wipes the drawing environment only
+  the full reinit() path re-creates. Fixed: a widescreen-only change now
+  rewrites JUST the DISPLAY window registers. res/.gitignore is customized
+  showcase-style (/hud/ and /menus/ ignored, authored res/ui checked in -
+  the file is only written at project creation, so it survives builds).
+  Verified: Docker build exits 0; PCSX2 boot screenshot shows the
+  title-screen menu (panel, cursor, X OK / Triangle BACK hints, dim
+  overlay) over the scene at "PAL Interlaced (Field) 512x448" 50 FPS; the
+  runtime widescreen path re-verified after the fix with an unattended
+  OnStart -> Delay -> Set Widescreen graph (scene keeps rendering,
+  geometry goes anamorphic). Menu navigation itself still wants a pad.
+
+- (71) **Runtime display-mode switching (with keep-or-revert prompt) +
+  widescreen 16:9** — follow-up to (70). **(a) Runtime switch:**
+  `RendererCore::setDisplayOutput(mode, widescreen)` (fork) re-selects the
+  scan mode between frames: the VRAM bump allocator resets, frame/z buffers
+  and the post-fx scratch buffers rebuild at the new size, every texture is
+  evicted (`RendererCoreTexture::evictAll`, lazy re-upload) and the
+  projection re-derives - `RendererCoreGS` grew `reinit()` /
+  `reprogramDisplay()` (mode setup split into `programDisplay()`).
+  **(b) Flow nodes:** **Set Display Mode** (mode combo + "Confirm s") and
+  **Set Widescreen** (Scene category) - new `ScriptContext` fields applied
+  in both game loops right before `beginFrame` (the safe point). With
+  Confirm > 0 the generated game arms a **keep-or-revert countdown**: it
+  switches, draws "KEEP VIDEO MODE? X = YES / BACK IN n" centered on
+  screen, and reverts to the previous mode automatically when the timer
+  (real g_frameDt seconds) expires without an X press - the PC-settings
+  safety net, since a mode the TV can't show is a black screen. The prompt
+  draws via a new shared `drawHudText` (refactored out of drawDebugHud);
+  the embedded 8x8 glyph strip grew A-Z + "?=-:" (42 glyphs, 512x16, two
+  rows) and `debugfont.png` is now written to every project on refresh
+  (release builds need it for the prompt), with the atlas string kept in
+  sync between `debugFontPng()` and the game template. **(c) Widescreen:**
+  `ProjectSettings::widescreen` (Preferences > Build checkbox, serialized,
+  default false) -> `EngineOptions::widescreen`. The projection aspect now
+  derives from the physical shape of each mode's display window
+  (`RendererSettings::updateGeometry`): SDTV modes keep their signal and
+  let the TV stretch (anamorphic), 1080i widens its GS window from 3x to
+  4x MAGH (1792/1920 VCK). Verified in PCSX2 (SW renderer, scratch orbit
+  project with OnStart -> Delay 4s -> Set Display Mode(480p, confirm 5s)):
+  boot in 480i -> switch at ~4s with the prompt rendering the new glyphs
+  over a healthy scene (textures re-uploaded after the VRAM rebuild) ->
+  countdown ticks -> prompt clears on timeout with the scene still healthy
+  after the second rebuild (the revert is the only inputless path that
+  clears the prompt; the final-mode status-bar text could not be read -
+  the PCSX2 window sat under the taskbar in captures). Widescreen build
+  verified by geometry: the same scene renders visibly narrower
+  (anamorphic squeeze) with widescreen on. Codegen inspected for both
+  nodes. Hands-on still wanted: the X-confirm path (needs a pad; synthetic
+  input is off-limits on this machine) and real-hardware output.
+
+- (70) **Alternative display modes: progressive 480p and 1080i** — new
+  Preferences > Build > **Display mode** combo (`ProjectSettings::displayMode`:
+  "interlaced" default / "progressive" / "1080i", serialized with a
+  backward-compatible default) baked into the generated `main.cpp` as
+  `EngineOptions::displayMode`. Engine side (`DisplayMode` enum,
+  `RendererSettings::setDisplayMode`, `RendererCoreGS`): **Progressive480p**
+  renders 448x448 and scans it out non-interlaced at MAGH 3x — a 1344x448
+  window centered in the 1440-VCK 480p raster, exactly 4:3, slightly *less*
+  VRAM than the stock 512x448. **HiDef1080i** renders 448x540 (sharper
+  vertically than 480i) shown as a 1344x1080 pillarboxed ~4:3 window in the
+  16:9 raster; frame+z buffers grow to 2.9 MB of VRAM, so ~1.1 MB is left
+  for textures (the UI warns). Both DTV modes bypass `graph_set_screen` —
+  it always programs the mode's full VCK width into DW, and **no 64-aligned
+  framebuffer width divides the 1440/1920-VCK rasters**, so the GS would
+  scan garbage past the buffer's right edge; `setDtvDisplay()` programs
+  DISPLAY1/2 directly (gsKit-style window math, centered). The projection
+  aspect deliberately stays at the constructor's 512/448 in every mode so
+  world proportions match across modes. Flicker filter stays on the stock
+  interlaced path only; DTV modes present via both DISPFB circuits at y=0
+  (`presentFrameBuffer`). `getRefreshRate()` returns 60 for the DTV modes
+  regardless of region, so wall-clock speed normalization keeps working.
+  **Pitfall burned into the code comments:** the gsKit/OPL "interlaced FRAME
+  mode, MagV--" recipe for 1080i **hard-crashes PCSX2 v2.3.205** (process
+  dies ~4 s in, no crash dialog, SW and HW renderers alike); 1080i in FIELD
+  mode with MAGV=2x is visually equivalent (each field steps through every
+  buffer line - a stable line-doubled 540p picture) and PCSX2 is fine with
+  it. Verified in PCSX2 (software renderer, scratch orbit project, one boot
+  per mode, status-bar + screenshot each): interlaced baseline "PAL
+  Interlaced (Field) 512x448" at 50 FPS unchanged; "SDTV 480p Progressive
+  448x448" at 60 FPS, clean right edge (the graph_set_screen overrun would
+  show there); "HDTV 1080i 448x540" at 60 FPS, pillarboxed and full-height.
+  Codegen + .tyra round-trip checked headlessly; samples/script-demo
+  regenerated. Real-hardware check (component cables) still wants a human -
+  PCSX2 does not emulate the analog signal path.
+
 - (69) **Pause now freezes particles and skeletal animation** — a pausing menu
   (a menu with the pause flag, or the save menu) already stopped player
   movement, scripts, object physics and the use target, but two effect systems
