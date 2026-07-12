@@ -39,6 +39,16 @@ StaPipVU1Program* StaPipProgramsRepository::getProgram(
     case StaPipProgramName::StaPipCullTextureColor:
       return &cullTextureColor;
 
+    // Modified by tyra-editor: VU1 clipping programs.
+    case StaPipProgramName::StaPipClipColor:
+      return &clipColor;
+    case StaPipProgramName::StaPipClipDirLights:
+      return &clipDirLights;
+    case StaPipProgramName::StaPipClipTextureDirLights:
+      return &clipTextureDirLights;
+    case StaPipProgramName::StaPipClipTextureColor:
+      return &clipTextureColor;
+
     default:
       TYRA_TRAP("Unknown VU1 program name");
       return &cullTextureDirLights;

@@ -15,6 +15,7 @@
 #include <string>
 #include "renderer/models/color.hpp"
 #include "renderer/3d/mesh/mesh_material_frame.hpp"
+#include "renderer/models/unique_id.hpp"
 
 namespace Tyra {
 
@@ -29,7 +30,7 @@ MeshMaterialFrame::MeshMaterialFrame(const MeshBuilderData& data,
   TYRA_ASSERT(frameIndex < material->frames.size(), "Provided index \"",
               frameIndex, "\" is out of range");
 
-  id = rand() % 1000000;
+  id = generateUniqueId();
 
   auto* frame = material->frames[frameIndex];
 
@@ -77,7 +78,7 @@ MeshMaterialFrame::MeshMaterialFrame(const MeshBuilderData& data,
 }
 
 MeshMaterialFrame::MeshMaterialFrame(const MeshMaterialFrame& frame) {
-  id = rand() % 1000000;
+  id = generateUniqueId();
 
   count = frame.count;
 
