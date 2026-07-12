@@ -11,7 +11,7 @@ struct HudImageData {
 
 constexpr int HUD_COUNT = 1;
 inline const HudImageData HUD_IMAGES[HUD_COUNT > 0 ? HUD_COUNT : 1] = {
-    {"ui/controls.png", 0.5F, 0.14F, 400.0F, 50.0F},  // controls
+    {"ui/controls.png", 0.5F, 0.08F, 360.0F, 24.0F},  // controls
 };
 
 // Screen-stack positions of the full-screen effects (Tools > UI

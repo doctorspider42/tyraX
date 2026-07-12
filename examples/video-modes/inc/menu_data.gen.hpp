@@ -24,20 +24,28 @@ struct MenuData {
   float screenX, screenY;  // normalized panel-center position
 };
 
-constexpr int MENU_COUNT = 0;
+constexpr int MENU_COUNT = 1;
 
-constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F}};
-
-inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
-    {"", 0, 0, 0, 0, 0, 0, MENU_0_ENTRIES, 0, 0, 0.5F, 0.45F},
+// menu "video"
+constexpr MenuEntryData MENU_0_ENTRIES[6] = {
+    {6, 0, 0.0F},  // INTERLACED 480I
+    {6, 1, 0.0F},  // PROGRESSIVE 480P
+    {6, 2, 0.0F},  // HD 1080I
+    {6, 3, 0.0F},  // STANDARD 4:3
+    {6, 4, 0.0F},  // WIDESCREEN 16:9
+    {0, -1, 0.0F},  // CLOSE
 };
 
-constexpr int TITLE_MENU = -1;
-// The Start button opens/closes this menu in-game (-1 = none)
-constexpr int PAUSE_MENU = -1;
+inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
+    {"menus/video.png", 256, 256, 210, 44, 24, 6, MENU_0_ENTRIES, 1, 1, 0.5F, 0.45F},  // video
+};
 
-constexpr int MENU_EVENT_COUNT = 0;
+constexpr int TITLE_MENU = 0;
+// The Start button opens/closes this menu in-game (-1 = none)
+constexpr int PAUSE_MENU = 0;
+
+constexpr int MENU_EVENT_COUNT = 5;
 // Names of the "Flow event" entry actions (menuEvent indexes this)
-inline const char* MENU_EVENTS[MENU_EVENT_COUNT > 0 ? MENU_EVENT_COUNT : 1] = {""};
+inline const char* MENU_EVENTS[MENU_EVENT_COUNT > 0 ? MENU_EVENT_COUNT : 1] = {"video-480i", "video-480p", "video-1080i", "video-ws-off", "video-ws-on"};
 
 }  // namespace Video_modes

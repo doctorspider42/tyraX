@@ -146,7 +146,27 @@ void RendererCoreGS::reinit() {
   initDrawingEnvironment();
 }
 
-void RendererCoreGS::reprogramDisplay() { programDisplay(); }
+// Widescreen-only change: rewrite JUST the display window registers. Going
+// through programDisplay() here would call graph_set_mode, whose GS reset
+// (CSR bit 9) wipes the drawing environment (FRAME/ZBUF/SCISSOR/XYOFFSET)
+// that only the full reinit() path re-creates - the game keeps running but
+// the GS stops drawing (frozen picture, EE logs still flowing). The video
+// mode itself is unchanged, so DISPLAY1/2 is all that may differ (and for
+// the SDTV modes not even that - the TV does the 16:9 stretch).
+void RendererCoreGS::reprogramDisplay() {
+  switch (settings->getDisplayMode()) {
+    case DisplayMode::Progressive480p:
+      setDtvDisplay(232, 35, 1440, 480, 3, 1, false);
+      break;
+    case DisplayMode::HiDef1080i:
+      setDtvDisplay(236, 38, 1920, 1080, settings->getWidescreen() ? 4 : 3, 2,
+                    true);
+      break;
+    default:
+      graph_set_screen(0, 0, frameBuffers[0].width, frameBuffers[0].height);
+      break;
+  }
+}
 
 // Modified by tyra-editor: display window for the DTV modes. ps2sdk's
 // graph_set_screen always programs the mode's full VCK width into DW, which

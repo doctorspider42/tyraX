@@ -21,22 +21,22 @@ class FlowGraphScript_0_0 : public Script {
       started = false;
     }
     frame++;
-    if (ctx.engine->pad.getClicked().Square) {
+    if (ctx.menuEvent == 0) {  // "video-480i"
       ctx.requestDisplayMode = 0;
       ctx.displayConfirmSec = 8.0F;
     }
-    if (ctx.engine->pad.getClicked().Triangle) {
+    if (ctx.menuEvent == 1) {  // "video-480p"
       ctx.requestDisplayMode = 1;
       ctx.displayConfirmSec = 8.0F;
     }
-    if (ctx.engine->pad.getClicked().Circle) {
+    if (ctx.menuEvent == 2) {  // "video-1080i"
       ctx.requestDisplayMode = 2;
       ctx.displayConfirmSec = 8.0F;
     }
-    if (ctx.engine->pad.getClicked().L1) {
+    if (ctx.menuEvent == 3) {  // "video-ws-off"
       ctx.widescreen = 0;
     }
-    if (ctx.engine->pad.getClicked().R1) {
+    if (ctx.menuEvent == 4) {  // "video-ws-on"
       ctx.widescreen = 1;
     }
   }

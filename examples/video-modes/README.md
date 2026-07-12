@@ -2,7 +2,8 @@
 
 A minimal project for testing the **video output features**: the three scan
 modes (interlaced 480i/576i, progressive 480p, 1080i), the **16:9 widescreen**
-switch, and the **runtime mode switching with the keep-or-revert prompt**.
+switch, and the **runtime mode switching with the keep-or-revert prompt** —
+all driven from a proper in-game menu.
 
 Open `video-modes.tyra` in the editor and Build & Run (F5), or headless:
 
@@ -10,22 +11,27 @@ Open `video-modes.tyra` in the editor and Build & Run (F5), or headless:
 build\tyra-editor.exe --build examples\video-modes --run
 ```
 
-## Controls (shown on the in-game overlay)
+## The VIDEO OPTIONS menu
 
-| Button | Action |
+The menu opens **automatically at boot** (title screen) and any time later
+with **Start** (it is the project's pause menu). Navigate with the d-pad,
+select with **X**, back out with **Triangle**:
+
+| Entry | Action |
 |---|---|
-| Square | Switch to interlaced 480i/576i |
-| Triangle | Switch to progressive 480p |
-| Circle | Switch to 1080i |
-| L1 / R1 | Widescreen off (4:3) / on (16:9) |
-| X | Confirm ("keep") a switched mode |
+| INTERLACED 480I | Switch to the stock interlaced mode |
+| PROGRESSIVE 480P | Switch to progressive 480p |
+| HD 1080I | Switch to 1080i |
+| STANDARD 4:3 / WIDESCREEN 16:9 | Aspect-ratio switch (applies instantly) |
+| CLOSE | Dismiss the menu |
 
-Every scan-mode switch is armed with an **8-second confirm window**: the game
-shows `KEEP VIDEO MODE? X = YES / BACK IN n` and reverts to the previous mode
-automatically if X is not pressed in time — so a mode your TV can't display
-never leaves you on a black screen. The buttons are wired in the flow graph
-on the `aspect-ball` object (Set Display Mode / Set Widescreen nodes); set
-"Confirm s" to 0 there to switch blind.
+Picking a scan mode **closes the menu and arms an 8-second confirm window**:
+the game shows `KEEP VIDEO MODE? X = YES / BACK IN n` and reverts to the
+previous mode automatically if X is not pressed in time — so a mode your TV
+can't display never leaves you on a black screen. The menu entries fire flow
+events consumed by the graph on the `aspect-ball` object (On Menu Event →
+Set Display Mode / Set Widescreen); set "Confirm s" to 0 there to switch
+blind.
 
 ## What to look at
 
@@ -37,7 +43,8 @@ on the `aspect-ball` object (Set Display Mode / Set Widescreen nodes); set
 - The **colored pillars** (N red, S blue, W yellow, E green) show how much
   world fits horizontally — widescreen brings more of them into view.
 - After every switch the whole VRAM layout is rebuilt and textures re-upload;
-  the checkerboard terrain and the overlay must come back intact.
+  the checkerboard terrain, the menu panel and the overlay must come back
+  intact.
 
 ## Real hardware notes
 

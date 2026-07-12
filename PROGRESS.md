@@ -9,21 +9,35 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (72) **examples/video-modes - display-mode test bed** - a minimal example
-  project for exercising (70)+(71) on a pad: a white center sphere (the
-  aspect-ratio judge - it must stay round in every mode/aspect on a real
-  TV), four colored compass pillars (how much world fits horizontally),
-  and a flow graph on the sphere wiring Square/Triangle/Circle -> Set
-  Display Mode (480i/480p/1080i, confirm 8 s) and L1/R1 -> Set Widescreen
-  off/on. A 512x64 controls overlay (res/ui/controls.png, rendered from
-  the same CP437 8x8 glyphs as the engine's debugfont by a scratch python
-  script) documents the buttons in-game. res/.gitignore is customized
-  showcase-style (/hud/ ignored, authored res/ui checked in - the file is
-  only written at project creation, so it survives builds). Verified:
-  Docker build exits 0, PCSX2 boot screenshot shows the scene + overlay
-  ("PAL Interlaced (Field) 512x448" at 50 FPS); the buttons themselves
-  need a pad - the graph compiles to the same ctx.requestDisplayMode /
-  ctx.widescreen writes the scratch-project e2e in (70) already proved.
+- (72) **examples/video-modes - a VIDEO OPTIONS menu test bed + the
+  runtime-widescreen freeze fix** - an example project for exercising
+  (70)+(71) on a pad. A baked game menu ("VIDEO OPTIONS", title screen at
+  boot AND the Start pause menu) lists the three scan modes, 4:3 / 16:9
+  and CLOSE; the entries fire flow events consumed by On Menu Event ->
+  Set Display Mode (confirm 8 s) / Set Widescreen on the `aspect-ball`
+  object. The scene is a calibration set: a white center sphere (the
+  aspect judge - must stay round in every mode/aspect on a real TV), four
+  colored compass pillars (horizontal FOV), and an overlay hint
+  (res/ui/controls.png, rendered from the same CP437 8x8 glyphs as the
+  engine's debugfont). Template change: `applyVideoRequests` returns true
+  on a scan-mode switch and the loop then CLOSES any open game menu - the
+  player judges the new picture unobstructed, and the confirm prompt's X
+  can't double as a menu select (the switch frame also skips the Cross
+  check, so the selecting press can't insta-confirm). **Bug found by a
+  hands-on test of (71): the runtime Set Widescreen froze the picture**
+  (EE kept running - pad logs still flowed - but the GS stopped drawing):
+  reprogramDisplay() went through the full programDisplay(), whose
+  graph_set_mode does a GS reset that wipes the drawing environment only
+  the full reinit() path re-creates. Fixed: a widescreen-only change now
+  rewrites JUST the DISPLAY window registers. res/.gitignore is customized
+  showcase-style (/hud/ and /menus/ ignored, authored res/ui checked in -
+  the file is only written at project creation, so it survives builds).
+  Verified: Docker build exits 0; PCSX2 boot screenshot shows the
+  title-screen menu (panel, cursor, X OK / Triangle BACK hints, dim
+  overlay) over the scene at "PAL Interlaced (Field) 512x448" 50 FPS; the
+  runtime widescreen path re-verified after the fix with an unattended
+  OnStart -> Delay -> Set Widescreen graph (scene keeps rendering,
+  geometry goes anamorphic). Menu navigation itself still wants a pad.
 
 - (71) **Runtime display-mode switching (with keep-or-revert prompt) +
   widescreen 16:9** — follow-up to (70). **(a) Runtime switch:**

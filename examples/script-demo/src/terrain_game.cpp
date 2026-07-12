@@ -484,9 +484,13 @@ VideoConfirm g_videoConfirm;
 
 /** Applies the Set Display Mode / Set Widescreen flow-node requests and
  * ticks the confirm countdown. Must run between frames (before
- * beginFrame): a scan-mode switch rebuilds the VRAM layout. */
-void applyVideoRequests(Engine* engine, ScriptContext& ctx) {
+ * beginFrame): a scan-mode switch rebuilds the VRAM layout. Returns true
+ * the frame a scan-mode switch happens - the caller closes any open game
+ * menu then, so the player judges the new picture unobstructed and the
+ * confirm prompt's X press is not also a menu select. */
+bool applyVideoRequests(Engine* engine, ScriptContext& ctx) {
   auto& core = engine->renderer.core;
+  bool switched = false;
   if (ctx.widescreen >= 0) {
     core.setDisplayOutput(core.getSettings().getDisplayMode(),
                           ctx.widescreen != 0);
@@ -500,6 +504,7 @@ void applyVideoRequests(Engine* engine, ScriptContext& ctx) {
       // The vertical refresh may change (PAL 50 <-> DTV 60) - reseed the
       // frame clock so gameplay speed stays wall-clock normalized.
       g_frameRate = engine->renderer.core.getSettings().getRefreshRate();
+      switched = true;
       if (ctx.displayConfirmSec > 0.0F) {
         g_videoConfirm.active = true;
         g_videoConfirm.prevMode = prev;
@@ -511,10 +516,10 @@ void applyVideoRequests(Engine* engine, ScriptContext& ctx) {
     ctx.requestDisplayMode = -1;
     ctx.displayConfirmSec = 0.0F;
   }
-  if (!g_videoConfirm.active) return;
-  if (engine->pad.getClicked().Cross) {
+  if (!g_videoConfirm.active) return switched;
+  if (!switched && engine->pad.getClicked().Cross) {
     g_videoConfirm.active = false;  // player kept the new mode
-    return;
+    return switched;
   }
   g_videoConfirm.secondsLeft -= g_frameDt;
   if (g_videoConfirm.secondsLeft <= 0.0F) {
@@ -523,6 +528,7 @@ void applyVideoRequests(Engine* engine, ScriptContext& ctx) {
     g_frameRate = engine->renderer.core.getSettings().getRefreshRate();
     g_videoConfirm.active = false;
   }
+  return switched;
 }
 
 /** The keep-or-revert prompt, drawn in the 2D phase (with the other HUD). */
@@ -771,8 +777,13 @@ void TerrainGame::loop() {
   }
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
   // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
-  // switch rebuilds the VRAM layout between frames.
-  applyVideoRequests(engine, scriptCtx);
+  // switch rebuilds the VRAM layout between frames. A switch closes any
+  // open game menu: the player judges the new picture unobstructed and the
+  // confirm prompt's X press cannot double as a menu select.
+  if (applyVideoRequests(engine, scriptCtx)) {
+    gameMenuIndex = -1;
+    gameMenuStackDepth = 0;
+  }
   if (flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
   if (g_flashEnabled && g_flashOn) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
