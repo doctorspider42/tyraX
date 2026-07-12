@@ -1,6 +1,10 @@
 # Moving StaPip clipping from the EE to VU1 — design & plan
 
-Developer design doc (not a user guide). Status: **planned, not started**.
+Developer design doc (not a user guide). Status: **M0–M3 done** (hidden
+`"clipping": "vu1"` mode, all four clip program variants live, verified
+pixel-identical to the EE precise clipper in PCSX2 SW renderer). M4 (flip
+the preference / retire the EE clipper) intentionally waits for a real-PS2
+pass: PERF numbers on hardware + the SW-renderer-vs-hardware ADC check.
 Owner of the idea: upstream's own TODO in `stapip_clipper.hpp` ("clipping
 algorithm should be moved to VU1 and 'AsIs' VU1 program should be renamed to
 'Clip' - I don't want to do it now, too much time").
@@ -118,21 +122,37 @@ Retired / simplified:
 - **M0 — measurement. DONE 2026-07-11** (numbers above; reusable
   instrumented scene in `%TEMP%\tyra-editor-test\clipbench`, details in the
   `vu1-clipping-cost-measurement` project memory).
-- **M1 — skeleton.** `clip_c` program that only does transform + guard-band
-  ADC accept (no actual clipping yet — behaves like cull), wired behind a
-  hidden third clipping mode (`"clipping": "vu1"` in project.json, no UI).
-  Gate: pixel-identical to "fast" on a no-texture scene, no VRAM/ADC
-  corruption on SW renderer + hardware.
-- **M2 — real clipping, c variant.** Near-plane exact + guard-band X/Y
-  Sutherland–Hodgman with color interpolation, NLOOP patching. Gate:
-  pixel-compare vs "precise" baseline screenshots at fixed camera angles
-  (SW renderer), clipbench PERF shows clip_avg ≈ 0 EE and pre-endFrame
-  ≈ 24 ms.
-- **M3 — remaining variants.** tc (ST interpolation), d/td (normals +
-  lighting), spot-light evaluation in the clip programs; delete the EE
-  `addSpotToColor` hack. Gate: flashlight scene pixel-compare, fog scene
-  (XYZF2 fog coefficient must survive clipping — interpolate w-based fog
-  like position).
+- **M1 — skeleton. DONE 2026-07-12.** Clip program family (cull clones at
+  this stage) behind the hidden `"clipping": "vu1"` mode; clip-classified
+  packages route to the clip programs with raw object-space vertices.
+  Verified pixel-identical (0 diff) to both fast and precise on a
+  no-texture scene, PCSX2 SW renderer. Fixed en route: subpackages smaller
+  than maxVertCount/3 straddle the 1/3 bbox grid — classification now
+  merges every overlapped part's bbox.
+- **M2 — real clipping, c variant. DONE 2026-07-12.** Sutherland–Hodgman in
+  a scratch area at the top of VU1 data memory, near plane first, fan
+  triangulation, NLOOP patching. Verified pixel-identical (0 diff) to the
+  EE precise clipper on a terrain-detail-8 scene where fast differs by 31%
+  of pixels. Two traps recorded for posterity: `fcand` yields 0/1, not the
+  masked bit pattern (no per-plane trivial reject); clipping X/Y at exactly
+  ±w lands vertices on GS coordinate 4096.0 which wraps the 12.4 XYZ2
+  field — the side planes cut at 0.9w (`VU1_CLIP_XY_BAND`).
+- **M3 — remaining variants. DONE 2026-07-12.** tc interpolates STQ through
+  the cuts (perspective-corrected with the position Q at emit, like cull);
+  d/td evaluate directional lighting on the original vertices and
+  interpolate the lit colors (Gouraud-equivalent; keeps the light registers
+  out of the clipper); spot light evaluates on raw object-space verts in
+  the c/tc programs before clipping (the EE `addSpotToColor` hack is dead
+  code on this path — it gets deleted with the EE clipper in M4). The fog
+  coefficient is computed from the interpolated clip-space w at emit, so
+  fog survives clipping by construction. All four programs share one
+  emitter (scratch polygon → fan) — separate inline fast paths overflowed
+  the 16 KB VU1 micro memory (silently, in release builds). Clip package
+  occupancy must stay a multiple of 3 (`StaPipCore::clipPackageSize`) or
+  the vertex loop runs off the end of VU1 memory. Verified: full showcase
+  scene (dome, terrain, textured boxes, models) 0 diff vs precise; a
+  textured box straddling the camera 0.065% (LSB texel shifts on cut
+  edges); skeletal-animation scene (d/td) renders correctly at 50 FPS.
 - **M4 — flip the preference.** "Precise clipping" routes to the VU1 path;
   EE clipper stays available behind an env/config escape hatch for one
   release, then `StaPipClipper`/`PlanesClipAlgorithm` are deleted. Update

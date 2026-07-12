@@ -60,22 +60,26 @@ std::string windowsFontPath(const std::string& name) {
     return std::string(windir) + "\\Fonts\\" + name;
 }
 
-// The menu's font: project-relative when the path has a separator
+// A font by path: project-relative when the path has a separator
 // ("res/fonts/x.ttf"), a Windows font by bare file name ("impact.ttf"),
 // falling back to the default chain when unset or unreadable.
-Font* resolveFont(const GameMenu& menu, const std::string& projectDir) {
-    if (!menu.fontPath.empty()) {
+Font* resolveFontPath(const std::string& fontPath, const std::string& projectDir) {
+    if (!fontPath.empty()) {
         const bool projectRelative =
-            menu.fontPath.find('/') != std::string::npos ||
-            menu.fontPath.find('\\') != std::string::npos;
+            fontPath.find('/') != std::string::npos ||
+            fontPath.find('\\') != std::string::npos;
         const std::string full = projectRelative && !projectDir.empty()
-                                     ? projectDir + "\\" + menu.fontPath
-                                     : windowsFontPath(menu.fontPath);
+                                     ? projectDir + "\\" + fontPath
+                                     : windowsFontPath(fontPath);
         if (Font* f = loadFontFile(full)) return f;
     }
     for (const char* name : {"consolab.ttf", "arialbd.ttf", "arial.ttf"})
         if (Font* f = loadFontFile(windowsFontPath(name))) return f;
     return nullptr;
+}
+
+Font* resolveFont(const GameMenu& menu, const std::string& projectDir) {
+    return resolveFontPath(menu.fontPath, projectDir);
 }
 
 // Minimal UTF-8 decode (labels may hold Polish diacritics, hints use U+25B2).
@@ -253,16 +257,30 @@ PanelLayout panelLayout(const GameMenu& menu, const std::string& projectDir) {
     return l;
 }
 
-std::string panelFileName(const std::string& menuName) {
+namespace {
+std::string sanitizeName(const std::string& name, const char* fallback) {
     std::string s;
-    for (char c : menuName) {
+    for (char c : name) {
         if (isalnum((unsigned char)c) || c == '-' || c == '_')
             s += (char)tolower((unsigned char)c);
         else
             s += '-';
     }
-    if (s.empty()) s = "menu";
-    return s + ".png";
+    if (s.empty()) s = fallback;
+    return s;
+}
+}  // namespace
+
+std::string panelFileName(const std::string& menuName) {
+    return sanitizeName(menuName, "menu") + ".png";
+}
+
+std::string valueStripFileName(const std::string& menuName) {
+    return sanitizeName(menuName, "menu") + "-values.png";
+}
+
+std::string textFileName(const std::string& textName) {
+    return "text-" + sanitizeName(textName, "text") + ".png";
 }
 
 // Bilinear-sample `src` (sw x sh RGBA) into the canvas rect - used for the
@@ -403,6 +421,206 @@ bool bakePanelPNG(const GameMenu& menu, const std::string& projectDir,
     std::vector<unsigned char> rgba;
     int w = 0, h = 0;
     if (!bakePanelRGBA(menu, projectDir, rgba, w, h)) return false;
+    png.clear();
+    return stbi_write_png_to_func(pngWriteCallback, &png, w, h, 4, rgba.data(),
+                                  w * 4) != 0;
+}
+
+// --- Toggle / Choice value strips --------------------------------------------
+
+std::vector<std::string> entryOptionLabels(const MenuEntry& entry) {
+    std::vector<std::string> labels;
+    if (entry.action == MenuEntry::Toggle) {
+        labels = entry.options;
+        if (labels.size() < 2) labels = {"Off", "On"};
+    } else if (entry.action == MenuEntry::Choice) {
+        labels = entry.options;
+        if (labels.empty()) labels = {"-"};
+    }
+    if ((int)labels.size() > kMaxOptions) labels.resize(kMaxOptions);
+    return labels;
+}
+
+bool menuHasValueEntries(const GameMenu& menu) {
+    const int entries = (int)menu.entries.size() > kMaxEntries
+                            ? kMaxEntries
+                            : (int)menu.entries.size();
+    for (int i = 0; i < entries; ++i)
+        if (menu.entries[i].action == MenuEntry::Toggle ||
+            menu.entries[i].action == MenuEntry::Choice)
+            return true;
+    return false;
+}
+
+ValueStripLayout valueStripLayout(const GameMenu& menu) {
+    ValueStripLayout l;
+    // Narrow panels get a narrow strip so the value cannot cover the label.
+    const int panelW = (menu.panelW == 128 || menu.panelW == 512) ? menu.panelW : 256;
+    l.cellW = panelW == 128 ? 64 : 128;
+    l.cellH = menu.entrySize + 9;  // = PanelLayout::rowH
+    l.pitch = l.cellH + 8;         // transparent gap - bilinear bleed guard
+    const int entries = (int)menu.entries.size() > kMaxEntries
+                            ? kMaxEntries
+                            : (int)menu.entries.size();
+    l.firstCell.assign((size_t)entries, -1);
+    for (int i = 0; i < entries; ++i) {
+        const auto labels = entryOptionLabels(menu.entries[i]);
+        if (labels.empty()) continue;
+        if ((l.cells + (int)labels.size()) * l.pitch > 512) {
+            l.clipped = true;  // cap: cells past 512px would assert on the PS2
+            continue;
+        }
+        l.firstCell[i] = l.cells;
+        l.cells += (int)labels.size();
+    }
+    l.canvasH = 64;
+    while (l.canvasH < l.cells * l.pitch) l.canvasH *= 2;
+    if (l.canvasH > 512) l.canvasH = 512;
+    return l;
+}
+
+bool bakeValueStripRGBA(const GameMenu& menu, const std::string& projectDir,
+                        std::vector<unsigned char>& out, int& w, int& h) {
+    if (!menuHasValueEntries(menu)) return false;
+    Font* font = resolveFont(menu, projectDir);
+    if (!font) return false;
+
+    const ValueStripLayout l = valueStripLayout(menu);
+    w = l.cellW;
+    h = l.canvasH;
+    out.assign((size_t)w * h * 4, 0);
+    Canvas canvas{&out, w, h};
+
+    const int entries = (int)l.firstCell.size();
+    for (int i = 0; i < entries; ++i) {
+        if (l.firstCell[i] < 0) continue;
+        const auto labels = entryOptionLabels(menu.entries[i]);
+        for (int o = 0; o < (int)labels.size(); ++o) {
+            // Right-aligned inside the cell (inset 4px), same y offset as the
+            // entry labels in the panel rows (drawText's yTop + 2).
+            const int top = (l.firstCell[i] + o) * l.pitch;
+            const float tw = textWidth(*font, labels[o], (float)menu.entrySize);
+            drawText(canvas, *font, (float)(l.cellW - 4) - tw, top + 2, labels[o],
+                     (float)menu.entrySize, kText, false);
+        }
+    }
+    return true;
+}
+
+bool bakeValueStripPNG(const GameMenu& menu, const std::string& projectDir,
+                       std::vector<unsigned char>& png) {
+    std::vector<unsigned char> rgba;
+    int w = 0, h = 0;
+    if (!bakeValueStripRGBA(menu, projectDir, rgba, w, h)) return false;
+    png.clear();
+    return stbi_write_png_to_func(pngWriteCallback, &png, w, h, 4, rgba.data(),
+                                  w * 4) != 0;
+}
+
+void overlayValuePreview(const GameMenu& menu, const std::string& projectDir,
+                         const std::vector<int>& current,
+                         std::vector<unsigned char>& rgba, int w, int h) {
+    Font* font = resolveFont(menu, projectDir);
+    if (!font) return;
+    const PanelLayout pl = panelLayout(menu, projectDir);
+    const ValueStripLayout vl = valueStripLayout(menu);
+    Canvas canvas{&rgba, w, h};
+    const int entries = (int)vl.firstCell.size();
+    for (int i = 0; i < entries; ++i) {
+        if (vl.firstCell[i] < 0) continue;
+        const auto labels = entryOptionLabels(menu.entries[i]);
+        int cur = i < (int)current.size() ? current[i] : 0;
+        if (cur < 0) cur = 0;
+        if (cur >= (int)labels.size()) cur = (int)labels.size() - 1;
+        // The game places the cell's right edge 24px from the panel's right
+        // border, text inset 4px -> right-aligned at panelW - 28.
+        const float tw = textWidth(*font, labels[cur], (float)menu.entrySize);
+        drawText(canvas, *font, (float)(pl.panelW - 28) - tw,
+                 pl.row0Y + i * pl.rowH + 2, labels[cur], (float)menu.entrySize,
+                 kText, false);
+    }
+}
+
+// --- HUD texts ----------------------------------------------------------------
+
+namespace {
+
+std::vector<std::string> splitLines(const std::string& text) {
+    std::vector<std::string> lines;
+    std::string cur;
+    for (char c : text) {
+        if (c == '\n') {
+            lines.push_back(cur);
+            cur.clear();
+        } else if (c != '\r') {
+            cur += c;
+        }
+    }
+    lines.push_back(cur);
+    while (lines.size() > 1 && lines.back().empty()) lines.pop_back();
+    return lines;
+}
+
+int pow2Dim(int v) {
+    int d = 8;
+    while (d < v && d < 512) d *= 2;
+    return d;
+}
+
+}  // namespace
+
+bool textLayout(const HudText& text, const std::string& projectDir, int& w,
+                int& h) {
+    Font* font = resolveFontPath(text.fontPath, projectDir);
+    if (!font) return false;
+    const auto lines = splitLines(text.text);
+    const int lineH = text.size + 4;
+    float maxW = 8.0f;
+    for (const auto& line : lines) {
+        const float lw = textWidth(*font, line, (float)text.size);
+        if (lw > maxW) maxW = lw;
+    }
+    // +2px for the shadow offset and glyph overhang
+    w = pow2Dim((int)(maxW + 0.5f) + 4);
+    h = pow2Dim((int)lines.size() * lineH + 4);
+    return true;
+}
+
+bool bakeTextRGBA(const HudText& text, const std::string& projectDir,
+                  std::vector<unsigned char>& out, int& w, int& h) {
+    Font* font = resolveFontPath(text.fontPath, projectDir);
+    if (!font) return false;
+    if (!textLayout(text, projectDir, w, h)) return false;
+    out.assign((size_t)w * h * 4, 0);
+    Canvas canvas{&out, w, h};
+
+    auto clamp255 = [](float v) {
+        return (unsigned char)(v < 0 ? 0 : v > 1 ? 255 : v * 255.0f + 0.5f);
+    };
+    const RGBA color{clamp255(text.color[0]), clamp255(text.color[1]),
+                     clamp255(text.color[2]), 255};
+    const RGBA shadow{10, 12, 16, 210};
+
+    const auto lines = splitLines(text.text);
+    const int lineH = text.size + 4;
+    // Centered in the canvas both ways, so the sprite's center anchor centers
+    // the visible content regardless of the pow2 padding.
+    int y = (h - (int)lines.size() * lineH) / 2;
+    for (const auto& line : lines) {
+        if (text.shadow)
+            drawText(canvas, *font, w * 0.5f + 1, y + 1, line, (float)text.size,
+                     shadow, true);
+        drawText(canvas, *font, w * 0.5f, y, line, (float)text.size, color, true);
+        y += lineH;
+    }
+    return true;
+}
+
+bool bakeTextPNG(const HudText& text, const std::string& projectDir,
+                 std::vector<unsigned char>& png) {
+    std::vector<unsigned char> rgba;
+    int w = 0, h = 0;
+    if (!bakeTextRGBA(text, projectDir, rgba, w, h)) return false;
     png.clear();
     return stbi_write_png_to_func(pngWriteCallback, &png, w, h, 4, rgba.data(),
                                   w * 4) != 0;

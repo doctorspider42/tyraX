@@ -48,6 +48,9 @@ public:
 private:
     void drawUI();
     void drawMenuBar();
+    // Icon toolbar drawn inline in the main menu bar (Save / Run in PCSX2 /
+    // Run on PS2 / Stop). Custom vector-drawn - the editor loads no icon font.
+    void drawToolbar();
     // UI (DPI) scaling. uiScaleUser_ == 0 means "auto" (follow the monitor's
     // content scale); a value > 0 is an explicit multiplier (1.0 == 100%).
     // applyUiScale() recomputes the effective scale and re-applies it to the
@@ -164,6 +167,9 @@ private:
     const std::string& wavIssue(const std::string& relPath, bool sfx);
     std::map<std::string, std::string> wavIssueCache_;
     void importHudImage();
+    // Shared TTF picker (menus, HUD texts): default chain / project fonts /
+    // stock Windows fonts / import. Returns true when fontPath changed.
+    bool fontCombo(std::string& fontPath);
     void drawMusicSection();
     void importMusicTrack();
     void drawSoundsSection();
@@ -213,12 +219,28 @@ private:
     void saveProject();
 
     // Editing model: mutate project_ freely, then commitChange() once per
-    // logical action - it pushes an undo snapshot and saves everything.
+    // logical action - it pushes an undo snapshot and marks the project dirty.
+    // The project is written to disk only on demand (Save / Ctrl+S / the
+    // toolbar button); there is no autosave.
     void commitChange();
     void saveAll(const char* status);
     void applySnapshot(const SceneSnapshot& s);
     void undo();
     void redo();
+    // Dirty tracking: unsaved model edits since the last save. setDirty keeps
+    // the window title's "*" marker in sync.
+    void setDirty(bool dirty);
+    void updateWindowTitle();
+
+    // Guarded actions that would discard unsaved edits (Exit / Open / New).
+    // When the project is dirty they open a confirm modal instead of running
+    // immediately; the modal's Save/Discard buttons then run the pending one.
+    enum class PendingAction { None, Exit, Open, New };
+    void requestExit();
+    void requestOpenProject();
+    void requestNewProject();
+    void performPendingAction();
+    void drawDiscardModal();
     void copyObject();
     void pasteObject();
 
@@ -255,6 +277,18 @@ private:
 
     Project project_;
     bool hasProject_ = false;
+    // Unsaved model edits since the last save (drives the title "*" and the
+    // discard-confirmation guard). Layout/docking changes do not set this -
+    // they fold into the .tyra only when the user saves the project.
+    bool dirty_ = false;
+    bool titleShowsDirty_ = false;  // last title state pushed to GLFW
+    std::string titleName_;         // project name currently in the title
+    // Discard guard (Exit/Open/New while dirty). pendingAction_ is what runs
+    // once the user resolves the modal; exitConfirmed_ lets the main loop close
+    // after a confirmed Exit without re-prompting.
+    PendingAction pendingAction_ = PendingAction::None;
+    bool openDiscardPopup_ = false;
+    bool exitConfirmed_ = false;
     // Set by attachProject(): apply project_.windowLayout at the next frame
     // boundary (ImGui cannot reload settings between NewFrame and EndFrame).
     bool layoutLoadPending_ = false;
@@ -307,11 +341,18 @@ private:
     bool showHudInEditor_ = false;  // HUD preview overlay (default hidden)
 
     // UI Editor (Tools > UI Editor): selected screen-stack entry - a HUD image
-    // (uiFxSel_ == 0, index in selectedHud_) or an effect layer (uiFxSel_ 1 =
-    // bloom + color grading, 2 = film grain).
+    // (uiFxSel_ == 0, index in selectedHud_), an effect layer (uiFxSel_ 1 =
+    // bloom + color grading, 2 = film grain), the pinned USE prompt (3) or a
+    // HUD text (4, index in selectedText_).
     bool showUiEditor_ = false;
     int selectedHud_ = -1;
     int uiFxSel_ = 0;
+    int selectedText_ = -1;
+    // Baked preview of the selected HUD text (menubake::bakeTextRGBA),
+    // re-rasterized whenever its content changes.
+    unsigned textPreviewTex_ = 0;
+    int textPreviewW_ = 0, textPreviewH_ = 0;
+    std::string textPreviewKey_;
 
     // Menus editing (Menu Editor window): selected menu + a live preview of
     // the baked panel (re-baked whenever the menu's content changes)
@@ -367,6 +408,20 @@ private:
     };
     std::map<std::string, HudTexture> hudTexCache_;
     const HudTexture* hudTexture(const std::string& relPath);
+    // Texture-bake controls (pow2 size + quantization) shared by HUD images
+    // and the USE prompt in the UI Editor. Returns true on change.
+    bool hudBakeControls(HudImage& h);
+    // The embedded built-in USE prompt sprite (viewport overlay preview).
+    const HudTexture* builtinUseTexture();
+    HudTexture builtinUseTex_;
+    // Viewport overlay textures of the HUD texts, re-baked on content change.
+    struct TextTexture {
+        unsigned tex = 0;
+        std::string key;  // content the texture was baked from
+        HudTexture hud;
+    };
+    std::map<std::string, TextTexture> textTexCache_;
+    const HudTexture* hudTextTexture(const HudText& t);
 
 
     Viewport viewport_;
@@ -403,6 +458,13 @@ private:
     // so object and flow-node references remap from it when editing ends.
     std::string layerRenameFrom_;
     int layerRenameIdx_ = -1;
+
+    // Layers panel RAM readout: estimated resident bytes per layer name
+    // ("" = the always-resident unassigned group). Parsing models/materials
+    // for texture references is too slow per frame - cached until the next
+    // commitChange()/attachProject() clears it.
+    std::map<std::string, double> layerRamCache_;
+    double layerAssetMB(const std::string& layerName);
 
     // "New scene" modal state
     int deleteScenePending_ = -1;  // scene index awaiting delete confirmation

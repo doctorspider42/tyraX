@@ -66,6 +66,9 @@ inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
 constexpr int SCENE_MAX_LAYERS = 1;
 constexpr bool SCENE_LAYER_STARTS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{true}};
+constexpr float SCENE_LAYER_STREAM_XS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
+constexpr float SCENE_LAYER_STREAM_ZS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
+constexpr float SCENE_LAYER_STREAM_RADII[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
 
 constexpr int SND_COUNT = 0;
 inline const char* SND_PATHS[1] = {""};
@@ -94,6 +97,7 @@ constexpr float SKY_RS[SCENE_COUNT] = {63.75F};
 constexpr float SKY_GS[SCENE_COUNT] = {140.25F};
 constexpr float SKY_BS[SCENE_COUNT] = {198.9F};
 constexpr bool SKY_DOMES[SCENE_COUNT] = {true};
+constexpr float SKY_ZENITH_EXPS[SCENE_COUNT] = {1.0F};
 constexpr float SKY_TOP_RS[SCENE_COUNT] = {20.4F};
 constexpr float SKY_TOP_GS[SCENE_COUNT] = {76.5F};
 constexpr float SKY_TOP_BS[SCENE_COUNT] = {165.75F};
@@ -184,6 +188,9 @@ inline int everyFrames(float seconds) {
 #define SCENE_OBJECTS SCENE_OBJECT_TABLES[g_activeScene]
 #define SCENE_LAYER_COUNT SCENE_LAYER_COUNTS[g_activeScene]
 #define SCENE_LAYER_START SCENE_LAYER_STARTS[g_activeScene]
+#define SCENE_LAYER_STREAM_X SCENE_LAYER_STREAM_XS[g_activeScene]
+#define SCENE_LAYER_STREAM_Z SCENE_LAYER_STREAM_ZS[g_activeScene]
+#define SCENE_LAYER_STREAM_R SCENE_LAYER_STREAM_RADII[g_activeScene]
 #define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
 #define PLAYER_MODE PLAYER_MODES[g_activeScene]
 #define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[g_activeScene]
@@ -218,6 +225,7 @@ inline int everyFrames(float seconds) {
 #define SKY_G SKY_GS[g_activeScene]
 #define SKY_B SKY_BS[g_activeScene]
 #define SKY_DOME SKY_DOMES[g_activeScene]
+#define SKY_ZENITH_EXP SKY_ZENITH_EXPS[g_activeScene]
 #define SKY_TOP_R SKY_TOP_RS[g_activeScene]
 #define SKY_TOP_G SKY_TOP_GS[g_activeScene]
 #define SKY_TOP_B SKY_TOP_BS[g_activeScene]

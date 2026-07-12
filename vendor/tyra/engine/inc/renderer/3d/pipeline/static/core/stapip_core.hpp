@@ -49,6 +49,15 @@ class StaPipCore {
    */
   void reinitVU1Programs();
 
+  /**
+   * Modified by tyra-editor: clip frustum-crossing packages on VU1 (clip
+   * program family) instead of the EE clipper. Call right after
+   * setRenderer() or between frames.
+   */
+  void setVU1Clipping(const bool& enabled) {
+    qbufferRenderer.setVU1Clipping(enabled);
+  }
+
   void allocateOnUse() { qbufferRenderer.allocateOnUse(); }
   void deallocateOnUse() { qbufferRenderer.deallocateOnUse(); }
 
@@ -64,6 +73,9 @@ class StaPipCore {
   StapipBagBBoxesCacher cacher;
 
   void setMaxVertCount(const u32& count);
+  // Modified by tyra-editor: VU1 clipping.
+  u32 clipDivisor() const;
+  u32 clipPackageSize() const;
   StaPipBagPackager packager;
   StaPipQBufferRenderer qbufferRenderer;
   void renderPkgs(StaPipBagPackage* packages, const bool& doClip, u16 count);

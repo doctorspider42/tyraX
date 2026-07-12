@@ -62,8 +62,9 @@ StaPipQBufferRenderer::StaPipQBufferRenderer() {
 
 void StaPipQBufferRenderer::allocateOnUse() {
   staticDataPacket = packet2_create(3, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
-  // Modified by tyra-editor: +6 qwords for the spot light unpack.
-  objectDataPacket = packet2_create(26, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
+  // Modified by tyra-editor: +6 qwords for the spot light unpack, +16 for the
+  // VU1 clipping constants + plane table.
+  objectDataPacket = packet2_create(42, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
 
   packets = new packet2_t*[2];
   for (u16 i = 0; i < 2; i++)
@@ -104,6 +105,13 @@ void StaPipQBufferRenderer::init(RendererCore* t_core, prim_t* t_prim,
   rendererCore = t_core;
   prim = t_prim;
   lod = t_lod;
+
+  // Modified by tyra-editor: the clip-space planes the VU1 clip programs cut
+  // against - the same ones the EE clipper uses (see PlanesClipAlgorithm::init;
+  // clipMargin must be set before setRenderer, like the EE path requires).
+  clipNearZ =
+      t_core->getSettings().getNear() - (-PlanesClipAlgorithm::clipMargin);
+  clipFarZ = -t_core->getSettings().getFar();
 
   dma_channel_initialize(DMA_CHANNEL_VIF1, nullptr, 0);
 
@@ -245,6 +253,41 @@ void StaPipQBufferRenderer::sendObjectData(
     packet2_utils_vu_close_unpack(objectDataPacket);
   }
 
+  // Modified by tyra-editor: VU1 clipping data. One quad of constants for the
+  // per-triangle crossing test (see stapip_vu1_shared_defines.h) and the six
+  // clip planes as (A,B,C,D)+(E,0,0,0) pairs; inside = dot4(v,ABCD) + E >= 0.
+  // Uploaded per mesh: other pipelines may reuse this VU1 memory in between.
+  if (vu1Clipping) {
+    packet2_utils_vu_open_unpack(objectDataPacket, VU1_CLIP_CONSTS_ADDR, false);
+    {
+      packet2_add_float(objectDataPacket, clipNearZ - VU1_CLIP_GUARD);
+      packet2_add_float(objectDataPacket, -clipFarZ - VU1_CLIP_GUARD);
+      packet2_add_float(objectDataPacket, 0.0F);
+      packet2_add_float(objectDataPacket, VU1_CLIP_GUARD);
+    }
+    packet2_utils_vu_close_unpack(objectDataPacket);
+
+    const float planes[6][8] = {
+        // near: z <= clipNearZ (exact, matches the EE clipper)
+        {0.0F, 0.0F, -1.0F, 0.0F, clipNearZ, 0.0F, 0.0F, 0.0F},
+        // far: z >= clipFarZ (exact, matches the EE clipper)
+        {0.0F, 0.0F, 1.0F, 0.0F, -clipFarZ, 0.0F, 0.0F, 0.0F},
+        // guard band X/Y at +/-VU1_CLIP_XY_BAND * w - strictly inside the
+        // GS raster window; the scissor trims the rest of the way
+        {-1.0F, 0.0F, 0.0F, VU1_CLIP_XY_BAND, 0.0F, 0.0F, 0.0F, 0.0F},
+        {1.0F, 0.0F, 0.0F, VU1_CLIP_XY_BAND, 0.0F, 0.0F, 0.0F, 0.0F},
+        {0.0F, -1.0F, 0.0F, VU1_CLIP_XY_BAND, 0.0F, 0.0F, 0.0F, 0.0F},
+        {0.0F, 1.0F, 0.0F, VU1_CLIP_XY_BAND, 0.0F, 0.0F, 0.0F, 0.0F},
+    };
+    packet2_utils_vu_open_unpack(objectDataPacket, VU1_CLIP_PLANES_ADDR, false);
+    {
+      for (u32 i = 0; i < 6; i++)
+        for (u32 j = 0; j < 8; j++)
+          packet2_add_float(objectDataPacket, planes[i][j]);
+    }
+    packet2_utils_vu_close_unpack(objectDataPacket);
+  }
+
   u8 singleColorEnabled = bag->color->single != nullptr;
 
   if (singleColorEnabled)  // Color is placed in 4th slot of
@@ -326,17 +369,36 @@ void StaPipQBufferRenderer::sendStaticData() const {
 }
 
 void StaPipQBufferRenderer::setProgramsCache() {
+  // Modified by tyra-editor: in VU1 clipping mode the clip programs replace
+  // the as_is family (both plus cull would overflow VU1 micro memory, and
+  // as_is is only ever fed by the retired EE clipper path).
   VU1Program** programs = new VU1Program*[8];
   programs[0] = repository.getProgram(StaPipCullColor);
-  programs[1] = repository.getProgram(StaPipAsIsColor);
+  programs[1] =
+      repository.getProgram(vu1Clipping ? StaPipClipColor : StaPipAsIsColor);
   programs[2] = repository.getProgram(StaPipCullDirLights);
-  programs[3] = repository.getProgram(StaPipAsIsDirLights);
+  programs[3] = repository.getProgram(vu1Clipping ? StaPipClipDirLights
+                                                  : StaPipAsIsDirLights);
   programs[4] = repository.getProgram(StaPipCullTextureDirLights);
-  programs[5] = repository.getProgram(StaPipAsIsTextureDirLights);
+  programs[5] = repository.getProgram(vu1Clipping ? StaPipClipTextureDirLights
+                                                  : StaPipAsIsTextureDirLights);
   programs[6] = repository.getProgram(StaPipCullTextureColor);
-  programs[7] = repository.getProgram(StaPipAsIsTextureColor);
+  programs[7] = repository.getProgram(vu1Clipping ? StaPipClipTextureColor
+                                                  : StaPipAsIsTextureColor);
   programsPacket = path1->createProgramsCache(programs, 8, 0);
   delete[] programs;
+}
+
+void StaPipQBufferRenderer::setVU1Clipping(const bool& enabled) {
+  if (vu1Clipping == enabled) return;
+  vu1Clipping = enabled;
+
+  if (programsPacket == nullptr) return;  // init() will build the right set
+
+  packet2_free(programsPacket);
+  setProgramsCache();
+  uploadPrograms();
+  clearLastProgramName();
 }
 
 void StaPipQBufferRenderer::uploadPrograms() {
@@ -347,7 +409,10 @@ void StaPipQBufferRenderer::uploadPrograms() {
 
 void StaPipQBufferRenderer::setDoubleBuffer() {
   u16 startingAddr = VU1_STAPIP_LAST_ITEM_ADDR + 1;
-  const u16 bufferMaxSize = 1000;
+  // Modified by tyra-editor: the double buffer stops below the VU1 clipping
+  // scratch area (plane table + Sutherland-Hodgman polygons) at the top of
+  // VU1 data memory - see stapip_vu1_shared_defines.h.
+  const u16 bufferMaxSize = VU1_STAPIP_DBUFFER_END;
   bufferSize = (bufferMaxSize - startingAddr) / 2;
 
   path1->setDoubleBuffer(startingAddr, bufferSize);
@@ -428,6 +493,28 @@ void StaPipQBufferRenderer::cull(StaPipQBuffer* buffer) {
 
 void StaPipQBufferRenderer::clip(StaPipQBuffer* buffer) {
   if (buffer->size == 0) {
+    return;
+  }
+
+  // Modified by tyra-editor: VU1 clipping - clip-classified packages go to
+  // the clip VU1 programs with raw object-space vertices (exactly like the
+  // cull path); the EE clipper is bypassed entirely. The package occupancy
+  // cap (StaPipCore::getClipPackageDivisor) bounds the on-VU1 fan-out.
+  if (vu1Clipping) {
+    dBufferPrograms[getQBufferIndex(buffer)] = getClipProgramByBag(buffer->bag);
+
+    Verbose("Add vu1-clip[", getQBufferIndex(buffer), "]: ", buffer->size);
+
+    auto is1stDBuffer = is1stDBufferFlushTime();
+    auto is2ndDBuffer = is2ndDBufferFlushTime();
+
+    if (is1stDBuffer || is2ndDBuffer) {
+      auto from = is1stDBuffer ? 0 : buffersCount / 2;
+      auto to = from + buffersCount / 2;
+
+      addBuffersDataToPacket(from, to);
+      sendPacket();
+    }
     return;
   }
 
@@ -542,6 +629,21 @@ StaPipVU1Program* StaPipQBufferRenderer::getAsIsProgramByBag(
     return getProgramByName(StaPipAsIsTextureColor);
   else
     return getProgramByName(StaPipAsIsColor);
+}
+
+// Modified by tyra-editor: VU1 clipping.
+StaPipVU1Program* StaPipQBufferRenderer::getClipProgramByBag(
+    const StaPipBag* bag) {
+  auto programType = getDrawProgramTypeByBag(bag);
+
+  if (programType == StaPipVU1TextureDirLights)
+    return getProgramByName(StaPipClipTextureDirLights);
+  else if (programType == StaPipVU1DirLights)
+    return getProgramByName(StaPipClipDirLights);
+  else if (programType == StaPipVU1TextureColor)
+    return getProgramByName(StaPipClipTextureColor);
+  else
+    return getProgramByName(StaPipClipColor);
 }
 
 StaPipVU1Program* StaPipQBufferRenderer::getCullProgramByBag(
