@@ -231,6 +231,17 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          FlowParamKind::None, false, false},
         {"SetParticles", "Set Particles", "Scene", false, FlowParamKind::None, 1, {"On"},
          FlowParamKind::None, false, false},
+        // Runtime video output (options menus). Set Display Mode switches the
+        // scan mode (Mode: 0 = interlaced 480i/576i, 1 = progressive 480p,
+        // 2 = 1080i - shown as a combo in the node UI); with Confirm s > 0
+        // the game shows a keep-or-revert prompt and AUTOMATICALLY reverts
+        // to the previous mode unless the player confirms with X in time
+        // (a mode the TV can't show would otherwise strand them on a black
+        // screen). Set Widescreen re-fits the projection for a 16:9 display.
+        {"SetDisplayMode", "Set Display Mode", "Scene", false, FlowParamKind::None, 2,
+         {"Mode", "Confirm s"}, FlowParamKind::None, false, false},
+        {"SetWidescreen", "Set Widescreen", "Scene", false, FlowParamKind::None, 1,
+         {"On"}, FlowParamKind::None, false, false},
         // Repaints the sky from an Ambience Editor preset at runtime. Lighting
         // and fog are baked per scene at build, so only the sky changes live
         // (assign presets per scene, or switch scenes, for the full mood).

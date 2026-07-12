@@ -510,6 +510,9 @@ std::string save(const Project& p) {
          << "  \"template\": \"" << p.gameTemplate << "\",\n"
          << "  \"settings\": {\n"
          << "    \"videoSystem\": \"" << p.settings.videoSystem << "\",\n"
+         << "    \"displayMode\": \"" << p.settings.displayMode << "\",\n"
+         << "    \"widescreen\": " << (p.settings.widescreen ? "true" : "false")
+         << ",\n"
          << "    \"buildProfile\": \"" << p.settings.buildProfile << "\",\n"
          << "    \"textureQuant\": \"" << p.settings.textureQuant << "\",\n"
          << "    \"showFps\": " << (p.settings.showFps ? "true" : "false") << ",\n"
@@ -1130,6 +1133,13 @@ std::string load(Project& out, const std::string& projectDir) {
             const std::string sys = v->stringOr("auto");
             st.videoSystem = (sys == "pal" || sys == "ntsc") ? sys : "auto";
         }
+        if (const auto* v = s->find("displayMode")) {
+            const std::string dm = v->stringOr("interlaced");
+            st.displayMode =
+                (dm == "progressive" || dm == "1080i") ? dm : "interlaced";
+        }
+        if (const auto* v = s->find("widescreen"))
+            st.widescreen = v->boolOr(false);
         if (const auto* v = s->find("buildProfile"))
             st.buildProfile = v->stringOr("release") == "debug" ? "debug" : "release";
         // pre-quantization projects keep their full-color output
@@ -1825,11 +1835,11 @@ std::string refreshGenerated(const Project& p) {
             if (f) f.write(reinterpret_cast<const char*>(png), (std::streamsize)n);
         }
     }
-    // Debug-HUD glyph strip, needed only when a debug-profile overlay is on.
-    // Always rewritten: the glyph set evolves with the overlay (the "/" for
-    // MEM used/total came later) and a stale strip renders as blank glyphs.
-    if (p.settings.buildProfile == "debug" &&
-        (p.settings.showFps || p.settings.showMemory)) {
+    // HUD glyph strip: the debug-profile overlays AND the release-build
+    // video-mode confirm prompt (Set Display Mode flow node) draw from it,
+    // so it ships with every build. Always rewritten: the glyph set evolves
+    // (digits-only -> letters) and a stale strip renders as blank glyphs.
+    {
         const fs::path fontPng = fs::path(p.dir) / "res" / "hud" / "debugfont.png";
         std::error_code ec;
         const auto& png = templates::debugFontPng();

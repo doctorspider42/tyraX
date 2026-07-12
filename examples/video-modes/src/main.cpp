@@ -46,7 +46,7 @@ int main(int argc, char** argv) {
   // 16:9 anamorphic output (Preferences > Build > Widescreen).
   options.widescreen = false;
   Tyra::Engine engine(options);
-  Showcase::TerrainGame game(&engine);
+  Video_modes::TerrainGame game(&engine);
   engine.run(&game);
   SleepThread();
   return 0;

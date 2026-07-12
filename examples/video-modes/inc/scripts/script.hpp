@@ -5,7 +5,7 @@
 #include <vector>
 #include "scene_data.hpp"
 
-namespace Showcase {
+namespace Video_modes {
 
 /** A scene object at runtime. Mutate `data` (position/rotation/scale/color),
  * `visible` or `velocityY`, then set `dirty = true` so the geometry gets
@@ -57,14 +57,6 @@ struct ScriptContext {
 
   // Write to show/hide all HUD images (the USE prompt is unaffected).
   bool hudVisible = true;
-
-  // On-screen texts (HUD_TEXTS order, hud_data.gen.hpp). Write 1 into
-  // textRequest[i] to show a text, 0 to hide it (-1 = leave). When showing,
-  // textDuration[i] > 0 auto-hides after that many seconds, 0 = the text
-  // stays until hidden. The game applies and resets requests every frame.
-  signed char* textRequest = nullptr;
-  float* textDuration = nullptr;
-  int textCount = 0;
 
   // Camera flashlight master switch (the Player object's "Enabled"). Write 1
   // to turn it on, 0 to turn it off, -1 to leave it unchanged; the game
@@ -220,14 +212,14 @@ inline std::vector<ObjectScriptFactory>& getObjectScriptFactories() {
   return factories;
 }
 
-}  // namespace Showcase
+}  // namespace Video_modes
 
 /** Registers a script class. Put TYRA_SCRIPT(MyScript); at file scope. */
 #define TYRA_SCRIPT_CONCAT_INNER(a, b) a##b
 #define TYRA_SCRIPT_CONCAT(a, b) TYRA_SCRIPT_CONCAT_INNER(a, b)
 #define TYRA_SCRIPT(ClassName)                                             \
   static const bool TYRA_SCRIPT_CONCAT(_tyraScript_, __COUNTER__) = []() { \
-    Showcase::getScripts().push_back(new ClassName());            \
+    Video_modes::getScripts().push_back(new ClassName());            \
     return true;                                                           \
   }()
 
@@ -236,8 +228,8 @@ inline std::vector<ObjectScriptFactory>& getObjectScriptFactories() {
  * TYRA_OBJECT_SCRIPT(MyScript); at file scope INSIDE your namespace. */
 #define TYRA_OBJECT_SCRIPT(ClassName)                                         \
   static const bool TYRA_SCRIPT_CONCAT(_tyraObjScript_, __COUNTER__) = []() { \
-    Showcase::getObjectScriptFactories().push_back(                  \
-        {#ClassName, []() -> Showcase::ObjectScript* {               \
+    Video_modes::getObjectScriptFactories().push_back(                  \
+        {#ClassName, []() -> Video_modes::ObjectScript* {               \
           return new ClassName();                                             \
         }});                                                                  \
     return true;                                                              \

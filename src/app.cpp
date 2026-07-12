@@ -4399,12 +4399,28 @@ void App::drawFlowGraphWindow() {
             firstNum = 3;
         }
         if (n.type == "SetVarBool" || n.type == "SetFlashlight" ||
-            n.type == "SetFog" || n.type == "SetParticles") {
+            n.type == "SetFog" || n.type == "SetParticles" ||
+            n.type == "SetWidescreen") {
             bool v = n.num[0] != 0.0f;
             if (ImGui::Checkbox(t->numLabels[0], &v)) {
                 n.num[0] = v ? 1.0f : 0.0f;
                 changed = true;
             }
+        } else if (n.type == "SetDisplayMode") {
+            const char* modes[] = {"Interlaced (480i/576i)",
+                                   "Progressive (480p)", "1080i"};
+            int mode = (int)n.num[0];
+            mode = mode < 0 ? 0 : mode > 2 ? 2 : mode;
+            if (ImGui::Combo("Mode", &mode, modes, 3)) {
+                n.num[0] = (float)mode;
+                changed = true;
+            }
+            ImGui::DragFloat("Confirm s", &n.num[1], 0.5f, 0.0f, 60.0f, "%.0f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::TextDisabled(
+                "Confirm > 0: the game asks to keep the\n"
+                "mode (X = yes) and reverts automatically\n"
+                "when the timer runs out. 0 = switch blind.");
         } else if (t->numKind == FlowParamKind::Color) {
             ImGui::ColorEdit3("Color", n.num, ImGuiColorEditFlags_NoInputs);
             changed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -8615,6 +8631,28 @@ void App::drawPreferencesModal() {
         "Video signal of the built game (also on exported ISOs). Auto follows\n"
         "the console region. Game speed is normalized - PAL (50 Hz) and NTSC\n"
         "(60 Hz) play at the same wall-clock speed.");
+    int dispMode = prefSettings_.displayMode == "1080i"         ? 2
+                   : prefSettings_.displayMode == "progressive" ? 1
+                                                                : 0;
+    const char* dispModeNames[] = {"Interlaced (480i/576i)",
+                                   "Progressive scan (480p)", "1080i (HD)"};
+    if (ImGui::Combo("Display mode", &dispMode, dispModeNames, 3))
+        prefSettings_.displayMode =
+            dispMode == 2 ? "1080i" : dispMode == 1 ? "progressive" : "interlaced";
+    ImGui::TextDisabled(
+        "Scan mode of the built game. Interlaced is the stock TV signal and\n"
+        "follows Target system. Progressive (flicker-free 480p) and 1080i\n"
+        "always run at 60 Hz and need component (YPbPr) cables on a real\n"
+        "console - PCSX2 displays every mode. 1080i renders a 448x540 frame\n"
+        "(sharper vertically) and leaves less VRAM for textures. Both can\n"
+        "also be switched at runtime with the Set Display Mode flow node,\n"
+        "which shows a keep-or-revert prompt with an automatic rollback.");
+    ImGui::Checkbox("Widescreen (16:9)", &prefSettings_.widescreen);
+    ImGui::TextDisabled(
+        "Widens the projection so proportions are correct on a 16:9 TV\n"
+        "(anamorphic - on a 4:3 set the picture looks squeezed). In 1080i\n"
+        "the picture also fills more of the screen. HUD sprites stretch\n"
+        "with the screen. Runtime switch: the Set Widescreen flow node.");
     int profile = prefSettings_.buildProfile == "debug" ? 1 : 0;
     const char* profileNames[] = {"Release", "Debug"};
     if (ImGui::Combo("Profile", &profile, profileNames, 2))

@@ -68,7 +68,7 @@ static void updateFrameClock() {
   g_frameScale = dt * 50.0F;
 }
 
-namespace Showcase {
+namespace Video_modes {
 
 using namespace Tyra;
 
@@ -553,14 +553,7 @@ void drawVideoConfirm(Engine* engine) {
 }  // namespace
 
 TerrainGame::TerrainGame(Engine* t_engine)
-    : engine(t_engine),
-      playerX(0.0F),
-      playerZ(0.0F),
-      yaw(0.0F),
-      pitch(0.0F),
-      playerY(0.0F),
-      playerVelY(0.0F),
-      model(M4x4::Identity) {}
+    : engine(t_engine), orbitAngle(0.0F), model(M4x4::Identity) {}
 
 TerrainGame::~TerrainGame() {}
 
@@ -602,18 +595,9 @@ void TerrainGame::init() {
 
   engine->renderer.setClearScreenColor(Color(SKY_R, SKY_G, SKY_B));
 
-  // Player start: the first spawn point in the scene (if any)
-  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
-    if (SCENE_OBJECTS[i].type == 4) {
-      playerX = SCENE_OBJECTS[i].position[0];
-      playerZ = SCENE_OBJECTS[i].position[2];
-      yaw = SCENE_OBJECTS[i].rotation[1] * PI / 180.0F;
-      break;
-    }
-  }
-  playerY = terrainHeightAt(playerX, playerZ);
+  cameraLookAt = Vec4(0.0F, 0.0F, 0.0F);
+  updateCameraOrbit();
 
-  updatePlayer();
   buildScene();
 
   scriptCtx.engine = engine;
@@ -639,16 +623,13 @@ void TerrainGame::init() {
     texture->addLink(hudSprites.back().id);
   }
 
-  // "USE" prompt, shown while looking at a usable object. Placement and
-  // image come from hud_data.gen.hpp (Tools > UI Editor - the built-in
-  // hud/use.png unless a custom sprite replaces it).
+  // "USE" prompt (res/hud/use.png), shown while looking at a usable object
   usePromptSprite.mode = SpriteMode::MODE_STRETCH;
-  usePromptSprite.size = Vec2(USE_PROMPT_W, USE_PROMPT_H);
-  usePromptSprite.position =
-      Vec2(USE_PROMPT_X * screen.getWidth() - USE_PROMPT_W * 0.5F,
-           USE_PROMPT_Y * screen.getHeight() - USE_PROMPT_H * 0.5F);
-  auto* useTexture = engine->renderer.getTextureRepository().add(
-      FileUtils::fromCwd(USE_PROMPT_PATH));
+  usePromptSprite.size = Vec2(128.0F, 32.0F);
+  usePromptSprite.position = Vec2((screen.getWidth() - 128.0F) * 0.5F,
+                                  screen.getHeight() * 0.72F);
+  auto* useTexture =
+      engine->renderer.getTextureRepository().add(FileUtils::fromCwd("hud/use.png"));
   useTexture->addLink(usePromptSprite.id);
 
   // Loading screen sprite (res/hud/loading.png), shown on scene switches
@@ -673,7 +654,7 @@ void TerrainGame::loop() {
   const bool menuActive = saveMenuActive || gameMenuPausing;
   g_gameplayPaused = menuActive;  // freezes particles + animation playback
   if (!menuActive) {
-    if (!updatePlayerEntity()) updatePlayer();
+    if (!updatePlayerEntity()) updateCameraOrbit();
     updateUseTarget();
   }
 
@@ -685,9 +666,9 @@ void TerrainGame::loop() {
     for (Script* script : getScripts()) script->update(scriptCtx);
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
 
-  // Scene switch requested by the flow graph / scripts. The built-in FPP
-  // player respawns at the new scene's spawn point.
-  static bool fppSpawnPending = false;
+  // Scene switch requested by the flow graph / scripts. With the loading
+  // screen enabled the switch hides behind a short black "LOADING..." hold
+  // (the load itself is synchronous - the hold is presentation).
   if (scriptCtx.requestScene >= 0) {
     const int target = scriptCtx.requestScene;
     scriptCtx.requestScene = -1;
@@ -696,7 +677,6 @@ void TerrainGame::loop() {
       loadingFrames = everyFrames(0.7F);  // ~0.7s hold
     } else {
       loadScene(target);
-      fppSpawnPending = true;
     }
   }
   if (loadingFrames > 0) {
@@ -705,37 +685,17 @@ void TerrainGame::loop() {
     engine->renderer.renderer2D.render(loadingSprite);
     engine->renderer.endFrame();
     --loadingFrames;
-    if (loadingFrames == everyFrames(0.7F) - 5) {  // a few frames shown first
-      loadScene(loadingTarget);
-      fppSpawnPending = true;
-    }
+    if (loadingFrames == everyFrames(0.7F) - 5)
+      loadScene(loadingTarget);  // 5 frames shown first
     return;
-  }
-  if (fppSpawnPending) {
-    // The built-in FPP player respawns at the new scene's spawn point.
-    fppSpawnPending = false;
-    playerX = 0.0F;
-    playerZ = 0.0F;
-    yaw = 0.0F;
-    pitch = 0.0F;
-    for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
-      if (SCENE_OBJECTS[i].type == 4) {
-        playerX = SCENE_OBJECTS[i].position[0];
-        playerZ = SCENE_OBJECTS[i].position[2];
-        yaw = SCENE_OBJECTS[i].rotation[1] * PI / 180.0F;
-        break;
-      }
-    }
-    playerY = terrainHeightAt(playerX, playerZ);
-    playerVelY = 0.0F;
   }
 
   // Streaming layers: Load/Unload Layer requests, one asset load per frame,
   // trickle activation of freshly resident layers.
   updateLayerStreaming();
 
-  // Flow graph / script teleport request: move the Player entity when the
-  // scene has one, the built-in FPP player otherwise.
+  // Flow graph / script teleport request (needs a Player entity - the orbit
+  // camera itself is not teleportable)
   if (scriptCtx.teleport) {
     scriptCtx.teleport = false;
     if (PLAYER_INDEX >= 0) {
@@ -744,12 +704,6 @@ void TerrainGame::loop() {
       entZ = scriptCtx.teleportPos.z;
       entVelY = 0.0F;
       entYaw = scriptCtx.teleportYaw * PI / 180.0F;
-    } else {
-      playerX = scriptCtx.teleportPos.x;
-      playerY = scriptCtx.teleportPos.y;
-      playerZ = scriptCtx.teleportPos.z;
-      playerVelY = 0.0F;
-      yaw = scriptCtx.teleportYaw * PI / 180.0F;
     }
   }
 
@@ -822,7 +776,6 @@ void TerrainGame::loop() {
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
-    updateAndRenderHudTexts();
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine);
@@ -922,51 +875,9 @@ void TerrainGame::buildScene() {
           FileUtils::fromCwd(m.panel));
       t->addLink(menuSprites.back().id);
     }
-    // Toggle/Choice value strips: a sub-rect sprite per menu (MODE_REPEAT
-    // samples [offset, offset+size] texels - the debug glyph atlas trick).
-    // renderGameMenu moves offset/position to the active cell each frame.
-    menuValueSprites.clear();
-    menuValueSprites.reserve(MENU_COUNT);
-    for (int i = 0; i < MENU_COUNT; ++i) {
-      const MenuData& m = MENUS[i];
-      Sprite s;
-      s.mode = SpriteMode::MODE_REPEAT;
-      s.size = Vec2((float)m.valueCellW, (float)m.valueCellH);
-      menuValueSprites.push_back(s);
-      if (m.values[0] == '\0') continue;  // no value entries in this menu
-      auto* t = engine->renderer.getTextureRepository().add(
-          FileUtils::fromCwd(m.values));
-      t->addLink(menuValueSprites.back().id);
-    }
     setupSprite(menuCursorSprite, "hud/save-cursor.png", 16, 16, 0.0F, 0.0F);
     setupSprite(menuDimSprite, "hud/menu-dim.png", scr.getWidth(),
                 scr.getHeight(), 0.0F, 0.0F);
-
-    // On-screen texts (hud_data.gen.hpp): baked sprites toggled by the
-    // Show Text / Hide Text flow nodes through scriptCtx (wired here, before
-    // the scripts' init runs from the game init).
-    hudTextSprites.clear();
-    hudTextSprites.reserve(HUD_TEXT_COUNT);
-    hudTextReq.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, -1);
-    hudTextDur.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, 0.0F);
-    hudTextOn.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, 0);
-    hudTextTimer.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, 0.0F);
-    for (int i = 0; i < HUD_TEXT_COUNT; ++i) {
-      const HudTextData& t = HUD_TEXTS[i];
-      Sprite s;
-      s.mode = SpriteMode::MODE_STRETCH;
-      s.size = Vec2((float)t.w, (float)t.h);
-      s.position = Vec2(t.x * scr.getWidth() - t.w * 0.5F,
-                        t.y * scr.getHeight() - t.h * 0.5F);
-      hudTextSprites.push_back(s);
-      auto* tex = engine->renderer.getTextureRepository().add(
-          FileUtils::fromCwd(t.path));
-      tex->addLink(hudTextSprites.back().id);
-      hudTextOn[i] = (unsigned char)t.visible;
-    }
-    scriptCtx.textRequest = hudTextReq.data();
-    scriptCtx.textDuration = hudTextDur.data();
-    scriptCtx.textCount = HUD_TEXT_COUNT;
     if (TITLE_MENU >= 0) {
       gameMenuIndex = TITLE_MENU;
       gameMenuCursor = 0;
@@ -2499,24 +2410,6 @@ bool TerrainGame::updateGameMenu() {
   if (clicked.DpadDown && m.entryCount > 0)
     gameMenuCursor = (gameMenuCursor + 1) % m.entryCount;
 
-  // Toggle/Choice rows: the state is the bound save value (the option
-  // index). Cross and dpad right cycle forward, dpad left backward.
-  auto cycleValue = [&](const MenuEntryData& e, int dir) {
-    if (e.param < 0 || e.param >= SAVE_VALUE_COUNT || e.optionCount <= 0)
-      return;
-    int v = (int)saveValues[e.param];
-    if (v < 0) v = 0;
-    if (v >= e.optionCount) v = e.optionCount - 1;
-    saveValues[e.param] = (float)((v + dir + e.optionCount) % e.optionCount);
-  };
-  if (gameMenuCursor >= 0 && gameMenuCursor < m.entryCount) {
-    const MenuEntryData& cur = m.entries[gameMenuCursor];
-    if (cur.action == 7 || cur.action == 8) {
-      if (clicked.DpadLeft) cycleValue(cur, -1);
-      if (clicked.DpadRight) cycleValue(cur, 1);
-    }
-  }
-
   if (clicked.Triangle) {
     if (gameMenuStackDepth > 0) {
       gameMenuIndex = gameMenuStack[--gameMenuStackDepth];
@@ -2565,10 +2458,6 @@ bool TerrainGame::updateGameMenu() {
       case 6:  // flow event: scripts run this frame to catch it
         scriptCtx.menuEvent = e.param;
         break;
-      case 7:  // toggle - flip/cycle the bound save value (menu stays open)
-      case 8:  // choice
-        cycleValue(e, 1);
-        break;
     }
   }
   return pausing();
@@ -2586,46 +2475,6 @@ void TerrainGame::renderGameMenu() {
         Vec2(panel.position.x + 32.0F,
              panel.position.y + m.row0Y + gameMenuCursor * m.rowH + 1.0F);
     engine->renderer.renderer2D.render(menuCursorSprite);
-  }
-  // Toggle/Choice rows: the current option label, a cell of the baked value
-  // strip drawn right-aligned on the row (cell right edge 24px from the
-  // panel's right border - the mirror of the 56px label margin).
-  if (m.values[0] != '\0' &&
-      gameMenuIndex < (int)menuValueSprites.size()) {
-    Sprite& vs = menuValueSprites[gameMenuIndex];
-    for (int i = 0; i < m.entryCount; ++i) {
-      const MenuEntryData& e = m.entries[i];
-      if (e.cell < 0 || e.optionCount <= 0) continue;
-      int v = (e.param >= 0 && e.param < SAVE_VALUE_COUNT)
-                  ? (int)saveValues[e.param]
-                  : 0;
-      if (v < 0) v = 0;
-      if (v >= e.optionCount) v = e.optionCount - 1;
-      vs.offset = Vec2(0.0F, (float)((e.cell + v) * m.valuePitch));
-      vs.position = Vec2(panel.position.x + m.valueX,
-                         panel.position.y + m.row0Y + i * m.rowH);
-      engine->renderer.renderer2D.render(vs);
-    }
-  }
-}
-
-// On-screen texts: apply the frame's Show/Hide Text requests, tick the
-// auto-hide timers, draw what is visible. Baked sprites - one 2D quad each.
-void TerrainGame::updateAndRenderHudTexts() {
-  for (int i = 0; i < (int)hudTextSprites.size(); ++i) {
-    if (scriptCtx.textRequest && scriptCtx.textRequest[i] >= 0) {
-      hudTextOn[i] = scriptCtx.textRequest[i] != 0 ? 1 : 0;
-      hudTextTimer[i] = hudTextOn[i] ? scriptCtx.textDuration[i] : 0.0F;
-      scriptCtx.textRequest[i] = -1;
-    }
-    if (hudTextOn[i] && hudTextTimer[i] > 0.0F) {
-      hudTextTimer[i] -= g_frameDt;
-      if (hudTextTimer[i] <= 0.0F) {
-        hudTextOn[i] = 0;
-        hudTextTimer[i] = 0.0F;
-      }
-    }
-    if (hudTextOn[i]) engine->renderer.renderer2D.render(hudTextSprites[i]);
   }
 }
 
@@ -3396,76 +3245,15 @@ void TerrainGame::renderTerrain() {
       stapip.core.render(ch.bag.get());
 }
 
-namespace {
+void TerrainGame::updateCameraOrbit() {
+  orbitAngle += 0.005F * ORBIT_SPEED * g_frameScale;
+  const float diag = TERRAIN_WIDTH > TERRAIN_DEPTH ? TERRAIN_WIDTH : TERRAIN_DEPTH;
+  const float orbitRadius = diag * 0.9F;
+  const float orbitHeight = diag * 0.55F;
 
-// ANALOG_DEADZONE_L/_R (Preferences > Input) zero resting drift per stick;
-// above the deadzone the value rescales from 0 so the edge does not step.
-float axisValue(const u8& raw, const float dz) {
-  const float v = (raw - 128.0F) / 128.0F;
-  const float mag = v < 0.0F ? -v : v;
-  if (mag <= dz) return 0.0F;
-  const float scaled = (mag - dz) / (1.0F - dz);
-  return v < 0.0F ? -scaled : scaled;
+  cameraPosition.x = orbitRadius * cosf(orbitAngle);
+  cameraPosition.y = orbitHeight;
+  cameraPosition.z = orbitRadius * sinf(orbitAngle);
 }
 
-}  // namespace
-
-void TerrainGame::updatePlayer() {
-  const auto& leftJoy = engine->pad.getLeftJoyPad();
-  const auto& rightJoy = engine->pad.getRightJoyPad();
-
-  // Right stick: look around (stick right = turn right)
-  yaw -= axisValue(rightJoy.h, ANALOG_DEADZONE_R) * 0.05F * LOOK_SPEED * g_frameScale;
-  pitch -= axisValue(rightJoy.v, ANALOG_DEADZONE_R) * 0.035F * LOOK_SPEED * g_frameScale;
-  if (pitch > 1.2F) pitch = 1.2F;
-  if (pitch < -1.2F) pitch = -1.2F;
-
-  // Left stick: walk. Forward is where the camera looks (flat).
-  const float fx = sinf(yaw);
-  const float fz = cosf(yaw);
-  const float forward = -axisValue(leftJoy.v, ANALOG_DEADZONE_L);
-  const float strafe = axisValue(leftJoy.h, ANALOG_DEADZONE_L);
-  float nextX = playerX + (fx * forward - fz * strafe) * WALK_SPEED * g_frameScale;
-  float nextZ = playerZ + (fz * forward + fx * strafe) * WALK_SPEED * g_frameScale;
-
-  // Keep the player on the terrain
-  const float limX = TERRAIN_WIDTH * 0.5F - 1.0F;
-  const float limZ = TERRAIN_DEPTH * 0.5F - 1.0F;
-  if (nextX > limX) nextX = limX;
-  if (nextX < -limX) nextX = -limX;
-  if (nextZ > limZ) nextZ = limZ;
-  if (nextZ < -limZ) nextZ = -limZ;
-
-  // Collision with scene objects (collidePlayer: box/mesh/none per object)
-  // + standing on top of them. Player can step ~0.5 units up.
-  // The floor is the sculpted terrain.
-  float ground = terrainHeightAt(nextX, nextZ);
-  float ceiling = 1e30F;
-  collidePlayer(playerX, playerZ, &nextX, &nextZ, playerY, EYE_HEIGHT, &ground,
-                &ceiling);
-  playerX = nextX;
-  playerZ = nextZ;
-
-  // Gravity & jumping (X). GRAVITY: units/s^2, JUMP_SPEED: units/s.
-  playerVelY -= GRAVITY * g_frameDt * g_frameDt;
-  playerY += playerVelY;
-  // Jump clamp: keep the eye EYE_CLEARANCE below overhead geometry so the
-  // camera never pokes into it (skipped when the gap is too low to stand in)
-  const float maxY = ceiling - EYE_HEIGHT - EYE_CLEARANCE;
-  if (playerY > maxY && maxY >= ground) {
-    playerY = maxY;
-    if (playerVelY > 0.0F) playerVelY = 0.0F;
-  }
-  if (playerY <= ground) {
-    playerY = ground;
-    playerVelY = 0.0F;
-    if (engine->pad.getClicked().BTN_JUMP) playerVelY = JUMP_SPEED * g_frameDt;
-  }
-
-  const float eyeY = playerY + EYE_HEIGHT;
-  cameraPosition = Vec4(playerX, eyeY, playerZ);
-  cameraLookAt = Vec4(playerX + fx * cosf(pitch), eyeY + sinf(pitch),
-                      playerZ + fz * cosf(pitch));
-}
-
-}  // namespace Showcase
+}  // namespace Video_modes
