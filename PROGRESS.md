@@ -125,6 +125,420 @@ Each finished feature lands as its own commit.
   handed back to the FPP player with the aftermath intact (hero aloft,
   sparks running) — the release path live. Same versioning shape as
   layer-streaming (bin/res gitignored, regenerated on build).
+- (70) **Dynamic object spawning: Spawn Object / Despawn Object flow nodes** —
+  runtime clones of authored objects, the missing piece for GTA-style traffic
+  (spawn the same few templates around the player, despawn what fell behind).
+  **Spawn Object** (Object category) clones its target (object link > name >
+  self) into a pool slot past the authored objects: the clone starts at the
+  linked position (or the template's own), faces the Yaw param, and the
+  node's **object output is the CLONE**, not the template - the first
+  runtime-valued object reference in the flow graph. Codegen assigns each
+  Spawn Object node a global handle (`flowSpawned[k]`, -1 = none, reset with
+  the script's scene-generation state); `targetExpr()` walks object-link
+  chains like `resolveTarget()` but stops at a Spawn Object source and
+  substitutes the handle expression, so **Despawn Object / Set Position /
+  Show/Hide / Play Animation / Is Visible / Get Position and the
+  Near/Used/AnimFinished triggers all work on clones** (actions wrap in a
+  handle-validity guard; Move Object To stays static-only for now, emits a
+  comment). **Runtime**: `ScriptContext.spawnObject/despawnObject` function
+  pointers (thunk pattern like resolveClip) into
+  `TerrainGame::spawnObjectAt/despawnObjectAt`; a 32-slot pool after
+  SCENE_OBJECT_COUNT (slots recycle, geometry builds lazily through the
+  existing dirty path, `setupAnimObject` runs for skeletal clones, emitter
+  clones rebuild the particle pools). Clones keep the template's layer -
+  unloading that layer despawns them; `applyLayerResidency` pins the assets
+  of live clones and a clone spawned before its model streamed in re-arms
+  when the asset lands (`processOneStreamJob`). Save slots never persist
+  clones. **Fixed latent OOB bugs this exposed**: `buildParticles`, the
+  layer unload/activate/completion loops and the save-state scan indexed
+  `SCENE_OBJECTS[i]` with `i` ranging over `runtimeObjects` - fine while the
+  two were the same length, out-of-bounds with the pool appended (unload now
+  reads the runtime copy `data.layer`, the others clamp to
+  SCENE_OBJECT_COUNT); loadScene also clears all active flags before the
+  first residency pass so a previous scene's clones cannot pin assets under
+  new-scene indices. **Verified**: clean editor build; scratch scene
+  (template box BEHIND the spawn, marker in front, EverySeconds(20) ->
+  Spawn Object with a Get Position link + Yaw 45, EverySeconds(8) ->
+  Despawn Object via the object link, Log nodes on both triggers);
+  generated flow_graph.gen.cpp inspected (handle global, generation reset,
+  live marker-position read, guarded despawn + handle reset); Docker build
+  OK; **PCSX2 (software renderer), event-driven screenshots keyed off the
+  game log**: after a SPAWN-TICK the red clone stands at the MARKER's
+  position rotated 45 deg (no authored box exists there), after the next
+  DESPAWN-TICK it is gone - cycle repeats. Spawning under real gameplay
+  (pad) and clones of animated/emitter templates still want a hands-on pass.
+
+- (69) **Layer auto-streaming (zone pivot + radius) + per-layer RAM readout** —
+  GTA-style zone streaming without wiring the flow graph. A layer can opt in
+  to **Auto stream** (Layers panel): it gets a zone center (world X/Z, with a
+  "Center on sel." button) and a radius; the game loads the layer while the
+  player is inside the zone and unloads it once they leave radius + a
+  hysteresis band (15% + 8 units, so pacing along the border doesn't thrash).
+  Data model: `SceneLayer.autoStream/streamX/streamZ/streamRadius` (+
+  `operator==` — undo — and JSON keys omitted when off, older files load
+  unchanged). Codegen: `SCENE_LAYER_STREAM_XS/ZS/RADII[SCENE_COUNT][
+  SCENE_MAX_LAYERS]` tables + accessor macros (radius 0 = script-driven
+  layer). Runtime: requests are **edge-triggered** through the same
+  `layerRequest` channel the Load/Unload Layer nodes use - a boundary
+  crossing queues one request, so scripts can still override a zone until
+  the next crossing; initial residency of auto layers comes from the spawn
+  point's distance (Player entity, else the type-4 spawn marker), NOT
+  `startLoaded` (the checkbox is disabled in the UI for auto layers). Focus
+  = `cameraLookAt` (the player in FPP, terrain center in orbit).
+  **Per-layer RAM readout**: each layer row shows `N | X.X MB` - the unique
+  model/material/texture files its objects reference (materials parsed for
+  map_Kd, .obj submeshes for their textures), summed by file size; plus an
+  "Always resident (no layer)" line for the unassigned group. An estimate by
+  design (PNGs decode/quantize to different sizes, shared assets count in
+  every layer using them); cached per layer name, invalidated by
+  `commitChange()`. **Verified e2e in PCSX2 (software renderer)**: a scratch
+  scene with an auto zone (r=45 at origin, `startLoaded=true` on purpose) and
+  the player spawning 100 units away, facing the zone - at boot the zone's
+  towers do NOT exist (spawn-distance init beats startLoaded); an
+  EverySeconds(6) -> Spawn Player At flow graph then teleports the player
+  into the zone and the layer streams in (the zone's towers near the old
+  spawn appear in the post-teleport screenshot; the layer also carries a
+  .glb spider, exercising the asset-streaming path). Codegen inspected
+  (tables + compiled teleport graph); clean editor build; Layers panel
+  renders on the scratch project. Walking across a zone border with a pad
+  (instead of teleporting) still wants a hands-on pass.
+
+- (71) **Sky dome follows the camera (no more walking out of the sky)** — on a
+  large enough map the player could travel past the sky dome, which was baked
+  once at world origin with the shared identity `model` matrix and a radius
+  capped at 450, so the horizon and zenith stopped surrounding you and the
+  scene fell out into the bare clear color. The dome now gets its own
+  `skyMat` translation matrix that `renderScene` re-centers on `cameraPosition`
+  every frame (X/Y/Z), so the dome always wraps the eye no matter how far the
+  map extends — horizontally or up a tall climb. The geometry never rebuilds
+  for this (only the matrix moves), the precise frustum/clip flags and
+  `fogDisabled` are unchanged, and it costs one matrix set per frame — so no
+  measurable perf hit (the concern the request called out). Fix lives in the
+  codegen (`src/templates.cpp` `buildSkyDome`/`renderScene`, both camera-mode
+  headers get the `skyMat` member); all three example projects (showcase,
+  script-demo, layer-streaming) carry the regenerated code. Verified end-to-end:
+  editor builds clean, the generated showcase compiles in Docker and boots in
+  PCSX2 (software renderer) holding 50 FPS / 100% speed with the sunset dome
+  rendering correctly and the horizon still fading into the fog. The
+  interactive "walk to the map edge and confirm the sky no longer drops out"
+  check still wants a human with a pad on a deliberately huge map.
+- (74) **Stop committing generated `docker-compose.yml` (machine-specific path
+  leak + merge magnet)** — the compose file is regenerated on every build
+  (`refreshGenerated`, always-overwritten list) and bind-mounts the engine
+  sources by an **absolute path** computed from the editor exe location
+  (`engineSourceDir`), plus a volume-name hash derived from that same path.
+  So the checked-in `examples/*/docker-compose.yml` carried whoever-built-it-
+  last's local worktree path (script-demo still held a stale
+  `terrain-chunking-large-maps-cb55f4` path; showcase flipped to each build's
+  worktree) — a constant source of merge conflicts and a leak of local paths.
+  Added `docker-compose.yml` to `TPL_GITIGNORE` and to both example
+  `.gitignore`s, and `git rm --cached` the two tracked copies. The file still
+  generates locally on every build (verified: `--new` scaffolds it and lists
+  it in `.gitignore`; `git check-ignore` confirms both examples' copies are
+  ignored), so nothing about building changes - it just stops being tracked.
+  Verified: editor builds clean; a fresh `--new` project ignores its compose
+  while still producing it on disk.
+
+- (73) **Menu Toggle/Choice rows + USE prompt as a HUD element + triggerable
+  on-screen texts** — three UI-customization features in one pass. **(a) Menu
+  toggles:** two new menu entry actions, **Toggle** (Off/On, labels editable)
+  and **Choice** (up to 8 option labels). The state is a save value (param =
+  its name) holding the option index — its default is the initial state, it
+  persists in save slots, and flow graphs react through the existing pure
+  bool chain (*Value At Least* → *On Condition*). Since panels are single
+  baked sprites, every option label is baked into a second per-menu strip
+  texture (`res/menus/<name>-values.png`, `menubake::bakeValueStripPNG`); the
+  game draws the active cell as a MODE_REPEAT sub-rect sprite (the debug-font
+  atlas trick) right-aligned on the row. Cross / dpad right cycle forward,
+  dpad left backward; the Menus panel edits options inline and the preview
+  composites the initial states. **(b) USE prompt:** now a pinned,
+  non-deletable entry in Tools > UI Editor (`Project::usePrompt`, a HudImage)
+  — position/size editable, sprite replaceable with a custom PNG (baked to
+  PS2-valid size/quantization like any HUD image; "Reset to built-in"
+  restores the embedded 128x32 sprite). Codegen emits `USE_PROMPT_*`
+  constants in `hud_data.gen.hpp`; defaults reproduce the old hardcoded
+  placement, so existing projects render identically. **(c) HUD texts:**
+  `Project::hudTexts` (UI Editor > Texts) — named multi-line texts with font
+  (shared TTF picker, now `App::fontCombo`), size, color, drop shadow, baked
+  to centered pow2 sprites (`res/hud/text-<name>.png`) on every build. New
+  HUD flow nodes **Show Text** (optional auto-hide after N seconds) and
+  **Hide Text** drive them via new `ScriptContext::textRequest/textDuration`
+  arrays; `visibleAtStart` texts show from boot. Editor: texts render in the
+  viewport overlay (visible-at-start + the selected one), renames follow into
+  flow graphs, live baked preview in the panel. **Showcase updated:** the
+  GRAPHICS menu's eight "X: On / X: Off" event-entry pairs became four Toggle
+  rows bound to `gfx-*` save values (flow graphs rewired to VA→OC→Set), plus
+  an `options-hint` text shown 6 s on scene start. Verified: editor builds
+  clean; scratch project (`%TEMP%\tyra-editor-test\menutest`) with toggles,
+  a choice, texts and Show/Hide Text nodes generates correct
+  `menu_data`/`hud_data`/`flow_graph.gen.cpp` and **compiles in Docker (exit
+  0)**, showcase regenerates + compiles too; PCSX2 boot screenshot shows the
+  title-screen menu rendering "Fog  On" / "Quality  High" from the value
+  strip at the right row positions, a visible-at-start two-line shadowed
+  text, 50 FPS. Interactive cycling (Cross/dpad) still wants a human pad
+  test.
+
+- (69) **StaPip clipping moved from the EE to VU1 (hidden "vu1" mode, M1–M3
+  of docs/vu1-clipping-plan.md)** — the engine-fork TODO from
+  stapip_clipper.hpp, behind `"clipping": "vu1"` in project.json (no UI
+  yet; M4 flips the preference after a real-PS2 pass). A new StaPip `clip`
+  VU1 program family (c/d/tc/td) receives raw object-space vertices like
+  the cull programs and per triangle: judges the verts against the X/Y
+  guard band (clipw) plus the exact near/far planes (constant-z in Tyra's
+  clip space, biased into a second clipw judgement), emits fully-inside
+  triangles untouched, and Sutherland-Hodgman-clips crossing ones in a
+  scratch area above the shrunken double buffer (near plane first so w>0
+  for the w-relative side planes), fanning the result and patching the
+  prim giftag NLOOP. The EE clipper and as_is programs are bypassed
+  entirely in this mode (clip replaces as_is in micro memory - all three
+  families don't fit); spot light evaluates on raw verts in c/tc, d/td
+  light the original verts and lerp the lit colors, fog recomputes from
+  the lerped clip-space w. EE-side: clip packages are capped at
+  maxVertCount/5 floored to a multiple of 3 (bounded 7x fan-out; 72/5=14
+  split a triangle across packages and ran the VU1 loop off into memory),
+  and sub-1/3 packages are classified against the merged bbox of every
+  1/3-grid part they overlap (start-bbox-only misclassified visible
+  geometry as outside). Pitfalls burned in comments: fcand yields 0/1 not
+  a bit pattern; a vertex clipped to exactly |x|=w scales to GS 4096.0 and
+  wraps the 12.4 XYZ2 field (side planes cut at 0.9w; scissor equalizes).
+  Verified in PCSX2 SW renderer: detail-8 near-plane/guard-band stress
+  scene and a full showcase scene (dome, terrain, textured boxes, models)
+  are pixel-identical (0 diff) to the EE precise clipper; a textured box
+  straddling the camera differs 0.065% (LSB texel shifts on cut edges);
+  fast mode differs 31% on the stress scene (proves the scenes exercise
+  clipping); animated d/td scene holds 50 FPS. Real-PS2 PERF re-run
+  (clipbench) and the SW-vs-hardware ADC check are pending - M4 (making
+  "precise" route to VU1 + retiring StaPipClipper/PlanesClipAlgorithm)
+  waits for them.
+- (70) **Unique sprite/mesh ids — fixes HUD garbling when a menu opens** — a
+  bug report showed the debug HUD (FPS/MEM readout) rendering black blocks over
+  glyphs, "often" right after opening the pause menu. Root cause was in the
+  engine: `Sprite`, `Mesh`, `MeshFrame`, `MeshMaterial` and `MeshMaterialFrame`
+  all took their `id` from `rand() % 1000000`, and `srand()` is never called
+  (so the sequence is fixed per build). Those ids share **one** lookup namespace
+  in `TextureRepository`: a texture is bound to a sprite/material by
+  `addLink(id)` and resolved at draw time by the FIRST texture whose link set
+  contains that id (`getBySpriteId` / `getByMeshMaterialId`). Two objects handed
+  the same id → the sprite draws with the wrong texture (the black blocks).
+  Opening a menu allocates a burst of new sprites at once (dim + panel + cursor
+  + save sprites), which sharply raised the odds of a collision with the
+  always-present debug-HUD glyph — hence "often, when the menu opens". Fix:
+  new `renderer/models/unique_id.hpp` `generateUniqueId()` (a monotonic u32
+  counter, EE-thread only, skips 0 to stay clear of the texture-buffer
+  "unallocated" sentinel) replaces all eight `rand()` id assignments in the
+  rendering path. `audio_song.cpp` keeps `rand()` on purpose: its id is a
+  separate (audio) namespace and it is assigned on the audio thread, where the
+  non-atomic counter would race. Verified: engine recompiled and `libtyra.a`
+  relinked in Docker (fpp scratch project, `--build` = Build OK, clean on the
+  five touched files); the collision class is removed by construction. A
+  hands-on menu-open check on a menu-bearing project (e.g. the showcase) is the
+  remaining human confirmation — the failure was probabilistic/per-build, so it
+  cannot be forced to reproduce on demand.
+
+- (72) **examples/video-modes - a VIDEO OPTIONS menu test bed + the
+  runtime-widescreen freeze fix** - an example project for exercising
+  (70)+(71) on a pad. A baked game menu ("VIDEO OPTIONS", title screen at
+  boot AND the Start pause menu) lists the three scan modes, 4:3 / 16:9
+  and CLOSE; the entries fire flow events consumed by On Menu Event ->
+  Set Display Mode (confirm 8 s) / Set Widescreen on the `aspect-ball`
+  object. The scene is a calibration set: a white center sphere (the
+  aspect judge - must stay round in every mode/aspect on a real TV), four
+  colored compass pillars (horizontal FOV), and an overlay hint
+  (res/ui/controls.png, rendered from the same CP437 8x8 glyphs as the
+  engine's debugfont). Template change: `applyVideoRequests` returns true
+  on a scan-mode switch and the loop then CLOSES any open game menu - the
+  player judges the new picture unobstructed, and the confirm prompt's X
+  can't double as a menu select (the switch frame also skips the Cross
+  check, so the selecting press can't insta-confirm). **Bug found by a
+  hands-on test of (71): the runtime Set Widescreen froze the picture**
+  (EE kept running - pad logs still flowed - but the GS stopped drawing):
+  reprogramDisplay() went through the full programDisplay(), whose
+  graph_set_mode does a GS reset that wipes the drawing environment only
+  the full reinit() path re-creates. Fixed: a widescreen-only change now
+  rewrites JUST the DISPLAY window registers. res/.gitignore is customized
+  showcase-style (/hud/ and /menus/ ignored, authored res/ui checked in -
+  the file is only written at project creation, so it survives builds).
+  Verified: Docker build exits 0; PCSX2 boot screenshot shows the
+  title-screen menu (panel, cursor, X OK / Triangle BACK hints, dim
+  overlay) over the scene at "PAL Interlaced (Field) 512x448" 50 FPS; the
+  runtime widescreen path re-verified after the fix with an unattended
+  OnStart -> Delay -> Set Widescreen graph (scene keeps rendering,
+  geometry goes anamorphic). Menu navigation itself still wants a pad.
+
+- (71) **Runtime display-mode switching (with keep-or-revert prompt) +
+  widescreen 16:9** — follow-up to (70). **(a) Runtime switch:**
+  `RendererCore::setDisplayOutput(mode, widescreen)` (fork) re-selects the
+  scan mode between frames: the VRAM bump allocator resets, frame/z buffers
+  and the post-fx scratch buffers rebuild at the new size, every texture is
+  evicted (`RendererCoreTexture::evictAll`, lazy re-upload) and the
+  projection re-derives - `RendererCoreGS` grew `reinit()` /
+  `reprogramDisplay()` (mode setup split into `programDisplay()`).
+  **(b) Flow nodes:** **Set Display Mode** (mode combo + "Confirm s") and
+  **Set Widescreen** (Scene category) - new `ScriptContext` fields applied
+  in both game loops right before `beginFrame` (the safe point). With
+  Confirm > 0 the generated game arms a **keep-or-revert countdown**: it
+  switches, draws "KEEP VIDEO MODE? X = YES / BACK IN n" centered on
+  screen, and reverts to the previous mode automatically when the timer
+  (real g_frameDt seconds) expires without an X press - the PC-settings
+  safety net, since a mode the TV can't show is a black screen. The prompt
+  draws via a new shared `drawHudText` (refactored out of drawDebugHud);
+  the embedded 8x8 glyph strip grew A-Z + "?=-:" (42 glyphs, 512x16, two
+  rows) and `debugfont.png` is now written to every project on refresh
+  (release builds need it for the prompt), with the atlas string kept in
+  sync between `debugFontPng()` and the game template. **(c) Widescreen:**
+  `ProjectSettings::widescreen` (Preferences > Build checkbox, serialized,
+  default false) -> `EngineOptions::widescreen`. The projection aspect now
+  derives from the physical shape of each mode's display window
+  (`RendererSettings::updateGeometry`): SDTV modes keep their signal and
+  let the TV stretch (anamorphic), 1080i widens its GS window from 3x to
+  4x MAGH (1792/1920 VCK). Verified in PCSX2 (SW renderer, scratch orbit
+  project with OnStart -> Delay 4s -> Set Display Mode(480p, confirm 5s)):
+  boot in 480i -> switch at ~4s with the prompt rendering the new glyphs
+  over a healthy scene (textures re-uploaded after the VRAM rebuild) ->
+  countdown ticks -> prompt clears on timeout with the scene still healthy
+  after the second rebuild (the revert is the only inputless path that
+  clears the prompt; the final-mode status-bar text could not be read -
+  the PCSX2 window sat under the taskbar in captures). Widescreen build
+  verified by geometry: the same scene renders visibly narrower
+  (anamorphic squeeze) with widescreen on. Codegen inspected for both
+  nodes. Hands-on still wanted: the X-confirm path (needs a pad; synthetic
+  input is off-limits on this machine) and real-hardware output.
+
+- (70) **Alternative display modes: progressive 480p and 1080i** — new
+  Preferences > Build > **Display mode** combo (`ProjectSettings::displayMode`:
+  "interlaced" default / "progressive" / "1080i", serialized with a
+  backward-compatible default) baked into the generated `main.cpp` as
+  `EngineOptions::displayMode`. Engine side (`DisplayMode` enum,
+  `RendererSettings::setDisplayMode`, `RendererCoreGS`): **Progressive480p**
+  renders 448x448 and scans it out non-interlaced at MAGH 3x — a 1344x448
+  window centered in the 1440-VCK 480p raster, exactly 4:3, slightly *less*
+  VRAM than the stock 512x448. **HiDef1080i** renders 448x540 (sharper
+  vertically than 480i) shown as a 1344x1080 pillarboxed ~4:3 window in the
+  16:9 raster; frame+z buffers grow to 2.9 MB of VRAM, so ~1.1 MB is left
+  for textures (the UI warns). Both DTV modes bypass `graph_set_screen` —
+  it always programs the mode's full VCK width into DW, and **no 64-aligned
+  framebuffer width divides the 1440/1920-VCK rasters**, so the GS would
+  scan garbage past the buffer's right edge; `setDtvDisplay()` programs
+  DISPLAY1/2 directly (gsKit-style window math, centered). The projection
+  aspect deliberately stays at the constructor's 512/448 in every mode so
+  world proportions match across modes. Flicker filter stays on the stock
+  interlaced path only; DTV modes present via both DISPFB circuits at y=0
+  (`presentFrameBuffer`). `getRefreshRate()` returns 60 for the DTV modes
+  regardless of region, so wall-clock speed normalization keeps working.
+  **Pitfall burned into the code comments:** the gsKit/OPL "interlaced FRAME
+  mode, MagV--" recipe for 1080i **hard-crashes PCSX2 v2.3.205** (process
+  dies ~4 s in, no crash dialog, SW and HW renderers alike); 1080i in FIELD
+  mode with MAGV=2x is visually equivalent (each field steps through every
+  buffer line - a stable line-doubled 540p picture) and PCSX2 is fine with
+  it. Verified in PCSX2 (software renderer, scratch orbit project, one boot
+  per mode, status-bar + screenshot each): interlaced baseline "PAL
+  Interlaced (Field) 512x448" at 50 FPS unchanged; "SDTV 480p Progressive
+  448x448" at 60 FPS, clean right edge (the graph_set_screen overrun would
+  show there); "HDTV 1080i 448x540" at 60 FPS, pillarboxed and full-height.
+  Codegen + .tyra round-trip checked headlessly; samples/script-demo
+  regenerated. Real-hardware check (component cables) still wants a human -
+  PCSX2 does not emulate the analog signal path.
+
+- (69) **Pause now freezes particles and skeletal animation** — a pausing menu
+  (a menu with the pause flag, or the save menu) already stopped player
+  movement, scripts, object physics and the use target, but two effect systems
+  kept advancing behind the menu: particle emitters and skeletal-animation
+  playback, both driven off `g_frameDt` in `loop()` with no `menuActive` gate.
+  Added a `g_gameplayPaused` flag set at the top of `loop()` (both the orbit
+  and FPP game-cpp variants). `updateParticles()` early-returns while paused so
+  every billboard bag hangs on its last-built frame — the scene render still
+  draws it, so particles freeze in place instead of vanishing. Its sibling guard
+  from the Set Particles switch (`!g_particlesOn`) stays intact.
+  `updateAndRenderAnimObjects()` zeroes the playback step while paused, freezing
+  the pose while still skinning and rendering it. Overlay menus (pause flag off)
+  keep gameplay running as before. Verified: editor builds clean; codegen for
+  fresh FPP and orbit projects emits all changes; the `script-demo` example
+  (particles + animated models) compiles on the PS2 toolchain in Docker and
+  links (Build OK, exit 0). The visual freeze-on-pause still wants a hands-on
+  pad test in PCSX2 (open the pause menu, confirm rain/smoke and animations
+  stop).
+- (69) **On-demand save (no autosave) + menu-bar icon toolbar** — the editor
+  used to autosave the whole `.tyra` on *every* edit (`commitChange()` called
+  `saveAll()`), plus a second autosave whenever ImGui settled a layout/docking
+  change, plus a forced save on exit. That's gone. `commitChange()` now only
+  pushes an undo snapshot and, when the snapshot actually differed
+  (`History::push()` returns a bool now), flips a `dirty_` flag; the project is
+  written only when the user asks (File > Save, Ctrl+S, or the new toolbar
+  button). `dirty_` drives a `*` in the window title and an amber tint on the
+  Save icon. Losing unsaved work is guarded: Exit / Open Project / New Project
+  route through `requestExit/requestOpenProject/requestNewProject`, which pop an
+  "Unsaved Changes" modal (Save / Don't Save / Cancel) when dirty; the main
+  loop intercepts the window-close (`while(true)` + `glfwWindowShouldClose`
+  check) so the X button is guarded too. Terrain heightmaps used to be written
+  to disk on every sculpt stroke and on undo/redo; they're now kept in memory
+  (they already ride along in the undo snapshot) and persisted only in
+  `saveProject()` alongside the `.tyra`, so a discard truly discards terrain
+  edits. Freshly opened/created projects reset `dirty_` after
+  `attachProject()`'s asset rescan (rescan-found assets are rediscovered on
+  every open, so they don't count as unsaved). The new **toolbar** sits inline
+  in the main menu bar after Tools (`drawToolbar()`): a floppy **Save** (amber
+  when dirty), a **Build** (no run) hammer, then two tight run/stop pairs
+  separated by a wider gap — **[green Play = Build && Run in PCSX2, ▾, red Stop
+  PCSX2]** and **[blue Play = Build && Run on PS2, ▾, red Stop PS2]**. Each Play
+  has a Visual-Studio-style caret **dropdown** (`##..._more` → `BeginPopup`
+  anchored under the caret) offering *Run (no build)* and *Build (no run)*. Each
+  Stop cancels a running build when one is in progress, otherwise closes the
+  emulator (`Runner::stopEmulator()`) or stops the game on the console
+  (`Runner::stopPs2()`); the PS2 pair dims until a ps2link IP is set. Run
+  shortcuts (switched to `IsKeyChordPressed` so the modifier state matches
+  exactly): **F5** build && run in PCSX2, **Ctrl+F5** run in PCSX2 without
+  building; **F6** build && run on PS2, **Ctrl+F6** run on PS2 without building;
+  **Ctrl+Shift+B** build only. The no-build shortcuts also show in the caret
+  dropdowns and the top-level Build menu. Spacing is
+  set explicitly per button (not the default ImGui item spacing) so pairs read
+  as groups at any UI scale. Icons are vector-drawn on
+  the menu-bar draw list — the editor loads no icon font — so they stay crisp
+  at any UI scale. Editor-only change: no `.tyra` format, codegen or PS2
+  runtime impact. Verified end-to-end by driving the running editor (synthetic
+  mouse/keyboard) on an FPP scratch project and screenshotting each step:
+  paste-an-object → title gains `*`, Save icon turns amber, **but `grep` of the
+  on-disk `.tyra` shows the edit is NOT there** (no autosave); click the Save
+  icon → `.tyra` now contains it and `*` clears; Alt+F4 with unsaved edits →
+  the "Unsaved Changes" modal appears and the window stays open; "Don't Save" →
+  editor exits and the discarded edit is absent from the `.tyra`; "Cancel" →
+  editor stays open. Selecting an object (no edit) does not set dirty. Clean
+  editor build both before and after the button-label auto-size fix.
+- (69) **Usable-highlight rims moved off the EE (matrix shells + apron ring)** —
+  the in-game usable-object highlight could tank the frame rate: every frame,
+  for every nearby usable object, `renderHighlightHull` grew `steps × n` hull
+  vertices on the EE (9 muls **plus a bilinear `terrainHeightAt` per vertex**
+  for the ground clamp), wrote `2 × steps × n × 16 B` of vertex/color arrays,
+  and its per-frame `bboxVersion` bump forced a package-bbox recompute over
+  all of them — with the default 4 steps a few-thousand-vert usable model
+  near the player cost milliseconds of EE time, and the frame is EE-bound
+  (see the clipbench measurements in the backlog), so it fell straight to
+  the next vsync divisor.
+  The rewrite exploits that both per-vertex ops are uniform point scales
+  (grow about the object center, depth pushback about the eye): they compose
+  into a **single scale+translation model matrix**, so each shell now
+  re-submits the object's **own vertex arrays** with a per-shell `hullMat` +
+  per-shell single color — StaPip applies the matrix on VU1 (and in frustum
+  classify + the EE clipper via the composed MVP), the EE never touches a
+  vertex, and the shell's package bboxes ride the part's own `bboxVersion`
+  (their own cache slot — single color changes the package size — recomputed
+  only when the part rebuilds, never per frame). One game-level hull bag
+  replaces the per-object bag + `steps × n` vertex/color copies (a 6k-vert
+  usable model used to hold ~750 KB of hull arrays on a 32 MB console).
+  The one thing that genuinely needed per-vertex terrain sampling — the
+  ground-clamp that turned the bottom rim into a glow apron hugging the
+  terrain — is replaced by `buildHighlightApron`: a small terrain-following
+  annulus around the base (one band per shell, same growth radii and alpha
+  series, 24 segments ≈ 576 verts at 4 steps), world-space and
+  camera-independent, built once and cached until `rebuildObjectGeometry`
+  invalidates it (move/resize/scene switch). The repaint pass that erases
+  shell wash off receding side faces is unchanged. Verified: editor builds
+  clean; scratch FPP project (usable box + usable sphere + plain box near
+  spawn, highlight on) compiles in Docker and runs in PCSX2 — SW-renderer
+  screenshot shows the fading rim around the usable sphere only, clean
+  interior, the ground apron around the base, 50 VPS / 100% speed;
+  samples/script-demo regenerated + recompiled. Real-PS2 A/B timing of the
+  before/after EE cost still needs a hardware session (the COP0 PERF recipe
+  from the clipbench notes in the backlog applies as-is).
 
 - (68) **Ambience Editor + Properties docked right + sky dome preview** — three
   related changes. **(a) Docking default:** the first-run DockBuilder layout now

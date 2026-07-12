@@ -89,6 +89,7 @@ enum class FlowParamKind {
     AmbienceName,  // name of a Project::ambiencePresets entry ("" = none)
     LayerName,  // name of a SceneData::layers entry (streaming layer)
     SequenceName,  // name of a Project::sequences entry (Cutscene Director)
+    HudTextName,  // name of a Project::hudTexts entry (baked text sprite)
 };
 
 struct FlowNodeType {
@@ -172,6 +173,19 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          FlowParamKind::None, true, true, false, false, true, false, true},
         {"SetPosition", "Set Object Position", "Object", false, FlowParamKind::ObjectName,
          3, {"X", "Y", "Z"}, FlowParamKind::None, true, true, true, true, false},
+        // Dynamic spawning: Spawn Object clones its target object (link >
+        // name > self) into a free runtime slot - the clone starts at the
+        // linked position (or the template's own) with the given yaw, and the
+        // node's object output is the CLONE, not the template (wire it into
+        // Despawn Object / Set Position / Play Animation / ...). The pool
+        // holds 32 live clones; spawning past that fails silently (-1).
+        // Despawn Object removes a clone immediately (frees its slot); on an
+        // authored object it only deactivates it (layer streaming can bring
+        // authored objects back).
+        {"SpawnObject", "Spawn Object", "Object", false, FlowParamKind::ObjectName, 1,
+         {"Yaw"}, FlowParamKind::None, true, true, true, false, false},
+        {"DespawnObject", "Despawn Object", "Object", false, FlowParamKind::ObjectName,
+         0, {}, FlowParamKind::None, true, false},
         // Animation (animated .glb model objects; no-ops on anything else).
         // Play Animation: str = clip name ("" = the model's first clip); the
         // target object comes from an object link or defaults to self (the
@@ -231,6 +245,17 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          FlowParamKind::None, false, false},
         {"SetParticles", "Set Particles", "Scene", false, FlowParamKind::None, 1, {"On"},
          FlowParamKind::None, false, false},
+        // Runtime video output (options menus). Set Display Mode switches the
+        // scan mode (Mode: 0 = interlaced 480i/576i, 1 = progressive 480p,
+        // 2 = 1080i - shown as a combo in the node UI); with Confirm s > 0
+        // the game shows a keep-or-revert prompt and AUTOMATICALLY reverts
+        // to the previous mode unless the player confirms with X in time
+        // (a mode the TV can't show would otherwise strand them on a black
+        // screen). Set Widescreen re-fits the projection for a 16:9 display.
+        {"SetDisplayMode", "Set Display Mode", "Scene", false, FlowParamKind::None, 2,
+         {"Mode", "Confirm s"}, FlowParamKind::None, false, false},
+        {"SetWidescreen", "Set Widescreen", "Scene", false, FlowParamKind::None, 1,
+         {"On"}, FlowParamKind::None, false, false},
         // Repaints the sky from an Ambience Editor preset at runtime. Lighting
         // and fog are baked per scene at build, so only the sky changes live
         // (assign presets per scene, or switch scenes, for the full mood).
@@ -251,6 +276,13 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         {"HideHud", "Hide HUD", "HUD", false, FlowParamKind::None, 0, {},
          FlowParamKind::None, false, false},
         {"ToggleHud", "Toggle HUD", "HUD", false, FlowParamKind::None, 0, {},
+         FlowParamKind::None, false, false},
+        // On-screen texts (Tools > UI Editor > Texts; baked to sprites at
+        // build). Show Text: Seconds > 0 auto-hides after that long, 0 =
+        // stays until a Hide Text (subtitles, tutorial hints, pickup toasts).
+        {"ShowText", "Show Text", "HUD", false, FlowParamKind::HudTextName, 1,
+         {"Seconds"}, FlowParamKind::None, false, false},
+        {"HideText", "Hide Text", "HUD", false, FlowParamKind::HudTextName, 0, {},
          FlowParamKind::None, false, false},
         // Audio (music: 16-bit 22kHz stereo WAV; sounds: ADPCM one-shots)
         {"PlayMusic", "Play Music", "Audio", false, FlowParamKind::MusicTrack, 2,

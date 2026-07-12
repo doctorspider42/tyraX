@@ -411,6 +411,20 @@ void Runner::stopPs2(const Project& p) {
     });
 }
 
+void Runner::stopEmulator() {
+    if (busy()) return;
+    join();
+    cancelRequested_ = false;
+    state_ = State::Running;
+    thread_ = std::thread([this] {
+        appendLine("[editor] Stopping PCSX2...");
+        exec("taskkill /F /IM pcsx2-qt.exe 2>nul & taskkill /F /IM pcsx2.exe "
+             "2>nul & exit 0",
+             "");
+        state_ = State::Success;
+    });
+}
+
 bool Runner::deployToPs2(const Project& p) {
     if (p.ps2LinkIp.empty()) {
         appendLine("[editor] No PS2 address configured - set 'PS2 (ps2link) IP' in "

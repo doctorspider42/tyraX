@@ -23,6 +23,8 @@ StaPipBagPackage::StaPipBagPackage() {
   sts = nullptr;
   normals = nullptr;
   colors = nullptr;
+  indexOf1By3BBox = 0;
+  endIndexOf1By3BBox = 0;
 }
 StaPipBagPackage::~StaPipBagPackage() {}
 

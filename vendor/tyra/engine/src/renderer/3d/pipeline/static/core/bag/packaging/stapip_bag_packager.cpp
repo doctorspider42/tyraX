@@ -56,6 +56,10 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_size, StaPipBag* data,
       result[i].size = size;
     }
 
+    // Modified by tyra-editor: last 1/3 bbox the package overlaps.
+    result[i].endIndexOf1By3BBox =
+        (i * size + result[i].size - 1) / (maxVertCount / 3);
+
     result[i].isInFrustum = checkFrustum(result[i]);
   }
 
@@ -95,6 +99,12 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_count,
       result[i].size = size;
     }
 
+    // Modified by tyra-editor: last 1/3 bbox the subpackage overlaps (parent
+    // packages always start on a 1/3 boundary).
+    result[i].endIndexOf1By3BBox =
+        pkg.indexOf1By3BBox +
+        ((i * size + result[i].size - 1) / (maxVertCount / 3));
+
     result[i].isInFrustum = checkFrustum(result[i]);
   }
 
@@ -105,6 +115,16 @@ CoreBBoxFrustum StaPipBagPackager::checkFrustum(const StaPipBagPackage& pkg) {
   if (!renderBBox) return CoreBBoxFrustum::OUTSIDE_FRUSTUM;
 
   if (pkg.size <= (maxVertCount / 3)) {  // Is subpackage
+    // Modified by tyra-editor: a subpackage smaller than maxVertCount / 3
+    // (VU1 clipping mode) can straddle a 1/3 bbox boundary - classify it
+    // against the merged bbox of every part it overlaps.
+    if (pkg.endIndexOf1By3BBox > pkg.indexOf1By3BBox) {
+      auto bbox = renderBBox->createChildBBox(
+          pkg.indexOf1By3BBox,
+          pkg.endIndexOf1By3BBox - pkg.indexOf1By3BBox + 1);
+      return bbox.clipFrustumCheck(frustumPlanes->getAll(),
+                                   *pkg.bag->info->model);
+    }
     auto& bbox = renderBBox->getChildBBox1By3(pkg.indexOf1By3BBox);
     return bbox.clipFrustumCheck(frustumPlanes->getAll(),
                                  *pkg.bag->info->model);

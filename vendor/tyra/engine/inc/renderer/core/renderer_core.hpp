@@ -98,7 +98,20 @@ class RendererCore {
   bool drained3DFor2D = false;
 
   /** Called by renderer */
-  void init(VideoMode videoMode = VideoMode::Auto);
+  void init(VideoMode videoMode = VideoMode::Auto,
+            DisplayMode displayMode = DisplayMode::Interlaced,
+            bool widescreen = false);
+
+  /**
+   * Runtime video output switch (tyra-editor fork): scan mode
+   * (480i/480p/1080i) and/or 16:9 widescreen. Call between frames (i.e.
+   * before beginFrame, after the previous endFrame). Changing the scan mode
+   * re-allocates the frame/z/post-fx buffers (full VRAM reset) and evicts
+   * every texture from VRAM - they re-upload on their next use, so expect
+   * one heavier frame. A widescreen-only change just reprograms the display
+   * window and the projection.
+   */
+  void setDisplayOutput(const DisplayMode& mode, const bool& widescreen);
 
   /** World background color */
   void setClearScreenColor(const Color& color);

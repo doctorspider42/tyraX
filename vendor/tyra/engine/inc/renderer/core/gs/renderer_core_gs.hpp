@@ -26,6 +26,14 @@ class RendererCoreGS {
 
   void init(RendererSettings* settings);
 
+  // Modified by tyra-editor: runtime display switching (RendererCore::
+  // setDisplayOutput). reinit() resets the VRAM allocator and rebuilds the
+  // frame/z buffers + video mode for the settings' current display mode -
+  // every texture must have been evicted first. reprogramDisplay() only
+  // rewrites the display window (widescreen toggle).
+  void reinit();
+  void reprogramDisplay();
+
   void flipBuffers();
 
   void enableZTests();
@@ -51,6 +59,12 @@ class RendererCoreGS {
   void initDrawingEnvironment();
   void initChannels();
   void updateCurrentField();
+  // Modified by tyra-editor: DTV scan modes (480p/1080i) need a custom
+  // display window and an unfiltered framebuffer scan-out.
+  void programDisplay();
+  void setDtvDisplay(int modeX, int modeY, int modeDW, int modeDH, int magH,
+                     int magV, bool interlaced);
+  void presentFrameBuffer(u8 index);
   qword_t* setXYOffset(qword_t* q, const int& drawContext, const float& x,
                        const float& y);
 };
