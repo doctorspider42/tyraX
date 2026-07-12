@@ -9,6 +9,28 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (79) **Tool windows scale their layout with the UI scale (fix 250% clipping)** —
+  the floating Tools windows (Menu Editor, Material Editor, Color Grading,
+  Ambience, UI Editor, Disc Layout) and the modal dialogs baked their widget
+  widths, child-region sizes, `SameLine`/`Indent` offsets and preview sizes as
+  raw pixel literals. `applyUiScale()` scales fonts (`FontScaleMain`) and style
+  spacing (`ScaleAllSizes`) but not code literals, so at 250% (a 4K laptop the
+  user actually runs) combos and inputs were too narrow for the 2.5×-tall text —
+  "apply a preset…" showed "apply a", "256 px" showed "25(", the entry action
+  combos clipped to "Close"/"Continu", and the panel preview was a postage stamp.
+  Added `App::scaled(px)` (= `px * uiScaleApplied_`) and routed every literal
+  layout size in those windows through it (window `SetNextWindowSize`, the
+  `##*_list` child widths, all `SetNextItemWidth`, absolute `SameLine`/`Indent`,
+  the menu 1:1/TV preview sizes and clamps, the disc table column widths, and the
+  short-label dialog buttons `ImVec2(120/140, 0)`); `gradingWheel()` took a
+  `scale` param so the two Resolve-style trackballs scale too. This finishes the
+  job the UI Editor had already done inline (its 3 sites now use the helper).
+  Verified at the user's real 250% scale by scripting the GUI (DPI-aware screen
+  capture + synthetic clicks/scroll): the Menu Editor now shows every field in
+  full and a properly sized baked-panel preview (MENU / Continue / Sound·Off /
+  Difficulty·Low / Start Game), and Color Grading renders its quick-look buttons
+  and both hue wheels side by side without clipping. Editor builds clean.
+
 - (78) **"Open in VS Code" jumps to a file (scripts + custom nodes)** —
   `App::openInVSCode` gained an optional `file` arg: it now runs
   `code "<projectDir>" -g "<file>"`, opening (or reusing) the whole-project

@@ -57,6 +57,13 @@ private:
     // ImGui style + fonts; setUiScale() also persists the choice.
     void applyUiScale();
     void setUiScale(float userScale);
+    // Multiply a design-time pixel size (widget widths, child regions, window
+    // sizes, hand-drawn previews) by the active UI scale, so code literals
+    // track DPI/zoom the same way fonts and style spacing already do (see
+    // applyUiScale: FontScaleMain + ScaleAllSizes). Any tool window that gives
+    // a widget a literal pixel size should route it through this or the text
+    // clips at high scale (a 180 px combo can't hold 2.5x-tall glyphs).
+    float scaled(float px) const { return px * uiScaleApplied_; }
     void drawViewportWindow();
     void drawProjectWindow();
     void drawPropertiesWindow();
