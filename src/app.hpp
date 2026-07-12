@@ -459,6 +459,13 @@ private:
     std::string layerRenameFrom_;
     int layerRenameIdx_ = -1;
 
+    // Layers panel RAM readout: estimated resident bytes per layer name
+    // ("" = the always-resident unassigned group). Parsing models/materials
+    // for texture references is too slow per frame - cached until the next
+    // commitChange()/attachProject() clears it.
+    std::map<std::string, double> layerRamCache_;
+    double layerAssetMB(const std::string& layerName);
+
     // "New scene" modal state
     int deleteScenePending_ = -1;  // scene index awaiting delete confirmation
     bool openNewScenePopup_ = false;

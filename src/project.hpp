@@ -518,11 +518,24 @@ struct SceneLayer {
     std::string name = "Layer";
     bool startLoaded = true;    // game: resident when the scene starts
     bool editorVisible = true;  // editor-only: draw/pick the objects
+
+    // Auto-streaming (opt-in): the game loads this layer while the player is
+    // within streamRadius of (streamX, streamZ) and unloads it once they
+    // leave radius + hysteresis - GTA-style zone streaming without wiring
+    // the flow graph. Requests are edge-triggered (issued only when the
+    // player crosses the boundary), so Load/Unload Layer nodes can still
+    // override until the next crossing. When enabled, the initial residency
+    // comes from the spawn distance, not startLoaded.
+    bool autoStream = false;
+    float streamX = 0.0f, streamZ = 0.0f;  // zone center, world units
+    float streamRadius = 60.0f;            // load within this range
 };
 
 inline bool operator==(const SceneLayer& a, const SceneLayer& b) {
     return a.name == b.name && a.startLoaded == b.startLoaded &&
-           a.editorVisible == b.editorVisible;
+           a.editorVisible == b.editorVisible && a.autoStream == b.autoStream &&
+           a.streamX == b.streamX && a.streamZ == b.streamZ &&
+           a.streamRadius == b.streamRadius;
 }
 
 // A scene: its own objects (each with its flow graph), its own terrain
