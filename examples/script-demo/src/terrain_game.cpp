@@ -599,6 +599,9 @@ void TerrainGame::init() {
   if (!FRAME_LIMIT) engine->renderer.core.setFrameLimit(false);
 
   stapip.setRenderer(&engine->renderer.core);
+  // Hidden "clipping": "vu1" mode: frustum-crossing packages are clipped by
+  // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
+  stapip.core.setVU1Clipping(CLIP_VU1);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
   // GS hardware distance fog (Scene/Project > Preferences > Fog).
@@ -650,13 +653,16 @@ void TerrainGame::init() {
     texture->addLink(hudSprites.back().id);
   }
 
-  // "USE" prompt (res/hud/use.png), shown while looking at a usable object
+  // "USE" prompt, shown while looking at a usable object. Placement and
+  // image come from hud_data.gen.hpp (Tools > UI Editor - the built-in
+  // hud/use.png unless a custom sprite replaces it).
   usePromptSprite.mode = SpriteMode::MODE_STRETCH;
-  usePromptSprite.size = Vec2(128.0F, 32.0F);
-  usePromptSprite.position = Vec2((screen.getWidth() - 128.0F) * 0.5F,
-                                  screen.getHeight() * 0.72F);
-  auto* useTexture =
-      engine->renderer.getTextureRepository().add(FileUtils::fromCwd("hud/use.png"));
+  usePromptSprite.size = Vec2(USE_PROMPT_W, USE_PROMPT_H);
+  usePromptSprite.position =
+      Vec2(USE_PROMPT_X * screen.getWidth() - USE_PROMPT_W * 0.5F,
+           USE_PROMPT_Y * screen.getHeight() - USE_PROMPT_H * 0.5F);
+  auto* useTexture = engine->renderer.getTextureRepository().add(
+      FileUtils::fromCwd(USE_PROMPT_PATH));
   useTexture->addLink(usePromptSprite.id);
 
   // Loading screen sprite (res/hud/loading.png), shown on scene switches
@@ -830,6 +836,7 @@ void TerrainGame::loop() {
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
+    updateAndRenderHudTexts();
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine);
@@ -931,9 +938,51 @@ void TerrainGame::buildScene() {
           FileUtils::fromCwd(m.panel));
       t->addLink(menuSprites.back().id);
     }
+    // Toggle/Choice value strips: a sub-rect sprite per menu (MODE_REPEAT
+    // samples [offset, offset+size] texels - the debug glyph atlas trick).
+    // renderGameMenu moves offset/position to the active cell each frame.
+    menuValueSprites.clear();
+    menuValueSprites.reserve(MENU_COUNT);
+    for (int i = 0; i < MENU_COUNT; ++i) {
+      const MenuData& m = MENUS[i];
+      Sprite s;
+      s.mode = SpriteMode::MODE_REPEAT;
+      s.size = Vec2((float)m.valueCellW, (float)m.valueCellH);
+      menuValueSprites.push_back(s);
+      if (m.values[0] == '\0') continue;  // no value entries in this menu
+      auto* t = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd(m.values));
+      t->addLink(menuValueSprites.back().id);
+    }
     setupSprite(menuCursorSprite, "hud/save-cursor.png", 16, 16, 0.0F, 0.0F);
     setupSprite(menuDimSprite, "hud/menu-dim.png", scr.getWidth(),
                 scr.getHeight(), 0.0F, 0.0F);
+
+    // On-screen texts (hud_data.gen.hpp): baked sprites toggled by the
+    // Show Text / Hide Text flow nodes through scriptCtx (wired here, before
+    // the scripts' init runs from the game init).
+    hudTextSprites.clear();
+    hudTextSprites.reserve(HUD_TEXT_COUNT);
+    hudTextReq.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, -1);
+    hudTextDur.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, 0.0F);
+    hudTextOn.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, 0);
+    hudTextTimer.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, 0.0F);
+    for (int i = 0; i < HUD_TEXT_COUNT; ++i) {
+      const HudTextData& t = HUD_TEXTS[i];
+      Sprite s;
+      s.mode = SpriteMode::MODE_STRETCH;
+      s.size = Vec2((float)t.w, (float)t.h);
+      s.position = Vec2(t.x * scr.getWidth() - t.w * 0.5F,
+                        t.y * scr.getHeight() - t.h * 0.5F);
+      hudTextSprites.push_back(s);
+      auto* tex = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd(t.path));
+      tex->addLink(hudTextSprites.back().id);
+      hudTextOn[i] = (unsigned char)t.visible;
+    }
+    scriptCtx.textRequest = hudTextReq.data();
+    scriptCtx.textDuration = hudTextDur.data();
+    scriptCtx.textCount = HUD_TEXT_COUNT;
     if (TITLE_MENU >= 0) {
       gameMenuIndex = TITLE_MENU;
       gameMenuCursor = 0;
@@ -1933,6 +1982,8 @@ void TerrainGame::loadScene(int sceneIndex) {
     skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
     buildSkyDome();
   }
+  // Per-scene clipping override may flip the hidden VU1 clipping mode.
+  stapip.core.setVU1Clipping(CLIP_VU1);
   // Per-scene sky color (the loop paints the clear screen from ctx.skyColor)
   // and post effects.
   scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
@@ -2609,6 +2660,24 @@ bool TerrainGame::updateGameMenu() {
   if (clicked.DpadDown && m.entryCount > 0)
     gameMenuCursor = (gameMenuCursor + 1) % m.entryCount;
 
+  // Toggle/Choice rows: the state is the bound save value (the option
+  // index). Cross and dpad right cycle forward, dpad left backward.
+  auto cycleValue = [&](const MenuEntryData& e, int dir) {
+    if (e.param < 0 || e.param >= SAVE_VALUE_COUNT || e.optionCount <= 0)
+      return;
+    int v = (int)saveValues[e.param];
+    if (v < 0) v = 0;
+    if (v >= e.optionCount) v = e.optionCount - 1;
+    saveValues[e.param] = (float)((v + dir + e.optionCount) % e.optionCount);
+  };
+  if (gameMenuCursor >= 0 && gameMenuCursor < m.entryCount) {
+    const MenuEntryData& cur = m.entries[gameMenuCursor];
+    if (cur.action == 7 || cur.action == 8) {
+      if (clicked.DpadLeft) cycleValue(cur, -1);
+      if (clicked.DpadRight) cycleValue(cur, 1);
+    }
+  }
+
   if (clicked.Triangle) {
     if (gameMenuStackDepth > 0) {
       gameMenuIndex = gameMenuStack[--gameMenuStackDepth];
@@ -2657,6 +2726,10 @@ bool TerrainGame::updateGameMenu() {
       case 6:  // flow event: scripts run this frame to catch it
         scriptCtx.menuEvent = e.param;
         break;
+      case 7:  // toggle - flip/cycle the bound save value (menu stays open)
+      case 8:  // choice
+        cycleValue(e, 1);
+        break;
     }
   }
   return pausing();
@@ -2674,6 +2747,46 @@ void TerrainGame::renderGameMenu() {
         Vec2(panel.position.x + 32.0F,
              panel.position.y + m.row0Y + gameMenuCursor * m.rowH + 1.0F);
     engine->renderer.renderer2D.render(menuCursorSprite);
+  }
+  // Toggle/Choice rows: the current option label, a cell of the baked value
+  // strip drawn right-aligned on the row (cell right edge 24px from the
+  // panel's right border - the mirror of the 56px label margin).
+  if (m.values[0] != '\0' &&
+      gameMenuIndex < (int)menuValueSprites.size()) {
+    Sprite& vs = menuValueSprites[gameMenuIndex];
+    for (int i = 0; i < m.entryCount; ++i) {
+      const MenuEntryData& e = m.entries[i];
+      if (e.cell < 0 || e.optionCount <= 0) continue;
+      int v = (e.param >= 0 && e.param < SAVE_VALUE_COUNT)
+                  ? (int)saveValues[e.param]
+                  : 0;
+      if (v < 0) v = 0;
+      if (v >= e.optionCount) v = e.optionCount - 1;
+      vs.offset = Vec2(0.0F, (float)((e.cell + v) * m.valuePitch));
+      vs.position = Vec2(panel.position.x + m.valueX,
+                         panel.position.y + m.row0Y + i * m.rowH);
+      engine->renderer.renderer2D.render(vs);
+    }
+  }
+}
+
+// On-screen texts: apply the frame's Show/Hide Text requests, tick the
+// auto-hide timers, draw what is visible. Baked sprites - one 2D quad each.
+void TerrainGame::updateAndRenderHudTexts() {
+  for (int i = 0; i < (int)hudTextSprites.size(); ++i) {
+    if (scriptCtx.textRequest && scriptCtx.textRequest[i] >= 0) {
+      hudTextOn[i] = scriptCtx.textRequest[i] != 0 ? 1 : 0;
+      hudTextTimer[i] = hudTextOn[i] ? scriptCtx.textDuration[i] : 0.0F;
+      scriptCtx.textRequest[i] = -1;
+    }
+    if (hudTextOn[i] && hudTextTimer[i] > 0.0F) {
+      hudTextTimer[i] -= g_frameDt;
+      if (hudTextTimer[i] <= 0.0F) {
+        hudTextOn[i] = 0;
+        hudTextTimer[i] = 0.0F;
+      }
+    }
+    if (hudTextOn[i]) engine->renderer.renderer2D.render(hudTextSprites[i]);
   }
 }
 
@@ -2835,6 +2948,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
   ObjectGeometry& g = objectGeometry[index];
   o.dirty = false;
   g.apronVerts.clear();  // position/size changed - the highlight ring follows
+  g.hullProxyVerts.clear();  // and the shell proxy re-bakes the transform
 
   // models: one draw part per MTL material; everything else fills parts[0]
   const GameModel* gm = nullptr;
@@ -2980,28 +3094,83 @@ void TerrainGame::renderScene() {
   // before any packaging or clipping work happens.
   updateTerrainChunks(cameraLookAt.x, cameraLookAt.z, 2);
   renderTerrain();
+  // Highlighted-in-reach usables are deferred out of the main pass: their
+  // shells draw first and the body once AFTER them, erasing the shell wash
+  // over the object's own receding faces without a second full draw of the
+  // mesh (the old order needed main-pass draw + repaint - two exact-clip
+  // passes of the whole object per frame).
+  int hlDeferred[8];
+  float hlDeferredD2[8];
+  int hlDeferredCount = 0;
+  const bool hlActive = HIGHLIGHT_USABLE;
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (!runtimeObjects[i].active) continue;  // streamed out with its layer
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
     if (!runtimeObjects[i].visible) continue;
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
+    if (hlActive && hlDeferredCount < 8 && runtimeObjects[i].data.usable &&
+        highlightInReach(i)) {
+      const float ddx = runtimeObjects[i].data.position[0] - cameraPosition.x;
+      const float ddy = runtimeObjects[i].data.position[1] - cameraPosition.y;
+      const float ddz = runtimeObjects[i].data.position[2] - cameraPosition.z;
+      hlDeferred[hlDeferredCount] = i;
+      hlDeferredD2[hlDeferredCount++] = ddx * ddx + ddy * ddy + ddz * ddz;
+      continue;
+    }
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag) stapip.core.render(part.bag.get());
   }
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
   updateAndRenderAnimObjects();
-  // Highlight rims after every object so their depth is in the z-buffer:
-  // the rim is depth-tested against the finished scene and can no longer be
-  // punched through by an object drawn later in the loop.
-  if (HIGHLIGHT_USABLE)
-    for (int i = 0; i < (int)runtimeObjects.size(); ++i)
-      if (runtimeObjects[i].active && runtimeObjects[i].visible &&
-          runtimeObjects[i].data.usable && !objectGeometry[i].parts.empty())
-        renderHighlightHull(i);  // proximity-checked inside; no-op when far
+  // Highlight rims after every other object so their depth is in the
+  // z-buffer: the rim is depth-tested against the finished scene and can no
+  // longer be punched through by an object drawn later in the loop. Each
+  // deferred body draws right after its own shells; far-to-near order keeps
+  // a nearer body correctly covering a farther object's rim.
+  for (int a = 0; a < hlDeferredCount; ++a)  // insertion sort, farthest first
+    for (int b = a + 1; b < hlDeferredCount; ++b)
+      if (hlDeferredD2[b] > hlDeferredD2[a]) {
+        const int ti = hlDeferred[a];
+        hlDeferred[a] = hlDeferred[b];
+        hlDeferred[b] = ti;
+        const float td = hlDeferredD2[a];
+        hlDeferredD2[a] = hlDeferredD2[b];
+        hlDeferredD2[b] = td;
+      }
+  for (int a = 0; a < hlDeferredCount; ++a) {
+    const int i = hlDeferred[a];
+    renderHighlightHull(i);  // shells + ground apron (body drawn below)
+    for (GeoPart& part : objectGeometry[i].parts)
+      if (part.bag) stapip.core.render(part.bag.get());
+  }
   // particles last - alpha blended over the scene
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
+}
+
+// True when the usable object sits inside the highlight distance (same
+// reference point as the USE interaction) and has anything to draw.
+bool TerrainGame::highlightInReach(int index) const {
+  const RuntimeObject& o = runtimeObjects[index];
+  const ObjectGeometry& g = objectGeometry[index];
+  bool any = false;  // marker-only objects have no draw parts
+  for (const GeoPart& part : g.parts)
+    if (part.bag) {
+      any = true;
+      break;
+    }
+  if (!any) return false;
+  float half = o.data.scale[0];
+  if (o.data.scale[1] > half) half = o.data.scale[1];
+  if (o.data.scale[2] > half) half = o.data.scale[2];
+  half *= 0.5F;
+  if (half < 0.01F) half = 0.01F;
+  const float dx = o.data.position[0] - cameraPosition.x;
+  const float dy = o.data.position[1] - cameraPosition.y;
+  const float dz = o.data.position[2] - cameraPosition.z;
+  const float reach = HIGHLIGHT_DISTANCE + half;
+  return dx * dx + dy * dy + dz * dz <= reach * reach;
 }
 
 // Usable-object highlight (Project > Preferences): a soft colored rim around
@@ -3039,13 +3208,10 @@ void TerrainGame::renderHighlightHull(int index) {
   const float reach = HIGHLIGHT_DISTANCE + half;
   if (dist2 > reach * reach) return;
 
-  bool any = false;  // marker-only objects have no draw parts
-  for (const GeoPart& part : g.parts)
-    if (part.bag) {
-      any = true;
-      break;
-    }
-  if (!any) return;
+  // Shells draw from the low-detail proxy, not the object's own (possibly
+  // heavily subdivided) mesh - built lazily, cleared on geometry rebuilds.
+  if (g.hullProxyVerts.empty()) buildHighlightProxy(index);
+  if (g.hullProxyVerts.empty()) return;  // marker-only object
 
   const float dist = sqrtf(dist2);
   const float cx = o.data.position[0], cy = o.data.position[1],
@@ -3102,16 +3268,13 @@ void TerrainGame::renderHighlightHull(int index) {
     hullMat.data[13] = k * (1.0F - f) * cy + (1.0F - k) * cameraPosition.y;
     hullMat.data[14] = k * (1.0F - f) * cz + (1.0F - k) * cameraPosition.z;
     hullColorBag->single = &hullShellCols[s];
-    for (GeoPart& part : g.parts) {
-      if (!part.bag) continue;
-      hullBag->vertices = part.bag->vertices;
-      hullBag->count = part.bag->count;
-      // Same pointer + version as the part: the shell's package boxes live
-      // in their own cache slot (single color changes the package size) and
-      // recompute only when the part itself rebuilds - never per frame.
-      hullBag->bboxVersion = part.bag->bboxVersion;
-      stapip.core.render(hullBag.get());
-    }
+    // One submit per shell over the proxy positions; the package boxes live
+    // in their own cache slot (keyed by the proxy pointer) and recompute
+    // only when the proxy rebuilds - never per frame.
+    hullBag->vertices = g.hullProxyVerts.data();
+    hullBag->count = static_cast<u32>(g.hullProxyVerts.size());
+    hullBag->bboxVersion = g.hullProxyStamp;
+    stapip.core.render(hullBag.get());
   }
 
   // Grounded objects: the shells dip below the terrain and the ground in
@@ -3146,11 +3309,62 @@ void TerrainGame::renderHighlightHull(int index) {
   }
 
   // The pushback clears the object's front face but not its receding side
-  // faces - shells still blend over those at glancing angles. Repainting
-  // the object wins the equal-depth test (GEQUAL) and erases the wash
-  // without touching the rim outside the silhouette.
-  for (GeoPart& part : g.parts)
-    if (part.bag) stapip.core.render(part.bag.get());
+  // faces - shells still blend over those at glancing angles. The caller
+  // draws the deferred body right after this call; painting it over the
+  // shells wins the equal-depth test (GEQUAL) and erases the wash without
+  // touching the rim outside the silhouette - and without drawing the mesh
+  // twice like the old main-pass-draw + repaint order did.
+}
+
+// Builds the shells' low-detail stand-in (world-space positions only).
+// Primitives regenerate through their own builders with the subdivision
+// forced down - a subdivided box/plane has the same silhouette at detail 1,
+// and a curved primitive at 12 segments is within a couple of percent of
+// its full-detail silhouette, invisible under the soft rim. Models have no
+// cheaper source, so their parts are concatenated as-is (one submit per
+// shell instead of one per part).
+void TerrainGame::buildHighlightProxy(int index) {
+  const RuntimeObject& o = runtimeObjects[index];
+  ObjectGeometry& g = objectGeometry[index];
+  g.hullProxyVerts.clear();
+
+  if (o.data.type == 5) {
+    size_t total = 0;
+    for (const GeoPart& part : g.parts) total += part.vertices.size();
+    g.hullProxyVerts.reserve(total);
+    for (const GeoPart& part : g.parts)
+      if (part.bag)
+        g.hullProxyVerts.insert(g.hullProxyVerts.end(), part.vertices.begin(),
+                                part.vertices.end());
+  } else {
+    SceneObjectData low = o.data;
+    low.primDetail = 1;
+    switch (o.data.type) {
+      case 1:
+      case 2:
+      case 3:
+        low.primDetail = o.data.primDetail < 12 ? o.data.primDetail : 12;
+        break;
+      default:
+        break;  // boxes, planes, decals: detail 1
+    }
+    // The builders emit colors/sts too; shells only need positions, the
+    // rest is discarded (built once per geometry rebuild).
+    std::vector<Color> cols;
+    std::vector<Vec4> sts;
+    switch (o.data.type) {
+      case 1: addSphere(g.hullProxyVerts, cols, sts, low); break;
+      case 2: addCylinder(g.hullProxyVerts, cols, sts, low); break;
+      case 3: addCone(g.hullProxyVerts, cols, sts, low); break;
+      case 12: addPlane(g.hullProxyVerts, cols, sts, low); break;
+      case 13: addDecal(g.hullProxyVerts, cols, sts, low); break;
+      default:
+        if (!g.parts.empty() && g.parts[0].bag)
+          addBox(g.hullProxyVerts, cols, sts, low);
+        break;  // marker-only types keep the proxy empty
+    }
+  }
+  if (!g.hullProxyVerts.empty()) g.hullProxyStamp = ++g_bboxStamp;
 }
 
 // The terrain-hugging glow ring around a grounded usable object's base: one

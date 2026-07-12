@@ -93,6 +93,7 @@ constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {1.0F};
 constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {1.0F};
 constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {1.0F};
 constexpr bool CLIP_PRECISES[SCENE_COUNT] = {true};
+constexpr bool CLIP_VU1S[SCENE_COUNT] = {false};
 constexpr float SKY_RS[SCENE_COUNT] = {63.75F};
 constexpr float SKY_GS[SCENE_COUNT] = {140.25F};
 constexpr float SKY_BS[SCENE_COUNT] = {198.9F};
@@ -221,6 +222,7 @@ inline int everyFrames(float seconds) {
 #define TERRAIN_TINT_B TERRAIN_TINTS[g_activeScene][2]
 // Per-scene sky / clipping / post-FX / usable-highlight (Scene > Preferences)
 #define CLIP_PRECISE CLIP_PRECISES[g_activeScene]
+#define CLIP_VU1 CLIP_VU1S[g_activeScene]
 #define SKY_R SKY_RS[g_activeScene]
 #define SKY_G SKY_GS[g_activeScene]
 #define SKY_B SKY_BS[g_activeScene]
