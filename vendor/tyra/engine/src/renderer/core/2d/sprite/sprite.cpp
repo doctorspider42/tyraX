@@ -9,11 +9,12 @@
 */
 
 #include "renderer/core/2d/sprite/sprite.hpp"
+#include "renderer/models/unique_id.hpp"
 
 namespace Tyra {
 
 Sprite::Sprite() {
-  id = rand() % 1000000;
+  id = generateUniqueId();
   flipHorizontal = false;
   flipVertical = false;
   size.set(32.0F, 32.0F);
