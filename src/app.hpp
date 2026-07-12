@@ -7,6 +7,7 @@
 
 #include <imgui.h>  // ImGuiStyle baseStyle_ member (UI scaling)
 
+#include "camtake.hpp"
 #include "history.hpp"
 #include "isoexport.hpp"
 #include "project.hpp"
@@ -360,6 +361,19 @@ private:
     int seqBarsStyleNow_ = 0;     // kSeqBars* while previewing, else 0
     float seqBarsNow_ = 0.0f;     // bars slide-in envelope 0..1
     float seqFadeNow_ = 0.0f;     // fade-to-black overlay alpha 0..1
+    // "Import take..." modal (camera lane): a phone-recorded 6DoF camera take
+    // (src/camtake.hpp) staged for baking into free camera shots. The bake
+    // preview is cached and recomputed only when a mapping control changes.
+    bool seqTakeOpen_ = false;        // open the modal this frame
+    CamTake seqTake_;                 // the loaded take
+    std::string seqTakePath_;         // file it was loaded from
+    std::string seqTakeError_;        // loader error shown in the modal
+    CamTakeMapping seqTakeMap_;       // scale / yaw / origin / time / tolerance
+    bool seqTakeAtPlayhead_ = false;  // key times start at the playhead
+    bool seqTakeReplace_ = true;      // replace the camera track (else append)
+    bool seqTakeDirty_ = true;        // re-bake the cached preview
+    std::vector<SeqCameraKey> seqTakeBaked_;  // cached bake result
+    CamTakeBakeStats seqTakeStats_;
 
     // Material Editor (Tools > Material Editor). Materials are the project's
     // .mtl asset files, edited in place: matEdMats_ stages the open file's

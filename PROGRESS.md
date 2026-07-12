@@ -9,6 +9,59 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (71) **Phone camera takes — record a real 6DoF camera move on an iPhone
+  (ARKit) and import it as Cutscene Director camera keys.** "Walk around a
+  room looking around" becomes a PS2 cutscene camera move; the PS2 runtime
+  needed zero changes (imported takes are ordinary free camera shots).
+  **Module** (`src/camtake.hpp/.cpp`, new — no ImGui deps, links into host
+  harnesses like project/templates): `CamTake` (samples: time, position in
+  meters, quaternion, optional FOV; canonical space = the ARKit convention,
+  right-handed Y-up, camera looks local −Z — which matches the game world's
+  axes, so mapping is scale/yaw/origin only). Deliberate two-stage split for
+  phase 2 (live Wi-Fi/USB pose streaming): *acquisition* (loaders → CamTake)
+  vs *bake* (`bakeCamTake`: pure function of take + mapping, callable on a
+  growing buffer). **Loaders:** CamTrackAR `.hfcs` (FXhome iPhone app; plain
+  XML read with a minimal in-file XML subset reader — positions are HitFilm
+  "pixels" / 2.8352 / 1000, orientation eulers negated back and applied ZYX,
+  FOV from the zoom channel `2·atan(0.5·H/zoom)`, times = frame/FrameRate,
+  semantics from FXhome's official Blender importer) and an app-agnostic CSV
+  (`t,px,py,pz,qx,qy,qz,qw[,fov]` — spec in `docs/camera-takes.md`, a direct
+  ARKit `camera.transform` dump). **Bake:** eye = origin + yaw(pos−pos₀)·scale,
+  look-at 2 m ahead along the sample's view direction (roll has no
+  representation in eye/look-at keys and is dropped), then time-parameterized
+  Ramer–Douglas–Peucker decimation over the (eye, look-at) curve with a
+  world-units tolerance — the PS2 tables in `sequences.gen.cpp` grow with
+  every key, so a 60 Hz take must shrink ~100×. All keys linear easing; FOV =
+  take average. **UI:** "Import take..." (button by the Cutscene Director
+  transport + the camera-lane context menu) → file pick → modal with
+  scale/yaw/origin (defaults to the preview camera, "From view")/
+  start-at-playhead/tolerance controls, a live samples→keys readout,
+  replace-vs-append radio; one `commitChange()` per import; camera track
+  auto-enabled, sequence duration extended to fit. **The empirical
+  gotcha** (the reason the axis mapping was tested against a real take): the
+  Blender importer's `axis_conversion(from_forward='Z', ...)` suggests
+  HitFilm cameras look +Z, but the script assigns the rotation to a *Blender*
+  camera, which films down local −Z — so the decoded orientation is already
+  the canonical −Z-forward rotation, no flip. First build used the +Z reading
+  and PCSX2 showed only sky: the take pitched 37–65° *up*; with −Z it pitches
+  37–65° *down* (a phone picked up off a desk — the only physically possible
+  reading, a face-down phone can't track). Verified: a scratch harness
+  (linked against the editor's objects) loads the real user-recorded take
+  (`sample-take.hfcs`, 395 samples @ 60 Hz, 6.57 s, FOV 56.4°) → **12 keys**
+  at the default 0.05 u tolerance with the interpolated path staying within
+  tolerance of every original sample (also: a synthetic walk-+X-looking-+X
+  CSV take comes out walking +X and decimates to exactly 2 keys; a 20 s
+  60 Hz circle-walk take with sinusoidal look-around → 96 keys, error bound
+  holds; scale/yaw/origin/time-offset mapping asserts; a hand-written
+  mini .hfcs pins px→m, FOV and the identity orientation). E2E: injected the
+  baked take + landmark boxes + OnStart→Play Sequence into a scratch project
+  (`%TEMP%\tyra-editor-test\camtake`), `sequences.gen.cpp` stayed at 13 KB
+  (12-key table), Docker build OK, **PCSX2 booted it** and screenshots at
+  three moments show the camera panning across the boxes/terrain along the
+  handheld path. The import modal itself compiles + is wired, but its
+  click-through (file dialog → sliders → Import) still needs a hands-on
+  human pass.
+
 - (69) **Cutscene Director — a keyframe timeline sequencer (cinematic cutscenes
   on the PS2)** — the editor's first full animation-authoring tool. A
   **Sequence** is a project-wide keyframe timeline that poses scene objects

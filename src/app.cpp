@@ -44,7 +44,7 @@
 // Native pickers (IFileOpenDialog). pickFolder: FOS_PICKFOLDERS;
 // pickSolutionFile: file dialog filtered to *.tyra project files.
 // ---------------------------------------------------------------------------
-enum class PickKind { Folder, Solution, ObjModel, Mtl, Png, Wav, Ttf, Executable };
+enum class PickKind { Folder, Solution, ObjModel, Mtl, Png, Wav, Ttf, Executable, CamTake };
 
 // Owner window for the native dialogs. An unowned modal (Show(nullptr))
 // leaves the frozen GLFW window active behind it - Windows then wedges the
@@ -180,6 +180,12 @@ static std::string pickPath(PickKind kind) {
             return pickFileLegacy(
                 L"Executable (*.exe)\0*.exe\0All files (*.*)\0*.*\0",
                 L"Select PCSX2 executable");
+        case PickKind::CamTake:
+            return pickFileLegacy(
+                L"Camera take (*.hfcs, *.csv)\0*.hfcs;*.csv\0"
+                L"CamTrackAR composite shot (*.hfcs)\0*.hfcs\0"
+                L"Camera take CSV (*.csv)\0*.csv\0All files (*.*)\0*.*\0",
+                L"Import camera take (phone AR recording)");
         case PickKind::Folder:
             break;  // folders need the shell dialog below
     }
@@ -6217,6 +6223,23 @@ void App::drawCutsceneWindow() {
     if (s.fadeIn < 0.0f) s.fadeIn = 0.0f;
     if (s.fadeOut < 0.0f) s.fadeOut = 0.0f;
 
+    // "Import take...": pick a phone-recorded 6DoF camera take (CamTrackAR
+    // .hfcs or the canonical CSV - docs/camera-takes.md) and stage it for the
+    // mapping modal below. The default landing point is the preview camera,
+    // so the path starts where the user is looking.
+    auto beginTakeImport = [&]() {
+        const std::string path = pickPath(PickKind::CamTake);
+        if (path.empty()) return;
+        seqTakePath_ = path;
+        seqTakeError_.clear();
+        if (!loadCamTakeAuto(path, seqTake_, seqTakeError_)) seqTake_ = CamTake{};
+        float at[3];
+        viewport_.currentCamera(seqTakeMap_.origin, at);
+        seqTakeMap_.timeOffset = 0.0f;
+        seqTakeDirty_ = true;
+        seqTakeOpen_ = true;
+    };
+
     // --- transport -----------------------------------------------------------
     ImGui::SeparatorText("Timeline");
     if (ImGui::Button(seqPlaying_ ? "Pause" : "Play")) seqPlaying_ = !seqPlaying_;
@@ -6232,6 +6255,12 @@ void App::drawCutsceneWindow() {
     ImGui::SliderFloat("Zoom", &seqZoom_, 1.0f, 8.0f, "%.1fx");
     ImGui::SameLine(0.0f, 14.0f);
     ImGui::Text("t = %.2f s", seqPlayhead_);
+    ImGui::SameLine(0.0f, 14.0f);
+    if (ImGui::SmallButton("Import take...")) beginTakeImport();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Import a phone-recorded 6DoF camera move (CamTrackAR\n"
+                          ".hfcs or the CSV spec in docs/camera-takes.md) as free\n"
+                          "camera shots on the camera lane.");
     if (seqPlaying_) {
         seqPlayhead_ += ImGui::GetIO().DeltaTime;
         if (seqPlayhead_ >= s.duration) {
@@ -6637,6 +6666,7 @@ void App::drawCutsceneWindow() {
                         selectedSeqKey_ = -1;
                         changed = true;
                     }
+                    if (ImGui::MenuItem("Import take...")) beginTakeImport();
                 } else {
                     SeqTrack& tr = s.tracks[ti];
                     ImGui::SetNextItemWidth(160.0f);
@@ -6827,6 +6857,114 @@ void App::drawCutsceneWindow() {
         ImGui::TextDisabled("No key selected. Double-click a lane to drop one, or use\n"
                             "the [+] on a track label to snapshot at the playhead.\n"
                             "Play the cutscene in the game with the Play Sequence node.");
+    }
+
+    // --- Import take modal ----------------------------------------------------
+    // Maps a loaded phone take (beginTakeImport) into the scene and bakes it
+    // to free camera shots. The bake is pure (src/camtake.cpp) and cheap, but
+    // only recomputed when a control changes; the readout shows the resulting
+    // key count live so the tolerance slider can be tuned by eye.
+    if (seqTakeOpen_) {
+        ImGui::OpenPopup("Import camera take");
+        seqTakeOpen_ = false;
+    }
+    if (ImGui::BeginPopupModal("Import camera take", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        const std::string file =
+            std::filesystem::path(seqTakePath_).filename().string();
+        if (!seqTakeError_.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "Failed to load take:");
+            ImGui::TextWrapped("%s", seqTakeError_.c_str());
+            ImGui::Separator();
+            if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
+        } else {
+            ImGui::Text("%s", file.c_str());
+            ImGui::TextDisabled("%s - %d samples @ %.0f Hz, %.2f s",
+                                seqTake_.source.c_str(), (int)seqTake_.samples.size(),
+                                seqTake_.fps, (float)seqTake_.duration());
+            ImGui::Separator();
+
+            ImGui::SetNextItemWidth(110.0f);
+            if (ImGui::DragFloat("Scale (units per meter)", &seqTakeMap_.scale, 0.02f,
+                                 0.01f, 1000.0f, "%.2f"))
+                seqTakeDirty_ = true;
+            ImGui::SetNextItemWidth(110.0f);
+            if (ImGui::DragFloat("Extra yaw", &seqTakeMap_.yawDeg, 1.0f, -360.0f,
+                                 360.0f, "%.0f deg"))
+                seqTakeDirty_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Rotates the whole path about the up axis, pivoting\n"
+                                  "on the take's first sample.");
+            if (ImGui::DragFloat3("Origin", seqTakeMap_.origin, 0.1f))
+                seqTakeDirty_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Where the take's first sample lands in the scene.");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("From view")) {
+                float at[3];
+                viewport_.currentCamera(seqTakeMap_.origin, at);
+                seqTakeDirty_ = true;
+            }
+            if (ImGui::Checkbox("Start at playhead", &seqTakeAtPlayhead_))
+                seqTakeDirty_ = true;
+            ImGui::SameLine();
+            ImGui::TextDisabled("(t = %.2f s)", seqPlayhead_);
+            ImGui::SetNextItemWidth(160.0f);
+            if (ImGui::SliderFloat("Tolerance", &seqTakeMap_.tolerance, 0.005f, 1.0f,
+                                   "%.3f units", ImGuiSliderFlags_Logarithmic))
+                seqTakeDirty_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Decimation error bound in world units: dropping a\n"
+                                  "sample never moves the interpolated camera by more\n"
+                                  "than this. Lower = more keys, bigger PS2 tables.");
+
+            const float wantOffset = seqTakeAtPlayhead_ ? seqPlayhead_ : 0.0f;
+            if (wantOffset != seqTakeMap_.timeOffset) {
+                seqTakeMap_.timeOffset = wantOffset;
+                seqTakeDirty_ = true;
+            }
+            if (seqTakeDirty_) {
+                seqTakeBaked_ = bakeCamTake(seqTake_, seqTakeMap_, &seqTakeStats_);
+                seqTakeDirty_ = false;
+            }
+            ImGui::Separator();
+            ImGui::Text("%d samples  ->  %d keys   (%.2f s, FOV %.0f deg)",
+                        seqTakeStats_.sampleCount, seqTakeStats_.keyCount,
+                        seqTakeStats_.duration, seqTakeStats_.fovDeg);
+            if (seqTakeStats_.keyCount > 300)
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                                   "That is a lot of keys - the PS2 keyframe table\n"
+                                   "grows with every key. Raise the tolerance.");
+
+            if (ImGui::RadioButton("Replace camera track", seqTakeReplace_))
+                seqTakeReplace_ = true;
+            ImGui::SameLine();
+            if (ImGui::RadioButton("Append", !seqTakeReplace_)) seqTakeReplace_ = false;
+
+            ImGui::Separator();
+            ImGui::BeginDisabled(seqTakeBaked_.empty());
+            if (ImGui::Button("Import", ImVec2(120.0f, 0.0f))) {
+                if (seqTakeReplace_)
+                    s.cameraKeys = seqTakeBaked_;
+                else {
+                    s.cameraKeys.insert(s.cameraKeys.end(), seqTakeBaked_.begin(),
+                                        seqTakeBaked_.end());
+                    sortCamKeys();
+                }
+                s.cameraEnabled = true;
+                const float lastT = s.cameraKeys.back().time;
+                if (lastT > s.duration) s.duration = lastT;
+                selectedSeqTrack_ = -1;
+                selectedSeqKey_ = -1;
+                seqPlayhead_ = seqTakeBaked_.front().time;
+                changed = true;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120.0f, 0.0f))) ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 
     ImGui::EndChild();
