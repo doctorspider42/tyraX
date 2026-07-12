@@ -30,6 +30,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Empty: return "empty";
         case PrimitiveType::Plane: return "plane";
         case PrimitiveType::Decal: return "decal";
+        case PrimitiveType::Camera: return "camera";
     }
     return "box";
 }
@@ -48,6 +49,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "empty") return PrimitiveType::Empty;
     if (s == "plane") return PrimitiveType::Plane;
     if (s == "decal") return PrimitiveType::Decal;
+    if (s == "camera") return PrimitiveType::Camera;
     return PrimitiveType::Box;
 }
 
@@ -251,6 +253,9 @@ static std::string objectJson(const SceneObject& o) {
     if (o.type == PrimitiveType::PointLight) {
         json += ", \"light\": { \"brightness\": " + fmtFloat(o.lightBright) +
                 ", \"radius\": " + fmtFloat(o.lightRadius) + " }";
+    }
+    if (o.type == PrimitiveType::Camera) {
+        json += ", \"camera\": { \"fov\": " + fmtFloat(o.cameraFov) + " }";
     }
     if (o.type == PrimitiveType::Model && isAnimatedModelPath(o.modelPath)) {
         json += ", \"anim\": { \"clip\": \"" + o.animClip +
@@ -700,6 +705,53 @@ std::string save(const Project& p) {
     }
     json << (p.ambiencePresets.empty() ? "]" : "\n  ]");
     json << ",\n  \"defaultAmbience\": " << p.defaultAmbience;
+    json << ",\n  \"sequences\": [";
+    for (size_t i = 0; i < p.sequences.size(); ++i) {
+        const Sequence& s = p.sequences[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << jsonEscape(s.name)
+             << "\", \"duration\": " << fmtFloat(s.duration)
+             << ", \"loop\": " << (s.loop ? "true" : "false")
+             << ", \"cameraEnabled\": " << (s.cameraEnabled ? "true" : "false")
+             << ", \"bars\": " << s.bars
+             << ", \"skippable\": " << (s.skippable ? "true" : "false")
+             << ", \"fadeIn\": " << fmtFloat(s.fadeIn)
+             << ", \"fadeOut\": " << fmtFloat(s.fadeOut)
+             << ", \"barsSlideIn\": " << fmtFloat(s.barsSlideIn)
+             << ", \"barsSlideOut\": " << fmtFloat(s.barsSlideOut)
+             << ", \"tracks\": [";
+        for (size_t ti = 0; ti < s.tracks.size(); ++ti) {
+            const SeqTrack& t = s.tracks[ti];
+            json << (ti ? ",\n      " : "\n      ") << "{ \"target\": \""
+                 << jsonEscape(t.target) << "\", \"animPos\": " << (t.animPos ? "true" : "false")
+                 << ", \"animRot\": " << (t.animRot ? "true" : "false")
+                 << ", \"animScale\": " << (t.animScale ? "true" : "false")
+                 << ", \"animColor\": " << (t.animColor ? "true" : "false")
+                 << ", \"animVis\": " << (t.animVis ? "true" : "false") << ", \"keys\": [";
+            for (size_t ki = 0; ki < t.keys.size(); ++ki) {
+                const SeqObjectKey& k = t.keys[ki];
+                json << (ki ? ", " : "") << "{ \"t\": " << fmtFloat(k.time)
+                     << ", \"pos\": " << fmtVec3(k.position)
+                     << ", \"rot\": " << fmtVec3(k.rotation)
+                     << ", \"scale\": " << fmtVec3(k.scale)
+                     << ", \"color\": " << fmtVec3(k.color)
+                     << ", \"vis\": " << (k.visible ? "true" : "false")
+                     << ", \"ease\": " << k.easing << " }";
+            }
+            json << "] }";
+        }
+        json << (s.tracks.empty() ? "]" : "\n    ]") << ", \"cameraKeys\": [";
+        for (size_t ci = 0; ci < s.cameraKeys.size(); ++ci) {
+            const SeqCameraKey& k = s.cameraKeys[ci];
+            json << (ci ? ", " : "") << "{ \"t\": " << fmtFloat(k.time)
+                 << ", \"eye\": " << fmtVec3(k.eye) << ", \"target\": " << fmtVec3(k.target)
+                 << ", \"fov\": " << fmtFloat(k.fov)
+                 << (k.shake > 0.0f ? ", \"shake\": " + fmtFloat(k.shake) : "")
+                 << (k.camera.empty() ? "" : ", \"camera\": \"" + jsonEscape(k.camera) + "\"")
+                 << ", \"ease\": " << k.easing << " }";
+        }
+        json << "] }";
+    }
+    json << (p.sequences.empty() ? "]" : "\n  ]");
     json << ",\n  \"menus\": [";
     static const char* kMenuActions[] = {"close",     "scene",     "save-menu",
                                          "menu",      "set-value", "add-value",
@@ -1090,6 +1142,11 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (const auto* v = lt->find("radius"))
                 o.lightRadius = (float)v->numberOr(8.0);
             if (o.lightRadius < 0.1f) o.lightRadius = 0.1f;
+        }
+        if (const auto* cm = jo.find("camera")) {
+            if (const auto* v = cm->find("fov")) o.cameraFov = (float)v->numberOr(60.0);
+            if (o.cameraFov < 20.0f) o.cameraFov = 20.0f;
+            if (o.cameraFov > 110.0f) o.cameraFov = 110.0f;
         }
         if (const auto* an = jo.find("anim")) {
             if (const auto* v = an->find("clip")) o.animClip = v->stringOr("");
@@ -1496,6 +1553,72 @@ std::string load(Project& out, const std::string& projectDir) {
     if (const auto* v = root.find("defaultAmbience"))
         out.defaultAmbience = (int)v->numberOr(-1.0);
 
+    if (const auto* seqs = root.find("sequences");
+        seqs && seqs->type == json::Value::Type::Array) {
+        for (const auto& js : seqs->arr) {
+            Sequence s;
+            if (const auto* v = js.find("name")) s.name = v->stringOr("Cutscene");
+            if (const auto* v = js.find("duration")) s.duration = (float)v->numberOr(5.0);
+            if (const auto* v = js.find("loop")) s.loop = v->boolOr(false);
+            if (const auto* v = js.find("cameraEnabled")) s.cameraEnabled = v->boolOr(false);
+            if (const auto* v = js.find("bars")) s.bars = (int)v->numberOr(0.0);
+            if (s.bars < 0 || s.bars >= kSeqBarsStyleCount) s.bars = kSeqBarsNone;
+            if (const auto* v = js.find("skippable")) s.skippable = v->boolOr(false);
+            if (const auto* v = js.find("fadeIn")) s.fadeIn = (float)v->numberOr(0.0);
+            if (const auto* v = js.find("fadeOut")) s.fadeOut = (float)v->numberOr(0.0);
+            if (s.fadeIn < 0.0f) s.fadeIn = 0.0f;
+            if (s.fadeOut < 0.0f) s.fadeOut = 0.0f;
+            // Absent on projects authored before the bars-slide controls: keep
+            // the historical fixed 0.4 s slide so they look unchanged.
+            if (const auto* v = js.find("barsSlideIn"))
+                s.barsSlideIn = (float)v->numberOr(kSeqBarsSlideDefault);
+            if (const auto* v = js.find("barsSlideOut"))
+                s.barsSlideOut = (float)v->numberOr(kSeqBarsSlideDefault);
+            if (s.barsSlideIn < 0.0f) s.barsSlideIn = 0.0f;
+            if (s.barsSlideOut < 0.0f) s.barsSlideOut = 0.0f;
+            if (const auto* jt = js.find("tracks"); jt && jt->type == json::Value::Type::Array) {
+                for (const auto& jtr : jt->arr) {
+                    SeqTrack t;
+                    if (const auto* v = jtr.find("target")) t.target = v->stringOr("");
+                    if (const auto* v = jtr.find("animPos")) t.animPos = v->boolOr(true);
+                    if (const auto* v = jtr.find("animRot")) t.animRot = v->boolOr(false);
+                    if (const auto* v = jtr.find("animScale")) t.animScale = v->boolOr(false);
+                    if (const auto* v = jtr.find("animColor")) t.animColor = v->boolOr(false);
+                    if (const auto* v = jtr.find("animVis")) t.animVis = v->boolOr(false);
+                    if (const auto* jk = jtr.find("keys"); jk && jk->type == json::Value::Type::Array) {
+                        for (const auto& jkk : jk->arr) {
+                            SeqObjectKey k;
+                            if (const auto* v = jkk.find("t")) k.time = (float)v->numberOr(0.0);
+                            readVec3(jkk.find("pos"), k.position);
+                            readVec3(jkk.find("rot"), k.rotation);
+                            readVec3(jkk.find("scale"), k.scale);
+                            readVec3(jkk.find("color"), k.color);
+                            if (const auto* v = jkk.find("vis")) k.visible = v->boolOr(true);
+                            if (const auto* v = jkk.find("ease")) k.easing = (int)v->numberOr(1.0);
+                            t.keys.push_back(k);
+                        }
+                    }
+                    s.tracks.push_back(std::move(t));
+                }
+            }
+            if (const auto* jc = js.find("cameraKeys");
+                jc && jc->type == json::Value::Type::Array) {
+                for (const auto& jck : jc->arr) {
+                    SeqCameraKey k;
+                    if (const auto* v = jck.find("t")) k.time = (float)v->numberOr(0.0);
+                    readVec3(jck.find("eye"), k.eye);
+                    readVec3(jck.find("target"), k.target);
+                    if (const auto* v = jck.find("fov")) k.fov = (float)v->numberOr(60.0);
+                    if (const auto* v = jck.find("shake")) k.shake = (float)v->numberOr(0.0);
+                    if (const auto* v = jck.find("camera")) k.camera = v->stringOr("");
+                    if (const auto* v = jck.find("ease")) k.easing = (int)v->numberOr(1.0);
+                    s.cameraKeys.push_back(k);
+                }
+            }
+            if (!s.name.empty()) out.sequences.push_back(std::move(s));
+        }
+    }
+
     // Migrate projects authored before the Ambience Editor: sky/lighting/fog
     // used to live in Preferences (global + per-scene overrides). Fold them
     // into presets so the same values keep driving the scene now that those
@@ -1789,6 +1912,8 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == ".vscode\\c_cpp_properties.json" ||
             f.relativePath == "src\\scripts\\flow_graph.gen.cpp" ||
             f.relativePath == "src\\scripts\\object_scripts.gen.cpp" ||
+            f.relativePath == "inc\\scripts\\sequences.gen.hpp" ||
+            f.relativePath == "src\\scripts\\sequences.gen.cpp" ||
             f.relativePath == "inc\\model_data.gen.hpp" ||
             f.relativePath == "inc\\hud_data.gen.hpp" ||
             f.relativePath == "inc\\terrain_heights.gen.hpp" ||

@@ -1,5 +1,6 @@
 #include "templates.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -7,6 +8,7 @@
 #include <filesystem>
 #include <functional>
 #include <sstream>
+#include <utility>
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -1008,6 +1010,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "menu_data.gen.hpp"
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
+#include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -1759,6 +1762,13 @@ void TerrainGame::loop() {
     g_particlesOn = scriptCtx.particles != 0;
     scriptCtx.particles = -1;
   }
+  // Cutscene camera override: a Cutscene Director sequence with a camera track
+  // drives the frame camera (Play/Stop Sequence). Applied after scripts so the
+  // sequence player (a global Script) has posed the camera for this frame.
+  if (scriptCtx.cameraOverride) {
+    cameraPosition = scriptCtx.cameraEye;
+    cameraLookAt = scriptCtx.cameraAt;
+  }
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
   // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
   // switch rebuilds the VRAM layout between frames. A switch closes any
@@ -1797,6 +1807,10 @@ void TerrainGame::loop() {
     }
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
     updateAndRenderHudTexts();
+    // Cutscene Director widescreen bars + fade-to-black: solid quads over the
+    // scene and HUD (texts included), under the pause menus (no-op unless a
+    // cutscene draws).
+    sequences::renderOverlay(engine, scriptCtx);
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine);
@@ -2734,7 +2748,8 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
   for (const RuntimeObject& o : runtimeObjects) {
     if (!o.active || !o.visible || o.data.type == 4 || o.data.type == 6 ||
         o.data.type == 7 || o.data.type == 8 || o.data.type == 9 ||
-        o.data.type == 11 || o.data.type == 13)  // 13 = decal (visual only)
+        o.data.type == 11 || o.data.type == 13 ||  // 13 = decal (visual only)
+        o.data.type == 14)                         // 14 = camera marker
       continue;
     if (o.data.collision == 2) continue;  // none
 
@@ -3387,7 +3402,8 @@ void TerrainGame::updateUseTarget() {
     const RuntimeObject& o = runtimeObjects[i];
     if (!o.active || !o.data.usable || !o.visible) continue;
     if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
-        o.data.type == 8 || o.data.type == 9 || o.data.type == 11)
+        o.data.type == 8 || o.data.type == 9 || o.data.type == 11 ||
+        o.data.type == 14)
       continue;
 
     const float dx = o.data.position[0] - cameraPosition.x;
@@ -3962,6 +3978,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
       case 11: break;  // empty - pure transform, no geometry
       case 12: addPlane(p0.vertices, p0.colors, p0.sts, o.data); break;
       case 13: addDecal(p0.vertices, p0.colors, p0.sts, o.data); break;
+      case 14: break;  // camera - cutscene shot marker, no geometry
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
     g_primKd = nullptr;
@@ -4784,6 +4801,13 @@ void TerrainGame::loop() {
     g_particlesOn = scriptCtx.particles != 0;
     scriptCtx.particles = -1;
   }
+  // Cutscene camera override: a Cutscene Director sequence with a camera track
+  // drives the frame camera (Play/Stop Sequence). Applied after scripts so the
+  // sequence player (a global Script) has posed the camera for this frame.
+  if (scriptCtx.cameraOverride) {
+    cameraPosition = scriptCtx.cameraEye;
+    cameraLookAt = scriptCtx.cameraAt;
+  }
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
   // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
   // switch rebuilds the VRAM layout between frames. A switch closes any
@@ -4822,6 +4846,10 @@ void TerrainGame::loop() {
     }
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
     updateAndRenderHudTexts();
+    // Cutscene Director widescreen bars + fade-to-black: solid quads over the
+    // scene and HUD (texts included), under the pause menus (no-op unless a
+    // cutscene draws).
+    sequences::renderOverlay(engine, scriptCtx);
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine);
@@ -5485,6 +5513,25 @@ struct ScriptContext {
   int objectCount = 0;
   Tyra::Color skyColor;  // write to change the clear color
 
+  // Cutscene camera override (a Cutscene Director sequence with a camera
+  // track, driven by the Play/Stop Sequence flow nodes). The generated
+  // sequence player writes cameraOverride = true + cameraEye/cameraAt every
+  // frame such a cutscene is active; the game applies them to the frame camera
+  // just before rendering, and the player writes false when the cutscene ends.
+  bool cameraOverride = false;
+  Tyra::Vec4 cameraEye;
+  Tyra::Vec4 cameraAt;
+
+  // Cutscene presentation, also written by the sequence player every frame a
+  // cutscene is active (and zeroed when it ends): widescreen mask style
+  // (0 none, 1 cinema 2.39:1, 2 wide 16:9, 3 pillarbox, 4 frame) with its
+  // slide-in coverage envelope, and a fade-to-black overlay alpha. The game
+  // composites them as solid 2D quads over the scene and the HUD, under the
+  // pause menus (sequences::renderOverlay in sequences.gen.cpp).
+  int barsStyle = 0;
+  float barsAmount = 0.0F;  // 0..1 of the style's full coverage
+  float fadeAlpha = 0.0F;   // 0..1 black overlay
+
   // Set teleport = true and teleportPos to move the player (Player entity or
   // the FPP template player) there; the game applies and clears it.
   // teleportYaw: facing direction in degrees (Y rotation, 0 = +Z).
@@ -6014,6 +6061,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int type;  // 0=box 1=sphere 2=cylinder 3=cone 4=spawn-point 5=model\n"
            "             // 6=player 7=emitter 8=sound 9=point-light 10=save-point\n"
            "             // 11=empty (pure transform, no geometry/collision)\n"
+           "             // 12=plane 13=decal 14=camera (cutscene shot marker)\n"
            "  float position[3];\n"
            "  float rotation[3];  // degrees\n"
            "  float scale[3];\n"
@@ -6658,6 +6706,465 @@ bool matchesLegacy(const Project& p, const std::string& relativePath,
 }
 
 // ---------------------------------------------------------------------------
+// Cutscene Director -> C++ runtime. The header declares the play/stop entry
+// points the flow-graph Play/Stop Sequence nodes call; the source compiles the
+// keyframe tables and a global Script (the director) that poses objects and
+// the camera each frame while a sequence is active. Object names resolve to
+// (scene, runtime object index) here - the director only applies a track while
+// its scene is the active one.
+// ---------------------------------------------------------------------------
+std::string sequencesHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    std::ostringstream out;
+    out << "// Generated by tyra-editor. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\n"
+           "#include \"scripts/script.hpp\"\n\n"
+           "namespace "
+        << ns
+        << " {\n"
+           "namespace sequences {\n"
+           "// Cutscene Director runtime (see src/scripts/sequences.gen.cpp),\n"
+           "// driven by the Play Sequence / Stop Sequence flow nodes.\n"
+           "void play(int index);  // start Project::sequences[index] at t=0\n"
+           "void stop();           // stop the active sequence, free the camera\n"
+           "// Widescreen bars + fade-to-black compositor, called by the game\n"
+           "// loop inside beginFrame/endFrame after the HUD (solid 2D quads;\n"
+           "// no-op unless the active cutscene draws them).\n"
+           "void renderOverlay(Tyra::Engine* engine, const ScriptContext& ctx);\n"
+           "}  // namespace sequences\n"
+           "}  // namespace "
+        << ns << "\n";
+    return out.str();
+}
+
+std::string sequencesScript(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+
+    // First scene (+ index within it) that owns an object with this name.
+    auto resolve = [&](const std::string& name) -> std::pair<int, int> {
+        if (name.empty()) return {-1, -1};
+        for (size_t si = 0; si < p.scenes.size(); ++si) {
+            const auto& objs = p.scenes[si].objects;
+            for (size_t oi = 0; oi < objs.size(); ++oi)
+                if (objs[oi].name == name) return {(int)si, (int)oi};
+        }
+        return {-1, -1};
+    };
+    auto v3 = [&](const float* a) {
+        return "{" + floatLit(a[0]) + ", " + floatLit(a[1]) + ", " + floatLit(a[2]) + "}";
+    };
+
+    std::ostringstream out;
+    out << "// Generated by tyra-editor from the Cutscene Director. Do not edit -\n"
+           "// regenerated on every build. Edit the sequences in the editor.\n"
+           "#include \"scripts/script.hpp\"\n"
+           "#include \"scripts/sequences.gen.hpp\"\n\n"
+           "namespace "
+        << ns
+        << " {\n"
+           "namespace {\n\n"
+           "// Easing (mirrors src/sequence.hpp seqEase): 0 linear, 1 smoothstep,\n"
+           "// 2 step (hold to the next key).\n"
+           "static float seqEase(int e, float u) {\n"
+           "  if (u <= 0.0F) return 0.0F;\n"
+           "  if (u >= 1.0F) return 1.0F;\n"
+           "  if (e == 1) return u * u * (3.0F - 2.0F * u);\n"
+           "  if (e == 2) return 0.0F;\n"
+           "  return u;\n"
+           "}\n\n"
+           "struct ObjKey { float t; float pos[3]; float rot[3]; float scale[3];\n"
+           "                float col[3]; int vis; int ease; };\n"
+           "struct Track { int scene; int obj; int chPos; int chRot; int chScale;\n"
+           "               int chCol; int chVis; const ObjKey* keys; int keyCount; };\n"
+           "// A camera shot. camScene/camObj >= 0 = bound to a Camera entity: the\n"
+           "// shot films from that object's CURRENT pose (so an object track can\n"
+           "// dolly it); eye/at hold the entity's authored pose as the fallback\n"
+           "// when its scene is not the active one. fov is the entity's for bound\n"
+           "// shots, the key's own for free ones. shake = handheld amplitude.\n"
+           "struct CamKey { float t; float eye[3]; float at[3]; float fov;\n"
+           "                float shake; int ease; int camScene; int camObj; };\n"
+           "struct Seq { const char* name; float duration; int loop; int camEnabled;\n"
+           "             int bars; int skippable; float fadeIn; float fadeOut;\n"
+           "             float barsSlideIn; float barsSlideOut;  // bars reveal, s\n"
+           "             float barTB; float barLR;  // mask coverage per edge\n"
+           "             const Track* tracks; int trackCount;\n"
+           "             const CamKey* camKeys; int camKeyCount; };\n\n";
+
+    // Per-sequence static keyframe tables.
+    for (size_t si = 0; si < p.sequences.size(); ++si) {
+        const Sequence& s = p.sequences[si];
+        const std::string sp = "kS" + std::to_string(si);
+        // Object tracks: one ObjKey[] per track, then the Track[].
+        for (size_t ti = 0; ti < s.tracks.size(); ++ti) {
+            SeqTrack t = s.tracks[ti];  // copy so we can sort keys by time
+            std::sort(t.keys.begin(), t.keys.end(),
+                      [](const SeqObjectKey& a, const SeqObjectKey& b) {
+                          return a.time < b.time;
+                      });
+            const auto rr = resolve(t.target);
+            out << "static const ObjKey " << sp << "T" << ti << "K[] = {";
+            for (size_t ki = 0; ki < t.keys.size(); ++ki) {
+                const SeqObjectKey& k = t.keys[ki];
+                out << (ki ? ", " : "") << "{" << floatLit(k.time) << ", " << v3(k.position)
+                    << ", " << v3(k.rotation) << ", " << v3(k.scale) << ", " << v3(k.color)
+                    << ", " << (k.visible ? 1 : 0) << ", " << k.easing << "}";
+            }
+            out << "};  // \"" << t.target << "\" -> scene " << rr.first << " obj "
+                << rr.second << "\n";
+        }
+        out << "static const Track " << sp << "Tracks[] = {";
+        for (size_t ti = 0; ti < s.tracks.size(); ++ti) {
+            const SeqTrack& t = s.tracks[ti];
+            const auto rr = resolve(t.target);
+            out << (ti ? ", " : "") << "{" << rr.first << ", " << rr.second << ", "
+                << (t.animPos ? 1 : 0) << ", " << (t.animRot ? 1 : 0) << ", "
+                << (t.animScale ? 1 : 0) << ", " << (t.animColor ? 1 : 0) << ", "
+                << (t.animVis ? 1 : 0) << ", " << sp << "T" << ti << "K, "
+                << t.keys.size() << "}";
+        }
+        if (s.tracks.empty()) out << "{0, -1, 0, 0, 0, 0, 0, nullptr, 0}";  // non-empty array
+        out << "};\n";
+        // Camera track. Bound shots resolve their Camera entity to a (scene,
+        // object) index here and bake the entity's authored pose + FOV as the
+        // eye/at/fov fallback for when the entity is unavailable at runtime.
+        out << "static const CamKey " << sp << "Cam[] = {";
+        {
+            std::vector<SeqCameraKey> ck = s.cameraKeys;
+            std::sort(ck.begin(), ck.end(),
+                      [](const SeqCameraKey& a, const SeqCameraKey& b) {
+                          return a.time < b.time;
+                      });
+            for (size_t ci = 0; ci < ck.size(); ++ci) {
+                const SeqCameraKey& k = ck[ci];
+                float eye[3] = {k.eye[0], k.eye[1], k.eye[2]};
+                float at[3] = {k.target[0], k.target[1], k.target[2]};
+                float fov = k.fov;
+                std::pair<int, int> rr = {-1, -1};
+                if (!k.camera.empty()) {
+                    rr = resolve(k.camera);
+                    const SceneObject* cam =
+                        rr.first >= 0 ? &p.scenes[rr.first].objects[rr.second] : nullptr;
+                    if (cam && cam->type == PrimitiveType::Camera) {
+                        float fwd[3];
+                        seqCameraForward(cam->rotation, fwd);
+                        for (int c = 0; c < 3; ++c) {
+                            eye[c] = cam->position[c];
+                            at[c] = cam->position[c] + fwd[c];
+                        }
+                        fov = cam->cameraFov;
+                    } else {
+                        rr = {-1, -1};  // stale/non-camera binding: free shot
+                    }
+                }
+                out << (ci ? ", " : "") << "{" << floatLit(k.time) << ", " << v3(eye)
+                    << ", " << v3(at) << ", " << floatLit(fov) << ", "
+                    << floatLit(k.shake) << ", " << k.easing << ", " << rr.first
+                    << ", " << rr.second << "}";
+                if (!k.camera.empty()) out << " /* \"" << k.camera << "\" */";
+            }
+            if (ck.empty())
+                out << "{0.0F, {0,0,0}, {0,0,0}, 60.0F, 0.0F, 0, -1, -1}";
+        }
+        out << "};\n\n";
+    }
+
+    // The sequence table. The widescreen-mask coverage fractions come from the
+    // same seqBarsFractions the editor overlays on the viewport.
+    out << "static const Seq kSeqs[] = {";
+    for (size_t si = 0; si < p.sequences.size(); ++si) {
+        const Sequence& s = p.sequences[si];
+        const std::string sp = "kS" + std::to_string(si);
+        float bt, bb, bl, br;
+        seqBarsFractions(s.bars, bt, bb, bl, br);
+        out << (si ? ", " : "") << "\n  {\"" << escapeCString(s.name) << "\", "
+            << floatLit(s.duration) << ", " << (s.loop ? 1 : 0) << ", "
+            << (s.cameraEnabled ? 1 : 0) << ", " << s.bars << ", "
+            << (s.skippable ? 1 : 0) << ", " << floatLit(s.fadeIn) << ", "
+            << floatLit(s.fadeOut) << ", " << floatLit(s.barsSlideIn) << ", "
+            << floatLit(s.barsSlideOut) << ", " << floatLit(bt) << ", "
+            << floatLit(bl) << ", " << sp << "Tracks, " << s.tracks.size() << ", "
+            << sp << "Cam, " << s.cameraKeys.size() << "}";
+    }
+    if (p.sequences.empty())
+        out << "{\"\", 0.0F, 0, 0, 0, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, "
+               "nullptr, 0, nullptr, 0}";  // non-empty array
+    out << "\n};\n"
+        << "static const int kSeqCount = " << p.sequences.size() << ";\n\n";
+
+    // Sampler + director.
+    out << R"(// Interpolates one component of an object channel (0 pos, 1 rot, 2 scale,
+// 3 color) across a track's keys at time t. Holds the ends.
+static float sampleObj(const ObjKey* k, int n, float t, int comp, int which) {
+  if (n <= 0) return 0.0F;
+  auto val = [&](int i) -> float {
+    if (which == 0) return k[i].pos[comp];
+    if (which == 1) return k[i].rot[comp];
+    if (which == 2) return k[i].scale[comp];
+    return k[i].col[comp];
+  };
+  if (t <= k[0].t) return val(0);
+  if (t >= k[n - 1].t) return val(n - 1);
+  int i = 0;
+  while (i < n - 1 && t >= k[i + 1].t) ++i;
+  const float span = k[i + 1].t - k[i].t;
+  const float u = span > 1e-6F ? (t - k[i].t) / span : 0.0F;
+  const float e = seqEase(k[i].ease, u);
+  return val(i) + (val(i + 1) - val(i)) * e;
+}
+
+// The Cutscene Director: one global Script. While a sequence is active it
+// poses every track's object (in the matching scene), resolves and blends the
+// camera shots (free or bound to Camera entities), applies the shot FOV to the
+// real projection (RendererCore3D::setFov, restored afterwards) and drives the
+// widescreen bars / fade the game composites via sequences::renderOverlay.
+// Playback advances by the real frame dt so cutscenes run at a fixed
+// wall-clock speed on PAL and NTSC alike.
+class SequenceDirector : public Script {
+  int active_ = -1;
+  float time_ = 0.0F;
+  bool cleanup_ = false;   // hand everything back on the next update
+  float baseFov_ = -1.0F;  // projection FOV before the first override
+
+  // Clamp + apply a shot FOV; the first application snapshots the FOV to
+  // restore (recomputes the projection matrix + frustum planes only when the
+  // value actually moved).
+  void applyFov(ScriptContext& ctx, float fov) {
+    if (!ctx.engine) return;
+    auto& r3d = ctx.engine->renderer.core.renderer3D;
+    if (baseFov_ < 0.0F) baseFov_ = r3d.getFov();
+    if (fov < 20.0F) fov = 20.0F;
+    if (fov > 110.0F) fov = 110.0F;
+    if (fabsf(fov - r3d.getFov()) > 0.05F) r3d.setFov(fov);
+  }
+  // Ends the takeover: camera back to the game, presentation overlays off,
+  // projection FOV restored.
+  void release(ScriptContext& ctx) {
+    ctx.cameraOverride = false;
+    ctx.barsStyle = 0;
+    ctx.barsAmount = 0.0F;
+    ctx.fadeAlpha = 0.0F;
+    if (baseFov_ >= 0.0F && ctx.engine) {
+      ctx.engine->renderer.core.renderer3D.setFov(baseFov_);
+      baseFov_ = -1.0F;
+    }
+    cleanup_ = false;
+  }
+
+ public:
+  void begin(int idx) {
+    if (idx < 0 || idx >= kSeqCount) return;
+    active_ = idx;
+    time_ = 0.0F;
+  }
+  void end() {
+    if (active_ >= 0) cleanup_ = true;
+    active_ = -1;
+  }
+  int activeIndex() const { return active_; }
+
+  void update(ScriptContext& ctx) override {
+    if (active_ < 0 || active_ >= kSeqCount) {
+      if (cleanup_) release(ctx);
+      return;
+    }
+    const Seq& s = kSeqs[active_];
+    // A skippable cutscene ends early on START.
+    if (s.skippable && ctx.engine && ctx.engine->pad.getClicked().Start) {
+      active_ = -1;
+      release(ctx);
+      return;
+    }
+    for (int i = 0; i < s.trackCount; ++i) {
+      const Track& tr = s.tracks[i];
+      if (tr.scene != ctx.scene || tr.obj < 0 || tr.obj >= ctx.objectCount) continue;
+      if (tr.keyCount <= 0) continue;
+      RuntimeObject& o = ctx.objects[tr.obj];
+      if (tr.chPos)
+        for (int c = 0; c < 3; ++c)
+          o.data.position[c] = sampleObj(tr.keys, tr.keyCount, time_, c, 0);
+      if (tr.chRot)
+        for (int c = 0; c < 3; ++c)
+          o.data.rotation[c] = sampleObj(tr.keys, tr.keyCount, time_, c, 1);
+      if (tr.chScale)
+        for (int c = 0; c < 3; ++c)
+          o.data.scale[c] = sampleObj(tr.keys, tr.keyCount, time_, c, 2);
+      if (tr.chCol)
+        for (int c = 0; c < 3; ++c)
+          o.data.color[c] = sampleObj(tr.keys, tr.keyCount, time_, c, 3);
+      if (tr.chVis) {
+        int j = 0;
+        while (j < tr.keyCount - 1 && time_ >= tr.keys[j + 1].t) ++j;
+        o.visible = tr.keys[j].vis != 0;  // visibility steps between keys
+      }
+      o.dirty = true;
+    }
+    if (s.camEnabled && s.camKeyCount > 0) {
+      const CamKey* k = s.camKeys;
+      const int n = s.camKeyCount;
+      const float t = time_;
+      // One shot's eye/at/fov. Bound shots film from the Camera entity's
+      // CURRENT pose (object tracks already ran this frame, so a keyframed
+      // camera entity gives a dolly/crane move); the +Z lens direction math
+      // mirrors seqCameraForward in src/sequence.hpp.
+      auto shot = [&](int i, float eye[3], float at[3], float& fov) {
+        const CamKey& c = k[i];
+        if (c.camObj >= 0 && c.camScene == ctx.scene &&
+            c.camObj < ctx.objectCount) {
+          const RuntimeObject& o = ctx.objects[c.camObj];
+          const float d2r = 3.14159265F / 180.0F;
+          const float sx = sinf(o.data.rotation[0] * d2r);
+          const float cx = cosf(o.data.rotation[0] * d2r);
+          const float sy = sinf(o.data.rotation[1] * d2r);
+          const float cy = cosf(o.data.rotation[1] * d2r);
+          const float sz = sinf(o.data.rotation[2] * d2r);
+          const float cz = cosf(o.data.rotation[2] * d2r);
+          const float fwd[3] = {cx * sy * cz + sx * sz,
+                                cx * sy * sz - sx * cz, cx * cy};
+          for (int j = 0; j < 3; ++j) {
+            eye[j] = o.data.position[j];
+            at[j] = o.data.position[j] + fwd[j];
+          }
+        } else {
+          for (int j = 0; j < 3; ++j) {
+            eye[j] = c.eye[j];
+            at[j] = c.at[j];
+          }
+        }
+        fov = c.fov;
+      };
+      int i = 0;
+      while (i < n - 1 && t >= k[i + 1].t) ++i;
+      float eye[3], at[3], fov;
+      shot(i, eye, at, fov);
+      float shake = k[i].shake;
+      if (t > k[i].t && i < n - 1) {
+        const float span = k[i + 1].t - k[i].t;
+        const float u = span > 1e-6F ? (t - k[i].t) / span : 0.0F;
+        const float w = seqEase(k[i].ease, u);
+        float eye1[3], at1[3], fov1;
+        shot(i + 1, eye1, at1, fov1);
+        for (int j = 0; j < 3; ++j) {
+          eye[j] += (eye1[j] - eye[j]) * w;
+          at[j] += (at1[j] - at[j]) * w;
+        }
+        fov += (fov1 - fov) * w;
+        shake += (k[i + 1].shake - shake) * w;
+      }
+      if (shake > 0.0F) {
+        // handheld noise - mirrors seqShakeOffset in src/sequence.hpp
+        const float ox =
+            shake * (0.6F * sinf(t * 23.7F) + 0.4F * sinf(t * 7.3F + 1.7F));
+        const float oy =
+            shake * (0.6F * sinf(t * 19.1F + 0.9F) + 0.4F * sinf(t * 9.7F));
+        const float oz = shake * 0.3F * sinf(t * 13.9F + 2.3F);
+        eye[0] += ox, eye[1] += oy, eye[2] += oz;
+        at[0] += ox, at[1] += oy, at[2] += oz;
+      }
+      ctx.cameraOverride = true;
+      ctx.cameraEye.x = eye[0];
+      ctx.cameraEye.y = eye[1];
+      ctx.cameraEye.z = eye[2];
+      ctx.cameraAt.x = at[0];
+      ctx.cameraAt.y = at[1];
+      ctx.cameraAt.z = at[2];
+      applyFov(ctx, fov);
+    }
+    // Presentation: bars slide in/out over the sequence's reveal times
+    // (mirrors seqBarsAmount; 0 = instant), fades ramp from/to black (mirrors
+    // seqFadeAlpha).
+    if (s.bars > 0) {
+      float a = 1.0F;
+      if (s.barsSlideIn > 0.0F && time_ < s.barsSlideIn)
+        a = time_ / s.barsSlideIn;
+      if (s.barsSlideOut > 0.0F) {
+        const float left = s.duration - time_;
+        if (left < s.barsSlideOut && left / s.barsSlideOut < a)
+          a = left / s.barsSlideOut;
+      }
+      ctx.barsStyle = s.bars;
+      ctx.barsAmount = a < 0.0F ? 0.0F : (a > 1.0F ? 1.0F : a);
+    } else {
+      ctx.barsStyle = 0;
+      ctx.barsAmount = 0.0F;
+    }
+    {
+      float fade = 0.0F;
+      if (s.fadeIn > 0.0F && time_ < s.fadeIn) fade = 1.0F - time_ / s.fadeIn;
+      if (s.fadeOut > 0.0F) {
+        const float o = 1.0F - (s.duration - time_) / s.fadeOut;
+        if (o > fade) fade = o;
+      }
+      ctx.fadeAlpha = fade < 0.0F ? 0.0F : (fade > 1.0F ? 1.0F : fade);
+    }
+    time_ += g_frameDt;
+    if (time_ >= s.duration) {
+      if (s.loop) {
+        time_ -= s.duration;
+        if (time_ < 0.0F) time_ = 0.0F;
+      } else {
+        active_ = -1;
+        cleanup_ = true;  // release() on the next update
+      }
+    }
+  }
+};
+
+SequenceDirector g_seqDirector;
+static const bool g_seqRegistered = []() {
+  getScripts().push_back(&g_seqDirector);
+  return true;
+}();
+
+}  // namespace
+
+namespace sequences {
+void play(int index) { g_seqDirector.begin(index); }
+void stop() { g_seqDirector.end(); }
+
+// Solid black quads: the widescreen mask edges (coverage from the active
+// sequence's style scaled by the slide envelope) and the fade overlay. One
+// stretched 8x8 opaque-black sprite (res/hud/seq-black.png) reused for every
+// quad; the sprite alpha carries the fade (128 = opaque on the GS).
+void renderOverlay(Tyra::Engine* engine, const ScriptContext& ctx) {
+  if (ctx.barsAmount <= 0.0F && ctx.fadeAlpha <= 0.0F) return;
+  static Tyra::Sprite quad;
+  static bool ready = false;
+  if (!ready) {
+    quad.mode = Tyra::SpriteMode::MODE_STRETCH;
+    auto* tex = engine->renderer.getTextureRepository().add(
+        Tyra::FileUtils::fromCwd("hud/seq-black.png"));
+    tex->addLink(quad.id);
+    ready = true;
+  }
+  const auto& scr = engine->renderer.core.getSettings();
+  const float W = scr.getWidth();
+  const float H = scr.getHeight();
+  auto fill = [&](float x, float y, float w, float h, float alpha) {
+    if (w < 1.0F || h < 1.0F || alpha <= 0.0F) return;
+    quad.position = Tyra::Vec2(x, y);
+    quad.size = Tyra::Vec2(w, h);
+    quad.color.a = 128.0F * (alpha > 1.0F ? 1.0F : alpha);
+    engine->renderer.renderer2D.render(quad);
+  };
+  const int idx = g_seqDirector.activeIndex();
+  if (ctx.barsAmount > 0.0F && idx >= 0) {
+    const float tb = kSeqs[idx].barTB * ctx.barsAmount * H;
+    const float lr = kSeqs[idx].barLR * ctx.barsAmount * W;
+    fill(0.0F, 0.0F, W, tb, 1.0F);
+    fill(0.0F, H - tb, W, tb, 1.0F);
+    fill(0.0F, 0.0F, lr, H, 1.0F);
+    fill(W - lr, 0.0F, lr, H, 1.0F);
+  }
+  if (ctx.fadeAlpha > 0.0F) fill(0.0F, 0.0F, W, H, ctx.fadeAlpha);
+}
+}  // namespace sequences
+
+)";
+    out << "}  // namespace " << ns << "\n";
+    return out.str();
+}
+
+// ---------------------------------------------------------------------------
 // Flow graph -> C++ script. Object names are resolved to indices at codegen
 // time; unknown names produce a comment instead of code.
 // ---------------------------------------------------------------------------
@@ -6677,6 +7184,11 @@ std::string flowGraphScript(const Project& p) {
     auto ambienceIndexOf = [&](const std::string& name) {
         for (size_t i = 0; i < p.ambiencePresets.size(); ++i)
             if (p.ambiencePresets[i].name == name) return (int)i;
+        return -1;
+    };
+    auto sequenceIndexOf = [&](const std::string& name) {
+        for (size_t i = 0; i < p.sequences.size(); ++i)
+            if (p.sequences[i].name == name) return (int)i;
         return -1;
     };
     auto saveValueIndex = [&](const std::string& name) {
@@ -6771,6 +7283,7 @@ std::string flowGraphScript(const Project& p) {
     out << "// Generated by tyra-editor from the per-object Flow Graphs. Do not\n"
            "// edit - regenerated on every build. Edit the graphs in the editor.\n"
            "#include \"scripts/script.hpp\"\n"
+           "#include \"scripts/sequences.gen.hpp\"  // Play/Stop Sequence nodes\n"
            "#include \"scripts/flow_nodes.hpp\"  // custom-node C++ bodies\n\n"
            "#include <math.h>\n"
            "#include <stdio.h>\n\n"
@@ -7237,6 +7750,17 @@ std::string flowGraphScript(const Project& p) {
                       << floatLit(a.skyColor[2] * 255.0f) << ");  // \"" << n.str
                       << "\"\n";
                 }
+            } else if (n.type == "PlaySequence") {
+                const int si = sequenceIndexOf(n.str);
+                if (n.str.empty() || si < 0) {
+                    c << pad << "// node " << n.id
+                      << " (PlaySequence): unknown sequence '" << n.str << "'\n";
+                } else {
+                    c << pad << "sequences::play(" << si << ");  // \"" << n.str
+                      << "\"\n";
+                }
+            } else if (n.type == "StopSequence") {
+                c << pad << "sequences::stop();\n";
             } else if (n.type == "ShowObject") {
                 c << pad << obj << ".visible = true;\n";
             } else if (n.type == "HideObject") {
@@ -8812,6 +9336,8 @@ std::vector<File> generate(const Project& p) {
         {"src\\save_system.gen.cpp", saveSystemSource(p)},
         {"inc\\menu_data.gen.hpp", menuDataHeader(p)},
         {"inc\\scripts\\script.hpp", fill(TPL_SCRIPT_HPP)},
+        {"inc\\scripts\\sequences.gen.hpp", sequencesHeader(p)},
+        {"src\\scripts\\sequences.gen.cpp", sequencesScript(p)},
         {"inc\\scripts\\flow_nodes.hpp", fill(TPL_FLOW_NODES_HPP)},
         {"src\\scripts\\flow_graph.gen.cpp", flowGraphScript(p)},
         {"src\\scripts\\object_scripts.gen.cpp", objectScriptsSource(p)},

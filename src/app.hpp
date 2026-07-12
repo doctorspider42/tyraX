@@ -215,6 +215,12 @@ private:
     void drawMenusWindow();
     void drawGradingWindow();
     void drawAmbienceWindow();
+    void drawCutsceneWindow();
+    // Poses a copy of the active scene's objects at the Cutscene Director
+    // playhead (the same interpolation the PS2 runtime uses) so the viewport
+    // previews the cutscene live. Returns the raw objects unchanged when no
+    // sequence preview is active. May also drive the viewport camera.
+    const std::vector<SceneObject>& cutscenePosedObjects();
     // UI Editor (Tools > UI Editor): the screen stack - HUD images plus the
     // full-screen effects layer (bloom/grain), reorderable so effects can sit
     // under the crosshair/text instead of blurring them.
@@ -388,6 +394,38 @@ private:
     bool ambiencePreview_ = true;
     bool ambiencePreviewPushed_ = false;  // preset pushed to the viewport?
 
+    // Snapshots the track target's current static pose into a key at `time`
+    // (replacing a key within 1/60 s). Used by the dopesheet buttons,
+    // double-click drops and auto-key. Returns false if the target is gone.
+    bool cutsceneSnapshotObjectKey(SeqTrack& tr, float time);
+    // Auto-key: a finished gizmo drag drops keys at the playhead for every
+    // selected object tracked by the selected sequence (seqAutoKey_).
+    void cutsceneAutoKey();
+
+    // Cutscene Director (Tools > Cutscene Director): the keyframe timeline.
+    bool showCutsceneEditor_ = false;
+    int selectedSequence_ = -1;   // index into project_.sequences
+    int selectedSeqTrack_ = -1;   // dopesheet lane of the selected key
+                                  // (-1 = camera lane, >= 0 = object track)
+    int selectedSeqKey_ = -1;     // selected key within that lane (-1 = none)
+    float seqPlayhead_ = 0.0f;    // scrub time in seconds
+    bool seqPreview_ = true;      // pose the viewport at the playhead
+    bool seqPlaying_ = false;     // auto-advance the playhead (preview playback)
+    bool seqAutoKey_ = false;     // gizmo release drops a key at the playhead
+    float seqZoom_ = 1.0f;        // dopesheet horizontal zoom (1 = fit duration)
+    bool seqCameraPushed_ = false;  // camera override handed to the viewport?
+    std::vector<SceneObject> seqPosed_;  // scratch: objects posed at the playhead
+    // Widescreen bars + fade preview, computed at the playhead by
+    // cutscenePosedObjects() and overlaid on the viewport image.
+    int seqBarsStyleNow_ = 0;     // kSeqBars* while previewing, else 0
+    float seqBarsNow_ = 0.0f;     // bars slide-in envelope 0..1
+    float seqFadeNow_ = 0.0f;     // fade-to-black overlay alpha 0..1
+
+    // Look-through camera: the viewport renders from this Camera entity's
+    // pose + FOV ("" = free orbit camera). Editor-side state, not persisted;
+    // the Cutscene Director camera-track preview takes precedence.
+    std::string lookThroughCam_;
+
     // Material Editor (Tools > Material Editor). Materials are the project's
     // .mtl asset files, edited in place: matEdMats_ stages the open file's
     // entries (color/brightness split out of Kd for the UI), every committed
@@ -468,6 +506,12 @@ private:
     // so object and flow-node references remap from it when editing ends.
     std::string layerRenameFrom_;
     int layerRenameIdx_ = -1;
+
+    // Object rename-in-place: Cutscene Director tracks and camera-shot
+    // bindings reference objects by name; they remap from this captured name
+    // when the Properties name edit ends.
+    std::string objRenameFrom_;
+    int objRenameIdx_ = -1;
 
     // Layers panel RAM readout: estimated resident bytes per layer name
     // ("" = the always-resident unassigned group). Parsing models/materials
