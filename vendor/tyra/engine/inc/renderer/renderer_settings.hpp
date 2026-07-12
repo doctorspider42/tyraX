@@ -48,30 +48,21 @@ class RendererSettings {
   const VideoMode& getVideoMode() const { return videoMode; }
   void setVideoMode(const VideoMode& mode) { videoMode = mode; }
   const DisplayMode& getDisplayMode() const { return displayMode; }
+  const bool& getWidescreen() const { return widescreen; }
   /** Selects the scan mode and its framebuffer size (tyra-editor fork).
-   * Must run before RendererCoreGS::init allocates the buffers. Deliberately
-   * leaves aspectRatio at the constructor's 512/448: every mode's display
-   * window is tuned to present the same 4:3 picture, so keeping the
-   * projection aspect fixed keeps world proportions identical across modes
-   * (the framebuffers just have different pixel densities). */
+   * When (re)selected before RendererCoreGS allocates buffers, sizes them;
+   * at runtime RendererCore::setDisplayOutput drives the re-allocation. */
   void setDisplayMode(const DisplayMode& mode) {
     displayMode = mode;
-    switch (mode) {
-      case DisplayMode::Progressive480p:
-        width = 448.0F;
-        height = 448.0F;
-        break;
-      case DisplayMode::HiDef1080i:
-        width = 448.0F;
-        height = 540.0F;
-        break;
-      default:
-        width = 512.0F;
-        height = 448.0F;
-        break;
-    }
-    interlacedHeightF = height / 2;
-    interlacedHeightUI = static_cast<unsigned int>(interlacedHeightF);
+    updateGeometry();
+  }
+  /** 16:9 anamorphic output (tyra-editor fork): widens the projection so the
+   * picture has correct proportions on a widescreen display (the framebuffer
+   * stays the same - the TV does the horizontal stretch; in 1080i the GS
+   * display window widens instead). */
+  void setWidescreen(const bool& on) {
+    widescreen = on;
+    updateGeometry();
   }
   /** Vertical refresh in Hz. The DTV modes are 60 Hz regardless of region;
    * interlaced follows the video mode (PAL 50 / NTSC 60). Valid after
@@ -102,6 +93,39 @@ class RendererSettings {
   unsigned int interlacedHeightUI;
   VideoMode videoMode;
   DisplayMode displayMode;
+  bool widescreen = false;
+
+  /** Framebuffer size per scan mode + projection aspect (tyra-editor fork).
+   * The projection aspect keeps the stock 512/448 value as the 4:3 baseline
+   * and scales with the physical shape of the mode's display window, so
+   * world proportions look the same in every mode on the same TV. */
+  void updateGeometry() {
+    switch (displayMode) {
+      case DisplayMode::Progressive480p:
+        width = 448.0F;
+        height = 448.0F;
+        break;
+      case DisplayMode::HiDef1080i:
+        width = 448.0F;
+        height = 540.0F;
+        break;
+      default:
+        width = 512.0F;
+        height = 448.0F;
+        break;
+    }
+    interlacedHeightF = height / 2;
+    interlacedHeightUI = static_cast<unsigned int>(interlacedHeightF);
+    // Physical aspect of the display window on the TV. The SDTV modes fill
+    // (a 4:3-shaped part of) the raster, so widescreen means the TV
+    // stretches the same signal to 16:9. 1080i's raster is natively 16:9:
+    // 4:3 games get a pillarboxed 1344-VCK window, widescreen ones a
+    // 1792/1920 window (the widest 448 * integer-magh fit).
+    float windowAspect = widescreen ? (16.0F / 9.0F) : (4.0F / 3.0F);
+    if (displayMode == DisplayMode::HiDef1080i && widescreen)
+      windowAspect = (1792.0F / 1920.0F) * (16.0F / 9.0F);
+    aspectRatio = (512.0F / 448.0F) * windowAspect / (4.0F / 3.0F);
+  }
 };
 
 }  // namespace Tyra

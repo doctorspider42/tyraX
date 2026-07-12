@@ -9,6 +9,45 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (70) **Runtime display-mode switching (with keep-or-revert prompt) +
+  widescreen 16:9** — follow-up to (69). **(a) Runtime switch:**
+  `RendererCore::setDisplayOutput(mode, widescreen)` (fork) re-selects the
+  scan mode between frames: the VRAM bump allocator resets, frame/z buffers
+  and the post-fx scratch buffers rebuild at the new size, every texture is
+  evicted (`RendererCoreTexture::evictAll`, lazy re-upload) and the
+  projection re-derives - `RendererCoreGS` grew `reinit()` /
+  `reprogramDisplay()` (mode setup split into `programDisplay()`).
+  **(b) Flow nodes:** **Set Display Mode** (mode combo + "Confirm s") and
+  **Set Widescreen** (Scene category) - new `ScriptContext` fields applied
+  in both game loops right before `beginFrame` (the safe point). With
+  Confirm > 0 the generated game arms a **keep-or-revert countdown**: it
+  switches, draws "KEEP VIDEO MODE? X = YES / BACK IN n" centered on
+  screen, and reverts to the previous mode automatically when the timer
+  (real g_frameDt seconds) expires without an X press - the PC-settings
+  safety net, since a mode the TV can't show is a black screen. The prompt
+  draws via a new shared `drawHudText` (refactored out of drawDebugHud);
+  the embedded 8x8 glyph strip grew A-Z + "?=-:" (42 glyphs, 512x16, two
+  rows) and `debugfont.png` is now written to every project on refresh
+  (release builds need it for the prompt), with the atlas string kept in
+  sync between `debugFontPng()` and the game template. **(c) Widescreen:**
+  `ProjectSettings::widescreen` (Preferences > Build checkbox, serialized,
+  default false) -> `EngineOptions::widescreen`. The projection aspect now
+  derives from the physical shape of each mode's display window
+  (`RendererSettings::updateGeometry`): SDTV modes keep their signal and
+  let the TV stretch (anamorphic), 1080i widens its GS window from 3x to
+  4x MAGH (1792/1920 VCK). Verified in PCSX2 (SW renderer, scratch orbit
+  project with OnStart -> Delay 4s -> Set Display Mode(480p, confirm 5s)):
+  boot in 480i -> switch at ~4s with the prompt rendering the new glyphs
+  over a healthy scene (textures re-uploaded after the VRAM rebuild) ->
+  countdown ticks -> prompt clears on timeout with the scene still healthy
+  after the second rebuild (the revert is the only inputless path that
+  clears the prompt; the final-mode status-bar text could not be read -
+  the PCSX2 window sat under the taskbar in captures). Widescreen build
+  verified by geometry: the same scene renders visibly narrower
+  (anamorphic squeeze) with widescreen on. Codegen inspected for both
+  nodes. Hands-on still wanted: the X-confirm path (needs a pad; synthetic
+  input is off-limits on this machine) and real-hardware output.
+
 - (69) **Alternative display modes: progressive 480p and 1080i** — new
   Preferences > Build > **Display mode** combo (`ProjectSettings::displayMode`:
   "interlaced" default / "progressive" / "1080i", serialized with a

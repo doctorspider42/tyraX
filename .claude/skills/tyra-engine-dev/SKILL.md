@@ -94,6 +94,13 @@ TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot).
   process dies seconds after SetGsCrt, no crash dialog); 1080i in FIELD
   mode with MAGV=2x is visually equivalent (both fields step through every
   buffer line) and works.
+- **Runtime display switching**: `RendererCore::setDisplayOutput(mode, ws)`
+  (tyra-editor fork) switches the scan mode / widescreen between frames.
+  A mode change resets the whole VRAM bump allocator (`vram.reset()`),
+  rebuilds frame/z buffers + post fx, and `texture.evictAll()` drops every
+  texture allocation (they lazily re-upload) — never call it mid-frame.
+  The projection aspect lives in `RendererSettings::updateGeometry`
+  (fixed 4:3-baseline look; widescreen scales it anamorphically).
 
 **Audio**
 - audsrv streams PCM only; ADPCM is for one-shots (`adpcm.tryPlay`), and ADPCM

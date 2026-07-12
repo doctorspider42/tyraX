@@ -80,12 +80,22 @@ void RendererCoreGS::allocateBuffers() {
                                : VideoMode::NTSC);
   }
 
-  // Modified by tyra-editor: DTV scan modes next to the stock interlaced one.
+  programDisplay();
+
+  TYRA_LOG("Framebuffers, zBuffer set and allocated!");
+}
+
+// Modified by tyra-editor: video mode + display window + scan-out, split
+// from allocateBuffers so runtime display switching can rerun it.
+void RendererCoreGS::programDisplay() {
+  // DTV scan modes next to the stock interlaced one.
   switch (settings->getDisplayMode()) {
     case DisplayMode::Progressive480p:
       // 448x448 buffer scanned out at 3x horizontally into the 1440-VCK
       // 480p raster: a 1344x448 window inside 1440x480 - exactly 4:3,
-      // centered, with a thin overscan border.
+      // centered, with a thin overscan border. Widescreen changes nothing
+      // here: the TV stretches the same signal to 16:9 (the projection
+      // aspect compensates - see RendererSettings::updateGeometry).
       graph_set_mode(GRAPH_MODE_NONINTERLACED, GRAPH_MODE_HDTV_480P,
                      GRAPH_MODE_FRAME, GRAPH_DISABLE);
       setDtvDisplay(232, 35, 1440, 480, 3, 1, false);
@@ -96,17 +106,21 @@ void RendererCoreGS::allocateBuffers() {
       // line (raster lines 2n/2n+1 both map to line n), so the two fields
       // draw the same 540 lines one raster line apart - a stable
       // line-doubled picture, no field jitter, no flicker filter needed.
-      // 3x horizontal -> a 1344x1080 window pillarboxed inside the 16:9
-      // 1920x1080 raster (~4:3 picture).
+      // (The obvious alternative - the gsKit/OPL interlaced FRAME recipe -
+      // hard-crashes PCSX2 v2.3.205 seconds after SetGsCrt; avoid it.)
+      // The 1080i raster is natively 16:9: 4:3 games get a 3x-MAGH
+      // 1344x1080 pillarboxed window, widescreen ones the widest integer
+      // fit, 4x MAGH = 1792 of 1920 VCK.
       graph_set_mode(GRAPH_MODE_INTERLACED, GRAPH_MODE_HDTV_1080I,
                      GRAPH_MODE_FIELD, GRAPH_DISABLE);
-      setDtvDisplay(236, 38, 1920, 1080, 3, 2, true);
+      setDtvDisplay(236, 38, 1920, 1080, settings->getWidescreen() ? 4 : 3, 2,
+                    true);
       break;
     default: {
       // Same call sequence as ps2sdk's graph_initialize, with the mode
       // explicit (region-resolved Auto, or forced PAL/NTSC from
       // EngineOptions). The 512x448 framebuffer is kept for both signals;
-      // PAL just outputs at 50 Hz.
+      // PAL just outputs at 50 Hz. Widescreen is again the TV's stretch.
       const int mode = settings->getVideoMode() == VideoMode::PAL
                            ? GRAPH_MODE_PAL
                            : GRAPH_MODE_NTSC;
@@ -117,11 +131,22 @@ void RendererCoreGS::allocateBuffers() {
     }
   }
   graph_set_bgcolor(0, 0, 0);
-  presentFrameBuffer(1);
+  presentFrameBuffer(context ^ 1);
   graph_enable_output();
-
-  TYRA_LOG("Framebuffers, zBuffer set and allocated!");
 }
+
+// Modified by tyra-editor: full display rebuild for a runtime scan-mode
+// switch. The VRAM allocator is a bump allocator and the frame/z buffers
+// are its first allocations, so resizing them means starting the layout
+// over - the caller (RendererCore::setDisplayOutput) evicts all textures
+// first and re-inits post fx right after.
+void RendererCoreGS::reinit() {
+  vram.reset();
+  allocateBuffers();
+  initDrawingEnvironment();
+}
+
+void RendererCoreGS::reprogramDisplay() { programDisplay(); }
 
 // Modified by tyra-editor: display window for the DTV modes. ps2sdk's
 // graph_set_screen always programs the mode's full VCK width into DW, which

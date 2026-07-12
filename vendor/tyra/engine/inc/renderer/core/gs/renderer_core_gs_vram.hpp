@@ -35,6 +35,14 @@ class RendererCoreGSVRam {
   /** Free texture, FIFO order */
   void free(const int& address);
 
+  /** Modified by tyra-editor: forget every allocation (bump allocator back
+   * to zero) - used by the runtime display-mode switch, which rebuilds the
+   * whole VRAM layout from the frame buffers up. */
+  void reset() {
+    pointer = 0;
+    touched = true;
+  }
+
  private:
   int getSize(int width, const int& height, const int& psm,
               const int& alignment);

@@ -270,6 +270,12 @@ struct ProjectSettings {
     // (PCSX2 shows every mode) and always run at 60 Hz.
     std::string displayMode = "interlaced";  // "interlaced" | "progressive" | "1080i"
 
+    // 16:9 anamorphic output: widens the projection so proportions are
+    // correct on a widescreen TV (the framebuffer stays the same; in 1080i
+    // the GS display window widens instead). Also switchable at runtime
+    // via the Set Widescreen flow node.
+    bool widescreen = false;
+
     // Texture quantization at build (the PS2-native "compression": palettized
     // PSMT8/PSMT4 textures). Applied to res/models|materials|textures PNGs
     // when baking res/ -> .res-baked/; sources stay untouched. Per-asset
@@ -384,7 +390,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
         return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
     };
     return a.videoSystem == b.videoSystem && a.buildProfile == b.buildProfile &&
-           a.displayMode == b.displayMode &&
+           a.displayMode == b.displayMode && a.widescreen == b.widescreen &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.disableVsync == b.disableVsync &&
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&

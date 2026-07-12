@@ -263,6 +263,8 @@ int main(int argc, char** argv) {
   // 480i/576i, progressive 480p, or 1080i. The DTV modes need component
   // cables on a real console and always run at 60 Hz.
   options.displayMode = Tyra::DisplayMode::{{DISPLAY_MODE}};
+  // 16:9 anamorphic output (Preferences > Build > Widescreen).
+  options.widescreen = {{WIDESCREEN}};
   Tyra::Engine engine(options);
   {{NAME_UPPER_NS}}::TerrainGame game(&engine);
   engine.run(&game);
@@ -1335,16 +1337,13 @@ void addCone(std::vector<Vec4>& verts, std::vector<Color>& cols,
   }
 }
 
-/** Debug-profile HUD (Project > Preferences > Build): FPS and RAM
- * (used/total EE MB) readouts in the top-left corner, drawn from the 8x8
- * glyph strip res/hud/debugfont.png. Compiles to nothing in a release build
- * (the DEBUG_SHOW_* constants in terrain_config.hpp fold the calls away). */
-void drawDebugHud(Engine* engine) {
-  if (!DEBUG_SHOW_FPS && !DEBUG_SHOW_MEM) return;
+/** 8x8 glyph text from the res/hud/debugfont.png strip (digits, letters and
+ * a few symbols - the atlas below must match the editor's debugFontPng()).
+ * Shared by the debug-profile overlays and the video-mode confirm prompt,
+ * so the strip ships with every build. */
+void drawHudText(Engine* engine, const char* s, float x, float y) {
   static Sprite glyph;
   static bool glyphReady = false;
-  static int memRefresh = 0;
-  static float memFreeMB = 0.0F;
   if (!glyphReady) {
     glyph.mode = SpriteMode::MODE_REPEAT;
     glyph.size = Vec2(8.0F, 8.0F);  // one atlas cell
@@ -1354,25 +1353,36 @@ void drawDebugHud(Engine* engine) {
     texture->addLink(glyph.id);
     glyphReady = true;
   }
-  // Glyph order in the atlas - must match the editor's debugFontPng().
-  // Cells are 16px apart: the glyph sits in the left 8px, the right 8px are
-  // transparent padding so bilinear sampling never bleeds the next glyph.
-  static const char* atlas = "0123456789.FPSMBE/";
-  auto drawText = [&](const char* s, float x, float y) {
-    for (; *s; ++s, x += 14.0F) {
-      if (*s == ' ') continue;
-      const char* hit = strchr(atlas, *s);
-      if (!hit) continue;
-      glyph.offset = Vec2((float)(hit - atlas) * 16.0F, 0.0F);
-      glyph.position = Vec2(x, y);
-      engine->renderer.renderer2D.render(glyph);
-    }
-  };
+  // 32 cells of 16px per atlas row (the glyph sits in the left 8px, the
+  // right 8px stay transparent so bilinear sampling never bleeds the next
+  // glyph), rows 8px apart.
+  static const char* atlas = "0123456789.FPSMBE/ACDGHIJKLNOQRTUVWXYZ?=-:";
+  for (; *s; ++s, x += 14.0F) {
+    if (*s == ' ') continue;
+    const char* hit = strchr(atlas, *s);
+    if (!hit) continue;
+    const int idx = (int)(hit - atlas);
+    glyph.offset = Vec2((float)(idx % 32) * 16.0F, (float)(idx / 32) * 8.0F);
+    glyph.position = Vec2(x, y);
+    engine->renderer.renderer2D.render(glyph);
+  }
+}
+
+float hudTextWidth(const char* s) { return (float)strlen(s) * 14.0F; }
+
+/** Debug-profile HUD (Project > Preferences > Build): FPS and RAM
+ * (used/total EE MB) readouts in the top-left corner. Compiles to nothing
+ * in a release build (the DEBUG_SHOW_* constants in terrain_config.hpp fold
+ * the calls away). */
+void drawDebugHud(Engine* engine) {
+  if (!DEBUG_SHOW_FPS && !DEBUG_SHOW_MEM) return;
+  static int memRefresh = 0;
+  static float memFreeMB = 0.0F;
   char line[32];
   float y = 16.0F;
   if (DEBUG_SHOW_FPS) {
     snprintf(line, sizeof(line), "FPS %d", (int)engine->info.getFps());
-    drawText(line, 16.0F, y);
+    drawHudText(engine, line, 16.0F, y);
     y += 20.0F;
   }
   if (DEBUG_SHOW_MEM) {
@@ -1384,8 +1394,76 @@ void drawDebugHud(Engine* engine) {
       memRefresh = everyFrames(2.0F);
     }
     snprintf(line, sizeof(line), "MEM %.1f/32 MB", 32.0F - memFreeMB);
-    drawText(line, 16.0F, y);
+    drawHudText(engine, line, 16.0F, y);
   }
+}
+
+// Runtime scan-mode switch with keep-or-revert confirmation (the Set
+// Display Mode flow node). A mode the player's TV can't display would
+// strand them on a black screen, so with a confirm window armed the game
+// automatically reverts to the previous mode unless X is pressed in time -
+// the same safety net PC display settings use.
+struct VideoConfirm {
+  bool active = false;
+  Tyra::DisplayMode prevMode = Tyra::DisplayMode::Interlaced;
+  float secondsLeft = 0.0F;
+};
+VideoConfirm g_videoConfirm;
+
+/** Applies the Set Display Mode / Set Widescreen flow-node requests and
+ * ticks the confirm countdown. Must run between frames (before
+ * beginFrame): a scan-mode switch rebuilds the VRAM layout. */
+void applyVideoRequests(Engine* engine, ScriptContext& ctx) {
+  auto& core = engine->renderer.core;
+  if (ctx.widescreen >= 0) {
+    core.setDisplayOutput(core.getSettings().getDisplayMode(),
+                          ctx.widescreen != 0);
+    ctx.widescreen = -1;
+  }
+  if (ctx.requestDisplayMode >= 0) {
+    const auto mode = (Tyra::DisplayMode)ctx.requestDisplayMode;
+    const auto prev = core.getSettings().getDisplayMode();
+    if (mode != prev) {
+      core.setDisplayOutput(mode, core.getSettings().getWidescreen());
+      // The vertical refresh may change (PAL 50 <-> DTV 60) - reseed the
+      // frame clock so gameplay speed stays wall-clock normalized.
+      g_frameRate = engine->renderer.core.getSettings().getRefreshRate();
+      if (ctx.displayConfirmSec > 0.0F) {
+        g_videoConfirm.active = true;
+        g_videoConfirm.prevMode = prev;
+        g_videoConfirm.secondsLeft = ctx.displayConfirmSec;
+      } else {
+        g_videoConfirm.active = false;  // blind switch - no prompt armed
+      }
+    }
+    ctx.requestDisplayMode = -1;
+    ctx.displayConfirmSec = 0.0F;
+  }
+  if (!g_videoConfirm.active) return;
+  if (engine->pad.getClicked().Cross) {
+    g_videoConfirm.active = false;  // player kept the new mode
+    return;
+  }
+  g_videoConfirm.secondsLeft -= g_frameDt;
+  if (g_videoConfirm.secondsLeft <= 0.0F) {
+    core.setDisplayOutput(g_videoConfirm.prevMode,
+                          core.getSettings().getWidescreen());
+    g_frameRate = engine->renderer.core.getSettings().getRefreshRate();
+    g_videoConfirm.active = false;
+  }
+}
+
+/** The keep-or-revert prompt, drawn in the 2D phase (with the other HUD). */
+void drawVideoConfirm(Engine* engine) {
+  if (!g_videoConfirm.active) return;
+  const float w = engine->renderer.core.getSettings().getWidth();
+  const float h = engine->renderer.core.getSettings().getHeight();
+  const char* ask = "KEEP VIDEO MODE? X = YES";
+  drawHudText(engine, ask, (w - hudTextWidth(ask)) * 0.5F, h * 0.5F - 22.0F);
+  char line[24];
+  snprintf(line, sizeof(line), "BACK IN %d",
+           (int)g_videoConfirm.secondsLeft + 1);
+  drawHudText(engine, line, (w - hudTextWidth(line)) * 0.5F, h * 0.5F + 2.0F);
 }
 
 }  // namespace
@@ -1579,6 +1657,10 @@ void TerrainGame::loop() {
     g_particlesOn = scriptCtx.particles != 0;
     scriptCtx.particles = -1;
   }
+  // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
+  // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
+  // switch rebuilds the VRAM layout between frames.
+  applyVideoRequests(engine, scriptCtx);
   if (flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
   if (g_flashEnabled && g_flashOn) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
@@ -1610,6 +1692,7 @@ void TerrainGame::loop() {
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine);
+    drawVideoConfirm(engine);
   }
   engine->renderer.endFrame();
 }
@@ -4219,6 +4302,10 @@ void TerrainGame::loop() {
     g_particlesOn = scriptCtx.particles != 0;
     scriptCtx.particles = -1;
   }
+  // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
+  // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
+  // switch rebuilds the VRAM layout between frames.
+  applyVideoRequests(engine, scriptCtx);
   if (flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
   if (g_flashEnabled && g_flashOn) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
@@ -4250,6 +4337,7 @@ void TerrainGame::loop() {
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine);
+    drawVideoConfirm(engine);
   }
   engine->renderer.endFrame();
 }
@@ -4491,14 +4579,16 @@ const unsigned char* usePromptPng(size_t& size) {
     return data;
 }
 
-// 512x8 glyph strip for the debug-profile HUD, rendered from an embedded
-// 8x8 pixel font and encoded on first use. 18 glyphs ("0123456789.FPSMBE/"),
-// one per 16px cell; the right half of each cell stays transparent so the
-// GS's bilinear filter never samples the neighboring glyph.
+// 512x16 glyph strip for the in-game HUD text (debug overlays + the video
+// mode confirm prompt), rendered from an embedded 8x8 pixel font and
+// encoded on first use. 42 glyphs in two rows of 32 cells of 16px - the
+// order must match drawHudText's atlas string in the game template; the
+// right half of each cell stays transparent so the GS's bilinear filter
+// never samples the neighboring glyph.
 const std::vector<unsigned char>& debugFontPng() {
     static std::vector<unsigned char> png = [] {
         // Classic CP437-style 8x8 glyphs, one byte per row, MSB = left pixel.
-        static const unsigned char rows[18][8] = {
+        static const unsigned char rows[42][8] = {
             {0x7C, 0xC6, 0xCE, 0xDE, 0xF6, 0xE6, 0x7C, 0x00},  // 0
             {0x30, 0x70, 0x30, 0x30, 0x30, 0x30, 0xFC, 0x00},  // 1
             {0x78, 0xCC, 0x0C, 0x38, 0x60, 0xCC, 0xFC, 0x00},  // 2
@@ -4517,14 +4607,39 @@ const std::vector<unsigned char>& debugFontPng() {
             {0xFC, 0x66, 0x66, 0x7C, 0x66, 0x66, 0xFC, 0x00},  // B
             {0xFE, 0x62, 0x68, 0x78, 0x68, 0x62, 0xFE, 0x00},  // E
             {0x06, 0x0C, 0x18, 0x30, 0x60, 0xC0, 0x80, 0x00},  // /
+            {0x30, 0x78, 0xCC, 0xCC, 0xFC, 0xCC, 0xCC, 0x00},  // A
+            {0x3C, 0x66, 0xC0, 0xC0, 0xC0, 0x66, 0x3C, 0x00},  // C
+            {0xF8, 0x6C, 0x66, 0x66, 0x66, 0x6C, 0xF8, 0x00},  // D
+            {0x3C, 0x66, 0xC0, 0xC0, 0xCE, 0x66, 0x3E, 0x00},  // G
+            {0xCC, 0xCC, 0xCC, 0xFC, 0xCC, 0xCC, 0xCC, 0x00},  // H
+            {0x78, 0x30, 0x30, 0x30, 0x30, 0x30, 0x78, 0x00},  // I
+            {0x1E, 0x0C, 0x0C, 0x0C, 0xCC, 0xCC, 0x78, 0x00},  // J
+            {0xE6, 0x66, 0x6C, 0x78, 0x6C, 0x66, 0xE6, 0x00},  // K
+            {0xF0, 0x60, 0x60, 0x60, 0x62, 0x66, 0xFE, 0x00},  // L
+            {0xC6, 0xE6, 0xF6, 0xDE, 0xCE, 0xC6, 0xC6, 0x00},  // N
+            {0x38, 0x6C, 0xC6, 0xC6, 0xC6, 0x6C, 0x38, 0x00},  // O
+            {0x78, 0xCC, 0xCC, 0xCC, 0xDC, 0x78, 0x1C, 0x00},  // Q
+            {0xFC, 0x66, 0x66, 0x7C, 0x6C, 0x66, 0xE6, 0x00},  // R
+            {0xFC, 0xB4, 0x30, 0x30, 0x30, 0x30, 0x78, 0x00},  // T
+            {0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xFC, 0x00},  // U
+            {0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0x78, 0x30, 0x00},  // V
+            {0xC6, 0xC6, 0xC6, 0xD6, 0xFE, 0xEE, 0xC6, 0x00},  // W
+            {0xC6, 0xC6, 0x6C, 0x38, 0x38, 0x6C, 0xC6, 0x00},  // X
+            {0xCC, 0xCC, 0xCC, 0x78, 0x30, 0x30, 0x78, 0x00},  // Y
+            {0xFE, 0xC6, 0x8C, 0x18, 0x32, 0x66, 0xFE, 0x00},  // Z
+            {0x78, 0xCC, 0x0C, 0x18, 0x30, 0x00, 0x30, 0x00},  // ?
+            {0x00, 0x00, 0xFC, 0x00, 0x00, 0xFC, 0x00, 0x00},  // =
+            {0x00, 0x00, 0x00, 0xFC, 0x00, 0x00, 0x00, 0x00},  // -
+            {0x00, 0x30, 0x30, 0x00, 0x00, 0x30, 0x30, 0x00},  // :
         };
-        const int w = 512, h = 8;  // PS2 textures need power-of-two sizes
+        const int w = 512, h = 16;  // PS2 textures need power-of-two sizes
         std::vector<unsigned char> rgba(w * h * 4, 0);
-        for (int g = 0; g < 18; ++g)
+        for (int g = 0; g < 42; ++g)
             for (int y = 0; y < 8; ++y)
                 for (int x = 0; x < 8; ++x) {
                     if (!(rows[g][y] & (0x80 >> x))) continue;
-                    unsigned char* px = &rgba[(y * w + g * 16 + x) * 4];
+                    unsigned char* px =
+                        &rgba[(((g / 32) * 8 + y) * w + (g % 32) * 16 + x) * 4];
                     px[0] = px[1] = px[2] = px[3] = 255;
                 }
         std::vector<unsigned char> out;
@@ -4908,6 +5023,18 @@ struct ScriptContext {
   int bloom = -1;
   int grain = -1;
   int particles = -1;
+
+  // Runtime video output (Set Display Mode / Set Widescreen flow nodes).
+  // requestDisplayMode: -1 = leave, else a Tyra::DisplayMode value (0 =
+  // interlaced, 1 = progressive 480p, 2 = 1080i). displayConfirmSec > 0
+  // arms the keep-or-revert prompt: the game switches, asks the player to
+  // confirm with X and reverts to the previous mode automatically when the
+  // timer runs out (a mode the TV can't display would otherwise strand the
+  // player on a black screen). widescreen: -1 = leave, 0/1 = 4:3 / 16:9.
+  // The game applies and resets all three.
+  int requestDisplayMode = -1;
+  float displayConfirmSec = 0.0F;
+  int widescreen = -1;
 
   // Save data: named values persisted in memory card slots (SAVE_VALUE_NAMES
   // order, scene_data.hpp). Set openSaveMenu = true to open the in-game
@@ -5886,6 +6013,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                    st.displayMode == "1080i"         ? "HiDef1080i"
                    : st.displayMode == "progressive" ? "Progressive480p"
                                                      : "Interlaced");
+    s = replaceAll(s, "{{WIDESCREEN}}", st.widescreen ? "true" : "false");
     const bool debugProfile = st.buildProfile == "debug";
     s = replaceAll(s, "{{DEBUG_SHOW_FPS}}",
                    debugProfile && st.showFps ? "true" : "false");
@@ -6486,6 +6614,16 @@ std::string flowGraphScript(const Project& p) {
                 if (v > 128) v = 128;
                 c << pad << "ctx." << (n.type == "SetBloom" ? "bloom" : "grain")
                   << " = " << v << ";\n";
+            } else if (n.type == "SetDisplayMode") {
+                int mode = (int)n.num[0];
+                mode = mode < 0 ? 0 : mode > 2 ? 2 : mode;
+                float confirm = n.num[1] < 0.0f ? 0.0f : n.num[1];
+                c << pad << "ctx.requestDisplayMode = " << mode << ";\n";
+                c << pad << "ctx.displayConfirmSec = " << floatLit(confirm)
+                  << ";\n";
+            } else if (n.type == "SetWidescreen") {
+                c << pad << "ctx.widescreen = " << (n.num[0] != 0.0f ? "1" : "0")
+                  << ";\n";
             } else if (n.type == "ShowHud") {
                 c << pad << "ctx.hudVisible = true;\n";
             } else if (n.type == "HideHud") {
