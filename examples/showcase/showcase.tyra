@@ -137,7 +137,7 @@
             }
           },
           "flowGraph": {
-            "nextId": 33,
+            "nextId": 55,
             "nodes": [
               {
                 "id": 1,
@@ -171,6 +171,7 @@
                   0
                 ]
               },
+              { "id": 53, "type": "ShowText", "pos": [260, 180], "str": "options-hint", "str2": "", "num": [6, 0, 0, 0] },
               {
                 "id": 4,
                 "type": "PlayMusic",
@@ -219,262 +220,30 @@
                   0
                 ]
               },
-              {
-                "id": 9,
-                "type": "OnMenuEvent",
-                "pos": [
-                  40,
-                  300
-                ],
-                "str": "fog-on",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 10,
-                "type": "SetFog",
-                "pos": [
-                  300,
-                  300
-                ],
-                "str": "",
-                "str2": "",
-                "num": [
-                  1,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 12,
-                "type": "OnMenuEvent",
-                "pos": [
-                  40,
-                  370
-                ],
-                "str": "fog-off",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 13,
-                "type": "SetFog",
-                "pos": [
-                  300,
-                  370
-                ],
-                "str": "",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 15,
-                "type": "OnMenuEvent",
-                "pos": [
-                  40,
-                  440
-                ],
-                "str": "grain-on",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 16,
-                "type": "SetGrain",
-                "pos": [
-                  300,
-                  440
-                ],
-                "str": "",
-                "str2": "",
-                "num": [
-                  0.14,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 18,
-                "type": "OnMenuEvent",
-                "pos": [
-                  40,
-                  510
-                ],
-                "str": "grain-off",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 19,
-                "type": "SetGrain",
-                "pos": [
-                  300,
-                  510
-                ],
-                "str": "",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 21,
-                "type": "OnMenuEvent",
-                "pos": [
-                  40,
-                  580
-                ],
-                "str": "bloom-on",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 22,
-                "type": "SetBloom",
-                "pos": [
-                  300,
-                  580
-                ],
-                "str": "",
-                "str2": "",
-                "num": [
-                  0.35,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 24,
-                "type": "OnMenuEvent",
-                "pos": [
-                  40,
-                  650
-                ],
-                "str": "bloom-off",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 25,
-                "type": "SetBloom",
-                "pos": [
-                  300,
-                  650
-                ],
-                "str": "",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 27,
-                "type": "OnMenuEvent",
-                "pos": [
-                  40,
-                  720
-                ],
-                "str": "part-on",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 28,
-                "type": "SetParticles",
-                "pos": [
-                  300,
-                  720
-                ],
-                "str": "",
-                "str2": "",
-                "num": [
-                  1,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 30,
-                "type": "OnMenuEvent",
-                "pos": [
-                  40,
-                  790
-                ],
-                "str": "part-off",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 31,
-                "type": "SetParticles",
-                "pos": [
-                  300,
-                  790
-                ],
-                "str": "",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              }
+              { "id": 9, "type": "ValueAtLeast", "pos": [40, 300], "str": "gfx-fog", "str2": "", "num": [1, 0, 0, 0] },
+              { "id": 10, "type": "OnCondition", "pos": [250, 300], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 11, "type": "SetFog", "pos": [460, 300], "str": "", "str2": "", "num": [1, 0, 0, 0] },
+              { "id": 12, "type": "Not", "pos": [250, 380], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 13, "type": "OnCondition", "pos": [460, 380], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 14, "type": "SetFog", "pos": [670, 380], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 15, "type": "ValueAtLeast", "pos": [40, 470], "str": "gfx-grain", "str2": "", "num": [1, 0, 0, 0] },
+              { "id": 16, "type": "OnCondition", "pos": [250, 470], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 17, "type": "SetGrain", "pos": [460, 470], "str": "", "str2": "", "num": [0.14, 0, 0, 0] },
+              { "id": 18, "type": "Not", "pos": [250, 550], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 19, "type": "OnCondition", "pos": [460, 550], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 20, "type": "SetGrain", "pos": [670, 550], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 21, "type": "ValueAtLeast", "pos": [40, 640], "str": "gfx-bloom", "str2": "", "num": [1, 0, 0, 0] },
+              { "id": 22, "type": "OnCondition", "pos": [250, 640], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 23, "type": "SetBloom", "pos": [460, 640], "str": "", "str2": "", "num": [0.35, 0, 0, 0] },
+              { "id": 24, "type": "Not", "pos": [250, 720], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 25, "type": "OnCondition", "pos": [460, 720], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 26, "type": "SetBloom", "pos": [670, 720], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 27, "type": "ValueAtLeast", "pos": [40, 810], "str": "gfx-part", "str2": "", "num": [1, 0, 0, 0] },
+              { "id": 28, "type": "OnCondition", "pos": [250, 810], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 29, "type": "SetParticles", "pos": [460, 810], "str": "", "str2": "", "num": [1, 0, 0, 0] },
+              { "id": 30, "type": "Not", "pos": [250, 890], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 31, "type": "OnCondition", "pos": [460, 890], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 32, "type": "SetParticles", "pos": [670, 890], "str": "", "str2": "", "num": [0, 0, 0, 0] }
             ],
             "links": [
               {
@@ -482,6 +251,7 @@
                 "from": 1,
                 "to": 2
               },
+              { "id": 54, "from": 1, "to": 53 },
               {
                 "id": 5,
                 "from": 1,
@@ -492,46 +262,26 @@
                 "from": 6,
                 "to": 7
               },
-              {
-                "id": 11,
-                "from": 9,
-                "to": 10
-              },
-              {
-                "id": 14,
-                "from": 12,
-                "to": 13
-              },
-              {
-                "id": 17,
-                "from": 15,
-                "to": 16
-              },
-              {
-                "id": 20,
-                "from": 18,
-                "to": 19
-              },
-              {
-                "id": 23,
-                "from": 21,
-                "to": 22
-              },
-              {
-                "id": 26,
-                "from": 24,
-                "to": 25
-              },
-              {
-                "id": 29,
-                "from": 27,
-                "to": 28
-              },
-              {
-                "id": 32,
-                "from": 30,
-                "to": 31
-              }
+              { "id": 33, "from": 9, "to": 10, "bool": true },
+              { "id": 34, "from": 10, "to": 11 },
+              { "id": 35, "from": 9, "to": 12, "bool": true },
+              { "id": 36, "from": 12, "to": 13, "bool": true },
+              { "id": 37, "from": 13, "to": 14 },
+              { "id": 38, "from": 15, "to": 16, "bool": true },
+              { "id": 39, "from": 16, "to": 17 },
+              { "id": 40, "from": 15, "to": 18, "bool": true },
+              { "id": 41, "from": 18, "to": 19, "bool": true },
+              { "id": 42, "from": 19, "to": 20 },
+              { "id": 43, "from": 21, "to": 22, "bool": true },
+              { "id": 44, "from": 22, "to": 23 },
+              { "id": 45, "from": 21, "to": 24, "bool": true },
+              { "id": 46, "from": 24, "to": 25, "bool": true },
+              { "id": 47, "from": 25, "to": 26 },
+              { "id": 48, "from": 27, "to": 28, "bool": true },
+              { "id": 49, "from": 28, "to": 29 },
+              { "id": 50, "from": 27, "to": 30, "bool": true },
+              { "id": 51, "from": 30, "to": 31, "bool": true },
+              { "id": 52, "from": 31, "to": 32 }
             ]
           }
         },
@@ -2592,7 +2342,7 @@
             }
           },
           "flowGraph": {
-            "nextId": 33,
+            "nextId": 53,
             "nodes": [
               {
                 "id": 1,
@@ -2674,262 +2424,30 @@
                   0
                 ]
               },
-              {
-                "id": 9,
-                "type": "OnMenuEvent",
-                "pos": [
-                  40,
-                  300
-                ],
-                "str": "fog-on",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 10,
-                "type": "SetFog",
-                "pos": [
-                  300,
-                  300
-                ],
-                "str": "",
-                "str2": "",
-                "num": [
-                  1,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 12,
-                "type": "OnMenuEvent",
-                "pos": [
-                  40,
-                  370
-                ],
-                "str": "fog-off",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 13,
-                "type": "SetFog",
-                "pos": [
-                  300,
-                  370
-                ],
-                "str": "",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 15,
-                "type": "OnMenuEvent",
-                "pos": [
-                  40,
-                  440
-                ],
-                "str": "grain-on",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 16,
-                "type": "SetGrain",
-                "pos": [
-                  300,
-                  440
-                ],
-                "str": "",
-                "str2": "",
-                "num": [
-                  0.14,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 18,
-                "type": "OnMenuEvent",
-                "pos": [
-                  40,
-                  510
-                ],
-                "str": "grain-off",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 19,
-                "type": "SetGrain",
-                "pos": [
-                  300,
-                  510
-                ],
-                "str": "",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 21,
-                "type": "OnMenuEvent",
-                "pos": [
-                  40,
-                  580
-                ],
-                "str": "bloom-on",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 22,
-                "type": "SetBloom",
-                "pos": [
-                  300,
-                  580
-                ],
-                "str": "",
-                "str2": "",
-                "num": [
-                  0.35,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 24,
-                "type": "OnMenuEvent",
-                "pos": [
-                  40,
-                  650
-                ],
-                "str": "bloom-off",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 25,
-                "type": "SetBloom",
-                "pos": [
-                  300,
-                  650
-                ],
-                "str": "",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 27,
-                "type": "OnMenuEvent",
-                "pos": [
-                  40,
-                  720
-                ],
-                "str": "part-on",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 28,
-                "type": "SetParticles",
-                "pos": [
-                  300,
-                  720
-                ],
-                "str": "",
-                "str2": "",
-                "num": [
-                  1,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 30,
-                "type": "OnMenuEvent",
-                "pos": [
-                  40,
-                  790
-                ],
-                "str": "part-off",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              },
-              {
-                "id": 31,
-                "type": "SetParticles",
-                "pos": [
-                  300,
-                  790
-                ],
-                "str": "",
-                "str2": "",
-                "num": [
-                  0,
-                  0,
-                  0,
-                  0
-                ]
-              }
+              { "id": 9, "type": "ValueAtLeast", "pos": [40, 300], "str": "gfx-fog", "str2": "", "num": [1, 0, 0, 0] },
+              { "id": 10, "type": "OnCondition", "pos": [250, 300], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 11, "type": "SetFog", "pos": [460, 300], "str": "", "str2": "", "num": [1, 0, 0, 0] },
+              { "id": 12, "type": "Not", "pos": [250, 380], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 13, "type": "OnCondition", "pos": [460, 380], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 14, "type": "SetFog", "pos": [670, 380], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 15, "type": "ValueAtLeast", "pos": [40, 470], "str": "gfx-grain", "str2": "", "num": [1, 0, 0, 0] },
+              { "id": 16, "type": "OnCondition", "pos": [250, 470], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 17, "type": "SetGrain", "pos": [460, 470], "str": "", "str2": "", "num": [0.14, 0, 0, 0] },
+              { "id": 18, "type": "Not", "pos": [250, 550], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 19, "type": "OnCondition", "pos": [460, 550], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 20, "type": "SetGrain", "pos": [670, 550], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 21, "type": "ValueAtLeast", "pos": [40, 640], "str": "gfx-bloom", "str2": "", "num": [1, 0, 0, 0] },
+              { "id": 22, "type": "OnCondition", "pos": [250, 640], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 23, "type": "SetBloom", "pos": [460, 640], "str": "", "str2": "", "num": [0.35, 0, 0, 0] },
+              { "id": 24, "type": "Not", "pos": [250, 720], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 25, "type": "OnCondition", "pos": [460, 720], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 26, "type": "SetBloom", "pos": [670, 720], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 27, "type": "ValueAtLeast", "pos": [40, 810], "str": "gfx-part", "str2": "", "num": [1, 0, 0, 0] },
+              { "id": 28, "type": "OnCondition", "pos": [250, 810], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 29, "type": "SetParticles", "pos": [460, 810], "str": "", "str2": "", "num": [1, 0, 0, 0] },
+              { "id": 30, "type": "Not", "pos": [250, 890], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 31, "type": "OnCondition", "pos": [460, 890], "str": "", "str2": "", "num": [0, 0, 0, 0] },
+              { "id": 32, "type": "SetParticles", "pos": [670, 890], "str": "", "str2": "", "num": [0, 0, 0, 0] }
             ],
             "links": [
               {
@@ -2947,46 +2465,26 @@
                 "from": 6,
                 "to": 7
               },
-              {
-                "id": 11,
-                "from": 9,
-                "to": 10
-              },
-              {
-                "id": 14,
-                "from": 12,
-                "to": 13
-              },
-              {
-                "id": 17,
-                "from": 15,
-                "to": 16
-              },
-              {
-                "id": 20,
-                "from": 18,
-                "to": 19
-              },
-              {
-                "id": 23,
-                "from": 21,
-                "to": 22
-              },
-              {
-                "id": 26,
-                "from": 24,
-                "to": 25
-              },
-              {
-                "id": 29,
-                "from": 27,
-                "to": 28
-              },
-              {
-                "id": 32,
-                "from": 30,
-                "to": 31
-              }
+              { "id": 33, "from": 9, "to": 10, "bool": true },
+              { "id": 34, "from": 10, "to": 11 },
+              { "id": 35, "from": 9, "to": 12, "bool": true },
+              { "id": 36, "from": 12, "to": 13, "bool": true },
+              { "id": 37, "from": 13, "to": 14 },
+              { "id": 38, "from": 15, "to": 16, "bool": true },
+              { "id": 39, "from": 16, "to": 17 },
+              { "id": 40, "from": 15, "to": 18, "bool": true },
+              { "id": 41, "from": 18, "to": 19, "bool": true },
+              { "id": 42, "from": 19, "to": 20 },
+              { "id": 43, "from": 21, "to": 22, "bool": true },
+              { "id": 44, "from": 22, "to": 23 },
+              { "id": 45, "from": 21, "to": 24, "bool": true },
+              { "id": 46, "from": 24, "to": 25, "bool": true },
+              { "id": 47, "from": 25, "to": 26 },
+              { "id": 48, "from": 27, "to": 28, "bool": true },
+              { "id": 49, "from": 28, "to": 29 },
+              { "id": 50, "from": 27, "to": 30, "bool": true },
+              { "id": 51, "from": 30, "to": 31, "bool": true },
+              { "id": 52, "from": 31, "to": 32 }
             ]
           }
         },
@@ -3495,6 +2993,9 @@
       ]
     }
   ],
+  "hudTexts": [
+    { "name": "options-hint", "text": "SELECT: graphics options", "pos": [0.5, 0.93], "size": 13, "color": [1, 0.95, 0.7], "shadow": true, "visibleAtStart": false }
+  ],
   "music": [
     "res/audio/ambient.wav"
   ],
@@ -3505,7 +3006,11 @@
     {
       "name": "orbs",
       "default": 0
-    }
+    },
+    { "name": "gfx-fog", "default": 1 },
+    { "name": "gfx-grain", "default": 1 },
+    { "name": "gfx-bloom", "default": 1 },
+    { "name": "gfx-part", "default": 1 }
   ],
   "gradings": [
     {
@@ -3599,50 +3104,11 @@
       ],
       "entrySize": 13,
       "entries": [
-        {
-          "label": "Fog: On",
-          "action": "event",
-          "param": "fog-on"
-        },
-        {
-          "label": "Fog: Off",
-          "action": "event",
-          "param": "fog-off"
-        },
-        {
-          "label": "Grain: On",
-          "action": "event",
-          "param": "grain-on"
-        },
-        {
-          "label": "Grain: Off",
-          "action": "event",
-          "param": "grain-off"
-        },
-        {
-          "label": "Bloom: On",
-          "action": "event",
-          "param": "bloom-on"
-        },
-        {
-          "label": "Bloom: Off",
-          "action": "event",
-          "param": "bloom-off"
-        },
-        {
-          "label": "Particles: On",
-          "action": "event",
-          "param": "part-on"
-        },
-        {
-          "label": "Particles: Off",
-          "action": "event",
-          "param": "part-off"
-        },
-        {
-          "label": "Close",
-          "action": "close"
-        }
+        { "label": "Fog", "action": "toggle", "param": "gfx-fog", "options": ["Off", "On"] },
+        { "label": "Grain", "action": "toggle", "param": "gfx-grain", "options": ["Off", "On"] },
+        { "label": "Bloom", "action": "toggle", "param": "gfx-bloom", "options": ["Off", "On"] },
+        { "label": "Particles", "action": "toggle", "param": "gfx-part", "options": ["Off", "On"] },
+        { "label": "Close", "action": "close" }
       ]
     }
   ]

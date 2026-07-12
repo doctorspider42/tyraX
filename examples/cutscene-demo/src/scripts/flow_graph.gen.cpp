@@ -2,6 +2,7 @@
 // edit - regenerated on every build. Edit the graphs in the editor.
 #include "scripts/script.hpp"
 #include "scripts/sequences.gen.hpp"  // Play/Stop Sequence nodes
+#include "scripts/flow_nodes.hpp"  // custom-node C++ bodies
 
 #include <math.h>
 #include <stdio.h>

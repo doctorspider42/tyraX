@@ -32,6 +32,14 @@ void RendererCoreTexture::freeTextureBuffers(const u32& texId) {
   unregisterAllocation(texId);
 }
 
+// Modified by tyra-editor - see the header comment.
+void RendererCoreTexture::evictAll() {
+  for (int i = currentAllocations.size() - 1; i >= 0; i--)
+    sender.deallocate(currentAllocations[i]);
+  currentAllocations.clear();
+  updateClutBuffer(nullptr);
+}
+
 void RendererCoreTexture::updateClutBuffer(texbuffer_t* clutBuffer) {
   if (clutBuffer == nullptr || clutBuffer->width == 0) {
     clut.psm = 0;

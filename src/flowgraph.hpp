@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -89,6 +90,7 @@ enum class FlowParamKind {
     AmbienceName,  // name of a Project::ambiencePresets entry ("" = none)
     LayerName,  // name of a SceneData::layers entry (streaming layer)
     SequenceName,  // name of a Project::sequences entry (Cutscene Director)
+    HudTextName,  // name of a Project::hudTexts entry (baked text sprite)
 };
 
 struct FlowNodeType {
@@ -172,6 +174,19 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          FlowParamKind::None, true, true, false, false, true, false, true},
         {"SetPosition", "Set Object Position", "Object", false, FlowParamKind::ObjectName,
          3, {"X", "Y", "Z"}, FlowParamKind::None, true, true, true, true, false},
+        // Dynamic spawning: Spawn Object clones its target object (link >
+        // name > self) into a free runtime slot - the clone starts at the
+        // linked position (or the template's own) with the given yaw, and the
+        // node's object output is the CLONE, not the template (wire it into
+        // Despawn Object / Set Position / Play Animation / ...). The pool
+        // holds 32 live clones; spawning past that fails silently (-1).
+        // Despawn Object removes a clone immediately (frees its slot); on an
+        // authored object it only deactivates it (layer streaming can bring
+        // authored objects back).
+        {"SpawnObject", "Spawn Object", "Object", false, FlowParamKind::ObjectName, 1,
+         {"Yaw"}, FlowParamKind::None, true, true, true, false, false},
+        {"DespawnObject", "Despawn Object", "Object", false, FlowParamKind::ObjectName,
+         0, {}, FlowParamKind::None, true, false},
         // Animation (animated .glb model objects; no-ops on anything else).
         // Play Animation: str = clip name ("" = the model's first clip); the
         // target object comes from an object link or defaults to self (the
@@ -231,6 +246,17 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          FlowParamKind::None, false, false},
         {"SetParticles", "Set Particles", "Scene", false, FlowParamKind::None, 1, {"On"},
          FlowParamKind::None, false, false},
+        // Runtime video output (options menus). Set Display Mode switches the
+        // scan mode (Mode: 0 = interlaced 480i/576i, 1 = progressive 480p,
+        // 2 = 1080i - shown as a combo in the node UI); with Confirm s > 0
+        // the game shows a keep-or-revert prompt and AUTOMATICALLY reverts
+        // to the previous mode unless the player confirms with X in time
+        // (a mode the TV can't show would otherwise strand them on a black
+        // screen). Set Widescreen re-fits the projection for a 16:9 display.
+        {"SetDisplayMode", "Set Display Mode", "Scene", false, FlowParamKind::None, 2,
+         {"Mode", "Confirm s"}, FlowParamKind::None, false, false},
+        {"SetWidescreen", "Set Widescreen", "Scene", false, FlowParamKind::None, 1,
+         {"On"}, FlowParamKind::None, false, false},
         // Repaints the sky from an Ambience Editor preset at runtime. Lighting
         // and fog are baked per scene at build, so only the sky changes live
         // (assign presets per scene, or switch scenes, for the full mood).
@@ -251,6 +277,13 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         {"HideHud", "Hide HUD", "HUD", false, FlowParamKind::None, 0, {},
          FlowParamKind::None, false, false},
         {"ToggleHud", "Toggle HUD", "HUD", false, FlowParamKind::None, 0, {},
+         FlowParamKind::None, false, false},
+        // On-screen texts (Tools > UI Editor > Texts; baked to sprites at
+        // build). Show Text: Seconds > 0 auto-hides after that long, 0 =
+        // stays until a Hide Text (subtitles, tutorial hints, pickup toasts).
+        {"ShowText", "Show Text", "HUD", false, FlowParamKind::HudTextName, 1,
+         {"Seconds"}, FlowParamKind::None, false, false},
+        {"HideText", "Hide Text", "HUD", false, FlowParamKind::HudTextName, 0, {},
          FlowParamKind::None, false, false},
         // Audio (music: 16-bit 22kHz stereo WAV; sounds: ADPCM one-shots)
         {"PlayMusic", "Play Music", "Audio", false, FlowParamKind::MusicTrack, 2,
@@ -354,22 +387,94 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
     return types;
 }
 
-inline const FlowNodeType* flowNodeType(const std::string& key) {
-    for (const auto& t : flowNodeTypes())
-        if (key == t.key) return &t;
+// ---------------------------------------------------------------------------
+// Project-defined custom nodes (see flownode.cpp).
+//
+// A custom node is a user-authored *action* node loaded from a .flownode text
+// file in <project>/flow-nodes/. It carries its own FlowNodeType plus the C++
+// snippet emitted into flow_graph.gen.cpp when the node runs, so a project can
+// add its own logic node without editing the editor's C++. Dropping the same
+// .flownode file into another project's flow-nodes/ folder makes the node
+// available there too (its filename is its identity - see `key`).
+//
+// Lifetime note: FlowNodeType stores raw `const char*` into the std::strings
+// below, so a CustomFlowNode must never move once its type is handed out. The
+// registry keeps them behind unique_ptr for stable addresses.
+struct CustomFlowNode {
+    std::string key;         // "custom:<file-stem>" - the serialized FlowNode::type
+    std::string title;
+    std::string category;
+    // Behavior: either an inline C++ snippet (`code`, emitted verbatim with
+    // {placeholders} substituted) OR a call into a user function (`callFn`,
+    // written in inc/scripts/flow_nodes.hpp, receiving a FlowNodeIO). `callFn`
+    // wins when both are set; only `callFn` nodes can drive output pins.
+    std::string code;
+    std::string callFn;
+    std::string numLabelStore[4];
+    std::string sourceFile;  // absolute path of the .flownode file (diagnostics)
+    FlowNodeType type{};     // char* fields point into the strings above
+};
+
+// The global custom-node registry, rebuilt on every project load
+// (flownode::loadForProject). unique_ptr keeps each entry's address stable
+// while its FlowNodeType hands out pointers into its strings.
+inline std::vector<std::unique_ptr<CustomFlowNode>>& customFlowNodes() {
+    static std::vector<std::unique_ptr<CustomFlowNode>> reg;
+    return reg;
+}
+
+inline const CustomFlowNode* flowCustomNode(const std::string& key) {
+    for (const auto& c : customFlowNodes())
+        if (key == c->key) return c.get();
     return nullptr;
 }
 
+inline const FlowNodeType* flowNodeType(const std::string& key) {
+    for (const auto& t : flowNodeTypes())
+        if (key == t.key) return &t;
+    if (const CustomFlowNode* c = flowCustomNode(key)) return &c->type;
+    return nullptr;
+}
+
+// Built-in node types first, then the project's custom nodes - the order the
+// add-menu and category derivation walk.
+inline std::vector<const FlowNodeType*> flowAllNodeTypes() {
+    std::vector<const FlowNodeType*> v;
+    for (const auto& t : flowNodeTypes()) v.push_back(&t);
+    for (const auto& c : customFlowNodes()) v.push_back(&c->type);
+    return v;
+}
+
 // Categories in add-menu order (derived from the registry, first-seen order).
+// Custom-node categories appear after the built-in ones.
 inline std::vector<const char*> flowNodeCategories() {
     std::vector<const char*> cats;
-    for (const auto& t : flowNodeTypes()) {
+    for (const FlowNodeType* t : flowAllNodeTypes()) {
         bool seen = false;
-        for (const char* c : cats) seen |= (std::string(c) == t.category);
-        if (!seen) cats.push_back(t.category);
+        for (const char* c : cats) seen |= (std::string(c) == t->category);
+        if (!seen) cats.push_back(t->category);
     }
     return cats;
 }
+
+namespace flownode {
+
+// Absolute path of a project's custom-node folder (<projectDir>/flow-nodes).
+std::string dirForProject(const std::string& projectDir);
+
+// Rebuilds the global customFlowNodes() registry from every *.flownode file in
+// dirForProject(projectDir). Called by project::load BEFORE the graphs are
+// parsed (readFlowGraph drops nodes whose type is unknown), and again by the
+// editor's "Reload Custom Nodes" action. Returns a short human-readable
+// summary / error list for the status bar.
+std::string loadForProject(const std::string& projectDir);
+
+// Writes a commented starter template into flow-nodes/example.flownode (never
+// overwriting an existing file) so users have something to copy. Returns the
+// file path, or an error string prefixed with "error:".
+std::string writeExample(const std::string& projectDir);
+
+}  // namespace flownode
 
 // imnodes pin ids derived from node ids (pin % 16 encodes the pin kind,
 // pin / 16 the node): object-id in / exec out / exec in / object-id out /

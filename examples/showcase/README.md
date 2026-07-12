@@ -45,9 +45,16 @@ checked in.
   value (`orbs`) collected from a usable relic, usable-object highlighting, a
   gradient sky dome, ambient music and a spatial campfire sound, and a portal
   pair that switches between the two scenes.
-- **Graphics options menu** — press **Select** for a floating menu that toggles
-  fog, film grain, bloom and particles at runtime (via the Set Fog / Set Bloom /
-  Set Grain / Set Particles flow nodes), so you can trade effects for frame rate.
+- **Graphics options menu (menu toggles)** — press **Select** for a floating
+  menu with real **Toggle rows**: Fog / Grain / Bloom / Particles each show
+  their current On/Off state right on the row (Cross or dpad left/right flips
+  it). Each toggle is bound to a save value (`gfx-*`); the flow graphs react
+  through *Value At Least* → *On Condition* → Set Fog / Set Bloom / Set Grain /
+  Set Particles, so you can trade effects for frame rate — and the states
+  persist in save slots and reapply on scene entry.
+- **On-screen text** — an `options-hint` HUD text ("SELECT: graphics options")
+  pops up on scene start via the *Show Text* flow node and auto-hides after 6
+  seconds (texts are baked to sprites at build; see Tools > UI Editor > Texts).
 
 ## Performance
 

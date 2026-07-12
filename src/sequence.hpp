@@ -92,7 +92,8 @@ inline bool operator==(const SeqCameraKey& a, const SeqCameraKey& b) {
 
 // Widescreen mask styles (Sequence::bars): solid black masks composited over
 // the frame while the sequence plays (over the 3D scene and the HUD, under
-// the pause menus). They slide in/out over kSeqBarsSlide seconds.
+// the pause menus). They slide in/out over the sequence's barsSlideIn /
+// barsSlideOut times (0 = appear/vanish instantly).
 enum : int {
     kSeqBarsNone = 0,
     kSeqBarsCinema = 1,     // 2.39:1 letterbox (film scope)
@@ -101,7 +102,7 @@ enum : int {
     kSeqBarsFrame = 4,      // all four edges (vintage vignette frame)
 };
 constexpr int kSeqBarsStyleCount = 5;
-constexpr float kSeqBarsSlide = 0.4f;  // bars slide-in/out time, seconds
+constexpr float kSeqBarsSlideDefault = 0.4f;  // default bars slide time, seconds
 
 struct Sequence {
     std::string name = "Cutscene";
@@ -112,6 +113,11 @@ struct Sequence {
     bool skippable = false;        // START ends the cutscene early
     float fadeIn = 0.0f;           // seconds: fade from black at the start
     float fadeOut = 0.0f;          // seconds: fade to black before the end
+    // Widescreen bars slide-in/out times (seconds). 0 = the bars snap to full
+    // coverage at once / stay until the very end; larger = a slower reveal,
+    // authored just like fadeIn/fadeOut.
+    float barsSlideIn = kSeqBarsSlideDefault;
+    float barsSlideOut = kSeqBarsSlideDefault;
     std::vector<SeqTrack> tracks;
     std::vector<SeqCameraKey> cameraKeys;  // empty = no camera control
 };
@@ -120,7 +126,8 @@ inline bool operator==(const Sequence& a, const Sequence& b) {
     return a.name == b.name && a.duration == b.duration && a.loop == b.loop &&
            a.cameraEnabled == b.cameraEnabled && a.bars == b.bars &&
            a.skippable == b.skippable && a.fadeIn == b.fadeIn &&
-           a.fadeOut == b.fadeOut && a.tracks == b.tracks &&
+           a.fadeOut == b.fadeOut && a.barsSlideIn == b.barsSlideIn &&
+           a.barsSlideOut == b.barsSlideOut && a.tracks == b.tracks &&
            a.cameraKeys == b.cameraKeys;
 }
 
@@ -174,12 +181,15 @@ inline void seqBarsFractions(int style, float& top, float& bottom, float& left,
 }
 
 // Bars slide-in/out envelope (0..1 of the full coverage) at time t of a
-// sequence lasting `duration`. Mirrored in the generated PS2 player.
-inline float seqBarsAmount(float t, float duration) {
+// sequence lasting `duration`. slideIn/slideOut are the reveal times in
+// seconds (0 = instant). Mirrored in the generated PS2 player.
+inline float seqBarsAmount(float t, float duration, float slideIn, float slideOut) {
     float a = 1.0f;
-    if (t < kSeqBarsSlide) a = t / kSeqBarsSlide;
-    const float left = duration - t;
-    if (left < kSeqBarsSlide && left / kSeqBarsSlide < a) a = left / kSeqBarsSlide;
+    if (slideIn > 0.0f && t < slideIn) a = t / slideIn;
+    if (slideOut > 0.0f) {
+        const float left = duration - t;
+        if (left < slideOut && left / slideOut < a) a = left / slideOut;
+    }
     return a < 0.0f ? 0.0f : (a > 1.0f ? 1.0f : a);
 }
 

@@ -201,7 +201,7 @@ void StaPipCore::render(StaPipBag* bag) {
       renderPkgs(packages, doClip, packagesCount);
       delete[] packages;
     } else {
-      auto subpkgs = packager.create(&packagesCount, bag, maxVertCount / 3);
+      auto subpkgs = packager.create(&packagesCount, bag, clipPackageSize());
       Verbose("Material - partial. Subpackages: ", packagesCount);
       renderSubpkgs(subpkgs, packagesCount);
       delete[] subpkgs;
@@ -229,7 +229,7 @@ void StaPipCore::renderPkgs(StaPipBagPackage* packages, const bool& doClip,
     } else if (doSubpkgs) {
       u16 subpkgsSize = 0;
       auto packages1By3 =
-          packager.create(&subpkgsSize, packages[i], maxVertCount / 3);
+          packager.create(&subpkgsSize, packages[i], clipPackageSize());
       Verbose(i, " - partial package. Created subpkgs: ", subpkgsSize);
 
       renderSubpkgs(packages1By3, subpkgsSize);
@@ -300,6 +300,24 @@ void StaPipCore::setMaxVertCount(const u32& count) {
   maxVertCount = count;
   packager.setMaxVertCount(count);
   qbufferRenderer.setMaxVertCount(count);
+}
+
+// Modified by tyra-editor: occupancy cap for clip-classified packages.
+// EE clipper: 1/3 of a VU1 buffer (its fan-out is drained in chunks on the
+// EE). VU1 clipping: 1/5, so the worst-case Sutherland-Hodgman fan-out
+// (7 output triangles per input triangle across 6 planes) still fits in the
+// output area of one VU1 double-buffer half for every program variant.
+u32 StaPipCore::clipDivisor() const {
+  return qbufferRenderer.isVU1ClippingEnabled() ? 5 : 3;
+}
+
+// The size must stay a multiple of 3 - a package boundary through the middle
+// of a triangle corrupts the geometry, and the VU1 clip programs loop by
+// whole triangles (maxVertCount/5 is NOT always a multiple of 3: 72/5 = 14
+// sent the tc program into an infinite loop over VU1 memory).
+u32 StaPipCore::clipPackageSize() const {
+  const u32 size = maxVertCount / clipDivisor();
+  return (size / 3) * 3;
 }
 
 }  // namespace Tyra

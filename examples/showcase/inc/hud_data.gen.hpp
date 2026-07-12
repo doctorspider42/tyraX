@@ -22,4 +22,23 @@ inline const HudImageData HUD_IMAGES[HUD_COUNT > 0 ? HUD_COUNT : 1] = {
 constexpr int HUD_BLOOM_LAYER = -1;
 constexpr int HUD_GRAIN_LAYER = -1;
 
+// The USE prompt sprite (shown while looking at a usable object)
+constexpr const char* USE_PROMPT_PATH = "hud/use.png";
+constexpr float USE_PROMPT_X = 0.5F;  // normalized, center anchor
+constexpr float USE_PROMPT_Y = 0.755714F;
+constexpr float USE_PROMPT_W = 128.0F;  // on-screen pixels
+constexpr float USE_PROMPT_H = 32.0F;
+
+struct HudTextData {
+  const char* path;  // baked text sprite, relative to the ELF
+  float x, y;        // normalized screen position, center anchor
+  int w, h;          // texture size (pow2; content centered)
+  int visible;       // 1 = shown when the game starts
+};
+
+constexpr int HUD_TEXT_COUNT = 1;
+inline const HudTextData HUD_TEXTS[HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1] = {
+    {"hud/text-options-hint.png", 0.5F, 0.93F, 256, 32, 0},  // options-hint
+};
+
 }  // namespace Showcase
