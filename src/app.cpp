@@ -334,13 +334,22 @@ int App::run(const std::string& initialProjectDir) {
             project_ = p;
             hasProject_ = true;
             applyProjectToViewport();
-            attachProject();
-            glfwSetWindowTitle(window_, ("Tyra Editor - " + project_.name).c_str());
+            attachProject();  // resets dirty + window title
         }
     }
 
-    while (!glfwWindowShouldClose(window_)) {
+    while (true) {
         glfwPollEvents();
+
+        // Close request (window X or File > Exit). Guard against losing unsaved
+        // edits: prompt once, and only really close after the user resolves it
+        // (exitConfirmed_) or when there is nothing to lose.
+        if (glfwWindowShouldClose(window_)) {
+            if (exitConfirmed_ || !hasProject_ || !dirty_) break;
+            glfwSetWindowShouldClose(window_, GLFW_FALSE);
+            pendingAction_ = PendingAction::Exit;
+            openDiscardPopup_ = true;
+        }
 
         // Deferred from attachProject(): the saved window layout can only be
         // (re)applied between frames - existing windows get re-docked here.
@@ -356,9 +365,9 @@ int App::run(const std::string& initialProjectDir) {
 
         drawUI();
 
-        // Window layout is part of the project: whenever ImGui settles a
-        // layout change (docking, resizes), fold it into the .tyra file.
-        if (hasProject_ && io.WantSaveIniSettings) saveProject();
+        // No autosave: layout/docking changes fold into the .tyra only when
+        // the user saves the project (Save / Ctrl+S). io.WantSaveIniSettings
+        // is left for the next explicit saveProject() to pick up.
 
         ImGui::Render();
         int w, h;
@@ -371,8 +380,7 @@ int App::run(const std::string& initialProjectDir) {
         glfwSwapBuffers(window_);
     }
 
-    // Flush any layout change that has not hit the save timer yet.
-    if (hasProject_) saveProject();
+    // No save on exit: the user chose to discard (or had nothing unsaved).
 
     viewport_.shutdown();
     ImNodes::DestroyContext();
@@ -452,11 +460,12 @@ void App::drawUI() {
     drawNewSceneModal();
     drawDeleteSceneModal();
     drawDeleteAssetModal();
+    drawDiscardModal();
 
     // Keyboard shortcuts
     ImGuiIO& io = ImGui::GetIO();
-    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_N)) openNewProjectPopup_ = true;
-    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_O)) openProjectDialog();
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_N)) requestNewProject();
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_O)) requestOpenProject();
     // UI scaling (works with no project open; skip while typing in a field)
     if (!io.WantTextInput) {
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Equal))
@@ -466,14 +475,22 @@ void App::drawUI() {
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_0))
             setUiScale(0.0f);
     }
-    if (hasProject_ && !runner_.busy() && ImGui::IsKeyPressed(ImGuiKey_F5))
-        runner_.buildAndRun(project_, true);
-    if (hasProject_ && !runner_.busy() && !project_.ps2LinkIp.empty() &&
-        ImGui::IsKeyPressed(ImGuiKey_F6))
-        runner_.buildAndRunPs2(project_, true);
-    if (hasProject_ && !runner_.busy() &&
-        ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_B))
-        runner_.buildAndRun(project_, false);
+    // Run shortcuts. IsKeyChordPressed matches the modifier state exactly, so
+    // plain F5 and Ctrl+F5 stay distinct: F5/F6 build && run, Ctrl+F5/Ctrl+F6
+    // run the existing ELF without building.
+    if (hasProject_ && !runner_.busy()) {
+        const bool ps2Ready = !project_.ps2LinkIp.empty();
+        if (ImGui::IsKeyChordPressed(ImGuiKey_F5))
+            runner_.buildAndRun(project_, true);
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F5))
+            runner_.runEmulatorOnly(project_);
+        if (ps2Ready && ImGui::IsKeyChordPressed(ImGuiKey_F6))
+            runner_.buildAndRunPs2(project_, true);
+        if (ps2Ready && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F6))
+            runner_.buildAndRunPs2(project_, false);
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_B))
+            runner_.buildAndRun(project_, false);
+    }
     if (hasProject_) {
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S)) saveAll("Saved");
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Comma)) {
@@ -520,11 +537,12 @@ void App::setUiScale(float userScale) {
 void App::drawMenuBar() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem("New Project...", "Ctrl+N")) openNewProjectPopup_ = true;
-            if (ImGui::MenuItem("Open Project...", "Ctrl+O")) openProjectDialog();
-            if (ImGui::MenuItem("Save", "Ctrl+S", false, hasProject_)) saveAll("Saved");
+            if (ImGui::MenuItem("New Project...", "Ctrl+N")) requestNewProject();
+            if (ImGui::MenuItem("Open Project...", "Ctrl+O")) requestOpenProject();
+            if (ImGui::MenuItem("Save", "Ctrl+S", false, hasProject_))
+                saveAll("Saved");
             ImGui::Separator();
-            if (ImGui::MenuItem("Exit")) glfwSetWindowShouldClose(window_, GLFW_TRUE);
+            if (ImGui::MenuItem("Exit")) requestExit();
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Edit", hasProject_)) {
@@ -618,13 +636,13 @@ void App::drawMenuBar() {
                 runner_.buildAndRun(project_, false);
             if (ImGui::MenuItem("Build && Run in PCSX2", "F5", false, !busy))
                 runner_.buildAndRun(project_, true);
-            if (ImGui::MenuItem("Run in PCSX2 (no build)", nullptr, false, !busy))
+            if (ImGui::MenuItem("Run in PCSX2 (no build)", "Ctrl+F5", false, !busy))
                 runner_.runEmulatorOnly(project_);
             ImGui::Separator();
             const bool ps2Ready = !project_.ps2LinkIp.empty();
             if (ImGui::MenuItem("Build && Run on PS2", "F6", false, !busy && ps2Ready))
                 runner_.buildAndRunPs2(project_, true);
-            if (ImGui::MenuItem("Run on PS2 (no build)", nullptr, false, !busy && ps2Ready))
+            if (ImGui::MenuItem("Run on PS2 (no build)", "Ctrl+F6", false, !busy && ps2Ready))
                 runner_.buildAndRunPs2(project_, false);
             if (!ps2Ready && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Set 'PS2 (ps2link) IP' in Project > Preferences first.");
@@ -652,12 +670,197 @@ void App::drawMenuBar() {
             ImGui::EndMenu();
         }
 
+        drawToolbar();
+
         if (!statusMessage_.empty()) {
             const float w = ImGui::CalcTextSize(statusMessage_.c_str()).x;
             ImGui::SameLine(ImGui::GetWindowWidth() - w - 16.0f);
             ImGui::TextDisabled("%s", statusMessage_.c_str());
         }
         ImGui::EndMainMenuBar();
+    }
+}
+
+// Icon toolbar drawn inline in the main menu bar, after the menus. Layout:
+// Save, Build, then two run/stop pairs - [green Play=PCSX2, dropdown, Stop] and
+// [blue Play=PS2, dropdown, Stop]. Each Play has a Visual-Studio-style caret
+// dropdown for the "run without build" variant. Icons are vector-drawn on the
+// menu-bar draw list (the editor loads no icon font) so they stay crisp at any
+// UI scale. Spacing is explicit: a pair sits tight, groups get a wider gap.
+void App::drawToolbar() {
+    if (!hasProject_) return;
+
+    const bool busy = runner_.busy();
+    const bool ps2Ready = !project_.ps2LinkIp.empty();
+    const ImU32 colDim = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+    const ImU32 colText = ImGui::GetColorU32(ImGuiCol_Text);
+    const ImU32 colStop = IM_COL32(225, 95, 85, 255);
+    const float h = ImGui::GetFrameHeight();
+    const float round = ImGui::GetStyle().FrameRounding;
+    const float gapPair = ImMax(2.0f, h * 0.08f);   // within a play/stop pair
+    const float gapGroup = h * 0.55f;               // between button groups
+
+    // An icon button on the menu-bar line, `lead` px left of the previous item
+    // and `bw` wide. `paint(dl, a, b, enabled)` draws the glyph into the padded
+    // inner rect [a,b]. Returns true on click (ignored while disabled - the
+    // icon dims instead).
+    auto button = [&](const char* id, float lead, float bw, bool enabled,
+                      const char* tip, auto&& paint) -> bool {
+        ImGui::SameLine(0.0f, lead);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImGui::InvisibleButton(id, ImVec2(bw, h));
+        const bool hovered =
+            ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
+        const bool held = enabled && ImGui::IsItemActive();
+        const bool clicked = enabled && ImGui::IsItemClicked();
+        if (enabled && hovered)
+            dl->AddRectFilled(p, ImVec2(p.x + bw, p.y + h),
+                              ImGui::GetColorU32(held ? ImGuiCol_ButtonActive
+                                                      : ImGuiCol_ButtonHovered),
+                              round);
+        const float pad = h * 0.28f;
+        // Square glyph rect regardless of button width (carets are narrower).
+        const float cx = p.x + bw * 0.5f;
+        const ImVec2 a(cx - (h * 0.5f - pad), p.y + pad);
+        const ImVec2 b(cx + (h * 0.5f - pad), p.y + h - pad);
+        paint(dl, a, b, enabled);
+        if (tip && hovered) ImGui::SetTooltip("%s", tip);
+        return clicked;
+    };
+    auto iconButton = [&](const char* id, float lead, bool enabled,
+                          const char* tip, auto&& paint) -> bool {
+        return button(id, lead, h, enabled, tip, paint);
+    };
+
+    // Reusable glyph painters.
+    auto paintPlay = [](ImU32 c) {
+        return [c](ImDrawList* dl, ImVec2 a, ImVec2 b, bool) {
+            const float w = b.x - a.x, hh = b.y - a.y;
+            dl->AddTriangleFilled(ImVec2(a.x + w * 0.08f, a.y),
+                                  ImVec2(a.x + w * 0.08f, b.y),
+                                  ImVec2(b.x, a.y + hh * 0.5f), c);
+        };
+    };
+    auto paintStop = [](ImU32 c) {
+        return [c](ImDrawList* dl, ImVec2 a, ImVec2 b, bool) {
+            dl->AddRectFilled(a, b, c, (b.x - a.x) * 0.14f);
+        };
+    };
+    // Small downward caret centered in the (narrow) button rect.
+    auto paintCaret = [h](ImU32 c) {
+        return [c, h](ImDrawList* dl, ImVec2 a, ImVec2 b, bool) {
+            const float cx = (a.x + b.x) * 0.5f, cy = (a.y + b.y) * 0.5f;
+            const float s = h * 0.13f;
+            dl->AddTriangleFilled(ImVec2(cx - s, cy - s * 0.5f),
+                                  ImVec2(cx + s, cy - s * 0.5f),
+                                  ImVec2(cx, cy + s * 0.7f), c);
+        };
+    };
+
+    // A Play button immediately followed by a narrow caret dropdown. `run` is
+    // the default (build + run) action; the caret opens `popupId`, whose menu
+    // items the caller renders after all buttons (BeginPopup below). Anchors
+    // the popup just under the caret via `anchor`.
+    const float caretW = h * 0.55f;
+    auto playWithMenu = [&](const char* playId, const char* caretId,
+                            const char* popupId, ImVec2& anchor, bool enabled,
+                            ImU32 color, const char* tip, auto&& onRun) {
+        if (button(playId, gapGroup, h, enabled, tip,
+                   paintPlay(enabled ? color : colDim)))
+            onRun();
+        ImGui::SameLine(0.0f, 1.0f);
+        const ImVec2 cp = ImGui::GetCursorScreenPos();
+        anchor = ImVec2(cp.x, cp.y + h);
+        if (button(caretId, 1.0f, caretW, enabled, "More run options...",
+                   paintCaret(enabled ? colText : colDim)))
+            ImGui::OpenPopup(popupId);
+    };
+
+    // Save (floppy): normal when clean, amber when there are unsaved edits.
+    // Always enabled - saving also folds in layout/docking changes.
+    if (iconButton(
+            "##tb_save", gapGroup, true,
+            dirty_ ? "Save - unsaved changes (Ctrl+S)" : "Save (Ctrl+S)",
+            [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool) {
+                const ImU32 c = dirty_ ? IM_COL32(240, 175, 70, 255) : colText;
+                const float w = b.x - a.x, hh = b.y - a.y;
+                dl->AddRect(a, b, c, w * 0.12f, 0, 1.6f);            // body
+                dl->AddRectFilled(ImVec2(a.x + w * 0.22f, a.y),       // shutter
+                                  ImVec2(a.x + w * 0.68f, a.y + hh * 0.32f), c);
+                dl->AddRect(ImVec2(a.x + w * 0.26f, a.y + hh * 0.50f), // label
+                            ImVec2(a.x + w * 0.74f, b.y - hh * 0.06f), c, 0, 0,
+                            1.6f);
+            }))
+        saveAll("Saved");
+
+    // Build only (no run) - a hammer, so it reads apart from the Play triangles.
+    if (iconButton("##tb_build", gapGroup, !busy,
+                   "Build (no run) (Ctrl+Shift+B)",
+                   [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool en) {
+                       const ImU32 c = en ? IM_COL32(210, 180, 120, 255) : colDim;
+                       const float w = b.x - a.x, hh = b.y - a.y;
+                       // handle: lower-left up to the head
+                       dl->AddLine(ImVec2(a.x + 0.30f * w, b.y),
+                                   ImVec2(a.x + 0.66f * w, a.y + 0.34f * hh), c,
+                                   ImMax(2.0f, w * 0.13f));
+                       // head: a thick short bar across the top of the handle
+                       dl->AddLine(ImVec2(a.x + 0.40f * w, a.y + 0.12f * hh),
+                                   ImVec2(b.x, a.y + 0.42f * hh), c,
+                                   ImMax(3.0f, w * 0.26f));
+                   }))
+        runner_.buildAndRun(project_, false);
+
+    // --- Emulator group: green Play (+dropdown) + Stop PCSX2 -------------
+    ImVec2 emuMenuAnchor, ps2MenuAnchor;
+    playWithMenu("##tb_run_emu", "##tb_run_emu_more", "emu_run_menu",
+                 emuMenuAnchor, !busy, IM_COL32(95, 200, 115, 255),
+                 "Build && Run in PCSX2 (F5)",
+                 [&] { runner_.buildAndRun(project_, true); });
+    // Stop PCSX2: cancels a running build, else closes the emulator. Always
+    // available (can't detect a stray PCSX2; taskkill is a no-op if none runs).
+    if (iconButton("##tb_stop_emu", gapPair, true,
+                   busy ? "Cancel build" : "Stop PCSX2", paintStop(colStop))) {
+        if (busy) runner_.cancel();
+        else runner_.stopEmulator();
+    }
+
+    // --- Console group: blue Play (+dropdown) + Stop PS2 ----------------
+    // Both disabled until a ps2link IP is configured (Project > Preferences).
+    playWithMenu("##tb_run_ps2", "##tb_run_ps2_more", "ps2_run_menu",
+                 ps2MenuAnchor, !busy && ps2Ready, IM_COL32(80, 160, 245, 255),
+                 ps2Ready ? "Build && Run on PS2 (F6)"
+                          : "Set 'PS2 (ps2link) IP' in Project > Preferences first.",
+                 [&] { runner_.buildAndRunPs2(project_, true); });
+    // Stop PS2: cancels a running build, else stops the game on the console
+    // (kills the file server + resets ps2link + silences the SPU).
+    const bool stopPs2Enabled = busy || ps2Ready;
+    if (iconButton("##tb_stop_ps2", gapPair, stopPs2Enabled,
+                   busy ? "Cancel build"
+                        : ps2Ready ? "Stop the game on the PS2"
+                                   : "Set 'PS2 (ps2link) IP' in Project > Preferences first.",
+                   paintStop(stopPs2Enabled ? colStop : colDim))) {
+        if (busy) runner_.cancel();
+        else runner_.stopPs2(project_);
+    }
+
+    // Dropdown menus for the two Play carets (anchored just under each caret).
+    ImGui::SetNextWindowPos(emuMenuAnchor);
+    if (ImGui::BeginPopup("emu_run_menu")) {
+        if (ImGui::MenuItem("Run in PCSX2 (no build)", "Ctrl+F5", false, !busy))
+            runner_.runEmulatorOnly(project_);
+        if (ImGui::MenuItem("Build (no run)", "Ctrl+Shift+B", false, !busy))
+            runner_.buildAndRun(project_, false);
+        ImGui::EndPopup();
+    }
+    ImGui::SetNextWindowPos(ps2MenuAnchor);
+    if (ImGui::BeginPopup("ps2_run_menu")) {
+        if (ImGui::MenuItem("Run on PS2 (no build)", "Ctrl+F6", false,
+                            !busy && ps2Ready))
+            runner_.buildAndRunPs2(project_, false);
+        if (ImGui::MenuItem("Build (no run)", "Ctrl+Shift+B", false, !busy))
+            runner_.buildAndRun(project_, false);
+        ImGui::EndPopup();
     }
 }
 
@@ -755,9 +958,8 @@ void App::drawViewportWindow() {
         }
         if (sculptStroke_ && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             sculptStroke_ = false;
-            project::saveHeights(project_);
             commitChange();  // one undo step per finished brush stroke
-            statusMessage_ = "Terrain saved";
+            statusMessage_ = "Terrain sculpted";
         }
 
         // brush ring projected onto the terrain
@@ -1353,18 +1555,129 @@ void App::saveProject() {
         project_.windowLayout = ImGui::SaveIniSettingsToMemory();  // clears WantSave
     if (auto err = project::save(project_); !err.empty())
         MessageBoxA(nullptr, err.c_str(), "Save Project", MB_ICONERROR | MB_OK);
+    // Terrain heightmaps live in separate <scene>.heights files (not the .tyra)
+    // and, like the rest of the model, are persisted only on demand. They are
+    // kept in memory (and in undo snapshots) during editing.
+    if (auto err = project::saveHeights(project_); !err.empty())
+        MessageBoxA(nullptr, err.c_str(), "Save Terrain", MB_ICONERROR | MB_OK);
 }
 
 void App::saveAll(const char* status) {
     saveProject();
     if (auto err = project::saveHistory(project_, history_); !err.empty())
         MessageBoxA(nullptr, err.c_str(), "Save History", MB_ICONERROR | MB_OK);
+    setDirty(false);
     statusMessage_ = status;
 }
 
 void App::commitChange() {
-    history_.push({project_.scenes});
-    saveAll("Saved");
+    // Push an undo snapshot; mark the project dirty only when the edit actually
+    // changed something. No disk write - saving is on demand (see saveAll).
+    if (history_.push({project_.scenes})) setDirty(true);
+}
+
+void App::setDirty(bool dirty) {
+    if (dirty_ == dirty) return;
+    dirty_ = dirty;
+    updateWindowTitle();
+}
+
+void App::updateWindowTitle() {
+    if (!window_) return;
+    // Skip redundant GLFW calls: only push when the shown state changed.
+    if (titleShowsDirty_ == dirty_ && titleName_ == project_.name) return;
+    titleShowsDirty_ = dirty_;
+    titleName_ = project_.name;
+    std::string title = "Tyra Editor";
+    if (hasProject_) title += " - " + project_.name + (dirty_ ? " *" : "");
+    glfwSetWindowTitle(window_, title.c_str());
+}
+
+// --- Discard guard (Exit / Open / New with unsaved edits) ----------------
+// Each request runs immediately when nothing would be lost; otherwise it
+// stages the action and opens the confirm modal, which resolves it.
+void App::requestExit() {
+    if (hasProject_ && dirty_) {
+        pendingAction_ = PendingAction::Exit;
+        openDiscardPopup_ = true;
+    } else {
+        exitConfirmed_ = true;
+        glfwSetWindowShouldClose(window_, GLFW_TRUE);
+    }
+}
+
+void App::requestOpenProject() {
+    if (hasProject_ && dirty_) {
+        pendingAction_ = PendingAction::Open;
+        openDiscardPopup_ = true;
+    } else {
+        openProjectDialog();
+    }
+}
+
+void App::requestNewProject() {
+    if (hasProject_ && dirty_) {
+        pendingAction_ = PendingAction::New;
+        openDiscardPopup_ = true;
+    } else {
+        openNewProjectPopup_ = true;
+    }
+}
+
+void App::performPendingAction() {
+    const PendingAction action = pendingAction_;
+    pendingAction_ = PendingAction::None;
+    switch (action) {
+        case PendingAction::Exit:
+            exitConfirmed_ = true;
+            glfwSetWindowShouldClose(window_, GLFW_TRUE);
+            break;
+        case PendingAction::Open:
+            openProjectDialog();
+            break;
+        case PendingAction::New:
+            openNewProjectPopup_ = true;
+            break;
+        case PendingAction::None:
+            break;
+    }
+}
+
+void App::drawDiscardModal() {
+    if (openDiscardPopup_) {
+        ImGui::OpenPopup("Unsaved Changes");
+        openDiscardPopup_ = false;
+    }
+    // Center the modal over the main viewport.
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Unsaved Changes", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted(
+            ("\"" + project_.name + "\" has unsaved changes.").c_str());
+        ImGui::Spacing();
+        // Auto-sized (with a sensible floor) so the labels never clip at high
+        // UI scales, where a fixed pixel width is too narrow for the text.
+        const float bw = ImGui::CalcTextSize("Don't Save").x +
+                         ImGui::GetStyle().FramePadding.x * 2.0f;
+        if (ImGui::Button("Save", ImVec2(bw, 0))) {
+            saveAll("Saved");
+            ImGui::CloseCurrentPopup();
+            performPendingAction();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Don't Save", ImVec2(bw, 0))) {
+            ImGui::CloseCurrentPopup();
+            performPendingAction();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(bw, 0)) ||
+            ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            pendingAction_ = PendingAction::None;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
 }
 
 void App::applySnapshot(const SceneSnapshot& s) {
@@ -1374,20 +1687,24 @@ void App::applySnapshot(const SceneSnapshot& s) {
     // indices that no longer exist.
     pruneSelection();
     flowPositionsApplied_ = false;  // graphs live in objects - re-pin node positions
-    project::saveHeights(project_);  // snapshots carry heightmaps (sculpt undo)
+    // Heightmaps ride along in the snapshot (in memory); they hit disk only on
+    // an explicit save (see saveProject). applyProjectToViewport pushes the
+    // restored heights straight to the viewport.
     applyProjectToViewport();  // terrain/lighting/heights may differ per snapshot
 }
 
 void App::undo() {
     if (!history_.canUndo()) return;
     applySnapshot(history_.undo());
-    saveAll("Undo");
+    setDirty(true);
+    statusMessage_ = "Undo";
 }
 
 void App::redo() {
     if (!history_.canRedo()) return;
     applySnapshot(history_.redo());
-    saveAll("Redo");
+    setDirty(true);
+    statusMessage_ = "Redo";
 }
 
 // --- Selection set -------------------------------------------------------
@@ -1565,6 +1882,11 @@ void App::attachProject() {
     modelInfoCache_.clear();
     // Pick up assets dropped into res/ by hand while the project was closed.
     rescanAssets(false);
+    // A freshly opened/created project starts clean. rescanAssets may have
+    // pushed an undo snapshot for assets found on disk, but those are
+    // rediscovered on every open, so treat the project as saved.
+    dirty_ = false;
+    updateWindowTitle();
 }
 
 void App::addEmitter(int kind) {
@@ -7275,7 +7597,6 @@ void App::drawNewSceneModal() {
             flowGraphObject_ = -1;
             flowPositionsApplied_ = false;
             applyProjectToViewport();  // builds the flat heightmap + mesh
-            project::saveHeights(project_);
             commitChange();
             statusMessage_ = "Created scene " + name;
             ImGui::CloseCurrentPopup();
@@ -7834,9 +8155,7 @@ void App::drawNewProjectModal() {
                 project_ = p;
                 hasProject_ = true;
                 applyProjectToViewport();
-                attachProject();
-                glfwSetWindowTitle(window_,
-                                   ("Tyra Editor - " + project_.name).c_str());
+                attachProject();  // resets dirty + window title
                 ImGui::CloseCurrentPopup();
             } else {
                 newProjectError_ = err;
@@ -8366,8 +8685,7 @@ void App::openProjectDialog() {
         project_ = p;
         hasProject_ = true;
         applyProjectToViewport();
-        attachProject();
-        glfwSetWindowTitle(window_, ("Tyra Editor - " + project_.name).c_str());
+        attachProject();  // resets dirty + window title
     } else {
         runner_.clearLog();
         // Surface the error in the Output window via the runner log is hacky;
