@@ -9,6 +9,22 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (71) **examples/video-modes - display-mode test bed** - a minimal example
+  project for exercising (69)+(70) on a pad: a white center sphere (the
+  aspect-ratio judge - it must stay round in every mode/aspect on a real
+  TV), four colored compass pillars (how much world fits horizontally),
+  and a flow graph on the sphere wiring Square/Triangle/Circle -> Set
+  Display Mode (480i/480p/1080i, confirm 8 s) and L1/R1 -> Set Widescreen
+  off/on. A 512x64 controls overlay (res/ui/controls.png, rendered from
+  the same CP437 8x8 glyphs as the engine's debugfont by a scratch python
+  script) documents the buttons in-game. res/.gitignore is customized
+  showcase-style (/hud/ ignored, authored res/ui checked in - the file is
+  only written at project creation, so it survives builds). Verified:
+  Docker build exits 0, PCSX2 boot screenshot shows the scene + overlay
+  ("PAL Interlaced (Field) 512x448" at 50 FPS); the buttons themselves
+  need a pad - the graph compiles to the same ctx.requestDisplayMode /
+  ctx.widescreen writes the scratch-project e2e in (70) already proved.
+
 - (70) **Runtime display-mode switching (with keep-or-revert prompt) +
   widescreen 16:9** — follow-up to (69). **(a) Runtime switch:**
   `RendererCore::setDisplayOutput(mode, widescreen)` (fork) re-selects the
