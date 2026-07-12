@@ -1540,6 +1540,9 @@ void TerrainGame::init() {
   if (!FRAME_LIMIT) engine->renderer.core.setFrameLimit(false);
 
   stapip.setRenderer(&engine->renderer.core);
+  // Hidden "clipping": "vu1" mode: frustum-crossing packages are clipped by
+  // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
+  stapip.core.setVU1Clipping(CLIP_VU1);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
   // GS hardware distance fog (Scene/Project > Preferences > Fog).
@@ -2704,6 +2707,8 @@ void TerrainGame::loadScene(int sceneIndex) {
     skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
     buildSkyDome();
   }
+  // Per-scene clipping override may flip the hidden VU1 clipping mode.
+  stapip.core.setVU1Clipping(CLIP_VU1);
   // Per-scene sky color (the loop paints the clear screen from ctx.skyColor)
   // and post effects.
   scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
@@ -4260,6 +4265,9 @@ void TerrainGame::init() {
   if (!FRAME_LIMIT) engine->renderer.core.setFrameLimit(false);
 
   stapip.setRenderer(&engine->renderer.core);
+  // Hidden "clipping": "vu1" mode: frustum-crossing packages are clipped by
+  // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
+  stapip.core.setVU1Clipping(CLIP_VU1);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
   // GS hardware distance fog (Scene/Project > Preferences > Fog).
@@ -5843,6 +5851,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // Per-scene sky, clipping, post-FX and usable-highlight (Scene > Preferences
     // overrides of Project > Preferences). Accessor macros drop the trailing S.
     sceneBools("CLIP_PRECISES", [&](int si) { return rs[si].clipping != "fast"; });
+    // Hidden third clipping mode ("clipping": "vu1" in project.json, no UI):
+    // per-package classification stays (CLIP_PRECISE is true for it), but
+    // crossing packages are clipped on VU1 instead of the EE.
+    sceneBools("CLIP_VU1S", [&](int si) { return rs[si].clipping == "vu1"; });
     sceneFloats("SKY_RS", [&](int si) { return floatLit(rs[si].skyColor[0] * 255.0f); });
     sceneFloats("SKY_GS", [&](int si) { return floatLit(rs[si].skyColor[1] * 255.0f); });
     sceneFloats("SKY_BS", [&](int si) { return floatLit(rs[si].skyColor[2] * 255.0f); });
@@ -6083,6 +6095,7 @@ inline int everyFrames(float seconds) {
 #define TERRAIN_TINT_B TERRAIN_TINTS[g_activeScene][2]
 // Per-scene sky / clipping / post-FX / usable-highlight (Scene > Preferences)
 #define CLIP_PRECISE CLIP_PRECISES[g_activeScene]
+#define CLIP_VU1 CLIP_VU1S[g_activeScene]
 #define SKY_R SKY_RS[g_activeScene]
 #define SKY_G SKY_GS[g_activeScene]
 #define SKY_B SKY_BS[g_activeScene]

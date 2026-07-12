@@ -58,7 +58,10 @@ static/dynamic pipelines, core GS/VU1 code), `thread`, `time`; plus
 (`*.i`, `*.vcl` — preprocessed by vclpp inside the container).
 
 Editor-specific engine additions so far: Cohen–Sutherland outcodes in the EE
-clipper, static pools in `stapip_clipper.cpp` / `stapip_qbuffer.cpp`,
+clipper, the StaPip `clip` VU1 program family (on-VU1 Sutherland–Hodgman
+behind the hidden `"clipping": "vu1"` project mode — design + status in
+`docs/vu1-clipping-plan.md`), static pools in `stapip_clipper.cpp` /
+`stapip_qbuffer.cpp`,
 `RendererCorePostFx` (bloom + film grain via GS blits), WAV-header-aware song
 player, `bboxVersion` on `StaPipBag` for moving geometry, `LeanObjLoader`
 (OBJ+MTL, host:/cdrom0:-safe; parsing semantics mirror the editor's
@@ -76,10 +79,18 @@ and `renderer/models/unique_id.hpp` (`generateUniqueId()`) replacing upstream's
   polygons". PCSX2's HW renderer often *masks* this; the SW renderer and real
   hardware show it. This was the root cause of a long-standing corruption bug —
   not the clipper patches (all were bisected; even pure upstream reproduced it).
-- **VU1 guard-band clipping is retired.** Three variants were tried; all
-  corrupted ADC bits. The failed approaches are documented in `vcl_sml.i`. The
-  EE clipper (with outcode + pool optimizations) handles the near-plane band;
-  don't resurrect the guard band without reading that history.
+- **Widening the cull programs' ADC test is retired; real VU1 clipping is a
+  separate program family.** Three attempts at a guard band inside
+  `PerformClipCheck` all corrupted ADC bits (documented in `vcl_sml.i`); the
+  working approach is the StaPip `clip` programs (hidden `"clipping": "vu1"`
+  mode), which never derive ADC from clip flags. VU1 microcode traps already
+  paid for there: `fcand` sets VI01 to 0/1 (any-bit), NOT the masked bit
+  pattern; a vertex clipped to exactly |x| = w scales to GS coordinate 4096.0
+  and wraps the 12.4 XYZ2 field (clip the sides at 0.9w, let the scissor
+  finish); every VU1 vertex-loop count must be a multiple of 3 or the loop
+  runs off into memory; overflowing the 2048-instruction micro memory is
+  SILENT in release builds (the assert is compiled out) - check program sizes
+  with nm on the .o files when adding VU1 code.
 - The engine bbox cache is keyed by bag pointer — geometry that changes at
   runtime must bump `bboxVersion` on its `StaPipBag`, or culling uses stale
   boxes.

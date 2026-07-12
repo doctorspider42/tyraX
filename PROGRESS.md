@@ -9,6 +9,38 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (69) **StaPip clipping moved from the EE to VU1 (hidden "vu1" mode, M1–M3
+  of docs/vu1-clipping-plan.md)** — the engine-fork TODO from
+  stapip_clipper.hpp, behind `"clipping": "vu1"` in project.json (no UI
+  yet; M4 flips the preference after a real-PS2 pass). A new StaPip `clip`
+  VU1 program family (c/d/tc/td) receives raw object-space vertices like
+  the cull programs and per triangle: judges the verts against the X/Y
+  guard band (clipw) plus the exact near/far planes (constant-z in Tyra's
+  clip space, biased into a second clipw judgement), emits fully-inside
+  triangles untouched, and Sutherland-Hodgman-clips crossing ones in a
+  scratch area above the shrunken double buffer (near plane first so w>0
+  for the w-relative side planes), fanning the result and patching the
+  prim giftag NLOOP. The EE clipper and as_is programs are bypassed
+  entirely in this mode (clip replaces as_is in micro memory - all three
+  families don't fit); spot light evaluates on raw verts in c/tc, d/td
+  light the original verts and lerp the lit colors, fog recomputes from
+  the lerped clip-space w. EE-side: clip packages are capped at
+  maxVertCount/5 floored to a multiple of 3 (bounded 7x fan-out; 72/5=14
+  split a triangle across packages and ran the VU1 loop off into memory),
+  and sub-1/3 packages are classified against the merged bbox of every
+  1/3-grid part they overlap (start-bbox-only misclassified visible
+  geometry as outside). Pitfalls burned in comments: fcand yields 0/1 not
+  a bit pattern; a vertex clipped to exactly |x|=w scales to GS 4096.0 and
+  wraps the 12.4 XYZ2 field (side planes cut at 0.9w; scissor equalizes).
+  Verified in PCSX2 SW renderer: detail-8 near-plane/guard-band stress
+  scene and a full showcase scene (dome, terrain, textured boxes, models)
+  are pixel-identical (0 diff) to the EE precise clipper; a textured box
+  straddling the camera differs 0.065% (LSB texel shifts on cut edges);
+  fast mode differs 31% on the stress scene (proves the scenes exercise
+  clipping); animated d/td scene holds 50 FPS. Real-PS2 PERF re-run
+  (clipbench) and the SW-vs-hardware ADC check are pending - M4 (making
+  "precise" route to VU1 + retiring StaPipClipper/PlanesClipAlgorithm)
+  waits for them.
 - (70) **Unique sprite/mesh ids — fixes HUD garbling when a menu opens** — a
   bug report showed the debug HUD (FPS/MEM readout) rendering black blocks over
   glyphs, "often" right after opening the pause menu. Root cause was in the
