@@ -23,6 +23,22 @@ std::string trim(const std::string& s) {
     return s.substr(a, b - a);
 }
 
+// True if `list` (a comma/space-separated value) contains the word `w`.
+bool listHas(const std::string& list, const char* w) {
+    std::string cur;
+    auto flush = [&](const std::string& tok) { return tok == w; };
+    for (size_t i = 0; i <= list.size(); ++i) {
+        const char c = i < list.size() ? list[i] : ',';
+        if (c == ',' || std::isspace((unsigned char)c)) {
+            if (!cur.empty() && flush(cur)) return true;
+            cur.clear();
+        } else {
+            cur += c;
+        }
+    }
+    return false;
+}
+
 // A .flownode file: a `key = value` header, a line that is exactly `---`, then
 // the raw C++ body to the end of file. Returns "" on success, else an error.
 std::string parseFile(const fs::path& path, CustomFlowNode& out) {
@@ -36,6 +52,8 @@ std::string parseFile(const fs::path& path, CustomFlowNode& out) {
     out.category = "Custom";
     FlowParamKind strKind = FlowParamKind::None;
     bool numSet[4] = {false, false, false, false};
+    std::string inList, outList;
+    bool execOut = false;
 
     std::string line;
     bool inCode = false;
@@ -68,6 +86,14 @@ std::string parseFile(const fs::path& path, CustomFlowNode& out) {
                 strKind = FlowParamKind::ObjectName;
             else
                 strKind = FlowParamKind::None;
+        } else if (key == "call") {
+            out.callFn = val;
+        } else if (key == "in") {
+            inList = val;
+        } else if (key == "out") {
+            outList = val;
+        } else if (key == "exec_out") {
+            execOut = (val == "true" || val == "1" || val == "yes");
         } else if (key.size() == 4 && key.rfind("num", 0) == 0 && key[3] >= '0' &&
                    key[3] <= '3') {
             const int i = key[3] - '0';
@@ -94,8 +120,19 @@ std::string parseFile(const fs::path& path, CustomFlowNode& out) {
     for (int i = 0; i < 4; ++i)
         ty.numLabels[i] = (i < numCount) ? out.numLabelStore[i].c_str() : "";
     ty.numKind = FlowParamKind::None;
-    ty.idIn = (strKind == FlowParamKind::ObjectName);  // object pin + link resolve
-    ty.idOut = false;
+    // Pins. `string = object` and `in = object` both give the object input pin
+    // that resolveTarget reads (the node's "target"). Outputs are only
+    // meaningful for `call` nodes (a value the C++ function writes); an inline
+    // snippet has no way to return them.
+    ty.idIn = (strKind == FlowParamKind::ObjectName) || listHas(inList, "object");
+    ty.posIn = listHas(inList, "position");
+    ty.boolIn = listHas(inList, "bool");
+    ty.textIn = listHas(inList, "text");
+    ty.idOut = listHas(outList, "object");
+    ty.posOut = listHas(outList, "position");
+    ty.boolOut = listHas(outList, "bool");
+    ty.textOut = listHas(outList, "text");
+    ty.execThrough = execOut;  // renders a follow-up exec output ("after >")
     return "";
 }
 
@@ -109,21 +146,28 @@ const char* kExampleTemplate =
     "#   category  add-menu submenu (default: Custom)\n"
     "#   string    the string param: none | text | object (default: none)\n"
     "#   num0..3   labels for up to four numeric params (define them in order)\n"
-    "# Everything after the --- line is C++ emitted verbatim into\n"
-    "# src/scripts/flow_graph.gen.cpp when an exec link fires this (action) node.\n"
-    "# `ctx` is the ScriptContext. Placeholders substituted at build:\n"
-    "#   {obj}   resolved target object index (the Object pin/dropdown, or self)\n"
-    "#   {self}  index of the object that owns this graph\n"
-    "#   {num0}..{num3}  numeric params as float literals\n"
-    "#   {int0}..{int3}  numeric params as integer literals\n"
-    "#   {str}   string param as a quoted C string (use when string = text)\n"
-    "title = Nudge Up\n"
+    "#   in        input pins besides params: any of  object position bool text\n"
+    "#   out       output pins:               any of  object position bool text\n"
+    "#   exec_out  true = a follow-up exec output that fires downstream after\n"
+    "#             this node runs (chain custom nodes into more actions)\n"
+    "#   call      name of a C++ function in inc/scripts/flow_nodes.hpp to run\n"
+    "#             (needed for outputs / real logic). Without it, everything\n"
+    "#             after --- is an inline C++ snippet with {placeholders}:\n"
+    "#             {obj} target object index, {self} owner index,\n"
+    "#             {num0}..{num3} float / {int0}..{int3} int params,\n"
+    "#             {str} the string param as a quoted C string.\n"
+    "#\n"
+    "# This example is the powerful form: it OUTPUTS an object (the one nearest\n"
+    "# the player) picked at runtime by flowExampleNearest() in flow_nodes.hpp,\n"
+    "# and exec_out lets you chain it into e.g. a built-in Hide Object whose\n"
+    "# object input you wire from this node's object output.\n"
+    "title = Nearest Object\n"
     "category = Custom\n"
-    "string = object\n"
-    "num0 = Amount\n"
+    "out = object\n"
+    "exec_out = true\n"
+    "call = flowExampleNearest\n"
     "---\n"
-    "ctx.objects[{obj}].data.position[1] += {num0};\n"
-    "ctx.objects[{obj}].dirty = true;\n";
+    "# (body ignored when `call` is set - the C++ lives in flow_nodes.hpp)\n";
 
 }  // namespace
 

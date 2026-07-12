@@ -2,31 +2,38 @@
 
 The Flow Graph ships with a fixed set of built-in nodes (triggers, object
 actions, audio, save data, logic gates…). When you need a node the editor
-doesn't have — a project-specific action that pokes some `ctx` field, calls a
-helper of yours, or wraps a snippet you keep re-typing into `Log Message` — you
-can define your own **custom action node** as a small text file in the project.
-No editor rebuild, no C++ toolchain: drop a `.flownode` file into the project's
-`flow-nodes/` folder and it appears in the Flow Graph add-menu.
+doesn't have, you can define your own — **per project, no editor rebuild** — as a
+`.flownode` text file in the project's `flow-nodes/` folder. It appears in the
+Flow Graph add-menu and wires up like any built-in node.
 
-Custom nodes are **per project**, but a node is just one self-contained file, so
-moving it to another project is a copy — see
-[Moving a node to another project](#moving-a-node-to-another-project).
+There are two flavors, from quick to fully general:
+
+- **Inline snippet** — a few lines of C++ written straight into the `.flownode`
+  file, with `{placeholders}` for the node's params/target. Great for one-liners
+  ("nudge this object up by N").
+- **C++-backed node (`call = fn`)** — the node calls a function you write in a
+  real, user-owned C++ file (`inc/scripts/flow_nodes.hpp`), with full IntelliSense
+  and no length limit. This flavor can have **input and output pins of any kind**
+  (object / position / bool / text), so a node can, say, pick the object the
+  player is looking at and hand that object to a built-in *Hide Object*.
+
+Both are self-contained files, so moving a node to another project is a copy —
+see [Moving nodes to another project](#moving-nodes-to-another-project).
 
 ## Quick start
 
-1. Open the **Flow Graph** tab, click **Custom nodes… ▸ New starter node**. This
-   writes `flow-nodes/example.flownode` (a commented "Nudge Up" node) and
-   reloads. *Or* click **Open flow-nodes folder** and create a file by hand.
-2. Edit the file (see the format below), then **Custom nodes… ▸ Reload from
-   folder**. The node shows up in the add-menu under its `category`.
-3. Right-click the canvas → your category → your node. Wire a trigger's
-   `then >` into the node's `> do` pin, set its params, build. Your C++ lands in
-   `src/scripts/flow_graph.gen.cpp` exactly where the node runs.
+1. Open the **Flow Graph** tab → **Custom nodes… ▸ New starter node**. This writes
+   `flow-nodes/example.flownode` (a working "Nearest Object" C++-backed node) and
+   reloads. *Or* **Open flow-nodes folder** and create a file by hand.
+2. Edit the file (format below), then **Custom nodes… ▸ Reload from folder**. The
+   node appears in the add-menu under its `category`.
+3. Right-click the canvas → your category → your node. Wire it up, build. Your
+   code lands in `src/scripts/flow_graph.gen.cpp` exactly where the node runs.
 
 ## File format
 
-A `.flownode` file has a small `key = value` header, a line that is exactly
-`---`, and then the raw C++ body to the end of the file:
+A `.flownode` file is a `key = value` header, a line that is exactly `---`, then
+(for inline nodes) the C++ body:
 
 ```
 # Lines before --- starting with # are comments.
@@ -41,93 +48,170 @@ ctx.objects[{obj}].dirty = true;
 
 ### Header keys
 
-| Key         | Meaning                                                        | Default        |
-|-------------|----------------------------------------------------------------|----------------|
-| `title`     | Display name in the add-menu and the node's title bar          | the file name  |
-| `category`  | Add-menu submenu the node is grouped under                     | `Custom`       |
-| `string`    | The node's string param: `none`, `text`, or `object`           | `none`         |
-| `num0`…`num3` | Labels for up to four numeric params (define them **in order**) | *(no params)* |
+| Key         | Meaning                                                         | Default        |
+|-------------|-----------------------------------------------------------------|----------------|
+| `title`     | Display name in the add-menu and node title bar                 | the file name  |
+| `category`  | Add-menu submenu                                                 | `Custom`       |
+| `string`    | The string param: `none`, `text`, or `object`                   | `none`         |
+| `num0`…`num3` | Labels for up to four numeric params (define them in order)   | *(no params)*  |
+| `in`        | Extra input pins: any of `object position bool text`            | *(none)*       |
+| `out`       | Output pins: any of `object position bool text`                 | *(none)*       |
+| `exec_out`  | `true` = a follow-up exec output that fires downstream after the node runs | `false` |
+| `call`      | Name of a C++ function in `inc/scripts/flow_nodes.hpp` to run    | *(inline)*     |
 
-- `string = text` gives the node a free-text field; its value is available as
-  `{str}`.
-- `string = object` gives the node an **object** dropdown (and an object input
-  pin) like the built-in object actions. The chosen object — or `self` (the
-  object owning the graph) when left empty, or whatever is wired into the object
-  pin — resolves to `{obj}`.
-- Numeric params must be contiguous from `num0`: defining `num0` and `num2` but
-  not `num1` stops at one param. Each renders as a drag field.
+Every custom node is an **action**: it has a `> do` exec input and runs when a
+trigger (or another node's exec output) fires it. `string = object` and
+`in = object` both give the node its object input (the "target"). Numeric params
+must be contiguous from `num0`.
 
-### The C++ body
+### Inline C++ body
 
-Everything after `---` is emitted **verbatim** into the generated flow graph,
-inside the block that runs when an incoming exec link fires the node (a custom
-node is always an *action*: it has a `> do` exec input and no exec output). The
-code runs in the generated `Script::update`, where `ctx` is a `ScriptContext&` —
-the same object the built-in nodes and your object scripts use (see
-[object-scripts.md](object-scripts.md) for the `ScriptContext` reference).
+Without `call`, everything after `---` is emitted verbatim into
+`flow_graph.gen.cpp` where the node runs. `ctx` is the `ScriptContext`.
+Placeholders substituted at build:
 
-Placeholders substituted at build time:
+| Placeholder      | Becomes                                                     |
+|------------------|-------------------------------------------------------------|
+| `{obj}`          | resolved target object index (the object pin/dropdown, or self) |
+| `{self}`         | index of the object that owns this graph                    |
+| `{num0}`…`{num3}`| numeric params as float literals (`5.0F`)                   |
+| `{int0}`…`{int3}`| numeric params as integer literals (`5`)                    |
+| `{str}`          | string param as a quoted, escaped C string (`"hi"`)         |
 
-| Placeholder      | Becomes                                                          |
-|------------------|------------------------------------------------------------------|
-| `{obj}`          | resolved target object **index** (the object dropdown / pin, or `self`) |
-| `{self}`         | index of the object that owns this graph                         |
-| `{num0}`…`{num3}`| the numeric params as float literals (e.g. `5.0F`)               |
-| `{int0}`…`{int3}`| the numeric params as integer literals (e.g. `5`)                |
-| `{str}`          | the string param as a quoted, escaped C string (e.g. `"hi"`)     |
+Inline nodes have no outputs — use `call` for those.
 
-`{obj}` and `{self}` are indices into `ctx.objects[...]`; when `string` is not
-`object`, `{obj}` resolves to `{self}`. Example uses:
+## C++-backed nodes (`call = fn`)
+
+For real logic (multi-line, helper functions, `#include`s) and for **outputs**,
+set `call = someFunction` and write that function in `inc/scripts/flow_nodes.hpp`
+— a generated, user-ownable file (delete its first `// Generated by…` line to
+stop the editor regenerating it, exactly like `script.hpp` / `controls.hpp`).
+Signature:
 
 ```cpp
-// Move the target object up by the Amount param:
-ctx.objects[{obj}].data.position[1] += {num0};
-ctx.objects[{obj}].dirty = true;
-
-// Log the Text param N (Times) times:
-for (int i = 0; i < {int0}; ++i) TYRA_LOG({str});
+void someFunction(ScriptContext& ctx, FlowNodeIO& io);
 ```
 
-Because the body is raw C++, it must **compile against the engine**. If it
-doesn't, the game build fails with a normal compiler error pointing at
-`flow_graph.gen.cpp` — read the emitted file to see exactly what your node
-produced. Keep to the `ctx` API the built-in nodes use unless you know the
-engine headers.
+`FlowNodeIO` (defined in `script.hpp`) carries the node's inputs and outputs:
 
-## Moving a node to another project
+```cpp
+struct FlowNodeIO {
+  int self;              // object that owns the graph
+  // inputs (filled before the call):
+  int object;            // the target object input (or self); -1 if invalid
+  Tyra::Vec4 position;   // wired position input
+  bool boolIn;           // OR of wired bool inputs
+  const char* text;      // first wired text input ("" if none)
+  const float* num;      // the node's num0..3 params
+  const char* str;       // the string param (when string = text)
+  // outputs (write the ones your node declares in `out`):
+  int objectOut;         // an object index, e.g. a pick/raycast result (-1 = none)
+  Tyra::Vec4 positionOut;
+  bool boolOut;
+  char* textOut; int textOutCap;  // write up to textOutCap bytes (NUL-terminated)
+};
+```
+
+The node runs when an exec link reaches it: the game fills the inputs, calls your
+function, then **latches** whatever you wrote into the outputs. Downstream nodes
+read that latched value.
+
+### Example: an object output driving a built-in node
+
+The scaffolded `example.flownode` is a `Nearest Object` node — a stand-in for a
+"what am I looking at" raycast:
+
+```
+title = Nearest Object
+category = Custom
+out = object
+exec_out = true
+call = flowExampleNearest
+---
+```
+
+and in `flow_nodes.hpp`:
+
+```cpp
+inline void flowExampleNearest(ScriptContext& ctx, FlowNodeIO& io) {
+  int best = -1; float bestDist = 0.0F;
+  for (int i = 0; i < ctx.objectCount; ++i) {
+    if (i == io.self || !ctx.objects[i].active) continue;
+    const float* p = ctx.objects[i].data.position;
+    const float dx = p[0]-ctx.playerPosition.x, dy = p[1]-ctx.playerPosition.y,
+                dz = p[2]-ctx.playerPosition.z;
+    const float d = dx*dx + dy*dy + dz*dz;
+    if (best < 0 || d < bestDist) { best = i; bestDist = d; }
+  }
+  io.objectOut = best;  // -1 = nothing
+}
+```
+
+Wire it up: **On Button (Cross)** → *Nearest Object*, then its **object output**
+into a built-in **Hide Object**'s object input, and its **exec output** into that
+same Hide Object's `> do`. Pressing Cross now hides whatever object was nearest,
+picked at runtime. The exec link sequences it: the node runs (sets its output)
+first, then the built-in reads it.
+
+### How outputs reach other nodes
+
+- **object out** — the graph normally resolves object identity at *build* time
+  (names → indices). A custom node's object output is instead a **runtime value**
+  (`io.objectOut`), so it can be a pick/raycast result. Any consumer — built-in
+  *Hide/Move/Show Object*, another custom node, etc. — reads that runtime index.
+  A built-in action fed such a ref is **bounds-guarded**: if the output is `-1`
+  or out of range, the action is a no-op instead of a crash.
+- **bool / text / position out** — read directly wherever the matching plane is
+  consumed (a bool output into a logic gate or *On Condition*; a text output into
+  *Log Message* / *Set Save Text*; a position output into *Set Object Position*).
+
+Outputs hold their **last** value: they update only when the node runs, so drive
+data-producing custom nodes from the exec flow (that's what `exec_out` is for)
+before the consumer reads them.
+
+## Moving nodes to another project
 
 A custom node's **identity is its file name** (`nudge.flownode` →
-`custom:nudge`), and graphs reference it by that identity. To reuse a node in
-another project:
+`custom:nudge`), and graphs reference it by that identity. To reuse a node
+elsewhere:
 
 1. **Copy the `.flownode` file** into the other project's `flow-nodes/` folder
-   (keep the file name identical), then **Reload from folder** there (or just
-   reopen the project). The node is now available in that project's add-menu.
-2. Any graph you build in the second project can use it immediately. If you also
-   copied graphs that *already reference* the node (e.g. you copied an object
-   between projects, or hand-merged `.tyra` data), those references resolve as
-   long as the file name matches.
+   (keep the file name identical), then **Reload from folder** (or reopen the
+   project).
+2. **For a `call = fn` node, also copy the function** into that project's
+   `inc/scripts/flow_nodes.hpp` (and make sure the file has been un-marked — its
+   first line deleted — so the editor won't overwrite it). Inline nodes need no
+   extra file.
 
 > ⚠️ **The file must travel with the project.** When the editor loads a project,
-> a flow-graph node whose type is unknown is **dropped** (this is how stale
-> node types get cleaned up). So if you copy a `.tyra` that uses `custom:nudge`
-> but forget the `nudge.flownode` file, those nodes silently disappear on load
-> and are gone on the next save. Copy the file *first*. This is why custom nodes
-> live in plain files next to the project rather than baked into the `.tyra`.
+> a flow-graph node whose type is unknown is **dropped** (that is how stale node
+> types get cleaned up). So if you copy a `.tyra` that uses `custom:nudge` but
+> forget the `nudge.flownode` file, those nodes silently disappear on load and
+> are gone on the next save. Copy the file *first*. This is why custom nodes live
+> in plain files next to the project rather than baked into the `.tyra`.
 
-There is no central "node library": each project owns its `flow-nodes/` folder.
-Keep a folder of your favorite `.flownode` files somewhere and copy them into new
-projects as needed. They are plain text — version them, share them, diff them.
+There is no central node library: each project owns its `flow-nodes/` folder and
+its `flow_nodes.hpp`. Keep a folder of favorite `.flownode` files (and their
+functions) and copy them into new projects. They are plain text — version them,
+share them, diff them.
+
+## Custom nodes vs. object scripts
+
+If you want full C++ that is **not** wired into the flow graph, use an **object
+script** instead ([object-scripts.md](object-scripts.md)): a class you attach to
+an object, with `onStart`/`onUpdate`/`onUsed`. Custom flow nodes are the right
+tool when you want the logic to be **triggered from and wired into the graph**
+(a trigger fires it, pins carry data in and out).
 
 ## Reference
 
-- The folder is `<project>/flow-nodes/`, scanned for `*.flownode` files in
-  alphabetical order (that order is the add-menu order within a category).
-- Loading happens on project open and on **Custom nodes… ▸ Reload from folder**.
-  Reload picks up new files and edits to existing ones (labels, category, code)
-  without reopening the project.
-- Parse or duplicate-id problems are reported in the editor status bar on reload
-  (e.g. `2 custom flow nodes loaded; foo.flownode: duplicate node id`).
+- Folder: `<project>/flow-nodes/`, scanned for `*.flownode` in alphabetical order
+  (that is the add-menu order within a category).
+- Loaded on project open and on **Custom nodes… ▸ Reload from folder** (picks up
+  new files and edits without reopening).
+- C++ bodies live in `inc/scripts/flow_nodes.hpp` (marker-owned; delete the first
+  line to keep your edits). `FlowNodeIO` is defined in `inc/scripts/script.hpp`.
+- Parse / duplicate-id problems are reported in the editor status bar on reload.
 - Implementation: `src/flownode.cpp` (loader/parser), `src/flowgraph.hpp`
-  (registry + `CustomFlowNode`), code generation in
-  `flowGraphScript()` (`src/templates.cpp`).
+  (registry + `CustomFlowNode`), code generation in `flowGraphScript()`
+  (`src/templates.cpp`).

@@ -362,7 +362,12 @@ struct CustomFlowNode {
     std::string key;         // "custom:<file-stem>" - the serialized FlowNode::type
     std::string title;
     std::string category;
-    std::string code;        // emitted verbatim, with {placeholders} substituted
+    // Behavior: either an inline C++ snippet (`code`, emitted verbatim with
+    // {placeholders} substituted) OR a call into a user function (`callFn`,
+    // written in inc/scripts/flow_nodes.hpp, receiving a FlowNodeIO). `callFn`
+    // wins when both are set; only `callFn` nodes can drive output pins.
+    std::string code;
+    std::string callFn;
     std::string numLabelStore[4];
     std::string sourceFile;  // absolute path of the .flownode file (diagnostics)
     FlowNodeType type{};     // char* fields point into the strings above

@@ -1756,6 +1756,47 @@ Each finished feature lands as its own commit.
   is valid. GUI screenshot confirms both custom nodes render with their params /
   pins in the Flow Graph and the Custom nodes… control is present.
 
+- (72) **Custom flow nodes, part 2: real C++ bodies + full runtime I/O** —
+  extends (71) so a custom node isn't limited to an inline snippet. A
+  `.flownode` manifest can now set `call = fn`, binding the node to a function
+  the user writes in a new marker-owned `inc/scripts/flow_nodes.hpp`
+  (`void fn(ScriptContext&, FlowNodeIO&)`), plus declare `in`/`out` pins (any of
+  object/position/bool/text) and `exec_out`. The node is exec-driven: on run the
+  codegen builds a `FlowNodeIO` from the resolved inputs, calls the function, and
+  **latches** its outputs into per-node class members (`objOut<id>`,
+  `boolOut<id>`, `posOut<id>[3]`, `textOut<id>`) that downstream nodes read.
+  bool/text/position outputs drop straight into the existing expression planes
+  (they're just variable refs); the interesting one is **object output**, which
+  is a *runtime* value (e.g. "the object the player is looking at") — so
+  `resolveTarget()` was changed from returning a codegen-time `int` to a C++
+  int-*expression* string (a literal index for built-in sources, `objOut<id>`
+  for a custom node's output), letting a custom node's picked object drive ANY
+  consumer including built-in Hide/Move/Show Object. Built-in object actions fed
+  such a ref are bounds-guarded (`isRuntimeIdx`) so an invalid pick (-1) is a
+  no-op, not an out-of-range access. `exec_out` custom nodes fire their
+  downstream inline right after they run (via a new recursive `emitExec` with a
+  cycle guard, replacing `linkedActions`), which sequences the data dependency
+  (raycast runs → sets output → built-in reads it). `FlowNodeIO` lives in
+  `script.hpp`; `flow_graph.gen.cpp` includes `flow_nodes.hpp`. The UI needed no
+  changes — the flow-graph editor already renders every pin kind from the
+  `FlowNodeType` flags. The `.tyra` model/serialization is still unchanged.
+  Scaffolded example is now a working C++-backed "Nearest Object" node
+  (`flowExampleNearest`) demonstrating object-out → built-in Hide Object.
+  Docs: `docs/custom-flow-nodes.md` rewritten (two flavors, the `FlowNodeIO`
+  contract, runtime object refs, transfer now also copies the `flow_nodes.hpp`
+  function), README/docs-index/tyra-editor-dev updated. Verified end-to-end: the
+  editor builds clean; a scratch fpp project wiring **On Button → Nearest Object
+  (custom, object out) → built-in Hide Object** (object input from the custom
+  node's runtime output, exec-chained) round-trips through load and generates
+  `flowExampleNearest(ctx, io); objOut2 = io.objectOut;` then
+  `if ((objOut2) >= 0 && (objOut2) < ctx.objectCount) { ctx.objects[objOut2].visible = false; }`
+  — and the whole game **compiled to an ELF in Docker** (`=== Build OK ===`). The
+  part-(71) inline-snippet project still generates the same literal-index code
+  (no regression from the `resolveTarget` refactor). GUI screenshot confirms the
+  custom node renders its object-output and exec-output pins and Hide Object
+  reads "Object: from id link". Not hand-tested with a pad in PCSX2 (the graph
+  only fires on Cross); the ELF compile + codegen are the verification bar here.
+
 ## Done
 
 - Core editor: project creation (orbit/FPP templates), solution files + undo history,

@@ -1689,7 +1689,8 @@ std::string refreshGenerated(const Project& p) {
         } else if (f.relativePath == "src\\terrain_game.cpp" ||
                    f.relativePath == "inc\\terrain_game.hpp" ||
                    f.relativePath == "inc\\controls.hpp" ||
-                   f.relativePath == "inc\\scripts\\script.hpp") {
+                   f.relativePath == "inc\\scripts\\script.hpp" ||
+                   f.relativePath == "inc\\scripts\\flow_nodes.hpp") {
             // Regenerate while the ownership marker is present, or when the
             // file is byte-identical to an old template (never user-edited).
             std::ifstream existing(path, std::ios::binary);
