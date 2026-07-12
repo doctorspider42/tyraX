@@ -9,6 +9,24 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (69) **Pause now freezes particles and skeletal animation** — a pausing menu
+  (a menu with the pause flag, or the save menu) already stopped player
+  movement, scripts, object physics and the use target, but two effect systems
+  kept advancing behind the menu: particle emitters and skeletal-animation
+  playback, both driven off `g_frameDt` in `loop()` with no `menuActive` gate.
+  Added a `g_gameplayPaused` flag set at the top of `loop()` (both the orbit
+  and FPP game-cpp variants). `updateParticles()` early-returns while paused so
+  every billboard bag hangs on its last-built frame — the scene render still
+  draws it, so particles freeze in place instead of vanishing. Its sibling guard
+  from the Set Particles switch (`!g_particlesOn`) stays intact.
+  `updateAndRenderAnimObjects()` zeroes the playback step while paused, freezing
+  the pose while still skinning and rendering it. Overlay menus (pause flag off)
+  keep gameplay running as before. Verified: editor builds clean; codegen for
+  fresh FPP and orbit projects emits all changes; the `script-demo` example
+  (particles + animated models) compiles on the PS2 toolchain in Docker and
+  links (Build OK, exit 0). The visual freeze-on-pause still wants a hands-on
+  pad test in PCSX2 (open the pause menu, confirm rain/smoke and animations
+  stop).
 - (69) **On-demand save (no autosave) + menu-bar icon toolbar** — the editor
   used to autosave the whole `.tyra` on *every* edit (`commitChange()` called
   `saveAll()`), plus a second autosave whenever ImGui settled a layout/docking
