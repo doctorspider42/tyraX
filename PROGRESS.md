@@ -9,6 +9,25 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (77) **examples/custom-nodes + "propose an example" doc rule** — a focused
+  per-feature demo for the custom flow nodes (75)/(76): an FPP scene with three
+  crates where **Cross** runs a C++-backed node (`flowNearestVisible` in the
+  project-owned `inc/scripts/flow_nodes.hpp`) whose runtime **object output**
+  feeds a built-in **Hide Object** (hides crates one at a time), and **Square**
+  runs an **inline-snippet** node that spins a crate — covering both flavors and
+  the runtime-object-ref feature end to end. Shipped with its own README and
+  listed in the top-level README examples. Also added a `tyra-docs` rule:
+  proactively propose a small `examples/` demo when a feature is large/
+  user-facing enough that someone would want to see it in action. Verified:
+  `--build` exit 0 (game compiled to ELF); the generated flow graph shows the
+  guarded `ctx.objects[objOut2].visible = false` and `rotation[1] += 45.0F`;
+  hit a real footgun first — a comment containing the literal phrase "Generated
+  by tyra-editor" in the owned `flow_nodes.hpp`'s first line tripped the
+  ownership check and got the file regenerated, fixed by rewording; PCSX2 boots
+  the ELF and the F8 snap shows the three crates (red near, green mid, blue far)
+  on the terrain. Pad interaction (Cross/Square) not hand-driven; codegen + boot
+  are the bar.
+
 - (75) **Custom flow-graph nodes (per-project, file-based)** — a project can now
   define its own Flow Graph **action** nodes without touching the editor's C++.
   Each node is a `<project>/flow-nodes/<name>.flownode` text file: a `key = value`

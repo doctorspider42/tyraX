@@ -119,6 +119,7 @@ All example projects live under [examples/](examples): a general playground, a l
 - [examples/showcase](examples/showcase) — a large, multi-feature project: two scenes joined by a portal, streaming layers, a skeletal-animated model, LOD, fog, baked lights, particles, menus, post-FX and audio (see its [README](examples/showcase/README.md)).
 - [examples/layer-streaming](examples/layer-streaming) — [streaming layers](docs/streaming-layers.md): two buildings joined by a corridor — walking through swaps which building is in memory, GTA3-style (watch the MEM overlay).
 - [examples/video-modes](examples/video-modes) — display-mode test bed: a VIDEO OPTIONS menu (opens at boot, Start reopens it) switches 480i / 480p / 1080i and 4:3 / 16:9 at runtime, with the keep-or-revert confirm prompt (see its [README](examples/video-modes/README.md)).
+- [examples/custom-nodes](examples/custom-nodes) — [custom flow-graph nodes](docs/custom-flow-nodes.md): press Cross and a C++-backed node picks the nearest crate at runtime and feeds it to a built-in Hide Object; press Square and an inline-snippet node spins a crate (see its [README](examples/custom-nodes/README.md)).
 
 ## Structure
 
