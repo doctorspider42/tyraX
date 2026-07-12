@@ -55,6 +55,42 @@ Each finished feature lands as its own commit.
   editor exits and the discarded edit is absent from the `.tyra`; "Cancel" →
   editor stays open. Selecting an object (no edit) does not set dirty. Clean
   editor build both before and after the button-label auto-size fix.
+- (69) **Usable-highlight rims moved off the EE (matrix shells + apron ring)** —
+  the in-game usable-object highlight could tank the frame rate: every frame,
+  for every nearby usable object, `renderHighlightHull` grew `steps × n` hull
+  vertices on the EE (9 muls **plus a bilinear `terrainHeightAt` per vertex**
+  for the ground clamp), wrote `2 × steps × n × 16 B` of vertex/color arrays,
+  and its per-frame `bboxVersion` bump forced a package-bbox recompute over
+  all of them — with the default 4 steps a few-thousand-vert usable model
+  near the player cost milliseconds of EE time, and the frame is EE-bound
+  (see the clipbench measurements in the backlog), so it fell straight to
+  the next vsync divisor.
+  The rewrite exploits that both per-vertex ops are uniform point scales
+  (grow about the object center, depth pushback about the eye): they compose
+  into a **single scale+translation model matrix**, so each shell now
+  re-submits the object's **own vertex arrays** with a per-shell `hullMat` +
+  per-shell single color — StaPip applies the matrix on VU1 (and in frustum
+  classify + the EE clipper via the composed MVP), the EE never touches a
+  vertex, and the shell's package bboxes ride the part's own `bboxVersion`
+  (their own cache slot — single color changes the package size — recomputed
+  only when the part rebuilds, never per frame). One game-level hull bag
+  replaces the per-object bag + `steps × n` vertex/color copies (a 6k-vert
+  usable model used to hold ~750 KB of hull arrays on a 32 MB console).
+  The one thing that genuinely needed per-vertex terrain sampling — the
+  ground-clamp that turned the bottom rim into a glow apron hugging the
+  terrain — is replaced by `buildHighlightApron`: a small terrain-following
+  annulus around the base (one band per shell, same growth radii and alpha
+  series, 24 segments ≈ 576 verts at 4 steps), world-space and
+  camera-independent, built once and cached until `rebuildObjectGeometry`
+  invalidates it (move/resize/scene switch). The repaint pass that erases
+  shell wash off receding side faces is unchanged. Verified: editor builds
+  clean; scratch FPP project (usable box + usable sphere + plain box near
+  spawn, highlight on) compiles in Docker and runs in PCSX2 — SW-renderer
+  screenshot shows the fading rim around the usable sphere only, clean
+  interior, the ground apron around the base, 50 VPS / 100% speed;
+  samples/script-demo regenerated + recompiled. Real-PS2 A/B timing of the
+  before/after EE cost still needs a hardware session (the COP0 PERF recipe
+  from the clipbench notes in the backlog applies as-is).
 
 - (68) **Ambience Editor + Properties docked right + sky dome preview** — three
   related changes. **(a) Docking default:** the first-run DockBuilder layout now
@@ -1656,6 +1692,120 @@ Each finished feature lands as its own commit.
   with all features (built-in house.obj + crosshair.png embedded in the editor,
   physics ball, pillar, HUD, starter flow graph). Fresh copy every time, so the
   shared sample no longer gets wrecked by experiments. Verified in PCSX2.
+
+- (65) **"Showcase" sample project** -- a second, much larger checked-in sample
+  under `examples/showcase` that exercises most of the editor's feature set in
+  one game, added on request ("a bigger project for the examples"). Two scenes
+  reachable through a usable portal pair: `vale` (a 192x192 heightmapped valley,
+  golden-hour dusk) and `cavern` (a dark, blue-fogged interior with a Nightfall
+  grading override). It demonstrates: streaming layers loaded *dynamically*
+  (`village`/`ruins` start unloaded; two `Near Object` gates `Load Layer` the
+  district you approach and `Unload Layer` the other), a purpose-built skeletal
+  model (`res/models/wobbler.glb` -- a cylinder skinned to a 5-joint chain with
+  `Wiggle`/`Twist` clips, baked to `.tskl`), object draw-distance + animation
+  LOD + baked mesh LOD, a baked directional sun plus point lights (campfire,
+  lanterns, ruins, crystals), particle emitters (fire/smoke/rain/sparks/fog/
+  fireflies), GS distance fog, bloom + film grain, two colour-grading presets,
+  a title + pause menu, a HUD crosshair, a first-person player with a
+  toggleable flashlight, a save point + a save value collected from a usable
+  relic, usable-object highlighting, a gradient sky dome, and ambient music +
+  a spatial campfire sound. The project (`showcase.tyra` + authored `res/`
+  assets + `terrain-*.heights`) was authored programmatically (Node generators
+  that emit the loader-format JSON, procedural heightmaps/ground texture, the
+  WAVs, and a hand-built glTF); the generated game tree is committed like
+  `script-demo` (the `Makefile` is create-only, so a sample cannot be
+  source-only), with `res/.gitignore` keeping the authored assets while
+  ignoring the built-in `hud/`/`menus/` and the baked `.tskl`. Verified: the
+  `.glb` parses through the real `glbparser` (`bake` + `parseSkel`, 1248 verts,
+  5 joints, 2 mesh LODs); `--build examples/showcase` refreshes codegen, bakes
+  the `.tskl`, quantizes the ground texture and converts the sfx, compiles
+  under the PS2DEV toolchain and links (exit 0); PCSX2 (software renderer)
+  boots both scenes at 50 FPS / 100% speed -- the title menu, the vale (wobblers
+  visibly bent mid-wiggle, trees, fog, bloom, grain, highlighted portal) and
+  the cavern (flashlight cone, glowing crystals, blue fog, Nightfall look) all
+  render. Interactive paths (walking the streaming boundary to see a district
+  page in/out, USE on the portal/relic, pad flashlight toggle, hearing the
+  audio) still want a hands-on pad test.
+
+- (66) **Consolidated `samples/` + `examples/` into one `examples/` dir** -- the
+  repo had grown two parallel homes for checked-in projects (`samples/` for the
+  playground + showcase, `examples/` for per-feature demos). Merged them: moved
+  `script-demo` and `showcase` under `examples/` (git rename, history preserved),
+  deleted `samples/`. Updated all references -- `README.md` (the example-projects
+  section + the Structure list), the three skills that pointed at
+  `samples/script-demo/` (`tyra-editor-dev`, `tyra-pr`, `tyra-testing`), and
+  `examples/showcase/README.md`'s build command. Also added a **`tyra-docs`
+  skill** stating the standing rule: every change updates the docs in the same
+  commit (README, PROGRESS, the relevant skills, example READMEs, and regenerate
+  any affected example project). No code or generated files changed; the moved
+  projects still build unchanged (paths in `.tyra`/compose are relative).
+
+- (67) **showcase: terrain chunking + tighter LOD ring (hardware perf)** -- the
+  showcase ran slowly on real PS2 hardware. After merging main's terrain
+  chunking + camera-ring streaming (PR #52), turned it on for the big vale:
+  `terrainViewDistance = 88`, so only the terrain chunks near the camera stay
+  resident instead of the whole 192x192 mesh. The small cavern (64) fits inside
+  the ring and stays whole. Verified LOD was already enabled (animLodDistance
+  35, meshLodDistance 45, per-object drawDistance) -- and tightened it: props
+  now cull with the ring (trees 84, rocks 82, down from 135/120, which exceeded
+  the map extent and never culled). Pulled the fog in (start 20, end 82, from
+  32/168) so the streaming edge sits in full fog and the cutoff is invisible;
+  the trade-off is a foggier, more compact vista. Regenerated the project
+  against the chunking codegen. Verified: `--build examples/showcase` exit 0;
+  PCSX2 boots the vale at 50 FPS with the terrain fading cleanly into fog (no
+  visible chunk edge). The real win is on hardware (PCSX2 was already at 50) --
+  chunking bounds the resident/clipped terrain instead of it growing with the
+  whole map; `terrainViewDistance` / `fogEnd` can be lowered further together if
+  more headroom is needed.
+
+- (68) **Runtime graphics-toggle flow nodes (Set Fog / Bloom / Grain / Particles)**
+  -- four new Scene-category flow nodes that change graphics settings at
+  runtime, mirroring how Set Flashlight / Set Grading already work. Set Fog
+  (On) re-applies the active scene's own fog or disables it; Set Bloom / Set
+  Grain take a 0..1 amount (compiled to the engine's 0..128 fixed point); Set
+  Particles is a global switch that makes `updateParticles` skip all emitter
+  simulation + draw (a new `g_particlesOn`). Each writes a `ScriptContext`
+  field (`fog`/`bloom`/`grain`/`particles`, -1 = leave) that both game loops
+  (orbit + fpp) apply and reset next to the flashlight block; the engine
+  already exposed `setFog`/`disableFog`/`postFx.setBloom`/`setGrain`. UI is the
+  generic flow-node renderer (On = checkbox like Set Flashlight, Amount =
+  DragFloat). Motivating use: wire them to On Menu Event entries so a game can
+  offer a graphics-options menu / let players trade effects for frame rate on
+  real hardware. Verified: editor builds clean; the showcase's options menu
+  generates the expected `ctx.fog/bloom/grain/particles` calls (`0.35 -> 45`,
+  `0.14 -> 18`), compiles under PS2DEV, and an `On Start -> Set Fog(0) + Set
+  Particles(0)` test in PCSX2 visibly removed the fog (terrain extends to the
+  horizon) and every particle. Interactive menu navigation still wants a pad test.
+- (69) **showcase: perf pass + graphics options menu** -- the showcase ran at
+  ~8 FPS on real PS2 hardware (50 in PCSX2, whose software renderer hides GS
+  fill-rate + EE geometry cost). Lightened the scene: the animated wobbler
+  model dropped from 1248 to 123 base verts (skeletal skinning is EE-bound),
+  terrainDetail 64 -> 48, particle pools + the big `fog`-emitter quad sizes cut
+  hard (rain 120 -> 34, cave/ruins fog counts + sizes down), post-FX bloom +
+  grain off by default, tree count 14 -> 10, animLod/meshLod onset pulled in
+  (24 / 30). Added a floating **GRAPHICS options menu** (open with Select) wired
+  to the new Set Fog/Bloom/Grain/Particles nodes so the effects can be toggled
+  live while the on-screen **FPS + free-RAM overlay** (now enabled -- buildProfile
+  debug) is watched, to pinpoint the hardware cost. Verified: `--build` exit 0;
+  PCSX2 boots both scenes at 50 FPS with the overlay, and the toggle nodes work
+  end-to-end. The overlay/debug profile is diagnostic -- flip to release +
+  showFps/showMemory off (a `gen_project` comment notes this) once perf is
+  dialed in on hardware.
+
+- (70) **showcase: the title screen was the real perf killer; removed it, restored
+  effects** -- turning the graphics toggles on hardware showed the ~8 FPS was the
+  boot **title-screen menu**, not the scene: a paused menu still renders the whole
+  scene behind it every frame plus its panel + full-screen dim overlay, which
+  dropped even PCSX2 to ~17 FPS (50 in gameplay). Dropped the title screen so the
+  game boots straight into the vale (the pause menu on Start and the floating
+  options menu on Select stay). With that gone the scene holds ~50 FPS, so the
+  earlier defensive cuts were reverted: **bloom + film grain back on**, particle
+  pools back to full (rain 120, campfire/ruins/cavern emitters). Kept the cheap,
+  near-invisible geometry wins (terrain chunking, lean skeletal model + LOD, draw
+  distances). The FPS/RAM overlay + options menu stay on so the fuller effect set
+  can still be confirmed on hardware (flip buildProfile to release when happy).
+  Verified: `--build` exit 0; PCSX2 boots directly into gameplay with fog, bloom,
+  grain and the full particle set at ~50 FPS.
 
 ## Done
 
