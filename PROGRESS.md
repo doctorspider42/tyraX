@@ -9,6 +9,14 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (92) **Logo colour + Loading Screens window polish.** Follow-ups: (a) the
+  splash logo's X read too cyan on the PS2 - `banner_data.cpp` regenerated with
+  a cyan→azure-blue shift (green pulled down on clearly-bluish pixels, factor
+  0.5; brightest X texel R0 G72 B254, was R0 G143 B253); (b) the Loading Screens
+  preview was tiny - the preview strip grew from 200 to 360 px tall and the
+  window default from 720x560 to 780x760, so the 512:448 preview is much larger;
+  (c) trimmed the wordy boot-splash blurb (dropped the "Tyra logo always shows"
+  note). Editor builds; game relinks (banner is engine data).
 - (91) **Boot splash logo swapped to the TYRAX artwork.** The engine's Tyra
   splash (`vendor/tyra/engine/src/info/banner.cpp` + `banner_data.cpp`) drew a
   128x32 RGBA logo; replaced its embedded pixel data with `resources/tryaX.png`

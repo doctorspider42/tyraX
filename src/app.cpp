@@ -6273,9 +6273,7 @@ bool App::drawSplashSection() {
     auto& splashes = project_.splashScreens;
     if (selectedSplash_ >= (int)splashes.size()) selectedSplash_ = -1;
 
-    ImGui::TextDisabled(
-        "Images shown at startup, in order, after the Tyra logo and before the\n"
-        "loading screen. Each has its own on-screen time. (Tyra logo always shows.)");
+    ImGui::TextDisabled("Images shown at startup, in order, before the loading screen.");
 
     ImGui::BeginChild("##splash_body", ImVec2(0, scaled(190)),
                       ImGuiChildFlags_Borders);
@@ -6388,7 +6386,7 @@ bool App::drawSplashSection() {
 void App::drawLoadingScreenWindow() {
     if (!showLoadingEditor_ || !hasProject_) return;
 
-    ImGui::SetNextWindowSize(ImVec2(scaled(720), scaled(560)),
+    ImGui::SetNextWindowSize(ImVec2(scaled(780), scaled(760)),
                              ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Loading Screens", &showLoadingEditor_)) {
         ImGui::End();
@@ -6401,7 +6399,7 @@ void App::drawLoadingScreenWindow() {
 
     changed |= drawSplashSection();
 
-    const float previewH = scaled(200);
+    const float previewH = scaled(360);
     ImGui::BeginChild("##ls_top", ImVec2(0, -(previewH + scaled(34))));
 
     // --- left: screen list -------------------------------------------------
