@@ -284,6 +284,8 @@ struct ProjectSettings {
     std::string textureQuant = "4bit";
     bool showFps = false;     // debug profile only: on-screen FPS counter
     bool showMemory = false;  // debug profile only: on-screen free-RAM readout
+    bool showProfiler = false;  // debug profile only: per-phase EE-time HUD
+                                // (scene / highlight / particles / whole frame)
 
     // Experimental: skip the vsync wait before the buffer flip. Frame rate
     // becomes continuous instead of quantized to 50/25 (PAL), at the cost
@@ -383,6 +385,10 @@ struct ProjectSettings {
     float highlightColor[3] = {1.0f, 0.85f, 0.15f};  // outline color
     float highlightWidth = 0.35f;  // total rim width incl. blur, world units
     int highlightSteps = 4;        // blur shells; 1 = sharp outline
+    // Experimental: draw the glow ON the object surface (a colored overlay
+    // that fades outward into a rim) instead of only a rim BEHIND it. Off =
+    // the classic silhouette outline (shells pushed behind object depth).
+    bool highlightOverlay = false;
 };
 
 inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
@@ -392,6 +398,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
     return a.videoSystem == b.videoSystem && a.buildProfile == b.buildProfile &&
            a.displayMode == b.displayMode && a.widescreen == b.widescreen &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
+           a.showProfiler == b.showProfiler &&
            a.disableVsync == b.disableVsync &&
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
            a.meshLodDistance == b.meshLodDistance &&
@@ -416,7 +423,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.highlightDistance == b.highlightDistance &&
            eq3(a.highlightColor, b.highlightColor) &&
            a.highlightWidth == b.highlightWidth &&
-           a.highlightSteps == b.highlightSteps;
+           a.highlightSteps == b.highlightSteps &&
+           a.highlightOverlay == b.highlightOverlay;
 }
 
 // Per-scene override switches (Scene > Preferences). Each "scene-visual"

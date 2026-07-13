@@ -145,6 +145,7 @@ constexpr float HIGHLIGHT_GS[SCENE_COUNT] = {216.75F};
 constexpr float HIGHLIGHT_BS[SCENE_COUNT] = {38.25F};
 constexpr float HIGHLIGHT_WIDTHS[SCENE_COUNT] = {0.35F};
 constexpr int HIGHLIGHT_STEPS_S[SCENE_COUNT] = {4};
+constexpr bool HIGHLIGHT_OVERLAYS[SCENE_COUNT] = {false};
 
 constexpr int GRADING_COUNT = 0;
 inline const char* GRADING_NAMES[GRADING_COUNT > 0 ? GRADING_COUNT : 1] = {""};
@@ -274,4 +275,5 @@ inline int everyFrames(float seconds) {
 #define HIGHLIGHT_B HIGHLIGHT_BS[g_activeScene]
 #define HIGHLIGHT_WIDTH HIGHLIGHT_WIDTHS[g_activeScene]
 #define HIGHLIGHT_STEPS HIGHLIGHT_STEPS_S[g_activeScene]
+#define HIGHLIGHT_OVERLAY HIGHLIGHT_OVERLAYS[g_activeScene]
 #define terrainHeightAt(x, z) terrainHeightAtScene(g_activeScene, (x), (z))

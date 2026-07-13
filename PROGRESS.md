@@ -9,6 +9,37 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (80) **Debug frame profiler (shippable) + experimental highlight overlay** —
+  two follow-ups to the highlight perf work (79). **(a) Frame profiler**: the
+  ad-hoc COP0/HUD instrumentation used to diagnose the highlight cost is now a
+  real debug option. *Project > Preferences > Build* (debug profile) gains
+  **Show frame profiler** next to Show FPS / Show memory; the generated game
+  draws a per-phase EE-time breakdown (whole FRAME wall-clock / SCENE / HL /
+  PART, avg ms over ~1s) in the top-left. `renderScene` brackets its phases
+  with EE COP0 `mfc0 $9` reads into file-scope counters (`g_profScene/
+  Highlight/Particles`), drawDebugHud averages + prints them; every read is
+  behind the `DEBUG_SHOW_PROFILER` constexpr so a release build (or the option
+  off) contains none of it. HL is the highlight *overhead* only — the deferred
+  bodies are timed into SCENE. New pref `ProjectSettings.showProfiler`
+  (operator== + JSON save/load + `{{DEBUG_SHOW_PROFILER}}` codegen). **(b)
+  Highlight overlay**: experimental per-scene `highlightOverlay` (Preferences >
+  Usable objects + per-scene override, "Draw over object") — the shells drop
+  the eye-pushback (`k = 1`), so each grown shell sits at the object's own
+  depth and its front faces land just in front of the surface: the glow paints
+  ON the object and fades outward into a rim, instead of only a rim behind the
+  silhouette. renderScene draws the overlay body in the main pass (not
+  deferred) and paints the shells over it; rim mode keeps the deferred-body
+  order from (79). New `SceneObjectData`-style per-scene table
+  `HIGHLIGHT_OVERLAYS` + `HIGHLIGHT_OVERLAY` macro; full model→JSON→UI→codegen
+  chain (project + per-scene override). **Verified in PCSX2 (SW renderer)**:
+  showcase with debug profile + both options on — profiler HUD reads
+  `FRAME 22.00 SCENE 12.90 HL 1.46 PART 0.99` at 50 FPS (deterministic orbit
+  near the save shrine); overlay screenshot shows the shrine washed in a yellow
+  surface glow instead of an outline. Profiler-off / overlay-off path (all five
+  examples, regenerated) compiles to ELFs in Docker — both constexpr branches
+  build on the PS2 toolchain. Documented the profiler + the manual deep-dive
+  technique in `docs/profiling.md`. Real-hardware timing unchanged from (79).
+
 - (79) **Usable-highlight perf, round 2: low-detail shell proxy + deferred
   body draw (no repaint)** — the PR #64 rims still dropped the showcase to
   ~25 FPS in PCSX2 near a highlighted object. Measured with COP0 phase

@@ -459,15 +459,30 @@ void drawHudText(Engine* engine, const char* s, float x, float y) {
 
 float hudTextWidth(const char* s) { return (float)strlen(s) * 14.0F; }
 
-/** Debug-profile HUD (Project > Preferences > Build): FPS and RAM
- * (used/total EE MB) readouts in the top-left corner. Compiles to nothing
- * in a release build (the DEBUG_SHOW_* constants in terrain_config.hpp fold
- * the calls away). */
+// Debug frame profiler (Project > Preferences > Build > Show frame profiler).
+// renderScene brackets its three heavy phases with EE COP0-timer reads and
+// adds the elapsed ticks here; drawDebugHud averages them over ~1s and prints
+// avg ms. The reads live behind `if (DEBUG_SHOW_PROFILER)` (a constexpr), so a
+// build with the profiler off contains none of this. This is the same
+// COP0/HUD phase-timing harness used to diagnose the usable-highlight cost,
+// wired in as a shippable debug option. (COP0 Count runs at 294.912 MHz =
+// half the 590 MHz EE clock; /294912 converts ticks to milliseconds.)
+u32 g_profScene = 0, g_profHighlight = 0, g_profParticles = 0;
+static inline u32 profTicks() {
+  u32 v;
+  asm volatile("mfc0 %0, $9" : "=r"(v));
+  return v;
+}
+
+/** Debug-profile HUD (Project > Preferences > Build): FPS, RAM
+ * (used/total EE MB) and the per-phase EE-time profiler in the top-left
+ * corner. Compiles to nothing in a release build (the DEBUG_SHOW_* constants
+ * in terrain_config.hpp fold the calls away). */
 void drawDebugHud(Engine* engine) {
-  if (!DEBUG_SHOW_FPS && !DEBUG_SHOW_MEM) return;
+  if (!DEBUG_SHOW_FPS && !DEBUG_SHOW_MEM && !DEBUG_SHOW_PROFILER) return;
   static int memRefresh = 0;
   static float memFreeMB = 0.0F;
-  char line[32];
+  char line[40];
   float y = 16.0F;
   if (DEBUG_SHOW_FPS) {
     snprintf(line, sizeof(line), "FPS %d", (int)engine->info.getFps());
@@ -484,6 +499,32 @@ void drawDebugHud(Engine* engine) {
     }
     snprintf(line, sizeof(line), "MEM %.1f/32 MB", 32.0F - memFreeMB);
     drawHudText(engine, line, 16.0F, y);
+    y += 20.0F;
+  }
+  if (DEBUG_SHOW_PROFILER) {
+    // Whole-frame time = wall clock between successive HUD calls (this runs
+    // once per frame); the phase sums come from renderScene. Averaged over a
+    // ~1s window so the numbers hold still enough to read.
+    static u32 lastTick = 0, frames = 0, frameAcc = 0;
+    static u32 sScene = 0, sHl = 0, sPart = 0;
+    static char l1[40] = "PROFILER...", l2[40] = "";
+    const u32 now = profTicks();
+    if (lastTick) frameAcc += now - lastTick;
+    lastTick = now;
+    sScene += g_profScene;
+    sHl += g_profHighlight;
+    sPart += g_profParticles;
+    g_profScene = g_profHighlight = g_profParticles = 0;
+    if (++frames >= 50) {
+      const float k = 1.0F / (294912.0F * (float)frames);  // ticks -> avg ms
+      snprintf(l1, sizeof(l1), "FRAME %.2f SCENE %.2f", frameAcc * k,
+               sScene * k);
+      snprintf(l2, sizeof(l2), "HL %.2f PART %.2f", sHl * k, sPart * k);
+      frames = frameAcc = sScene = sHl = sPart = 0;
+    }
+    drawHudText(engine, l1, 16.0F, y);
+    y += 20.0F;
+    drawHudText(engine, l2, 16.0F, y);
   }
 }
 
@@ -3026,6 +3067,10 @@ void TerrainGame::updateObjectPhysics() {
 }
 
 void TerrainGame::renderScene() {
+  // Debug profiler: scene phase = sky + terrain + objects + anim (+ the
+  // deferred usable bodies, timed separately below). Folded away entirely
+  // when DEBUG_SHOW_PROFILER is false. See drawDebugHud.
+  const u32 profScene0 = DEBUG_SHOW_PROFILER ? profTicks() : 0;
   // Scripts changing ctx.skyColor retint the dome horizon
   if (skyDome.bag && (scriptCtx.skyColor.r != skyHorizonR ||
                       scriptCtx.skyColor.g != skyHorizonG ||
@@ -3051,28 +3096,31 @@ void TerrainGame::renderScene() {
   // before any packaging or clipping work happens.
   updateTerrainChunks(cameraLookAt.x, cameraLookAt.z, 2);
   renderTerrain();
-  // Highlighted-in-reach usables are deferred out of the main pass: their
-  // shells draw first and the body once AFTER them, erasing the shell wash
-  // over the object's own receding faces without a second full draw of the
-  // mesh (the old order needed main-pass draw + repaint - two exact-clip
-  // passes of the whole object per frame).
-  int hlDeferred[8];
-  float hlDeferredD2[8];
-  int hlDeferredCount = 0;
+  // Highlighted-in-reach usables get a separate shell pass after the scene.
+  // RIM mode (default): the body is deferred out of the main pass and drawn
+  // AFTER its shells, erasing the shell wash over the object's own receding
+  // faces without a second full draw (the old order needed main-pass draw +
+  // repaint - two exact-clip passes per frame). OVERLAY mode: the body draws
+  // normally in the main pass and the shells are painted ON it afterwards, so
+  // it stays in this list only for the shell pass.
+  int hlList[8];
+  float hlListD2[8];
+  int hlCount = 0;
   const bool hlActive = HIGHLIGHT_USABLE;
+  const bool hlOverlay = HIGHLIGHT_OVERLAY;
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (!runtimeObjects[i].active) continue;  // streamed out with its layer
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
     if (!runtimeObjects[i].visible) continue;
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
-    if (hlActive && hlDeferredCount < 8 && runtimeObjects[i].data.usable &&
+    if (hlActive && hlCount < 8 && runtimeObjects[i].data.usable &&
         highlightInReach(i)) {
       const float ddx = runtimeObjects[i].data.position[0] - cameraPosition.x;
       const float ddy = runtimeObjects[i].data.position[1] - cameraPosition.y;
       const float ddz = runtimeObjects[i].data.position[2] - cameraPosition.z;
-      hlDeferred[hlDeferredCount] = i;
-      hlDeferredD2[hlDeferredCount++] = ddx * ddx + ddy * ddy + ddz * ddz;
-      continue;
+      hlList[hlCount] = i;
+      hlListD2[hlCount++] = ddx * ddx + ddy * ddy + ddz * ddz;
+      if (!hlOverlay) continue;  // rim: defer body; overlay: draw it now
     }
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag) stapip.core.render(part.bag.get());
@@ -3080,30 +3128,40 @@ void TerrainGame::renderScene() {
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
   updateAndRenderAnimObjects();
-  // Highlight rims after every other object so their depth is in the
-  // z-buffer: the rim is depth-tested against the finished scene and can no
-  // longer be punched through by an object drawn later in the loop. Each
-  // deferred body draws right after its own shells; far-to-near order keeps
-  // a nearer body correctly covering a farther object's rim.
-  for (int a = 0; a < hlDeferredCount; ++a)  // insertion sort, farthest first
-    for (int b = a + 1; b < hlDeferredCount; ++b)
-      if (hlDeferredD2[b] > hlDeferredD2[a]) {
-        const int ti = hlDeferred[a];
-        hlDeferred[a] = hlDeferred[b];
-        hlDeferred[b] = ti;
-        const float td = hlDeferredD2[a];
-        hlDeferredD2[a] = hlDeferredD2[b];
-        hlDeferredD2[b] = td;
+  if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - profScene0;
+  // Highlight shells after the whole scene so they depth-test against the
+  // finished z-buffer and can't be punched through by a later draw. Sorted
+  // far-to-near: a nearer object's rim/body correctly covers a farther one.
+  for (int a = 0; a < hlCount; ++a)  // insertion sort, farthest first
+    for (int b = a + 1; b < hlCount; ++b)
+      if (hlListD2[b] > hlListD2[a]) {
+        const int ti = hlList[a];
+        hlList[a] = hlList[b];
+        hlList[b] = ti;
+        const float td = hlListD2[a];
+        hlListD2[a] = hlListD2[b];
+        hlListD2[b] = td;
       }
-  for (int a = 0; a < hlDeferredCount; ++a) {
-    const int i = hlDeferred[a];
-    renderHighlightHull(i);  // shells + ground apron (body drawn below)
-    for (GeoPart& part : objectGeometry[i].parts)
-      if (part.bag) stapip.core.render(part.bag.get());
+  for (int a = 0; a < hlCount; ++a) {
+    const int i = hlList[a];
+    const u32 ph = DEBUG_SHOW_PROFILER ? profTicks() : 0;
+    renderHighlightHull(i);  // shells + ground apron = the highlight overhead
+    if (DEBUG_SHOW_PROFILER) g_profHighlight += profTicks() - ph;
+    if (!hlOverlay) {
+      // Rim mode: paint the deferred body over the shells (GEQUAL wins the
+      // equal-depth test, erasing the wash). Real geometry - count it as
+      // scene, not highlight overhead.
+      const u32 pb = DEBUG_SHOW_PROFILER ? profTicks() : 0;
+      for (GeoPart& part : objectGeometry[i].parts)
+        if (part.bag) stapip.core.render(part.bag.get());
+      if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - pb;
+    }
   }
   // particles last - alpha blended over the scene
+  const u32 profPart0 = DEBUG_SHOW_PROFILER ? profTicks() : 0;
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
+  if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
 }
 
 // True when the usable object sits inside the highlight distance (same
@@ -3183,7 +3241,14 @@ void TerrainGame::renderHighlightHull(int index) {
   // rim edge turns into visible steps.
   float growMax = HIGHLIGHT_WIDTH / half;
   if (growMax > 0.6F) growMax = 0.6F;
-  const float k = 1.0F + (growMax * half + 0.15F) / behind;
+  // k = scale about the eye. RIM mode (>1) pushes the shell behind the
+  // object's depth so the z-buffer keeps only the silhouette rim. OVERLAY
+  // mode keeps k = 1 (no pushback): each grown shell sits at the object's own
+  // depth, its front faces landing just in front of the surface, so the glow
+  // paints ON the object and fades outward into a rim (the body is drawn
+  // first, in the main pass, then these shells blend over it).
+  const float k = HIGHLIGHT_OVERLAY ? 1.0F
+                                    : 1.0F + (growMax * half + 0.15F) / behind;
 
   if (!hullBag) {
     hullInfoBag = std::make_unique<StaPipInfoBag>();
@@ -3265,12 +3330,13 @@ void TerrainGame::renderHighlightHull(int index) {
     }
   }
 
-  // The pushback clears the object's front face but not its receding side
-  // faces - shells still blend over those at glancing angles. The caller
-  // draws the deferred body right after this call; painting it over the
-  // shells wins the equal-depth test (GEQUAL) and erases the wash without
-  // touching the rim outside the silhouette - and without drawing the mesh
-  // twice like the old main-pass-draw + repaint order did.
+  // RIM mode: the pushback clears the object's front face but not its
+  // receding side faces - shells still blend over those at glancing angles.
+  // The caller paints the deferred body right after this call (GEQUAL wins
+  // the equal-depth test), erasing the wash without touching the rim and
+  // without the old main-pass-draw + repaint double draw. OVERLAY mode wants
+  // exactly that wash on the surface, so the caller draws the body FIRST (in
+  // the main pass) and leaves these shells on top.
 }
 
 // Builds the shells' low-detail stand-in (world-space positions only).
