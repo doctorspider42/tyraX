@@ -92,7 +92,7 @@ constexpr SceneObjectData SCENE_0_OBJECTS[60] = {
     {1, {20.0F, 1.6948F, -8.0F}, {0.0F, 0.0F, 0.0F}, {1.3F, 1.04F, 1.3F}, {0.42F, 0.44F, 0.46F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 82.0F, -1, "", 1, 1, 1.0F, 12, -1},  // sphere-3
     {1, {-16.0F, -0.5702F, -6.0F}, {0.0F, 0.0F, 0.0F}, {0.9F, 0.72F, 0.9F}, {0.42F, 0.44F, 0.46F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 82.0F, -1, "", 1, 1, 1.0F, 12, -1},  // sphere-4
     {5, {3.0F, 0.9064F, 6.0F}, {0.0F, 0.0F, 0.0F}, {1.2F, 1.2F, 1.2F}, {0.9F, 0.95F, 0.95F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, "Wiggle", 1, 1, 1.0F, 16, -1},  // model-1
-    {5, {-2.0F, 0.5092F, 9.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.9F, 0.95F, 0.95F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, "Wiggle", 1, 1, 1.3F, 16, -1},  // model-2
+    {5, {-2.0F, 0.5092F, 9.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.9F, 0.95F, 0.95F}, 0, -1, -1, 1, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, "Wiggle", 1, 1, 1.3F, 16, -1},  // model-2
     {7, {0.0F, 12.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {16.0F, 1.0F, 16.0F}, {0.6F, 0.7F, 0.85F}, 0, -1, -1, 0, 4, 120, 0.12F, 1, 1, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, 3},  // rain
     {0, {36.0F, 2.2762F, -39.0F}, {0.0F, 0.0F, 0.0F}, {6.0F, 5.0F, 6.0F}, {0.7F, 0.6F, 0.45F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, 1},  // box-2
     {0, {45.0F, 3.3595F, -34.0F}, {0.0F, 0.0F, 0.0F}, {5.0F, 7.0F, 5.0F}, {0.6F, 0.55F, 0.5F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, 1},  // box-3
@@ -177,8 +177,8 @@ constexpr float SKY_ZENITH_EXPS[SCENE_COUNT] = {1.0F, 1.0F};
 constexpr float SKY_TOP_RS[SCENE_COUNT] = {25.5F, 5.1F};
 constexpr float SKY_TOP_GS[SCENE_COUNT] = {40.8F, 5.1F};
 constexpr float SKY_TOP_BS[SCENE_COUNT] = {107.1F, 15.3F};
-constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {45, 64};
-constexpr int POSTFX_GRAINS[SCENE_COUNT] = {18, 32};
+constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {20, 64};
+constexpr int POSTFX_GRAINS[SCENE_COUNT] = {12, 32};
 constexpr bool FOG_ENABLEDS[SCENE_COUNT] = {true, true};
 constexpr float FOG_RS[SCENE_COUNT] = {209.1F, 15.3F};
 constexpr float FOG_GS[SCENE_COUNT] = {140.25F, 20.4F};
@@ -196,10 +196,10 @@ constexpr float HIGHLIGHT_DISTANCES[SCENE_COUNT] = {6.0F, 6.0F};
 constexpr float HIGHLIGHT_RS[SCENE_COUNT] = {255.0F, 255.0F};
 constexpr float HIGHLIGHT_GS[SCENE_COUNT] = {216.75F, 216.75F};
 constexpr float HIGHLIGHT_BS[SCENE_COUNT] = {76.5F, 76.5F};
-constexpr float HIGHLIGHT_WIDTHS[SCENE_COUNT] = {0.4F, 0.4F};
+constexpr float HIGHLIGHT_WIDTHS[SCENE_COUNT] = {0.19F, 0.19F};
 constexpr int HIGHLIGHT_STEPS_S[SCENE_COUNT] = {4, 4};
-constexpr float HIGHLIGHT_OPACITIES[SCENE_COUNT] = {0.56F, 0.56F};
-constexpr bool HIGHLIGHT_OVERLAYS[SCENE_COUNT] = {false, false};
+constexpr float HIGHLIGHT_OPACITIES[SCENE_COUNT] = {0.15F, 0.15F};
+constexpr bool HIGHLIGHT_OVERLAYS[SCENE_COUNT] = {true, true};
 
 constexpr int GRADING_COUNT = 2;
 inline const char* GRADING_NAMES[GRADING_COUNT > 0 ? GRADING_COUNT : 1] = {"Golden Hour", "Nightfall"};
