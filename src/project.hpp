@@ -372,6 +372,17 @@ struct ProjectSettings {
     float stickDeadzoneL = 0.2f;  // 0..0.9, left stick (movement)
     float stickDeadzoneR = 0.2f;  // 0..0.9, right stick (camera)
 
+    // Analog stick response curve, applied AFTER the deadzone rescales the
+    // magnitude to 0..1: 0 = Linear (raw), 1 = Exponential (pow(mag, exp) -
+    // finer control near center, snappier at the edge), 2 = S-Curve (eases in
+    // and out - a soft center plus a firm cap). stickExp* tunes the shape of
+    // curves 1/2 (>=1; higher = more pronounced). Per stick, and live-settable
+    // from a flow graph via the Set Stick Curve node.
+    int stickCurveL = 0;     // left stick (movement)
+    int stickCurveR = 0;     // right stick (camera)
+    float stickExpL = 2.0f;  // exponent for the L curve (>=1)
+    float stickExpR = 2.0f;  // exponent for the R curve (>=1)
+
     // Orbit template
     float orbitSpeed = 1.0f;  // multiplier
 
@@ -445,6 +456,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.walkSpeed == b.walkSpeed && a.lookSpeed == b.lookSpeed &&
            a.stickDeadzoneL == b.stickDeadzoneL &&
            a.stickDeadzoneR == b.stickDeadzoneR &&
+           a.stickCurveL == b.stickCurveL && a.stickCurveR == b.stickCurveR &&
+           a.stickExpL == b.stickExpL && a.stickExpR == b.stickExpR &&
            a.orbitSpeed == b.orbitSpeed && a.gravity == b.gravity &&
            a.jumpSpeed == b.jumpSpeed && eq3(a.lightDir, b.lightDir) &&
            a.ambient == b.ambient && a.diffuse == b.diffuse &&
