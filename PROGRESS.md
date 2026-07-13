@@ -9,6 +9,23 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (82) **View menu: toggle the distance-fog preview in the editor.** The
+  scene's distance fog (Preferences/Ambience > Distance fog — the GS hardware
+  fog that fades geometry toward the camera far plane, *not* the particle "Fog"
+  emitters) is now suppressible in the viewport without touching the scene's
+  own fog settings or the generated game. *View > Preview > Distance fog* (on by
+  default) flips a session-only `App::showFog_`; both `setFog` call sites
+  (`applyProjectToViewport` and the Ambience Editor live preview) `&& showFog_`,
+  and the menu item re-runs `applyProjectToViewport()` so it takes effect
+  immediately. Editor-only, like the TV-safe-frame overlays — not persisted in
+  the `.tyra` file. **Verified** (Layer 0 + GUI A/B): built clean, launched on a
+  scratch fpp project with fog forced bright-cyan / start 3 / end 22; with the
+  toggle on the terrain fades into cyan and distant boxes vanish, with it off
+  the terrain shows its natural material and the far geometry stays visible
+  (screenshots `fog-on.png` / `fog-off.png`). The interactive menu click itself
+  wasn't automated (no synthetic input while the user is at the machine); the
+  A/B swapped the default instead.
+
 - (71) **Phone camera takes — record a real 6DoF camera move on an iPhone
   (ARKit) and import it as Cutscene Director camera keys.** "Walk around a
   room looking around" becomes a PS2 cutscene camera move; the PS2 runtime

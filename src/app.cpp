@@ -602,6 +602,17 @@ void App::drawMenuBar() {
             }
 
             ImGui::Separator();
+            ImGui::TextDisabled("Preview");
+            if (ImGui::MenuItem("Distance fog", nullptr, showFog_, hasProject_)) {
+                showFog_ = !showFog_;
+                applyProjectToViewport();  // suppress/restore fog in the viewport now
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Preview the scene's distance fog in the editor. "
+                                  "Turn off to see distant geometry - does not "
+                                  "affect the generated game.");
+
+            ImGui::Separator();
             ImGui::TextDisabled("TV safe frame");
             if (ImGui::MenuItem("PAL 4:3 frame", nullptr, showPal_)) showPal_ = !showPal_;
             if (ImGui::MenuItem("NTSC frame", nullptr, showNtsc_)) showNtsc_ = !showNtsc_;
@@ -916,7 +927,7 @@ void App::drawViewportWindow() {
                 viewport_.setSky(a.skyColor, a.skyTopColor, a.skyDome, a.zenithSize);
                 viewport_.setLighting(a.lightDir, a.ambient, a.diffuse, a.lightColor,
                                       a.brightness);
-                viewport_.setFog(a.fogEnabled, a.fogColor, a.fogStart, a.fogEnd);
+                viewport_.setFog(a.fogEnabled && showFog_, a.fogColor, a.fogStart, a.fogEnd);
                 ambiencePreviewPushed_ = true;
             } else if (ambiencePreviewPushed_) {
                 ambiencePreviewPushed_ = false;
@@ -10371,7 +10382,7 @@ void App::applyProjectToViewport() {
     viewport_.setSky(rs.skyColor, rs.skyTopColor, rs.skyDome, rs.zenithSize);
     viewport_.setUsableHighlight(rs.highlightUsable, rs.highlightColor);
     viewport_.setLighting(rs.lightDir, rs.ambient, rs.diffuse, rs.lightColor, rs.brightness);
-    viewport_.setFog(rs.fogEnabled, rs.fogColor, rs.fogStart, rs.fogEnd);
+    viewport_.setFog(rs.fogEnabled && showFog_, rs.fogColor, rs.fogStart, rs.fogEnd);
     // The flashlight is a Player object property; preview the first player's
     // (its Enabled flag is the initial state - the toggle button / flow graph
     // only act at runtime, which the editor preview cannot simulate).
