@@ -3,9 +3,9 @@
 
 namespace Script_demo {
 
-constexpr int MODEL_COUNT = 1;
+constexpr int MODEL_COUNT = 0;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
-    "models/house.obj",
+    "",
 };
 // per-model .mtl override ("" = the model's own material libraries)
 inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
