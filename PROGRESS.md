@@ -9,7 +9,7 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (87) **Loading screen at boot: Tyra logo (~2s) → loading screen → scene.**
+- (89) **Loading screen at boot: Tyra logo (~2s) → loading screen → scene.**
   Follow-up to (86): the loading screen fired on scene switches but was
   invisible at the very first boot - you saw the Tyra logo, then the scene. Two
   causes. First, the initial `loadScene(0)` ran inside `init()`, before the main
@@ -35,7 +35,7 @@ Each finished feature lands as its own commit.
   only becomes capturable partway through the hold, so the exact 2s was confirmed
   from the code path (COP0 rate + `graph_wait_vsync`), not a stopwatch on the
   screenshots.
-- (86) **Loading screen editor: user-defined loading screens with real progress
+- (88) **Loading screen editor: user-defined loading screens with real progress
   bars.** The old "loading screen" was a single project-global bool that flashed
   a hardcoded 256×64 `hud/loading.png` on black for ~0.7s per scene switch (and
   nothing at boot — a black screen). Now *Tools > Loading Screens* authors
@@ -78,6 +78,224 @@ Each finished feature lands as its own commit.
   (the one runtime unknown) works. The editor window itself wasn't click-tested
   (no synthetic input while the user is at the machine); its data path is the same
   JSON the hand-authored fixture exercised.
+- (86) **Custom screen effects: user-authored full-screen post effects, drop-in
+  files, positioned on the UI.** The editor shipped exactly two full-screen post
+  effects (bloom, film grain), hard-coded in the engine's `RendererCorePostFx`.
+  Now a project can add its own — **per project, no editor rebuild** — as a
+  `screen-effects/*.screenfx` text file, the screen-effect analogue of custom
+  flow nodes. There are no pixel shaders on the PS2, so an effect is written
+  **low-level** (raw GS framebuffer blits, the same way bloom/grain are), and it
+  is **positioned in the UI Editor screen stack** like the built-ins.
+  - **Engine** (`vendor/tyra`): `RendererCorePostFx::applyCustom(build, user)`
+    wraps the exact frame-state setup/teardown + DMA kick `apply()` uses and
+    calls a user build callback that appends GS primitives; `blit()`/`flatQuad()`
+    are now public, plus accessors for the framebuffer geometry, the shared
+    noise texture, the two quarter-res scratch buffers and a PRNG.
+    `RendererCore::applyCustomPostFx` fronts it with the same PATH1 drain barrier
+    as `applyPostFx` so the pass composites over finished 3D.
+  - **Editor**: `src/screenfx.{hpp,cpp}` load `.screenfx` files (manifest: title
+    + up to four numeric-param sliders; `---`; raw C++ body with `{p0}..{p3}`
+    placeholders) into a `customScreenEffects()` registry, mirroring
+    `flownode.cpp`. A `Project` holds `ScreenFxPlacement`s (key + stack `layer` +
+    `enabled` + params); placements whose file is missing on load are dropped
+    (like unknown flow nodes). The **UI Editor** screen stack gained N reorderable
+    `[ FX: … ]` entries alongside the bloom/grain markers (generalized
+    `buildStack`/`rebuild`), a properties panel (enable + param sliders + jump to
+    file), and a management block (add to stack / new starter / reload from
+    folder). Codegen emits `src/scripts/screen_fx.gen.{hpp,cpp}` (one
+    `screenFx_<n>` build callback per enabled placement, params baked as a local
+    array) and injects `applyCustomPostFx` calls into both the ORBIT and FPP
+    frame loops at each effect's slot (in-loop for a concrete layer, after the
+    loop for topmost).
+  - **Verified** (codegen + full PCSX2 e2e, orbit scratch project with a
+    "Color Wash" effect at the top of the stack, params R=0.1/G=0/B=0.4,
+    amount 0.6): the editor builds clean; `screen_fx.gen.cpp` emits
+    `customFx`-style `screenFx_0` with the params baked (`0.6F, 0.1F, 0.0F,
+    0.4F`) and `terrain_game.cpp` calls `applyCustomPostFx(&screenFx_0, nullptr)`
+    after the HUD loop; the Docker build compiled the new engine API + the
+    generated effect in the PS2 toolchain (`screen_fx.gen.o` linked into the
+    ELF) and booted in PCSX2. A/B screenshots: with the effect **on**, the whole
+    frame is washed toward blue (the default green checker terrain reads
+    blue-gray, the sky darkens toward the tint); with it **off**
+    (`enabled:false`), the effect is dropped from codegen entirely (no
+    `applyCustomPostFx`, no `screenFx_0`) and the scene renders the plain green
+    terrain / blue sky. Docs: new `docs/custom-screen-effects.md` (format, the
+    GS draw API + blend cheat-sheet, packet budget, "file must travel with the
+    project", limitations), plus README / docs index / both dev skills. Not
+    built (documented as follow-ups): per-scene param overrides, flow-graph
+    "Set <effect> param" runtime control, and custom VRAM / uploaded textures.
+    The **editor UI was driven with synthetic clicks** (Tools > UI Editor):
+    screenshots confirm the `[ FX: Color Wash ]` entry sits in the screen stack
+    between the pinned USE prompt and the built-in film-grain / bloom markers,
+    and selecting it shows the properties panel with the four manifest sliders
+    reading the placement's values (Amount 0.600 / Red 0.100 / Green 0.000 /
+    Blue 0.400) plus Jump-to-file / Remove-from-stack. Fine-grained
+    drag-reorder and live slider dragging weren't scripted; the stack model and
+    param round-trip they drive are the same paths the load/codegen exercised.
+- (87) **Missing assets no longer kill the game - they degrade gracefully.** A
+  failed asset load used to be a fatal assertion (game stops). Now the engine
+  recovers and keeps running: a **missing/empty texture** returns a visible 8x8
+  magenta-and-black checkerboard placeholder (`makePlaceholderTexture` in
+  `png_loader.cpp`) instead of trapping on `fopen`; a **missing music WAV** is
+  skipped (`audio_song.cpp` `load()` returns early, `play()` no-ops when nothing
+  loaded) so the game runs on in silence. The fork's other loaders were already
+  non-fatal - `LeanObjLoader`/`TanmLoader`/`TskLoader` return `nullptr` on a
+  missing file and the generated game null-checks (`if (!mesh) return; // renders
+  nothing`), `AudioAdpcm::load` already returns `nullptr` + `tryPlay` guards - so
+  models, animations and one-shot sfx already skipped cleanly; textures and music
+  were the last two fatal spots reachable from generated games. (Legacy
+  `md2_loader` / TinyObjLoader `obj_loader` still assert, but the editor's games
+  use LeanObj + tanm/tskl, never those.) The failures are still surfaced: a new
+  **`TYRA_SOFT_ERROR`** macro (`debug/debug.hpp`, marked `Modified by
+  tyra-editor`) logs the *same* delimited `====== TYRA ======` block a fatal
+  assert does - so the editor's tail/parse path catches it identically - but with
+  a `Non-fatal error (game keeps running)!` header and **no halt / no screen
+  takeover**. The editor's error dialog reads that header and switches wording
+  from "hit an assertion and stopped" to "reported an error but kept running"
+  (`drawErrorModal`), still copyable, still flashes the window. **Verified**
+  (Layer 3): rebuilt `libtyra` with the engine changes (compile-checked in the
+  PS2 toolchain after fixing a first-cut `getTextureSize` scope error - it's a
+  `TextureLoader` member, so the placeholder computes `w*h*4` for bpp32 inline);
+  booted `error-test` in PCSX2 with `hud/use.png` deleted - the game **rendered
+  the full scene at 50 FPS** (previously it halted) and `bin/log.txt` held the
+  `Non-fatal error … using a placeholder` block at `png_loader.cpp:92`; the host
+  parser harness extracted that exact 304-byte block and confirmed the
+  `Non-fatal` marker the dialog keys off. (One gotcha worth remembering: a failed
+  engine build leaves the *old* `libtyra.a` in place and the checksum marks the
+  sources "synced", so the next `--build` links the stale lib and looks like the
+  change did nothing - force it by `rm`-ing `/tyra/engine/bin/libtyra.a` in the
+  compiler container.)
+
+- (86) **Errors no longer crash full-screen: engine halts quietly, the editor
+  catches them.** A failed `TYRA_ASSERT` / `TYRA_TRAP` in the running game (e.g.
+  a missing texture: `TYRA_ASSERT(file != nullptr, "Failed to load ", …)` in
+  `png_loader.cpp`) used to seize the whole screen with the kernel debug console
+  (`init_scr()` + an infinite `scr_printf` loop in `TyraDebug::trap`) - one
+  missing PNG blew the game away with a full-screen dump. Now the trap keeps
+  writing the assertion to the console / host `log.txt` (unchanged) and then
+  halts quietly with `for(;;) SleepThread()`, leaving the last frame on screen;
+  the upstream on-screen dump is gated behind a new `Tyra::Info::drawAssertScreen`
+  (default **off**, marked `Modified by tyra-editor` in `info.{hpp,cpp}` and
+  `debug/debug.hpp`) for standalone hardware debugging with no console attached.
+  The editor now tails the game log every frame (`App::pollGameError`,
+  throttled 0.5 s) - `bin/log.txt` for PCSX2 runs, the `[ps2]` runner-log stream
+  for network deploys - and on a newly seen assertion raises a **copyable** error
+  dialog (`drawErrorModal`, read-only selectable dump + Copy) and pulls the
+  editor to the foreground + flashes its taskbar entry
+  (`glfwRequestWindowAttention` / `glfwFocusWindow`) since PCSX2 holds the
+  foreground when the game dies. It parses the stable
+  `====== TYRA ======` … `==================` delimiters
+  (`extractLastTyraAssert`), dedupes by block text (`errorSeenSig_`) but
+  **forgets that signature when a log source shrinks** - the Runner deletes
+  `bin/log.txt` before every launch, so a new run drops the size to 0 and an
+  *identical* error (same missing file, same line) pops again on the next run
+  instead of being deduped against the stale text; the size is baselined on
+  project attach so a stale dump present at open neither pops nor looks like a
+  shrink. (A first cut deduped purely by text and re-baselined at each build/run
+  - it missed the second, identical run's error; fixed with the shrink reset.)
+  A **debug toggle** silences the
+  dialog: `EditorConfig::errorPopup` (default on, persisted in `editor.ini`),
+  flipped from a "Pop up on errors" checkbox in the Debug window or an "Only log
+  to console" checkbox in the dialog itself - off = errors go only to the console
+  / Debug window. **Verified** (Layer 3 + Layer 2): editor builds clean; a scratch
+  `fpp` project built in Docker (engine change compiles in the PS2 toolchain -
+  `libtyra` rebuilt, ELF linked) and booted in PCSX2 fine (terrain+sky, 50 FPS);
+  deleting the boot-loaded `hud/use.png` then relaunching the ELF produced the
+  assertion in `bin/log.txt` (`Failed to load … use.png … png_loader.cpp:61`)
+  while the screen **kept the last frame** (Tyra logo, FPS 0, EE idle) instead of
+  the kernel dump; a host harness ran `extractLastTyraAssert` over that real log
+  and 4 synthetic cases (no-assert, two-blocks-last-wins, partial-block, `[ps2]`
+  line-prefixed) - 10/10 checks passed. The live GUI modal pop (assert arriving
+  while the editor is running a build/run) wasn't automated - no synthetic input
+  while the user is at the machine - but the detection + parse path it depends on
+  is exercised above.
+- (87) **Merge-friendly project format: one file per object + collaboration
+  scaffolding (steps 2-4, building on the ids in entry 86).** The whole point of
+  the ids was this: the monolithic `<name>.tyra` is now a **manifest** that
+  keeps project-wide data (settings, hud, menus, sequences, gradings, ambience,
+  save data, editor state) and, per scene, an **ordered list of object ids** -
+  each object's body moved out to its own `objects/<id>.json` file (Unreal-5
+  One-File-Per-Actor style). Two people editing *different* objects now touch
+  *different* files, so git merges with zero conflict; the only residual
+  collision is two people *adding* an object to the same scene at once (a
+  one-line conflict in that scene's id list). The dir is flat (not per scene)
+  because ids are project-global - a scene rename never moves a file and an
+  object can change scenes without touching its body. Order is preserved by the
+  manifest list (it is significant: first Player / SpawnPoint wins, draw order);
+  the object array is not reorderable in the UI, so the list only ever gets
+  appends/removes. `save()` writes every live object then prunes
+  `objects/*.json` whose object no longer exists; `load()` dispatches per scene -
+  an `objects` array of *id strings* loads the split files, an array of *object
+  bodies* is the legacy inline format (so old projects and the committed
+  examples keep loading unchanged and migrate to split on the next save /
+  `--resave`). The history file stays monolithic (inline bodies) - it is
+  gitignored churn, not the tracked source of truth. **Collaboration
+  scaffolding (Level 2):** because a real game map is its own repo (separate
+  from this editor's `examples/`), `create()` now drops a `.gitattributes` and a
+  `COLLABORATION.md` into every new project. `.gitattributes` marks the files
+  that *cannot* be auto-merged - `terrain-*.heights` and the imported `res/`
+  assets - as `lockable` so a team can `git lfs lock` them before editing (uses
+  only LFS's lock registry, no LFS storage/server; inert until `git lfs install`,
+  so it never breaks a non-LFS workflow). Both are written once at creation and
+  never regenerated (not in `refreshGenerated`'s lists), so users can edit them.
+  **Verified** (Layer 0/1, headless, no Docker needed - `--resave` exercises the
+  full load+save round-trip): `--new fpp` writes a manifest with `"objects":
+  ["<id>"]` and an `objects/<id>.json` body, plus `.gitattributes` +
+  `COLLABORATION.md`; a legacy inline `.tyra` (no `objects/` dir) migrates to the
+  split layout on `--resave` and a second `--resave` is byte-identical (stable,
+  no churn); a stray `objects/deadbeef.json` is pruned on the next save; an
+  `empty`-preset project round-trips with `"objects": []`; a copy of the
+  `script-demo` example (3 objects incl. a flow graph) migrates to 3 object files
+  with the graph intact. Codegen is untouched - the in-memory `Project` is
+  identical whichever layout it loaded from, so no example needed regenerating.
+  Next (optional): deterministic key ordering in the manifest for even smaller
+  diffs, and a live/real-time collab layer (CRDT) if the team ever outgrows
+  lock-based coordination.
+
+- (86) **Stable object ids (step 1 of the merge-friendly project format).**
+  Groundwork for multi-user collaboration on one project: today every edit
+  touches the single monolithic `.tyra` file and objects are identified only by
+  their array position, so two people editing the same scene collide badly in
+  git. `SceneObject` gained an opaque `id` (16 hex chars from a 64-bit random
+  value) that is generated once and never changes, even across renames - a
+  stable merge/persistence key. Object *references* (flow graphs, sequences,
+  layers) still resolve by name; the id only exists to give the coming
+  file-split + merge machinery something stable to anchor on. `id` is the first
+  key in each object's JSON (and part of `SceneObject::operator==`, so undo
+  captures it). A single choke-point `project::ensureObjectIds()` stamps a fresh
+  unique id on any object that lacks one and reissues accidental duplicates; it
+  runs on `create`, at the end of `load` (before the caller snapshots for undo -
+  so pre-id projects migrate transparently) and inside `commitChange()` (so
+  freshly inserted / pasted objects get ids before they hit an undo snapshot or
+  disk). Paste clears the copied id so a paste is always a new identity. Added a
+  headless `--resave <projectDir>` (load + save) as the one-shot way to migrate
+  an existing project to the new format without the GUI. No codegen change - ids
+  are editor-side persistence metadata, never emitted into the game, so the
+  example projects did not need regenerating (they gain ids the next time they
+  are opened and saved, or via `--resave`). Note: opening a *pre-id* project with
+  an existing `.history` discards that undo history once (the id-less snapshot no
+  longer equals the freshly-migrated state - the normal stale-history path), then
+  a fresh history is written. **Verified** (Layer 0/1, headless): built clean;
+  `--new … fpp` writes a player object whose JSON starts with a 16-hex `id`;
+  stripped the id from that `.tyra` to simulate a legacy project, ran `--resave`
+  and confirmed an id was stamped, then ran `--resave` again and confirmed the id
+  was byte-identical (stable, no churn). Paste id-clearing + the multi-object
+  dedup path are code-reviewed but not GUI-automated (no synthetic input while
+  the user is at the machine). Next steps toward multi-user: deterministic
+  minimal-diff serialization, then splitting the `.tyra` into one file per object
+  (OFPA-style), then LFS-lock tooling for the non-mergeable assets.
+
+- (86) **Editor application icon.** The editor exe/window used the default blank
+  Windows icon. Added `resources/icon.ico` (multi-size 16→256, generated from the
+  new `resources/icon.png` brand mark via PIL) and `resources/app.rc`, wired into
+  CMake behind `WIN32` with `enable_language(RC)` and a `-I resources` flag so
+  windres finds the `.ico`. The resource is deliberately named `GLFW_ICON`: GLFW's
+  Win32 backend loads a resource by exactly that name into the window class
+  (`vendor/glfw/src/win32_window.c`), so this doubles as the runtime title-bar and
+  taskbar icon with no C++ code, and — being the exe's only icon — is what Explorer
+  shows for the file. **Verified**: clean reconfigure + build compiles the RC object
+  and links; `[System.Drawing.Icon]::ExtractAssociatedIcon` on the built exe returns
+  the blue T✕ mark (32×32), confirming the icon is embedded under the right name.
 - (84) **examples/script-demo: drop the dangling `house-1` model reference.**
   The scene's `house-1` object referenced `res/models/house.obj`, but the
   example ships no model assets (its `res/` and `.res-baked/` hold only a

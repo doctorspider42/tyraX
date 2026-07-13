@@ -34,8 +34,8 @@
     "lightColor": [1, 0.82, 0.6],
     "brightness": 1,
     "terrainMaterial": "res/materials/ground.mtl",
-    "bloom": 0.35,
-    "grain": 0.14,
+    "bloom": 0.16,
+    "grain": 0.09,
     "fogEnabled": true,
     "fogColor": [0.82, 0.55, 0.4],
     "fogStart": 20,
@@ -43,9 +43,9 @@
     "highlightUsable": true,
     "highlightDistance": 6,
     "highlightColor": [1, 0.85, 0.3],
-    "highlightWidth": 0.4,
+    "highlightWidth": 0.19,
     "highlightSteps": 4,
-    "highlightOpacity": 0.56,
+    "highlightOpacity": 0.15,
     "highlightOverlay": true,
     "loadingScreen": true
   },
@@ -140,7 +140,7 @@
   "hud": [
     { "name": "crosshair", "image": "res/ui/crosshair.png", "pos": [0.5, 0.5], "size": [24, 24], "texW": 0, "texH": 0, "texQuant": "" }
   ],
-  "usePrompt": { "image": "", "pos": [0.5, 0.755714], "size": [128, 32], "texW": 0, "texH": 0, "texQuant": "" },
+  "usePrompt": { "image": "", "pos": [0.5, 0.596], "size": [128, 32], "texW": 0, "texH": 0, "texQuant": "" },
   "hudTexts": [
     { "name": "options-hint", "text": "SELECT: graphics options", "pos": [0.5, 0.93], "size": 13, "color": [1, 0.95, 0.7], "shadow": true, "visibleAtStart": false }
   ],
@@ -182,6 +182,6 @@
         { "label": "Close", "action": "close" }
       ] }
   ],
-  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "emulatorPath": "", "ps2LinkIp": "" },
-  "layout": "[Window][Project]\nPos=0,19\nSize=460,998\nCollapsed=0\nDockId=0x00000001,0\nLastUsed=20260713\n\n[Window][Properties]\nPos=1541,19\nSize=379,998\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260713\n\n[Window][Output]\nPos=462,753\nSize=1077,264\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260713\n\n[Window][Debug]\nPos=462,753\nSize=1077,264\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260713\n\n[Window][Flow Graph]\nPos=462,19\nSize=1077,732\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260713\n\n[Window][Viewport]\nPos=462,19\nSize=1077,732\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260713\n\n[Window][WindowOverViewport_11111111]\nPos=0,19\nSize=1920,998\nCollapsed=0\nLastUsed=20260713\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260713\n\n[Window][Project Preferences]\nPos=696,12\nSize=527,992\nCollapsed=0\nLastUsed=20260713\n\n[Docking][Data]\nDockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,19 Size=1920,998 Split=X\n  DockNode      ID=0x00000001 Parent=0x08BD597D SizeRef=460,1017 Selected=0x9C21DE82\n  DockNode      ID=0x00000002 Parent=0x08BD597D SizeRef=1458,1017 Split=X\n    DockNode    ID=0x00000003 Parent=0x00000002 SizeRef=1077,1017 Split=Y\n      DockNode  ID=0x00000005 Parent=0x00000003 SizeRef=1077,751 CentralNode=1 Selected=0xC450F867\n      DockNode  ID=0x00000006 Parent=0x00000003 SizeRef=1077,264 Selected=0x6BCC3585\n    DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=379,1017 Selected=0x8C72BEA8\n\n"
+  "editor": { "selectedObject": 36, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "emulatorPath": "", "ps2LinkIp": "192.168.100.150" },
+  "layout": "[Window][Project]\nPos=0,19\nSize=657,998\nCollapsed=0\nDockId=0x00000001,0\nLastUsed=20260713\n\n[Window][Properties]\nPos=1541,19\nSize=379,998\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260713\n\n[Window][Output]\nPos=659,753\nSize=880,264\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260713\n\n[Window][Debug]\nPos=659,753\nSize=880,264\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260713\n\n[Window][Flow Graph]\nPos=659,19\nSize=880,732\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260713\n\n[Window][Viewport]\nPos=659,19\nSize=880,732\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260713\n\n[Window][WindowOverViewport_11111111]\nPos=0,19\nSize=1920,998\nCollapsed=0\nLastUsed=20260713\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260713\n\n[Window][Project Preferences]\nPos=696,12\nSize=527,992\nCollapsed=0\nLastUsed=20260713\n\n[Window][UI Editor]\nPos=381,137\nSize=720,615\nCollapsed=0\nLastUsed=20260713\n\n[Window][##MainMenuBar]\nPos=0,0\nSize=1920,19\nCollapsed=0\nLastUsed=20260713\n\n[Window][Menu Editor]\nPos=277,104\nSize=680,540\nCollapsed=0\nLastUsed=20260713\n\n[Docking][Data]\nDockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,19 Size=1920,998 Split=X\n  DockNode      ID=0x00000001 Parent=0x08BD597D SizeRef=657,1017 Selected=0x9C21DE82\n  DockNode      ID=0x00000002 Parent=0x08BD597D SizeRef=1261,1017 Split=X\n    DockNode    ID=0x00000003 Parent=0x00000002 SizeRef=880,1017 Split=Y\n      DockNode  ID=0x00000005 Parent=0x00000003 SizeRef=1077,751 CentralNode=1 Selected=0xC450F867\n      DockNode  ID=0x00000006 Parent=0x00000003 SizeRef=1077,264 Selected=0x6BCC3585\n    DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=379,1017 Selected=0x8C72BEA8\n\n"
 }

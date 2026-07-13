@@ -101,6 +101,61 @@ class RendererCorePostFx {
    */
   void apply(int passes = PassAll);
 
+  // --- Custom full-screen passes (tyra-editor fork) ------------------------
+  // User-authored screen effects (tyra-editor "custom screen effects") are
+  // written the same low-level way as bloom/grain: raw GS blits over the
+  // framebuffer. applyCustom() runs one such pass, wrapping it in the exact
+  // same GS state setup/teardown + DMA kick apply() uses, so the author only
+  // appends primitives and cannot corrupt the rest of the frame. The build
+  // callback receives this object (for blit()/flatQuad() + the accessors
+  // below), the packet cursor to advance, and an opaque user pointer (the
+  // effect's params); it returns the advanced cursor.
+  typedef qword_t* (*CustomFxBuild)(RendererCorePostFx& fx, qword_t* q,
+                                    void* user);
+  void applyCustom(CustomFxBuild build, void* user);
+
+  // Framebuffer being composited (valid inside a build callback). Word address
+  // and 64-aligned buffer width, matching FRAME register conventions.
+  int currentFbVram() const { return curFbVram; }
+  int currentFbBufW() const { return curFbBufW; }
+  int screenW() const { return fbW; }
+  int screenH() const { return fbH; }
+
+  // The shared animated-noise texture (uploaded once, filmic dark-skewed).
+  int noiseTexVram() const { return noiseVram; }
+  int noiseTexSize() const { return noiseSize; }
+
+  // Two quarter-res scratch buffers (the bloom working buffers). Transient -
+  // a custom pass may use them freely within its own build callback.
+  int lowBuf0() const { return lowVram[0]; }
+  int lowBuf1() const { return lowVram[1]; }
+  int lowResW() const { return lowW; }
+  int lowResH() const { return lowH; }
+  int lowResBufW() const { return lowBufW; }
+
+  // Advance and return the shared PRNG (for per-frame animated offsets, like
+  // the film grain's noise scroll). 64 = noiseSize, so `& (noiseTexSize()-1)`
+  // gives a wrapped texel offset.
+  u32 nextRand() {
+    rng = rng * 1664525u + 1013904223u;
+    return rng;
+  }
+
+  // One textured sprite: src rect (UV in 1/16 texel) -> dst rect (pixels).
+  // texW/texH describe the source texture (for TW/TH and region clamping),
+  // abe + alpha select the blend equation. Public so custom passes can blit.
+  qword_t* blit(qword_t* q, int srcVram, int srcBufW, int texW, int texH,
+                int u0, int v0, int u1, int v1, int dstVram, int dstBufW,
+                int x0, int y0, int x1, int y1, bool linear, bool wrap,
+                int abe, u64 alpha);
+
+  // One untextured full-screen sprite: flat RGBAQ color, blended over the
+  // frame by `alpha`; `fbmsk` bits protect framebuffer bits from the write
+  // (per-channel gain masks everything but its channel). Public for custom
+  // passes (flat tint / fade / lift / mix).
+  qword_t* flatQuad(qword_t* q, int dstVram, int dstBufW, u32 fbmsk, u8 r,
+                    u8 g, u8 b, u8 a, u64 alpha);
+
  private:
   static constexpr int noiseSize = 64;  // texels, power of two
 
@@ -124,22 +179,10 @@ class RendererCorePostFx {
   int lowBufW;       // quarter buffer width (aligned to 64)
   int lowVram[2];    // two quarter-res work buffers (word addresses)
   int noiseVram;     // noise texture (word address)
+  int curFbVram;     // framebuffer of the pass in flight (custom-pass accessors)
+  int curFbBufW;
 
   void uploadNoise();
-
-  /** One textured sprite: src rect (UV in 1/16 texel) -> dst rect (pixels).
-   * texW/texH describe the source texture (for TW/TH and region clamping),
-   * abe + alpha select the blend equation. */
-  qword_t* blit(qword_t* q, int srcVram, int srcBufW, int texW, int texH,
-                int u0, int v0, int u1, int v1, int dstVram, int dstBufW,
-                int x0, int y0, int x1, int y1, bool linear, bool wrap,
-                int abe, u64 alpha);
-
-  /** One untextured full-screen sprite: flat RGBAQ color, blended over the
-   * frame by `alpha`; `fbmsk` bits protect framebuffer bits from the write
-   * (per-channel gain masks everything but its channel). */
-  qword_t* flatQuad(qword_t* q, int dstVram, int dstBufW, u32 fbmsk, u8 r,
-                    u8 g, u8 b, u8 a, u64 alpha);
 
   /** The color grading sprites (gain -> lift -> mix), see setGrading(). */
   qword_t* gradingQuads(qword_t* q, int fbVram, int fbBufW);

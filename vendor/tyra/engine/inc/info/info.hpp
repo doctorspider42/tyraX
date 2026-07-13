@@ -26,6 +26,14 @@ class Info {
 
   static bool writeLogsToFile;
 
+  // Modified by tyra-editor: when false (the default) a failed TYRA_ASSERT /
+  // TYRA_TRAP no longer seizes the whole screen with the kernel debug console -
+  // it prints to the console / host log.txt (which the editor tails into a
+  // copyable error dialog) and then halts quietly. Set true to restore the
+  // upstream on-screen dump (useful when debugging a standalone build on real
+  // hardware, with no editor and no console attached). See debug/debug.hpp.
+  static bool drawAssertScreen;
+
   /** Called by engine */
   void update();
 

@@ -83,9 +83,39 @@ static int buildFromCli(int argc, char** argv) {
     return 0;
 }
 
+// Headless helper: tyra-editor.exe --resave <projectDir>
+// Loads a project and writes it straight back out. On its own it is a no-op for
+// an up-to-date project, but loading runs every format migration (e.g. stamping
+// stable object ids on pre-id projects), so this is the one-shot way to migrate
+// an existing project to the current on-disk format without opening the GUI -
+// handy for batch-migrating a team's projects before they switch to the
+// merge-friendly workflow.
+static int resaveFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyra-editor --resave <projectDir>\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (std::string err = project::save(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (std::string err = project::saveHeights(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    std::printf("resaved: %s\n", p.dir.c_str());
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if (argc > 1 && std::strcmp(argv[1], "--new") == 0) return createFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--build") == 0) return buildFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--resave") == 0) return resaveFromCli(argc, argv);
 
     App app;
     return app.run(argc > 1 ? argv[1] : "");

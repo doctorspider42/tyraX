@@ -1052,6 +1052,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
 #include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
+#include "scripts/screen_fx.gen.hpp"  // custom full-screen effects
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -2048,10 +2049,12 @@ void TerrainGame::loop() {
             Tyra::RendererCorePostFx::PassGrading);
       if (i == HUD_GRAIN_LAYER)
         engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassGrain);
-      if (scriptCtx.hudVisible)
+{{SCREEN_FX_IN_LOOP}}      if (scriptCtx.hudVisible)
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
-    if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
+    // Custom screen effects placed at the top of the stack (layer -1): drawn
+    // over the whole HUD stack, under the USE prompt / texts / pause menus.
+{{SCREEN_FX_TOP}}    if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
     updateAndRenderHudTexts();
     // Cutscene Director widescreen bars + fade-to-black: solid quads over the
     // scene and HUD (texts included), under the pause menus (no-op unless a
@@ -5340,10 +5343,12 @@ void TerrainGame::loop() {
             Tyra::RendererCorePostFx::PassGrading);
       if (i == HUD_GRAIN_LAYER)
         engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassGrain);
-      if (scriptCtx.hudVisible)
+{{SCREEN_FX_IN_LOOP}}      if (scriptCtx.hudVisible)
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
-    if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
+    // Custom screen effects placed at the top of the stack (layer -1): drawn
+    // over the whole HUD stack, under the USE prompt / texts / pause menus.
+{{SCREEN_FX_TOP}}    if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
     updateAndRenderHudTexts();
     // Cutscene Director widescreen bars + fade-to-black: solid quads over the
     // scene and HUD (texts included), under the pause menus (no-op unless a
@@ -6499,6 +6504,80 @@ docker-compose.yml
 
 static const char* TPL_DIR_KEEP = "*\n!.gitignore\n";
 
+// Multi-user collaboration hints, written once at project creation (a new game
+// map is its own repo, separate from the editor). Object bodies are split one
+// file per object so they merge cleanly; the files below cannot be auto-merged
+// and are marked lockable so a team can claim them before editing (needs
+// `git lfs install`, uses only the lock registry - no LFS storage/server).
+static const char* TPL_GITATTRIBUTES = R"(# Multi-user collaboration for this Tyra project.
+#
+# Object bodies are split one file per object (objects/<id>.json), so two people
+# editing DIFFERENT objects touch different files and git merges them with no
+# conflict - just edit. The manifest (<name>.tyra) and per-object files are text.
+#
+# The files below cannot be sanely auto-merged (a heightmap grid, binary assets).
+# Lock one before you edit it so nobody else edits the same file at the same
+# time. Locking needs Git LFS installed once per clone (`git lfs install`); it
+# uses only LFS's lock registry, not LFS storage, so no special remote is needed:
+#     git lfs lock   terrain-main.heights     # claim it
+#     git lfs unlock terrain-main.heights     # release it
+# `git lfs locks` lists who holds what. A lockable file is read-only in your
+# working tree until you lock it - that read-only bit is the reminder.
+
+terrain-*.heights lockable -merge
+res/models/**     lockable -merge
+res/materials/**  lockable -merge
+res/textures/**   lockable -merge
+res/fonts/**      lockable -merge
+res/audio/**      lockable -merge
+res/sfx/**        lockable -merge
+res/hud/**        lockable -merge
+)";
+
+static const char* TPL_COLLABORATION = R"(# Working on this project with others
+
+This project is laid out to keep git merges painless when several people edit it
+at once.
+
+## What merges cleanly (just edit)
+
+- **Scene objects** live one per file under `objects/<id>.json`. Each object has
+  a stable id, so editing, moving or recoloring different objects never
+  conflicts - you each touch a different file.
+- **The manifest** (`<name>.tyra`) holds project-wide settings and, per scene, an
+  ordered list of object ids. Editing settings or different scenes merges
+  line-by-line. The one place two people can still collide is *both adding an
+  object to the same scene at the same time* - a one-line conflict in the id
+  list, trivial to resolve (keep both ids).
+
+## What to lock first (cannot auto-merge)
+
+Some files are a single indivisible blob a git auto-merge would corrupt.
+`.gitattributes` marks them **lockable**; lock one before editing so no one else
+edits it concurrently:
+
+- `terrain-*.heights` - a scene's terrain heightmap (one grid; two sculpts can't
+  merge).
+- everything under `res/` - imported textures, models, audio, fonts.
+
+Locking uses Git LFS's lock registry (no LFS storage / no special server):
+
+    git lfs install                       # once per clone
+    git lfs lock   terrain-main.heights   # claim before editing
+    git lfs unlock terrain-main.heights   # release when done
+    git lfs locks                         # see who holds what
+
+Until you lock a lockable file it is read-only in your working copy - the
+reminder to lock it. If your team does not use locking, ignore this: the files
+still work as plain git files.
+
+## Not tracked / regenerated
+
+`obj/`, `bin/*.elf`, `.res-baked/`, `docker-compose.yml`, `*.history` and the
+`*.gen.*` sources are build output or local state (see `.gitignore`) - never
+resolve merge conflicts in generated files; fix the source and rebuild.
+)";
+
 static std::string floatLit(float v) {
     char buf[40];
     std::snprintf(buf, sizeof(buf), "%.6g", (double)v);
@@ -7147,6 +7226,111 @@ static std::string sanitizeNamespace(const std::string& name) {
     return ns;
 }
 
+// ---------------------------------------------------------------------------
+// Custom screen effects -> C++ (screen_fx.gen.hpp/.cpp). Each enabled placement
+// whose .screenfx file resolved becomes one build callback; its index here is
+// the effect's codegen id (screenFx_<id>). The frame loop calls them at their
+// stack slot via RendererCore::applyCustomPostFx. See docs/custom-screen-
+// effects.md and src/screenfx.cpp for the file format.
+
+// Enabled placements whose effect file loaded, in stack order.
+static std::vector<const ScreenFxPlacement*> enabledScreenFx(const Project& p) {
+    std::vector<const ScreenFxPlacement*> v;
+    for (const auto& f : p.screenFx)
+        if (f.enabled && customScreenFx(f.key)) v.push_back(&f);
+    return v;
+}
+
+// The applyCustomPostFx() calls injected into the frame loop. inLoop = the
+// dispatch inside `for (i ...)` (placements with a concrete layer); otherwise
+// the post-loop dispatch for topmost placements (layer -1 / >= hud size).
+static std::string screenFxDispatch(const Project& p, bool inLoop) {
+    const auto fx = enabledScreenFx(p);
+    std::ostringstream out;
+    for (size_t n = 0; n < fx.size(); ++n) {
+        const int layer = fx[n]->layer;
+        const bool top = layer < 0 || layer >= (int)p.hud.size();
+        const CustomScreenFx* e = customScreenFx(fx[n]->key);
+        if (inLoop) {
+            if (top) continue;
+            out << "      if (i == " << layer
+                << ")  // " << e->title << "\n"
+                << "        engine->renderer.core.applyCustomPostFx(&screenFx_"
+                << n << ", nullptr);\n";
+        } else {
+            if (!top) continue;
+            out << "    engine->renderer.core.applyCustomPostFx(&screenFx_" << n
+                << ", nullptr);  // " << e->title << "\n";
+        }
+    }
+    return out.str();
+}
+
+static std::string screenFxHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    const auto fx = enabledScreenFx(p);
+    std::ostringstream out;
+    out << "// Generated by tyra-editor. Do not edit - regenerated on every "
+           "build.\n"
+           "#pragma once\n\n"
+           "#include <tyra>\n\n"
+           "// Custom screen effects (Tools > UI Editor). Each callback appends\n"
+           "// the effect's GS blits over the current framebuffer and returns\n"
+           "// the advanced packet cursor; run via applyCustomPostFx at the\n"
+           "// effect's stack slot. Bodies live in screen_fx.gen.cpp.\n"
+           "namespace "
+        << ns << " {\n\n";
+    for (size_t n = 0; n < fx.size(); ++n) {
+        const CustomScreenFx* e = customScreenFx(fx[n]->key);
+        out << "qword_t* screenFx_" << n
+            << "(Tyra::RendererCorePostFx& fx, qword_t* q, void* user);"
+               "  // "
+            << e->title << "\n";
+    }
+    if (fx.empty()) out << "// (no custom screen effects placed)\n";
+    out << "\n}  // namespace " << ns << "\n";
+    return out.str();
+}
+
+static std::string screenFxSource(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    const auto fx = enabledScreenFx(p);
+    std::ostringstream out;
+    out << "// Generated by tyra-editor. Do not edit - regenerated on every "
+           "build.\n"
+           "#include \"scripts/screen_fx.gen.hpp\"\n\n"
+           "// PS2 GS packing macros the effect bodies use (PACK_GIFTAG,\n"
+           "// GS_SET_*, GS_REG_*, GS_PSM_*). No pixel shaders on the PS2 - an\n"
+           "// effect is framebuffer blits, like the built-in bloom / grain.\n"
+           "#include <gif_tags.h>\n"
+           "#include <gs_gp.h>\n"
+           "#include <gs_psm.h>\n"
+           "#include <draw.h>\n\n"
+           "namespace "
+        << ns << " {\nusing namespace Tyra;\n";
+    for (size_t n = 0; n < fx.size(); ++n) {
+        const ScreenFxPlacement* pl = fx[n];
+        const CustomScreenFx* e = customScreenFx(pl->key);
+        std::string body = e->code;
+        for (int i = 0; i < 4; ++i)
+            body = replaceAll(body, "{p" + std::to_string(i) + "}",
+                              "param[" + std::to_string(i) + "]");
+        out << "\n// " << e->title << " (" << pl->key << ")\n"
+            << "qword_t* screenFx_" << n
+            << "(Tyra::RendererCorePostFx& fx, qword_t* q, void* user) {\n"
+            << "  (void)user; (void)fx; (void)q;\n"
+            << "  const float param[4] = {" << floatLit(pl->params[0]) << ", "
+            << floatLit(pl->params[1]) << ", " << floatLit(pl->params[2]) << ", "
+            << floatLit(pl->params[3]) << "};\n"
+            << "  (void)param;\n"
+            << body;
+        if (!body.empty() && body.back() != '\n') out << "\n";
+        out << "  return q;\n}\n";
+    }
+    out << "\n}  // namespace " << ns << "\n";
+    return out.str();
+}
+
 static std::string fillTemplate(const Project& p, const char* tpl) {
     // docker compose project name: lowercase, must start with letter/digit
     std::string nameLower;
@@ -7196,6 +7380,11 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                    debugProfile && st.showProfiler ? "true" : "false");
     s = replaceAll(s, "{{ENGINE_SRC}}", engineSourceDir());
     s = replaceAll(s, "{{ENGINE_HASH}}", engineSourceHash());
+    // Custom screen effect dispatch injected into the frame loop (empty when
+    // none are placed). Two slots: inside the HUD-sprite loop (per-layer) and
+    // after it (topmost, layer -1).
+    s = replaceAll(s, "{{SCREEN_FX_IN_LOOP}}", screenFxDispatch(p, true));
+    s = replaceAll(s, "{{SCREEN_FX_TOP}}", screenFxDispatch(p, false));
     return s;
 }
 
@@ -9968,6 +10157,8 @@ std::vector<File> generate(const Project& p) {
         {"src\\scripts\\sequences.gen.cpp", sequencesScript(p)},
         {"inc\\scripts\\flow_nodes.hpp", fill(TPL_FLOW_NODES_HPP)},
         {"src\\scripts\\flow_graph.gen.cpp", flowGraphScript(p)},
+        {"inc\\scripts\\screen_fx.gen.hpp", screenFxHeader(p)},
+        {"src\\scripts\\screen_fx.gen.cpp", screenFxSource(p)},
         {"src\\scripts\\object_scripts.gen.cpp", objectScriptsSource(p)},
         {"src\\scripts\\example_interaction.cpp",
          fill(fpp ? TPL_EXAMPLE_SCRIPT_FPP : TPL_EXAMPLE_SCRIPT_ORBIT)},
@@ -9975,6 +10166,8 @@ std::vector<File> generate(const Project& p) {
         {"run.ps1", fill(TPL_RUN_PS1)},
         {"windows-pcsx2.ps1", fill(TPL_PCSX2_PS1)},
         {".gitignore", fill(TPL_GITIGNORE)},
+        {".gitattributes", TPL_GITATTRIBUTES},
+        {"COLLABORATION.md", TPL_COLLABORATION},
         {"res\\.gitignore", TPL_DIR_KEEP},
         {"bin\\.gitignore", TPL_DIR_KEEP},
         {"obj\\.gitignore", TPL_DIR_KEEP},

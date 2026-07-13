@@ -4,7 +4,9 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <random>
 #include <sstream>
+#include <unordered_set>
 
 #include "history.hpp"
 #include "json.hpp"
@@ -71,6 +73,15 @@ static fs::path projectPath(const Project& p) {
 }
 static fs::path historyPath(const Project& p) {
     return fs::path(p.dir) / (p.name + ".history");
+}
+
+// One file per scene object (merge-friendly layout): the manifest lists only
+// ordered ids, each object's body lives in objects/<id>.json. Flat (not per
+// scene) because object ids are project-global - so a scene rename never moves
+// a file and an object can change scenes without touching its body.
+static fs::path objectsDir(const Project& p) { return fs::path(p.dir) / "objects"; }
+static fs::path objectPath(const Project& p, const std::string& id) {
+    return objectsDir(p) / (id + ".json");
 }
 
 static std::string fmtFloat(float v) {
@@ -184,7 +195,8 @@ static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
 
 static std::string objectJson(const SceneObject& o) {
     std::string json =
-        "{ \"name\": \"" + o.name + "\", \"type\": \"" + primitiveTypeName(o.type) +
+        "{ \"id\": \"" + o.id + "\", \"name\": \"" + o.name +
+        "\", \"type\": \"" + primitiveTypeName(o.type) +
         "\", \"position\": " + fmtVec3(o.position) +
         ", \"rotation\": " + fmtVec3(o.rotation) + ", \"scale\": " + fmtVec3(o.scale) +
         ", \"color\": " + fmtVec3(o.color) +
@@ -625,8 +637,13 @@ std::string save(const Project& p) {
             json << ",\n      \"layers\": ";
             writeLayersArray(json, sc.layers);
         }
-        json << ",\n      \"objects\": ";
-        writeObjectsArray(json, sc.objects, "      ");
+        // Ordered ids only - each object's body is a separate objects/<id>.json
+        // file (written below). Order is significant (first Player / SpawnPoint
+        // wins, draw order), so it is preserved by the list.
+        json << ",\n      \"objects\": [";
+        for (size_t k = 0; k < sc.objects.size(); ++k)
+            json << (k ? ", " : "") << "\"" << sc.objects[k].id << "\"";
+        json << "]";
         json << " }";
     }
     json << "\n  ]";
@@ -662,6 +679,19 @@ std::string save(const Project& p) {
     json << (p.hudTexts.empty() ? "]" : "\n  ]");
     json << ",\n  \"hudBloomLayer\": " << p.hudBloomLayer;
     json << ",\n  \"hudGrainLayer\": " << p.hudGrainLayer;
+    if (!p.screenFx.empty()) {
+        json << ",\n  \"screenFx\": [";
+        for (size_t i = 0; i < p.screenFx.size(); ++i) {
+            const ScreenFxPlacement& f = p.screenFx[i];
+            json << (i ? ",\n    " : "\n    ") << "{ \"key\": \""
+                 << jsonEscape(f.key) << "\", \"layer\": " << f.layer
+                 << ", \"enabled\": " << (f.enabled ? "true" : "false")
+                 << ", \"params\": [" << fmtFloat(f.params[0]) << ", "
+                 << fmtFloat(f.params[1]) << ", " << fmtFloat(f.params[2])
+                 << ", " << fmtFloat(f.params[3]) << "] }";
+        }
+        json << "\n  ]";
+    }
     json << ",\n  \"music\": [";
     for (size_t i = 0; i < p.music.size(); ++i)
         json << (i ? ", " : "") << "\"" << p.music[i] << "\"";
@@ -899,7 +929,53 @@ std::string save(const Project& p) {
     // still accepts them to migrate older projects into the global config.
     json << ",\n  \"layout\": \"" << jsonEscape(p.windowLayout) << "\"";
     json << "\n}\n";
+
+    // One file per object. Write every live object, then prune objects/*.json
+    // whose object no longer exists (deleted, or moved out on a previous save).
+    // Ids are guaranteed present here: every path that reaches save() runs
+    // ensureObjectIds first (create / load / commitChange).
+    std::error_code ec;
+    fs::create_directories(objectsDir(p), ec);
+    std::unordered_set<std::string> live;
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects) {
+            live.insert(o.id);
+            if (auto err = writeFile(objectPath(p, o.id), objectJson(o) + "\n");
+                !err.empty())
+                return err;
+        }
+    for (const auto& entry : fs::directory_iterator(objectsDir(p), ec)) {
+        if (!entry.is_regular_file(ec) || entry.path().extension() != ".json") continue;
+        if (!live.count(entry.path().stem().string())) fs::remove(entry.path(), ec);
+    }
+
     return writeFile(projectPath(p), json.str());
+}
+
+std::string newObjectId() {
+    // 64 bits of randomness rendered as 16 hex chars. Seeded once from the
+    // platform entropy source; the sequence is process-global, which is all we
+    // need (ids only have to be unique within a project, checked below).
+    static std::mt19937_64 rng(std::random_device{}());
+    char buf[17];
+    std::snprintf(buf, sizeof(buf), "%016llx", (unsigned long long)rng());
+    return buf;
+}
+
+void ensureObjectIds(Project& p) {
+    // Single pass: an object gets a fresh id when it has none (legacy / just
+    // pasted) or when its id already appeared on an earlier object (accidental
+    // duplicate - the first occurrence keeps the id, later ones are reissued).
+    std::unordered_set<std::string> seen;
+    for (SceneData& s : p.scenes)
+        for (SceneObject& o : s.objects) {
+            if (o.id.empty() || seen.count(o.id)) {
+                std::string id;
+                do { id = newObjectId(); } while (seen.count(id));
+                o.id = std::move(id);
+            }
+            seen.insert(o.id);
+        }
 }
 
 std::string create(Project& out, const std::string& name, const std::string& parentDir,
@@ -945,6 +1021,7 @@ std::string create(Project& out, const std::string& name, const std::string& par
         out.scenes[0].objects.push_back(player);
     }
 
+    ensureObjectIds(out);
     ensureHeightmap(out);
 
     for (const auto& f : templates::generate(out)) {
@@ -1112,6 +1189,9 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
     for (const auto& jo : arr.arr) {
         if (jo.type != json::Value::Type::Object) continue;
         SceneObject o;
+        // Empty on pre-id projects; project::ensureObjectIds fills it after the
+        // load and it is written back on the next save.
+        if (const auto* v = jo.find("id")) o.id = v->stringOr("");
         if (const auto* v = jo.find("name")) o.name = v->stringOr("object");
         if (const auto* v = jo.find("type")) o.type = primitiveTypeFromName(v->stringOr("box"));
         readVec3(jo.find("position"), o.position);
@@ -1247,6 +1327,37 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
     }
 }
 
+// A scene's "objects" manifest field. New (split) layout: an array of id
+// strings, each loaded from objects/<id>.json in list order. Legacy layout: an
+// array of inline object bodies. The two are told apart by the first element's
+// type; an empty array is either. A referenced object file that is missing or
+// malformed is skipped (the object is dropped) rather than aborting the load.
+static void readSceneObjects(const Project& p, const json::Value& objs,
+                             std::vector<SceneObject>& out) {
+    if (objs.type != json::Value::Type::Array) return;
+    const bool split = !objs.arr.empty() && objs.arr[0].type == json::Value::Type::String;
+    if (!split) {  // legacy: bodies inline in the manifest
+        readObjectsArray(objs, out);
+        return;
+    }
+    for (const auto& jid : objs.arr) {
+        const std::string id = jid.stringOr("");
+        if (id.empty()) continue;
+        std::ifstream f(objectPath(p, id), std::ios::binary);
+        if (!f) continue;
+        std::stringstream ss;
+        ss << f.rdbuf();
+        json::Value ov;
+        if (!json::parse(ss.str(), ov) || ov.type != json::Value::Type::Object) continue;
+        // Reuse readObjectsArray by wrapping the single body in a one-element
+        // array (json::Value is a plain struct - cheap to build).
+        json::Value arr;
+        arr.type = json::Value::Type::Array;
+        arr.arr.push_back(std::move(ov));
+        readObjectsArray(arr, out);
+    }
+}
+
 std::string load(Project& out, const std::string& projectDir) {
     // The project is defined by a single <name>.tyra file in the directory.
     fs::path tyraPath;
@@ -1274,6 +1385,10 @@ std::string load(Project& out, const std::string& projectDir) {
     // readFlowGraph drops any node whose type is unknown (line ~156), so a
     // "custom:*" node only survives the load if its .flownode file is present.
     flownode::loadForProject(out.dir);
+    // Same for custom screen effects: their placements below reference a
+    // screen-effects/*.screenfx file by key, and a placement whose file is
+    // missing is dropped (so a moved .tyra cannot silently keep a dead effect).
+    screenfx::loadForProject(out.dir);
     if (const auto* v = root.find("name")) out.name = v->stringOr("");
     if (out.name.empty())
         return tyraPath.filename().string() + " is malformed (no name)";
@@ -1404,7 +1519,7 @@ std::string load(Project& out, const std::string& projectDir) {
                 if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
                 if (const auto* ls = js.find("layers")) readLayersArray(*ls, sc.layers);
                 if (const auto* objs = js.find("objects"))
-                    readObjectsArray(*objs, sc.objects);
+                    readSceneObjects(out, *objs, sc.objects);
                 if (const auto* t = js.find("terrain")) {
                     if (const auto* v = t->find("width"))
                         sc.terrain.width = (int)v->numberOr(64);
@@ -1437,6 +1552,11 @@ std::string load(Project& out, const std::string& projectDir) {
         objects && objects->type == json::Value::Type::Array) {
         readObjectsArray(*objects, out.scenes[0].objects);  // legacy single scene
     }
+
+    // Every scene object must carry a stable id before the caller snapshots the
+    // project (loadHistory compares against out.scenes). Pre-id projects get
+    // theirs here; they are written back on the next save.
+    ensureObjectIds(out);
 
     if (const auto* hud = root.find("hud"); hud && hud->type == json::Value::Type::Array) {
         for (const auto& jh : hud->arr) {
@@ -1528,6 +1648,28 @@ std::string load(Project& out, const std::string& projectDir) {
     };
     clampLayer(out.hudBloomLayer);
     clampLayer(out.hudGrainLayer);
+
+    // Custom screen effect placements. A placement whose .screenfx file was not
+    // loaded above (missing / moved project) is dropped - the same rule that
+    // cleans up unknown flow-graph nodes.
+    if (const auto* sfx = root.find("screenFx");
+        sfx && sfx->type == json::Value::Type::Array) {
+        for (const auto& jo : sfx->arr) {
+            ScreenFxPlacement f;
+            if (const auto* v = jo.find("key")) f.key = v->stringOr("");
+            if (f.key.empty() || customScreenFx(f.key) == nullptr) continue;
+            if (const auto* v = jo.find("layer")) f.layer = (int)v->numberOr(-1.0);
+            if (const auto* v = jo.find("enabled"))
+                f.enabled = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (const auto* pa = jo.find("params");
+                pa && pa->type == json::Value::Type::Array) {
+                for (size_t i = 0; i < pa->arr.size() && i < 4; ++i)
+                    f.params[i] = (float)pa->arr[i].numberOr(0.0);
+            }
+            clampLayer(f.layer);
+            out.screenFx.push_back(std::move(f));
+        }
+    }
 
     if (const auto* music = root.find("music");
         music && music->type == json::Value::Type::Array) {
@@ -2101,6 +2243,8 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == ".vscode\\c_cpp_properties.json" ||
             f.relativePath == "src\\scripts\\flow_graph.gen.cpp" ||
             f.relativePath == "src\\scripts\\object_scripts.gen.cpp" ||
+            f.relativePath == "src\\scripts\\screen_fx.gen.cpp" ||
+            f.relativePath == "inc\\scripts\\screen_fx.gen.hpp" ||
             f.relativePath == "inc\\scripts\\sequences.gen.hpp" ||
             f.relativePath == "src\\scripts\\sequences.gen.cpp" ||
             f.relativePath == "inc\\model_data.gen.hpp" ||

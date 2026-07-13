@@ -36,6 +36,7 @@ everything under `src/` — warnings matter, the build is expected to be clean.
 ```powershell
 build\tyra-editor.exe --new <name> <parentDir> [width] [depth] [empty|fpp]
 build\tyra-editor.exe --build <projectDir> [--run]   # exit code 0 = success
+build\tyra-editor.exe --resave <projectDir>          # load + save, no Docker
 build\tyra-editor.exe <projectDir|project.tyra>      # open GUI on a project
 ```
 
@@ -44,6 +45,11 @@ build\tyra-editor.exe <projectDir|project.tyra>      # open GUI on a project
   single Player entity; `empty` is an orbit-camera scene with no objects.
 - `--build` streams the whole Docker build log to stdout and returns a real
   exit code — the backbone of scripted e2e runs.
+- `--resave` loads a project and writes the `.tyra` (+ heights) straight back
+  out — **no Docker**. Because `project::load` runs every format migration,
+  this is the clean way to test/round-trip a `.tyra`-format change headlessly:
+  strip/alter a field, `--resave`, and inspect the rewritten file. Also the
+  one-shot batch-migration tool for existing projects.
 - Create scratch projects in a **short** path outside the repo — the
   convention is `%TEMP%\tyra-editor-test\<name>`. Do NOT use the session
   scratchpad for anything that will boot in PCSX2: its path is ~180+ chars
@@ -116,8 +122,13 @@ Notes:
 
 - **emulog.txt**: success looks like `ELF <path> is executing`; failure signals
   are `Assertion` lines or an early exit. **`TYRA_LOG`/EE printf does NOT land
-  in emulog** even with EnableEEConsole=true — on-screen assert text is the
-  reliable failure signal, so screenshot the window.
+  in emulog** even with EnableEEConsole=true. The reliable failure signal is the
+  game's own **`bin/log.txt`** (host: fs) — TYRA_LOG output plus any assertion
+  dump, bracketed by `======= TYRA =======` … `================`. A failed
+  assert no longer paints the screen (the engine halts quietly, leaving the last
+  frame up — see tyra-engine-dev), so grep `bin/log.txt` for the banner rather
+  than screenshotting for assert text; the running editor also pops that dump in
+  a copyable dialog. (A screenshot still shows *where* the game froze.)
 - **Screenshots**: PCSX2's F8 via SendKeys is flaky. Use the bundled script —
   a GDI capture that works reliably:
 

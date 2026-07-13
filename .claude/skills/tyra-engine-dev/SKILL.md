@@ -62,14 +62,41 @@ clipper, the StaPip `clip` VU1 program family (on-VU1 Sutherland–Hodgman
 behind the hidden `"clipping": "vu1"` project mode — design + status in
 `docs/vu1-clipping-plan.md`), static pools in `stapip_clipper.cpp` /
 `stapip_qbuffer.cpp`,
-`RendererCorePostFx` (bloom + film grain via GS blits), WAV-header-aware song
+`RendererCorePostFx` (bloom + film grain via GS blits; plus `applyCustom()` +
+`RendererCore::applyCustomPostFx()` for user-authored full-screen effects — see
+the editor's custom screen effects, `docs/custom-screen-effects.md`; the effect
+body appends GS primitives through the now-public `blit()`/`flatQuad()` and the
+framebuffer/noise/scratch-buffer accessors, and the engine wraps the state
+setup/teardown + DMA kick), WAV-header-aware song
 player, `bboxVersion` on `StaPipBag` for moving geometry, `LeanObjLoader`
 (OBJ+MTL, host:/cdrom0:-safe; parsing semantics mirror the editor's
 `src/objparser.cpp` — keep the two in sync), `physics/CollisionMesh` (XZ-grid
 triangle collider) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
 TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot),
-and `renderer/models/unique_id.hpp` (`generateUniqueId()`) replacing upstream's
-`rand() % 1000000` object ids (see the pitfall below).
+`renderer/models/unique_id.hpp` (`generateUniqueId()`) replacing upstream's
+`rand() % 1000000` object ids (see the pitfall below), and a **quiet-halt
+assert** (`debug/debug.hpp` `TyraDebug::trap`): a failed `TYRA_ASSERT` /
+`TYRA_TRAP` no longer runs upstream's `init_scr()` + infinite `scr_printf` loop
+that seized the whole screen; it still prints the dump to the console / host
+`log.txt` (with the stable `======= TYRA =======` … `================`
+delimiters the editor parses), then `for(;;) SleepThread()` so the last frame
+stays up and the editor's error dialog surfaces it. The full-screen dump is
+gated behind `Tyra::Info::drawAssertScreen` (default **off**, `info.{hpp,cpp}`)
+for standalone hardware debugging — nothing wires it on in generated games.
+Paired with that, a **`TYRA_SOFT_ERROR`** macro (also `debug/debug.hpp`) logs
+the *same* delimited `====== TYRA ======` block a fatal assert does — so the
+editor surfaces it identically — but with a `Non-fatal error (game keeps
+running)!` header and **no halt**, for recoverable asset failures. The asset
+loaders use it: `png_loader.cpp` returns an 8x8 magenta placeholder
+(`makePlaceholderTexture`) on a missing/empty texture instead of trapping, and
+`audio_song.cpp` skips a missing music WAV (`load()` returns early, `play()`
+no-ops when unloaded). The fork's other loaders were already non-fatal —
+`LeanObjLoader`/`TanmLoader`/`TskLoader` return `nullptr` on a bad file (callers
+null-check) and `AudioAdpcm::load` returns `nullptr` + `tryPlay` guards — so a
+missing model/anim/sfx already skips cleanly. **When adding a new asset loader,
+follow this pattern** (soft-error + safe fallback), don't `TYRA_ASSERT` on a
+missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still assert
+— fine, generated games don't use them.
 
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 

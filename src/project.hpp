@@ -7,6 +7,7 @@
 #include "ambience.hpp"
 #include "flowgraph.hpp"
 #include "grading.hpp"
+#include "screenfx.hpp"
 #include "sequence.hpp"
 
 struct TerrainConfig {
@@ -111,6 +112,15 @@ inline int primTriangleCount(PrimitiveType type, int detail) {
 // Unit primitives fit a 1x1x1 cube centered at origin and are transformed by
 // scale -> rotation (X, then Y, then Z) -> translation.
 struct SceneObject {
+    // Stable, opaque identity - generated once (project::ensureObjectIds) and
+    // never changed, even across renames. This is the merge/persistence key:
+    // the multi-user file layout stores one object per file keyed on it, so
+    // two people editing different objects touch different files. Object
+    // *references* (flow graphs, sequences, layers) still resolve by name;
+    // the id only exists to give the merge machinery something stable to
+    // anchor on. Empty on objects authored before ids existed / freshly
+    // pasted; filled in on the next load or commit.
+    std::string id;
     std::string name;
     PrimitiveType type = PrimitiveType::Box;
     float position[3] = {0.0f, 0.5f, 0.0f};
@@ -238,7 +248,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
     auto eq3 = [](const float* x, const float* y) {
         return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
     };
-    return a.name == b.name && a.type == b.type && eq3(a.position, b.position) &&
+    return a.id == b.id && a.name == b.name && a.type == b.type && eq3(a.position, b.position) &&
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
            a.physics == b.physics && a.usable == b.usable &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
@@ -593,6 +603,23 @@ inline bool operator==(const LoadingScreenDef& a, const LoadingScreenDef& b) {
            a.images == b.images && a.texts == b.texts && a.bars == b.bars;
 }
 
+// One custom screen effect placed in the screen stack. The effect body lives
+// in a <project>/screen-effects/<stem>.screenfx file (loaded into
+// customScreenEffects()); this is the project-side record: which effect, where
+// in the stack, and its param values. See CustomScreenFx in screenfx.hpp.
+struct ScreenFxPlacement {
+    std::string key;             // "custom:<file-stem>"
+    int layer = -1;              // stack slot, like Project::hudBloomLayer
+    bool enabled = true;         // unchecked = kept but not composited/generated
+    float params[4] = {0, 0, 0, 0};
+};
+
+inline bool operator==(const ScreenFxPlacement& a, const ScreenFxPlacement& b) {
+    return a.key == b.key && a.layer == b.layer && a.enabled == b.enabled &&
+           a.params[0] == b.params[0] && a.params[1] == b.params[1] &&
+           a.params[2] == b.params[2] && a.params[3] == b.params[3];
+}
+
 // A streaming layer: a named group of scene objects that the game can load
 // into / evict from memory at runtime (Load Layer / Unload Layer flow nodes)
 // - GTA3-style interior streaming. Also doubles as an editor visibility
@@ -827,6 +854,14 @@ struct Project {
     // filmic overlay over the whole screen. Grading rides with bloom.
     int hudBloomLayer = -1;
     int hudGrainLayer = -1;
+    // Custom screen effects placed in the screen stack (Tools > UI Editor).
+    // Each placement references a <project>/screen-effects/*.screenfx file by
+    // its key ("custom:<stem>") and carries the effect's per-placement param
+    // values; `layer` has the same meaning as hudBloomLayer (index into `hud`,
+    // -1 = topmost). Project-wide like bloom/grain (not per-scene), and not on
+    // the undo stack (edited via saveAll, like the rest of the UI Editor).
+    // Placements whose .screenfx file is missing on load are dropped.
+    std::vector<ScreenFxPlacement> screenFx;
     // Music tracks (16-bit 22kHz stereo WAV in res/audio/), played via the
     // flow graph (Play Music / Stop Music / Set Music Volume actions).
     std::vector<std::string> music;
@@ -913,6 +948,18 @@ namespace project {
 // Returns empty string on success, error message otherwise.
 std::string create(Project& out, const std::string& name, const std::string& parentDir,
                    const TerrainConfig& terrain, const std::string& preset = "empty");
+
+// A fresh opaque object id (16 hex chars from a 64-bit random value). Unique
+// within a project with negligible collision odds; the merge/file-split layout
+// keys on it. See SceneObject::id.
+std::string newObjectId();
+
+// Assigns a stable id to every scene object that lacks one (empty id, e.g. an
+// object from a pre-id project or a fresh paste), and repairs any accidental
+// duplicate so ids stay unique project-wide. Idempotent - a no-op once every
+// object already has a distinct id. Called on load, on create, and from the
+// editor's commitChange() so no object is ever persisted without an id.
+void ensureObjectIds(Project& p);
 
 // The effective settings for a scene: the project defaults with each scene
 // category (lighting, sky, clipping, terrain material, post-FX, highlight)
