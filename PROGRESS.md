@@ -9,6 +9,60 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (86) **Custom screen effects: user-authored full-screen post effects, drop-in
+  files, positioned on the UI.** The editor shipped exactly two full-screen post
+  effects (bloom, film grain), hard-coded in the engine's `RendererCorePostFx`.
+  Now a project can add its own — **per project, no editor rebuild** — as a
+  `screen-effects/*.screenfx` text file, the screen-effect analogue of custom
+  flow nodes. There are no pixel shaders on the PS2, so an effect is written
+  **low-level** (raw GS framebuffer blits, the same way bloom/grain are), and it
+  is **positioned in the UI Editor screen stack** like the built-ins.
+  - **Engine** (`vendor/tyra`): `RendererCorePostFx::applyCustom(build, user)`
+    wraps the exact frame-state setup/teardown + DMA kick `apply()` uses and
+    calls a user build callback that appends GS primitives; `blit()`/`flatQuad()`
+    are now public, plus accessors for the framebuffer geometry, the shared
+    noise texture, the two quarter-res scratch buffers and a PRNG.
+    `RendererCore::applyCustomPostFx` fronts it with the same PATH1 drain barrier
+    as `applyPostFx` so the pass composites over finished 3D.
+  - **Editor**: `src/screenfx.{hpp,cpp}` load `.screenfx` files (manifest: title
+    + up to four numeric-param sliders; `---`; raw C++ body with `{p0}..{p3}`
+    placeholders) into a `customScreenEffects()` registry, mirroring
+    `flownode.cpp`. A `Project` holds `ScreenFxPlacement`s (key + stack `layer` +
+    `enabled` + params); placements whose file is missing on load are dropped
+    (like unknown flow nodes). The **UI Editor** screen stack gained N reorderable
+    `[ FX: … ]` entries alongside the bloom/grain markers (generalized
+    `buildStack`/`rebuild`), a properties panel (enable + param sliders + jump to
+    file), and a management block (add to stack / new starter / reload from
+    folder). Codegen emits `src/scripts/screen_fx.gen.{hpp,cpp}` (one
+    `screenFx_<n>` build callback per enabled placement, params baked as a local
+    array) and injects `applyCustomPostFx` calls into both the ORBIT and FPP
+    frame loops at each effect's slot (in-loop for a concrete layer, after the
+    loop for topmost).
+  - **Verified** (codegen + full PCSX2 e2e, orbit scratch project with a
+    "Color Wash" effect at the top of the stack, params R=0.1/G=0/B=0.4,
+    amount 0.6): the editor builds clean; `screen_fx.gen.cpp` emits
+    `customFx`-style `screenFx_0` with the params baked (`0.6F, 0.1F, 0.0F,
+    0.4F`) and `terrain_game.cpp` calls `applyCustomPostFx(&screenFx_0, nullptr)`
+    after the HUD loop; the Docker build compiled the new engine API + the
+    generated effect in the PS2 toolchain (`screen_fx.gen.o` linked into the
+    ELF) and booted in PCSX2. A/B screenshots: with the effect **on**, the whole
+    frame is washed toward blue (the default green checker terrain reads
+    blue-gray, the sky darkens toward the tint); with it **off**
+    (`enabled:false`), the effect is dropped from codegen entirely (no
+    `applyCustomPostFx`, no `screenFx_0`) and the scene renders the plain green
+    terrain / blue sky. Docs: new `docs/custom-screen-effects.md` (format, the
+    GS draw API + blend cheat-sheet, packet budget, "file must travel with the
+    project", limitations), plus README / docs index / both dev skills. Not
+    built (documented as follow-ups): per-scene param overrides, flow-graph
+    "Set <effect> param" runtime control, and custom VRAM / uploaded textures.
+    The **editor UI was driven with synthetic clicks** (Tools > UI Editor):
+    screenshots confirm the `[ FX: Color Wash ]` entry sits in the screen stack
+    between the pinned USE prompt and the built-in film-grain / bloom markers,
+    and selecting it shows the properties panel with the four manifest sliders
+    reading the placement's values (Amount 0.600 / Red 0.100 / Green 0.000 /
+    Blue 0.400) plus Jump-to-file / Remove-from-stack. Fine-grained
+    drag-reorder and live slider dragging weren't scripted; the stack model and
+    param round-trip they drive are the same paths the load/codegen exercised.
 - (87) **Missing assets no longer kill the game - they degrade gracefully.** A
   failed asset load used to be a fatal assertion (game stops). Now the engine
   recovers and keeps running: a **missing/empty texture** returns a visible 8x8

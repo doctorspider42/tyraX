@@ -62,7 +62,12 @@ clipper, the StaPip `clip` VU1 program family (on-VU1 Sutherland–Hodgman
 behind the hidden `"clipping": "vu1"` project mode — design + status in
 `docs/vu1-clipping-plan.md`), static pools in `stapip_clipper.cpp` /
 `stapip_qbuffer.cpp`,
-`RendererCorePostFx` (bloom + film grain via GS blits), WAV-header-aware song
+`RendererCorePostFx` (bloom + film grain via GS blits; plus `applyCustom()` +
+`RendererCore::applyCustomPostFx()` for user-authored full-screen effects — see
+the editor's custom screen effects, `docs/custom-screen-effects.md`; the effect
+body appends GS primitives through the now-public `blit()`/`flatQuad()` and the
+framebuffer/noise/scratch-buffer accessors, and the engine wraps the state
+setup/teardown + DMA kick), WAV-header-aware song
 player, `bboxVersion` on `StaPipBag` for moving geometry, `LeanObjLoader`
 (OBJ+MTL, host:/cdrom0:-safe; parsing semantics mirror the editor's
 `src/objparser.cpp` — keep the two in sync), `physics/CollisionMesh` (XZ-grid

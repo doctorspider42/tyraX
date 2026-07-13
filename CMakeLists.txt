@@ -41,6 +41,7 @@ add_executable(tyra-editor
     src/pcsx2_config.cpp
     src/pngquant.cpp
     src/project.cpp
+    src/screenfx.cpp
     src/texbake.cpp
     src/save_assets.cpp
     src/templates.cpp

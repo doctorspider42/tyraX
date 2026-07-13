@@ -10,7 +10,8 @@
 # GS hardware distance fog state (setFog/disableFog), camera spot light
 # (setSpotLight/disableSpotLight - the camera flashlight), applyPostFx()
 # (mid-frame post fx, per-pass, so HUD sprites can draw crisp on top of
-# bloom while film grain still sits over everything)
+# bloom while film grain still sits over everything), applyCustomPostFx()
+# (user-authored full-screen effects composited at a stack slot)
 */
 
 #pragma once
@@ -158,6 +159,18 @@ class RendererCore {
    * first pass that actually draws.
    */
   void applyPostFx(int passes = RendererCorePostFx::PassAll);
+
+  /**
+   * Run one user-authored full-screen post effect NOW (tyra-editor fork,
+   * "custom screen effects"). Like applyPostFx() it runs the PATH1 drain
+   * barrier once so the pass composites over finished 3D, then hands off to
+   * RendererCorePostFx::applyCustom(): the `build` callback appends raw GS
+   * blits and returns the advanced packet cursor. Called mid-frame at the
+   * effect's slot in the UI Editor screen stack, so HUD sprites drawn after it
+   * stay crisp on top. Unlike the built-in passes there is no once-per-frame
+   * mask - a custom pass always draws when reached.
+   */
+  void applyCustomPostFx(RendererCorePostFx::CustomFxBuild build, void* user);
 
   /** VSync and swap frame double buffer. */
   void endFrame();

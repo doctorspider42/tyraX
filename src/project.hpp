@@ -7,6 +7,7 @@
 #include "ambience.hpp"
 #include "flowgraph.hpp"
 #include "grading.hpp"
+#include "screenfx.hpp"
 #include "sequence.hpp"
 
 struct TerrainConfig {
@@ -553,6 +554,23 @@ inline bool operator==(const HudText& a, const HudText& b) {
            a.shadow == b.shadow && a.visibleAtStart == b.visibleAtStart;
 }
 
+// One custom screen effect placed in the screen stack. The effect body lives
+// in a <project>/screen-effects/<stem>.screenfx file (loaded into
+// customScreenEffects()); this is the project-side record: which effect, where
+// in the stack, and its param values. See CustomScreenFx in screenfx.hpp.
+struct ScreenFxPlacement {
+    std::string key;             // "custom:<file-stem>"
+    int layer = -1;              // stack slot, like Project::hudBloomLayer
+    bool enabled = true;         // unchecked = kept but not composited/generated
+    float params[4] = {0, 0, 0, 0};
+};
+
+inline bool operator==(const ScreenFxPlacement& a, const ScreenFxPlacement& b) {
+    return a.key == b.key && a.layer == b.layer && a.enabled == b.enabled &&
+           a.params[0] == b.params[0] && a.params[1] == b.params[1] &&
+           a.params[2] == b.params[2] && a.params[3] == b.params[3];
+}
+
 // A streaming layer: a named group of scene objects that the game can load
 // into / evict from memory at runtime (Load Layer / Unload Layer flow nodes)
 // - GTA3-style interior streaming. Also doubles as an editor visibility
@@ -781,6 +799,14 @@ struct Project {
     // filmic overlay over the whole screen. Grading rides with bloom.
     int hudBloomLayer = -1;
     int hudGrainLayer = -1;
+    // Custom screen effects placed in the screen stack (Tools > UI Editor).
+    // Each placement references a <project>/screen-effects/*.screenfx file by
+    // its key ("custom:<stem>") and carries the effect's per-placement param
+    // values; `layer` has the same meaning as hudBloomLayer (index into `hud`,
+    // -1 = topmost). Project-wide like bloom/grain (not per-scene), and not on
+    // the undo stack (edited via saveAll, like the rest of the UI Editor).
+    // Placements whose .screenfx file is missing on load are dropped.
+    std::vector<ScreenFxPlacement> screenFx;
     // Music tracks (16-bit 22kHz stereo WAV in res/audio/), played via the
     // flow graph (Play Music / Stop Music / Set Music Volume actions).
     std::vector<std::string> music;

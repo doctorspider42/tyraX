@@ -34,6 +34,8 @@ RendererCorePostFx::RendererCorePostFx() {
   grain = 0;
   clearGrading();
   rng = 0xC0FFEE01u;
+  curFbVram = 0;
+  curFbBufW = 0;
   packet = packet2_create(224, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
 }
 
@@ -314,6 +316,71 @@ void RendererCorePostFx::apply(int passes) {
   packet2_update(packet, q);
   // The VU1 3D pipeline expects the window-centered raster offset - put it
   // back, exactly like RendererCore2D does after its sprites.
+  packet2_update(packet,
+                 draw_primitive_xyoffset(packet->next, 0,
+                                         2048.0F - (fbW / 2.0F),
+                                         2048.0F - (fbH / 2.0F)));
+  packet2_update(packet, draw_finish(packet->next));
+  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
+  draw_wait_finish();
+}
+
+void RendererCorePostFx::applyCustom(CustomFxBuild build, void* user) {
+  if (build == nullptr || gs == nullptr) return;
+
+  auto* fb = gs->getCurrentFrameBuffer();
+  curFbVram = static_cast<int>(fb->address);
+  curFbBufW = static_cast<int>(fb->width);
+
+  packet2_reset(packet, false);
+  packet2_update(packet,
+                 draw_primitive_xyoffset(packet->base, 0, 2048.0F, 2048.0F));
+
+  qword_t* q = packet->next;
+
+  // Identical frame-state setup to apply(): mask z writes for the whole pass,
+  // pin RGBAQ and disable the alpha test so the author's blits (which send
+  // only UV+XYZ) are never rejected. See apply() for the full rationale.
+  const int zbp = static_cast<int>(gs->zBuffer.address) >> 11;
+  const int zsm = static_cast<int>(gs->zBuffer.zsm);
+  PACK_GIFTAG(q, GIF_SET_TAG(3, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  PACK_GIFTAG(q, GS_SET_ZBUF(zbp, zsm, 1), GS_REG_ZBUF_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_RGBAQ(0x80, 0x80, 0x80, 0x80, 0x3F800000),
+              GS_REG_RGBAQ);
+  q++;
+  PACK_GIFTAG(q,
+              GS_SET_TEST(0, 0, 0, 0, 0, 0, 1,
+                          static_cast<int>(gs->zBuffer.method)),
+              GS_REG_TEST_1);
+  q++;
+
+  // The user-authored effect appends its GS primitives here. It draws through
+  // blit()/flatQuad() (or raw PACK_GIFTAG) and advances the cursor. The 224-
+  // qword packet leaves ~200 qwords after this setup: roughly 18 blits or 33
+  // flat quads - plenty for a screen effect, but not unbounded.
+  q = build(*this, q, user);
+
+  // Restore exactly what the rest of the frame machinery expects (mirrors
+  // apply()).
+  PACK_GIFTAG(q, GIF_SET_TAG(5, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  PACK_GIFTAG(q, GS_SET_FRAME(curFbVram >> 11, curFbBufW >> 6, GS_PSM_32, 0),
+              GS_REG_FRAME_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_CLAMP(1, 1, 0, 0, 0, 0), GS_REG_CLAMP_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_ZBUF(zbp, zsm, 0), GS_REG_ZBUF_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_TEX1(1, 0, 1, 1, 0, 0, 0), GS_REG_TEX1_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_ALPHA(0, 1, 0, 1, 0), GS_REG_ALPHA_1);
+  q++;
+  q = draw_enable_tests(q, 0, &gs->zBuffer);
+
+  packet2_update(packet, q);
   packet2_update(packet,
                  draw_primitive_xyoffset(packet->next, 0,
                                          2048.0F - (fbW / 2.0F),

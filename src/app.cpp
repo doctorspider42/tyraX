@@ -5554,6 +5554,13 @@ bool App::hudBakeControls(HudImage& h) {
 namespace {
 constexpr int kBloomMark = -2;
 constexpr int kGrainMark = -3;
+// Custom screen effect placements in the stack encode as kFxMarkBase - index
+// (index into Project::screenFx). Any entry <= kFxMarkBase is a custom effect;
+// bloom/grain (-2/-3) and HUD sprites (>= 0) stay clear of this range.
+constexpr int kFxMarkBase = -100;
+constexpr bool isFxMark(int e) { return e <= kFxMarkBase; }
+constexpr int fxMarkIndex(int e) { return kFxMarkBase - e; }
+constexpr int fxMark(int i) { return kFxMarkBase - i; }
 }  // namespace
 
 void App::drawUiEditorWindow() {
@@ -5574,34 +5581,59 @@ void App::drawUiEditorWindow() {
     // sprite L; layer -1 (or >= n) renders after every sprite (topmost). Bloom
     // before grain when they share a slot (grain composites over the graded,
     // bloomed image - the fixed internal order).
+    const int nFx = (int)project_.screenFx.size();
+    auto topmost = [&](int L) { return L < 0 || L >= n; };
+    auto emitMarkers = [&](std::vector<int>& s, int layer) {
+        if (project_.hudBloomLayer == layer) s.push_back(kBloomMark);
+        if (project_.hudGrainLayer == layer) s.push_back(kGrainMark);
+        for (int fi = 0; fi < nFx; ++fi)
+            if (project_.screenFx[fi].layer == layer) s.push_back(fxMark(fi));
+    };
     auto buildStack = [&]() {
         std::vector<int> s;
-        s.reserve(n + 2);
+        s.reserve(n + 2 + nFx);
         for (int i = 0; i < n; ++i) {
-            if (project_.hudBloomLayer == i) s.push_back(kBloomMark);
-            if (project_.hudGrainLayer == i) s.push_back(kGrainMark);
+            emitMarkers(s, i);
             s.push_back(i);
         }
-        if (project_.hudBloomLayer < 0 || project_.hudBloomLayer >= n)
-            s.push_back(kBloomMark);
-        if (project_.hudGrainLayer < 0 || project_.hudGrainLayer >= n)
-            s.push_back(kGrainMark);
+        // Topmost markers (layer -1 or >= n): bloom, grain, then effects in
+        // placement order.
+        if (topmost(project_.hudBloomLayer)) s.push_back(kBloomMark);
+        if (topmost(project_.hudGrainLayer)) s.push_back(kGrainMark);
+        for (int fi = 0; fi < nFx; ++fi)
+            if (topmost(project_.screenFx[fi].layer)) s.push_back(fxMark(fi));
         return s;
     };
-    // Rebuild the model from a render-order stack: hud array is reordered to
-    // match, each layer = number of hud sprites before its marker (n = -1).
+    // Rebuild the model from a render-order stack: hud array + screenFx list are
+    // reordered to match, each layer = number of hud sprites before its marker
+    // (n = -1, topmost). Fx markers carry their OLD placement index; screenFx is
+    // rebuilt in stack order so composite order among same-slot effects follows
+    // the stack.
     auto rebuild = [&](const std::vector<int>& s) {
         std::vector<HudImage> newHud;
+        std::vector<ScreenFxPlacement> newFx;
         newHud.reserve(n);
+        newFx.reserve(nFx);
         int before = 0, bl = -1, gr = -1;
         for (int e : s) {
             if (e == kBloomMark) bl = before;
             else if (e == kGrainMark) gr = before;
-            else { newHud.push_back(project_.hud[e]); ++before; }
+            else if (isFxMark(e)) {
+                ScreenFxPlacement pl = project_.screenFx[fxMarkIndex(e)];
+                pl.layer = before;
+                newFx.push_back(std::move(pl));
+            } else {
+                newHud.push_back(project_.hud[e]);
+                ++before;
+            }
         }
-        project_.hudBloomLayer = bl >= n ? -1 : bl;
-        project_.hudGrainLayer = gr >= n ? -1 : gr;
+        const int newN = (int)newHud.size();
+        project_.hudBloomLayer = bl >= newN ? -1 : bl;
+        project_.hudGrainLayer = gr >= newN ? -1 : gr;
+        for (ScreenFxPlacement& f : newFx)
+            if (f.layer >= newN) f.layer = -1;
         project_.hud = std::move(newHud);
+        project_.screenFx = std::move(newFx);
     };
 
     // Display order: top of the screen (drawn last) first = reversed stack.
@@ -5650,6 +5682,87 @@ void App::drawUiEditorWindow() {
             "Baked to PNG sprites at build (the PS2 engine has no font).\n"
             "Show/hide them from the flow graph: Show Text / Hide Text.");
 
+    // Custom screen effects loaded from screen-effects/*.screenfx. Effects not
+    // yet placed in the stack are offered here with a "+ Add"; management
+    // (reload / scaffold / jump) mirrors the Flow Graph "Custom nodes..." menu.
+    ImGui::SeparatorText("Screen effects");
+    {
+        auto isPlaced = [&](const std::string& key) {
+            for (const ScreenFxPlacement& f : project_.screenFx)
+                if (f.key == key) return true;
+            return false;
+        };
+        auto addToStack = [&](const CustomScreenFx* e) {
+            ScreenFxPlacement f;
+            f.key = e->key;
+            f.layer = -1;  // topmost by default
+            f.enabled = true;
+            for (int i = 0; i < 4; ++i) f.params[i] = e->paramDefault[i];
+            project_.screenFx.push_back(std::move(f));
+            uiFxSel_ = 5;
+            selectedFx_ = (int)project_.screenFx.size() - 1;
+            changed = true;
+        };
+        int unplaced = 0;
+        for (const auto& e : customScreenEffects()) {
+            if (isPlaced(e->key)) continue;
+            ++unplaced;
+            ImGui::PushID(("addfx" + e->key).c_str());
+            if (ImGui::SmallButton("+ Add")) addToStack(e.get());
+            ImGui::SameLine();
+            ImGui::TextUnformatted(e->title.c_str());
+            ImGui::PopID();
+        }
+        if (customScreenEffects().empty())
+            ImGui::TextDisabled("None. New starter effect below,\nor drop a "
+                                ".screenfx in screen-effects/.");
+        else if (unplaced == 0)
+            ImGui::TextDisabled("All %d effect(s) placed in the stack.",
+                                (int)customScreenEffects().size());
+
+        if (ImGui::SmallButton("Custom effects...")) ImGui::OpenPopup("##customfx");
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Low-level full-screen effects (GS blits, like bloom/grain),\n"
+                "written in screen-effects/*.screenfx. See\n"
+                "docs/custom-screen-effects.md.");
+        if (ImGui::BeginPopup("##customfx")) {
+            ImGui::TextDisabled("%d loaded from screen-effects/",
+                                (int)customScreenEffects().size());
+            ImGui::Separator();
+            if (ImGui::MenuItem("Reload from folder")) {
+                const std::string msg = screenfx::loadForProject(project_.dir);
+                // Drop placements whose effect file vanished on reload.
+                for (size_t i = project_.screenFx.size(); i-- > 0;)
+                    if (!customScreenFx(project_.screenFx[i].key))
+                        project_.screenFx.erase(project_.screenFx.begin() + i);
+                statusMessage_ = msg.empty()
+                                     ? "No custom effects found in screen-effects/"
+                                     : msg;
+                changed = true;
+            }
+            if (ImGui::MenuItem("New starter effect (example.screenfx)")) {
+                const std::string path = screenfx::writeExample(project_.dir);
+                if (path.rfind("error:", 0) == 0) {
+                    statusMessage_ = path;
+                } else {
+                    screenfx::loadForProject(project_.dir);
+                    statusMessage_ = "Wrote " + path + " - edit it, then Reload";
+                }
+            }
+            if (ImGui::BeginMenu("Jump to effect file",
+                                 !customScreenEffects().empty())) {
+                for (const auto& e : customScreenEffects())
+                    if (ImGui::MenuItem(e->title.c_str()))
+                        openInVSCode(e->sourceFile);
+                ImGui::EndMenu();
+            }
+            ImGui::EndPopup();
+        }
+    }
+
     ImGui::SeparatorText("Screen stack");
     ImGui::TextDisabled("Top entry draws last (on top).\nDrag to reorder.");
     // The USE prompt is part of the screen, but pinned: it always draws
@@ -5659,33 +5772,50 @@ void App::drawUiEditorWindow() {
         const int id = order[r];
         ImGui::PushID(r);
         bool isSel;
-        const char* label;
+        std::string label;
+        bool dim = false;  // disabled custom effect
         if (id == kBloomMark) {
             isSel = uiFxSel_ == 1;
             label = "[ Bloom + color grading ]";
         } else if (id == kGrainMark) {
             isSel = uiFxSel_ == 2;
             label = "[ Film grain ]";
+        } else if (isFxMark(id)) {
+            const int fi = fxMarkIndex(id);
+            const ScreenFxPlacement& pl = project_.screenFx[fi];
+            const CustomScreenFx* e = customScreenFx(pl.key);
+            isSel = uiFxSel_ == 5 && selectedFx_ == fi;
+            label = "[ FX: " + (e ? e->title : pl.key) + " ]";
+            dim = !pl.enabled;
+            if (dim) label += "  (off)";
         } else {
             isSel = uiFxSel_ == 0 && selectedHud_ == id;
-            label = project_.hud[id].name.c_str();
+            label = project_.hud[id].name;
         }
-        if (ImGui::Selectable(label, isSel)) {
+        if (dim) ImGui::PushStyleColor(ImGuiCol_Text,
+                                       ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        if (ImGui::Selectable(label.c_str(), isSel)) {
             if (id == kBloomMark) uiFxSel_ = 1;
             else if (id == kGrainMark) uiFxSel_ = 2;
+            else if (isFxMark(id)) { uiFxSel_ = 5; selectedFx_ = fxMarkIndex(id); }
             else { uiFxSel_ = 0; selectedHud_ = id; }
         }
+        if (dim) ImGui::PopStyleColor();
         // Drag to reorder: swap with the neighbor the cursor moved towards,
         // then rebuild the model from the new order.
         if (ImGui::IsItemActive() && !ImGui::IsItemHovered()) {
             const int dst = r + (ImGui::GetMouseDragDelta(0).y < 0.0f ? -1 : 1);
             if (dst >= 0 && dst < (int)order.size()) {
-                // Remember the selected image so its selection survives the
-                // reorder (indices shift; identity does not).
+                // Remember the selected image / effect so its selection
+                // survives the reorder (indices shift; identity does not).
                 const bool hadHud =
                     uiFxSel_ == 0 && selectedHud_ >= 0 && selectedHud_ < n;
                 HudImage selHud;
                 if (hadHud) selHud = project_.hud[selectedHud_];
+                const bool hadFx = uiFxSel_ == 5 && selectedFx_ >= 0 &&
+                                   selectedFx_ < (int)project_.screenFx.size();
+                ScreenFxPlacement selFx;
+                if (hadFx) selFx = project_.screenFx[selectedFx_];
 
                 std::swap(order[r], order[dst]);
                 std::vector<int> s(order.rbegin(), order.rend());
@@ -5694,6 +5824,9 @@ void App::drawUiEditorWindow() {
                 if (hadHud)
                     for (int i = 0; i < (int)project_.hud.size(); ++i)
                         if (project_.hud[i] == selHud) { selectedHud_ = i; break; }
+                if (hadFx)
+                    for (int i = 0; i < (int)project_.screenFx.size(); ++i)
+                        if (project_.screenFx[i] == selFx) { selectedFx_ = i; break; }
                 ImGui::ResetMouseDragDelta();
                 changed = true;
             }
@@ -5902,6 +6035,55 @@ void App::drawUiEditorWindow() {
         if (ImGui::Button("Delete text")) {
             project_.hudTexts.erase(project_.hudTexts.begin() + selectedText_);
             selectedText_ = -1;
+            uiFxSel_ = 0;
+            changed = true;
+        }
+    } else if (uiFxSel_ == 5 && selectedFx_ >= 0 &&
+               selectedFx_ < (int)project_.screenFx.size()) {
+        // --- a custom screen effect placement -------------------------------
+        ScreenFxPlacement& pl = project_.screenFx[selectedFx_];
+        const CustomScreenFx* e = customScreenFx(pl.key);
+        ImGui::SeparatorText(e ? e->title.c_str() : pl.key.c_str());
+        if (!e) {
+            ImGui::TextWrapped(
+                "The effect file for '%s' is missing from screen-effects/. "
+                "Restore it (then Reload), or remove this placement.",
+                pl.key.c_str());
+        } else {
+            if (ImGui::Checkbox("Enabled", &pl.enabled)) changed = true;
+            ImGui::TextDisabled(
+                "Low-level GS effect (screen-effects/%s). No pixel shaders on\n"
+                "the PS2 - not previewed in the editor viewport; build to see it.",
+                (std::filesystem::path(e->sourceFile).filename().string()).c_str());
+            ImGui::Spacing();
+            if (e->paramCount == 0) {
+                ImGui::TextDisabled("This effect has no parameters.");
+            } else {
+                for (int i = 0; i < e->paramCount; ++i) {
+                    ImGui::SetNextItemWidth(scaled(200));
+                    if (ImGui::SliderFloat(e->paramLabel[i].c_str(), &pl.params[i],
+                                           e->paramMin[i], e->paramMax[i], "%.3f"))
+                        pl.params[i] = pl.params[i] < e->paramMin[i]
+                                           ? e->paramMin[i]
+                                           : pl.params[i] > e->paramMax[i]
+                                                 ? e->paramMax[i]
+                                                 : pl.params[i];
+                    changed |= ImGui::IsItemDeactivatedAfterEdit();
+                }
+            }
+            ImGui::Spacing();
+            ImGui::TextWrapped(
+                "Stack entries above this layer draw crisp on top of the "
+                "effect; entries below are composited with it. Drag it in the "
+                "stack to move it (e.g. under the HUD, or over everything).");
+            ImGui::Spacing();
+            if (ImGui::Button("Jump to effect file"))
+                openInVSCode(e->sourceFile);
+        }
+        ImGui::Spacing();
+        if (ImGui::Button("Remove from stack")) {
+            project_.screenFx.erase(project_.screenFx.begin() + selectedFx_);
+            selectedFx_ = -1;
             uiFxSel_ = 0;
             changed = true;
         }
@@ -9825,6 +10007,7 @@ void App::performAssetDelete(const PendingAssetDelete& d) {
                 };
                 fixLayer(project_.hudBloomLayer);
                 fixLayer(project_.hudGrainLayer);
+                for (ScreenFxPlacement& f : project_.screenFx) fixLayer(f.layer);
             }
             selectedHud_ = -1;
             bool stillUsed = false;

@@ -21,6 +21,11 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   function in `flow_nodes.hpp` with input/output pins of any kind (object
   outputs work as runtime refs into built-in nodes), and how to copy a node to
   another project.
+- [Custom screen effects](custom-screen-effects.md) - defining your own
+  full-screen post effects (like the built-in bloom / film grain) in
+  `.screenfx` text files (no editor rebuild): a small manifest plus a raw
+  low-level GS-blit body, positioned in the UI Editor screen stack with numeric
+  parameters, and how to copy an effect to another project.
 - [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) - importing a
   real ARKit camera move (CamTrackAR `.hfcs` or the app-agnostic CSV) into a
   Cutscene Director camera track: the canonical take space, the mapping and
