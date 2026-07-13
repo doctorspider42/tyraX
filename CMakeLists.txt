@@ -30,6 +30,7 @@ add_executable(tyra-editor
     src/main.cpp
     src/app.cpp
     src/camtake.cpp
+    src/flownode.cpp
     src/gl_loader.cpp
     src/glbparser.cpp
     src/json.cpp

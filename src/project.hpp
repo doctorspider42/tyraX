@@ -71,14 +71,22 @@ enum class PrimitiveType {
 constexpr int kDefaultPrimDetail = 16;  // curved shapes (radial segments)
 constexpr int kDefaultBoxDetail = 1;    // Box (subdivisions per edge)
 
-inline int primDetailMin(PrimitiveType t) { return t == PrimitiveType::Box ? 1 : 3; }
-inline int primDetailMax(PrimitiveType t) { return t == PrimitiveType::Box ? 16 : 64; }
+// SavePoint tessellates exactly like a Box (the game's geometry builder and
+// the viewport both draw it as one), so it shares the Box detail semantics.
+// Without this it inherited the curved-shape default of 16 segments, which
+// addBox read as 16 subdivisions per edge - every save shrine silently cost
+// 3072 triangles (9.2k verts) of near-camera EE clipping in the game.
+inline bool primDetailIsBoxLike(PrimitiveType t) {
+    return t == PrimitiveType::Box || t == PrimitiveType::SavePoint;
+}
+inline int primDetailMin(PrimitiveType t) { return primDetailIsBoxLike(t) ? 1 : 3; }
+inline int primDetailMax(PrimitiveType t) { return primDetailIsBoxLike(t) ? 16 : 64; }
 inline int clampPrimDetail(PrimitiveType t, int d) {
     const int lo = primDetailMin(t), hi = primDetailMax(t);
     return d < lo ? lo : (d > hi ? hi : d);
 }
 inline int defaultPrimDetail(PrimitiveType t) {
-    return t == PrimitiveType::Box ? kDefaultBoxDetail : kDefaultPrimDetail;
+    return primDetailIsBoxLike(t) ? kDefaultBoxDetail : kDefaultPrimDetail;
 }
 // Sphere vertical rings derived from the radial segment count (~5:7 ratio).
 inline int primSphereStacks(int detail) {
@@ -90,7 +98,9 @@ inline int primSphereStacks(int detail) {
 inline int primTriangleCount(PrimitiveType type, int detail) {
     const int d = clampPrimDetail(type, detail);
     switch (type) {
-        case PrimitiveType::Box: return 12 * d * d;  // 6 faces * 2 * d^2 subquads
+        case PrimitiveType::Box:
+        case PrimitiveType::SavePoint:
+            return 12 * d * d;  // 6 faces * 2 * d^2 subquads
         case PrimitiveType::Sphere: return primSphereStacks(d) * d * 2;
         case PrimitiveType::Cylinder: return d * 4;  // side (2/seg) + 2 caps
         case PrimitiveType::Cone: return d * 2;      // side + base (1/seg each)
@@ -276,6 +286,18 @@ struct ProjectSettings {
     std::string videoSystem = "auto";      // "auto" | "ntsc" | "pal"
     std::string buildProfile = "release";  // "release" | "debug"
 
+    // Output scan mode. "interlaced" is the stock 480i/576i signal (follows
+    // videoSystem). "progressive" outputs flicker-free 480p, "1080i" a
+    // pillarboxed HD signal - both need component cables on a real console
+    // (PCSX2 shows every mode) and always run at 60 Hz.
+    std::string displayMode = "interlaced";  // "interlaced" | "progressive" | "1080i"
+
+    // 16:9 anamorphic output: widens the projection so proportions are
+    // correct on a widescreen TV (the framebuffer stays the same; in 1080i
+    // the GS display window widens instead). Also switchable at runtime
+    // via the Set Widescreen flow node.
+    bool widescreen = false;
+
     // Texture quantization at build (the PS2-native "compression": palettized
     // PSMT8/PSMT4 textures). Applied to res/models|materials|textures PNGs
     // when baking res/ -> .res-baked/; sources stay untouched. Per-asset
@@ -284,6 +306,8 @@ struct ProjectSettings {
     std::string textureQuant = "4bit";
     bool showFps = false;     // debug profile only: on-screen FPS counter
     bool showMemory = false;  // debug profile only: on-screen free-RAM readout
+    bool showProfiler = false;  // debug profile only: per-phase EE-time HUD
+                                // (scene / highlight / particles / whole frame)
 
     // Experimental: skip the vsync wait before the buffer flip. Frame rate
     // becomes continuous instead of quantized to 50/25 (PAL), at the cost
@@ -383,6 +407,13 @@ struct ProjectSettings {
     float highlightColor[3] = {1.0f, 0.85f, 0.15f};  // outline color
     float highlightWidth = 0.35f;  // total rim width incl. blur, world units
     int highlightSteps = 4;        // blur shells; 1 = sharp outline
+    // Opacity of the strongest (innermost) shell, 0..1; the outer shells fade
+    // from it. 1 = the strongest shell is fully opaque.
+    float highlightOpacity = 0.56f;
+    // Experimental: draw the glow ON the object surface (a colored overlay
+    // that fades outward into a rim) instead of only a rim BEHIND it. Off =
+    // the classic silhouette outline (shells pushed behind object depth).
+    bool highlightOverlay = false;
 };
 
 inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
@@ -390,7 +421,9 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
         return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
     };
     return a.videoSystem == b.videoSystem && a.buildProfile == b.buildProfile &&
+           a.displayMode == b.displayMode && a.widescreen == b.widescreen &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
+           a.showProfiler == b.showProfiler &&
            a.disableVsync == b.disableVsync &&
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
            a.meshLodDistance == b.meshLodDistance &&
@@ -415,7 +448,9 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.highlightDistance == b.highlightDistance &&
            eq3(a.highlightColor, b.highlightColor) &&
            a.highlightWidth == b.highlightWidth &&
-           a.highlightSteps == b.highlightSteps;
+           a.highlightSteps == b.highlightSteps &&
+           a.highlightOpacity == b.highlightOpacity &&
+           a.highlightOverlay == b.highlightOverlay;
 }
 
 // Per-scene override switches (Scene > Preferences). Each "scene-visual"
@@ -470,6 +505,45 @@ inline bool operator==(const HudImage& a, const HudImage& b) {
            a.texW == b.texW && a.texH == b.texH && a.texQuant == b.texQuant;
 }
 
+// The built-in "USE" prompt as a customizable HUD element (Tools > UI
+// Editor, a non-deletable entry). imagePath "" = the embedded built-in
+// use.png sprite; a custom PNG replaces it (baked like any HUD image). The
+// defaults reproduce the classic hardcoded placement: centered, top edge at
+// 72% of the 448px screen, 128x32 px.
+inline HudImage defaultUsePrompt() {
+    HudImage h;
+    h.name = "USE prompt";
+    h.pos[0] = 0.5f;
+    h.pos[1] = 0.72f + 16.0f / 448.0f;  // center anchor of the old top-at-72%
+    h.size[0] = 128.0f;
+    h.size[1] = 32.0f;
+    return h;
+}
+
+// An on-screen text (Tools > UI Editor > Texts): baked to a PNG sprite at
+// build (res/hud/text-<name>.png - the engine has no font), shown/hidden at
+// runtime by the Show Text / Hide Text flow nodes. Multi-line on '\n'.
+struct HudText {
+    std::string name = "text";
+    std::string text = "New text";
+    float pos[2] = {0.5f, 0.8f};   // normalized screen position (center anchor)
+    int size = 16;                 // font pixel height
+    float color[3] = {1.0f, 1.0f, 1.0f};
+    // Baked text font, GameMenu::fontPath semantics: "" = default (Consolas
+    // Bold chain), "res/fonts/x.ttf" = project font, bare name = Windows font.
+    std::string fontPath;
+    bool shadow = true;           // 1px dark offset behind the glyphs
+    bool visibleAtStart = false;  // shown when the scene starts
+};
+
+inline bool operator==(const HudText& a, const HudText& b) {
+    return a.name == b.name && a.text == b.text && a.pos[0] == b.pos[0] &&
+           a.pos[1] == b.pos[1] && a.size == b.size &&
+           a.color[0] == b.color[0] && a.color[1] == b.color[1] &&
+           a.color[2] == b.color[2] && a.fontPath == b.fontPath &&
+           a.shadow == b.shadow && a.visibleAtStart == b.visibleAtStart;
+}
+
 // A streaming layer: a named group of scene objects that the game can load
 // into / evict from memory at runtime (Load Layer / Unload Layer flow nodes)
 // - GTA3-style interior streaming. Also doubles as an editor visibility
@@ -478,11 +552,24 @@ struct SceneLayer {
     std::string name = "Layer";
     bool startLoaded = true;    // game: resident when the scene starts
     bool editorVisible = true;  // editor-only: draw/pick the objects
+
+    // Auto-streaming (opt-in): the game loads this layer while the player is
+    // within streamRadius of (streamX, streamZ) and unloads it once they
+    // leave radius + hysteresis - GTA-style zone streaming without wiring
+    // the flow graph. Requests are edge-triggered (issued only when the
+    // player crosses the boundary), so Load/Unload Layer nodes can still
+    // override until the next crossing. When enabled, the initial residency
+    // comes from the spawn distance, not startLoaded.
+    bool autoStream = false;
+    float streamX = 0.0f, streamZ = 0.0f;  // zone center, world units
+    float streamRadius = 60.0f;            // load within this range
 };
 
 inline bool operator==(const SceneLayer& a, const SceneLayer& b) {
     return a.name == b.name && a.startLoaded == b.startLoaded &&
-           a.editorVisible == b.editorVisible;
+           a.editorVisible == b.editorVisible && a.autoStream == b.autoStream &&
+           a.streamX == b.streamX && a.streamZ == b.streamZ &&
+           a.streamRadius == b.streamRadius;
 }
 
 // A scene: its own objects (each with its flow graph), its own terrain
@@ -527,7 +614,8 @@ inline bool operator==(const SceneData& a, const SceneData& b) {
 struct MenuEntry {
     std::string label = "New entry";
     // What Cross does on this row. Close/scene/save-menu also dismiss the
-    // menu; set/add value and events keep it open (add a Close entry).
+    // menu; set/add value, events and toggles/choices keep it open (add a
+    // Close entry).
     enum Action {
         Close = 0,       // dismiss the menu (a title screen's "Start")
         SwitchScene = 1, // param = scene name
@@ -536,15 +624,26 @@ struct MenuEntry {
         SetValue = 4,    // param = save value name, amount = new value
         AddValue = 5,    // param = save value name, amount = delta
         FlowEvent = 6,   // param = event name (fires On Menu Event triggers)
+        // Stateful rows. The state lives in a save value (param = its name):
+        // the value holds the option index, the save value's default is the
+        // initial state, and flow graphs react through the pure bool sources
+        // (Value At Least -> On Condition). Cross / dpad right cycle forward,
+        // dpad left backward. The current option label renders right-aligned
+        // on the row from the baked value strip (menubake).
+        Toggle = 7,      // two options, "Off"/"On" unless customized
+        Choice = 8,      // one of `options`, cycled in order
     };
     int action = Close;
     std::string param;
     float amount = 0.0f;
+    // Toggle/Choice option labels (value = index into this list). Toggle
+    // treats an empty list as {"Off", "On"}.
+    std::vector<std::string> options;
 };
 
 inline bool operator==(const MenuEntry& a, const MenuEntry& b) {
     return a.label == b.label && a.action == b.action && a.param == b.param &&
-           a.amount == b.amount;
+           a.amount == b.amount && a.options == b.options;
 }
 
 // One image composited into a menu's baked panel (see GameMenu::images).
@@ -657,6 +756,12 @@ struct Project {
     const std::vector<SceneObject>& objects() const { return active().objects; }
 
     std::vector<HudImage> hud;
+    // The USE prompt as an overridable HUD element (see defaultUsePrompt).
+    // Always present - the UI Editor edits it but cannot delete it.
+    HudImage usePrompt = defaultUsePrompt();
+    // On-screen texts baked to sprites at build, triggered by the Show Text /
+    // Hide Text flow nodes (Tools > UI Editor > Texts).
+    std::vector<HudText> hudTexts;
     // Where the full-screen post effects sit in the screen stack (Tools > UI
     // Editor). Bloom (with color grading) and film grain are placed
     // independently: the effect applies right before the HUD sprite at that

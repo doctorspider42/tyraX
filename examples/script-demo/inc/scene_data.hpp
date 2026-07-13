@@ -7,6 +7,7 @@ struct SceneObjectData {
   int type;  // 0=box 1=sphere 2=cylinder 3=cone 4=spawn-point 5=model
              // 6=player 7=emitter 8=sound 9=point-light 10=save-point
              // 11=empty (pure transform, no geometry/collision)
+             // 12=plane 13=decal 14=camera (cutscene shot marker)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -66,6 +67,9 @@ inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
 constexpr int SCENE_MAX_LAYERS = 1;
 constexpr bool SCENE_LAYER_STARTS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{true}};
+constexpr float SCENE_LAYER_STREAM_XS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
+constexpr float SCENE_LAYER_STREAM_ZS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
+constexpr float SCENE_LAYER_STREAM_RADII[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
 
 constexpr int SND_COUNT = 0;
 inline const char* SND_PATHS[1] = {""};
@@ -90,10 +94,12 @@ constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {1.0F};
 constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {1.0F};
 constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {1.0F};
 constexpr bool CLIP_PRECISES[SCENE_COUNT] = {true};
+constexpr bool CLIP_VU1S[SCENE_COUNT] = {false};
 constexpr float SKY_RS[SCENE_COUNT] = {63.75F};
 constexpr float SKY_GS[SCENE_COUNT] = {140.25F};
 constexpr float SKY_BS[SCENE_COUNT] = {198.9F};
 constexpr bool SKY_DOMES[SCENE_COUNT] = {true};
+constexpr float SKY_ZENITH_EXPS[SCENE_COUNT] = {1.0F};
 constexpr float SKY_TOP_RS[SCENE_COUNT] = {20.4F};
 constexpr float SKY_TOP_GS[SCENE_COUNT] = {76.5F};
 constexpr float SKY_TOP_BS[SCENE_COUNT] = {165.75F};
@@ -118,6 +124,8 @@ constexpr float HIGHLIGHT_GS[SCENE_COUNT] = {216.75F};
 constexpr float HIGHLIGHT_BS[SCENE_COUNT] = {38.25F};
 constexpr float HIGHLIGHT_WIDTHS[SCENE_COUNT] = {0.35F};
 constexpr int HIGHLIGHT_STEPS_S[SCENE_COUNT] = {4};
+constexpr float HIGHLIGHT_OPACITIES[SCENE_COUNT] = {0.56F};
+constexpr bool HIGHLIGHT_OVERLAYS[SCENE_COUNT] = {false};
 
 constexpr int GRADING_COUNT = 0;
 inline const char* GRADING_NAMES[GRADING_COUNT > 0 ? GRADING_COUNT : 1] = {""};
@@ -184,6 +192,9 @@ inline int everyFrames(float seconds) {
 #define SCENE_OBJECTS SCENE_OBJECT_TABLES[g_activeScene]
 #define SCENE_LAYER_COUNT SCENE_LAYER_COUNTS[g_activeScene]
 #define SCENE_LAYER_START SCENE_LAYER_STARTS[g_activeScene]
+#define SCENE_LAYER_STREAM_X SCENE_LAYER_STREAM_XS[g_activeScene]
+#define SCENE_LAYER_STREAM_Z SCENE_LAYER_STREAM_ZS[g_activeScene]
+#define SCENE_LAYER_STREAM_R SCENE_LAYER_STREAM_RADII[g_activeScene]
 #define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
 #define PLAYER_MODE PLAYER_MODES[g_activeScene]
 #define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[g_activeScene]
@@ -214,10 +225,12 @@ inline int everyFrames(float seconds) {
 #define TERRAIN_TINT_B TERRAIN_TINTS[g_activeScene][2]
 // Per-scene sky / clipping / post-FX / usable-highlight (Scene > Preferences)
 #define CLIP_PRECISE CLIP_PRECISES[g_activeScene]
+#define CLIP_VU1 CLIP_VU1S[g_activeScene]
 #define SKY_R SKY_RS[g_activeScene]
 #define SKY_G SKY_GS[g_activeScene]
 #define SKY_B SKY_BS[g_activeScene]
 #define SKY_DOME SKY_DOMES[g_activeScene]
+#define SKY_ZENITH_EXP SKY_ZENITH_EXPS[g_activeScene]
 #define SKY_TOP_R SKY_TOP_RS[g_activeScene]
 #define SKY_TOP_G SKY_TOP_GS[g_activeScene]
 #define SKY_TOP_B SKY_TOP_BS[g_activeScene]
@@ -242,4 +255,6 @@ inline int everyFrames(float seconds) {
 #define HIGHLIGHT_B HIGHLIGHT_BS[g_activeScene]
 #define HIGHLIGHT_WIDTH HIGHLIGHT_WIDTHS[g_activeScene]
 #define HIGHLIGHT_STEPS HIGHLIGHT_STEPS_S[g_activeScene]
+#define HIGHLIGHT_OPACITY HIGHLIGHT_OPACITIES[g_activeScene]
+#define HIGHLIGHT_OVERLAY HIGHLIGHT_OVERLAYS[g_activeScene]
 #define terrainHeightAt(x, z) terrainHeightAtScene(g_activeScene, (x), (z))

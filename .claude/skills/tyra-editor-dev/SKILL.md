@@ -53,7 +53,8 @@ Two sibling skills cover the rest of the system:
 | `app.cpp/.hpp` | 2751 | The whole ImGui shell: menus, all panels (Project, Scene, Scripts, HUD, Music, Sounds, Output, Disc Layout, Flow Graph), modals, gizmo + sculpt input, undo/redo, clipboard, wiring viewport ↔ project ↔ runner. |
 | `project.cpp/.hpp` | 979 | **Data model + JSON (de)serialization + generated-file refresh.** `Project`, `SceneData`, `SceneObject`, `TerrainConfig`, `ProjectSettings`. `save()`/`load()` (the single `<name>.tyra`: game data + editor state + window layout), `create()`, `saveHeights()/loadHeights()`, `saveHistory()/loadHistory()` (`<name>.history` undo stack), `refreshGenerated()`. |
 | `templates.cpp/.hpp` | 3522 | **All code generation.** `templates::generate(Project)` returns `vector<File>` (relativePath + content). Scene tables, terrain game sources, flow-graph compilation, Dockerfile/Makefile/compose, VS Code IntelliSense config. |
-| `flowgraph.hpp` | 216 | Flow-graph data model: `FlowNode`, `FlowLink` (exec / object-id / position / bool link kinds), `FlowGraph`. Per-object graphs, stored inside objects in the `.tyra` file. |
+| `flowgraph.hpp` | 216 | Flow-graph data model: `FlowNode`, `FlowLink` (exec / object-id / position / bool link kinds), `FlowGraph`, the built-in `flowNodeTypes()` registry, and the project-scoped custom-node registry (`CustomFlowNode`, `customFlowNodes()`). Per-object graphs, stored inside objects in the `.tyra` file. |
+| `flownode.cpp` | 230 | Loads project-defined **custom flow nodes** from `<project>/flow-nodes/*.flownode` text files into the global `customFlowNodes()` registry (`flownode::loadForProject`). Called by `project::load` *before* graphs are parsed. Parses the manifest (title/category/params, `in`/`out` pins, `exec_out`, `call`) into a `FlowNodeType`; the node's behavior is an inline C++ snippet or a `call = fn` into `inc/scripts/flow_nodes.hpp`. Also scaffolds the starter file (`writeExample`). See `docs/custom-flow-nodes.md`. |
 | `sequence.hpp` | ~230 | Cutscene Director data model + shared math: `Sequence` (object tracks + camera *shots* - free or bound to Camera entities - plus widescreen bars, fades, skippable), `seqEase`/`seqSample`/`seqBarsFractions`/`seqShakeOffset`/`seqCameraForward` (each mirrored in the generated PS2 player - keep in sync). Project-wide (like presets), persisted but not in undo. Compiled to `src/scripts/sequences.gen.cpp` (a runtime player Script + the bars/fade `renderOverlay`); the dopesheet UI + viewport scrub live in `app.cpp`. Object renames remap track/shot name references (`objRenameFrom_`). |
 | `camtake.cpp/.hpp` | ~420 | Phone-recorded 6DoF camera takes (ARKit) → Cutscene Director camera keys. Two strictly separated stages: *acquisition* (loaders producing a `CamTake`: CamTrackAR `.hfcs` via a minimal XML subset reader, canonical CSV — spec + conventions in `docs/camera-takes.md`; phase 2 adds a live streaming receiver) and *bake* (`bakeCamTake`: scale/yaw/origin/time mapping + time-parameterized RDP decimation → free `SeqCameraKey`s, pure and harness-testable). UI = the "Import take..." modal in `app.cpp` (`seqTake*_` members). |
 | `viewport.cpp/.hpp` | 1184 | Offscreen GL 3.3 preview: unit-primitive meshes, terrain grid + heightmap, sky dome, selection outline, live point-light shader, sculpt-brush raycast, orbit/pan camera. |
@@ -116,7 +117,17 @@ codegen + runtime as above.
 in the flow-graph editor in app.cpp → codegen in `flowGraphScript()`
 (templates.cpp), which compiles graphs to `src/scripts/flow_graph.gen.cpp` — one
 script class per object graph; object references resolve to indices at codegen;
-bool logic folds into inline C++ expressions.
+bool logic folds into inline C++ expressions. (If the node is project-specific
+rather than a general editor feature, prefer a **custom node**: a
+`flow-nodes/*.flownode` file, no C++ change — see `flownode.cpp` and
+`docs/custom-flow-nodes.md`. Custom nodes plug into the same `flowNodeType()`
+lookup, the add-menu via `flowAllNodeTypes()`, and a `flowCustomNode()` branch
+in `actionCode()`. A `call = fn` custom node runs a user function in
+`inc/scripts/flow_nodes.hpp` via the `FlowNodeIO` struct and can have any pins;
+its **object output is a runtime value**, which is why `resolveTarget()` returns
+a C++ int-*expression* (a literal index for built-in sources, `objOut<id>` for a
+custom node's runtime output) — built-in object actions fed such a ref are
+bounds-guarded via `isRuntimeIdx`.)
 
 **New preference** → `ProjectSettings` → save/load in project.cpp → Preferences
 dialog in app.cpp → usually a constant baked into `inc/terrain_config.hpp` or
@@ -132,6 +143,15 @@ dialog in app.cpp → usually a constant baked into `inc/terrain_config.hpp` or
 - The editor viewport and the PS2 game must agree: shading, terrain sampling
   and sky are implemented twice (GLSL/C++ in viewport, codegen in templates).
   When you change one formula, grep for its twin.
+- **DPI/zoom: wrap literal pixel sizes in `App::scaled(px)`.** `applyUiScale()`
+  scales fonts (`FontScaleMain`) and style spacing (`ScaleAllSizes`) but NOT the
+  pixel literals you pass to ImGui. So a hardcoded `SetNextItemWidth(180)`,
+  `BeginChild(ImVec2(170,0))`, absolute `SameLine(190)`/`Indent(46)`, fixed
+  button size, or hand-drawn preview stays literal and clips/misaligns at high
+  scale (a 4K laptop runs ~250%). Route such sizes through `scaled()` (=
+  `px * uiScaleApplied_`); negative/`-FLT_MIN`/fill widths and text-measured
+  (`CalcTextSize`) sizes already track scale, leave those alone. Free functions
+  that draw fixed-size widgets take a `scale` param (see `gradingWheel`).
 
 ## Building the editor
 

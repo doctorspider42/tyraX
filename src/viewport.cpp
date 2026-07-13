@@ -975,6 +975,8 @@ void Viewport::buildPrimitiveMeshes() {
 }
 
 const Viewport::Mesh& Viewport::primMesh(PrimitiveType type, int detail) {
+    // SavePoint draws as a Box (same tessellation family, shared mesh cache).
+    if (type == PrimitiveType::SavePoint) type = PrimitiveType::Box;
     const int d = clampPrimDetail(type, detail);
     std::map<int, Mesh>* cache;
     switch (type) {
@@ -1847,7 +1849,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             case PrimitiveType::Box:
             case PrimitiveType::Sphere:
             case PrimitiveType::Cylinder:
-            case PrimitiveType::Cone: return &primMesh(o.type, o.primDetail);
+            case PrimitiveType::Cone:
+            case PrimitiveType::SavePoint: return &primMesh(o.type, o.primDetail);
             case PrimitiveType::Plane: return &plane_;
             case PrimitiveType::Decal: return &decal_;
             case PrimitiveType::SpawnPoint: return &spawnMarker_;

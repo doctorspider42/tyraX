@@ -29,6 +29,7 @@ struct CamKey { float t; float eye[3]; float at[3]; float fov;
                 float shake; int ease; int camScene; int camObj; };
 struct Seq { const char* name; float duration; int loop; int camEnabled;
              int bars; int skippable; float fadeIn; float fadeOut;
+             float barsSlideIn; float barsSlideOut;  // bars reveal, s
              float barTB; float barLR;  // mask coverage per edge
              const Track* tracks; int trackCount;
              const CamKey* camKeys; int camKeyCount; };
@@ -40,7 +41,7 @@ static const Track kS0Tracks[] = {{0, 2, 1, 1, 0, 0, 0, kS0T0K, 4}, {0, 6, 0, 0,
 static const CamKey kS0Cam[] = {{0.0F, {-14.0F, 6.0F, 16.0F}, {-13.311F, 5.77505F, 15.311F}, 65.0F, 0.0F, 2, 0, 7} /* "cam-wide" */, {3.5F, {7.0F, 1.0F, 9.0F}, {6.29462F, 1.06976F, 8.29462F}, 90.0F, 0.08F, 2, 0, 8} /* "cam-low" */, {5.0F, {-16.0F, 2.5F, -10.0F}, {-16.0F, 2.36083F, -9.00973F}, 45.0F, 0.0F, 2, 0, 9} /* "cam-dolly" */, {10.0F, {5.0F, 1.5F, 7.0F}, {0.0F, 5.0F, 0.0F}, 55.0F, 0.12F, 1, -1, -1}, {13.0F, {12.0F, 10.0F, 16.0F}, {0.0F, 6.0F, 0.0F}, 60.0F, 0.0F, 1, -1, -1}};
 
 static const Seq kSeqs[] = {
-  {"The Reveal", 14.0F, 0, 1, 1, 1, 0.8F, 1.0F, 0.22106F, 0.0F, kS0Tracks, 3, kS0Cam, 5}
+  {"The Reveal", 14.0F, 0, 1, 1, 1, 0.8F, 1.0F, 0.4F, 0.4F, 0.22106F, 0.0F, kS0Tracks, 3, kS0Cam, 5}
 };
 static const int kSeqCount = 1;
 
@@ -221,13 +222,18 @@ class SequenceDirector : public Script {
       ctx.cameraAt.z = at[2];
       applyFov(ctx, fov);
     }
-    // Presentation: bars slide in/out over 0.4 s (mirrors seqBarsAmount),
-    // fades ramp from/to black (mirrors seqFadeAlpha).
+    // Presentation: bars slide in/out over the sequence's reveal times
+    // (mirrors seqBarsAmount; 0 = instant), fades ramp from/to black (mirrors
+    // seqFadeAlpha).
     if (s.bars > 0) {
       float a = 1.0F;
-      if (time_ < 0.4F) a = time_ / 0.4F;
-      const float left = s.duration - time_;
-      if (left < 0.4F && left / 0.4F < a) a = left / 0.4F;
+      if (s.barsSlideIn > 0.0F && time_ < s.barsSlideIn)
+        a = time_ / s.barsSlideIn;
+      if (s.barsSlideOut > 0.0F) {
+        const float left = s.duration - time_;
+        if (left < s.barsSlideOut && left / s.barsSlideOut < a)
+          a = left / s.barsSlideOut;
+      }
       ctx.barsStyle = s.bars;
       ctx.barsAmount = a < 0.0F ? 0.0F : (a > 1.0F ? 1.0F : a);
     } else {
