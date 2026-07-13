@@ -9,6 +9,157 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (71) **Phone camera takes — record a real 6DoF camera move on an iPhone
+  (ARKit) and import it as Cutscene Director camera keys.** "Walk around a
+  room looking around" becomes a PS2 cutscene camera move; the PS2 runtime
+  needed zero changes (imported takes are ordinary free camera shots).
+  **Module** (`src/camtake.hpp/.cpp`, new — no ImGui deps, links into host
+  harnesses like project/templates): `CamTake` (samples: time, position in
+  meters, quaternion, optional FOV; canonical space = the ARKit convention,
+  right-handed Y-up, camera looks local −Z — which matches the game world's
+  axes, so mapping is scale/yaw/origin only). Deliberate two-stage split for
+  phase 2 (live Wi-Fi/USB pose streaming): *acquisition* (loaders → CamTake)
+  vs *bake* (`bakeCamTake`: pure function of take + mapping, callable on a
+  growing buffer). **Loaders:** CamTrackAR `.hfcs` (FXhome iPhone app; plain
+  XML read with a minimal in-file XML subset reader — positions are HitFilm
+  "pixels" / 2.8352 / 1000, orientation eulers negated back and applied ZYX,
+  FOV from the zoom channel `2·atan(0.5·H/zoom)`, times = frame/FrameRate,
+  semantics from FXhome's official Blender importer) and an app-agnostic CSV
+  (`t,px,py,pz,qx,qy,qz,qw[,fov]` — spec in `docs/camera-takes.md`, a direct
+  ARKit `camera.transform` dump). **Bake:** eye = origin + yaw(pos−pos₀)·scale,
+  look-at 2 m ahead along the sample's view direction (roll has no
+  representation in eye/look-at keys and is dropped), then time-parameterized
+  Ramer–Douglas–Peucker decimation over the (eye, look-at) curve with a
+  world-units tolerance — the PS2 tables in `sequences.gen.cpp` grow with
+  every key, so a 60 Hz take must shrink ~100×. All keys linear easing; FOV =
+  take average. **UI:** "Import take..." (button by the Cutscene Director
+  transport + the camera-lane context menu) → file pick → modal with
+  scale/yaw/origin (defaults to the preview camera, "From view")/
+  start-at-playhead/tolerance controls, a live samples→keys readout,
+  replace-vs-append radio; one `commitChange()` per import; camera track
+  auto-enabled, sequence duration extended to fit. **The empirical
+  gotcha** (the reason the axis mapping was tested against a real take): the
+  Blender importer's `axis_conversion(from_forward='Z', ...)` suggests
+  HitFilm cameras look +Z, but the script assigns the rotation to a *Blender*
+  camera, which films down local −Z — so the decoded orientation is already
+  the canonical −Z-forward rotation, no flip. First build used the +Z reading
+  and PCSX2 showed only sky: the take pitched 37–65° *up*; with −Z it pitches
+  37–65° *down* (a phone picked up off a desk — the only physically possible
+  reading, a face-down phone can't track). Verified: a scratch harness
+  (linked against the editor's objects) loads the real user-recorded take
+  (`sample-take.hfcs`, 395 samples @ 60 Hz, 6.57 s, FOV 56.4°) → **12 keys**
+  at the default 0.05 u tolerance with the interpolated path staying within
+  tolerance of every original sample (also: a synthetic walk-+X-looking-+X
+  CSV take comes out walking +X and decimates to exactly 2 keys; a 20 s
+  60 Hz circle-walk take with sinusoidal look-around → 96 keys, error bound
+  holds; scale/yaw/origin/time-offset mapping asserts; a hand-written
+  mini .hfcs pins px→m, FOV and the identity orientation). E2E: injected the
+  baked take + landmark boxes + OnStart→Play Sequence into a scratch project
+  (`%TEMP%\tyra-editor-test\camtake`), `sequences.gen.cpp` stayed at 13 KB
+  (12-key table), Docker build OK, **PCSX2 booted it** and screenshots at
+  three moments show the camera panning across the boxes/terrain along the
+  handheld path. The import modal itself compiles + is wired, but its
+  click-through (file dialog → sliders → Import) still needs a hands-on
+  human pass.
+
+  **Import into a chosen Camera entity + post-import adjust** (user request).
+  The import modal's new **Import as** selector targets either *free camera
+  shots* (as before) or a **Camera entity**: the take is baked into that
+  entity's transform track (position = eye, rotation = the Euler whose +Z lens
+  points along the recorded view — `seqEulerFromForward`, the exact inverse of
+  the runtime `seqCameraForward`), the entity's FOV is set from the take, and a
+  bound camera-lane key is added so it dollies along the path. So **two cameras
+  in one scene each carry their own recording** and you cut between them on the
+  camera lane. No PS2 runtime change — an entity track filmed by a bound shot
+  already runs on hardware (cutscene-demo's cam-dolly). After importing, the
+  take + mapping stay loaded and an **Adjust imported take** section (Start
+  point / Start yaw / Scale) re-bakes the same target in place, so the whole
+  path can be re-positioned and re-oriented without re-importing.
+  `App::applyCamTake()` is the shared apply used by both Import and the live
+  adjust. Verified: editor builds clean; a host harness loads the **real**
+  sample `.hfcs` (395 samples → 15 keys, FOV 56°), bakes it and confirms the
+  Euler round-trip `seqCameraForward(seqEulerFromForward(dir))` matches the
+  recorded view within **0.02°** across every key, with the first eye landing
+  exactly on the chosen origin — so a bound shot films precisely along the
+  take. The modal + adjust widgets compile and mirror the verified free-import
+  flow; their click-through still wants a human pass.
+
+  **Preview polish** (user request). (a) The camera you preview *through* now
+  hides its own model + FOV frustum, so its body no longer sits on the near
+  plane and fills the frame: `Viewport::setHiddenCameras()` skips them in both
+  the scene pass and the frustum loop, driven from the two preview paths (the
+  single look-through camera, or every camera the active cutscene shot films
+  from). (b) **Space** toggles play/stop while the Cutscene Director is focused
+  (gated on `!WantTextInput && !IsAnyItemActive` so it doesn't double-fire with
+  a focused button or fight a text field). Verified: editor builds clean and
+  runs on cutscene-demo with the three cameras still drawing normally in
+  "View: Free" (no regression); the hide-on-preview and the Space toggle are
+  interactive, so their live feel wants the user's hands-on pass.
+
+  **Three fixes** (user report). (a) **Preview off now still animates:**
+  `cutscenePosedObjects()` gated *all* posing on `seqPreview_`, so unchecking
+  "Preview in viewport" froze the scene. Posing is now unconditional while the
+  Director is open on a sequence; `seqPreview_` only gates driving the viewport
+  camera + the bars/fade overlay - so with it off, a Camera entity still dollies
+  along its track and you watch from a free vantage point. (b) **Keyframe
+  dragging works:** the dopesheet's per-lane hit rectangle was submitted before
+  the key diamonds without `SetNextItemAllowOverlap()`, so ImGui's
+  `ItemHoverable` blocked the keys (`HoveredId` claimed by the lane) and they
+  never became active - dragging did nothing. Marking the lane allow-overlap
+  lets the diamonds on top catch the mouse (drag to retime, as the cursor +
+  tooltip already advertised). (c) **Ctrl + mouse wheel zooms the timeline**
+  over the dopesheet (mirrors the flow-graph zoom), consuming the wheel so it
+  doesn't also scroll; the Zoom slider tooltips it. Verified: editor builds
+  clean and runs on cutscene-demo; the three are interactive, so their live
+  feel wants the user's pass.
+
+  **"From view" now aims, not just positions** (user request). The take-import
+  "From view" button (import modal + Adjust section, and the on-load default)
+  set only the mapping origin; now `App::takeOriginAimFromView()` also sets the
+  mapping yaw = viewHeading − `camTakeInitialYawDeg(take)`, so the recorded
+  path's first sample looks where the editor camera looks - frame the shot in
+  the viewport, hit From view, the take is aimed there. Verified with a host
+  harness on the real sample `.hfcs`: for five chosen view headings the baked
+  first key's heading matches the target to **0.000°**.
+
+  **Two import fixes** (user report). (a) **Scale was ~8× too small:** the
+  `.hfcs` px→m conversion divided by `PixelsPerMM·1000` where FXhome's own
+  Blender importer *multiplies* by `PixelsPerMM/1000` — so a real metre walked
+  came out a few centimetres in the game. Now `meters = px * 2.8352 / 1000`
+  matching FXhome, so *Scale* 1 ≈ 1 unit per real metre; the sample take's
+  travel goes from ~0.14 m to a plausible **1.13 m**. (b) **Sudden 180/360
+  whip after import:** baking a take into a Camera entity's rotation track
+  emitted Euler angles that wrap at ±180, so a pan crossing 180° (170 → −175)
+  made the linear rotation interp spin the long way. The baker now unwraps each
+  Euler channel to stay continuous with the previous key — a harness on the
+  real take confirms the max consecutive delta drops from a possible ~345° to
+  **14.5°**. Both verified by host harness; editor builds clean.
+
+  **Camera shots always bind to a Camera entity** (user request - the free vs
+  bound choice muddied "what do I use?"). The camera lane no longer authors
+  "free" shots (a snapshot of the editor view): the key inspector's *Shot
+  from* is a cameras-only picker, adding a shot ([+] / double-click / menu)
+  binds to the active camera (looked-through → selected → the scene's only
+  camera) and no-ops with a hint when the scene has none, and *Import take* is
+  *Into camera* (the free option removed, Import disabled until a camera is
+  picked). So the workflow is: place + aim Camera entities in the scene, then
+  the lane just says which camera films when. Legacy free keys from older
+  projects still play (the runtime keeps the stored eye/look-at fallback) and
+  show as diamonds, but the UI nudges you to bind them. Editor builds clean;
+  interactive, so the feel wants the user's pass.
+
+  **cutscene-demo upgraded to a full showcase** (all shots now camera-bound to
+  match the model). Grew from 3 to **5 camera entities**; the two ex-free
+  shots became `cam-hero` (low angle) and `cam-crane`, and `cam-crane` now
+  **cranes on its own object track** (pos + rot, staying aimed) — so the demo
+  has *two* moving cameras (dolly + crane), a Step-cut montage plus one
+  **Smooth blend** (cam-hero → cam-crane), and a new `obelisk` **scale +
+  colour** track (it swells gold→orange) alongside the existing pos/rot and
+  visibility tracks — every object-track channel is now exercised. Bars use a
+  visible 0.6 s/1.0 s slide. Verified: headless Docker `--build` of the
+  hand-edited `.tyra` compiled (JSON + codegen valid) and **PCSX2 ran it at 50
+  FPS** — screenshots show the orange swollen obelisk, firing sparks, risen
+  hero and cinema bars.
 - (79) **Tool windows scale their layout with the UI scale (fix 250% clipping)** —
   the floating Tools windows (Menu Editor, Material Editor, Color Grading,
   Ambience, UI Editor, Disc Layout, Cutscene Director) and the modal dialogs

@@ -2,7 +2,7 @@ name: cutscene-demo
 volumes:
   tyra-game-volume:
   tyra-engine:
-    name: tyra-engine-0c33fc43
+    name: tyra-engine-871bb1f1
 services:
   compiler:
     environment:
@@ -16,4 +16,4 @@ services:
       - tyra-game-volume:/src
       - tyra-engine:/tyra
       - ./:/host
-      - "F:/Projects/tyra-editor/.claude/worktrees/timeline-camera-entity-fea51d/vendor/tyra:/engine-src:ro"
+      - "F:/Projects/tyra-editor/.claude/worktrees/nowy-task-fe01da/vendor/tyra:/engine-src:ro"

@@ -7,6 +7,7 @@
 
 #include <imgui.h>  // ImGuiStyle baseStyle_ member (UI scaling)
 
+#include "camtake.hpp"
 #include "history.hpp"
 #include "isoexport.hpp"
 #include "project.hpp"
@@ -420,6 +421,39 @@ private:
     int seqBarsStyleNow_ = 0;     // kSeqBars* while previewing, else 0
     float seqBarsNow_ = 0.0f;     // bars slide-in envelope 0..1
     float seqFadeNow_ = 0.0f;     // fade-to-black overlay alpha 0..1
+    // "Import take..." modal (camera lane): a phone-recorded 6DoF camera take
+    // (src/camtake.hpp) staged for baking into free camera shots. The bake
+    // preview is cached and recomputed only when a mapping control changes.
+    bool seqTakeOpen_ = false;        // open the modal this frame
+    CamTake seqTake_;                 // the loaded take
+    std::string seqTakePath_;         // file it was loaded from
+    std::string seqTakeError_;        // loader error shown in the modal
+    CamTakeMapping seqTakeMap_;       // scale / yaw / origin / time / tolerance
+    bool seqTakeAtPlayhead_ = false;  // key times start at the playhead
+    bool seqTakeReplace_ = true;      // replace the camera track (else append)
+    bool seqTakeDirty_ = true;        // re-bake the cached preview
+    std::vector<SeqCameraKey> seqTakeBaked_;  // cached bake result
+    CamTakeBakeStats seqTakeStats_;
+    // Import target: "" = free camera shots on the camera lane; otherwise the
+    // name of a Camera entity - the take bakes into that entity's transform
+    // track (position + rotation) so a bound shot dollies along the path, and
+    // the entity's FOV is set from the take. Two cameras in one scene each
+    // take their own recording this way.
+    std::string seqTakeTarget_;
+    // "Adjust imported take": after an import the take + mapping stay loaded so
+    // the whole path can be re-positioned / re-oriented (origin + yaw + scale)
+    // in place without re-importing. Valid while it matches the open sequence.
+    bool seqTakeActive_ = false;      // a re-bakeable last import exists
+    int seqTakeSeqIdx_ = -1;          // sequence it was imported into
+    // Applies the loaded take (seqTake_/seqTakeMap_/seqTakeTarget_) to sequence
+    // s: free shots -> camera lane (replace or append); a Camera entity target
+    // -> its transform track + FOV + a bound camera key. Returns the first key
+    // time (for the playhead), or -1 on no-op.
+    float applyCamTake(Sequence& s, bool replace);
+    // "From view" for the take import: set the mapping origin to the preview
+    // camera's position AND the mapping yaw so the take's first sample looks
+    // where the editor camera looks (aim the recorded path along the view).
+    void takeOriginAimFromView();
 
     // Look-through camera: the viewport renders from this Camera entity's
     // pose + FOV ("" = free orbit camera). Editor-side state, not persisted;

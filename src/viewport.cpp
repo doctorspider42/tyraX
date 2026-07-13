@@ -1881,6 +1881,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         for (size_t oi = 0; oi < objects.size(); ++oi) {
             if (hiddenAt(oi)) continue;
             const SceneObject& o = objects[oi];
+            // The camera(s) being previewed through don't draw their body -
+            // it would sit on the near plane and cover the whole view.
+            if (o.type == PrimitiveType::Camera && camHidden(o.name)) continue;
             // Emitters preview as live particles (drawn after the scene); in
             // the scene pass they only get a small fixed-size cone marker so
             // the gizmo has something to grab. Dimmed when disabled.
@@ -1978,6 +1981,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     for (size_t oi = 0; oi < objects.size(); ++oi) {
         const SceneObject& o = objects[oi];
         if (o.type != PrimitiveType::Camera || hiddenAt(oi)) continue;
+        if (camHidden(o.name)) continue;  // previewing through this camera
         const float d2r = kPi / 180.0f;
         const float len = 2.4f;
         const float t = std::tan(0.5f * o.cameraFov * d2r);
