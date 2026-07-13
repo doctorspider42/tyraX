@@ -833,9 +833,10 @@ std::string save(const Project& p) {
     // Editor-side state + window layout: the .tyra file is the whole project.
     json << ",\n  \"editor\": { \"selectedObject\": " << p.selectedObject
          << ", \"gizmo\": " << p.gizmoOp << ", \"gizmoSpace\": " << p.gizmoSpace
-         << ", \"viewMode\": " << p.viewMode
-         << ", \"emulatorPath\": \"" << jsonEscape(p.emulatorPath) << "\""
-         << ", \"ps2LinkIp\": \"" << jsonEscape(p.ps2LinkIp) << "\" }";
+         << ", \"viewMode\": " << p.viewMode << " }";
+    // emulatorPath / ps2LinkIp used to live here but are now machine-global
+    // editor settings (editor.ini), no longer written per-project. The reader
+    // still accepts them to migrate older projects into the global config.
     json << ",\n  \"layout\": \"" << jsonEscape(p.windowLayout) << "\"";
     json << "\n}\n";
     return writeFile(projectPath(p), json.str());
@@ -1817,6 +1818,10 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = ed->find("gizmoSpace"))
             out.gizmoSpace = (int)v->numberOr(0);
         if (const auto* v = ed->find("viewMode")) out.viewMode = (int)v->numberOr(0);
+        // Legacy fields: emulatorPath / ps2LinkIp are now machine-global
+        // (editor.ini). Still read so the editor can migrate an older project's
+        // values into the global config on first open (see App::attachProject);
+        // no longer written back out.
         if (const auto* v = ed->find("emulatorPath")) out.emulatorPath = v->stringOr("");
         if (const auto* v = ed->find("ps2LinkIp")) out.ps2LinkIp = v->stringOr("");
     }
