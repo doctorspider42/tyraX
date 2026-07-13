@@ -2118,7 +2118,7 @@ void App::addObject(PrimitiveType type) {
     SceneObject o;
     o.name = name;
     o.type = type;
-    o.primDetail = defaultPrimDetail(type);  // box baseline 1, curved 16
+    o.primDetail = defaultPrimDetail(type);  // box-like baseline 1, curved 16
     if (type == PrimitiveType::SpawnPoint) {
         o.position[1] = 0.0f;  // marker sits on the ground
         o.color[0] = 0.15f, o.color[1] = 0.9f, o.color[2] = 0.9f;
@@ -3340,10 +3340,11 @@ void App::drawPropertiesWindow() {
         ImGui::TextUnformatted(typeLabel(o.type));
     }
     // Geometry primitives: how many segments (curved) or edge subdivisions
-    // (box) the mesh is built from. Editable any time, updates live.
+    // (box-like) the mesh is built from. Editable any time, updates live.
     if (o.type == PrimitiveType::Box || o.type == PrimitiveType::Sphere ||
-        o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone) {
-        const bool box = o.type == PrimitiveType::Box;
+        o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone ||
+        o.type == PrimitiveType::SavePoint) {
+        const bool box = primDetailIsBoxLike(o.type);
         int detail = o.primDetail;
         if (ImGui::DragInt("Detail", &detail, 0.2f, primDetailMin(o.type),
                            primDetailMax(o.type), box ? "%d subdivisions"
@@ -3924,12 +3925,13 @@ void App::drawMultiProperties() {
             shape || o.type == PrimitiveType::Model || o.type == PrimitiveType::SavePoint;
         const bool empty = o.type == PrimitiveType::Empty;
         const bool decal = o.type == PrimitiveType::Decal;
-        // Detail (segments/subdivisions) exists for the curved/box primitives,
-        // not for the flat Plane.
+        // Detail (segments/subdivisions) exists for the curved/box-like
+        // primitives (SavePoint tessellates as a Box), not for the flat Plane.
         const bool hasDetail = o.type == PrimitiveType::Box ||
                                o.type == PrimitiveType::Sphere ||
                                o.type == PrimitiveType::Cylinder ||
-                               o.type == PrimitiveType::Cone;
+                               o.type == PrimitiveType::Cone ||
+                               o.type == PrimitiveType::SavePoint;
         allShape = allShape && shape;
         allSolid = allSolid && solid;
         allDetail = allDetail && hasDetail;
@@ -4064,7 +4066,7 @@ void App::drawMultiProperties() {
         }
     }
     if (allDetail && allSameType) {
-        const bool box = primary.type == PrimitiveType::Box;
+        const bool box = primDetailIsBoxLike(primary.type);
         int d = primary.primDetail;
         bool mixedD = false;
         for (auto* p : objs) mixedD = mixedD || p->primDetail != primary.primDetail;
@@ -10037,10 +10039,13 @@ void App::drawPreferencesModal() {
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("Show FPS", &prefSettings_.showFps);
     ImGui::Checkbox("Show memory usage", &prefSettings_.showMemory);
+    ImGui::Checkbox("Show frame profiler", &prefSettings_.showProfiler);
     ImGui::EndDisabled();
     ImGui::TextDisabled(
         "Debug-profile overlays drawn in the top-left corner of the game:\n"
-        "frames per second and free EE RAM. Stripped from release builds.");
+        "frames per second, free EE RAM, and a per-phase EE-time breakdown\n"
+        "(whole frame / scene / usable-highlight / particles, avg ms over\n"
+        "~1s). Stripped from release builds.");
 
     ImGui::SeparatorText("Terrain");
     ImGui::InputInt("Width (units)", &prefTerrain_.width);
@@ -10175,8 +10180,15 @@ void App::drawPreferencesModal() {
         ImGui::DragFloat("Blur width (units)", &prefSettings_.highlightWidth, 0.01f,
                          0.05f, 2.0f, "%.2f");
         ImGui::SliderInt("Blur steps", &prefSettings_.highlightSteps, 1, 8);
+        ImGui::SliderFloat("Opacity", &prefSettings_.highlightOpacity, 0.0f, 1.0f,
+                           "%.2f");
+        ImGui::Checkbox("Draw over object (experimental)",
+                        &prefSettings_.highlightOverlay);
         ImGui::TextDisabled(
-            "Width = total rim size; steps = shells in the fade (1 = sharp edge).");
+            "Width = total rim size; steps = shells in the fade (1 = sharp edge).\n"
+            "Opacity = transparency of the strongest shell (the rest fade from it).\n"
+            "Draw over object = a colored glow ON the surface fading outward,\n"
+            "instead of only a rim behind the silhouette.");
     }
     ImGui::TextDisabled(
         "In-game outline around objects marked 'Usable' while the player is\n"
@@ -10430,6 +10442,8 @@ void App::drawScenePreferencesModal() {
         ImGui::ColorEdit3("Highlight color", s.highlightColor);
         ImGui::DragFloat("Blur width (units)", &s.highlightWidth, 0.01f, 0.05f, 2.0f, "%.2f");
         ImGui::SliderInt("Blur steps", &s.highlightSteps, 1, 8);
+        ImGui::SliderFloat("Opacity", &s.highlightOpacity, 0.0f, 1.0f, "%.2f");
+        ImGui::Checkbox("Draw over object (experimental)", &s.highlightOverlay);
     });
 
     ImGui::Separator();

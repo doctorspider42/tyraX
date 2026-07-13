@@ -7,6 +7,7 @@ struct SceneObjectData {
   int type;  // 0=box 1=sphere 2=cylinder 3=cone 4=spawn-point 5=model
              // 6=player 7=emitter 8=sound 9=point-light 10=save-point
              // 11=empty (pure transform, no geometry/collision)
+             // 12=plane 13=decal 14=camera (cutscene shot marker)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -61,7 +62,7 @@ constexpr SceneObjectData SCENE_0_OBJECTS[60] = {
     {7, {-6.0F, 1.1788F, 2.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.35F, 0.34F, 0.33F}, 0, -1, -1, 0, 1, 26, 0.8F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // campfire-smoke
     {9, {-6.0F, 0.7788F, 2.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 0.6F, 0.25F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.4F, 12.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // campfire-light
     {8, {-6.0F, 0.2788F, 2.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 0.5F, 0.2F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, 0, 1, 16.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // campfire-sfx
-    {10, {-3.0F, 0.8362F, 4.0F}, {0.0F, 0.0F, 0.0F}, {0.8F, 1.2F, 0.8F}, {0.4F, 0.75F, 1.0F}, 0, -1, -1, 1, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // save-shrine
+    {10, {-3.0F, 0.8362F, 4.0F}, {0.0F, 0.0F, 0.0F}, {0.8F, 1.2F, 0.8F}, {0.4F, 0.75F, 1.0F}, 0, -1, -1, 1, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // save-shrine
     {0, {10.0F, 2.1965F, -6.0F}, {0.0F, 0.0F, 0.0F}, {1.4F, 3.0F, 0.4F}, {0.5F, 0.2F, 0.8F}, 0, -1, -1, 1, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // portal-to-cavern
     {13, {11.0F, 2.2965F, -5.7F}, {0.0F, -35.0F, 0.0F}, {1.2F, 1.2F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, -1, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // portal-sign
     {11, {38.0F, 1.1841F, -34.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.9F, 0.8F, 0.2F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // gate-village
@@ -140,6 +141,9 @@ inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {4, 1};
 constexpr int SCENE_MAX_LAYERS = 4;
 constexpr bool SCENE_LAYER_STARTS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{true, false, false, true}, {true, true, true, true}};
+constexpr float SCENE_LAYER_STREAM_XS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F, 0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F, 0.0F}};
+constexpr float SCENE_LAYER_STREAM_ZS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F, 0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F, 0.0F}};
+constexpr float SCENE_LAYER_STREAM_RADII[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F, 0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F, 0.0F}};
 
 constexpr int SND_COUNT = 1;
 inline const char* SND_PATHS[1] = {"sfx/fire.adpcm"};
@@ -164,6 +168,7 @@ constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {0.82F, 0.75F};
 constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {0.6F, 1.0F};
 constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {1.0F, 0.9F};
 constexpr bool CLIP_PRECISES[SCENE_COUNT] = {true, true};
+constexpr bool CLIP_VU1S[SCENE_COUNT] = {false, false};
 constexpr float SKY_RS[SCENE_COUNT] = {219.3F, 12.75F};
 constexpr float SKY_GS[SCENE_COUNT] = {127.5F, 15.3F};
 constexpr float SKY_BS[SCENE_COUNT] = {81.6F, 30.6F};
@@ -193,6 +198,8 @@ constexpr float HIGHLIGHT_GS[SCENE_COUNT] = {216.75F, 216.75F};
 constexpr float HIGHLIGHT_BS[SCENE_COUNT] = {76.5F, 76.5F};
 constexpr float HIGHLIGHT_WIDTHS[SCENE_COUNT] = {0.4F, 0.4F};
 constexpr int HIGHLIGHT_STEPS_S[SCENE_COUNT] = {4, 4};
+constexpr float HIGHLIGHT_OPACITIES[SCENE_COUNT] = {0.56F, 0.56F};
+constexpr bool HIGHLIGHT_OVERLAYS[SCENE_COUNT] = {false, false};
 
 constexpr int GRADING_COUNT = 2;
 inline const char* GRADING_NAMES[GRADING_COUNT > 0 ? GRADING_COUNT : 1] = {"Golden Hour", "Nightfall"};
@@ -261,6 +268,9 @@ inline int everyFrames(float seconds) {
 #define SCENE_OBJECTS SCENE_OBJECT_TABLES[g_activeScene]
 #define SCENE_LAYER_COUNT SCENE_LAYER_COUNTS[g_activeScene]
 #define SCENE_LAYER_START SCENE_LAYER_STARTS[g_activeScene]
+#define SCENE_LAYER_STREAM_X SCENE_LAYER_STREAM_XS[g_activeScene]
+#define SCENE_LAYER_STREAM_Z SCENE_LAYER_STREAM_ZS[g_activeScene]
+#define SCENE_LAYER_STREAM_R SCENE_LAYER_STREAM_RADII[g_activeScene]
 #define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
 #define PLAYER_MODE PLAYER_MODES[g_activeScene]
 #define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[g_activeScene]
@@ -291,6 +301,7 @@ inline int everyFrames(float seconds) {
 #define TERRAIN_TINT_B TERRAIN_TINTS[g_activeScene][2]
 // Per-scene sky / clipping / post-FX / usable-highlight (Scene > Preferences)
 #define CLIP_PRECISE CLIP_PRECISES[g_activeScene]
+#define CLIP_VU1 CLIP_VU1S[g_activeScene]
 #define SKY_R SKY_RS[g_activeScene]
 #define SKY_G SKY_GS[g_activeScene]
 #define SKY_B SKY_BS[g_activeScene]
@@ -320,4 +331,6 @@ inline int everyFrames(float seconds) {
 #define HIGHLIGHT_B HIGHLIGHT_BS[g_activeScene]
 #define HIGHLIGHT_WIDTH HIGHLIGHT_WIDTHS[g_activeScene]
 #define HIGHLIGHT_STEPS HIGHLIGHT_STEPS_S[g_activeScene]
+#define HIGHLIGHT_OPACITY HIGHLIGHT_OPACITIES[g_activeScene]
+#define HIGHLIGHT_OVERLAY HIGHLIGHT_OVERLAYS[g_activeScene]
 #define terrainHeightAt(x, z) terrainHeightAtScene(g_activeScene, (x), (z))

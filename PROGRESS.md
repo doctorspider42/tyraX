@@ -38,6 +38,128 @@ Each finished feature lands as its own commit.
   transport row, dopesheet (ruler ticks, "[*] Camera (2)" lane label, key
   diamonds + retime tooltip, playhead) and Key inspector without clipping.
   Editor builds clean.
+- (79) **StaPip partial-frustum cost: save points tessellated as detail-16
+  boxes (9.2k verts) + pooled packager arrays** — follow-up to the PCSX2
+  observation from the usable-highlight session: even with highlighting off,
+  the showcase spent 12-14 ms of EE per frame inside `StaPipCore::render`'s
+  PARTIALLY_IN_FRUSTUM branch (~160 EE-clipper calls) on views with the save
+  shrine + trees near the camera. Measured first (recipe from the clipbench
+  notes: COP0 counters in the engine around the partial/full branches,
+  `packager.create` and clip/cull submissions; owned `terrain_game.cpp` in a
+  scratch copy of examples/showcase with a deterministic orbit camera parked
+  between the campfire and the shrine; PERF line per 50 frames to
+  host:perf.txt; PCSX2 software renderer). **Baseline at the worst angles:
+  66 ms/frame (15 FPS), 36-38 ms in the partial branch = ~285
+  `packager.create` calls producing ~1340 packages (16-17 ms of allocation +
+  per-package bbox classification) plus ~385 EE-clipper submissions
+  (19-20 ms), ~12 partial bags/frame — nearly all of it one object.** Root
+  cause: `SceneObject::primDetail` defaults to 16 and **SavePoint** was never
+  made "box-like" when (61)'s follow-up gave Box its 1/16 default/cap — but
+  the generated game builds SavePoint geometry through the
+  `default: addBox(...)` case, so every save shrine silently tessellated
+  16x16 per face = 3072 tris / **9216 verts** (while the editor viewport drew
+  it as a plain box - the preview never showed the cost). Fix (a), editor:
+  SavePoint is box-like across the chain — `primDetailIsBoxLike()` in
+  project.hpp (default 1, clamp 1..16, box triangle readout), the viewport
+  draws it from the box mesh cache honoring detail, and the Detail slider now
+  shows for SavePoint. Old `.tyra` files carry no `"detail"` key for save
+  points (16 was the emit-suppressed default), so they all load as 1; a
+  shrine's baked point-light gradient flattens — set Detail explicitly if the
+  look is wanted (it is authorable now). Fix (b), engine:
+  `StaPipBagPackager::create` returns pointers into two grow-only pools
+  (bag-level / split-level — the parent array is alive during a split;
+  callers no longer `delete[]`, absent sts/colors/normals are nulled against
+  stale reuse), `renderSubpkgs`' two index vectors are static, and the
+  per-textured-bag `RendererCoreTextureBuffers` heap alloc is a stack struct.
+  Measured attribution on the same orbit: **pooling alone is worth only ~2%**
+  of the partial branch (create cost is the bbox classification math, not the
+  allocator); the detail fix does the rest — **after both, every 50-frame
+  window locks 50 FPS (20.0 ms), partial branch peaks at 8.5 ms avg / 9.6 ms
+  max, EE pre-endFrame <= 10.6 ms, clipper calls max ~93/frame** over 3 full
+  orbits; windows matching the original report (~160 calls) now run ~5-6 ms
+  with ~60 calls. Verified: SW-renderer screenshots healthy mid-orbit (trees,
+  rock, portal, shrine with its usable rim; no pooling artifacts; 50 FPS /
+  100% speed / EE ~38%); examples/showcase regenerated and re-verified with
+  the final de-instrumented engine. Perf logs archived in
+  `%TEMP%\tyra-editor-test\perf-run{1,2,3}*.txt`.
+- (81) **Usable-highlight opacity control** — a per-scene `highlightOpacity`
+  (0..1, *Preferences > Usable objects* + per-scene override) setting the alpha
+  of the **strongest (innermost) shell**; the outer shells keep fading from it
+  (×0.55). Replaces the hardcoded `72/100` start alpha in both
+  `renderHighlightHull` and `buildHighlightApron` with `HIGHLIGHT_OPACITY *
+  128` (128 = PS2 opaque max), so opacity 1 + 1 step = a fully solid outline
+  and low values dial the wash down — the natural knob for the overlay mode's
+  intensity. Default 0.56 preserves the old 4-step look. Full
+  model→JSON→UI→codegen chain (`HIGHLIGHT_OPACITIES` per-scene table +
+  `HIGHLIGHT_OPACITY` macro; operator== + save/load + clamps). **Verified in
+  PCSX2 (SW)**: overlay showcase at opacity 0.25 renders a visibly fainter
+  surface glow than the 0.56 default, 50 FPS unchanged; all five examples
+  regenerated + Docker-built.
+
+- (80) **Debug frame profiler (shippable) + experimental highlight overlay** —
+  two follow-ups to the highlight perf work (79). **(a) Frame profiler**: the
+  ad-hoc COP0/HUD instrumentation used to diagnose the highlight cost is now a
+  real debug option. *Project > Preferences > Build* (debug profile) gains
+  **Show frame profiler** next to Show FPS / Show memory; the generated game
+  draws a per-phase EE-time breakdown (whole FRAME wall-clock / SCENE / HL /
+  PART, avg ms over ~1s) in the top-left. `renderScene` brackets its phases
+  with EE COP0 `mfc0 $9` reads into file-scope counters (`g_profScene/
+  Highlight/Particles`), drawDebugHud averages + prints them; every read is
+  behind the `DEBUG_SHOW_PROFILER` constexpr so a release build (or the option
+  off) contains none of it. HL is the highlight *overhead* only — the deferred
+  bodies are timed into SCENE. New pref `ProjectSettings.showProfiler`
+  (operator== + JSON save/load + `{{DEBUG_SHOW_PROFILER}}` codegen). **(b)
+  Highlight overlay**: experimental per-scene `highlightOverlay` (Preferences >
+  Usable objects + per-scene override, "Draw over object") — the shells drop
+  the eye-pushback (`k = 1`), so each grown shell sits at the object's own
+  depth and its front faces land just in front of the surface: the glow paints
+  ON the object and fades outward into a rim, instead of only a rim behind the
+  silhouette. renderScene draws the overlay body in the main pass (not
+  deferred) and paints the shells over it; rim mode keeps the deferred-body
+  order from (79). New `SceneObjectData`-style per-scene table
+  `HIGHLIGHT_OVERLAYS` + `HIGHLIGHT_OVERLAY` macro; full model→JSON→UI→codegen
+  chain (project + per-scene override). **Verified in PCSX2 (SW renderer)**:
+  showcase with debug profile + both options on — profiler HUD reads
+  `FRAME 22.00 SCENE 12.90 HL 1.46 PART 0.99` at 50 FPS (deterministic orbit
+  near the save shrine); overlay screenshot shows the shrine washed in a yellow
+  surface glow instead of an outline. Profiler-off / overlay-off path (all five
+  examples, regenerated) compiles to ELFs in Docker — both constexpr branches
+  build on the PS2 toolchain. Documented the profiler + the manual deep-dive
+  technique in `docs/profiling.md`. Real-hardware timing unchanged from (79).
+
+- (79) **Usable-highlight perf, round 2: low-detail shell proxy + deferred
+  body draw (no repaint)** — the PR #64 rims still dropped the showcase to
+  ~25 FPS in PCSX2 near a highlighted object. Measured with COP0 phase
+  timers in an owned terrain_game.cpp plus temporary counters inside the
+  engine's StaPipCore (deterministic camera orbit around the save shrine,
+  250-frame A/B windows, on-screen HUD readout): the highlight pass alone
+  was 25 ms of EE time, all of it in the PARTIALLY_IN_FRUSTUM branch of
+  `StaPipCore::render` — the shrine is a default-detail-16 box (~9.2k
+  verts), a near object always straddles the frustum, and the effect
+  submitted that mesh 5 extra times per frame (4 shells + repaint), each
+  submit re-running subpackage classification + the EE clipper (~370 clip
+  calls/frame vs ~160 baseline). DMA waits, the bbox cache and the z-test
+  mode were all measured innocent. Fix, all in the generated runtime
+  (templates.cpp): (1) shells now draw a **low-detail proxy** built by
+  `buildHighlightProxy` — primitives re-emit through their own builders
+  with subdivision forced down (boxes/planes/decals: detail 1 — identical
+  silhouette; curved: capped at 12 segments), models concatenate their
+  parts into one array (one submit per shell instead of per part); cached
+  in ObjectGeometry, cleared by rebuildObjectGeometry, own bbox stamp;
+  (2) highlighted-in-reach usables are **deferred out of the main pass**
+  (`highlightInReach`, ≤8 per frame, sorted far-to-near) and their body
+  draws once AFTER their shells — the body erases the shell wash over its
+  own receding faces exactly like the old repaint did, so the second full
+  draw of the mesh is gone; nearer bodies still cover farther rims, and
+  everything else keeps drawing before any rim. **Verified in PCSX2 (SW
+  renderer)**: same instrumented A/B on the rebuilt showcase — highlight
+  render cost fell from ~23 ms to ~1.7 ms per frame (scene+highlight
+  sums 15.7 vs 14.0 ms; whole frame 56 -> 25 ms on the worst-case orbit
+  view), rim/apron/USE visuals unchanged by screenshot comparison against
+  the pre-fix build. All four examples regenerated. Real-PS2 A/B still
+  pending, same as PR #64. Left open: the partial-frustum path itself
+  costs the base scene ~12-14 ms on that view (default primDetail 16
+  everywhere is heavy) — separate backlog item.
 
 - (69) **Cutscene Director — a keyframe timeline sequencer (cinematic cutscenes
   on the PS2)** — the editor's first full animation-authoring tool. A
@@ -3631,8 +3753,10 @@ Each finished feature lands as its own commit.
   now runs on VU0 in macro mode (entry 34) at ~37% EE load for 3 characters
   in PCSX2, so the EE is not the bottleneck yet. Palette per batch limited
   by VU memory (~24-32 bones).
-- Engine perf, next targets: packager allocates its package array per frame
-  (poolable); the real endgame is the engine author's own TODO in
+- Engine perf, next target: the packager's per-frame package arrays are
+  pooled now (entry 79 - measured worth only ~2%; the partial-branch cost is
+  per-package bbox classification + EE clipping, which scale with vertex
+  count); the real endgame is the engine author's own TODO in
   stapip_clipper.hpp - move clipping to VU1 entirely ("too much time").
   **Measured on real PS2 (2026-07-11**; clipbench: 128x128 terrain at detail
   128 = ~98k verts, spinning FPP camera, COP0 timers around `clipper.clip` +
