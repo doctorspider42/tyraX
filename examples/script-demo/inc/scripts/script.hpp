@@ -44,6 +44,25 @@ struct ScriptContext {
   int objectCount = 0;
   Tyra::Color skyColor;  // write to change the clear color
 
+  // Cutscene camera override (a Cutscene Director sequence with a camera
+  // track, driven by the Play/Stop Sequence flow nodes). The generated
+  // sequence player writes cameraOverride = true + cameraEye/cameraAt every
+  // frame such a cutscene is active; the game applies them to the frame camera
+  // just before rendering, and the player writes false when the cutscene ends.
+  bool cameraOverride = false;
+  Tyra::Vec4 cameraEye;
+  Tyra::Vec4 cameraAt;
+
+  // Cutscene presentation, also written by the sequence player every frame a
+  // cutscene is active (and zeroed when it ends): widescreen mask style
+  // (0 none, 1 cinema 2.39:1, 2 wide 16:9, 3 pillarbox, 4 frame) with its
+  // slide-in coverage envelope, and a fade-to-black overlay alpha. The game
+  // composites them as solid 2D quads over the scene and the HUD, under the
+  // pause menus (sequences::renderOverlay in sequences.gen.cpp).
+  int barsStyle = 0;
+  float barsAmount = 0.0F;  // 0..1 of the style's full coverage
+  float fadeAlpha = 0.0F;   // 0..1 black overlay
+
   // Set teleport = true and teleportPos to move the player (Player entity or
   // the FPP template player) there; the game applies and clears it.
   // teleportYaw: facing direction in degrees (Y rotation, 0 = +Z).
@@ -57,6 +76,14 @@ struct ScriptContext {
 
   // Write to show/hide all HUD images (the USE prompt is unaffected).
   bool hudVisible = true;
+
+  // On-screen texts (HUD_TEXTS order, hud_data.gen.hpp). Write 1 into
+  // textRequest[i] to show a text, 0 to hide it (-1 = leave). When showing,
+  // textDuration[i] > 0 auto-hides after that many seconds, 0 = the text
+  // stays until hidden. The game applies and resets requests every frame.
+  signed char* textRequest = nullptr;
+  float* textDuration = nullptr;
+  int textCount = 0;
 
   // Camera flashlight master switch (the Player object's "Enabled"). Write 1
   // to turn it on, 0 to turn it off, -1 to leave it unchanged; the game
@@ -135,6 +162,29 @@ struct ScriptContext {
   int (*spawnObject)(int templateIndex, float x, float y, float z,
                      float yaw) = nullptr;
   void (*despawnObject)(int objectIndex) = nullptr;
+};
+
+/** Inputs and outputs of a custom flow-graph node (see flow_nodes.hpp).
+ * A `call = fn` custom node runs when an exec link reaches it; the game fills
+ * the input fields, calls fn(ctx, io), then latches whatever fn wrote into the
+ * output fields so downstream nodes (custom or built-in) can read them. Only
+ * the pins the node declared in its .flownode are meaningful; the rest keep
+ * their defaults. Object fields are indices into ctx.objects (-1 = none). */
+struct FlowNodeIO {
+  int self = -1;                 // object that owns the graph
+  // --- inputs (resolved fresh for this call) ---
+  int object = -1;               // the "target" object input (or self); -1 invalid
+  Tyra::Vec4 position;           // wired position input (0,0,0 if none)
+  bool boolIn = false;           // OR of wired bool inputs
+  const char* text = "";         // first wired text input ("" if none)
+  const float* num = nullptr;    // the node's num0..3 params
+  const char* str = "";          // the string param (when string = text)
+  // --- outputs (write the ones your node declares) ---
+  int objectOut = -1;            // an object index, e.g. a raycast/pick result
+  Tyra::Vec4 positionOut;
+  bool boolOut = false;
+  char* textOut = nullptr;       // write up to textOutCap bytes (NUL-terminated)
+  int textOutCap = 0;
 };
 
 /** Plays a named clip on an animated model object ("" = its first clip).

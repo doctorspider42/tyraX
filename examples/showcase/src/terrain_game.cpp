@@ -8,6 +8,7 @@
 #include "menu_data.gen.hpp"
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
+#include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -239,6 +240,17 @@ int animResolveClipThunk(int objectIndex, const char* clipName) {
   return g_animGame ? g_animGame->resolveClipIndex(objectIndex, clipName) : -1;
 }
 
+// Dynamic spawn pool size: at most this many live clones (Spawn Object flow
+// node) on top of the authored scene objects. Slots are recycled on despawn.
+constexpr int MAX_SPAWNED_OBJECTS = 32;
+int spawnObjectThunk(int templateIndex, float x, float y, float z, float yaw) {
+  return g_animGame ? g_animGame->spawnObjectAt(templateIndex, x, y, z, yaw)
+                    : -1;
+}
+void despawnObjectThunk(int objectIndex) {
+  if (g_animGame) g_animGame->despawnObjectAt(objectIndex);
+}
+
 // kd: material diffuse (MTL) multiplied into the object color, null = white.
 // textured: this batch draws with a texture (a model part's map_Kd or a
 // primitive material's) - switches the color to modulation scale (128 = 1.0).
@@ -448,15 +460,30 @@ void drawHudText(Engine* engine, const char* s, float x, float y) {
 
 float hudTextWidth(const char* s) { return (float)strlen(s) * 14.0F; }
 
-/** Debug-profile HUD (Project > Preferences > Build): FPS and RAM
- * (used/total EE MB) readouts in the top-left corner. Compiles to nothing
- * in a release build (the DEBUG_SHOW_* constants in terrain_config.hpp fold
- * the calls away). */
+// Debug frame profiler (Project > Preferences > Build > Show frame profiler).
+// renderScene brackets its three heavy phases with EE COP0-timer reads and
+// adds the elapsed ticks here; drawDebugHud averages them over ~1s and prints
+// avg ms. The reads live behind `if (DEBUG_SHOW_PROFILER)` (a constexpr), so a
+// build with the profiler off contains none of this. This is the same
+// COP0/HUD phase-timing harness used to diagnose the usable-highlight cost,
+// wired in as a shippable debug option. (COP0 Count runs at 294.912 MHz =
+// half the 590 MHz EE clock; /294912 converts ticks to milliseconds.)
+u32 g_profScene = 0, g_profHighlight = 0, g_profParticles = 0;
+static inline u32 profTicks() {
+  u32 v;
+  asm volatile("mfc0 %0, $9" : "=r"(v));
+  return v;
+}
+
+/** Debug-profile HUD (Project > Preferences > Build): FPS, RAM
+ * (used/total EE MB) and the per-phase EE-time profiler in the top-left
+ * corner. Compiles to nothing in a release build (the DEBUG_SHOW_* constants
+ * in terrain_config.hpp fold the calls away). */
 void drawDebugHud(Engine* engine) {
-  if (!DEBUG_SHOW_FPS && !DEBUG_SHOW_MEM) return;
+  if (!DEBUG_SHOW_FPS && !DEBUG_SHOW_MEM && !DEBUG_SHOW_PROFILER) return;
   static int memRefresh = 0;
   static float memFreeMB = 0.0F;
-  char line[32];
+  char line[40];
   float y = 16.0F;
   if (DEBUG_SHOW_FPS) {
     snprintf(line, sizeof(line), "FPS %d", (int)engine->info.getFps());
@@ -473,6 +500,32 @@ void drawDebugHud(Engine* engine) {
     }
     snprintf(line, sizeof(line), "MEM %.1f/32 MB", 32.0F - memFreeMB);
     drawHudText(engine, line, 16.0F, y);
+    y += 20.0F;
+  }
+  if (DEBUG_SHOW_PROFILER) {
+    // Whole-frame time = wall clock between successive HUD calls (this runs
+    // once per frame); the phase sums come from renderScene. Averaged over a
+    // ~1s window so the numbers hold still enough to read.
+    static u32 lastTick = 0, frames = 0, frameAcc = 0;
+    static u32 sScene = 0, sHl = 0, sPart = 0;
+    static char l1[40] = "PROFILER...", l2[40] = "";
+    const u32 now = profTicks();
+    if (lastTick) frameAcc += now - lastTick;
+    lastTick = now;
+    sScene += g_profScene;
+    sHl += g_profHighlight;
+    sPart += g_profParticles;
+    g_profScene = g_profHighlight = g_profParticles = 0;
+    if (++frames >= 50) {
+      const float k = 1.0F / (294912.0F * (float)frames);  // ticks -> avg ms
+      snprintf(l1, sizeof(l1), "FRAME %.2f SCENE %.2f", frameAcc * k,
+               sScene * k);
+      snprintf(l2, sizeof(l2), "HL %.2f PART %.2f", sHl * k, sPart * k);
+      frames = frameAcc = sScene = sHl = sPart = 0;
+    }
+    drawHudText(engine, l1, 16.0F, y);
+    y += 20.0F;
+    drawHudText(engine, l2, 16.0F, y);
   }
 }
 
@@ -588,6 +641,9 @@ void TerrainGame::init() {
   if (!FRAME_LIMIT) engine->renderer.core.setFrameLimit(false);
 
   stapip.setRenderer(&engine->renderer.core);
+  // Hidden "clipping": "vu1" mode: frustum-crossing packages are clipped by
+  // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
+  stapip.core.setVU1Clipping(CLIP_VU1);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
   // GS hardware distance fog (Scene/Project > Preferences > Fog).
@@ -785,6 +841,13 @@ void TerrainGame::loop() {
     g_particlesOn = scriptCtx.particles != 0;
     scriptCtx.particles = -1;
   }
+  // Cutscene camera override: a Cutscene Director sequence with a camera track
+  // drives the frame camera (Play/Stop Sequence). Applied after scripts so the
+  // sequence player (a global Script) has posed the camera for this frame.
+  if (scriptCtx.cameraOverride) {
+    cameraPosition = scriptCtx.cameraEye;
+    cameraLookAt = scriptCtx.cameraAt;
+  }
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
   // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
   // switch rebuilds the VRAM layout between frames. A switch closes any
@@ -823,6 +886,10 @@ void TerrainGame::loop() {
     }
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
     updateAndRenderHudTexts();
+    // Cutscene Director widescreen bars + fade-to-black: solid quads over the
+    // scene and HUD (texts included), under the pause menus (no-op unless a
+    // cutscene draws).
+    sequences::renderOverlay(engine, scriptCtx);
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine);
@@ -849,6 +916,8 @@ void TerrainGame::buildScene() {
   animDirLights.setLightsManually(animLightColors, animLightDirs);
   g_animGame = this;
   scriptCtx.resolveClip = &animResolveClipThunk;
+  scriptCtx.spawnObject = &spawnObjectThunk;
+  scriptCtx.despawnObject = &despawnObjectThunk;
 
   infoBag = std::make_unique<StaPipInfoBag>();
   infoBag->model = &model;
@@ -1187,6 +1256,19 @@ void TerrainGame::applyLayerResidency() {
     if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
       animNeed[d.animModel] = 1;
   }
+  // Active spawn-pool clones keep their template's assets resident even when
+  // the template's own layer is out (a clone from a no-layer template must
+  // never lose its model mid-frame; clones OF an unloading layer are already
+  // deactivated before this runs).
+  for (int i = SCENE_OBJECT_COUNT; i < (int)runtimeObjects.size(); ++i) {
+    if (!runtimeObjects[i].active) continue;
+    const SceneObjectData& d = runtimeObjects[i].data;
+    if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
+    if (d.material >= 0 && d.material < (int)materialNeed.size())
+      materialNeed[d.material] = 1;
+    if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
+      animNeed[d.animModel] = 1;
+  }
   if (TERRAIN_TEXTURE >= 0 && TERRAIN_TEXTURE < (int)texNeed.size())
     texNeed[TERRAIN_TEXTURE] = 1;
 
@@ -1224,6 +1306,20 @@ void TerrainGame::processOneStreamJob() {
     loadAnimModelAsset(index);
   else
     loadSceneTexture(index);
+
+  // A clone spawned before its template's assets were resident built empty
+  // geometry - re-arm it now that the asset landed (authored objects go
+  // through activateObject after the queue drains instead).
+  for (int i = SCENE_OBJECT_COUNT; i < (int)runtimeObjects.size(); ++i) {
+    RuntimeObject& o = runtimeObjects[i];
+    if (!o.active) continue;
+    if ((kind == 0 && o.data.model == index) ||
+        (kind == 1 && o.data.material == index) ||
+        (kind == 2 && o.data.animModel == index)) {
+      o.dirty = true;
+      if (kind == 2) setupAnimObject(i);
+    }
+  }
 }
 
 // Brings a streamed-in object back with fresh runtime state from the scene
@@ -1249,6 +1345,55 @@ void TerrainGame::deactivateObject(int i) {
   objectGeometry[i] = ObjectGeometry();
 }
 
+// --- Dynamic spawning (Spawn Object / Despawn Object flow nodes) ------------
+// Clones an authored scene object into a free pool slot past
+// SCENE_OBJECT_COUNT and returns its runtimeObjects index (-1 = pool full or
+// bad template). The template itself is untouched. The clone keeps the
+// template's layer, so unloading that layer despawns it too; its assets are
+// pinned by applyLayerResidency while it lives, and a clone spawned before
+// its model streamed in re-arms its geometry when the asset lands
+// (processOneStreamJob).
+int TerrainGame::spawnObjectAt(int templateIndex, float x, float y, float z,
+                               float yaw) {
+  if (templateIndex < 0 || templateIndex >= SCENE_OBJECT_COUNT) return -1;
+  int slot = -1;
+  for (int i = SCENE_OBJECT_COUNT; i < (int)runtimeObjects.size(); ++i)
+    if (!runtimeObjects[i].active) {
+      slot = i;
+      break;
+    }
+  if (slot < 0) return -1;  // MAX_SPAWNED_OBJECTS clones already live
+  RuntimeObject& o = runtimeObjects[slot];
+  o = RuntimeObject();
+  o.data = SCENE_OBJECTS[templateIndex];
+  o.data.position[0] = x;
+  o.data.position[1] = y;
+  o.data.position[2] = z;
+  o.data.rotation[1] = yaw;
+  o.data.saveState = false;  // clones are never persisted in save slots
+  // Same visibility rules as activateObject: markers stay invisible,
+  // disabled emitters too.
+  o.visible = o.data.type != 4 && o.data.type != 6 &&
+              !(o.data.type == 7 && !o.data.emitEnabled);
+  o.dirty = true;
+  objectGeometry[slot] = ObjectGeometry();
+  setupAnimObject(slot);
+  applyLayerResidency();  // queue the template's assets if not resident yet
+  if (o.data.type == 7) buildParticles();
+  return slot;
+}
+
+// Despawns a spawned clone immediately (its slot recycles). On an authored
+// object it only deactivates - the layer streaming can bring those back.
+void TerrainGame::despawnObjectAt(int index) {
+  if (index < 0 || index >= (int)runtimeObjects.size()) return;
+  if (!runtimeObjects[index].active) return;
+  const bool emitter = runtimeObjects[index].data.type == 7;
+  deactivateObject(index);
+  applyLayerResidency();  // free whatever only this clone still needed
+  if (emitter) buildParticles();
+}
+
 // Once per frame: applies the scripts' Load/Unload Layer requests, frees
 // unloading layers immediately, streams missing assets in ONE per frame and
 // then trickle-activates the loaded layer's objects a few per frame - the
@@ -1256,6 +1401,32 @@ void TerrainGame::deactivateObject(int i) {
 void TerrainGame::updateLayerStreaming() {
   const int lc = (int)layerTarget.size();
   if (lc == 0) return;
+
+  // Auto-streamed layers (Layers panel > Auto stream): crossing a zone
+  // boundary queues the same request a Load/Unload Layer node would, so
+  // scripts can still override a zone until the next crossing. The unload
+  // edge sits a hysteresis band beyond the radius - pacing along the border
+  // doesn't thrash. Focus = cameraLookAt (the player in FPP, the terrain
+  // center for orbit showcases).
+  if ((int)layerAutoInside.size() == lc) {
+    const float px = cameraLookAt.x;
+    const float pz = cameraLookAt.z;
+    for (int l = 0; l < lc; ++l) {
+      const float r = SCENE_LAYER_STREAM_R[l];
+      if (r <= 0.0F) continue;
+      const float dx = px - SCENE_LAYER_STREAM_X[l];
+      const float dz = pz - SCENE_LAYER_STREAM_Z[l];
+      const float d2 = dx * dx + dz * dz;
+      const float rOut = r * 1.15F + 8.0F;
+      if (!layerAutoInside[l] && d2 < r * r) {
+        layerAutoInside[l] = 1;
+        layerRequest[l] = 1;
+      } else if (layerAutoInside[l] && d2 > rOut * rOut) {
+        layerAutoInside[l] = 0;
+        layerRequest[l] = 0;
+      }
+    }
+  }
 
   bool changed = false;
   for (int l = 0; l < lc; ++l) {
@@ -1278,7 +1449,9 @@ void TerrainGame::updateLayerStreaming() {
     // pool may still point at a freed texture).
     bool anyOut = false;
     for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
-      const int l = SCENE_OBJECTS[i].layer;
+      // data.layer (the runtime copy) so spawned clones despawn with the
+      // layer their template belongs to - authored objects read the same.
+      const int l = runtimeObjects[i].data.layer;
       if (l >= 0 && l < lc && layerTarget[l] == 0 && runtimeObjects[i].active) {
         deactivateObject(i);
         anyOut = true;
@@ -1301,7 +1474,8 @@ void TerrainGame::updateLayerStreaming() {
   for (int l = 0; l < lc; ++l) anyLoading |= (layerState[l] == 1);
   if (!anyLoading) return;
   int budget = 4;
-  for (int i = 0; i < (int)runtimeObjects.size() && budget > 0; ++i) {
+  // Authored objects only: spawn-pool slots activate through spawnObjectAt.
+  for (int i = 0; i < SCENE_OBJECT_COUNT && budget > 0; ++i) {
     const int l = SCENE_OBJECTS[i].layer;
     if (l < 0 || l >= lc || layerState[l] != 1 || runtimeObjects[i].active)
       continue;
@@ -1312,7 +1486,7 @@ void TerrainGame::updateLayerStreaming() {
   for (int l = 0; l < lc; ++l) {
     if (layerState[l] != 1) continue;
     bool pending = false;
-    for (int i = 0; i < (int)runtimeObjects.size(); ++i)
+    for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
       if (SCENE_OBJECTS[i].layer == l && !runtimeObjects[i].active)
         pending = true;
     if (!pending) {
@@ -1650,7 +1824,8 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
   for (const RuntimeObject& o : runtimeObjects) {
     if (!o.active || !o.visible || o.data.type == 4 || o.data.type == 6 ||
         o.data.type == 7 || o.data.type == 8 || o.data.type == 9 ||
-        o.data.type == 11 || o.data.type == 13)  // 13 = decal (visual only)
+        o.data.type == 11 || o.data.type == 13 ||  // 13 = decal (visual only)
+        o.data.type == 14)                         // 14 = camera marker
       continue;
     if (o.data.collision == 2) continue;  // none
 
@@ -1811,11 +1986,41 @@ void TerrainGame::loadScene(int sceneIndex) {
 
   // Streaming layers: desired residency from the scene's authored defaults.
   {
+    // The previous scene's runtime objects (spawn-pool clones included) are
+    // gone from here on - drop their active flags BEFORE the residency math
+    // so no stale clone pins the old scene's assets under new-scene indices.
+    for (RuntimeObject& o : runtimeObjects) o.active = false;
     const int lc = SCENE_LAYER_COUNT;
     layerTarget.assign(lc > 0 ? lc : 0, 0);
     layerState.assign(lc > 0 ? lc : 0, 0);
     layerRequest.assign(lc > 0 ? lc : 0, -1);
-    for (int l = 0; l < lc; ++l) layerTarget[l] = SCENE_LAYER_START[l] ? 1 : 0;
+    layerAutoInside.assign(lc > 0 ? lc : 0, 0);
+    // Auto-streamed layers start resident only when the spawn point is
+    // inside their zone; everything else follows the authored Start loaded.
+    float spawnX = 0.0F, spawnZ = 0.0F;
+    if (PLAYER_INDEX >= 0) {
+      spawnX = SCENE_OBJECTS[PLAYER_INDEX].position[0];
+      spawnZ = SCENE_OBJECTS[PLAYER_INDEX].position[2];
+    } else {
+      for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+        if (SCENE_OBJECTS[i].type == 4) {  // spawn point (built-in FPP)
+          spawnX = SCENE_OBJECTS[i].position[0];
+          spawnZ = SCENE_OBJECTS[i].position[2];
+          break;
+        }
+    }
+    for (int l = 0; l < lc; ++l) {
+      const float r = SCENE_LAYER_STREAM_R[l];
+      if (r > 0.0F) {
+        const float dx = spawnX - SCENE_LAYER_STREAM_X[l];
+        const float dz = spawnZ - SCENE_LAYER_STREAM_Z[l];
+        const bool inside = dx * dx + dz * dz < r * r;
+        layerTarget[l] = inside ? 1 : 0;
+        layerAutoInside[l] = inside ? 1 : 0;
+      } else {
+        layerTarget[l] = SCENE_LAYER_START[l] ? 1 : 0;
+      }
+    }
     applyLayerResidency();
     while (!streamQueue.empty()) processOneStreamJob();
     for (int l = 0; l < lc; ++l) layerState[l] = layerTarget[l] ? 2 : 0;
@@ -1831,6 +2036,8 @@ void TerrainGame::loadScene(int sceneIndex) {
     skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
     buildSkyDome();
   }
+  // Per-scene clipping override may flip the hidden VU1 clipping mode.
+  stapip.core.setVU1Clipping(CLIP_VU1);
   // Per-scene sky color (the loop paints the clear screen from ctx.skyColor)
   // and post effects.
   scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
@@ -1850,9 +2057,17 @@ void TerrainGame::loadScene(int sceneIndex) {
   g_flashEnabled = FLASHLIGHT_ENABLED;
   g_flashOn = true;
 
-  runtimeObjects.assign(SCENE_OBJECT_COUNT, RuntimeObject());
+  // Authored objects + the dynamic spawn pool (Spawn Object flow node).
+  runtimeObjects.assign(SCENE_OBJECT_COUNT + MAX_SPAWNED_OBJECTS,
+                        RuntimeObject());
   objectGeometry.clear();
-  objectGeometry.resize(SCENE_OBJECT_COUNT);
+  objectGeometry.resize(SCENE_OBJECT_COUNT + MAX_SPAWNED_OBJECTS);
+  // Pool slots start empty - data arrives from a template at spawn time.
+  for (int i = SCENE_OBJECT_COUNT; i < (int)runtimeObjects.size(); ++i) {
+    runtimeObjects[i].active = false;
+    runtimeObjects[i].visible = false;
+    runtimeObjects[i].dirty = false;
+  }
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     runtimeObjects[i].data = SCENE_OBJECTS[i];
     // spawn points and the player are editor markers, not geometry; emitters
@@ -2010,7 +2225,7 @@ void TerrainGame::buildParticles() {
     ParticleSystem ps;
     ps.objectIndex = i;
     ps.rng = 12345u + (unsigned int)i * 7919u;
-    int n = SCENE_OBJECTS[i].emitCount;
+    int n = runtimeObjects[i].data.emitCount;  // data copy: spawn slots too
     if (n < 1) n = 1;
     if (n > 256) n = 256;
     ps.pos.assign(n, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
@@ -2034,7 +2249,7 @@ void TerrainGame::buildParticles() {
     // Textured particles: the emitter's material supplies the map (its Kd is
     // ignored - the emitter color is the tint). UVs are fixed per quad in the
     // v0,v1,v2 / v0,v2,v3 vertex order used by updateParticles().
-    const int mi = SCENE_OBJECTS[i].material;
+    const int mi = runtimeObjects[i].data.material;  // data copy: spawn slots too
     if (mi >= 0 && mi < (int)gameMaterials.size() && gameMaterials[mi].texture) {
       ps.sts.reserve((size_t)n * 6);
       for (int q = 0; q < n; ++q) {
@@ -2263,7 +2478,8 @@ void TerrainGame::updateUseTarget() {
     const RuntimeObject& o = runtimeObjects[i];
     if (!o.active || !o.data.usable || !o.visible) continue;
     if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
-        o.data.type == 8 || o.data.type == 9 || o.data.type == 11)
+        o.data.type == 8 || o.data.type == 9 || o.data.type == 11 ||
+        o.data.type == 14)
       continue;
 
     const float dx = o.data.position[0] - cameraPosition.x;
@@ -2366,8 +2582,8 @@ void TerrainGame::doSave(int slot) {
     snprintf(d.texts[i], SAVE_TEXT_LEN, "%s", &saveTexts[i * SAVE_TEXT_LEN]);
   d.objectCount = 0;
   for (int i = 0;
-       i < (int)runtimeObjects.size() && d.objectCount < SAVE_OBJECT_MAX; ++i) {
-    if (!SCENE_OBJECTS[i].saveState) continue;
+       i < SCENE_OBJECT_COUNT && d.objectCount < SAVE_OBJECT_MAX; ++i) {
+    if (!SCENE_OBJECTS[i].saveState) continue;  // spawn clones never persist
     SaveObjectState& st = d.objects[d.objectCount++];
     st.index = i;
     for (int a = 0; a < 3; ++a) st.position[a] = runtimeObjects[i].data.position[a];
@@ -2787,6 +3003,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
   ObjectGeometry& g = objectGeometry[index];
   o.dirty = false;
   g.apronVerts.clear();  // position/size changed - the highlight ring follows
+  g.hullProxyVerts.clear();  // and the shell proxy re-bakes the transform
 
   // models: one draw part per MTL material; everything else fills parts[0]
   const GameModel* gm = nullptr;
@@ -2838,6 +3055,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
       case 11: break;  // empty - pure transform, no geometry
       case 12: addPlane(p0.vertices, p0.colors, p0.sts, o.data); break;
       case 13: addDecal(p0.vertices, p0.colors, p0.sts, o.data); break;
+      case 14: break;  // camera - cutscene shot marker, no geometry
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
     g_primKd = nullptr;
@@ -2907,6 +3125,10 @@ void TerrainGame::updateObjectPhysics() {
 }
 
 void TerrainGame::renderScene() {
+  // Debug profiler: scene phase = sky + terrain + objects + anim (+ the
+  // deferred usable bodies, timed separately below). Folded away entirely
+  // when DEBUG_SHOW_PROFILER is false. See drawDebugHud.
+  const u32 profScene0 = DEBUG_SHOW_PROFILER ? profTicks() : 0;
   // Scripts changing ctx.skyColor retint the dome horizon
   if (skyDome.bag && (scriptCtx.skyColor.r != skyHorizonR ||
                       scriptCtx.skyColor.g != skyHorizonG ||
@@ -2932,28 +3154,96 @@ void TerrainGame::renderScene() {
   // before any packaging or clipping work happens.
   updateTerrainChunks(cameraLookAt.x, cameraLookAt.z, 2);
   renderTerrain();
+  // Highlighted-in-reach usables get a separate shell pass after the scene.
+  // RIM mode (default): the body is deferred out of the main pass and drawn
+  // AFTER its shells, erasing the shell wash over the object's own receding
+  // faces without a second full draw (the old order needed main-pass draw +
+  // repaint - two exact-clip passes per frame). OVERLAY mode: the body draws
+  // normally in the main pass and the shells are painted ON it afterwards, so
+  // it stays in this list only for the shell pass.
+  int hlList[8];
+  float hlListD2[8];
+  int hlCount = 0;
+  const bool hlActive = HIGHLIGHT_USABLE;
+  const bool hlOverlay = HIGHLIGHT_OVERLAY;
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (!runtimeObjects[i].active) continue;  // streamed out with its layer
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
     if (!runtimeObjects[i].visible) continue;
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
+    if (hlActive && hlCount < 8 && runtimeObjects[i].data.usable &&
+        highlightInReach(i)) {
+      const float ddx = runtimeObjects[i].data.position[0] - cameraPosition.x;
+      const float ddy = runtimeObjects[i].data.position[1] - cameraPosition.y;
+      const float ddz = runtimeObjects[i].data.position[2] - cameraPosition.z;
+      hlList[hlCount] = i;
+      hlListD2[hlCount++] = ddx * ddx + ddy * ddy + ddz * ddz;
+      if (!hlOverlay) continue;  // rim: defer body; overlay: draw it now
+    }
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag) stapip.core.render(part.bag.get());
   }
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
   updateAndRenderAnimObjects();
-  // Highlight rims after every object so their depth is in the z-buffer:
-  // the rim is depth-tested against the finished scene and can no longer be
-  // punched through by an object drawn later in the loop.
-  if (HIGHLIGHT_USABLE)
-    for (int i = 0; i < (int)runtimeObjects.size(); ++i)
-      if (runtimeObjects[i].active && runtimeObjects[i].visible &&
-          runtimeObjects[i].data.usable && !objectGeometry[i].parts.empty())
-        renderHighlightHull(i);  // proximity-checked inside; no-op when far
+  if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - profScene0;
+  // Highlight shells after the whole scene so they depth-test against the
+  // finished z-buffer and can't be punched through by a later draw. Sorted
+  // far-to-near: a nearer object's rim/body correctly covers a farther one.
+  for (int a = 0; a < hlCount; ++a)  // insertion sort, farthest first
+    for (int b = a + 1; b < hlCount; ++b)
+      if (hlListD2[b] > hlListD2[a]) {
+        const int ti = hlList[a];
+        hlList[a] = hlList[b];
+        hlList[b] = ti;
+        const float td = hlListD2[a];
+        hlListD2[a] = hlListD2[b];
+        hlListD2[b] = td;
+      }
+  for (int a = 0; a < hlCount; ++a) {
+    const int i = hlList[a];
+    const u32 ph = DEBUG_SHOW_PROFILER ? profTicks() : 0;
+    renderHighlightHull(i);  // shells + ground apron = the highlight overhead
+    if (DEBUG_SHOW_PROFILER) g_profHighlight += profTicks() - ph;
+    if (!hlOverlay) {
+      // Rim mode: paint the deferred body over the shells (GEQUAL wins the
+      // equal-depth test, erasing the wash). Real geometry - count it as
+      // scene, not highlight overhead.
+      const u32 pb = DEBUG_SHOW_PROFILER ? profTicks() : 0;
+      for (GeoPart& part : objectGeometry[i].parts)
+        if (part.bag) stapip.core.render(part.bag.get());
+      if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - pb;
+    }
+  }
   // particles last - alpha blended over the scene
+  const u32 profPart0 = DEBUG_SHOW_PROFILER ? profTicks() : 0;
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
+  if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
+}
+
+// True when the usable object sits inside the highlight distance (same
+// reference point as the USE interaction) and has anything to draw.
+bool TerrainGame::highlightInReach(int index) const {
+  const RuntimeObject& o = runtimeObjects[index];
+  const ObjectGeometry& g = objectGeometry[index];
+  bool any = false;  // marker-only objects have no draw parts
+  for (const GeoPart& part : g.parts)
+    if (part.bag) {
+      any = true;
+      break;
+    }
+  if (!any) return false;
+  float half = o.data.scale[0];
+  if (o.data.scale[1] > half) half = o.data.scale[1];
+  if (o.data.scale[2] > half) half = o.data.scale[2];
+  half *= 0.5F;
+  if (half < 0.01F) half = 0.01F;
+  const float dx = o.data.position[0] - cameraPosition.x;
+  const float dy = o.data.position[1] - cameraPosition.y;
+  const float dz = o.data.position[2] - cameraPosition.z;
+  const float reach = HIGHLIGHT_DISTANCE + half;
+  return dx * dx + dy * dy + dz * dz <= reach * reach;
 }
 
 // Usable-object highlight (Project > Preferences): a soft colored rim around
@@ -2991,13 +3281,10 @@ void TerrainGame::renderHighlightHull(int index) {
   const float reach = HIGHLIGHT_DISTANCE + half;
   if (dist2 > reach * reach) return;
 
-  bool any = false;  // marker-only objects have no draw parts
-  for (const GeoPart& part : g.parts)
-    if (part.bag) {
-      any = true;
-      break;
-    }
-  if (!any) return;
+  // Shells draw from the low-detail proxy, not the object's own (possibly
+  // heavily subdivided) mesh - built lazily, cleared on geometry rebuilds.
+  if (g.hullProxyVerts.empty()) buildHighlightProxy(index);
+  if (g.hullProxyVerts.empty()) return;  // marker-only object
 
   const float dist = sqrtf(dist2);
   const float cx = o.data.position[0], cy = o.data.position[1],
@@ -3012,7 +3299,14 @@ void TerrainGame::renderHighlightHull(int index) {
   // rim edge turns into visible steps.
   float growMax = HIGHLIGHT_WIDTH / half;
   if (growMax > 0.6F) growMax = 0.6F;
-  const float k = 1.0F + (growMax * half + 0.15F) / behind;
+  // k = scale about the eye. RIM mode (>1) pushes the shell behind the
+  // object's depth so the z-buffer keeps only the silhouette rim. OVERLAY
+  // mode keeps k = 1 (no pushback): each grown shell sits at the object's own
+  // depth, its front faces landing just in front of the surface, so the glow
+  // paints ON the object and fades outward into a rim (the body is drawn
+  // first, in the main pass, then these shells blend over it).
+  const float k = HIGHLIGHT_OVERLAY ? 1.0F
+                                    : 1.0F + (growMax * half + 0.15F) / behind;
 
   if (!hullBag) {
     hullInfoBag = std::make_unique<StaPipInfoBag>();
@@ -3033,7 +3327,10 @@ void TerrainGame::renderHighlightHull(int index) {
   // shells overlap into solid color fading outward. Refreshed every call
   // (scene switches change the prefs; same values otherwise).
   hullShellCols.resize(HIGHLIGHT_STEPS);
-  float alpha = HIGHLIGHT_STEPS > 1 ? 72.0F : 100.0F;  // single step = solid
+  // Strongest (innermost) shell alpha = HIGHLIGHT_OPACITY of full (128 = the
+  // PS2 opaque max); the outer shells halve outward. Opacity 1 + steps 1 =
+  // a fully solid outline.
+  float alpha = HIGHLIGHT_OPACITY * 128.0F;
   for (int s = 0; s < HIGHLIGHT_STEPS; ++s) {
     hullShellCols[s] = Color(HIGHLIGHT_R, HIGHLIGHT_G, HIGHLIGHT_B, alpha);
     alpha *= 0.55F;
@@ -3054,16 +3351,13 @@ void TerrainGame::renderHighlightHull(int index) {
     hullMat.data[13] = k * (1.0F - f) * cy + (1.0F - k) * cameraPosition.y;
     hullMat.data[14] = k * (1.0F - f) * cz + (1.0F - k) * cameraPosition.z;
     hullColorBag->single = &hullShellCols[s];
-    for (GeoPart& part : g.parts) {
-      if (!part.bag) continue;
-      hullBag->vertices = part.bag->vertices;
-      hullBag->count = part.bag->count;
-      // Same pointer + version as the part: the shell's package boxes live
-      // in their own cache slot (single color changes the package size) and
-      // recompute only when the part itself rebuilds - never per frame.
-      hullBag->bboxVersion = part.bag->bboxVersion;
-      stapip.core.render(hullBag.get());
-    }
+    // One submit per shell over the proxy positions; the package boxes live
+    // in their own cache slot (keyed by the proxy pointer) and recompute
+    // only when the proxy rebuilds - never per frame.
+    hullBag->vertices = g.hullProxyVerts.data();
+    hullBag->count = static_cast<u32>(g.hullProxyVerts.size());
+    hullBag->bboxVersion = g.hullProxyStamp;
+    stapip.core.render(hullBag.get());
   }
 
   // Grounded objects: the shells dip below the terrain and the ground in
@@ -3097,12 +3391,64 @@ void TerrainGame::renderHighlightHull(int index) {
     }
   }
 
-  // The pushback clears the object's front face but not its receding side
-  // faces - shells still blend over those at glancing angles. Repainting
-  // the object wins the equal-depth test (GEQUAL) and erases the wash
-  // without touching the rim outside the silhouette.
-  for (GeoPart& part : g.parts)
-    if (part.bag) stapip.core.render(part.bag.get());
+  // RIM mode: the pushback clears the object's front face but not its
+  // receding side faces - shells still blend over those at glancing angles.
+  // The caller paints the deferred body right after this call (GEQUAL wins
+  // the equal-depth test), erasing the wash without touching the rim and
+  // without the old main-pass-draw + repaint double draw. OVERLAY mode wants
+  // exactly that wash on the surface, so the caller draws the body FIRST (in
+  // the main pass) and leaves these shells on top.
+}
+
+// Builds the shells' low-detail stand-in (world-space positions only).
+// Primitives regenerate through their own builders with the subdivision
+// forced down - a subdivided box/plane has the same silhouette at detail 1,
+// and a curved primitive at 12 segments is within a couple of percent of
+// its full-detail silhouette, invisible under the soft rim. Models have no
+// cheaper source, so their parts are concatenated as-is (one submit per
+// shell instead of one per part).
+void TerrainGame::buildHighlightProxy(int index) {
+  const RuntimeObject& o = runtimeObjects[index];
+  ObjectGeometry& g = objectGeometry[index];
+  g.hullProxyVerts.clear();
+
+  if (o.data.type == 5) {
+    size_t total = 0;
+    for (const GeoPart& part : g.parts) total += part.vertices.size();
+    g.hullProxyVerts.reserve(total);
+    for (const GeoPart& part : g.parts)
+      if (part.bag)
+        g.hullProxyVerts.insert(g.hullProxyVerts.end(), part.vertices.begin(),
+                                part.vertices.end());
+  } else {
+    SceneObjectData low = o.data;
+    low.primDetail = 1;
+    switch (o.data.type) {
+      case 1:
+      case 2:
+      case 3:
+        low.primDetail = o.data.primDetail < 12 ? o.data.primDetail : 12;
+        break;
+      default:
+        break;  // boxes, planes, decals: detail 1
+    }
+    // The builders emit colors/sts too; shells only need positions, the
+    // rest is discarded (built once per geometry rebuild).
+    std::vector<Color> cols;
+    std::vector<Vec4> sts;
+    switch (o.data.type) {
+      case 1: addSphere(g.hullProxyVerts, cols, sts, low); break;
+      case 2: addCylinder(g.hullProxyVerts, cols, sts, low); break;
+      case 3: addCone(g.hullProxyVerts, cols, sts, low); break;
+      case 12: addPlane(g.hullProxyVerts, cols, sts, low); break;
+      case 13: addDecal(g.hullProxyVerts, cols, sts, low); break;
+      default:
+        if (!g.parts.empty() && g.parts[0].bag)
+          addBox(g.hullProxyVerts, cols, sts, low);
+        break;  // marker-only types keep the proxy empty
+    }
+  }
+  if (!g.hullProxyVerts.empty()) g.hullProxyStamp = ++g_bboxStamp;
 }
 
 // The terrain-hugging glow ring around a grounded usable object's base: one
@@ -3134,7 +3480,8 @@ void TerrainGame::buildHighlightApron(int index, float half) {
   g.apronVerts.reserve((size_t)HIGHLIGHT_STEPS * SEG * 6);
   g.apronCols.reserve((size_t)HIGHLIGHT_STEPS * SEG * 6);
 
-  float alpha = HIGHLIGHT_STEPS > 1 ? 72.0F : 100.0F;
+  // Same alpha ramp as the shells (HIGHLIGHT_OPACITY strongest, halving out).
+  float alpha = HIGHLIGHT_OPACITY * 128.0F;
   for (int s = 0; s < HIGHLIGHT_STEPS; ++s) {
     float grow = (HIGHLIGHT_WIDTH * (s + 1)) / (HIGHLIGHT_STEPS * half);
     if (grow > 0.6F) grow = 0.6F;
