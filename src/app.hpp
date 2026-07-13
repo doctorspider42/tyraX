@@ -609,6 +609,34 @@ private:
     bool debugAutoReload_ = true;
     double debugNextReload_ = 0.0;  // ImGui::GetTime() gate for the next read
 
+    // Game error catcher: polls the game's log (bin/log.txt over host:, or the
+    // networked [ps2] console output in the runner log) for a TYRA assertion
+    // dump and raises a copyable error dialog, so a failed assert (e.g. a
+    // missing texture) surfaces in the editor instead of only freezing the
+    // game. errorPopupEnabled_ (persisted in editor.ini) gates the dialog; when
+    // off, errors go only to the console / Debug window. errorSeenSig_ is the
+    // last assertion block already handled, so each distinct error pops once.
+    // It is forgotten when a source shrinks (a new run recreates bin/log.txt;
+    // Output "Clear" empties the runner log) so an *identical* new error - the
+    // same missing file at the same line, re-triggered on the next run - pops
+    // again instead of being deduped against the stale log. The size fields
+    // track that; they are baselined on project attach so opening a project
+    // with a stale dump in its log neither pops it nor looks like a shrink.
+    bool errorPopupEnabled_ = true;
+    std::string errorSeenSig_;
+    std::string errorModalText_;      // block shown in the open dialog
+    bool openErrorPopup_ = false;     // request to open the modal next frame
+    size_t errorGameLogSize_ = 0;     // last-seen bin/log.txt size (shrink = new run)
+    size_t errorRunnerLogSize_ = 0;   // last-seen runner-log size (shrink = cleared)
+    double errorNextPoll_ = 0.0;      // ImGui::GetTime() gate for the next scan
+    // Reads the game log tail + runner log and, on a newly seen assertion,
+    // raises the error dialog (throttled). Called each frame from drawUI().
+    void pollGameError();
+    // The freshest assertion dump the editor can see (game log.txt + runner
+    // log). "" when there is none.
+    std::string latestGameAssert() const;
+    void drawErrorModal();
+
     // "Scene Preferences" modal staging (applied on OK): the active scene's
     // per-category overrides of the project defaults.
     bool openScenePrefsPopup_ = false;

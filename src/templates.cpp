@@ -6214,6 +6214,80 @@ docker-compose.yml
 
 static const char* TPL_DIR_KEEP = "*\n!.gitignore\n";
 
+// Multi-user collaboration hints, written once at project creation (a new game
+// map is its own repo, separate from the editor). Object bodies are split one
+// file per object so they merge cleanly; the files below cannot be auto-merged
+// and are marked lockable so a team can claim them before editing (needs
+// `git lfs install`, uses only the lock registry - no LFS storage/server).
+static const char* TPL_GITATTRIBUTES = R"(# Multi-user collaboration for this Tyra project.
+#
+# Object bodies are split one file per object (objects/<id>.json), so two people
+# editing DIFFERENT objects touch different files and git merges them with no
+# conflict - just edit. The manifest (<name>.tyra) and per-object files are text.
+#
+# The files below cannot be sanely auto-merged (a heightmap grid, binary assets).
+# Lock one before you edit it so nobody else edits the same file at the same
+# time. Locking needs Git LFS installed once per clone (`git lfs install`); it
+# uses only LFS's lock registry, not LFS storage, so no special remote is needed:
+#     git lfs lock   terrain-main.heights     # claim it
+#     git lfs unlock terrain-main.heights     # release it
+# `git lfs locks` lists who holds what. A lockable file is read-only in your
+# working tree until you lock it - that read-only bit is the reminder.
+
+terrain-*.heights lockable -merge
+res/models/**     lockable -merge
+res/materials/**  lockable -merge
+res/textures/**   lockable -merge
+res/fonts/**      lockable -merge
+res/audio/**      lockable -merge
+res/sfx/**        lockable -merge
+res/hud/**        lockable -merge
+)";
+
+static const char* TPL_COLLABORATION = R"(# Working on this project with others
+
+This project is laid out to keep git merges painless when several people edit it
+at once.
+
+## What merges cleanly (just edit)
+
+- **Scene objects** live one per file under `objects/<id>.json`. Each object has
+  a stable id, so editing, moving or recoloring different objects never
+  conflicts - you each touch a different file.
+- **The manifest** (`<name>.tyra`) holds project-wide settings and, per scene, an
+  ordered list of object ids. Editing settings or different scenes merges
+  line-by-line. The one place two people can still collide is *both adding an
+  object to the same scene at the same time* - a one-line conflict in the id
+  list, trivial to resolve (keep both ids).
+
+## What to lock first (cannot auto-merge)
+
+Some files are a single indivisible blob a git auto-merge would corrupt.
+`.gitattributes` marks them **lockable**; lock one before editing so no one else
+edits it concurrently:
+
+- `terrain-*.heights` - a scene's terrain heightmap (one grid; two sculpts can't
+  merge).
+- everything under `res/` - imported textures, models, audio, fonts.
+
+Locking uses Git LFS's lock registry (no LFS storage / no special server):
+
+    git lfs install                       # once per clone
+    git lfs lock   terrain-main.heights   # claim before editing
+    git lfs unlock terrain-main.heights   # release when done
+    git lfs locks                         # see who holds what
+
+Until you lock a lockable file it is read-only in your working copy - the
+reminder to lock it. If your team does not use locking, ignore this: the files
+still work as plain git files.
+
+## Not tracked / regenerated
+
+`obj/`, `bin/*.elf`, `.res-baked/`, `docker-compose.yml`, `*.history` and the
+`*.gen.*` sources are build output or local state (see `.gitignore`) - never
+resolve merge conflicts in generated files; fix the source and rebuild.
+)";
+
 static std::string floatLit(float v) {
     char buf[40];
     std::snprintf(buf, sizeof(buf), "%.6g", (double)v);
@@ -9679,6 +9753,8 @@ std::vector<File> generate(const Project& p) {
         {"run.ps1", fill(TPL_RUN_PS1)},
         {"windows-pcsx2.ps1", fill(TPL_PCSX2_PS1)},
         {".gitignore", fill(TPL_GITIGNORE)},
+        {".gitattributes", TPL_GITATTRIBUTES},
+        {"COLLABORATION.md", TPL_COLLABORATION},
         {"res\\.gitignore", TPL_DIR_KEEP},
         {"bin\\.gitignore", TPL_DIR_KEEP},
         {"obj\\.gitignore", TPL_DIR_KEEP},
