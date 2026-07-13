@@ -65,14 +65,22 @@ enum class PrimitiveType {
 constexpr int kDefaultPrimDetail = 16;  // curved shapes (radial segments)
 constexpr int kDefaultBoxDetail = 1;    // Box (subdivisions per edge)
 
-inline int primDetailMin(PrimitiveType t) { return t == PrimitiveType::Box ? 1 : 3; }
-inline int primDetailMax(PrimitiveType t) { return t == PrimitiveType::Box ? 16 : 64; }
+// SavePoint tessellates exactly like a Box (the game's geometry builder and
+// the viewport both draw it as one), so it shares the Box detail semantics.
+// Without this it inherited the curved-shape default of 16 segments, which
+// addBox read as 16 subdivisions per edge - every save shrine silently cost
+// 3072 triangles (9.2k verts) of near-camera EE clipping in the game.
+inline bool primDetailIsBoxLike(PrimitiveType t) {
+    return t == PrimitiveType::Box || t == PrimitiveType::SavePoint;
+}
+inline int primDetailMin(PrimitiveType t) { return primDetailIsBoxLike(t) ? 1 : 3; }
+inline int primDetailMax(PrimitiveType t) { return primDetailIsBoxLike(t) ? 16 : 64; }
 inline int clampPrimDetail(PrimitiveType t, int d) {
     const int lo = primDetailMin(t), hi = primDetailMax(t);
     return d < lo ? lo : (d > hi ? hi : d);
 }
 inline int defaultPrimDetail(PrimitiveType t) {
-    return t == PrimitiveType::Box ? kDefaultBoxDetail : kDefaultPrimDetail;
+    return primDetailIsBoxLike(t) ? kDefaultBoxDetail : kDefaultPrimDetail;
 }
 // Sphere vertical rings derived from the radial segment count (~5:7 ratio).
 inline int primSphereStacks(int detail) {
@@ -84,7 +92,9 @@ inline int primSphereStacks(int detail) {
 inline int primTriangleCount(PrimitiveType type, int detail) {
     const int d = clampPrimDetail(type, detail);
     switch (type) {
-        case PrimitiveType::Box: return 12 * d * d;  // 6 faces * 2 * d^2 subquads
+        case PrimitiveType::Box:
+        case PrimitiveType::SavePoint:
+            return 12 * d * d;  // 6 faces * 2 * d^2 subquads
         case PrimitiveType::Sphere: return primSphereStacks(d) * d * 2;
         case PrimitiveType::Cylinder: return d * 4;  // side (2/seg) + 2 caps
         case PrimitiveType::Cone: return d * 2;      // side + base (1/seg each)

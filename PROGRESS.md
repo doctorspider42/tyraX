@@ -9,6 +9,51 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (79) **StaPip partial-frustum cost: save points tessellated as detail-16
+  boxes (9.2k verts) + pooled packager arrays** — follow-up to the PCSX2
+  observation from the usable-highlight session: even with highlighting off,
+  the showcase spent 12-14 ms of EE per frame inside `StaPipCore::render`'s
+  PARTIALLY_IN_FRUSTUM branch (~160 EE-clipper calls) on views with the save
+  shrine + trees near the camera. Measured first (recipe from the clipbench
+  notes: COP0 counters in the engine around the partial/full branches,
+  `packager.create` and clip/cull submissions; owned `terrain_game.cpp` in a
+  scratch copy of examples/showcase with a deterministic orbit camera parked
+  between the campfire and the shrine; PERF line per 50 frames to
+  host:perf.txt; PCSX2 software renderer). **Baseline at the worst angles:
+  66 ms/frame (15 FPS), 36-38 ms in the partial branch = ~285
+  `packager.create` calls producing ~1340 packages (16-17 ms of allocation +
+  per-package bbox classification) plus ~385 EE-clipper submissions
+  (19-20 ms), ~12 partial bags/frame — nearly all of it one object.** Root
+  cause: `SceneObject::primDetail` defaults to 16 and **SavePoint** was never
+  made "box-like" when (61)'s follow-up gave Box its 1/16 default/cap — but
+  the generated game builds SavePoint geometry through the
+  `default: addBox(...)` case, so every save shrine silently tessellated
+  16x16 per face = 3072 tris / **9216 verts** (while the editor viewport drew
+  it as a plain box - the preview never showed the cost). Fix (a), editor:
+  SavePoint is box-like across the chain — `primDetailIsBoxLike()` in
+  project.hpp (default 1, clamp 1..16, box triangle readout), the viewport
+  draws it from the box mesh cache honoring detail, and the Detail slider now
+  shows for SavePoint. Old `.tyra` files carry no `"detail"` key for save
+  points (16 was the emit-suppressed default), so they all load as 1; a
+  shrine's baked point-light gradient flattens — set Detail explicitly if the
+  look is wanted (it is authorable now). Fix (b), engine:
+  `StaPipBagPackager::create` returns pointers into two grow-only pools
+  (bag-level / split-level — the parent array is alive during a split;
+  callers no longer `delete[]`, absent sts/colors/normals are nulled against
+  stale reuse), `renderSubpkgs`' two index vectors are static, and the
+  per-textured-bag `RendererCoreTextureBuffers` heap alloc is a stack struct.
+  Measured attribution on the same orbit: **pooling alone is worth only ~2%**
+  of the partial branch (create cost is the bbox classification math, not the
+  allocator); the detail fix does the rest — **after both, every 50-frame
+  window locks 50 FPS (20.0 ms), partial branch peaks at 8.5 ms avg / 9.6 ms
+  max, EE pre-endFrame <= 10.6 ms, clipper calls max ~93/frame** over 3 full
+  orbits; windows matching the original report (~160 calls) now run ~5-6 ms
+  with ~60 calls. Verified: SW-renderer screenshots healthy mid-orbit (trees,
+  rock, portal, shrine with its usable rim; no pooling artifacts; 50 FPS /
+  100% speed / EE ~38%); examples/showcase regenerated and re-verified with
+  the final de-instrumented engine. Perf logs archived in
+  `%TEMP%\tyra-editor-test\perf-run{1,2,3}*.txt`.
+
 - (78) **"Open in VS Code" jumps to a file (scripts + custom nodes)** —
   `App::openInVSCode` gained an optional `file` arg: it now runs
   `code "<projectDir>" -g "<file>"`, opening (or reusing) the whole-project
@@ -3436,8 +3481,10 @@ Each finished feature lands as its own commit.
   now runs on VU0 in macro mode (entry 34) at ~37% EE load for 3 characters
   in PCSX2, so the EE is not the bottleneck yet. Palette per batch limited
   by VU memory (~24-32 bones).
-- Engine perf, next targets: packager allocates its package array per frame
-  (poolable); the real endgame is the engine author's own TODO in
+- Engine perf, next target: the packager's per-frame package arrays are
+  pooled now (entry 79 - measured worth only ~2%; the partial-branch cost is
+  per-package bbox classification + EE clipping, which scale with vertex
+  count); the real endgame is the engine author's own TODO in
   stapip_clipper.hpp - move clipping to VU1 entirely ("too much time").
   **Measured on real PS2 (2026-07-11**; clipbench: 128x128 terrain at detail
   128 = ~98k verts, spinning FPP camera, COP0 timers around `clipper.clip` +

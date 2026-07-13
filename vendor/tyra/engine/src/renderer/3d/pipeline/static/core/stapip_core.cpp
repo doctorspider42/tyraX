@@ -149,10 +149,14 @@ void StaPipCore::render(StaPipBag* bag) {
     mvp = rendererCore->renderer3D.getViewProj() * *bag->info->model;
   }
 
+  // Modified by tyra-editor: stack storage - sendObjectData consumes the
+  // struct immediately, the old per-bag new/delete was pure heap churn.
+  RendererCoreTextureBuffers texBuffersStorage;
   RendererCoreTextureBuffers* texBuffers = nullptr;
   if (bag->texture) {
     auto temp = rendererCore->texture.useTexture(bag->texture->texture);
-    texBuffers = new RendererCoreTextureBuffers{temp.id, temp.core, temp.clut};
+    texBuffersStorage = {temp.id, temp.core, temp.clut};
+    texBuffers = &texBuffersStorage;
   }
 
   qbufferRenderer.clearLastProgramName();
@@ -180,6 +184,8 @@ void StaPipCore::render(StaPipBag* bag) {
   auto checkNoClipNo =  // cull all
       !frustumCull && !bag->info->fullClipChecks;
 
+  // Modified by tyra-editor: packager.create returns pooled arrays - no
+  // delete[] here (see StaPipBagPackager).
   if (checkYesFrustumInClipYes || checkYesFrustumInClipNo || checkNoClipNo) {
     u16 packagesCount = 0;
     auto* biggerPkgs = packager.create(&packagesCount, bag, maxVertCount);
@@ -191,7 +197,6 @@ void StaPipCore::render(StaPipBag* bag) {
       buffer->fillByPointer(biggerPkgs[i]);
       qbufferRenderer.cull(buffer);
     }
-    delete[] biggerPkgs;
   } else if (checkYesFrustumPartialClipYes || checkYesFrustumPartialClipNo) {
     u16 packagesCount = 0;
     auto doClip = checkYesFrustumPartialClipYes;
@@ -199,16 +204,12 @@ void StaPipCore::render(StaPipBag* bag) {
       auto packages = packager.create(&packagesCount, bag, maxVertCount);
       Verbose("Material - partial. Packages: ", packagesCount);
       renderPkgs(packages, doClip, packagesCount);
-      delete[] packages;
     } else {
       auto subpkgs = packager.create(&packagesCount, bag, clipPackageSize());
       Verbose("Material - partial. Subpackages: ", packagesCount);
       renderSubpkgs(subpkgs, packagesCount);
-      delete[] subpkgs;
     }
   }
-
-  if (texBuffers) delete texBuffers;
 
   qbufferRenderer.flushBuffers();
 
@@ -233,15 +234,19 @@ void StaPipCore::renderPkgs(StaPipBagPackage* packages, const bool& doClip,
       Verbose(i, " - partial package. Created subpkgs: ", subpkgsSize);
 
       renderSubpkgs(packages1By3, subpkgsSize);
-      delete[] packages1By3;
     }
     Verbose(i, " - package skipped (outside)");
   }
 }
 
 void StaPipCore::renderSubpkgs(StaPipBagPackage* subpkgs, u16 count) {
-  std::vector<u16> doneIndexes;
-  std::vector<u16> loadedIndexes;
+  // Modified by tyra-editor: reused across calls (the renderer is
+  // single-threaded) - the two per-call heap allocations were measurable
+  // next to the pooled packager.
+  static std::vector<u16> doneIndexes;
+  static std::vector<u16> loadedIndexes;
+  doneIndexes.clear();
+  loadedIndexes.clear();
 
   // Check if some subpkgs are full in frustum
   for (u16 i = 0; i < count; i++) {
