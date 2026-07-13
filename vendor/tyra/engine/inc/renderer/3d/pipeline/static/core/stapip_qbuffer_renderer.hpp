@@ -56,6 +56,15 @@ class StaPipQBufferRenderer {
   /** Slower render with clipping */
   void clip(StaPipQBuffer* buffer);
 
+  /**
+   * Modified by tyra-editor: route clip-classified packages to the VU1 clip
+   * program family instead of the EE clipper + as_is programs. Swaps the
+   * uploaded program set (micro memory can't hold cull + as_is + clip at
+   * once), so call it right after setRenderer() / between frames only.
+   */
+  void setVU1Clipping(const bool& enabled);
+  const bool& isVU1ClippingEnabled() const { return vu1Clipping; }
+
   void flushBuffers();
 
   void clearLastProgramName();
@@ -90,6 +99,8 @@ class StaPipQBufferRenderer {
   void addBuffersDataToPacket(const u32& from, const u32& to);
   void sendPacket();
   StaPipVU1Program* getAsIsProgramByBag(const StaPipBag* bag);
+  // Modified by tyra-editor: VU1 clipping.
+  StaPipVU1Program* getClipProgramByBag(const StaPipBag* bag);
   StaPipVU1Program* getCullProgramByType(const StaPipProgramType& programType);
   StaPipProgramType getDrawProgramTypeByBag(const StaPipBag* bag) const;
   StaPipProgramType getDrawProgramTypeByParams(
@@ -114,6 +125,10 @@ class StaPipQBufferRenderer {
   // clipper output in buffer-sized chunks.
   u32 maxVertCount = 0;
   u8 context;
+  // Modified by tyra-editor: VU1 clipping mode + the clip-space constants the
+  // clip programs consume (see VU1_CLIP_CONSTS_ADDR / VU1_CLIP_PLANES_ADDR).
+  bool vu1Clipping = false;
+  float clipNearZ = 0.0F, clipFarZ = 0.0F;
 };
 
 }  // namespace Tyra

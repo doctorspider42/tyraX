@@ -34,19 +34,27 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_size, StaPipBag* data,
               maxVertCount, " verts. Provided \"", size, "\"");
 
   *o_size = ceil(data->count / static_cast<float>(size));
-  StaPipBagPackage* result = new StaPipBagPackage[*o_size];
+  // Modified by tyra-editor: grow-only pool instead of new[] per submit.
+  // Pool entries are reused, so pointers absent from this bag must be
+  // reset - a stale sts/colors/normals from a previous bag would otherwise
+  // leak into the fill path.
+  if (bagPackagesPool.size() < *o_size) bagPackagesPool.resize(*o_size);
+  StaPipBagPackage* result = bagPackagesPool.data();
 
   for (u16 i = 0; i < *o_size; i++) {
     result[i].bag = data;
     result[i].vertices = &data->vertices[i * size];
 
-    if (data->texture) result[i].sts = &data->texture->coordinates[i * size];
+    result[i].sts =
+        data->texture ? &data->texture->coordinates[i * size] : nullptr;
 
-    if (data->color->many)
-      result[i].colors =
-          reinterpret_cast<const Vec4*>(&data->color->many[i * size]);
+    result[i].colors =
+        data->color->many
+            ? reinterpret_cast<const Vec4*>(&data->color->many[i * size])
+            : nullptr;
 
-    if (data->lighting) result[i].normals = &data->lighting->normals[i * size];
+    result[i].normals =
+        data->lighting ? &data->lighting->normals[i * size] : nullptr;
 
     result[i].indexOf1By3BBox = (i * size) / (maxVertCount / 3);
 
@@ -55,6 +63,10 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_size, StaPipBag* data,
     } else {
       result[i].size = size;
     }
+
+    // Modified by tyra-editor: last 1/3 bbox the package overlaps.
+    result[i].endIndexOf1By3BBox =
+        (i * size + result[i].size - 1) / (maxVertCount / 3);
 
     result[i].isInFrustum = checkFrustum(result[i]);
   }
@@ -74,17 +86,21 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_count,
               maxVertCount, " verts. Provided \"", size, "\"");
 
   *o_count = ceil(pkg.size / static_cast<float>(size));
-  auto* result = new StaPipBagPackage[*o_count];
+  // Modified by tyra-editor: grow-only pool instead of new[] per split (see
+  // the bag-level overload above; separate pool - the parent package array
+  // is still alive during a split).
+  if (splitPackagesPool.size() < *o_count) splitPackagesPool.resize(*o_count);
+  StaPipBagPackage* result = splitPackagesPool.data();
 
   for (u16 i = 0; i < *o_count; i++) {
     result[i].bag = pkg.bag;
     result[i].vertices = &pkg.vertices[i * size];
 
-    if (pkg.bag->texture) result[i].sts = &pkg.sts[i * size];
+    result[i].sts = pkg.bag->texture ? &pkg.sts[i * size] : nullptr;
 
-    if (pkg.bag->color->many) result[i].colors = &pkg.colors[i * size];
+    result[i].colors = pkg.bag->color->many ? &pkg.colors[i * size] : nullptr;
 
-    if (pkg.bag->lighting) result[i].normals = &pkg.normals[i * size];
+    result[i].normals = pkg.bag->lighting ? &pkg.normals[i * size] : nullptr;
 
     result[i].indexOf1By3BBox =
         pkg.indexOf1By3BBox + ((i * size) / (maxVertCount / 3));
@@ -94,6 +110,12 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_count,
     } else {
       result[i].size = size;
     }
+
+    // Modified by tyra-editor: last 1/3 bbox the subpackage overlaps (parent
+    // packages always start on a 1/3 boundary).
+    result[i].endIndexOf1By3BBox =
+        pkg.indexOf1By3BBox +
+        ((i * size + result[i].size - 1) / (maxVertCount / 3));
 
     result[i].isInFrustum = checkFrustum(result[i]);
   }
@@ -105,6 +127,16 @@ CoreBBoxFrustum StaPipBagPackager::checkFrustum(const StaPipBagPackage& pkg) {
   if (!renderBBox) return CoreBBoxFrustum::OUTSIDE_FRUSTUM;
 
   if (pkg.size <= (maxVertCount / 3)) {  // Is subpackage
+    // Modified by tyra-editor: a subpackage smaller than maxVertCount / 3
+    // (VU1 clipping mode) can straddle a 1/3 bbox boundary - classify it
+    // against the merged bbox of every part it overlaps.
+    if (pkg.endIndexOf1By3BBox > pkg.indexOf1By3BBox) {
+      auto bbox = renderBBox->createChildBBox(
+          pkg.indexOf1By3BBox,
+          pkg.endIndexOf1By3BBox - pkg.indexOf1By3BBox + 1);
+      return bbox.clipFrustumCheck(frustumPlanes->getAll(),
+                                   *pkg.bag->info->model);
+    }
     auto& bbox = renderBBox->getChildBBox1By3(pkg.indexOf1By3BBox);
     return bbox.clipFrustumCheck(frustumPlanes->getAll(),
                                  *pkg.bag->info->model);

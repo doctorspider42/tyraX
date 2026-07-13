@@ -56,7 +56,7 @@ Report the mergeable state to the user as part of "PR is up".
   the header templates (duplicated for orbit + fpp - fix both).
 - **`src/app.cpp`** - UI moves around (Properties window, panels); prefer
   re-applying your widget in main's new location over keeping the old block.
-- **`samples/script-demo/`** - generated files conflict textually but are
+- **`examples/script-demo/`** - generated files conflict textually but are
   NOT worth hand-merging: resolve any way, then regenerate the sample with a
   Docker build and commit the regenerated files.
 - **`PROGRESS.md`** - both sides prepend entries; keep both, yours on top.

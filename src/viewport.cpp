@@ -562,6 +562,37 @@ std::vector<float> unitPlayerMarker() {
     return v;
 }
 
+// Camera entity marker: a classic film-camera body with the lens barrel
+// pointing +Z (the shot direction - same convention as spawn/player markers).
+std::vector<float> unitCameraBody() {
+    std::vector<float> v;
+    auto cuboid = [&](Vec3 c, Vec3 h) {
+        pushQuadShaded(v, {c.x + h.x, c.y - h.y, c.z - h.z}, {c.x + h.x, c.y + h.y, c.z - h.z},
+                       {c.x + h.x, c.y + h.y, c.z + h.z}, {c.x + h.x, c.y - h.y, c.z + h.z},
+                       {1, 0, 0});
+        pushQuadShaded(v, {c.x - h.x, c.y - h.y, c.z + h.z}, {c.x - h.x, c.y + h.y, c.z + h.z},
+                       {c.x - h.x, c.y + h.y, c.z - h.z}, {c.x - h.x, c.y - h.y, c.z - h.z},
+                       {-1, 0, 0});
+        pushQuadShaded(v, {c.x - h.x, c.y + h.y, c.z - h.z}, {c.x - h.x, c.y + h.y, c.z + h.z},
+                       {c.x + h.x, c.y + h.y, c.z + h.z}, {c.x + h.x, c.y + h.y, c.z - h.z},
+                       {0, 1, 0});
+        pushQuadShaded(v, {c.x - h.x, c.y - h.y, c.z + h.z}, {c.x - h.x, c.y - h.y, c.z - h.z},
+                       {c.x + h.x, c.y - h.y, c.z - h.z}, {c.x + h.x, c.y - h.y, c.z + h.z},
+                       {0, -1, 0});
+        pushQuadShaded(v, {c.x - h.x, c.y - h.y, c.z + h.z}, {c.x + h.x, c.y - h.y, c.z + h.z},
+                       {c.x + h.x, c.y + h.y, c.z + h.z}, {c.x - h.x, c.y + h.y, c.z + h.z},
+                       {0, 0, 1});
+        pushQuadShaded(v, {c.x + h.x, c.y - h.y, c.z - h.z}, {c.x - h.x, c.y - h.y, c.z - h.z},
+                       {c.x - h.x, c.y + h.y, c.z - h.z}, {c.x + h.x, c.y + h.y, c.z - h.z},
+                       {0, 0, -1});
+    };
+    cuboid({0, 0, -0.08f}, {0.20f, 0.15f, 0.24f});      // body
+    cuboid({0, 0, 0.24f}, {0.08f, 0.08f, 0.10f});       // lens barrel (+Z)
+    cuboid({-0.11f, 0.24f, -0.12f}, {0.03f, 0.09f, 0.09f});  // film reels
+    cuboid({0.11f, 0.24f, -0.12f}, {0.03f, 0.09f, 0.09f});
+    return v;
+}
+
 std::vector<float> unitWireCube() {
     std::vector<float> v;
     const float h = 0.52f;  // slightly larger than the shape, avoids z-fighting
@@ -600,6 +631,29 @@ std::vector<float> unitLightBulb() {
             push(v00); push(v11); push(v01);
         }
     }
+    return v;
+}
+
+// Camera FOV frustum wireframe: apex at the origin opening toward +Z, built
+// for a 45-degree half-angle at 4:3. Drawn scaled by tan(fov/2) in X/Y and by
+// the display length in Z, so one mesh previews any FOV. White vertex colors;
+// tinted at draw time.
+std::vector<float> unitCameraFrustum() {
+    std::vector<float> v;
+    const float a = 4.0f / 3.0f;  // the PS2 output aspect
+    const float c[4][3] = {{-a, -1, 1}, {a, -1, 1}, {a, 1, 1}, {-a, 1, 1}};
+    auto line = [&](const float* p0, const float* p1) {
+        pushVertexColor(v, p0[0], p0[1], p0[2], 1, 1, 1);
+        pushVertexColor(v, p1[0], p1[1], p1[2], 1, 1, 1);
+    };
+    const float apex[3] = {0, 0, 0};
+    for (int i = 0; i < 4; ++i) {
+        line(apex, c[i]);              // edges from the lens
+        line(c[i], c[(i + 1) % 4]);    // far rectangle
+    }
+    // a small "up" tick on the far top edge so roll reads at a glance
+    const float t0[3] = {0, 1, 1}, t1[3] = {0, 1.25f, 1};
+    line(t0, t1);
     return v;
 }
 
@@ -778,6 +832,8 @@ void Viewport::shutdown() {
     destroyMesh(wireCube_);
     destroyMesh(lightGizmo_);
     destroyMesh(wireSphere_);
+    destroyMesh(cameraBody_);
+    destroyMesh(cameraFrustum_);
     clearPrimMeshCache();
     destroyMesh(skyQuad_);
     destroyMesh(prevBg_);
@@ -901,6 +957,8 @@ void Viewport::buildPrimitiveMeshes() {
     destroyMesh(wireCube_);
     destroyMesh(lightGizmo_);
     destroyMesh(wireSphere_);
+    destroyMesh(cameraBody_);
+    destroyMesh(cameraFrustum_);
     box_ = uploadMesh(unitBox());
     sphere_ = uploadMesh(unitSphere());
     cylinder_ = uploadMesh(unitCylinder());
@@ -912,9 +970,13 @@ void Viewport::buildPrimitiveMeshes() {
     wireCube_ = uploadMesh(unitWireCube());
     lightGizmo_ = uploadMesh(unitLightBulb());
     wireSphere_ = uploadMesh(unitWireSphere());
+    cameraBody_ = uploadMesh(unitCameraBody());
+    cameraFrustum_ = uploadMesh(unitCameraFrustum());
 }
 
 const Viewport::Mesh& Viewport::primMesh(PrimitiveType type, int detail) {
+    // SavePoint draws as a Box (same tessellation family, shared mesh cache).
+    if (type == PrimitiveType::SavePoint) type = PrimitiveType::Box;
     const int d = clampPrimDetail(type, detail);
     std::map<int, Mesh>* cache;
     switch (type) {
@@ -1672,13 +1734,21 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         skyQuad_ = uploadMesh(q);
     }
 
-    const Vec3 tgt{target_[0], target_[1], target_[2]};
+    Vec3 tgt{target_[0], target_[1], target_[2]};
     Vec3 eye{tgt.x + distance_ * std::cos(pitch_) * std::cos(yaw_),
              tgt.y + distance_ * std::sin(pitch_),
              tgt.z + distance_ * std::cos(pitch_) * std::sin(yaw_)};
+    float fovDeg = 50.0f;
+    // Cutscene Director camera-track preview: fly the preview camera along the
+    // sequence's keyframed eye/look-at (the same values the PS2 runtime uses).
+    if (camOverride_) {
+        eye = {camEye_[0], camEye_[1], camEye_[2]};
+        tgt = {camTarget_[0], camTarget_[1], camTarget_[2]};
+        fovDeg = camFov_;
+    }
     Mat4 view = lookAt(eye, tgt, {0, 1, 0});
     float diag = (float)(terrain_.width > terrain_.depth ? terrain_.width : terrain_.depth);
-    Mat4 proj = perspective(50.0f * kPi / 180.0f, (float)width / (float)height, 0.1f,
+    Mat4 proj = perspective(fovDeg * kPi / 180.0f, (float)width / (float)height, 0.1f,
                             diag * 10.0f + 100.0f);
     Mat4 viewProj = mul(proj, view);
     for (int i = 0; i < 16; ++i) {
@@ -1779,7 +1849,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             case PrimitiveType::Box:
             case PrimitiveType::Sphere:
             case PrimitiveType::Cylinder:
-            case PrimitiveType::Cone: return &primMesh(o.type, o.primDetail);
+            case PrimitiveType::Cone:
+            case PrimitiveType::SavePoint: return &primMesh(o.type, o.primDetail);
             case PrimitiveType::Plane: return &plane_;
             case PrimitiveType::Decal: return &decal_;
             case PrimitiveType::SpawnPoint: return &spawnMarker_;
@@ -1787,6 +1858,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             case PrimitiveType::SoundEmitter: return &sphere_;  // speaker-ish marker
             case PrimitiveType::Empty: return &sphere_;  // pure-transform marker
             case PrimitiveType::PointLight: return &lightGizmo_;  // glowing bulb
+            case PrimitiveType::Camera: return &cameraBody_;  // film camera body
             case PrimitiveType::Model: return &box_;  // placeholder (see model path below)
             default: return &box_;
         }
@@ -1898,6 +1970,24 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         const Mat4 m = mul(translation(o.position[0], o.position[1], o.position[2]),
                            scaleM(r, r, r));
         draw(wireSphere_, GL_LINES, mul(viewProj, m), o.color[0], o.color[1], o.color[2]);
+    }
+
+    // Camera entity FOV frustum: the unit frustum scaled to the entity's FOV
+    // (X/Y by tan(fov/2), Z = display length), rotated/positioned with the
+    // entity but ignoring its scale so the wedge always reads the actual shot.
+    for (size_t oi = 0; oi < objects.size(); ++oi) {
+        const SceneObject& o = objects[oi];
+        if (o.type != PrimitiveType::Camera || hiddenAt(oi)) continue;
+        const float d2r = kPi / 180.0f;
+        const float len = 2.4f;
+        const float t = std::tan(0.5f * o.cameraFov * d2r);
+        Mat4 m = scaleM(t * len, t * len, len);
+        m = mul(rotX(o.rotation[0] * d2r), m);
+        m = mul(rotY(o.rotation[1] * d2r), m);
+        m = mul(rotZ(o.rotation[2] * d2r), m);
+        m = mul(translation(o.position[0], o.position[1], o.position[2]), m);
+        draw(cameraFrustum_, GL_LINES, mul(viewProj, m), o.color[0], o.color[1],
+             o.color[2]);
     }
 
     // "Highlight usable objects" preference: wire box in the highlight color

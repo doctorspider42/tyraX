@@ -1,5 +1,6 @@
 #include "templates.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -7,6 +8,7 @@
 #include <filesystem>
 #include <functional>
 #include <sstream>
+#include <utility>
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -259,6 +261,12 @@ int main(int argc, char** argv) {
   // Target system (Project > Preferences > Build): Auto follows the console
   // region, NTSC forces 60 Hz, PAL forces 50 Hz.
   options.videoMode = Tyra::VideoMode::{{VIDEO_MODE}};
+  // Scan mode (Project > Preferences > Build > Display mode): interlaced
+  // 480i/576i, progressive 480p, or 1080i. The DTV modes need component
+  // cables on a real console and always run at 60 Hz.
+  options.displayMode = Tyra::DisplayMode::{{DISPLAY_MODE}};
+  // 16:9 anamorphic output (Preferences > Build > Widescreen).
+  options.widescreen = {{WIDESCREEN}};
   Tyra::Engine engine(options);
   {{NAME_UPPER_NS}}::TerrainGame game(&engine);
   engine.run(&game);
@@ -319,10 +327,16 @@ constexpr float ANIM_LOD_DISTANCE = {{ANIM_LOD_DISTANCE}};
 // the ~25% one. 0 = off (the build then bakes no LOD chains at all).
 constexpr float MESH_LOD_DISTANCE = {{MESH_LOD_DISTANCE}};
 
-// Debug-profile HUD (Project > Preferences > Build). Both are forced false
-// in a release-profile build, which folds the overlay code away entirely.
+// Debug-profile HUD (Project > Preferences > Build). All forced false in a
+// release-profile build, which folds the overlay + instrumentation away.
 constexpr bool DEBUG_SHOW_FPS = {{DEBUG_SHOW_FPS}};
 constexpr bool DEBUG_SHOW_MEM = {{DEBUG_SHOW_MEM}};
+// Per-phase EE-time breakdown (scene / usable-highlight / particles / whole
+// frame), averaged over ~1s. The COP0-timer reads that feed it are guarded
+// by this constexpr, so a build with it false pays nothing (see drawDebugHud
+// / renderScene). This is the profiling harness used to diagnose the
+// usable-highlight cost, wired in as a shippable debug option.
+constexpr bool DEBUG_SHOW_PROFILER = {{DEBUG_SHOW_PROFILER}};
 
 }  // namespace {{NAME_UPPER_NS}}
 )";
@@ -421,13 +435,20 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
     u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
-    // Usable-object highlight: fading shells grown around the object
-    // center, drawn after the scene (see renderHighlightHull)
-    std::vector<Tyra::Vec4> hullVerts;
-    std::vector<Tyra::Color> hullCols;
-    std::unique_ptr<Tyra::StaPipBag> hullBag;
-    std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
-    std::unique_ptr<Tyra::StaPipColorBag> hullColorBag;
+    // Usable-object highlight: terrain-hugging glow ring around the base,
+    // built when first highlighted, cleared whenever the object rebuilds
+    // (see buildHighlightApron)
+    std::vector<Tyra::Vec4> apronVerts;
+    std::vector<Tyra::Color> apronCols;
+    u32 apronStamp = 0;
+    // Low-detail stand-in the highlight shells are drawn from (positions
+    // only - shells are single-color flat). Subdividing a primitive never
+    // changes its silhouette, so a detail-1 box / low-segment curve gives a
+    // pixel-near-identical rim for a fraction of the clip/transform cost
+    // (see buildHighlightProxy). Built when first highlighted, cleared
+    // whenever the object rebuilds.
+    std::vector<Tyra::Vec4> hullProxyVerts;
+    u32 hullProxyStamp = 0;
   };
   // Custom .obj models (paths in model_data.gen.hpp): geometry split per MTL
   // material with optional per-material textures, the real mesh AABB for box
@@ -525,6 +546,11 @@ class TerrainGame : public Tyra::Game {
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
   GeoPart skyDome;
+  // Re-centered on the camera every frame (renderScene) so a large map can
+  // never let the player walk (or climb) out from under the sky. The dome
+  // geometry stays static; only this translation matrix moves - one matrix
+  // set per frame, so following the camera costs nothing measurable.
+  Tyra::M4x4 skyMat = Tyra::M4x4::Identity;
   float skyHorizonR = 0, skyHorizonG = 0, skyHorizonB = 0;
   std::vector<Tyra::Sprite> hudSprites;
 
@@ -540,6 +566,23 @@ class TerrainGame : public Tyra::Game {
   void updateObjectPhysics();
   void renderScene();
   void renderHighlightHull(int index);
+  void buildHighlightApron(int index, float half);
+  void buildHighlightProxy(int index);
+  bool highlightInReach(int index) const;
+  // Usable-object highlight: one shared bag re-submitted for every part of
+  // every shell. The grow about the object center and the pushback about
+  // the eye compose into a single scale+translation model matrix (hullMat),
+  // so VU1 does all per-vertex work on the object's own vertex arrays.
+  // Shell colors need persistent storage - the single-color pointer is
+  // DMA-referenced at submit time, not copied.
+  Tyra::M4x4 hullMat;
+  std::vector<Tyra::Color> hullShellCols;
+  std::unique_ptr<Tyra::StaPipBag> hullBag;
+  std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
+  std::unique_ptr<Tyra::StaPipColorBag> hullColorBag;
+  std::unique_ptr<Tyra::StaPipBag> apronBag;
+  std::unique_ptr<Tyra::StaPipInfoBag> apronInfoBag;
+  std::unique_ptr<Tyra::StaPipColorBag> apronColorBag;
 
   // Player entity (PLAYER_INDEXES in scene_data.hpp); overrides the template
   // camera when present. Returns false when the scene has no player.
@@ -613,6 +656,18 @@ class TerrainGame : public Tyra::Game {
   bool updateGameMenu();
   void renderGameMenu();
   std::vector<Tyra::Sprite> menuSprites;
+  // Toggle/Choice entry values: one sub-rect sprite per menu into its baked
+  // value strip (menu_data.gen.hpp; only menus with such entries have one).
+  std::vector<Tyra::Sprite> menuValueSprites;
+
+  // On-screen texts (hud_data.gen.hpp): baked text sprites the Show Text /
+  // Hide Text flow nodes flip via ScriptContext; a positive timer auto-hides.
+  void updateAndRenderHudTexts();
+  std::vector<Tyra::Sprite> hudTextSprites;
+  std::vector<signed char> hudTextReq;   // ScriptContext::textRequest
+  std::vector<float> hudTextDur;         // ScriptContext::textDuration
+  std::vector<unsigned char> hudTextOn;  // visible this frame
+  std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
@@ -722,13 +777,20 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
     u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
-    // Usable-object highlight: fading shells grown around the object
-    // center, drawn after the scene (see renderHighlightHull)
-    std::vector<Tyra::Vec4> hullVerts;
-    std::vector<Tyra::Color> hullCols;
-    std::unique_ptr<Tyra::StaPipBag> hullBag;
-    std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
-    std::unique_ptr<Tyra::StaPipColorBag> hullColorBag;
+    // Usable-object highlight: terrain-hugging glow ring around the base,
+    // built when first highlighted, cleared whenever the object rebuilds
+    // (see buildHighlightApron)
+    std::vector<Tyra::Vec4> apronVerts;
+    std::vector<Tyra::Color> apronCols;
+    u32 apronStamp = 0;
+    // Low-detail stand-in the highlight shells are drawn from (positions
+    // only - shells are single-color flat). Subdividing a primitive never
+    // changes its silhouette, so a detail-1 box / low-segment curve gives a
+    // pixel-near-identical rim for a fraction of the clip/transform cost
+    // (see buildHighlightProxy). Built when first highlighted, cleared
+    // whenever the object rebuilds.
+    std::vector<Tyra::Vec4> hullProxyVerts;
+    u32 hullProxyStamp = 0;
   };
   // Custom .obj models (paths in model_data.gen.hpp): geometry split per MTL
   // material with optional per-material textures, the real mesh AABB for box
@@ -826,6 +888,11 @@ class TerrainGame : public Tyra::Game {
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
   GeoPart skyDome;
+  // Re-centered on the camera every frame (renderScene) so a large map can
+  // never let the player walk (or climb) out from under the sky. The dome
+  // geometry stays static; only this translation matrix moves - one matrix
+  // set per frame, so following the camera costs nothing measurable.
+  Tyra::M4x4 skyMat = Tyra::M4x4::Identity;
   float skyHorizonR = 0, skyHorizonG = 0, skyHorizonB = 0;
   std::vector<Tyra::Sprite> hudSprites;
 
@@ -841,6 +908,23 @@ class TerrainGame : public Tyra::Game {
   void updateObjectPhysics();
   void renderScene();
   void renderHighlightHull(int index);
+  void buildHighlightApron(int index, float half);
+  void buildHighlightProxy(int index);
+  bool highlightInReach(int index) const;
+  // Usable-object highlight: one shared bag re-submitted for every part of
+  // every shell. The grow about the object center and the pushback about
+  // the eye compose into a single scale+translation model matrix (hullMat),
+  // so VU1 does all per-vertex work on the object's own vertex arrays.
+  // Shell colors need persistent storage - the single-color pointer is
+  // DMA-referenced at submit time, not copied.
+  Tyra::M4x4 hullMat;
+  std::vector<Tyra::Color> hullShellCols;
+  std::unique_ptr<Tyra::StaPipBag> hullBag;
+  std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
+  std::unique_ptr<Tyra::StaPipColorBag> hullColorBag;
+  std::unique_ptr<Tyra::StaPipBag> apronBag;
+  std::unique_ptr<Tyra::StaPipInfoBag> apronInfoBag;
+  std::unique_ptr<Tyra::StaPipColorBag> apronColorBag;
 
   // Player entity (PLAYER_INDEXES in scene_data.hpp); overrides the template
   // camera when present. Returns false when the scene has no player.
@@ -914,6 +998,18 @@ class TerrainGame : public Tyra::Game {
   bool updateGameMenu();
   void renderGameMenu();
   std::vector<Tyra::Sprite> menuSprites;
+  // Toggle/Choice entry values: one sub-rect sprite per menu into its baked
+  // value strip (menu_data.gen.hpp; only menus with such entries have one).
+  std::vector<Tyra::Sprite> menuValueSprites;
+
+  // On-screen texts (hud_data.gen.hpp): baked text sprites the Show Text /
+  // Hide Text flow nodes flip via ScriptContext; a positive timer auto-hides.
+  void updateAndRenderHudTexts();
+  std::vector<Tyra::Sprite> hudTextSprites;
+  std::vector<signed char> hudTextReq;   // ScriptContext::textRequest
+  std::vector<float> hudTextDur;         // ScriptContext::textDuration
+  std::vector<unsigned char> hudTextOn;  // visible this frame
+  std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
@@ -940,6 +1036,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "menu_data.gen.hpp"
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
+#include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -961,6 +1058,12 @@ float g_frameRate = 50.0F;
 float g_frameDt = 1.0F / 50.0F;
 float g_frameScale = 1.0F;
 
+// True while a pausing menu owns the frame (set at the top of loop()). Read by
+// the effect systems that would otherwise keep running under a pause -
+// particle simulation and skeletal-animation playback freeze on their last
+// frame instead of advancing behind the menu.
+bool g_gameplayPaused = false;
+
 // Camera flashlight runtime state (a Player object property; declared in
 // scene_data.hpp). g_flashEnabled is the master switch - seeded per scene from
 // the player's Enabled flag in loadScene, flipped by the Set Flashlight flow
@@ -968,6 +1071,9 @@ float g_frameScale = 1.0F;
 // beam only shows while BOTH are set, so the toggle respects Enabled.
 bool g_flashEnabled = false;
 bool g_flashOn = true;
+// Global emitter draw switch (Set Particles flow node). false = updateParticles
+// skips all simulation + drawing, so every emitter's fill cost disappears.
+bool g_particlesOn = true;
 
 // Measures the real time since the previous frame (EE COP0 Count register,
 // 294.912 MHz, wrap-safe) and folds it into g_frameDt / g_frameScale.
@@ -1349,16 +1455,13 @@ void addCone(std::vector<Vec4>& verts, std::vector<Color>& cols,
   }
 }
 
-/** Debug-profile HUD (Project > Preferences > Build): FPS and RAM
- * (used/total EE MB) readouts in the top-left corner, drawn from the 8x8
- * glyph strip res/hud/debugfont.png. Compiles to nothing in a release build
- * (the DEBUG_SHOW_* constants in terrain_config.hpp fold the calls away). */
-void drawDebugHud(Engine* engine) {
-  if (!DEBUG_SHOW_FPS && !DEBUG_SHOW_MEM) return;
+/** 8x8 glyph text from the res/hud/debugfont.png strip (digits, letters and
+ * a few symbols - the atlas below must match the editor's debugFontPng()).
+ * Shared by the debug-profile overlays and the video-mode confirm prompt,
+ * so the strip ships with every build. */
+void drawHudText(Engine* engine, const char* s, float x, float y) {
   static Sprite glyph;
   static bool glyphReady = false;
-  static int memRefresh = 0;
-  static float memFreeMB = 0.0F;
   if (!glyphReady) {
     glyph.mode = SpriteMode::MODE_REPEAT;
     glyph.size = Vec2(8.0F, 8.0F);  // one atlas cell
@@ -1368,25 +1471,51 @@ void drawDebugHud(Engine* engine) {
     texture->addLink(glyph.id);
     glyphReady = true;
   }
-  // Glyph order in the atlas - must match the editor's debugFontPng().
-  // Cells are 16px apart: the glyph sits in the left 8px, the right 8px are
-  // transparent padding so bilinear sampling never bleeds the next glyph.
-  static const char* atlas = "0123456789.FPSMBE/";
-  auto drawText = [&](const char* s, float x, float y) {
-    for (; *s; ++s, x += 14.0F) {
-      if (*s == ' ') continue;
-      const char* hit = strchr(atlas, *s);
-      if (!hit) continue;
-      glyph.offset = Vec2((float)(hit - atlas) * 16.0F, 0.0F);
-      glyph.position = Vec2(x, y);
-      engine->renderer.renderer2D.render(glyph);
-    }
-  };
-  char line[32];
+  // 32 cells of 16px per atlas row (the glyph sits in the left 8px, the
+  // right 8px stay transparent so bilinear sampling never bleeds the next
+  // glyph), rows 8px apart.
+  static const char* atlas = "0123456789.FPSMBE/ACDGHIJKLNOQRTUVWXYZ?=-:";
+  for (; *s; ++s, x += 14.0F) {
+    if (*s == ' ') continue;
+    const char* hit = strchr(atlas, *s);
+    if (!hit) continue;
+    const int idx = (int)(hit - atlas);
+    glyph.offset = Vec2((float)(idx % 32) * 16.0F, (float)(idx / 32) * 8.0F);
+    glyph.position = Vec2(x, y);
+    engine->renderer.renderer2D.render(glyph);
+  }
+}
+
+float hudTextWidth(const char* s) { return (float)strlen(s) * 14.0F; }
+
+// Debug frame profiler (Project > Preferences > Build > Show frame profiler).
+// renderScene brackets its three heavy phases with EE COP0-timer reads and
+// adds the elapsed ticks here; drawDebugHud averages them over ~1s and prints
+// avg ms. The reads live behind `if (DEBUG_SHOW_PROFILER)` (a constexpr), so a
+// build with the profiler off contains none of this. This is the same
+// COP0/HUD phase-timing harness used to diagnose the usable-highlight cost,
+// wired in as a shippable debug option. (COP0 Count runs at 294.912 MHz =
+// half the 590 MHz EE clock; /294912 converts ticks to milliseconds.)
+u32 g_profScene = 0, g_profHighlight = 0, g_profParticles = 0;
+static inline u32 profTicks() {
+  u32 v;
+  asm volatile("mfc0 %0, $9" : "=r"(v));
+  return v;
+}
+
+/** Debug-profile HUD (Project > Preferences > Build): FPS, RAM
+ * (used/total EE MB) and the per-phase EE-time profiler in the top-left
+ * corner. Compiles to nothing in a release build (the DEBUG_SHOW_* constants
+ * in terrain_config.hpp fold the calls away). */
+void drawDebugHud(Engine* engine) {
+  if (!DEBUG_SHOW_FPS && !DEBUG_SHOW_MEM && !DEBUG_SHOW_PROFILER) return;
+  static int memRefresh = 0;
+  static float memFreeMB = 0.0F;
+  char line[40];
   float y = 16.0F;
   if (DEBUG_SHOW_FPS) {
     snprintf(line, sizeof(line), "FPS %d", (int)engine->info.getFps());
-    drawText(line, 16.0F, y);
+    drawHudText(engine, line, 16.0F, y);
     y += 20.0F;
   }
   if (DEBUG_SHOW_MEM) {
@@ -1398,8 +1527,108 @@ void drawDebugHud(Engine* engine) {
       memRefresh = everyFrames(2.0F);
     }
     snprintf(line, sizeof(line), "MEM %.1f/32 MB", 32.0F - memFreeMB);
-    drawText(line, 16.0F, y);
+    drawHudText(engine, line, 16.0F, y);
+    y += 20.0F;
   }
+  if (DEBUG_SHOW_PROFILER) {
+    // Whole-frame time = wall clock between successive HUD calls (this runs
+    // once per frame); the phase sums come from renderScene. Averaged over a
+    // ~1s window so the numbers hold still enough to read.
+    static u32 lastTick = 0, frames = 0, frameAcc = 0;
+    static u32 sScene = 0, sHl = 0, sPart = 0;
+    static char l1[40] = "PROFILER...", l2[40] = "";
+    const u32 now = profTicks();
+    if (lastTick) frameAcc += now - lastTick;
+    lastTick = now;
+    sScene += g_profScene;
+    sHl += g_profHighlight;
+    sPart += g_profParticles;
+    g_profScene = g_profHighlight = g_profParticles = 0;
+    if (++frames >= 50) {
+      const float k = 1.0F / (294912.0F * (float)frames);  // ticks -> avg ms
+      snprintf(l1, sizeof(l1), "FRAME %.2f SCENE %.2f", frameAcc * k,
+               sScene * k);
+      snprintf(l2, sizeof(l2), "HL %.2f PART %.2f", sHl * k, sPart * k);
+      frames = frameAcc = sScene = sHl = sPart = 0;
+    }
+    drawHudText(engine, l1, 16.0F, y);
+    y += 20.0F;
+    drawHudText(engine, l2, 16.0F, y);
+  }
+}
+
+// Runtime scan-mode switch with keep-or-revert confirmation (the Set
+// Display Mode flow node). A mode the player's TV can't display would
+// strand them on a black screen, so with a confirm window armed the game
+// automatically reverts to the previous mode unless X is pressed in time -
+// the same safety net PC display settings use.
+struct VideoConfirm {
+  bool active = false;
+  Tyra::DisplayMode prevMode = Tyra::DisplayMode::Interlaced;
+  float secondsLeft = 0.0F;
+};
+VideoConfirm g_videoConfirm;
+
+/** Applies the Set Display Mode / Set Widescreen flow-node requests and
+ * ticks the confirm countdown. Must run between frames (before
+ * beginFrame): a scan-mode switch rebuilds the VRAM layout. Returns true
+ * the frame a scan-mode switch happens - the caller closes any open game
+ * menu then, so the player judges the new picture unobstructed and the
+ * confirm prompt's X press is not also a menu select. */
+bool applyVideoRequests(Engine* engine, ScriptContext& ctx) {
+  auto& core = engine->renderer.core;
+  bool switched = false;
+  if (ctx.widescreen >= 0) {
+    core.setDisplayOutput(core.getSettings().getDisplayMode(),
+                          ctx.widescreen != 0);
+    ctx.widescreen = -1;
+  }
+  if (ctx.requestDisplayMode >= 0) {
+    const auto mode = (Tyra::DisplayMode)ctx.requestDisplayMode;
+    const auto prev = core.getSettings().getDisplayMode();
+    if (mode != prev) {
+      core.setDisplayOutput(mode, core.getSettings().getWidescreen());
+      // The vertical refresh may change (PAL 50 <-> DTV 60) - reseed the
+      // frame clock so gameplay speed stays wall-clock normalized.
+      g_frameRate = engine->renderer.core.getSettings().getRefreshRate();
+      switched = true;
+      if (ctx.displayConfirmSec > 0.0F) {
+        g_videoConfirm.active = true;
+        g_videoConfirm.prevMode = prev;
+        g_videoConfirm.secondsLeft = ctx.displayConfirmSec;
+      } else {
+        g_videoConfirm.active = false;  // blind switch - no prompt armed
+      }
+    }
+    ctx.requestDisplayMode = -1;
+    ctx.displayConfirmSec = 0.0F;
+  }
+  if (!g_videoConfirm.active) return switched;
+  if (!switched && engine->pad.getClicked().Cross) {
+    g_videoConfirm.active = false;  // player kept the new mode
+    return switched;
+  }
+  g_videoConfirm.secondsLeft -= g_frameDt;
+  if (g_videoConfirm.secondsLeft <= 0.0F) {
+    core.setDisplayOutput(g_videoConfirm.prevMode,
+                          core.getSettings().getWidescreen());
+    g_frameRate = engine->renderer.core.getSettings().getRefreshRate();
+    g_videoConfirm.active = false;
+  }
+  return switched;
+}
+
+/** The keep-or-revert prompt, drawn in the 2D phase (with the other HUD). */
+void drawVideoConfirm(Engine* engine) {
+  if (!g_videoConfirm.active) return;
+  const float w = engine->renderer.core.getSettings().getWidth();
+  const float h = engine->renderer.core.getSettings().getHeight();
+  const char* ask = "KEEP VIDEO MODE? X = YES";
+  drawHudText(engine, ask, (w - hudTextWidth(ask)) * 0.5F, h * 0.5F - 22.0F);
+  char line[24];
+  snprintf(line, sizeof(line), "BACK IN %d",
+           (int)g_videoConfirm.secondsLeft + 1);
+  drawHudText(engine, line, (w - hudTextWidth(line)) * 0.5F, h * 0.5F + 2.0F);
 }
 
 }  // namespace
@@ -1436,6 +1665,9 @@ void TerrainGame::init() {
   if (!FRAME_LIMIT) engine->renderer.core.setFrameLimit(false);
 
   stapip.setRenderer(&engine->renderer.core);
+  // Hidden "clipping": "vu1" mode: frustum-crossing packages are clipped by
+  // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
+  stapip.core.setVU1Clipping(CLIP_VU1);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
   // GS hardware distance fog (Scene/Project > Preferences > Fog).
@@ -1478,13 +1710,16 @@ void TerrainGame::init() {
     texture->addLink(hudSprites.back().id);
   }
 
-  // "USE" prompt (res/hud/use.png), shown while looking at a usable object
+  // "USE" prompt, shown while looking at a usable object. Placement and
+  // image come from hud_data.gen.hpp (Tools > UI Editor - the built-in
+  // hud/use.png unless a custom sprite replaces it).
   usePromptSprite.mode = SpriteMode::MODE_STRETCH;
-  usePromptSprite.size = Vec2(128.0F, 32.0F);
-  usePromptSprite.position = Vec2((screen.getWidth() - 128.0F) * 0.5F,
-                                  screen.getHeight() * 0.72F);
-  auto* useTexture =
-      engine->renderer.getTextureRepository().add(FileUtils::fromCwd("hud/use.png"));
+  usePromptSprite.size = Vec2(USE_PROMPT_W, USE_PROMPT_H);
+  usePromptSprite.position =
+      Vec2(USE_PROMPT_X * screen.getWidth() - USE_PROMPT_W * 0.5F,
+           USE_PROMPT_Y * screen.getHeight() - USE_PROMPT_H * 0.5F);
+  auto* useTexture = engine->renderer.getTextureRepository().add(
+      FileUtils::fromCwd(USE_PROMPT_PATH));
   useTexture->addLink(usePromptSprite.id);
 
   // Loading screen sprite (res/hud/loading.png), shown on scene switches
@@ -1507,6 +1742,7 @@ void TerrainGame::loop() {
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
   const bool menuActive = saveMenuActive || gameMenuPausing;
+  g_gameplayPaused = menuActive;  // freezes particles + animation playback
   if (!menuActive) {
     if (!updatePlayerEntity()) updateCameraOrbit();
     updateUseTarget();
@@ -1573,6 +1809,42 @@ void TerrainGame::loop() {
     g_flashEnabled = scriptCtx.flashlight != 0;
     scriptCtx.flashlight = -1;
   }
+  // Runtime graphics switches (Set Fog / Bloom / Grain / Particles flow nodes).
+  if (scriptCtx.fog >= 0) {
+    if (scriptCtx.fog)
+      engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START, FOG_END);
+    else
+      engine->renderer.core.disableFog();
+    scriptCtx.fog = -1;
+  }
+  if (scriptCtx.bloom >= 0) {
+    engine->renderer.core.postFx.setBloom(scriptCtx.bloom);
+    scriptCtx.bloom = -1;
+  }
+  if (scriptCtx.grain >= 0) {
+    engine->renderer.core.postFx.setGrain(scriptCtx.grain);
+    scriptCtx.grain = -1;
+  }
+  if (scriptCtx.particles >= 0) {
+    g_particlesOn = scriptCtx.particles != 0;
+    scriptCtx.particles = -1;
+  }
+  // Cutscene camera override: a Cutscene Director sequence with a camera track
+  // drives the frame camera (Play/Stop Sequence). Applied after scripts so the
+  // sequence player (a global Script) has posed the camera for this frame.
+  if (scriptCtx.cameraOverride) {
+    cameraPosition = scriptCtx.cameraEye;
+    cameraLookAt = scriptCtx.cameraAt;
+  }
+  // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
+  // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
+  // switch rebuilds the VRAM layout between frames. A switch closes any
+  // open game menu: the player judges the new picture unobstructed and the
+  // confirm prompt's X press cannot double as a menu select.
+  if (applyVideoRequests(engine, scriptCtx)) {
+    gameMenuIndex = -1;
+    gameMenuStackDepth = 0;
+  }
   if (flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
   if (g_flashEnabled && g_flashOn) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
@@ -1601,9 +1873,15 @@ void TerrainGame::loop() {
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
+    updateAndRenderHudTexts();
+    // Cutscene Director widescreen bars + fade-to-black: solid quads over the
+    // scene and HUD (texts included), under the pause menus (no-op unless a
+    // cutscene draws).
+    sequences::renderOverlay(engine, scriptCtx);
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine);
+    drawVideoConfirm(engine);
   }
   engine->renderer.endFrame();
 }
@@ -1704,9 +1982,51 @@ void TerrainGame::buildScene() {
           FileUtils::fromCwd(m.panel));
       t->addLink(menuSprites.back().id);
     }
+    // Toggle/Choice value strips: a sub-rect sprite per menu (MODE_REPEAT
+    // samples [offset, offset+size] texels - the debug glyph atlas trick).
+    // renderGameMenu moves offset/position to the active cell each frame.
+    menuValueSprites.clear();
+    menuValueSprites.reserve(MENU_COUNT);
+    for (int i = 0; i < MENU_COUNT; ++i) {
+      const MenuData& m = MENUS[i];
+      Sprite s;
+      s.mode = SpriteMode::MODE_REPEAT;
+      s.size = Vec2((float)m.valueCellW, (float)m.valueCellH);
+      menuValueSprites.push_back(s);
+      if (m.values[0] == '\0') continue;  // no value entries in this menu
+      auto* t = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd(m.values));
+      t->addLink(menuValueSprites.back().id);
+    }
     setupSprite(menuCursorSprite, "hud/save-cursor.png", 16, 16, 0.0F, 0.0F);
     setupSprite(menuDimSprite, "hud/menu-dim.png", scr.getWidth(),
                 scr.getHeight(), 0.0F, 0.0F);
+
+    // On-screen texts (hud_data.gen.hpp): baked sprites toggled by the
+    // Show Text / Hide Text flow nodes through scriptCtx (wired here, before
+    // the scripts' init runs from the game init).
+    hudTextSprites.clear();
+    hudTextSprites.reserve(HUD_TEXT_COUNT);
+    hudTextReq.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, -1);
+    hudTextDur.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, 0.0F);
+    hudTextOn.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, 0);
+    hudTextTimer.assign(HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1, 0.0F);
+    for (int i = 0; i < HUD_TEXT_COUNT; ++i) {
+      const HudTextData& t = HUD_TEXTS[i];
+      Sprite s;
+      s.mode = SpriteMode::MODE_STRETCH;
+      s.size = Vec2((float)t.w, (float)t.h);
+      s.position = Vec2(t.x * scr.getWidth() - t.w * 0.5F,
+                        t.y * scr.getHeight() - t.h * 0.5F);
+      hudTextSprites.push_back(s);
+      auto* tex = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd(t.path));
+      tex->addLink(hudTextSprites.back().id);
+      hudTextOn[i] = (unsigned char)t.visible;
+    }
+    scriptCtx.textRequest = hudTextReq.data();
+    scriptCtx.textDuration = hudTextDur.data();
+    scriptCtx.textCount = HUD_TEXT_COUNT;
     if (TITLE_MENU >= 0) {
       gameMenuIndex = TITLE_MENU;
       gameMenuCursor = 0;
@@ -2352,7 +2672,8 @@ void TerrainGame::updateAndRenderAnimObjects() {
     inst->setLoop(o.animLoop);
     // time always advances by wall-clock seconds (speed scales the step),
     // visible or not - animFinished stays honest for offscreen instances
-    const float step = o.animPlaying ? g_frameDt * o.animSpeed : 0.0F;
+    const float step =
+        (o.animPlaying && !g_gameplayPaused) ? g_frameDt * o.animSpeed : 0.0F;
     o.animFinished = inst->advance(step);
 
     // draw-distance cut-off (same rule as the static path in renderScene);
@@ -2494,7 +2815,8 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
   for (const RuntimeObject& o : runtimeObjects) {
     if (!o.active || !o.visible || o.data.type == 4 || o.data.type == 6 ||
         o.data.type == 7 || o.data.type == 8 || o.data.type == 9 ||
-        o.data.type == 11 || o.data.type == 13)  // 13 = decal (visual only)
+        o.data.type == 11 || o.data.type == 13 ||  // 13 = decal (visual only)
+        o.data.type == 14)                         // 14 = camera marker
       continue;
     if (o.data.collision == 2) continue;  // none
 
@@ -2705,6 +3027,8 @@ void TerrainGame::loadScene(int sceneIndex) {
     skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
     buildSkyDome();
   }
+  // Per-scene clipping override may flip the hidden VU1 clipping mode.
+  stapip.core.setVU1Clipping(CLIP_VU1);
   // Per-scene sky color (the loop paints the clear screen from ctx.skyColor)
   // and post effects.
   scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
@@ -2937,7 +3261,10 @@ void TerrainGame::buildParticles() {
 }
 
 void TerrainGame::updateParticles() {
-  if (particles.empty()) return;
+  if (particles.empty() || !g_particlesOn) return;  // Set Particles switch
+  // Paused: leave every billboard bag exactly as it was last built - the
+  // scene render still draws them, so particles hang frozen behind the menu.
+  if (g_gameplayPaused) return;
   const float dt = g_frameDt;
 
   // camera right/up shared by every billboard this frame
@@ -3142,7 +3469,8 @@ void TerrainGame::updateUseTarget() {
     const RuntimeObject& o = runtimeObjects[i];
     if (!o.active || !o.data.usable || !o.visible) continue;
     if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
-        o.data.type == 8 || o.data.type == 9 || o.data.type == 11)
+        o.data.type == 8 || o.data.type == 9 || o.data.type == 11 ||
+        o.data.type == 14)
       continue;
 
     const float dx = o.data.position[0] - cameraPosition.x;
@@ -3378,6 +3706,24 @@ bool TerrainGame::updateGameMenu() {
   if (clicked.DpadDown && m.entryCount > 0)
     gameMenuCursor = (gameMenuCursor + 1) % m.entryCount;
 
+  // Toggle/Choice rows: the state is the bound save value (the option
+  // index). Cross and dpad right cycle forward, dpad left backward.
+  auto cycleValue = [&](const MenuEntryData& e, int dir) {
+    if (e.param < 0 || e.param >= SAVE_VALUE_COUNT || e.optionCount <= 0)
+      return;
+    int v = (int)saveValues[e.param];
+    if (v < 0) v = 0;
+    if (v >= e.optionCount) v = e.optionCount - 1;
+    saveValues[e.param] = (float)((v + dir + e.optionCount) % e.optionCount);
+  };
+  if (gameMenuCursor >= 0 && gameMenuCursor < m.entryCount) {
+    const MenuEntryData& cur = m.entries[gameMenuCursor];
+    if (cur.action == 7 || cur.action == 8) {
+      if (clicked.DpadLeft) cycleValue(cur, -1);
+      if (clicked.DpadRight) cycleValue(cur, 1);
+    }
+  }
+
   if (clicked.Triangle) {
     if (gameMenuStackDepth > 0) {
       gameMenuIndex = gameMenuStack[--gameMenuStackDepth];
@@ -3426,6 +3772,10 @@ bool TerrainGame::updateGameMenu() {
       case 6:  // flow event: scripts run this frame to catch it
         scriptCtx.menuEvent = e.param;
         break;
+      case 7:  // toggle - flip/cycle the bound save value (menu stays open)
+      case 8:  // choice
+        cycleValue(e, 1);
+        break;
     }
   }
   return pausing();
@@ -3443,6 +3793,46 @@ void TerrainGame::renderGameMenu() {
         Vec2(panel.position.x + 32.0F,
              panel.position.y + m.row0Y + gameMenuCursor * m.rowH + 1.0F);
     engine->renderer.renderer2D.render(menuCursorSprite);
+  }
+  // Toggle/Choice rows: the current option label, a cell of the baked value
+  // strip drawn right-aligned on the row (cell right edge 24px from the
+  // panel's right border - the mirror of the 56px label margin).
+  if (m.values[0] != '\0' &&
+      gameMenuIndex < (int)menuValueSprites.size()) {
+    Sprite& vs = menuValueSprites[gameMenuIndex];
+    for (int i = 0; i < m.entryCount; ++i) {
+      const MenuEntryData& e = m.entries[i];
+      if (e.cell < 0 || e.optionCount <= 0) continue;
+      int v = (e.param >= 0 && e.param < SAVE_VALUE_COUNT)
+                  ? (int)saveValues[e.param]
+                  : 0;
+      if (v < 0) v = 0;
+      if (v >= e.optionCount) v = e.optionCount - 1;
+      vs.offset = Vec2(0.0F, (float)((e.cell + v) * m.valuePitch));
+      vs.position = Vec2(panel.position.x + m.valueX,
+                         panel.position.y + m.row0Y + i * m.rowH);
+      engine->renderer.renderer2D.render(vs);
+    }
+  }
+}
+
+// On-screen texts: apply the frame's Show/Hide Text requests, tick the
+// auto-hide timers, draw what is visible. Baked sprites - one 2D quad each.
+void TerrainGame::updateAndRenderHudTexts() {
+  for (int i = 0; i < (int)hudTextSprites.size(); ++i) {
+    if (scriptCtx.textRequest && scriptCtx.textRequest[i] >= 0) {
+      hudTextOn[i] = scriptCtx.textRequest[i] != 0 ? 1 : 0;
+      hudTextTimer[i] = hudTextOn[i] ? scriptCtx.textDuration[i] : 0.0F;
+      scriptCtx.textRequest[i] = -1;
+    }
+    if (hudTextOn[i] && hudTextTimer[i] > 0.0F) {
+      hudTextTimer[i] -= g_frameDt;
+      if (hudTextTimer[i] <= 0.0F) {
+        hudTextOn[i] = 0;
+        hudTextTimer[i] = 0.0F;
+      }
+    }
+    if (hudTextOn[i]) engine->renderer.renderer2D.render(hudTextSprites[i]);
   }
 }
 
@@ -3576,7 +3966,9 @@ void TerrainGame::buildSkyDome() {
   }
 
   skyDome.infoBag = std::make_unique<StaPipInfoBag>();
-  skyDome.infoBag->model = &model;
+  // Not the shared identity `model`: renderScene keeps skyMat centered on the
+  // camera so the dome follows the player instead of sitting at world origin.
+  skyDome.infoBag->model = &skyMat;
   skyDome.infoBag->shadingType = TyraShadingGouraud;
   // Static geometry crossing the screen edges all the time - needs clipping
   skyDome.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
@@ -3601,6 +3993,8 @@ void TerrainGame::rebuildObjectGeometry(int index) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
   o.dirty = false;
+  g.apronVerts.clear();  // position/size changed - the highlight ring follows
+  g.hullProxyVerts.clear();  // and the shell proxy re-bakes the transform
 
   // models: one draw part per MTL material; everything else fills parts[0]
   const GameModel* gm = nullptr;
@@ -3652,6 +4046,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
       case 11: break;  // empty - pure transform, no geometry
       case 12: addPlane(p0.vertices, p0.colors, p0.sts, o.data); break;
       case 13: addDecal(p0.vertices, p0.colors, p0.sts, o.data); break;
+      case 14: break;  // camera - cutscene shot marker, no geometry
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
     g_primKd = nullptr;
@@ -3721,6 +4116,10 @@ void TerrainGame::updateObjectPhysics() {
 }
 
 void TerrainGame::renderScene() {
+  // Debug profiler: scene phase = sky + terrain + objects + anim (+ the
+  // deferred usable bodies, timed separately below). Folded away entirely
+  // when DEBUG_SHOW_PROFILER is false. See drawDebugHud.
+  const u32 profScene0 = DEBUG_SHOW_PROFILER ? profTicks() : 0;
   // Scripts changing ctx.skyColor retint the dome horizon
   if (skyDome.bag && (scriptCtx.skyColor.r != skyHorizonR ||
                       scriptCtx.skyColor.g != skyHorizonG ||
@@ -3730,52 +4129,135 @@ void TerrainGame::renderScene() {
     skyHorizonB = scriptCtx.skyColor.b;
     buildSkyDome();
   }
-  if (skyDome.bag) stapip.core.render(skyDome.bag.get());
+  if (skyDome.bag) {
+    // Follow the camera: park the dome's centre on the eye so however big the
+    // map is, the horizon and zenith always wrap around the player. Only the
+    // translation moves; the dome vertices never rebuild for this.
+    skyMat.identity();
+    skyMat.data[12] = cameraPosition.x;
+    skyMat.data[13] = cameraPosition.y;
+    skyMat.data[14] = cameraPosition.z;
+    stapip.core.render(skyDome.bag.get());
+  }
   // Terrain: stream the chunk ring around the view focus (budgeted, so the
   // build cost spreads over frames), then submit the built chunks - the
   // engine drops whole out-of-frustum chunks EE-side (main-bbox classify)
   // before any packaging or clipping work happens.
   updateTerrainChunks(cameraLookAt.x, cameraLookAt.z, 2);
   renderTerrain();
+  // Highlighted-in-reach usables get a separate shell pass after the scene.
+  // RIM mode (default): the body is deferred out of the main pass and drawn
+  // AFTER its shells, erasing the shell wash over the object's own receding
+  // faces without a second full draw (the old order needed main-pass draw +
+  // repaint - two exact-clip passes per frame). OVERLAY mode: the body draws
+  // normally in the main pass and the shells are painted ON it afterwards, so
+  // it stays in this list only for the shell pass.
+  int hlList[8];
+  float hlListD2[8];
+  int hlCount = 0;
+  const bool hlActive = HIGHLIGHT_USABLE;
+  const bool hlOverlay = HIGHLIGHT_OVERLAY;
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (!runtimeObjects[i].active) continue;  // streamed out with its layer
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
     if (!runtimeObjects[i].visible) continue;
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
+    if (hlActive && hlCount < 8 && runtimeObjects[i].data.usable &&
+        highlightInReach(i)) {
+      const float ddx = runtimeObjects[i].data.position[0] - cameraPosition.x;
+      const float ddy = runtimeObjects[i].data.position[1] - cameraPosition.y;
+      const float ddz = runtimeObjects[i].data.position[2] - cameraPosition.z;
+      hlList[hlCount] = i;
+      hlListD2[hlCount++] = ddx * ddx + ddy * ddy + ddz * ddz;
+      if (!hlOverlay) continue;  // rim: defer body; overlay: draw it now
+    }
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag) stapip.core.render(part.bag.get());
   }
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
   updateAndRenderAnimObjects();
-  // Highlight rims after every object so their depth is in the z-buffer:
-  // the rim is depth-tested against the finished scene and can no longer be
-  // punched through by an object drawn later in the loop.
-  if (HIGHLIGHT_USABLE)
-    for (int i = 0; i < (int)runtimeObjects.size(); ++i)
-      if (runtimeObjects[i].active && runtimeObjects[i].visible &&
-          runtimeObjects[i].data.usable && !objectGeometry[i].parts.empty())
-        renderHighlightHull(i);  // proximity-checked inside; no-op when far
+  if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - profScene0;
+  // Highlight shells after the whole scene so they depth-test against the
+  // finished z-buffer and can't be punched through by a later draw. Sorted
+  // far-to-near: a nearer object's rim/body correctly covers a farther one.
+  for (int a = 0; a < hlCount; ++a)  // insertion sort, farthest first
+    for (int b = a + 1; b < hlCount; ++b)
+      if (hlListD2[b] > hlListD2[a]) {
+        const int ti = hlList[a];
+        hlList[a] = hlList[b];
+        hlList[b] = ti;
+        const float td = hlListD2[a];
+        hlListD2[a] = hlListD2[b];
+        hlListD2[b] = td;
+      }
+  for (int a = 0; a < hlCount; ++a) {
+    const int i = hlList[a];
+    const u32 ph = DEBUG_SHOW_PROFILER ? profTicks() : 0;
+    renderHighlightHull(i);  // shells + ground apron = the highlight overhead
+    if (DEBUG_SHOW_PROFILER) g_profHighlight += profTicks() - ph;
+    if (!hlOverlay) {
+      // Rim mode: paint the deferred body over the shells (GEQUAL wins the
+      // equal-depth test, erasing the wash). Real geometry - count it as
+      // scene, not highlight overhead.
+      const u32 pb = DEBUG_SHOW_PROFILER ? profTicks() : 0;
+      for (GeoPart& part : objectGeometry[i].parts)
+        if (part.bag) stapip.core.render(part.bag.get());
+      if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - pb;
+    }
+  }
   // particles last - alpha blended over the scene
+  const u32 profPart0 = DEBUG_SHOW_PROFILER ? profTicks() : 0;
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
+  if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
+}
+
+// True when the usable object sits inside the highlight distance (same
+// reference point as the USE interaction) and has anything to draw.
+bool TerrainGame::highlightInReach(int index) const {
+  const RuntimeObject& o = runtimeObjects[index];
+  const ObjectGeometry& g = objectGeometry[index];
+  bool any = false;  // marker-only objects have no draw parts
+  for (const GeoPart& part : g.parts)
+    if (part.bag) {
+      any = true;
+      break;
+    }
+  if (!any) return false;
+  float half = o.data.scale[0];
+  if (o.data.scale[1] > half) half = o.data.scale[1];
+  if (o.data.scale[2] > half) half = o.data.scale[2];
+  half *= 0.5F;
+  if (half < 0.01F) half = 0.01F;
+  const float dx = o.data.position[0] - cameraPosition.x;
+  const float dy = o.data.position[1] - cameraPosition.y;
+  const float dz = o.data.position[2] - cameraPosition.z;
+  const float reach = HIGHLIGHT_DISTANCE + half;
+  return dx * dx + dy * dy + dz * dz <= reach * reach;
 }
 
 // Usable-object highlight (Project > Preferences): a soft colored rim around
-// the object silhouette. Three concentric copies of the object, grown around
-// its center with fading alpha, drawn after the scene with z-test but no
-// z-write (PipelineZTest_TestOnly). Each shell is additionally pushed away
-// from the camera by a uniform scale around the eye point - that keeps its
-// screen silhouette identical but places it behind the object's own depth,
-// so the z-buffer rejects the interior and only the rim survives, correctly
-// occluded by anything nearer. Proximity uses the same reference point as
-// the USE interaction (the camera / player eye).
+// the object silhouette. HIGHLIGHT_STEPS concentric copies of the object,
+// grown around its center with fading alpha, drawn after the scene with
+// z-test but no z-write (PipelineZTest_TestOnly). Each shell is additionally
+// pushed away from the camera by a uniform scale around the eye point - that
+// keeps its screen silhouette identical but places it behind the object's
+// own depth, so the z-buffer rejects the interior and only the rim survives,
+// correctly occluded by anything nearer. Proximity uses the same reference
+// point as the USE interaction (the camera / player eye).
+//
+// Both the grow (scale about the object center) and the pushback (scale
+// about the eye) are uniform point scales, so each shell collapses into ONE
+// scale+translation model matrix over the object's own vertex arrays - VU1
+// applies it during transform and the EE never touches a vertex. (The first
+// version grew and terrain-clamped every vertex of every shell on the EE
+// each frame plus a full bbox recompute; with the default 4 steps a
+// few-thousand-vert usable model near the player cost milliseconds of
+// EE time - the frame is EE-bound, so it fell to the next vsync divisor.)
 void TerrainGame::renderHighlightHull(int index) {
   const RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
-  size_t n = 0;  // hull spans every draw part of the object
-  for (const GeoPart& part : g.parts) n += part.vertices.size();
-  if (n == 0) return;
 
   float half = o.data.scale[0];
   if (o.data.scale[1] > half) half = o.data.scale[1];
@@ -3789,11 +4271,13 @@ void TerrainGame::renderHighlightHull(int index) {
   const float dist2 = dx * dx + dy * dy + dz * dz;
   const float reach = HIGHLIGHT_DISTANCE + half;
   if (dist2 > reach * reach) return;
-  const float dist = sqrtf(dist2);
 
-  // HIGHLIGHT_STEPS concentric shells up to HIGHLIGHT_WIDTH wide (both from
-  // Project > Preferences), alpha roughly halving outward. Near the
-  // silhouette all shells overlap - solid color fading outward.
+  // Shells draw from the low-detail proxy, not the object's own (possibly
+  // heavily subdivided) mesh - built lazily, cleared on geometry rebuilds.
+  if (g.hullProxyVerts.empty()) buildHighlightProxy(index);
+  if (g.hullProxyVerts.empty()) return;  // marker-only object
+
+  const float dist = sqrtf(dist2);
   const float cx = o.data.position[0], cy = o.data.position[1],
               cz = o.data.position[2];
   // How far in front of the object the camera is - the pushback must move
@@ -3801,69 +4285,218 @@ void TerrainGame::renderHighlightHull(int index) {
   // right behind it.
   float behind = dist - half;
   if (behind < 0.5F) behind = 0.5F;
-
-  g.hullVerts.resize(n * HIGHLIGHT_STEPS);
-  g.hullCols.resize(n * HIGHLIGHT_STEPS);
   // One pushback for all shells (sized for the widest) - per-shell depths
   // would make the terrain/scene cut each shell on a different line and the
   // rim edge turns into visible steps.
   float growMax = HIGHLIGHT_WIDTH / half;
   if (growMax > 0.6F) growMax = 0.6F;
-  const float k = 1.0F + (growMax * half + 0.15F) / behind;
-  float alpha = HIGHLIGHT_STEPS > 1 ? 72.0F : 100.0F;  // single step = solid
+  // k = scale about the eye. RIM mode (>1) pushes the shell behind the
+  // object's depth so the z-buffer keeps only the silhouette rim. OVERLAY
+  // mode keeps k = 1 (no pushback): each grown shell sits at the object's own
+  // depth, its front faces landing just in front of the surface, so the glow
+  // paints ON the object and fades outward into a rim (the body is drawn
+  // first, in the main pass, then these shells blend over it).
+  const float k = HIGHLIGHT_OVERLAY ? 1.0F
+                                    : 1.0F + (growMax * half + 0.15F) / behind;
+
+  if (!hullBag) {
+    hullInfoBag = std::make_unique<StaPipInfoBag>();
+    hullInfoBag->model = &hullMat;
+    hullInfoBag->shadingType = TyraShadingFlat;
+    hullInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    hullInfoBag->fullClipChecks = true;
+    hullInfoBag->zTestType = PipelineZTest_TestOnly;
+    hullColorBag = std::make_unique<StaPipColorBag>();
+    hullBag = std::make_unique<StaPipBag>();
+    hullBag->info = hullInfoBag.get();
+    hullBag->color = hullColorBag.get();
+    hullBag->texture = nullptr;
+    hullBag->lighting = nullptr;
+  }
+
+  // Shell colors, alpha roughly halving outward - near the silhouette all
+  // shells overlap into solid color fading outward. Refreshed every call
+  // (scene switches change the prefs; same values otherwise).
+  hullShellCols.resize(HIGHLIGHT_STEPS);
+  // Strongest (innermost) shell alpha = HIGHLIGHT_OPACITY of full (128 = the
+  // PS2 opaque max); the outer shells halve outward. Opacity 1 + steps 1 =
+  // a fully solid outline.
+  float alpha = HIGHLIGHT_OPACITY * 128.0F;
+  for (int s = 0; s < HIGHLIGHT_STEPS; ++s) {
+    hullShellCols[s] = Color(HIGHLIGHT_R, HIGHLIGHT_G, HIGHLIGHT_B, alpha);
+    alpha *= 0.55F;
+  }
+
   for (int s = 0; s < HIGHLIGHT_STEPS; ++s) {
     // uniform growth - rotated objects stay unskewed
     float grow = (HIGHLIGHT_WIDTH * (s + 1)) / (HIGHLIGHT_STEPS * half);
     if (grow > 0.6F) grow = 0.6F;
     const float f = 1.0F + grow;
-    const Color c(HIGHLIGHT_R, HIGHLIGHT_G, HIGHLIGHT_B, alpha);
-    alpha *= 0.55F;
-    size_t v = 0;
-    for (const GeoPart& part : g.parts)
-      for (const Vec4& p : part.vertices) {
-        float hx = cx + (p.x - cx) * f;
-        float hy = cy + (p.y - cy) * f;
-        float hz = cz + (p.z - cz) * f;
-        hx = cameraPosition.x + (hx - cameraPosition.x) * k;
-        hy = cameraPosition.y + (hy - cameraPosition.y) * k;
-        hz = cameraPosition.z + (hz - cameraPosition.z) * k;
-        // Shell parts of grounded objects dip below the terrain and the
-        // ground in front z-rejects them (no bottom rim from a low camera).
-        // Lift them just above the surface - the bottom rim becomes a glow
-        // apron hugging the ground around the base.
-        const float ground = terrainHeightAt(hx, hz) + 0.02F;
-        if (hy < ground) hy = ground;
-        g.hullVerts[s * n + v] = Vec4(hx, hy, hz, 1.0F);
-        g.hullCols[s * n + v] = c;
-        ++v;
-      }
+    // shell = eye + k*((c + f*(p - c)) - eye) = (k*f)*p + offset
+    const float a = k * f;
+    hullMat.identity();
+    hullMat.data[0] = a;
+    hullMat.data[5] = a;
+    hullMat.data[10] = a;
+    hullMat.data[12] = k * (1.0F - f) * cx + (1.0F - k) * cameraPosition.x;
+    hullMat.data[13] = k * (1.0F - f) * cy + (1.0F - k) * cameraPosition.y;
+    hullMat.data[14] = k * (1.0F - f) * cz + (1.0F - k) * cameraPosition.z;
+    hullColorBag->single = &hullShellCols[s];
+    // One submit per shell over the proxy positions; the package boxes live
+    // in their own cache slot (keyed by the proxy pointer) and recompute
+    // only when the proxy rebuilds - never per frame.
+    hullBag->vertices = g.hullProxyVerts.data();
+    hullBag->count = static_cast<u32>(g.hullProxyVerts.size());
+    hullBag->bboxVersion = g.hullProxyStamp;
+    stapip.core.render(hullBag.get());
   }
 
-  if (!g.hullBag) {
-    g.hullInfoBag = std::make_unique<StaPipInfoBag>();
-    g.hullInfoBag->model = &model;
-    g.hullInfoBag->shadingType = TyraShadingFlat;
-    g.hullInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
-    g.hullInfoBag->fullClipChecks = true;
-    g.hullInfoBag->zTestType = PipelineZTest_TestOnly;
-    g.hullColorBag = std::make_unique<StaPipColorBag>();
-    g.hullBag = std::make_unique<StaPipBag>();
-    g.hullBag->info = g.hullInfoBag.get();
-    g.hullBag->color = g.hullColorBag.get();
-    g.hullBag->texture = nullptr;
-    g.hullBag->lighting = nullptr;
+  // Grounded objects: the shells dip below the terrain and the ground in
+  // front z-rejects them - no bottom rim from a low camera. The old code
+  // fixed that by terrain-clamping every shell vertex (the expensive part);
+  // a small terrain-following annulus around the base gives the same glow
+  // apron for a fraction of a percent of the vertices.
+  if (cy - 0.5F * o.data.scale[1] <=
+      terrainHeightAt(cx, cz) + HIGHLIGHT_WIDTH + 0.25F) {
+    if (g.apronVerts.empty()) buildHighlightApron(index, half);
+    if (!g.apronVerts.empty()) {
+      if (!apronBag) {
+        apronInfoBag = std::make_unique<StaPipInfoBag>();
+        apronInfoBag->model = &model;  // world-space, camera-independent
+        apronInfoBag->shadingType = TyraShadingFlat;
+        apronInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+        apronInfoBag->fullClipChecks = true;
+        apronInfoBag->zTestType = PipelineZTest_TestOnly;
+        apronColorBag = std::make_unique<StaPipColorBag>();
+        apronBag = std::make_unique<StaPipBag>();
+        apronBag->info = apronInfoBag.get();
+        apronBag->color = apronColorBag.get();
+        apronBag->texture = nullptr;
+        apronBag->lighting = nullptr;
+      }
+      apronColorBag->many = g.apronCols.data();
+      apronBag->vertices = g.apronVerts.data();
+      apronBag->count = static_cast<u32>(g.apronVerts.size());
+      apronBag->bboxVersion = g.apronStamp;
+      stapip.core.render(apronBag.get());
+    }
   }
-  g.hullColorBag->many = g.hullCols.data();
-  g.hullBag->vertices = g.hullVerts.data();
-  g.hullBag->count = static_cast<u32>(g.hullVerts.size());
-  g.hullBag->bboxVersion = ++g_bboxStamp;  // rebuilt every frame while shown
-  stapip.core.render(g.hullBag.get());
-  // The pushback clears the object's front face but not its receding side
-  // faces - shells still blend over those at glancing angles. Repainting
-  // the object wins the equal-depth test (GEQUAL) and erases the wash
-  // without touching the rim outside the silhouette.
-  for (GeoPart& part : g.parts)
-    if (part.bag) stapip.core.render(part.bag.get());
+
+  // RIM mode: the pushback clears the object's front face but not its
+  // receding side faces - shells still blend over those at glancing angles.
+  // The caller paints the deferred body right after this call (GEQUAL wins
+  // the equal-depth test), erasing the wash without touching the rim and
+  // without the old main-pass-draw + repaint double draw. OVERLAY mode wants
+  // exactly that wash on the surface, so the caller draws the body FIRST (in
+  // the main pass) and leaves these shells on top.
+}
+
+// Builds the shells' low-detail stand-in (world-space positions only).
+// Primitives regenerate through their own builders with the subdivision
+// forced down - a subdivided box/plane has the same silhouette at detail 1,
+// and a curved primitive at 12 segments is within a couple of percent of
+// its full-detail silhouette, invisible under the soft rim. Models have no
+// cheaper source, so their parts are concatenated as-is (one submit per
+// shell instead of one per part).
+void TerrainGame::buildHighlightProxy(int index) {
+  const RuntimeObject& o = runtimeObjects[index];
+  ObjectGeometry& g = objectGeometry[index];
+  g.hullProxyVerts.clear();
+
+  if (o.data.type == 5) {
+    size_t total = 0;
+    for (const GeoPart& part : g.parts) total += part.vertices.size();
+    g.hullProxyVerts.reserve(total);
+    for (const GeoPart& part : g.parts)
+      if (part.bag)
+        g.hullProxyVerts.insert(g.hullProxyVerts.end(), part.vertices.begin(),
+                                part.vertices.end());
+  } else {
+    SceneObjectData low = o.data;
+    low.primDetail = 1;
+    switch (o.data.type) {
+      case 1:
+      case 2:
+      case 3:
+        low.primDetail = o.data.primDetail < 12 ? o.data.primDetail : 12;
+        break;
+      default:
+        break;  // boxes, planes, decals: detail 1
+    }
+    // The builders emit colors/sts too; shells only need positions, the
+    // rest is discarded (built once per geometry rebuild).
+    std::vector<Color> cols;
+    std::vector<Vec4> sts;
+    switch (o.data.type) {
+      case 1: addSphere(g.hullProxyVerts, cols, sts, low); break;
+      case 2: addCylinder(g.hullProxyVerts, cols, sts, low); break;
+      case 3: addCone(g.hullProxyVerts, cols, sts, low); break;
+      case 12: addPlane(g.hullProxyVerts, cols, sts, low); break;
+      case 13: addDecal(g.hullProxyVerts, cols, sts, low); break;
+      default:
+        if (!g.parts.empty() && g.parts[0].bag)
+          addBox(g.hullProxyVerts, cols, sts, low);
+        break;  // marker-only types keep the proxy empty
+    }
+  }
+  if (!g.hullProxyVerts.empty()) g.hullProxyStamp = ++g_bboxStamp;
+}
+
+// The terrain-hugging glow ring around a grounded usable object's base: one
+// annulus band per shell with the shell's growth radius and alpha, following
+// the terrain height at every ring point. World-space and camera-independent,
+// so it's built once and redrawn from cache until rebuildObjectGeometry
+// invalidates it (move/resize) or a scene switch recreates the geometry.
+void TerrainGame::buildHighlightApron(int index, float half) {
+  const RuntimeObject& o = runtimeObjects[index];
+  ObjectGeometry& g = objectGeometry[index];
+  const float cx = o.data.position[0], cz = o.data.position[2];
+  // Elliptical footprint so stretched objects keep a snug ring
+  float rx = 0.5F * o.data.scale[0];
+  float rz = 0.5F * o.data.scale[2];
+  if (rx < 0.05F) rx = 0.05F;
+  if (rz < 0.05F) rz = 0.05F;
+
+  const int SEG = 24;
+  Vec4 inner[SEG + 1], outer[SEG + 1];
+  for (int j = 0; j <= SEG; ++j) {
+    const float t = (2.0F * PI * j) / SEG;
+    const float px = cx + rx * cosf(t);
+    const float pz = cz + rz * sinf(t);
+    inner[j] = Vec4(px, terrainHeightAt(px, pz) + 0.02F, pz, 1.0F);
+  }
+
+  g.apronVerts.clear();
+  g.apronCols.clear();
+  g.apronVerts.reserve((size_t)HIGHLIGHT_STEPS * SEG * 6);
+  g.apronCols.reserve((size_t)HIGHLIGHT_STEPS * SEG * 6);
+
+  // Same alpha ramp as the shells (HIGHLIGHT_OPACITY strongest, halving out).
+  float alpha = HIGHLIGHT_OPACITY * 128.0F;
+  for (int s = 0; s < HIGHLIGHT_STEPS; ++s) {
+    float grow = (HIGHLIGHT_WIDTH * (s + 1)) / (HIGHLIGHT_STEPS * half);
+    if (grow > 0.6F) grow = 0.6F;
+    const float f = 1.0F + grow;
+    const Color c(HIGHLIGHT_R, HIGHLIGHT_G, HIGHLIGHT_B, alpha);
+    alpha *= 0.55F;
+    for (int j = 0; j <= SEG; ++j) {
+      const float t = (2.0F * PI * j) / SEG;
+      const float px = cx + rx * f * cosf(t);
+      const float pz = cz + rz * f * sinf(t);
+      outer[j] = Vec4(px, terrainHeightAt(px, pz) + 0.02F, pz, 1.0F);
+    }
+    for (int j = 0; j < SEG; ++j) {
+      g.apronVerts.push_back(inner[j]);
+      g.apronVerts.push_back(outer[j]);
+      g.apronVerts.push_back(outer[j + 1]);
+      g.apronVerts.push_back(inner[j]);
+      g.apronVerts.push_back(outer[j + 1]);
+      g.apronVerts.push_back(inner[j + 1]);
+      for (int v = 0; v < 6; ++v) g.apronCols.push_back(c);
+    }
+    for (int j = 0; j <= SEG; ++j) inner[j] = outer[j];
+  }
+  g.apronStamp = ++g_bboxStamp;
 }
 
 // --- Terrain chunks ---------------------------------------------------------
@@ -4165,6 +4798,9 @@ void TerrainGame::init() {
   if (!FRAME_LIMIT) engine->renderer.core.setFrameLimit(false);
 
   stapip.setRenderer(&engine->renderer.core);
+  // Hidden "clipping": "vu1" mode: frustum-crossing packages are clipped by
+  // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
+  stapip.core.setVU1Clipping(CLIP_VU1);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
   // GS hardware distance fog (Scene/Project > Preferences > Fog).
@@ -4216,13 +4852,16 @@ void TerrainGame::init() {
     texture->addLink(hudSprites.back().id);
   }
 
-  // "USE" prompt (res/hud/use.png), shown while looking at a usable object
+  // "USE" prompt, shown while looking at a usable object. Placement and
+  // image come from hud_data.gen.hpp (Tools > UI Editor - the built-in
+  // hud/use.png unless a custom sprite replaces it).
   usePromptSprite.mode = SpriteMode::MODE_STRETCH;
-  usePromptSprite.size = Vec2(128.0F, 32.0F);
-  usePromptSprite.position = Vec2((screen.getWidth() - 128.0F) * 0.5F,
-                                  screen.getHeight() * 0.72F);
-  auto* useTexture =
-      engine->renderer.getTextureRepository().add(FileUtils::fromCwd("hud/use.png"));
+  usePromptSprite.size = Vec2(USE_PROMPT_W, USE_PROMPT_H);
+  usePromptSprite.position =
+      Vec2(USE_PROMPT_X * screen.getWidth() - USE_PROMPT_W * 0.5F,
+           USE_PROMPT_Y * screen.getHeight() - USE_PROMPT_H * 0.5F);
+  auto* useTexture = engine->renderer.getTextureRepository().add(
+      FileUtils::fromCwd(USE_PROMPT_PATH));
   useTexture->addLink(usePromptSprite.id);
 
   // Loading screen sprite (res/hud/loading.png), shown on scene switches
@@ -4245,6 +4884,7 @@ void TerrainGame::loop() {
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
   const bool menuActive = saveMenuActive || gameMenuPausing;
+  g_gameplayPaused = menuActive;  // freezes particles + animation playback
   if (!menuActive) {
     if (!updatePlayerEntity()) updatePlayer();
     updateUseTarget();
@@ -4338,6 +4978,42 @@ void TerrainGame::loop() {
     g_flashEnabled = scriptCtx.flashlight != 0;
     scriptCtx.flashlight = -1;
   }
+  // Runtime graphics switches (Set Fog / Bloom / Grain / Particles flow nodes).
+  if (scriptCtx.fog >= 0) {
+    if (scriptCtx.fog)
+      engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START, FOG_END);
+    else
+      engine->renderer.core.disableFog();
+    scriptCtx.fog = -1;
+  }
+  if (scriptCtx.bloom >= 0) {
+    engine->renderer.core.postFx.setBloom(scriptCtx.bloom);
+    scriptCtx.bloom = -1;
+  }
+  if (scriptCtx.grain >= 0) {
+    engine->renderer.core.postFx.setGrain(scriptCtx.grain);
+    scriptCtx.grain = -1;
+  }
+  if (scriptCtx.particles >= 0) {
+    g_particlesOn = scriptCtx.particles != 0;
+    scriptCtx.particles = -1;
+  }
+  // Cutscene camera override: a Cutscene Director sequence with a camera track
+  // drives the frame camera (Play/Stop Sequence). Applied after scripts so the
+  // sequence player (a global Script) has posed the camera for this frame.
+  if (scriptCtx.cameraOverride) {
+    cameraPosition = scriptCtx.cameraEye;
+    cameraLookAt = scriptCtx.cameraAt;
+  }
+  // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
+  // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
+  // switch rebuilds the VRAM layout between frames. A switch closes any
+  // open game menu: the player judges the new picture unobstructed and the
+  // confirm prompt's X press cannot double as a menu select.
+  if (applyVideoRequests(engine, scriptCtx)) {
+    gameMenuIndex = -1;
+    gameMenuStackDepth = 0;
+  }
   if (flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
   if (g_flashEnabled && g_flashOn) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
@@ -4366,9 +5042,15 @@ void TerrainGame::loop() {
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
+    updateAndRenderHudTexts();
+    // Cutscene Director widescreen bars + fade-to-black: solid quads over the
+    // scene and HUD (texts included), under the pause menus (no-op unless a
+    // cutscene draws).
+    sequences::renderOverlay(engine, scriptCtx);
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine);
+    drawVideoConfirm(engine);
   }
   engine->renderer.endFrame();
 }
@@ -4610,14 +5292,16 @@ const unsigned char* usePromptPng(size_t& size) {
     return data;
 }
 
-// 512x8 glyph strip for the debug-profile HUD, rendered from an embedded
-// 8x8 pixel font and encoded on first use. 18 glyphs ("0123456789.FPSMBE/"),
-// one per 16px cell; the right half of each cell stays transparent so the
-// GS's bilinear filter never samples the neighboring glyph.
+// 512x16 glyph strip for the in-game HUD text (debug overlays + the video
+// mode confirm prompt), rendered from an embedded 8x8 pixel font and
+// encoded on first use. 42 glyphs in two rows of 32 cells of 16px - the
+// order must match drawHudText's atlas string in the game template; the
+// right half of each cell stays transparent so the GS's bilinear filter
+// never samples the neighboring glyph.
 const std::vector<unsigned char>& debugFontPng() {
     static std::vector<unsigned char> png = [] {
         // Classic CP437-style 8x8 glyphs, one byte per row, MSB = left pixel.
-        static const unsigned char rows[18][8] = {
+        static const unsigned char rows[42][8] = {
             {0x7C, 0xC6, 0xCE, 0xDE, 0xF6, 0xE6, 0x7C, 0x00},  // 0
             {0x30, 0x70, 0x30, 0x30, 0x30, 0x30, 0xFC, 0x00},  // 1
             {0x78, 0xCC, 0x0C, 0x38, 0x60, 0xCC, 0xFC, 0x00},  // 2
@@ -4636,14 +5320,39 @@ const std::vector<unsigned char>& debugFontPng() {
             {0xFC, 0x66, 0x66, 0x7C, 0x66, 0x66, 0xFC, 0x00},  // B
             {0xFE, 0x62, 0x68, 0x78, 0x68, 0x62, 0xFE, 0x00},  // E
             {0x06, 0x0C, 0x18, 0x30, 0x60, 0xC0, 0x80, 0x00},  // /
+            {0x30, 0x78, 0xCC, 0xCC, 0xFC, 0xCC, 0xCC, 0x00},  // A
+            {0x3C, 0x66, 0xC0, 0xC0, 0xC0, 0x66, 0x3C, 0x00},  // C
+            {0xF8, 0x6C, 0x66, 0x66, 0x66, 0x6C, 0xF8, 0x00},  // D
+            {0x3C, 0x66, 0xC0, 0xC0, 0xCE, 0x66, 0x3E, 0x00},  // G
+            {0xCC, 0xCC, 0xCC, 0xFC, 0xCC, 0xCC, 0xCC, 0x00},  // H
+            {0x78, 0x30, 0x30, 0x30, 0x30, 0x30, 0x78, 0x00},  // I
+            {0x1E, 0x0C, 0x0C, 0x0C, 0xCC, 0xCC, 0x78, 0x00},  // J
+            {0xE6, 0x66, 0x6C, 0x78, 0x6C, 0x66, 0xE6, 0x00},  // K
+            {0xF0, 0x60, 0x60, 0x60, 0x62, 0x66, 0xFE, 0x00},  // L
+            {0xC6, 0xE6, 0xF6, 0xDE, 0xCE, 0xC6, 0xC6, 0x00},  // N
+            {0x38, 0x6C, 0xC6, 0xC6, 0xC6, 0x6C, 0x38, 0x00},  // O
+            {0x78, 0xCC, 0xCC, 0xCC, 0xDC, 0x78, 0x1C, 0x00},  // Q
+            {0xFC, 0x66, 0x66, 0x7C, 0x6C, 0x66, 0xE6, 0x00},  // R
+            {0xFC, 0xB4, 0x30, 0x30, 0x30, 0x30, 0x78, 0x00},  // T
+            {0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xFC, 0x00},  // U
+            {0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0x78, 0x30, 0x00},  // V
+            {0xC6, 0xC6, 0xC6, 0xD6, 0xFE, 0xEE, 0xC6, 0x00},  // W
+            {0xC6, 0xC6, 0x6C, 0x38, 0x38, 0x6C, 0xC6, 0x00},  // X
+            {0xCC, 0xCC, 0xCC, 0x78, 0x30, 0x30, 0x78, 0x00},  // Y
+            {0xFE, 0xC6, 0x8C, 0x18, 0x32, 0x66, 0xFE, 0x00},  // Z
+            {0x78, 0xCC, 0x0C, 0x18, 0x30, 0x00, 0x30, 0x00},  // ?
+            {0x00, 0x00, 0xFC, 0x00, 0x00, 0xFC, 0x00, 0x00},  // =
+            {0x00, 0x00, 0x00, 0xFC, 0x00, 0x00, 0x00, 0x00},  // -
+            {0x00, 0x30, 0x30, 0x00, 0x00, 0x30, 0x30, 0x00},  // :
         };
-        const int w = 512, h = 8;  // PS2 textures need power-of-two sizes
+        const int w = 512, h = 16;  // PS2 textures need power-of-two sizes
         std::vector<unsigned char> rgba(w * h * 4, 0);
-        for (int g = 0; g < 18; ++g)
+        for (int g = 0; g < 42; ++g)
             for (int y = 0; y < 8; ++y)
                 for (int x = 0; x < 8; ++x) {
                     if (!(rows[g][y] & (0x80 >> x))) continue;
-                    unsigned char* px = &rgba[(y * w + g * 16 + x) * 4];
+                    unsigned char* px =
+                        &rgba[(((g / 32) * 8 + y) * w + (g % 32) * 16 + x) * 4];
                     px[0] = px[1] = px[2] = px[3] = 255;
                 }
         std::vector<unsigned char> out;
@@ -5001,6 +5710,25 @@ struct ScriptContext {
   int objectCount = 0;
   Tyra::Color skyColor;  // write to change the clear color
 
+  // Cutscene camera override (a Cutscene Director sequence with a camera
+  // track, driven by the Play/Stop Sequence flow nodes). The generated
+  // sequence player writes cameraOverride = true + cameraEye/cameraAt every
+  // frame such a cutscene is active; the game applies them to the frame camera
+  // just before rendering, and the player writes false when the cutscene ends.
+  bool cameraOverride = false;
+  Tyra::Vec4 cameraEye;
+  Tyra::Vec4 cameraAt;
+
+  // Cutscene presentation, also written by the sequence player every frame a
+  // cutscene is active (and zeroed when it ends): widescreen mask style
+  // (0 none, 1 cinema 2.39:1, 2 wide 16:9, 3 pillarbox, 4 frame) with its
+  // slide-in coverage envelope, and a fade-to-black overlay alpha. The game
+  // composites them as solid 2D quads over the scene and the HUD, under the
+  // pause menus (sequences::renderOverlay in sequences.gen.cpp).
+  int barsStyle = 0;
+  float barsAmount = 0.0F;  // 0..1 of the style's full coverage
+  float fadeAlpha = 0.0F;   // 0..1 black overlay
+
   // Set teleport = true and teleportPos to move the player (Player entity or
   // the FPP template player) there; the game applies and clears it.
   // teleportYaw: facing direction in degrees (Y rotation, 0 = +Z).
@@ -5015,10 +5743,38 @@ struct ScriptContext {
   // Write to show/hide all HUD images (the USE prompt is unaffected).
   bool hudVisible = true;
 
+  // On-screen texts (HUD_TEXTS order, hud_data.gen.hpp). Write 1 into
+  // textRequest[i] to show a text, 0 to hide it (-1 = leave). When showing,
+  // textDuration[i] > 0 auto-hides after that many seconds, 0 = the text
+  // stays until hidden. The game applies and resets requests every frame.
+  signed char* textRequest = nullptr;
+  float* textDuration = nullptr;
+  int textCount = 0;
+
   // Camera flashlight master switch (the Player object's "Enabled"). Write 1
   // to turn it on, 0 to turn it off, -1 to leave it unchanged; the game
   // applies and resets it. The optional toggle button still gates the beam.
   int flashlight = -1;
+
+  // Runtime graphics switches (Set Fog / Set Bloom / Set Grain / Set Particles
+  // flow nodes). fog / particles: -1 = leave, 0 = off, 1 = on. bloom / grain:
+  // -1 = leave, else a 0..128 fixed-point amount. The game applies and resets.
+  int fog = -1;
+  int bloom = -1;
+  int grain = -1;
+  int particles = -1;
+
+  // Runtime video output (Set Display Mode / Set Widescreen flow nodes).
+  // requestDisplayMode: -1 = leave, else a Tyra::DisplayMode value (0 =
+  // interlaced, 1 = progressive 480p, 2 = 1080i). displayConfirmSec > 0
+  // arms the keep-or-revert prompt: the game switches, asks the player to
+  // confirm with X and reverts to the previous mode automatically when the
+  // timer runs out (a mode the TV can't display would otherwise strand the
+  // player on a black screen). widescreen: -1 = leave, 0/1 = 4:3 / 16:9.
+  // The game applies and resets all three.
+  int requestDisplayMode = -1;
+  float displayConfirmSec = 0.0F;
+  int widescreen = -1;
 
   // Save data: named values persisted in memory card slots (SAVE_VALUE_NAMES
   // order, scene_data.hpp). Set openSaveMenu = true to open the in-game
@@ -5072,6 +5828,29 @@ struct ScriptContext {
   int (*spawnObject)(int templateIndex, float x, float y, float z,
                      float yaw) = nullptr;
   void (*despawnObject)(int objectIndex) = nullptr;
+};
+
+/** Inputs and outputs of a custom flow-graph node (see flow_nodes.hpp).
+ * A `call = fn` custom node runs when an exec link reaches it; the game fills
+ * the input fields, calls fn(ctx, io), then latches whatever fn wrote into the
+ * output fields so downstream nodes (custom or built-in) can read them. Only
+ * the pins the node declared in its .flownode are meaningful; the rest keep
+ * their defaults. Object fields are indices into ctx.objects (-1 = none). */
+struct FlowNodeIO {
+  int self = -1;                 // object that owns the graph
+  // --- inputs (resolved fresh for this call) ---
+  int object = -1;               // the "target" object input (or self); -1 invalid
+  Tyra::Vec4 position;           // wired position input (0,0,0 if none)
+  bool boolIn = false;           // OR of wired bool inputs
+  const char* text = "";         // first wired text input ("" if none)
+  const float* num = nullptr;    // the node's num0..3 params
+  const char* str = "";          // the string param (when string = text)
+  // --- outputs (write the ones your node declares) ---
+  int objectOut = -1;            // an object index, e.g. a raycast/pick result
+  Tyra::Vec4 positionOut;
+  bool boolOut = false;
+  char* textOut = nullptr;       // write up to textOutCap bytes (NUL-terminated)
+  int textOutCap = 0;
 };
 
 /** Plays a named clip on an animated model object ("" = its first clip).
@@ -5183,6 +5962,57 @@ inline std::vector<ObjectScriptFactory>& getObjectScriptFactories() {
         }});                                                                  \
     return true;                                                              \
   }()
+)";
+
+// Custom-flow-node C++ bodies (inc/scripts/flow_nodes.hpp). Marker-owned:
+// regenerated while the marker line is present, so DELETE the first line to
+// keep your own functions. Every `call = fn` custom node (flow-nodes/*.flownode)
+// resolves to a function here with the signature below. Ships one working
+// example (flowExampleNearest) used by the scaffolded example.flownode.
+static const char* TPL_FLOW_NODES_HPP =
+    R"(// Generated by tyra-editor. Delete this line to take ownership of this file.
+#pragma once
+
+// C++ bodies for custom flow-graph nodes. A .flownode file with `call = fn`
+// runs the function `fn` here when an exec link reaches the node. Signature:
+//
+//     void fn(ScriptContext& ctx, FlowNodeIO& io);
+//
+// `io` (see FlowNodeIO in script.hpp) carries the node's inputs - io.object
+// (the target object index), io.position/io.boolIn/io.text (wired inputs),
+// io.num (num0..3 params), io.str (string param) - and its outputs: write
+// io.objectOut / io.positionOut / io.boolOut / io.textOut and the game latches
+// them for downstream nodes (custom OR built-in - e.g. an object output can
+// feed a built-in Hide Object). Declare which pins exist in the .flownode
+// (`in = ...`, `out = ...`). Add `#include`s and helper functions freely; this
+// header is compiled into the generated flow graph. Keep functions cheap - they
+// run every time their node fires.
+#include "scripts/script.hpp"
+
+namespace {{NAME_UPPER_NS}} {
+
+// Example: output the scene object nearest the player (a stand-in for a
+// look-at raycast). Used by the scaffolded example.flownode; wire its object
+// output into a built-in Hide/Move Object, and its exec output onward.
+inline void flowExampleNearest(ScriptContext& ctx, FlowNodeIO& io) {
+  int best = -1;
+  float bestDist = 0.0F;
+  for (int i = 0; i < ctx.objectCount; ++i) {
+    if (i == io.self || !ctx.objects[i].active) continue;
+    const float* p = ctx.objects[i].data.position;
+    const float dx = p[0] - ctx.playerPosition.x;
+    const float dy = p[1] - ctx.playerPosition.y;
+    const float dz = p[2] - ctx.playerPosition.z;
+    const float d = dx * dx + dy * dy + dz * dz;
+    if (best < 0 || d < bestDist) {
+      best = i;
+      bestDist = d;
+    }
+  }
+  io.objectOut = best;  // -1 = nothing; downstream object refs handle that
+}
+
+}  // namespace {{NAME_UPPER_NS}}
 )";
 
 // Example script for FPP projects - user-owned, written only at creation.
@@ -5353,11 +6183,16 @@ function RunPCSX2 {
 }
 )PS1";
 
+// docker-compose.yml is regenerated on every build (refreshGenerated) and
+// carries a machine-specific absolute path to the engine sources plus a hash
+// derived from it - never worth committing (it just churns and leaks the
+// author's local path).
 static const char* TPL_GITIGNORE = R"(obj/
 bin/*.elf
 *.history
 .vscode/
 .res-baked/
+docker-compose.yml
 )";
 
 static const char* TPL_DIR_KEEP = "*\n!.gitignore\n";
@@ -5423,6 +6258,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int type;  // 0=box 1=sphere 2=cylinder 3=cone 4=spawn-point 5=model\n"
            "             // 6=player 7=emitter 8=sound 9=point-light 10=save-point\n"
            "             // 11=empty (pure transform, no geometry/collision)\n"
+           "             // 12=plane 13=decal 14=camera (cutscene shot marker)\n"
            "  float position[3];\n"
            "  float rotation[3];  // degrees\n"
            "  float scale[3];\n"
@@ -5709,6 +6545,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // Per-scene sky, clipping, post-FX and usable-highlight (Scene > Preferences
     // overrides of Project > Preferences). Accessor macros drop the trailing S.
     sceneBools("CLIP_PRECISES", [&](int si) { return rs[si].clipping != "fast"; });
+    // Hidden third clipping mode ("clipping": "vu1" in project.json, no UI):
+    // per-package classification stays (CLIP_PRECISE is true for it), but
+    // crossing packages are clipped on VU1 instead of the EE.
+    sceneBools("CLIP_VU1S", [&](int si) { return rs[si].clipping == "vu1"; });
     sceneFloats("SKY_RS", [&](int si) { return floatLit(rs[si].skyColor[0] * 255.0f); });
     sceneFloats("SKY_GS", [&](int si) { return floatLit(rs[si].skyColor[1] * 255.0f); });
     sceneFloats("SKY_BS", [&](int si) { return floatLit(rs[si].skyColor[2] * 255.0f); });
@@ -5759,6 +6599,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     sceneFloats("HIGHLIGHT_BS", [&](int si) { return floatLit(rs[si].highlightColor[2] * 255.0f); });
     sceneFloats("HIGHLIGHT_WIDTHS", [&](int si) { return floatLit(rs[si].highlightWidth); });
     sceneInts("HIGHLIGHT_STEPS_S", [&](int si) { return rs[si].highlightSteps; });
+    sceneFloats("HIGHLIGHT_OPACITIES", [&](int si) { return floatLit(rs[si].highlightOpacity); });
+    sceneBools("HIGHLIGHT_OVERLAYS", [&](int si) { return rs[si].highlightOverlay; });
 
     // Color grading presets (Tools > Color Grading), compiled to the raw
     // GS-level parameters RendererCorePostFx::setGrading takes (the editor
@@ -5952,6 +6794,7 @@ inline int everyFrames(float seconds) {
 #define TERRAIN_TINT_B TERRAIN_TINTS[g_activeScene][2]
 // Per-scene sky / clipping / post-FX / usable-highlight (Scene > Preferences)
 #define CLIP_PRECISE CLIP_PRECISES[g_activeScene]
+#define CLIP_VU1 CLIP_VU1S[g_activeScene]
 #define SKY_R SKY_RS[g_activeScene]
 #define SKY_G SKY_GS[g_activeScene]
 #define SKY_B SKY_BS[g_activeScene]
@@ -5981,6 +6824,8 @@ inline int everyFrames(float seconds) {
 #define HIGHLIGHT_B HIGHLIGHT_BS[g_activeScene]
 #define HIGHLIGHT_WIDTH HIGHLIGHT_WIDTHS[g_activeScene]
 #define HIGHLIGHT_STEPS HIGHLIGHT_STEPS_S[g_activeScene]
+#define HIGHLIGHT_OPACITY HIGHLIGHT_OPACITIES[g_activeScene]
+#define HIGHLIGHT_OVERLAY HIGHLIGHT_OVERLAYS[g_activeScene]
 #define terrainHeightAt(x, z) terrainHeightAtScene(g_activeScene, (x), (z))
 )";
     return out.str();
@@ -6035,11 +6880,18 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{VIDEO_MODE}}", st.videoSystem == "pal"    ? "PAL"
                                         : st.videoSystem == "ntsc" ? "NTSC"
                                                                    : "Auto");
+    s = replaceAll(s, "{{DISPLAY_MODE}}",
+                   st.displayMode == "1080i"         ? "HiDef1080i"
+                   : st.displayMode == "progressive" ? "Progressive480p"
+                                                     : "Interlaced");
+    s = replaceAll(s, "{{WIDESCREEN}}", st.widescreen ? "true" : "false");
     const bool debugProfile = st.buildProfile == "debug";
     s = replaceAll(s, "{{DEBUG_SHOW_FPS}}",
                    debugProfile && st.showFps ? "true" : "false");
     s = replaceAll(s, "{{DEBUG_SHOW_MEM}}",
                    debugProfile && st.showMemory ? "true" : "false");
+    s = replaceAll(s, "{{DEBUG_SHOW_PROFILER}}",
+                   debugProfile && st.showProfiler ? "true" : "false");
     s = replaceAll(s, "{{ENGINE_SRC}}", engineSourceDir());
     s = replaceAll(s, "{{ENGINE_HASH}}", engineSourceHash());
     return s;
@@ -6054,6 +6906,465 @@ bool matchesLegacy(const Project& p, const std::string& relativePath,
         tpl = TPL_GAME_HPP_V1;
     if (!tpl) return false;
     return content == fillTemplate(p, tpl);
+}
+
+// ---------------------------------------------------------------------------
+// Cutscene Director -> C++ runtime. The header declares the play/stop entry
+// points the flow-graph Play/Stop Sequence nodes call; the source compiles the
+// keyframe tables and a global Script (the director) that poses objects and
+// the camera each frame while a sequence is active. Object names resolve to
+// (scene, runtime object index) here - the director only applies a track while
+// its scene is the active one.
+// ---------------------------------------------------------------------------
+std::string sequencesHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    std::ostringstream out;
+    out << "// Generated by tyra-editor. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\n"
+           "#include \"scripts/script.hpp\"\n\n"
+           "namespace "
+        << ns
+        << " {\n"
+           "namespace sequences {\n"
+           "// Cutscene Director runtime (see src/scripts/sequences.gen.cpp),\n"
+           "// driven by the Play Sequence / Stop Sequence flow nodes.\n"
+           "void play(int index);  // start Project::sequences[index] at t=0\n"
+           "void stop();           // stop the active sequence, free the camera\n"
+           "// Widescreen bars + fade-to-black compositor, called by the game\n"
+           "// loop inside beginFrame/endFrame after the HUD (solid 2D quads;\n"
+           "// no-op unless the active cutscene draws them).\n"
+           "void renderOverlay(Tyra::Engine* engine, const ScriptContext& ctx);\n"
+           "}  // namespace sequences\n"
+           "}  // namespace "
+        << ns << "\n";
+    return out.str();
+}
+
+std::string sequencesScript(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+
+    // First scene (+ index within it) that owns an object with this name.
+    auto resolve = [&](const std::string& name) -> std::pair<int, int> {
+        if (name.empty()) return {-1, -1};
+        for (size_t si = 0; si < p.scenes.size(); ++si) {
+            const auto& objs = p.scenes[si].objects;
+            for (size_t oi = 0; oi < objs.size(); ++oi)
+                if (objs[oi].name == name) return {(int)si, (int)oi};
+        }
+        return {-1, -1};
+    };
+    auto v3 = [&](const float* a) {
+        return "{" + floatLit(a[0]) + ", " + floatLit(a[1]) + ", " + floatLit(a[2]) + "}";
+    };
+
+    std::ostringstream out;
+    out << "// Generated by tyra-editor from the Cutscene Director. Do not edit -\n"
+           "// regenerated on every build. Edit the sequences in the editor.\n"
+           "#include \"scripts/script.hpp\"\n"
+           "#include \"scripts/sequences.gen.hpp\"\n\n"
+           "namespace "
+        << ns
+        << " {\n"
+           "namespace {\n\n"
+           "// Easing (mirrors src/sequence.hpp seqEase): 0 linear, 1 smoothstep,\n"
+           "// 2 step (hold to the next key).\n"
+           "static float seqEase(int e, float u) {\n"
+           "  if (u <= 0.0F) return 0.0F;\n"
+           "  if (u >= 1.0F) return 1.0F;\n"
+           "  if (e == 1) return u * u * (3.0F - 2.0F * u);\n"
+           "  if (e == 2) return 0.0F;\n"
+           "  return u;\n"
+           "}\n\n"
+           "struct ObjKey { float t; float pos[3]; float rot[3]; float scale[3];\n"
+           "                float col[3]; int vis; int ease; };\n"
+           "struct Track { int scene; int obj; int chPos; int chRot; int chScale;\n"
+           "               int chCol; int chVis; const ObjKey* keys; int keyCount; };\n"
+           "// A camera shot. camScene/camObj >= 0 = bound to a Camera entity: the\n"
+           "// shot films from that object's CURRENT pose (so an object track can\n"
+           "// dolly it); eye/at hold the entity's authored pose as the fallback\n"
+           "// when its scene is not the active one. fov is the entity's for bound\n"
+           "// shots, the key's own for free ones. shake = handheld amplitude.\n"
+           "struct CamKey { float t; float eye[3]; float at[3]; float fov;\n"
+           "                float shake; int ease; int camScene; int camObj; };\n"
+           "struct Seq { const char* name; float duration; int loop; int camEnabled;\n"
+           "             int bars; int skippable; float fadeIn; float fadeOut;\n"
+           "             float barsSlideIn; float barsSlideOut;  // bars reveal, s\n"
+           "             float barTB; float barLR;  // mask coverage per edge\n"
+           "             const Track* tracks; int trackCount;\n"
+           "             const CamKey* camKeys; int camKeyCount; };\n\n";
+
+    // Per-sequence static keyframe tables.
+    for (size_t si = 0; si < p.sequences.size(); ++si) {
+        const Sequence& s = p.sequences[si];
+        const std::string sp = "kS" + std::to_string(si);
+        // Object tracks: one ObjKey[] per track, then the Track[].
+        for (size_t ti = 0; ti < s.tracks.size(); ++ti) {
+            SeqTrack t = s.tracks[ti];  // copy so we can sort keys by time
+            std::sort(t.keys.begin(), t.keys.end(),
+                      [](const SeqObjectKey& a, const SeqObjectKey& b) {
+                          return a.time < b.time;
+                      });
+            const auto rr = resolve(t.target);
+            out << "static const ObjKey " << sp << "T" << ti << "K[] = {";
+            for (size_t ki = 0; ki < t.keys.size(); ++ki) {
+                const SeqObjectKey& k = t.keys[ki];
+                out << (ki ? ", " : "") << "{" << floatLit(k.time) << ", " << v3(k.position)
+                    << ", " << v3(k.rotation) << ", " << v3(k.scale) << ", " << v3(k.color)
+                    << ", " << (k.visible ? 1 : 0) << ", " << k.easing << "}";
+            }
+            out << "};  // \"" << t.target << "\" -> scene " << rr.first << " obj "
+                << rr.second << "\n";
+        }
+        out << "static const Track " << sp << "Tracks[] = {";
+        for (size_t ti = 0; ti < s.tracks.size(); ++ti) {
+            const SeqTrack& t = s.tracks[ti];
+            const auto rr = resolve(t.target);
+            out << (ti ? ", " : "") << "{" << rr.first << ", " << rr.second << ", "
+                << (t.animPos ? 1 : 0) << ", " << (t.animRot ? 1 : 0) << ", "
+                << (t.animScale ? 1 : 0) << ", " << (t.animColor ? 1 : 0) << ", "
+                << (t.animVis ? 1 : 0) << ", " << sp << "T" << ti << "K, "
+                << t.keys.size() << "}";
+        }
+        if (s.tracks.empty()) out << "{0, -1, 0, 0, 0, 0, 0, nullptr, 0}";  // non-empty array
+        out << "};\n";
+        // Camera track. Bound shots resolve their Camera entity to a (scene,
+        // object) index here and bake the entity's authored pose + FOV as the
+        // eye/at/fov fallback for when the entity is unavailable at runtime.
+        out << "static const CamKey " << sp << "Cam[] = {";
+        {
+            std::vector<SeqCameraKey> ck = s.cameraKeys;
+            std::sort(ck.begin(), ck.end(),
+                      [](const SeqCameraKey& a, const SeqCameraKey& b) {
+                          return a.time < b.time;
+                      });
+            for (size_t ci = 0; ci < ck.size(); ++ci) {
+                const SeqCameraKey& k = ck[ci];
+                float eye[3] = {k.eye[0], k.eye[1], k.eye[2]};
+                float at[3] = {k.target[0], k.target[1], k.target[2]};
+                float fov = k.fov;
+                std::pair<int, int> rr = {-1, -1};
+                if (!k.camera.empty()) {
+                    rr = resolve(k.camera);
+                    const SceneObject* cam =
+                        rr.first >= 0 ? &p.scenes[rr.first].objects[rr.second] : nullptr;
+                    if (cam && cam->type == PrimitiveType::Camera) {
+                        float fwd[3];
+                        seqCameraForward(cam->rotation, fwd);
+                        for (int c = 0; c < 3; ++c) {
+                            eye[c] = cam->position[c];
+                            at[c] = cam->position[c] + fwd[c];
+                        }
+                        fov = cam->cameraFov;
+                    } else {
+                        rr = {-1, -1};  // stale/non-camera binding: free shot
+                    }
+                }
+                out << (ci ? ", " : "") << "{" << floatLit(k.time) << ", " << v3(eye)
+                    << ", " << v3(at) << ", " << floatLit(fov) << ", "
+                    << floatLit(k.shake) << ", " << k.easing << ", " << rr.first
+                    << ", " << rr.second << "}";
+                if (!k.camera.empty()) out << " /* \"" << k.camera << "\" */";
+            }
+            if (ck.empty())
+                out << "{0.0F, {0,0,0}, {0,0,0}, 60.0F, 0.0F, 0, -1, -1}";
+        }
+        out << "};\n\n";
+    }
+
+    // The sequence table. The widescreen-mask coverage fractions come from the
+    // same seqBarsFractions the editor overlays on the viewport.
+    out << "static const Seq kSeqs[] = {";
+    for (size_t si = 0; si < p.sequences.size(); ++si) {
+        const Sequence& s = p.sequences[si];
+        const std::string sp = "kS" + std::to_string(si);
+        float bt, bb, bl, br;
+        seqBarsFractions(s.bars, bt, bb, bl, br);
+        out << (si ? ", " : "") << "\n  {\"" << escapeCString(s.name) << "\", "
+            << floatLit(s.duration) << ", " << (s.loop ? 1 : 0) << ", "
+            << (s.cameraEnabled ? 1 : 0) << ", " << s.bars << ", "
+            << (s.skippable ? 1 : 0) << ", " << floatLit(s.fadeIn) << ", "
+            << floatLit(s.fadeOut) << ", " << floatLit(s.barsSlideIn) << ", "
+            << floatLit(s.barsSlideOut) << ", " << floatLit(bt) << ", "
+            << floatLit(bl) << ", " << sp << "Tracks, " << s.tracks.size() << ", "
+            << sp << "Cam, " << s.cameraKeys.size() << "}";
+    }
+    if (p.sequences.empty())
+        out << "{\"\", 0.0F, 0, 0, 0, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, "
+               "nullptr, 0, nullptr, 0}";  // non-empty array
+    out << "\n};\n"
+        << "static const int kSeqCount = " << p.sequences.size() << ";\n\n";
+
+    // Sampler + director.
+    out << R"(// Interpolates one component of an object channel (0 pos, 1 rot, 2 scale,
+// 3 color) across a track's keys at time t. Holds the ends.
+static float sampleObj(const ObjKey* k, int n, float t, int comp, int which) {
+  if (n <= 0) return 0.0F;
+  auto val = [&](int i) -> float {
+    if (which == 0) return k[i].pos[comp];
+    if (which == 1) return k[i].rot[comp];
+    if (which == 2) return k[i].scale[comp];
+    return k[i].col[comp];
+  };
+  if (t <= k[0].t) return val(0);
+  if (t >= k[n - 1].t) return val(n - 1);
+  int i = 0;
+  while (i < n - 1 && t >= k[i + 1].t) ++i;
+  const float span = k[i + 1].t - k[i].t;
+  const float u = span > 1e-6F ? (t - k[i].t) / span : 0.0F;
+  const float e = seqEase(k[i].ease, u);
+  return val(i) + (val(i + 1) - val(i)) * e;
+}
+
+// The Cutscene Director: one global Script. While a sequence is active it
+// poses every track's object (in the matching scene), resolves and blends the
+// camera shots (free or bound to Camera entities), applies the shot FOV to the
+// real projection (RendererCore3D::setFov, restored afterwards) and drives the
+// widescreen bars / fade the game composites via sequences::renderOverlay.
+// Playback advances by the real frame dt so cutscenes run at a fixed
+// wall-clock speed on PAL and NTSC alike.
+class SequenceDirector : public Script {
+  int active_ = -1;
+  float time_ = 0.0F;
+  bool cleanup_ = false;   // hand everything back on the next update
+  float baseFov_ = -1.0F;  // projection FOV before the first override
+
+  // Clamp + apply a shot FOV; the first application snapshots the FOV to
+  // restore (recomputes the projection matrix + frustum planes only when the
+  // value actually moved).
+  void applyFov(ScriptContext& ctx, float fov) {
+    if (!ctx.engine) return;
+    auto& r3d = ctx.engine->renderer.core.renderer3D;
+    if (baseFov_ < 0.0F) baseFov_ = r3d.getFov();
+    if (fov < 20.0F) fov = 20.0F;
+    if (fov > 110.0F) fov = 110.0F;
+    if (fabsf(fov - r3d.getFov()) > 0.05F) r3d.setFov(fov);
+  }
+  // Ends the takeover: camera back to the game, presentation overlays off,
+  // projection FOV restored.
+  void release(ScriptContext& ctx) {
+    ctx.cameraOverride = false;
+    ctx.barsStyle = 0;
+    ctx.barsAmount = 0.0F;
+    ctx.fadeAlpha = 0.0F;
+    if (baseFov_ >= 0.0F && ctx.engine) {
+      ctx.engine->renderer.core.renderer3D.setFov(baseFov_);
+      baseFov_ = -1.0F;
+    }
+    cleanup_ = false;
+  }
+
+ public:
+  void begin(int idx) {
+    if (idx < 0 || idx >= kSeqCount) return;
+    active_ = idx;
+    time_ = 0.0F;
+  }
+  void end() {
+    if (active_ >= 0) cleanup_ = true;
+    active_ = -1;
+  }
+  int activeIndex() const { return active_; }
+
+  void update(ScriptContext& ctx) override {
+    if (active_ < 0 || active_ >= kSeqCount) {
+      if (cleanup_) release(ctx);
+      return;
+    }
+    const Seq& s = kSeqs[active_];
+    // A skippable cutscene ends early on START.
+    if (s.skippable && ctx.engine && ctx.engine->pad.getClicked().Start) {
+      active_ = -1;
+      release(ctx);
+      return;
+    }
+    for (int i = 0; i < s.trackCount; ++i) {
+      const Track& tr = s.tracks[i];
+      if (tr.scene != ctx.scene || tr.obj < 0 || tr.obj >= ctx.objectCount) continue;
+      if (tr.keyCount <= 0) continue;
+      RuntimeObject& o = ctx.objects[tr.obj];
+      if (tr.chPos)
+        for (int c = 0; c < 3; ++c)
+          o.data.position[c] = sampleObj(tr.keys, tr.keyCount, time_, c, 0);
+      if (tr.chRot)
+        for (int c = 0; c < 3; ++c)
+          o.data.rotation[c] = sampleObj(tr.keys, tr.keyCount, time_, c, 1);
+      if (tr.chScale)
+        for (int c = 0; c < 3; ++c)
+          o.data.scale[c] = sampleObj(tr.keys, tr.keyCount, time_, c, 2);
+      if (tr.chCol)
+        for (int c = 0; c < 3; ++c)
+          o.data.color[c] = sampleObj(tr.keys, tr.keyCount, time_, c, 3);
+      if (tr.chVis) {
+        int j = 0;
+        while (j < tr.keyCount - 1 && time_ >= tr.keys[j + 1].t) ++j;
+        o.visible = tr.keys[j].vis != 0;  // visibility steps between keys
+      }
+      o.dirty = true;
+    }
+    if (s.camEnabled && s.camKeyCount > 0) {
+      const CamKey* k = s.camKeys;
+      const int n = s.camKeyCount;
+      const float t = time_;
+      // One shot's eye/at/fov. Bound shots film from the Camera entity's
+      // CURRENT pose (object tracks already ran this frame, so a keyframed
+      // camera entity gives a dolly/crane move); the +Z lens direction math
+      // mirrors seqCameraForward in src/sequence.hpp.
+      auto shot = [&](int i, float eye[3], float at[3], float& fov) {
+        const CamKey& c = k[i];
+        if (c.camObj >= 0 && c.camScene == ctx.scene &&
+            c.camObj < ctx.objectCount) {
+          const RuntimeObject& o = ctx.objects[c.camObj];
+          const float d2r = 3.14159265F / 180.0F;
+          const float sx = sinf(o.data.rotation[0] * d2r);
+          const float cx = cosf(o.data.rotation[0] * d2r);
+          const float sy = sinf(o.data.rotation[1] * d2r);
+          const float cy = cosf(o.data.rotation[1] * d2r);
+          const float sz = sinf(o.data.rotation[2] * d2r);
+          const float cz = cosf(o.data.rotation[2] * d2r);
+          const float fwd[3] = {cx * sy * cz + sx * sz,
+                                cx * sy * sz - sx * cz, cx * cy};
+          for (int j = 0; j < 3; ++j) {
+            eye[j] = o.data.position[j];
+            at[j] = o.data.position[j] + fwd[j];
+          }
+        } else {
+          for (int j = 0; j < 3; ++j) {
+            eye[j] = c.eye[j];
+            at[j] = c.at[j];
+          }
+        }
+        fov = c.fov;
+      };
+      int i = 0;
+      while (i < n - 1 && t >= k[i + 1].t) ++i;
+      float eye[3], at[3], fov;
+      shot(i, eye, at, fov);
+      float shake = k[i].shake;
+      if (t > k[i].t && i < n - 1) {
+        const float span = k[i + 1].t - k[i].t;
+        const float u = span > 1e-6F ? (t - k[i].t) / span : 0.0F;
+        const float w = seqEase(k[i].ease, u);
+        float eye1[3], at1[3], fov1;
+        shot(i + 1, eye1, at1, fov1);
+        for (int j = 0; j < 3; ++j) {
+          eye[j] += (eye1[j] - eye[j]) * w;
+          at[j] += (at1[j] - at[j]) * w;
+        }
+        fov += (fov1 - fov) * w;
+        shake += (k[i + 1].shake - shake) * w;
+      }
+      if (shake > 0.0F) {
+        // handheld noise - mirrors seqShakeOffset in src/sequence.hpp
+        const float ox =
+            shake * (0.6F * sinf(t * 23.7F) + 0.4F * sinf(t * 7.3F + 1.7F));
+        const float oy =
+            shake * (0.6F * sinf(t * 19.1F + 0.9F) + 0.4F * sinf(t * 9.7F));
+        const float oz = shake * 0.3F * sinf(t * 13.9F + 2.3F);
+        eye[0] += ox, eye[1] += oy, eye[2] += oz;
+        at[0] += ox, at[1] += oy, at[2] += oz;
+      }
+      ctx.cameraOverride = true;
+      ctx.cameraEye.x = eye[0];
+      ctx.cameraEye.y = eye[1];
+      ctx.cameraEye.z = eye[2];
+      ctx.cameraAt.x = at[0];
+      ctx.cameraAt.y = at[1];
+      ctx.cameraAt.z = at[2];
+      applyFov(ctx, fov);
+    }
+    // Presentation: bars slide in/out over the sequence's reveal times
+    // (mirrors seqBarsAmount; 0 = instant), fades ramp from/to black (mirrors
+    // seqFadeAlpha).
+    if (s.bars > 0) {
+      float a = 1.0F;
+      if (s.barsSlideIn > 0.0F && time_ < s.barsSlideIn)
+        a = time_ / s.barsSlideIn;
+      if (s.barsSlideOut > 0.0F) {
+        const float left = s.duration - time_;
+        if (left < s.barsSlideOut && left / s.barsSlideOut < a)
+          a = left / s.barsSlideOut;
+      }
+      ctx.barsStyle = s.bars;
+      ctx.barsAmount = a < 0.0F ? 0.0F : (a > 1.0F ? 1.0F : a);
+    } else {
+      ctx.barsStyle = 0;
+      ctx.barsAmount = 0.0F;
+    }
+    {
+      float fade = 0.0F;
+      if (s.fadeIn > 0.0F && time_ < s.fadeIn) fade = 1.0F - time_ / s.fadeIn;
+      if (s.fadeOut > 0.0F) {
+        const float o = 1.0F - (s.duration - time_) / s.fadeOut;
+        if (o > fade) fade = o;
+      }
+      ctx.fadeAlpha = fade < 0.0F ? 0.0F : (fade > 1.0F ? 1.0F : fade);
+    }
+    time_ += g_frameDt;
+    if (time_ >= s.duration) {
+      if (s.loop) {
+        time_ -= s.duration;
+        if (time_ < 0.0F) time_ = 0.0F;
+      } else {
+        active_ = -1;
+        cleanup_ = true;  // release() on the next update
+      }
+    }
+  }
+};
+
+SequenceDirector g_seqDirector;
+static const bool g_seqRegistered = []() {
+  getScripts().push_back(&g_seqDirector);
+  return true;
+}();
+
+}  // namespace
+
+namespace sequences {
+void play(int index) { g_seqDirector.begin(index); }
+void stop() { g_seqDirector.end(); }
+
+// Solid black quads: the widescreen mask edges (coverage from the active
+// sequence's style scaled by the slide envelope) and the fade overlay. One
+// stretched 8x8 opaque-black sprite (res/hud/seq-black.png) reused for every
+// quad; the sprite alpha carries the fade (128 = opaque on the GS).
+void renderOverlay(Tyra::Engine* engine, const ScriptContext& ctx) {
+  if (ctx.barsAmount <= 0.0F && ctx.fadeAlpha <= 0.0F) return;
+  static Tyra::Sprite quad;
+  static bool ready = false;
+  if (!ready) {
+    quad.mode = Tyra::SpriteMode::MODE_STRETCH;
+    auto* tex = engine->renderer.getTextureRepository().add(
+        Tyra::FileUtils::fromCwd("hud/seq-black.png"));
+    tex->addLink(quad.id);
+    ready = true;
+  }
+  const auto& scr = engine->renderer.core.getSettings();
+  const float W = scr.getWidth();
+  const float H = scr.getHeight();
+  auto fill = [&](float x, float y, float w, float h, float alpha) {
+    if (w < 1.0F || h < 1.0F || alpha <= 0.0F) return;
+    quad.position = Tyra::Vec2(x, y);
+    quad.size = Tyra::Vec2(w, h);
+    quad.color.a = 128.0F * (alpha > 1.0F ? 1.0F : alpha);
+    engine->renderer.renderer2D.render(quad);
+  };
+  const int idx = g_seqDirector.activeIndex();
+  if (ctx.barsAmount > 0.0F && idx >= 0) {
+    const float tb = kSeqs[idx].barTB * ctx.barsAmount * H;
+    const float lr = kSeqs[idx].barLR * ctx.barsAmount * W;
+    fill(0.0F, 0.0F, W, tb, 1.0F);
+    fill(0.0F, H - tb, W, tb, 1.0F);
+    fill(0.0F, 0.0F, lr, H, 1.0F);
+    fill(W - lr, 0.0F, lr, H, 1.0F);
+  }
+  if (ctx.fadeAlpha > 0.0F) fill(0.0F, 0.0F, W, H, ctx.fadeAlpha);
+}
+}  // namespace sequences
+
+)";
+    out << "}  // namespace " << ns << "\n";
+    return out.str();
 }
 
 // ---------------------------------------------------------------------------
@@ -6078,6 +7389,11 @@ std::string flowGraphScript(const Project& p) {
             if (p.ambiencePresets[i].name == name) return (int)i;
         return -1;
     };
+    auto sequenceIndexOf = [&](const std::string& name) {
+        for (size_t i = 0; i < p.sequences.size(); ++i)
+            if (p.sequences[i].name == name) return (int)i;
+        return -1;
+    };
     auto saveValueIndex = [&](const std::string& name) {
         for (size_t i = 0; i < p.saveValues.size(); ++i)
             if (p.saveValues[i].name == name) return (int)i;
@@ -6091,6 +7407,11 @@ std::string flowGraphScript(const Project& p) {
     auto menuIndexOf = [&](const std::string& name) {
         for (size_t i = 0; i < p.menus.size(); ++i)
             if (p.menus[i].name == name) return (int)i;
+        return -1;
+    };
+    auto hudTextIndex = [&](const std::string& name) {
+        for (size_t i = 0; i < p.hudTexts.size(); ++i)
+            if (p.hudTexts[i].name == name) return (int)i;
         return -1;
     };
     // Same list as menu_data.gen.hpp MENU_EVENTS - indices must agree.
@@ -6164,7 +7485,9 @@ std::string flowGraphScript(const Project& p) {
     std::ostringstream out;
     out << "// Generated by tyra-editor from the per-object Flow Graphs. Do not\n"
            "// edit - regenerated on every build. Edit the graphs in the editor.\n"
-           "#include \"scripts/script.hpp\"\n\n"
+           "#include \"scripts/script.hpp\"\n"
+           "#include \"scripts/sequences.gen.hpp\"  // Play/Stop Sequence nodes\n"
+           "#include \"scripts/flow_nodes.hpp\"  // custom-node C++ bodies\n\n"
            "#include <math.h>\n"
            "#include <stdio.h>\n\n"
            "#include <string>\n\n"
@@ -6247,6 +7570,8 @@ std::string flowGraphScript(const Project& p) {
         // Which object a node refers to: incoming data link (follow the
         // chain) > explicit name > the owning object ("self"). Resolved
         // fully at codegen time - ids in links are wiring, not runtime data.
+        // Runtime-only references (Spawn Object clones, a custom node's object
+        // output) are handled by targetExpr below, which callers check first.
         auto resolveTarget = [&](const FlowNode& n) -> int {
             const FlowNode* cur = &n;
             std::vector<int> visited;
@@ -6275,9 +7600,10 @@ std::string flowGraphScript(const Project& p) {
         };
 
         // Dynamic counterpart of resolveTarget: when the object-link chain
-        // hits a Spawn Object node, the reference is that node's CLONE -
-        // known only at runtime. Returns the handle expression (an int
-        // lvalue, -1 = no clone yet), or "" when the target is static.
+        // hits a runtime object source - a Spawn Object node's CLONE, or a
+        // custom node's object output (a pick / raycast result) - the reference
+        // is known only at runtime. Returns the int-lvalue expression (-1 = no
+        // object), or "" when the target is static (use resolveTarget then).
         auto targetExpr = [&](const FlowNode& n) -> std::string {
             const FlowNode* cur = &n;
             std::vector<int> visited;
@@ -6302,6 +7628,11 @@ std::string flowGraphScript(const Project& p) {
                     if (k >= 0) return "flowSpawned[" + std::to_string(k) + "]";
                     return "";
                 }
+                // A custom node's object output is a runtime latch var, and is
+                // authoritative (unrelated to the custom node's own inputs).
+                if (const FlowNodeType* st = flowNodeType(src->type);
+                    st && st->idOut && flowCustomNode(src->type))
+                    return "objOut" + std::to_string(src->id);
                 cur = src;
             }
             return "";
@@ -6335,6 +7666,12 @@ std::string flowGraphScript(const Project& p) {
                     }
                 }
             }
+            // A custom node's runtime position output (latched member).
+            if (const FlowNodeType* t = flowNodeType(n.type);
+                t && t->posOut && flowCustomNode(n.type)) {
+                const std::string base = "posOut" + std::to_string(n.id) + "[";
+                return {base + "0]", base + "1]", base + "2]"};
+            }
             if (n.type == "GetVarPos") {
                 const int vi = varIndex(posVars, n.str);
                 if (vi < 0) return {"0.0F", "0.0F", "0.0F"};
@@ -6344,8 +7681,8 @@ std::string flowGraphScript(const Project& p) {
             if (n.type == "SetPosition" || n.type == "SetVarPos" ||
                 n.type == "MoveObjectTo")
                 return {floatLit(n.num[0]), floatLit(n.num[1]), floatLit(n.num[2])};
-            // Spawned-clone target: read the position through the handle,
-            // guarded per component (position expressions inline anywhere).
+            // Runtime target (spawned clone / custom object output): read the
+            // position through the handle, guarded per component.
             const std::string dyn = targetExpr(n);
             if (!dyn.empty()) {
                 auto comp = [&](int a) {
@@ -6368,6 +7705,10 @@ std::string flowGraphScript(const Project& p) {
         // back into an exec pulse. Every bool is a self-contained C++
         // expression evaluated fresh from ctx, so it inlines anywhere.
         auto sourceCondition = [&](const FlowNode& n) -> std::string {
+            // A custom node's runtime bool output (latched member).
+            if (const FlowNodeType* t = flowNodeType(n.type);
+                t && t->boolOut && flowCustomNode(n.type))
+                return "boolOut" + std::to_string(n.id);
             if (n.type == "IsVisible") {
                 const std::string dyn = targetExpr(n);
                 if (!dyn.empty())
@@ -6483,6 +7824,10 @@ std::string flowGraphScript(const Project& p) {
         // one level deep (only Log / Set Save Text consume text), so no
         // recursion is needed.
         auto textExpr = [&](const FlowNode& n) -> std::string {
+            // A custom node's runtime text output (latched member).
+            if (const FlowNodeType* t = flowNodeType(n.type);
+                t && t->textOut && flowCustomNode(n.type))
+                return "std::string(textOut" + std::to_string(n.id) + ")";
             if (n.type == "GetSaveValue") {
                 const int vi = saveValueIndex(n.str);
                 if (vi < 0) return "std::string(\"?\")";
@@ -6541,8 +7886,9 @@ std::string flowGraphScript(const Project& p) {
         // action node -> inline statements
         auto actionCode = [&](const FlowNode& n, const std::string& pad) -> std::string {
             std::ostringstream c;
-            // dyn: the target is a Spawn Object clone (runtime handle); the
-            // whole action is then wrapped in a handle-validity guard below.
+            // dyn: the target is a runtime handle (Spawn Object clone or a
+            // custom node's object output); the whole action is then wrapped in
+            // a handle-validity guard below.
             const std::string dyn = targetExpr(n);
             const int idx = dyn.empty() ? resolveTarget(n) : -1;
             const bool needsObject =
@@ -6607,6 +7953,17 @@ std::string flowGraphScript(const Project& p) {
                       << floatLit(a.skyColor[2] * 255.0f) << ");  // \"" << n.str
                       << "\"\n";
                 }
+            } else if (n.type == "PlaySequence") {
+                const int si = sequenceIndexOf(n.str);
+                if (n.str.empty() || si < 0) {
+                    c << pad << "// node " << n.id
+                      << " (PlaySequence): unknown sequence '" << n.str << "'\n";
+                } else {
+                    c << pad << "sequences::play(" << si << ");  // \"" << n.str
+                      << "\"\n";
+                }
+            } else if (n.type == "StopSequence") {
+                c << pad << "sequences::stop();\n";
             } else if (n.type == "ShowObject") {
                 c << pad << obj << ".visible = true;\n";
             } else if (n.type == "HideObject") {
@@ -6705,12 +8062,50 @@ std::string flowGraphScript(const Project& p) {
             } else if (n.type == "SetFlashlight") {
                 c << pad << "ctx.flashlight = " << (n.num[0] != 0.0f ? "1" : "0")
                   << ";\n";
+            } else if (n.type == "SetFog") {
+                c << pad << "ctx.fog = " << (n.num[0] != 0.0f ? "1" : "0") << ";\n";
+            } else if (n.type == "SetParticles") {
+                c << pad << "ctx.particles = " << (n.num[0] != 0.0f ? "1" : "0")
+                  << ";\n";
+            } else if (n.type == "SetBloom" || n.type == "SetGrain") {
+                int v = (int)(n.num[0] * 128.0f + 0.5f);
+                if (v < 0) v = 0;
+                if (v > 128) v = 128;
+                c << pad << "ctx." << (n.type == "SetBloom" ? "bloom" : "grain")
+                  << " = " << v << ";\n";
+            } else if (n.type == "SetDisplayMode") {
+                int mode = (int)n.num[0];
+                mode = mode < 0 ? 0 : mode > 2 ? 2 : mode;
+                float confirm = n.num[1] < 0.0f ? 0.0f : n.num[1];
+                c << pad << "ctx.requestDisplayMode = " << mode << ";\n";
+                c << pad << "ctx.displayConfirmSec = " << floatLit(confirm)
+                  << ";\n";
+            } else if (n.type == "SetWidescreen") {
+                c << pad << "ctx.widescreen = " << (n.num[0] != 0.0f ? "1" : "0")
+                  << ";\n";
             } else if (n.type == "ShowHud") {
                 c << pad << "ctx.hudVisible = true;\n";
             } else if (n.type == "HideHud") {
                 c << pad << "ctx.hudVisible = false;\n";
             } else if (n.type == "ToggleHud") {
                 c << pad << "ctx.hudVisible = !ctx.hudVisible;\n";
+            } else if (n.type == "ShowText" || n.type == "HideText") {
+                const int ti = hudTextIndex(n.str);
+                if (ti < 0) {
+                    // Texts removed from the project just stop being shown.
+                    c << pad << "// node " << n.id << " (" << n.type
+                      << "): unknown text '" << n.str << "'\n";
+                } else if (n.type == "ShowText") {
+                    float secs = n.num[0];
+                    if (secs < 0.0f) secs = 0.0f;
+                    c << pad << "ctx.textRequest[" << ti << "] = 1;  // \"" << n.str
+                      << "\"\n"
+                      << pad << "ctx.textDuration[" << ti << "] = " << floatLit(secs)
+                      << ";\n";
+                } else {
+                    c << pad << "ctx.textRequest[" << ti << "] = 0;  // \"" << n.str
+                      << "\"\n";
+                }
             } else if (n.type == "StopMusic") {
                 c << pad << "ctx.engine->audio.song.stop();\n";
             } else if (n.type == "PlaySound") {
@@ -6815,6 +8210,70 @@ std::string flowGraphScript(const Project& p) {
                   << ");\n";
                 if (!dyn.empty())  // the handle no longer points at a clone
                     c << pad << dyn << " = -1;\n";
+            } else if (const CustomFlowNode* cn = flowCustomNode(n.type)) {
+                const FlowNodeType* t = &cn->type;
+                c << pad << "// node " << n.id << " (" << n.type << ")\n";
+                if (!cn->callFn.empty()) {
+                    // C++-backed node: build a FlowNodeIO from the resolved
+                    // inputs, call the user function (flow_nodes.hpp), then
+                    // latch its outputs into this node's runtime members so
+                    // downstream nodes (custom or built-in) can read them.
+                    const std::string p2 = pad + "  ";
+                    c << pad << "{\n";
+                    c << p2 << "const float num[4] = {" << floatLit(n.num[0]) << ", "
+                      << floatLit(n.num[1]) << ", " << floatLit(n.num[2]) << ", "
+                      << floatLit(n.num[3]) << "};\n";
+                    c << p2 << "FlowNodeIO io;\n";
+                    c << p2 << "io.self = " << (int)ownerIdx << ";\n";
+                    c << p2 << "io.object = " << objIdx << ";\n";
+                    c << p2 << "io.num = num;\n";
+                    c << p2 << "io.str = \"" << escapeCString(n.str) << "\";\n";
+                    if (t->posIn) {
+                        const auto e = posExpr(n);
+                        c << p2 << "io.position = Tyra::Vec4(" << e[0] << ", " << e[1]
+                          << ", " << e[2] << ");\n";
+                    }
+                    if (t->boolIn) {
+                        std::string b = boolInputsOr(n);
+                        if (b.empty()) b = "false";
+                        c << p2 << "io.boolIn = " << b << ";\n";
+                    }
+                    if (t->textIn) {
+                        const auto es = textInputs(n);
+                        if (!es.empty()) {
+                            c << p2 << "std::string textIn = " << es[0] << ";\n";
+                            c << p2 << "io.text = textIn.c_str();\n";
+                        }
+                    }
+                    if (t->textOut)
+                        c << p2 << "char textOutBuf[64] = {};\n"
+                          << p2 << "io.textOut = textOutBuf; io.textOutCap = 64;\n";
+                    c << p2 << cn->callFn << "(ctx, io);\n";
+                    if (t->idOut) c << p2 << "objOut" << n.id << " = io.objectOut;\n";
+                    if (t->boolOut) c << p2 << "boolOut" << n.id << " = io.boolOut;\n";
+                    if (t->posOut)
+                        c << p2 << "posOut" << n.id << "[0] = io.positionOut.x;\n"
+                          << p2 << "posOut" << n.id << "[1] = io.positionOut.y;\n"
+                          << p2 << "posOut" << n.id << "[2] = io.positionOut.z;\n";
+                    if (t->textOut)
+                        c << p2 << "snprintf(textOut" << n.id << ", sizeof(textOut"
+                          << n.id << "), \"%s\", io.textOut ? io.textOut : \"\");\n";
+                    c << pad << "}\n";
+                } else {
+                    // Inline snippet: substitute {placeholders} into the body.
+                    std::string body = cn->code;
+                    body = replaceAll(body, "{self}", std::to_string((int)ownerIdx));
+                    body = replaceAll(body, "{obj}", objIdx);
+                    body = replaceAll(body, "{str}", "\"" + escapeCString(n.str) + "\"");
+                    for (int a = 0; a < 4; ++a) {
+                        const std::string ai = std::to_string(a);
+                        body = replaceAll(body, "{num" + ai + "}", floatLit(n.num[a]));
+                        body = replaceAll(body, "{int" + ai + "}", intLit(n.num[a]));
+                    }
+                    std::istringstream lines(body);
+                    std::string ln;
+                    while (std::getline(lines, ln)) c << pad << ln << "\n";
+                }
             }
             // Clone targets guard on the handle: no clone spawned yet (or it
             // was despawned / the scene reloaded) skips the action outright.
@@ -6824,18 +8283,39 @@ std::string flowGraphScript(const Project& p) {
             return c.str();
         };
 
-        // all actions exec-linked to a trigger (pure data nodes never "run")
-        auto linkedActions = [&](int triggerId, const std::string& pad) {
+        // Emit the actions reached by exec links out of `fromId`. A custom
+        // node with exec_out fires its own downstream inline right after it
+        // runs (so raycast -> [exec] -> Hide Object sequences the data
+        // dependency); `visited` guards against exec cycles. Built-in Delay's
+        // exec-out fires from its per-frame countdown, not here, so it does not
+        // recurse. Pure data / trigger nodes never "run".
+        std::function<std::string(int, const std::string&, std::vector<int>&)> emitExec =
+            [&](int fromId, const std::string& pad,
+                std::vector<int>& visited) -> std::string {
             std::ostringstream c;
             for (const FlowLink& l : fg.links) {
-                if (l.kind != FlowLinkExec || l.fromNode != triggerId) continue;
-                for (const FlowNode& n : fg.nodes) {
-                    if (n.id != l.toNode) continue;
-                    const FlowNodeType* t = flowNodeType(n.type);
-                    if (t && !t->trigger && !t->pure) c << actionCode(n, pad);
+                if (l.kind != FlowLinkExec || l.fromNode != fromId) continue;
+                const FlowNode* m = nodeById(l.toNode);
+                if (!m) continue;
+                const FlowNodeType* t = flowNodeType(m->type);
+                if (!t || t->trigger || t->pure) continue;
+                bool seen = false;
+                for (int v : visited) seen |= (v == m->id);
+                if (seen) {
+                    c << pad << "// exec cycle at node " << m->id << " skipped\n";
+                    continue;
                 }
+                visited.push_back(m->id);
+                c << actionCode(*m, pad);
+                if (t->execThrough && flowCustomNode(m->type))
+                    c << emitExec(m->id, pad, visited);
             }
             return c.str();
+        };
+        // all actions exec-linked to a trigger (pure data nodes never "run")
+        auto linkedActions = [&](int triggerId, const std::string& pad) {
+            std::vector<int> visited;
+            return emitExec(triggerId, pad, visited);
         };
 
         const std::string cls =
@@ -6882,8 +8362,9 @@ std::string flowGraphScript(const Project& p) {
                        << linkedActions(n.id, "      ") << "    }\n";
             } else if (n.type == "MoveObjectTo") {
                 if (!targetExpr(n).empty()) {
-                    clsOut << "    // node " << n.id << " (MoveObjectTo): spawned-"
-                              "clone targets are not supported here yet\n";
+                    clsOut << "    // node " << n.id << " (MoveObjectTo): runtime "
+                              "object targets (spawned clone / custom output) are "
+                              "not supported here yet\n";
                     continue;
                 }
                 const int idx = resolveTarget(n);
@@ -6919,6 +8400,33 @@ std::string flowGraphScript(const Project& p) {
                        << "      }\n"
                        << "      " << obj << ".dirty = true;\n"
                        << "    }\n";
+            }
+        }
+
+        // Runtime output latches for C++-backed custom nodes: members hold the
+        // last value each output pin produced, so downstream nodes read them as
+        // plain variables (objOut<id>, boolOut<id>, posOut<id>[3], textOut<id>).
+        // Reset to defaults on scene (re)load like the other per-node state.
+        for (const FlowNode& n : fg.nodes) {
+            const FlowNodeType* t = flowNodeType(n.type);
+            if (!t || !flowCustomNode(n.type)) continue;
+            const std::string id = std::to_string(n.id);
+            if (t->idOut) {
+                members << "  int objOut" << id << " = -1;\n";
+                flagResets << "      objOut" << id << " = -1;\n";
+            }
+            if (t->boolOut) {
+                members << "  bool boolOut" << id << " = false;\n";
+                flagResets << "      boolOut" << id << " = false;\n";
+            }
+            if (t->posOut) {
+                members << "  float posOut" << id << "[3] = {};\n";
+                flagResets << "      posOut" << id << "[0] = posOut" << id
+                           << "[1] = posOut" << id << "[2] = 0.0F;\n";
+            }
+            if (t->textOut) {
+                members << "  char textOut" << id << "[64] = {};\n";
+                flagResets << "      textOut" << id << "[0] = 0;\n";
             }
         }
 
@@ -7314,7 +8822,46 @@ static std::string hudDataHeader(const Project& p) {
            "// top. -1 = at end of frame, over everything including menus. Bloom\n"
            "// carries color grading; film grain is placed independently.\n"
         << "constexpr int HUD_BLOOM_LAYER = " << p.hudBloomLayer << ";\n"
-        << "constexpr int HUD_GRAIN_LAYER = " << p.hudGrainLayer << ";\n"
+        << "constexpr int HUD_GRAIN_LAYER = " << p.hudGrainLayer << ";\n";
+
+    // The USE prompt (Tools > UI Editor): the built-in hud/use.png unless a
+    // custom image replaces it; placement is normalized, center anchor.
+    std::string usePath = p.usePrompt.imagePath;
+    if (usePath.rfind("res/", 0) == 0) usePath = usePath.substr(4);
+    if (usePath.empty()) usePath = "hud/use.png";
+    out << "\n// The USE prompt sprite (shown while looking at a usable object)\n"
+        << "constexpr const char* USE_PROMPT_PATH = \"" << usePath << "\";\n"
+        << "constexpr float USE_PROMPT_X = " << floatLit(p.usePrompt.pos[0])
+        << ";  // normalized, center anchor\n"
+        << "constexpr float USE_PROMPT_Y = " << floatLit(p.usePrompt.pos[1]) << ";\n"
+        << "constexpr float USE_PROMPT_W = " << floatLit(p.usePrompt.size[0])
+        << ";  // on-screen pixels\n"
+        << "constexpr float USE_PROMPT_H = " << floatLit(p.usePrompt.size[1]) << ";\n";
+
+    // On-screen texts, baked to res/hud/text-*.png sprites by the editor
+    // (menubake). Shown/hidden by the Show Text / Hide Text flow nodes.
+    out << "\nstruct HudTextData {\n"
+           "  const char* path;  // baked text sprite, relative to the ELF\n"
+           "  float x, y;        // normalized screen position, center anchor\n"
+           "  int w, h;          // texture size (pow2; content centered)\n"
+           "  int visible;       // 1 = shown when the game starts\n"
+           "};\n\n"
+        << "constexpr int HUD_TEXT_COUNT = " << p.hudTexts.size() << ";\n"
+        << "inline const HudTextData HUD_TEXTS[HUD_TEXT_COUNT > 0 ? "
+           "HUD_TEXT_COUNT : 1] = {\n";
+    if (p.hudTexts.empty()) {
+        out << "    {\"\", 0, 0, 0, 0, 0},\n";
+    } else {
+        for (const HudText& t : p.hudTexts) {
+            int tw = 8, th = 8;  // fallback if no usable font (bake errors out)
+            menubake::textLayout(t, p.dir, tw, th);
+            out << "    {\"hud/" << menubake::textFileName(t.name) << "\", "
+                << floatLit(t.pos[0]) << ", " << floatLit(t.pos[1]) << ", " << tw
+                << ", " << th << ", " << (t.visibleAtStart ? 1 : 0) << "},  // "
+                << t.name << "\n";
+        }
+    }
+    out << "};\n"
         << "\n}  // namespace " << ns << "\n";
     return out.str();
 }
@@ -7368,11 +8915,15 @@ static std::string menuDataHeader(const Project& p) {
         << " {\n\n"
            "// Menu entry actions: 0 close, 1 switch scene, 2 open save menu,\n"
            "// 3 open menu (submenu), 4 set save value, 5 add to save value,\n"
-           "// 6 fire flow event. param = resolved index, -1 = unknown target.\n"
+           "// 6 fire flow event, 7 toggle, 8 choice (7/8: param = the save\n"
+           "// value holding the option index). param = resolved index, -1 =\n"
+           "// unknown target.\n"
            "struct MenuEntryData {\n"
            "  int action;\n"
            "  int param;\n"
            "  float amount;\n"
+           "  int optionCount;  // toggle/choice: how many options cycle\n"
+           "  int cell;         // first cell in the value strip (-1 = none)\n"
            "};\n\n"
            "struct MenuData {\n"
            "  const char* panel;  // baked panel sprite, relative to the ELF\n"
@@ -7384,6 +8935,11 @@ static std::string menuDataHeader(const Project& p) {
            "  int titleScreen;    // 1 = opens at game start\n"
            "  int pause;          // 1 = gameplay freezes + dim overlay\n"
            "  float screenX, screenY;  // normalized panel-center position\n"
+           "  // Toggle/Choice value strip (\"\" = this menu has none): cell\n"
+           "  // geometry mirrors menubake::valueStripLayout; valueX is the\n"
+           "  // cell's left edge relative to the panel's left edge.\n"
+           "  const char* values;\n"
+           "  int valueCellW, valueCellH, valuePitch, valueX;\n"
            "};\n\n"
         << "constexpr int MENU_COUNT = " << p.menus.size() << ";\n\n";
 
@@ -7392,11 +8948,12 @@ static std::string menuDataHeader(const Project& p) {
         const int entries = (int)m.entries.size() > menubake::kMaxEntries
                                 ? menubake::kMaxEntries
                                 : (int)m.entries.size();
+        const menubake::ValueStripLayout vl = menubake::valueStripLayout(m);
         out << "// menu \"" << m.name << "\"\n"
             << "constexpr MenuEntryData MENU_" << mi << "_ENTRIES["
             << (entries > 0 ? entries : 1) << "] = {\n";
         if (entries == 0) {
-            out << "    {0, -1, 0.0F},\n";
+            out << "    {0, -1, 0.0F, 0, -1},\n";
         } else {
             for (int e = 0; e < entries; ++e) {
                 const MenuEntry& en = m.entries[e];
@@ -7405,18 +8962,24 @@ static std::string menuDataHeader(const Project& p) {
                     case MenuEntry::SwitchScene: param = sceneIndexOf(en.param); break;
                     case MenuEntry::OpenMenu: param = menuIndexOf(en.param); break;
                     case MenuEntry::SetValue:
-                    case MenuEntry::AddValue: param = valueIndexOf(en.param); break;
+                    case MenuEntry::AddValue:
+                    case MenuEntry::Toggle:
+                    case MenuEntry::Choice: param = valueIndexOf(en.param); break;
                     case MenuEntry::FlowEvent: param = eventIndexOf(en.param); break;
                     default: break;
                 }
+                const int optionCount =
+                    (int)menubake::entryOptionLabels(en).size();
+                const int cell = e < (int)vl.firstCell.size() ? vl.firstCell[e] : -1;
                 out << "    {" << en.action << ", " << param << ", "
-                    << floatLit(en.amount) << "},  // " << en.label << "\n";
+                    << floatLit(en.amount) << ", " << optionCount << ", " << cell
+                    << "},  // " << en.label << "\n";
             }
         }
         out << "};\n";
     }
     if (p.menus.empty())
-        out << "constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F}};\n";
+        out << "constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F, 0, -1}};\n";
 
     int titleMenu = -1;
     for (size_t mi = 0; mi < p.menus.size(); ++mi)
@@ -7428,7 +8991,8 @@ static std::string menuDataHeader(const Project& p) {
 
     out << "\ninline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {\n";
     if (p.menus.empty()) {
-        out << "    {\"\", 0, 0, 0, 0, 0, 0, MENU_0_ENTRIES, 0, 0, 0.5F, 0.45F},\n";
+        out << "    {\"\", 0, 0, 0, 0, 0, 0, MENU_0_ENTRIES, 0, 0, 0.5F, 0.45F, "
+               "\"\", 0, 0, 0, 0},\n";
         // (unreachable - MENU_COUNT is 0; the dummy keeps the array valid)
     } else {
         for (size_t mi = 0; mi < p.menus.size(); ++mi) {
@@ -7439,12 +9003,21 @@ static std::string menuDataHeader(const Project& p) {
             // Layout depends on the custom images (flow blocks push the
             // cursor rows down) - the baker is the single source of truth.
             const menubake::PanelLayout l = menubake::panelLayout(m, p.dir);
+            const menubake::ValueStripLayout vl = menubake::valueStripLayout(m);
+            const bool hasValues = menubake::menuHasValueEntries(m);
             out << "    {\"menus/" << menubake::panelFileName(m.name) << "\", "
                 << l.panelW << ", " << l.canvasH << ", " << l.contentH << ", "
                 << l.row0Y << ", " << l.rowH << ", " << entries
                 << ", MENU_" << mi << "_ENTRIES, " << (m.titleScreen ? 1 : 0)
                 << ", " << (m.pauseGame ? 1 : 0) << ", " << floatLit(m.screenPos[0])
-                << ", " << floatLit(m.screenPos[1]) << "},  // " << m.name << "\n";
+                << ", " << floatLit(m.screenPos[1]) << ", ";
+            if (hasValues)
+                out << "\"menus/" << menubake::valueStripFileName(m.name) << "\", "
+                    << vl.cellW << ", " << vl.cellH << ", " << vl.pitch << ", "
+                    << (l.panelW - 24 - vl.cellW);
+            else
+                out << "\"\", 0, 0, 0, 0";
+            out << "},  // " << m.name << "\n";
         }
     }
     out << "};\n\n"
@@ -7966,6 +9539,9 @@ std::vector<File> generate(const Project& p) {
         {"src\\save_system.gen.cpp", saveSystemSource(p)},
         {"inc\\menu_data.gen.hpp", menuDataHeader(p)},
         {"inc\\scripts\\script.hpp", fill(TPL_SCRIPT_HPP)},
+        {"inc\\scripts\\sequences.gen.hpp", sequencesHeader(p)},
+        {"src\\scripts\\sequences.gen.cpp", sequencesScript(p)},
+        {"inc\\scripts\\flow_nodes.hpp", fill(TPL_FLOW_NODES_HPP)},
         {"src\\scripts\\flow_graph.gen.cpp", flowGraphScript(p)},
         {"src\\scripts\\object_scripts.gen.cpp", objectScriptsSource(p)},
         {"src\\scripts\\example_interaction.cpp",

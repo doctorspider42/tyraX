@@ -9,6 +9,433 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (79) **Tool windows scale their layout with the UI scale (fix 250% clipping)** —
+  the floating Tools windows (Menu Editor, Material Editor, Color Grading,
+  Ambience, UI Editor, Disc Layout, Cutscene Director) and the modal dialogs
+  baked their widget widths, child-region sizes, `SameLine`/`Indent` offsets and
+  preview sizes as raw pixel literals. `applyUiScale()` scales fonts (`FontScaleMain`) and style
+  spacing (`ScaleAllSizes`) but not code literals, so at 250% (a 4K laptop the
+  user actually runs) combos and inputs were too narrow for the 2.5×-tall text —
+  "apply a preset…" showed "apply a", "256 px" showed "25(", the entry action
+  combos clipped to "Close"/"Continu", and the panel preview was a postage stamp.
+  Added `App::scaled(px)` (= `px * uiScaleApplied_`) and routed every literal
+  layout size in those windows through it (window `SetNextWindowSize`, the
+  `##*_list` child widths, all `SetNextItemWidth`, absolute `SameLine`/`Indent`,
+  the menu 1:1/TV preview sizes and clamps, the disc table column widths, and the
+  short-label dialog buttons `ImVec2(120/140, 0)`); `gradingWheel()` took a
+  `scale` param so the two Resolve-style trackballs scale too. The Cutscene
+  Director (which merged in from main mid-PR) got the full treatment including
+  its hand-drawn dopesheet canvas - the lane height / ruler height / label-column
+  width and the per-element offsets (key-diamond radius + hit padding, playhead
+  triangle, pinned-label text positions, channel-letter spacing, tick-label
+  crowding threshold) all route through `scaled()`. This finishes the job the UI
+  Editor had already done inline (its 3 sites now use the helper).
+  Verified at the user's real 250% scale by scripting the GUI (DPI-aware screen
+  capture + synthetic clicks/scroll): the Menu Editor shows every field in full
+  and a properly sized baked-panel preview (MENU / Continue / Sound·Off /
+  Difficulty·Low / Start Game); Color Grading renders its quick-look buttons and
+  both hue wheels side by side; the Cutscene Director lays out its whole
+  transport row, dopesheet (ruler ticks, "[*] Camera (2)" lane label, key
+  diamonds + retime tooltip, playhead) and Key inspector without clipping.
+  Editor builds clean.
+- (79) **StaPip partial-frustum cost: save points tessellated as detail-16
+  boxes (9.2k verts) + pooled packager arrays** — follow-up to the PCSX2
+  observation from the usable-highlight session: even with highlighting off,
+  the showcase spent 12-14 ms of EE per frame inside `StaPipCore::render`'s
+  PARTIALLY_IN_FRUSTUM branch (~160 EE-clipper calls) on views with the save
+  shrine + trees near the camera. Measured first (recipe from the clipbench
+  notes: COP0 counters in the engine around the partial/full branches,
+  `packager.create` and clip/cull submissions; owned `terrain_game.cpp` in a
+  scratch copy of examples/showcase with a deterministic orbit camera parked
+  between the campfire and the shrine; PERF line per 50 frames to
+  host:perf.txt; PCSX2 software renderer). **Baseline at the worst angles:
+  66 ms/frame (15 FPS), 36-38 ms in the partial branch = ~285
+  `packager.create` calls producing ~1340 packages (16-17 ms of allocation +
+  per-package bbox classification) plus ~385 EE-clipper submissions
+  (19-20 ms), ~12 partial bags/frame — nearly all of it one object.** Root
+  cause: `SceneObject::primDetail` defaults to 16 and **SavePoint** was never
+  made "box-like" when (61)'s follow-up gave Box its 1/16 default/cap — but
+  the generated game builds SavePoint geometry through the
+  `default: addBox(...)` case, so every save shrine silently tessellated
+  16x16 per face = 3072 tris / **9216 verts** (while the editor viewport drew
+  it as a plain box - the preview never showed the cost). Fix (a), editor:
+  SavePoint is box-like across the chain — `primDetailIsBoxLike()` in
+  project.hpp (default 1, clamp 1..16, box triangle readout), the viewport
+  draws it from the box mesh cache honoring detail, and the Detail slider now
+  shows for SavePoint. Old `.tyra` files carry no `"detail"` key for save
+  points (16 was the emit-suppressed default), so they all load as 1; a
+  shrine's baked point-light gradient flattens — set Detail explicitly if the
+  look is wanted (it is authorable now). Fix (b), engine:
+  `StaPipBagPackager::create` returns pointers into two grow-only pools
+  (bag-level / split-level — the parent array is alive during a split;
+  callers no longer `delete[]`, absent sts/colors/normals are nulled against
+  stale reuse), `renderSubpkgs`' two index vectors are static, and the
+  per-textured-bag `RendererCoreTextureBuffers` heap alloc is a stack struct.
+  Measured attribution on the same orbit: **pooling alone is worth only ~2%**
+  of the partial branch (create cost is the bbox classification math, not the
+  allocator); the detail fix does the rest — **after both, every 50-frame
+  window locks 50 FPS (20.0 ms), partial branch peaks at 8.5 ms avg / 9.6 ms
+  max, EE pre-endFrame <= 10.6 ms, clipper calls max ~93/frame** over 3 full
+  orbits; windows matching the original report (~160 calls) now run ~5-6 ms
+  with ~60 calls. Verified: SW-renderer screenshots healthy mid-orbit (trees,
+  rock, portal, shrine with its usable rim; no pooling artifacts; 50 FPS /
+  100% speed / EE ~38%); examples/showcase regenerated and re-verified with
+  the final de-instrumented engine. Perf logs archived in
+  `%TEMP%\tyra-editor-test\perf-run{1,2,3}*.txt`.
+- (81) **Usable-highlight opacity control** — a per-scene `highlightOpacity`
+  (0..1, *Preferences > Usable objects* + per-scene override) setting the alpha
+  of the **strongest (innermost) shell**; the outer shells keep fading from it
+  (×0.55). Replaces the hardcoded `72/100` start alpha in both
+  `renderHighlightHull` and `buildHighlightApron` with `HIGHLIGHT_OPACITY *
+  128` (128 = PS2 opaque max), so opacity 1 + 1 step = a fully solid outline
+  and low values dial the wash down — the natural knob for the overlay mode's
+  intensity. Default 0.56 preserves the old 4-step look. Full
+  model→JSON→UI→codegen chain (`HIGHLIGHT_OPACITIES` per-scene table +
+  `HIGHLIGHT_OPACITY` macro; operator== + save/load + clamps). **Verified in
+  PCSX2 (SW)**: overlay showcase at opacity 0.25 renders a visibly fainter
+  surface glow than the 0.56 default, 50 FPS unchanged; all five examples
+  regenerated + Docker-built.
+
+- (80) **Debug frame profiler (shippable) + experimental highlight overlay** —
+  two follow-ups to the highlight perf work (79). **(a) Frame profiler**: the
+  ad-hoc COP0/HUD instrumentation used to diagnose the highlight cost is now a
+  real debug option. *Project > Preferences > Build* (debug profile) gains
+  **Show frame profiler** next to Show FPS / Show memory; the generated game
+  draws a per-phase EE-time breakdown (whole FRAME wall-clock / SCENE / HL /
+  PART, avg ms over ~1s) in the top-left. `renderScene` brackets its phases
+  with EE COP0 `mfc0 $9` reads into file-scope counters (`g_profScene/
+  Highlight/Particles`), drawDebugHud averages + prints them; every read is
+  behind the `DEBUG_SHOW_PROFILER` constexpr so a release build (or the option
+  off) contains none of it. HL is the highlight *overhead* only — the deferred
+  bodies are timed into SCENE. New pref `ProjectSettings.showProfiler`
+  (operator== + JSON save/load + `{{DEBUG_SHOW_PROFILER}}` codegen). **(b)
+  Highlight overlay**: experimental per-scene `highlightOverlay` (Preferences >
+  Usable objects + per-scene override, "Draw over object") — the shells drop
+  the eye-pushback (`k = 1`), so each grown shell sits at the object's own
+  depth and its front faces land just in front of the surface: the glow paints
+  ON the object and fades outward into a rim, instead of only a rim behind the
+  silhouette. renderScene draws the overlay body in the main pass (not
+  deferred) and paints the shells over it; rim mode keeps the deferred-body
+  order from (79). New `SceneObjectData`-style per-scene table
+  `HIGHLIGHT_OVERLAYS` + `HIGHLIGHT_OVERLAY` macro; full model→JSON→UI→codegen
+  chain (project + per-scene override). **Verified in PCSX2 (SW renderer)**:
+  showcase with debug profile + both options on — profiler HUD reads
+  `FRAME 22.00 SCENE 12.90 HL 1.46 PART 0.99` at 50 FPS (deterministic orbit
+  near the save shrine); overlay screenshot shows the shrine washed in a yellow
+  surface glow instead of an outline. Profiler-off / overlay-off path (all five
+  examples, regenerated) compiles to ELFs in Docker — both constexpr branches
+  build on the PS2 toolchain. Documented the profiler + the manual deep-dive
+  technique in `docs/profiling.md`. Real-hardware timing unchanged from (79).
+
+- (79) **Usable-highlight perf, round 2: low-detail shell proxy + deferred
+  body draw (no repaint)** — the PR #64 rims still dropped the showcase to
+  ~25 FPS in PCSX2 near a highlighted object. Measured with COP0 phase
+  timers in an owned terrain_game.cpp plus temporary counters inside the
+  engine's StaPipCore (deterministic camera orbit around the save shrine,
+  250-frame A/B windows, on-screen HUD readout): the highlight pass alone
+  was 25 ms of EE time, all of it in the PARTIALLY_IN_FRUSTUM branch of
+  `StaPipCore::render` — the shrine is a default-detail-16 box (~9.2k
+  verts), a near object always straddles the frustum, and the effect
+  submitted that mesh 5 extra times per frame (4 shells + repaint), each
+  submit re-running subpackage classification + the EE clipper (~370 clip
+  calls/frame vs ~160 baseline). DMA waits, the bbox cache and the z-test
+  mode were all measured innocent. Fix, all in the generated runtime
+  (templates.cpp): (1) shells now draw a **low-detail proxy** built by
+  `buildHighlightProxy` — primitives re-emit through their own builders
+  with subdivision forced down (boxes/planes/decals: detail 1 — identical
+  silhouette; curved: capped at 12 segments), models concatenate their
+  parts into one array (one submit per shell instead of per part); cached
+  in ObjectGeometry, cleared by rebuildObjectGeometry, own bbox stamp;
+  (2) highlighted-in-reach usables are **deferred out of the main pass**
+  (`highlightInReach`, ≤8 per frame, sorted far-to-near) and their body
+  draws once AFTER their shells — the body erases the shell wash over its
+  own receding faces exactly like the old repaint did, so the second full
+  draw of the mesh is gone; nearer bodies still cover farther rims, and
+  everything else keeps drawing before any rim. **Verified in PCSX2 (SW
+  renderer)**: same instrumented A/B on the rebuilt showcase — highlight
+  render cost fell from ~23 ms to ~1.7 ms per frame (scene+highlight
+  sums 15.7 vs 14.0 ms; whole frame 56 -> 25 ms on the worst-case orbit
+  view), rim/apron/USE visuals unchanged by screenshot comparison against
+  the pre-fix build. All four examples regenerated. Real-PS2 A/B still
+  pending, same as PR #64. Left open: the partial-frustum path itself
+  costs the base scene ~12-14 ms on that view (default primDetail 16
+  everywhere is heavy) — separate backlog item.
+
+- (69) **Cutscene Director — a keyframe timeline sequencer (cinematic cutscenes
+  on the PS2)** — the editor's first full animation-authoring tool. A
+  **Sequence** is a project-wide keyframe timeline that poses scene objects
+  **and the game camera** over time; it is authored by scrubbing a playhead and
+  snapshotting poses, previewed live in the viewport, compiled to a PS2 runtime
+  player, and fired from the flow graph. **Model** (`src/sequence.hpp`, new):
+  `Sequence` (name, duration, loop, cameraEnabled) holds `SeqTrack`s (each binds
+  one object by name + per-channel flags pos/rot/scale/color/visible + a list of
+  `SeqObjectKey` full-pose keyframes) and a camera track (`SeqCameraKey`:
+  eye + look-at + FOV). Each key carries an easing (0 linear / 1 smoothstep /
+  2 step-hold) for its outgoing segment; the shared `seqEase`/`seqSample`
+  helpers are the single source of truth used by both the editor preview and
+  the emitted PS2 code. Sequences are project-wide like the grading/ambience
+  presets — persisted through `save()`, not part of undo/redo. **UI** (Tools >
+  Cutscene Director): sequence list + a timeline with duration/loop/camera
+  toggles, Play/Pause/Rewind transport, a playhead scrubber, per-object tracks
+  (object combo, channel checkboxes, "Set key from object @ playhead", editable
+  key list with easing + Go/Delete) and a camera track ("Set camera key from
+  view @ playhead"). **Viewport scrubbing:** `cutscenePosedObjects()` poses a
+  copy of the active scene's objects at the playhead with the exact
+  `seqSample` interpolation the console runs and hands it to `render()`; a new
+  `Viewport::setCameraOverride(eye, target, fov)` flies the preview camera along
+  the camera track, and `currentCamera()` reads the orbit camera back out to
+  snapshot a camera key. **Codegen:** a new global Script
+  `src/scripts/sequences.gen.cpp` (+ `inc/scripts/sequences.gen.hpp`) compiles
+  the keyframe tables (object names resolved to (scene, runtime object index)
+  here) and, each frame a sequence is active, writes `ctx.objects[i].data.*` +
+  `dirty` and — for a camera track — a new `ScriptContext` camera override
+  (`cameraOverride`/`cameraEye`/`cameraAt`) that both game loops apply to the
+  frame camera right before `beginFrame`. Playback advances by the real frame
+  dt (fixed wall-clock speed PAL/NTSC). **Flow graph:** new **Play Sequence**
+  (SequenceName param) and **Stop Sequence** nodes (category Scene) compile to
+  `sequences::play(index)` / `sequences::stop()`; a `FlowParamKind::SequenceName`
+  combo lists the project's sequences, and renames/deletes remap the nodes like
+  the grading/ambience presets do. `refreshGenerated` always overwrites the two
+  new `.gen` files. Verified: editor builds clean (Layer 0); a save→load
+  round-trip harness (linked against the built objects) round-trips a sequence
+  with object + camera tracks, mixed easings, loop and camera flags
+  byte-for-byte through `operator==`; a scratch fpp project with a `hero` box
+  (OnStart→Play Sequence "Intro") and an Intro sequence (hero pos/rot track +
+  a 2-key camera track) generated the expected tables
+  (`kS0T0K`/`kS0Tracks`/`kS0Cam`, `sequences::play(0)`, the loop's
+  `if (scriptCtx.cameraOverride) { cameraPosition = ...; }`); the full Docker
+  build compiled + linked all generated sources (`sequences.gen.cpp`,
+  `flow_graph.gen.cpp`, `terrain_game.cpp`) into `cutscene.elf` (Layer 3), and
+  **PCSX2 booted it** — two screenshots seconds apart show the cutscene camera
+  framing the red cube from a keyframed angle and, later, from a different angle
+  with the cube risen along +Y (both the camera track and the object track
+  animating live, looping, at 50 FPS). The timeline UI compiles clean and
+  mirrors the verified Color Grading / Ambience tool windows; a hands-on mouse
+  pass over the timeline (drag-scrub feel, per-key editing) still wants a human
+  (synthetic clicks don't drive the ImGui menus).
+
+  **Second pass — the director grows into a real cinematics tool** (same PR).
+  **(a) Dopesheet UI:** the tracks/keys widget lists became a custom
+  ImDrawList dopesheet — one lane per object track plus a camera lane, keys as
+  draggable diamonds (click select, drag retime with 10 ms snap, right-click
+  easing/delete, double-click a lane to drop a key at that time), a click/drag
+  scrubbed adaptive time ruler with a zoom slider, a playhead line with
+  grabber, a pinned label column ([+] = snapshot @ playhead, right-click = the
+  track-setup popup with the object combo + channel checkboxes) and a
+  selected-key inspector below (time/easing plus channel-gated pose fields, or
+  the camera-shot editor). Key fills encode the outgoing easing; entity-bound
+  shots draw as circles. **(b) Camera entity:** `PrimitiveType::Camera = 14`
+  (`+ Add object > Gameplay > Camera`) — a film-camera body marker plus a
+  GL_LINES FOV frustum wedge (+Z lens, scaled by tan(fov/2) so the wedge shows
+  the true shot; `unitCameraBody`/`unitCameraFrustum` in viewport.cpp), a
+  `cameraFov` property (20-110 deg), invisible/non-colliding in the game but a
+  full `RuntimeObject`. Camera-track keys are now *shots*: free (stored
+  eye/at/fov) or **bound to a Camera entity by name** — bound shots film from
+  the entity's CURRENT pose at runtime (`ctx.objects`), so keyframing the
+  entity in an object track makes a dolly/crane move; the entity's authored
+  pose + FOV are baked at codegen as the fallback for a non-active scene.
+  Renaming an object now remaps track/shot references (`objRenameFrom_`), the
+  way layer renames do. **(c) Real FOV + shake + skip:** the director applies
+  the blended shot FOV to the actual PS2 projection
+  (`renderer.core.renderer3D.setFov`, frustum planes recompute) and restores
+  the pre-cutscene FOV on end/stop/skip; per-key `shake` interpolates a 3-band
+  sine handheld offset (`seqShakeOffset`, mirrored EE-side); a `skippable`
+  sequence ends early on START (`pad.getClicked().Start`). The new cleanup
+  path also fixes a first-pass bug: `ctx.cameraOverride` was never written
+  back to false, so the game camera stayed frozen after a cutscene ended.
+  **(d) Widescreen bars + fades:** per-sequence mask styles (Cinema 2.39:1,
+  Wide 16:9, Pillarbox, Frame — fractions from `seqBarsFractions`, one source
+  for editor preview + codegen) slide in/out over 0.4 s, plus fade-from/to-
+  black times; drawn on the PS2 as stretched solid-black sprites (new built-in
+  `res/hud/seq-black.png`, 8x8 opaque; the sprite alpha carries the fade) by
+  `sequences::renderOverlay()` after the HUD and under the pause menus, and
+  previewed 1:1 as ImDrawList rects over the viewport image. New
+  `ScriptContext` fields: `barsStyle`/`barsAmount`/`fadeAlpha`. Verified:
+  editor builds clean (Layer 0) and opens a scratch project whose viewport
+  renders both camera frustum wedges (GUI screenshot); the generated
+  `sequences.gen.cpp` inspected (bound shots resolved to (scene,obj) with
+  baked fallbacks + entity FOVs 75/35, bars fraction 0.22106, skip/fade
+  fields, `renderOverlay`) (Layer 2); the Docker build compiled it all with
+  `-Wall` into `cutshow.elf` and **PCSX2 ran the 8 s looping cutscene**:
+  screenshot measurement shows the visible image at **2.40:1 inside the 4:3
+  frame** (cinema bars exactly at the baked fraction), two distinct
+  entity-bound shots (wide 75 deg vs tele 35 deg) with the cube translating
+  AND rotating from its track, and center brightness 87.7 (no fade) → 34.7
+  (partial) → 1.1 (full black) proving the fade compositor blends (Layer 3).
+  Still for a human with a pad: START-skip, shake feel in motion, and the
+  dopesheet drag ergonomics.
+
+  **Workflow pass** (user feedback from hands-on use, same PR). **(a) No more
+  blind posing:** while playback is paused, SELECTED objects are exempt from
+  the preview posing in `cutscenePosedObjects()` — previously a tracked
+  object snapped back to its interpolated pose every frame, so dragging the
+  gizmo at a new playhead time was blind. Now the gizmo edits what you see;
+  bound camera shots read the posed copy, so aiming a selected Camera entity
+  updates its shot live. **(b) Auto-key:** a transport checkbox; finishing a
+  gizmo drag drops a keyframe at the playhead for every selected object with
+  a track in the selected sequence (`cutsceneAutoKey()`, running just before
+  the drag's `commitChange()` so the keys share the drag's undo snapshot; the
+  snapshot logic moved from a window-local lambda into
+  `cutsceneSnapshotObjectKey()`). **(c) Add-track picker:** "+ Add object
+  track" no longer silently targets the first object (usually the player) -
+  it opens a popup with **Add selected (N)** (one track per selected object,
+  already-tracked ones skipped) and the full object list with tracked entries
+  disabled; a fresh track immediately gets a starting key at the playhead
+  from the object's current pose. **(d) Look-through camera:** a "View:"
+  control in the viewport corner (and a "Look through" button in a Camera
+  entity's Properties) renders the viewport from any Camera entity - live
+  pose + FOV, via the same `setCameraOverride` path - with "Free camera" one
+  click away; the Cutscene Director camera preview takes precedence while
+  active, renames remap the reference, deleting the entity falls back to the
+  orbit camera. Also made key retiming discoverable: a horizontal-resize
+  cursor + tooltip on keyframe hover and a slightly larger hit box (the drag
+  itself already existed). Verified: full rebuild links clean in a side
+  build dir (the user's editor instance held the main exe lock) and the
+  post-merge Docker build of `examples/cutscene-demo` compiled the merged
+  codegen (HUD texts + video modes from main composited under the cutscene
+  bars overlay); the interactive feel of all four changes needs the user's
+  hands-on pass.
+
+  **Configurable bars slide** (user request, same PR). The widescreen bars
+  used to slide in/out over a hardcoded 0.4 s; now each sequence carries
+  `barsSlideIn` / `barsSlideOut` (seconds, default 0.4, authored right next
+  to fade in/out and only shown when bars are on). 0 = the bars snap to full
+  coverage at the first frame / stay until the last one; larger = a slower
+  reveal. `seqBarsAmount()` takes the two times (the single source both the
+  editor preview and the emitted PS2 player call), the `Seq` codegen table
+  gained the two floats, and the runtime envelope reads them instead of the
+  0.4 constant (`kSeqBarsSlide` -> `kSeqBarsSlideDefault`). Projects authored
+  before this default the two to 0.4 on load, so they look unchanged.
+  Verified: editor rebuild links clean; the regenerated cutscene-demo
+  `sequences.gen.cpp` shows the `Seq` row carrying `0.4F, 0.4F` (the
+  backward-compat default, since the example predates the fields) and the
+  runtime envelope gated on `s.barsSlideIn`/`s.barsSlideOut`; the Docker
+  build compiled the widened struct clean. Exact slide timing on-screen
+  (vs the already-measured 2.40:1 bar coverage) wants a human eye.
+
+  **Example project:** `examples/cutscene-demo` — a 14 s cutscene ("The
+  Reveal") exercising every director feature at once: three Camera entities
+  (one of them dollied by an object track), Step-easing hard cuts, shake,
+  per-shot FOV (65/90/45/55/60), Cinema bars, fade in/out, skippable, an
+  On Start auto-play plus an On Used replay from a usable pedestal, and a
+  sparks emitter switched on mid-scene through a visibility track. Verified
+  by a Docker build from the checked-in folder (exit 0) and a PCSX2 run:
+  screenshots caught the letterboxed dolly shot mid-travel and the low-angle
+  finale with the hero ascending, and after the cutscene ended the camera
+  handed back to the FPP player with the aftermath intact (hero aloft,
+  sparks running) — the release path live. Same versioning shape as
+  layer-streaming (bin/res gitignored, regenerated on build).
+
+- (78) **"Open in VS Code" jumps to a file (scripts + custom nodes)** —
+  `App::openInVSCode` gained an optional `file` arg: it now runs
+  `code "<projectDir>" -g "<file>"`, opening (or reusing) the whole-project
+  workspace AND landing on a specific file, so IntelliSense resolves against the
+  project. Wired up: the Flow Graph **Custom nodes…** popup drops "Open
+  flow-nodes folder" for **Open in VS Code (flow_nodes.hpp)** plus a **Jump to
+  node file** submenu (each custom node opens its own `.flownode`, via the
+  registry's stored `sourceFile`); the Project **Scripts** list entries became
+  clickable — clicking one opens that `src/scripts/*.cpp` in VS Code. On the
+  "should we ship a `.flownode` IntelliSense extension" question: no — a
+  `call = fn` body already gets full C++ IntelliSense because it lives in a real
+  project header (`flow_nodes.hpp`) covered by the generated
+  `.vscode/c_cpp_properties.json`; the `.flownode` stays a thin manifest.
+  Documented the VS Code options + that rationale in `docs/custom-flow-nodes.md`.
+  Verified: editor builds clean; `code "<proj>" -g "<file>"` confirmed to launch
+  VS Code with the file; GUI screenshot shows the reworked popup (Open in VS
+  Code / Jump to node file) over the example graph.
+
+- (77) **examples/custom-nodes + "propose an example" doc rule** — a focused
+  per-feature demo for the custom flow nodes (75)/(76): an FPP scene with three
+  crates where **Cross** runs a C++-backed node (`flowNearestVisible` in the
+  project-owned `inc/scripts/flow_nodes.hpp`) whose runtime **object output**
+  feeds a built-in **Hide Object** (hides crates one at a time), and **Square**
+  runs an **inline-snippet** node that spins a crate — covering both flavors and
+  the runtime-object-ref feature end to end. Shipped with its own README and
+  listed in the top-level README examples. Also added a `tyra-docs` rule:
+  proactively propose a small `examples/` demo when a feature is large/
+  user-facing enough that someone would want to see it in action. Verified:
+  `--build` exit 0 (game compiled to ELF); the generated flow graph shows the
+  guarded `ctx.objects[objOut2].visible = false` and `rotation[1] += 45.0F`;
+  hit a real footgun first — a comment containing the literal phrase "Generated
+  by tyra-editor" in the owned `flow_nodes.hpp`'s first line tripped the
+  ownership check and got the file regenerated, fixed by rewording; PCSX2 boots
+  the ELF and the F8 snap shows the three crates (red near, green mid, blue far)
+  on the terrain. Pad interaction (Cross/Square) not hand-driven; codegen + boot
+  are the bar.
+
+- (75) **Custom flow-graph nodes (per-project, file-based)** — a project can now
+  define its own Flow Graph **action** nodes without touching the editor's C++.
+  Each node is a `<project>/flow-nodes/<name>.flownode` text file: a `key = value`
+  header (`title`, `category`, `string = none|text|object`, `num0..3` labels), a
+  `---` line, then a raw C++ body emitted verbatim into `flow_graph.gen.cpp` when
+  an exec link fires the node, with `{obj}`/`{self}` (object indices),
+  `{num0..3}`/`{int0..3}` and `{str}` placeholders substituted at build. New
+  `src/flownode.cpp` scans the folder into a global registry
+  (`customFlowNodes()` in flowgraph.hpp, `unique_ptr` for stable `FlowNodeType`
+  char* addresses); `flowNodeType()` and a new `flowAllNodeTypes()` fold the
+  custom nodes into the existing lookup, add-menu and category derivation, so a
+  custom node renders and edits exactly like a built-in one (object dropdown /
+  text field / drag params, `> do` exec-in). Codegen gets one `flowCustomNode()`
+  branch in `actionCode()`. **Load order matters:** `readFlowGraph` drops nodes
+  whose type is unknown, so `project::load` registers the folder *before* parsing
+  graphs — which is also why custom nodes live in files, not the `.tyra`: copying
+  the `.flownode` file (its name is the node identity, `custom:<stem>`) is how you
+  move a node to another project; forget the file and its nodes vanish on load.
+  Editor UI: **Flow Graph ▸ Custom nodes…** popup (reload folder, scaffold a
+  commented `example.flownode`, open the folder). The `.tyra` model/serialization
+  is unchanged (nodes already carry an arbitrary `type` string + `str`/`num`).
+  Docs: new `docs/custom-flow-nodes.md` (format, placeholders, transfer
+  instructions), README + docs index + tyra-editor-dev source map/chain notes.
+  Verified end-to-end: editor builds clean; a scratch fpp project with two custom
+  nodes (an `object`-kind "Nudge Up" and a `text`-kind "Announce") wired to
+  On Start round-trips through `project::load` and generates the expected
+  `ctx.objects[0].data.position[1] += 5.0F;` and
+  `for (int i = 0; i < 3; ++i) TYRA_LOG("hi there");` — and the whole game
+  **compiled to an ELF in Docker** (`=== Build OK ===`), proving the emitted C++
+  is valid. GUI screenshot confirms both custom nodes render with their params /
+  pins in the Flow Graph and the Custom nodes… control is present.
+
+- (76) **Custom flow nodes, part 2: real C++ bodies + full runtime I/O** —
+  extends (71) so a custom node isn't limited to an inline snippet. A
+  `.flownode` manifest can now set `call = fn`, binding the node to a function
+  the user writes in a new marker-owned `inc/scripts/flow_nodes.hpp`
+  (`void fn(ScriptContext&, FlowNodeIO&)`), plus declare `in`/`out` pins (any of
+  object/position/bool/text) and `exec_out`. The node is exec-driven: on run the
+  codegen builds a `FlowNodeIO` from the resolved inputs, calls the function, and
+  **latches** its outputs into per-node class members (`objOut<id>`,
+  `boolOut<id>`, `posOut<id>[3]`, `textOut<id>`) that downstream nodes read.
+  bool/text/position outputs drop straight into the existing expression planes
+  (they're just variable refs); the interesting one is **object output**, which
+  is a *runtime* value (e.g. "the object the player is looking at") — so
+  `resolveTarget()` was changed from returning a codegen-time `int` to a C++
+  int-*expression* string (a literal index for built-in sources, `objOut<id>`
+  for a custom node's output), letting a custom node's picked object drive ANY
+  consumer including built-in Hide/Move/Show Object. Built-in object actions fed
+  such a ref are bounds-guarded (`isRuntimeIdx`) so an invalid pick (-1) is a
+  no-op, not an out-of-range access. `exec_out` custom nodes fire their
+  downstream inline right after they run (via a new recursive `emitExec` with a
+  cycle guard, replacing `linkedActions`), which sequences the data dependency
+  (raycast runs → sets output → built-in reads it). `FlowNodeIO` lives in
+  `script.hpp`; `flow_graph.gen.cpp` includes `flow_nodes.hpp`. The UI needed no
+  changes — the flow-graph editor already renders every pin kind from the
+  `FlowNodeType` flags. The `.tyra` model/serialization is still unchanged.
+  Scaffolded example is now a working C++-backed "Nearest Object" node
+  (`flowExampleNearest`) demonstrating object-out → built-in Hide Object.
+  Docs: `docs/custom-flow-nodes.md` rewritten (two flavors, the `FlowNodeIO`
+  contract, runtime object refs, transfer now also copies the `flow_nodes.hpp`
+  function), README/docs-index/tyra-editor-dev updated. Verified end-to-end: the
+  editor builds clean; a scratch fpp project wiring **On Button → Nearest Object
+  (custom, object out) → built-in Hide Object** (object input from the custom
+  node's runtime output, exec-chained) round-trips through load and generates
+  `flowExampleNearest(ctx, io); objOut2 = io.objectOut;` then
+  `if ((objOut2) >= 0 && (objOut2) < ctx.objectCount) { ctx.objects[objOut2].visible = false; }`
+  — and the whole game **compiled to an ELF in Docker** (`=== Build OK ===`). The
+  part-(75) inline-snippet project still generates the same literal-index code
+  (no regression from the `resolveTarget` refactor). GUI screenshot confirms the
+  custom node renders its object-output and exec-output pins and Hide Object
+  reads "Object: from id link". Not hand-tested with a pad in PCSX2 (the graph
+  only fires on Cross); the ELF compile + codegen are the verification bar here.
+
 - (70) **Dynamic object spawning: Spawn Object / Despawn Object flow nodes** —
   runtime clones of authored objects, the missing piece for GTA-style traffic
   (spawn the same few templates around the player, despawn what fell behind).
@@ -86,6 +513,343 @@ Each finished feature lands as its own commit.
   (tables + compiled teleport graph); clean editor build; Layers panel
   renders on the scratch project. Walking across a zone border with a pad
   (instead of teleporting) still wants a hands-on pass.
+
+- (71) **Sky dome follows the camera (no more walking out of the sky)** — on a
+  large enough map the player could travel past the sky dome, which was baked
+  once at world origin with the shared identity `model` matrix and a radius
+  capped at 450, so the horizon and zenith stopped surrounding you and the
+  scene fell out into the bare clear color. The dome now gets its own
+  `skyMat` translation matrix that `renderScene` re-centers on `cameraPosition`
+  every frame (X/Y/Z), so the dome always wraps the eye no matter how far the
+  map extends — horizontally or up a tall climb. The geometry never rebuilds
+  for this (only the matrix moves), the precise frustum/clip flags and
+  `fogDisabled` are unchanged, and it costs one matrix set per frame — so no
+  measurable perf hit (the concern the request called out). Fix lives in the
+  codegen (`src/templates.cpp` `buildSkyDome`/`renderScene`, both camera-mode
+  headers get the `skyMat` member); all three example projects (showcase,
+  script-demo, layer-streaming) carry the regenerated code. Verified end-to-end:
+  editor builds clean, the generated showcase compiles in Docker and boots in
+  PCSX2 (software renderer) holding 50 FPS / 100% speed with the sunset dome
+  rendering correctly and the horizon still fading into the fog. The
+  interactive "walk to the map edge and confirm the sky no longer drops out"
+  check still wants a human with a pad on a deliberately huge map.
+- (74) **Stop committing generated `docker-compose.yml` (machine-specific path
+  leak + merge magnet)** — the compose file is regenerated on every build
+  (`refreshGenerated`, always-overwritten list) and bind-mounts the engine
+  sources by an **absolute path** computed from the editor exe location
+  (`engineSourceDir`), plus a volume-name hash derived from that same path.
+  So the checked-in `examples/*/docker-compose.yml` carried whoever-built-it-
+  last's local worktree path (script-demo still held a stale
+  `terrain-chunking-large-maps-cb55f4` path; showcase flipped to each build's
+  worktree) — a constant source of merge conflicts and a leak of local paths.
+  Added `docker-compose.yml` to `TPL_GITIGNORE` and to both example
+  `.gitignore`s, and `git rm --cached` the two tracked copies. The file still
+  generates locally on every build (verified: `--new` scaffolds it and lists
+  it in `.gitignore`; `git check-ignore` confirms both examples' copies are
+  ignored), so nothing about building changes - it just stops being tracked.
+  Verified: editor builds clean; a fresh `--new` project ignores its compose
+  while still producing it on disk.
+
+- (73) **Menu Toggle/Choice rows + USE prompt as a HUD element + triggerable
+  on-screen texts** — three UI-customization features in one pass. **(a) Menu
+  toggles:** two new menu entry actions, **Toggle** (Off/On, labels editable)
+  and **Choice** (up to 8 option labels). The state is a save value (param =
+  its name) holding the option index — its default is the initial state, it
+  persists in save slots, and flow graphs react through the existing pure
+  bool chain (*Value At Least* → *On Condition*). Since panels are single
+  baked sprites, every option label is baked into a second per-menu strip
+  texture (`res/menus/<name>-values.png`, `menubake::bakeValueStripPNG`); the
+  game draws the active cell as a MODE_REPEAT sub-rect sprite (the debug-font
+  atlas trick) right-aligned on the row. Cross / dpad right cycle forward,
+  dpad left backward; the Menus panel edits options inline and the preview
+  composites the initial states. **(b) USE prompt:** now a pinned,
+  non-deletable entry in Tools > UI Editor (`Project::usePrompt`, a HudImage)
+  — position/size editable, sprite replaceable with a custom PNG (baked to
+  PS2-valid size/quantization like any HUD image; "Reset to built-in"
+  restores the embedded 128x32 sprite). Codegen emits `USE_PROMPT_*`
+  constants in `hud_data.gen.hpp`; defaults reproduce the old hardcoded
+  placement, so existing projects render identically. **(c) HUD texts:**
+  `Project::hudTexts` (UI Editor > Texts) — named multi-line texts with font
+  (shared TTF picker, now `App::fontCombo`), size, color, drop shadow, baked
+  to centered pow2 sprites (`res/hud/text-<name>.png`) on every build. New
+  HUD flow nodes **Show Text** (optional auto-hide after N seconds) and
+  **Hide Text** drive them via new `ScriptContext::textRequest/textDuration`
+  arrays; `visibleAtStart` texts show from boot. Editor: texts render in the
+  viewport overlay (visible-at-start + the selected one), renames follow into
+  flow graphs, live baked preview in the panel. **Showcase updated:** the
+  GRAPHICS menu's eight "X: On / X: Off" event-entry pairs became four Toggle
+  rows bound to `gfx-*` save values (flow graphs rewired to VA→OC→Set), plus
+  an `options-hint` text shown 6 s on scene start. Verified: editor builds
+  clean; scratch project (`%TEMP%\tyra-editor-test\menutest`) with toggles,
+  a choice, texts and Show/Hide Text nodes generates correct
+  `menu_data`/`hud_data`/`flow_graph.gen.cpp` and **compiles in Docker (exit
+  0)**, showcase regenerates + compiles too; PCSX2 boot screenshot shows the
+  title-screen menu rendering "Fog  On" / "Quality  High" from the value
+  strip at the right row positions, a visible-at-start two-line shadowed
+  text, 50 FPS. Interactive cycling (Cross/dpad) still wants a human pad
+  test.
+
+- (69) **StaPip clipping moved from the EE to VU1 (hidden "vu1" mode, M1–M3
+  of docs/vu1-clipping-plan.md)** — the engine-fork TODO from
+  stapip_clipper.hpp, behind `"clipping": "vu1"` in project.json (no UI
+  yet; M4 flips the preference after a real-PS2 pass). A new StaPip `clip`
+  VU1 program family (c/d/tc/td) receives raw object-space vertices like
+  the cull programs and per triangle: judges the verts against the X/Y
+  guard band (clipw) plus the exact near/far planes (constant-z in Tyra's
+  clip space, biased into a second clipw judgement), emits fully-inside
+  triangles untouched, and Sutherland-Hodgman-clips crossing ones in a
+  scratch area above the shrunken double buffer (near plane first so w>0
+  for the w-relative side planes), fanning the result and patching the
+  prim giftag NLOOP. The EE clipper and as_is programs are bypassed
+  entirely in this mode (clip replaces as_is in micro memory - all three
+  families don't fit); spot light evaluates on raw verts in c/tc, d/td
+  light the original verts and lerp the lit colors, fog recomputes from
+  the lerped clip-space w. EE-side: clip packages are capped at
+  maxVertCount/5 floored to a multiple of 3 (bounded 7x fan-out; 72/5=14
+  split a triangle across packages and ran the VU1 loop off into memory),
+  and sub-1/3 packages are classified against the merged bbox of every
+  1/3-grid part they overlap (start-bbox-only misclassified visible
+  geometry as outside). Pitfalls burned in comments: fcand yields 0/1 not
+  a bit pattern; a vertex clipped to exactly |x|=w scales to GS 4096.0 and
+  wraps the 12.4 XYZ2 field (side planes cut at 0.9w; scissor equalizes).
+  Verified in PCSX2 SW renderer: detail-8 near-plane/guard-band stress
+  scene and a full showcase scene (dome, terrain, textured boxes, models)
+  are pixel-identical (0 diff) to the EE precise clipper; a textured box
+  straddling the camera differs 0.065% (LSB texel shifts on cut edges);
+  fast mode differs 31% on the stress scene (proves the scenes exercise
+  clipping); animated d/td scene holds 50 FPS. Real-PS2 PERF re-run
+  (clipbench) and the SW-vs-hardware ADC check are pending - M4 (making
+  "precise" route to VU1 + retiring StaPipClipper/PlanesClipAlgorithm)
+  waits for them.
+- (70) **Unique sprite/mesh ids — fixes HUD garbling when a menu opens** — a
+  bug report showed the debug HUD (FPS/MEM readout) rendering black blocks over
+  glyphs, "often" right after opening the pause menu. Root cause was in the
+  engine: `Sprite`, `Mesh`, `MeshFrame`, `MeshMaterial` and `MeshMaterialFrame`
+  all took their `id` from `rand() % 1000000`, and `srand()` is never called
+  (so the sequence is fixed per build). Those ids share **one** lookup namespace
+  in `TextureRepository`: a texture is bound to a sprite/material by
+  `addLink(id)` and resolved at draw time by the FIRST texture whose link set
+  contains that id (`getBySpriteId` / `getByMeshMaterialId`). Two objects handed
+  the same id → the sprite draws with the wrong texture (the black blocks).
+  Opening a menu allocates a burst of new sprites at once (dim + panel + cursor
+  + save sprites), which sharply raised the odds of a collision with the
+  always-present debug-HUD glyph — hence "often, when the menu opens". Fix:
+  new `renderer/models/unique_id.hpp` `generateUniqueId()` (a monotonic u32
+  counter, EE-thread only, skips 0 to stay clear of the texture-buffer
+  "unallocated" sentinel) replaces all eight `rand()` id assignments in the
+  rendering path. `audio_song.cpp` keeps `rand()` on purpose: its id is a
+  separate (audio) namespace and it is assigned on the audio thread, where the
+  non-atomic counter would race. Verified: engine recompiled and `libtyra.a`
+  relinked in Docker (fpp scratch project, `--build` = Build OK, clean on the
+  five touched files); the collision class is removed by construction. A
+  hands-on menu-open check on a menu-bearing project (e.g. the showcase) is the
+  remaining human confirmation — the failure was probabilistic/per-build, so it
+  cannot be forced to reproduce on demand.
+
+- (72) **examples/video-modes - a VIDEO OPTIONS menu test bed + the
+  runtime-widescreen freeze fix** - an example project for exercising
+  (70)+(71) on a pad. A baked game menu ("VIDEO OPTIONS", title screen at
+  boot AND the Start pause menu) lists the three scan modes, 4:3 / 16:9
+  and CLOSE; the entries fire flow events consumed by On Menu Event ->
+  Set Display Mode (confirm 8 s) / Set Widescreen on the `aspect-ball`
+  object. The scene is a calibration set: a white center sphere (the
+  aspect judge - must stay round in every mode/aspect on a real TV), four
+  colored compass pillars (horizontal FOV), and an overlay hint
+  (res/ui/controls.png, rendered from the same CP437 8x8 glyphs as the
+  engine's debugfont). Template change: `applyVideoRequests` returns true
+  on a scan-mode switch and the loop then CLOSES any open game menu - the
+  player judges the new picture unobstructed, and the confirm prompt's X
+  can't double as a menu select (the switch frame also skips the Cross
+  check, so the selecting press can't insta-confirm). **Bug found by a
+  hands-on test of (71): the runtime Set Widescreen froze the picture**
+  (EE kept running - pad logs still flowed - but the GS stopped drawing):
+  reprogramDisplay() went through the full programDisplay(), whose
+  graph_set_mode does a GS reset that wipes the drawing environment only
+  the full reinit() path re-creates. Fixed: a widescreen-only change now
+  rewrites JUST the DISPLAY window registers. res/.gitignore is customized
+  showcase-style (/hud/ and /menus/ ignored, authored res/ui checked in -
+  the file is only written at project creation, so it survives builds).
+  Verified: Docker build exits 0; PCSX2 boot screenshot shows the
+  title-screen menu (panel, cursor, X OK / Triangle BACK hints, dim
+  overlay) over the scene at "PAL Interlaced (Field) 512x448" 50 FPS; the
+  runtime widescreen path re-verified after the fix with an unattended
+  OnStart -> Delay -> Set Widescreen graph (scene keeps rendering,
+  geometry goes anamorphic). Menu navigation itself still wants a pad.
+
+- (71) **Runtime display-mode switching (with keep-or-revert prompt) +
+  widescreen 16:9** — follow-up to (70). **(a) Runtime switch:**
+  `RendererCore::setDisplayOutput(mode, widescreen)` (fork) re-selects the
+  scan mode between frames: the VRAM bump allocator resets, frame/z buffers
+  and the post-fx scratch buffers rebuild at the new size, every texture is
+  evicted (`RendererCoreTexture::evictAll`, lazy re-upload) and the
+  projection re-derives - `RendererCoreGS` grew `reinit()` /
+  `reprogramDisplay()` (mode setup split into `programDisplay()`).
+  **(b) Flow nodes:** **Set Display Mode** (mode combo + "Confirm s") and
+  **Set Widescreen** (Scene category) - new `ScriptContext` fields applied
+  in both game loops right before `beginFrame` (the safe point). With
+  Confirm > 0 the generated game arms a **keep-or-revert countdown**: it
+  switches, draws "KEEP VIDEO MODE? X = YES / BACK IN n" centered on
+  screen, and reverts to the previous mode automatically when the timer
+  (real g_frameDt seconds) expires without an X press - the PC-settings
+  safety net, since a mode the TV can't show is a black screen. The prompt
+  draws via a new shared `drawHudText` (refactored out of drawDebugHud);
+  the embedded 8x8 glyph strip grew A-Z + "?=-:" (42 glyphs, 512x16, two
+  rows) and `debugfont.png` is now written to every project on refresh
+  (release builds need it for the prompt), with the atlas string kept in
+  sync between `debugFontPng()` and the game template. **(c) Widescreen:**
+  `ProjectSettings::widescreen` (Preferences > Build checkbox, serialized,
+  default false) -> `EngineOptions::widescreen`. The projection aspect now
+  derives from the physical shape of each mode's display window
+  (`RendererSettings::updateGeometry`): SDTV modes keep their signal and
+  let the TV stretch (anamorphic), 1080i widens its GS window from 3x to
+  4x MAGH (1792/1920 VCK). Verified in PCSX2 (SW renderer, scratch orbit
+  project with OnStart -> Delay 4s -> Set Display Mode(480p, confirm 5s)):
+  boot in 480i -> switch at ~4s with the prompt rendering the new glyphs
+  over a healthy scene (textures re-uploaded after the VRAM rebuild) ->
+  countdown ticks -> prompt clears on timeout with the scene still healthy
+  after the second rebuild (the revert is the only inputless path that
+  clears the prompt; the final-mode status-bar text could not be read -
+  the PCSX2 window sat under the taskbar in captures). Widescreen build
+  verified by geometry: the same scene renders visibly narrower
+  (anamorphic squeeze) with widescreen on. Codegen inspected for both
+  nodes. Hands-on still wanted: the X-confirm path (needs a pad; synthetic
+  input is off-limits on this machine) and real-hardware output.
+
+- (70) **Alternative display modes: progressive 480p and 1080i** — new
+  Preferences > Build > **Display mode** combo (`ProjectSettings::displayMode`:
+  "interlaced" default / "progressive" / "1080i", serialized with a
+  backward-compatible default) baked into the generated `main.cpp` as
+  `EngineOptions::displayMode`. Engine side (`DisplayMode` enum,
+  `RendererSettings::setDisplayMode`, `RendererCoreGS`): **Progressive480p**
+  renders 448x448 and scans it out non-interlaced at MAGH 3x — a 1344x448
+  window centered in the 1440-VCK 480p raster, exactly 4:3, slightly *less*
+  VRAM than the stock 512x448. **HiDef1080i** renders 448x540 (sharper
+  vertically than 480i) shown as a 1344x1080 pillarboxed ~4:3 window in the
+  16:9 raster; frame+z buffers grow to 2.9 MB of VRAM, so ~1.1 MB is left
+  for textures (the UI warns). Both DTV modes bypass `graph_set_screen` —
+  it always programs the mode's full VCK width into DW, and **no 64-aligned
+  framebuffer width divides the 1440/1920-VCK rasters**, so the GS would
+  scan garbage past the buffer's right edge; `setDtvDisplay()` programs
+  DISPLAY1/2 directly (gsKit-style window math, centered). The projection
+  aspect deliberately stays at the constructor's 512/448 in every mode so
+  world proportions match across modes. Flicker filter stays on the stock
+  interlaced path only; DTV modes present via both DISPFB circuits at y=0
+  (`presentFrameBuffer`). `getRefreshRate()` returns 60 for the DTV modes
+  regardless of region, so wall-clock speed normalization keeps working.
+  **Pitfall burned into the code comments:** the gsKit/OPL "interlaced FRAME
+  mode, MagV--" recipe for 1080i **hard-crashes PCSX2 v2.3.205** (process
+  dies ~4 s in, no crash dialog, SW and HW renderers alike); 1080i in FIELD
+  mode with MAGV=2x is visually equivalent (each field steps through every
+  buffer line - a stable line-doubled 540p picture) and PCSX2 is fine with
+  it. Verified in PCSX2 (software renderer, scratch orbit project, one boot
+  per mode, status-bar + screenshot each): interlaced baseline "PAL
+  Interlaced (Field) 512x448" at 50 FPS unchanged; "SDTV 480p Progressive
+  448x448" at 60 FPS, clean right edge (the graph_set_screen overrun would
+  show there); "HDTV 1080i 448x540" at 60 FPS, pillarboxed and full-height.
+  Codegen + .tyra round-trip checked headlessly; samples/script-demo
+  regenerated. Real-hardware check (component cables) still wants a human -
+  PCSX2 does not emulate the analog signal path.
+
+- (69) **Pause now freezes particles and skeletal animation** — a pausing menu
+  (a menu with the pause flag, or the save menu) already stopped player
+  movement, scripts, object physics and the use target, but two effect systems
+  kept advancing behind the menu: particle emitters and skeletal-animation
+  playback, both driven off `g_frameDt` in `loop()` with no `menuActive` gate.
+  Added a `g_gameplayPaused` flag set at the top of `loop()` (both the orbit
+  and FPP game-cpp variants). `updateParticles()` early-returns while paused so
+  every billboard bag hangs on its last-built frame — the scene render still
+  draws it, so particles freeze in place instead of vanishing. Its sibling guard
+  from the Set Particles switch (`!g_particlesOn`) stays intact.
+  `updateAndRenderAnimObjects()` zeroes the playback step while paused, freezing
+  the pose while still skinning and rendering it. Overlay menus (pause flag off)
+  keep gameplay running as before. Verified: editor builds clean; codegen for
+  fresh FPP and orbit projects emits all changes; the `script-demo` example
+  (particles + animated models) compiles on the PS2 toolchain in Docker and
+  links (Build OK, exit 0). The visual freeze-on-pause still wants a hands-on
+  pad test in PCSX2 (open the pause menu, confirm rain/smoke and animations
+  stop).
+- (69) **On-demand save (no autosave) + menu-bar icon toolbar** — the editor
+  used to autosave the whole `.tyra` on *every* edit (`commitChange()` called
+  `saveAll()`), plus a second autosave whenever ImGui settled a layout/docking
+  change, plus a forced save on exit. That's gone. `commitChange()` now only
+  pushes an undo snapshot and, when the snapshot actually differed
+  (`History::push()` returns a bool now), flips a `dirty_` flag; the project is
+  written only when the user asks (File > Save, Ctrl+S, or the new toolbar
+  button). `dirty_` drives a `*` in the window title and an amber tint on the
+  Save icon. Losing unsaved work is guarded: Exit / Open Project / New Project
+  route through `requestExit/requestOpenProject/requestNewProject`, which pop an
+  "Unsaved Changes" modal (Save / Don't Save / Cancel) when dirty; the main
+  loop intercepts the window-close (`while(true)` + `glfwWindowShouldClose`
+  check) so the X button is guarded too. Terrain heightmaps used to be written
+  to disk on every sculpt stroke and on undo/redo; they're now kept in memory
+  (they already ride along in the undo snapshot) and persisted only in
+  `saveProject()` alongside the `.tyra`, so a discard truly discards terrain
+  edits. Freshly opened/created projects reset `dirty_` after
+  `attachProject()`'s asset rescan (rescan-found assets are rediscovered on
+  every open, so they don't count as unsaved). The new **toolbar** sits inline
+  in the main menu bar after Tools (`drawToolbar()`): a floppy **Save** (amber
+  when dirty), a **Build** (no run) hammer, then two tight run/stop pairs
+  separated by a wider gap — **[green Play = Build && Run in PCSX2, ▾, red Stop
+  PCSX2]** and **[blue Play = Build && Run on PS2, ▾, red Stop PS2]**. Each Play
+  has a Visual-Studio-style caret **dropdown** (`##..._more` → `BeginPopup`
+  anchored under the caret) offering *Run (no build)* and *Build (no run)*. Each
+  Stop cancels a running build when one is in progress, otherwise closes the
+  emulator (`Runner::stopEmulator()`) or stops the game on the console
+  (`Runner::stopPs2()`); the PS2 pair dims until a ps2link IP is set. Run
+  shortcuts (switched to `IsKeyChordPressed` so the modifier state matches
+  exactly): **F5** build && run in PCSX2, **Ctrl+F5** run in PCSX2 without
+  building; **F6** build && run on PS2, **Ctrl+F6** run on PS2 without building;
+  **Ctrl+Shift+B** build only. The no-build shortcuts also show in the caret
+  dropdowns and the top-level Build menu. Spacing is
+  set explicitly per button (not the default ImGui item spacing) so pairs read
+  as groups at any UI scale. Icons are vector-drawn on
+  the menu-bar draw list — the editor loads no icon font — so they stay crisp
+  at any UI scale. Editor-only change: no `.tyra` format, codegen or PS2
+  runtime impact. Verified end-to-end by driving the running editor (synthetic
+  mouse/keyboard) on an FPP scratch project and screenshotting each step:
+  paste-an-object → title gains `*`, Save icon turns amber, **but `grep` of the
+  on-disk `.tyra` shows the edit is NOT there** (no autosave); click the Save
+  icon → `.tyra` now contains it and `*` clears; Alt+F4 with unsaved edits →
+  the "Unsaved Changes" modal appears and the window stays open; "Don't Save" →
+  editor exits and the discarded edit is absent from the `.tyra`; "Cancel" →
+  editor stays open. Selecting an object (no edit) does not set dirty. Clean
+  editor build both before and after the button-label auto-size fix.
+- (69) **Usable-highlight rims moved off the EE (matrix shells + apron ring)** —
+  the in-game usable-object highlight could tank the frame rate: every frame,
+  for every nearby usable object, `renderHighlightHull` grew `steps × n` hull
+  vertices on the EE (9 muls **plus a bilinear `terrainHeightAt` per vertex**
+  for the ground clamp), wrote `2 × steps × n × 16 B` of vertex/color arrays,
+  and its per-frame `bboxVersion` bump forced a package-bbox recompute over
+  all of them — with the default 4 steps a few-thousand-vert usable model
+  near the player cost milliseconds of EE time, and the frame is EE-bound
+  (see the clipbench measurements in the backlog), so it fell straight to
+  the next vsync divisor.
+  The rewrite exploits that both per-vertex ops are uniform point scales
+  (grow about the object center, depth pushback about the eye): they compose
+  into a **single scale+translation model matrix**, so each shell now
+  re-submits the object's **own vertex arrays** with a per-shell `hullMat` +
+  per-shell single color — StaPip applies the matrix on VU1 (and in frustum
+  classify + the EE clipper via the composed MVP), the EE never touches a
+  vertex, and the shell's package bboxes ride the part's own `bboxVersion`
+  (their own cache slot — single color changes the package size — recomputed
+  only when the part rebuilds, never per frame). One game-level hull bag
+  replaces the per-object bag + `steps × n` vertex/color copies (a 6k-vert
+  usable model used to hold ~750 KB of hull arrays on a 32 MB console).
+  The one thing that genuinely needed per-vertex terrain sampling — the
+  ground-clamp that turned the bottom rim into a glow apron hugging the
+  terrain — is replaced by `buildHighlightApron`: a small terrain-following
+  annulus around the base (one band per shell, same growth radii and alpha
+  series, 24 segments ≈ 576 verts at 4 steps), world-space and
+  camera-independent, built once and cached until `rebuildObjectGeometry`
+  invalidates it (move/resize/scene switch). The repaint pass that erases
+  shell wash off receding side faces is unchanged. Verified: editor builds
+  clean; scratch FPP project (usable box + usable sphere + plain box near
+  spawn, highlight on) compiles in Docker and runs in PCSX2 — SW-renderer
+  screenshot shows the fading rim around the usable sphere only, clean
+  interior, the ground apron around the base, 50 VPS / 100% speed;
+  samples/script-demo regenerated + recompiled. Real-PS2 A/B timing of the
+  before/after EE cost still needs a hardware session (the COP0 PERF recipe
+  from the clipbench notes in the backlog applies as-is).
 
 - (68) **Ambience Editor + Properties docked right + sky dome preview** — three
   related changes. **(a) Docking default:** the first-run DockBuilder layout now
@@ -1688,6 +2452,120 @@ Each finished feature lands as its own commit.
   physics ball, pillar, HUD, starter flow graph). Fresh copy every time, so the
   shared sample no longer gets wrecked by experiments. Verified in PCSX2.
 
+- (65) **"Showcase" sample project** -- a second, much larger checked-in sample
+  under `examples/showcase` that exercises most of the editor's feature set in
+  one game, added on request ("a bigger project for the examples"). Two scenes
+  reachable through a usable portal pair: `vale` (a 192x192 heightmapped valley,
+  golden-hour dusk) and `cavern` (a dark, blue-fogged interior with a Nightfall
+  grading override). It demonstrates: streaming layers loaded *dynamically*
+  (`village`/`ruins` start unloaded; two `Near Object` gates `Load Layer` the
+  district you approach and `Unload Layer` the other), a purpose-built skeletal
+  model (`res/models/wobbler.glb` -- a cylinder skinned to a 5-joint chain with
+  `Wiggle`/`Twist` clips, baked to `.tskl`), object draw-distance + animation
+  LOD + baked mesh LOD, a baked directional sun plus point lights (campfire,
+  lanterns, ruins, crystals), particle emitters (fire/smoke/rain/sparks/fog/
+  fireflies), GS distance fog, bloom + film grain, two colour-grading presets,
+  a title + pause menu, a HUD crosshair, a first-person player with a
+  toggleable flashlight, a save point + a save value collected from a usable
+  relic, usable-object highlighting, a gradient sky dome, and ambient music +
+  a spatial campfire sound. The project (`showcase.tyra` + authored `res/`
+  assets + `terrain-*.heights`) was authored programmatically (Node generators
+  that emit the loader-format JSON, procedural heightmaps/ground texture, the
+  WAVs, and a hand-built glTF); the generated game tree is committed like
+  `script-demo` (the `Makefile` is create-only, so a sample cannot be
+  source-only), with `res/.gitignore` keeping the authored assets while
+  ignoring the built-in `hud/`/`menus/` and the baked `.tskl`. Verified: the
+  `.glb` parses through the real `glbparser` (`bake` + `parseSkel`, 1248 verts,
+  5 joints, 2 mesh LODs); `--build examples/showcase` refreshes codegen, bakes
+  the `.tskl`, quantizes the ground texture and converts the sfx, compiles
+  under the PS2DEV toolchain and links (exit 0); PCSX2 (software renderer)
+  boots both scenes at 50 FPS / 100% speed -- the title menu, the vale (wobblers
+  visibly bent mid-wiggle, trees, fog, bloom, grain, highlighted portal) and
+  the cavern (flashlight cone, glowing crystals, blue fog, Nightfall look) all
+  render. Interactive paths (walking the streaming boundary to see a district
+  page in/out, USE on the portal/relic, pad flashlight toggle, hearing the
+  audio) still want a hands-on pad test.
+
+- (66) **Consolidated `samples/` + `examples/` into one `examples/` dir** -- the
+  repo had grown two parallel homes for checked-in projects (`samples/` for the
+  playground + showcase, `examples/` for per-feature demos). Merged them: moved
+  `script-demo` and `showcase` under `examples/` (git rename, history preserved),
+  deleted `samples/`. Updated all references -- `README.md` (the example-projects
+  section + the Structure list), the three skills that pointed at
+  `samples/script-demo/` (`tyra-editor-dev`, `tyra-pr`, `tyra-testing`), and
+  `examples/showcase/README.md`'s build command. Also added a **`tyra-docs`
+  skill** stating the standing rule: every change updates the docs in the same
+  commit (README, PROGRESS, the relevant skills, example READMEs, and regenerate
+  any affected example project). No code or generated files changed; the moved
+  projects still build unchanged (paths in `.tyra`/compose are relative).
+
+- (67) **showcase: terrain chunking + tighter LOD ring (hardware perf)** -- the
+  showcase ran slowly on real PS2 hardware. After merging main's terrain
+  chunking + camera-ring streaming (PR #52), turned it on for the big vale:
+  `terrainViewDistance = 88`, so only the terrain chunks near the camera stay
+  resident instead of the whole 192x192 mesh. The small cavern (64) fits inside
+  the ring and stays whole. Verified LOD was already enabled (animLodDistance
+  35, meshLodDistance 45, per-object drawDistance) -- and tightened it: props
+  now cull with the ring (trees 84, rocks 82, down from 135/120, which exceeded
+  the map extent and never culled). Pulled the fog in (start 20, end 82, from
+  32/168) so the streaming edge sits in full fog and the cutoff is invisible;
+  the trade-off is a foggier, more compact vista. Regenerated the project
+  against the chunking codegen. Verified: `--build examples/showcase` exit 0;
+  PCSX2 boots the vale at 50 FPS with the terrain fading cleanly into fog (no
+  visible chunk edge). The real win is on hardware (PCSX2 was already at 50) --
+  chunking bounds the resident/clipped terrain instead of it growing with the
+  whole map; `terrainViewDistance` / `fogEnd` can be lowered further together if
+  more headroom is needed.
+
+- (68) **Runtime graphics-toggle flow nodes (Set Fog / Bloom / Grain / Particles)**
+  -- four new Scene-category flow nodes that change graphics settings at
+  runtime, mirroring how Set Flashlight / Set Grading already work. Set Fog
+  (On) re-applies the active scene's own fog or disables it; Set Bloom / Set
+  Grain take a 0..1 amount (compiled to the engine's 0..128 fixed point); Set
+  Particles is a global switch that makes `updateParticles` skip all emitter
+  simulation + draw (a new `g_particlesOn`). Each writes a `ScriptContext`
+  field (`fog`/`bloom`/`grain`/`particles`, -1 = leave) that both game loops
+  (orbit + fpp) apply and reset next to the flashlight block; the engine
+  already exposed `setFog`/`disableFog`/`postFx.setBloom`/`setGrain`. UI is the
+  generic flow-node renderer (On = checkbox like Set Flashlight, Amount =
+  DragFloat). Motivating use: wire them to On Menu Event entries so a game can
+  offer a graphics-options menu / let players trade effects for frame rate on
+  real hardware. Verified: editor builds clean; the showcase's options menu
+  generates the expected `ctx.fog/bloom/grain/particles` calls (`0.35 -> 45`,
+  `0.14 -> 18`), compiles under PS2DEV, and an `On Start -> Set Fog(0) + Set
+  Particles(0)` test in PCSX2 visibly removed the fog (terrain extends to the
+  horizon) and every particle. Interactive menu navigation still wants a pad test.
+- (69) **showcase: perf pass + graphics options menu** -- the showcase ran at
+  ~8 FPS on real PS2 hardware (50 in PCSX2, whose software renderer hides GS
+  fill-rate + EE geometry cost). Lightened the scene: the animated wobbler
+  model dropped from 1248 to 123 base verts (skeletal skinning is EE-bound),
+  terrainDetail 64 -> 48, particle pools + the big `fog`-emitter quad sizes cut
+  hard (rain 120 -> 34, cave/ruins fog counts + sizes down), post-FX bloom +
+  grain off by default, tree count 14 -> 10, animLod/meshLod onset pulled in
+  (24 / 30). Added a floating **GRAPHICS options menu** (open with Select) wired
+  to the new Set Fog/Bloom/Grain/Particles nodes so the effects can be toggled
+  live while the on-screen **FPS + free-RAM overlay** (now enabled -- buildProfile
+  debug) is watched, to pinpoint the hardware cost. Verified: `--build` exit 0;
+  PCSX2 boots both scenes at 50 FPS with the overlay, and the toggle nodes work
+  end-to-end. The overlay/debug profile is diagnostic -- flip to release +
+  showFps/showMemory off (a `gen_project` comment notes this) once perf is
+  dialed in on hardware.
+
+- (70) **showcase: the title screen was the real perf killer; removed it, restored
+  effects** -- turning the graphics toggles on hardware showed the ~8 FPS was the
+  boot **title-screen menu**, not the scene: a paused menu still renders the whole
+  scene behind it every frame plus its panel + full-screen dim overlay, which
+  dropped even PCSX2 to ~17 FPS (50 in gameplay). Dropped the title screen so the
+  game boots straight into the vale (the pause menu on Start and the floating
+  options menu on Select stay). With that gone the scene holds ~50 FPS, so the
+  earlier defensive cuts were reverted: **bloom + film grain back on**, particle
+  pools back to full (rain 120, campfire/ruins/cavern emitters). Kept the cheap,
+  near-invisible geometry wins (terrain chunking, lean skeletal model + LOD, draw
+  distances). The FPS/RAM overlay + options menu stay on so the fuller effect set
+  can still be confirmed on hardware (flip buildProfile to release when happy).
+  Verified: `--build` exit 0; PCSX2 boots directly into gameplay with fog, bloom,
+  grain and the full particle set at ~50 FPS.
+
 ## Done
 
 - Core editor: project creation (orbit/FPP templates), solution files + undo history,
@@ -2875,8 +3753,10 @@ Each finished feature lands as its own commit.
   now runs on VU0 in macro mode (entry 34) at ~37% EE load for 3 characters
   in PCSX2, so the EE is not the bottleneck yet. Palette per batch limited
   by VU memory (~24-32 bones).
-- Engine perf, next targets: packager allocates its package array per frame
-  (poolable); the real endgame is the engine author's own TODO in
+- Engine perf, next target: the packager's per-frame package arrays are
+  pooled now (entry 79 - measured worth only ~2%; the partial-branch cost is
+  per-package bbox classification + EE clipping, which scale with vertex
+  count); the real endgame is the engine author's own TODO in
   stapip_clipper.hpp - move clipping to VU1 entirely ("too much time").
   **Measured on real PS2 (2026-07-11**; clipbench: 128x128 terrain at detail
   128 = ~98k verts, spinning FPP camera, COP0 timers around `clipper.clip` +

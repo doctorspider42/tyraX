@@ -10,6 +10,14 @@
 
 #pragma once
 
+// Modified by tyra-editor: create() returns pointers into grow-only pools
+// owned by the packager instead of new[] arrays - the per-submit heap
+// round-trip was measurable on partially-visible geometry (hundreds of
+// allocations per frame). Callers must NOT delete[] the result; it stays
+// valid until the next create() call of the same overload.
+
+#include <vector>
+
 #include "renderer/core/3d/bbox/core_bbox.hpp"
 #include "renderer/core/3d/renderer_3d_frustum_planes.hpp"
 #include "renderer/core/3d/clipper/planes_clip_algorithm.hpp"
@@ -47,6 +55,10 @@ class StaPipBagPackager {
   u32 maxVertCount;
   Renderer3DFrustumPlanes* frustumPlanes;
   StaPipBagPackagesBBox* renderBBox;
+  // Two pools because a bag-level package array is still in use while one of
+  // its partial packages is split into subpackages (StaPipCore::renderPkgs).
+  std::vector<StaPipBagPackage> bagPackagesPool;
+  std::vector<StaPipBagPackage> splitPackagesPool;
 };
 
 }  // namespace Tyra

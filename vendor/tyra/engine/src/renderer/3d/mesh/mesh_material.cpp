@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <iomanip>
 #include "renderer/3d/mesh/mesh_material.hpp"
+#include "renderer/models/unique_id.hpp"
 #include "file/file_utils.hpp"
 
 namespace Tyra {
@@ -28,7 +29,7 @@ MeshMaterial::MeshMaterial(const MeshBuilderData& data,
   TYRA_ASSERT(material->frames.size() > 0,
               "Material must have at least one frame");
 
-  id = rand() % 1000000;
+  id = generateUniqueId();
 
   if (data.loadLightmap) {
     lightmapFlag = true;
@@ -75,7 +76,7 @@ MeshMaterial::MeshMaterial(const MeshBuilderData& data,
 }
 
 MeshMaterial::MeshMaterial(const MeshMaterial& mesh) {
-  id = rand() % 1000000;
+  id = generateUniqueId();
 
   lightmapFlag = mesh.lightmapFlag;
   name = mesh.name;
