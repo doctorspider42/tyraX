@@ -500,6 +500,7 @@ void App::drawUI() {
     drawCutsceneWindow();
     drawMaterialEditorWindow();
     drawUiEditorWindow();
+    drawLoadingScreenWindow();
     drawNewProjectModal();
     drawPreferencesModal();
     drawEditorPreferencesModal();
@@ -745,6 +746,7 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
             if (ImGui::MenuItem("Cutscene Director...")) showCutsceneEditor_ = true;
             if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
+            if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
             ImGui::EndMenu();
         }
 
@@ -4880,6 +4882,25 @@ void App::drawFlowGraphWindow() {
                 "Confirm > 0: the game asks to keep the\n"
                 "mode (X = yes) and reverts automatically\n"
                 "when the timer runs out. 0 = switch blind.");
+        } else if (n.type == "SetStickCurve") {
+            const char* sticks[] = {"Left (move)", "Right (camera)", "Both"};
+            int stick = (int)n.num[0];
+            stick = stick < 0 ? 0 : stick > 2 ? 2 : stick;
+            if (ImGui::Combo("Stick", &stick, sticks, 3)) {
+                n.num[0] = (float)stick;
+                changed = true;
+            }
+            const char* curves[] = {"Linear", "Exponential", "S-Curve"};
+            int curve = (int)n.num[1];
+            curve = curve < 0 ? 0 : curve > 2 ? 2 : curve;
+            if (ImGui::Combo("Curve", &curve, curves, 3)) {
+                n.num[1] = (float)curve;
+                changed = true;
+            }
+            if (curve != 0) {  // exponent only shapes Exponential / S-Curve
+                ImGui::DragFloat("Exponent", &n.num[2], 0.05f, 1.0f, 6.0f, "%.2f");
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+            }
         } else if (t->numKind == FlowParamKind::Color) {
             ImGui::ColorEdit3("Color", n.num, ImGuiColorEditFlags_NoInputs);
             changed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -5246,6 +5267,7 @@ void App::drawFlowGraphWindow() {
                         n.str = project_.active().layers.front().name;
                     if (std::string(t.key) == "SetVarBool") n.num[0] = 1.0f;
                     if (std::string(t.key) == "SetFlashlight") n.num[0] = 1.0f;
+                    if (std::string(t.key) == "SetStickCurve") n.num[2] = 2.0f;  // exponent
                     if (std::string(t.key) == "PlaySound") {
                         n.num[0] = 100.0f;  // volume
                         n.num[1] = -1.0f;   // channel: auto
@@ -5452,9 +5474,9 @@ bool App::fontCombo(std::string& fontPath) {
     return changed;
 }
 
-void App::importHudImage() {
+int App::importHudImageInto(std::vector<HudImage>& target) {
     const std::string src = pickPngFile();
-    if (src.empty()) return;
+    if (src.empty()) return -1;
 
     const std::filesystem::path srcPath(src);
     const std::string fileName = sanitizeAssetName(srcPath.filename().string());
@@ -5465,7 +5487,7 @@ void App::importHudImage() {
                                std::filesystem::copy_options::overwrite_existing, ec);
     if (ec) {
         statusMessage_ = "HUD image import failed: " + ec.message();
-        return;
+        return -1;
     }
 
     HudImage h;
@@ -5476,8 +5498,14 @@ void App::importHudImage() {
         h.size[0] = (float)t->w;
         h.size[1] = (float)t->h;
     }
-    project_.hud.push_back(std::move(h));
-    selectedHud_ = (int)project_.hud.size() - 1;
+    target.push_back(std::move(h));
+    return (int)target.size() - 1;
+}
+
+void App::importHudImage() {
+    const int i = importHudImageInto(project_.hud);
+    if (i < 0) return;
+    selectedHud_ = i;
     uiFxSel_ = 0;
     saveAll("Saved");
 }
@@ -6126,6 +6154,553 @@ void App::drawUiEditorWindow() {
     ImGui::EndChild();
 
     if (changed) saveAll("Saved");  // UI edits are not on the undo stack
+    ImGui::End();
+}
+
+// Property editor for one progress bar (Loading Screens). Returns true when a
+// setting changed (the caller saves).
+bool App::loadingBarControls(LoadingBar& b) {
+    bool changed = false;
+    const char* kinds[] = {"Continuous (fill)", "Quantized (segments)"};
+    ImGui::SetNextItemWidth(scaled(200));
+    if (ImGui::Combo("Type", &b.kind, kinds, 2)) changed = true;
+    ImGui::DragFloat2("Position##bar", b.pos, 0.005f, 0.0f, 1.0f, "%.3f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::DragFloat2("Size (px)##bar", b.size, 1.0f, 1.0f, 512.0f, "%.0f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::ColorEdit3("Track / off color", b.bgColor)) changed = true;
+    if (ImGui::ColorEdit3("Fill / on color", b.fillColor)) changed = true;
+    if (b.kind == 1) {
+        ImGui::SetNextItemWidth(scaled(120));
+        if (ImGui::DragInt("Segments", &b.segments, 0.1f, 2, 16))
+            b.segments = b.segments < 2 ? 2 : b.segments > 16 ? 16 : b.segments;
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SetNextItemWidth(scaled(120));
+        ImGui::DragFloat("Spacing (px)", &b.spacing, 0.2f, 0.0f, 64.0f, "%.0f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+
+        ImGui::SeparatorText("Segment image (optional)");
+        if (b.segImage.imagePath.empty()) {
+            ImGui::TextDisabled("Colored rectangles (no texture).");
+            if (ImGui::Button("Set segment image (PNG)...")) {
+                std::vector<HudImage> tmp;
+                const int i = importHudImageInto(tmp);
+                if (i >= 0) {
+                    b.segImage.imagePath = tmp[i].imagePath;
+                    changed = true;
+                }
+            }
+        } else {
+            ImGui::TextDisabled("%s", b.segImage.imagePath.c_str());
+            if (ImGui::Button("Replace...")) {
+                std::vector<HudImage> tmp;
+                const int i = importHudImageInto(tmp);
+                if (i >= 0) {
+                    b.segImage.imagePath = tmp[i].imagePath;
+                    changed = true;
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Clear image")) {
+                b.segImage.imagePath.clear();
+                changed = true;
+            }
+            changed |= hudBakeControls(b.segImage);
+        }
+        ImGui::TextDisabled(
+            "Lit segments are tinted with the on color, unlit with the\n"
+            "off color (color modulation of one texture).");
+    }
+    return changed;
+}
+
+// Draws the loading screen into the current window at 512x448 aspect, honoring
+// `fraction` for the progress bars (matches loadingscreen::renderFrame on PS2).
+void App::drawLoadingPreview(const LoadingScreenDef& ls, float fraction) {
+    ImVec2 avail = ImGui::GetContentRegionAvail();
+    if (avail.x < 20.0f || avail.y < 20.0f) return;
+    const float aspect = 512.0f / 448.0f;
+    float w = avail.x, h = w / aspect;
+    if (h > avail.y) { h = avail.y; w = h * aspect; }
+    ImVec2 p0 = ImGui::GetCursorScreenPos();
+    p0.x += (avail.x - w) * 0.5f;
+    const ImVec2 p1(p0.x + w, p0.y + h);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    auto col = [](const float* c, float a = 1.0f) {
+        return IM_COL32((int)(c[0] * 255.0f + 0.5f), (int)(c[1] * 255.0f + 0.5f),
+                        (int)(c[2] * 255.0f + 0.5f), (int)(a * 255.0f + 0.5f));
+    };
+    dl->AddRectFilled(p0, p1, col(ls.bgColor));
+    // Screen-space size of a value given in 512x448 pixels.
+    auto sw = [&](float px) { return px / 512.0f * w; };
+    auto sh = [&](float px) { return px / 448.0f * h; };
+    auto cx = [&](float nx) { return p0.x + nx * w; };
+    auto cy = [&](float ny) { return p0.y + ny * h; };
+
+    for (int i = 0; i < (int)ls.images.size(); ++i) {
+        const HudImage& im = ls.images[i];
+        const float dw = sw(im.size[0]), dh = sh(im.size[1]);
+        const ImVec2 a(cx(im.pos[0]) - dw * 0.5f, cy(im.pos[1]) - dh * 0.5f);
+        const ImVec2 b(a.x + dw, a.y + dh);
+        if (const HudTexture* t = hudTexture(im.imagePath))
+            dl->AddImage((ImTextureID)(intptr_t)t->tex, a, b);
+        else
+            dl->AddRect(a, b, IM_COL32(255, 80, 80, 255));
+        if (showLoadingEditor_ && lsSelKind_ == 0 && lsSelIdx_ == i)
+            dl->AddRect(ImVec2(a.x - 1, a.y - 1), ImVec2(b.x + 1, b.y + 1),
+                        IM_COL32(80, 200, 255, 255));
+    }
+    for (int i = 0; i < (int)ls.texts.size(); ++i) {
+        const HudText& t = ls.texts[i];
+        HudText tc = t;  // mangle the cache key so it never collides with HUD texts
+        tc.name = "lsprev\x1f" + ls.name + "\x1f" + t.name;
+        if (const HudTexture* tex = hudTextTexture(tc)) {
+            const float dw = sw((float)tex->w), dh = sh((float)tex->h);
+            const ImVec2 a(cx(t.pos[0]) - dw * 0.5f, cy(t.pos[1]) - dh * 0.5f);
+            dl->AddImage((ImTextureID)(intptr_t)tex->tex, a,
+                         ImVec2(a.x + dw, a.y + dh));
+            if (showLoadingEditor_ && lsSelKind_ == 1 && lsSelIdx_ == i)
+                dl->AddRect(ImVec2(a.x - 1, a.y - 1),
+                            ImVec2(a.x + dw + 1, a.y + dh + 1),
+                            IM_COL32(80, 200, 255, 255));
+        }
+    }
+    for (int i = 0; i < (int)ls.bars.size(); ++i) {
+        const LoadingBar& b = ls.bars[i];
+        const float bw = sw(b.size[0]), bh = sh(b.size[1]);
+        const float bx = cx(b.pos[0]) - bw * 0.5f;
+        const float by = cy(b.pos[1]) - bh * 0.5f;
+        if (b.kind == 0) {
+            dl->AddRectFilled(ImVec2(bx, by), ImVec2(bx + bw, by + bh),
+                              col(b.bgColor));
+            if (fraction > 0.0f)
+                dl->AddRectFilled(ImVec2(bx, by),
+                                  ImVec2(bx + bw * fraction, by + bh),
+                                  col(b.fillColor));
+        } else {
+            const int segs = b.segments < 1 ? 1 : b.segments;
+            const int lit = (int)(fraction * segs + 0.001f);
+            const float segW = (bw - sw(b.spacing) * (segs - 1)) / segs;
+            for (int k = 0; k < segs; ++k) {
+                const float sx = bx + k * (segW + sw(b.spacing));
+                const float* c = (k < lit) ? b.fillColor : b.bgColor;
+                dl->AddRectFilled(ImVec2(sx, by), ImVec2(sx + segW, by + bh),
+                                  col(c));
+            }
+        }
+        if (showLoadingEditor_ && lsSelKind_ == 2 && lsSelIdx_ == i)
+            dl->AddRect(ImVec2(bx - 1, by - 1), ImVec2(bx + bw + 1, by + bh + 1),
+                        IM_COL32(80, 200, 255, 255));
+    }
+    dl->AddRect(p0, p1, IM_COL32(120, 120, 120, 255));
+    ImGui::Dummy(ImVec2(avail.x, h));
+}
+
+// Loading Screens (Tools > Loading Screens): named loading screens shown while
+// a scene loads. Each has a background color, image + text elements (baked like
+// the HUD) and progress bars (continuous or quantized). Scenes pick one in
+// Scene > Preferences; one can be the project default. Like the other preset
+// collections these live outside undo, so edits save immediately (saveAll).
+// Boot splash screens: a collapsing section at the top of the Loading Screens
+// window. Images shown in order at startup (after the Tyra logo, before the
+// loading screen), each for its own duration. Self-contained (balanced
+// Begin/EndChild) so the caller's later early-returns stay valid.
+bool App::drawSplashSection() {
+    if (!ImGui::CollapsingHeader("Boot splash screens")) return false;
+    bool changed = false;
+    auto& splashes = project_.splashScreens;
+    if (selectedSplash_ >= (int)splashes.size()) selectedSplash_ = -1;
+
+    ImGui::TextDisabled("Images shown at startup, in order, before the loading screen.");
+
+    ImGui::BeginChild("##splash_body", ImVec2(0, scaled(190)),
+                      ImGuiChildFlags_Borders);
+
+    // --- left: splash list -------------------------------------------------
+    ImGui::BeginChild("##splash_list", ImVec2(scaled(210), 0),
+                      ImGuiChildFlags_Borders);
+    if (ImGui::Button("+ Add splash (PNG)...", ImVec2(-1, 0))) {
+        std::vector<HudImage> tmp;
+        const int i = importHudImageInto(tmp);
+        if (i >= 0) {
+            SplashScreen s;
+            s.name = tmp[i].name.empty() ? "splash" : tmp[i].name;
+            s.image = tmp[i];
+            s.image.pos[0] = 0.5f;
+            s.image.pos[1] = 0.5f;
+            s.image.size[0] = 512.0f;  // default fullscreen stretch
+            s.image.size[1] = 448.0f;
+            splashes.push_back(std::move(s));
+            selectedSplash_ = (int)splashes.size() - 1;
+            changed = true;
+        }
+    }
+    ImGui::Separator();
+    for (int i = 0; i < (int)splashes.size(); ++i) {
+        ImGui::PushID(i);
+        char label[96];
+        std::snprintf(label, sizeof(label), "%d. %s  (%.1fs)", i + 1,
+                      splashes[i].name.c_str(), splashes[i].duration);
+        if (ImGui::Selectable(label, selectedSplash_ == i)) selectedSplash_ = i;
+        ImGui::PopID();
+    }
+    if (splashes.empty())
+        ImGui::TextDisabled("No splash screens.\nAdd one above.");
+    ImGui::EndChild();
+    ImGui::SameLine();
+
+    // --- right: selected splash properties ---------------------------------
+    ImGui::BeginChild("##splash_props", ImVec2(0, 0));
+    if (selectedSplash_ >= 0 && selectedSplash_ < (int)splashes.size()) {
+        SplashScreen& s = splashes[selectedSplash_];
+        char nameBuf[64];
+        std::snprintf(nameBuf, sizeof(nameBuf), "%s", s.name.c_str());
+        ImGui::SetNextItemWidth(scaled(160));
+        if (ImGui::InputText("Name##splash", nameBuf, sizeof(nameBuf)))
+            s.name = nameBuf;
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SetNextItemWidth(scaled(160));
+        if (ImGui::DragFloat("Duration (s)", &s.duration, 0.05f, 0.1f, 10.0f, "%.1f"))
+            s.duration =
+                s.duration < 0.1f ? 0.1f : (s.duration > 10.0f ? 10.0f : s.duration);
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::ColorEdit3("Background##splash", s.bgColor,
+                              ImGuiColorEditFlags_NoInputs))
+            changed = true;
+        ImGui::DragFloat2("Size (px)##splash", s.image.size, 1.0f, 1.0f, 512.0f, "%.0f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat2("Position##splash", s.image.pos, 0.005f, 0.0f, 1.0f, "%.3f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        changed |= hudBakeControls(s.image);
+
+        // Structural actions last (they invalidate `s`), each returns cleanly.
+        ImGui::Spacing();
+        ImGui::BeginDisabled(selectedSplash_ == 0);
+        if (ImGui::SmallButton("Move up")) {
+            std::swap(splashes[selectedSplash_], splashes[selectedSplash_ - 1]);
+            --selectedSplash_;
+            ImGui::EndDisabled();
+            ImGui::EndChild();
+            ImGui::EndChild();
+            return true;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::BeginDisabled(selectedSplash_ >= (int)splashes.size() - 1);
+        if (ImGui::SmallButton("Move down")) {
+            std::swap(splashes[selectedSplash_], splashes[selectedSplash_ + 1]);
+            ++selectedSplash_;
+            ImGui::EndDisabled();
+            ImGui::EndChild();
+            ImGui::EndChild();
+            return true;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Change image...")) {
+            std::vector<HudImage> tmp;
+            const int i = importHudImageInto(tmp);
+            if (i >= 0) {
+                s.image.imagePath = tmp[i].imagePath;
+                changed = true;
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Delete")) {
+            splashes.erase(splashes.begin() + selectedSplash_);
+            selectedSplash_ = -1;
+            ImGui::EndChild();
+            ImGui::EndChild();
+            return true;
+        }
+    } else {
+        ImGui::TextDisabled("Select a splash on the left, or add one.");
+    }
+    ImGui::EndChild();  // props
+    ImGui::EndChild();  // body
+    return changed;
+}
+
+void App::drawLoadingScreenWindow() {
+    if (!showLoadingEditor_ || !hasProject_) return;
+
+    ImGui::SetNextWindowSize(ImVec2(scaled(780), scaled(760)),
+                             ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Loading Screens", &showLoadingEditor_)) {
+        ImGui::End();
+        return;
+    }
+
+    bool changed = false;
+    auto& screens = project_.loadingScreens;
+    if (selectedLoadingScreen_ >= (int)screens.size()) selectedLoadingScreen_ = -1;
+
+    changed |= drawSplashSection();
+
+    const float previewH = scaled(360);
+    ImGui::BeginChild("##ls_top", ImVec2(0, -(previewH + scaled(34))));
+
+    // --- left: screen list -------------------------------------------------
+    ImGui::BeginChild("##ls_list", ImVec2(scaled(170), 0), ImGuiChildFlags_Borders);
+    if (ImGui::Button("+ New screen", ImVec2(-1, 0))) {
+        int counter = 0;
+        std::string name;
+        for (;;) {
+            name = "loading-" + std::to_string(++counter);
+            bool taken = false;
+            for (const auto& s : screens) taken |= (s.name == name);
+            if (!taken) break;
+        }
+        LoadingScreenDef s;
+        s.name = name;
+        screens.push_back(std::move(s));
+        selectedLoadingScreen_ = (int)screens.size() - 1;
+        lsSelKind_ = 0;
+        lsSelIdx_ = -1;
+        changed = true;
+    }
+    ImGui::Separator();
+    for (int i = 0; i < (int)screens.size(); ++i) {
+        ImGui::PushID(i);
+        std::string tag = screens[i].name;
+        if (project_.defaultLoadingScreen == i) tag += "  [default]";
+        if (ImGui::Selectable(tag.c_str(), selectedLoadingScreen_ == i)) {
+            selectedLoadingScreen_ = i;
+            lsSelKind_ = 0;
+            lsSelIdx_ = -1;
+        }
+        ImGui::PopID();
+    }
+    if (screens.empty())
+        ImGui::TextDisabled("No screens yet.\n\nScenes with none use\n"
+                            "the built-in loading.png\non black.");
+    ImGui::EndChild();
+    ImGui::SameLine();
+
+    if (selectedLoadingScreen_ < 0 || selectedLoadingScreen_ >= (int)screens.size()) {
+        ImGui::BeginChild("##ls_none", ImVec2(0, 0));
+        ImGui::TextDisabled("Select a loading screen on the left (or create one).");
+        ImGui::TextDisabled("\nUse loading screens by:");
+        ImGui::BulletText("marking one \"Default at game start\"");
+        ImGui::BulletText("picking one per scene in Scene > Preferences");
+        ImGui::TextDisabled(
+            "\nThe master toggle is Project > Preferences >\n"
+            "\"Loading screen between scenes\".");
+        ImGui::EndChild();
+        ImGui::EndChild();  // ls_top
+        if (changed) saveAll("Saved");
+        ImGui::End();
+        return;
+    }
+    LoadingScreenDef& ls = screens[selectedLoadingScreen_];
+
+    // --- middle: screen header + element stack -----------------------------
+    ImGui::BeginChild("##ls_stack", ImVec2(scaled(210), 0), ImGuiChildFlags_Borders);
+    {
+        char nameBuf[64];
+        std::snprintf(nameBuf, sizeof(nameBuf), "%s", ls.name.c_str());
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::InputText("##lsname", nameBuf, sizeof(nameBuf))) {
+            // Keep per-scene references pointing at the renamed screen.
+            for (SceneData& sc : project_.scenes)
+                if (sc.loadingScreen == ls.name) sc.loadingScreen = nameBuf;
+            ls.name = nameBuf;
+        }
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+    }
+    if (ImGui::SmallButton("Duplicate")) {
+        LoadingScreenDef copy = ls;
+        std::string base = copy.name;
+        for (int n = 2;; ++n) {
+            copy.name = base + "-" + std::to_string(n);
+            bool taken = false;
+            for (const auto& o : screens) taken |= (o.name == copy.name);
+            if (!taken) break;
+        }
+        screens.push_back(std::move(copy));
+        selectedLoadingScreen_ = (int)screens.size() - 1;
+        changed = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Delete screen")) {
+        const std::string gone = ls.name;
+        for (SceneData& sc : project_.scenes)
+            if (sc.loadingScreen == gone) sc.loadingScreen.clear();
+        if (project_.defaultLoadingScreen == selectedLoadingScreen_)
+            project_.defaultLoadingScreen = -1;
+        else if (project_.defaultLoadingScreen > selectedLoadingScreen_)
+            --project_.defaultLoadingScreen;
+        screens.erase(screens.begin() + selectedLoadingScreen_);
+        selectedLoadingScreen_ = -1;
+        ImGui::EndChild();       // ls_stack
+        ImGui::EndChild();       // ls_top
+        saveAll("Saved");
+        ImGui::End();
+        return;
+    }
+    bool isDefault = project_.defaultLoadingScreen == selectedLoadingScreen_;
+    if (ImGui::Checkbox("Default at game start", &isDefault)) {
+        project_.defaultLoadingScreen = isDefault ? selectedLoadingScreen_ : -1;
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Scenes that don't pick a screen use this one.");
+    if (ImGui::ColorEdit3("Background", ls.bgColor,
+                          ImGuiColorEditFlags_NoInputs))
+        changed = true;
+
+    ImGui::SeparatorText("Images");
+    for (int i = 0; i < (int)ls.images.size(); ++i) {
+        ImGui::PushID(1000 + i);
+        const bool sel = lsSelKind_ == 0 && lsSelIdx_ == i;
+        std::string label = ls.images[i].name.empty() ? "(image)" : ls.images[i].name;
+        if (ImGui::Selectable(label.c_str(), sel)) { lsSelKind_ = 0; lsSelIdx_ = i; }
+        ImGui::PopID();
+    }
+    if (ImGui::SmallButton("+ Import image (PNG)...")) {
+        const int i = importHudImageInto(ls.images);
+        if (i >= 0) { lsSelKind_ = 0; lsSelIdx_ = i; changed = true; }
+    }
+
+    ImGui::SeparatorText("Texts");
+    for (int i = 0; i < (int)ls.texts.size(); ++i) {
+        ImGui::PushID(2000 + i);
+        const bool sel = lsSelKind_ == 1 && lsSelIdx_ == i;
+        if (ImGui::Selectable(ls.texts[i].name.c_str(), sel)) {
+            lsSelKind_ = 1;
+            lsSelIdx_ = i;
+        }
+        ImGui::PopID();
+    }
+    if (ImGui::SmallButton("+ Add text")) {
+        HudText t;
+        int counter = 0;
+        for (;;) {
+            t.name = "text-" + std::to_string(++counter);
+            bool taken = false;
+            for (const auto& o : ls.texts) taken |= (o.name == t.name);
+            if (!taken) break;
+        }
+        ls.texts.push_back(std::move(t));
+        lsSelKind_ = 1;
+        lsSelIdx_ = (int)ls.texts.size() - 1;
+        changed = true;
+    }
+
+    ImGui::SeparatorText("Progress bars");
+    for (int i = 0; i < (int)ls.bars.size(); ++i) {
+        ImGui::PushID(3000 + i);
+        const bool sel = lsSelKind_ == 2 && lsSelIdx_ == i;
+        if (ImGui::Selectable(ls.bars[i].name.c_str(), sel)) {
+            lsSelKind_ = 2;
+            lsSelIdx_ = i;
+        }
+        ImGui::PopID();
+    }
+    if (ImGui::SmallButton("+ Add bar")) {
+        LoadingBar b;
+        int counter = 0;
+        for (;;) {
+            b.name = "bar-" + std::to_string(++counter);
+            bool taken = false;
+            for (const auto& o : ls.bars) taken |= (o.name == b.name);
+            if (!taken) break;
+        }
+        ls.bars.push_back(std::move(b));
+        lsSelKind_ = 2;
+        lsSelIdx_ = (int)ls.bars.size() - 1;
+        changed = true;
+    }
+    ImGui::EndChild();  // ls_stack
+    ImGui::SameLine();
+
+    // --- right: selected element properties --------------------------------
+    ImGui::BeginChild("##ls_props", ImVec2(0, 0));
+    if (lsSelKind_ == 0 && lsSelIdx_ >= 0 && lsSelIdx_ < (int)ls.images.size()) {
+        HudImage& h = ls.images[lsSelIdx_];
+        ImGui::SeparatorText(h.name.empty() ? "Image" : h.name.c_str());
+        ImGui::DragFloat2("Position##lsimg", h.pos, 0.005f, 0.0f, 1.0f, "%.3f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat2("Size (px)##lsimg", h.size, 1.0f, 1.0f, 512.0f, "%.0f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        changed |= hudBakeControls(h);
+        ImGui::Spacing();
+        if (ImGui::Button("Delete image")) {
+            ls.images.erase(ls.images.begin() + lsSelIdx_);
+            lsSelIdx_ = -1;
+            changed = true;
+        }
+    } else if (lsSelKind_ == 1 && lsSelIdx_ >= 0 &&
+               lsSelIdx_ < (int)ls.texts.size()) {
+        HudText& t = ls.texts[lsSelIdx_];
+        ImGui::SeparatorText(t.name.c_str());
+        {
+            char nameBuf[64];
+            std::snprintf(nameBuf, sizeof(nameBuf), "%s", t.name.c_str());
+            ImGui::SetNextItemWidth(scaled(160));
+            if (ImGui::InputText("Name##lstext", nameBuf, sizeof(nameBuf)))
+                t.name = nameBuf;
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        {
+            char textBuf[512];
+            std::snprintf(textBuf, sizeof(textBuf), "%s", t.text.c_str());
+            if (ImGui::InputTextMultiline("Text##lstext", textBuf, sizeof(textBuf),
+                                          ImVec2(-1.0f, scaled(70))))
+                t.text = textBuf;
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        changed |= fontCombo(t.fontPath);
+        ImGui::SetNextItemWidth(scaled(120));
+        if (ImGui::DragInt("Font size##lstext", &t.size, 0.2f, 8, 48, "%d px"))
+            t.size = t.size < 8 ? 8 : t.size > 48 ? 48 : t.size;
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::ColorEdit3("Color##lstext", t.color, ImGuiColorEditFlags_NoInputs))
+            changed = true;
+        ImGui::DragFloat2("Position##lstext", t.pos, 0.005f, 0.0f, 1.0f, "%.3f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::Checkbox("Drop shadow##lstext", &t.shadow)) changed = true;
+        ImGui::Spacing();
+        if (ImGui::Button("Delete text")) {
+            ls.texts.erase(ls.texts.begin() + lsSelIdx_);
+            lsSelIdx_ = -1;
+            changed = true;
+        }
+    } else if (lsSelKind_ == 2 && lsSelIdx_ >= 0 &&
+               lsSelIdx_ < (int)ls.bars.size()) {
+        LoadingBar& b = ls.bars[lsSelIdx_];
+        ImGui::SeparatorText(b.name.c_str());
+        {
+            char nameBuf[64];
+            std::snprintf(nameBuf, sizeof(nameBuf), "%s", b.name.c_str());
+            ImGui::SetNextItemWidth(scaled(160));
+            if (ImGui::InputText("Name##lsbar", nameBuf, sizeof(nameBuf)))
+                b.name = nameBuf;
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        changed |= loadingBarControls(b);
+        ImGui::Spacing();
+        if (ImGui::Button("Delete bar")) {
+            ls.bars.erase(ls.bars.begin() + lsSelIdx_);
+            lsSelIdx_ = -1;
+            changed = true;
+        }
+    } else {
+        ImGui::TextDisabled("Select an element on the left,\nor add one.");
+    }
+    ImGui::EndChild();  // ls_props
+
+    ImGui::EndChild();  // ls_top
+
+    // --- preview + progress slider -----------------------------------------
+    ImGui::SetNextItemWidth(scaled(240));
+    ImGui::SliderFloat("Preview progress", &lsPreviewProgress_, 0.0f, 1.0f, "%.2f");
+    ImGui::SameLine();
+    ImGui::TextDisabled("(simulated load fraction)");
+    drawLoadingPreview(ls, lsPreviewProgress_);
+
+    if (changed) saveAll("Saved");  // project-wide data, outside undo
     ImGui::End();
 }
 
@@ -11036,8 +11611,14 @@ void App::drawPreferencesModal() {
     ImGui::SeparatorText("Scenes");
     ImGui::Checkbox("Loading screen between scenes", &prefSettings_.loadingScreen);
     ImGui::TextDisabled(
-        "Scene switches show res/hud/loading.png centered on black for ~0.7s.\n"
-        "A placeholder is generated - replace the file to customize it.");
+        "Master switch: shows a loading screen while a scene loads (also at\n"
+        "boot). Design them in Tools > Loading Screens - each scene picks one\n"
+        "(Scene > Preferences), or a project default is used; with none, a\n"
+        "built-in loading.png on black is shown.");
+    if (ImGui::Button("Open Loading Screens editor")) {
+        showLoadingEditor_ = true;
+        ImGui::CloseCurrentPopup();
+    }
 
     ImGui::SeparatorText("Usable objects");
     ImGui::Checkbox("Highlight usable objects", &prefSettings_.highlightUsable);
@@ -11081,6 +11662,41 @@ void App::drawPreferencesModal() {
         "Analog stick offsets below this fraction read as zero. Raise it when\n"
         "a worn pad drifts (left = movement, right = camera); motion above the\n"
         "deadzone ramps smoothly, so higher values only cost range, not control.");
+
+    // Response curve per stick, applied after the deadzone: Linear passes the
+    // rescaled magnitude through; Exponential/S-Curve reshape it (the exponent
+    // tunes how much). The plot previews deflection (x) -> output (y). These
+    // are project-wide defaults; a flow graph can change them live with the
+    // Set Stick Curve node.
+    const char* curveNames[] = {"Linear", "Exponential", "S-Curve"};
+    auto stickCurveUi = [&](const char* label, int& curve, float& exponent) {
+        ImGui::PushID(label);
+        if (curve < 0 || curve > 2) curve = 0;
+        ImGui::Combo(label, &curve, curveNames, 3);
+        if (curve != 0) {
+            ImGui::SliderFloat("Exponent", &exponent, 1.0f, 6.0f, "%.2f");
+            if (exponent < 1.0f) exponent = 1.0f;
+        }
+        float samples[48];
+        for (int i = 0; i < 48; ++i) {
+            float m = i / 47.0f;
+            if (curve == 1) {
+                m = powf(m, exponent);
+            } else if (curve == 2) {
+                const float s = m * m * (3.0f - 2.0f * m);
+                m = exponent == 1.0f ? s : powf(s, exponent);
+            }
+            samples[i] = m;
+        }
+        ImGui::PlotLines("##curvePreview", samples, 48, 0, nullptr, 0.0f, 1.0f,
+                         ImVec2(0, scaled(46)));
+        ImGui::PopID();
+    };
+    stickCurveUi("Left stick curve", prefSettings_.stickCurveL, prefSettings_.stickExpL);
+    stickCurveUi("Right stick curve", prefSettings_.stickCurveR, prefSettings_.stickExpR);
+    ImGui::TextDisabled(
+        "Exponential is gentle near center and snappy at the edge (aiming);\n"
+        "S-Curve eases in and out. Higher exponent = more pronounced.");
 
     ImGui::SeparatorText("Physics");
     ImGui::DragFloat("Gravity (units/s^2)", &prefSettings_.gravity, 0.1f, 0.0f, 100.0f,
@@ -11273,6 +11889,7 @@ void App::openScenePreferences() {
     scenePrefSettings_ = project::resolvedSettings(project_, project_.active());
     scenePrefOverrides_ = project_.active().overrides;
     scenePrefAmbience_ = project_.active().ambiencePreset;
+    scenePrefLoading_ = project_.active().loadingScreen;
     openScenePrefsPopup_ = true;
 }
 
@@ -11343,6 +11960,33 @@ void App::drawScenePreferencesModal() {
             ImGui::TextDisabled("Author presets in Tools > Ambience Editor.");
     }
 
+    // Loading screen shown while this scene loads. Empty = the project default.
+    ImGui::SeparatorText("Loading screen");
+    {
+        const char* cur =
+            scenePrefLoading_.empty()
+                ? (project_.defaultLoadingScreen >= 0 ? "<default>" : "<built-in>")
+                : scenePrefLoading_.c_str();
+        if (ImGui::BeginCombo("Screen", cur)) {
+            const char* dflt =
+                project_.defaultLoadingScreen >= 0 &&
+                        project_.defaultLoadingScreen <
+                            (int)project_.loadingScreens.size()
+                    ? project_.loadingScreens[project_.defaultLoadingScreen]
+                          .name.c_str()
+                    : nullptr;
+            std::string dfltLabel =
+                dflt ? std::string("<default> (") + dflt + ")" : "<default>";
+            if (ImGui::Selectable(dfltLabel.c_str(), scenePrefLoading_.empty()))
+                scenePrefLoading_.clear();
+            for (const LoadingScreenDef& ld : project_.loadingScreens)
+                if (ImGui::Selectable(ld.name.c_str(), ld.name == scenePrefLoading_))
+                    scenePrefLoading_ = ld.name;
+            ImGui::EndCombo();
+        }
+        ImGui::TextDisabled("Author screens in Tools > Loading Screens.");
+    }
+
     category("Clipping", ov.clipping, [&] {
         int clipMode = s.clipping == "fast" ? 1 : 0;
         const char* clipNames[] = {
@@ -11377,6 +12021,7 @@ void App::drawScenePreferencesModal() {
         sc.settings = scenePrefSettings_;
         sc.overrides = scenePrefOverrides_;
         sc.ambiencePreset = scenePrefAmbience_;
+        sc.loadingScreen = scenePrefLoading_;
         applyProjectToViewport();
         commitChange();
         ImGui::CloseCurrentPopup();

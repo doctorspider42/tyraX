@@ -152,6 +152,19 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
   texture allocation (they lazily re-upload) — never call it mid-frame.
   The projection aspect lives in `RendererSettings::updateGeometry`
   (fixed 4:3-baseline look; widescreen scales it anamorphically).
+- **`endFrame` only throttles when it renders.** It calls `graph_wait_vsync()`
+  (gated by `isFrameLimitOn`, default true) then flips buffers — so a loop that
+  presents a frame each iteration is paced to 50/60 Hz, but a loop that draws
+  *nothing* (no `beginFrame`/`endFrame`) is not, and PCSX2 races the EE ahead of
+  the display. Consequence for timed holds: a COP0-`Count`-based wait (294.912
+  MHz) measures wall time correctly **only while frames are being drawn**; a
+  no-draw busy-wait finishes in a fraction of the intended time. This is why the
+  boot Tyra splash (`info/banner.cpp`) holds ~2s by re-rendering the logo in a
+  COP0-timed loop rather than sleeping — re-drawing is also required because
+  `beginFrame` clears the framebuffer, so you cannot "hold" a previous frame by
+  doing nothing. The generated games' boot sequence relies on the same fact:
+  the first `loadScene` runs from the loop (not `init()`) so its loading-screen
+  progress is vsync-paced (see the editor's loading-screen feature).
 
 **Audio**
 - audsrv streams PCM only; ADPCM is for one-shots (`adpcm.tryPlay`), and ADPCM
