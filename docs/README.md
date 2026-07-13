@@ -24,6 +24,10 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
 
 Developer design docs (internals, not user guides):
 
+- [Profiling the generated game](profiling.md) - the built-in debug frame
+  profiler (per-phase EE time), and the manual COP0/HUD deep-dive technique
+  behind it (deterministic camera orbit, in-run A/B, engine-side counters)
+  with the gotchas from the usable-highlight investigation.
 - [VU1 clipping plan](vu1-clipping-plan.md) - measured EE-clipper cost on
   real hardware (2026-07-11) and the design + milestones for moving StaPip
   clipping into a VU1 microprogram.

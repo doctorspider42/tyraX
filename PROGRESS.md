@@ -9,6 +9,474 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (71) **Phone camera takes — record a real 6DoF camera move on an iPhone
+  (ARKit) and import it as Cutscene Director camera keys.** "Walk around a
+  room looking around" becomes a PS2 cutscene camera move; the PS2 runtime
+  needed zero changes (imported takes are ordinary free camera shots).
+  **Module** (`src/camtake.hpp/.cpp`, new — no ImGui deps, links into host
+  harnesses like project/templates): `CamTake` (samples: time, position in
+  meters, quaternion, optional FOV; canonical space = the ARKit convention,
+  right-handed Y-up, camera looks local −Z — which matches the game world's
+  axes, so mapping is scale/yaw/origin only). Deliberate two-stage split for
+  phase 2 (live Wi-Fi/USB pose streaming): *acquisition* (loaders → CamTake)
+  vs *bake* (`bakeCamTake`: pure function of take + mapping, callable on a
+  growing buffer). **Loaders:** CamTrackAR `.hfcs` (FXhome iPhone app; plain
+  XML read with a minimal in-file XML subset reader — positions are HitFilm
+  "pixels" / 2.8352 / 1000, orientation eulers negated back and applied ZYX,
+  FOV from the zoom channel `2·atan(0.5·H/zoom)`, times = frame/FrameRate,
+  semantics from FXhome's official Blender importer) and an app-agnostic CSV
+  (`t,px,py,pz,qx,qy,qz,qw[,fov]` — spec in `docs/camera-takes.md`, a direct
+  ARKit `camera.transform` dump). **Bake:** eye = origin + yaw(pos−pos₀)·scale,
+  look-at 2 m ahead along the sample's view direction (roll has no
+  representation in eye/look-at keys and is dropped), then time-parameterized
+  Ramer–Douglas–Peucker decimation over the (eye, look-at) curve with a
+  world-units tolerance — the PS2 tables in `sequences.gen.cpp` grow with
+  every key, so a 60 Hz take must shrink ~100×. All keys linear easing; FOV =
+  take average. **UI:** "Import take..." (button by the Cutscene Director
+  transport + the camera-lane context menu) → file pick → modal with
+  scale/yaw/origin (defaults to the preview camera, "From view")/
+  start-at-playhead/tolerance controls, a live samples→keys readout,
+  replace-vs-append radio; one `commitChange()` per import; camera track
+  auto-enabled, sequence duration extended to fit. **The empirical
+  gotcha** (the reason the axis mapping was tested against a real take): the
+  Blender importer's `axis_conversion(from_forward='Z', ...)` suggests
+  HitFilm cameras look +Z, but the script assigns the rotation to a *Blender*
+  camera, which films down local −Z — so the decoded orientation is already
+  the canonical −Z-forward rotation, no flip. First build used the +Z reading
+  and PCSX2 showed only sky: the take pitched 37–65° *up*; with −Z it pitches
+  37–65° *down* (a phone picked up off a desk — the only physically possible
+  reading, a face-down phone can't track). Verified: a scratch harness
+  (linked against the editor's objects) loads the real user-recorded take
+  (`sample-take.hfcs`, 395 samples @ 60 Hz, 6.57 s, FOV 56.4°) → **12 keys**
+  at the default 0.05 u tolerance with the interpolated path staying within
+  tolerance of every original sample (also: a synthetic walk-+X-looking-+X
+  CSV take comes out walking +X and decimates to exactly 2 keys; a 20 s
+  60 Hz circle-walk take with sinusoidal look-around → 96 keys, error bound
+  holds; scale/yaw/origin/time-offset mapping asserts; a hand-written
+  mini .hfcs pins px→m, FOV and the identity orientation). E2E: injected the
+  baked take + landmark boxes + OnStart→Play Sequence into a scratch project
+  (`%TEMP%\tyra-editor-test\camtake`), `sequences.gen.cpp` stayed at 13 KB
+  (12-key table), Docker build OK, **PCSX2 booted it** and screenshots at
+  three moments show the camera panning across the boxes/terrain along the
+  handheld path. The import modal itself compiles + is wired, but its
+  click-through (file dialog → sliders → Import) still needs a hands-on
+  human pass.
+
+  **Import into a chosen Camera entity + post-import adjust** (user request).
+  The import modal's new **Import as** selector targets either *free camera
+  shots* (as before) or a **Camera entity**: the take is baked into that
+  entity's transform track (position = eye, rotation = the Euler whose +Z lens
+  points along the recorded view — `seqEulerFromForward`, the exact inverse of
+  the runtime `seqCameraForward`), the entity's FOV is set from the take, and a
+  bound camera-lane key is added so it dollies along the path. So **two cameras
+  in one scene each carry their own recording** and you cut between them on the
+  camera lane. No PS2 runtime change — an entity track filmed by a bound shot
+  already runs on hardware (cutscene-demo's cam-dolly). After importing, the
+  take + mapping stay loaded and an **Adjust imported take** section (Start
+  point / Start yaw / Scale) re-bakes the same target in place, so the whole
+  path can be re-positioned and re-oriented without re-importing.
+  `App::applyCamTake()` is the shared apply used by both Import and the live
+  adjust. Verified: editor builds clean; a host harness loads the **real**
+  sample `.hfcs` (395 samples → 15 keys, FOV 56°), bakes it and confirms the
+  Euler round-trip `seqCameraForward(seqEulerFromForward(dir))` matches the
+  recorded view within **0.02°** across every key, with the first eye landing
+  exactly on the chosen origin — so a bound shot films precisely along the
+  take. The modal + adjust widgets compile and mirror the verified free-import
+  flow; their click-through still wants a human pass.
+
+  **Preview polish** (user request). (a) The camera you preview *through* now
+  hides its own model + FOV frustum, so its body no longer sits on the near
+  plane and fills the frame: `Viewport::setHiddenCameras()` skips them in both
+  the scene pass and the frustum loop, driven from the two preview paths (the
+  single look-through camera, or every camera the active cutscene shot films
+  from). (b) **Space** toggles play/stop while the Cutscene Director is focused
+  (gated on `!WantTextInput && !IsAnyItemActive` so it doesn't double-fire with
+  a focused button or fight a text field). Verified: editor builds clean and
+  runs on cutscene-demo with the three cameras still drawing normally in
+  "View: Free" (no regression); the hide-on-preview and the Space toggle are
+  interactive, so their live feel wants the user's hands-on pass.
+
+  **Three fixes** (user report). (a) **Preview off now still animates:**
+  `cutscenePosedObjects()` gated *all* posing on `seqPreview_`, so unchecking
+  "Preview in viewport" froze the scene. Posing is now unconditional while the
+  Director is open on a sequence; `seqPreview_` only gates driving the viewport
+  camera + the bars/fade overlay - so with it off, a Camera entity still dollies
+  along its track and you watch from a free vantage point. (b) **Keyframe
+  dragging works:** the dopesheet's per-lane hit rectangle was submitted before
+  the key diamonds without `SetNextItemAllowOverlap()`, so ImGui's
+  `ItemHoverable` blocked the keys (`HoveredId` claimed by the lane) and they
+  never became active - dragging did nothing. Marking the lane allow-overlap
+  lets the diamonds on top catch the mouse (drag to retime, as the cursor +
+  tooltip already advertised). (c) **Ctrl + mouse wheel zooms the timeline**
+  over the dopesheet (mirrors the flow-graph zoom), consuming the wheel so it
+  doesn't also scroll; the Zoom slider tooltips it. Verified: editor builds
+  clean and runs on cutscene-demo; the three are interactive, so their live
+  feel wants the user's pass.
+
+  **"From view" now aims, not just positions** (user request). The take-import
+  "From view" button (import modal + Adjust section, and the on-load default)
+  set only the mapping origin; now `App::takeOriginAimFromView()` also sets the
+  mapping yaw = viewHeading − `camTakeInitialYawDeg(take)`, so the recorded
+  path's first sample looks where the editor camera looks - frame the shot in
+  the viewport, hit From view, the take is aimed there. Verified with a host
+  harness on the real sample `.hfcs`: for five chosen view headings the baked
+  first key's heading matches the target to **0.000°**.
+
+  **Two import fixes** (user report). (a) **Scale was ~8× too small:** the
+  `.hfcs` px→m conversion divided by `PixelsPerMM·1000` where FXhome's own
+  Blender importer *multiplies* by `PixelsPerMM/1000` — so a real metre walked
+  came out a few centimetres in the game. Now `meters = px * 2.8352 / 1000`
+  matching FXhome, so *Scale* 1 ≈ 1 unit per real metre; the sample take's
+  travel goes from ~0.14 m to a plausible **1.13 m**. (b) **Sudden 180/360
+  whip after import:** baking a take into a Camera entity's rotation track
+  emitted Euler angles that wrap at ±180, so a pan crossing 180° (170 → −175)
+  made the linear rotation interp spin the long way. The baker now unwraps each
+  Euler channel to stay continuous with the previous key — a harness on the
+  real take confirms the max consecutive delta drops from a possible ~345° to
+  **14.5°**. Both verified by host harness; editor builds clean.
+
+  **Camera shots always bind to a Camera entity** (user request - the free vs
+  bound choice muddied "what do I use?"). The camera lane no longer authors
+  "free" shots (a snapshot of the editor view): the key inspector's *Shot
+  from* is a cameras-only picker, adding a shot ([+] / double-click / menu)
+  binds to the active camera (looked-through → selected → the scene's only
+  camera) and no-ops with a hint when the scene has none, and *Import take* is
+  *Into camera* (the free option removed, Import disabled until a camera is
+  picked). So the workflow is: place + aim Camera entities in the scene, then
+  the lane just says which camera films when. Legacy free keys from older
+  projects still play (the runtime keeps the stored eye/look-at fallback) and
+  show as diamonds, but the UI nudges you to bind them. Editor builds clean;
+  interactive, so the feel wants the user's pass.
+
+  **cutscene-demo upgraded to a full showcase** (all shots now camera-bound to
+  match the model). Grew from 3 to **5 camera entities**; the two ex-free
+  shots became `cam-hero` (low angle) and `cam-crane`, and `cam-crane` now
+  **cranes on its own object track** (pos + rot, staying aimed) — so the demo
+  has *two* moving cameras (dolly + crane), a Step-cut montage plus one
+  **Smooth blend** (cam-hero → cam-crane), and a new `obelisk` **scale +
+  colour** track (it swells gold→orange) alongside the existing pos/rot and
+  visibility tracks — every object-track channel is now exercised. Bars use a
+  visible 0.6 s/1.0 s slide. Verified: headless Docker `--build` of the
+  hand-edited `.tyra` compiled (JSON + codegen valid) and **PCSX2 ran it at 50
+  FPS** — screenshots show the orange swollen obelisk, firing sparks, risen
+  hero and cinema bars.
+- (79) **Tool windows scale their layout with the UI scale (fix 250% clipping)** —
+  the floating Tools windows (Menu Editor, Material Editor, Color Grading,
+  Ambience, UI Editor, Disc Layout, Cutscene Director) and the modal dialogs
+  baked their widget widths, child-region sizes, `SameLine`/`Indent` offsets and
+  preview sizes as raw pixel literals. `applyUiScale()` scales fonts (`FontScaleMain`) and style
+  spacing (`ScaleAllSizes`) but not code literals, so at 250% (a 4K laptop the
+  user actually runs) combos and inputs were too narrow for the 2.5×-tall text —
+  "apply a preset…" showed "apply a", "256 px" showed "25(", the entry action
+  combos clipped to "Close"/"Continu", and the panel preview was a postage stamp.
+  Added `App::scaled(px)` (= `px * uiScaleApplied_`) and routed every literal
+  layout size in those windows through it (window `SetNextWindowSize`, the
+  `##*_list` child widths, all `SetNextItemWidth`, absolute `SameLine`/`Indent`,
+  the menu 1:1/TV preview sizes and clamps, the disc table column widths, and the
+  short-label dialog buttons `ImVec2(120/140, 0)`); `gradingWheel()` took a
+  `scale` param so the two Resolve-style trackballs scale too. The Cutscene
+  Director (which merged in from main mid-PR) got the full treatment including
+  its hand-drawn dopesheet canvas - the lane height / ruler height / label-column
+  width and the per-element offsets (key-diamond radius + hit padding, playhead
+  triangle, pinned-label text positions, channel-letter spacing, tick-label
+  crowding threshold) all route through `scaled()`. This finishes the job the UI
+  Editor had already done inline (its 3 sites now use the helper).
+  Verified at the user's real 250% scale by scripting the GUI (DPI-aware screen
+  capture + synthetic clicks/scroll): the Menu Editor shows every field in full
+  and a properly sized baked-panel preview (MENU / Continue / Sound·Off /
+  Difficulty·Low / Start Game); Color Grading renders its quick-look buttons and
+  both hue wheels side by side; the Cutscene Director lays out its whole
+  transport row, dopesheet (ruler ticks, "[*] Camera (2)" lane label, key
+  diamonds + retime tooltip, playhead) and Key inspector without clipping.
+  Editor builds clean.
+- (79) **StaPip partial-frustum cost: save points tessellated as detail-16
+  boxes (9.2k verts) + pooled packager arrays** — follow-up to the PCSX2
+  observation from the usable-highlight session: even with highlighting off,
+  the showcase spent 12-14 ms of EE per frame inside `StaPipCore::render`'s
+  PARTIALLY_IN_FRUSTUM branch (~160 EE-clipper calls) on views with the save
+  shrine + trees near the camera. Measured first (recipe from the clipbench
+  notes: COP0 counters in the engine around the partial/full branches,
+  `packager.create` and clip/cull submissions; owned `terrain_game.cpp` in a
+  scratch copy of examples/showcase with a deterministic orbit camera parked
+  between the campfire and the shrine; PERF line per 50 frames to
+  host:perf.txt; PCSX2 software renderer). **Baseline at the worst angles:
+  66 ms/frame (15 FPS), 36-38 ms in the partial branch = ~285
+  `packager.create` calls producing ~1340 packages (16-17 ms of allocation +
+  per-package bbox classification) plus ~385 EE-clipper submissions
+  (19-20 ms), ~12 partial bags/frame — nearly all of it one object.** Root
+  cause: `SceneObject::primDetail` defaults to 16 and **SavePoint** was never
+  made "box-like" when (61)'s follow-up gave Box its 1/16 default/cap — but
+  the generated game builds SavePoint geometry through the
+  `default: addBox(...)` case, so every save shrine silently tessellated
+  16x16 per face = 3072 tris / **9216 verts** (while the editor viewport drew
+  it as a plain box - the preview never showed the cost). Fix (a), editor:
+  SavePoint is box-like across the chain — `primDetailIsBoxLike()` in
+  project.hpp (default 1, clamp 1..16, box triangle readout), the viewport
+  draws it from the box mesh cache honoring detail, and the Detail slider now
+  shows for SavePoint. Old `.tyra` files carry no `"detail"` key for save
+  points (16 was the emit-suppressed default), so they all load as 1; a
+  shrine's baked point-light gradient flattens — set Detail explicitly if the
+  look is wanted (it is authorable now). Fix (b), engine:
+  `StaPipBagPackager::create` returns pointers into two grow-only pools
+  (bag-level / split-level — the parent array is alive during a split;
+  callers no longer `delete[]`, absent sts/colors/normals are nulled against
+  stale reuse), `renderSubpkgs`' two index vectors are static, and the
+  per-textured-bag `RendererCoreTextureBuffers` heap alloc is a stack struct.
+  Measured attribution on the same orbit: **pooling alone is worth only ~2%**
+  of the partial branch (create cost is the bbox classification math, not the
+  allocator); the detail fix does the rest — **after both, every 50-frame
+  window locks 50 FPS (20.0 ms), partial branch peaks at 8.5 ms avg / 9.6 ms
+  max, EE pre-endFrame <= 10.6 ms, clipper calls max ~93/frame** over 3 full
+  orbits; windows matching the original report (~160 calls) now run ~5-6 ms
+  with ~60 calls. Verified: SW-renderer screenshots healthy mid-orbit (trees,
+  rock, portal, shrine with its usable rim; no pooling artifacts; 50 FPS /
+  100% speed / EE ~38%); examples/showcase regenerated and re-verified with
+  the final de-instrumented engine. Perf logs archived in
+  `%TEMP%\tyra-editor-test\perf-run{1,2,3}*.txt`.
+- (81) **Usable-highlight opacity control** — a per-scene `highlightOpacity`
+  (0..1, *Preferences > Usable objects* + per-scene override) setting the alpha
+  of the **strongest (innermost) shell**; the outer shells keep fading from it
+  (×0.55). Replaces the hardcoded `72/100` start alpha in both
+  `renderHighlightHull` and `buildHighlightApron` with `HIGHLIGHT_OPACITY *
+  128` (128 = PS2 opaque max), so opacity 1 + 1 step = a fully solid outline
+  and low values dial the wash down — the natural knob for the overlay mode's
+  intensity. Default 0.56 preserves the old 4-step look. Full
+  model→JSON→UI→codegen chain (`HIGHLIGHT_OPACITIES` per-scene table +
+  `HIGHLIGHT_OPACITY` macro; operator== + save/load + clamps). **Verified in
+  PCSX2 (SW)**: overlay showcase at opacity 0.25 renders a visibly fainter
+  surface glow than the 0.56 default, 50 FPS unchanged; all five examples
+  regenerated + Docker-built.
+
+- (80) **Debug frame profiler (shippable) + experimental highlight overlay** —
+  two follow-ups to the highlight perf work (79). **(a) Frame profiler**: the
+  ad-hoc COP0/HUD instrumentation used to diagnose the highlight cost is now a
+  real debug option. *Project > Preferences > Build* (debug profile) gains
+  **Show frame profiler** next to Show FPS / Show memory; the generated game
+  draws a per-phase EE-time breakdown (whole FRAME wall-clock / SCENE / HL /
+  PART, avg ms over ~1s) in the top-left. `renderScene` brackets its phases
+  with EE COP0 `mfc0 $9` reads into file-scope counters (`g_profScene/
+  Highlight/Particles`), drawDebugHud averages + prints them; every read is
+  behind the `DEBUG_SHOW_PROFILER` constexpr so a release build (or the option
+  off) contains none of it. HL is the highlight *overhead* only — the deferred
+  bodies are timed into SCENE. New pref `ProjectSettings.showProfiler`
+  (operator== + JSON save/load + `{{DEBUG_SHOW_PROFILER}}` codegen). **(b)
+  Highlight overlay**: experimental per-scene `highlightOverlay` (Preferences >
+  Usable objects + per-scene override, "Draw over object") — the shells drop
+  the eye-pushback (`k = 1`), so each grown shell sits at the object's own
+  depth and its front faces land just in front of the surface: the glow paints
+  ON the object and fades outward into a rim, instead of only a rim behind the
+  silhouette. renderScene draws the overlay body in the main pass (not
+  deferred) and paints the shells over it; rim mode keeps the deferred-body
+  order from (79). New `SceneObjectData`-style per-scene table
+  `HIGHLIGHT_OVERLAYS` + `HIGHLIGHT_OVERLAY` macro; full model→JSON→UI→codegen
+  chain (project + per-scene override). **Verified in PCSX2 (SW renderer)**:
+  showcase with debug profile + both options on — profiler HUD reads
+  `FRAME 22.00 SCENE 12.90 HL 1.46 PART 0.99` at 50 FPS (deterministic orbit
+  near the save shrine); overlay screenshot shows the shrine washed in a yellow
+  surface glow instead of an outline. Profiler-off / overlay-off path (all five
+  examples, regenerated) compiles to ELFs in Docker — both constexpr branches
+  build on the PS2 toolchain. Documented the profiler + the manual deep-dive
+  technique in `docs/profiling.md`. Real-hardware timing unchanged from (79).
+
+- (79) **Usable-highlight perf, round 2: low-detail shell proxy + deferred
+  body draw (no repaint)** — the PR #64 rims still dropped the showcase to
+  ~25 FPS in PCSX2 near a highlighted object. Measured with COP0 phase
+  timers in an owned terrain_game.cpp plus temporary counters inside the
+  engine's StaPipCore (deterministic camera orbit around the save shrine,
+  250-frame A/B windows, on-screen HUD readout): the highlight pass alone
+  was 25 ms of EE time, all of it in the PARTIALLY_IN_FRUSTUM branch of
+  `StaPipCore::render` — the shrine is a default-detail-16 box (~9.2k
+  verts), a near object always straddles the frustum, and the effect
+  submitted that mesh 5 extra times per frame (4 shells + repaint), each
+  submit re-running subpackage classification + the EE clipper (~370 clip
+  calls/frame vs ~160 baseline). DMA waits, the bbox cache and the z-test
+  mode were all measured innocent. Fix, all in the generated runtime
+  (templates.cpp): (1) shells now draw a **low-detail proxy** built by
+  `buildHighlightProxy` — primitives re-emit through their own builders
+  with subdivision forced down (boxes/planes/decals: detail 1 — identical
+  silhouette; curved: capped at 12 segments), models concatenate their
+  parts into one array (one submit per shell instead of per part); cached
+  in ObjectGeometry, cleared by rebuildObjectGeometry, own bbox stamp;
+  (2) highlighted-in-reach usables are **deferred out of the main pass**
+  (`highlightInReach`, ≤8 per frame, sorted far-to-near) and their body
+  draws once AFTER their shells — the body erases the shell wash over its
+  own receding faces exactly like the old repaint did, so the second full
+  draw of the mesh is gone; nearer bodies still cover farther rims, and
+  everything else keeps drawing before any rim. **Verified in PCSX2 (SW
+  renderer)**: same instrumented A/B on the rebuilt showcase — highlight
+  render cost fell from ~23 ms to ~1.7 ms per frame (scene+highlight
+  sums 15.7 vs 14.0 ms; whole frame 56 -> 25 ms on the worst-case orbit
+  view), rim/apron/USE visuals unchanged by screenshot comparison against
+  the pre-fix build. All four examples regenerated. Real-PS2 A/B still
+  pending, same as PR #64. Left open: the partial-frustum path itself
+  costs the base scene ~12-14 ms on that view (default primDetail 16
+  everywhere is heavy) — separate backlog item.
+
+- (69) **Cutscene Director — a keyframe timeline sequencer (cinematic cutscenes
+  on the PS2)** — the editor's first full animation-authoring tool. A
+  **Sequence** is a project-wide keyframe timeline that poses scene objects
+  **and the game camera** over time; it is authored by scrubbing a playhead and
+  snapshotting poses, previewed live in the viewport, compiled to a PS2 runtime
+  player, and fired from the flow graph. **Model** (`src/sequence.hpp`, new):
+  `Sequence` (name, duration, loop, cameraEnabled) holds `SeqTrack`s (each binds
+  one object by name + per-channel flags pos/rot/scale/color/visible + a list of
+  `SeqObjectKey` full-pose keyframes) and a camera track (`SeqCameraKey`:
+  eye + look-at + FOV). Each key carries an easing (0 linear / 1 smoothstep /
+  2 step-hold) for its outgoing segment; the shared `seqEase`/`seqSample`
+  helpers are the single source of truth used by both the editor preview and
+  the emitted PS2 code. Sequences are project-wide like the grading/ambience
+  presets — persisted through `save()`, not part of undo/redo. **UI** (Tools >
+  Cutscene Director): sequence list + a timeline with duration/loop/camera
+  toggles, Play/Pause/Rewind transport, a playhead scrubber, per-object tracks
+  (object combo, channel checkboxes, "Set key from object @ playhead", editable
+  key list with easing + Go/Delete) and a camera track ("Set camera key from
+  view @ playhead"). **Viewport scrubbing:** `cutscenePosedObjects()` poses a
+  copy of the active scene's objects at the playhead with the exact
+  `seqSample` interpolation the console runs and hands it to `render()`; a new
+  `Viewport::setCameraOverride(eye, target, fov)` flies the preview camera along
+  the camera track, and `currentCamera()` reads the orbit camera back out to
+  snapshot a camera key. **Codegen:** a new global Script
+  `src/scripts/sequences.gen.cpp` (+ `inc/scripts/sequences.gen.hpp`) compiles
+  the keyframe tables (object names resolved to (scene, runtime object index)
+  here) and, each frame a sequence is active, writes `ctx.objects[i].data.*` +
+  `dirty` and — for a camera track — a new `ScriptContext` camera override
+  (`cameraOverride`/`cameraEye`/`cameraAt`) that both game loops apply to the
+  frame camera right before `beginFrame`. Playback advances by the real frame
+  dt (fixed wall-clock speed PAL/NTSC). **Flow graph:** new **Play Sequence**
+  (SequenceName param) and **Stop Sequence** nodes (category Scene) compile to
+  `sequences::play(index)` / `sequences::stop()`; a `FlowParamKind::SequenceName`
+  combo lists the project's sequences, and renames/deletes remap the nodes like
+  the grading/ambience presets do. `refreshGenerated` always overwrites the two
+  new `.gen` files. Verified: editor builds clean (Layer 0); a save→load
+  round-trip harness (linked against the built objects) round-trips a sequence
+  with object + camera tracks, mixed easings, loop and camera flags
+  byte-for-byte through `operator==`; a scratch fpp project with a `hero` box
+  (OnStart→Play Sequence "Intro") and an Intro sequence (hero pos/rot track +
+  a 2-key camera track) generated the expected tables
+  (`kS0T0K`/`kS0Tracks`/`kS0Cam`, `sequences::play(0)`, the loop's
+  `if (scriptCtx.cameraOverride) { cameraPosition = ...; }`); the full Docker
+  build compiled + linked all generated sources (`sequences.gen.cpp`,
+  `flow_graph.gen.cpp`, `terrain_game.cpp`) into `cutscene.elf` (Layer 3), and
+  **PCSX2 booted it** — two screenshots seconds apart show the cutscene camera
+  framing the red cube from a keyframed angle and, later, from a different angle
+  with the cube risen along +Y (both the camera track and the object track
+  animating live, looping, at 50 FPS). The timeline UI compiles clean and
+  mirrors the verified Color Grading / Ambience tool windows; a hands-on mouse
+  pass over the timeline (drag-scrub feel, per-key editing) still wants a human
+  (synthetic clicks don't drive the ImGui menus).
+
+  **Second pass — the director grows into a real cinematics tool** (same PR).
+  **(a) Dopesheet UI:** the tracks/keys widget lists became a custom
+  ImDrawList dopesheet — one lane per object track plus a camera lane, keys as
+  draggable diamonds (click select, drag retime with 10 ms snap, right-click
+  easing/delete, double-click a lane to drop a key at that time), a click/drag
+  scrubbed adaptive time ruler with a zoom slider, a playhead line with
+  grabber, a pinned label column ([+] = snapshot @ playhead, right-click = the
+  track-setup popup with the object combo + channel checkboxes) and a
+  selected-key inspector below (time/easing plus channel-gated pose fields, or
+  the camera-shot editor). Key fills encode the outgoing easing; entity-bound
+  shots draw as circles. **(b) Camera entity:** `PrimitiveType::Camera = 14`
+  (`+ Add object > Gameplay > Camera`) — a film-camera body marker plus a
+  GL_LINES FOV frustum wedge (+Z lens, scaled by tan(fov/2) so the wedge shows
+  the true shot; `unitCameraBody`/`unitCameraFrustum` in viewport.cpp), a
+  `cameraFov` property (20-110 deg), invisible/non-colliding in the game but a
+  full `RuntimeObject`. Camera-track keys are now *shots*: free (stored
+  eye/at/fov) or **bound to a Camera entity by name** — bound shots film from
+  the entity's CURRENT pose at runtime (`ctx.objects`), so keyframing the
+  entity in an object track makes a dolly/crane move; the entity's authored
+  pose + FOV are baked at codegen as the fallback for a non-active scene.
+  Renaming an object now remaps track/shot references (`objRenameFrom_`), the
+  way layer renames do. **(c) Real FOV + shake + skip:** the director applies
+  the blended shot FOV to the actual PS2 projection
+  (`renderer.core.renderer3D.setFov`, frustum planes recompute) and restores
+  the pre-cutscene FOV on end/stop/skip; per-key `shake` interpolates a 3-band
+  sine handheld offset (`seqShakeOffset`, mirrored EE-side); a `skippable`
+  sequence ends early on START (`pad.getClicked().Start`). The new cleanup
+  path also fixes a first-pass bug: `ctx.cameraOverride` was never written
+  back to false, so the game camera stayed frozen after a cutscene ended.
+  **(d) Widescreen bars + fades:** per-sequence mask styles (Cinema 2.39:1,
+  Wide 16:9, Pillarbox, Frame — fractions from `seqBarsFractions`, one source
+  for editor preview + codegen) slide in/out over 0.4 s, plus fade-from/to-
+  black times; drawn on the PS2 as stretched solid-black sprites (new built-in
+  `res/hud/seq-black.png`, 8x8 opaque; the sprite alpha carries the fade) by
+  `sequences::renderOverlay()` after the HUD and under the pause menus, and
+  previewed 1:1 as ImDrawList rects over the viewport image. New
+  `ScriptContext` fields: `barsStyle`/`barsAmount`/`fadeAlpha`. Verified:
+  editor builds clean (Layer 0) and opens a scratch project whose viewport
+  renders both camera frustum wedges (GUI screenshot); the generated
+  `sequences.gen.cpp` inspected (bound shots resolved to (scene,obj) with
+  baked fallbacks + entity FOVs 75/35, bars fraction 0.22106, skip/fade
+  fields, `renderOverlay`) (Layer 2); the Docker build compiled it all with
+  `-Wall` into `cutshow.elf` and **PCSX2 ran the 8 s looping cutscene**:
+  screenshot measurement shows the visible image at **2.40:1 inside the 4:3
+  frame** (cinema bars exactly at the baked fraction), two distinct
+  entity-bound shots (wide 75 deg vs tele 35 deg) with the cube translating
+  AND rotating from its track, and center brightness 87.7 (no fade) → 34.7
+  (partial) → 1.1 (full black) proving the fade compositor blends (Layer 3).
+  Still for a human with a pad: START-skip, shake feel in motion, and the
+  dopesheet drag ergonomics.
+
+  **Workflow pass** (user feedback from hands-on use, same PR). **(a) No more
+  blind posing:** while playback is paused, SELECTED objects are exempt from
+  the preview posing in `cutscenePosedObjects()` — previously a tracked
+  object snapped back to its interpolated pose every frame, so dragging the
+  gizmo at a new playhead time was blind. Now the gizmo edits what you see;
+  bound camera shots read the posed copy, so aiming a selected Camera entity
+  updates its shot live. **(b) Auto-key:** a transport checkbox; finishing a
+  gizmo drag drops a keyframe at the playhead for every selected object with
+  a track in the selected sequence (`cutsceneAutoKey()`, running just before
+  the drag's `commitChange()` so the keys share the drag's undo snapshot; the
+  snapshot logic moved from a window-local lambda into
+  `cutsceneSnapshotObjectKey()`). **(c) Add-track picker:** "+ Add object
+  track" no longer silently targets the first object (usually the player) -
+  it opens a popup with **Add selected (N)** (one track per selected object,
+  already-tracked ones skipped) and the full object list with tracked entries
+  disabled; a fresh track immediately gets a starting key at the playhead
+  from the object's current pose. **(d) Look-through camera:** a "View:"
+  control in the viewport corner (and a "Look through" button in a Camera
+  entity's Properties) renders the viewport from any Camera entity - live
+  pose + FOV, via the same `setCameraOverride` path - with "Free camera" one
+  click away; the Cutscene Director camera preview takes precedence while
+  active, renames remap the reference, deleting the entity falls back to the
+  orbit camera. Also made key retiming discoverable: a horizontal-resize
+  cursor + tooltip on keyframe hover and a slightly larger hit box (the drag
+  itself already existed). Verified: full rebuild links clean in a side
+  build dir (the user's editor instance held the main exe lock) and the
+  post-merge Docker build of `examples/cutscene-demo` compiled the merged
+  codegen (HUD texts + video modes from main composited under the cutscene
+  bars overlay); the interactive feel of all four changes needs the user's
+  hands-on pass.
+
+  **Configurable bars slide** (user request, same PR). The widescreen bars
+  used to slide in/out over a hardcoded 0.4 s; now each sequence carries
+  `barsSlideIn` / `barsSlideOut` (seconds, default 0.4, authored right next
+  to fade in/out and only shown when bars are on). 0 = the bars snap to full
+  coverage at the first frame / stay until the last one; larger = a slower
+  reveal. `seqBarsAmount()` takes the two times (the single source both the
+  editor preview and the emitted PS2 player call), the `Seq` codegen table
+  gained the two floats, and the runtime envelope reads them instead of the
+  0.4 constant (`kSeqBarsSlide` -> `kSeqBarsSlideDefault`). Projects authored
+  before this default the two to 0.4 on load, so they look unchanged.
+  Verified: editor rebuild links clean; the regenerated cutscene-demo
+  `sequences.gen.cpp` shows the `Seq` row carrying `0.4F, 0.4F` (the
+  backward-compat default, since the example predates the fields) and the
+  runtime envelope gated on `s.barsSlideIn`/`s.barsSlideOut`; the Docker
+  build compiled the widened struct clean. Exact slide timing on-screen
+  (vs the already-measured 2.40:1 bar coverage) wants a human eye.
+
+  **Example project:** `examples/cutscene-demo` — a 14 s cutscene ("The
+  Reveal") exercising every director feature at once: three Camera entities
+  (one of them dollied by an object track), Step-easing hard cuts, shake,
+  per-shot FOV (65/90/45/55/60), Cinema bars, fade in/out, skippable, an
+  On Start auto-play plus an On Used replay from a usable pedestal, and a
+  sparks emitter switched on mid-scene through a visibility track. Verified
+  by a Docker build from the checked-in folder (exit 0) and a PCSX2 run:
+  screenshots caught the letterboxed dolly shot mid-travel and the low-angle
+  finale with the hero ascending, and after the cutscene ended the camera
+  handed back to the FPP player with the aftermath intact (hero aloft,
+  sparks running) — the release path live. Same versioning shape as
+  layer-streaming (bin/res gitignored, regenerated on build).
+
 - (78) **"Open in VS Code" jumps to a file (scripts + custom nodes)** —
   `App::openInVSCode` gained an optional `file` arg: it now runs
   `code "<projectDir>" -g "<file>"`, opening (or reusing) the whole-project
@@ -3459,8 +3927,10 @@ Each finished feature lands as its own commit.
   now runs on VU0 in macro mode (entry 34) at ~37% EE load for 3 characters
   in PCSX2, so the EE is not the bottleneck yet. Palette per batch limited
   by VU memory (~24-32 bones).
-- Engine perf, next targets: packager allocates its package array per frame
-  (poolable); the real endgame is the engine author's own TODO in
+- Engine perf, next target: the packager's per-frame package arrays are
+  pooled now (entry 79 - measured worth only ~2%; the partial-branch cost is
+  per-package bbox classification + EE clipping, which scale with vertex
+  count); the real endgame is the engine author's own TODO in
   stapip_clipper.hpp - move clipping to VU1 entirely ("too much time").
   **Measured on real PS2 (2026-07-11**; clipbench: 128x128 terrain at detail
   128 = ~98k verts, spinning FPP camera, COP0 timers around `clipper.clip` +

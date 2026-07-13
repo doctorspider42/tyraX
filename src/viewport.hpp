@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <map>
 #include <string>
@@ -117,6 +118,34 @@ public:
     // keeping the current yaw/pitch/distance. Used by "orbit around selection".
     void setTarget(const float target[3]);
 
+    // Cutscene Director camera-track preview: override the orbit camera with an
+    // explicit eye + look-at target + vertical FOV (degrees) for the next
+    // render() calls; clearCameraOverride() restores the orbit camera.
+    void setCameraOverride(const float eye[3], const float target[3], float fovDeg) {
+        camOverride_ = true;
+        for (int i = 0; i < 3; ++i) camEye_[i] = eye[i], camTarget_[i] = target[i];
+        camFov_ = fovDeg;
+    }
+    void clearCameraOverride() { camOverride_ = false; }
+
+    // Camera entities to skip rendering (body + FOV frustum): the camera(s)
+    // the viewport is currently previewing THROUGH would otherwise sit on the
+    // near plane and cover the whole view. Names, matched against SceneObject.
+    void setHiddenCameras(std::vector<std::string> names) {
+        hiddenCams_ = std::move(names);
+    }
+
+    // Current orbit-camera eye + look-at target (world space). Snapshotted into
+    // a Cutscene Director camera keyframe ("Set camera key from view").
+    void currentCamera(float eye[3], float target[3]) const {
+        eye[0] = target_[0] + distance_ * std::cos(pitch_) * std::cos(yaw_);
+        eye[1] = target_[1] + distance_ * std::sin(pitch_);
+        eye[2] = target_[2] + distance_ * std::cos(pitch_) * std::sin(yaw_);
+        target[0] = target_[0];
+        target[1] = target_[1];
+        target[2] = target_[2];
+    }
+
     // Recenter the camera on the terrain center (world origin) and restore the
     // default orientation and a distance framing the whole terrain.
     void resetView();
@@ -164,6 +193,18 @@ private:
     float pitch_ = 0.6f;
     float distance_ = 90.0f;
     float target_[3] = {0.0f, 0.0f, 0.0f};
+    // Cutscene camera-track preview override (see setCameraOverride)
+    bool camOverride_ = false;
+    float camEye_[3] = {0.0f, 0.0f, 0.0f};
+    float camTarget_[3] = {0.0f, 0.0f, 0.0f};
+    float camFov_ = 50.0f;
+    // Camera entities not to draw (previewing through them) - see setHiddenCameras
+    std::vector<std::string> hiddenCams_;
+    bool camHidden(const std::string& name) const {
+        for (const std::string& n : hiddenCams_)
+            if (n == name) return true;
+        return false;
+    }
 
     uint32_t program_ = 0;
     int uMvp_ = -1;
@@ -205,6 +246,8 @@ private:
     Mesh box_, sphere_, cylinder_, cone_, plane_, decal_, spawnMarker_, playerMarker_;
     Mesh lightGizmo_;  // small unshaded bulb marking a point light
     Mesh wireSphere_;  // unit-radius ring sphere, scaled to a light's radius
+    Mesh cameraBody_;     // Camera entity marker (film camera, lens = +Z)
+    Mesh cameraFrustum_;  // FOV wedge lines, scaled to the entity's FOV
     // Per-detail primitive meshes (Box/Sphere/Cylinder/Cone), built lazily and
     // shared across objects with the same detail. The fixed box_ / sphere_ /
     // cylinder_ / cone_ above stay at the default detail (markers, previews).

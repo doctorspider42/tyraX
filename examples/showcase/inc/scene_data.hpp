@@ -7,6 +7,7 @@ struct SceneObjectData {
   int type;  // 0=box 1=sphere 2=cylinder 3=cone 4=spawn-point 5=model
              // 6=player 7=emitter 8=sound 9=point-light 10=save-point
              // 11=empty (pure transform, no geometry/collision)
+             // 12=plane 13=decal 14=camera (cutscene shot marker)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -61,7 +62,7 @@ constexpr SceneObjectData SCENE_0_OBJECTS[60] = {
     {7, {-6.0F, 1.1788F, 2.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.35F, 0.34F, 0.33F}, 0, -1, -1, 0, 1, 26, 0.8F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // campfire-smoke
     {9, {-6.0F, 0.7788F, 2.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 0.6F, 0.25F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.4F, 12.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // campfire-light
     {8, {-6.0F, 0.2788F, 2.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 0.5F, 0.2F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, 0, 1, 16.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // campfire-sfx
-    {10, {-3.0F, 0.8362F, 4.0F}, {0.0F, 0.0F, 0.0F}, {0.8F, 1.2F, 0.8F}, {0.4F, 0.75F, 1.0F}, 0, -1, -1, 1, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // save-shrine
+    {10, {-3.0F, 0.8362F, 4.0F}, {0.0F, 0.0F, 0.0F}, {0.8F, 1.2F, 0.8F}, {0.4F, 0.75F, 1.0F}, 0, -1, -1, 1, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // save-shrine
     {0, {10.0F, 2.1965F, -6.0F}, {0.0F, 0.0F, 0.0F}, {1.4F, 3.0F, 0.4F}, {0.5F, 0.2F, 0.8F}, 0, -1, -1, 1, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // portal-to-cavern
     {13, {11.0F, 2.2965F, -5.7F}, {0.0F, -35.0F, 0.0F}, {1.2F, 1.2F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, -1, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // portal-sign
     {11, {38.0F, 1.1841F, -34.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.9F, 0.8F, 0.2F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // gate-village
@@ -197,6 +198,8 @@ constexpr float HIGHLIGHT_GS[SCENE_COUNT] = {216.75F, 216.75F};
 constexpr float HIGHLIGHT_BS[SCENE_COUNT] = {76.5F, 76.5F};
 constexpr float HIGHLIGHT_WIDTHS[SCENE_COUNT] = {0.4F, 0.4F};
 constexpr int HIGHLIGHT_STEPS_S[SCENE_COUNT] = {4, 4};
+constexpr float HIGHLIGHT_OPACITIES[SCENE_COUNT] = {0.56F, 0.56F};
+constexpr bool HIGHLIGHT_OVERLAYS[SCENE_COUNT] = {false, false};
 
 constexpr int GRADING_COUNT = 2;
 inline const char* GRADING_NAMES[GRADING_COUNT > 0 ? GRADING_COUNT : 1] = {"Golden Hour", "Nightfall"};
@@ -328,4 +331,6 @@ inline int everyFrames(float seconds) {
 #define HIGHLIGHT_B HIGHLIGHT_BS[g_activeScene]
 #define HIGHLIGHT_WIDTH HIGHLIGHT_WIDTHS[g_activeScene]
 #define HIGHLIGHT_STEPS HIGHLIGHT_STEPS_S[g_activeScene]
+#define HIGHLIGHT_OPACITY HIGHLIGHT_OPACITIES[g_activeScene]
+#define HIGHLIGHT_OVERLAY HIGHLIGHT_OVERLAYS[g_activeScene]
 #define terrainHeightAt(x, z) terrainHeightAtScene(g_activeScene, (x), (z))

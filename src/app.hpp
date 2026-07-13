@@ -7,6 +7,7 @@
 
 #include <imgui.h>  // ImGuiStyle baseStyle_ member (UI scaling)
 
+#include "camtake.hpp"
 #include "history.hpp"
 #include "isoexport.hpp"
 #include "project.hpp"
@@ -57,6 +58,13 @@ private:
     // ImGui style + fonts; setUiScale() also persists the choice.
     void applyUiScale();
     void setUiScale(float userScale);
+    // Multiply a design-time pixel size (widget widths, child regions, window
+    // sizes, hand-drawn previews) by the active UI scale, so code literals
+    // track DPI/zoom the same way fonts and style spacing already do (see
+    // applyUiScale: FontScaleMain + ScaleAllSizes). Any tool window that gives
+    // a widget a literal pixel size should route it through this or the text
+    // clips at high scale (a 180 px combo can't hold 2.5x-tall glyphs).
+    float scaled(float px) const { return px * uiScaleApplied_; }
     void drawViewportWindow();
     void drawProjectWindow();
     void drawPropertiesWindow();
@@ -208,6 +216,12 @@ private:
     void drawMenusWindow();
     void drawGradingWindow();
     void drawAmbienceWindow();
+    void drawCutsceneWindow();
+    // Poses a copy of the active scene's objects at the Cutscene Director
+    // playhead (the same interpolation the PS2 runtime uses) so the viewport
+    // previews the cutscene live. Returns the raw objects unchanged when no
+    // sequence preview is active. May also drive the viewport camera.
+    const std::vector<SceneObject>& cutscenePosedObjects();
     // UI Editor (Tools > UI Editor): the screen stack - HUD images plus the
     // full-screen effects layer (bloom/grain), reorderable so effects can sit
     // under the crosshair/text instead of blurring them.
@@ -381,6 +395,71 @@ private:
     bool ambiencePreview_ = true;
     bool ambiencePreviewPushed_ = false;  // preset pushed to the viewport?
 
+    // Snapshots the track target's current static pose into a key at `time`
+    // (replacing a key within 1/60 s). Used by the dopesheet buttons,
+    // double-click drops and auto-key. Returns false if the target is gone.
+    bool cutsceneSnapshotObjectKey(SeqTrack& tr, float time);
+    // Auto-key: a finished gizmo drag drops keys at the playhead for every
+    // selected object tracked by the selected sequence (seqAutoKey_).
+    void cutsceneAutoKey();
+
+    // Cutscene Director (Tools > Cutscene Director): the keyframe timeline.
+    bool showCutsceneEditor_ = false;
+    int selectedSequence_ = -1;   // index into project_.sequences
+    int selectedSeqTrack_ = -1;   // dopesheet lane of the selected key
+                                  // (-1 = camera lane, >= 0 = object track)
+    int selectedSeqKey_ = -1;     // selected key within that lane (-1 = none)
+    float seqPlayhead_ = 0.0f;    // scrub time in seconds
+    bool seqPreview_ = true;      // pose the viewport at the playhead
+    bool seqPlaying_ = false;     // auto-advance the playhead (preview playback)
+    bool seqAutoKey_ = false;     // gizmo release drops a key at the playhead
+    float seqZoom_ = 1.0f;        // dopesheet horizontal zoom (1 = fit duration)
+    bool seqCameraPushed_ = false;  // camera override handed to the viewport?
+    std::vector<SceneObject> seqPosed_;  // scratch: objects posed at the playhead
+    // Widescreen bars + fade preview, computed at the playhead by
+    // cutscenePosedObjects() and overlaid on the viewport image.
+    int seqBarsStyleNow_ = 0;     // kSeqBars* while previewing, else 0
+    float seqBarsNow_ = 0.0f;     // bars slide-in envelope 0..1
+    float seqFadeNow_ = 0.0f;     // fade-to-black overlay alpha 0..1
+    // "Import take..." modal (camera lane): a phone-recorded 6DoF camera take
+    // (src/camtake.hpp) staged for baking into free camera shots. The bake
+    // preview is cached and recomputed only when a mapping control changes.
+    bool seqTakeOpen_ = false;        // open the modal this frame
+    CamTake seqTake_;                 // the loaded take
+    std::string seqTakePath_;         // file it was loaded from
+    std::string seqTakeError_;        // loader error shown in the modal
+    CamTakeMapping seqTakeMap_;       // scale / yaw / origin / time / tolerance
+    bool seqTakeAtPlayhead_ = false;  // key times start at the playhead
+    bool seqTakeReplace_ = true;      // replace the camera track (else append)
+    bool seqTakeDirty_ = true;        // re-bake the cached preview
+    std::vector<SeqCameraKey> seqTakeBaked_;  // cached bake result
+    CamTakeBakeStats seqTakeStats_;
+    // Import target: "" = free camera shots on the camera lane; otherwise the
+    // name of a Camera entity - the take bakes into that entity's transform
+    // track (position + rotation) so a bound shot dollies along the path, and
+    // the entity's FOV is set from the take. Two cameras in one scene each
+    // take their own recording this way.
+    std::string seqTakeTarget_;
+    // "Adjust imported take": after an import the take + mapping stay loaded so
+    // the whole path can be re-positioned / re-oriented (origin + yaw + scale)
+    // in place without re-importing. Valid while it matches the open sequence.
+    bool seqTakeActive_ = false;      // a re-bakeable last import exists
+    int seqTakeSeqIdx_ = -1;          // sequence it was imported into
+    // Applies the loaded take (seqTake_/seqTakeMap_/seqTakeTarget_) to sequence
+    // s: free shots -> camera lane (replace or append); a Camera entity target
+    // -> its transform track + FOV + a bound camera key. Returns the first key
+    // time (for the playhead), or -1 on no-op.
+    float applyCamTake(Sequence& s, bool replace);
+    // "From view" for the take import: set the mapping origin to the preview
+    // camera's position AND the mapping yaw so the take's first sample looks
+    // where the editor camera looks (aim the recorded path along the view).
+    void takeOriginAimFromView();
+
+    // Look-through camera: the viewport renders from this Camera entity's
+    // pose + FOV ("" = free orbit camera). Editor-side state, not persisted;
+    // the Cutscene Director camera-track preview takes precedence.
+    std::string lookThroughCam_;
+
     // Material Editor (Tools > Material Editor). Materials are the project's
     // .mtl asset files, edited in place: matEdMats_ stages the open file's
     // entries (color/brightness split out of Kd for the UI), every committed
@@ -461,6 +540,12 @@ private:
     // so object and flow-node references remap from it when editing ends.
     std::string layerRenameFrom_;
     int layerRenameIdx_ = -1;
+
+    // Object rename-in-place: Cutscene Director tracks and camera-shot
+    // bindings reference objects by name; they remap from this captured name
+    // when the Properties name edit ends.
+    std::string objRenameFrom_;
+    int objRenameIdx_ = -1;
 
     // Layers panel RAM readout: estimated resident bytes per layer name
     // ("" = the always-resident unassigned group). Parsing models/materials

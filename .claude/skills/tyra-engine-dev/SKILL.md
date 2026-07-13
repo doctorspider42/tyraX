@@ -157,8 +157,14 @@ and `renderer/models/unique_id.hpp` (`generateUniqueId()`) replacing upstream's
 
 The 98k-vertex benchmark scene went 12 → 50 FPS through: outcode early-out in
 the EE clipper, static pools (no per-call heap), and finally exact per-package
-frustum classification. Known next targets (from PROGRESS.md backlog): the
-packager allocates its package array per frame (poolable); the real endgame is
-upstream's own TODO in `stapip_clipper.hpp` — move clipping fully to VU1.
+frustum classification. The StaPip packager's per-submit `new[]`/`delete[]`
+package arrays are pooled too (grow-only vectors in `StaPipBagPackager`;
+callers must not free the result) — measured worth only ~2% of the partial
+branch in PCSX2: the real cost of PARTIALLY_IN_FRUSTUM geometry is the
+per-package bbox classification + EE clipping, which scale with vertex count
+(see PROGRESS entry 79: a single detail-16 box near the camera = 9.2k verts =
+~36 ms of EE; the fix was authoring-side detail, not the allocator). Known
+next target (from PROGRESS.md backlog): upstream's own TODO in
+`stapip_clipper.hpp` — move clipping fully to VU1.
 Measure with PCSX2's FPS display on the software renderer, 3+ samples, before
 and after; pixel-compare screenshots to prove output is unchanged.

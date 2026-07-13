@@ -44,6 +44,25 @@ struct ScriptContext {
   int objectCount = 0;
   Tyra::Color skyColor;  // write to change the clear color
 
+  // Cutscene camera override (a Cutscene Director sequence with a camera
+  // track, driven by the Play/Stop Sequence flow nodes). The generated
+  // sequence player writes cameraOverride = true + cameraEye/cameraAt every
+  // frame such a cutscene is active; the game applies them to the frame camera
+  // just before rendering, and the player writes false when the cutscene ends.
+  bool cameraOverride = false;
+  Tyra::Vec4 cameraEye;
+  Tyra::Vec4 cameraAt;
+
+  // Cutscene presentation, also written by the sequence player every frame a
+  // cutscene is active (and zeroed when it ends): widescreen mask style
+  // (0 none, 1 cinema 2.39:1, 2 wide 16:9, 3 pillarbox, 4 frame) with its
+  // slide-in coverage envelope, and a fade-to-black overlay alpha. The game
+  // composites them as solid 2D quads over the scene and the HUD, under the
+  // pause menus (sequences::renderOverlay in sequences.gen.cpp).
+  int barsStyle = 0;
+  float barsAmount = 0.0F;  // 0..1 of the style's full coverage
+  float fadeAlpha = 0.0F;   // 0..1 black overlay
+
   // Set teleport = true and teleportPos to move the player (Player entity or
   // the FPP template player) there; the game applies and clears it.
   // teleportYaw: facing direction in degrees (Y rotation, 0 = +Z).

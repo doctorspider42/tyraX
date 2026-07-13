@@ -7,6 +7,7 @@
 #include "ambience.hpp"
 #include "flowgraph.hpp"
 #include "grading.hpp"
+#include "sequence.hpp"
 
 struct TerrainConfig {
     int width = 64;   // world units, X axis
@@ -51,6 +52,11 @@ enum class PrimitiveType {
     // slightly in front of its origin along +Z to avoid z-fighting the surface
     // it is stuck on. Never collides. For signs, posters, text on walls.
     Decal = 13,
+    // Camera: a shot marker for the Cutscene Director (body + FOV frustum
+    // wireframe in the editor, looking down its +Z axis; invisible in the
+    // game). A camera-track keyframe bound to it takes eye/look-at/FOV from
+    // the entity - animate the entity itself for dolly/crane shots.
+    Camera = 14,
 };
 
 // Tessellation detail for the geometry primitives, stored per object in
@@ -65,14 +71,22 @@ enum class PrimitiveType {
 constexpr int kDefaultPrimDetail = 16;  // curved shapes (radial segments)
 constexpr int kDefaultBoxDetail = 1;    // Box (subdivisions per edge)
 
-inline int primDetailMin(PrimitiveType t) { return t == PrimitiveType::Box ? 1 : 3; }
-inline int primDetailMax(PrimitiveType t) { return t == PrimitiveType::Box ? 16 : 64; }
+// SavePoint tessellates exactly like a Box (the game's geometry builder and
+// the viewport both draw it as one), so it shares the Box detail semantics.
+// Without this it inherited the curved-shape default of 16 segments, which
+// addBox read as 16 subdivisions per edge - every save shrine silently cost
+// 3072 triangles (9.2k verts) of near-camera EE clipping in the game.
+inline bool primDetailIsBoxLike(PrimitiveType t) {
+    return t == PrimitiveType::Box || t == PrimitiveType::SavePoint;
+}
+inline int primDetailMin(PrimitiveType t) { return primDetailIsBoxLike(t) ? 1 : 3; }
+inline int primDetailMax(PrimitiveType t) { return primDetailIsBoxLike(t) ? 16 : 64; }
 inline int clampPrimDetail(PrimitiveType t, int d) {
     const int lo = primDetailMin(t), hi = primDetailMax(t);
     return d < lo ? lo : (d > hi ? hi : d);
 }
 inline int defaultPrimDetail(PrimitiveType t) {
-    return t == PrimitiveType::Box ? kDefaultBoxDetail : kDefaultPrimDetail;
+    return primDetailIsBoxLike(t) ? kDefaultBoxDetail : kDefaultPrimDetail;
 }
 // Sphere vertical rings derived from the radial segment count (~5:7 ratio).
 inline int primSphereStacks(int detail) {
@@ -84,7 +98,9 @@ inline int primSphereStacks(int detail) {
 inline int primTriangleCount(PrimitiveType type, int detail) {
     const int d = clampPrimDetail(type, detail);
     switch (type) {
-        case PrimitiveType::Box: return 12 * d * d;  // 6 faces * 2 * d^2 subquads
+        case PrimitiveType::Box:
+        case PrimitiveType::SavePoint:
+            return 12 * d * d;  // 6 faces * 2 * d^2 subquads
         case PrimitiveType::Sphere: return primSphereStacks(d) * d * 2;
         case PrimitiveType::Cylinder: return d * 4;  // side (2/seg) + 2 caps
         case PrimitiveType::Cone: return d * 2;      // side + base (1/seg each)
@@ -187,6 +203,11 @@ struct SceneObject {
     float lightBright = 1.0f;   // intensity added on top of the scene ambient
     float lightRadius = 8.0f;   // world units; contribution fades linearly to 0
 
+    // Camera entity parameter (used when type == Camera): vertical field of
+    // view in degrees. A Cutscene Director shot bound to this camera applies
+    // it to the real PS2 projection for the duration of the shot.
+    float cameraFov = 60.0f;
+
     // Animated model parameters (Model objects whose modelPath ends in .glb;
     // the editor bakes the file's clips to morph frames - see glbparser.hpp).
     std::string animClip;       // starting clip name ("" = the file's first)
@@ -248,6 +269,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.soundRange == b.soundRange && a.soundInterval == b.soundInterval &&
            a.soundOnPlayer == b.soundOnPlayer &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
+           a.cameraFov == b.cameraFov &&
            a.animClip == b.animClip && a.animAutoplay == b.animAutoplay &&
            a.animLoop == b.animLoop && a.animSpeed == b.animSpeed &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts;
@@ -284,6 +306,8 @@ struct ProjectSettings {
     std::string textureQuant = "4bit";
     bool showFps = false;     // debug profile only: on-screen FPS counter
     bool showMemory = false;  // debug profile only: on-screen free-RAM readout
+    bool showProfiler = false;  // debug profile only: per-phase EE-time HUD
+                                // (scene / highlight / particles / whole frame)
 
     // Experimental: skip the vsync wait before the buffer flip. Frame rate
     // becomes continuous instead of quantized to 50/25 (PAL), at the cost
@@ -383,6 +407,13 @@ struct ProjectSettings {
     float highlightColor[3] = {1.0f, 0.85f, 0.15f};  // outline color
     float highlightWidth = 0.35f;  // total rim width incl. blur, world units
     int highlightSteps = 4;        // blur shells; 1 = sharp outline
+    // Opacity of the strongest (innermost) shell, 0..1; the outer shells fade
+    // from it. 1 = the strongest shell is fully opaque.
+    float highlightOpacity = 0.56f;
+    // Experimental: draw the glow ON the object surface (a colored overlay
+    // that fades outward into a rim) instead of only a rim BEHIND it. Off =
+    // the classic silhouette outline (shells pushed behind object depth).
+    bool highlightOverlay = false;
 };
 
 inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
@@ -392,6 +423,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
     return a.videoSystem == b.videoSystem && a.buildProfile == b.buildProfile &&
            a.displayMode == b.displayMode && a.widescreen == b.widescreen &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
+           a.showProfiler == b.showProfiler &&
            a.disableVsync == b.disableVsync &&
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
            a.meshLodDistance == b.meshLodDistance &&
@@ -416,7 +448,9 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.highlightDistance == b.highlightDistance &&
            eq3(a.highlightColor, b.highlightColor) &&
            a.highlightWidth == b.highlightWidth &&
-           a.highlightSteps == b.highlightSteps;
+           a.highlightSteps == b.highlightSteps &&
+           a.highlightOpacity == b.highlightOpacity &&
+           a.highlightOverlay == b.highlightOverlay;
 }
 
 // Per-scene override switches (Scene > Preferences). Each "scene-visual"
@@ -781,6 +815,11 @@ struct Project {
     // node repaints the sky at runtime.
     std::vector<AmbiencePreset> ambiencePresets;
     int defaultAmbience = -1;
+    // Cutscene Director sequences (Tools > Cutscene Director): project-wide
+    // keyframe timelines that pose scene objects + the camera over time. Like
+    // the preset collections above they persist through save() but are not part
+    // of undo/redo. The Play/Stop Sequence flow nodes drive them at runtime.
+    std::vector<Sequence> sequences;
 
     // --- Editor-side state, persisted in the .tyra project file ------------
     // Not game data and not part of undo/redo (undo lives in the history

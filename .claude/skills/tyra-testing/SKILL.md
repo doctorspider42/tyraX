@@ -133,7 +133,15 @@ Notes:
   hardware shows. Give the game a few seconds to reach a steady state, then
   screenshot; compare against a known-good screenshot when hunting regressions.
 - **Performance**: PCSX2's FPS overlay, software renderer, 3+ samples. Full PAL
-  frame rate is 50 FPS — the generated showcase scenes hold it.
+  frame rate is 50 FPS — the generated showcase scenes hold it. For *where* a
+  frame is spent, enable the built-in **frame profiler** (debug build profile +
+  *Preferences > Build > Show frame profiler*): per-phase EE ms on the HUD
+  (whole frame / scene / usable-highlight / particles). For a finer breakdown,
+  the manual COP0/HUD deep-dive (own the generated `terrain_game.cpp`, bracket
+  phases with `mfc0 $9`, deterministic camera orbit, in-run A/B, engine-side
+  counters) is written up in [docs/profiling.md](../../../docs/profiling.md) —
+  frames are almost always EE-bound; `endFrame` time is mostly vsync idle, not
+  GS load.
 - **Audio**: EE-side logs are invisible, so use the Windows WASAPI session peak
   meter on the PCSX2 process (e.g. via `AudioMeterInformation`) — silence vs
   bursts at expected times proved music/sfx features before; a by-ear speaker
