@@ -8,6 +8,7 @@
 #include <set>
 
 #include "iso9660.hpp"
+#include "menubake.hpp"
 
 namespace fs = std::filesystem;
 
@@ -72,6 +73,23 @@ static std::string orderFiles(const Project& p, std::vector<OrderedFile>& out,
     for (const HudImage& h : p.hud) take(binPathOf(h.imagePath), "startup");
     take("hud/use.png", "startup");
     take("hud/loading.png", "startup");
+    take("hud/loading-white.png", "startup");
+    // Loading screens draw during every scene load (including boot), so their
+    // assets sit with the startup group. Text sprites use the same
+    // screen-index mangle as the save-time bake ("ls-<i>-<name>").
+    for (size_t si = 0; si < p.loadingScreens.size(); ++si) {
+        const LoadingScreenDef& ls = p.loadingScreens[si];
+        for (const HudImage& h : ls.images) take(binPathOf(h.imagePath), "startup");
+        for (const LoadingBar& b : ls.bars)
+            if (!b.segImage.imagePath.empty())
+                take(binPathOf(b.segImage.imagePath), "startup");
+        for (const HudText& t : ls.texts)
+            take("hud/" + menubake::textFileName("ls-" + std::to_string(si) + "-" + t.name),
+                 "startup");
+    }
+    // Boot splash images (shown before the first scene) belong to startup too.
+    for (const SplashScreen& s : p.splashScreens)
+        if (!s.image.imagePath.empty()) take(binPathOf(s.image.imagePath), "startup");
     for (const std::string& s : p.sounds) take(adpcmPathOf(s), "startup");
     for (const SceneData& s : p.scenes) {
         const std::string group = "scene:" + s.name;

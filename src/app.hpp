@@ -180,6 +180,10 @@ private:
     const std::string& wavIssue(const std::string& relPath, bool sfx);
     std::map<std::string, std::string> wavIssueCache_;
     void importHudImage();
+    // Imports a PNG into res/hud/ as a HudImage appended to `target` (shared by
+    // the UI Editor's HUD list and the Loading Screen editor). Returns the new
+    // index, or -1 on failure.
+    int importHudImageInto(std::vector<HudImage>& target);
     // Shared TTF picker (menus, HUD texts): default chain / project fonts /
     // stock Windows fonts / import. Returns true when fontPath changed.
     bool fontCombo(std::string& fontPath);
@@ -228,6 +232,19 @@ private:
     // full-screen effects layer (bloom/grain), reorderable so effects can sit
     // under the crosshair/text instead of blurring them.
     void drawUiEditorWindow();
+    // Loading Screens (Tools > Loading Screens): named loading screens (bg
+    // color + images + baked texts + progress bars) assignable per scene, with
+    // a 2D preview driven by a simulated load fraction.
+    void drawLoadingScreenWindow();
+    // Collapsing "Boot splash screens" section at the top of the Loading
+    // Screens window: a list of images shown at startup, each for a set time.
+    // Returns true when something changed (the caller saves).
+    bool drawSplashSection();
+    // Draws the 512x448-space loading-screen preview into the current ImGui
+    // window (background, images, texts, bars honoring `fraction`).
+    void drawLoadingPreview(const LoadingScreenDef& ls, float fraction);
+    // Property editor for a single progress bar (returns true on change).
+    bool loadingBarControls(LoadingBar& b);
     // Material Editor (Tools > Material Editor): authors the .mtl files the
     // whole pipeline already consumes (newmtl/Kd/map_Kd) with a live preview.
     void drawMaterialEditorWindow();
@@ -299,6 +316,9 @@ private:
     // the "Run on PS2" actions.
     std::string globalEmulatorPath_;
     std::string globalPs2Ip_;
+    // Parent folder proposed as the location for new projects (Edit >
+    // Preferences). Empty = fall back to ~/TyraProjects.
+    std::string globalDefaultProjectsDir_;
     // Selection index the orbit pivot was last snapped to; -1 = none. Lets
     // "orbit around selection" re-center only when the selection changes.
     int navFocusedIndex_ = -1;
@@ -411,6 +431,16 @@ private:
     int selectedAmbience_ = -1;
     bool ambiencePreview_ = true;
     bool ambiencePreviewPushed_ = false;  // preset pushed to the viewport?
+
+    // Loading Screens (Tools > Loading Screens): selected screen + selected
+    // element within it (lsSelKind_: 0 image / 1 text / 2 bar; lsSelIdx_ into
+    // that element vector) + the preview's simulated load fraction.
+    bool showLoadingEditor_ = false;
+    int selectedLoadingScreen_ = -1;
+    int lsSelKind_ = 0;
+    int lsSelIdx_ = -1;
+    float lsPreviewProgress_ = 0.65f;
+    int selectedSplash_ = -1;  // boot splash screen being edited (-1 = none)
 
     // Snapshots the track target's current static pose into a key at `time`
     // (replacing a key within 1/60 s). Used by the dopesheet buttons,
@@ -600,6 +630,7 @@ private:
     bool openEditorPrefsPopup_ = false;
     char prefEmulatorPath_[512] = "";  // PCSX2 exe path (auto-detect if empty)
     char prefPs2Ip_[64] = "";          // ps2link IP for Run on PS2
+    char prefDefaultProjectsDir_[512] = "";  // default parent folder for new projects
 
     // "Debug" window: tails a log from disk (reloaded, throttled). Source 0 is
     // the game's own log (bin/log.txt, written by TYRA_LOG); source 1 is the
@@ -644,6 +675,7 @@ private:
     ProjectSettings scenePrefSettings_;
     SceneOverrides scenePrefOverrides_;
     std::string scenePrefAmbience_;  // staged SceneData::ambiencePreset
+    std::string scenePrefLoading_;   // staged SceneData::loadingScreen
 
     std::string statusMessage_;
 };
