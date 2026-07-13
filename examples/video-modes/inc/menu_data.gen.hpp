@@ -5,11 +5,15 @@ namespace Video_modes {
 
 // Menu entry actions: 0 close, 1 switch scene, 2 open save menu,
 // 3 open menu (submenu), 4 set save value, 5 add to save value,
-// 6 fire flow event. param = resolved index, -1 = unknown target.
+// 6 fire flow event, 7 toggle, 8 choice (7/8: param = the save
+// value holding the option index). param = resolved index, -1 =
+// unknown target.
 struct MenuEntryData {
   int action;
   int param;
   float amount;
+  int optionCount;  // toggle/choice: how many options cycle
+  int cell;         // first cell in the value strip (-1 = none)
 };
 
 struct MenuData {
@@ -22,22 +26,27 @@ struct MenuData {
   int titleScreen;    // 1 = opens at game start
   int pause;          // 1 = gameplay freezes + dim overlay
   float screenX, screenY;  // normalized panel-center position
+  // Toggle/Choice value strip ("" = this menu has none): cell
+  // geometry mirrors menubake::valueStripLayout; valueX is the
+  // cell's left edge relative to the panel's left edge.
+  const char* values;
+  int valueCellW, valueCellH, valuePitch, valueX;
 };
 
 constexpr int MENU_COUNT = 1;
 
 // menu "video"
 constexpr MenuEntryData MENU_0_ENTRIES[6] = {
-    {6, 0, 0.0F},  // INTERLACED 480I
-    {6, 1, 0.0F},  // PROGRESSIVE 480P
-    {6, 2, 0.0F},  // HD 1080I
-    {6, 3, 0.0F},  // STANDARD 4:3
-    {6, 4, 0.0F},  // WIDESCREEN 16:9
-    {0, -1, 0.0F},  // CLOSE
+    {6, 0, 0.0F, 0, -1},  // INTERLACED 480I
+    {6, 1, 0.0F, 0, -1},  // PROGRESSIVE 480P
+    {6, 2, 0.0F, 0, -1},  // HD 1080I
+    {6, 3, 0.0F, 0, -1},  // STANDARD 4:3
+    {6, 4, 0.0F, 0, -1},  // WIDESCREEN 16:9
+    {0, -1, 0.0F, 0, -1},  // CLOSE
 };
 
 inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
-    {"menus/video.png", 256, 256, 210, 44, 24, 6, MENU_0_ENTRIES, 1, 1, 0.5F, 0.45F},  // video
+    {"menus/video.png", 256, 256, 210, 44, 24, 6, MENU_0_ENTRIES, 1, 1, 0.5F, 0.45F, "", 0, 0, 0, 0},  // video
 };
 
 constexpr int TITLE_MENU = 0;

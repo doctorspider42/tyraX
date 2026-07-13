@@ -9,6 +9,9 @@ inline const char* TEXTURE_PATHS[TEXTURE_COUNT > 0 ? TEXTURE_COUNT : 1] = {
 };
 
 constexpr int TERRAIN_TEXTURES[1] = {-1};
-constexpr float TERRAIN_TEX_SCALES[1] = {4.0F};
+constexpr float TERRAIN_TILE_US[1] = {1.0F};
+constexpr float TERRAIN_TILE_VS[1] = {1.0F};
+constexpr bool TERRAIN_HAS_MATERIALS[1] = {false};
+constexpr float TERRAIN_TINTS[1][3] = {{1.0F, 1.0F, 1.0F}};
 
 }  // namespace Layer_streaming

@@ -10028,10 +10028,13 @@ void App::drawPreferencesModal() {
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("Show FPS", &prefSettings_.showFps);
     ImGui::Checkbox("Show memory usage", &prefSettings_.showMemory);
+    ImGui::Checkbox("Show frame profiler", &prefSettings_.showProfiler);
     ImGui::EndDisabled();
     ImGui::TextDisabled(
         "Debug-profile overlays drawn in the top-left corner of the game:\n"
-        "frames per second and free EE RAM. Stripped from release builds.");
+        "frames per second, free EE RAM, and a per-phase EE-time breakdown\n"
+        "(whole frame / scene / usable-highlight / particles, avg ms over\n"
+        "~1s). Stripped from release builds.");
 
     ImGui::SeparatorText("Terrain");
     ImGui::InputInt("Width (units)", &prefTerrain_.width);
@@ -10166,8 +10169,15 @@ void App::drawPreferencesModal() {
         ImGui::DragFloat("Blur width (units)", &prefSettings_.highlightWidth, 0.01f,
                          0.05f, 2.0f, "%.2f");
         ImGui::SliderInt("Blur steps", &prefSettings_.highlightSteps, 1, 8);
+        ImGui::SliderFloat("Opacity", &prefSettings_.highlightOpacity, 0.0f, 1.0f,
+                           "%.2f");
+        ImGui::Checkbox("Draw over object (experimental)",
+                        &prefSettings_.highlightOverlay);
         ImGui::TextDisabled(
-            "Width = total rim size; steps = shells in the fade (1 = sharp edge).");
+            "Width = total rim size; steps = shells in the fade (1 = sharp edge).\n"
+            "Opacity = transparency of the strongest shell (the rest fade from it).\n"
+            "Draw over object = a colored glow ON the surface fading outward,\n"
+            "instead of only a rim behind the silhouette.");
     }
     ImGui::TextDisabled(
         "In-game outline around objects marked 'Usable' while the player is\n"
@@ -10421,6 +10431,8 @@ void App::drawScenePreferencesModal() {
         ImGui::ColorEdit3("Highlight color", s.highlightColor);
         ImGui::DragFloat("Blur width (units)", &s.highlightWidth, 0.01f, 0.05f, 2.0f, "%.2f");
         ImGui::SliderInt("Blur steps", &s.highlightSteps, 1, 8);
+        ImGui::SliderFloat("Opacity", &s.highlightOpacity, 0.0f, 1.0f, "%.2f");
+        ImGui::Checkbox("Draw over object (experimental)", &s.highlightOverlay);
     });
 
     ImGui::Separator();

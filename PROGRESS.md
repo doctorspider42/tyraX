@@ -53,6 +53,84 @@ Each finished feature lands as its own commit.
   100% speed / EE ~38%); examples/showcase regenerated and re-verified with
   the final de-instrumented engine. Perf logs archived in
   `%TEMP%\tyra-editor-test\perf-run{1,2,3}*.txt`.
+- (81) **Usable-highlight opacity control** — a per-scene `highlightOpacity`
+  (0..1, *Preferences > Usable objects* + per-scene override) setting the alpha
+  of the **strongest (innermost) shell**; the outer shells keep fading from it
+  (×0.55). Replaces the hardcoded `72/100` start alpha in both
+  `renderHighlightHull` and `buildHighlightApron` with `HIGHLIGHT_OPACITY *
+  128` (128 = PS2 opaque max), so opacity 1 + 1 step = a fully solid outline
+  and low values dial the wash down — the natural knob for the overlay mode's
+  intensity. Default 0.56 preserves the old 4-step look. Full
+  model→JSON→UI→codegen chain (`HIGHLIGHT_OPACITIES` per-scene table +
+  `HIGHLIGHT_OPACITY` macro; operator== + save/load + clamps). **Verified in
+  PCSX2 (SW)**: overlay showcase at opacity 0.25 renders a visibly fainter
+  surface glow than the 0.56 default, 50 FPS unchanged; all five examples
+  regenerated + Docker-built.
+
+- (80) **Debug frame profiler (shippable) + experimental highlight overlay** —
+  two follow-ups to the highlight perf work (79). **(a) Frame profiler**: the
+  ad-hoc COP0/HUD instrumentation used to diagnose the highlight cost is now a
+  real debug option. *Project > Preferences > Build* (debug profile) gains
+  **Show frame profiler** next to Show FPS / Show memory; the generated game
+  draws a per-phase EE-time breakdown (whole FRAME wall-clock / SCENE / HL /
+  PART, avg ms over ~1s) in the top-left. `renderScene` brackets its phases
+  with EE COP0 `mfc0 $9` reads into file-scope counters (`g_profScene/
+  Highlight/Particles`), drawDebugHud averages + prints them; every read is
+  behind the `DEBUG_SHOW_PROFILER` constexpr so a release build (or the option
+  off) contains none of it. HL is the highlight *overhead* only — the deferred
+  bodies are timed into SCENE. New pref `ProjectSettings.showProfiler`
+  (operator== + JSON save/load + `{{DEBUG_SHOW_PROFILER}}` codegen). **(b)
+  Highlight overlay**: experimental per-scene `highlightOverlay` (Preferences >
+  Usable objects + per-scene override, "Draw over object") — the shells drop
+  the eye-pushback (`k = 1`), so each grown shell sits at the object's own
+  depth and its front faces land just in front of the surface: the glow paints
+  ON the object and fades outward into a rim, instead of only a rim behind the
+  silhouette. renderScene draws the overlay body in the main pass (not
+  deferred) and paints the shells over it; rim mode keeps the deferred-body
+  order from (79). New `SceneObjectData`-style per-scene table
+  `HIGHLIGHT_OVERLAYS` + `HIGHLIGHT_OVERLAY` macro; full model→JSON→UI→codegen
+  chain (project + per-scene override). **Verified in PCSX2 (SW renderer)**:
+  showcase with debug profile + both options on — profiler HUD reads
+  `FRAME 22.00 SCENE 12.90 HL 1.46 PART 0.99` at 50 FPS (deterministic orbit
+  near the save shrine); overlay screenshot shows the shrine washed in a yellow
+  surface glow instead of an outline. Profiler-off / overlay-off path (all five
+  examples, regenerated) compiles to ELFs in Docker — both constexpr branches
+  build on the PS2 toolchain. Documented the profiler + the manual deep-dive
+  technique in `docs/profiling.md`. Real-hardware timing unchanged from (79).
+
+- (79) **Usable-highlight perf, round 2: low-detail shell proxy + deferred
+  body draw (no repaint)** — the PR #64 rims still dropped the showcase to
+  ~25 FPS in PCSX2 near a highlighted object. Measured with COP0 phase
+  timers in an owned terrain_game.cpp plus temporary counters inside the
+  engine's StaPipCore (deterministic camera orbit around the save shrine,
+  250-frame A/B windows, on-screen HUD readout): the highlight pass alone
+  was 25 ms of EE time, all of it in the PARTIALLY_IN_FRUSTUM branch of
+  `StaPipCore::render` — the shrine is a default-detail-16 box (~9.2k
+  verts), a near object always straddles the frustum, and the effect
+  submitted that mesh 5 extra times per frame (4 shells + repaint), each
+  submit re-running subpackage classification + the EE clipper (~370 clip
+  calls/frame vs ~160 baseline). DMA waits, the bbox cache and the z-test
+  mode were all measured innocent. Fix, all in the generated runtime
+  (templates.cpp): (1) shells now draw a **low-detail proxy** built by
+  `buildHighlightProxy` — primitives re-emit through their own builders
+  with subdivision forced down (boxes/planes/decals: detail 1 — identical
+  silhouette; curved: capped at 12 segments), models concatenate their
+  parts into one array (one submit per shell instead of per part); cached
+  in ObjectGeometry, cleared by rebuildObjectGeometry, own bbox stamp;
+  (2) highlighted-in-reach usables are **deferred out of the main pass**
+  (`highlightInReach`, ≤8 per frame, sorted far-to-near) and their body
+  draws once AFTER their shells — the body erases the shell wash over its
+  own receding faces exactly like the old repaint did, so the second full
+  draw of the mesh is gone; nearer bodies still cover farther rims, and
+  everything else keeps drawing before any rim. **Verified in PCSX2 (SW
+  renderer)**: same instrumented A/B on the rebuilt showcase — highlight
+  render cost fell from ~23 ms to ~1.7 ms per frame (scene+highlight
+  sums 15.7 vs 14.0 ms; whole frame 56 -> 25 ms on the worst-case orbit
+  view), rim/apron/USE visuals unchanged by screenshot comparison against
+  the pre-fix build. All four examples regenerated. Real-PS2 A/B still
+  pending, same as PR #64. Left open: the partial-frustum path itself
+  costs the base scene ~12-14 ms on that view (default primDetail 16
+  everywhere is heavy) — separate backlog item.
 
 - (69) **Cutscene Director — a keyframe timeline sequencer (cinematic cutscenes
   on the PS2)** — the editor's first full animation-authoring tool. A
@@ -218,6 +296,7 @@ Each finished feature lands as its own commit.
   handed back to the FPP player with the aftermath intact (hero aloft,
   sparks running) — the release path live. Same versioning shape as
   layer-streaming (bin/res gitignored, regenerated on build).
+
 - (78) **"Open in VS Code" jumps to a file (scripts + custom nodes)** —
   `App::openInVSCode` gained an optional `file` arg: it now runs
   `code "<projectDir>" -g "<file>"`, opening (or reusing) the whole-project
