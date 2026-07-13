@@ -61,6 +61,28 @@ Each finished feature lands as its own commit.
   handheld path. The import modal itself compiles + is wired, but its
   click-through (file dialog → sliders → Import) still needs a hands-on
   human pass.
+
+  **Import into a chosen Camera entity + post-import adjust** (user request).
+  The import modal's new **Import as** selector targets either *free camera
+  shots* (as before) or a **Camera entity**: the take is baked into that
+  entity's transform track (position = eye, rotation = the Euler whose +Z lens
+  points along the recorded view — `seqEulerFromForward`, the exact inverse of
+  the runtime `seqCameraForward`), the entity's FOV is set from the take, and a
+  bound camera-lane key is added so it dollies along the path. So **two cameras
+  in one scene each carry their own recording** and you cut between them on the
+  camera lane. No PS2 runtime change — an entity track filmed by a bound shot
+  already runs on hardware (cutscene-demo's cam-dolly). After importing, the
+  take + mapping stay loaded and an **Adjust imported take** section (Start
+  point / Start yaw / Scale) re-bakes the same target in place, so the whole
+  path can be re-positioned and re-oriented without re-importing.
+  `App::applyCamTake()` is the shared apply used by both Import and the live
+  adjust. Verified: editor builds clean; a host harness loads the **real**
+  sample `.hfcs` (395 samples → 15 keys, FOV 56°), bakes it and confirms the
+  Euler round-trip `seqCameraForward(seqEulerFromForward(dir))` matches the
+  recorded view within **0.02°** across every key, with the first eye landing
+  exactly on the chosen origin — so a bound shot films precisely along the
+  take. The modal + adjust widgets compile and mirror the verified free-import
+  flow; their click-through still wants a human pass.
 - (79) **Tool windows scale their layout with the UI scale (fix 250% clipping)** —
   the floating Tools windows (Menu Editor, Material Editor, Color Grading,
   Ambience, UI Editor, Disc Layout, Cutscene Director) and the modal dialogs

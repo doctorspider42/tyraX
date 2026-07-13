@@ -6,9 +6,10 @@ camera track. The handheld motion becomes a PS2 cutscene camera move.
 
 In the editor: **Tools > Cutscene Director**, select a sequence, then
 **Import take...** (button next to the transport, or right-click the camera
-lane label). Pick a file, tune the mapping in the modal, Import. The take
-lands as ordinary *free* camera shots (linear easing), so the PS2 runtime
-needs nothing new — scrub the playhead to preview it immediately.
+lane label). Pick a file, choose the target (free camera shots, or a specific
+Camera entity — see below), tune the mapping in the modal, Import. Either way
+the take lands as ordinary linear-eased keys, so the PS2 runtime needs nothing
+new — scrub the playhead to preview it immediately.
 
 ## Pipeline
 
@@ -81,6 +82,23 @@ reads the `CameraLayer` animation with a minimal XML subset reader
 
 `.hfcs` also contains `PointLayer` AR anchors; they are not imported (yet).
 
+## Import target: free shots or a Camera entity
+
+The modal's **Import as** selector decides where the motion lands:
+
+- **Free camera shots** — the take becomes `SeqCameraKey` shots on the
+  sequence's camera lane (eye + look-at per key), exactly as authored by hand.
+- **A Camera entity** (any `Camera` object in the scene) — the take is baked
+  into that entity's **transform track**: position keys = the recorded eye,
+  rotation keys = the Euler whose +Z lens points along the recorded view
+  (the inverse of the runtime's `seqCameraForward`, so a bound shot films
+  exactly along the path). The entity's **FOV** is set from the take, and a
+  camera-lane key **bound** to the entity is added if the lane has none yet.
+  Because the shot follows the entity's live pose, this is a real dolly move —
+  and **two cameras in one scene each carry their own recording** (import take
+  A targeting `cam-1`, take B targeting `cam-2`, then cut between them on the
+  camera lane).
+
 ## Mapping controls (the import modal)
 
 - **Scale** — game units per meter (default 1).
@@ -91,9 +109,19 @@ reads the `CameraLayer` animation with a minimal XML subset reader
 - **Start at playhead** — offsets key times so the take starts at the
   playhead instead of t = 0.
 - **Tolerance** — decimation error bound in world units (below).
-- **Replace / Append** — what happens to the shots already on the camera lane.
-  Import enables the sequence's camera track and extends its duration if the
-  take runs past it.
+- **Replace / Append** (free target only) — what happens to the shots already
+  on the camera lane. A Camera-entity target always rewrites that entity's own
+  track. Import enables the sequence's camera track and extends its duration if
+  the take runs past it.
+
+## Adjust after importing (re-position / re-orient the path)
+
+After an Import the recording and its mapping stay loaded, so an **Adjust
+imported take** section appears under the sequence options while that sequence
+is open. Its **Start point**, **Start yaw** and **Scale** controls re-bake the
+same target in place — move or turn the whole recorded path without
+re-importing the file. **Done** stops tracking; the keys become ordinary
+editable keyframes. (Switching sequences, or a fresh Import, ends the adjust.)
 
 ## Decimation (why the tolerance matters)
 

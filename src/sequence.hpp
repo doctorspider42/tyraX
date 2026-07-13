@@ -227,3 +227,27 @@ inline void seqCameraForward(const float rotDeg[3], float out[3]) {
     out[1] = cx * sy * sz - sx * cz;
     out[2] = cx * cy;
 }
+
+// Inverse of seqCameraForward for the no-roll case: the Euler rotation (deg,
+// Z=0) whose +Z lens points along `dir`. Used to bake an imported camera take
+// into a Camera entity's rotation track, so a bound shot films exactly along
+// the recorded path. `dir` need not be normalized.
+inline void seqEulerFromForward(const float dir[3], float outRotDeg[3]) {
+    const float r2d = 180.0f / 3.14159265f;
+    float d[3] = {dir[0], dir[1], dir[2]};
+    const float len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    if (len > 1e-8f) {
+        d[0] /= len;
+        d[1] /= len;
+        d[2] /= len;
+    }
+    // forward = (cx*sy, -sx, cx*cy)  =>  pitch from -sx, yaw from (sy, cy)
+    float sx = -d[1];
+    sx = sx < -1.0f ? -1.0f : (sx > 1.0f ? 1.0f : sx);
+    const float rx = std::asin(sx);
+    const float cx = std::cos(rx);
+    const float ry = std::fabs(cx) > 1e-6f ? std::atan2(d[0], d[2]) : 0.0f;
+    outRotDeg[0] = rx * r2d;
+    outRotDeg[1] = ry * r2d;
+    outRotDeg[2] = 0.0f;
+}

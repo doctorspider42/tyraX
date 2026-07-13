@@ -6972,6 +6972,91 @@ void App::cutsceneAutoKey() {
     }
 }
 
+// Applies the loaded camera take to a sequence. Free target -> camera-lane
+// shots (replace or append). A Camera-entity target -> the take is baked into
+// that entity's transform track (position = eye, rotation = the Euler whose
+// +Z lens points along the recorded view), the entity's FOV is set from the
+// take, and a bound camera key is ensured so the shot dollies along the path.
+// Returns the first key time, or -1 on no-op.
+float App::applyCamTake(Sequence& s, bool replace) {
+    std::vector<SeqCameraKey> baked = bakeCamTake(seqTake_, seqTakeMap_, &seqTakeStats_);
+    if (baked.empty()) return -1.0f;
+    auto sortCam = [&]() {
+        std::sort(s.cameraKeys.begin(), s.cameraKeys.end(),
+                  [](const SeqCameraKey& a, const SeqCameraKey& b) {
+                      return a.time < b.time;
+                  });
+    };
+
+    if (seqTakeTarget_.empty()) {
+        // free camera shots on the camera lane
+        if (replace)
+            s.cameraKeys = baked;
+        else {
+            s.cameraKeys.insert(s.cameraKeys.end(), baked.begin(), baked.end());
+            sortCam();
+        }
+        s.cameraEnabled = true;
+        return baked.front().time;
+    }
+
+    // Camera-entity target: bake into the entity's transform track.
+    std::vector<SeqObjectKey> objKeys;
+    objKeys.reserve(baked.size());
+    for (const SeqCameraKey& k : baked) {
+        SeqObjectKey o;
+        o.time = k.time;
+        for (int c = 0; c < 3; ++c) o.position[c] = k.eye[c];
+        const float dir[3] = {k.target[0] - k.eye[0], k.target[1] - k.eye[1],
+                              k.target[2] - k.eye[2]};
+        seqEulerFromForward(dir, o.rotation);
+        o.easing = 0;  // the take IS the ease
+        objKeys.push_back(o);
+    }
+    // find (or create) the object track that drives this camera entity
+    SeqTrack* track = nullptr;
+    for (SeqTrack& tr : s.tracks)
+        if (tr.target == seqTakeTarget_) {
+            track = &tr;
+            break;
+        }
+    if (!track) {
+        SeqTrack tr;
+        tr.target = seqTakeTarget_;
+        s.tracks.push_back(std::move(tr));
+        track = &s.tracks.back();
+    }
+    track->animPos = true;
+    track->animRot = true;
+    track->animScale = false;
+    track->animColor = false;
+    track->animVis = false;
+    track->keys = std::move(objKeys);
+    // set the entity's FOV from the take (active-scene object of that name)
+    for (SceneObject& o : project_.objects())
+        if (o.name == seqTakeTarget_ && o.type == PrimitiveType::Camera) {
+            if (seqTakeStats_.fovDeg > 0.0f) o.cameraFov = seqTakeStats_.fovDeg;
+            break;
+        }
+    // ensure a bound camera key so the entity is actually filmed
+    bool bound = false;
+    for (const SeqCameraKey& k : s.cameraKeys)
+        if (k.camera == seqTakeTarget_) {
+            bound = true;
+            break;
+        }
+    if (!bound) {
+        SeqCameraKey k;
+        k.time = track->keys.front().time;
+        k.camera = seqTakeTarget_;
+        k.easing = 0;
+        s.cameraKeys.push_back(k);
+        sortCam();
+    }
+    s.cameraEnabled = true;
+    return track->keys.front().time;
+}
+
 // Poses a copy of the active scene's objects at the playhead using the SAME
 // interpolation the PS2 runtime uses (sequence.hpp seqSample/seqEase), and -
 // for a sequence with a camera track - flies the viewport camera along it. So
@@ -7294,6 +7379,55 @@ void App::drawCutsceneWindow() {
         changed = true;
     if (s.fadeIn < 0.0f) s.fadeIn = 0.0f;
     if (s.fadeOut < 0.0f) s.fadeOut = 0.0f;
+
+    // --- Adjust imported take -----------------------------------------------
+    // After a take is imported the recording + mapping stay loaded, so the
+    // whole path can be re-positioned and re-oriented in place (start point,
+    // start yaw, scale) without re-importing. Re-bakes the same target.
+    if (seqTakeActive_ && seqTakeSeqIdx_ == selectedSequence_ &&
+        !seqTake_.samples.empty()) {
+        const std::string what =
+            seqTakeTarget_.empty() ? std::string("free camera shots")
+                                   : ("camera \"" + seqTakeTarget_ + "\"");
+        if (ImGui::CollapsingHeader("Adjust imported take",
+                                    ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::TextDisabled("Re-positions the imported %s.", what.c_str());
+            bool rebake = false;
+            if (ImGui::DragFloat3("Start point", seqTakeMap_.origin, 0.1f)) rebake = true;
+            ImGui::SameLine();
+            if (ImGui::SmallButton("From view")) {
+                float at[3];
+                viewport_.currentCamera(seqTakeMap_.origin, at);
+                rebake = true;
+            }
+            ImGui::SetNextItemWidth(scaled(140.0f));
+            if (ImGui::DragFloat("Start yaw", &seqTakeMap_.yawDeg, 1.0f, -360.0f,
+                                 360.0f, "%.0f deg"))
+                rebake = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Rotates the whole path about the up axis,\n"
+                                  "pivoting on the start point.");
+            ImGui::SameLine(0.0f, scaled(14.0f));
+            ImGui::SetNextItemWidth(scaled(120.0f));
+            if (ImGui::DragFloat("Scale", &seqTakeMap_.scale, 0.02f, 0.01f, 1000.0f,
+                                 "%.2f u/m"))
+                rebake = true;
+            ImGui::SameLine(0.0f, scaled(14.0f));
+            if (ImGui::SmallButton("Done")) {
+                seqTakeActive_ = false;  // stop tracking; keys stay
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Finish adjusting - the keys become ordinary\n"
+                                  "editable keyframes.");
+            if (rebake) {
+                applyCamTake(s, true);
+                const float lastT =
+                    s.cameraKeys.empty() ? 0.0f : s.cameraKeys.back().time;
+                if (lastT > s.duration) s.duration = lastT;
+                changed = true;
+            }
+        }
+    }
 
     // "Import take...": pick a phone-recorded 6DoF camera take (CamTrackAR
     // .hfcs or the canonical CSV - docs/camera-takes.md) and stage it for the
@@ -7985,6 +8119,34 @@ void App::drawCutsceneWindow() {
                                 seqTake_.fps, (float)seqTake_.duration());
             ImGui::Separator();
 
+            // Target: free camera shots, or bake into a Camera entity's track
+            // (so two cameras in one scene each carry their own recording).
+            const std::string targetLabel =
+                seqTakeTarget_.empty() ? "Free camera shots" : seqTakeTarget_;
+            ImGui::SetNextItemWidth(200.0f);
+            if (ImGui::BeginCombo("Import as", targetLabel.c_str())) {
+                if (ImGui::Selectable("Free camera shots", seqTakeTarget_.empty()))
+                    seqTakeTarget_.clear();
+                bool anyCam = false;
+                for (const SceneObject& o : project_.objects())
+                    if (o.type == PrimitiveType::Camera) {
+                        anyCam = true;
+                        std::string lbl = "Camera: " + o.name;
+                        if (ImGui::Selectable(lbl.c_str(), seqTakeTarget_ == o.name))
+                            seqTakeTarget_ = o.name;
+                    }
+                if (!anyCam)
+                    ImGui::TextDisabled("No Camera entities in this scene\n"
+                                        "(+ Add object > Gameplay > Camera).");
+                ImGui::EndCombo();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Free: shots on the camera lane.\n"
+                                  "A Camera entity: bake the move into that entity's\n"
+                                  "transform track (position + rotation) and its FOV,\n"
+                                  "plus a bound shot - so it dollies along the path.");
+            ImGui::Separator();
+
             ImGui::SetNextItemWidth(110.0f);
             if (ImGui::DragFloat("Scale (units per meter)", &seqTakeMap_.scale, 0.02f,
                                  0.01f, 1000.0f, "%.2f"))
@@ -8037,28 +8199,38 @@ void App::drawCutsceneWindow() {
                                    "That is a lot of keys - the PS2 keyframe table\n"
                                    "grows with every key. Raise the tolerance.");
 
-            if (ImGui::RadioButton("Replace camera track", seqTakeReplace_))
-                seqTakeReplace_ = true;
-            ImGui::SameLine();
-            if (ImGui::RadioButton("Append", !seqTakeReplace_)) seqTakeReplace_ = false;
+            // Replace/Append only makes sense for the free camera lane; an
+            // entity target always rewrites that entity's own track.
+            if (seqTakeTarget_.empty()) {
+                if (ImGui::RadioButton("Replace camera track", seqTakeReplace_))
+                    seqTakeReplace_ = true;
+                ImGui::SameLine();
+                if (ImGui::RadioButton("Append", !seqTakeReplace_))
+                    seqTakeReplace_ = false;
+            } else {
+                ImGui::TextDisabled("Rewrites \"%s\" transform track + FOV, and adds a\n"
+                                    "bound shot if the camera lane has none yet.",
+                                    seqTakeTarget_.c_str());
+            }
 
             ImGui::Separator();
             ImGui::BeginDisabled(seqTakeBaked_.empty());
             if (ImGui::Button("Import", ImVec2(120.0f, 0.0f))) {
-                if (seqTakeReplace_)
-                    s.cameraKeys = seqTakeBaked_;
-                else {
-                    s.cameraKeys.insert(s.cameraKeys.end(), seqTakeBaked_.begin(),
-                                        seqTakeBaked_.end());
-                    sortCamKeys();
+                const bool replace = seqTakeTarget_.empty() ? seqTakeReplace_ : true;
+                const float firstT = applyCamTake(s, replace);
+                if (firstT >= 0.0f) {
+                    const float lastT =
+                        s.cameraKeys.empty() ? 0.0f : s.cameraKeys.back().time;
+                    if (lastT > s.duration) s.duration = lastT;
+                    selectedSeqTrack_ = -1;
+                    selectedSeqKey_ = -1;
+                    seqPlayhead_ = firstT;
+                    // keep the take loaded so the path can be re-positioned /
+                    // re-oriented afterwards (Adjust imported take section)
+                    seqTakeActive_ = true;
+                    seqTakeSeqIdx_ = selectedSequence_;
+                    changed = true;
                 }
-                s.cameraEnabled = true;
-                const float lastT = s.cameraKeys.back().time;
-                if (lastT > s.duration) s.duration = lastT;
-                selectedSeqTrack_ = -1;
-                selectedSeqKey_ = -1;
-                seqPlayhead_ = seqTakeBaked_.front().time;
-                changed = true;
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndDisabled();

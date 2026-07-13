@@ -434,6 +434,22 @@ private:
     bool seqTakeDirty_ = true;        // re-bake the cached preview
     std::vector<SeqCameraKey> seqTakeBaked_;  // cached bake result
     CamTakeBakeStats seqTakeStats_;
+    // Import target: "" = free camera shots on the camera lane; otherwise the
+    // name of a Camera entity - the take bakes into that entity's transform
+    // track (position + rotation) so a bound shot dollies along the path, and
+    // the entity's FOV is set from the take. Two cameras in one scene each
+    // take their own recording this way.
+    std::string seqTakeTarget_;
+    // "Adjust imported take": after an import the take + mapping stay loaded so
+    // the whole path can be re-positioned / re-oriented (origin + yaw + scale)
+    // in place without re-importing. Valid while it matches the open sequence.
+    bool seqTakeActive_ = false;      // a re-bakeable last import exists
+    int seqTakeSeqIdx_ = -1;          // sequence it was imported into
+    // Applies the loaded take (seqTake_/seqTakeMap_/seqTakeTarget_) to sequence
+    // s: free shots -> camera lane (replace or append); a Camera entity target
+    // -> its transform track + FOV + a bound camera key. Returns the first key
+    // time (for the playhead), or -1 on no-op.
+    float applyCamTake(Sequence& s, bool replace);
 
     // Look-through camera: the viewport renders from this Camera entity's
     // pose + FOV ("" = free orbit camera). Editor-side state, not persisted;
