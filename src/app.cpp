@@ -1763,6 +1763,9 @@ void App::commitChange() {
     // Push an undo snapshot; mark the project dirty only when the edit actually
     // changed something. No disk write - saving is on demand (see saveAll).
     layerRamCache_.clear();  // objects/layers may have changed - re-estimate
+    // Stamp ids on any freshly inserted / pasted object before it enters an
+    // undo snapshot or hits disk, so every persisted object has a stable id.
+    project::ensureObjectIds(project_);
     if (history_.push({project_.scenes})) setDirty(true);
 }
 
@@ -2018,6 +2021,7 @@ void App::pasteObject() {
     selection_.clear();
     for (const SceneObject& src : clipboard_) {
         SceneObject o = src;
+        o.id.clear();  // a paste is a new object - it must get its own id
         std::string name = o.name + "-copy";
         for (int n = 2;; ++n) {
             bool taken = false;

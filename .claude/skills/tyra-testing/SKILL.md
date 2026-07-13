@@ -36,6 +36,7 @@ everything under `src/` — warnings matter, the build is expected to be clean.
 ```powershell
 build\tyra-editor.exe --new <name> <parentDir> [width] [depth] [empty|fpp]
 build\tyra-editor.exe --build <projectDir> [--run]   # exit code 0 = success
+build\tyra-editor.exe --resave <projectDir>          # load + save, no Docker
 build\tyra-editor.exe <projectDir|project.tyra>      # open GUI on a project
 ```
 
@@ -44,6 +45,11 @@ build\tyra-editor.exe <projectDir|project.tyra>      # open GUI on a project
   single Player entity; `empty` is an orbit-camera scene with no objects.
 - `--build` streams the whole Docker build log to stdout and returns a real
   exit code — the backbone of scripted e2e runs.
+- `--resave` loads a project and writes the `.tyra` (+ heights) straight back
+  out — **no Docker**. Because `project::load` runs every format migration,
+  this is the clean way to test/round-trip a `.tyra`-format change headlessly:
+  strip/alter a field, `--resave`, and inspect the rewritten file. Also the
+  one-shot batch-migration tool for existing projects.
 - Create scratch projects in a **short** path outside the repo — the
   convention is `%TEMP%\tyra-editor-test\<name>`. Do NOT use the session
   scratchpad for anything that will boot in PCSX2: its path is ~180+ chars
