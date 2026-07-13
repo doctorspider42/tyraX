@@ -9,6 +9,17 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (91) **Boot splash logo swapped to the TYRAX artwork.** The engine's Tyra
+  splash (`vendor/tyra/engine/src/info/banner.cpp` + `banner_data.cpp`) drew a
+  128x32 RGBA logo; replaced its embedded pixel data with `resources/tryaX.png`
+  (576x190) converted to a 256x128 RGBA texture (fit-to-width on black,
+  regenerated packed `R+G<<8+B<<16+A<<24` array - the file header notes it's
+  generated, not hand-edited) and enlarged the splash sprite to 384x192,
+  centered. Gotcha caught in PCSX2: `Sprite` defaults to `MODE_REPEAT`, so a
+  sprite bigger than its texture **tiles** the logo (the old 128x32==texture
+  size hid it); set `MODE_STRETCH`. **Verified** (Layer 3): booted in PCSX2 -
+  the new white "TYRAX" + cyan X shows once, centered and crisp on black during
+  the ~2s logo hold, then the splash/loading sequence proceeds as before.
 - (90) **Boot splash screens (images) with configurable duration.** On top of
   (88)/(89): *Tools > Loading Screens* gained a **Boot splash screens** section
   (collapsing header) - a list of images shown in order at startup, **after the

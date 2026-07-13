@@ -23,17 +23,22 @@ Banner::~Banner() {}
 void Banner::show(Renderer* renderer) {
   auto* bannerData = ___createTyraSplashBanner();
 
+  // Modified by tyra-editor: 256x128 RGBA logo (resources/tryaX.png), drawn
+  // larger and centered (2:1, matching the texture).
   TextureBuilderData tbd;
   tbd.bpp = bpp32;
   tbd.gsComponents = TEXTURE_COMPONENTS_RGBA;
-  tbd.width = 128;
-  tbd.height = 32;
+  tbd.width = 256;
+  tbd.height = 128;
   tbd.clut = nullptr;
   tbd.data = reinterpret_cast<unsigned char*>(bannerData);
 
   Sprite sprite;
-  sprite.size.x = 128;
-  sprite.size.y = 32;
+  // Stretch the texture across the sprite: the default MODE_REPEAT tiles the
+  // logo when the sprite is larger than the 256x128 texture.
+  sprite.mode = SpriteMode::MODE_STRETCH;
+  sprite.size.x = 384;
+  sprite.size.y = 192;
   sprite.position.x =
       (renderer->core.getSettings().getWidth() / 2) - (sprite.size.x / 2);
   sprite.position.y =
