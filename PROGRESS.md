@@ -86,6 +86,81 @@ Each finished feature lands as its own commit.
   while the editor is running a build/run) wasn't automated - no synthetic input
   while the user is at the machine - but the detection + parse path it depends on
   is exercised above.
+- (87) **Merge-friendly project format: one file per object + collaboration
+  scaffolding (steps 2-4, building on the ids in entry 86).** The whole point of
+  the ids was this: the monolithic `<name>.tyra` is now a **manifest** that
+  keeps project-wide data (settings, hud, menus, sequences, gradings, ambience,
+  save data, editor state) and, per scene, an **ordered list of object ids** -
+  each object's body moved out to its own `objects/<id>.json` file (Unreal-5
+  One-File-Per-Actor style). Two people editing *different* objects now touch
+  *different* files, so git merges with zero conflict; the only residual
+  collision is two people *adding* an object to the same scene at once (a
+  one-line conflict in that scene's id list). The dir is flat (not per scene)
+  because ids are project-global - a scene rename never moves a file and an
+  object can change scenes without touching its body. Order is preserved by the
+  manifest list (it is significant: first Player / SpawnPoint wins, draw order);
+  the object array is not reorderable in the UI, so the list only ever gets
+  appends/removes. `save()` writes every live object then prunes
+  `objects/*.json` whose object no longer exists; `load()` dispatches per scene -
+  an `objects` array of *id strings* loads the split files, an array of *object
+  bodies* is the legacy inline format (so old projects and the committed
+  examples keep loading unchanged and migrate to split on the next save /
+  `--resave`). The history file stays monolithic (inline bodies) - it is
+  gitignored churn, not the tracked source of truth. **Collaboration
+  scaffolding (Level 2):** because a real game map is its own repo (separate
+  from this editor's `examples/`), `create()` now drops a `.gitattributes` and a
+  `COLLABORATION.md` into every new project. `.gitattributes` marks the files
+  that *cannot* be auto-merged - `terrain-*.heights` and the imported `res/`
+  assets - as `lockable` so a team can `git lfs lock` them before editing (uses
+  only LFS's lock registry, no LFS storage/server; inert until `git lfs install`,
+  so it never breaks a non-LFS workflow). Both are written once at creation and
+  never regenerated (not in `refreshGenerated`'s lists), so users can edit them.
+  **Verified** (Layer 0/1, headless, no Docker needed - `--resave` exercises the
+  full load+save round-trip): `--new fpp` writes a manifest with `"objects":
+  ["<id>"]` and an `objects/<id>.json` body, plus `.gitattributes` +
+  `COLLABORATION.md`; a legacy inline `.tyra` (no `objects/` dir) migrates to the
+  split layout on `--resave` and a second `--resave` is byte-identical (stable,
+  no churn); a stray `objects/deadbeef.json` is pruned on the next save; an
+  `empty`-preset project round-trips with `"objects": []`; a copy of the
+  `script-demo` example (3 objects incl. a flow graph) migrates to 3 object files
+  with the graph intact. Codegen is untouched - the in-memory `Project` is
+  identical whichever layout it loaded from, so no example needed regenerating.
+  Next (optional): deterministic key ordering in the manifest for even smaller
+  diffs, and a live/real-time collab layer (CRDT) if the team ever outgrows
+  lock-based coordination.
+
+- (86) **Stable object ids (step 1 of the merge-friendly project format).**
+  Groundwork for multi-user collaboration on one project: today every edit
+  touches the single monolithic `.tyra` file and objects are identified only by
+  their array position, so two people editing the same scene collide badly in
+  git. `SceneObject` gained an opaque `id` (16 hex chars from a 64-bit random
+  value) that is generated once and never changes, even across renames - a
+  stable merge/persistence key. Object *references* (flow graphs, sequences,
+  layers) still resolve by name; the id only exists to give the coming
+  file-split + merge machinery something stable to anchor on. `id` is the first
+  key in each object's JSON (and part of `SceneObject::operator==`, so undo
+  captures it). A single choke-point `project::ensureObjectIds()` stamps a fresh
+  unique id on any object that lacks one and reissues accidental duplicates; it
+  runs on `create`, at the end of `load` (before the caller snapshots for undo -
+  so pre-id projects migrate transparently) and inside `commitChange()` (so
+  freshly inserted / pasted objects get ids before they hit an undo snapshot or
+  disk). Paste clears the copied id so a paste is always a new identity. Added a
+  headless `--resave <projectDir>` (load + save) as the one-shot way to migrate
+  an existing project to the new format without the GUI. No codegen change - ids
+  are editor-side persistence metadata, never emitted into the game, so the
+  example projects did not need regenerating (they gain ids the next time they
+  are opened and saved, or via `--resave`). Note: opening a *pre-id* project with
+  an existing `.history` discards that undo history once (the id-less snapshot no
+  longer equals the freshly-migrated state - the normal stale-history path), then
+  a fresh history is written. **Verified** (Layer 0/1, headless): built clean;
+  `--new … fpp` writes a player object whose JSON starts with a 16-hex `id`;
+  stripped the id from that `.tyra` to simulate a legacy project, ran `--resave`
+  and confirmed an id was stamped, then ran `--resave` again and confirmed the id
+  was byte-identical (stable, no churn). Paste id-clearing + the multi-object
+  dedup path are code-reviewed but not GUI-automated (no synthetic input while
+  the user is at the machine). Next steps toward multi-user: deterministic
+  minimal-diff serialization, then splitting the `.tyra` into one file per object
+  (OFPA-style), then LFS-lock tooling for the non-mergeable assets.
 
 - (84) **examples/script-demo: drop the dangling `house-1` model reference.**
   The scene's `house-1` object referenced `res/models/house.obj`, but the

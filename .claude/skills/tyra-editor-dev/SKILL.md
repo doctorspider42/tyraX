@@ -20,7 +20,8 @@ description: >
 An editor for the [Tyra](https://github.com/h4570/tyra) PlayStation 2 game engine.
 The editor itself is a Windows desktop app (C++20, Dear ImGui docking + GLFW +
 OpenGL 3.3). It edits a **data model** (scenes, objects, terrain heightmaps, flow
-graphs, preferences) stored in a single `<name>.tyra` file, and on every build
+graphs, preferences) stored in a `<name>.tyra` manifest plus one `objects/<id>.json`
+file per scene object (merge-friendly split), and on every build
 **generates a complete PS2 game project** (C++ sources, Makefile, Dockerfile).
 The game is compiled inside a Docker container (`h4570/tyra` image, PS2DEV
 `mips64r5900el-ps2-elf-g++` toolchain) and launched in the PCSX2 emulator.
@@ -31,7 +32,7 @@ The one-line pipeline to keep in your head:
 ImGui UI (app.cpp) ──edits──> Project model (project.hpp)
         │ commitChange()              │ save()/load()
         ▼                             ▼
-  undo history (history.hpp)     <name>.tyra + <name>.history + terrain-*.heights
+  undo history (history.hpp)     <name>.tyra (manifest) + objects/<id>.json + <name>.history + terrain-*.heights
                                       │ refreshGenerated() at build start
                                       ▼
                 templates::generate() (templates.cpp) → game sources
@@ -51,9 +52,9 @@ Two sibling skills cover the rest of the system:
 |---|---|---|
 | `main.cpp` | 76 | Entry point. GUI by default; headless `--new <name> <dir> [w] [d] [empty\|fpp]` and `--build <projectDir> [--run]`. |
 | `app.cpp/.hpp` | 2751 | The whole ImGui shell: menus, all panels (Project, Scene, Scripts, HUD, Music, Sounds, Output, Disc Layout, Flow Graph), modals, gizmo + sculpt input, undo/redo, clipboard, wiring viewport ↔ project ↔ runner. |
-| `project.cpp/.hpp` | 979 | **Data model + JSON (de)serialization + generated-file refresh.** `Project`, `SceneData`, `SceneObject`, `TerrainConfig`, `ProjectSettings`. `save()`/`load()` (the single `<name>.tyra`: game data + editor state + window layout), `create()`, `saveHeights()/loadHeights()`, `saveHistory()/loadHistory()` (`<name>.history` undo stack), `refreshGenerated()`. |
+| `project.cpp/.hpp` | ~1050 | **Data model + JSON (de)serialization + generated-file refresh.** `Project`, `SceneData`, `SceneObject`, `TerrainConfig`, `ProjectSettings`. `save()`/`load()`: the `<name>.tyra` **manifest** (project-wide data + per-scene ordered object-id list + editor state + window layout) plus one `objects/<id>.json` body per object — `save()` writes every live object then prunes orphaned files; `load()`→`readSceneObjects()` dispatches split (id strings) vs legacy inline (object bodies). `ensureObjectIds()` (stamps stable ids), `create()`, `saveHeights()/loadHeights()`, `saveHistory()/loadHistory()` (`<name>.history` undo stack — stays monolithic/inline, gitignored), `refreshGenerated()`. |
 | `templates.cpp/.hpp` | 3522 | **All code generation.** `templates::generate(Project)` returns `vector<File>` (relativePath + content). Scene tables, terrain game sources, flow-graph compilation, Dockerfile/Makefile/compose, VS Code IntelliSense config. |
-| `flowgraph.hpp` | 216 | Flow-graph data model: `FlowNode`, `FlowLink` (exec / object-id / position / bool link kinds), `FlowGraph`, the built-in `flowNodeTypes()` registry, and the project-scoped custom-node registry (`CustomFlowNode`, `customFlowNodes()`). Per-object graphs, stored inside objects in the `.tyra` file. |
+| `flowgraph.hpp` | 216 | Flow-graph data model: `FlowNode`, `FlowLink` (exec / object-id / position / bool link kinds), `FlowGraph`, the built-in `flowNodeTypes()` registry, and the project-scoped custom-node registry (`CustomFlowNode`, `customFlowNodes()`). Per-object graphs, stored inside each object's `objects/<id>.json` body. |
 | `flownode.cpp` | 230 | Loads project-defined **custom flow nodes** from `<project>/flow-nodes/*.flownode` text files into the global `customFlowNodes()` registry (`flownode::loadForProject`). Called by `project::load` *before* graphs are parsed. Parses the manifest (title/category/params, `in`/`out` pins, `exec_out`, `call`) into a `FlowNodeType`; the node's behavior is an inline C++ snippet or a `call = fn` into `inc/scripts/flow_nodes.hpp`. Also scaffolds the starter file (`writeExample`). See `docs/custom-flow-nodes.md`. |
 | `sequence.hpp` | ~230 | Cutscene Director data model + shared math: `Sequence` (object tracks + camera *shots* - free or bound to Camera entities - plus widescreen bars, fades, skippable), `seqEase`/`seqSample`/`seqBarsFractions`/`seqShakeOffset`/`seqCameraForward` (each mirrored in the generated PS2 player - keep in sync). Project-wide (like presets), persisted but not in undo. Compiled to `src/scripts/sequences.gen.cpp` (a runtime player Script + the bars/fade `renderOverlay`); the dopesheet UI + viewport scrub live in `app.cpp`. Object renames remap track/shot name references (`objRenameFrom_`). |
 | `camtake.cpp/.hpp` | ~420 | Phone-recorded 6DoF camera takes (ARKit) → Cutscene Director camera keys. Two strictly separated stages: *acquisition* (loaders producing a `CamTake`: CamTrackAR `.hfcs` via a minimal XML subset reader, canonical CSV — spec + conventions in `docs/camera-takes.md`; phase 2 adds a live streaming receiver) and *bake* (`bakeCamTake`: scale/yaw/origin/time mapping + time-parameterized RDP decimation → free `SeqCameraKey`s, pure and harness-testable). UI = the "Import take..." modal in `app.cpp` (`seqTake*_` members). |
@@ -112,6 +113,18 @@ rendering if it's visual.
 **New object type** → `PrimitiveType` enum (0–9 used so far; keep values stable,
 they're serialized) → mesh/marker in viewport.cpp → insert menu in app.cpp →
 codegen + runtime as above.
+
+**Object identity: `SceneObject::id`.** Every object carries an opaque, stable
+`id` (first JSON key; part of `operator==`) — the merge/persistence key for the
+multi-user file format. It is *not* a user field and never reaches codegen
+(references still resolve by name). `project::ensureObjectIds()` stamps a fresh
+unique id on any object that lacks one and reissues duplicates; it runs in
+`create`, at the end of `load`, and in `commitChange()`. **When you add a code
+path that clones an existing object** (like `pasteObject`), clear the copy's
+`id` so it gets its own identity — otherwise two objects share one id. Freshly
+default-constructed objects need nothing (empty id → `ensureObjectIds` fills
+it). Migrate/round-trip `.tyra`-format changes headlessly with `--resave` (see
+tyra-testing).
 
 **New flow-graph node** → node kind in flowgraph.hpp → node UI (pins, params)
 in the flow-graph editor in app.cpp → codegen in `flowGraphScript()`
