@@ -148,6 +148,18 @@ void RendererCore::applyPostFx(int passes) {
   postFx.apply(passes);
 }
 
+// Modified by tyra-editor: user-authored full-screen effect (custom screen
+// effects). Same PATH1 drain barrier as applyPostFx() so the pass composites
+// over finished 3D; no once-per-frame mask (a custom pass always draws).
+void RendererCore::applyCustomPostFx(RendererCorePostFx::CustomFxBuild build,
+                                     void* user) {
+  if (!postFxDrained && path1.isVU1Configured()) {
+    sync.align3D();
+    postFxDrained = true;
+  }
+  postFx.applyCustom(build, user);
+}
+
 void RendererCore::endFrame() {
   Threading::switchThread();
   // The dynamic pipeline kicks the scene on PATH1/VU1 asynchronously (double

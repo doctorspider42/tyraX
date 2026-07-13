@@ -374,12 +374,14 @@ private:
 
     // UI Editor (Tools > UI Editor): selected screen-stack entry - a HUD image
     // (uiFxSel_ == 0, index in selectedHud_), an effect layer (uiFxSel_ 1 =
-    // bloom + color grading, 2 = film grain), the pinned USE prompt (3) or a
-    // HUD text (4, index in selectedText_).
+    // bloom + color grading, 2 = film grain), the pinned USE prompt (3), a
+    // HUD text (4, index in selectedText_) or a custom screen effect placement
+    // (5, index in selectedFx_ into project_.screenFx).
     bool showUiEditor_ = false;
     int selectedHud_ = -1;
     int uiFxSel_ = 0;
     int selectedText_ = -1;
+    int selectedFx_ = -1;
     // Baked preview of the selected HUD text (menubake::bakeTextRGBA),
     // re-rasterized whenever its content changes.
     unsigned textPreviewTex_ = 0;

@@ -648,6 +648,19 @@ std::string save(const Project& p) {
     json << (p.hudTexts.empty() ? "]" : "\n  ]");
     json << ",\n  \"hudBloomLayer\": " << p.hudBloomLayer;
     json << ",\n  \"hudGrainLayer\": " << p.hudGrainLayer;
+    if (!p.screenFx.empty()) {
+        json << ",\n  \"screenFx\": [";
+        for (size_t i = 0; i < p.screenFx.size(); ++i) {
+            const ScreenFxPlacement& f = p.screenFx[i];
+            json << (i ? ",\n    " : "\n    ") << "{ \"key\": \""
+                 << jsonEscape(f.key) << "\", \"layer\": " << f.layer
+                 << ", \"enabled\": " << (f.enabled ? "true" : "false")
+                 << ", \"params\": [" << fmtFloat(f.params[0]) << ", "
+                 << fmtFloat(f.params[1]) << ", " << fmtFloat(f.params[2])
+                 << ", " << fmtFloat(f.params[3]) << "] }";
+        }
+        json << "\n  ]";
+    }
     json << ",\n  \"music\": [";
     for (size_t i = 0; i < p.music.size(); ++i)
         json << (i ? ", " : "") << "\"" << p.music[i] << "\"";
@@ -1214,6 +1227,10 @@ std::string load(Project& out, const std::string& projectDir) {
     // readFlowGraph drops any node whose type is unknown (line ~156), so a
     // "custom:*" node only survives the load if its .flownode file is present.
     flownode::loadForProject(out.dir);
+    // Same for custom screen effects: their placements below reference a
+    // screen-effects/*.screenfx file by key, and a placement whose file is
+    // missing is dropped (so a moved .tyra cannot silently keep a dead effect).
+    screenfx::loadForProject(out.dir);
     if (const auto* v = root.find("name")) out.name = v->stringOr("");
     if (out.name.empty())
         return tyraPath.filename().string() + " is malformed (no name)";
@@ -1468,6 +1485,28 @@ std::string load(Project& out, const std::string& projectDir) {
     };
     clampLayer(out.hudBloomLayer);
     clampLayer(out.hudGrainLayer);
+
+    // Custom screen effect placements. A placement whose .screenfx file was not
+    // loaded above (missing / moved project) is dropped - the same rule that
+    // cleans up unknown flow-graph nodes.
+    if (const auto* sfx = root.find("screenFx");
+        sfx && sfx->type == json::Value::Type::Array) {
+        for (const auto& jo : sfx->arr) {
+            ScreenFxPlacement f;
+            if (const auto* v = jo.find("key")) f.key = v->stringOr("");
+            if (f.key.empty() || customScreenFx(f.key) == nullptr) continue;
+            if (const auto* v = jo.find("layer")) f.layer = (int)v->numberOr(-1.0);
+            if (const auto* v = jo.find("enabled"))
+                f.enabled = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (const auto* pa = jo.find("params");
+                pa && pa->type == json::Value::Type::Array) {
+                for (size_t i = 0; i < pa->arr.size() && i < 4; ++i)
+                    f.params[i] = (float)pa->arr[i].numberOr(0.0);
+            }
+            clampLayer(f.layer);
+            out.screenFx.push_back(std::move(f));
+        }
+    }
 
     if (const auto* music = root.find("music");
         music && music->type == json::Value::Type::Array) {
@@ -1942,6 +1981,8 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == ".vscode\\c_cpp_properties.json" ||
             f.relativePath == "src\\scripts\\flow_graph.gen.cpp" ||
             f.relativePath == "src\\scripts\\object_scripts.gen.cpp" ||
+            f.relativePath == "src\\scripts\\screen_fx.gen.cpp" ||
+            f.relativePath == "inc\\scripts\\screen_fx.gen.hpp" ||
             f.relativePath == "inc\\scripts\\sequences.gen.hpp" ||
             f.relativePath == "src\\scripts\\sequences.gen.cpp" ||
             f.relativePath == "inc\\model_data.gen.hpp" ||
