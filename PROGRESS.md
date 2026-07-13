@@ -9,6 +9,30 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (90) **Boot splash screens (images) with configurable duration.** On top of
+  (88)/(89): *Tools > Loading Screens* gained a **Boot splash screens** section
+  (collapsing header) - a list of images shown in order at startup, **after the
+  always-present Tyra logo and before the loading screen**, each for its own
+  duration (0.1-10 s). Images only for now (studio / "presents" cards). New
+  `SplashScreen` model (a `HudImage` + bgColor + duration, reusing the HUD
+  import/pow2-quant bake), `Project::splashScreens`, JSON save/load, texbake +
+  ISO-startup registration, a `SPLASHES[]` table in `inc/loading_data.gen.hpp`,
+  and `loadingscreen::renderSplash`. Splashes are **independent of the
+  loading-screen master toggle** - they always play when defined. The boot state
+  machine grew a phase 0 (step through splashes by frame-counted duration, one
+  `renderSplash` per frame) before the existing load phase; both run from the
+  loop so each splash is shown for its full vsync-paced time (same reason the
+  boot loading screen had to move out of `init()`). Editor: add / reorder
+  (*Move up*/*Move down*) / delete, per-splash image (import + `hudBakeControls`),
+  duration, background color, size/position. **Verified** (Layers 2-3): codegen
+  emits the `SPLASHES` table (fullscreen size, GS-range bg, seconds); the PS2
+  game compiled; a boot with two 1.5 s splashes booted in PCSX2 and
+  window-screenshots caught the sequence **Tyra logo → splash image (a teal
+  "PRESENTS" card, full-screen, 50 FPS) → loading screen (bar + segments) →
+  terrain**, in that order. Exact per-splash seconds confirmed from the code
+  path (`everyFrames` + vsync), not a stopwatch (PCSX2's window is capturable
+  only partway through boot). Editor interactions (the new section's buttons)
+  not click-tested - no synthetic input while the user is at the machine.
 - (89) **Loading screen at boot: Tyra logo (~2s) → loading screen → scene.**
   Follow-up to (86): the loading screen fired on scene switches but was
   invisible at the very first boot - you saw the Tyra logo, then the scene. Two

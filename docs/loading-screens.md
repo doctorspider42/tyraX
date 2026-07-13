@@ -56,12 +56,32 @@ many assets to see it climb.)
 ### At boot
 
 The very first scene is covered too. Boot order is: the engine's **Tyra logo**
-(held ~2 seconds), then the loading screen while scene 0 loads, then the scene.
-The first load is deferred into the game loop on purpose — a frame presented
-from `init()`, before the main loop, isn't vsync-paced and would flash by, so
-the boot loading screen would be invisible. (The ~2s logo hold lives in the
-engine's `banner.show()`, which re-renders the splash for a fixed real-time
-window; it applies to every generated game, loading screens or not.)
+(held ~2 seconds) → any **boot splash screens** (below) → the loading screen
+while scene 0 loads → the scene. The first load is deferred into the game loop
+on purpose — a frame presented from `init()`, before the main loop, isn't
+vsync-paced and would flash by, so the boot loading screen would be invisible.
+(The ~2s logo hold lives in the engine's `banner.show()`, which re-renders the
+splash for a fixed real-time window; it applies to every generated game,
+loading screens or not.)
+
+## Boot splash screens
+
+The **Boot splash screens** section (collapsing header at the top of the
+Loading Screens window) lists images shown at startup, in order, **after the
+Tyra logo and before the loading screen**. Use them for a studio / publisher /
+"presents" card. Each splash is:
+
+- an **image** (PNG, imported into `res/hud/`, baked to a PS2-valid size like
+  any HUD image; full-screen 512×448 by default, position/size adjustable),
+- a **background color** behind it (for letterboxing a non-full-screen image),
+- a **duration** in seconds (0.1–10).
+
+Splashes are project-wide and **independent of the loading-screen master
+toggle** — they always play when defined. Only images are supported for now.
+Reorder them with *Move up* / *Move down*; the list order is the play order.
+They compile to a `SPLASHES[]` table in `inc/loading_data.gen.hpp` and, like the
+Tyra logo hold and the loading screen, are rendered from the game loop so each
+is shown for its full (vsync-paced) duration.
 
 ## Assigning a screen
 

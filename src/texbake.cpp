@@ -165,6 +165,8 @@ std::string bake(const Project& p,
             if (!b.segImage.imagePath.empty())
                 hudBake[b.segImage.imagePath] = &b.segImage;
     }
+    for (const SplashScreen& s : p.splashScreens)
+        if (!s.image.imagePath.empty()) hudBake[s.image.imagePath] = &s.image;
 
     // --- mirror res/ into .res-baked/ --------------------------------------
     const std::string defaultQ = p.settings.textureQuant;  // none/8bit/4bit

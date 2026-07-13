@@ -6263,6 +6263,128 @@ void App::drawLoadingPreview(const LoadingScreenDef& ls, float fraction) {
 // the HUD) and progress bars (continuous or quantized). Scenes pick one in
 // Scene > Preferences; one can be the project default. Like the other preset
 // collections these live outside undo, so edits save immediately (saveAll).
+// Boot splash screens: a collapsing section at the top of the Loading Screens
+// window. Images shown in order at startup (after the Tyra logo, before the
+// loading screen), each for its own duration. Self-contained (balanced
+// Begin/EndChild) so the caller's later early-returns stay valid.
+bool App::drawSplashSection() {
+    if (!ImGui::CollapsingHeader("Boot splash screens")) return false;
+    bool changed = false;
+    auto& splashes = project_.splashScreens;
+    if (selectedSplash_ >= (int)splashes.size()) selectedSplash_ = -1;
+
+    ImGui::TextDisabled(
+        "Images shown at startup, in order, after the Tyra logo and before the\n"
+        "loading screen. Each has its own on-screen time. (Tyra logo always shows.)");
+
+    ImGui::BeginChild("##splash_body", ImVec2(0, scaled(190)),
+                      ImGuiChildFlags_Borders);
+
+    // --- left: splash list -------------------------------------------------
+    ImGui::BeginChild("##splash_list", ImVec2(scaled(210), 0),
+                      ImGuiChildFlags_Borders);
+    if (ImGui::Button("+ Add splash (PNG)...", ImVec2(-1, 0))) {
+        std::vector<HudImage> tmp;
+        const int i = importHudImageInto(tmp);
+        if (i >= 0) {
+            SplashScreen s;
+            s.name = tmp[i].name.empty() ? "splash" : tmp[i].name;
+            s.image = tmp[i];
+            s.image.pos[0] = 0.5f;
+            s.image.pos[1] = 0.5f;
+            s.image.size[0] = 512.0f;  // default fullscreen stretch
+            s.image.size[1] = 448.0f;
+            splashes.push_back(std::move(s));
+            selectedSplash_ = (int)splashes.size() - 1;
+            changed = true;
+        }
+    }
+    ImGui::Separator();
+    for (int i = 0; i < (int)splashes.size(); ++i) {
+        ImGui::PushID(i);
+        char label[96];
+        std::snprintf(label, sizeof(label), "%d. %s  (%.1fs)", i + 1,
+                      splashes[i].name.c_str(), splashes[i].duration);
+        if (ImGui::Selectable(label, selectedSplash_ == i)) selectedSplash_ = i;
+        ImGui::PopID();
+    }
+    if (splashes.empty())
+        ImGui::TextDisabled("No splash screens.\nAdd one above.");
+    ImGui::EndChild();
+    ImGui::SameLine();
+
+    // --- right: selected splash properties ---------------------------------
+    ImGui::BeginChild("##splash_props", ImVec2(0, 0));
+    if (selectedSplash_ >= 0 && selectedSplash_ < (int)splashes.size()) {
+        SplashScreen& s = splashes[selectedSplash_];
+        char nameBuf[64];
+        std::snprintf(nameBuf, sizeof(nameBuf), "%s", s.name.c_str());
+        ImGui::SetNextItemWidth(scaled(160));
+        if (ImGui::InputText("Name##splash", nameBuf, sizeof(nameBuf)))
+            s.name = nameBuf;
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SetNextItemWidth(scaled(160));
+        if (ImGui::DragFloat("Duration (s)", &s.duration, 0.05f, 0.1f, 10.0f, "%.1f"))
+            s.duration =
+                s.duration < 0.1f ? 0.1f : (s.duration > 10.0f ? 10.0f : s.duration);
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::ColorEdit3("Background##splash", s.bgColor,
+                              ImGuiColorEditFlags_NoInputs))
+            changed = true;
+        ImGui::DragFloat2("Size (px)##splash", s.image.size, 1.0f, 1.0f, 512.0f, "%.0f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat2("Position##splash", s.image.pos, 0.005f, 0.0f, 1.0f, "%.3f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        changed |= hudBakeControls(s.image);
+
+        // Structural actions last (they invalidate `s`), each returns cleanly.
+        ImGui::Spacing();
+        ImGui::BeginDisabled(selectedSplash_ == 0);
+        if (ImGui::SmallButton("Move up")) {
+            std::swap(splashes[selectedSplash_], splashes[selectedSplash_ - 1]);
+            --selectedSplash_;
+            ImGui::EndDisabled();
+            ImGui::EndChild();
+            ImGui::EndChild();
+            return true;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::BeginDisabled(selectedSplash_ >= (int)splashes.size() - 1);
+        if (ImGui::SmallButton("Move down")) {
+            std::swap(splashes[selectedSplash_], splashes[selectedSplash_ + 1]);
+            ++selectedSplash_;
+            ImGui::EndDisabled();
+            ImGui::EndChild();
+            ImGui::EndChild();
+            return true;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Change image...")) {
+            std::vector<HudImage> tmp;
+            const int i = importHudImageInto(tmp);
+            if (i >= 0) {
+                s.image.imagePath = tmp[i].imagePath;
+                changed = true;
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Delete")) {
+            splashes.erase(splashes.begin() + selectedSplash_);
+            selectedSplash_ = -1;
+            ImGui::EndChild();
+            ImGui::EndChild();
+            return true;
+        }
+    } else {
+        ImGui::TextDisabled("Select a splash on the left, or add one.");
+    }
+    ImGui::EndChild();  // props
+    ImGui::EndChild();  // body
+    return changed;
+}
+
 void App::drawLoadingScreenWindow() {
     if (!showLoadingEditor_ || !hasProject_) return;
 
@@ -6276,6 +6398,8 @@ void App::drawLoadingScreenWindow() {
     bool changed = false;
     auto& screens = project_.loadingScreens;
     if (selectedLoadingScreen_ >= (int)screens.size()) selectedLoadingScreen_ = -1;
+
+    changed |= drawSplashSection();
 
     const float previewH = scaled(200);
     ImGui::BeginChild("##ls_top", ImVec2(0, -(previewH + scaled(34))));

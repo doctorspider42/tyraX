@@ -603,6 +603,24 @@ inline bool operator==(const LoadingScreenDef& a, const LoadingScreenDef& b) {
            a.images == b.images && a.texts == b.texts && a.bars == b.bars;
 }
 
+// A boot splash screen (Tools > Loading Screens > Boot splash): a single image
+// shown for `duration` seconds during startup, after the engine's Tyra logo
+// and before the loading screen. Splashes play in list order. Images only for
+// now. Independent of the loading-screen master toggle - splashes always show
+// when defined. Reuses HudImage so import + pow2/quant bake apply.
+struct SplashScreen {
+    std::string name = "splash";
+    HudImage image;                         // the graphic (fullscreen by default)
+    float bgColor[3] = {0.0f, 0.0f, 0.0f};  // behind the image (letterbox)
+    float duration = 2.0f;                  // seconds shown (0.1 .. 10)
+};
+
+inline bool operator==(const SplashScreen& a, const SplashScreen& b) {
+    return a.name == b.name && a.image == b.image &&
+           a.bgColor[0] == b.bgColor[0] && a.bgColor[1] == b.bgColor[1] &&
+           a.bgColor[2] == b.bgColor[2] && a.duration == b.duration;
+}
+
 // One custom screen effect placed in the screen stack. The effect body lives
 // in a <project>/screen-effects/<stem>.screenfx file (loaded into
 // customScreenEffects()); this is the project-side record: which effect, where
@@ -912,6 +930,9 @@ struct Project {
     // The ProjectSettings::loadingScreen bool stays the master enable.
     std::vector<LoadingScreenDef> loadingScreens;
     int defaultLoadingScreen = -1;
+    // Boot splash screens (Tools > Loading Screens > Boot splash): images shown
+    // in order at startup, after the Tyra logo, before the loading screen.
+    std::vector<SplashScreen> splashScreens;
     // Cutscene Director sequences (Tools > Cutscene Director): project-wide
     // keyframe timelines that pose scene objects + the camera over time. Like
     // the preset collections above they persist through save() but are not part

@@ -87,6 +87,9 @@ static std::string orderFiles(const Project& p, std::vector<OrderedFile>& out,
             take("hud/" + menubake::textFileName("ls-" + std::to_string(si) + "-" + t.name),
                  "startup");
     }
+    // Boot splash images (shown before the first scene) belong to startup too.
+    for (const SplashScreen& s : p.splashScreens)
+        if (!s.image.imagePath.empty()) take(binPathOf(s.image.imagePath), "startup");
     for (const std::string& s : p.sounds) take(adpcmPathOf(s), "startup");
     for (const SceneData& s : p.scenes) {
         const std::string group = "scene:" + s.name;

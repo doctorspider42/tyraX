@@ -236,6 +236,10 @@ private:
     // color + images + baked texts + progress bars) assignable per scene, with
     // a 2D preview driven by a simulated load fraction.
     void drawLoadingScreenWindow();
+    // Collapsing "Boot splash screens" section at the top of the Loading
+    // Screens window: a list of images shown at startup, each for a set time.
+    // Returns true when something changed (the caller saves).
+    bool drawSplashSection();
     // Draws the 512x448-space loading-screen preview into the current ImGui
     // window (background, images, texts, bars honoring `fraction`).
     void drawLoadingPreview(const LoadingScreenDef& ls, float fraction);
@@ -433,6 +437,7 @@ private:
     int lsSelKind_ = 0;
     int lsSelIdx_ = -1;
     float lsPreviewProgress_ = 0.65f;
+    int selectedSplash_ = -1;  // boot splash screen being edited (-1 = none)
 
     // Snapshots the track target's current static pose into a key at `time`
     // (replacing a key within 1/60 s). Used by the dopesheet buttons,

@@ -596,9 +596,12 @@ class TerrainGame : public Tyra::Game {
   // Loads scene 0 + runs scripts' init(); called once from the loop's boot
   // sequence (see bootPhase) so the initial load is vsync-paced.
   void bootFirstScene();
-  // Boot state: 0 = not started, 1 = loading-screen hold for the first scene,
-  // 2 = gameplay running (the Tyra logo hold lives in the engine's banner).
+  // Boot state: 0 = boot splash images, 1 = loading-screen hold for the first
+  // scene, 2 = gameplay running (the Tyra logo hold lives in the engine's
+  // banner). splashIndex/splashFrames step through the splash sequence.
   int bootPhase = 0;
+  int splashIndex = 0;
+  int splashFrames = 0;
   int currentScene = 0;
   unsigned int sceneGeneration = 0;
 
@@ -945,9 +948,12 @@ class TerrainGame : public Tyra::Game {
   // Loads scene 0 + runs scripts' init(); called once from the loop's boot
   // sequence (see bootPhase) so the initial load is vsync-paced.
   void bootFirstScene();
-  // Boot state: 0 = not started, 1 = loading-screen hold for the first scene,
-  // 2 = gameplay running (the Tyra logo hold lives in the engine's banner).
+  // Boot state: 0 = boot splash images, 1 = loading-screen hold for the first
+  // scene, 2 = gameplay running (the Tyra logo hold lives in the engine's
+  // banner). splashIndex/splashFrames step through the splash sequence.
   int bootPhase = 0;
+  int splashIndex = 0;
+  int splashFrames = 0;
   int currentScene = 0;
   unsigned int sceneGeneration = 0;
 
@@ -1664,6 +1670,7 @@ struct LoadingScreenState {
   std::vector<Tyra::Sprite> images;    // LS_IMAGE_TOTAL, one per LS_IMAGES
   std::vector<Tyra::Sprite> texts;     // LS_TEXT_TOTAL, one per LS_TEXTS
   std::vector<Tyra::Sprite> segs;      // LS_BAR_TOTAL, linked only for seg bars
+  std::vector<Tyra::Sprite> splashes;  // SPLASH_COUNT, one per SPLASHES
 };
 LoadingScreenState g_loading;
 
@@ -1689,9 +1696,31 @@ void loadingEnsureReady(Engine* engine) {
     g_loading.segs[i].mode = SpriteMode::MODE_STRETCH;
     repo.add(FileUtils::fromCwd(LS_BARS[i].segPath))->addLink(g_loading.segs[i].id);
   }
+  g_loading.splashes.resize(SPLASH_COUNT > 0 ? SPLASH_COUNT : 0);
+  for (int i = 0; i < SPLASH_COUNT; ++i) {
+    g_loading.splashes[i].mode = SpriteMode::MODE_STRETCH;
+    repo.add(FileUtils::fromCwd(SPLASHES[i].path))->addLink(g_loading.splashes[i].id);
+  }
 }
 
 namespace loadingscreen {
+// One boot splash frame: the image (i) on its background color. Vsync-paced by
+// the caller (the loop's boot sequence), held for SPLASHES[i].seconds.
+void renderSplash(Engine* engine, int i) {
+  if (i < 0 || i >= SPLASH_COUNT) return;
+  loadingEnsureReady(engine);
+  const SplashData& s = SPLASHES[i];
+  const auto& scr = engine->renderer.core.getSettings();
+  const float W = scr.getWidth(), H = scr.getHeight();
+  engine->renderer.setClearScreenColor(Color(s.bg[0], s.bg[1], s.bg[2]));
+  engine->renderer.beginFrame();
+  Sprite& sp = g_loading.splashes[i];
+  sp.size = Vec2(s.w, s.h);
+  sp.position = Vec2(s.x * W - s.w * 0.5F, s.y * H - s.h * 0.5F);
+  engine->renderer.renderer2D.render(sp);
+  engine->renderer.endFrame();
+}
+
 void renderFrame(Engine* engine, int sceneIdx, float fraction) {
   if (fraction < 0.0F) fraction = 0.0F;
   if (fraction > 1.0F) fraction = 1.0F;
@@ -1886,30 +1915,41 @@ void TerrainGame::init() {
 void TerrainGame::loop() {
   updateFrameClock();  // real dt: frame drops slow the picture, not the game
 
-  // Boot: the engine holds the Tyra logo (banner.show) for ~2s, then the first
-  // scene loads HERE, from the loop, rather than in init(). That matters: a
-  // frame presented from init() (before the main loop) isn't vsync-paced and
-  // flashes by, so the loading screen was invisible at boot; from the loop it
-  // paces normally and the progress bar shows. With loading screens disabled
-  // the scene just loads on the first frame, as before.
+  // Boot sequence (the engine holds the Tyra logo ~2s before this):
+  //   phase 0 - boot splash images, each shown for its duration (in order),
+  //   phase 1 - load scene 0 behind the loading screen (when enabled).
+  // Everything runs from the loop, not init(): a frame presented from init()
+  // (before the main loop) isn't vsync-paced and flashes by, so the boot
+  // visuals were invisible; from the loop they pace normally.
   if (bootPhase < 2) {
-    if (!LOADING_SCREEN) {
-      bootFirstScene();
-      bootPhase = 2;
-    } else {
-      if (bootPhase == 0) {
-        bootPhase = 1;
+    if (bootPhase == 0) {
+      if (splashIndex < SPLASH_COUNT) {
+        if (splashFrames <= 0)
+          splashFrames = everyFrames(SPLASHES[splashIndex].seconds);
+        loadingscreen::renderSplash(engine, splashIndex);
+        if (--splashFrames <= 0) ++splashIndex;
+        return;
+      }
+      bootPhase = 1;
+      if (LOADING_SCREEN) {
         loadingTarget = 0;
         loadingFrames = everyFrames(0.7F);
       }
-      if (loadingFrames > 0) {
-        const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
-        loadingscreen::renderFrame(engine, 0, preLoad ? 0.0F : 1.0F);
-        --loadingFrames;
-        if (loadingFrames == everyFrames(0.7F) - 5) bootFirstScene();
-        return;
+    }
+    if (bootPhase == 1) {
+      if (!LOADING_SCREEN) {
+        bootFirstScene();
+        bootPhase = 2;
+      } else {
+        if (loadingFrames > 0) {
+          const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
+          loadingscreen::renderFrame(engine, 0, preLoad ? 0.0F : 1.0F);
+          --loadingFrames;
+          if (loadingFrames == everyFrames(0.7F) - 5) bootFirstScene();
+          return;
+        }
+        bootPhase = 2;
       }
-      bootPhase = 2;
     }
   }
 
@@ -5153,30 +5193,41 @@ void TerrainGame::init() {
 void TerrainGame::loop() {
   updateFrameClock();  // real dt: frame drops slow the picture, not the game
 
-  // Boot: the engine holds the Tyra logo (banner.show) for ~2s, then the first
-  // scene loads HERE, from the loop, rather than in init(). That matters: a
-  // frame presented from init() (before the main loop) isn't vsync-paced and
-  // flashes by, so the loading screen was invisible at boot; from the loop it
-  // paces normally and the progress bar shows. With loading screens disabled
-  // the scene just loads on the first frame, as before.
+  // Boot sequence (the engine holds the Tyra logo ~2s before this):
+  //   phase 0 - boot splash images, each shown for its duration (in order),
+  //   phase 1 - load scene 0 behind the loading screen (when enabled).
+  // Everything runs from the loop, not init(): a frame presented from init()
+  // (before the main loop) isn't vsync-paced and flashes by, so the boot
+  // visuals were invisible; from the loop they pace normally.
   if (bootPhase < 2) {
-    if (!LOADING_SCREEN) {
-      bootFirstScene();
-      bootPhase = 2;
-    } else {
-      if (bootPhase == 0) {
-        bootPhase = 1;
+    if (bootPhase == 0) {
+      if (splashIndex < SPLASH_COUNT) {
+        if (splashFrames <= 0)
+          splashFrames = everyFrames(SPLASHES[splashIndex].seconds);
+        loadingscreen::renderSplash(engine, splashIndex);
+        if (--splashFrames <= 0) ++splashIndex;
+        return;
+      }
+      bootPhase = 1;
+      if (LOADING_SCREEN) {
         loadingTarget = 0;
         loadingFrames = everyFrames(0.7F);
       }
-      if (loadingFrames > 0) {
-        const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
-        loadingscreen::renderFrame(engine, 0, preLoad ? 0.0F : 1.0F);
-        --loadingFrames;
-        if (loadingFrames == everyFrames(0.7F) - 5) bootFirstScene();
-        return;
+    }
+    if (bootPhase == 1) {
+      if (!LOADING_SCREEN) {
+        bootFirstScene();
+        bootPhase = 2;
+      } else {
+        if (loadingFrames > 0) {
+          const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
+          loadingscreen::renderFrame(engine, 0, preLoad ? 0.0F : 1.0F);
+          --loadingFrames;
+          if (loadingFrames == everyFrames(0.7F) - 5) bootFirstScene();
+          return;
+        }
+        bootPhase = 2;
       }
-      bootPhase = 2;
     }
   }
 
@@ -9474,6 +9525,31 @@ static std::string loadingDataHeader(const Project& p) {
         << "inline const int SCENE_LOADING_SCREEN[" << p.scenes.size() << "] = {";
     for (size_t i = 0; i < p.scenes.size(); ++i)
         out << (i ? ", " : "") << project::loadingScreenIndexFor(p, p.scenes[i]);
+    out << "};\n\n";
+
+    // Boot splash screens: full-screen(ish) images shown in order at startup,
+    // after the Tyra logo, each for `seconds`. Images only for now.
+    out << "struct SplashData {\n"
+           "  const char* path;      // relative to the game binary\n"
+           "  float x, y, w, h;      // normalized center anchor + pixel size\n"
+           "  float bg[3];           // clear color behind the image, 0..255\n"
+           "  float seconds;         // time on screen\n"
+           "};\n\n"
+        << "constexpr int SPLASH_COUNT = " << p.splashScreens.size() << ";\n"
+        << "inline const SplashData SPLASHES[SPLASH_COUNT > 0 ? SPLASH_COUNT : 1] = {\n";
+    if (p.splashScreens.empty()) {
+        out << "    {\"\", 0, 0, 0, 0, {0, 0, 0}, 0},\n";
+    } else {
+        for (const SplashScreen& s : p.splashScreens) {
+            const HudImage& h = s.image;
+            out << "    {\"" << binPath(h.imagePath) << "\", " << floatLit(h.pos[0])
+                << ", " << floatLit(h.pos[1]) << ", " << floatLit(h.size[0]) << ", "
+                << floatLit(h.size[1]) << ", {" << floatLit(s.bgColor[0] * 255.0f)
+                << ", " << floatLit(s.bgColor[1] * 255.0f) << ", "
+                << floatLit(s.bgColor[2] * 255.0f) << "}, " << floatLit(s.duration)
+                << "},  // " << s.name << "\n";
+        }
+    }
     out << "};\n"
         << "\n}  // namespace " << ns << "\n";
     return out.str();

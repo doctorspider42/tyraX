@@ -812,6 +812,20 @@ std::string save(const Project& p) {
     }
     json << (p.loadingScreens.empty() ? "]" : "\n  ]");
     json << ",\n  \"defaultLoadingScreen\": " << p.defaultLoadingScreen;
+    json << ",\n  \"splashScreens\": [";
+    for (size_t i = 0; i < p.splashScreens.size(); ++i) {
+        const SplashScreen& s = p.splashScreens[i];
+        const HudImage& h = s.image;
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << jsonEscape(s.name)
+             << "\", \"duration\": " << fmtFloat(s.duration)
+             << ", \"bgColor\": " << fmtVec3(s.bgColor)
+             << ", \"image\": { \"image\": \"" << h.imagePath << "\", \"pos\": ["
+             << fmtFloat(h.pos[0]) << ", " << fmtFloat(h.pos[1]) << "], \"size\": ["
+             << fmtFloat(h.size[0]) << ", " << fmtFloat(h.size[1]) << "], \"texW\": "
+             << h.texW << ", \"texH\": " << h.texH << ", \"texQuant\": \""
+             << h.texQuant << "\" } }";
+    }
+    json << (p.splashScreens.empty() ? "]" : "\n  ]");
     json << ",\n  \"sequences\": [";
     for (size_t i = 0; i < p.sequences.size(); ++i) {
         const Sequence& s = p.sequences[i];
@@ -1879,6 +1893,39 @@ std::string load(Project& out, const std::string& projectDir) {
     if (out.defaultLoadingScreen < -1 ||
         out.defaultLoadingScreen >= (int)out.loadingScreens.size())
         out.defaultLoadingScreen = -1;
+
+    if (const auto* sps = root.find("splashScreens");
+        sps && sps->type == json::Value::Type::Array) {
+        for (const auto& jsp : sps->arr) {
+            SplashScreen s;
+            if (const auto* v = jsp.find("name")) s.name = v->stringOr("splash");
+            if (const auto* v = jsp.find("duration"))
+                s.duration = (float)v->numberOr(2.0);
+            if (s.duration < 0.1f) s.duration = 0.1f;
+            if (s.duration > 10.0f) s.duration = 10.0f;
+            readVec3(jsp.find("bgColor"), s.bgColor);
+            if (const auto* im = jsp.find("image")) {
+                if (const auto* v = im->find("image")) s.image.imagePath = v->stringOr("");
+                if (const auto* v = im->find("pos");
+                    v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                    s.image.pos[0] = (float)v->arr[0].numberOr(0.5);
+                    s.image.pos[1] = (float)v->arr[1].numberOr(0.5);
+                }
+                if (const auto* v = im->find("size");
+                    v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                    s.image.size[0] = (float)v->arr[0].numberOr(512.0);
+                    s.image.size[1] = (float)v->arr[1].numberOr(448.0);
+                }
+                if (const auto* v = im->find("texW")) s.image.texW = (int)v->numberOr(0);
+                if (const auto* v = im->find("texH")) s.image.texH = (int)v->numberOr(0);
+                if (const auto* v = im->find("texQuant")) {
+                    const std::string q = v->stringOr("");
+                    s.image.texQuant = (q == "none" || q == "8bit" || q == "4bit") ? q : "";
+                }
+            }
+            if (!s.image.imagePath.empty()) out.splashScreens.push_back(std::move(s));
+        }
+    }
 
     if (const auto* seqs = root.find("sequences");
         seqs && seqs->type == json::Value::Type::Array) {
