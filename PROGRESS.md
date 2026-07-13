@@ -9,6 +9,22 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (88) **Default projects folder (machine-global editor setting).** New Project
+  used to always propose `~/TyraProjects` as the location. Now the folder is
+  configurable in *Edit > Preferences > New projects* (a "Default folder" text
+  field with Browse.../Clear), stored in `editor.ini` under `%LOCALAPPDATA%` as
+  `defaultProjectsDir` alongside the emulator path / PS2 IP - a per-installation
+  setting, not project data. The **New Project** modal re-seeds its Location
+  field from this value every time it opens, so a mid-session preference change
+  takes effect on the next `File > New Project` without a restart; an empty
+  setting falls back to `~/TyraProjects` (`defaultNewProjectLocation`). Follows
+  the documented machine-global-setting chain: `EditorConfig` field +
+  load/save in `editor.ini`, an `App::globalDefaultProjectsDir_` member seeded
+  at startup and funnelled through `saveGlobalConfig()`, staged in the prefs
+  modal via `prefDefaultProjectsDir_`. **Verified** (Layer 1): editor builds
+  clean with the new field; traced the round-trip by inspection - the value is
+  written by `saveEditorConfig`, re-read by `loadEditorConfig` on next launch,
+  and copied into `newLocation_` both at startup and on each modal open.
 - (92) **Logo colour + Loading Screens window polish.** Follow-ups: (a) the
   splash logo's X read too cyan on the PS2 - `banner_data.cpp` regenerated with
   a cyan→azure-blue shift (green pulled down on clearly-bluish pixels, factor
