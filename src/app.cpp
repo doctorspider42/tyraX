@@ -4861,6 +4861,25 @@ void App::drawFlowGraphWindow() {
                 "Confirm > 0: the game asks to keep the\n"
                 "mode (X = yes) and reverts automatically\n"
                 "when the timer runs out. 0 = switch blind.");
+        } else if (n.type == "SetStickCurve") {
+            const char* sticks[] = {"Left (move)", "Right (camera)", "Both"};
+            int stick = (int)n.num[0];
+            stick = stick < 0 ? 0 : stick > 2 ? 2 : stick;
+            if (ImGui::Combo("Stick", &stick, sticks, 3)) {
+                n.num[0] = (float)stick;
+                changed = true;
+            }
+            const char* curves[] = {"Linear", "Exponential", "S-Curve"};
+            int curve = (int)n.num[1];
+            curve = curve < 0 ? 0 : curve > 2 ? 2 : curve;
+            if (ImGui::Combo("Curve", &curve, curves, 3)) {
+                n.num[1] = (float)curve;
+                changed = true;
+            }
+            if (curve != 0) {  // exponent only shapes Exponential / S-Curve
+                ImGui::DragFloat("Exponent", &n.num[2], 0.05f, 1.0f, 6.0f, "%.2f");
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+            }
         } else if (t->numKind == FlowParamKind::Color) {
             ImGui::ColorEdit3("Color", n.num, ImGuiColorEditFlags_NoInputs);
             changed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -5227,6 +5246,7 @@ void App::drawFlowGraphWindow() {
                         n.str = project_.active().layers.front().name;
                     if (std::string(t.key) == "SetVarBool") n.num[0] = 1.0f;
                     if (std::string(t.key) == "SetFlashlight") n.num[0] = 1.0f;
+                    if (std::string(t.key) == "SetStickCurve") n.num[2] = 2.0f;  // exponent
                     if (std::string(t.key) == "PlaySound") {
                         n.num[0] = 100.0f;  // volume
                         n.num[1] = -1.0f;   // channel: auto
@@ -11059,6 +11079,41 @@ void App::drawPreferencesModal() {
         "Analog stick offsets below this fraction read as zero. Raise it when\n"
         "a worn pad drifts (left = movement, right = camera); motion above the\n"
         "deadzone ramps smoothly, so higher values only cost range, not control.");
+
+    // Response curve per stick, applied after the deadzone: Linear passes the
+    // rescaled magnitude through; Exponential/S-Curve reshape it (the exponent
+    // tunes how much). The plot previews deflection (x) -> output (y). These
+    // are project-wide defaults; a flow graph can change them live with the
+    // Set Stick Curve node.
+    const char* curveNames[] = {"Linear", "Exponential", "S-Curve"};
+    auto stickCurveUi = [&](const char* label, int& curve, float& exponent) {
+        ImGui::PushID(label);
+        if (curve < 0 || curve > 2) curve = 0;
+        ImGui::Combo(label, &curve, curveNames, 3);
+        if (curve != 0) {
+            ImGui::SliderFloat("Exponent", &exponent, 1.0f, 6.0f, "%.2f");
+            if (exponent < 1.0f) exponent = 1.0f;
+        }
+        float samples[48];
+        for (int i = 0; i < 48; ++i) {
+            float m = i / 47.0f;
+            if (curve == 1) {
+                m = powf(m, exponent);
+            } else if (curve == 2) {
+                const float s = m * m * (3.0f - 2.0f * m);
+                m = exponent == 1.0f ? s : powf(s, exponent);
+            }
+            samples[i] = m;
+        }
+        ImGui::PlotLines("##curvePreview", samples, 48, 0, nullptr, 0.0f, 1.0f,
+                         ImVec2(0, scaled(46)));
+        ImGui::PopID();
+    };
+    stickCurveUi("Left stick curve", prefSettings_.stickCurveL, prefSettings_.stickExpL);
+    stickCurveUi("Right stick curve", prefSettings_.stickCurveR, prefSettings_.stickExpR);
+    ImGui::TextDisabled(
+        "Exponential is gentle near center and snappy at the edge (aiming);\n"
+        "S-Curve eases in and out. Higher exponent = more pronounced.");
 
     ImGui::SeparatorText("Physics");
     ImGui::DragFloat("Gravity (units/s^2)", &prefSettings_.gravity, 0.1f, 0.0f, 100.0f,
