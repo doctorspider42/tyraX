@@ -582,6 +582,7 @@ std::string save(const Project& p) {
          << "    \"lookSpeed\": " << fmtFloat(p.settings.lookSpeed) << ",\n"
          << "    \"stickDeadzoneL\": " << fmtFloat(p.settings.stickDeadzoneL) << ",\n"
          << "    \"stickDeadzoneR\": " << fmtFloat(p.settings.stickDeadzoneR) << ",\n"
+         << "    \"stickCurve\": " << fmtFloat(p.settings.stickCurve) << ",\n"
          << "    \"orbitSpeed\": " << fmtFloat(p.settings.orbitSpeed) << ",\n"
          << "    \"gravity\": " << fmtFloat(p.settings.gravity) << ",\n"
          << "    \"jumpSpeed\": " << fmtFloat(p.settings.jumpSpeed) << ",\n"
@@ -855,6 +856,11 @@ std::string save(const Project& p) {
                          << "\"";
                 json << "]";
             }
+            static const char* kMenuBinds[] = {
+                "",           "music-volume", "sfx-volume", "deadzone",
+                "stick-curve", "display-mode", "widescreen"};
+            if (en.settingBind >= 1 && en.settingBind <= 6)
+                json << ", \"bind\": \"" << kMenuBinds[en.settingBind] << "\"";
             json << " }";
         }
         json << (m.entries.empty() ? "]" : "\n      ]") << " }";
@@ -1402,6 +1408,7 @@ std::string load(Project& out, const std::string& projectDir) {
             st.stickDeadzoneL = (float)v->numberOr(0.2);
         if (const auto* v = s->find("stickDeadzoneR"))
             st.stickDeadzoneR = (float)v->numberOr(0.2);
+        if (const auto* v = s->find("stickCurve")) st.stickCurve = (float)v->numberOr(1.0);
         if (const auto* v = s->find("orbitSpeed")) st.orbitSpeed = (float)v->numberOr(1.0);
         if (const auto* v = s->find("gravity")) st.gravity = (float)v->numberOr(9.8);
         if (const auto* v = s->find("jumpSpeed")) st.jumpSpeed = (float)v->numberOr(4.5);
@@ -1930,6 +1937,17 @@ std::string load(Project& out, const std::string& projectDir) {
                             const std::string s = jo.stringOr("");
                             if (!s.empty()) en.options.push_back(s);
                         }
+                    }
+                    if (const auto* v = je.find("bind")) {
+                        const std::string b = v->stringOr("");
+                        en.settingBind =
+                            b == "music-volume"  ? MenuEntry::BindMusicVolume
+                            : b == "sfx-volume"  ? MenuEntry::BindSfxVolume
+                            : b == "deadzone"    ? MenuEntry::BindDeadzone
+                            : b == "stick-curve" ? MenuEntry::BindStickCurve
+                            : b == "display-mode" ? MenuEntry::BindDisplayMode
+                            : b == "widescreen"  ? MenuEntry::BindWidescreen
+                                                 : MenuEntry::BindNone;
                     }
                     m.entries.push_back(std::move(en));
                 }
