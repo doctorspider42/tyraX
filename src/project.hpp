@@ -397,6 +397,9 @@ struct ProjectSettings {
     float highlightColor[3] = {1.0f, 0.85f, 0.15f};  // outline color
     float highlightWidth = 0.35f;  // total rim width incl. blur, world units
     int highlightSteps = 4;        // blur shells; 1 = sharp outline
+    // Opacity of the strongest (innermost) shell, 0..1; the outer shells fade
+    // from it. 1 = the strongest shell is fully opaque.
+    float highlightOpacity = 0.56f;
     // Experimental: draw the glow ON the object surface (a colored overlay
     // that fades outward into a rim) instead of only a rim BEHIND it. Off =
     // the classic silhouette outline (shells pushed behind object depth).
@@ -436,6 +439,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            eq3(a.highlightColor, b.highlightColor) &&
            a.highlightWidth == b.highlightWidth &&
            a.highlightSteps == b.highlightSteps &&
+           a.highlightOpacity == b.highlightOpacity &&
            a.highlightOverlay == b.highlightOverlay;
 }
 

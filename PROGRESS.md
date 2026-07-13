@@ -9,6 +9,20 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (81) **Usable-highlight opacity control** — a per-scene `highlightOpacity`
+  (0..1, *Preferences > Usable objects* + per-scene override) setting the alpha
+  of the **strongest (innermost) shell**; the outer shells keep fading from it
+  (×0.55). Replaces the hardcoded `72/100` start alpha in both
+  `renderHighlightHull` and `buildHighlightApron` with `HIGHLIGHT_OPACITY *
+  128` (128 = PS2 opaque max), so opacity 1 + 1 step = a fully solid outline
+  and low values dial the wash down — the natural knob for the overlay mode's
+  intensity. Default 0.56 preserves the old 4-step look. Full
+  model→JSON→UI→codegen chain (`HIGHLIGHT_OPACITIES` per-scene table +
+  `HIGHLIGHT_OPACITY` macro; operator== + save/load + clamps). **Verified in
+  PCSX2 (SW)**: overlay showcase at opacity 0.25 renders a visibly fainter
+  surface glow than the 0.56 default, 50 FPS unchanged; all five examples
+  regenerated + Docker-built.
+
 - (80) **Debug frame profiler (shippable) + experimental highlight overlay** —
   two follow-ups to the highlight perf work (79). **(a) Frame profiler**: the
   ad-hoc COP0/HUD instrumentation used to diagnose the highlight cost is now a

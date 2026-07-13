@@ -3284,7 +3284,10 @@ void TerrainGame::renderHighlightHull(int index) {
   // shells overlap into solid color fading outward. Refreshed every call
   // (scene switches change the prefs; same values otherwise).
   hullShellCols.resize(HIGHLIGHT_STEPS);
-  float alpha = HIGHLIGHT_STEPS > 1 ? 72.0F : 100.0F;  // single step = solid
+  // Strongest (innermost) shell alpha = HIGHLIGHT_OPACITY of full (128 = the
+  // PS2 opaque max); the outer shells halve outward. Opacity 1 + steps 1 =
+  // a fully solid outline.
+  float alpha = HIGHLIGHT_OPACITY * 128.0F;
   for (int s = 0; s < HIGHLIGHT_STEPS; ++s) {
     hullShellCols[s] = Color(HIGHLIGHT_R, HIGHLIGHT_G, HIGHLIGHT_B, alpha);
     alpha *= 0.55F;
@@ -3434,7 +3437,8 @@ void TerrainGame::buildHighlightApron(int index, float half) {
   g.apronVerts.reserve((size_t)HIGHLIGHT_STEPS * SEG * 6);
   g.apronCols.reserve((size_t)HIGHLIGHT_STEPS * SEG * 6);
 
-  float alpha = HIGHLIGHT_STEPS > 1 ? 72.0F : 100.0F;
+  // Same alpha ramp as the shells (HIGHLIGHT_OPACITY strongest, halving out).
+  float alpha = HIGHLIGHT_OPACITY * 128.0F;
   for (int s = 0; s < HIGHLIGHT_STEPS; ++s) {
     float grow = (HIGHLIGHT_WIDTH * (s + 1)) / (HIGHLIGHT_STEPS * half);
     if (grow > 0.6F) grow = 0.6F;

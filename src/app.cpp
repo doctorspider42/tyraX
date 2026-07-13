@@ -10167,10 +10167,13 @@ void App::drawPreferencesModal() {
         ImGui::DragFloat("Blur width (units)", &prefSettings_.highlightWidth, 0.01f,
                          0.05f, 2.0f, "%.2f");
         ImGui::SliderInt("Blur steps", &prefSettings_.highlightSteps, 1, 8);
+        ImGui::SliderFloat("Opacity", &prefSettings_.highlightOpacity, 0.0f, 1.0f,
+                           "%.2f");
         ImGui::Checkbox("Draw over object (experimental)",
                         &prefSettings_.highlightOverlay);
         ImGui::TextDisabled(
             "Width = total rim size; steps = shells in the fade (1 = sharp edge).\n"
+            "Opacity = transparency of the strongest shell (the rest fade from it).\n"
             "Draw over object = a colored glow ON the surface fading outward,\n"
             "instead of only a rim behind the silhouette.");
     }
@@ -10426,6 +10429,7 @@ void App::drawScenePreferencesModal() {
         ImGui::ColorEdit3("Highlight color", s.highlightColor);
         ImGui::DragFloat("Blur width (units)", &s.highlightWidth, 0.01f, 0.05f, 2.0f, "%.2f");
         ImGui::SliderInt("Blur steps", &s.highlightSteps, 1, 8);
+        ImGui::SliderFloat("Opacity", &s.highlightOpacity, 0.0f, 1.0f, "%.2f");
         ImGui::Checkbox("Draw over object (experimental)", &s.highlightOverlay);
     });
 

@@ -4318,7 +4318,10 @@ void TerrainGame::renderHighlightHull(int index) {
   // shells overlap into solid color fading outward. Refreshed every call
   // (scene switches change the prefs; same values otherwise).
   hullShellCols.resize(HIGHLIGHT_STEPS);
-  float alpha = HIGHLIGHT_STEPS > 1 ? 72.0F : 100.0F;  // single step = solid
+  // Strongest (innermost) shell alpha = HIGHLIGHT_OPACITY of full (128 = the
+  // PS2 opaque max); the outer shells halve outward. Opacity 1 + steps 1 =
+  // a fully solid outline.
+  float alpha = HIGHLIGHT_OPACITY * 128.0F;
   for (int s = 0; s < HIGHLIGHT_STEPS; ++s) {
     hullShellCols[s] = Color(HIGHLIGHT_R, HIGHLIGHT_G, HIGHLIGHT_B, alpha);
     alpha *= 0.55F;
@@ -4468,7 +4471,8 @@ void TerrainGame::buildHighlightApron(int index, float half) {
   g.apronVerts.reserve((size_t)HIGHLIGHT_STEPS * SEG * 6);
   g.apronCols.reserve((size_t)HIGHLIGHT_STEPS * SEG * 6);
 
-  float alpha = HIGHLIGHT_STEPS > 1 ? 72.0F : 100.0F;
+  // Same alpha ramp as the shells (HIGHLIGHT_OPACITY strongest, halving out).
+  float alpha = HIGHLIGHT_OPACITY * 128.0F;
   for (int s = 0; s < HIGHLIGHT_STEPS; ++s) {
     float grow = (HIGHLIGHT_WIDTH * (s + 1)) / (HIGHLIGHT_STEPS * half);
     if (grow > 0.6F) grow = 0.6F;
@@ -6595,6 +6599,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     sceneFloats("HIGHLIGHT_BS", [&](int si) { return floatLit(rs[si].highlightColor[2] * 255.0f); });
     sceneFloats("HIGHLIGHT_WIDTHS", [&](int si) { return floatLit(rs[si].highlightWidth); });
     sceneInts("HIGHLIGHT_STEPS_S", [&](int si) { return rs[si].highlightSteps; });
+    sceneFloats("HIGHLIGHT_OPACITIES", [&](int si) { return floatLit(rs[si].highlightOpacity); });
     sceneBools("HIGHLIGHT_OVERLAYS", [&](int si) { return rs[si].highlightOverlay; });
 
     // Color grading presets (Tools > Color Grading), compiled to the raw
@@ -6819,6 +6824,7 @@ inline int everyFrames(float seconds) {
 #define HIGHLIGHT_B HIGHLIGHT_BS[g_activeScene]
 #define HIGHLIGHT_WIDTH HIGHLIGHT_WIDTHS[g_activeScene]
 #define HIGHLIGHT_STEPS HIGHLIGHT_STEPS_S[g_activeScene]
+#define HIGHLIGHT_OPACITY HIGHLIGHT_OPACITIES[g_activeScene]
 #define HIGHLIGHT_OVERLAY HIGHLIGHT_OVERLAYS[g_activeScene]
 #define terrainHeightAt(x, z) terrainHeightAtScene(g_activeScene, (x), (z))
 )";

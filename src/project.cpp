@@ -341,6 +341,7 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << (s.highlightUsable ? "true" : "false") << ", \"distance\": "
       << fmtFloat(s.highlightDistance) << ", \"color\": " << fmtVec3(s.highlightColor)
       << ", \"width\": " << fmtFloat(s.highlightWidth) << ", \"steps\": " << s.highlightSteps
+      << ", \"opacity\": " << fmtFloat(s.highlightOpacity)
       << ", \"overlay\": " << (s.highlightOverlay ? "true" : "false")
       << " } }";
     const SceneOverrides& o = sc.overrides;
@@ -402,6 +403,8 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
                 if (const auto* v = hl->find("width"))
                     s.highlightWidth = (float)v->numberOr(0.35);
                 if (const auto* v = hl->find("steps")) s.highlightSteps = (int)v->numberOr(4);
+                if (const auto* v = hl->find("opacity"))
+                    s.highlightOpacity = (float)v->numberOr(0.56);
                 if (const auto* v = hl->find("overlay"))
                     s.highlightOverlay = v->boolOr(false);
             }
@@ -438,6 +441,8 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
     if (s.brightness > 2.0f) s.brightness = 2.0f;
     if (s.highlightSteps < 1) s.highlightSteps = 1;
     if (s.highlightSteps > 8) s.highlightSteps = 8;
+    if (s.highlightOpacity < 0.0f) s.highlightOpacity = 0.0f;
+    if (s.highlightOpacity > 1.0f) s.highlightOpacity = 1.0f;
     if (s.fogStart < 0.0f) s.fogStart = 0.0f;
     if (s.fogEnd <= s.fogStart + 1.0f) s.fogEnd = s.fogStart + 1.0f;
 }
@@ -472,6 +477,7 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         for (int i = 0; i < 3; ++i) r.highlightColor[i] = o.highlightColor[i];
         r.highlightWidth = o.highlightWidth;
         r.highlightSteps = o.highlightSteps;
+        r.highlightOpacity = o.highlightOpacity;
         r.highlightOverlay = o.highlightOverlay;
     }
     // Ambience preset overlay: a resolved preset owns sky + lighting + fog and
@@ -586,6 +592,8 @@ std::string save(const Project& p) {
          << "    \"highlightColor\": " << fmtVec3(p.settings.highlightColor) << ",\n"
          << "    \"highlightWidth\": " << fmtFloat(p.settings.highlightWidth) << ",\n"
          << "    \"highlightSteps\": " << p.settings.highlightSteps << ",\n"
+         << "    \"highlightOpacity\": " << fmtFloat(p.settings.highlightOpacity)
+         << ",\n"
          << "    \"highlightOverlay\": "
          << (p.settings.highlightOverlay ? "true" : "false") << ",\n"
          << "    \"loadingScreen\": " << (p.settings.loadingScreen ? "true" : "false")
@@ -1313,6 +1321,10 @@ std::string load(Project& out, const std::string& projectDir) {
             st.highlightSteps = (int)v->numberOr(4);
         if (st.highlightSteps < 1) st.highlightSteps = 1;
         if (st.highlightSteps > 8) st.highlightSteps = 8;
+        if (const auto* v = s->find("highlightOpacity"))
+            st.highlightOpacity = (float)v->numberOr(0.56);
+        if (st.highlightOpacity < 0.0f) st.highlightOpacity = 0.0f;
+        if (st.highlightOpacity > 1.0f) st.highlightOpacity = 1.0f;
         if (const auto* v = s->find("highlightOverlay"))
             st.highlightOverlay = v->boolOr(false);
         if (const auto* v = s->find("loadingScreen"))
