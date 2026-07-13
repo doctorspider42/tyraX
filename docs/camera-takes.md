@@ -105,7 +105,9 @@ The modal's **Import as** selector decides where the motion lands:
 - **Extra yaw** — rotates the whole path about +Y, pivoting on the first
   sample (point the recorded walk in the direction the shot needs).
 - **Origin** — where the take's *first sample* lands; defaults to the current
-  preview camera, "From view" re-grabs it.
+  preview camera. **From view** drops it at the editor camera *and* sets the
+  yaw so the take's first sample looks where you are looking (frame the shot in
+  the viewport, hit From view, the recorded path is aimed there).
 - **Start at playhead** — offsets key times so the take starts at the
   playhead instead of t = 0.
 - **Tolerance** — decimation error bound in world units (below).

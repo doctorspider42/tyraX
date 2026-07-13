@@ -450,6 +450,10 @@ private:
     // -> its transform track + FOV + a bound camera key. Returns the first key
     // time (for the playhead), or -1 on no-op.
     float applyCamTake(Sequence& s, bool replace);
+    // "From view" for the take import: set the mapping origin to the preview
+    // camera's position AND the mapping yaw so the take's first sample looks
+    // where the editor camera looks (aim the recorded path along the view).
+    void takeOriginAimFromView();
 
     // Look-through camera: the viewport renders from this Camera entity's
     // pose + FOV ("" = free orbit camera). Editor-side state, not persisted;

@@ -472,3 +472,11 @@ std::vector<SeqCameraKey> bakeCamTake(const CamTake& take, const CamTakeMapping&
     }
     return keys;
 }
+
+float camTakeInitialYawDeg(const CamTake& take) {
+    if (take.samples.empty()) return 0.0f;
+    const float minusZ[3] = {0.0f, 0.0f, -1.0f};
+    float fwd[3];
+    quatRotate(take.samples.front().quat, minusZ, fwd);
+    return std::atan2(fwd[0], fwd[2]) * 180.0f / 3.14159265f;
+}

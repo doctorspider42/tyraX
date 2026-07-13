@@ -84,3 +84,10 @@ std::vector<SeqCameraKey> bakeCamTake(const CamTake& take, const CamTakeMapping&
 // tolerance meaningful for rotation too: at scale 1 a 0.05 u tolerance is
 // ~1.4 deg of view direction.
 constexpr float kCamTakeLookDist = 2.0f;
+
+// Heading in degrees (atan2(fwd.x, fwd.z), same +Z-forward convention as the
+// game) of the take's FIRST sample view direction in canonical space, before
+// any mapping yaw. Used to aim an imported path along the editor view: set
+// CamTakeMapping::yawDeg = viewHeading - camTakeInitialYawDeg(take). Returns 0
+// for an empty take.
+float camTakeInitialYawDeg(const CamTake& take);

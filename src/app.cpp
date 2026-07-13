@@ -7072,6 +7072,22 @@ float App::applyCamTake(Sequence& s, bool replace) {
     return track->keys.front().time;
 }
 
+// "From view" for take import: drop the take's first sample at the preview
+// camera AND rotate the whole path so its first sample looks the way the
+// editor camera does - so you frame the shot in the viewport, hit From view,
+// and the recording is aimed there.
+void App::takeOriginAimFromView() {
+    float eye[3], at[3];
+    viewport_.currentCamera(eye, at);
+    for (int c = 0; c < 3; ++c) seqTakeMap_.origin[c] = eye[c];
+    const float viewYaw =
+        std::atan2(at[0] - eye[0], at[2] - eye[2]) * 180.0f / 3.14159265f;
+    float y = viewYaw - camTakeInitialYawDeg(seqTake_);
+    while (y > 180.0f) y -= 360.0f;
+    while (y < -180.0f) y += 360.0f;
+    seqTakeMap_.yawDeg = y;
+}
+
 // Poses a copy of the active scene's objects at the playhead using the SAME
 // interpolation the PS2 runtime uses (sequence.hpp seqSample/seqEase), and -
 // for a sequence with a camera track - flies the viewport camera along it. So
@@ -7423,10 +7439,12 @@ void App::drawCutsceneWindow() {
             if (ImGui::DragFloat3("Start point", seqTakeMap_.origin, 0.1f)) rebake = true;
             ImGui::SameLine();
             if (ImGui::SmallButton("From view")) {
-                float at[3];
-                viewport_.currentCamera(seqTakeMap_.origin, at);
+                takeOriginAimFromView();  // position + aim
                 rebake = true;
             }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Move the start point to the editor camera AND\n"
+                                  "aim the path where you are looking.");
             ImGui::SetNextItemWidth(scaled(140.0f));
             if (ImGui::DragFloat("Start yaw", &seqTakeMap_.yawDeg, 1.0f, -360.0f,
                                  360.0f, "%.0f deg"))
@@ -7466,8 +7484,8 @@ void App::drawCutsceneWindow() {
         seqTakePath_ = path;
         seqTakeError_.clear();
         if (!loadCamTakeAuto(path, seqTake_, seqTakeError_)) seqTake_ = CamTake{};
-        float at[3];
-        viewport_.currentCamera(seqTakeMap_.origin, at);
+        seqTakeMap_.yawDeg = 0.0f;
+        takeOriginAimFromView();  // land + aim at the current view by default
         seqTakeMap_.timeOffset = 0.0f;
         seqTakeDirty_ = true;
         seqTakeOpen_ = true;
@@ -8215,10 +8233,12 @@ void App::drawCutsceneWindow() {
                 ImGui::SetTooltip("Where the take's first sample lands in the scene.");
             ImGui::SameLine();
             if (ImGui::SmallButton("From view")) {
-                float at[3];
-                viewport_.currentCamera(seqTakeMap_.origin, at);
+                takeOriginAimFromView();  // position + aim
                 seqTakeDirty_ = true;
             }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Drop the start point at the editor camera AND\n"
+                                  "aim the path where you are looking.");
             if (ImGui::Checkbox("Start at playhead", &seqTakeAtPlayhead_))
                 seqTakeDirty_ = true;
             ImGui::SameLine();
