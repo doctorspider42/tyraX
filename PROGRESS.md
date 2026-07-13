@@ -9,6 +9,84 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (85) **Missing assets no longer kill the game - they degrade gracefully.** A
+  failed asset load used to be a fatal assertion (game stops). Now the engine
+  recovers and keeps running: a **missing/empty texture** returns a visible 8x8
+  magenta-and-black checkerboard placeholder (`makePlaceholderTexture` in
+  `png_loader.cpp`) instead of trapping on `fopen`; a **missing music WAV** is
+  skipped (`audio_song.cpp` `load()` returns early, `play()` no-ops when nothing
+  loaded) so the game runs on in silence. The fork's other loaders were already
+  non-fatal - `LeanObjLoader`/`TanmLoader`/`TskLoader` return `nullptr` on a
+  missing file and the generated game null-checks (`if (!mesh) return; // renders
+  nothing`), `AudioAdpcm::load` already returns `nullptr` + `tryPlay` guards - so
+  models, animations and one-shot sfx already skipped cleanly; textures and music
+  were the last two fatal spots reachable from generated games. (Legacy
+  `md2_loader` / TinyObjLoader `obj_loader` still assert, but the editor's games
+  use LeanObj + tanm/tskl, never those.) The failures are still surfaced: a new
+  **`TYRA_SOFT_ERROR`** macro (`debug/debug.hpp`, marked `Modified by
+  tyra-editor`) logs the *same* delimited `====== TYRA ======` block a fatal
+  assert does - so the editor's tail/parse path catches it identically - but with
+  a `Non-fatal error (game keeps running)!` header and **no halt / no screen
+  takeover**. The editor's error dialog reads that header and switches wording
+  from "hit an assertion and stopped" to "reported an error but kept running"
+  (`drawErrorModal`), still copyable, still flashes the window. **Verified**
+  (Layer 3): rebuilt `libtyra` with the engine changes (compile-checked in the
+  PS2 toolchain after fixing a first-cut `getTextureSize` scope error - it's a
+  `TextureLoader` member, so the placeholder computes `w*h*4` for bpp32 inline);
+  booted `error-test` in PCSX2 with `hud/use.png` deleted - the game **rendered
+  the full scene at 50 FPS** (previously it halted) and `bin/log.txt` held the
+  `Non-fatal error … using a placeholder` block at `png_loader.cpp:92`; the host
+  parser harness extracted that exact 304-byte block and confirmed the
+  `Non-fatal` marker the dialog keys off. (One gotcha worth remembering: a failed
+  engine build leaves the *old* `libtyra.a` in place and the checksum marks the
+  sources "synced", so the next `--build` links the stale lib and looks like the
+  change did nothing - force it by `rm`-ing `/tyra/engine/bin/libtyra.a` in the
+  compiler container.)
+
+- (84) **Errors no longer crash full-screen: engine halts quietly, the editor
+  catches them.** A failed `TYRA_ASSERT` / `TYRA_TRAP` in the running game (e.g.
+  a missing texture: `TYRA_ASSERT(file != nullptr, "Failed to load ", …)` in
+  `png_loader.cpp`) used to seize the whole screen with the kernel debug console
+  (`init_scr()` + an infinite `scr_printf` loop in `TyraDebug::trap`) - one
+  missing PNG blew the game away with a full-screen dump. Now the trap keeps
+  writing the assertion to the console / host `log.txt` (unchanged) and then
+  halts quietly with `for(;;) SleepThread()`, leaving the last frame on screen;
+  the upstream on-screen dump is gated behind a new `Tyra::Info::drawAssertScreen`
+  (default **off**, marked `Modified by tyra-editor` in `info.{hpp,cpp}` and
+  `debug/debug.hpp`) for standalone hardware debugging with no console attached.
+  The editor now tails the game log every frame (`App::pollGameError`,
+  throttled 0.5 s) - `bin/log.txt` for PCSX2 runs, the `[ps2]` runner-log stream
+  for network deploys - and on a newly seen assertion raises a **copyable** error
+  dialog (`drawErrorModal`, read-only selectable dump + Copy) and pulls the
+  editor to the foreground + flashes its taskbar entry
+  (`glfwRequestWindowAttention` / `glfwFocusWindow`) since PCSX2 holds the
+  foreground when the game dies. It parses the stable
+  `====== TYRA ======` … `==================` delimiters
+  (`extractLastTyraAssert`), dedupes by block text (`errorSeenSig_`) but
+  **forgets that signature when a log source shrinks** - the Runner deletes
+  `bin/log.txt` before every launch, so a new run drops the size to 0 and an
+  *identical* error (same missing file, same line) pops again on the next run
+  instead of being deduped against the stale text; the size is baselined on
+  project attach so a stale dump present at open neither pops nor looks like a
+  shrink. (A first cut deduped purely by text and re-baselined at each build/run
+  - it missed the second, identical run's error; fixed with the shrink reset.)
+  A **debug toggle** silences the
+  dialog: `EditorConfig::errorPopup` (default on, persisted in `editor.ini`),
+  flipped from a "Pop up on errors" checkbox in the Debug window or an "Only log
+  to console" checkbox in the dialog itself - off = errors go only to the console
+  / Debug window. **Verified** (Layer 3 + Layer 2): editor builds clean; a scratch
+  `fpp` project built in Docker (engine change compiles in the PS2 toolchain -
+  `libtyra` rebuilt, ELF linked) and booted in PCSX2 fine (terrain+sky, 50 FPS);
+  deleting the boot-loaded `hud/use.png` then relaunching the ELF produced the
+  assertion in `bin/log.txt` (`Failed to load … use.png … png_loader.cpp:61`)
+  while the screen **kept the last frame** (Tyra logo, FPS 0, EE idle) instead of
+  the kernel dump; a host harness ran `extractLastTyraAssert` over that real log
+  and 4 synthetic cases (no-assert, two-blocks-last-wins, partial-block, `[ps2]`
+  line-prefixed) - 10/10 checks passed. The live GUI modal pop (assert arriving
+  while the editor is running a build/run) wasn't automated - no synthetic input
+  while the user is at the machine - but the detection + parse path it depends on
+  is exercised above.
+
 - (83) **Edit > Preferences: machine-global editor settings (emulator path +
   dev-PS2 IP).** The PCSX2 path and the ps2link IP are per-machine, not
   per-project (the emulator lives at a fixed path on this PC; the dev PS2 has a

@@ -116,8 +116,13 @@ Notes:
 
 - **emulog.txt**: success looks like `ELF <path> is executing`; failure signals
   are `Assertion` lines or an early exit. **`TYRA_LOG`/EE printf does NOT land
-  in emulog** even with EnableEEConsole=true — on-screen assert text is the
-  reliable failure signal, so screenshot the window.
+  in emulog** even with EnableEEConsole=true. The reliable failure signal is the
+  game's own **`bin/log.txt`** (host: fs) — TYRA_LOG output plus any assertion
+  dump, bracketed by `======= TYRA =======` … `================`. A failed
+  assert no longer paints the screen (the engine halts quietly, leaving the last
+  frame up — see tyra-engine-dev), so grep `bin/log.txt` for the banner rather
+  than screenshotting for assert text; the running editor also pops that dump in
+  a copyable dialog. (A screenshot still shows *where* the game froze.)
 - **Screenshots**: PCSX2's F8 via SendKeys is flaky. Use the bundled script —
   a GDI capture that works reliably:
 
