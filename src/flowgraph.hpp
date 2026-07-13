@@ -209,6 +209,13 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // the player still gates the beam on/off, but only while enabled.
         {"SetFlashlight", "Set Flashlight", "Player", false, FlowParamKind::None, 1,
          {"On"}, FlowParamKind::None, false, false},
+        // Changes the analog stick response curve live (Preferences > Input
+        // sets the defaults). Stick: 0 = left/movement, 1 = right/camera,
+        // 2 = both. Curve: 0 = Linear, 1 = Exponential, 2 = S-Curve. Exponent
+        // (>=1) shapes curves 1/2 - e.g. a sniper mode dropping to a gentle
+        // low-sensitivity curve, or an options menu offering response presets.
+        {"SetStickCurve", "Set Stick Curve", "Player", false, FlowParamKind::None, 3,
+         {"Stick", "Curve", "Exponent"}, FlowParamKind::None, false, false},
         // Scene
         {"SetSky", "Set Sky Color", "Scene", false, FlowParamKind::None, 3, {},
          FlowParamKind::Color, false, false},

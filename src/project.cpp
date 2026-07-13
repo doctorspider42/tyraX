@@ -596,6 +596,10 @@ std::string save(const Project& p) {
          << "    \"lookSpeed\": " << fmtFloat(p.settings.lookSpeed) << ",\n"
          << "    \"stickDeadzoneL\": " << fmtFloat(p.settings.stickDeadzoneL) << ",\n"
          << "    \"stickDeadzoneR\": " << fmtFloat(p.settings.stickDeadzoneR) << ",\n"
+         << "    \"stickCurveL\": " << p.settings.stickCurveL << ",\n"
+         << "    \"stickCurveR\": " << p.settings.stickCurveR << ",\n"
+         << "    \"stickExpL\": " << fmtFloat(p.settings.stickExpL) << ",\n"
+         << "    \"stickExpR\": " << fmtFloat(p.settings.stickExpR) << ",\n"
          << "    \"orbitSpeed\": " << fmtFloat(p.settings.orbitSpeed) << ",\n"
          << "    \"gravity\": " << fmtFloat(p.settings.gravity) << ",\n"
          << "    \"jumpSpeed\": " << fmtFloat(p.settings.jumpSpeed) << ",\n"
@@ -1476,6 +1480,15 @@ std::string load(Project& out, const std::string& projectDir) {
             st.stickDeadzoneL = (float)v->numberOr(0.2);
         if (const auto* v = s->find("stickDeadzoneR"))
             st.stickDeadzoneR = (float)v->numberOr(0.2);
+        // Response curves default to Linear (0) / exponent 2 on older projects.
+        if (const auto* v = s->find("stickCurveL")) st.stickCurveL = (int)v->numberOr(0);
+        if (const auto* v = s->find("stickCurveR")) st.stickCurveR = (int)v->numberOr(0);
+        if (const auto* v = s->find("stickExpL")) st.stickExpL = (float)v->numberOr(2.0);
+        if (const auto* v = s->find("stickExpR")) st.stickExpR = (float)v->numberOr(2.0);
+        if (st.stickCurveL < 0 || st.stickCurveL > 2) st.stickCurveL = 0;
+        if (st.stickCurveR < 0 || st.stickCurveR > 2) st.stickCurveR = 0;
+        if (st.stickExpL < 1.0f) st.stickExpL = 1.0f;
+        if (st.stickExpR < 1.0f) st.stickExpR = 1.0f;
         if (const auto* v = s->find("orbitSpeed")) st.orbitSpeed = (float)v->numberOr(1.0);
         if (const auto* v = s->find("gravity")) st.gravity = (float)v->numberOr(9.8);
         if (const auto* v = s->find("jumpSpeed")) st.jumpSpeed = (float)v->numberOr(4.5);

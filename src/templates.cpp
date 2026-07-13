@@ -306,6 +306,14 @@ constexpr float LOOK_SPEED = {{LOOK_SPEED}};    // multiplier
 // Per stick: left drives movement, right drives the camera.
 constexpr float ANALOG_DEADZONE_L = {{DEADZONE_L}};
 constexpr float ANALOG_DEADZONE_R = {{DEADZONE_R}};
+// Stick response curve applied after the deadzone (Preferences > Input):
+// 0 = Linear, 1 = Exponential (pow, finer near center), 2 = S-Curve.
+// STICK_EXP_* tunes curves 1/2 (>=1). These seed the runtime g_stickCurve*/
+// g_stickExp* globals, which the Set Stick Curve flow node can change live.
+constexpr int STICK_CURVE_L = {{STICK_CURVE_L}};
+constexpr int STICK_CURVE_R = {{STICK_CURVE_R}};
+constexpr float STICK_EXP_L = {{STICK_EXP_L}};
+constexpr float STICK_EXP_R = {{STICK_EXP_R}};
 constexpr float ORBIT_SPEED = {{ORBIT_SPEED}};  // multiplier
 constexpr float GRAVITY = {{GRAVITY}};          // units/s^2
 constexpr float JUMP_SPEED = {{JUMP_SPEED}};    // units/s
@@ -1097,6 +1105,35 @@ bool g_flashOn = true;
 // skips all simulation + drawing, so every emitter's fill cost disappears.
 bool g_particlesOn = true;
 
+// Analog stick response curves (Preferences > Input; the Set Stick Curve flow
+// node changes them live). g_stickCurve*: 0 = Linear, 1 = Exponential, 2 =
+// S-Curve; g_stickExp* tunes curves 1/2. Seeded from the baked STICK_*
+// constants in init() (the constants are namespaced, this scope is not), then
+// read every frame by stickAxis(); runtime changes persist across scenes.
+int g_stickCurveL = 0;
+int g_stickCurveR = 0;
+float g_stickExpL = 2.0F;
+float g_stickExpR = 2.0F;
+
+// Maps a pad axis byte (128 = center) to a signed -1..1 value: it reads 0
+// below the deadzone, rescales from the deadzone edge so there is no step,
+// then shapes the magnitude by the per-stick response curve. Both the FPP
+// player and the Player-entity update call this (keep the two in sync).
+float stickAxis(const u8& raw, float dz, int curve, float e) {
+  const float v = (raw - 128.0F) / 128.0F;
+  const float mag = v < 0.0F ? -v : v;
+  if (mag <= dz) return 0.0F;
+  float s = (mag - dz) / (1.0F - dz);  // 0 at the edge .. 1 at full deflection
+  if (curve == 1) {
+    s = powf(s, e);  // Exponential: gentle near center, snappy at the edge
+  } else if (curve == 2) {
+    // S-Curve: smoothstep (soft center + firm cap), sharpened by the exponent.
+    const float smooth = s * s * (3.0F - 2.0F * s);
+    s = e == 1.0F ? smooth : powf(smooth, e);
+  }
+  return v < 0.0F ? -s : s;
+}
+
 // Measures the real time since the previous frame (EE COP0 Count register,
 // 294.912 MHz, wrap-safe) and folds it into g_frameDt / g_frameScale.
 // Within 10% of the nominal vsync step it snaps to exactly nominal, so a
@@ -1845,6 +1882,13 @@ void TerrainGame::init() {
   g_frameRate = engine->renderer.core.getSettings().getRefreshRate();
   g_frameDt = 1.0F / g_frameRate;
   g_frameScale = 50.0F / g_frameRate;
+  // Seed the analog stick response curves from the project defaults (the
+  // Set Stick Curve flow node overrides them at runtime; namespaced constants
+  // so they cannot initialize the global-scope g_stick* definitions directly).
+  g_stickCurveL = STICK_CURVE_L;
+  g_stickCurveR = STICK_CURVE_R;
+  g_stickExpL = STICK_EXP_L;
+  g_stickExpR = STICK_EXP_R;
   // Experimental (Project > Preferences > Build): skip the vsync wait -
   // continuous frame rate instead of the 50/25 vsync snap, with tearing.
   if (!FRAME_LIMIT) engine->renderer.core.setFrameLimit(false);
@@ -2048,6 +2092,23 @@ void TerrainGame::loop() {
   if (scriptCtx.particles >= 0) {
     g_particlesOn = scriptCtx.particles != 0;
     scriptCtx.particles = -1;
+  }
+  // Analog stick response curves (Set Stick Curve flow node).
+  if (scriptCtx.stickCurveL >= 0) {
+    g_stickCurveL = scriptCtx.stickCurveL;
+    scriptCtx.stickCurveL = -1;
+  }
+  if (scriptCtx.stickCurveR >= 0) {
+    g_stickCurveR = scriptCtx.stickCurveR;
+    scriptCtx.stickCurveR = -1;
+  }
+  if (scriptCtx.stickExpL >= 1.0F) {
+    g_stickExpL = scriptCtx.stickExpL;
+    scriptCtx.stickExpL = -1.0F;
+  }
+  if (scriptCtx.stickExpR >= 1.0F) {
+    g_stickExpR = scriptCtx.stickExpR;
+    scriptCtx.stickExpR = -1.0F;
   }
   // Cutscene camera override: a Cutscene Director sequence with a camera track
   // drives the frame camera (Play/Stop Sequence). Applied after scripts so the
@@ -4131,27 +4192,25 @@ bool TerrainGame::updatePlayerEntity() {
 
   const auto& leftJoy = engine->pad.getLeftJoyPad();
   const auto& rightJoy = engine->pad.getRightJoyPad();
-  // ANALOG_DEADZONE_L/_R (Preferences > Input) zero resting drift per stick;
-  // above the deadzone the value rescales from 0 so the edge does not step.
-  auto axis = [](const u8& raw, const float dz) {
-    const float v = (raw - 128.0F) / 128.0F;
-    const float mag = v < 0.0F ? -v : v;
-    if (mag <= dz) return 0.0F;
-    const float scaled = (mag - dz) / (1.0F - dz);
-    return v < 0.0F ? -scaled : scaled;
+  // stickAxis applies the per-stick deadzone (ANALOG_DEADZONE_*) and response
+  // curve (g_stickCurve*/g_stickExp* - Preferences > Input / Set Stick Curve).
+  auto axisL = [&](const u8& raw) {
+    return stickAxis(raw, ANALOG_DEADZONE_L, g_stickCurveL, g_stickExpL);
+  };
+  auto axisR = [&](const u8& raw) {
+    return stickAxis(raw, ANALOG_DEADZONE_R, g_stickCurveR, g_stickExpR);
   };
 
   // Right stick: look around (stick right = turn right)
-  entYaw -= axis(rightJoy.h, ANALOG_DEADZONE_R) * 0.05F * PLAYER_LOOK_SPEED * g_frameScale;
-  entPitch -=
-      axis(rightJoy.v, ANALOG_DEADZONE_R) * 0.035F * PLAYER_LOOK_SPEED * g_frameScale;
+  entYaw -= axisR(rightJoy.h) * 0.05F * PLAYER_LOOK_SPEED * g_frameScale;
+  entPitch -= axisR(rightJoy.v) * 0.035F * PLAYER_LOOK_SPEED * g_frameScale;
   if (entPitch > 1.35F) entPitch = 1.35F;
   if (entPitch < -1.35F) entPitch = -1.35F;
 
   const float fx = sinf(entYaw);
   const float fz = cosf(entYaw);
-  const float forward = -axis(leftJoy.v, ANALOG_DEADZONE_L);
-  const float strafe = axis(leftJoy.h, ANALOG_DEADZONE_L);
+  const float forward = -axisL(leftJoy.v);
+  const float strafe = axisL(leftJoy.h);
 
   if (PLAYER_MODE == 1) {
     // Noclip: fly where the camera looks; X up, Square down.
@@ -5114,6 +5173,13 @@ void TerrainGame::init() {
   g_frameRate = engine->renderer.core.getSettings().getRefreshRate();
   g_frameDt = 1.0F / g_frameRate;
   g_frameScale = 50.0F / g_frameRate;
+  // Seed the analog stick response curves from the project defaults (the
+  // Set Stick Curve flow node overrides them at runtime; namespaced constants
+  // so they cannot initialize the global-scope g_stick* definitions directly).
+  g_stickCurveL = STICK_CURVE_L;
+  g_stickCurveR = STICK_CURVE_R;
+  g_stickExpL = STICK_EXP_L;
+  g_stickExpR = STICK_EXP_R;
   // Experimental (Project > Preferences > Build): skip the vsync wait -
   // continuous frame rate instead of the 50/25 vsync snap, with tearing.
   if (!FRAME_LIMIT) engine->renderer.core.setFrameLimit(false);
@@ -5354,6 +5420,23 @@ void TerrainGame::loop() {
     g_particlesOn = scriptCtx.particles != 0;
     scriptCtx.particles = -1;
   }
+  // Analog stick response curves (Set Stick Curve flow node).
+  if (scriptCtx.stickCurveL >= 0) {
+    g_stickCurveL = scriptCtx.stickCurveL;
+    scriptCtx.stickCurveL = -1;
+  }
+  if (scriptCtx.stickCurveR >= 0) {
+    g_stickCurveR = scriptCtx.stickCurveR;
+    scriptCtx.stickCurveR = -1;
+  }
+  if (scriptCtx.stickExpL >= 1.0F) {
+    g_stickExpL = scriptCtx.stickExpL;
+    scriptCtx.stickExpL = -1.0F;
+  }
+  if (scriptCtx.stickExpR >= 1.0F) {
+    g_stickExpR = scriptCtx.stickExpR;
+    scriptCtx.stickExpR = -1.0F;
+  }
   // Cutscene camera override: a Cutscene Director sequence with a camera track
   // drives the frame camera (Play/Stop Sequence). Applied after scripts so the
   // sequence player (a global Script) has posed the camera for this frame.
@@ -5415,35 +5498,29 @@ void TerrainGame::loop() {
 )";
 
 static const char* TPL_GAME_CPP_FPP_TAIL = R"(
-namespace {
-
-// ANALOG_DEADZONE_L/_R (Preferences > Input) zero resting drift per stick;
-// above the deadzone the value rescales from 0 so the edge does not step.
-float axisValue(const u8& raw, const float dz) {
-  const float v = (raw - 128.0F) / 128.0F;
-  const float mag = v < 0.0F ? -v : v;
-  if (mag <= dz) return 0.0F;
-  const float scaled = (mag - dz) / (1.0F - dz);
-  return v < 0.0F ? -scaled : scaled;
-}
-
-}  // namespace
-
 void TerrainGame::updatePlayer() {
   const auto& leftJoy = engine->pad.getLeftJoyPad();
   const auto& rightJoy = engine->pad.getRightJoyPad();
+  // stickAxis applies the per-stick deadzone (ANALOG_DEADZONE_*) and response
+  // curve (g_stickCurve*/g_stickExp* - Preferences > Input / Set Stick Curve).
+  auto axisL = [&](const u8& raw) {
+    return stickAxis(raw, ANALOG_DEADZONE_L, g_stickCurveL, g_stickExpL);
+  };
+  auto axisR = [&](const u8& raw) {
+    return stickAxis(raw, ANALOG_DEADZONE_R, g_stickCurveR, g_stickExpR);
+  };
 
   // Right stick: look around (stick right = turn right)
-  yaw -= axisValue(rightJoy.h, ANALOG_DEADZONE_R) * 0.05F * LOOK_SPEED * g_frameScale;
-  pitch -= axisValue(rightJoy.v, ANALOG_DEADZONE_R) * 0.035F * LOOK_SPEED * g_frameScale;
+  yaw -= axisR(rightJoy.h) * 0.05F * LOOK_SPEED * g_frameScale;
+  pitch -= axisR(rightJoy.v) * 0.035F * LOOK_SPEED * g_frameScale;
   if (pitch > 1.2F) pitch = 1.2F;
   if (pitch < -1.2F) pitch = -1.2F;
 
   // Left stick: walk. Forward is where the camera looks (flat).
   const float fx = sinf(yaw);
   const float fz = cosf(yaw);
-  const float forward = -axisValue(leftJoy.v, ANALOG_DEADZONE_L);
-  const float strafe = axisValue(leftJoy.h, ANALOG_DEADZONE_L);
+  const float forward = -axisL(leftJoy.v);
+  const float strafe = axisL(leftJoy.h);
   float nextX = playerX + (fx * forward - fz * strafe) * WALK_SPEED * g_frameScale;
   float nextZ = playerZ + (fz * forward + fx * strafe) * WALK_SPEED * g_frameScale;
 
@@ -6121,6 +6198,15 @@ struct ScriptContext {
   int bloom = -1;
   int grain = -1;
   int particles = -1;
+
+  // Analog stick response curves (Set Stick Curve flow node). Per stick:
+  // curve = -1 leave, else 0 Linear / 1 Exponential / 2 S-Curve; exp = the
+  // curve exponent, applied only when >= 1 (< 0 = leave). The game copies
+  // both into the runtime g_stickCurve*/g_stickExp* globals and resets them.
+  int stickCurveL = -1;
+  int stickCurveR = -1;
+  float stickExpL = -1.0F;
+  float stickExpR = -1.0F;
 
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes).
   // requestDisplayMode: -1 = leave, else a Tyra::DisplayMode value (0 =
@@ -7407,6 +7493,10 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{LOOK_SPEED}}", floatLit(st.lookSpeed));
     s = replaceAll(s, "{{DEADZONE_L}}", floatLit(st.stickDeadzoneL));
     s = replaceAll(s, "{{DEADZONE_R}}", floatLit(st.stickDeadzoneR));
+    s = replaceAll(s, "{{STICK_CURVE_L}}", std::to_string(st.stickCurveL));
+    s = replaceAll(s, "{{STICK_CURVE_R}}", std::to_string(st.stickCurveR));
+    s = replaceAll(s, "{{STICK_EXP_L}}", floatLit(st.stickExpL));
+    s = replaceAll(s, "{{STICK_EXP_R}}", floatLit(st.stickExpR));
     s = replaceAll(s, "{{ORBIT_SPEED}}", floatLit(st.orbitSpeed));
     s = replaceAll(s, "{{GRAVITY}}", floatLit(st.gravity));
     s = replaceAll(s, "{{JUMP_SPEED}}", floatLit(st.jumpSpeed));
@@ -8615,6 +8705,22 @@ std::string flowGraphScript(const Project& p) {
                 if (v > 128) v = 128;
                 c << pad << "ctx." << (n.type == "SetBloom" ? "bloom" : "grain")
                   << " = " << v << ";\n";
+            } else if (n.type == "SetStickCurve") {
+                // Stick: 0 left, 1 right, 2 both. Curve: 0 Linear / 1 Exp /
+                // 2 S-Curve. Exponent clamped to >= 1 (only shapes curves 1/2).
+                int stick = (int)n.num[0];
+                stick = stick < 0 ? 0 : stick > 2 ? 2 : stick;
+                int curve = (int)n.num[1];
+                curve = curve < 0 ? 0 : curve > 2 ? 2 : curve;
+                float e = n.num[2] < 1.0f ? 1.0f : n.num[2];
+                if (stick != 1) {  // left or both
+                    c << pad << "ctx.stickCurveL = " << curve << ";\n";
+                    c << pad << "ctx.stickExpL = " << floatLit(e) << ";\n";
+                }
+                if (stick != 0) {  // right or both
+                    c << pad << "ctx.stickCurveR = " << curve << ";\n";
+                    c << pad << "ctx.stickExpR = " << floatLit(e) << ";\n";
+                }
             } else if (n.type == "SetDisplayMode") {
                 int mode = (int)n.num[0];
                 mode = mode < 0 ? 0 : mode > 2 ? 2 : mode;

@@ -121,6 +121,39 @@ Each finished feature lands as its own commit.
   (the one runtime unknown) works. The editor window itself wasn't click-tested
   (no synthetic input while the user is at the machine); its data path is the same
   JSON the hand-authored fixture exercised.
+- (88) **Analog stick sensitivity curves (per stick, live-settable from the
+  flow graph).** The stick handling only had a per-stick deadzone (feature 31);
+  above it the response was linear. Now each stick carries a **response curve**
+  applied after the deadzone rescales the magnitude to 0..1: **Linear**,
+  **Exponential** (`pow(mag, exp)` - gentle near center, snappy at the edge, the
+  classic aiming curve) or **S-Curve** (smoothstep - soft center + firm cap),
+  with an **exponent** (>=1) tuning curves 1/2. Independent per stick (left =
+  movement, right = camera).
+  - **Model / serialization**: `ProjectSettings` gains `stickCurveL/R` (int) and
+    `stickExpL/R` (float), in `operator==`, saved/loaded in `project.cpp`
+    (defaulting to Linear / exp 2 on older projects, clamped on load).
+  - **Preferences UI** (*Project > Preferences > Input*): a curve combo +
+    exponent slider per stick with a live **PlotLines preview** of the response
+    (deflection → output), under the existing deadzone sliders.
+  - **Codegen**: `terrain_config.hpp` bakes `STICK_CURVE_L/R` + `STICK_EXP_L/R`;
+    a single shared `stickAxis(raw, dz, curve, exp)` free function (deadzone +
+    curve) replaces the duplicated `axis` lambda / `axisValue` in both player
+    paths (`updatePlayerEntity` and the FPP `updatePlayer`), reading runtime
+    globals `g_stickCurve*/g_stickExp*` seeded from the constants in `init()`
+    (namespaced constants can't initialize the global-scope defs directly).
+  - **Flow graph**: a new **Set Stick Curve** node (Player category) writes the
+    curve/exponent for the left / right / both sticks through `FlowScriptCtx`;
+    the game loop copies it into the runtime globals and resets the request, so
+    a change persists across scene switches (options menu / sniper mode / etc.).
+  - **Verified**: editor builds clean; codegen inspected on fresh `--new` fpp
+    and orbit fixtures (constants, globals, shared `stickAxis` in both paths,
+    scriptCtx apply block); an `On Start → Set Stick Curve` graph compiles and
+    the emitted `flow_graph.gen.cpp` sets both sticks; **both templates build on
+    the PS2 toolchain in Docker**; the fpp ELF **boots in PCSX2 at a steady
+    50 FPS with no assert** (the node fires on start); save/load round-trips the
+    four fields and the new node type via `--resave`. The actual on-hardware
+    *feel* of each curve with a real DualShock still wants a hands-on pad test.
+
 - (86) **Custom screen effects: user-authored full-screen post effects, drop-in
   files, positioned on the UI.** The editor shipped exactly two full-screen post
   effects (bloom, film grain), hard-coded in the engine's `RendererCorePostFx`.
