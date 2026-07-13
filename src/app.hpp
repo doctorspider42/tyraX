@@ -90,7 +90,9 @@ private:
     void drawDebugWindow();
     void drawDiscLayoutWindow();
     void drawNewProjectModal();
-    void drawPreferencesModal();
+    void drawPreferencesModal();          // project-wide defaults (Project menu)
+    void drawEditorPreferencesModal();    // machine-global settings (Edit menu)
+    void saveGlobalConfig();              // write editor.ini from the App members
     void drawNavigationModal();  // global viewport-navigation settings
     void drawScenePreferencesModal();
     void openScenePreferences();  // stage the active scene into scenePref* + open
@@ -288,6 +290,15 @@ private:
     // Viewport navigation (global editor config, see editor.ini persistence).
     NavConfig nav_;
     bool openNavigationPopup_ = false;
+
+    // Machine-global emulator path + dev-PS2 IP (editor.ini, NOT the per-project
+    // .tyra): the emulator lives at a fixed path on this PC and the dev PS2 has
+    // a fixed LAN address, independent of which project is open. Edited in
+    // Edit > Preferences; fed into project_ (the Runner's runtime transport) on
+    // every project attach. Empty emulator path = auto-detect; empty IP disables
+    // the "Run on PS2" actions.
+    std::string globalEmulatorPath_;
+    std::string globalPs2Ip_;
     // Selection index the orbit pivot was last snapped to; -1 = none. Lets
     // "orbit around selection" re-center only when the selection changes.
     int navFocusedIndex_ = -1;
@@ -581,8 +592,12 @@ private:
     TerrainConfig prefTerrain_;
     int prefTemplate_ = 0;
     ProjectSettings prefSettings_;
-    char prefEmulatorPath_[512] = "";  // PCSX2 exe path (editor-side, not baked)
-    char prefPs2Ip_[64] = "";          // ps2link IP for Run on PS2 (editor-side)
+
+    // "Editor Preferences" modal staging (Edit > Preferences, applied on Save).
+    // Machine-global settings, mirror of globalEmulatorPath_ / globalPs2Ip_.
+    bool openEditorPrefsPopup_ = false;
+    char prefEmulatorPath_[512] = "";  // PCSX2 exe path (auto-detect if empty)
+    char prefPs2Ip_[64] = "";          // ps2link IP for Run on PS2
 
     // "Debug" window: tails a log from disk (reloaded, throttled). Source 0 is
     // the game's own log (bin/log.txt, written by TYRA_LOG); source 1 is the

@@ -829,12 +829,13 @@ struct Project {
     int gizmoSpace = 0;        // gizmo axes: 0 absolute (world), 1 camera-relative
     int viewMode = 0;          // viewport shading: 0 solid, 1 wire, 2 wire+solid
     std::string windowLayout;  // ImGui docking layout (SaveIniSettingsToMemory)
-    // Absolute path to the PCSX2 executable to launch (Project > Preferences).
-    // Empty = auto-detect under Program Files. Editor-side, not game data.
-    std::string emulatorPath;
-    // IP of a PS2 running ps2link, for "Run on PS2" network deploys
-    // (Project > Preferences). Empty = the menu entries stay disabled.
-    std::string ps2LinkIp;
+    // Emulator path + dev-PS2 IP. These are machine-global editor settings
+    // (stored in editor.ini, edited in Edit > Preferences), NOT persisted in the
+    // .tyra file. They live on Project only as the runtime transport the Runner
+    // reads: App::attachProject copies the global values in on every open. The
+    // headless --build path (main.cpp) also sets ps2LinkIp here directly.
+    std::string emulatorPath;  // PCSX2 exe; empty = auto-detect under Program Files
+    std::string ps2LinkIp;     // ps2link IP for "Run on PS2"; empty = disabled
 
     bool valid() const { return !name.empty() && !dir.empty(); }
     std::string elfName() const { return name + ".elf"; }

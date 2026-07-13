@@ -129,9 +129,20 @@ a C++ int-*expression* (a literal index for built-in sources, `objOut<id>` for a
 custom node's runtime output) — built-in object actions fed such a ref are
 bounds-guarded via `isRuntimeIdx`.)
 
-**New preference** → `ProjectSettings` → save/load in project.cpp → Preferences
-dialog in app.cpp → usually a constant baked into `inc/terrain_config.hpp` or
-`scene_data.hpp` by templates.cpp.
+**New project preference** (travels with the `.tyra`, part of the game) →
+`ProjectSettings` → save/load in project.cpp → the *Project* Preferences dialog
+(`drawPreferencesModal`) in app.cpp → usually a constant baked into
+`inc/terrain_config.hpp` or `scene_data.hpp` by templates.cpp.
+
+**New machine-global editor setting** (per-installation, NOT in the `.tyra` —
+e.g. UI scale, viewport navigation, emulator path, dev-PS2 IP) → a field on
+`EditorConfig` (app.cpp) with load/save lines in `loadEditorConfig`/
+`saveEditorConfig` (key=value in `editor.ini` under `%LOCALAPPDATA%`) → an App
+member seeded from it at startup → edited in the *Edit* Preferences dialog
+(`drawEditorPreferencesModal`). Every save funnels through `App::saveGlobalConfig()`
+so no field is dropped. If the Runner needs it, feed it into `project_` in
+`attachProject` (as `emulatorPath`/`ps2LinkIp` do — those live on `Project` only
+as the Runner's runtime transport, not as serialized game data).
 
 ### 4. Conventions
 - Files: `snake_case.cpp/.hpp`, paired header/impl, flat `src/`.

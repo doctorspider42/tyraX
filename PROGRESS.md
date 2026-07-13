@@ -9,6 +9,33 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (83) **Edit > Preferences: machine-global editor settings (emulator path +
+  dev-PS2 IP).** The PCSX2 path and the ps2link IP are per-machine, not
+  per-project (the emulator lives at a fixed path on this PC; the dev PS2 has a
+  fixed LAN address), yet they used to be stored in each `.tyra` under Project >
+  Preferences - so moving a project to another machine carried a wrong path.
+  They now live in the existing global editor config (`editor.ini` under
+  `%LOCALAPPDATA%\tyra-editor`, alongside UI scale and navigation), edited in a
+  new **Edit > Preferences** modal. The Edit menu is enabled without a project
+  open so the emulator can be pointed at before creating one. `EditorConfig`
+  gained `emulatorPath`/`ps2LinkIp`; all `saveEditorConfig` sites funnel through
+  a new `App::saveGlobalConfig()` so a UI-scale or nav change never drops them.
+  `Project::emulatorPath`/`ps2LinkIp` stay only as the Runner's runtime
+  transport (not part of undo, no longer serialized to `.tyra`); `attachProject`
+  copies the global values in on every open and **migrates** any legacy value
+  from an older `.tyra` into the global config on first open (the reader still
+  accepts the old fields; the writer no longer emits them). Project Preferences
+  lost its Emulator / Real PS2 sections; every "Set … in Project > Preferences"
+  hint (menus, toolbar tooltips, Debug window, Runner log) now points to Edit >
+  Preferences. **Verified** (GUI + headless): built clean; `--new` writes a
+  `.tyra` whose `editor` block no longer contains `emulatorPath`/`ps2LinkIp`;
+  hand-injected legacy fields (`C:\legacy\pcsx2-qt.exe`, `192.168.1.77`) into an
+  old-style `.tyra`, launched the editor on it, and confirmed `editor.ini` gained
+  `emulatorPath=C:\legacy\pcsx2-qt.exe` / `ps2LinkIp=192.168.1.77` - backslashes
+  and the IP round-tripped intact - with UI scale / nav lines untouched. The
+  interactive Save in the modal wasn't automated (no synthetic input while the
+  user is at the machine); the migration path exercises the same load/save code.
+
 - (82) **View menu: toggle the distance-fog preview in the editor.** The
   scene's distance fog (Preferences/Ambience > Distance fog — the GS hardware
   fog that fades geometry toward the camera far plane, *not* the particle "Fog"
