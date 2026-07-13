@@ -5443,9 +5443,8 @@ constexpr int kGrainMark = -3;
 void App::drawUiEditorWindow() {
     if (!showUiEditor_ || !hasProject_) return;
 
-    ImGui::SetNextWindowSize(
-        ImVec2(560 * uiScaleApplied_, 420 * uiScaleApplied_),
-        ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(560), scaled(420)),
+                             ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("UI Editor", &showUiEditor_)) {
         ImGui::End();
         return;
@@ -6418,9 +6417,9 @@ void App::handleFileDrop(int count, const char** paths) {
 // Mutates rgb live while dragging; returns true when an edit FINISHED
 // (release / double-click reset) so the caller commits once per gesture.
 static bool gradingWheel(const char* id, float* rgb, float lo, float hi,
-                         float wheelRange) {
+                         float wheelRange, float scale) {
     constexpr float kTau = 6.28318530f;
-    const float radius = 54.0f;
+    const float radius = 54.0f * scale;
     ImGui::PushID(id);
 
     const ImVec2 p = ImGui::GetCursorScreenPos();
@@ -6443,7 +6442,7 @@ static bool gradingWheel(const char* id, float* rgb, float lo, float hi,
     float master = (rgb[0] + rgb[1] + rgb[2]) / 3.0f;
     if (ImGui::IsItemActive()) {
         const ImVec2 m = ImGui::GetIO().MousePos;
-        const float reach = radius - 8.0f;
+        const float reach = radius - 8.0f * scale;
         float px = (m.x - c.x) / reach;
         float py = -(m.y - c.y) / reach;  // screen y is down
         const float r = std::sqrt(px * px + py * py);
@@ -6492,12 +6491,13 @@ static bool gradingWheel(const char* id, float* rgb, float lo, float hi,
         dl->PrimVtx(p1, uvWhite, rim(a1));
     }
     dl->AddCircle(c, radius, IM_COL32(0, 0, 0, 110), 0, 1.5f);
-    dl->AddCircleFilled(c, 2.0f, IM_COL32(160, 160, 160, 160));
+    dl->AddCircleFilled(c, 2.0f * scale, IM_COL32(160, 160, 160, 160));
 
     // Puck: white dot with a dark outline (like Resolve's trackball)
-    const ImVec2 puck(c.x + px * (radius - 8.0f), c.y - py * (radius - 8.0f));
-    dl->AddCircleFilled(puck, 6.0f, IM_COL32(235, 235, 235, 255));
-    dl->AddCircle(puck, 6.5f, IM_COL32(20, 20, 20, 200), 0, 1.5f);
+    const ImVec2 puck(c.x + px * (radius - 8.0f * scale),
+                      c.y - py * (radius - 8.0f * scale));
+    dl->AddCircleFilled(puck, 6.0f * scale, IM_COL32(235, 235, 235, 255));
+    dl->AddCircle(puck, 6.5f * scale, IM_COL32(20, 20, 20, 200), 0, 1.5f);
 
     if (ImGui::IsItemHovered() && !ImGui::IsItemActive())
         ImGui::SetTooltip("Drag to tint, double-click to reset");
@@ -6513,7 +6513,8 @@ static bool gradingWheel(const char* id, float* rgb, float lo, float hi,
 void App::drawGradingWindow() {
     if (!showGradingEditor_ || !hasProject_) return;
 
-    ImGui::SetNextWindowSize(ImVec2(560, 520), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(560), scaled(520)),
+                             ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Color Grading", &showGradingEditor_)) {
         ImGui::End();
         return;
@@ -6522,7 +6523,7 @@ void App::drawGradingWindow() {
     bool changed = false;
 
     // --- left: preset list -------------------------------------------------
-    ImGui::BeginChild("##grading_list", ImVec2(170, 0), ImGuiChildFlags_Borders);
+    ImGui::BeginChild("##grading_list", ImVec2(scaled(170), 0), ImGuiChildFlags_Borders);
     if (ImGui::Button("+ New preset", ImVec2(-1, 0))) {
         int counter = 0;
         std::string name;
@@ -6569,7 +6570,7 @@ void App::drawGradingWindow() {
 
     char nameBuf[64];
     std::snprintf(nameBuf, sizeof(nameBuf), "%s", g.name.c_str());
-    ImGui::SetNextItemWidth(180.0f);
+    ImGui::SetNextItemWidth(scaled(180.0f));
     if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
         // keep Set Color Grading flow nodes pointing here
         for (SceneData& sc : project_.scenes)
@@ -6623,7 +6624,7 @@ void App::drawGradingWindow() {
         project_.defaultGrading = isDefault ? selectedGrading_ : -1;
         changed = true;
     }
-    ImGui::SameLine(0.0f, 24.0f);
+    ImGui::SameLine(0.0f, scaled(24.0f));
     ImGui::Checkbox("Preview in viewport", &gradingPreview_);
 
     ImGui::SeparatorText("Quick looks");
@@ -6672,7 +6673,7 @@ void App::drawGradingWindow() {
     ImGui::ColorEdit3("Color", g.tint, ImGuiColorEditFlags_NoInputs);
     changed |= ImGui::IsItemDeactivatedAfterEdit();
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(160.0f);
+    ImGui::SetNextItemWidth(scaled(160.0f));
     ImGui::SliderFloat("Amount", &g.tintAmount, 0.0f, 1.0f, "%.2f");
     changed |= ImGui::IsItemDeactivatedAfterEdit();
 
@@ -6682,14 +6683,14 @@ void App::drawGradingWindow() {
     // exact numbers. All three edit the same lift/gain floats.
     auto wheelColumn = [&](const char* label, float* rgb, float lo, float hi,
                            float wheelRange) {
-        const float width = 108.0f;
+        const float width = scaled(108.0f);
         ImGui::BeginGroup();
         ImGui::PushID(label);
         const float tw = ImGui::CalcTextSize(label).x;
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
                              (width - (tw < width ? tw : width)) * 0.5f);
         ImGui::TextUnformatted(label);
-        changed |= gradingWheel(label, rgb, lo, hi, wheelRange);
+        changed |= gradingWheel(label, rgb, lo, hi, wheelRange, uiScaleApplied_);
         float master = (rgb[0] + rgb[1] + rgb[2]) / 3.0f;
         ImGui::SetNextItemWidth(width);
         if (ImGui::SliderFloat("##master", &master, lo, hi, "%.2f")) {
@@ -6709,7 +6710,7 @@ void App::drawGradingWindow() {
         ImGui::EndGroup();
     };
     wheelColumn("Lift (shadows)", g.lift, -0.5f, 0.5f, 0.35f);
-    ImGui::SameLine(0.0f, 28.0f);
+    ImGui::SameLine(0.0f, scaled(28.0f));
     wheelColumn("Gain (highlights)", g.gain, 0.0f, 2.0f, 0.75f);
 
     // The exact GS numbers this preset compiles to (scene_data.hpp /
@@ -6737,7 +6738,8 @@ void App::drawGradingWindow() {
 void App::drawAmbienceWindow() {
     if (!showAmbienceEditor_ || !hasProject_) return;
 
-    ImGui::SetNextWindowSize(ImVec2(560, 540), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(560), scaled(540)),
+                             ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Ambience Editor", &showAmbienceEditor_)) {
         ImGui::End();
         return;
@@ -6746,7 +6748,7 @@ void App::drawAmbienceWindow() {
     bool changed = false;
 
     // --- left: preset list -------------------------------------------------
-    ImGui::BeginChild("##ambience_list", ImVec2(170, 0), ImGuiChildFlags_Borders);
+    ImGui::BeginChild("##ambience_list", ImVec2(scaled(170), 0), ImGuiChildFlags_Borders);
     if (ImGui::Button("+ New preset", ImVec2(-1, 0))) {
         int counter = 0;
         std::string name;
@@ -6795,7 +6797,7 @@ void App::drawAmbienceWindow() {
 
     char nameBuf[64];
     std::snprintf(nameBuf, sizeof(nameBuf), "%s", a.name.c_str());
-    ImGui::SetNextItemWidth(180.0f);
+    ImGui::SetNextItemWidth(scaled(180.0f));
     if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
         // keep scene references and Set Ambience flow nodes pointing here
         for (SceneData& sc : project_.scenes) {
@@ -6859,7 +6861,7 @@ void App::drawAmbienceWindow() {
     }
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Scenes that don't pick a preset use this one.");
-    ImGui::SameLine(0.0f, 24.0f);
+    ImGui::SameLine(0.0f, scaled(24.0f));
     ImGui::Checkbox("Preview in viewport", &ambiencePreview_);
 
     ImGui::SeparatorText("Sky");
@@ -7132,7 +7134,8 @@ const std::vector<SceneObject>& App::cutscenePosedObjects() {
 void App::drawCutsceneWindow() {
     if (!showCutsceneEditor_ || !hasProject_) return;
 
-    ImGui::SetNextWindowSize(ImVec2(880, 620), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(880), scaled(620)),
+                             ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Cutscene Director", &showCutsceneEditor_)) {
         ImGui::End();
         return;
@@ -7150,7 +7153,7 @@ void App::drawCutsceneWindow() {
     };
 
     // --- left: sequence list ------------------------------------------------
-    ImGui::BeginChild("##seq_list", ImVec2(170, 0), ImGuiChildFlags_Borders);
+    ImGui::BeginChild("##seq_list", ImVec2(scaled(170), 0), ImGuiChildFlags_Borders);
     if (ImGui::Button("+ New sequence", ImVec2(-1, 0))) {
         Sequence s;
         s.name = uniqueSeqName("Cutscene");
@@ -7191,7 +7194,7 @@ void App::drawCutsceneWindow() {
 
     char nameBuf[64];
     std::snprintf(nameBuf, sizeof(nameBuf), "%s", s.name.c_str());
-    ImGui::SetNextItemWidth(180.0f);
+    ImGui::SetNextItemWidth(scaled(180.0f));
     if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
         for (SceneData& sc : project_.scenes)
             for (SceneObject& o : sc.objects)
@@ -7229,17 +7232,17 @@ void App::drawCutsceneWindow() {
         return;
     }
 
-    ImGui::SetNextItemWidth(110.0f);
+    ImGui::SetNextItemWidth(scaled(110.0f));
     if (ImGui::DragFloat("Duration (s)", &s.duration, 0.1f, 0.1f, 600.0f, "%.2f"))
         changed = true;
     if (s.duration < 0.1f) s.duration = 0.1f;
-    ImGui::SameLine(0.0f, 14.0f);
+    ImGui::SameLine(0.0f, scaled(14.0f));
     if (ImGui::Checkbox("Loop", &s.loop)) changed = true;
-    ImGui::SameLine(0.0f, 14.0f);
+    ImGui::SameLine(0.0f, scaled(14.0f));
     if (ImGui::Checkbox("Skippable", &s.skippable)) changed = true;
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Pressing START in the game ends the cutscene early.");
-    ImGui::SameLine(0.0f, 14.0f);
+    ImGui::SameLine(0.0f, scaled(14.0f));
     if (ImGui::Checkbox("Camera track", &s.cameraEnabled)) changed = true;
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Drive the game camera from the camera lane's shots\n"
@@ -7249,7 +7252,7 @@ void App::drawCutsceneWindow() {
     // (and the HUD) on the PS2 and previewed on the viewport image.
     static const char* kBarsNames[] = {"None", "Cinema 2.39:1", "Wide 16:9",
                                        "Pillarbox", "Frame"};
-    ImGui::SetNextItemWidth(130.0f);
+    ImGui::SetNextItemWidth(scaled(130.0f));
     if (ImGui::Combo("Widescreen bars", &s.bars, kBarsNames, kSeqBarsStyleCount))
         changed = true;
     if (ImGui::IsItemHovered())
@@ -7259,15 +7262,15 @@ void App::drawCutsceneWindow() {
     // Bars slide-in/out times, only meaningful when bars are on. Authored
     // just like the fades, right next to them.
     if (s.bars != kSeqBarsNone) {
-        ImGui::SameLine(0.0f, 14.0f);
-        ImGui::SetNextItemWidth(76.0f);
+        ImGui::SameLine(0.0f, scaled(14.0f));
+        ImGui::SetNextItemWidth(scaled(76.0f));
         if (ImGui::DragFloat("Bars in", &s.barsSlideIn, 0.05f, 0.0f, 10.0f, "%.2f s"))
             changed = true;
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("How long the bars take to slide in at the start.\n"
                               "0 = they are there from the first frame.");
-        ImGui::SameLine(0.0f, 10.0f);
-        ImGui::SetNextItemWidth(76.0f);
+        ImGui::SameLine(0.0f, scaled(10.0f));
+        ImGui::SetNextItemWidth(scaled(76.0f));
         if (ImGui::DragFloat("Bars out", &s.barsSlideOut, 0.05f, 0.0f, 10.0f, "%.2f s"))
             changed = true;
         if (ImGui::IsItemHovered())
@@ -7276,11 +7279,11 @@ void App::drawCutsceneWindow() {
         if (s.barsSlideIn < 0.0f) s.barsSlideIn = 0.0f;
         if (s.barsSlideOut < 0.0f) s.barsSlideOut = 0.0f;
     }
-    ImGui::SetNextItemWidth(76.0f);
+    ImGui::SetNextItemWidth(scaled(76.0f));
     if (ImGui::DragFloat("Fade in", &s.fadeIn, 0.05f, 0.0f, 10.0f, "%.2f s"))
         changed = true;
-    ImGui::SameLine(0.0f, 10.0f);
-    ImGui::SetNextItemWidth(76.0f);
+    ImGui::SameLine(0.0f, scaled(10.0f));
+    ImGui::SetNextItemWidth(scaled(76.0f));
     if (ImGui::DragFloat("Fade out", &s.fadeOut, 0.05f, 0.0f, 10.0f, "%.2f s"))
         changed = true;
     if (s.fadeIn < 0.0f) s.fadeIn = 0.0f;
@@ -7294,23 +7297,23 @@ void App::drawCutsceneWindow() {
         seqPlayhead_ = 0.0f;
         seqPlaying_ = false;
     }
-    ImGui::SameLine(0.0f, 14.0f);
+    ImGui::SameLine(0.0f, scaled(14.0f));
     ImGui::Checkbox("Preview in viewport", &seqPreview_);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Pose the scene at the playhead. Objects you have\n"
                           "SELECTED stay at their real transform while paused,\n"
                           "so the gizmo edits what you see - snapshot or\n"
                           "auto-key to turn that pose into a keyframe.");
-    ImGui::SameLine(0.0f, 14.0f);
+    ImGui::SameLine(0.0f, scaled(14.0f));
     ImGui::Checkbox("Auto-key", &seqAutoKey_);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Finishing a gizmo drag drops a keyframe at the\n"
                           "playhead for every selected object that has a\n"
                           "track in this sequence.");
-    ImGui::SameLine(0.0f, 14.0f);
-    ImGui::SetNextItemWidth(100.0f);
+    ImGui::SameLine(0.0f, scaled(14.0f));
+    ImGui::SetNextItemWidth(scaled(100.0f));
     ImGui::SliderFloat("Zoom", &seqZoom_, 1.0f, 8.0f, "%.1fx");
-    ImGui::SameLine(0.0f, 14.0f);
+    ImGui::SameLine(0.0f, scaled(14.0f));
     ImGui::Text("t = %.2f s", seqPlayhead_);
     if (seqPlaying_) {
         seqPlayhead_ += ImGui::GetIO().DeltaTime;
@@ -7368,10 +7371,10 @@ void App::drawCutsceneWindow() {
     // One lane per track (the camera lane first), keys as draggable diamonds,
     // a click/drag-scrubbed time ruler and a playhead line across all lanes.
     // The label column stays pinned while the lanes scroll horizontally.
-    const float laneH = 26.0f, rulerH = 22.0f, labelW = 170.0f;
+    const float laneH = scaled(26.0f), rulerH = scaled(22.0f), labelW = scaled(170.0f);
     const int laneCount = (s.cameraEnabled ? 1 : 0) + (int)s.tracks.size();
     const float sheetH =
-        rulerH + laneCount * laneH + ImGui::GetStyle().ScrollbarSize + 8.0f;
+        rulerH + laneCount * laneH + ImGui::GetStyle().ScrollbarSize + scaled(8.0f);
     // sanity: a deleted/toggled lane can strand the key selection
     if (selectedSeqTrack_ >= (int)s.tracks.size() ||
         (selectedSeqTrack_ < 0 && !s.cameraEnabled))
@@ -7384,12 +7387,12 @@ void App::drawCutsceneWindow() {
         ImDrawList* dl = ImGui::GetWindowDrawList();
         const ImVec2 origin = ImGui::GetCursorScreenPos();  // content space
         const float visibleW = ImGui::GetWindowSize().x;
-        float timeW = (visibleW - labelW - 8.0f) * seqZoom_;
-        if (timeW < 160.0f) timeW = 160.0f;
+        float timeW = (visibleW - labelW - scaled(8.0f)) * seqZoom_;
+        if (timeW < scaled(160.0f)) timeW = scaled(160.0f);
         const float pps = timeW / s.duration;  // pixels per second
         const float x0 = origin.x + labelW;    // timeline left edge
         const float contentH = rulerH + laneCount * laneH;
-        ImGui::Dummy(ImVec2(labelW + timeW + 4.0f, contentH));
+        ImGui::Dummy(ImVec2(labelW + timeW + scaled(4.0f), contentH));
         const float laneY0 = origin.y + rulerH;
         const ImVec2 winPos = ImGui::GetWindowPos();  // pinned label column x
         const float labelX = winPos.x;
@@ -7468,7 +7471,7 @@ void App::drawCutsceneWindow() {
                                            5.0f, 10.0f, 15.0f, 30.0f, 60.0f};
             float step = 60.0f;
             for (float c : kSteps)
-                if (c * pps >= 56.0f) {
+                if (c * pps >= scaled(56.0f)) {
                     step = c;
                     break;
                 }
@@ -7476,12 +7479,12 @@ void App::drawCutsceneWindow() {
             for (float t = 0.0f; t <= s.duration + 1e-4f; t += minor) {
                 const float x = x0 + t * pps;
                 const bool major = std::fabs(std::fmod(t + 1e-4f, step)) < 2e-3f;
-                dl->AddLine(ImVec2(x, origin.y + (major ? 4.0f : 13.0f)),
+                dl->AddLine(ImVec2(x, origin.y + (major ? scaled(4.0f) : scaled(13.0f))),
                             ImVec2(x, origin.y + rulerH), colGrid);
                 if (major) {
                     char buf[16];
                     std::snprintf(buf, sizeof(buf), "%g s", t);
-                    dl->AddText(ImVec2(x + 3.0f, origin.y + 2.0f), colDim, buf);
+                    dl->AddText(ImVec2(x + scaled(3.0f), origin.y + scaled(2.0f)), colDim, buf);
                     // faint grid line down the lanes
                     dl->AddLine(ImVec2(x, laneY0), ImVec2(x, laneY0 + laneCount * laneH),
                                 ImGui::GetColorU32(ImGuiCol_Border, 0.4f));
@@ -7500,10 +7503,11 @@ void App::drawCutsceneWindow() {
             const int li = s.cameraEnabled ? lane + 1 : lane;
             const float cx = x0 + time * pps;
             const float cy = laneY0 + li * laneH + laneH * 0.5f;
-            const float r = 6.0f;
+            const float r = scaled(6.0f);
+            const float pad = scaled(4.0f);  // hit-area margin around the diamond
             ImGui::PushID((lane + 2) * 1000 + ki);
-            ImGui::SetCursorScreenPos(ImVec2(cx - r - 4.0f, cy - r - 4.0f));
-            ImGui::InvisibleButton("##key", ImVec2(2.0f * (r + 4.0f), 2.0f * (r + 4.0f)));
+            ImGui::SetCursorScreenPos(ImVec2(cx - r - pad, cy - r - pad));
+            ImGui::InvisibleButton("##key", ImVec2(2.0f * (r + pad), 2.0f * (r + pad)));
             const bool hovered = ImGui::IsItemHovered();
             const bool dragging = ImGui::IsItemActive();
             // the horizontal-resize cursor + tooltip make retiming discoverable
@@ -7553,7 +7557,7 @@ void App::drawCutsceneWindow() {
                                 ImDrawFlags_Closed, 1.0f);
             }
             if (sel || hovered)
-                dl->AddCircle(ImVec2(cx, cy), r + 2.5f,
+                dl->AddCircle(ImVec2(cx, cy), r + scaled(2.5f),
                               sel ? colSelected : ImGui::GetColorU32(ImGuiCol_Text, 0.6f),
                               0, sel ? 2.0f : 1.0f);
             ImGui::PopID();
@@ -7618,9 +7622,9 @@ void App::drawCutsceneWindow() {
             const float x = x0 + seqPlayhead_ * pps;
             dl->AddLine(ImVec2(x, origin.y), ImVec2(x, laneY0 + laneCount * laneH),
                         colPlayhead, 1.5f);
-            dl->AddTriangleFilled(ImVec2(x - 5.0f, origin.y),
-                                  ImVec2(x + 5.0f, origin.y),
-                                  ImVec2(x, origin.y + 9.0f), colPlayhead);
+            dl->AddTriangleFilled(ImVec2(x - scaled(5.0f), origin.y),
+                                  ImVec2(x + scaled(5.0f), origin.y),
+                                  ImVec2(x, origin.y + scaled(9.0f)), colPlayhead);
         }
 
         // pinned label column, drawn last so it occludes scrolled-under keys.
@@ -7630,7 +7634,7 @@ void App::drawCutsceneWindow() {
                           ImGui::GetColorU32(ImGuiCol_ChildBg));
         dl->AddRectFilled(ImVec2(labelX, origin.y),
                           ImVec2(labelX + labelW, origin.y + rulerH), colRuler);
-        dl->AddText(ImVec2(labelX + 8.0f, origin.y + 3.0f), colDim, "Track");
+        dl->AddText(ImVec2(labelX + scaled(8.0f), origin.y + scaled(3.0f)), colDim, "Track");
         dl->AddLine(ImVec2(labelX + labelW, origin.y),
                     ImVec2(labelX + labelW, origin.y + contentH), colGrid);
         for (int li = 0; li < laneCount; ++li) {
@@ -7640,7 +7644,7 @@ void App::drawCutsceneWindow() {
                         ImGui::GetColorU32(ImGuiCol_Border, 0.5f));
             ImGui::PushID(500 + li);
             // snapshot button on the right edge of the label cell
-            ImGui::SetCursorScreenPos(ImVec2(labelX + labelW - 24.0f, y + 3.0f));
+            ImGui::SetCursorScreenPos(ImVec2(labelX + labelW - scaled(24.0f), y + scaled(3.0f)));
             if (ImGui::SmallButton("+")) {
                 if (ti < 0) {
                     snapshotCameraKey(seqPlayhead_);
@@ -7656,31 +7660,31 @@ void App::drawCutsceneWindow() {
                                            "at the playhead.");
             // the rest of the cell: click selects the lane, right-click = setup
             ImGui::SetCursorScreenPos(ImVec2(labelX, y));
-            ImGui::InvisibleButton("##label", ImVec2(labelW - 26.0f, laneH));
+            ImGui::InvisibleButton("##label", ImVec2(labelW - scaled(26.0f), laneH));
             if (ImGui::IsItemClicked()) {
                 selectedSeqTrack_ = ti;
                 selectedSeqKey_ = -1;
             }
             ImGui::OpenPopupOnItemClick("##trackctx", ImGuiPopupFlags_MouseButtonRight);
             if (ti < 0) {
-                dl->AddText(ImVec2(labelX + 8.0f, y + 5.0f), colText, "[*] Camera");
-                dl->AddText(ImVec2(labelX + 86.0f, y + 5.0f), colDim,
+                dl->AddText(ImVec2(labelX + scaled(8.0f), y + scaled(5.0f)), colText, "[*] Camera");
+                dl->AddText(ImVec2(labelX + scaled(86.0f), y + scaled(5.0f)), colDim,
                             ("(" + std::to_string(s.cameraKeys.size()) + ")").c_str());
             } else {
                 const SeqTrack& tr = s.tracks[ti];
                 const std::string label =
                     (tr.target.empty() ? "<no object>" : tr.target);
-                dl->AddText(ImVec2(labelX + 8.0f, y + 5.0f), colText, label.c_str());
+                dl->AddText(ImVec2(labelX + scaled(8.0f), y + scaled(5.0f)), colText, label.c_str());
                 // animated-channel letters, dimmed when off
                 const char* chs[] = {"P", "R", "S", "C", "V"};
                 const bool on[] = {tr.animPos, tr.animRot, tr.animScale,
                                    tr.animColor, tr.animVis};
-                float cxs = labelX + labelW - 88.0f;
+                float cxs = labelX + labelW - scaled(88.0f);
                 for (int c = 0; c < 5; ++c) {
-                    dl->AddText(ImVec2(cxs, y + 5.0f),
+                    dl->AddText(ImVec2(cxs, y + scaled(5.0f)),
                                 on[c] ? colText : ImGui::GetColorU32(ImGuiCol_TextDisabled, 0.4f),
                                 chs[c]);
-                    cxs += 11.0f;
+                    cxs += scaled(11.0f);
                 }
             }
             if (ImGui::BeginPopup("##trackctx")) {
@@ -7699,7 +7703,7 @@ void App::drawCutsceneWindow() {
                     }
                 } else {
                     SeqTrack& tr = s.tracks[ti];
-                    ImGui::SetNextItemWidth(160.0f);
+                    ImGui::SetNextItemWidth(scaled(160.0f));
                     if (ImGui::BeginCombo("Object",
                                           tr.target.empty() ? "<pick>" : tr.target.c_str())) {
                         for (const SceneObject& o : project_.objects())
@@ -7792,7 +7796,7 @@ void App::drawCutsceneWindow() {
                         selectedSeqKey_ < (int)s.tracks[selectedSeqTrack_].keys.size();
     if (camSel) {
         SeqCameraKey& k = s.cameraKeys[selectedSeqKey_];
-        ImGui::SetNextItemWidth(90.0f);
+        ImGui::SetNextItemWidth(scaled(90.0f));
         if (ImGui::DragFloat("Time", &k.time, 0.02f, 0.0f, s.duration, "%.2f s")) {
             seqPlayhead_ = k.time;
         }
@@ -7804,10 +7808,10 @@ void App::drawCutsceneWindow() {
             changed = true;
         }
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(110.0f);
+        ImGui::SetNextItemWidth(scaled(110.0f));
         if (ImGui::Combo("Easing", &k.easing, kEaseNames, 3)) changed = true;
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(90.0f);
+        ImGui::SetNextItemWidth(scaled(90.0f));
         if (ImGui::DragFloat("Shake", &k.shake, 0.005f, 0.0f, 2.0f, "%.2f")) {}
         changed |= ImGui::IsItemDeactivatedAfterEdit();
         if (ImGui::IsItemHovered())
@@ -7816,7 +7820,7 @@ void App::drawCutsceneWindow() {
 
         // The shot: free (explicit eye/at/fov) or bound to a Camera entity.
         const char* shotLabel = k.camera.empty() ? "<free shot>" : k.camera.c_str();
-        ImGui::SetNextItemWidth(160.0f);
+        ImGui::SetNextItemWidth(scaled(160.0f));
         if (ImGui::BeginCombo("Shot from", shotLabel)) {
             if (ImGui::Selectable("<free shot>", k.camera.empty()) && !k.camera.empty()) {
                 k.camera.clear();
@@ -7838,7 +7842,7 @@ void App::drawCutsceneWindow() {
                               "cameras with + Add object > Gameplay > Camera.");
         if (k.camera.empty()) {
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(80.0f);
+            ImGui::SetNextItemWidth(scaled(80.0f));
             if (ImGui::DragFloat("FOV", &k.fov, 0.5f, 20.0f, 110.0f, "%.0f deg")) {}
             changed |= ImGui::IsItemDeactivatedAfterEdit();
             ImGui::DragFloat3("Eye", k.eye, 0.1f);
@@ -7872,7 +7876,7 @@ void App::drawCutsceneWindow() {
     } else if (objSel) {
         SeqTrack& tr = s.tracks[selectedSeqTrack_];
         SeqObjectKey& k = tr.keys[selectedSeqKey_];
-        ImGui::SetNextItemWidth(90.0f);
+        ImGui::SetNextItemWidth(scaled(90.0f));
         if (ImGui::DragFloat("Time", &k.time, 0.02f, 0.0f, s.duration, "%.2f s")) {
             seqPlayhead_ = k.time;
         }
@@ -7884,7 +7888,7 @@ void App::drawCutsceneWindow() {
             changed = true;
         }
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(110.0f);
+        ImGui::SetNextItemWidth(scaled(110.0f));
         if (ImGui::Combo("Easing", &k.easing, kEaseNames, 3)) changed = true;
         ImGui::SameLine();
         if (ImGui::SmallButton("Re-snapshot")) {
@@ -8078,14 +8082,15 @@ void App::openMaterialEditor(const std::string& relPath) {
 void App::drawMaterialEditorWindow() {
     if (!showMaterialEditor_ || !hasProject_) return;
 
-    ImGui::SetNextWindowSize(ImVec2(780, 460), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(780), scaled(460)),
+                             ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Material Editor", &showMaterialEditor_)) {
         ImGui::End();
         return;
     }
 
     // --- left: .mtl asset list ----------------------------------------------
-    ImGui::BeginChild("##mat_list", ImVec2(190, 0), ImGuiChildFlags_Borders);
+    ImGui::BeginChild("##mat_list", ImVec2(scaled(190), 0), ImGuiChildFlags_Borders);
     if (ImGui::Button("+ New material...", ImVec2(-1, 0))) {
         openNewMaterialPopup_ = true;
         matEdNewError_.clear();
@@ -8110,12 +8115,12 @@ void App::drawMaterialEditorWindow() {
     }
     if (ImGui::BeginPopupModal("New material", nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::SetNextItemWidth(220.0f);
+        ImGui::SetNextItemWidth(scaled(220.0f));
         ImGui::InputText("Name", matEdNewName_, sizeof(matEdNewName_));
         if (!matEdNewError_.empty())
             ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%s",
                                matEdNewError_.c_str());
-        if (ImGui::Button("Create", ImVec2(120, 0))) {
+        if (ImGui::Button("Create", ImVec2(scaled(120), 0))) {
             const std::string base =
                 sanitizeAssetName(std::string(matEdNewName_).empty() ? "material"
                                                                      : matEdNewName_);
@@ -8136,7 +8141,7 @@ void App::drawMaterialEditorWindow() {
             }
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+        if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
 
@@ -8158,15 +8163,15 @@ void App::drawMaterialEditorWindow() {
     bool committed = false;
 
     // --- middle: the selected entry's properties ------------------------------
-    const float previewW = 240.0f;
+    const float previewW = scaled(240.0f);
     ImGui::BeginChild("##mat_edit",
-                      ImVec2(ImGui::GetContentRegionAvail().x - previewW - 8.0f, 0));
+                      ImVec2(ImGui::GetContentRegionAvail().x - previewW - scaled(8.0f), 0));
     ImGui::TextDisabled("%s", matEdPath_.c_str());
 
     // entry list within the file (universal libraries hold several; the FIRST
     // one is what primitives and emitters use)
     if (matEdMats_.size() > 1) {
-        ImGui::SetNextItemWidth(180.0f);
+        ImGui::SetNextItemWidth(scaled(180.0f));
         if (ImGui::BeginCombo("Entry", matEdMats_[matEdSel_].name.c_str())) {
             for (int i = 0; i < (int)matEdMats_.size(); ++i) {
                 ImGui::PushID(i);
@@ -8223,7 +8228,7 @@ void App::drawMaterialEditorWindow() {
 
     char nameBuf[64];
     std::snprintf(nameBuf, sizeof(nameBuf), "%s", e.name.c_str());
-    ImGui::SetNextItemWidth(180.0f);
+    ImGui::SetNextItemWidth(scaled(180.0f));
     if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
         // .mtl names are whitespace-delimited tokens - keep them pipeline-safe
         e.name = sanitizeAssetName(nameBuf);
@@ -8247,7 +8252,7 @@ void App::drawMaterialEditorWindow() {
         (std::filesystem::path(project_.dir) / matEdPath_).parent_path();
     {
         const char* noneLabel = "<none - plain color>";
-        ImGui::SetNextItemWidth(240.0f);
+        ImGui::SetNextItemWidth(scaled(240.0f));
         if (ImGui::BeginCombo("Texture",
                               e.texture.empty() ? noneLabel : e.texture.c_str())) {
             if (ImGui::Selectable(noneLabel, e.texture.empty()) && !e.texture.empty()) {
@@ -8313,7 +8318,7 @@ void App::drawMaterialEditorWindow() {
 
         // Tiling (map_Kd -s): how densely the texture repeats. Used by terrain
         // (which generates its own UVs); objects carry baked UVs and ignore it.
-        ImGui::SetNextItemWidth(180.0f);
+        ImGui::SetNextItemWidth(scaled(180.0f));
         ImGui::DragFloat("Tile repeat", &e.tile, 0.05f, 0.01f, 64.0f, "%.2f/unit");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         if (e.tile < 0.01f) e.tile = 0.01f;
@@ -8331,10 +8336,10 @@ void App::drawMaterialEditorWindow() {
     ImGui::SameLine();
 
     // --- right: live preview ---------------------------------------------------
-    ImGui::BeginChild("##mat_preview", ImVec2(previewW, 0));
+    ImGui::BeginChild("##mat_preview", ImVec2(previewW, 0));  // previewW already scaled
     {
         const char* shapes[] = {"Box", "Sphere", "Cylinder", "Cone"};
-        ImGui::SetNextItemWidth(100.0f);
+        ImGui::SetNextItemWidth(scaled(100.0f));
         ImGui::Combo("##mat_shape", &matEdShape_, shapes, 4);
         ImGui::SameLine();
         ImGui::Checkbox("Spin", &matEdSpin_);
@@ -8372,7 +8377,8 @@ void App::drawMaterialEditorWindow() {
 void App::drawMenusWindow() {
     if (!showMenusEditor_ || !hasProject_) return;
 
-    ImGui::SetNextWindowSize(ImVec2(680, 540), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(680), scaled(540)),
+                             ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Menu Editor", &showMenusEditor_)) {
         ImGui::End();
         return;
@@ -8381,7 +8387,7 @@ void App::drawMenusWindow() {
     bool changed = false;
 
     // --- left: menu list -------------------------------------------------
-    ImGui::BeginChild("##menu_list", ImVec2(170, 0), ImGuiChildFlags_Borders);
+    ImGui::BeginChild("##menu_list", ImVec2(scaled(170), 0), ImGuiChildFlags_Borders);
     if (ImGui::Button("+ New menu", ImVec2(-1, 0))) {
         int counter = 0;
         std::string name;
@@ -8433,7 +8439,7 @@ void App::drawMenusWindow() {
 
     char nameBuf[64];
     std::snprintf(nameBuf, sizeof(nameBuf), "%s", m.name.c_str());
-    ImGui::SetNextItemWidth(180.0f);
+    ImGui::SetNextItemWidth(scaled(180.0f));
     if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
         // keep references (flow OpenMenu nodes, submenu entries) pointing here
         for (SceneData& sc : project_.scenes)
@@ -8487,7 +8493,7 @@ void App::drawMenusWindow() {
 
     char titleBuf[64];
     std::snprintf(titleBuf, sizeof(titleBuf), "%s", m.title.c_str());
-    ImGui::SetNextItemWidth(180.0f);
+    ImGui::SetNextItemWidth(scaled(180.0f));
     if (ImGui::InputText("Title", titleBuf, sizeof(titleBuf))) m.title = titleBuf;
     changed |= ImGui::IsItemDeactivatedAfterEdit();
     ImGui::SameLine();
@@ -8528,7 +8534,7 @@ void App::drawMenusWindow() {
         {"Corner card", 256, 0.78f, 0.74f},
         {"Wide banner", 512, 0.5f, 0.5f},
     };
-    ImGui::SetNextItemWidth(180.0f);
+    ImGui::SetNextItemWidth(scaled(180.0f));
     if (ImGui::BeginCombo("Preset", "apply a preset...")) {
         for (const LayoutPreset& pr : kPresets) {
             if (ImGui::Selectable(pr.name)) {
@@ -8547,13 +8553,13 @@ void App::drawMenusWindow() {
                           "images and entries stay. Fine-tune below.");
     {
         int wIdx = m.panelW == 128 ? 0 : m.panelW == 512 ? 2 : 1;
-        ImGui::SetNextItemWidth(100.0f);
+        ImGui::SetNextItemWidth(scaled(100.0f));
         if (ImGui::Combo("Panel width", &wIdx, "128 px\000256 px\000512 px\000")) {
             m.panelW = wIdx == 0 ? 128 : wIdx == 2 ? 512 : 256;
             changed = true;
         }
     }
-    ImGui::SetNextItemWidth(180.0f);
+    ImGui::SetNextItemWidth(scaled(180.0f));
     ImGui::DragFloat2("Screen position", m.screenPos, 0.005f, 0.0f, 1.0f, "%.3f");
     changed |= ImGui::IsItemDeactivatedAfterEdit();
     if (ImGui::Checkbox("Show title", &m.showTitle)) changed = true;
@@ -8563,7 +8569,7 @@ void App::drawMenusWindow() {
     changed |= fontCombo(m.fontPath);
     {
         int sizes[2] = {m.titleSize, m.entrySize};
-        ImGui::SetNextItemWidth(140.0f);
+        ImGui::SetNextItemWidth(scaled(140.0f));
         if (ImGui::DragInt2("Title / entry size", sizes, 0.2f, 8, 48)) {
             m.titleSize = sizes[0] < 10 ? 10 : sizes[0] > 48 ? 48 : sizes[0];
             m.entrySize = sizes[1] < 8 ? 8 : sizes[1] > 32 ? 32 : sizes[1];
@@ -8603,8 +8609,8 @@ void App::drawMenusWindow() {
             std::filesystem::path(img.path).filename().string();
         ImGui::TextUnformatted(fileName.c_str());
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", img.path.c_str());
-        ImGui::SameLine(190.0f);
-        ImGui::SetNextItemWidth(120.0f);
+        ImGui::SameLine(scaled(190.0f));
+        ImGui::SetNextItemWidth(scaled(120.0f));
         if (ImGui::Combo("##slot", &img.slot,
                          "Above title\0Above entries\0Below entries\0"
                          "Background\0Overlay\0"))
@@ -8618,12 +8624,12 @@ void App::drawMenusWindow() {
         }
         // second row: size + position nudge (Background stretches, no knobs)
         if (img.slot != MenuImage::Background) {
-            ImGui::Indent(46.0f);
-            ImGui::SetNextItemWidth(90.0f);
+            ImGui::Indent(scaled(46.0f));
+            ImGui::SetNextItemWidth(scaled(90.0f));
             ImGui::DragFloat("scale##img", &img.scale, 0.02f, 0.05f, 4.0f, "%.2fx");
             changed |= ImGui::IsItemDeactivatedAfterEdit();
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(120.0f);
+            ImGui::SetNextItemWidth(scaled(120.0f));
             ImGui::DragFloat2("offset##img", img.offset, 1.0f, -512.0f, 512.0f,
                               "%.0f px");
             changed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -8631,7 +8637,7 @@ void App::drawMenusWindow() {
                 ImGui::SetTooltip(img.slot == MenuImage::Overlay
                                       ? "Top-left position inside the panel."
                                       : "Nudge from the centered flow position.");
-            ImGui::Unindent(46.0f);
+            ImGui::Unindent(scaled(46.0f));
         }
         ImGui::PopID();
     }
@@ -8692,11 +8698,11 @@ void App::drawMenusWindow() {
 
         char labelBuf[64];
         std::snprintf(labelBuf, sizeof(labelBuf), "%s", en.label.c_str());
-        ImGui::SetNextItemWidth(140.0f);
+        ImGui::SetNextItemWidth(scaled(140.0f));
         if (ImGui::InputText("##label", labelBuf, sizeof(labelBuf))) en.label = labelBuf;
         changed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(150.0f);
+        ImGui::SetNextItemWidth(scaled(150.0f));
         if (ImGui::Combo("##action", &en.action, kActionNames, 9)) {
             en.param.clear();
             // Stateful rows start with a sensible option set; everything
@@ -8714,7 +8720,7 @@ void App::drawMenusWindow() {
         // Action target inline (scene / menu / value / event)
         auto paramCombo = [&](const char* comboId, const char* hint, auto&& items,
                               auto&& nameOf) {
-            ImGui::SetNextItemWidth(120.0f);
+            ImGui::SetNextItemWidth(scaled(120.0f));
             if (ImGui::BeginCombo(comboId,
                                   en.param.empty() ? hint : en.param.c_str())) {
                 for (const auto& item : items) {
@@ -8738,14 +8744,14 @@ void App::drawMenusWindow() {
                    en.action == MenuEntry::AddValue) {
             paramCombo("##value", "<value>", project_.saveValues,
                        [](const SaveValue& v) -> const std::string& { return v.name; });
-            ImGui::SetNextItemWidth(70.0f);
+            ImGui::SetNextItemWidth(scaled(70.0f));
             ImGui::DragFloat("##amount", &en.amount, 0.1f, 0.0f, 0.0f, "%.2f");
             changed |= ImGui::IsItemDeactivatedAfterEdit();
             ImGui::SameLine();
         } else if (en.action == MenuEntry::FlowEvent) {
             char eventBuf[64];
             std::snprintf(eventBuf, sizeof(eventBuf), "%s", en.param.c_str());
-            ImGui::SetNextItemWidth(120.0f);
+            ImGui::SetNextItemWidth(scaled(120.0f));
             if (ImGui::InputText("##event", eventBuf, sizeof(eventBuf)))
                 en.param = eventBuf;
             changed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -8773,18 +8779,18 @@ void App::drawMenusWindow() {
         // Option labels on their own row (Toggle: off/on pair; Choice: a
         // reorderable-by-editing list). Cross / dpad cycle these in-game.
         if (en.action == MenuEntry::Toggle || en.action == MenuEntry::Choice) {
-            ImGui::Indent(46.0f);
+            ImGui::Indent(scaled(46.0f));
             if (en.action == MenuEntry::Toggle) {
                 if (en.options.size() < 2) en.options = {"Off", "On"};
                 char offBuf[32], onBuf[32];
                 std::snprintf(offBuf, sizeof(offBuf), "%s", en.options[0].c_str());
                 std::snprintf(onBuf, sizeof(onBuf), "%s", en.options[1].c_str());
-                ImGui::SetNextItemWidth(90.0f);
+                ImGui::SetNextItemWidth(scaled(90.0f));
                 if (ImGui::InputText("Off label", offBuf, sizeof(offBuf)))
                     en.options[0] = offBuf;
                 changed |= ImGui::IsItemDeactivatedAfterEdit();
                 ImGui::SameLine();
-                ImGui::SetNextItemWidth(90.0f);
+                ImGui::SetNextItemWidth(scaled(90.0f));
                 if (ImGui::InputText("On label", onBuf, sizeof(onBuf)))
                     en.options[1] = onBuf;
                 changed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -8794,7 +8800,7 @@ void App::drawMenusWindow() {
                     char optBuf[32];
                     std::snprintf(optBuf, sizeof(optBuf), "%s",
                                   en.options[o].c_str());
-                    ImGui::SetNextItemWidth(110.0f);
+                    ImGui::SetNextItemWidth(scaled(110.0f));
                     if (ImGui::InputText("##opt", optBuf, sizeof(optBuf)))
                         en.options[o] = optBuf;
                     changed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -8820,7 +8826,7 @@ void App::drawMenusWindow() {
                     }
                 }
             }
-            ImGui::Unindent(46.0f);
+            ImGui::Unindent(scaled(46.0f));
         }
         ImGui::PopID();
     }
@@ -8837,7 +8843,7 @@ void App::drawMenusWindow() {
     // composited onto a mock TV screen (the 512x448 buffer stretched to the
     // PAL / NTSC display aspect, with the pause dim when it applies).
     ImGui::SeparatorText("Preview");
-    ImGui::SetNextItemWidth(140.0f);
+    ImGui::SetNextItemWidth(scaled(140.0f));
     ImGui::Combo("##previewmode", &menuPreviewMode_,
                  "Panel (1:1)\0TV PAL\0TV NTSC\0");
     {
@@ -8890,8 +8896,11 @@ void App::drawMenusWindow() {
             menuPreviewKey_ = key;
         }
         if (menuPreviewTex_ && menuPreviewMode_ == 0) {
+            // Baked at native PS2 pixels; upscale the on-screen copy so it
+            // isn't a postage stamp next to the DPI-scaled controls.
             ImGui::Image((ImTextureID)(intptr_t)menuPreviewTex_,
-                         ImVec2((float)menuPreviewW_, (float)menuPreviewContentH_),
+                         ImVec2(scaled((float)menuPreviewW_),
+                                scaled((float)menuPreviewContentH_)),
                          ImVec2(0, 0),
                          ImVec2(1.0f, (float)menuPreviewContentH_ /
                                           (float)menuPreviewH_));
@@ -8902,9 +8911,9 @@ void App::drawMenusWindow() {
             const float aspect = menuPreviewMode_ == 1
                                      ? 4.0f / 3.0f
                                      : 480.0f / 448.0f * 4.0f / 3.0f;
-            float sw = ImGui::GetContentRegionAvail().x - 8.0f;
-            if (sw > 460.0f) sw = 460.0f;
-            if (sw < 200.0f) sw = 200.0f;
+            float sw = ImGui::GetContentRegionAvail().x - scaled(8.0f);
+            if (sw > scaled(460.0f)) sw = scaled(460.0f);
+            if (sw < scaled(200.0f)) sw = scaled(200.0f);
             const float sh = sw / aspect;
             ImDrawList* dl = ImGui::GetWindowDrawList();
             const ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -9013,7 +9022,7 @@ void App::drawNewScriptModal() {
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", newScriptError_.c_str());
 
     ImGui::Separator();
-    if (ImGui::Button("Create", ImVec2(120, 0))) {
+    if (ImGui::Button("Create", ImVec2(scaled(120), 0))) {
         std::string name = newScriptName_;
         bool valid = !name.empty();
         for (char c : name)
@@ -9060,7 +9069,7 @@ void App::drawNewScriptModal() {
         }
     }
     ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+    if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) {
         newScriptAttachTo_ = -1;
         ImGui::CloseCurrentPopup();
     }
@@ -9090,7 +9099,7 @@ void App::drawDeleteSceneModal() {
                            "This is the start scene - the next one takes its place.");
 
     ImGui::Separator();
-    if (ImGui::Button("Delete", ImVec2(120, 0))) {
+    if (ImGui::Button("Delete", ImVec2(scaled(120), 0))) {
         project_.scenes.erase(project_.scenes.begin() + deleteScenePending_);
         if (project_.activeScene >= (int)project_.scenes.size() ||
             project_.activeScene == deleteScenePending_)
@@ -9104,7 +9113,7 @@ void App::drawDeleteSceneModal() {
         ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+    if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) {
         deleteScenePending_ = -1;
         ImGui::CloseCurrentPopup();
     }
@@ -9211,13 +9220,13 @@ void App::drawDeleteAssetModal() {
     ImGui::TextDisabled("The file is removed from res/. This cannot be undone.");
 
     ImGui::Separator();
-    if (ImGui::Button("Delete", ImVec2(120, 0))) {
+    if (ImGui::Button("Delete", ImVec2(scaled(120), 0))) {
         performAssetDelete(d);
         assetDeleteActive_ = false;
         ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+    if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) {
         assetDeleteActive_ = false;
         ImGui::CloseCurrentPopup();
     }
@@ -9340,7 +9349,7 @@ void App::drawNewSceneModal() {
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", newSceneError_.c_str());
 
     ImGui::Separator();
-    if (ImGui::Button("Create", ImVec2(120, 0))) {
+    if (ImGui::Button("Create", ImVec2(scaled(120), 0))) {
         std::string name = newSceneName_;
         bool valid = !name.empty();
         for (char c : name)
@@ -9367,7 +9376,7 @@ void App::drawNewSceneModal() {
         }
     }
     ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+    if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
 }
 
@@ -9575,7 +9584,8 @@ void App::drawDiscLayoutWindow() {
         if (discSelected_ >= (int)discPlan_.items.size()) discSelected_ = -1;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(980, 560), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(980), scaled(560)),
+                             ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Disc Layout", &showDiscLayout_)) {
         ImGui::End();
         return;
@@ -9604,7 +9614,7 @@ void App::drawDiscLayoutWindow() {
         }
     }
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(150.0f);
+    ImGui::SetNextItemWidth(scaled(150.0f));
     ImGui::Combo("##capacity", &discCapacity_, "Fit to data\0CD-R (700 MB)\0DVD-5 (4.7 GB)\0");
 
     const uint32_t kCdSectors = 360000, kDvd5Sectors = 2298496;
@@ -9630,19 +9640,20 @@ void App::drawDiscLayoutWindow() {
     ImGui::Separator();
 
     // --- Left: file table in burn order, drag rows to reorder ---------------
-    const float discPaneW = std::max(280.0f, ImGui::GetContentRegionAvail().x * 0.38f);
+    const float discPaneW =
+        std::max(scaled(280.0f), ImGui::GetContentRegionAvail().x * 0.38f);
     ImGui::BeginChild("##discfiles",
-                      ImVec2(ImGui::GetContentRegionAvail().x - discPaneW - 8.0f, 0));
+                      ImVec2(ImGui::GetContentRegionAvail().x - discPaneW - scaled(8.0f), 0));
     ImGui::TextDisabled("Drag rows to change the disc order (saved to iso-layout.txt).");
     if (ImGui::BeginTable("##disctable", 5,
                           ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
                               ImGuiTableFlags_ScrollY)) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 28.0f);
+        ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, scaled(28.0f));
         ImGui::TableSetupColumn("File", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Group", ImGuiTableColumnFlags_WidthFixed, 100.0f);
-        ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 72.0f);
-        ImGui::TableSetupColumn("LBA", ImGuiTableColumnFlags_WidthFixed, 64.0f);
+        ImGui::TableSetupColumn("Group", ImGuiTableColumnFlags_WidthFixed, scaled(100.0f));
+        ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, scaled(72.0f));
+        ImGui::TableSetupColumn("LBA", ImGuiTableColumnFlags_WidthFixed, scaled(64.0f));
         ImGui::TableHeadersRow();
 
         int dragSrc = -1, dragDst = -1;
@@ -9672,7 +9683,7 @@ void App::drawDiscLayoutWindow() {
             ImGui::TableNextColumn();
             if (it.pinned) {
                 ImGui::TextDisabled("*");
-                ImGui::SameLine(0.0f, 3.0f);
+                ImGui::SameLine(0.0f, scaled(3.0f));
             }
             ImGui::TextUnformatted(it.isoPath.c_str());
             ImGui::TableNextColumn();
@@ -9716,7 +9727,7 @@ void App::drawDiscLayoutWindow() {
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const ImVec2 avail = ImGui::GetContentRegionAvail();
     const float legendH = ImGui::GetTextLineHeightWithSpacing() * 2.4f;
-    const float side = std::min(avail.x, std::max(120.0f, avail.y - legendH));
+    const float side = std::min(avail.x, std::max(scaled(120.0f), avail.y - legendH));
     const ImVec2 c(origin.x + avail.x * 0.5f, origin.y + side * 0.5f);
     const float rOut = side * 0.48f;
     const float rIn = side * 0.165f;
@@ -9874,7 +9885,7 @@ void App::drawNewProjectModal() {
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(560, 0), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(scaled(560), 0), ImGuiCond_Appearing);
 
     if (ImGui::BeginPopupModal("New Project", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::InputText("Project name", newName_, sizeof(newName_));
@@ -9910,7 +9921,7 @@ void App::drawNewProjectModal() {
             ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", newProjectError_.c_str());
 
         ImGui::Separator();
-        if (ImGui::Button("Create", ImVec2(120, 0))) {
+        if (ImGui::Button("Create", ImVec2(scaled(120), 0))) {
             Project p;
             TerrainConfig t{newWidth_, newDepth_};
             const char* preset = newTemplate_ == 1 ? "fpp" : "empty";
@@ -9926,7 +9937,7 @@ void App::drawNewProjectModal() {
             }
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+        if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
 }
@@ -9971,7 +9982,7 @@ void App::drawPreferencesModal() {
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(560, 0), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(scaled(560), 0), ImGuiCond_Appearing);
 
     if (!ImGui::BeginPopupModal("Project Preferences", nullptr,
                                 ImGuiWindowFlags_AlwaysAutoResize))
@@ -10238,7 +10249,7 @@ void App::drawPreferencesModal() {
     ImGui::TextDisabled(
         "These are project-wide defaults. Scenes inherit them unless a\n"
         "category is overridden in Scene > Scene Preferences.");
-    if (ImGui::Button("OK", ImVec2(120, 0))) {
+    if (ImGui::Button("OK", ImVec2(scaled(120), 0))) {
         project_.gameTemplate = prefTemplate_ == 1 ? "fpp" : "orbit";
         project_.settings = prefSettings_;
         project_.emulatorPath = prefEmulatorPath_;
@@ -10249,7 +10260,7 @@ void App::drawPreferencesModal() {
         ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+    if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
 }
 
@@ -10261,7 +10272,7 @@ void App::drawNavigationModal() {
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(520, 0), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(scaled(520), 0), ImGuiCond_Appearing);
     if (!ImGui::BeginPopupModal("Navigation controls", nullptr,
                                 ImGuiWindowFlags_AlwaysAutoResize))
         return;
@@ -10317,13 +10328,13 @@ void App::drawNavigationModal() {
     }
 
     ImGui::Separator();
-    if (ImGui::Button("Restore defaults", ImVec2(140, 0))) {
+    if (ImGui::Button("Restore defaults", ImVec2(scaled(140), 0))) {
         nav_ = NavConfig{};
         saveEditorConfig({uiScaleUser_, nav_});
         navFocusedIndex_ = -1;
     }
     ImGui::SameLine();
-    if (ImGui::Button("Close", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+    if (ImGui::Button("Close", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
 }
 
@@ -10348,7 +10359,7 @@ void App::drawScenePreferencesModal() {
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(560, 0), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(scaled(560), 0), ImGuiCond_Appearing);
 
     if (!ImGui::BeginPopupModal("Scene Preferences", nullptr,
                                 ImGuiWindowFlags_AlwaysAutoResize))
@@ -10436,7 +10447,7 @@ void App::drawScenePreferencesModal() {
     });
 
     ImGui::Separator();
-    if (ImGui::Button("OK", ImVec2(120, 0))) {
+    if (ImGui::Button("OK", ImVec2(scaled(120), 0))) {
         SceneData& sc = project_.scenes[scenePrefScene_];
         sc.settings = scenePrefSettings_;
         sc.overrides = scenePrefOverrides_;
@@ -10446,7 +10457,7 @@ void App::drawScenePreferencesModal() {
         ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+    if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
 }
 

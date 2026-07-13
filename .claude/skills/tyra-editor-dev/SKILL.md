@@ -142,6 +142,15 @@ dialog in app.cpp → usually a constant baked into `inc/terrain_config.hpp` or
 - The editor viewport and the PS2 game must agree: shading, terrain sampling
   and sky are implemented twice (GLSL/C++ in viewport, codegen in templates).
   When you change one formula, grep for its twin.
+- **DPI/zoom: wrap literal pixel sizes in `App::scaled(px)`.** `applyUiScale()`
+  scales fonts (`FontScaleMain`) and style spacing (`ScaleAllSizes`) but NOT the
+  pixel literals you pass to ImGui. So a hardcoded `SetNextItemWidth(180)`,
+  `BeginChild(ImVec2(170,0))`, absolute `SameLine(190)`/`Indent(46)`, fixed
+  button size, or hand-drawn preview stays literal and clips/misaligns at high
+  scale (a 4K laptop runs ~250%). Route such sizes through `scaled()` (=
+  `px * uiScaleApplied_`); negative/`-FLT_MIN`/fill widths and text-measured
+  (`CalcTextSize`) sizes already track scale, leave those alone. Free functions
+  that draw fixed-size widgets take a `scale` param (see `gradingWheel`).
 
 ## Building the editor
 
