@@ -9,6 +9,118 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (92) **Logo colour + Loading Screens window polish.** Follow-ups: (a) the
+  splash logo's X read too cyan on the PS2 - `banner_data.cpp` regenerated with
+  a cyan→azure-blue shift (green pulled down on clearly-bluish pixels, factor
+  0.5; brightest X texel R0 G72 B254, was R0 G143 B253); (b) the Loading Screens
+  preview was tiny - the preview strip grew from 200 to 360 px tall and the
+  window default from 720x560 to 780x760, so the 512:448 preview is much larger;
+  (c) trimmed the wordy boot-splash blurb (dropped the "Tyra logo always shows"
+  note). Editor builds; game relinks (banner is engine data).
+- (91) **Boot splash logo swapped to the TYRAX artwork.** The engine's Tyra
+  splash (`vendor/tyra/engine/src/info/banner.cpp` + `banner_data.cpp`) drew a
+  128x32 RGBA logo; replaced its embedded pixel data with `resources/tryaX.png`
+  (576x190) converted to a 256x128 RGBA texture (fit-to-width on black,
+  regenerated packed `R+G<<8+B<<16+A<<24` array - the file header notes it's
+  generated, not hand-edited) and enlarged the splash sprite to 384x192,
+  centered. Gotcha caught in PCSX2: `Sprite` defaults to `MODE_REPEAT`, so a
+  sprite bigger than its texture **tiles** the logo (the old 128x32==texture
+  size hid it); set `MODE_STRETCH`. **Verified** (Layer 3): booted in PCSX2 -
+  the new white "TYRAX" + cyan X shows once, centered and crisp on black during
+  the ~2s logo hold, then the splash/loading sequence proceeds as before.
+- (90) **Boot splash screens (images) with configurable duration.** On top of
+  (88)/(89): *Tools > Loading Screens* gained a **Boot splash screens** section
+  (collapsing header) - a list of images shown in order at startup, **after the
+  always-present Tyra logo and before the loading screen**, each for its own
+  duration (0.1-10 s). Images only for now (studio / "presents" cards). New
+  `SplashScreen` model (a `HudImage` + bgColor + duration, reusing the HUD
+  import/pow2-quant bake), `Project::splashScreens`, JSON save/load, texbake +
+  ISO-startup registration, a `SPLASHES[]` table in `inc/loading_data.gen.hpp`,
+  and `loadingscreen::renderSplash`. Splashes are **independent of the
+  loading-screen master toggle** - they always play when defined. The boot state
+  machine grew a phase 0 (step through splashes by frame-counted duration, one
+  `renderSplash` per frame) before the existing load phase; both run from the
+  loop so each splash is shown for its full vsync-paced time (same reason the
+  boot loading screen had to move out of `init()`). Editor: add / reorder
+  (*Move up*/*Move down*) / delete, per-splash image (import + `hudBakeControls`),
+  duration, background color, size/position. **Verified** (Layers 2-3): codegen
+  emits the `SPLASHES` table (fullscreen size, GS-range bg, seconds); the PS2
+  game compiled; a boot with two 1.5 s splashes booted in PCSX2 and
+  window-screenshots caught the sequence **Tyra logo → splash image (a teal
+  "PRESENTS" card, full-screen, 50 FPS) → loading screen (bar + segments) →
+  terrain**, in that order. Exact per-splash seconds confirmed from the code
+  path (`everyFrames` + vsync), not a stopwatch (PCSX2's window is capturable
+  only partway through boot). Editor interactions (the new section's buttons)
+  not click-tested - no synthetic input while the user is at the machine.
+- (89) **Loading screen at boot: Tyra logo (~2s) → loading screen → scene.**
+  Follow-up to (86): the loading screen fired on scene switches but was
+  invisible at the very first boot - you saw the Tyra logo, then the scene. Two
+  causes. First, the initial `loadScene(0)` ran inside `init()`, before the main
+  loop; frames presented there aren't vsync-paced (`endFrame` only waits on
+  vsync once `isFrameLimitOn` is honored under the running loop), so the boot
+  loading frames flashed by faster than the display. Second, the engine's splash
+  (`banner.show`) drew the Tyra logo for just 2 frames and relied on framebuffer
+  persistence, so its on-screen time was incidental. Fixed both: the first scene
+  now loads from the loop's new boot state machine (`bootPhase`/`bootFirstScene`,
+  which also moved the scripts' `init()` there so `onStart` still sees scene 0),
+  so its progress bar is vsync-paced and visible; and `vendor/tyra`'s
+  `banner.show` now re-renders the logo in a COP0-timed (~2s) loop - re-drawing
+  matters because `beginFrame` clears, and a *rendering* loop is frame-limited so
+  real time tracks wall time (an earlier no-draw busy-wait raced ahead of the
+  display and finished in a fraction of a second - the dead end that proved the
+  vsync/`graph_wait_vsync` dependency). Boot with loading screens off is
+  unchanged (scene loads on the first frame). **Verified** (Layer 3, PCSX2 SW
+  renderer): a 256-terrain-chunk boot scene, dense window-screenshots - caught
+  the Tyra logo, then the loading screen (dark background, baked "LOADING", the
+  full cyan bar and five lit orange segments) at 50 FPS, then the terrain, in
+  that order; the boot loading screen never appeared before this change. Note:
+  the ~2s logo hold is now engine-wide (every generated game), and PCSX2's window
+  only becomes capturable partway through the hold, so the exact 2s was confirmed
+  from the code path (COP0 rate + `graph_wait_vsync`), not a stopwatch on the
+  screenshots.
+- (88) **Loading screen editor: user-defined loading screens with real progress
+  bars.** The old "loading screen" was a single project-global bool that flashed
+  a hardcoded 256×64 `hud/loading.png` on black for ~0.7s per scene switch (and
+  nothing at boot — a black screen). Now *Tools > Loading Screens* authors
+  **named** loading screens, each with a background color, image + baked-text
+  elements (the HUD pipeline, reused verbatim) and **progress bars** — continuous
+  (track + growing fill) or quantized (N segments lighting up one per 1/N step,
+  as colored rects or an optional PNG tinted on/off). Scenes pick a screen in
+  *Scene > Preferences* (empty = the project default; `defaultLoadingScreen`),
+  and with none defined the built-in `loading.png`-on-black fallback is shown —
+  so existing projects are byte-for-byte unchanged. `ProjectSettings::loadingScreen`
+  stays the master enable. New model: `LoadingBar` + `LoadingScreenDef` (project.hpp,
+  reusing `HudImage`/`HudText`), `Project::loadingScreens`/`defaultLoadingScreen`,
+  `SceneData::loadingScreen` (added to `operator==` so undo of the per-scene
+  assignment works). The **progress is real**: `loadScene` in the generated game
+  was refactored to count its work up front (streamed assets + objects + in-view
+  terrain chunks via a new `countPendingChunks`), pump a loading-screen frame
+  every ~1/24 of the way through the asset drain / object rebuild / batched
+  terrain build, and the same screen now also covers the boot `loadScene(0)` and
+  the 0.7s scene-switch hold. The shared `loadingscreen::renderFrame` (lazy-init,
+  in the game-cpp prolog) draws bars as tinted quads over a shipped white 8×8
+  sprite (`res/hud/loading-white.png`) — GS colour modulation (128 = 1.0), the
+  same trick as `sequences::renderOverlay`. Codegen emits `inc/loading_data.gen.hpp`
+  (element tables + a scene→screen map resolved with `loadingScreenIndexFor`);
+  loading images + segment textures register in the texbake `hudBake` map,
+  loading texts bake under screen-index-mangled names (`text-ls-<i>-<name>.png`),
+  and all of it joins the ISO startup group. Editor: the *Loading Screens* window
+  (screen list / element stack / property editors / 512×448 preview with a
+  *Preview progress* slider), a *Scene > Preferences* screen combo, and an *Open
+  Loading Screens editor* button in Project Preferences; like the other
+  project-wide preset collections it saves immediately (outside undo).
+  **Verified** (Layers 0–3): editor builds clean; `--new` + a hand-authored
+  `.tyra` regenerated `loading_data.gen.hpp` with correct tables (GS-range bar
+  colours 0.2→25.6/0.8→102.4, background 0..255, mangled text path, `LS_DEFAULT`
+  + per-scene map); the full PS2 game **compiled and linked** in Docker; a
+  two-scene project that ping-pongs every 2s via *Every N Seconds → Switch Scene*
+  booted in PCSX2 (software renderer) and window-screenshots caught the loading
+  screen rendering exactly as authored — dark-blue background, baked "LOADING"
+  text, the cyan continuous bar full and all five orange quantized segments lit —
+  at a steady 50 FPS with no assert, confirming the init()-time frame presentation
+  (the one runtime unknown) works. The editor window itself wasn't click-tested
+  (no synthetic input while the user is at the machine); its data path is the same
+  JSON the hand-authored fixture exercised.
 - (88) **Analog stick sensitivity curves (per stick, live-settable from the
   flow graph).** The stick handling only had a per-stick deadzone (feature 31);
   above it the response was linear. Now each stick carries a **response curve**

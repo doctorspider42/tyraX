@@ -376,6 +376,7 @@ class TerrainGame : public Tyra::Game {
   void resetTerrainChunks();
   void buildTerrainChunk(int slot, int cx, int cz);
   void updateTerrainChunks(float focusX, float focusZ, int budget);
+  int countPendingChunks(float focusX, float focusZ);
   void renderTerrain();
   void updateCameraOrbit();
 
@@ -600,6 +601,15 @@ class TerrainGame : public Tyra::Game {
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
   void loadScene(int sceneIndex);
+  // Loads scene 0 + runs scripts' init(); called once from the loop's boot
+  // sequence (see bootPhase) so the initial load is vsync-paced.
+  void bootFirstScene();
+  // Boot state: 0 = boot splash images, 1 = loading-screen hold for the first
+  // scene, 2 = gameplay running (the Tyra logo hold lives in the engine's
+  // banner). splashIndex/splashFrames step through the splash sequence.
+  int bootPhase = 0;
+  int splashIndex = 0;
+  int splashFrames = 0;
   int currentScene = 0;
   unsigned int sceneGeneration = 0;
 
@@ -628,8 +638,8 @@ class TerrainGame : public Tyra::Game {
   std::vector<int> sndTimers;               // per-object retrigger countdown
   void updateSoundEmitters();
 
-  // Scene switches show res/hud/loading.png on black for a moment
-  Tyra::Sprite loadingSprite;
+  // Scene switch target held across the loading-screen frames (the screen
+  // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
   int loadingFrames = 0, loadingTarget = -1;
 
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
@@ -717,6 +727,7 @@ class TerrainGame : public Tyra::Game {
   void resetTerrainChunks();
   void buildTerrainChunk(int slot, int cx, int cz);
   void updateTerrainChunks(float focusX, float focusZ, int budget);
+  int countPendingChunks(float focusX, float focusZ);
   void renderTerrain();
   void updatePlayer();
 
@@ -942,6 +953,15 @@ class TerrainGame : public Tyra::Game {
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
   void loadScene(int sceneIndex);
+  // Loads scene 0 + runs scripts' init(); called once from the loop's boot
+  // sequence (see bootPhase) so the initial load is vsync-paced.
+  void bootFirstScene();
+  // Boot state: 0 = boot splash images, 1 = loading-screen hold for the first
+  // scene, 2 = gameplay running (the Tyra logo hold lives in the engine's
+  // banner). splashIndex/splashFrames step through the splash sequence.
+  int bootPhase = 0;
+  int splashIndex = 0;
+  int splashFrames = 0;
   int currentScene = 0;
   unsigned int sceneGeneration = 0;
 
@@ -970,8 +990,8 @@ class TerrainGame : public Tyra::Game {
   std::vector<int> sndTimers;               // per-object retrigger countdown
   void updateSoundEmitters();
 
-  // Scene switches show res/hud/loading.png on black for a moment
-  Tyra::Sprite loadingSprite;
+  // Scene switch target held across the loading-screen frames (the screen
+  // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
   int loadingFrames = 0, loadingTarget = -1;
 
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
@@ -1041,6 +1061,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "scene_data.hpp"
 #include "model_data.gen.hpp"
 #include "hud_data.gen.hpp"
+#include "loading_data.gen.hpp"
 #include "menu_data.gen.hpp"
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
@@ -1669,6 +1690,169 @@ void drawVideoConfirm(Engine* engine) {
   drawHudText(engine, line, (w - hudTextWidth(line)) * 0.5F, h * 0.5F + 2.0F);
 }
 
+// --- Loading screens (loading_data.gen.hpp) --------------------------------
+// Presents one frame of the loading screen a scene resolves to (background +
+// images + baked texts + progress bars) at load progress `fraction` (0..1).
+// Called from loadScene while it drains assets/terrain AND from the loop's
+// scene-switch hold; the whole point of pumping frames mid-load is that the
+// bar advances for real. Sprites and texture links are built once, lazily
+// (loadScene(0) at boot can run before init() finishes its own sprite setup),
+// then reused - the colored-rect quads share one white 8x8 sprite re-rendered
+// per rectangle, exactly like sequences::renderOverlay's black quad.
+struct LoadingScreenState {
+  bool ready = false;
+  bool builtinReady = false;
+  Tyra::Sprite builtin;                // hud/loading.png fallback
+  Tyra::Sprite white;                  // tinted into every bar quad
+  std::vector<Tyra::Sprite> images;    // LS_IMAGE_TOTAL, one per LS_IMAGES
+  std::vector<Tyra::Sprite> texts;     // LS_TEXT_TOTAL, one per LS_TEXTS
+  std::vector<Tyra::Sprite> segs;      // LS_BAR_TOTAL, linked only for seg bars
+  std::vector<Tyra::Sprite> splashes;  // SPLASH_COUNT, one per SPLASHES
+};
+LoadingScreenState g_loading;
+
+void loadingEnsureReady(Engine* engine) {
+  if (g_loading.ready) return;
+  g_loading.ready = true;
+  auto& repo = engine->renderer.getTextureRepository();
+  g_loading.white.mode = SpriteMode::MODE_STRETCH;
+  repo.add(FileUtils::fromCwd("hud/loading-white.png"))->addLink(g_loading.white.id);
+  g_loading.images.resize(LS_IMAGE_TOTAL > 0 ? LS_IMAGE_TOTAL : 0);
+  for (int i = 0; i < LS_IMAGE_TOTAL; ++i) {
+    g_loading.images[i].mode = SpriteMode::MODE_STRETCH;
+    repo.add(FileUtils::fromCwd(LS_IMAGES[i].path))->addLink(g_loading.images[i].id);
+  }
+  g_loading.texts.resize(LS_TEXT_TOTAL > 0 ? LS_TEXT_TOTAL : 0);
+  for (int i = 0; i < LS_TEXT_TOTAL; ++i) {
+    g_loading.texts[i].mode = SpriteMode::MODE_STRETCH;
+    repo.add(FileUtils::fromCwd(LS_TEXTS[i].path))->addLink(g_loading.texts[i].id);
+  }
+  g_loading.segs.resize(LS_BAR_TOTAL > 0 ? LS_BAR_TOTAL : 0);
+  for (int i = 0; i < LS_BAR_TOTAL; ++i) {
+    if (LS_BARS[i].segPath[0] == '\0') continue;
+    g_loading.segs[i].mode = SpriteMode::MODE_STRETCH;
+    repo.add(FileUtils::fromCwd(LS_BARS[i].segPath))->addLink(g_loading.segs[i].id);
+  }
+  g_loading.splashes.resize(SPLASH_COUNT > 0 ? SPLASH_COUNT : 0);
+  for (int i = 0; i < SPLASH_COUNT; ++i) {
+    g_loading.splashes[i].mode = SpriteMode::MODE_STRETCH;
+    repo.add(FileUtils::fromCwd(SPLASHES[i].path))->addLink(g_loading.splashes[i].id);
+  }
+}
+
+namespace loadingscreen {
+// One boot splash frame: the image (i) on its background color. Vsync-paced by
+// the caller (the loop's boot sequence), held for SPLASHES[i].seconds.
+void renderSplash(Engine* engine, int i) {
+  if (i < 0 || i >= SPLASH_COUNT) return;
+  loadingEnsureReady(engine);
+  const SplashData& s = SPLASHES[i];
+  const auto& scr = engine->renderer.core.getSettings();
+  const float W = scr.getWidth(), H = scr.getHeight();
+  engine->renderer.setClearScreenColor(Color(s.bg[0], s.bg[1], s.bg[2]));
+  engine->renderer.beginFrame();
+  Sprite& sp = g_loading.splashes[i];
+  sp.size = Vec2(s.w, s.h);
+  sp.position = Vec2(s.x * W - s.w * 0.5F, s.y * H - s.h * 0.5F);
+  engine->renderer.renderer2D.render(sp);
+  engine->renderer.endFrame();
+}
+
+void renderFrame(Engine* engine, int sceneIdx, float fraction) {
+  if (fraction < 0.0F) fraction = 0.0F;
+  if (fraction > 1.0F) fraction = 1.0F;
+
+  int screen = -1;
+  if (LS_COUNT > 0) {
+    if (sceneIdx >= 0 && sceneIdx < SCENE_COUNT)
+      screen = SCENE_LOADING_SCREEN[sceneIdx];
+    else
+      screen = LS_DEFAULT;
+    if (screen < 0 || screen >= LS_COUNT) screen = LS_DEFAULT;
+  }
+
+  const auto& scr = engine->renderer.core.getSettings();
+  const float W = scr.getWidth();
+  const float H = scr.getHeight();
+
+  // No authored screen resolves here: the classic built-in (hud/loading.png
+  // centered on black), pixel-identical to the pre-editor loading screen.
+  if (screen < 0 || screen >= LS_COUNT) {
+    if (!g_loading.builtinReady) {
+      g_loading.builtin.mode = SpriteMode::MODE_STRETCH;
+      g_loading.builtin.size = Vec2(256.0F, 64.0F);
+      g_loading.builtin.position = Vec2((W - 256.0F) * 0.5F, (H - 64.0F) * 0.5F);
+      engine->renderer.getTextureRepository()
+          .add(FileUtils::fromCwd("hud/loading.png"))
+          ->addLink(g_loading.builtin.id);
+      g_loading.builtinReady = true;
+    }
+    engine->renderer.setClearScreenColor(Color(0.0F, 0.0F, 0.0F));
+    engine->renderer.beginFrame();
+    engine->renderer.renderer2D.render(g_loading.builtin);
+    engine->renderer.endFrame();
+    return;
+  }
+
+  loadingEnsureReady(engine);
+  const LoadingScreenData& s = LS_SCREENS[screen];
+  engine->renderer.setClearScreenColor(Color(s.bg[0], s.bg[1], s.bg[2]));
+  engine->renderer.beginFrame();
+
+  // A tinted white quad (GS modulation, tint already in 0..128 range).
+  auto quad = [&](float x, float y, float w, float h, const float* c) {
+    if (w < 1.0F || h < 1.0F) return;
+    g_loading.white.size = Vec2(w, h);
+    g_loading.white.position = Vec2(x, y);
+    g_loading.white.color = Color(c[0], c[1], c[2], 128.0F);
+    engine->renderer.renderer2D.render(g_loading.white);
+  };
+
+  for (int i = 0; i < s.imgCount; ++i) {
+    const LoadingImageData& im = LS_IMAGES[s.imgFirst + i];
+    Sprite& sp = g_loading.images[s.imgFirst + i];
+    sp.size = Vec2(im.w, im.h);
+    sp.position = Vec2(im.x * W - im.w * 0.5F, im.y * H - im.h * 0.5F);
+    engine->renderer.renderer2D.render(sp);
+  }
+  for (int i = 0; i < s.txtCount; ++i) {
+    const LoadingTextData& t = LS_TEXTS[s.txtFirst + i];
+    Sprite& sp = g_loading.texts[s.txtFirst + i];
+    sp.size = Vec2((float)t.w, (float)t.h);
+    sp.position = Vec2(t.x * W - t.w * 0.5F, t.y * H - t.h * 0.5F);
+    engine->renderer.renderer2D.render(sp);
+  }
+  for (int i = 0; i < s.barCount; ++i) {
+    const LoadingBarData& b = LS_BARS[s.barFirst + i];
+    const float bx = b.x * W - b.w * 0.5F;  // top-left of the bar
+    const float by = b.y * H - b.h * 0.5F;
+    if (b.kind == 0) {
+      // Continuous: track under a left-anchored fill scaled by progress.
+      quad(bx, by, b.w, b.h, b.bg);
+      quad(bx, by, b.w * fraction, b.h, b.fill);
+    } else {
+      const int segs = b.segments < 1 ? 1 : b.segments;
+      const int lit = (int)(fraction * segs + 0.001F);
+      const float segW = (b.w - b.spacing * (segs - 1)) / segs;
+      for (int k = 0; k < segs; ++k) {
+        const float sx = bx + k * (segW + b.spacing);
+        const float* c = (k < lit) ? b.fill : b.bg;
+        if (b.segPath[0] != '\0') {
+          Sprite& sp = g_loading.segs[s.barFirst + i];  // reused per segment
+          sp.size = Vec2(segW, b.h);
+          sp.position = Vec2(sx, by);
+          sp.color = Color(c[0], c[1], c[2], 128.0F);
+          engine->renderer.renderer2D.render(sp);
+        } else {
+          quad(sx, by, segW, b.h, c);
+        }
+      }
+    }
+  }
+  engine->renderer.endFrame();
+}
+}  // namespace loadingscreen
+
 }  // namespace
 )";
 
@@ -1732,12 +1916,8 @@ void TerrainGame::init() {
 
   buildScene();
 
-  scriptCtx.engine = engine;
-  scriptCtx.objects = runtimeObjects.data();
-  scriptCtx.objectCount = (int)runtimeObjects.size();
-  scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
-  scriptCtx.playerPosition = cameraPosition;
-  for (Script* script : getScripts()) script->init(scriptCtx);
+  // scriptCtx wiring + scripts' init() run from bootFirstScene() (loop boot),
+  // after the deferred scene load - scripts' onStart must see scene 0's objects.
 
   // HUD sprites (see hud_data.gen.hpp)
   const auto& screen = engine->renderer.core.getSettings();
@@ -1767,14 +1947,8 @@ void TerrainGame::init() {
       FileUtils::fromCwd(USE_PROMPT_PATH));
   useTexture->addLink(usePromptSprite.id);
 
-  // Loading screen sprite (res/hud/loading.png), shown on scene switches
-  loadingSprite.mode = SpriteMode::MODE_STRETCH;
-  loadingSprite.size = Vec2(256.0F, 64.0F);
-  loadingSprite.position = Vec2((screen.getWidth() - 256.0F) * 0.5F,
-                                (screen.getHeight() - 64.0F) * 0.5F);
-  auto* loadingTexture = engine->renderer.getTextureRepository().add(
-      FileUtils::fromCwd("hud/loading.png"));
-  loadingTexture->addLink(loadingSprite.id);
+  // The loading screen (loading_data.gen.hpp) builds its own sprites lazily on
+  // first present (loadingscreen::renderFrame), so nothing to set up here.
 
   // Sound emitter samples (adpenc output next to the ELF)
   for (int i = 0; i < SND_COUNT; ++i)
@@ -1784,6 +1958,45 @@ void TerrainGame::init() {
 
 void TerrainGame::loop() {
   updateFrameClock();  // real dt: frame drops slow the picture, not the game
+
+  // Boot sequence (the engine holds the Tyra logo ~2s before this):
+  //   phase 0 - boot splash images, each shown for its duration (in order),
+  //   phase 1 - load scene 0 behind the loading screen (when enabled).
+  // Everything runs from the loop, not init(): a frame presented from init()
+  // (before the main loop) isn't vsync-paced and flashes by, so the boot
+  // visuals were invisible; from the loop they pace normally.
+  if (bootPhase < 2) {
+    if (bootPhase == 0) {
+      if (splashIndex < SPLASH_COUNT) {
+        if (splashFrames <= 0)
+          splashFrames = everyFrames(SPLASHES[splashIndex].seconds);
+        loadingscreen::renderSplash(engine, splashIndex);
+        if (--splashFrames <= 0) ++splashIndex;
+        return;
+      }
+      bootPhase = 1;
+      if (LOADING_SCREEN) {
+        loadingTarget = 0;
+        loadingFrames = everyFrames(0.7F);
+      }
+    }
+    if (bootPhase == 1) {
+      if (!LOADING_SCREEN) {
+        bootFirstScene();
+        bootPhase = 2;
+      } else {
+        if (loadingFrames > 0) {
+          const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
+          loadingscreen::renderFrame(engine, 0, preLoad ? 0.0F : 1.0F);
+          --loadingFrames;
+          if (loadingFrames == everyFrames(0.7F) - 5) bootFirstScene();
+          return;
+        }
+        bootPhase = 2;
+      }
+    }
+  }
+
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuWasOpen = gameMenuIndex >= 0;  // before updateGameMenu()
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
@@ -1821,10 +2034,10 @@ void TerrainGame::loop() {
     }
   }
   if (loadingFrames > 0) {
-    engine->renderer.setClearScreenColor(Color(0.0F, 0.0F, 0.0F));
-    engine->renderer.beginFrame();
-    engine->renderer.renderer2D.render(loadingSprite);
-    engine->renderer.endFrame();
+    // A few frames at 0% before the (blocking) load, which pumps the bar from
+    // 0 to 1 itself, then the remaining frames at 100%.
+    const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
+    loadingscreen::renderFrame(engine, loadingTarget, preLoad ? 0.0F : 1.0F);
     --loadingFrames;
     if (loadingFrames == everyFrames(0.7F) - 5)
       loadScene(loadingTarget);  // 5 frames shown first
@@ -2106,7 +2319,22 @@ void TerrainGame::buildScene() {
     }
   }
 
+  // The first scene is loaded from the loop (bootFirstScene), not here, so
+  // its load is vsync-paced behind the loading screen after the logo hold.
+}
+
+// Loads scene 0 and runs the scripts' init() once - the boot equivalent of a
+// scene switch. Deferred out of init()/buildScene() into the loop's boot
+// sequence so the load runs at vsync pace (a visible loading-screen progress
+// bar) instead of flashing by before the first presented frame.
+void TerrainGame::bootFirstScene() {
   loadScene(0);
+  scriptCtx.engine = engine;
+  scriptCtx.objects = runtimeObjects.data();
+  scriptCtx.objectCount = (int)runtimeObjects.size();
+  scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
+  scriptCtx.playerPosition = cameraPosition;
+  for (Script* script : getScripts()) script->init(scriptCtx);
 }
 
 // Shared texture cache: one engine texture per path, reference-counted so
@@ -3045,6 +3273,36 @@ void TerrainGame::loadScene(int sceneIndex) {
   // this scene's point lights (see collectScenePointLights).
   collectScenePointLights();
 
+  // Size the terrain chunk pool for this scene's grid up front (independent
+  // of the streamed assets below) so the loading bar's denominator can count
+  // the in-view chunks that still have to be built.
+  if (infoBag) resetTerrainChunks();
+  // Terrain view focus, same source the synchronous drain used to use (the
+  // player entity's authored position, else the orbit look-at).
+  const float lsFocusX = (PLAYER_INDEX >= 0 && PLAYER_INDEX < SCENE_OBJECT_COUNT)
+                             ? SCENE_OBJECTS[PLAYER_INDEX].position[0]
+                             : cameraLookAt.x;
+  const float lsFocusZ = (PLAYER_INDEX >= 0 && PLAYER_INDEX < SCENE_OBJECT_COUNT)
+                             ? SCENE_OBJECTS[PLAYER_INDEX].position[2]
+                             : cameraLookAt.z;
+
+  // Loading-screen progress pump. The load is otherwise blocking, so we count
+  // the work units (assets to stream + objects to build + terrain chunks) and
+  // present a loading-screen frame every ~1/24th of the way through, so the
+  // bar reflects real progress. lsStep caps presented frames (rendering every
+  // unit would slow chunk-heavy loads). With LOADING_SCREEN off, lsPump is a
+  // no-op and the load behaves exactly as before.
+  int lsDone = 0, lsMark = 0, lsTotal = 0, lsStep = 1;
+  auto lsPump = [&](int n) {
+    if (!LOADING_SCREEN) return;
+    lsDone += n;
+    if (lsDone >= lsMark) {
+      lsMark += lsStep;
+      loadingscreen::renderFrame(
+          engine, sceneIndex, lsTotal > 0 ? (float)lsDone / (float)lsTotal : 1.0F);
+    }
+  };
+
   // Streaming layers: desired residency from the scene's authored defaults.
   {
     // The previous scene's runtime objects (spawn-pool clones included) are
@@ -3083,17 +3341,26 @@ void TerrainGame::loadScene(int sceneIndex) {
       }
     }
     applyLayerResidency();
-    while (!streamQueue.empty()) processOneStreamJob();
+    // Now the work is known: assets queued + objects to build + chunks in view.
+    if (LOADING_SCREEN) {
+      lsTotal = (int)streamQueue.size() + SCENE_OBJECT_COUNT +
+                countPendingChunks(lsFocusX, lsFocusZ);
+      lsStep = lsTotal > 0 ? (lsTotal + 23) / 24 : 1;
+      loadingscreen::renderFrame(engine, sceneIndex, 0.0F);  // first frame
+    }
+    while (!streamQueue.empty()) {
+      processOneStreamJob();
+      lsPump(1);
+    }
     for (int l = 0; l < lc; ++l) layerState[l] = layerTarget[l] ? 2 : 0;
   }
 
   // Terrain, lighting, sky, clipping and post-FX are per scene (Scene >
-  // Preferences overrides) - reset the terrain chunk pool for this scene's
-  // grid (the chunks themselves are drained synchronously at the end of this
-  // function, once the view focus is known) and re-apply render settings.
+  // Preferences overrides) - re-apply render settings (the chunk pool was
+  // reset at the top; the chunks themselves drain at the end of this
+  // function, once the view focus is known).
   if (infoBag) {
     infoBag->fullClipChecks = CLIP_PRECISE;
-    resetTerrainChunks();
     skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
     buildSkyDome();
   }
@@ -3143,6 +3410,7 @@ void TerrainGame::loadScene(int sceneIndex) {
       runtimeObjects[i].visible = false;
       runtimeObjects[i].dirty = false;
     }
+    lsPump(1);
   }
   // Animated models: fresh per-object mesh instances + playback defaults
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
@@ -3183,11 +3451,24 @@ void TerrainGame::loadScene(int sceneIndex) {
   if (pendingObjScene == sceneIndex && !pendingObjState.empty())
     applySavedObjects();
 
-  // Terrain: build every chunk in view of the start focus synchronously -
-  // the scene switch hides behind the loading screen, exactly like the
-  // layer-asset drain above. From here on renderScene streams the ring.
-  updateTerrainChunks(PLAYER_INDEX >= 0 ? entX : cameraLookAt.x,
-                      PLAYER_INDEX >= 0 ? entZ : cameraLookAt.z, 0x7FFFFFFF);
+  // Terrain: build every chunk in view of the start focus. From here on
+  // renderScene streams the ring. With no loading screen this is the old
+  // one-shot drain; with one, the chunks build in lsStep-sized batches so the
+  // bar can advance between them (breaking if the pool momentarily can't make
+  // progress, which the view-rect-sized pool should never hit at load time).
+  if (!LOADING_SCREEN) {
+    updateTerrainChunks(lsFocusX, lsFocusZ, 0x7FFFFFFF);
+  } else {
+    int pending = countPendingChunks(lsFocusX, lsFocusZ);
+    while (pending > 0) {
+      updateTerrainChunks(lsFocusX, lsFocusZ, lsStep);
+      const int now = countPendingChunks(lsFocusX, lsFocusZ);
+      if (now >= pending) break;  // no forward progress (pool cap) - bail out
+      lsPump(pending - now);
+      pending = now;
+    }
+    loadingscreen::renderFrame(engine, sceneIndex, 1.0F);  // final frame
+  }
 }
 
 // --- Sound emitters ----------------------------------------------------
@@ -4736,6 +5017,37 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   ch.bag->bboxVersion = ++g_bboxStamp;
 }
 
+// Unbuilt chunks in the current view rect (the same rect updateTerrainChunks
+// builds into). loadScene uses this as the loading-bar denominator and to
+// drive the batched terrain drain to completion.
+int TerrainGame::countPendingChunks(float focusX, float focusZ) {
+  if (terrainChunksX <= 0 || terrainChunksZ <= 0 || !infoBag) return 0;
+  const int cellsX = HM_W - 1;
+  const int cellsZ = HM_D - 1;
+  const float spanX = TERRAIN_CHUNK_CELLS * ((float)TERRAIN_WIDTH / cellsX);
+  const float spanZ = TERRAIN_CHUNK_CELLS * ((float)TERRAIN_DEPTH / cellsZ);
+  const float startX = -TERRAIN_WIDTH * 0.5F;
+  const float startZ = -TERRAIN_DEPTH * 0.5F;
+  int cx0 = 0, cz0 = 0, cx1 = terrainChunksX - 1, cz1 = terrainChunksZ - 1;
+  if (TERRAIN_VIEW_DISTANCE > 0.0F) {
+    auto clampX = [&](int v) {
+      return v < 0 ? 0 : (v > terrainChunksX - 1 ? terrainChunksX - 1 : v);
+    };
+    auto clampZ = [&](int v) {
+      return v < 0 ? 0 : (v > terrainChunksZ - 1 ? terrainChunksZ - 1 : v);
+    };
+    cx0 = clampX((int)((focusX - TERRAIN_VIEW_DISTANCE - startX) / spanX));
+    cx1 = clampX((int)((focusX + TERRAIN_VIEW_DISTANCE - startX) / spanX));
+    cz0 = clampZ((int)((focusZ - TERRAIN_VIEW_DISTANCE - startZ) / spanZ));
+    cz1 = clampZ((int)((focusZ + TERRAIN_VIEW_DISTANCE - startZ) / spanZ));
+  }
+  int pending = 0;
+  for (int cz = cz0; cz <= cz1; ++cz)
+    for (int cx = cx0; cx <= cx1; ++cx)
+      if (terrainChunkSlot[cz * terrainChunksX + cx] < 0) ++pending;
+  return pending;
+}
+
 // Keeps the resident chunk set centered on the view focus. View distance off
 // (0) = the whole map stays resident (small maps - matches the old
 // behavior). Otherwise chunks outside the focus rect are freed - with one
@@ -4904,12 +5216,8 @@ void TerrainGame::init() {
   updatePlayer();
   buildScene();
 
-  scriptCtx.engine = engine;
-  scriptCtx.objects = runtimeObjects.data();
-  scriptCtx.objectCount = (int)runtimeObjects.size();
-  scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
-  scriptCtx.playerPosition = cameraPosition;
-  for (Script* script : getScripts()) script->init(scriptCtx);
+  // scriptCtx wiring + scripts' init() run from bootFirstScene() (loop boot),
+  // after the deferred scene load - scripts' onStart must see scene 0's objects.
 
   // HUD sprites (see hud_data.gen.hpp)
   const auto& screen = engine->renderer.core.getSettings();
@@ -4939,14 +5247,8 @@ void TerrainGame::init() {
       FileUtils::fromCwd(USE_PROMPT_PATH));
   useTexture->addLink(usePromptSprite.id);
 
-  // Loading screen sprite (res/hud/loading.png), shown on scene switches
-  loadingSprite.mode = SpriteMode::MODE_STRETCH;
-  loadingSprite.size = Vec2(256.0F, 64.0F);
-  loadingSprite.position = Vec2((screen.getWidth() - 256.0F) * 0.5F,
-                                (screen.getHeight() - 64.0F) * 0.5F);
-  auto* loadingTexture = engine->renderer.getTextureRepository().add(
-      FileUtils::fromCwd("hud/loading.png"));
-  loadingTexture->addLink(loadingSprite.id);
+  // The loading screen (loading_data.gen.hpp) builds its own sprites lazily on
+  // first present (loadingscreen::renderFrame), so nothing to set up here.
 
   // Sound emitter samples (adpenc output next to the ELF)
   for (int i = 0; i < SND_COUNT; ++i)
@@ -4956,6 +5258,45 @@ void TerrainGame::init() {
 
 void TerrainGame::loop() {
   updateFrameClock();  // real dt: frame drops slow the picture, not the game
+
+  // Boot sequence (the engine holds the Tyra logo ~2s before this):
+  //   phase 0 - boot splash images, each shown for its duration (in order),
+  //   phase 1 - load scene 0 behind the loading screen (when enabled).
+  // Everything runs from the loop, not init(): a frame presented from init()
+  // (before the main loop) isn't vsync-paced and flashes by, so the boot
+  // visuals were invisible; from the loop they pace normally.
+  if (bootPhase < 2) {
+    if (bootPhase == 0) {
+      if (splashIndex < SPLASH_COUNT) {
+        if (splashFrames <= 0)
+          splashFrames = everyFrames(SPLASHES[splashIndex].seconds);
+        loadingscreen::renderSplash(engine, splashIndex);
+        if (--splashFrames <= 0) ++splashIndex;
+        return;
+      }
+      bootPhase = 1;
+      if (LOADING_SCREEN) {
+        loadingTarget = 0;
+        loadingFrames = everyFrames(0.7F);
+      }
+    }
+    if (bootPhase == 1) {
+      if (!LOADING_SCREEN) {
+        bootFirstScene();
+        bootPhase = 2;
+      } else {
+        if (loadingFrames > 0) {
+          const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
+          loadingscreen::renderFrame(engine, 0, preLoad ? 0.0F : 1.0F);
+          --loadingFrames;
+          if (loadingFrames == everyFrames(0.7F) - 5) bootFirstScene();
+          return;
+        }
+        bootPhase = 2;
+      }
+    }
+  }
+
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuWasOpen = gameMenuIndex >= 0;  // before updateGameMenu()
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
@@ -4994,10 +5335,10 @@ void TerrainGame::loop() {
     }
   }
   if (loadingFrames > 0) {
-    engine->renderer.setClearScreenColor(Color(0.0F, 0.0F, 0.0F));
-    engine->renderer.beginFrame();
-    engine->renderer.renderer2D.render(loadingSprite);
-    engine->renderer.endFrame();
+    // A few frames at 0% before the (blocking) load, which pumps the bar from
+    // 0 to 1 itself, then the remaining frames at 100%.
+    const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
+    loadingscreen::renderFrame(engine, loadingTarget, preLoad ? 0.0F : 1.0F);
     --loadingFrames;
     if (loadingFrames == everyFrames(0.7F) - 5) {  // a few frames shown first
       loadScene(loadingTarget);
@@ -9173,6 +9514,153 @@ static std::string hudDataHeader(const Project& p) {
     return out.str();
 }
 
+// inc/loading_data.gen.hpp - loading screens (Tools > Loading Screens):
+// per-screen element tables (images, baked texts, progress bars) plus the
+// scene -> screen assignment. Colors are emitted in their final runtime
+// ranges: screen background 0..255 (setClearScreenColor), bar tints 0..128
+// (GS sprite modulation, 128 = 1.0).
+static std::string loadingDataHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    std::ostringstream out;
+    out << "// Generated by tyra-editor. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\nnamespace "
+        << ns
+        << " {\n\n"
+           "struct LoadingImageData {\n"
+           "  const char* path;  // relative to the game binary (res/ is copied there)\n"
+           "  float x, y;        // normalized screen position, center anchor\n"
+           "  float w, h;        // size in pixels\n"
+           "};\n\n"
+           "struct LoadingTextData {\n"
+           "  const char* path;  // baked text sprite, relative to the ELF\n"
+           "  float x, y;        // normalized screen position, center anchor\n"
+           "  int w, h;          // texture size (pow2; content centered)\n"
+           "};\n\n"
+           "struct LoadingBarData {\n"
+           "  int kind;              // 0 = continuous fill, 1 = quantized segments\n"
+           "  float x, y;            // normalized screen position, center anchor\n"
+           "  float w, h;            // total on-screen size in pixels\n"
+           "  float bg[3], fill[3];  // sprite tints, GS range (128 = 1.0)\n"
+           "  int segments;          // quantized only\n"
+           "  float spacing;         // quantized: gap between segments, px\n"
+           "  const char* segPath;   // segment sprite; \"\" = colored rects\n"
+           "};\n\n"
+           "struct LoadingScreenData {\n"
+           "  float bg[3];  // clear color, 0..255\n"
+           "  int imgFirst, imgCount;  // slices into LS_IMAGES/LS_TEXTS/LS_BARS\n"
+           "  int txtFirst, txtCount;\n"
+           "  int barFirst, barCount;\n"
+           "};\n\n";
+
+    auto binPath = [](std::string s) {
+        if (s.rfind("res/", 0) == 0) s = s.substr(4);
+        return s;
+    };
+    std::ostringstream imgs, txts, bars, screens;
+    int nImg = 0, nTxt = 0, nBar = 0;
+    for (size_t si = 0; si < p.loadingScreens.size(); ++si) {
+        const LoadingScreenDef& ls = p.loadingScreens[si];
+        screens << "    {{" << floatLit(ls.bgColor[0] * 255.0f) << ", "
+                << floatLit(ls.bgColor[1] * 255.0f) << ", "
+                << floatLit(ls.bgColor[2] * 255.0f) << "}, " << nImg << ", "
+                << ls.images.size() << ", " << nTxt << ", " << ls.texts.size()
+                << ", " << nBar << ", " << ls.bars.size() << "},  // "
+                << ls.name << "\n";
+        for (const HudImage& h : ls.images) {
+            imgs << "    {\"" << binPath(h.imagePath) << "\", "
+                 << floatLit(h.pos[0]) << ", " << floatLit(h.pos[1]) << ", "
+                 << floatLit(h.size[0]) << ", " << floatLit(h.size[1])
+                 << "},  // " << ls.name << ": " << h.name << "\n";
+            ++nImg;
+        }
+        for (const HudText& t : ls.texts) {
+            // Baked under the screen-index-mangled name; must match the
+            // save-time bake in project.cpp (writeGeneratedAssets).
+            HudText copy = t;
+            copy.name = "ls-" + std::to_string(si) + "-" + t.name;
+            int tw = 8, th = 8;  // fallback if no usable font
+            menubake::textLayout(copy, p.dir, tw, th);
+            txts << "    {\"hud/" << menubake::textFileName(copy.name) << "\", "
+                 << floatLit(t.pos[0]) << ", " << floatLit(t.pos[1]) << ", "
+                 << tw << ", " << th << "},  // " << ls.name << ": " << t.name
+                 << "\n";
+            ++nTxt;
+        }
+        for (const LoadingBar& b : ls.bars) {
+            bars << "    {" << b.kind << ", " << floatLit(b.pos[0]) << ", "
+                 << floatLit(b.pos[1]) << ", " << floatLit(b.size[0]) << ", "
+                 << floatLit(b.size[1]) << ", {"
+                 << floatLit(b.bgColor[0] * 128.0f) << ", "
+                 << floatLit(b.bgColor[1] * 128.0f) << ", "
+                 << floatLit(b.bgColor[2] * 128.0f) << "}, {"
+                 << floatLit(b.fillColor[0] * 128.0f) << ", "
+                 << floatLit(b.fillColor[1] * 128.0f) << ", "
+                 << floatLit(b.fillColor[2] * 128.0f) << "}, " << b.segments
+                 << ", " << floatLit(b.spacing) << ", \""
+                 << binPath(b.segImage.imagePath) << "\"},  // " << ls.name
+                 << ": " << b.name << "\n";
+            ++nBar;
+        }
+    }
+    const int n = (int)p.loadingScreens.size();
+    out << "constexpr int LS_COUNT = " << n << ";\n"
+        << "constexpr int LS_IMAGE_TOTAL = " << nImg << ";\n"
+        << "constexpr int LS_TEXT_TOTAL = " << nTxt << ";\n"
+        << "constexpr int LS_BAR_TOTAL = " << nBar << ";\n"
+        << "inline const LoadingScreenData LS_SCREENS[LS_COUNT > 0 ? LS_COUNT : 1] = {\n"
+        << (n ? screens.str() : std::string("    {{0, 0, 0}, 0, 0, 0, 0, 0, 0},\n"))
+        << "};\n\n"
+        << "inline const LoadingImageData LS_IMAGES[" << (nImg > 0 ? nImg : 1)
+        << "] = {\n"
+        << (nImg ? imgs.str() : std::string("    {\"\", 0, 0, 0, 0},\n")) << "};\n\n"
+        << "inline const LoadingTextData LS_TEXTS[" << (nTxt > 0 ? nTxt : 1)
+        << "] = {\n"
+        << (nTxt ? txts.str() : std::string("    {\"\", 0, 0, 0, 0},\n")) << "};\n\n"
+        << "inline const LoadingBarData LS_BARS[" << (nBar > 0 ? nBar : 1)
+        << "] = {\n"
+        << (nBar ? bars.str()
+                 : std::string("    {0, 0, 0, 0, 0, {0, 0, 0}, {0, 0, 0}, 0, 0, \"\"},\n"))
+        << "};\n\n";
+
+    // Scene -> screen assignment, resolved at codegen exactly like the editor
+    // resolves it (name, else project default, else -1 = the built-in
+    // hud/loading.png-on-black fallback).
+    int def = p.defaultLoadingScreen;
+    if (def < -1 || def >= n) def = -1;
+    out << "constexpr int LS_DEFAULT = " << def << ";  // -1 = built-in fallback\n"
+        << "inline const int SCENE_LOADING_SCREEN[" << p.scenes.size() << "] = {";
+    for (size_t i = 0; i < p.scenes.size(); ++i)
+        out << (i ? ", " : "") << project::loadingScreenIndexFor(p, p.scenes[i]);
+    out << "};\n\n";
+
+    // Boot splash screens: full-screen(ish) images shown in order at startup,
+    // after the Tyra logo, each for `seconds`. Images only for now.
+    out << "struct SplashData {\n"
+           "  const char* path;      // relative to the game binary\n"
+           "  float x, y, w, h;      // normalized center anchor + pixel size\n"
+           "  float bg[3];           // clear color behind the image, 0..255\n"
+           "  float seconds;         // time on screen\n"
+           "};\n\n"
+        << "constexpr int SPLASH_COUNT = " << p.splashScreens.size() << ";\n"
+        << "inline const SplashData SPLASHES[SPLASH_COUNT > 0 ? SPLASH_COUNT : 1] = {\n";
+    if (p.splashScreens.empty()) {
+        out << "    {\"\", 0, 0, 0, 0, {0, 0, 0}, 0},\n";
+    } else {
+        for (const SplashScreen& s : p.splashScreens) {
+            const HudImage& h = s.image;
+            out << "    {\"" << binPath(h.imagePath) << "\", " << floatLit(h.pos[0])
+                << ", " << floatLit(h.pos[1]) << ", " << floatLit(h.size[0]) << ", "
+                << floatLit(h.size[1]) << ", {" << floatLit(s.bgColor[0] * 255.0f)
+                << ", " << floatLit(s.bgColor[1] * 255.0f) << ", "
+                << floatLit(s.bgColor[2] * 255.0f) << "}, " << floatLit(s.duration)
+                << "},  // " << s.name << "\n";
+        }
+    }
+    out << "};\n"
+        << "\n}  // namespace " << ns << "\n";
+    return out.str();
+}
+
 // Distinct "Flow event" names across all menu entries, first-seen order -
 // the contract between menu_data.gen.hpp and the flow-graph codegen (the
 // On Menu Event trigger resolves its name to an index in this list).
@@ -9840,6 +10328,7 @@ std::vector<File> generate(const Project& p) {
         {"inc\\scene_data.hpp", sceneDataContent(p, ns)},
         {"inc\\model_data.gen.hpp", modelDataHeader(p)},
         {"inc\\hud_data.gen.hpp", hudDataHeader(p)},
+        {"inc\\loading_data.gen.hpp", loadingDataHeader(p)},
         {"inc\\terrain_heights.gen.hpp", terrainHeightsHeader(p)},
         {"inc\\texture_data.gen.hpp", textureDataHeader(p)},
         {"inc\\save_system.gen.hpp", saveSystemHeader(p)},
