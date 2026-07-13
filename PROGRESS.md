@@ -9,6 +9,36 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (83) **Documentation review pass: closed feature/example gaps and added the
+  first editor screenshots.** A full read-through of the docs surfaced several
+  gaps against `tyra-docs`: the README's feature list had **no Animated models
+  entry** despite `docs/animated-models.md` being the largest guide, and its
+  *Example projects* section **omitted `large-terrain` and `object-spawning`**
+  (both already had good READMEs). Added the animated-models feature bullet, a
+  new *Documentation* section linking the `docs/` index, the two missing example
+  bullets, and a `camera-takes.md` entry in `docs/README.md` (it was referenced
+  from the README but not indexed). Wrote the missing `examples/script-demo/README.md`
+  (the only example without one). Captured the **first three editor-UI
+  screenshots** with the GUI harness (`.claude/skills/tyra-testing/scripts/screenshot-window.ps1`,
+  DPI-aware GDI capture + synthetic click/scroll/pan helpers) and embedded them:
+  `docs/img/editor-overview.png` (README hero, cutscene-demo scene),
+  `docs/img/flow-graph.png` (the custom-nodes graph, in `custom-flow-nodes.md`)
+  and `docs/img/cutscene-director.png` (the dopesheet, in the cutscene-demo
+  README). *Verified* by launching the editor GUI on each example project and
+  eyeballing every capture; the docs were re-read after editing. **Two findings
+  worth recording:** (a) the checked-in `build/tyra-editor.exe` was **stale** —
+  it predated the *Tools > Cutscene Director* menu item (`app.cpp:688`), so the
+  flagship window was missing until a rebuild; screenshotting current UI needs a
+  fresh `build.ps1`. (b) `examples/script-demo` has a **dangling model
+  reference**: `house-1` points at `res/models/house.obj`, but unlike the other
+  examples script-demo ships no `res/` assets (only `res/.gitignore`), so it
+  likely can't build — flagged as a separate task, the new README documents only
+  the working box/sky interaction. Screenshot scope was editor-UI-only per the
+  request (no Docker/PCSX2 in-game shots this pass); the UI-scale nuance (the
+  flow-graph node layout is authored for 1× and overlaps at the user's 2.5×
+  scale, so that shot was taken at 1× + canvas zoom) is captured in the
+  editor-gui-screenshot-harness memory.
+
 - (82) **View menu: toggle the distance-fog preview in the editor.** The
   scene's distance fog (Preferences/Ambience > Distance fog — the GS hardware
   fog that fades geometry toward the camera far plane, *not* the particle "Fog"
