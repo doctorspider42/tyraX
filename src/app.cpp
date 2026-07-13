@@ -7499,6 +7499,24 @@ void App::drawCutsceneWindow() {
         seqTakeMap_.yawDeg = 0.0f;
         takeOriginAimFromView();  // land + aim at the current view by default
         seqTakeMap_.timeOffset = 0.0f;
+        // default the target to the camera you're looking through, or the
+        // first Camera entity (a take always bakes into a camera now)
+        auto isCam = [&](const std::string& n) {
+            for (const SceneObject& o : project_.objects())
+                if (o.name == n && o.type == PrimitiveType::Camera) return true;
+            return false;
+        };
+        if (seqTakeTarget_.empty() || !isCam(seqTakeTarget_)) {
+            seqTakeTarget_.clear();
+            if (!lookThroughCam_.empty() && isCam(lookThroughCam_))
+                seqTakeTarget_ = lookThroughCam_;
+            else
+                for (const SceneObject& o : project_.objects())
+                    if (o.type == PrimitiveType::Camera) {
+                        seqTakeTarget_ = o.name;
+                        break;
+                    }
+        }
         seqTakeDirty_ = true;
         seqTakeOpen_ = true;
     };
@@ -7579,23 +7597,46 @@ void App::drawCutsceneWindow() {
     auto snapshotObjectKey = [&](SeqTrack& tr, float time) {
         return cutsceneSnapshotObjectKey(tr, time);
     };
-    auto snapshotCameraKey = [&](float time) {
+    // The camera to film a new shot from: the one you're looking through, else
+    // a selected Camera, else the only Camera in the scene, else "" (none).
+    auto activeCameraName = [&]() -> std::string {
+        auto isCam = [&](const std::string& n) {
+            for (const SceneObject& o : project_.objects())
+                if (o.name == n && o.type == PrimitiveType::Camera) return true;
+            return false;
+        };
+        if (!lookThroughCam_.empty() && isCam(lookThroughCam_)) return lookThroughCam_;
+        if (selectedObject_ >= 0 && selectedObject_ < (int)project_.objects().size() &&
+            project_.objects()[selectedObject_].type == PrimitiveType::Camera)
+            return project_.objects()[selectedObject_].name;
+        std::string first;
+        for (const SceneObject& o : project_.objects())
+            if (o.type == PrimitiveType::Camera) {
+                first = o.name;
+                break;
+            }
+        return first;
+    };
+    // Adds/updates a camera-lane shot at `time`, bound to the active camera.
+    // Returns false when the scene has no Camera entity to film from.
+    auto snapshotCameraKey = [&](float time) -> bool {
+        const std::string cam = activeCameraName();
+        if (cam.empty()) return false;
         SeqCameraKey k;
         k.time = time;
-        viewport_.currentCamera(k.eye, k.target);
+        k.camera = cam;
         int repl = -1;
         for (int i = 0; i < (int)s.cameraKeys.size(); ++i)
             if (std::fabs(s.cameraKeys[i].time - k.time) < 0.017f) repl = i;
         if (repl >= 0) {
             k.easing = s.cameraKeys[repl].easing;
-            k.fov = s.cameraKeys[repl].fov;
             k.shake = s.cameraKeys[repl].shake;
-            k.camera = s.cameraKeys[repl].camera;
             s.cameraKeys[repl] = k;
         } else {
             s.cameraKeys.push_back(k);
         }
         sortCamKeys();
+        return true;
     };
 
     // --- the dopesheet ---------------------------------------------------
@@ -7681,8 +7722,7 @@ void App::drawCutsceneWindow() {
                 const float t = timeAtMouse();
                 bool did = false;
                 if (ti < 0) {
-                    snapshotCameraKey(t);
-                    did = true;
+                    did = snapshotCameraKey(t);
                 } else {
                     did = snapshotObjectKey(s.tracks[ti], t);
                 }
@@ -7891,15 +7931,15 @@ void App::drawCutsceneWindow() {
             ImGui::SetCursorScreenPos(ImVec2(labelX + labelW - scaled(24.0f), y + scaled(3.0f)));
             if (ImGui::SmallButton("+")) {
                 if (ti < 0) {
-                    snapshotCameraKey(seqPlayhead_);
-                    changed = true;
+                    if (snapshotCameraKey(seqPlayhead_)) changed = true;
                 } else if (snapshotObjectKey(s.tracks[ti], seqPlayhead_)) {
                     changed = true;
                 }
             }
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(ti < 0 ? "Snapshot the viewport camera as a shot\n"
-                                           "at the playhead (free shot)."
+                ImGui::SetTooltip(ti < 0 ? "Add a shot at the playhead, filming from the\n"
+                                           "active camera (looked-through / selected /\n"
+                                           "first). Needs a Camera entity in the scene."
                                          : "Snapshot the object's pose as a key\n"
                                            "at the playhead.");
             // the rest of the cell: click selects the lane, right-click = setup
@@ -7935,9 +7975,8 @@ void App::drawCutsceneWindow() {
                 if (ti < 0) {
                     ImGui::TextDisabled("Camera track");
                     ImGui::Separator();
-                    if (ImGui::MenuItem("Snapshot shot @ playhead")) {
-                        snapshotCameraKey(seqPlayhead_);
-                        changed = true;
+                    if (ImGui::MenuItem("Add shot @ playhead (active camera)")) {
+                        if (snapshotCameraKey(seqPlayhead_)) changed = true;
                     }
                     if (ImGui::MenuItem("Clear all shots", nullptr, false,
                                         !s.cameraKeys.empty())) {
@@ -8063,54 +8102,45 @@ void App::drawCutsceneWindow() {
             ImGui::SetTooltip("Handheld camera shake amplitude in world units\n"
                               "(interpolates between shots; 0 = steady).");
 
-        // The shot: free (explicit eye/at/fov) or bound to a Camera entity.
-        const char* shotLabel = k.camera.empty() ? "<free shot>" : k.camera.c_str();
+        // Every shot films from a Camera entity. (Legacy free shots from older
+        // projects still play - their stored eye/look-at is the fallback - but
+        // new shots always pick a camera; add them with + Add object > Camera.)
+        const char* shotLabel = k.camera.empty() ? "<pick a camera>" : k.camera.c_str();
         ImGui::SetNextItemWidth(scaled(160.0f));
+        bool anyCam = false;
         if (ImGui::BeginCombo("Shot from", shotLabel)) {
-            if (ImGui::Selectable("<free shot>", k.camera.empty()) && !k.camera.empty()) {
-                k.camera.clear();
-                changed = true;
-            }
             for (const SceneObject& o : project_.objects()) {
                 if (o.type != PrimitiveType::Camera) continue;
+                anyCam = true;
                 if (ImGui::Selectable(o.name.c_str(), o.name == k.camera)) {
                     k.camera = o.name;
                     changed = true;
                 }
             }
+            if (!anyCam)
+                ImGui::TextDisabled("No Camera entities - add one with\n"
+                                    "+ Add object > Gameplay > Camera.");
             ImGui::EndCombo();
         }
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Bind the shot to a Camera entity: it films from the\n"
-                              "entity's position/rotation with the entity's FOV -\n"
-                              "animate that entity for dolly/crane moves. Add\n"
-                              "cameras with + Add object > Gameplay > Camera.");
-        if (k.camera.empty()) {
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(scaled(80.0f));
-            if (ImGui::DragFloat("FOV", &k.fov, 0.5f, 20.0f, 110.0f, "%.0f deg")) {}
-            changed |= ImGui::IsItemDeactivatedAfterEdit();
-            ImGui::DragFloat3("Eye", k.eye, 0.1f);
-            changed |= ImGui::IsItemDeactivatedAfterEdit();
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Set from view")) {
-                viewport_.currentCamera(k.eye, k.target);
-                changed = true;
-            }
-            ImGui::DragFloat3("Look at", k.target, 0.1f);
-            changed |= ImGui::IsItemDeactivatedAfterEdit();
-        } else {
+            ImGui::SetTooltip("The shot films from this Camera entity's pose + FOV.\n"
+                              "Animate the entity (or import a take into it) for a\n"
+                              "moving shot; Step easing between two cameras = a cut.");
+        {
             bool found = false;
             for (const SceneObject& o : project_.objects())
                 if (o.name == k.camera && o.type == PrimitiveType::Camera) {
                     ImGui::TextDisabled("Films from \"%s\" (FOV %.0f deg).",
                                         o.name.c_str(), o.cameraFov);
                     found = true;
+                    break;
                 }
-            if (!found)
+            if (k.camera.empty())
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                                   "Pick a camera above for this shot.");
+            else if (!found)
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                                   "Camera entity \"%s\" not found in this project -\n"
-                                   "the shot falls back to its stored eye/look-at.",
+                                   "Camera \"%s\" is not in this scene.",
                                    k.camera.c_str());
         }
         if (ImGui::SmallButton("Delete key")) {
@@ -8200,32 +8230,34 @@ void App::drawCutsceneWindow() {
                                 seqTake_.fps, (float)seqTake_.duration());
             ImGui::Separator();
 
-            // Target: free camera shots, or bake into a Camera entity's track
-            // (so two cameras in one scene each carry their own recording).
+            // Target: which Camera entity the move bakes into (position +
+            // rotation track + FOV + a bound shot, so it dollies along the
+            // path). Two cameras in one scene each carry their own recording.
+            bool anyCam = false;
+            for (const SceneObject& o : project_.objects())
+                if (o.type == PrimitiveType::Camera) anyCam = true;
             const std::string targetLabel =
-                seqTakeTarget_.empty() ? "Free camera shots" : seqTakeTarget_;
+                seqTakeTarget_.empty() ? "<pick a camera>" : seqTakeTarget_;
             ImGui::SetNextItemWidth(200.0f);
-            if (ImGui::BeginCombo("Import as", targetLabel.c_str())) {
-                if (ImGui::Selectable("Free camera shots", seqTakeTarget_.empty()))
-                    seqTakeTarget_.clear();
-                bool anyCam = false;
+            if (ImGui::BeginCombo("Into camera", targetLabel.c_str())) {
                 for (const SceneObject& o : project_.objects())
-                    if (o.type == PrimitiveType::Camera) {
-                        anyCam = true;
-                        std::string lbl = "Camera: " + o.name;
-                        if (ImGui::Selectable(lbl.c_str(), seqTakeTarget_ == o.name))
+                    if (o.type == PrimitiveType::Camera)
+                        if (ImGui::Selectable(o.name.c_str(), seqTakeTarget_ == o.name))
                             seqTakeTarget_ = o.name;
-                    }
                 if (!anyCam)
                     ImGui::TextDisabled("No Camera entities in this scene\n"
                                         "(+ Add object > Gameplay > Camera).");
                 ImGui::EndCombo();
             }
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Free: shots on the camera lane.\n"
-                                  "A Camera entity: bake the move into that entity's\n"
-                                  "transform track (position + rotation) and its FOV,\n"
-                                  "plus a bound shot - so it dollies along the path.");
+                ImGui::SetTooltip("The move bakes into this Camera entity's transform\n"
+                                  "track (position + rotation) and its FOV, plus a\n"
+                                  "bound shot on the camera lane - so it dollies along\n"
+                                  "the path. Two cameras each take their own recording.");
+            if (!anyCam)
+                ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f),
+                                   "Add a Camera entity first (+ Add object >\n"
+                                   "Gameplay > Camera), then re-import.");
             ImGui::Separator();
 
             ImGui::SetNextItemWidth(110.0f);
@@ -8282,25 +8314,15 @@ void App::drawCutsceneWindow() {
                                    "That is a lot of keys - the PS2 keyframe table\n"
                                    "grows with every key. Raise the tolerance.");
 
-            // Replace/Append only makes sense for the free camera lane; an
-            // entity target always rewrites that entity's own track.
-            if (seqTakeTarget_.empty()) {
-                if (ImGui::RadioButton("Replace camera track", seqTakeReplace_))
-                    seqTakeReplace_ = true;
-                ImGui::SameLine();
-                if (ImGui::RadioButton("Append", !seqTakeReplace_))
-                    seqTakeReplace_ = false;
-            } else {
+            if (!seqTakeTarget_.empty())
                 ImGui::TextDisabled("Rewrites \"%s\" transform track + FOV, and adds a\n"
                                     "bound shot if the camera lane has none yet.",
                                     seqTakeTarget_.c_str());
-            }
 
             ImGui::Separator();
-            ImGui::BeginDisabled(seqTakeBaked_.empty());
+            ImGui::BeginDisabled(seqTakeBaked_.empty() || seqTakeTarget_.empty());
             if (ImGui::Button("Import", ImVec2(120.0f, 0.0f))) {
-                const bool replace = seqTakeTarget_.empty() ? seqTakeReplace_ : true;
-                const float firstT = applyCamTake(s, replace);
+                const float firstT = applyCamTake(s, true);
                 if (firstT >= 0.0f) {
                     const float lastT =
                         s.cameraKeys.empty() ? 0.0f : s.cameraKeys.back().time;

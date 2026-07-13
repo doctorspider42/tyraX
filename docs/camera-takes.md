@@ -84,22 +84,19 @@ reads the `CameraLayer` animation with a minimal XML subset reader
 
 `.hfcs` also contains `PointLayer` AR anchors; they are not imported (yet).
 
-## Import target: free shots or a Camera entity
+## Import target: a Camera entity
 
-The modal's **Import as** selector decides where the motion lands:
-
-- **Free camera shots** — the take becomes `SeqCameraKey` shots on the
-  sequence's camera lane (eye + look-at per key), exactly as authored by hand.
-- **A Camera entity** (any `Camera` object in the scene) — the take is baked
-  into that entity's **transform track**: position keys = the recorded eye,
-  rotation keys = the Euler whose +Z lens points along the recorded view
-  (the inverse of the runtime's `seqCameraForward`, so a bound shot films
-  exactly along the path). The entity's **FOV** is set from the take, and a
-  camera-lane key **bound** to the entity is added if the lane has none yet.
-  Because the shot follows the entity's live pose, this is a real dolly move —
-  and **two cameras in one scene each carry their own recording** (import take
-  A targeting `cam-1`, take B targeting `cam-2`, then cut between them on the
-  camera lane).
+Every camera shot films from a Camera entity, so a take is imported **into a
+Camera entity** (the modal's **Into camera** selector; add one with *+ Add
+object > Gameplay > Camera* first). The take is baked into that entity's
+**transform track**: position keys = the recorded eye, rotation keys = the
+Euler whose +Z lens points along the recorded view (the inverse of the
+runtime's `seqCameraForward`, so the shot films exactly along the path). The
+entity's **FOV** is set from the take, and a camera-lane key **bound** to the
+entity is added if the lane has none yet. Because the shot follows the entity's
+live pose, this is a real dolly move — and **two cameras in one scene each
+carry their own recording** (import take A into `cam-1`, take B into `cam-2`,
+then cut between them on the camera lane).
 
 ## Mapping controls (the import modal)
 

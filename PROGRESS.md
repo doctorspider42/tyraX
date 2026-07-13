@@ -134,6 +134,19 @@ Each finished feature lands as its own commit.
   Euler channel to stay continuous with the previous key — a harness on the
   real take confirms the max consecutive delta drops from a possible ~345° to
   **14.5°**. Both verified by host harness; editor builds clean.
+
+  **Camera shots always bind to a Camera entity** (user request - the free vs
+  bound choice muddied "what do I use?"). The camera lane no longer authors
+  "free" shots (a snapshot of the editor view): the key inspector's *Shot
+  from* is a cameras-only picker, adding a shot ([+] / double-click / menu)
+  binds to the active camera (looked-through → selected → the scene's only
+  camera) and no-ops with a hint when the scene has none, and *Import take* is
+  *Into camera* (the free option removed, Import disabled until a camera is
+  picked). So the workflow is: place + aim Camera entities in the scene, then
+  the lane just says which camera films when. Legacy free keys from older
+  projects still play (the runtime keeps the stored eye/look-at fallback) and
+  show as diamonds, but the UI nudges you to bind them. Editor builds clean;
+  interactive, so the feel wants the user's pass.
 - (79) **Tool windows scale their layout with the UI scale (fix 250% clipping)** —
   the floating Tools windows (Menu Editor, Material Editor, Color Grading,
   Ambience, UI Editor, Disc Layout, Cutscene Director) and the modal dialogs
