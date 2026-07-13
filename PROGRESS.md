@@ -147,6 +147,19 @@ Each finished feature lands as its own commit.
   projects still play (the runtime keeps the stored eye/look-at fallback) and
   show as diamonds, but the UI nudges you to bind them. Editor builds clean;
   interactive, so the feel wants the user's pass.
+
+  **cutscene-demo upgraded to a full showcase** (all shots now camera-bound to
+  match the model). Grew from 3 to **5 camera entities**; the two ex-free
+  shots became `cam-hero` (low angle) and `cam-crane`, and `cam-crane` now
+  **cranes on its own object track** (pos + rot, staying aimed) — so the demo
+  has *two* moving cameras (dolly + crane), a Step-cut montage plus one
+  **Smooth blend** (cam-hero → cam-crane), and a new `obelisk` **scale +
+  colour** track (it swells gold→orange) alongside the existing pos/rot and
+  visibility tracks — every object-track channel is now exercised. Bars use a
+  visible 0.6 s/1.0 s slide. Verified: headless Docker `--build` of the
+  hand-edited `.tyra` compiled (JSON + codegen valid) and **PCSX2 ran it at 50
+  FPS** — screenshots show the orange swollen obelisk, firing sparks, risen
+  hero and cinema bars.
 - (79) **Tool windows scale their layout with the UI scale (fix 250% clipping)** —
   the floating Tools windows (Menu Editor, Material Editor, Color Grading,
   Ambience, UI Editor, Disc Layout, Cutscene Director) and the modal dialogs

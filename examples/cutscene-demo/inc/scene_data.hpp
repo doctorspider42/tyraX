@@ -55,7 +55,7 @@ struct SceneObjectData {
 constexpr int SCENE_COUNT = 1;
 
 // scene "main"
-constexpr SceneObjectData SCENE_0_OBJECTS[10] = {
+constexpr SceneObjectData SCENE_0_OBJECTS[12] = {
     {6, {0.0F, 0.0F, 20.0F}, {0.0F, 180.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // player-1
     {0, {0.0F, 0.6F, 12.0F}, {0.0F, 0.0F, 0.0F}, {1.2F, 1.2F, 1.2F}, {0.95F, 0.85F, 0.4F}, 0, -1, -1, 1, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // pedestal
     {0, {-12.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.9F, 0.15F, 0.1F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // hero
@@ -66,9 +66,11 @@ constexpr SceneObjectData SCENE_0_OBJECTS[10] = {
     {14, {-14.0F, 6.0F, 16.0F}, {13.0F, 135.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.35F, 0.75F, 1.0F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // cam-wide
     {14, {7.0F, 1.0F, 9.0F}, {-4.0F, -135.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.5F, 1.0F, 0.6F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // cam-low
     {14, {-16.0F, 2.5F, -10.0F}, {8.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 0.6F, 0.3F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // cam-dolly
+    {14, {5.0F, 1.5F, 7.0F}, {-22.14F, -144.45F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.9F, 0.5F, 1.0F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // cam-hero
+    {14, {12.0F, 10.0F, 16.0F}, {11.31F, -143.13F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 0.4F, 0.4F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // cam-crane
 };
 
-constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {10};
+constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {12};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
@@ -160,7 +162,7 @@ constexpr int SAVE_TEXT_COUNT = 0;
 constexpr int SAVE_TEXT_LEN = 32;  // incl. the terminating NUL
 inline const char* SAVE_TEXT_NAMES[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
 inline const char* SAVE_TEXT_DEFAULTS[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
-constexpr int SAVE_OBJECT_MAX = 10;
+constexpr int SAVE_OBJECT_MAX = 12;
 
 }  // namespace Cutscene_demo
 
