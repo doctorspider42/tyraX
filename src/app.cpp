@@ -957,6 +957,21 @@ void App::drawViewportWindow() {
                 viewport_.clearCameraOverride();
             }
         }
+        // Hide the camera(s) we are previewing through so their model doesn't
+        // fill the frame: during a cutscene camera preview, every camera the
+        // sequence films from; otherwise the single looked-through camera.
+        {
+            std::vector<std::string> hideCams;
+            if (seqCameraPushed_ && selectedSequence_ >= 0 &&
+                selectedSequence_ < (int)project_.sequences.size()) {
+                for (const SeqCameraKey& k :
+                     project_.sequences[selectedSequence_].cameraKeys)
+                    if (!k.camera.empty()) hideCams.push_back(k.camera);
+            } else if (!seqCameraPushed_ && !lookThroughCam_.empty()) {
+                hideCams.push_back(lookThroughCam_);
+            }
+            viewport_.setHiddenCameras(std::move(hideCams));
+        }
         uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
                                         selection_, selectedObject_);
         // Flip vertically: GL texture origin is bottom-left
@@ -7448,7 +7463,15 @@ void App::drawCutsceneWindow() {
 
     // --- transport -----------------------------------------------------------
     ImGui::SeparatorText("Timeline");
+    // Space toggles play/stop while the Cutscene Director is focused (but not
+    // while typing in a field or dragging a widget - Space also clicks a
+    // focused button, so skip when an item is active to avoid a double toggle).
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+        !ImGui::GetIO().WantTextInput && !ImGui::IsAnyItemActive() &&
+        ImGui::IsKeyPressed(ImGuiKey_Space, false))
+        seqPlaying_ = !seqPlaying_;
     if (ImGui::Button(seqPlaying_ ? "Pause" : "Play")) seqPlaying_ = !seqPlaying_;
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Play / pause (Space)");
     ImGui::SameLine();
     if (ImGui::Button("Rewind")) {
         seqPlayhead_ = 0.0f;

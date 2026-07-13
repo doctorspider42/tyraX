@@ -128,6 +128,13 @@ public:
     }
     void clearCameraOverride() { camOverride_ = false; }
 
+    // Camera entities to skip rendering (body + FOV frustum): the camera(s)
+    // the viewport is currently previewing THROUGH would otherwise sit on the
+    // near plane and cover the whole view. Names, matched against SceneObject.
+    void setHiddenCameras(std::vector<std::string> names) {
+        hiddenCams_ = std::move(names);
+    }
+
     // Current orbit-camera eye + look-at target (world space). Snapshotted into
     // a Cutscene Director camera keyframe ("Set camera key from view").
     void currentCamera(float eye[3], float target[3]) const {
@@ -191,6 +198,13 @@ private:
     float camEye_[3] = {0.0f, 0.0f, 0.0f};
     float camTarget_[3] = {0.0f, 0.0f, 0.0f};
     float camFov_ = 50.0f;
+    // Camera entities not to draw (previewing through them) - see setHiddenCameras
+    std::vector<std::string> hiddenCams_;
+    bool camHidden(const std::string& name) const {
+        for (const std::string& n : hiddenCams_)
+            if (n == name) return true;
+        return false;
+    }
 
     uint32_t program_ = 0;
     int uMvp_ = -1;

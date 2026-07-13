@@ -83,6 +83,18 @@ Each finished feature lands as its own commit.
   exactly on the chosen origin — so a bound shot films precisely along the
   take. The modal + adjust widgets compile and mirror the verified free-import
   flow; their click-through still wants a human pass.
+
+  **Preview polish** (user request). (a) The camera you preview *through* now
+  hides its own model + FOV frustum, so its body no longer sits on the near
+  plane and fills the frame: `Viewport::setHiddenCameras()` skips them in both
+  the scene pass and the frustum loop, driven from the two preview paths (the
+  single look-through camera, or every camera the active cutscene shot films
+  from). (b) **Space** toggles play/stop while the Cutscene Director is focused
+  (gated on `!WantTextInput && !IsAnyItemActive` so it doesn't double-fire with
+  a focused button or fight a text field). Verified: editor builds clean and
+  runs on cutscene-demo with the three cameras still drawing normally in
+  "View: Free" (no regression); the hide-on-preview and the Space toggle are
+  interactive, so their live feel wants the user's hands-on pass.
 - (79) **Tool windows scale their layout with the UI scale (fix 250% clipping)** —
   the floating Tools windows (Menu Editor, Material Editor, Color Grading,
   Ambience, UI Editor, Disc Layout, Cutscene Director) and the modal dialogs
