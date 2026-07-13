@@ -709,16 +709,22 @@ void TerrainGame::init() {
 void TerrainGame::loop() {
   updateFrameClock();  // real dt: frame drops slow the picture, not the game
   const bool saveMenuActive = updateSaveMenu();
+  const bool gameMenuWasOpen = gameMenuIndex >= 0;  // before updateGameMenu()
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
   const bool menuActive = saveMenuActive || gameMenuPausing;
+  // An open menu owns the pad even when it doesn't pause the world (overlay
+  // menus, and the frame X closes a pausing menu): gameplay must not read that
+  // same press too, or the X that drives the menu also makes the player jump.
+  const bool menuOwnsPad =
+      saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0;
   g_gameplayPaused = menuActive;  // freezes particles + animation playback
-  if (!menuActive) {
+  if (!menuOwnsPad) {
     if (!updatePlayerEntity()) updateCameraOrbit();
     updateUseTarget();
   }
 
   scriptCtx.playerPosition = cameraPosition;
-  if (menuActive) scriptCtx.usedObject = -1;
+  if (menuOwnsPad) { scriptCtx.usedObject = -1; useTargetIndex = -1; }
   // Menus pause scripts - except the frame a menu entry fires a flow event,
   // which must reach the On Menu Event triggers.
   if (!menuActive || scriptCtx.menuEvent >= 0)
@@ -814,7 +820,7 @@ void TerrainGame::loop() {
     gameMenuIndex = -1;
     gameMenuStackDepth = 0;
   }
-  if (flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
+  if (!menuOwnsPad && flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
   if (g_flashEnabled && g_flashOn) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
     engine->renderer.core.setSpotLight(
