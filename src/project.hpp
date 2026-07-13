@@ -544,6 +544,55 @@ inline bool operator==(const HudText& a, const HudText& b) {
            a.shadow == b.shadow && a.visibleAtStart == b.visibleAtStart;
 }
 
+// A progress bar on a loading screen (Tools > Loading Screens). Continuous =
+// a track quad with a fill quad growing left-to-right with load progress.
+// Quantized = `segments` cells lighting up one per completed 1/segments step;
+// cells are colored rects, or copies of segImage when it names a PNG (lit
+// cells tinted fillColor, unlit bgColor - color modulation, one texture).
+struct LoadingBar {
+    std::string name = "bar";
+    int kind = 0;                    // 0 = continuous, 1 = quantized
+    float pos[2] = {0.5f, 0.75f};    // normalized screen position (center anchor)
+    float size[2] = {256.0f, 16.0f}; // total on-screen size in px (512x448 screen)
+    float bgColor[3] = {0.15f, 0.15f, 0.15f};  // track / unlit segment tint
+    float fillColor[3] = {0.9f, 0.9f, 0.9f};   // fill / lit segment tint
+    int segments = 5;                // quantized only (2..16)
+    float spacing = 6.0f;            // quantized: gap between segments, px
+    // Optional segment sprite (quantized): imagePath "" = colored rects.
+    // Reuses HudImage so the pow2/quant bake controls and texbake apply; its
+    // pos/size are ignored (segments are laid out from the bar's pos/size).
+    HudImage segImage;
+};
+
+inline bool operator==(const LoadingBar& a, const LoadingBar& b) {
+    auto eq3 = [](const float* x, const float* y) {
+        return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
+    };
+    return a.name == b.name && a.kind == b.kind && a.pos[0] == b.pos[0] &&
+           a.pos[1] == b.pos[1] && a.size[0] == b.size[0] &&
+           a.size[1] == b.size[1] && eq3(a.bgColor, b.bgColor) &&
+           eq3(a.fillColor, b.fillColor) && a.segments == b.segments &&
+           a.spacing == b.spacing && a.segImage == b.segImage;
+}
+
+// A named loading screen (Tools > Loading Screens): what the game shows while
+// a scene loads. Scenes pick one by name (SceneData::loadingScreen); unnamed
+// scenes use Project::defaultLoadingScreen; with neither, the game falls back
+// to the classic built-in screen (hud/loading.png centered on black).
+struct LoadingScreenDef {
+    std::string name = "loading";
+    float bgColor[3] = {0.0f, 0.0f, 0.0f};  // clear color behind everything
+    std::vector<HudImage> images;  // PNG sprites, drawn in order
+    std::vector<HudText> texts;    // baked text sprites (visibleAtStart unused)
+    std::vector<LoadingBar> bars;  // progress bars, drawn on top
+};
+
+inline bool operator==(const LoadingScreenDef& a, const LoadingScreenDef& b) {
+    return a.name == b.name && a.bgColor[0] == b.bgColor[0] &&
+           a.bgColor[1] == b.bgColor[1] && a.bgColor[2] == b.bgColor[2] &&
+           a.images == b.images && a.texts == b.texts && a.bars == b.bars;
+}
+
 // A streaming layer: a named group of scene objects that the game can load
 // into / evict from memory at runtime (Load Layer / Unload Layer flow nodes)
 // - GTA3-style interior streaming. Also doubles as an editor visibility
@@ -600,6 +649,11 @@ struct SceneData {
     // preset resolves, project::resolvedSettings overlays its sky/lighting/fog
     // over this scene's settings.
     std::string ambiencePreset;
+
+    // Loading screen shown while this scene loads (name into
+    // Project::loadingScreens). Empty = the project default
+    // (Project::defaultLoadingScreen); a dangling name also falls back there.
+    std::string loadingScreen;
 };
 
 inline bool operator==(const SceneData& a, const SceneData& b) {
@@ -607,7 +661,8 @@ inline bool operator==(const SceneData& a, const SceneData& b) {
            a.terrain.width == b.terrain.width && a.terrain.depth == b.terrain.depth &&
            a.heights == b.heights && a.hmW == b.hmW && a.hmD == b.hmD &&
            a.overrides == b.overrides && a.settings == b.settings &&
-           a.ambiencePreset == b.ambiencePreset;
+           a.ambiencePreset == b.ambiencePreset &&
+           a.loadingScreen == b.loadingScreen;
 }
 
 // One selectable row of a generated in-game menu.
@@ -815,6 +870,13 @@ struct Project {
     // node repaints the sky at runtime.
     std::vector<AmbiencePreset> ambiencePresets;
     int defaultAmbience = -1;
+    // Loading screens (Tools > Loading Screens): project-wide definitions of
+    // what shows while a scene loads. defaultLoadingScreen is the one used by
+    // scenes that name none (-1 = the classic built-in hud/loading.png on
+    // black). A scene picks its screen by name (SceneData::loadingScreen).
+    // The ProjectSettings::loadingScreen bool stays the master enable.
+    std::vector<LoadingScreenDef> loadingScreens;
+    int defaultLoadingScreen = -1;
     // Cutscene Director sequences (Tools > Cutscene Director): project-wide
     // keyframe timelines that pose scene objects + the camera over time. Like
     // the preset collections above they persist through save() but are not part
@@ -862,6 +924,11 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s);
 // its named preset if it exists, otherwise the project default. -1 = none
 // (no presets, or a dangling/empty name with no default).
 int ambienceIndexFor(const Project& p, const SceneData& s);
+
+// Index into Project::loadingScreens of the screen a scene resolves to: its
+// named screen if it exists, otherwise the project default. -1 = the built-in
+// fallback screen (hud/loading.png centered on black).
+int loadingScreenIndexFor(const Project& p, const SceneData& s);
 
 // A terrain material resolved to what the terrain actually needs.
 struct TerrainMaterial {

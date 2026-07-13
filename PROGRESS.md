@@ -9,6 +9,49 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (84) **Loading screen editor: user-defined loading screens with real progress
+  bars.** The old "loading screen" was a single project-global bool that flashed
+  a hardcoded 256×64 `hud/loading.png` on black for ~0.7s per scene switch (and
+  nothing at boot — a black screen). Now *Tools > Loading Screens* authors
+  **named** loading screens, each with a background color, image + baked-text
+  elements (the HUD pipeline, reused verbatim) and **progress bars** — continuous
+  (track + growing fill) or quantized (N segments lighting up one per 1/N step,
+  as colored rects or an optional PNG tinted on/off). Scenes pick a screen in
+  *Scene > Preferences* (empty = the project default; `defaultLoadingScreen`),
+  and with none defined the built-in `loading.png`-on-black fallback is shown —
+  so existing projects are byte-for-byte unchanged. `ProjectSettings::loadingScreen`
+  stays the master enable. New model: `LoadingBar` + `LoadingScreenDef` (project.hpp,
+  reusing `HudImage`/`HudText`), `Project::loadingScreens`/`defaultLoadingScreen`,
+  `SceneData::loadingScreen` (added to `operator==` so undo of the per-scene
+  assignment works). The **progress is real**: `loadScene` in the generated game
+  was refactored to count its work up front (streamed assets + objects + in-view
+  terrain chunks via a new `countPendingChunks`), pump a loading-screen frame
+  every ~1/24 of the way through the asset drain / object rebuild / batched
+  terrain build, and the same screen now also covers the boot `loadScene(0)` and
+  the 0.7s scene-switch hold. The shared `loadingscreen::renderFrame` (lazy-init,
+  in the game-cpp prolog) draws bars as tinted quads over a shipped white 8×8
+  sprite (`res/hud/loading-white.png`) — GS colour modulation (128 = 1.0), the
+  same trick as `sequences::renderOverlay`. Codegen emits `inc/loading_data.gen.hpp`
+  (element tables + a scene→screen map resolved with `loadingScreenIndexFor`);
+  loading images + segment textures register in the texbake `hudBake` map,
+  loading texts bake under screen-index-mangled names (`text-ls-<i>-<name>.png`),
+  and all of it joins the ISO startup group. Editor: the *Loading Screens* window
+  (screen list / element stack / property editors / 512×448 preview with a
+  *Preview progress* slider), a *Scene > Preferences* screen combo, and an *Open
+  Loading Screens editor* button in Project Preferences; like the other
+  project-wide preset collections it saves immediately (outside undo).
+  **Verified** (Layers 0–3): editor builds clean; `--new` + a hand-authored
+  `.tyra` regenerated `loading_data.gen.hpp` with correct tables (GS-range bar
+  colours 0.2→25.6/0.8→102.4, background 0..255, mangled text path, `LS_DEFAULT`
+  + per-scene map); the full PS2 game **compiled and linked** in Docker; a
+  two-scene project that ping-pongs every 2s via *Every N Seconds → Switch Scene*
+  booted in PCSX2 (software renderer) and window-screenshots caught the loading
+  screen rendering exactly as authored — dark-blue background, baked "LOADING"
+  text, the cyan continuous bar full and all five orange quantized segments lit —
+  at a steady 50 FPS with no assert, confirming the init()-time frame presentation
+  (the one runtime unknown) works. The editor window itself wasn't click-tested
+  (no synthetic input while the user is at the machine); its data path is the same
+  JSON the hand-authored fixture exercised.
 - (83) **Layers panel: stop the delete button overlapping the size readout.**
   Each layer row lays out `[eye] [name input] [start] [N | X.X MB] [x]` on one
   line, but the name `InputText` reserved a fixed `-118px` on the right while the

@@ -157,6 +157,14 @@ std::string bake(const Project& p,
     for (const HudImage& h : p.hud) hudBake[h.imagePath] = &h;
     if (!p.usePrompt.imagePath.empty())
         hudBake[p.usePrompt.imagePath] = &p.usePrompt;
+    // Loading-screen images and quantized-bar segment sprites bake the same
+    // way (they live in res/hud/ alongside the HUD images).
+    for (const LoadingScreenDef& ls : p.loadingScreens) {
+        for (const HudImage& h : ls.images) hudBake[h.imagePath] = &h;
+        for (const LoadingBar& b : ls.bars)
+            if (!b.segImage.imagePath.empty())
+                hudBake[b.segImage.imagePath] = &b.segImage;
+    }
 
     // --- mirror res/ into .res-baked/ --------------------------------------
     const std::string defaultQ = p.settings.textureQuant;  // none/8bit/4bit
