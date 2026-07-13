@@ -9,3 +9,13 @@ vendor/tyra/** text=auto eol=lf
 # see vendor/tyra/audsrv-pan/README.md) - never treat as text.
 vendor/tyra/audsrv-pan/*.irx binary
 vendor/tyra/audsrv-pan/*.a binary
+
+# The editor always writes LF, and generated projects are built in a Linux
+# Docker container. Pin them to LF so a checkout with core.autocrlf=true does
+# not flag every project re-save as "modified" (empty diff, only the
+# "LF will be replaced by CRLF" warning). text=auto keeps binaries (glb/wav/png)
+# untouched. Also pin the editor's own file formats wherever they live.
+examples/** text=auto eol=lf
+*.tyra text eol=lf
+*.heights text eol=lf
+*.flownode text eol=lf
