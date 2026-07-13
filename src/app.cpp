@@ -3159,12 +3159,28 @@ void App::drawLayersSection() {
         }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show in editor");
 
+        // Reserve exactly enough room on the right for the "start" checkbox,
+        // the "N | X.X MB" readout and the "x" button so the name field shrinks
+        // to fit instead of letting the readout run under the delete button.
+        int count = 0;
+        for (const SceneObject& o : sc.objects)
+            if (o.layer == l.name) ++count;
+        char countBuf[32];
+        std::snprintf(countBuf, sizeof(countBuf), "%d | %.1f MB", count,
+                      layerAssetMB(l.name));
+        const ImGuiStyle& st = ImGui::GetStyle();
+        const float xBtnW = ImGui::CalcTextSize("x").x + st.FramePadding.x * 2.0f;
+        const float startW = ImGui::GetFrameHeight() + st.ItemInnerSpacing.x +
+                             ImGui::CalcTextSize("start").x;
+        const float countW = ImGui::CalcTextSize(countBuf).x;
+        const float rightW = startW + countW + xBtnW + st.ItemSpacing.x * 3.0f;
+
         // rename in place; object/flow references remap when the edit ends
         ImGui::SameLine();
         char buf[64];
         std::snprintf(buf, sizeof(buf), "%s", l.name.c_str());
         const std::string before = l.name;
-        ImGui::SetNextItemWidth(-118.0f);
+        ImGui::SetNextItemWidth(-rightW);
         if (ImGui::InputText("##name", buf, sizeof(buf))) l.name = buf;
         if (ImGui::IsItemActivated()) {
             layerRenameFrom_ = before;
@@ -3209,17 +3225,14 @@ void App::drawLayersSection() {
                                   : "In memory when the scene starts");
 
         ImGui::SameLine();
-        int count = 0;
-        for (const SceneObject& o : sc.objects)
-            if (o.layer == l.name) ++count;
-        ImGui::TextDisabled("%d | %.1f MB", count, layerAssetMB(l.name));
+        ImGui::TextDisabled("%s", countBuf);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "Objects on this layer | estimated asset RAM while resident\n"
                 "(unique model/material/texture files, by file size - an\n"
                 "approximation; shared assets count in every layer using them)");
 
-        ImGui::SameLine(ImGui::GetContentRegionMax().x - 22.0f);
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - xBtnW);
         if (ImGui::SmallButton("x")) deleteIdx = i;
 
         // Auto-streaming zone: load inside the radius, unload past it (the
