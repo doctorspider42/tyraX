@@ -1,0 +1,8 @@
+// Windows resources for tyra-editor.exe.
+//
+// The resource is named GLFW_ICON on purpose: GLFW's Win32 backend loads a
+// resource with exactly that name into the window class, so this becomes the
+// title-bar and taskbar icon at runtime with no C++ code (see
+// vendor/glfw/src/win32_window.c). Being the only icon in the exe, it is also
+// what Explorer shows for the file itself.
+GLFW_ICON ICON "icon.ico"

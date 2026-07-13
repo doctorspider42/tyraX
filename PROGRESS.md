@@ -216,6 +216,17 @@ Each finished feature lands as its own commit.
   minimal-diff serialization, then splitting the `.tyra` into one file per object
   (OFPA-style), then LFS-lock tooling for the non-mergeable assets.
 
+- (86) **Editor application icon.** The editor exe/window used the default blank
+  Windows icon. Added `resources/icon.ico` (multi-size 16→256, generated from the
+  new `resources/icon.png` brand mark via PIL) and `resources/app.rc`, wired into
+  CMake behind `WIN32` with `enable_language(RC)` and a `-I resources` flag so
+  windres finds the `.ico`. The resource is deliberately named `GLFW_ICON`: GLFW's
+  Win32 backend loads a resource by exactly that name into the window class
+  (`vendor/glfw/src/win32_window.c`), so this doubles as the runtime title-bar and
+  taskbar icon with no C++ code, and — being the exe's only icon — is what Explorer
+  shows for the file. **Verified**: clean reconfigure + build compiles the RC object
+  and links; `[System.Drawing.Icon]::ExtractAssociatedIcon` on the built exe returns
+  the blue T✕ mark (32×32), confirming the icon is embedded under the right name.
 - (84) **examples/script-demo: drop the dangling `house-1` model reference.**
   The scene's `house-1` object referenced `res/models/house.obj`, but the
   example ships no model assets (its `res/` and `.res-baked/` hold only a

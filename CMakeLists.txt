@@ -4,6 +4,16 @@ project(tyra-editor CXX C)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Compile the Windows resource script (app icon). Named GLFW_ICON so GLFW picks
+# it up for the window/taskbar icon too - see resources/app.rc.
+if(WIN32)
+    enable_language(RC)
+    set(TYRA_EDITOR_RC resources/app.rc)
+    # windres resolves the ICON path relative to its include dirs, not the .rc
+    # file - point it at resources/ so it finds icon.ico.
+    set(CMAKE_RC_FLAGS "${CMAKE_RC_FLAGS} -I${CMAKE_CURRENT_SOURCE_DIR}/resources")
+endif()
+
 # --- GLFW ---
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -50,6 +60,7 @@ add_executable(tyra-editor
     src/runner.cpp
     vendor/imguizmo/src/ImGuizmo.cpp
     vendor/imnodes/imnodes.cpp
+    ${TYRA_EDITOR_RC}
 )
 target_include_directories(tyra-editor PRIVATE src vendor/imguizmo/src vendor/imnodes vendor/stb ${CMAKE_BINARY_DIR}/generated)
 target_compile_definitions(tyra-editor PRIVATE GLFW_INCLUDE_NONE)
