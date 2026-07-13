@@ -121,6 +121,19 @@ Each finished feature lands as its own commit.
   the viewport, hit From view, the take is aimed there. Verified with a host
   harness on the real sample `.hfcs`: for five chosen view headings the baked
   first key's heading matches the target to **0.000°**.
+
+  **Two import fixes** (user report). (a) **Scale was ~8× too small:** the
+  `.hfcs` px→m conversion divided by `PixelsPerMM·1000` where FXhome's own
+  Blender importer *multiplies* by `PixelsPerMM/1000` — so a real metre walked
+  came out a few centimetres in the game. Now `meters = px * 2.8352 / 1000`
+  matching FXhome, so *Scale* 1 ≈ 1 unit per real metre; the sample take's
+  travel goes from ~0.14 m to a plausible **1.13 m**. (b) **Sudden 180/360
+  whip after import:** baking a take into a Camera entity's rotation track
+  emitted Euler angles that wrap at ±180, so a pan crossing 180° (170 → −175)
+  made the linear rotation interp spin the long way. The baker now unwraps each
+  Euler channel to stay continuous with the previous key — a harness on the
+  real take confirms the max consecutive delta drops from a possible ~345° to
+  **14.5°**. Both verified by host harness; editor builds clean.
 - (79) **Tool windows scale their layout with the UI scale (fix 250% clipping)** —
   the floating Tools windows (Menu Editor, Material Editor, Color Grading,
   Ambience, UI Editor, Disc Layout, Cutscene Director) and the modal dialogs

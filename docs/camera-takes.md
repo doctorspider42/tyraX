@@ -65,7 +65,9 @@ ARKit tracks and exports a HitFilm *composite shot* — plain XML. The loader
 reads the `CameraLayer` animation with a minimal XML subset reader
 (`src/camtake.cpp`); semantics follow FXhome's official Blender importer:
 
-- **positions** are HitFilm "pixels": `meters = px / 2.8352 / 1000`
+- **positions** are HitFilm "pixels": `meters = px * 2.8352 / 1000` (exactly
+  FXhome's importer `blenderScale = (1/1000) * PixelsPerMM`; Blender units there
+  are metres). So one metre walked in real life is ~1 game unit at *Scale* 1.
 - **orientation** Euler degrees were *inverted on export* — the loader negates
   them back — and apply in ZYX order (Z innermost): `R = Rx · Ry · Rz`
 - HitFilm world axes match the canonical space one-for-one, and the
@@ -101,7 +103,8 @@ The modal's **Import as** selector decides where the motion lands:
 
 ## Mapping controls (the import modal)
 
-- **Scale** — game units per meter (default 1).
+- **Scale** — game units per real metre (default 1, i.e. 1 unit ≈ 1 m; raise it
+  to make the recorded move cover more of the map).
 - **Extra yaw** — rotates the whole path about +Y, pivoting on the first
   sample (point the recorded walk in the direction the shot needs).
 - **Origin** — where the take's *first sample* lands; defaults to the current

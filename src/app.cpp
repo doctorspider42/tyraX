@@ -7015,16 +7015,28 @@ float App::applyCamTake(Sequence& s, bool replace) {
         return baked.front().time;
     }
 
-    // Camera-entity target: bake into the entity's transform track.
+    // Camera-entity target: bake into the entity's transform track. Euler
+    // angles wrap at +-180, so unwrap each channel to stay continuous with the
+    // previous key - otherwise a pan crossing 180 deg (e.g. 170 -> -175) makes
+    // the linear rotation interp spin the long way round: the sudden 180/360
+    // whip after import.
     std::vector<SeqObjectKey> objKeys;
     objKeys.reserve(baked.size());
-    for (const SeqCameraKey& k : baked) {
+    float prevRot[3] = {0.0f, 0.0f, 0.0f};
+    for (size_t i = 0; i < baked.size(); ++i) {
+        const SeqCameraKey& k = baked[i];
         SeqObjectKey o;
         o.time = k.time;
         for (int c = 0; c < 3; ++c) o.position[c] = k.eye[c];
         const float dir[3] = {k.target[0] - k.eye[0], k.target[1] - k.eye[1],
                               k.target[2] - k.eye[2]};
         seqEulerFromForward(dir, o.rotation);
+        if (i > 0)
+            for (int c = 0; c < 3; ++c) {
+                while (o.rotation[c] - prevRot[c] > 180.0f) o.rotation[c] -= 360.0f;
+                while (o.rotation[c] - prevRot[c] < -180.0f) o.rotation[c] += 360.0f;
+            }
+        for (int c = 0; c < 3; ++c) prevRot[c] = o.rotation[c];
         o.easing = 0;  // the take IS the ease
         objKeys.push_back(o);
     }

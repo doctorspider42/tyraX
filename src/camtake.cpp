@@ -181,7 +181,11 @@ void quatRotate(const float q[4], const float v[3], float out[3]) {
 // --- .hfcs (CamTrackAR / FXhome HitFilm composite shot) -----------------------
 // Semantics ground truth: FXhome's official Blender importer
 // (blender_hitfilm_importer.py). Facts used here, straight from that script:
-//   - positions are HitFilm "pixels": meters = px / 2.8352 / 1000
+//   - positions are HitFilm "pixels": meters = px * 2.8352 / 1000, i.e. exactly
+//     the FXhome importer's `blenderScale = (1/1000) * PixelsPerMM` applied to
+//     the position (Blender units are meters). (An earlier reading divided
+//     instead, which made every imported take ~8x too small - a real metre
+//     walked came out a few centimetres in the game.)
 //   - orientation Euler degrees were INVERTED on export - negate them back -
 //     and apply in ZYX order (Z innermost): R = Rx * Ry * Rz
 //   - HitFilm world axes match the canonical space one-for-one (compose the
@@ -246,7 +250,9 @@ bool loadCamTakeHfcs(const std::string& path, CamTake& out, std::string& error) 
     }
     const bool haveZoom = zoomKeys.size() == posKeys.size() && heightPx > 0.0f;
 
-    constexpr float kPixelsPerMeter = 2.8352f * 1000.0f;  // PixelsPerMM * mm/m
+    // meters = px * PixelsPerMM / 1000, matching FXhome's Blender importer
+    // (their `blenderScale`); Blender units there are real meters.
+    constexpr float kMetersPerPixel = 2.8352f / 1000.0f;
     const float d2r = kPi / 180.0f;
 
     CamTake take;
@@ -260,9 +266,9 @@ bool loadCamTakeHfcs(const std::string& path, CamTake& out, std::string& error) 
         attrFloat(posKeys[i].open, "X", px);
         attrFloat(posKeys[i].open, "Y", py);
         attrFloat(posKeys[i].open, "Z", pz);
-        s.pos[0] = px / kPixelsPerMeter;
-        s.pos[1] = py / kPixelsPerMeter;
-        s.pos[2] = pz / kPixelsPerMeter;
+        s.pos[0] = px * kMetersPerPixel;
+        s.pos[1] = py * kMetersPerPixel;
+        s.pos[2] = pz * kMetersPerPixel;
         float ex = 0, ey = 0, ez = 0;
         attrFloat(rotKeys[i].open, "X", ex);
         attrFloat(rotKeys[i].open, "Y", ey);
