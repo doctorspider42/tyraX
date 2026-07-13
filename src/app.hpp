@@ -356,6 +356,10 @@ private:
     bool showPal_ = false;
     bool showNtsc_ = false;
     bool showHudInEditor_ = false;  // HUD preview overlay (default hidden)
+    // Distance-fog preview in the viewport (View menu). On by default; when off
+    // the scene's fog is suppressed in the editor so distant geometry stays
+    // visible. Editor-only preview toggle - does not touch the generated game.
+    bool showFog_ = true;
 
     // UI Editor (Tools > UI Editor): selected screen-stack entry - a HUD image
     // (uiFxSel_ == 0, index in selectedHud_), an effect layer (uiFxSel_ 1 =
