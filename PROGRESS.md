@@ -9,6 +9,25 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (83) **Layers panel: stop the delete button overlapping the size readout.**
+  Each layer row lays out `[eye] [name input] [start] [N | X.X MB] [x]` on one
+  line, but the name `InputText` reserved a fixed `-118px` on the right while the
+  real right-hand content — the "start" checkbox + the variable-width
+  "N | X.X MB" readout + the "x" `SmallButton` — runs wider than that, so the
+  MB text and the delete button drew on top of each other (visible as
+  `start 20 |x0.` with the size clipped). Now the row measures the actual
+  widths up front (`CalcTextSize` on the formatted count string, "start", and
+  "x", plus `ItemSpacing`/`FramePadding`) and passes that sum as the negative
+  `SetNextItemWidth`, so the name field shrinks to exactly fit and the readout +
+  button always sit clear; the "x" button is anchored at `ContentRegionMax.x`
+  minus its measured width instead of a hardcoded 22px. The per-row object count
+  is now computed once and reused for both the reservation and the label.
+  **Verified** (GUI A/B): built clean, opened a scratch project with four
+  auto-streamed layers (forest/village/ruins/weather) and window-screenshotted
+  the editor — the readout reads in full (`start 0 | 0.0 MB`) with the `x`
+  flush right and no overlap, versus the pre-fix build where the same rows
+  clipped the MB under the button.
+
 - (82) **View menu: toggle the distance-fog preview in the editor.** The
   scene's distance fog (Preferences/Ambience > Distance fog — the GS hardware
   fog that fades geometry toward the camera far plane, *not* the particle "Fog"
