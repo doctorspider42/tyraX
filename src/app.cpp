@@ -451,6 +451,7 @@ void App::drawUI() {
     drawMenusWindow();
     drawGradingWindow();
     drawAmbienceWindow();
+    drawCutsceneWindow();
     drawMaterialEditorWindow();
     drawUiEditorWindow();
     drawNewProjectModal();
@@ -667,6 +668,7 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Menu Editor...")) showMenusEditor_ = true;
             if (ImGui::MenuItem("Color Grading...")) showGradingEditor_ = true;
             if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
+            if (ImGui::MenuItem("Cutscene Director...")) showCutsceneEditor_ = true;
             if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
             ImGui::EndMenu();
         }
@@ -923,7 +925,33 @@ void App::drawViewportWindow() {
                 hidden[i] = isObjectHiddenInEditor(project_.objects()[i]) ? 1 : 0;
             viewport_.setHiddenMask(std::move(hidden));
         }
-        uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, project_.objects(),
+        // Cutscene Director preview: pose the objects (and maybe fly the
+        // camera) at the playhead. Returns the raw objects when not previewing.
+        const std::vector<SceneObject>& renderObjects = cutscenePosedObjects();
+        // Look-through camera ("View:" overlay / camera Properties): render
+        // from the chosen Camera entity's pose + FOV. The cutscene camera
+        // track wins while it previews; reading the POSED objects means a
+        // dollied camera entity is followed live. A stale name (deleted
+        // entity) falls back to the free orbit camera.
+        if (!seqCameraPushed_) {
+            const SceneObject* cam = nullptr;
+            if (!lookThroughCam_.empty())
+                for (const SceneObject& o : renderObjects)
+                    if (o.name == lookThroughCam_ &&
+                        o.type == PrimitiveType::Camera) {
+                        cam = &o;
+                        break;
+                    }
+            if (cam) {
+                float fwd[3], at[3];
+                seqCameraForward(cam->rotation, fwd);
+                for (int c = 0; c < 3; ++c) at[c] = cam->position[c] + fwd[c];
+                viewport_.setCameraOverride(cam->position, at, cam->cameraFov);
+            } else {
+                viewport_.clearCameraOverride();
+            }
+        }
+        uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
                                         selection_, selectedObject_);
         // Flip vertically: GL texture origin is bottom-left
         ImGui::Image((ImTextureID)(intptr_t)tex, avail, ImVec2(0, 1), ImVec2(1, 0));
@@ -931,6 +959,29 @@ void App::drawViewportWindow() {
         const ImVec2 imgPos = ImGui::GetItemRectMin();
         const bool imageHovered = ImGui::IsItemHovered();
         ImGuiIO& io = ImGui::GetIO();
+
+        // Cutscene Director: widescreen bars + fade-to-black overlay, drawn
+        // over the viewport image with the same coverage the PS2 composites.
+        if (seqBarsNow_ > 0.0f || seqFadeNow_ > 0.0f) {
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec2 br(imgPos.x + avail.x, imgPos.y + avail.y);
+            const ImU32 black = IM_COL32(0, 0, 0, 255);
+            if (seqBarsNow_ > 0.0f) {
+                float ft, fb, fl, fr;
+                seqBarsFractions(seqBarsStyleNow_, ft, fb, fl, fr);
+                const float t = ft * seqBarsNow_ * avail.y;
+                const float b = fb * seqBarsNow_ * avail.y;
+                const float l = fl * seqBarsNow_ * avail.x;
+                const float r = fr * seqBarsNow_ * avail.x;
+                if (t > 0) dl->AddRectFilled(imgPos, ImVec2(br.x, imgPos.y + t), black);
+                if (b > 0) dl->AddRectFilled(ImVec2(imgPos.x, br.y - b), br, black);
+                if (l > 0) dl->AddRectFilled(imgPos, ImVec2(imgPos.x + l, br.y), black);
+                if (r > 0) dl->AddRectFilled(ImVec2(br.x - r, imgPos.y), br, black);
+            }
+            if (seqFadeNow_ > 0.0f)
+                dl->AddRectFilled(imgPos, br,
+                                  IM_COL32(0, 0, 0, (int)(seqFadeNow_ * 255.0f)));
+        }
 
         // --- Terrain sculpting brush ---
         bool brushHit = false;
@@ -1148,9 +1199,13 @@ void App::drawViewportWindow() {
                 if (s < 0.01f) s = 0.01f;
         }
 
-        // Commit once per completed gizmo drag (not every frame)
+        // Commit once per completed gizmo drag (not every frame). Auto-key
+        // first: the dropped cutscene keys share the drag's undo snapshot.
         const bool usingGizmo = ImGuizmo::IsUsing();
-        if (gizmoWasUsing_ && !usingGizmo) commitChange();
+        if (gizmoWasUsing_ && !usingGizmo) {
+            cutsceneAutoKey();
+            commitChange();
+        }
         gizmoWasUsing_ = usingGizmo;
 
         const bool gizmoBusy = usingGizmo || (objectSelected && ImGuizmo::IsOver());
@@ -1426,6 +1481,44 @@ void App::drawViewportWindow() {
             ImGui::EndDisabled();
             if (objSel && ImGui::IsItemHovered())
                 ImGui::SetTooltip("Move the camera pivot to the selected object.");
+        }
+
+        // --- Look-through camera (next to the recenter buttons) ---
+        // Shown as soon as the scene has a Camera entity: render the preview
+        // from a chosen camera (its pose + FOV, live), "Free" returns to the
+        // orbit camera. The Cutscene Director camera preview overrides it.
+        {
+            bool anyCam = !lookThroughCam_.empty();
+            for (const SceneObject& o : project_.objects())
+                if (o.type == PrimitiveType::Camera) {
+                    anyCam = true;
+                    break;
+                }
+            if (anyCam) {
+                ImGui::SameLine(0.0f, 16.0f);
+                const std::string viewLbl =
+                    "View: " + (lookThroughCam_.empty() ? std::string("Free")
+                                                        : lookThroughCam_);
+                if (ImGui::SmallButton(viewLbl.c_str()))
+                    ImGui::OpenPopup("##lookthrough");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Render the viewport through a Camera entity (its\n"
+                        "position, rotation and FOV, followed live). Pick\n"
+                        "\"Free camera\" to return to the orbit camera.");
+                if (ImGui::BeginPopup("##lookthrough")) {
+                    if (ImGui::MenuItem("Free camera", nullptr,
+                                        lookThroughCam_.empty()))
+                        lookThroughCam_.clear();
+                    ImGui::Separator();
+                    for (const SceneObject& o : project_.objects())
+                        if (o.type == PrimitiveType::Camera)
+                            if (ImGui::MenuItem(o.name.c_str(), nullptr,
+                                                o.name == lookThroughCam_))
+                                lookThroughCam_ = o.name;
+                    ImGui::EndPopup();
+                }
+            }
         }
 
         // --- Gizmo axis space (bottom-right) ---
@@ -2033,6 +2126,10 @@ void App::addObject(PrimitiveType type) {
     if (type == PrimitiveType::Player) {
         o.position[1] = 0.0f;  // marker stands on the ground
         o.color[0] = 0.95f, o.color[1] = 0.75f, o.color[2] = 0.2f;
+    }
+    if (type == PrimitiveType::Camera) {
+        o.position[1] = 2.0f;  // eye height-ish, above the ground
+        o.color[0] = 0.35f, o.color[1] = 0.75f, o.color[2] = 1.0f;
     }
     project_.objects().push_back(o);
     selectOnly((int)project_.objects().size() - 1);
@@ -2695,6 +2792,8 @@ void App::drawAddObjectMenu() {
         if (ImGui::MenuItem("Player")) addObject(PrimitiveType::Player);
         if (ImGui::MenuItem("Spawn point")) addObject(PrimitiveType::SpawnPoint);
         if (ImGui::MenuItem("Save point")) addSavePoint();
+        // Cutscene Director shot marker (bind camera-track keys to it)
+        if (ImGui::MenuItem("Camera")) addObject(PrimitiveType::Camera);
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Effects")) {
@@ -3132,6 +3231,7 @@ static const char* typeLabel(PrimitiveType t) {
         case PrimitiveType::PointLight: return "Point light";
         case PrimitiveType::SavePoint: return "Save point";
         case PrimitiveType::Empty: return "Empty";
+        case PrimitiveType::Camera: return "Camera";
     }
     return "Object";
 }
@@ -3175,7 +3275,27 @@ void App::drawPropertiesWindow() {
     char nameBuf[128];
     std::snprintf(nameBuf, sizeof(nameBuf), "%s", o.name.c_str());
     if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) o.name = nameBuf;
-    committed |= ImGui::IsItemDeactivatedAfterEdit();
+    // Cutscene Director tracks and camera-shot bindings reference objects by
+    // name - remap them when the rename edit ends so cutscenes don't go stale.
+    if (ImGui::IsItemActivated()) {
+        objRenameFrom_ = o.name;
+        objRenameIdx_ = selectedObject_;
+    }
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+        committed = true;
+        const std::string from =
+            objRenameIdx_ == selectedObject_ ? objRenameFrom_ : std::string();
+        objRenameIdx_ = -1;
+        if (!from.empty() && from != o.name) {
+            for (Sequence& s : project_.sequences) {
+                for (SeqTrack& tr : s.tracks)
+                    if (tr.target == from) tr.target = o.name;
+                for (SeqCameraKey& k : s.cameraKeys)
+                    if (k.camera == from) k.camera = o.name;
+            }
+            if (lookThroughCam_ == from) lookThroughCam_ = o.name;
+        }
+    }
 
     // Streaming layer (Project panel > Layers). Shown as soon as the scene
     // has layers - or when the object still references a deleted-scene name.
@@ -3359,11 +3479,13 @@ void App::drawPropertiesWindow() {
     // Decal: a textured quad. Transform + color + material stay editable, but
     // it carries no physics/collision/usable game state (pure visual overlay).
     const bool isDecal = o.type == PrimitiveType::Decal;
+    // Camera entity: position + rotation aim the shot, color tints the marker.
+    const bool isCamera = o.type == PrimitiveType::Camera;
 
     ImGui::DragFloat3("Position", o.position, 0.1f);
     committed |= ImGui::IsItemDeactivatedAfterEdit();
     // custom emitters rotate too - the rotation aims the emission direction
-    if (isSolid || isEmpty || isDecal ||
+    if (isSolid || isEmpty || isDecal || isCamera ||
         (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
         ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -3374,9 +3496,10 @@ void App::drawPropertiesWindow() {
     }
     // Color: mesh tint for solids, particle tint for emitters, light color
     // for point lights, marker tint + free script parameter for empties,
-    // texture tint for decals. The remaining markers draw in fixed colors.
-    if (isSolid || isEmpty || isDecal || o.type == PrimitiveType::Emitter ||
-        o.type == PrimitiveType::PointLight) {
+    // texture tint for decals, marker/frustum tint for camera entities. The
+    // remaining markers draw in fixed colors.
+    if (isSolid || isEmpty || isDecal || isCamera ||
+        o.type == PrimitiveType::Emitter || o.type == PrimitiveType::PointLight) {
         ImGui::ColorEdit3("Color", o.color);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
@@ -3594,6 +3717,29 @@ void App::drawPropertiesWindow() {
                             "values, the player position and the scene.");
     }
 
+    if (o.type == PrimitiveType::Camera) {
+        ImGui::SeparatorText("Camera");
+        ImGui::DragFloat("FOV (deg)", &o.cameraFov, 0.5f, 20.0f, 110.0f, "%.0f");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (o.cameraFov < 20.0f) o.cameraFov = 20.0f;
+        if (o.cameraFov > 110.0f) o.cameraFov = 110.0f;
+        const bool looking = lookThroughCam_ == o.name;
+        if (ImGui::Button(looking ? "Stop looking through" : "Look through")) {
+            if (looking)
+                lookThroughCam_.clear();
+            else
+                lookThroughCam_ = o.name;  // editor view state - no undo entry
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Render the viewport from this camera (also in the\n"
+                              "\"View:\" control in the viewport corner).");
+        ImGui::TextDisabled("A Cutscene Director shot marker - invisible in the\n"
+                            "game. Bind a camera-track keyframe to it (Tools >\n"
+                            "Cutscene Director) and the shot films from here,\n"
+                            "looking down the +Z wedge, with this FOV. Animate\n"
+                            "this object in the same sequence for dolly shots.");
+    }
+
     if (isEmpty) {
         ImGui::SeparatorText("Empty");
         ImGui::TextDisabled("Pure transform - invisible in the game, no collision.\n"
@@ -3795,11 +3941,12 @@ void App::drawMultiProperties() {
         allLight = allLight && (o.type == PrimitiveType::PointLight);
         anyModel = anyModel || (o.type == PrimitiveType::Model);
         anySavePoint = anySavePoint || (o.type == PrimitiveType::SavePoint);
-        allRot = allRot && (solid || empty || decal ||
+        allRot = allRot && (solid || empty || decal || o.type == PrimitiveType::Camera ||
                             (o.type == PrimitiveType::Emitter && o.emitterKind == 5));
         allScale = allScale && (solid || empty || decal || o.type == PrimitiveType::Emitter);
         allColor = allColor && (solid || empty || decal || o.type == PrimitiveType::Emitter ||
-                                o.type == PrimitiveType::PointLight);
+                                o.type == PrimitiveType::PointLight ||
+                                o.type == PrimitiveType::Camera);
         allSaveable = allSaveable && (solid || empty || o.type == PrimitiveType::Emitter ||
                                       o.type == PrimitiveType::SoundEmitter);
     }
@@ -4500,6 +4647,22 @@ void App::drawFlowGraphWindow() {
                 }
                 if (project_.ambiencePresets.empty())
                     ImGui::TextDisabled("Add presets in\nTools > Ambience Editor.");
+                ImGui::EndCombo();
+            }
+        } else if (t->strKind == FlowParamKind::SequenceName) {
+            if (ImGui::BeginCombo("Sequence", n.str.empty() ? "<none>" : n.str.c_str())) {
+                if (ImGui::Selectable("<none>", n.str.empty())) {
+                    n.str.clear();
+                    changed = true;
+                }
+                for (const Sequence& s : project_.sequences) {
+                    if (ImGui::Selectable(s.name.c_str(), s.name == n.str)) {
+                        n.str = s.name;
+                        changed = true;
+                    }
+                }
+                if (project_.sequences.empty())
+                    ImGui::TextDisabled("Add sequences in\nTools > Cutscene Director.");
                 ImGui::EndCombo();
             }
         } else if (t->strKind == FlowParamKind::MenuName) {
@@ -6740,6 +6903,1027 @@ void App::drawAmbienceWindow() {
         ImGui::DragFloat("Fog end", &a.fogEnd, 0.5f, 0.0f, 1000.0f, "%.1f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
         if (a.fogEnd <= a.fogStart + 1.0f) a.fogEnd = a.fogStart + 1.0f;
+    }
+
+    ImGui::EndChild();
+    ImGui::End();
+
+    if (changed) commitChange();
+}
+
+// --- Cutscene Director -------------------------------------------------------
+
+// Snapshots the track target's current static pose into a key at `time`.
+// A key within 1/60 s of that time is replaced instead (keeping its easing
+// and visibility flag); the key list stays sorted.
+bool App::cutsceneSnapshotObjectKey(SeqTrack& tr, float time) {
+    const SceneObject* src = nullptr;
+    for (const SceneObject& o : project_.objects())
+        if (o.name == tr.target) {
+            src = &o;
+            break;
+        }
+    if (!src) return false;
+    SeqObjectKey k;
+    k.time = time;
+    for (int c = 0; c < 3; ++c) {
+        k.position[c] = src->position[c];
+        k.rotation[c] = src->rotation[c];
+        k.scale[c] = src->scale[c];
+        k.color[c] = src->color[c];
+    }
+    int repl = -1;
+    for (int i = 0; i < (int)tr.keys.size(); ++i)
+        if (std::fabs(tr.keys[i].time - k.time) < 0.017f) repl = i;
+    if (repl >= 0) {
+        k.easing = tr.keys[repl].easing;
+        k.visible = tr.keys[repl].visible;
+        tr.keys[repl] = k;
+    } else {
+        tr.keys.push_back(k);
+    }
+    std::sort(tr.keys.begin(), tr.keys.end(),
+              [](const SeqObjectKey& a, const SeqObjectKey& b) {
+                  return a.time < b.time;
+              });
+    return true;
+}
+
+// Auto-key: called when a gizmo drag ends, just before its commitChange(), so
+// the dropped keys ride the same undo snapshot as the transform edit itself.
+void App::cutsceneAutoKey() {
+    if (!seqAutoKey_ || !showCutsceneEditor_ || !seqPreview_ || !hasProject_) return;
+    if (selectedSequence_ < 0 || selectedSequence_ >= (int)project_.sequences.size())
+        return;
+    Sequence& s = project_.sequences[selectedSequence_];
+    for (int sel : selection_) {
+        if (sel < 0 || sel >= (int)project_.objects().size()) continue;
+        const std::string& name = project_.objects()[sel].name;
+        for (SeqTrack& tr : s.tracks)
+            if (tr.target == name) cutsceneSnapshotObjectKey(tr, seqPlayhead_);
+    }
+}
+
+// Poses a copy of the active scene's objects at the playhead using the SAME
+// interpolation the PS2 runtime uses (sequence.hpp seqSample/seqEase), and -
+// for a sequence with a camera track - flies the viewport camera along it. So
+// scrubbing the timeline shows exactly what the console will render.
+const std::vector<SceneObject>& App::cutscenePosedObjects() {
+    const bool active = showCutsceneEditor_ && seqPreview_ && hasProject_ &&
+                        selectedSequence_ >= 0 &&
+                        selectedSequence_ < (int)project_.sequences.size();
+    if (!active) {
+        if (seqCameraPushed_) {
+            viewport_.clearCameraOverride();
+            seqCameraPushed_ = false;
+        }
+        seqBarsStyleNow_ = 0;
+        seqBarsNow_ = 0.0f;
+        seqFadeNow_ = 0.0f;
+        return project_.objects();
+    }
+
+    const Sequence& s = project_.sequences[selectedSequence_];
+    const float t = seqPlayhead_;
+    seqPosed_ = project_.objects();  // copy the active scene's objects
+
+    // Editor-hidden layers stay hidden; cutscene visibility keys add to that.
+    std::vector<char> hidden(seqPosed_.size(), 0);
+    for (size_t i = 0; i < seqPosed_.size(); ++i)
+        hidden[i] = isObjectHiddenInEditor(seqPosed_[i]) ? 1 : 0;
+
+    // While paused, SELECTED objects keep their real (static) transform so
+    // the gizmo edits what you see - otherwise posing an object between two
+    // keys is blind (the track keeps snapping the preview back). Playback
+    // poses everything. Bound camera shots read seqPosed_, so aiming a
+    // selected Camera entity updates its shot live too.
+    std::vector<char> editing(seqPosed_.size(), 0);
+    if (!seqPlaying_)
+        for (int sel : selection_)
+            if (sel >= 0 && sel < (int)editing.size()) editing[sel] = 1;
+
+    for (const SeqTrack& tr : s.tracks) {
+        int idx = -1;
+        for (size_t i = 0; i < seqPosed_.size(); ++i)
+            if (seqPosed_[i].name == tr.target) {
+                idx = (int)i;
+                break;
+            }
+        if (idx < 0 || tr.keys.empty()) continue;
+        if (editing[idx]) continue;  // selected: leave it editable
+
+        std::vector<SeqObjectKey> keys = tr.keys;
+        std::sort(keys.begin(), keys.end(),
+                  [](const SeqObjectKey& a, const SeqObjectKey& b) {
+                      return a.time < b.time;
+                  });
+        const int n = (int)keys.size();
+        std::vector<float> times(n);
+        std::vector<int> eas(n);
+        for (int i = 0; i < n; ++i) times[i] = keys[i].time, eas[i] = keys[i].easing;
+        auto samp = [&](std::function<float(const SeqObjectKey&)> g) {
+            std::vector<float> v(n);
+            for (int i = 0; i < n; ++i) v[i] = g(keys[i]);
+            return seqSample(times.data(), v.data(), eas.data(), n, t);
+        };
+
+        SceneObject& o = seqPosed_[idx];
+        if (tr.animPos)
+            for (int c = 0; c < 3; ++c)
+                o.position[c] = samp([c](const SeqObjectKey& k) { return k.position[c]; });
+        if (tr.animRot)
+            for (int c = 0; c < 3; ++c)
+                o.rotation[c] = samp([c](const SeqObjectKey& k) { return k.rotation[c]; });
+        if (tr.animScale)
+            for (int c = 0; c < 3; ++c)
+                o.scale[c] = samp([c](const SeqObjectKey& k) { return k.scale[c]; });
+        if (tr.animColor)
+            for (int c = 0; c < 3; ++c)
+                o.color[c] = samp([c](const SeqObjectKey& k) { return k.color[c]; });
+        if (tr.animVis) {
+            int j = 0;
+            while (j < n - 1 && t >= keys[j + 1].time) ++j;
+            if (!keys[j].visible) hidden[idx] = 1;  // steps between keys
+        }
+    }
+    viewport_.setHiddenMask(std::move(hidden));
+
+    // Camera track: fly the preview camera (or release it back to the orbit).
+    // Each key is a shot - free (stored eye/at/fov) or bound to a Camera
+    // entity, in which case eye/at/fov come from the entity's CURRENT pose in
+    // seqPosed_ (object tracks already ran, so an animated camera entity gives
+    // a dolly shot). Shots blend across the segment; Step easing = hard cut.
+    // The exact same resolution runs in the generated PS2 player.
+    if (s.cameraEnabled && !s.cameraKeys.empty()) {
+        std::vector<SeqCameraKey> ck = s.cameraKeys;
+        std::sort(ck.begin(), ck.end(),
+                  [](const SeqCameraKey& a, const SeqCameraKey& b) {
+                      return a.time < b.time;
+                  });
+        const int n = (int)ck.size();
+        auto shot = [&](int i, float eye[3], float at[3], float& fov) {
+            const SeqCameraKey& k = ck[i];
+            const SceneObject* cam = nullptr;
+            if (!k.camera.empty())
+                for (const SceneObject& o : seqPosed_)
+                    if (o.name == k.camera && o.type == PrimitiveType::Camera) {
+                        cam = &o;
+                        break;
+                    }
+            if (cam) {
+                float fwd[3];
+                seqCameraForward(cam->rotation, fwd);
+                for (int c = 0; c < 3; ++c) {
+                    eye[c] = cam->position[c];
+                    at[c] = cam->position[c] + fwd[c];
+                }
+                fov = cam->cameraFov;
+            } else {
+                for (int c = 0; c < 3; ++c) eye[c] = k.eye[c], at[c] = k.target[c];
+                fov = k.fov;
+            }
+        };
+        int i = 0;
+        while (i < n - 1 && t >= ck[i + 1].time) ++i;
+        float e0[3], a0[3], f0, shake;
+        shot(i, e0, a0, f0);
+        shake = ck[i].shake;
+        if (t > ck[i].time && i < n - 1) {
+            const float span = ck[i + 1].time - ck[i].time;
+            const float u = span > 1e-6f ? (t - ck[i].time) / span : 0.0f;
+            const float w = seqEase(ck[i].easing, u);
+            float e1[3], a1[3], f1;
+            shot(i + 1, e1, a1, f1);
+            for (int c = 0; c < 3; ++c) {
+                e0[c] += (e1[c] - e0[c]) * w;
+                a0[c] += (a1[c] - a0[c]) * w;
+            }
+            f0 += (f1 - f0) * w;
+            shake += (ck[i + 1].shake - shake) * w;
+        }
+        if (shake > 0.0f) {
+            float off[3];
+            seqShakeOffset(t, shake, off);
+            for (int c = 0; c < 3; ++c) e0[c] += off[c], a0[c] += off[c];
+        }
+        viewport_.setCameraOverride(e0, a0, f0);
+        seqCameraPushed_ = true;
+    } else if (seqCameraPushed_) {
+        viewport_.clearCameraOverride();
+        seqCameraPushed_ = false;
+    }
+
+    // Widescreen bars + fades preview, overlaid on the viewport image where
+    // it is drawn (same envelope math as the PS2 player).
+    seqBarsStyleNow_ = s.bars;
+    seqBarsNow_ = s.bars != kSeqBarsNone
+                      ? seqBarsAmount(t, s.duration, s.barsSlideIn, s.barsSlideOut)
+                      : 0.0f;
+    seqFadeNow_ = seqFadeAlpha(t, s.duration, s.fadeIn, s.fadeOut);
+
+    return seqPosed_;
+}
+
+// Cutscene Director window (Tools > Cutscene Director): sequence list on the
+// left, the selected sequence's timeline on the right - object tracks (each a
+// list of pose keyframes) plus an optional camera track. The playhead scrubs
+// the whole scene live in the viewport; keys are authored by posing an object
+// (or the view) and snapshotting it at the playhead.
+void App::drawCutsceneWindow() {
+    if (!showCutsceneEditor_ || !hasProject_) return;
+
+    ImGui::SetNextWindowSize(ImVec2(880, 620), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Cutscene Director", &showCutsceneEditor_)) {
+        ImGui::End();
+        return;
+    }
+
+    bool changed = false;
+    auto uniqueSeqName = [&](std::string base) {
+        std::string n = base;
+        for (int k = 2;; ++k) {
+            bool taken = false;
+            for (const auto& s : project_.sequences) taken |= (s.name == n);
+            if (!taken) return n;
+            n = base + "-" + std::to_string(k);
+        }
+    };
+
+    // --- left: sequence list ------------------------------------------------
+    ImGui::BeginChild("##seq_list", ImVec2(170, 0), ImGuiChildFlags_Borders);
+    if (ImGui::Button("+ New sequence", ImVec2(-1, 0))) {
+        Sequence s;
+        s.name = uniqueSeqName("Cutscene");
+        project_.sequences.push_back(std::move(s));
+        selectedSequence_ = (int)project_.sequences.size() - 1;
+        selectedSeqTrack_ = -1;
+        seqPlayhead_ = 0.0f;
+        changed = true;
+    }
+    ImGui::Separator();
+    for (int i = 0; i < (int)project_.sequences.size(); ++i) {
+        ImGui::PushID(i);
+        if (ImGui::Selectable(project_.sequences[i].name.c_str(), selectedSequence_ == i)) {
+            selectedSequence_ = i;
+            selectedSeqTrack_ = -1;
+            seqPlayhead_ = 0.0f;
+        }
+        ImGui::PopID();
+    }
+    if (project_.sequences.empty())
+        ImGui::TextDisabled("No cutscenes yet.\nA sequence poses objects\n"
+                            "+ the camera over time,\nfired by the Play\n"
+                            "Sequence flow node.");
+    ImGui::EndChild();
+    ImGui::SameLine();
+
+    // --- right: selected sequence -------------------------------------------
+    ImGui::BeginChild("##seq_edit", ImVec2(0, 0));
+    if (selectedSequence_ < 0 || selectedSequence_ >= (int)project_.sequences.size()) {
+        ImGui::TextDisabled("Select a cutscene on the left (or create one).");
+        ImGui::TextDisabled("\nPlay it in the game with the Play Sequence flow\n"
+                            "node (category \"Scene\"); Stop Sequence ends it.");
+        ImGui::EndChild();
+        ImGui::End();
+        return;
+    }
+    Sequence& s = project_.sequences[selectedSequence_];
+
+    char nameBuf[64];
+    std::snprintf(nameBuf, sizeof(nameBuf), "%s", s.name.c_str());
+    ImGui::SetNextItemWidth(180.0f);
+    if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
+        for (SceneData& sc : project_.scenes)
+            for (SceneObject& o : sc.objects)
+                for (FlowNode& fn : o.flowGraph.nodes) {
+                    const FlowNodeType* ft = flowNodeType(fn.type);
+                    if (ft && ft->strKind == FlowParamKind::SequenceName && fn.str == s.name)
+                        fn.str = nameBuf;
+                }
+        s.name = nameBuf;
+    }
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Duplicate")) {
+        Sequence copy = s;
+        copy.name = uniqueSeqName(s.name);
+        project_.sequences.push_back(std::move(copy));
+        selectedSequence_ = (int)project_.sequences.size() - 1;
+        changed = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Delete")) {
+        for (SceneData& sc : project_.scenes)
+            for (SceneObject& o : sc.objects)
+                for (FlowNode& fn : o.flowGraph.nodes) {
+                    const FlowNodeType* ft = flowNodeType(fn.type);
+                    if (ft && ft->strKind == FlowParamKind::SequenceName && fn.str == s.name)
+                        fn.str.clear();
+                }
+        project_.sequences.erase(project_.sequences.begin() + selectedSequence_);
+        selectedSequence_ = -1;
+        selectedSeqTrack_ = -1;
+        commitChange();
+        ImGui::EndChild();
+        ImGui::End();
+        return;
+    }
+
+    ImGui::SetNextItemWidth(110.0f);
+    if (ImGui::DragFloat("Duration (s)", &s.duration, 0.1f, 0.1f, 600.0f, "%.2f"))
+        changed = true;
+    if (s.duration < 0.1f) s.duration = 0.1f;
+    ImGui::SameLine(0.0f, 14.0f);
+    if (ImGui::Checkbox("Loop", &s.loop)) changed = true;
+    ImGui::SameLine(0.0f, 14.0f);
+    if (ImGui::Checkbox("Skippable", &s.skippable)) changed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Pressing START in the game ends the cutscene early.");
+    ImGui::SameLine(0.0f, 14.0f);
+    if (ImGui::Checkbox("Camera track", &s.cameraEnabled)) changed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Drive the game camera from the camera lane's shots\n"
+                          "for the duration of playback.");
+
+    // Cinematic dressing: widescreen masks + fades, composited over the frame
+    // (and the HUD) on the PS2 and previewed on the viewport image.
+    static const char* kBarsNames[] = {"None", "Cinema 2.39:1", "Wide 16:9",
+                                       "Pillarbox", "Frame"};
+    ImGui::SetNextItemWidth(130.0f);
+    if (ImGui::Combo("Widescreen bars", &s.bars, kBarsNames, kSeqBarsStyleCount))
+        changed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Solid black masks while the cutscene plays; they\n"
+                          "slide in at the start and out before the end (times\n"
+                          "below; 0 = they appear/vanish instantly).");
+    // Bars slide-in/out times, only meaningful when bars are on. Authored
+    // just like the fades, right next to them.
+    if (s.bars != kSeqBarsNone) {
+        ImGui::SameLine(0.0f, 14.0f);
+        ImGui::SetNextItemWidth(76.0f);
+        if (ImGui::DragFloat("Bars in", &s.barsSlideIn, 0.05f, 0.0f, 10.0f, "%.2f s"))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How long the bars take to slide in at the start.\n"
+                              "0 = they are there from the first frame.");
+        ImGui::SameLine(0.0f, 10.0f);
+        ImGui::SetNextItemWidth(76.0f);
+        if (ImGui::DragFloat("Bars out", &s.barsSlideOut, 0.05f, 0.0f, 10.0f, "%.2f s"))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How long the bars take to slide out before the\n"
+                              "end. 0 = they stay until the last frame.");
+        if (s.barsSlideIn < 0.0f) s.barsSlideIn = 0.0f;
+        if (s.barsSlideOut < 0.0f) s.barsSlideOut = 0.0f;
+    }
+    ImGui::SetNextItemWidth(76.0f);
+    if (ImGui::DragFloat("Fade in", &s.fadeIn, 0.05f, 0.0f, 10.0f, "%.2f s"))
+        changed = true;
+    ImGui::SameLine(0.0f, 10.0f);
+    ImGui::SetNextItemWidth(76.0f);
+    if (ImGui::DragFloat("Fade out", &s.fadeOut, 0.05f, 0.0f, 10.0f, "%.2f s"))
+        changed = true;
+    if (s.fadeIn < 0.0f) s.fadeIn = 0.0f;
+    if (s.fadeOut < 0.0f) s.fadeOut = 0.0f;
+
+    // --- transport -----------------------------------------------------------
+    ImGui::SeparatorText("Timeline");
+    if (ImGui::Button(seqPlaying_ ? "Pause" : "Play")) seqPlaying_ = !seqPlaying_;
+    ImGui::SameLine();
+    if (ImGui::Button("Rewind")) {
+        seqPlayhead_ = 0.0f;
+        seqPlaying_ = false;
+    }
+    ImGui::SameLine(0.0f, 14.0f);
+    ImGui::Checkbox("Preview in viewport", &seqPreview_);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Pose the scene at the playhead. Objects you have\n"
+                          "SELECTED stay at their real transform while paused,\n"
+                          "so the gizmo edits what you see - snapshot or\n"
+                          "auto-key to turn that pose into a keyframe.");
+    ImGui::SameLine(0.0f, 14.0f);
+    ImGui::Checkbox("Auto-key", &seqAutoKey_);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Finishing a gizmo drag drops a keyframe at the\n"
+                          "playhead for every selected object that has a\n"
+                          "track in this sequence.");
+    ImGui::SameLine(0.0f, 14.0f);
+    ImGui::SetNextItemWidth(100.0f);
+    ImGui::SliderFloat("Zoom", &seqZoom_, 1.0f, 8.0f, "%.1fx");
+    ImGui::SameLine(0.0f, 14.0f);
+    ImGui::Text("t = %.2f s", seqPlayhead_);
+    if (seqPlaying_) {
+        seqPlayhead_ += ImGui::GetIO().DeltaTime;
+        if (seqPlayhead_ >= s.duration) {
+            if (s.loop)
+                seqPlayhead_ = std::fmod(seqPlayhead_, s.duration);
+            else {
+                seqPlayhead_ = s.duration;
+                seqPlaying_ = false;
+            }
+        }
+    }
+    if (seqPlayhead_ < 0.0f) seqPlayhead_ = 0.0f;
+    if (seqPlayhead_ > s.duration) seqPlayhead_ = s.duration;
+
+    static const char* kEaseNames[] = {"Linear", "Smooth", "Step (hold)"};
+
+    // Snapshot helpers. A key within 1/60 s of the requested time is replaced
+    // (keeping its easing and, for camera keys, the shot binding/fov/shake).
+    auto sortObjKeys = [](SeqTrack& tr) {
+        std::sort(tr.keys.begin(), tr.keys.end(),
+                  [](const SeqObjectKey& a, const SeqObjectKey& b) {
+                      return a.time < b.time;
+                  });
+    };
+    auto sortCamKeys = [&]() {
+        std::sort(s.cameraKeys.begin(), s.cameraKeys.end(),
+                  [](const SeqCameraKey& a, const SeqCameraKey& b) {
+                      return a.time < b.time;
+                  });
+    };
+    auto snapshotObjectKey = [&](SeqTrack& tr, float time) {
+        return cutsceneSnapshotObjectKey(tr, time);
+    };
+    auto snapshotCameraKey = [&](float time) {
+        SeqCameraKey k;
+        k.time = time;
+        viewport_.currentCamera(k.eye, k.target);
+        int repl = -1;
+        for (int i = 0; i < (int)s.cameraKeys.size(); ++i)
+            if (std::fabs(s.cameraKeys[i].time - k.time) < 0.017f) repl = i;
+        if (repl >= 0) {
+            k.easing = s.cameraKeys[repl].easing;
+            k.fov = s.cameraKeys[repl].fov;
+            k.shake = s.cameraKeys[repl].shake;
+            k.camera = s.cameraKeys[repl].camera;
+            s.cameraKeys[repl] = k;
+        } else {
+            s.cameraKeys.push_back(k);
+        }
+        sortCamKeys();
+    };
+
+    // --- the dopesheet ---------------------------------------------------
+    // One lane per track (the camera lane first), keys as draggable diamonds,
+    // a click/drag-scrubbed time ruler and a playhead line across all lanes.
+    // The label column stays pinned while the lanes scroll horizontally.
+    const float laneH = 26.0f, rulerH = 22.0f, labelW = 170.0f;
+    const int laneCount = (s.cameraEnabled ? 1 : 0) + (int)s.tracks.size();
+    const float sheetH =
+        rulerH + laneCount * laneH + ImGui::GetStyle().ScrollbarSize + 8.0f;
+    // sanity: a deleted/toggled lane can strand the key selection
+    if (selectedSeqTrack_ >= (int)s.tracks.size() ||
+        (selectedSeqTrack_ < 0 && !s.cameraEnabled))
+        selectedSeqKey_ = -1;
+
+    int deleteTrack = -1;
+    ImGui::BeginChild("##dopesheet", ImVec2(0, sheetH), ImGuiChildFlags_Borders,
+                      ImGuiWindowFlags_HorizontalScrollbar);
+    {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 origin = ImGui::GetCursorScreenPos();  // content space
+        const float visibleW = ImGui::GetWindowSize().x;
+        float timeW = (visibleW - labelW - 8.0f) * seqZoom_;
+        if (timeW < 160.0f) timeW = 160.0f;
+        const float pps = timeW / s.duration;  // pixels per second
+        const float x0 = origin.x + labelW;    // timeline left edge
+        const float contentH = rulerH + laneCount * laneH;
+        ImGui::Dummy(ImVec2(labelW + timeW + 4.0f, contentH));
+        const float laneY0 = origin.y + rulerH;
+        const ImVec2 winPos = ImGui::GetWindowPos();  // pinned label column x
+        const float labelX = winPos.x;
+
+        const ImU32 colRuler = ImGui::GetColorU32(ImGuiCol_TableHeaderBg);
+        const ImU32 colLaneA = ImGui::GetColorU32(ImGuiCol_TableRowBg);
+        const ImU32 colLaneB = ImGui::GetColorU32(ImGuiCol_TableRowBgAlt);
+        const ImU32 colGrid = ImGui::GetColorU32(ImGuiCol_Border);
+        const ImU32 colText = ImGui::GetColorU32(ImGuiCol_Text);
+        const ImU32 colDim = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+        const ImU32 colPlayhead = IM_COL32(255, 80, 80, 255);
+        const ImU32 colSelected = IM_COL32(255, 200, 70, 255);
+        // key fill encodes the outgoing easing
+        auto keyColor = [&](int easing) {
+            if (easing == 2) return IM_COL32(255, 176, 80, 255);   // step
+            if (easing == 0) return IM_COL32(200, 200, 200, 255);  // linear
+            return IM_COL32(120, 200, 255, 255);                   // smooth
+        };
+        auto timeAtMouse = [&]() {
+            float t = (ImGui::GetIO().MousePos.x - x0) / pps;
+            t = t < 0.0f ? 0.0f : (t > s.duration ? s.duration : t);
+            return std::round(t * 100.0f) / 100.0f;  // snap to 10 ms
+        };
+
+        // lane backgrounds (before the interactive items on them)
+        dl->AddRectFilled(ImVec2(x0, origin.y), ImVec2(x0 + timeW, origin.y + rulerH),
+                          colRuler);
+        for (int li = 0; li < laneCount; ++li) {
+            const float y = laneY0 + li * laneH;
+            dl->AddRectFilled(ImVec2(x0, y), ImVec2(x0 + timeW, y + laneH),
+                              (li & 1) ? colLaneB : colLaneA);
+        }
+
+        // lane hit areas: double-click an empty spot = drop a key there
+        for (int li = 0; li < laneCount; ++li) {
+            const int ti = s.cameraEnabled ? li - 1 : li;  // -1 = camera lane
+            ImGui::PushID(100 + li);
+            ImGui::SetCursorScreenPos(ImVec2(x0, laneY0 + li * laneH));
+            ImGui::InvisibleButton("##lane", ImVec2(timeW, laneH));
+            if (ImGui::IsItemHovered() &&
+                ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                const float t = timeAtMouse();
+                bool did = false;
+                if (ti < 0) {
+                    snapshotCameraKey(t);
+                    did = true;
+                } else {
+                    did = snapshotObjectKey(s.tracks[ti], t);
+                }
+                if (did) {
+                    selectedSeqTrack_ = ti;
+                    selectedSeqKey_ = -1;  // select the dropped key below
+                    if (ti < 0) {
+                        for (int i = 0; i < (int)s.cameraKeys.size(); ++i)
+                            if (s.cameraKeys[i].time == t) selectedSeqKey_ = i;
+                    } else {
+                        for (int i = 0; i < (int)s.tracks[ti].keys.size(); ++i)
+                            if (s.tracks[ti].keys[i].time == t) selectedSeqKey_ = i;
+                    }
+                    seqPlayhead_ = t;
+                    changed = true;
+                }
+            }
+            ImGui::PopID();
+        }
+
+        // ruler: ticks + labels, click/drag scrubs the playhead
+        ImGui::SetCursorScreenPos(ImVec2(x0, origin.y));
+        ImGui::InvisibleButton("##ruler", ImVec2(timeW, rulerH));
+        if (ImGui::IsItemActive()) {
+            seqPlayhead_ = timeAtMouse();
+            seqPlaying_ = false;
+        }
+        {
+            static const float kSteps[] = {0.1f, 0.2f, 0.5f, 1.0f,  2.0f,
+                                           5.0f, 10.0f, 15.0f, 30.0f, 60.0f};
+            float step = 60.0f;
+            for (float c : kSteps)
+                if (c * pps >= 56.0f) {
+                    step = c;
+                    break;
+                }
+            const float minor = step / 5.0f;
+            for (float t = 0.0f; t <= s.duration + 1e-4f; t += minor) {
+                const float x = x0 + t * pps;
+                const bool major = std::fabs(std::fmod(t + 1e-4f, step)) < 2e-3f;
+                dl->AddLine(ImVec2(x, origin.y + (major ? 4.0f : 13.0f)),
+                            ImVec2(x, origin.y + rulerH), colGrid);
+                if (major) {
+                    char buf[16];
+                    std::snprintf(buf, sizeof(buf), "%g s", t);
+                    dl->AddText(ImVec2(x + 3.0f, origin.y + 2.0f), colDim, buf);
+                    // faint grid line down the lanes
+                    dl->AddLine(ImVec2(x, laneY0), ImVec2(x, laneY0 + laneCount * laneH),
+                                ImGui::GetColorU32(ImGuiCol_Border, 0.4f));
+                }
+            }
+        }
+
+        // keys: diamonds (free camera shots and object keys) / circles (shots
+        // bound to a Camera entity). Click selects, drag retimes, right-click
+        // opens easing/delete.
+        auto keyWidget = [&](int lane, int ki, float& time, int& easing,
+                             bool bound) -> int {
+            // returns 0 = untouched, 1 = edited (uncommitted), 2 = committed,
+            // 3 = delete me
+            int result = 0;
+            const int li = s.cameraEnabled ? lane + 1 : lane;
+            const float cx = x0 + time * pps;
+            const float cy = laneY0 + li * laneH + laneH * 0.5f;
+            const float r = 6.0f;
+            ImGui::PushID((lane + 2) * 1000 + ki);
+            ImGui::SetCursorScreenPos(ImVec2(cx - r - 4.0f, cy - r - 4.0f));
+            ImGui::InvisibleButton("##key", ImVec2(2.0f * (r + 4.0f), 2.0f * (r + 4.0f)));
+            const bool hovered = ImGui::IsItemHovered();
+            const bool dragging = ImGui::IsItemActive();
+            // the horizontal-resize cursor + tooltip make retiming discoverable
+            if (hovered || dragging)
+                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+            if (hovered && !dragging)
+                ImGui::SetTooltip("%.2f s - drag to retime,\nright-click for easing/delete",
+                                  time);
+            if (ImGui::IsItemActivated()) {
+                selectedSeqTrack_ = lane;
+                selectedSeqKey_ = ki;
+            }
+            if (dragging && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 1.0f)) {
+                time = timeAtMouse();
+                seqPlayhead_ = time;
+                result = 1;
+            }
+            if (ImGui::IsItemDeactivated()) result = 2;  // sort + commit outside
+            if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                seqPlayhead_ = time;
+            ImGui::OpenPopupOnItemClick("##keyctx", ImGuiPopupFlags_MouseButtonRight);
+            if (ImGui::BeginPopup("##keyctx")) {
+                selectedSeqTrack_ = lane;
+                selectedSeqKey_ = ki;
+                ImGui::TextDisabled("Key @ %.2f s", time);
+                ImGui::Separator();
+                for (int e = 0; e < 3; ++e)
+                    if (ImGui::MenuItem(kEaseNames[e], nullptr, easing == e)) {
+                        easing = e;
+                        result = 2;
+                    }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Playhead here")) seqPlayhead_ = time;
+                if (ImGui::MenuItem("Delete key")) result = 3;
+                ImGui::EndPopup();
+            }
+            const bool sel = selectedSeqTrack_ == lane && selectedSeqKey_ == ki;
+            const ImU32 fill = keyColor(easing);
+            if (bound) {
+                dl->AddCircleFilled(ImVec2(cx, cy), r - 1.0f, fill);
+                dl->AddCircle(ImVec2(cx, cy), r - 1.0f, IM_COL32(20, 20, 20, 255));
+            } else {
+                const ImVec2 pts[4] = {{cx, cy - r}, {cx + r, cy}, {cx, cy + r},
+                                       {cx - r, cy}};
+                dl->AddConvexPolyFilled(pts, 4, fill);
+                dl->AddPolyline(pts, 4, IM_COL32(20, 20, 20, 255),
+                                ImDrawFlags_Closed, 1.0f);
+            }
+            if (sel || hovered)
+                dl->AddCircle(ImVec2(cx, cy), r + 2.5f,
+                              sel ? colSelected : ImGui::GetColorU32(ImGuiCol_Text, 0.6f),
+                              0, sel ? 2.0f : 1.0f);
+            ImGui::PopID();
+            return result;
+        };
+
+        // camera lane keys
+        if (s.cameraEnabled) {
+            int del = -1, resort = -1;
+            for (int ki = 0; ki < (int)s.cameraKeys.size(); ++ki) {
+                SeqCameraKey& k = s.cameraKeys[ki];
+                const int r =
+                    keyWidget(-1, ki, k.time, k.easing, !k.camera.empty());
+                if (r == 2) resort = ki;
+                if (r == 3) del = ki;
+            }
+            if (del >= 0) {
+                s.cameraKeys.erase(s.cameraKeys.begin() + del);
+                selectedSeqKey_ = -1;
+                changed = true;
+            } else if (resort >= 0) {
+                const float t = s.cameraKeys[resort].time;
+                sortCamKeys();
+                if (selectedSeqTrack_ == -1)
+                    for (int i = 0; i < (int)s.cameraKeys.size(); ++i)
+                        if (s.cameraKeys[i].time == t) {
+                            selectedSeqKey_ = i;
+                            break;
+                        }
+                changed = true;
+            }
+        }
+        // object lane keys
+        for (int ti = 0; ti < (int)s.tracks.size(); ++ti) {
+            SeqTrack& tr = s.tracks[ti];
+            int del = -1, resort = -1;
+            for (int ki = 0; ki < (int)tr.keys.size(); ++ki) {
+                const int r = keyWidget(ti, ki, tr.keys[ki].time,
+                                        tr.keys[ki].easing, false);
+                if (r == 2) resort = ki;
+                if (r == 3) del = ki;
+            }
+            if (del >= 0) {
+                tr.keys.erase(tr.keys.begin() + del);
+                selectedSeqKey_ = -1;
+                changed = true;
+            } else if (resort >= 0) {
+                const float t = tr.keys[resort].time;
+                sortObjKeys(tr);
+                if (selectedSeqTrack_ == ti)
+                    for (int i = 0; i < (int)tr.keys.size(); ++i)
+                        if (tr.keys[i].time == t) {
+                            selectedSeqKey_ = i;
+                            break;
+                        }
+                changed = true;
+            }
+        }
+
+        // playhead: a line across ruler + lanes with a grabber triangle
+        {
+            const float x = x0 + seqPlayhead_ * pps;
+            dl->AddLine(ImVec2(x, origin.y), ImVec2(x, laneY0 + laneCount * laneH),
+                        colPlayhead, 1.5f);
+            dl->AddTriangleFilled(ImVec2(x - 5.0f, origin.y),
+                                  ImVec2(x + 5.0f, origin.y),
+                                  ImVec2(x, origin.y + 9.0f), colPlayhead);
+        }
+
+        // pinned label column, drawn last so it occludes scrolled-under keys.
+        // Right-click a label = track settings; [+] = snapshot key @ playhead.
+        dl->AddRectFilled(ImVec2(labelX, origin.y),
+                          ImVec2(labelX + labelW, origin.y + contentH),
+                          ImGui::GetColorU32(ImGuiCol_ChildBg));
+        dl->AddRectFilled(ImVec2(labelX, origin.y),
+                          ImVec2(labelX + labelW, origin.y + rulerH), colRuler);
+        dl->AddText(ImVec2(labelX + 8.0f, origin.y + 3.0f), colDim, "Track");
+        dl->AddLine(ImVec2(labelX + labelW, origin.y),
+                    ImVec2(labelX + labelW, origin.y + contentH), colGrid);
+        for (int li = 0; li < laneCount; ++li) {
+            const int ti = s.cameraEnabled ? li - 1 : li;
+            const float y = laneY0 + li * laneH;
+            dl->AddLine(ImVec2(labelX, y), ImVec2(labelX + labelW, y),
+                        ImGui::GetColorU32(ImGuiCol_Border, 0.5f));
+            ImGui::PushID(500 + li);
+            // snapshot button on the right edge of the label cell
+            ImGui::SetCursorScreenPos(ImVec2(labelX + labelW - 24.0f, y + 3.0f));
+            if (ImGui::SmallButton("+")) {
+                if (ti < 0) {
+                    snapshotCameraKey(seqPlayhead_);
+                    changed = true;
+                } else if (snapshotObjectKey(s.tracks[ti], seqPlayhead_)) {
+                    changed = true;
+                }
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(ti < 0 ? "Snapshot the viewport camera as a shot\n"
+                                           "at the playhead (free shot)."
+                                         : "Snapshot the object's pose as a key\n"
+                                           "at the playhead.");
+            // the rest of the cell: click selects the lane, right-click = setup
+            ImGui::SetCursorScreenPos(ImVec2(labelX, y));
+            ImGui::InvisibleButton("##label", ImVec2(labelW - 26.0f, laneH));
+            if (ImGui::IsItemClicked()) {
+                selectedSeqTrack_ = ti;
+                selectedSeqKey_ = -1;
+            }
+            ImGui::OpenPopupOnItemClick("##trackctx", ImGuiPopupFlags_MouseButtonRight);
+            if (ti < 0) {
+                dl->AddText(ImVec2(labelX + 8.0f, y + 5.0f), colText, "[*] Camera");
+                dl->AddText(ImVec2(labelX + 86.0f, y + 5.0f), colDim,
+                            ("(" + std::to_string(s.cameraKeys.size()) + ")").c_str());
+            } else {
+                const SeqTrack& tr = s.tracks[ti];
+                const std::string label =
+                    (tr.target.empty() ? "<no object>" : tr.target);
+                dl->AddText(ImVec2(labelX + 8.0f, y + 5.0f), colText, label.c_str());
+                // animated-channel letters, dimmed when off
+                const char* chs[] = {"P", "R", "S", "C", "V"};
+                const bool on[] = {tr.animPos, tr.animRot, tr.animScale,
+                                   tr.animColor, tr.animVis};
+                float cxs = labelX + labelW - 88.0f;
+                for (int c = 0; c < 5; ++c) {
+                    dl->AddText(ImVec2(cxs, y + 5.0f),
+                                on[c] ? colText : ImGui::GetColorU32(ImGuiCol_TextDisabled, 0.4f),
+                                chs[c]);
+                    cxs += 11.0f;
+                }
+            }
+            if (ImGui::BeginPopup("##trackctx")) {
+                if (ti < 0) {
+                    ImGui::TextDisabled("Camera track");
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Snapshot shot @ playhead")) {
+                        snapshotCameraKey(seqPlayhead_);
+                        changed = true;
+                    }
+                    if (ImGui::MenuItem("Clear all shots", nullptr, false,
+                                        !s.cameraKeys.empty())) {
+                        s.cameraKeys.clear();
+                        selectedSeqKey_ = -1;
+                        changed = true;
+                    }
+                } else {
+                    SeqTrack& tr = s.tracks[ti];
+                    ImGui::SetNextItemWidth(160.0f);
+                    if (ImGui::BeginCombo("Object",
+                                          tr.target.empty() ? "<pick>" : tr.target.c_str())) {
+                        for (const SceneObject& o : project_.objects())
+                            if (ImGui::Selectable(o.name.c_str(), o.name == tr.target)) {
+                                tr.target = o.name;
+                                changed = true;
+                            }
+                        ImGui::EndCombo();
+                    }
+                    ImGui::TextDisabled("Animated channels:");
+                    if (ImGui::Checkbox("Position", &tr.animPos)) changed = true;
+                    if (ImGui::Checkbox("Rotation", &tr.animRot)) changed = true;
+                    if (ImGui::Checkbox("Scale", &tr.animScale)) changed = true;
+                    if (ImGui::Checkbox("Color", &tr.animColor)) changed = true;
+                    if (ImGui::Checkbox("Visibility", &tr.animVis)) changed = true;
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Snapshot key @ playhead")) {
+                        if (snapshotObjectKey(tr, seqPlayhead_)) changed = true;
+                    }
+                    if (ImGui::MenuItem("Remove track")) deleteTrack = ti;
+                }
+                ImGui::EndPopup();
+            }
+            ImGui::PopID();
+        }
+    }
+    ImGui::EndChild();
+
+    if (deleteTrack >= 0) {
+        s.tracks.erase(s.tracks.begin() + deleteTrack);
+        if (selectedSeqTrack_ == deleteTrack) selectedSeqTrack_ = -1, selectedSeqKey_ = -1;
+        changed = true;
+    }
+    if (ImGui::SmallButton("+ Add object track")) ImGui::OpenPopup("##addtrack");
+    if (ImGui::BeginPopup("##addtrack")) {
+        auto hasTrack = [&](const std::string& name) {
+            for (const SeqTrack& tr : s.tracks)
+                if (tr.target == name) return true;
+            return false;
+        };
+        // one track per object; a fresh track gets a starting key at the
+        // playhead from the object's current pose, so it animates immediately
+        auto addTrackFor = [&](const std::string& name) {
+            SeqTrack tr;
+            tr.target = name;
+            cutsceneSnapshotObjectKey(tr, seqPlayhead_);
+            s.tracks.push_back(std::move(tr));
+            selectedSeqTrack_ = (int)s.tracks.size() - 1;
+            selectedSeqKey_ = -1;
+            changed = true;
+        };
+        int freshSelected = 0;
+        for (int sel : selection_)
+            if (sel >= 0 && sel < (int)project_.objects().size() &&
+                !hasTrack(project_.objects()[sel].name))
+                ++freshSelected;
+        char selLabel[48];
+        std::snprintf(selLabel, sizeof(selLabel), "Add selected (%d)", freshSelected);
+        if (ImGui::MenuItem(selLabel, nullptr, false, freshSelected > 0)) {
+            for (int sel : selection_)
+                if (sel >= 0 && sel < (int)project_.objects().size() &&
+                    !hasTrack(project_.objects()[sel].name))
+                    addTrackFor(project_.objects()[sel].name);
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("One track per selected object (objects that\n"
+                              "already have a track are skipped).");
+        ImGui::Separator();
+        for (const SceneObject& o : project_.objects()) {
+            const bool tracked = hasTrack(o.name);
+            if (ImGui::MenuItem(o.name.c_str(), tracked ? "tracked" : nullptr,
+                                false, !tracked))
+                addTrackFor(o.name);
+        }
+        if (project_.objects().empty())
+            ImGui::TextDisabled("No objects in this scene.");
+        ImGui::EndPopup();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("Double-click a lane to drop a key - right-click keys & labels.");
+
+    // --- selected key inspector ----------------------------------------------
+    ImGui::SeparatorText("Key");
+    const bool camSel = selectedSeqTrack_ == -1 && s.cameraEnabled &&
+                        selectedSeqKey_ >= 0 &&
+                        selectedSeqKey_ < (int)s.cameraKeys.size();
+    const bool objSel = selectedSeqTrack_ >= 0 &&
+                        selectedSeqTrack_ < (int)s.tracks.size() &&
+                        selectedSeqKey_ >= 0 &&
+                        selectedSeqKey_ < (int)s.tracks[selectedSeqTrack_].keys.size();
+    if (camSel) {
+        SeqCameraKey& k = s.cameraKeys[selectedSeqKey_];
+        ImGui::SetNextItemWidth(90.0f);
+        if (ImGui::DragFloat("Time", &k.time, 0.02f, 0.0f, s.duration, "%.2f s")) {
+            seqPlayhead_ = k.time;
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            const float t = k.time;
+            sortCamKeys();
+            for (int i = 0; i < (int)s.cameraKeys.size(); ++i)
+                if (s.cameraKeys[i].time == t) selectedSeqKey_ = i;
+            changed = true;
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(110.0f);
+        if (ImGui::Combo("Easing", &k.easing, kEaseNames, 3)) changed = true;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(90.0f);
+        if (ImGui::DragFloat("Shake", &k.shake, 0.005f, 0.0f, 2.0f, "%.2f")) {}
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Handheld camera shake amplitude in world units\n"
+                              "(interpolates between shots; 0 = steady).");
+
+        // The shot: free (explicit eye/at/fov) or bound to a Camera entity.
+        const char* shotLabel = k.camera.empty() ? "<free shot>" : k.camera.c_str();
+        ImGui::SetNextItemWidth(160.0f);
+        if (ImGui::BeginCombo("Shot from", shotLabel)) {
+            if (ImGui::Selectable("<free shot>", k.camera.empty()) && !k.camera.empty()) {
+                k.camera.clear();
+                changed = true;
+            }
+            for (const SceneObject& o : project_.objects()) {
+                if (o.type != PrimitiveType::Camera) continue;
+                if (ImGui::Selectable(o.name.c_str(), o.name == k.camera)) {
+                    k.camera = o.name;
+                    changed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Bind the shot to a Camera entity: it films from the\n"
+                              "entity's position/rotation with the entity's FOV -\n"
+                              "animate that entity for dolly/crane moves. Add\n"
+                              "cameras with + Add object > Gameplay > Camera.");
+        if (k.camera.empty()) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(80.0f);
+            if (ImGui::DragFloat("FOV", &k.fov, 0.5f, 20.0f, 110.0f, "%.0f deg")) {}
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat3("Eye", k.eye, 0.1f);
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Set from view")) {
+                viewport_.currentCamera(k.eye, k.target);
+                changed = true;
+            }
+            ImGui::DragFloat3("Look at", k.target, 0.1f);
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        } else {
+            bool found = false;
+            for (const SceneObject& o : project_.objects())
+                if (o.name == k.camera && o.type == PrimitiveType::Camera) {
+                    ImGui::TextDisabled("Films from \"%s\" (FOV %.0f deg).",
+                                        o.name.c_str(), o.cameraFov);
+                    found = true;
+                }
+            if (!found)
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                   "Camera entity \"%s\" not found in this project -\n"
+                                   "the shot falls back to its stored eye/look-at.",
+                                   k.camera.c_str());
+        }
+        if (ImGui::SmallButton("Delete key")) {
+            s.cameraKeys.erase(s.cameraKeys.begin() + selectedSeqKey_);
+            selectedSeqKey_ = -1;
+            changed = true;
+        }
+    } else if (objSel) {
+        SeqTrack& tr = s.tracks[selectedSeqTrack_];
+        SeqObjectKey& k = tr.keys[selectedSeqKey_];
+        ImGui::SetNextItemWidth(90.0f);
+        if (ImGui::DragFloat("Time", &k.time, 0.02f, 0.0f, s.duration, "%.2f s")) {
+            seqPlayhead_ = k.time;
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            const float t = k.time;
+            sortObjKeys(tr);
+            for (int i = 0; i < (int)tr.keys.size(); ++i)
+                if (tr.keys[i].time == t) selectedSeqKey_ = i;
+            changed = true;
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(110.0f);
+        if (ImGui::Combo("Easing", &k.easing, kEaseNames, 3)) changed = true;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Re-snapshot")) {
+            if (snapshotObjectKey(tr, k.time)) changed = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Replace this key with the object's current pose.");
+        // pose fields for the channels this track animates
+        if (tr.animPos) {
+            ImGui::DragFloat3("Position", k.position, 0.1f);
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        if (tr.animRot) {
+            ImGui::DragFloat3("Rotation", k.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        if (tr.animScale) {
+            ImGui::DragFloat3("Scale", k.scale, 0.05f, 0.01f, 1000.0f);
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        if (tr.animColor) {
+            ImGui::ColorEdit3("Color", k.color);
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        if (tr.animVis) {
+            if (ImGui::Checkbox("Visible (holds to the next key)", &k.visible))
+                changed = true;
+        }
+        if (!tr.animPos && !tr.animRot && !tr.animScale && !tr.animColor && !tr.animVis)
+            ImGui::TextDisabled("No channels enabled - right-click the track label.");
+        if (ImGui::SmallButton("Delete key")) {
+            tr.keys.erase(tr.keys.begin() + selectedSeqKey_);
+            selectedSeqKey_ = -1;
+            changed = true;
+        }
+    } else {
+        ImGui::TextDisabled("No key selected. Double-click a lane to drop one, or use\n"
+                            "the [+] on a track label to snapshot at the playhead.\n"
+                            "Play the cutscene in the game with the Play Sequence node.");
     }
 
     ImGui::EndChild();

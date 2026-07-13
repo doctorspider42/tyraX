@@ -69,7 +69,7 @@ static void updateFrameClock() {
   g_frameScale = dt * 50.0F;
 }
 
-namespace Showcase {
+namespace Cutscene_demo {
 
 using namespace Tyra;
 
@@ -3655,4 +3655,4 @@ void TerrainGame::updatePlayer() {
                       playerZ + fz * cosf(pitch));
 }
 
-}  // namespace Showcase
+}  // namespace Cutscene_demo
