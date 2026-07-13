@@ -256,10 +256,10 @@ bool Runner::launchPCSX2(const Project& p) {
     if (exe.empty()) {
         if (!p.emulatorPath.empty())
             appendLine("[editor] Configured emulator not found: " + p.emulatorPath +
-                       " - check the path in Project > Preferences.");
+                       " - check the path in Edit > Preferences.");
         else
             appendLine("[editor] PCSX2 not found in Program Files. Install it or set the "
-                       "emulator path in Project > Preferences.");
+                       "emulator path in Edit > Preferences.");
         return false;
     }
     std::error_code ec;
@@ -428,7 +428,7 @@ void Runner::stopEmulator() {
 bool Runner::deployToPs2(const Project& p) {
     if (p.ps2LinkIp.empty()) {
         appendLine("[editor] No PS2 address configured - set 'PS2 (ps2link) IP' in "
-                   "Project > Preferences.");
+                   "Edit > Preferences.");
         return false;
     }
     std::error_code ec;
@@ -464,7 +464,7 @@ bool Runner::deployToPs2(const Project& p) {
     if (exec("\"" + client + "\" -h " + p.ps2LinkIp + " -t 10 reset", binDir) != 0) {
         appendLine("[editor] Could not reach ps2link at " + p.ps2LinkIp +
                    " - is the PS2 on and running PS2LINK.ELF? (Check the IP in "
-                   "Project > Preferences.)");
+                   "Edit > Preferences.)");
         return false;
     }
     // ps2link reboots the IOP and reloads itself; give it a moment before the
@@ -551,7 +551,7 @@ bool Runner::deployToPs2(const Project& p) {
         }
         if (waited >= 15000) {
             appendLine("[editor] No response from " + p.ps2LinkIp + " within 15s - is "
-                       "the PS2 on and running PS2LINK.ELF? (Check the IP in Project > "
+                       "the PS2 on and running PS2LINK.ELF? (Check the IP in Edit > "
                        "Preferences and the firewall rules for ps2client.exe.)");
             killPs2Client();
             return false;

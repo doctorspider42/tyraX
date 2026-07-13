@@ -64,7 +64,7 @@ Then in the editor:
 
 ## Requirements
 
-- Windows, [Docker Desktop](https://www.docker.com/products/docker-desktop/) (running), [PCSX2](https://pcsx2.net/) installed in `Program Files\PCSX2` (with BIOS configured).
+- Windows, [Docker Desktop](https://www.docker.com/products/docker-desktop/) (running), [PCSX2](https://pcsx2.net/) installed in `Program Files\PCSX2` (with BIOS configured). A non-standard install can be pointed at under `Edit > Preferences`.
 - To build the editor: CMake, Ninja, GCC/MinGW (e.g. `scoop install mingw cmake ninja`).
 
 ## CLI
@@ -93,7 +93,8 @@ With a PS2 connected to the LAN and running [ps2link](https://github.com/ps2dev/
 game on the console over ethernet: the ELF and every asset are served straight
 from the project's `bin\` on this PC (no ISO, no SMB), and the console's log
 streams live into the *Output* window as `[ps2]` lines. Set the console's IP
-under `Project > Preferences > Real PS2`; headless: `--build <projectDir>
+under `Edit > Preferences > Real PS2` (a machine-global editor setting, shared
+by every project); headless: `--build <projectDir>
 --run-ps2 [ip]`. The editor drives the console with a patched
 [ps2client](https://github.com/ps2dev/ps2client) shipped in `tools/ps2client`
 (see the README there — the patch fixes a Nagle/delayed-ACK stall that made

@@ -55,13 +55,16 @@ static HWND g_dialogOwner = nullptr;
 // ---------------------------------------------------------------------------
 // Global editor config. These are machine/muscle-memory properties (a 4K laptop
 // wants a different UI scale than a 1080p desktop; navigation is personal
-// preference), so they live outside the per-project .tyra - in
+// preference; the emulator lives at a fixed path on this PC and the dev PS2 has
+// a fixed LAN address), so they live outside the per-project .tyra - in
 // %LOCALAPPDATA%\tyra-editor\editor.ini. Trivial key=value lines; the whole
 // file is rewritten on any change, so load once and save the full struct.
 // ---------------------------------------------------------------------------
 struct EditorConfig {
     float uiScale = 0.0f;  // 0 == auto (follow the display DPI)
     NavConfig nav;
+    std::string emulatorPath;  // pcsx2-qt.exe; empty = auto-detect
+    std::string ps2LinkIp;     // LAN IP of a PS2 running ps2link; empty = disabled
 };
 
 static std::filesystem::path editorConfigPath() {
@@ -97,6 +100,8 @@ static EditorConfig loadEditorConfig() {
         else if (match("navInvertX", v)) cfg.nav.invertX = toI(v, 0) != 0;
         else if (match("navInvertY", v)) cfg.nav.invertY = toI(v, 0) != 0;
         else if (match("navOrbitSelection", v)) cfg.nav.orbitAroundSelection = toI(v, 1) != 0;
+        else if (match("emulatorPath", v)) cfg.emulatorPath = v;
+        else if (match("ps2LinkIp", v)) cfg.ps2LinkIp = v;
     }
     return cfg;
 }
@@ -117,7 +122,9 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "navZoomSens=" << n.zoomSensitivity << "\n"
       << "navInvertX=" << (n.invertX ? 1 : 0) << "\n"
       << "navInvertY=" << (n.invertY ? 1 : 0) << "\n"
-      << "navOrbitSelection=" << (n.orbitAroundSelection ? 1 : 0) << "\n";
+      << "navOrbitSelection=" << (n.orbitAroundSelection ? 1 : 0) << "\n"
+      << "emulatorPath=" << cfg.emulatorPath << "\n"
+      << "ps2LinkIp=" << cfg.ps2LinkIp << "\n";
 }
 
 static std::string wideToUtf8(const wchar_t* path) {
@@ -312,6 +319,8 @@ int App::run(const std::string& initialProjectDir) {
         const EditorConfig cfg = loadEditorConfig();
         uiScaleUser_ = cfg.uiScale;
         nav_ = cfg.nav;
+        globalEmulatorPath_ = cfg.emulatorPath;
+        globalPs2Ip_ = cfg.ps2LinkIp;
     }
     applyUiScale();
 
@@ -462,6 +471,7 @@ void App::drawUI() {
     drawUiEditorWindow();
     drawNewProjectModal();
     drawPreferencesModal();
+    drawEditorPreferencesModal();
     drawNavigationModal();
     drawScenePreferencesModal();
     drawNewScriptModal();
@@ -505,9 +515,6 @@ void App::drawUI() {
             prefTerrain_ = project_.active().terrain;
             prefTemplate_ = project_.gameTemplate == "fpp" ? 1 : 0;
             prefSettings_ = project_.settings;
-            snprintf(prefEmulatorPath_, sizeof(prefEmulatorPath_), "%s",
-                     project_.emulatorPath.c_str());
-            snprintf(prefPs2Ip_, sizeof(prefPs2Ip_), "%s", project_.ps2LinkIp.c_str());
             openPreferencesPopup_ = true;
         }
         if (!io.WantTextInput) {
@@ -536,10 +543,18 @@ void App::applyUiScale() {
     uiScaleApplied_ = scale;
 }
 
+// Writes the whole global editor config (editor.ini) from the App members.
+// All save sites funnel through here so no field is dropped - a bare
+// {uiScaleUser_, nav_} would wipe the emulator path / PS2 IP on the next
+// UI-scale or navigation change.
+void App::saveGlobalConfig() {
+    saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_});
+}
+
 void App::setUiScale(float userScale) {
     uiScaleUser_ = userScale;  // 0 == auto (follow the display DPI)
     applyUiScale();
-    saveEditorConfig({uiScaleUser_, nav_});
+    saveGlobalConfig();
 }
 
 void App::drawMenuBar() {
@@ -553,9 +568,13 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Exit")) requestExit();
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("Edit", hasProject_)) {
+        // Edit stays enabled without a project so the machine-global editor
+        // settings (emulator path, PS2 IP) can be set before creating one; the
+        // project-scoped items below disable themselves on their own state.
+        if (ImGui::BeginMenu("Edit")) {
             const bool objectSelected =
-                selectedObject_ >= 0 && selectedObject_ < (int)project_.objects().size();
+                hasProject_ && selectedObject_ >= 0 &&
+                selectedObject_ < (int)project_.objects().size();
             if (ImGui::MenuItem("Undo", "Ctrl+Z", false, history_.canUndo())) undo();
             if (ImGui::MenuItem("Redo", "Ctrl+Y", false, history_.canRedo())) redo();
             ImGui::Separator();
@@ -564,8 +583,15 @@ void App::drawMenuBar() {
             const char* pasteLabel =
                 clipboard_.size() > 1 ? "Paste objects" : "Paste object";
             if (ImGui::MenuItem(copyLabel, "Ctrl+C", false, objectSelected)) copyObject();
-            if (ImGui::MenuItem(pasteLabel, "Ctrl+V", false, !clipboard_.empty()))
+            if (ImGui::MenuItem(pasteLabel, "Ctrl+V", false, hasProject_ && !clipboard_.empty()))
                 pasteObject();
+            ImGui::Separator();
+            if (ImGui::MenuItem("Preferences...")) {
+                snprintf(prefEmulatorPath_, sizeof(prefEmulatorPath_), "%s",
+                         globalEmulatorPath_.c_str());
+                snprintf(prefPs2Ip_, sizeof(prefPs2Ip_), "%s", globalPs2Ip_.c_str());
+                openEditorPrefsPopup_ = true;
+            }
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("View")) {
@@ -634,9 +660,6 @@ void App::drawMenuBar() {
                 prefTerrain_ = project_.active().terrain;
                 prefTemplate_ = project_.gameTemplate == "fpp" ? 1 : 0;
                 prefSettings_ = project_.settings;
-                snprintf(prefEmulatorPath_, sizeof(prefEmulatorPath_), "%s",
-                         project_.emulatorPath.c_str());
-                snprintf(prefPs2Ip_, sizeof(prefPs2Ip_), "%s", project_.ps2LinkIp.c_str());
                 openPreferencesPopup_ = true;
             }
             ImGui::Separator();
@@ -664,7 +687,7 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Run on PS2 (no build)", "Ctrl+F6", false, !busy && ps2Ready))
                 runner_.buildAndRunPs2(project_, false);
             if (!ps2Ready && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("Set 'PS2 (ps2link) IP' in Project > Preferences first.");
+                ImGui::SetTooltip("Set 'PS2 (ps2link) IP' in Edit > Preferences first.");
             if (ImGui::MenuItem("Stop on PS2", nullptr, false, !busy && ps2Ready))
                 runner_.stopPs2(project_);
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -846,11 +869,11 @@ void App::drawToolbar() {
     }
 
     // --- Console group: blue Play (+dropdown) + Stop PS2 ----------------
-    // Both disabled until a ps2link IP is configured (Project > Preferences).
+    // Both disabled until a ps2link IP is configured (Edit > Preferences).
     playWithMenu("##tb_run_ps2", "##tb_run_ps2_more", "ps2_run_menu",
                  ps2MenuAnchor, !busy && ps2Ready, IM_COL32(80, 160, 245, 255),
                  ps2Ready ? "Build && Run on PS2 (F6)"
-                          : "Set 'PS2 (ps2link) IP' in Project > Preferences first.",
+                          : "Set 'PS2 (ps2link) IP' in Edit > Preferences first.",
                  [&] { runner_.buildAndRunPs2(project_, true); });
     // Stop PS2: cancels a running build, else stops the game on the console
     // (kills the file server + resets ps2link + silences the SPU).
@@ -858,7 +881,7 @@ void App::drawToolbar() {
     if (iconButton("##tb_stop_ps2", gapPair, stopPs2Enabled,
                    busy ? "Cancel build"
                         : ps2Ready ? "Stop the game on the PS2"
-                                   : "Set 'PS2 (ps2link) IP' in Project > Preferences first.",
+                                   : "Set 'PS2 (ps2link) IP' in Edit > Preferences first.",
                    paintStop(stopPs2Enabled ? colStop : colDim))) {
         if (busy) runner_.cancel();
         else runner_.stopPs2(project_);
@@ -2016,6 +2039,24 @@ void App::pasteObject() {
 }
 
 void App::attachProject() {
+    // Emulator path and PS2 IP are machine-global editor settings (editor.ini),
+    // not project data. Migrate any value carried by an older .tyra file into
+    // the global config the first time such a project is opened, then feed the
+    // global values into this project - project_ is the Runner's runtime
+    // transport for them (see Project::emulatorPath / ps2LinkIp).
+    bool migrated = false;
+    if (globalEmulatorPath_.empty() && !project_.emulatorPath.empty()) {
+        globalEmulatorPath_ = project_.emulatorPath;
+        migrated = true;
+    }
+    if (globalPs2Ip_.empty() && !project_.ps2LinkIp.empty()) {
+        globalPs2Ip_ = project_.ps2LinkIp;
+        migrated = true;
+    }
+    if (migrated) saveGlobalConfig();
+    project_.emulatorPath = globalEmulatorPath_;
+    project_.ps2LinkIp = globalPs2Ip_;
+
     flowGraphObject_ = -1;
     flowPositionsApplied_ = false;
     layerRamCache_.clear();
@@ -9923,7 +9964,7 @@ void App::drawDebugWindow() {
         ImGui::TextDisabled(
             debugLogSource_ == 0
                 ? "No project open."
-                : "Emulator not found. Set the path in Project > Preferences.");
+                : "Emulator not found. Set the path in Edit > Preferences.");
     else
         ImGui::TextDisabled("%s", path.c_str());
     ImGui::Separator();
@@ -10661,6 +10702,46 @@ void App::drawPreferencesModal() {
                          "%.1f");
     ImGui::TextDisabled("Objects with the 'Physics' flag fall; the FPP player jumps with X.");
 
+    ImGui::Separator();
+    ImGui::TextDisabled(
+        "These are project-wide defaults. Scenes inherit them unless a\n"
+        "category is overridden in Scene > Scene Preferences. The emulator\n"
+        "path and dev-PS2 IP are machine-global - set them in Edit > Preferences.");
+    if (ImGui::Button("OK", ImVec2(scaled(120), 0))) {
+        project_.gameTemplate = prefTemplate_ == 1 ? "fpp" : "orbit";
+        project_.settings = prefSettings_;
+        project_.active().terrain = prefTerrain_;
+        applyProjectToViewport();  // scenes that inherit follow the new defaults
+        commitChange();
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+}
+
+// Machine-global editor settings (Edit > Preferences), stored in editor.ini and
+// shared by every project on this PC: the emulator path and the dev-PS2 IP.
+// Applied on Save - persisted to the global config and pushed into the open
+// project so the Runner (which reads project_) picks them up immediately.
+void App::drawEditorPreferencesModal() {
+    if (openEditorPrefsPopup_) {
+        ImGui::OpenPopup("Editor Preferences");
+        openEditorPrefsPopup_ = false;
+    }
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(scaled(560), 0), ImGuiCond_Appearing);
+
+    if (!ImGui::BeginPopupModal("Editor Preferences", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+
+    ImGui::TextDisabled(
+        "Settings for this editor installation - shared by every project and\n"
+        "stored outside the .tyra file (in editor.ini under %%LOCALAPPDATA%%).");
+
     ImGui::SeparatorText("Emulator");
     ImGui::InputText("PCSX2 path", prefEmulatorPath_, sizeof(prefEmulatorPath_));
     ImGui::SameLine();
@@ -10680,22 +10761,20 @@ void App::drawPreferencesModal() {
     ImGui::SeparatorText("Real PS2 (network deploy)");
     ImGui::InputText("PS2 (ps2link) IP", prefPs2Ip_, sizeof(prefPs2Ip_));
     ImGui::TextDisabled(
-        "IP of a PS2 on the LAN running PS2LINK.ELF. Enables Project > Build &&\n"
+        "IP of a PS2 on the LAN running PS2LINK.ELF. Enables Build > Build &&\n"
         "Run on PS2 (F6): the game boots on the console over ethernet with its\n"
         "assets served from this PC - no ISO, no SMB. Leave empty to disable.");
 
     ImGui::Separator();
-    ImGui::TextDisabled(
-        "These are project-wide defaults. Scenes inherit them unless a\n"
-        "category is overridden in Scene > Scene Preferences.");
-    if (ImGui::Button("OK", ImVec2(scaled(120), 0))) {
-        project_.gameTemplate = prefTemplate_ == 1 ? "fpp" : "orbit";
-        project_.settings = prefSettings_;
-        project_.emulatorPath = prefEmulatorPath_;
-        project_.ps2LinkIp = prefPs2Ip_;
-        project_.active().terrain = prefTerrain_;
-        applyProjectToViewport();  // scenes that inherit follow the new defaults
-        commitChange();
+    if (ImGui::Button("Save", ImVec2(scaled(120), 0))) {
+        globalEmulatorPath_ = prefEmulatorPath_;
+        globalPs2Ip_ = prefPs2Ip_;
+        saveGlobalConfig();
+        // Feed the new values into the open project (the Runner's transport).
+        if (hasProject_) {
+            project_.emulatorPath = globalEmulatorPath_;
+            project_.ps2LinkIp = globalPs2Ip_;
+        }
         ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
@@ -10761,7 +10840,7 @@ void App::drawNavigationModal() {
         "regardless of the transform gizmo mode. Pan/fly still move freely.");
 
     if (changed) {
-        saveEditorConfig({uiScaleUser_, nav_});
+        saveGlobalConfig();
         // Re-snap the pivot on the next frame if a selection is already active.
         navFocusedIndex_ = -1;
     }
@@ -10769,7 +10848,7 @@ void App::drawNavigationModal() {
     ImGui::Separator();
     if (ImGui::Button("Restore defaults", ImVec2(scaled(140), 0))) {
         nav_ = NavConfig{};
-        saveEditorConfig({uiScaleUser_, nav_});
+        saveGlobalConfig();
         navFocusedIndex_ = -1;
     }
     ImGui::SameLine();
