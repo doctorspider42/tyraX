@@ -39,6 +39,12 @@ int main(int argc, char** argv) {
   // Target system (Project > Preferences > Build): Auto follows the console
   // region, NTSC forces 60 Hz, PAL forces 50 Hz.
   options.videoMode = Tyra::VideoMode::Auto;
+  // Scan mode (Project > Preferences > Build > Display mode): interlaced
+  // 480i/576i, progressive 480p, or 1080i. The DTV modes need component
+  // cables on a real console and always run at 60 Hz.
+  options.displayMode = Tyra::DisplayMode::Interlaced;
+  // 16:9 anamorphic output (Preferences > Build > Widescreen).
+  options.widescreen = false;
   Tyra::Engine engine(options);
   Object_spawning::TerrainGame game(&engine);
   engine.run(&game);
