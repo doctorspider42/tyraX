@@ -25,6 +25,11 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   (background, images, baked texts, continuous/quantized progress bars),
   assigning them per scene or as the project default, how the progress bar
   tracks real load work, and the built-in fallback.
+- [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) - importing a
+  real ARKit camera move (CamTrackAR `.hfcs` or the app-agnostic CSV) into a
+  Cutscene Director camera track: the canonical take space, the mapping and
+  decimation controls in the import modal, and the acquisition/bake split that
+  keeps the door open for live phone streaming.
 
 Developer design docs (internals, not user guides):
 
