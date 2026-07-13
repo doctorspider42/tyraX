@@ -9,7 +9,7 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (85) **Missing assets no longer kill the game - they degrade gracefully.** A
+- (87) **Missing assets no longer kill the game - they degrade gracefully.** A
   failed asset load used to be a fatal assertion (game stops). Now the engine
   recovers and keeps running: a **missing/empty texture** returns a visible 8x8
   magenta-and-black checkerboard placeholder (`makePlaceholderTexture` in
@@ -43,7 +43,7 @@ Each finished feature lands as its own commit.
   change did nothing - force it by `rm`-ing `/tyra/engine/bin/libtyra.a` in the
   compiler container.)
 
-- (84) **Errors no longer crash full-screen: engine halts quietly, the editor
+- (86) **Errors no longer crash full-screen: engine halts quietly, the editor
   catches them.** A failed `TYRA_ASSERT` / `TYRA_TRAP` in the running game (e.g.
   a missing texture: `TYRA_ASSERT(file != nullptr, "Failed to load ", …)` in
   `png_loader.cpp`) used to seize the whole screen with the kernel debug console
@@ -87,6 +87,69 @@ Each finished feature lands as its own commit.
   while the user is at the machine - but the detection + parse path it depends on
   is exercised above.
 
+- (84) **examples/script-demo: drop the dangling `house-1` model reference.**
+  The scene's `house-1` object referenced `res/models/house.obj`, but the
+  example ships no model assets (its `res/` and `.res-baked/` hold only a
+  `.gitignore`, and there was no `res/models/` at all), so the model was a
+  dangling reference the example could never build. The house was never part of
+  the documented story either — README (repo + example) only promises "walk up
+  to the orange box, press X, the sky changes color." Removed the stray object
+  from `script-demo.tyra` and regenerated the committed generated files via
+  `--build examples\script-demo`: `scene_data.hpp` drops from 3 objects to 2
+  (`SCENE_OBJECT_COUNTS`/`SAVE_OBJECT_MAX` now 2), and `model_data.gen.hpp` now
+  has `MODEL_COUNT = 0`. **Verified end-to-end**: the Docker build now completes
+  (`=== Build OK ===`, exit 0) and produces a full `bin/script-demo.elf`
+  (2.4 MB scene binary), where before the missing asset left the example
+  unbuildable. No `house` references remain anywhere in the example tree.
+- (83) **Layers panel: stop the delete button overlapping the size readout.**
+- (85) **Documentation review pass: closed feature/example gaps and added the
+  first editor screenshots.** A full read-through of the docs surfaced several
+  gaps against `tyra-docs`: the README's feature list had **no Animated models
+  entry** despite `docs/animated-models.md` being the largest guide, and its
+  *Example projects* section **omitted `large-terrain` and `object-spawning`**
+  (both already had good READMEs). Added the animated-models feature bullet, a
+  new *Documentation* section linking the `docs/` index, the two missing example
+  bullets, and a `camera-takes.md` entry in `docs/README.md` (it was referenced
+  from the README but not indexed). Wrote the missing `examples/script-demo/README.md`
+  (the only example without one). Captured the **first three editor-UI
+  screenshots** with the GUI harness (`.claude/skills/tyra-testing/scripts/screenshot-window.ps1`,
+  DPI-aware GDI capture + synthetic click/scroll/pan helpers) and embedded them:
+  `docs/img/editor-overview.png` (README hero, cutscene-demo scene),
+  `docs/img/flow-graph.png` (the custom-nodes graph, in `custom-flow-nodes.md`)
+  and `docs/img/cutscene-director.png` (the dopesheet, in the cutscene-demo
+  README). *Verified* by launching the editor GUI on each example project and
+  eyeballing every capture; the docs were re-read after editing. **Two findings
+  worth recording:** (a) the checked-in `build/tyra-editor.exe` was **stale** —
+  it predated the *Tools > Cutscene Director* menu item (`app.cpp:688`), so the
+  flagship window was missing until a rebuild; screenshotting current UI needs a
+  fresh `build.ps1`. (b) `examples/script-demo` has a **dangling model
+  reference**: `house-1` points at `res/models/house.obj`, but unlike the other
+  examples script-demo ships no `res/` assets (only `res/.gitignore`), so it
+  likely can't build — flagged as a separate task, the new README documents only
+  the working box/sky interaction. Screenshot scope was editor-UI-only per the
+  request (no Docker/PCSX2 in-game shots this pass); the UI-scale nuance (the
+  flow-graph node layout is authored for 1× and overlaps at the user's 2.5×
+  scale, so that shot was taken at 1× + canvas zoom) is captured in the
+  editor-gui-screenshot-harness memory.
+
+- (84) **Layers panel: stop the delete button overlapping the size readout.**
+  Each layer row lays out `[eye] [name input] [start] [N | X.X MB] [x]` on one
+  line, but the name `InputText` reserved a fixed `-118px` on the right while the
+  real right-hand content — the "start" checkbox + the variable-width
+  "N | X.X MB" readout + the "x" `SmallButton` — runs wider than that, so the
+  MB text and the delete button drew on top of each other (visible as
+  `start 20 |x0.` with the size clipped). Now the row measures the actual
+  widths up front (`CalcTextSize` on the formatted count string, "start", and
+  "x", plus `ItemSpacing`/`FramePadding`) and passes that sum as the negative
+  `SetNextItemWidth`, so the name field shrinks to exactly fit and the readout +
+  button always sit clear; the "x" button is anchored at `ContentRegionMax.x`
+  minus its measured width instead of a hardcoded 22px. The per-row object count
+  is now computed once and reused for both the reservation and the label.
+  **Verified** (GUI A/B): built clean, opened a scratch project with four
+  auto-streamed layers (forest/village/ruins/weather) and window-screenshotted
+  the editor — the readout reads in full (`start 0 | 0.0 MB`) with the `x`
+  flush right and no overlap, versus the pre-fix build where the same rows
+  clipped the MB under the button.
 - (83) **Edit > Preferences: machine-global editor settings (emulator path +
   dev-PS2 IP).** The PCSX2 path and the ps2link IP are per-machine, not
   per-project (the emulator lives at a fixed path on this PC; the dev PS2 has a

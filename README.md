@@ -2,6 +2,8 @@
 
 An editor for the [Tyra](https://github.com/h4570/tyra) PlayStation 2 game engine. C++20 + Dear ImGui (docking) + GLFW + OpenGL 3.3.
 
+![The Tyra Editor: the Project panel (scenes, objects, layers, assets) on the left, the 3D viewport with a checkerboard terrain, scene objects and camera-entity frustum wedges in the center, the Properties panel on the right, and the build Output docked below.](docs/img/editor-overview.png)
+
 ## Quickstart
 
 ```powershell
@@ -52,6 +54,7 @@ Then in the editor:
 - **Phone camera takes** (*Cutscene Director > Import take...*) — record a real 6DoF camera move on a phone (ARKit world tracking, e.g. the [CamTrackAR](https://fxhome.com/product/camtrackar) iPhone app) and import it **into a chosen Camera entity** — its transform track + FOV are baked from the recording, so the camera dollies along the path (two cameras in one scene each get their own move): "walk around a room looking around" becomes a PS2 cutscene camera move. Reads CamTrackAR `.hfcs` exports and an app-agnostic CSV (spec in [docs/camera-takes.md](docs/camera-takes.md)); the import modal maps the take into the scene (scale "1 m = N units", extra yaw, origin placement at the preview camera, start-at-playhead) and **decimates** the 60 Hz recording with an error-bounded tolerance slider (a 6.6 s take → ~12 keys) so the compiled PS2 keyframe table stays small. After importing, the whole path can be re-positioned and re-oriented (start point + start yaw) without re-importing. Imported shots are ordinary editable keys — scrub, retime or delete them like hand-authored ones. The acquisition/bake split is ready for phase 2: live pose streaming from the phone into the same pipeline.
 - **Physics** — per-object gravity (*Physics* checkbox) and FPP player physics: gravity, jumping on X, collision with scene objects, walking on top of them.
 - **Custom .obj models** — `+ Model` imports a mesh into `res/models/`; it renders in the viewport and is compiled into the game (≤3000 tris per model). Models behave like any scene object (gizmos, physics, scripts, lighting).
+- **Animated models (.glb)** — import a skinned/rigged glTF authored in Blender (*Project > Assets > Import model...*, then *+ Add object > Model > your file `(animated)`*). A real skeletal runtime plays named clips on the PS2 — EE pose evaluation, VU0 macro-mode skinning, rendered through the same static pipeline as everything else — with crossfade blending between clips and per-object *start clip / autoplay / loop / speed / color / box collision*. Trigger clips from the flow graph (**Play Animation**, **Stop Animation**, **On Animation Finished**) or from scripts (`playAnimation` / `stopAnimation` / `animationFinished`). Clip length is nearly free (~150 KB for a 1500-vertex character with three clips); three stacking LOD levers keep crowds under the frame budget — per-object **draw distance**, project-wide **animation LOD** (distant instances re-pose every 2nd/4th frame) and **mesh LOD** (build-baked decimated variants). Full guide: [docs/animated-models.md](docs/animated-models.md).
 - **Directional lighting** — light direction + ambient/diffuse in preferences, baked into vertex colors; identical shading in the viewport and on the PS2.
 - **Sky** — gradient dome (horizon/zenith colors) or flat clear color; scripts can retint it at runtime.
 - **HUD from images** — `+ Image (PNG)` imports into `res/hud/`; position/size editable with a live preview over the viewport; rendered in-game as 2D sprites. The built-in **USE prompt** is a pinned entry in *Tools > UI Editor*: reposition/resize it or replace its sprite with a custom PNG (reset to the built-in anytime).
@@ -120,12 +123,24 @@ Before each build the editor refreshes its generated files: `Dockerfile`, `docke
 
 All example projects live under [examples/](examples): a general playground, a large multi-feature showcase, and focused per-feature demos.
 
-- [examples/script-demo](examples/script-demo) — a complete FPP project with the example script: walk up to the box and press X and the sky changes color. Open it via `File > Open Project` and pick its `script-demo.tyra` (the `.history` undo file and `.vscode/` IntelliSense config are local state — the editor recreates them on open/build), then Build & Run.
+- [examples/script-demo](examples/script-demo) — a complete FPP project with the example script: walk up to the box and press X and the sky changes color. Open it via `File > Open Project` and pick its `script-demo.tyra` (the `.history` undo file and `.vscode/` IntelliSense config are local state — the editor recreates them on open/build), then Build & Run (see its [README](examples/script-demo/README.md)).
 - [examples/showcase](examples/showcase) — a large, multi-feature project: two scenes joined by a portal, streaming layers, a skeletal-animated model, LOD, fog, baked lights, particles, menus, post-FX and audio (see its [README](examples/showcase/README.md)).
 - [examples/layer-streaming](examples/layer-streaming) — [streaming layers](docs/streaming-layers.md): two buildings joined by a corridor — walking through swaps which building is in memory, GTA3-style (watch the MEM overlay).
 - [examples/cutscene-demo](examples/cutscene-demo) — the **Cutscene Director**: a 14 s in-engine cutscene with shots bound to Camera entities, a dolly tracking shot, a hard cut, camera shake, animated FOV, Cinema 2.39:1 bars and fades; plays on boot, replays from a usable pedestal, skippable with START (see its [README](examples/cutscene-demo/README.md)).
 - [examples/video-modes](examples/video-modes) — display-mode test bed: a VIDEO OPTIONS menu (opens at boot, Start reopens it) switches 480i / 480p / 1080i and 4:3 / 16:9 at runtime, with the keep-or-revert confirm prompt (see its [README](examples/video-modes/README.md)).
 - [examples/custom-nodes](examples/custom-nodes) — [custom flow-graph nodes](docs/custom-flow-nodes.md): press Cross and a C++-backed node picks the nearest crate at runtime and feeds it to a built-in Hide Object; press Square and an inline-snippet node spins a crate (see its [README](examples/custom-nodes/README.md)).
+- [examples/large-terrain](examples/large-terrain) — a 2048×2048 world that never fits in 32 MB at once, kept playable by chunked view-distance terrain streaming, ~1100 draw-distance-culled props and 80 skeletal-animated "wobblers" that stress the [animation/mesh LOD chain](docs/animated-models.md); ships in the debug profile so the on-screen FPS/MEM overlay is visible (see its [README](examples/large-terrain/README.md)).
+- [examples/object-spawning](examples/object-spawning) — runtime object spawning driven entirely from a flow graph: **Spawn Object** clones an animated template at a marker on a timer and its object output feeds a **Despawn Object** that removes exactly that clone after a delay — the missing piece for GTA-style traffic (see its [README](examples/object-spawning/README.md)).
+
+## Documentation
+
+Deep-dive guides for the bigger features live in [docs/](docs) (indexed in
+[docs/README.md](docs/README.md)): [animated models](docs/animated-models.md),
+[object scripts](docs/object-scripts.md), [custom flow nodes](docs/custom-flow-nodes.md),
+[streaming layers](docs/streaming-layers.md), [camera takes](docs/camera-takes.md)
+and the [profiling](docs/profiling.md) / [VU1 clipping](docs/vu1-clipping-plan.md)
+developer notes. Per-feature example projects are listed above; the developer
+architecture guides live under [.claude/skills/](.claude/skills).
 
 ## Structure
 
