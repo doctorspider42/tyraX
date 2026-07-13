@@ -73,6 +73,9 @@ struct EditorConfig {
     // copyable error dialog. When false, errors go only to the console / Debug
     // window (the game already logs them there either way).
     bool errorPopup = true;
+    // Parent folder proposed as the location for new projects. Empty = fall
+    // back to ~/TyraProjects.
+    std::string defaultProjectsDir;
 };
 
 static std::filesystem::path editorConfigPath() {
@@ -111,6 +114,7 @@ static EditorConfig loadEditorConfig() {
         else if (match("emulatorPath", v)) cfg.emulatorPath = v;
         else if (match("ps2LinkIp", v)) cfg.ps2LinkIp = v;
         else if (match("errorPopup", v)) cfg.errorPopup = toI(v, 1) != 0;
+        else if (match("defaultProjectsDir", v)) cfg.defaultProjectsDir = v;
     }
     return cfg;
 }
@@ -134,7 +138,17 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "navOrbitSelection=" << (n.orbitAroundSelection ? 1 : 0) << "\n"
       << "emulatorPath=" << cfg.emulatorPath << "\n"
       << "ps2LinkIp=" << cfg.ps2LinkIp << "\n"
-      << "errorPopup=" << (cfg.errorPopup ? 1 : 0) << "\n";
+      << "errorPopup=" << (cfg.errorPopup ? 1 : 0) << "\n"
+      << "defaultProjectsDir=" << cfg.defaultProjectsDir << "\n";
+}
+
+// Default parent directory proposed for new projects: the configured global
+// default (Edit > Preferences) if set, else ~/TyraProjects.
+static std::string defaultNewProjectLocation(const std::string& configured) {
+    if (!configured.empty()) return configured;
+    if (const char* home = getenv("USERPROFILE"))
+        return std::string(home) + "\\TyraProjects";
+    return "";
 }
 
 static std::string wideToUtf8(const wchar_t* path) {
@@ -332,6 +346,7 @@ int App::run(const std::string& initialProjectDir) {
         globalEmulatorPath_ = cfg.emulatorPath;
         globalPs2Ip_ = cfg.ps2LinkIp;
         errorPopupEnabled_ = cfg.errorPopup;
+        globalDefaultProjectsDir_ = cfg.defaultProjectsDir;
     }
     applyUiScale();
 
@@ -347,9 +362,11 @@ int App::run(const std::string& initialProjectDir) {
         return 1;
     }
 
-    // Default location for new projects: the user's home dir
-    if (const char* home = getenv("USERPROFILE"))
-        std::snprintf(newLocation_, sizeof(newLocation_), "%s\\TyraProjects", home);
+    // Default location for new projects: the configured global default (Edit >
+    // Preferences) or ~/TyraProjects. Re-proposed each time the New Project
+    // modal opens, so a mid-session preference change takes effect immediately.
+    std::snprintf(newLocation_, sizeof(newLocation_), "%s",
+                  defaultNewProjectLocation(globalDefaultProjectsDir_).c_str());
 
     if (!initialProjectDir.empty()) {
         // Accept both a project directory and a <name>.tyra project file
@@ -563,8 +580,8 @@ void App::applyUiScale() {
 // {uiScaleUser_, nav_} would wipe the emulator path / PS2 IP on the next
 // UI-scale or navigation change.
 void App::saveGlobalConfig() {
-    saveEditorConfig(
-        {uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_, errorPopupEnabled_});
+    saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_,
+                      errorPopupEnabled_, globalDefaultProjectsDir_});
 }
 
 void App::setUiScale(float userScale) {
@@ -606,6 +623,8 @@ void App::drawMenuBar() {
                 snprintf(prefEmulatorPath_, sizeof(prefEmulatorPath_), "%s",
                          globalEmulatorPath_.c_str());
                 snprintf(prefPs2Ip_, sizeof(prefPs2Ip_), "%s", globalPs2Ip_.c_str());
+                snprintf(prefDefaultProjectsDir_, sizeof(prefDefaultProjectsDir_), "%s",
+                         globalDefaultProjectsDir_.c_str());
                 openEditorPrefsPopup_ = true;
             }
             ImGui::EndMenu();
@@ -10727,6 +10746,9 @@ void App::drawNewProjectModal() {
         ImGui::OpenPopup("New Project");
         openNewProjectPopup_ = false;
         newProjectError_.clear();
+        // Propose the configured default projects folder (Edit > Preferences).
+        std::snprintf(newLocation_, sizeof(newLocation_), "%s",
+                      defaultNewProjectLocation(globalDefaultProjectsDir_).c_str());
     }
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
@@ -11108,6 +11130,24 @@ void App::drawEditorPreferencesModal() {
         "Settings for this editor installation - shared by every project and\n"
         "stored outside the .tyra file (in editor.ini under %%LOCALAPPDATA%%).");
 
+    ImGui::SeparatorText("New projects");
+    ImGui::InputText("Default folder", prefDefaultProjectsDir_,
+                     sizeof(prefDefaultProjectsDir_));
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Browse...##projdir")) {
+        const std::string dir = pickFolder();
+        if (!dir.empty())
+            snprintf(prefDefaultProjectsDir_, sizeof(prefDefaultProjectsDir_), "%s",
+                     dir.c_str());
+    }
+    if (prefDefaultProjectsDir_[0] != '\0') {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Clear##projdir")) prefDefaultProjectsDir_[0] = '\0';
+    }
+    ImGui::TextDisabled(
+        "Parent folder proposed as the location when you create a new project\n"
+        "(File > New Project). Leave empty to default to ~/TyraProjects.");
+
     ImGui::SeparatorText("Emulator");
     ImGui::InputText("PCSX2 path", prefEmulatorPath_, sizeof(prefEmulatorPath_));
     ImGui::SameLine();
@@ -11135,6 +11175,7 @@ void App::drawEditorPreferencesModal() {
     if (ImGui::Button("Save", ImVec2(scaled(120), 0))) {
         globalEmulatorPath_ = prefEmulatorPath_;
         globalPs2Ip_ = prefPs2Ip_;
+        globalDefaultProjectsDir_ = prefDefaultProjectsDir_;
         saveGlobalConfig();
         // Feed the new values into the open project (the Runner's transport).
         if (hasProject_) {
