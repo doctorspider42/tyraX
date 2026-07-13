@@ -7077,7 +7077,12 @@ float App::applyCamTake(Sequence& s, bool replace) {
 // for a sequence with a camera track - flies the viewport camera along it. So
 // scrubbing the timeline shows exactly what the console will render.
 const std::vector<SceneObject>& App::cutscenePosedObjects() {
-    const bool active = showCutsceneEditor_ && seqPreview_ && hasProject_ &&
+    // Pose the scene whenever the Director is open on a valid sequence. The
+    // "Preview in viewport" toggle only controls whether the sequence drives
+    // the VIEWPORT CAMERA (and the bars/fade overlay) - with it off, objects
+    // (including a Camera entity dollying along its track) still animate, so
+    // you can watch the move from a free vantage point.
+    const bool active = showCutsceneEditor_ && hasProject_ &&
                         selectedSequence_ >= 0 &&
                         selectedSequence_ < (int)project_.sequences.size();
     if (!active) {
@@ -7162,7 +7167,7 @@ const std::vector<SceneObject>& App::cutscenePosedObjects() {
     // seqPosed_ (object tracks already ran, so an animated camera entity gives
     // a dolly shot). Shots blend across the segment; Step easing = hard cut.
     // The exact same resolution runs in the generated PS2 player.
-    if (s.cameraEnabled && !s.cameraKeys.empty()) {
+    if (seqPreview_ && s.cameraEnabled && !s.cameraKeys.empty()) {
         std::vector<SeqCameraKey> ck = s.cameraKeys;
         std::sort(ck.begin(), ck.end(),
                   [](const SeqCameraKey& a, const SeqCameraKey& b) {
@@ -7221,13 +7226,20 @@ const std::vector<SceneObject>& App::cutscenePosedObjects() {
         seqCameraPushed_ = false;
     }
 
-    // Widescreen bars + fades preview, overlaid on the viewport image where
-    // it is drawn (same envelope math as the PS2 player).
-    seqBarsStyleNow_ = s.bars;
-    seqBarsNow_ = s.bars != kSeqBarsNone
-                      ? seqBarsAmount(t, s.duration, s.barsSlideIn, s.barsSlideOut)
-                      : 0.0f;
-    seqFadeNow_ = seqFadeAlpha(t, s.duration, s.fadeIn, s.fadeOut);
+    // Widescreen bars + fades preview, overlaid on the viewport image where it
+    // is drawn (same envelope math as the PS2 player). Only while the sequence
+    // drives the viewport camera - with preview off you watch from outside.
+    if (seqPreview_) {
+        seqBarsStyleNow_ = s.bars;
+        seqBarsNow_ = s.bars != kSeqBarsNone
+                          ? seqBarsAmount(t, s.duration, s.barsSlideIn, s.barsSlideOut)
+                          : 0.0f;
+        seqFadeNow_ = seqFadeAlpha(t, s.duration, s.fadeIn, s.fadeOut);
+    } else {
+        seqBarsStyleNow_ = 0;
+        seqBarsNow_ = 0.0f;
+        seqFadeNow_ = 0.0f;
+    }
 
     return seqPosed_;
 }
@@ -7493,6 +7505,9 @@ void App::drawCutsceneWindow() {
     ImGui::SameLine(0.0f, scaled(14.0f));
     ImGui::SetNextItemWidth(scaled(100.0f));
     ImGui::SliderFloat("Zoom", &seqZoom_, 1.0f, 8.0f, "%.1fx");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Timeline horizontal zoom (also Ctrl + mouse wheel\n"
+                          "over the dopesheet).");
     ImGui::SameLine(0.0f, scaled(14.0f));
     ImGui::Text("t = %.2f s", seqPlayhead_);
     ImGui::SameLine(0.0f, 14.0f);
@@ -7570,6 +7585,15 @@ void App::drawCutsceneWindow() {
     ImGui::BeginChild("##dopesheet", ImVec2(0, sheetH), ImGuiChildFlags_Borders,
                       ImGuiWindowFlags_HorizontalScrollbar);
     {
+        // Ctrl + mouse wheel zooms the timeline (like the flow graph); a plain
+        // wheel keeps scrolling the dopesheet.
+        if (ImGui::IsWindowHovered() && ImGui::GetIO().KeyCtrl &&
+            ImGui::GetIO().MouseWheel != 0.0f) {
+            seqZoom_ *= ImPow(1.1f, ImGui::GetIO().MouseWheel);
+            if (seqZoom_ < 1.0f) seqZoom_ = 1.0f;
+            if (seqZoom_ > 8.0f) seqZoom_ = 8.0f;
+            ImGui::GetIO().MouseWheel = 0.0f;  // consume: don't also scroll
+        }
         ImDrawList* dl = ImGui::GetWindowDrawList();
         const ImVec2 origin = ImGui::GetCursorScreenPos();  // content space
         const float visibleW = ImGui::GetWindowSize().x;
@@ -7612,11 +7636,15 @@ void App::drawCutsceneWindow() {
                               (li & 1) ? colLaneB : colLaneA);
         }
 
-        // lane hit areas: double-click an empty spot = drop a key there
+        // lane hit areas: double-click an empty spot = drop a key there.
+        // AllowOverlap so the keyframe buttons submitted on top of the lane
+        // still catch the mouse (drag a key to retime) - without it the lane
+        // eats every click over it.
         for (int li = 0; li < laneCount; ++li) {
             const int ti = s.cameraEnabled ? li - 1 : li;  // -1 = camera lane
             ImGui::PushID(100 + li);
             ImGui::SetCursorScreenPos(ImVec2(x0, laneY0 + li * laneH));
+            ImGui::SetNextItemAllowOverlap();
             ImGui::InvisibleButton("##lane", ImVec2(timeW, laneH));
             if (ImGui::IsItemHovered() &&
                 ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {

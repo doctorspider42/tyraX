@@ -95,6 +95,23 @@ Each finished feature lands as its own commit.
   runs on cutscene-demo with the three cameras still drawing normally in
   "View: Free" (no regression); the hide-on-preview and the Space toggle are
   interactive, so their live feel wants the user's hands-on pass.
+
+  **Three fixes** (user report). (a) **Preview off now still animates:**
+  `cutscenePosedObjects()` gated *all* posing on `seqPreview_`, so unchecking
+  "Preview in viewport" froze the scene. Posing is now unconditional while the
+  Director is open on a sequence; `seqPreview_` only gates driving the viewport
+  camera + the bars/fade overlay - so with it off, a Camera entity still dollies
+  along its track and you watch from a free vantage point. (b) **Keyframe
+  dragging works:** the dopesheet's per-lane hit rectangle was submitted before
+  the key diamonds without `SetNextItemAllowOverlap()`, so ImGui's
+  `ItemHoverable` blocked the keys (`HoveredId` claimed by the lane) and they
+  never became active - dragging did nothing. Marking the lane allow-overlap
+  lets the diamonds on top catch the mouse (drag to retime, as the cursor +
+  tooltip already advertised). (c) **Ctrl + mouse wheel zooms the timeline**
+  over the dopesheet (mirrors the flow-graph zoom), consuming the wheel so it
+  doesn't also scroll; the Zoom slider tooltips it. Verified: editor builds
+  clean and runs on cutscene-demo; the three are interactive, so their live
+  feel wants the user's pass.
 - (79) **Tool windows scale their layout with the UI scale (fix 250% clipping)** —
   the floating Tools windows (Menu Editor, Material Editor, Color Grading,
   Ambience, UI Editor, Disc Layout, Cutscene Director) and the modal dialogs
