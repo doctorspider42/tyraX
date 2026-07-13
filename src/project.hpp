@@ -111,6 +111,15 @@ inline int primTriangleCount(PrimitiveType type, int detail) {
 // Unit primitives fit a 1x1x1 cube centered at origin and are transformed by
 // scale -> rotation (X, then Y, then Z) -> translation.
 struct SceneObject {
+    // Stable, opaque identity - generated once (project::ensureObjectIds) and
+    // never changed, even across renames. This is the merge/persistence key:
+    // the multi-user file layout stores one object per file keyed on it, so
+    // two people editing different objects touch different files. Object
+    // *references* (flow graphs, sequences, layers) still resolve by name;
+    // the id only exists to give the merge machinery something stable to
+    // anchor on. Empty on objects authored before ids existed / freshly
+    // pasted; filled in on the next load or commit.
+    std::string id;
     std::string name;
     PrimitiveType type = PrimitiveType::Box;
     float position[3] = {0.0f, 0.5f, 0.0f};
@@ -238,7 +247,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
     auto eq3 = [](const float* x, const float* y) {
         return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
     };
-    return a.name == b.name && a.type == b.type && eq3(a.position, b.position) &&
+    return a.id == b.id && a.name == b.name && a.type == b.type && eq3(a.position, b.position) &&
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
            a.physics == b.physics && a.usable == b.usable &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
@@ -851,6 +860,18 @@ namespace project {
 // Returns empty string on success, error message otherwise.
 std::string create(Project& out, const std::string& name, const std::string& parentDir,
                    const TerrainConfig& terrain, const std::string& preset = "empty");
+
+// A fresh opaque object id (16 hex chars from a 64-bit random value). Unique
+// within a project with negligible collision odds; the merge/file-split layout
+// keys on it. See SceneObject::id.
+std::string newObjectId();
+
+// Assigns a stable id to every scene object that lacks one (empty id, e.g. an
+// object from a pre-id project or a fresh paste), and repairs any accidental
+// duplicate so ids stay unique project-wide. Idempotent - a no-op once every
+// object already has a distinct id. Called on load, on create, and from the
+// editor's commitChange() so no object is ever persisted without an id.
+void ensureObjectIds(Project& p);
 
 // The effective settings for a scene: the project defaults with each scene
 // category (lighting, sky, clipping, terrain material, post-FX, highlight)
