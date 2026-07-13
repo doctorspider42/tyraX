@@ -197,7 +197,8 @@ static std::string objectJson(const SceneObject& o) {
         (o.layer.empty() ? "" : ", \"layer\": \"" + o.layer + "\"") +
         // geometry primitives only; the type's default detail stays implicit
         (((o.type == PrimitiveType::Box || o.type == PrimitiveType::Sphere ||
-           o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone) &&
+           o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone ||
+           o.type == PrimitiveType::SavePoint) &&
           o.primDetail != defaultPrimDetail(o.type))
              ? ", \"detail\": " + std::to_string(o.primDetail)
              : "") +

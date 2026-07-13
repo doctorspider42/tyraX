@@ -2118,7 +2118,7 @@ void App::addObject(PrimitiveType type) {
     SceneObject o;
     o.name = name;
     o.type = type;
-    o.primDetail = defaultPrimDetail(type);  // box baseline 1, curved 16
+    o.primDetail = defaultPrimDetail(type);  // box-like baseline 1, curved 16
     if (type == PrimitiveType::SpawnPoint) {
         o.position[1] = 0.0f;  // marker sits on the ground
         o.color[0] = 0.15f, o.color[1] = 0.9f, o.color[2] = 0.9f;
@@ -3340,10 +3340,11 @@ void App::drawPropertiesWindow() {
         ImGui::TextUnformatted(typeLabel(o.type));
     }
     // Geometry primitives: how many segments (curved) or edge subdivisions
-    // (box) the mesh is built from. Editable any time, updates live.
+    // (box-like) the mesh is built from. Editable any time, updates live.
     if (o.type == PrimitiveType::Box || o.type == PrimitiveType::Sphere ||
-        o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone) {
-        const bool box = o.type == PrimitiveType::Box;
+        o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone ||
+        o.type == PrimitiveType::SavePoint) {
+        const bool box = primDetailIsBoxLike(o.type);
         int detail = o.primDetail;
         if (ImGui::DragInt("Detail", &detail, 0.2f, primDetailMin(o.type),
                            primDetailMax(o.type), box ? "%d subdivisions"
@@ -3924,12 +3925,13 @@ void App::drawMultiProperties() {
             shape || o.type == PrimitiveType::Model || o.type == PrimitiveType::SavePoint;
         const bool empty = o.type == PrimitiveType::Empty;
         const bool decal = o.type == PrimitiveType::Decal;
-        // Detail (segments/subdivisions) exists for the curved/box primitives,
-        // not for the flat Plane.
+        // Detail (segments/subdivisions) exists for the curved/box-like
+        // primitives (SavePoint tessellates as a Box), not for the flat Plane.
         const bool hasDetail = o.type == PrimitiveType::Box ||
                                o.type == PrimitiveType::Sphere ||
                                o.type == PrimitiveType::Cylinder ||
-                               o.type == PrimitiveType::Cone;
+                               o.type == PrimitiveType::Cone ||
+                               o.type == PrimitiveType::SavePoint;
         allShape = allShape && shape;
         allSolid = allSolid && solid;
         allDetail = allDetail && hasDetail;
@@ -4064,7 +4066,7 @@ void App::drawMultiProperties() {
         }
     }
     if (allDetail && allSameType) {
-        const bool box = primary.type == PrimitiveType::Box;
+        const bool box = primDetailIsBoxLike(primary.type);
         int d = primary.primDetail;
         bool mixedD = false;
         for (auto* p : objs) mixedD = mixedD || p->primDetail != primary.primDetail;
