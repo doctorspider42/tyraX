@@ -155,7 +155,32 @@ member seeded from it at startup → edited in the *Edit* Preferences dialog
 (`drawEditorPreferencesModal`). Every save funnels through `App::saveGlobalConfig()`
 so no field is dropped. If the Runner needs it, feed it into `project_` in
 `attachProject` (as `emulatorPath`/`ps2LinkIp` do — those live on `Project` only
-as the Runner's runtime transport, not as serialized game data).
+as the Runner's runtime transport, not as serialized game data). A machine-wide
+setting doesn't have to live in that modal — the `errorPopup` toggle (below) is
+edited from the *Debug* window and the error dialog instead, but it still goes
+through `EditorConfig` / `saveGlobalConfig()` the same way.
+
+**Game error catcher** (`App::pollGameError`, called each frame from `drawUI`):
+the running game's fatal errors reach the editor through its log, not a return
+code — a failed `TYRA_ASSERT` in the engine prints a dump (bracketed by the
+stable `======= TYRA =======` … `================` delimiters) to
+`bin/log.txt` (PCSX2, host: fs) or the `[ps2]` runner-log stream (network
+deploy) and halts quietly (see tyra-engine-dev — the engine no longer takes over
+the screen). `pollGameError` tails both (throttled), `extractLastTyraAssert`
+pulls the last block, and a new one raises the copyable `drawErrorModal` (and
+flashes/focuses the window via `glfwRequestWindowAttention`/`glfwFocusWindow` —
+PCSX2 has the foreground when the game dies). The same block format covers both
+a fatal assertion (game stopped) and a `TYRA_SOFT_ERROR` (recovered asset load,
+game running — see tyra-engine-dev); `drawErrorModal` switches its wording on the
+`Non-fatal` header marker. Dedupe is by block text
+(`errorSeenSig_`), but the signature is **forgotten when a log source shrinks**
+(tracked via `errorGameLogSize_`/`errorRunnerLogSize_`): the Runner deletes
+`bin/log.txt` before each launch, so a new run drops the size and an *identical*
+re-run error pops again instead of being deduped away. Both size and signature
+are baselined in `attachProject` so a stale dump present at open neither pops nor
+reads as a shrink. (Don't revert to text-only dedup re-baselined per build/run —
+it silently misses the second identical run's error.) `EditorConfig::errorPopup`
+(default on) gates the dialog; off = errors go only to the Debug window / console.
 
 ### 4. Conventions
 - Files: `snake_case.cpp/.hpp`, paired header/impl, flat `src/`.

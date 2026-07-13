@@ -16,6 +16,10 @@ namespace Tyra {
 
 bool Info::writeLogsToFile = false;
 
+// Modified by tyra-editor: default OFF - assertions stay on the console / log
+// instead of taking over the screen (see info.hpp and debug/debug.hpp).
+bool Info::drawAssertScreen = false;
+
 Info::Info() {
   fps = 0;
   fpsDelayer = 0;

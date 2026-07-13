@@ -231,7 +231,14 @@ void AudioSong::init() {
 void AudioSong::load(const char* t_path) {
   if (songLoaded) unloadSong();
   wav = fopen(t_path, "rb");
-  TYRA_ASSERT(wav != nullptr, "Failed to open wav file!");
+  // Modified by tyra-editor: a missing music file is no longer fatal - log it
+  // (the editor surfaces it) and leave songLoaded false so play() is a no-op;
+  // the game runs on in silence instead of crashing.
+  if (wav == nullptr) {
+    TYRA_SOFT_ERROR("Failed to open music file: ", t_path,
+                    " (the game keeps running without this track)");
+    return;
+  }
 
   audsrv_fmt_t fileFormat;
   u32 dataStart = 0, dataBytes = 0;
@@ -274,7 +281,9 @@ void AudioSong::load(const char* t_path) {
 void AudioSong::load(const std::string& t_path) { load(t_path.c_str()); }
 
 void AudioSong::play() {
-  TYRA_ASSERT(songLoaded, "Cant play song because was not loaded!");
+  // Modified by tyra-editor: play() is a no-op when no song loaded (e.g. the
+  // file was missing - see load()), instead of asserting and killing the game.
+  if (!songLoaded) return;
   if (songFinished) rewindSongToStart();
   tyraVolume = audsrvVolume;
   audsrv_set_volume(tyraVolume);

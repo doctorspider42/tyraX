@@ -52,6 +52,10 @@ enum class PickKind { Folder, Solution, ObjModel, Mtl, Png, Wav, Ttf, Executable
 // dialog when it interacts with the non-pumping app (grayed Open button).
 static HWND g_dialogOwner = nullptr;
 
+// Defined lower down (next to the game-error catcher) but used early in
+// attachProject() to baseline the log size.
+static size_t fileSizeOr0(const std::string& path);
+
 // ---------------------------------------------------------------------------
 // Global editor config. These are machine/muscle-memory properties (a 4K laptop
 // wants a different UI scale than a 1080p desktop; navigation is personal
@@ -65,6 +69,10 @@ struct EditorConfig {
     NavConfig nav;
     std::string emulatorPath;  // pcsx2-qt.exe; empty = auto-detect
     std::string ps2LinkIp;     // LAN IP of a PS2 running ps2link; empty = disabled
+    // When true (default), a TYRA assertion from the running game pops up a
+    // copyable error dialog. When false, errors go only to the console / Debug
+    // window (the game already logs them there either way).
+    bool errorPopup = true;
 };
 
 static std::filesystem::path editorConfigPath() {
@@ -102,6 +110,7 @@ static EditorConfig loadEditorConfig() {
         else if (match("navOrbitSelection", v)) cfg.nav.orbitAroundSelection = toI(v, 1) != 0;
         else if (match("emulatorPath", v)) cfg.emulatorPath = v;
         else if (match("ps2LinkIp", v)) cfg.ps2LinkIp = v;
+        else if (match("errorPopup", v)) cfg.errorPopup = toI(v, 1) != 0;
     }
     return cfg;
 }
@@ -124,7 +133,8 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "navInvertY=" << (n.invertY ? 1 : 0) << "\n"
       << "navOrbitSelection=" << (n.orbitAroundSelection ? 1 : 0) << "\n"
       << "emulatorPath=" << cfg.emulatorPath << "\n"
-      << "ps2LinkIp=" << cfg.ps2LinkIp << "\n";
+      << "ps2LinkIp=" << cfg.ps2LinkIp << "\n"
+      << "errorPopup=" << (cfg.errorPopup ? 1 : 0) << "\n";
 }
 
 static std::string wideToUtf8(const wchar_t* path) {
@@ -321,6 +331,7 @@ int App::run(const std::string& initialProjectDir) {
         nav_ = cfg.nav;
         globalEmulatorPath_ = cfg.emulatorPath;
         globalPs2Ip_ = cfg.ps2LinkIp;
+        errorPopupEnabled_ = cfg.errorPopup;
     }
     applyUiScale();
 
@@ -455,6 +466,9 @@ void App::drawUI() {
         }
     }
 
+    // Watch the running game's log for a fresh assertion dump (throttled).
+    pollGameError();
+
     drawMenuBar();
     drawViewportWindow();
     drawProjectWindow();
@@ -472,6 +486,7 @@ void App::drawUI() {
     drawNewProjectModal();
     drawPreferencesModal();
     drawEditorPreferencesModal();
+    drawErrorModal();
     drawNavigationModal();
     drawScenePreferencesModal();
     drawNewScriptModal();
@@ -548,7 +563,8 @@ void App::applyUiScale() {
 // {uiScaleUser_, nav_} would wipe the emulator path / PS2 IP on the next
 // UI-scale or navigation change.
 void App::saveGlobalConfig() {
-    saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_});
+    saveEditorConfig(
+        {uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_, errorPopupEnabled_});
 }
 
 void App::setUiScale(float userScale) {
@@ -2100,6 +2116,16 @@ void App::attachProject() {
     // rediscovered on every open, so treat the project as saved.
     dirty_ = false;
     updateWindowTitle();
+
+    // Baseline the error catcher: any assertion already in this project's logs
+    // is from a previous session, so treat it as seen (don't pop it on open),
+    // and seed the sizes so the first poll neither re-pops it nor mistakes the
+    // switch from another project's larger log for a fresh-run shrink.
+    errorSeenSig_ = latestGameAssert();
+    errorGameLogSize_ =
+        fileSizeOr0((std::filesystem::path(project_.dir) / "bin" / "log.txt").string());
+    errorRunnerLogSize_ = runner_.log().size();
+    openErrorPopup_ = false;
 }
 
 void App::addEmitter(int kind) {
@@ -9963,6 +9989,16 @@ void App::drawDebugWindow() {
         debugLog_.clear();
         debugNextReload_ = 0.0;
     }
+    ImGui::SameLine();
+    // Debug option: pop a copyable dialog when the game hits an assertion.
+    // Off -> errors go only here / to the console (the game logs them either
+    // way). Persisted machine-wide in editor.ini.
+    if (ImGui::Checkbox("Pop up on errors", &errorPopupEnabled_)) saveGlobalConfig();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "When the running game hits a fatal error (a failed assertion, e.g.\n"
+            "a missing texture) show it in a copyable dialog. When off, errors\n"
+            "go only to this log / the console.");
 
     if (path.empty())
         ImGui::TextDisabled(
@@ -9999,6 +10035,149 @@ void App::drawDebugWindow() {
 
     ImGui::EndChild();
     ImGui::End();
+}
+
+// ---------------------------------------------------------------------------
+// Game error catcher. A failed TYRA_ASSERT / TYRA_TRAP in the running game
+// (e.g. a missing texture) no longer takes over the console screen - the engine
+// prints the dump to the log and halts (see vendor/tyra debug.hpp). The editor
+// tails that log and raises a copyable dialog so the error is not silent.
+// ---------------------------------------------------------------------------
+
+// The stable delimiters TyraDebug::trap() prints around an assertion dump (see
+// vendor/tyra/engine/inc/debug/debug.hpp). Matched as substrings so a leading
+// log prefix (the Debug window's nothing, or the runner's "[ps2] "/timestamp)
+// does not defeat detection.
+static const char kTyraAssertBanner[] = "==============  TYRA  ==============";
+static const char kTyraAssertClose[] = "====================================";
+
+// Returns the last complete TYRA assertion block in `text` (from its banner
+// line through the closing rule, inclusive), or "" when there is none / it is
+// still being written.
+static std::string extractLastTyraAssert(const std::string& text) {
+    const size_t banner = text.rfind(kTyraAssertBanner);
+    if (banner == std::string::npos) return "";
+    // Back up to the start of the banner's line so a log prefix is dropped and
+    // the dump reads cleanly in the dialog.
+    const size_t nl = text.rfind('\n', banner);
+    const size_t lineStart = (nl == std::string::npos) ? 0 : nl + 1;
+    const size_t close = text.find(kTyraAssertClose, banner);
+    if (close == std::string::npos) return "";
+    const size_t lineEnd = text.find('\n', close);
+    return text.substr(lineStart,
+                       (lineEnd == std::string::npos ? text.size() : lineEnd) - lineStart);
+}
+
+// Size of a file in bytes, or 0 when it is absent/unreadable (a deleted or
+// not-yet-written log reads as 0 - which is exactly the "shrank" signal we want).
+static size_t fileSizeOr0(const std::string& path) {
+    std::error_code ec;
+    const auto n = std::filesystem::file_size(path, ec);
+    return ec ? 0 : (size_t)n;
+}
+
+std::string App::latestGameAssert() const {
+    // PCSX2 runs: the game writes TYRA output to bin/log.txt on the host fs.
+    std::string text;
+    if (hasProject_) {
+        const std::string gameLog =
+            (std::filesystem::path(project_.dir) / "bin" / "log.txt").string();
+        text = readTextFileTail(gameLog, 1u << 20);  // last 1 MB
+    }
+    // "Run on PS2" logs to the console instead (writeLogsToFile is off under
+    // ps2link); that stream arrives in the runner log as "[ps2] ..." lines.
+    // Append its tail so networked asserts are caught too - a PCSX2 run's
+    // runner log carries no assertion banner, so this stays harmless there.
+    const std::string rlog = runner_.log();
+    const size_t kRunnerTail = 256u * 1024u;
+    text += '\n';
+    text += rlog.size() > kRunnerTail ? rlog.substr(rlog.size() - kRunnerTail) : rlog;
+    return extractLastTyraAssert(text);
+}
+
+void App::pollGameError() {
+    if (!hasProject_) return;
+    const double now = ImGui::GetTime();
+    if (now < errorNextPoll_) return;
+    errorNextPoll_ = now + 0.5;  // a log tail twice a second is plenty
+
+    // Detect a fresh run / a cleared log by a shrinking source. The Runner
+    // deletes bin/log.txt before each launch, and Output "Clear" empties the
+    // runner log - either shrinking means the previously seen dump is gone, so
+    // forget it and let an identical new error (same missing file, same line)
+    // pop again instead of being deduped against the stale text.
+    const size_t gsz =
+        fileSizeOr0((std::filesystem::path(project_.dir) / "bin" / "log.txt").string());
+    const size_t rsz = runner_.log().size();
+    if (gsz < errorGameLogSize_ || rsz < errorRunnerLogSize_) errorSeenSig_.clear();
+    errorGameLogSize_ = gsz;
+    errorRunnerLogSize_ = rsz;
+
+    const std::string block = latestGameAssert();
+    if (block.empty() || block == errorSeenSig_) return;
+    errorSeenSig_ = block;  // handled once, whether or not we pop
+    if (errorPopupEnabled_) {
+        errorModalText_ = block;
+        openErrorPopup_ = true;
+        // The game window (PCSX2) has the foreground when an error fires, so the
+        // dialog would open behind it unnoticed. Flash the taskbar entry and
+        // pull the editor forward so the error actually gets the user's
+        // attention. (requestAttention flashes even if focusWindow is refused.)
+        if (window_) {
+            glfwRequestWindowAttention(window_);
+            glfwFocusWindow(window_);
+        }
+    }
+}
+
+void App::drawErrorModal() {
+    if (openErrorPopup_) {
+        ImGui::OpenPopup("Game error");
+        openErrorPopup_ = false;
+    }
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(scaled(640), 0), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal("Game error", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+
+    // The engine tags non-fatal errors (a recovered asset load) with this
+    // header; everything else is a fatal assertion that stopped the game.
+    const bool fatal = errorModalText_.find("Non-fatal") == std::string::npos;
+    if (fatal) {
+        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f),
+                           "The game hit an assertion and stopped.");
+        ImGui::TextDisabled(
+            "The same dump is in the Debug window (Game log). Fix the cause and\n"
+            "run again - a common one is a missing or non-power-of-two texture.");
+    } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f),
+                           "The game reported an error but kept running.");
+        ImGui::TextDisabled(
+            "A missing asset was skipped - a placeholder (magenta checkerboard)\n"
+            "texture, or no sound. Fix it and rebuild. The same dump is in the\n"
+            "Debug window (Game log).");
+    }
+    ImGui::Separator();
+
+    // Read-only but fully selectable, so the whole dump can be copied.
+    ImGui::InputTextMultiline("##errtext", const_cast<char*>(errorModalText_.c_str()),
+                              errorModalText_.size() + 1,
+                              ImVec2(scaled(620), scaled(240)),
+                              ImGuiInputTextFlags_ReadOnly);
+    if (ImGui::Button("Copy", ImVec2(scaled(120), 0)))
+        ImGui::SetClipboardText(errorModalText_.c_str());
+    ImGui::SameLine();
+    if (ImGui::Button("Close", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
+
+    // The off switch, right where the noise is (mirrors the Debug window
+    // checkbox; both persist to editor.ini).
+    bool consoleOnly = !errorPopupEnabled_;
+    if (ImGui::Checkbox("Only log to console (don't pop up on errors)", &consoleOnly)) {
+        errorPopupEnabled_ = !consoleOnly;
+        saveGlobalConfig();
+    }
+    ImGui::EndPopup();
 }
 
 // ---------------------------------------------------------------------------

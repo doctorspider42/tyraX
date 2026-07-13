@@ -50,6 +50,34 @@ static void pngReadFromMemory(png_structp pngPtr, png_bytep out,
   src->offset += count;
 }
 
+// Modified by tyra-editor: a visible stand-in texture returned when a PNG can
+// not be loaded (missing / empty file), so a missing asset degrades to an
+// obvious magenta-and-black checkerboard instead of crashing the game. 8x8,
+// 32bpp RGBA (power-of-two, always valid for the GS uploader).
+static TextureBuilderData* makePlaceholderTexture(const std::string& name) {
+  const int dim = 8;
+  auto* result = new TextureBuilderData();
+  result->width = dim;
+  result->height = dim;
+  result->name = name;
+  result->gsComponents = TEXTURE_COMPONENTS_RGBA;
+  result->bpp = bpp32;
+  // getTextureSize is a TextureLoader member (not reachable from this free
+  // helper); bpp32 is exactly width*height*4 bytes (see TextureLoader).
+  result->data = static_cast<unsigned char*>(memalign(128, dim * dim * 4));
+  unsigned char* p = result->data;
+  for (int y = 0; y < dim; y++) {
+    for (int x = 0; x < dim; x++) {
+      const bool on = (((x >> 1) ^ (y >> 1)) & 1) != 0;  // 2x2 checker
+      *p++ = on ? 255 : 0;  // R
+      *p++ = 0;             // G
+      *p++ = on ? 255 : 0;  // B
+      *p++ = 128;           // A (PS2 GS convention: 128 = fully opaque)
+    }
+  }
+  return result;
+}
+
 /** Based on GsKit texture loading - thank you guys! */
 TextureBuilderData* PngLoader::load(const char* fullPath) {
   std::string path = fullPath;
@@ -58,7 +86,13 @@ TextureBuilderData* PngLoader::load(const char* fullPath) {
   auto filename = FileUtils::getFilenameFromPath(path);
 
   FILE* file = fopen(fullPath, "rb");
-  TYRA_ASSERT(file != nullptr, "Failed to load ", fullPath);
+  // Modified by tyra-editor: a missing texture is no longer fatal - log it (the
+  // editor surfaces it) and return a placeholder so the game keeps running.
+  if (file == nullptr) {
+    TYRA_SOFT_ERROR("Failed to load texture: ", fullPath,
+                    " (using a placeholder so the game keeps running)");
+    return makePlaceholderTexture(filename);
+  }
 
   std::vector<u8> fileData;
   {
@@ -73,7 +107,11 @@ TextureBuilderData* PngLoader::load(const char* fullPath) {
     fileData.resize(used);
   }
   fclose(file);
-  TYRA_ASSERT(!fileData.empty(), "Empty texture file: ", fullPath);
+  // Modified by tyra-editor: empty/truncated file -> placeholder, not a crash.
+  if (fileData.empty()) {
+    TYRA_SOFT_ERROR("Empty texture file: ", fullPath, " (using a placeholder)");
+    return makePlaceholderTexture(filename);
+  }
   PngMemorySource source{fileData.data(), fileData.size(), 0};
 
   png_structp pngPtr;
