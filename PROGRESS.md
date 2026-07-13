@@ -9,6 +9,21 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (84) **examples/script-demo: drop the dangling `house-1` model reference.**
+  The scene's `house-1` object referenced `res/models/house.obj`, but the
+  example ships no model assets (its `res/` and `.res-baked/` hold only a
+  `.gitignore`, and there was no `res/models/` at all), so the model was a
+  dangling reference the example could never build. The house was never part of
+  the documented story either — README (repo + example) only promises "walk up
+  to the orange box, press X, the sky changes color." Removed the stray object
+  from `script-demo.tyra` and regenerated the committed generated files via
+  `--build examples\script-demo`: `scene_data.hpp` drops from 3 objects to 2
+  (`SCENE_OBJECT_COUNTS`/`SAVE_OBJECT_MAX` now 2), and `model_data.gen.hpp` now
+  has `MODEL_COUNT = 0`. **Verified end-to-end**: the Docker build now completes
+  (`=== Build OK ===`, exit 0) and produces a full `bin/script-demo.elf`
+  (2.4 MB scene binary), where before the missing asset left the example
+  unbuildable. No `house` references remain anywhere in the example tree.
+- (83) **Layers panel: stop the delete button overlapping the size readout.**
 - (85) **Documentation review pass: closed feature/example gaps and added the
   first editor screenshots.** A full read-through of the docs surfaced several
   gaps against `tyra-docs`: the README's feature list had **no Animated models
