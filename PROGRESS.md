@@ -9,6 +9,32 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (87) **Loading screen at boot: Tyra logo (~2s) → loading screen → scene.**
+  Follow-up to (86): the loading screen fired on scene switches but was
+  invisible at the very first boot - you saw the Tyra logo, then the scene. Two
+  causes. First, the initial `loadScene(0)` ran inside `init()`, before the main
+  loop; frames presented there aren't vsync-paced (`endFrame` only waits on
+  vsync once `isFrameLimitOn` is honored under the running loop), so the boot
+  loading frames flashed by faster than the display. Second, the engine's splash
+  (`banner.show`) drew the Tyra logo for just 2 frames and relied on framebuffer
+  persistence, so its on-screen time was incidental. Fixed both: the first scene
+  now loads from the loop's new boot state machine (`bootPhase`/`bootFirstScene`,
+  which also moved the scripts' `init()` there so `onStart` still sees scene 0),
+  so its progress bar is vsync-paced and visible; and `vendor/tyra`'s
+  `banner.show` now re-renders the logo in a COP0-timed (~2s) loop - re-drawing
+  matters because `beginFrame` clears, and a *rendering* loop is frame-limited so
+  real time tracks wall time (an earlier no-draw busy-wait raced ahead of the
+  display and finished in a fraction of a second - the dead end that proved the
+  vsync/`graph_wait_vsync` dependency). Boot with loading screens off is
+  unchanged (scene loads on the first frame). **Verified** (Layer 3, PCSX2 SW
+  renderer): a 256-terrain-chunk boot scene, dense window-screenshots - caught
+  the Tyra logo, then the loading screen (dark background, baked "LOADING", the
+  full cyan bar and five lit orange segments) at 50 FPS, then the terrain, in
+  that order; the boot loading screen never appeared before this change. Note:
+  the ~2s logo hold is now engine-wide (every generated game), and PCSX2's window
+  only becomes capturable partway through the hold, so the exact 2s was confirmed
+  from the code path (COP0 rate + `graph_wait_vsync`), not a stopwatch on the
+  screenshots.
 - (86) **Loading screen editor: user-defined loading screens with real progress
   bars.** The old "loading screen" was a single project-global bool that flashed
   a hardcoded 256×64 `hud/loading.png` on black for ~0.7s per scene switch (and

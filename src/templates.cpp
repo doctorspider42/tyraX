@@ -593,6 +593,12 @@ class TerrainGame : public Tyra::Game {
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
   void loadScene(int sceneIndex);
+  // Loads scene 0 + runs scripts' init(); called once from the loop's boot
+  // sequence (see bootPhase) so the initial load is vsync-paced.
+  void bootFirstScene();
+  // Boot state: 0 = not started, 1 = loading-screen hold for the first scene,
+  // 2 = gameplay running (the Tyra logo hold lives in the engine's banner).
+  int bootPhase = 0;
   int currentScene = 0;
   unsigned int sceneGeneration = 0;
 
@@ -936,6 +942,12 @@ class TerrainGame : public Tyra::Game {
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
   void loadScene(int sceneIndex);
+  // Loads scene 0 + runs scripts' init(); called once from the loop's boot
+  // sequence (see bootPhase) so the initial load is vsync-paced.
+  void bootFirstScene();
+  // Boot state: 0 = not started, 1 = loading-screen hold for the first scene,
+  // 2 = gameplay running (the Tyra logo hold lives in the engine's banner).
+  int bootPhase = 0;
   int currentScene = 0;
   unsigned int sceneGeneration = 0;
 
@@ -1830,12 +1842,8 @@ void TerrainGame::init() {
 
   buildScene();
 
-  scriptCtx.engine = engine;
-  scriptCtx.objects = runtimeObjects.data();
-  scriptCtx.objectCount = (int)runtimeObjects.size();
-  scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
-  scriptCtx.playerPosition = cameraPosition;
-  for (Script* script : getScripts()) script->init(scriptCtx);
+  // scriptCtx wiring + scripts' init() run from bootFirstScene() (loop boot),
+  // after the deferred scene load - scripts' onStart must see scene 0's objects.
 
   // HUD sprites (see hud_data.gen.hpp)
   const auto& screen = engine->renderer.core.getSettings();
@@ -1876,6 +1884,34 @@ void TerrainGame::init() {
 
 void TerrainGame::loop() {
   updateFrameClock();  // real dt: frame drops slow the picture, not the game
+
+  // Boot: the engine holds the Tyra logo (banner.show) for ~2s, then the first
+  // scene loads HERE, from the loop, rather than in init(). That matters: a
+  // frame presented from init() (before the main loop) isn't vsync-paced and
+  // flashes by, so the loading screen was invisible at boot; from the loop it
+  // paces normally and the progress bar shows. With loading screens disabled
+  // the scene just loads on the first frame, as before.
+  if (bootPhase < 2) {
+    if (!LOADING_SCREEN) {
+      bootFirstScene();
+      bootPhase = 2;
+    } else {
+      if (bootPhase == 0) {
+        bootPhase = 1;
+        loadingTarget = 0;
+        loadingFrames = everyFrames(0.7F);
+      }
+      if (loadingFrames > 0) {
+        const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
+        loadingscreen::renderFrame(engine, 0, preLoad ? 0.0F : 1.0F);
+        --loadingFrames;
+        if (loadingFrames == everyFrames(0.7F) - 5) bootFirstScene();
+        return;
+      }
+      bootPhase = 2;
+    }
+  }
+
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuWasOpen = gameMenuIndex >= 0;  // before updateGameMenu()
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
@@ -2179,7 +2215,22 @@ void TerrainGame::buildScene() {
     }
   }
 
+  // The first scene is loaded from the loop (bootFirstScene), not here, so
+  // its load is vsync-paced behind the loading screen after the logo hold.
+}
+
+// Loads scene 0 and runs the scripts' init() once - the boot equivalent of a
+// scene switch. Deferred out of init()/buildScene() into the loop's boot
+// sequence so the load runs at vsync pace (a visible loading-screen progress
+// bar) instead of flashing by before the first presented frame.
+void TerrainGame::bootFirstScene() {
   loadScene(0);
+  scriptCtx.engine = engine;
+  scriptCtx.objects = runtimeObjects.data();
+  scriptCtx.objectCount = (int)runtimeObjects.size();
+  scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
+  scriptCtx.playerPosition = cameraPosition;
+  for (Script* script : getScripts()) script->init(scriptCtx);
 }
 
 // Shared texture cache: one engine texture per path, reference-counted so
@@ -5056,12 +5107,8 @@ void TerrainGame::init() {
   updatePlayer();
   buildScene();
 
-  scriptCtx.engine = engine;
-  scriptCtx.objects = runtimeObjects.data();
-  scriptCtx.objectCount = (int)runtimeObjects.size();
-  scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
-  scriptCtx.playerPosition = cameraPosition;
-  for (Script* script : getScripts()) script->init(scriptCtx);
+  // scriptCtx wiring + scripts' init() run from bootFirstScene() (loop boot),
+  // after the deferred scene load - scripts' onStart must see scene 0's objects.
 
   // HUD sprites (see hud_data.gen.hpp)
   const auto& screen = engine->renderer.core.getSettings();
@@ -5102,6 +5149,34 @@ void TerrainGame::init() {
 
 void TerrainGame::loop() {
   updateFrameClock();  // real dt: frame drops slow the picture, not the game
+
+  // Boot: the engine holds the Tyra logo (banner.show) for ~2s, then the first
+  // scene loads HERE, from the loop, rather than in init(). That matters: a
+  // frame presented from init() (before the main loop) isn't vsync-paced and
+  // flashes by, so the loading screen was invisible at boot; from the loop it
+  // paces normally and the progress bar shows. With loading screens disabled
+  // the scene just loads on the first frame, as before.
+  if (bootPhase < 2) {
+    if (!LOADING_SCREEN) {
+      bootFirstScene();
+      bootPhase = 2;
+    } else {
+      if (bootPhase == 0) {
+        bootPhase = 1;
+        loadingTarget = 0;
+        loadingFrames = everyFrames(0.7F);
+      }
+      if (loadingFrames > 0) {
+        const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
+        loadingscreen::renderFrame(engine, 0, preLoad ? 0.0F : 1.0F);
+        --loadingFrames;
+        if (loadingFrames == everyFrames(0.7F) - 5) bootFirstScene();
+        return;
+      }
+      bootPhase = 2;
+    }
+  }
+
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuWasOpen = gameMenuIndex >= 0;  // before updateGameMenu()
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus

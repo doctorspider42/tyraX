@@ -53,6 +53,16 @@ advances as the scene actually loads, not on a timer. (Very small scenes load
 so fast the bar may jump straight to full; give a heavy scene a big terrain or
 many assets to see it climb.)
 
+### At boot
+
+The very first scene is covered too. Boot order is: the engine's **Tyra logo**
+(held ~2 seconds), then the loading screen while scene 0 loads, then the scene.
+The first load is deferred into the game loop on purpose — a frame presented
+from `init()`, before the main loop, isn't vsync-paced and would flash by, so
+the boot loading screen would be invisible. (The ~2s logo hold lives in the
+engine's `banner.show()`, which re-renders the splash for a fixed real-time
+window; it applies to every generated game, loading screens or not.)
+
 ## Assigning a screen
 
 - **Per scene** — *Scene > Preferences > Loading screen*. Pick a screen by name,

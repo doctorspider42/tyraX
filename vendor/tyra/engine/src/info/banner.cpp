@@ -43,10 +43,21 @@ void Banner::show(Renderer* renderer) {
   texture.addLink(sprite.id);
   renderer->core.texture.repository.add(&texture);
 
-  for (int i = 0; i < 2; i++) {
+  // Modified by tyra-editor: hold the splash for ~2 real seconds instead of 2
+  // frames, re-rendering the logo each frame. Re-drawing matters because
+  // beginFrame clears the framebuffer; timing off the EE COP0 Count register
+  // (294.912 MHz) rather than a frame count keeps it ~2s on both PAL and NTSC.
+  // A rendering loop is vsync/frame-limited, so real time tracks wall time (a
+  // no-draw busy-wait would race ahead of the display and finish early).
+  unsigned int start;
+  asm volatile("mfc0 %0, $9" : "=r"(start));
+  for (;;) {
     renderer->beginFrame();
     renderer->renderer2D.render(&sprite);
     renderer->endFrame();
+    unsigned int now;
+    asm volatile("mfc0 %0, $9" : "=r"(now));
+    if ((unsigned int)(now - start) >= 589824000u) break;  // ~2.0 s
   }
 
   renderer->core.texture.repository.removeById(texture.id);
