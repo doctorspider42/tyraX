@@ -8,6 +8,7 @@
 #include "menu_data.gen.hpp"
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
+#include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -797,6 +798,13 @@ void TerrainGame::loop() {
     g_particlesOn = scriptCtx.particles != 0;
     scriptCtx.particles = -1;
   }
+  // Cutscene camera override: a Cutscene Director sequence with a camera track
+  // drives the frame camera (Play/Stop Sequence). Applied after scripts so the
+  // sequence player (a global Script) has posed the camera for this frame.
+  if (scriptCtx.cameraOverride) {
+    cameraPosition = scriptCtx.cameraEye;
+    cameraLookAt = scriptCtx.cameraAt;
+  }
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
   // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
   // switch rebuilds the VRAM layout between frames. A switch closes any
@@ -835,6 +843,10 @@ void TerrainGame::loop() {
     }
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
     updateAndRenderHudTexts();
+    // Cutscene Director widescreen bars + fade-to-black: solid quads over the
+    // scene and HUD (texts included), under the pause menus (no-op unless a
+    // cutscene draws).
+    sequences::renderOverlay(engine, scriptCtx);
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine);
@@ -1769,7 +1781,8 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
   for (const RuntimeObject& o : runtimeObjects) {
     if (!o.active || !o.visible || o.data.type == 4 || o.data.type == 6 ||
         o.data.type == 7 || o.data.type == 8 || o.data.type == 9 ||
-        o.data.type == 11 || o.data.type == 13)  // 13 = decal (visual only)
+        o.data.type == 11 || o.data.type == 13 ||  // 13 = decal (visual only)
+        o.data.type == 14)                         // 14 = camera marker
       continue;
     if (o.data.collision == 2) continue;  // none
 
@@ -2422,7 +2435,8 @@ void TerrainGame::updateUseTarget() {
     const RuntimeObject& o = runtimeObjects[i];
     if (!o.active || !o.data.usable || !o.visible) continue;
     if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
-        o.data.type == 8 || o.data.type == 9 || o.data.type == 11)
+        o.data.type == 8 || o.data.type == 9 || o.data.type == 11 ||
+        o.data.type == 14)
       continue;
 
     const float dx = o.data.position[0] - cameraPosition.x;
@@ -2998,6 +3012,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
       case 11: break;  // empty - pure transform, no geometry
       case 12: addPlane(p0.vertices, p0.colors, p0.sts, o.data); break;
       case 13: addDecal(p0.vertices, p0.colors, p0.sts, o.data); break;
+      case 14: break;  // camera - cutscene shot marker, no geometry
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
     g_primKd = nullptr;

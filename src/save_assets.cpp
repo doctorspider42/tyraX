@@ -498,6 +498,19 @@ static const unsigned char menu_dim_png[] = {
     0,131,102,22,159,125,0,0,0,0,73,69,78,68,174,66,96,130,
 };
 
+// res/hud/seq-black.png (148 bytes): opaque black 8x8, stretched into the
+// Cutscene Director widescreen bars and the fade-to-black overlay
+static const unsigned char seq_black_png[] = {
+    137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,8,
+    0,0,0,8,8,6,0,0,0,196,15,190,139,0,0,0,1,115,82,71,
+    66,0,174,206,28,233,0,0,0,4,103,65,77,65,0,0,177,143,11,252,
+    97,5,0,0,0,9,112,72,89,115,0,0,14,195,0,0,14,195,1,199,
+    111,168,100,0,0,0,41,73,68,65,84,40,83,99,0,130,255,4,48,86,
+    65,100,140,85,16,25,99,21,68,198,88,5,145,49,86,65,100,140,85,16,
+    25,99,21,132,98,134,255,0,130,72,63,193,93,60,94,75,0,0,0,0,
+    73,69,78,68,174,66,96,130,
+};
+
 }  // namespace
 
 const std::vector<BuiltinAsset>& saveMenuAssets() {
@@ -509,6 +522,7 @@ const std::vector<BuiltinAsset>& saveMenuAssets() {
         {"save-loaded.png", save_loaded_png, sizeof(save_loaded_png)},
         {"save-error.png", save_error_png, sizeof(save_error_png)},
         {"menu-dim.png", menu_dim_png, sizeof(menu_dim_png)},
+        {"seq-black.png", seq_black_png, sizeof(seq_black_png)},
     };
     return assets;
 }
