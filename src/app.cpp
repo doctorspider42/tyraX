@@ -4879,8 +4879,14 @@ void App::drawFlowGraphWindow() {
         // X/Y/Z come from the position link; params past them (Speed) stay
         int firstNum = 0;
         if (posLinked && t->posIn && t->numCount >= 3) {
-            ImGui::TextDisabled("Position: from link");
-            firstNum = 3;
+            if (n.type == "SetDof") {
+                // the link replaces only Focus (with the distance to the point)
+                ImGui::TextDisabled("Focus: distance to linked point");
+                firstNum = 1;
+            } else {
+                ImGui::TextDisabled("Position: from link");
+                firstNum = 3;
+            }
         }
         if (n.type == "SetVarBool" || n.type == "SetFlashlight" ||
             n.type == "SetFog" || n.type == "SetParticles" ||
@@ -4956,6 +4962,8 @@ void App::drawFlowGraphWindow() {
         ImGui::PopID();  // "params"
         if (n.type == "ValueAtLeast" || n.type == "VarAtLeast")
             ImGui::TextDisabled("Checked every frame - wire the\nbool into On Condition or a gate.");
+        if (n.type == "Raycast")
+            ImGui::TextDisabled("Casts from the player's eye along\nthe view direction on exec.");
         ImGui::PopItemWidth();
         ImGui::PopID();
 
@@ -5290,6 +5298,12 @@ void App::drawFlowGraphWindow() {
                         n.str = project_.active().layers.front().name;
                     if (std::string(t.key) == "SetVarBool") n.num[0] = 1.0f;
                     if (std::string(t.key) == "SetFlashlight") n.num[0] = 1.0f;
+                    if (std::string(t.key) == "Raycast") n.num[0] = 50.0f;  // max dist
+                    if (std::string(t.key) == "SetDof") {
+                        n.num[0] = 20.0f;  // focus distance
+                        n.num[1] = 15.0f;  // range (full blur at focus+range)
+                        n.num[2] = 1.0f;   // amount
+                    }
                     if (std::string(t.key) == "SetStickCurve") n.num[2] = 2.0f;  // exponent
                     if (std::string(t.key) == "PlaySound") {
                         n.num[0] = 100.0f;  // volume

@@ -9,6 +9,43 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (94) **Raycast + Set Depth Of Field flow nodes.** Two new built-in nodes.
+  **Raycast** (Player category) casts a ray from the player's eye along the
+  view direction when its exec fires and latches the results into runtime
+  members exactly like a C++-backed custom node's outputs (`objOut<id>` /
+  `posOut<id>`): the position output is the hit point, the object output the
+  hit object (-1 = none; downstream built-in actions are handle-guarded like
+  Spawn Object clones), and its "after" exec fires immediately after the cast
+  so wired actions read fresh values. The runtime helper (`flowRaycast`,
+  emitted into `flow_graph.gen.cpp` only when a graph uses the node) tests
+  object bounding spheres (same marker-type skip list as the USE picker, the
+  player entity excluded) and marches the terrain heightmap
+  (`terrainHeightAtScene` + bisection); the ray origin/direction come from a
+  new `ScriptContext::playerLook` set next to `playerPosition` in both game
+  templates. **Set Depth Of Field** (Scene category, Focus/Range/Amount)
+  blurs the image progressively past Focus (full blur at Focus+Range,
+  Amount 0..1, 0 = off); a wired position replaces Focus with the distance
+  from the player to that point at fire time (e.g. keep an object in focus
+  via Get Position). Engine side (`RendererCorePostFx`, TyraX fork): a new
+  `PassDof` (applied before bloom, composited at the bloom slot of the screen
+  stack or at endFrame) reuses the bloom blur chain, then blends the blur
+  back through three full-screen sprites drawn at real GS depths with the
+  pass's ordinary GEQUAL z-test (writes masked) — the world-distance → GS-z
+  mapping is solved from the shared perspective matrix
+  (`z(d) = 0xFFFFFF·near·(far−d)/(d·(far−near))`), so the sharp/blurred split
+  follows actual scene depth per pixel at zero EE cost; 2D sprites stamp
+  z = max, so HUD/menus never blur. `blit()` grew an optional z param and the
+  postFx packet grew to 352 qwords (every pass at once now fits).
+  Verified: codegen harness (scratch main() against the build .obj files)
+  over a graph exercising every wiring — static + position-wired SetDof,
+  Raycast → Set Position (pos link) / Hide Object (object link, guarded) /
+  Log via PosToText — then full e2e in Docker + PCSX2: an FPP scene with a
+  2×2×2 box at (0,1,6) logged `ray: (0, 1.8, 5.4)` every 2 s (exactly the
+  analytic sphere hit 6−√(1−0.8²)), Set Object Color driven by the raycast's
+  object output painted the box red in-game, and F8 screenshots on BOTH the
+  HW and software renderers show the near checkerboard sharp and the far
+  terrain/horizon blurred past the 5-unit focus. Interactive feel (walking
+  around with the pad while DoF is on) still deserves a hands-on test.
 - (93) **Rebrand to TyraX.** Our fork — the editor, the repo, the docs and the
   VS Code plugin — is now **TyraX**; the upstream engine we fork keeps the name
   **Tyra**. What changed: the executable / CMake target `tyra-editor` →

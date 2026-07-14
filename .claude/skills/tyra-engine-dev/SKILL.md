@@ -62,7 +62,11 @@ clipper, the StaPip `clip` VU1 program family (on-VU1 Sutherland–Hodgman
 behind the hidden `"clipping": "vu1"` project mode — design + status in
 `docs/vu1-clipping-plan.md`), static pools in `stapip_clipper.cpp` /
 `stapip_qbuffer.cpp`,
-`RendererCorePostFx` (bloom + film grain via GS blits; plus `applyCustom()` +
+`RendererCorePostFx` (bloom + film grain + depth of field via GS blits — DoF
+(`PassDof`, driven by the Set Depth Of Field flow node) reuses the bloom blur
+chain and composites the blur back through full-screen sprites drawn at real
+GS depths under the pass's GEQUAL z-test, world distance → GS z solved from
+the shared perspective matrix; plus `applyCustom()` +
 `RendererCore::applyCustomPostFx()` for user-authored full-screen effects — see
 the editor's custom screen effects, `docs/custom-screen-effects.md`; the effect
 body appends GS primitives through the now-public `blit()`/`flatQuad()` and the

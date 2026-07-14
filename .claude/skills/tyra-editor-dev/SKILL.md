@@ -141,7 +141,10 @@ in `actionCode()`. A `call = fn` custom node runs a user function in
 its **object output is a runtime value**, which is why `resolveTarget()` returns
 a C++ int-*expression* (a literal index for built-in sources, `objOut<id>` for a
 custom node's runtime output) — built-in object actions fed such a ref are
-bounds-guarded via `isRuntimeIdx`.)
+bounds-guarded via `isRuntimeIdx`. The built-in **Raycast** node uses the same
+runtime-latch machinery: every `flowCustomNode(...)` check on that path also
+accepts `type == "Raycast"` — a new built-in node with runtime outputs should
+extend those same spots.)
 
 **New project preference** (travels with the `.tyra`, part of the game) →
 `ProjectSettings` → save/load in project.cpp → the *Project* Preferences dialog
