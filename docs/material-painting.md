@@ -45,18 +45,39 @@ step: **the PNG on disk is updated on every mouse release**, and that flat
 texture is exactly what the PS2 loads (the build's texture bake still
 quantizes it like any other PNG).
 
-- **Color brush** — a soft round brush; color, size (in texture pixels) and
+- **Color** — a soft round brush; color, size (in texture pixels) and
   opacity.
-- **Texture brush** — paints with another PNG as a pattern. The pattern is
-  sampled in *texture space* and tiled (with a *Tile* density slider), so
-  strokes reveal one continuous image instead of stamping it — think laying
-  grass or rust onto parts of a prop.
-- **Undo** — the Material Editor keeps its own undo stack of paint strokes
-  AND committed property edits (color, brightness, texture...). Press
-  **Ctrl+Z while the window is focused** (or the *Undo* button next to
-  Duplicate/Delete) to step back; scene undo is untouched, and Ctrl+Z
-  anywhere else still undoes scene changes as before. Assets are outside the
-  project history, same as imports — this stack is the editor's own.
+- **Brush** — paints with a project brush image. Brushes are PNGs in
+  `res/brushes/` — **global to the project** and never shipped with the
+  game; add one with *Import brush from PNG...* in the brush picker. The
+  brush is sampled in *texture space* and tiled (with a *Tile* density
+  slider), so strokes reveal one continuous image instead of stamping it —
+  think laying grass or rust onto parts of a prop.
+- **Eraser** — takes paint off the active layer (on the Background it makes
+  the texture transparent — handy for authoring decal cutouts).
+- **Undo** — the Material Editor keeps its own undo stack of paint strokes,
+  layer add/remove AND committed property edits (color, brightness,
+  texture...). Press **Ctrl+Z while the window is focused** (or the *Undo*
+  button next to Duplicate/Delete) to step back; scene undo is untouched,
+  and Ctrl+Z anywhere else still undoes scene changes as before. Assets are
+  outside the project history, same as imports — this stack is the editor's
+  own.
+
+## Layers
+
+Painting happens on a **layer stack** (the *Layers* box in the paint pane):
+the Background plus any number of transparent layers above it, each with a
+**blend mode** (Normal / Multiply / Add / Overlay), an **opacity** slider
+and a visibility toggle. Strokes land on the *active* (selected) layer;
+`+` adds a layer above it, `-` deletes it (undoable), Up/Down reorder.
+
+What ships is always the **flattened composite** — the texture PNG next to
+the `.mtl` is rebuilt after every change, so the PS2 pipeline sees a plain
+texture and knows nothing about layers. The stack itself persists in a
+`<texture>.png.layers/` sidecar folder (one PNG per layer + a tiny
+manifest) that the texture bake skips — it never reaches the game or the
+ISO, and it travels along when you Duplicate the material. A texture you
+never added layers to stays a plain file, no sidecar.
 
 Painting works on the primitives too (they have generated UVs), but it shines
 on models: only faces mapped to the entry you are editing take paint, so a

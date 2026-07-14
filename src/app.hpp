@@ -559,34 +559,59 @@ private:
     // still quantizes at build like any other PNG). Asset edits, so no
     // project undo - a small per-stroke snapshot stack covers mistakes.
     bool matEdPaint_ = false;          // paint mode toggle
-    int matEdBrushMode_ = 0;           // 0 = color, 1 = pattern PNG
+    int matEdBrushMode_ = 0;           // 0 = color, 1 = brush image, 2 = eraser
     float matEdBrushColor_[3] = {0.8f, 0.2f, 0.15f};
     float matEdBrushSize_ = 24.0f;     // radius in texture pixels
     float matEdBrushOpacity_ = 1.0f;
-    std::string matEdBrushPattern_;    // project-relative PNG (pattern mode)
-    float matEdBrushPatternScale_ = 1.0f;  // pattern texels per target texel
+    std::string matEdBrush_;           // active brush: res/brushes/<x>.png
+    float matEdBrushTile_ = 1.0f;      // brush texels per painted texel
     std::string matEdPaintTexRel_;     // project-relative path of the loaded target
-    std::vector<unsigned char> matEdPaintPixels_;  // RGBA, matEdPaintW_*H_*4
+    // Composite of the layer stack = the pixels the PNG on disk holds (what
+    // the PS2 loads). Layers are editor-side: painted strokes land on the
+    // ACTIVE layer, the composite is rebuilt after every change and the
+    // stack persists in a `<texture>.layers/` sidecar next to the PNG
+    // (skipped by texbake, so it never ships). One Background layer =
+    // no sidecar - untouched textures stay plain files.
+    std::vector<unsigned char> matEdPaintPixels_;  // RGBA composite, W*H*4
     int matEdPaintW_ = 0, matEdPaintH_ = 0;
+    struct MatEdLayer {
+        std::string name = "Layer";
+        int blend = 0;         // 0 normal, 1 multiply, 2 add, 3 overlay
+        float opacity = 1.0f;
+        bool visible = true;
+        std::vector<unsigned char> pixels;  // RGBA, W*H*4 (straight alpha)
+    };
+    std::vector<MatEdLayer> matEdLayers_;  // bottom-up; [0] = Background
+    int matEdActiveLayer_ = 0;
+    // layers -> matEdPaintPixels_ + live GL upload of the shared texture
+    void matEdComposite();
+    // sidecar write: `<tex>.layers/layers.json` + layer PNGs; a single
+    // Background layer removes the sidecar instead (keep projects clean)
+    void matEdSaveLayers();
+    std::filesystem::path matEdLayersDirAbs() const;
     bool matEdStroke_ = false;         // LMB stroke in progress
     float matEdLastUV_[2] = {0, 0};    // previous stamp (gap interpolation)
     bool matEdHaveLastUV_ = false;
     // The Material Editor's own undo (Ctrl+Z while the window is focused, or
-    // the Undo button): one stack of paint strokes AND committed property
-    // edits, in order. Separate from the project history - materials are
-    // assets, their edits go straight to disk.
+    // the Undo button): one stack of paint strokes, layer add/remove and
+    // committed property edits, in order. Separate from the project history -
+    // materials are assets, their edits go straight to disk.
     struct MatEdUndoStep {
-        bool paint = false;
-        std::vector<unsigned char> pixels;  // paint: texels before the stroke
-        int w = 0, h = 0;
-        std::string texRel;
-        std::vector<MatEdEntry> mats;  // property edit: entries before it
+        enum class Kind { Paint, Props, LayerAdd, LayerRemove };
+        Kind kind = Kind::Paint;
+        std::string texRel;  // paint target the step belongs to (paint/layer)
+        int layer = 0;       // Paint: painted layer; LayerAdd/Remove: index
+        std::vector<unsigned char> pixels;  // Paint: layer texels before it
+        MatEdLayer layerData;               // LayerRemove: the removed layer
+        std::vector<MatEdEntry> mats;       // Props: entries before the edit
         int sel = 0;
     };
     std::vector<MatEdUndoStep> matEdUndo_;
     std::vector<MatEdEntry> matEdPrevMats_;  // entries as of the last save/undo push
     bool matEdFocused_ = false;  // window focus last frame (routes Ctrl+Z)
-    void matEdPushUndo(bool paint);  // paint: snapshot pixels; else matEdPrevMats_
+    // removed: the layer being deleted (LayerRemove steps only)
+    void matEdPushUndo(MatEdUndoStep::Kind kind, int layer = 0,
+                       const MatEdLayer* removed = nullptr);
     void matEdUndoLast();
     std::vector<unsigned char> matEdPatternPixels_;  // decoded pattern cache
     int matEdPatternW_ = 0, matEdPatternH_ = 0;

@@ -9,7 +9,34 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-<<<<<<< HEAD
+- (95) **Paint layers with blend modes + project-global brushes.** The paint
+  tool grew a per-texture **layer stack**: Background + N transparent layers,
+  each with Normal/Multiply/Add/Overlay, an opacity slider and a visibility
+  eye; strokes land on the active layer, `+`/`-`/Up/Down manage the stack.
+  The **flattened composite** is rebuilt after every change and written to
+  the texture PNG - the PS2 pipeline still sees a plain texture. The stack
+  persists in a `<texture>.png.layers/` sidecar (layerN.png + layers.json,
+  read via the in-tree json parser; any inconsistency falls back to a single
+  Background - never fails a load); one Background = sidecar removed, so
+  untouched textures stay plain files. texbake skips (and scrubs from stale
+  bakes) the sidecars AND the new `res/brushes/` dir, so neither ships in
+  .res-baked/bin/ISO; Duplicate copies a texture's sidecar along. The old
+  "texture brush" was renamed to **Brush** and its sources moved from
+  ad-hoc PNGs to **project-global brushes** in `res/brushes/*.png` with an
+  "Import brush from PNG..." item in the picker; a third **Eraser** mode
+  removes paint from the active layer (or punches decal alpha on the
+  Background). Stamps now compose with straight-alpha "over" so strokes on
+  transparent layers have no dark fringe. Undo gained typed steps (paint =
+  layer snapshot, layer add/remove restore the structure, props as before);
+  paint/layer steps apply only while their texture is loaded. **Verified**
+  (Layer 2, GUI harness): + added "Layer 1", a red stroke on it wrote the
+  sidecar (layers.json + layer0/1.png listed on disk); Multiply visibly
+  darkened the blobs (grid shows through); the grass brush appeared in the
+  picker from res/brushes and painted a continuous checker; Eraser chewed a
+  hole in a red blob; the visibility eye toggled the composite PNG hash and
+  restored it exactly; a headless --build's .res-baked contained neither
+  brushes/ nor crate.png.layers/ while the composite crate.png shipped.
+  Editor builds clean.
 - (94) **Material Editor follow-ups: big preview, own Ctrl+Z undo, Delete.**
   User feedback on (93). (a) The preview pane now takes ~48% of the window
   width (floor `scaled(260)`) and the default window grew to 1020x600 - the
@@ -72,7 +99,6 @@ Each finished feature lands as its own commit.
   canvas and assigned it. Editor builds clean. Known UV property (documented,
   not a bug): faces sharing texels (the test cube maps all six faces to the
   same 0..1 square) all show a stroke painted on any one of them.
-=======
 - (89) **VS Code extension for `.flownode` / `.screenfx` files (the "full deluxe
   package").** The two text formats a project uses for custom logic — custom
   flow nodes and custom screen effects — were plain text in VS Code. They now
@@ -128,7 +154,6 @@ Each finished feature lands as its own commit.
     `--new` confirms `.vscode/extensions.json` is generated and valid. The C++
     wrapper runs that verified string via the same `CreateProcessA` mechanism
     `openInVSCode` already uses; the GUI button itself was not clicked headlessly.
->>>>>>> origin/main
 - (88) **Default projects folder (machine-global editor setting).** New Project
   used to always propose `~/TyraProjects` as the location. Now the folder is
   configurable in *Edit > Preferences > New projects* (a "Default folder" text

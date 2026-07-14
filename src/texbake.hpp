@@ -18,6 +18,9 @@
 //    wins (full > 8-bit > 4-bit) - important textures stay sharp
 //  - unreferenced PNGs under res/models|materials|textures follow the
 //    project-wide ProjectSettings::textureQuant
+//  - editor-only assets never ship: res/brushes (Material Editor paint
+//    brushes) and `<texture>.layers/` paint-layer sidecars are skipped
+//    (and scrubbed from an older bake)
 //  - res/fonts is never touched (UI legibility)
 //  - res/hud PNGs referenced by a Project::hud entry are resized to a
 //    PS2-valid power-of-two (HudImage::texW/texH; 0 = nearest) and optionally
