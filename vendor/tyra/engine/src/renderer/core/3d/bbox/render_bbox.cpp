@@ -1,11 +1,7 @@
 /*
-# _____        ____   ___
-#   |     \/   ____| |___|
-#   |     |   |   \  |   |
-#-----------------------------------------------------------------------
-# Copyright 2022, tyra - https://github.com/h4570/tyra
-# Licensed under Apache License 2.0
-# Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX - clipFrustumCheck no longer re-runs the whole
+# eight-corner frustum check a second time for PARTIALLY_IN_FRUSTUM boxes.
+# Based on the original by Sandro Sobczynski (h4570/tyra), Apache License 2.0.
 */
 
 #include <string>
@@ -46,25 +42,12 @@ RenderBBox RenderBBox::getTransformed(const M4x4& t_matrix) const {
  */
 CoreBBoxFrustum RenderBBox::clipFrustumCheck(const Plane* frustumPlanes,
                                              const M4x4& model) const {
-  auto result = frustumCheck(frustumPlanes, model);
-
-  if (result != PARTIALLY_IN_FRUSTUM) {
-    return result;
-  }
-
-  // Oh no, it probably needs clipping
-
-  // This is crappy guard band, but it works xd
-  float guardBand[6];  // This probably needs more calibration
-
-  guardBand[0] = 0.0F;  // Top
-  guardBand[1] = 0.0F;  // BOTTOM
-  guardBand[2] = 0.0F;  // LEFT
-  guardBand[3] = 0.0F;  // RIGHT
-  guardBand[4] = 0.0F;  // NEAR
-  guardBand[5] = 0.0F;  // FAR
-
-  return frustumCheck(frustumPlanes, model, guardBand);  // Let's check it again
+  // Modified by TyraX: upstream re-ran the whole check with an all-zero
+  // guard band for PARTIALLY_IN_FRUSTUM results - a second, identical
+  // eight-corner sweep on exactly the boxes that are the most expensive to
+  // process. A zero margin cannot change the answer, so the re-check is gone
+  // until someone actually calibrates a non-zero band.
+  return frustumCheck(frustumPlanes, model);
 }
 
 }  // namespace Tyra

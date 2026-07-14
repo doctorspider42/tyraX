@@ -2,11 +2,15 @@
 # Modified by TyraX - persistent qbuffer pools.
 # The original allocated and freed up to four Vec4 arrays PER FILL CALL,
 # per subpackage, per frame. Arrays are now allocated once per buffer at
-# maxVertCount capacity and reused. Based on the original by
+# maxVertCount capacity and reused. The fillByCopy* paths copy whole arrays
+# with memcpy instead of a per-vertex Vec4::copy call (plus four branch
+# checks) per element - these copies run for every clip-classified
+# subpackage, every frame. Based on the original by
 # Sandro Sobczynski (h4570/tyra), Apache License 2.0.
 */
 
 #include "renderer/3d/pipeline/static/core/stapip_qbuffer.hpp"
+#include <string.h>
 #include <sstream>
 #include <iomanip>
 
@@ -86,39 +90,15 @@ void StaPipQBuffer::fillByCopyMax(const StaPipBagPackage& pkg1,
   size = pkg1.size + pkg2.size + pkg3.size;
   allocateDynamicData(size, pkg1.bag);
 
-  for (u16 i = 0; i < pkg1.size; i++) {
-    vertices[i].set(pkg1.vertices[i]);
-
-    if (pkg1.bag->texture) sts[i].set(pkg1.sts[i]);
-
-    if (pkg1.bag->color->many)
-      colors[i].set(reinterpret_cast<const Vec4&>(pkg1.colors[i]));
-
-    if (pkg1.bag->lighting) normals[i].set(pkg1.normals[i]);
-  }
-
-  for (u16 i = 0; i < pkg2.size; i++) {
-    vertices[i + pkg1.size].set(pkg2.vertices[i]);
-
-    if (pkg1.bag->texture) sts[i + pkg1.size].set(pkg2.sts[i]);
-
-    if (pkg1.bag->color->many)
-      colors[i + pkg1.size].set(reinterpret_cast<const Vec4&>(pkg2.colors[i]));
-
-    if (pkg1.bag->lighting) normals[i + pkg1.size].set(pkg2.normals[i]);
-  }
-
-  for (u16 i = 0; i < pkg3.size; i++) {
-    vertices[i + pkg1.size + pkg2.size].set(pkg3.vertices[i]);
-
-    if (pkg1.bag->texture) sts[i + pkg1.size + pkg2.size].set(pkg3.sts[i]);
-
-    if (pkg1.bag->color->many)
-      colors[i + pkg1.size + pkg2.size].set(
-          reinterpret_cast<const Vec4&>(pkg3.colors[i]));
-
-    if (pkg1.bag->lighting)
-      normals[i + pkg1.size + pkg2.size].set(pkg3.normals[i]);
+  const StaPipBagPackage* pkgs[3] = {&pkg1, &pkg2, &pkg3};
+  u32 offset = 0;
+  for (const auto* pkg : pkgs) {
+    const u32 bytes = pkg->size * sizeof(Vec4);
+    memcpy(vertices + offset, pkg->vertices, bytes);
+    if (pkg1.bag->texture) memcpy(sts + offset, pkg->sts, bytes);
+    if (pkg1.bag->color->many) memcpy(colors + offset, pkg->colors, bytes);
+    if (pkg1.bag->lighting) memcpy(normals + offset, pkg->normals, bytes);
+    offset += pkg->size;
   }
 
   bag = pkg1.bag;
@@ -135,26 +115,15 @@ void StaPipQBuffer::fillByCopy1By2(const StaPipBagPackage& pkg1,
   size = pkg1.size + pkg2.size;
   allocateDynamicData(size, pkg1.bag);
 
-  for (u16 i = 0; i < pkg1.size; i++) {
-    vertices[i].set(pkg1.vertices[i]);
-
-    if (pkg1.bag->texture) sts[i].set(pkg1.sts[i]);
-
-    if (pkg1.bag->color->many)
-      colors[i].set(reinterpret_cast<const Vec4&>(pkg1.colors[i]));
-
-    if (pkg1.bag->lighting) normals[i].set(pkg1.normals[i]);
-  }
-
-  for (u16 i = 0; i < pkg2.size; i++) {
-    vertices[i + pkg1.size].set(pkg2.vertices[i]);
-
-    if (pkg1.bag->texture) sts[i + pkg1.size].set(pkg2.sts[i]);
-
-    if (pkg1.bag->color->many)
-      colors[i + pkg1.size].set(reinterpret_cast<const Vec4&>(pkg2.colors[i]));
-
-    if (pkg1.bag->lighting) normals[i + pkg1.size].set(pkg2.normals[i]);
+  const StaPipBagPackage* pkgs[2] = {&pkg1, &pkg2};
+  u32 offset = 0;
+  for (const auto* pkg : pkgs) {
+    const u32 bytes = pkg->size * sizeof(Vec4);
+    memcpy(vertices + offset, pkg->vertices, bytes);
+    if (pkg1.bag->texture) memcpy(sts + offset, pkg->sts, bytes);
+    if (pkg1.bag->color->many) memcpy(colors + offset, pkg->colors, bytes);
+    if (pkg1.bag->lighting) memcpy(normals + offset, pkg->normals, bytes);
+    offset += pkg->size;
   }
 
   bag = pkg1.bag;
@@ -168,16 +137,11 @@ void StaPipQBuffer::fillByCopy1By3(const StaPipBagPackage& pkg) {
   size = pkg.size;
   allocateDynamicData(size, pkg.bag);
 
-  for (u16 i = 0; i < pkg.size; i++) {
-    vertices[i].set(pkg.vertices[i]);
-
-    if (pkg.bag->texture) sts[i].set(pkg.sts[i]);
-
-    if (pkg.bag->color->many)
-      colors[i].set(reinterpret_cast<const Vec4&>(pkg.colors[i]));
-
-    if (pkg.bag->lighting) normals[i].set(pkg.normals[i]);
-  }
+  const u32 bytes = pkg.size * sizeof(Vec4);
+  memcpy(vertices, pkg.vertices, bytes);
+  if (pkg.bag->texture) memcpy(sts, pkg.sts, bytes);
+  if (pkg.bag->color->many) memcpy(colors, pkg.colors, bytes);
+  if (pkg.bag->lighting) memcpy(normals, pkg.normals, bytes);
 
   bag = pkg.bag;
 }

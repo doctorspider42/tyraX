@@ -160,9 +160,16 @@ Retired / simplified:
   hint (big triangles near the camera become cheap — coarser grids are
   viable). Gate: showcase + clipbench + one textured/fogged/flashlit scene
   all pixel-match and hold ≥ the old FPS on hardware.
-- **M5 — companion work (independent, do in parallel):** packager package
-  array pooling (per-frame allocation today). Target: clipbench pre-endFrame
-  < 20 ms ⇒ 50 FPS vsync-locked on the 98k benchmark.
+- **M5 — companion work (independent, do in parallel). DONE 2026-07-15**
+  (in PCSX2 terms). Package array pooling landed earlier (PROGRESS 79,
+  worth ~2%); the real companion win was rebuilding the per-package frustum
+  classification (PROGRESS 100): object-space planes computed once per bag +
+  p-vertex/n-vertex AABB test per package, duplicate zero-guard-band
+  re-check deleted, VU0 min/max bbox scan, memcpy qbuffer fills. On the 98k
+  benchmark (PCSX2 SW renderer, vsync off, debug profile): precise mode
+  47 → 73 FPS pixel-identical, and **this VU1-clipping mode 120 FPS** —
+  2.55× the old precise baseline. The M4 flip remains gated on the
+  real-PS2 clipbench re-run + SW-vs-hardware ADC check.
 
 ## Verification protocol (every milestone)
 

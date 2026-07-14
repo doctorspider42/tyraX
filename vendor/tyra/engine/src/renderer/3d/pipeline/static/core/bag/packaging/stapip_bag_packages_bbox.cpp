@@ -89,6 +89,31 @@ RenderBBox StaPipBagPackagesBBox::createChildBBox(const u32& index,
   return RenderBBox(*bboxParts, index, index + partsSize);
 }
 
+// Modified by TyraX: min/max merge without building a RenderBBox - the
+// packager classifies packages from these two corners alone.
+void StaPipBagPackagesBBox::getMergedMinMax(const u32& index,
+                                            const u16& partsSize, Vec4* outMin,
+                                            Vec4* outMax) const {
+  TYRA_ASSERT(index < partsCount && index + partsSize <= partsCount,
+              "Merged bbox range out of parts. index: ", index,
+              " partsSize: ", partsSize, " partsCount: ", partsCount);
+
+  const CoreBBox* parts = bboxParts->data();
+  Vec4::copy(outMin, parts[index].vertices[0].xyzw);
+  Vec4::copy(outMax, parts[index].vertices[7].xyzw);
+
+  for (u32 i = index + 1; i < index + partsSize; i++) {
+    const Vec4& lo = parts[i].vertices[0];
+    const Vec4& hi = parts[i].vertices[7];
+    if (lo.x < outMin->x) outMin->x = lo.x;
+    if (lo.y < outMin->y) outMin->y = lo.y;
+    if (lo.z < outMin->z) outMin->z = lo.z;
+    if (hi.x > outMax->x) outMax->x = hi.x;
+    if (hi.y > outMax->y) outMax->y = hi.y;
+    if (hi.z > outMax->z) outMax->z = hi.z;
+  }
+}
+
 void StaPipBagPackagesBBox::print() const {
   auto text = getPrint(nullptr);
   printf("%s\n", text.c_str());

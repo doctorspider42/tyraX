@@ -9,6 +9,54 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (100) **Engine perf audit: EE→VU0/VU1 work-distribution pass over the render
+  hot path (47→73 FPS precise / 120 FPS with VU1 clipping on the 98k
+  benchmark).** A deep audit of `vendor/tyra` looking for EE work that belongs
+  on the VUs found the math library (Vec4/M4x4), skinning (entry 34) and the
+  EE clipper's per-vertex transforms already on VU0, and clipping itself
+  already ported to VU1 (M0–M3, hidden mode) — the remaining EE hog was the
+  **per-package frustum classification** feeding both clip paths, plus three
+  smaller leaks. Four fixes, all in the StaPip render path: **(1)**
+  `RenderBBox::clipFrustumCheck` re-ran the entire 8-corner/6-plane check a
+  second time with an all-zero guard band for every PARTIALLY_IN_FRUSTUM
+  box — upstream's "crappy guard band xd" placeholder; a zero margin cannot
+  change the answer, so the re-check (a full duplicate sweep on exactly the
+  expensive boxes) is deleted. **(2)** Classification moved from
+  transform-8-corners-then-dot-each-against-6-planes (up to 8 VU0
+  matrix-vector transforms + 48 dots per package, plus building a merged
+  8-corner RenderBBox per straddling subpackage) to **object-space planes +
+  the p-vertex/n-vertex AABB test**: `StaPipCore::render` transforms the 6
+  frustum planes into the bag's object space once (`CoreBBox::
+  computeObjectSpacePlanes`, exact same math factored per object — the
+  d*column.w terms are dropped precisely because the corner path ignores the
+  transformed w), and every package/subpackage check is now 6 planes × 2 dot
+  products on min/max corners (`CoreBBox::frustumCheckAABB`,
+  `StaPipBagPackagesBBox::getMergedMinMax` merges part min/maxes without
+  materializing a box). Main-bag check uses the same test. **(3)** The
+  `CoreBBox(const Vec4*, count)` min/max scan — per frame for skinned-mesh
+  bbox recalculates and DynPip bags — went from six compare-branches per
+  vertex to a **VU0 macro-mode `vmini.xyz`/`vmax.xyz` loop** (bit-identical
+  results, ~4 ops/vertex, no branches). **(4)** `StaPipQBuffer::fillByCopy*`
+  (every clip-classified subpackage, both EE and VU1 clip paths) copied
+  vertices via a non-inlined per-element `Vec4::copy` call plus four branch
+  checks per vertex — now four `memcpy`s per package. Verified per
+  tyra-testing layer 3: fresh 128×128 terrain @ detail 128 (~98k verts) FPP
+  scene, debug profile + FPS HUD, vsync off, PCSX2 **software renderer** —
+  baseline 47 FPS (3 identical samples) → **73 FPS** (+55%) with
+  **pixel-identical output** (0/4.27M pixels different outside the FPS
+  counter, byte-exact across samples); the same scene in the hidden
+  `"clipping": "vu1"` mode runs **120 FPS** (2.55× baseline; 0.047% pixel
+  diff vs the EE-precise baseline — the known M3 LSB texel shifts on clipped
+  edges, not a regression), confirming the classification cost was what kept
+  the VU1-clipping mode from paying off (the M5 "companion work" from
+  docs/vu1-clipping-plan.md). detailtest (spheres + orbit camera) boots clean,
+  no asserts, geometry intact. PCSX2 numbers are directional (it undercounts
+  EE clip cost 15–20%); a real-PS2 clipbench re-run is still wanted before
+  flipping the M4 preference. DynPip's per-render heap churn
+  (`new DynPipBag*[]`, per-bag texture/lighting bag allocations) was audited
+  and left alone — generated games render exclusively through StaPip, so it
+  only gains the shared VU0 min/max constructor.
+
 - (99) **Projected decals (rzutowanie na model) — decals that conform to the
   receiver geometry.** The flat `Decal` (62) only worked as a sticker on a flat
   wall; this adds a **"Project onto surfaces"** mode (`SceneObject::decalProject`)
@@ -4761,9 +4809,11 @@ Each finished feature lands as its own commit.
   in PCSX2, so the EE is not the bottleneck yet. Palette per batch limited
   by VU memory (~24-32 bones).
 - Engine perf, next target: the packager's per-frame package arrays are
-  pooled now (entry 79 - measured worth only ~2%; the partial-branch cost is
-  per-package bbox classification + EE clipping, which scale with vertex
-  count); the real endgame is the engine author's own TODO in
+  pooled now (entry 79 - measured worth only ~2%) and the per-package bbox
+  classification is now the cheap object-space AABB test (entry 100 - 47->73
+  FPS precise / 120 FPS vu1-clipping on the 98k PCSX2 benchmark, so the
+  companion work below is DONE in PCSX2 terms); the real endgame is the
+  engine author's own TODO in
   stapip_clipper.hpp - move clipping to VU1 entirely ("too much time").
   **Measured on real PS2 (2026-07-11**; clipbench: 128x128 terrain at detail
   128 = ~98k verts, spinning FPP camera, COP0 timers around `clipper.clip` +

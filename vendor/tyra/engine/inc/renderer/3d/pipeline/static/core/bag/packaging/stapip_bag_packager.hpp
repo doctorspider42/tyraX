@@ -37,6 +37,16 @@ class StaPipBagPackager {
   void setMaxVertCount(const u32& count);
 
   /**
+   * Modified by TyraX. Frustum planes pre-transformed into the current
+   * bag's object space (StaPipCore computes them once per bag). Package
+   * classification tests axis-aligned min/max corners against these -
+   * no per-package corner transforms, no merged eight-corner bboxes.
+   * Must outlive the following create() calls; may be nullptr when the
+   * bag skips frustum culling (packages are then never classified).
+   */
+  void setObjectSpacePlanes(const Plane* planes) { objectSpacePlanes = planes; }
+
+  /**
    * @brief Create render packages from provided render data
    *
    * @param size Max maxVertCount verts (VU1 buffer size)
@@ -55,6 +65,7 @@ class StaPipBagPackager {
   u32 maxVertCount;
   Renderer3DFrustumPlanes* frustumPlanes;
   StaPipBagPackagesBBox* renderBBox;
+  const Plane* objectSpacePlanes = nullptr;
   // Two pools because a bag-level package array is still in use while one of
   // its partial packages is split into subpackages (StaPipCore::renderPkgs).
   std::vector<StaPipBagPackage> bagPackagesPool;

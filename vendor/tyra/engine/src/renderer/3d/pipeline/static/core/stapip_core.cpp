@@ -131,8 +131,15 @@ void StaPipCore::render(StaPipBag* bag) {
   CoreBBoxFrustum frustumCheck = OUTSIDE_FRUSTUM;
 
   if (frustumCull) {
-    frustumCheck = bbox->getMainBBox()->clipFrustumCheck(
-        rendererCore->renderer3D.frustumPlanes.getAll(), *bag->info->model);
+    // Modified by TyraX: transform the 6 frustum planes into this bag's
+    // object space once; the main-bbox check and every package
+    // classification then run the two-corner AABB test instead of
+    // transforming 8 corners per box and dotting each against every plane.
+    CoreBBox::computeObjectSpacePlanes(
+        objectSpacePlanes, rendererCore->renderer3D.frustumPlanes.getAll(),
+        *bag->info->model);
+
+    frustumCheck = bbox->getMainBBox()->frustumCheckAABB(objectSpacePlanes);
 
     if (frustumCheck == OUTSIDE_FRUSTUM) {
       return;
@@ -140,6 +147,7 @@ void StaPipCore::render(StaPipBag* bag) {
   }
 
   packager.setRenderBBox(bbox);
+  packager.setObjectSpacePlanes(frustumCull ? objectSpacePlanes : nullptr);
 
   M4x4 mvp;
 

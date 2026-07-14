@@ -1,11 +1,10 @@
 /*
-# _____        ____   ___
-#   |     \/   ____| |___|
-#   |     |   |   \  |   |
-#-----------------------------------------------------------------------
-# Copyright 2022, tyra - https://github.com/h4570/tyra
-# Licensed under Apache License 2.0
-# Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX - object-space frustum classification (planes are
+# transformed into the box's local space once per bag, then every axis-aligned
+# box is classified with the p-vertex/n-vertex test - 2 dot products per plane
+# instead of transforming 8 corners and testing each against every plane) and
+# a VU0 min/max vertex scan in the array constructor.
+# Based on the original by Sandro Sobczynski (h4570/tyra), Apache License 2.0.
 */
 
 #pragma once
@@ -83,6 +82,36 @@ class CoreBBox {
    */
   bool isInFrustum(const Plane* frustumPlanes, const M4x4& model) const;
   bool isInFrustum(const Plane* frustumPlanes) const;
+
+  /**
+   * Modified by TyraX. Transform world-space frustum planes into the
+   * object space of a model matrix (out[i] = model^T * worldPlanes[i], the
+   * translation folded into the distance). Classifying an axis-aligned box
+   * against these planes is exactly equivalent to transforming its corners
+   * by `model` and testing them against the world planes - but the matrix
+   * work happens once per object instead of once per box corner.
+   */
+  static void computeObjectSpacePlanes(Plane* out, const Plane* worldPlanes,
+                                       const M4x4& model);
+
+  /**
+   * Modified by TyraX. Frustum classification of an axis-aligned box
+   * given by its min/max corners, against object-space planes from
+   * computeObjectSpacePlanes(). Uses the p-vertex/n-vertex trick: per plane
+   * only the two extreme corners are tested, which matches testing all 8
+   * corners because the distance function is linear.
+   */
+  static CoreBBoxFrustum frustumCheckAABB(const Plane* objectSpacePlanes,
+                                          const Vec4& min, const Vec4& max);
+
+  /**
+   * Modified by TyraX. AABB classification of THIS box (valid only for
+   * boxes built from min/max corners - every constructor except the
+   * matrix-transforming one, whose corners are not axis-aligned).
+   */
+  CoreBBoxFrustum frustumCheckAABB(const Plane* objectSpacePlanes) const {
+    return frustumCheckAABB(objectSpacePlanes, vertices[0], vertices[7]);
+  }
 
  private:
   static std::array<Vec4, 8> frustumCheckVertices;

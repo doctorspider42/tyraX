@@ -59,6 +59,15 @@ class StaPipBagPackagesBBox {
    */
   RenderBBox createChildBBox(const u32& index, const u16& partsSize) const;
 
+  /**
+   * Modified by TyraX. Min/max corners of the merged bbox of parts
+   * [index, index + partsSize) - what createChildBBox() computes, without
+   * materializing an eight-corner RenderBBox. Every child bbox is
+   * axis-aligned, so its min/max are vertices[0] and vertices[7].
+   */
+  void getMergedMinMax(const u32& index, const u16& partsSize, Vec4* outMin,
+                       Vec4* outMax) const;
+
   void print() const;
   void print(const char* name) const;
   void print(const std::string& name) const { print(name.c_str()); }
