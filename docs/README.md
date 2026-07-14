@@ -30,6 +30,10 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   `.screenfx` text files (no editor rebuild): a small manifest plus a raw
   low-level GS-blit body, positioned in the UI Editor screen stack with numeric
   parameters, and how to copy an effect to another project.
+- [Materials: model preview, duplication and texture painting](material-painting.md) -
+  the Material Editor's live preview on your own .obj models, duplicating a
+  material together with its textures, and painting color or tiled-pattern
+  strokes straight onto the mesh through its UVs (the flat PNG is the bake).
 - [The VS Code extension](vscode-extension.md) - syntax highlighting, snippets
   and validation for the `.flownode` and `.screenfx` text files: what it does,
   how the editor installs it automatically (and how to package a `.vsix` by

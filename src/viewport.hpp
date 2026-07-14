@@ -91,15 +91,37 @@ public:
     uint32_t render(int width, int height, const std::vector<SceneObject>& objects,
                     const std::vector<int>& selection, int primary);
 
-    // Material Editor live preview: a lit turntable primitive over a checker
-    // floor, rendered into its own framebuffer (render() resizes the main one
-    // to the viewport every frame). kd = diffuse tint (channels may exceed 1 -
-    // material brightness), texRel = map_Kd as a project-relative path
-    // ("" = untextured), shape: 0 box, 1 sphere, 2 cylinder, 3 cone,
-    // angleDeg = turntable rotation. Returns the GL texture id.
-    uint32_t renderMaterialPreview(int width, int height, const float* kd,
-                                   const std::string& texRel, int shape,
-                                   float angleDeg);
+    // Material Editor live preview: a lit primitive OR one of the project's
+    // .obj models over a checker floor, rendered into its own framebuffer
+    // (render() resizes the main one to the viewport every frame).
+    struct MatPreviewDesc {
+        float kd[3] = {1.0f, 1.0f, 1.0f};  // staged tint of the selected entry
+                                           // (channels may exceed 1 - brightness)
+        std::string texRel;   // staged map_Kd, project-relative ("" = none)
+        int shape = 1;        // 0 box, 1 sphere, 2 cylinder, 3 cone, 4 model
+        std::string modelRel; // .obj shown when shape == 4 (project-relative)
+        std::string mtlRel;   // the open .mtl: override library for the model
+        std::string entryName;  // selected entry - its model parts are drawn
+                                // with the staged kd/texRel (live edits)
+        float angleDeg = 40.0f;   // turntable yaw
+        float pitchDeg = 30.0f;   // camera elevation
+        float zoom = 1.0f;        // dolly multiplier (1 = default framing)
+    };
+    uint32_t renderMaterialPreview(int width, int height, const MatPreviewDesc& d);
+
+    // Raycast of the LAST renderMaterialPreview frame: image coords (u, v in
+    // [0,1], origin top-left) -> the hit surface's texture UV. paintable is
+    // true when the hit face is drawn with the staged texture (the selected
+    // entry's parts on a model; always for primitive shapes).
+    bool materialPreviewPick(float u, float v, float& outU, float& outV,
+                             bool& paintable) const;
+
+    // Replaces the pixels of the cached GL texture for a project-relative
+    // path (creating the cache entry when absent) - live texture painting.
+    // Every mesh sampling that path updates immediately (the GL texture is
+    // shared); the file on disk is NOT touched.
+    void updateTexturePixels(const std::string& relPath, int w, int h,
+                             const unsigned char* rgba);
 
     // Drops every disk-derived cache (models, materials, GL textures). Call
     // after an asset file changed on disk (e.g. the Material Editor saved a
@@ -340,7 +362,47 @@ private:
     void ensurePreviewFramebuffer(int width, int height);
     uint32_t prevFbo_ = 0, prevTex_ = 0, prevDepth_ = 0;
     int prevW_ = 0, prevH_ = 0;
-    Mesh prevBg_, prevFloor_;  // vertical gradient + checker floor
+    Mesh prevBg_, prevFloor_;  // vertical gradient + checker floor (y = 0 local)
+
+    // Model shown in the material preview. Unlike modelCache_ the part Kd is
+    // NOT baked into the vertex colors (it rides the tint uniform instead) so
+    // staged, uncommitted edits of the selected entry preview live; the CPU
+    // triangles (pos3 + uv2 per vertex) feed the paint raycast.
+    struct MatPrevPart {
+        Mesh mesh;
+        std::string material;  // usemtl name
+        float kd[3] = {1.0f, 1.0f, 1.0f};
+        std::string texRel;    // project-relative map_Kd ("" = none)
+        std::vector<float> tris;  // pos3 + uv2, flat triangle list
+    };
+    struct MatPrevModel {
+        std::string key;  // "<modelRel>|<mtlRel>", "" = nothing loaded
+        bool ok = false;
+        std::vector<MatPrevPart> parts;
+        float center[3] = {0.0f, 0.0f, 0.0f};
+        float minY = -0.5f;
+        float radius = 1.0f;  // AABB half-diagonal (camera framing)
+    };
+    MatPrevModel matPrevModel_;
+    const MatPrevModel* matPrevModelDraw(const std::string& modelRel,
+                                         const std::string& mtlRel);
+    void clearMatPrevModel();
+
+    // CPU triangles of the four preview primitives (pos3 + uv2), built on
+    // first use from the same unit-mesh generators as box_/sphere_/... so the
+    // paint raycast sees exactly the drawn geometry.
+    std::vector<float> prevShapeTris_[4];
+
+    // Camera + geometry of the last renderMaterialPreview, consumed by
+    // materialPreviewPick. Basis vectors are world-space, fov is vertical.
+    struct MatPrevPick {
+        bool valid = false;
+        int shape = 1;  // 4 = model (raycast matPrevModel_)
+        std::string entryName;
+        float eye[3], fwd[3], right[3], up[3];
+        float tanHalf = 0.4142f, aspect = 1.0f;
+    };
+    MatPrevPick matPrevPick_;
 
     // Color grading post pass (grading preview): colorTex_ -> gradeTex_
     bool gradingOn_ = false;

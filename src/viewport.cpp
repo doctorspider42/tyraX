@@ -1441,6 +1441,90 @@ void Viewport::clearModelCache() {
             if (part.tex) glDeleteTextures(1, &part.tex);  // embedded, not texCache_
         }
     animModelCache_.clear();
+    clearMatPrevModel();  // same disk-derived sources (obj + mtl)
+}
+
+void Viewport::clearMatPrevModel() {
+    for (MatPrevPart& part : matPrevModel_.parts) destroyMesh(part.mesh);
+    matPrevModel_ = MatPrevModel{};
+    matPrevPick_.valid = false;
+}
+
+// The material preview's model slot (single entry - the editor shows one
+// model at a time). Kd stays out of the vertex colors on purpose, see the
+// struct comment.
+const Viewport::MatPrevModel* Viewport::matPrevModelDraw(
+    const std::string& modelRel, const std::string& mtlRel) {
+    const std::string key = modelRel + "|" + mtlRel;
+    if (matPrevModel_.key == key) return &matPrevModel_;
+
+    clearMatPrevModel();
+    matPrevModel_.key = key;
+
+    objparser::Model model;
+    if (!objparser::load(
+            (std::filesystem::path(projectDir_) / modelRel).string(), model,
+            mtlRel.empty() ? ""
+                           : (std::filesystem::path(projectDir_) / mtlRel).string()))
+        return &matPrevModel_;  // !ok - negative result cached until invalidated
+
+    // map_Kd paths resolve relative to the file that defined them (same rule
+    // as modelDraw): the override .mtl when assigned, the model otherwise.
+    const std::filesystem::path texDir =
+        std::filesystem::path(mtlRel.empty() ? modelRel : mtlRel).parent_path();
+    for (const objparser::Submesh& sub : model.submeshes) {
+        MatPrevPart part;
+        part.material = sub.material;
+        part.kd[0] = sub.kd[0], part.kd[1] = sub.kd[1], part.kd[2] = sub.kd[2];
+        if (!sub.texture.empty())
+            part.texRel = (texDir / sub.texture).generic_string();
+        std::vector<float> interleaved;
+        interleaved.reserve(sub.verts.size());
+        part.tris.reserve(sub.verts.size() / 8 * 5);
+        for (size_t i = 0; i + 7 < sub.verts.size(); i += 8) {
+            const Vec3 s =
+                shadeOf({sub.verts[i + 3], sub.verts[i + 4], sub.verts[i + 5]});
+            interleaved.insert(interleaved.end(),
+                               {sub.verts[i], sub.verts[i + 1], sub.verts[i + 2],
+                                s.x, s.y, s.z, sub.verts[i + 6], sub.verts[i + 7]});
+            part.tris.insert(part.tris.end(),
+                             {sub.verts[i], sub.verts[i + 1], sub.verts[i + 2],
+                              sub.verts[i + 6], sub.verts[i + 7]});
+        }
+        part.mesh = uploadMesh(interleaved);
+        matPrevModel_.parts.push_back(std::move(part));
+    }
+    matPrevModel_.ok = !matPrevModel_.parts.empty();
+    for (int i = 0; i < 3; ++i)
+        matPrevModel_.center[i] = (model.min[i] + model.max[i]) * 0.5f;
+    matPrevModel_.minY = model.min[1];
+    const float dx = model.max[0] - model.min[0];
+    const float dy = model.max[1] - model.min[1];
+    const float dz = model.max[2] - model.min[2];
+    matPrevModel_.radius = 0.5f * std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (matPrevModel_.radius < 0.01f) matPrevModel_.radius = 0.01f;
+    return &matPrevModel_;
+}
+
+void Viewport::updateTexturePixels(const std::string& relPath, int w, int h,
+                                   const unsigned char* rgba) {
+    if (relPath.empty() || w < 1 || h < 1 || !rgba) return;
+    uint32_t& tex = texCache_[relPath];
+    if (!tex) {
+        GLuint t = 0;
+        glGenTextures(1, &t);
+        glBindTexture(GL_TEXTURE_2D, t);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        tex = t;
+    } else {
+        glBindTexture(GL_TEXTURE_2D, tex);
+    }
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 rgba);
+    glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 // First material of an assigned .mtl - the surface of a primitive.
@@ -2061,14 +2145,13 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 }
 
 // Material Editor live preview: gradient backdrop, checker floor and one unit
-// primitive with the material's Kd tint + map_Kd texture. Shares the scene
-// shader and unit meshes, so the shading matches the viewport (and the PS2
-// bake). The camera orbits instead of the shape spinning - the directional
-// shade is baked into the mesh vertex colors, so rotating the mesh would drag
-// the light along with it.
-uint32_t Viewport::renderMaterialPreview(int width, int height, const float* kd,
-                                         const std::string& texRel, int shape,
-                                         float angleDeg) {
+// primitive - or a project .obj model - with the material's Kd tint + map_Kd
+// texture. Shares the scene shader and unit meshes, so the shading matches the
+// viewport (and the PS2 bake). The camera orbits instead of the shape spinning
+// - the directional shade is baked into the mesh vertex colors, so rotating
+// the mesh would drag the light along with it.
+uint32_t Viewport::renderMaterialPreview(int width, int height,
+                                         const MatPreviewDesc& d) {
     if (!program_) return 0;
     if (width < 1) width = 1;
     if (height < 1) height = 1;
@@ -2086,24 +2169,38 @@ uint32_t Viewport::renderMaterialPreview(int width, int height, const float* kd,
         prevBg_ = uploadMesh(q);
     }
     if (!prevFloor_.vao) {
-        // 8x8 checker plate right under the unit shape
+        // 8x8 checker plate, unit extents at y=0 - scaled/placed per draw so
+        // it can sit under a unit shape and under an arbitrary-size model
         std::vector<float> f;
         const int n = 8;
-        const float ext = 2.0f, cell = 2.0f * ext / n, y = -0.501f;
+        const float ext = 2.0f, cell = 2.0f * ext / n;
         for (int z = 0; z < n; ++z)
             for (int x = 0; x < n; ++x) {
                 const float g = ((x + z) % 2 == 0) ? 0.30f : 0.235f;
                 const float ax = -ext + x * cell, az = -ext + z * cell;
                 const float bx = ax + cell, bz = az + cell;
-                pushVertexColor(f, ax, y, az, g, g, g);
-                pushVertexColor(f, bx, y, az, g, g, g);
-                pushVertexColor(f, ax, y, bz, g, g, g);
-                pushVertexColor(f, bx, y, az, g, g, g);
-                pushVertexColor(f, bx, y, bz, g, g, g);
-                pushVertexColor(f, ax, y, bz, g, g, g);
+                pushVertexColor(f, ax, 0, az, g, g, g);
+                pushVertexColor(f, bx, 0, az, g, g, g);
+                pushVertexColor(f, ax, 0, bz, g, g, g);
+                pushVertexColor(f, bx, 0, az, g, g, g);
+                pushVertexColor(f, bx, 0, bz, g, g, g);
+                pushVertexColor(f, ax, 0, bz, g, g, g);
             }
         prevFloor_ = uploadMesh(f);
     }
+
+    // Model slot (shape 4). A missing/unparseable model falls back to the
+    // sphere so the window never goes blank.
+    const MatPrevModel* model = nullptr;
+    int shape = d.shape;
+    if (shape == 4) {
+        model = matPrevModelDraw(d.modelRel, d.mtlRel);
+        if (!model->ok) {
+            model = nullptr;
+            shape = 1;
+        }
+    }
+    if (!model && (shape < 0 || shape > 3)) shape = 1;
 
     glBindFramebuffer(GL_FRAMEBUFFER, prevFbo_);
     glViewport(0, 0, width, height);
@@ -2135,25 +2232,142 @@ uint32_t Viewport::renderMaterialPreview(int width, int height, const float* kd,
     draw(prevBg_, id, 1.0f, 1.0f, 1.0f, 0);
     glEnable(GL_DEPTH_TEST);
 
-    const float a = angleDeg * kPi / 180.0f;
-    const float dist = 2.1f;
-    const Vec3 eye{dist * std::cos(a), 1.05f, dist * std::sin(a)};
-    const Mat4 view = lookAt(eye, {0.0f, -0.08f, 0.0f}, {0, 1, 0});
-    const Mat4 proj =
-        perspective(45.0f * kPi / 180.0f, (float)width / (float)height, 0.1f, 50.0f);
+    // Orbit camera around the shown geometry. Unit shapes keep the historical
+    // framing (dist 2.1, pivot slightly below center); models frame their AABB.
+    Vec3 center{0.0f, -0.08f, 0.0f};
+    float baseDist = 2.1f, floorY = -0.501f, floorScale = 1.0f;
+    if (model) {
+        center = {model->center[0], model->center[1], model->center[2]};
+        baseDist = model->radius * 2.6f;
+        floorY = model->minY - model->radius * 0.002f;
+        floorScale = model->radius;
+    }
+    float zoom = d.zoom < 0.05f ? 0.05f : (d.zoom > 16.0f ? 16.0f : d.zoom);
+    const float dist = baseDist / zoom;
+    float pitch = d.pitchDeg;
+    if (pitch < -5.0f) pitch = -5.0f;
+    if (pitch > 85.0f) pitch = 85.0f;
+    const float a = d.angleDeg * kPi / 180.0f;
+    const float p = pitch * kPi / 180.0f;
+    const Vec3 eye{center.x + dist * std::cos(p) * std::cos(a),
+                   center.y + dist * std::sin(p),
+                   center.z + dist * std::cos(p) * std::sin(a)};
+    const Mat4 view = lookAt(eye, center, {0, 1, 0});
+    const float zFar = dist + (model ? model->radius : 1.0f) * 4.0f + 50.0f;
+    const Mat4 proj = perspective(45.0f * kPi / 180.0f,
+                                  (float)width / (float)height,
+                                  dist * 0.01f < 0.01f ? 0.01f : dist * 0.01f, zFar);
     const Mat4 viewProj = mul(proj, view);
 
-    draw(prevFloor_, viewProj, 1.0f, 1.0f, 1.0f, 0);
+    {
+        Mat4 floorM = mul(translation(center.x, floorY, center.z),
+                          scaleM(floorScale, 1.0f, floorScale));
+        if (!model) floorM = translation(0.0f, floorY, 0.0f);
+        draw(prevFloor_, mul(viewProj, floorM), 1.0f, 1.0f, 1.0f, 0);
+    }
 
-    const Mesh* mesh = shape == 0   ? &box_
-                       : shape == 2 ? &cylinder_
-                       : shape == 3 ? &cone_
-                                    : &sphere_;
-    draw(*mesh, viewProj, kd[0], kd[1], kd[2], glTexture(texRel));
+    if (model) {
+        for (const MatPrevPart& part : matPrevModel_.parts) {
+            const bool staged = part.material == d.entryName;
+            const float* kd = staged ? d.kd : part.kd;
+            const std::string& tex = staged ? d.texRel : part.texRel;
+            draw(part.mesh, viewProj, kd[0], kd[1], kd[2], glTexture(tex));
+        }
+    } else {
+        const Mesh* mesh = shape == 0   ? &box_
+                           : shape == 2 ? &cylinder_
+                           : shape == 3 ? &cone_
+                                        : &sphere_;
+        draw(*mesh, viewProj, d.kd[0], d.kd[1], d.kd[2], glTexture(d.texRel));
+    }
 
     glBindVertexArray(0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // Snapshot the camera for materialPreviewPick (paint raycast)
+    matPrevPick_.valid = true;
+    matPrevPick_.shape = model ? 4 : shape;
+    matPrevPick_.entryName = d.entryName;
+    const Vec3 fwd = normalize(sub(center, eye));
+    const Vec3 right = normalize(cross(fwd, {0, 1, 0}));
+    const Vec3 up = cross(right, fwd);
+    matPrevPick_.eye[0] = eye.x, matPrevPick_.eye[1] = eye.y, matPrevPick_.eye[2] = eye.z;
+    matPrevPick_.fwd[0] = fwd.x, matPrevPick_.fwd[1] = fwd.y, matPrevPick_.fwd[2] = fwd.z;
+    matPrevPick_.right[0] = right.x, matPrevPick_.right[1] = right.y,
+    matPrevPick_.right[2] = right.z;
+    matPrevPick_.up[0] = up.x, matPrevPick_.up[1] = up.y, matPrevPick_.up[2] = up.z;
+    matPrevPick_.tanHalf = std::tan(45.0f * kPi / 180.0f * 0.5f);
+    matPrevPick_.aspect = (float)width / (float)height;
+
+    // CPU triangles for the primitive shapes, built once from the same
+    // generators as the drawn meshes (default detail).
+    if (!model && prevShapeTris_[shape].empty()) {
+        const std::vector<float> src = shape == 0   ? unitBox()
+                                       : shape == 2 ? unitCylinder()
+                                       : shape == 3 ? unitCone()
+                                                    : unitSphere();
+        std::vector<float>& tris = prevShapeTris_[shape];
+        tris.reserve(src.size() / 8 * 5);
+        for (size_t i = 0; i + 7 < src.size(); i += 8)
+            tris.insert(tris.end(),
+                        {src[i], src[i + 1], src[i + 2], src[i + 6], src[i + 7]});
+    }
+
     return prevTex_;
+}
+
+// Ray/triangle sweep over the CPU copy of the last material-preview geometry.
+// Nearest hit wins; the hit's texture UV comes from barycentric interpolation
+// (the same UVs the GPU sampled, so the painted texel lands under the cursor).
+bool Viewport::materialPreviewPick(float u, float v, float& outU, float& outV,
+                                   bool& paintable) const {
+    if (!matPrevPick_.valid) return false;
+    const MatPrevPick& pk = matPrevPick_;
+    const Vec3 eye{pk.eye[0], pk.eye[1], pk.eye[2]};
+    const float ndcX = u * 2.0f - 1.0f;
+    const float ndcY = 1.0f - v * 2.0f;
+    const float sx = ndcX * pk.tanHalf * pk.aspect;
+    const float sy = ndcY * pk.tanHalf;
+    const Vec3 dir = normalize({pk.fwd[0] + pk.right[0] * sx + pk.up[0] * sy,
+                                pk.fwd[1] + pk.right[1] * sx + pk.up[1] * sy,
+                                pk.fwd[2] + pk.right[2] * sx + pk.up[2] * sy});
+
+    float bestT = 1e30f;
+    bool found = false;
+    // Moller-Trumbore over a pos3+uv2 triangle list
+    auto sweep = [&](const std::vector<float>& tris, bool canPaint) {
+        for (size_t i = 0; i + 14 < tris.size(); i += 15) {
+            const Vec3 v0{tris[i], tris[i + 1], tris[i + 2]};
+            const Vec3 v1{tris[i + 5], tris[i + 6], tris[i + 7]};
+            const Vec3 v2{tris[i + 10], tris[i + 11], tris[i + 12]};
+            const Vec3 e1 = sub(v1, v0), e2 = sub(v2, v0);
+            const Vec3 pv = cross(dir, e2);
+            const float det = dot(e1, pv);
+            if (std::fabs(det) < 1e-9f) continue;
+            const float inv = 1.0f / det;
+            const Vec3 tv = sub(eye, v0);
+            const float bu = dot(tv, pv) * inv;
+            if (bu < 0.0f || bu > 1.0f) continue;
+            const Vec3 qv = cross(tv, e1);
+            const float bv = dot(dir, qv) * inv;
+            if (bv < 0.0f || bu + bv > 1.0f) continue;
+            const float t = dot(e2, qv) * inv;
+            if (t <= 1e-4f || t >= bestT) continue;
+            bestT = t;
+            found = true;
+            const float w0 = 1.0f - bu - bv;
+            outU = w0 * tris[i + 3] + bu * tris[i + 8] + bv * tris[i + 13];
+            outV = w0 * tris[i + 4] + bu * tris[i + 9] + bv * tris[i + 14];
+            paintable = canPaint;
+        }
+    };
+    if (pk.shape == 4) {
+        for (const MatPrevPart& part : matPrevModel_.parts)
+            sweep(part.tris, part.material == pk.entryName);
+    } else if (pk.shape >= 0 && pk.shape < 4) {
+        sweep(prevShapeTris_[pk.shape], true);
+    }
+    return found;
 }
 
 // Live preview of every enabled particle emitter. The per-kind spawn /

@@ -46,6 +46,140 @@ Each finished feature lands as its own commit.
     Docker game-build round-trip not run (no engine/codegen logic changed, only
     marker text).
 
+- (98) **Brush opacity settings: labeled slider + per-dab Vary.** Follow-up
+  on (97). The opacity slider was an unlabeled 70px stub next to Size - now
+  a properly labeled **Opacity** on its own row, and a new **Vary** slider
+  (0-100%) randomly reduces each dab's opacity by up to that fraction
+  (shared LCG with the rotation roll; the Live-dab ghost pass is exempt so
+  the preview shows the base strength). Brush controls reflowed into stable
+  rows - mode+color/picker, Size+Opacity, Spacing+Vary, (brush) Angle+Random
+  - after the first cut clipped the Opacity label off the pane edge.
+  **Verified** (Layer 2, GUI harness): the cropped control rows show
+  "24 px Size | 1.00 Opacity" and "300% Spacing | 100% Vary"; a stroke at
+  Spacing 300% + Vary 100% left dabs ranging from full-strength red to
+  barely-there pink along one drag. Editor builds clean.
+- (97) **Dab rotation (manual + random) and the Live dab ghost.** Follow-up
+  on (96). Brush-image dabs gained an **Angle** slider (0-360 deg; the
+  stamp offset is rotated back into image space, loop radius padded by
+  sqrt(2) so corners don't clip) and a **Random** toggle re-rolling the
+  rotation per dab from a member LCG (Angle disabled while on) - bricks can
+  be laid deliberately, splats scattered organically. New **Live dab**
+  toggle (default on): every hovered frame the paint pane composites ONE
+  uncommitted stamp under the cursor - the active layer is backed up,
+  stamped, composited, restored, so undo snapshots/stroke starts/saves
+  (which all recomposite first) only ever see clean layers; the ghost pass
+  never re-rolls the random angle (a spinning preview reads as noise) and
+  the composite is wiped when the cursor leaves. **Verified** (Layer 2, GUI
+  harness): a rectangular brick.png brush ghost-previewed on the crate
+  while hovering with the texture PNG's hash untouched; a click stamped the
+  brick rotated by the dialed 67 deg; with Random + 300% spacing a drag
+  left bricks in clearly different orientations; the Angle slider greys out
+  while Random is checked. Editor builds clean.
+- (96) **GIMP-style brush dabs + Spacing.** User feedback on (95): the Brush
+  mode painted a texture-space *tiled pattern* ("revealing" an image through
+  holes); now each dab **stamps the whole brush image** scaled to the brush
+  Size - the PNG's alpha is the dab shape, its RGB the paint (an irregular
+  splat PNG paints organic blotches). The Tile slider is gone; in its place
+  a **Spacing** slider (5-300%, % of brush diameter, applies to every mode)
+  with the GIMP residual-distance algorithm - the leftover distance carries
+  across mouse samples (`matEdStampResidual_`), so low spacing draws one
+  continuous line and >=100% drops exactly-spaced separate stamps regardless
+  of mouse speed; the stroke seeds a dab at the click and restarts across UV
+  seams. **Verified** (Layer 2, GUI harness): with a 64^2 splat.png (alpha
+  blob) at Spacing 300% a drag left a row of separate orange blotches on the
+  crate; at 5% the same drag drew a continuous ribbon; the splat brush was
+  picked from res/brushes in the picker; layer stack from (95) reloaded from
+  the sidecar across an editor restart. Editor builds clean.
+- (95) **Paint layers with blend modes + project-global brushes.** The paint
+  tool grew a per-texture **layer stack**: Background + N transparent layers,
+  each with Normal/Multiply/Add/Overlay, an opacity slider and a visibility
+  eye; strokes land on the active layer, `+`/`-`/Up/Down manage the stack.
+  The **flattened composite** is rebuilt after every change and written to
+  the texture PNG - the PS2 pipeline still sees a plain texture. The stack
+  persists in a `<texture>.png.layers/` sidecar (layerN.png + layers.json,
+  read via the in-tree json parser; any inconsistency falls back to a single
+  Background - never fails a load); one Background = sidecar removed, so
+  untouched textures stay plain files. texbake skips (and scrubs from stale
+  bakes) the sidecars AND the new `res/brushes/` dir, so neither ships in
+  .res-baked/bin/ISO; Duplicate copies a texture's sidecar along. The old
+  "texture brush" was renamed to **Brush** and its sources moved from
+  ad-hoc PNGs to **project-global brushes** in `res/brushes/*.png` with an
+  "Import brush from PNG..." item in the picker; a third **Eraser** mode
+  removes paint from the active layer (or punches decal alpha on the
+  Background). Stamps now compose with straight-alpha "over" so strokes on
+  transparent layers have no dark fringe. Undo gained typed steps (paint =
+  layer snapshot, layer add/remove restore the structure, props as before);
+  paint/layer steps apply only while their texture is loaded. **Verified**
+  (Layer 2, GUI harness): + added "Layer 1", a red stroke on it wrote the
+  sidecar (layers.json + layer0/1.png listed on disk); Multiply visibly
+  darkened the blobs (grid shows through); the grass brush appeared in the
+  picker from res/brushes and painted a continuous checker; Eraser chewed a
+  hole in a red blob; the visibility eye toggled the composite PNG hash and
+  restored it exactly; a headless --build's .res-baked contained neither
+  brushes/ nor crate.png.layers/ while the composite crate.png shipped.
+  Editor builds clean.
+- (94) **Material Editor follow-ups: big preview, own Ctrl+Z undo, Delete.**
+  User feedback on (93). (a) The preview pane now takes ~48% of the window
+  width (floor `scaled(260)`) and the default window grew to 1020x600 - the
+  paint surface is the point of the window. (b) **Ctrl+Z, scoped**: the window
+  keeps ONE undo stack of paint strokes and committed property edits
+  (`MatEdUndoStep` - pixel snapshot or a pre-edit copy of the staged entries,
+  `matEdPrevMats_` baseline, cap 16). While the Material Editor is focused
+  (`matEdFocused_`, same focus-scoping as the Flow Graph's Ctrl+C/V), Ctrl+Z
+  runs `matEdUndoLast()` instead of scene undo (Ctrl+Y is inert there); an
+  Undo button sits next to Duplicate. A paint step restores + rewrites its own
+  texture even if the entry/texture switched since; a property step restores
+  the entries and saves the file. (c) **Delete...** button routes into the
+  existing asset-delete confirm flow (usage count, object/terrain fallbacks);
+  the Material case now also clears the editor's staged state when the open
+  file is the one deleted, and invalidates viewport caches. **Verified**
+  (Layer 2, GUI harness): stroke -> PNG hash changed -> Undo button restored
+  the pixels (0 brush-colored samples); Brightness drag wrote Kd 0.3 to the
+  .mtl -> Undo restored Kd 1.0; Delete showed the confirm modal, removed
+  crate-copy.mtl from disk and the list, cleared the pane, status "Deleted".
+  Ctrl+Z routing verified end-to-end with a temporary debug chord (Ctrl+U ->
+  "Material Editor: nothing to undo" with the window focused, F/T focus flags
+  in the title) because synthetic keybd_event Ctrl+Z is swallowed by
+  something machine-global in the test environment while Ctrl+S/Ctrl+U pass -
+  real-keyboard Ctrl+Z uses the identical `IsKeyChordPressed` path that scene
+  undo always used. Editor builds clean.
+- (93) **Material Editor: preview on real models, texture painting, duplicate,
+  new-texture canvas.** Four additions in one coherent pass. (a) The preview
+  shape combo now lists every `res/models/*.obj` next to the four primitives;
+  a model renders with the open `.mtl` as its override (usemtl-matched, same
+  rule as the game) through a new `Viewport::MatPrevModel` cache that keeps Kd
+  OUT of the vertex colors (it rides the tint uniform) so the selected entry's
+  staged, uncommitted slider values preview live; camera orbits by drag
+  (LMB, or RMB while painting), wheel zooms, AABB-framed. Opening the editor
+  from a Model object's Edit... passes the model as a hint; opening a
+  res/models `.mtl` auto-picks the sibling `.obj`. (b) **Painting**: a Paint
+  toggle raycasts each stroke sample against a CPU copy of the displayed
+  triangles (`materialPreviewPick`, Moller-Trumbore + barycentric UV),
+  splats a soft round brush into a CPU RGBA copy of the entry's texture
+  (segment interpolation between samples, wrap-around repeat, a seam-jump
+  guard that breaks the segment instead of smearing), live-uploads the shared
+  GL texture (`updateTexturePixels` - scene viewport updates too, same
+  texCache_ id) and writes the PNG on mouse release - painting IS the bake,
+  texbake quantizes it at build like any PNG. Brush modes: color, and a
+  **texture brush** sampling a pattern PNG in texture space (tiled, density
+  slider) so strokes reveal one continuous image. Per-stroke undo stack
+  (12 snapshots; assets stay outside project undo, like imports). Only faces
+  whose usemtl matches the edited entry take paint. (c) **Duplicate** copies
+  the open `.mtl` under a `-copy` name plus every referenced texture (once
+  each, `<newbase>-<tex>` in place, map_Kd rewritten) so repainting the copy
+  never bleeds into the original. (d) **New paintable texture...** in the
+  texture combo: a blank pow2 PNG (64-512, fill color) written next to the
+  `.mtl` via stb_image_write, assigned as map_Kd and Paint auto-enabled.
+  **Verified** (Layer 2, GUI harness): scratch project with a UV'd cube .obj +
+  128^2 grid texture; synthetic-input session confirmed - preview auto-landed
+  on crate.obj, a red stroke appeared on the mesh and changed the PNG hash on
+  disk ("Painted res/models/crate.png" status), Undo stroke reverted the hash,
+  Duplicate produced crate-copy.mtl + crate-copy-crate.png with rewritten
+  map_Kd, the grass texture brush painted a continuous checker pattern across
+  faces, RMB-orbit worked mid-paint, and the New texture modal created a 256^2
+  canvas and assigned it. Editor builds clean. Known UV property (documented,
+  not a bug): faces sharing texels (the test cube maps all six faces to the
+  same 0..1 square) all show a stroke painted on any one of them.
 - (89) **VS Code extension for `.flownode` / `.screenfx` files (the "full deluxe
   package").** The two text formats a project uses for custom logic — custom
   flow nodes and custom screen effects — were plain text in VS Code. They now
