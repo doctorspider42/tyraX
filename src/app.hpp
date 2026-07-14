@@ -86,6 +86,11 @@ private:
     // absolute) is also opened in that window - jump straight to a script /
     // custom node while keeping the whole project in context.
     void openInVSCode(const std::string& file = "");
+    // Install/refresh the bundled Tyra VS Code extension (syntax highlighting +
+    // validation for .flownode/.screenfx) into the user's ~/.vscode/extensions.
+    // Best-effort and idempotent; called before openInVSCode and from the
+    // "Install VS Code extension" menu item. Returns a human-readable status.
+    std::string installVsCodeExtension();
     void drawOutputWindow();
     void drawDebugWindow();
     void drawDiscLayoutWindow();

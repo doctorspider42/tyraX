@@ -9545,6 +9545,20 @@ static std::string vscodeCppProperties() {
     return out.str();
 }
 
+// .vscode/extensions.json - recommends the Tyra VS Code extension, which adds
+// syntax highlighting / validation for the project's .flownode and .screenfx
+// files (see tools/vscode-tyra). Static and machine-independent, so unlike
+// c_cpp_properties.json it is written only when missing (refreshGenerated),
+// preserving any recommendations the user adds. The id matches the extension's
+// publisher.name so VS Code doesn't re-prompt once it is installed.
+static std::string vscodeExtensionsJson() {
+    return "{\n"
+           "  \"recommendations\": [\n"
+           "    \"tyra.tyra-flownode\"\n"
+           "  ]\n"
+           "}\n";
+}
+
 std::vector<File> bakeAnimAssets(const Project& p,
                                  std::vector<std::string>* warnings) {
     std::vector<File> files;
@@ -9750,6 +9764,7 @@ std::vector<File> generate(const Project& p) {
         {"src\\scripts\\example_interaction.cpp",
          fill(fpp ? TPL_EXAMPLE_SCRIPT_FPP : TPL_EXAMPLE_SCRIPT_ORBIT)},
         {".vscode\\c_cpp_properties.json", vscodeCppProperties()},
+        {".vscode\\extensions.json", vscodeExtensionsJson()},
         {"run.ps1", fill(TPL_RUN_PS1)},
         {"windows-pcsx2.ps1", fill(TPL_PCSX2_PS1)},
         {".gitignore", fill(TPL_GITIGNORE)},

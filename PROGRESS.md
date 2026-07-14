@@ -9,6 +9,47 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (88) **VS Code extension for `.flownode` / `.screenfx` files (the "full deluxe
+  package").** The two text formats a project uses for custom logic — custom
+  flow nodes and custom screen effects — were plain text in VS Code. They now
+  get a real language extension (`tools/vscode-tyra`, id `tyra.tyra-flownode`).
+  Both formats share the same shape (a `key = value` header, a `---` line, then a
+  C++ body with `{placeholder}`s), so the extension defines two languages over
+  one design.
+  - **Highlighting**: TextMate grammars colour the header (keys / enum values /
+    `#` comments) and, after `---`, inject `source.cpp` (`contentName:
+    meta.embedded.block.cpp`) for **full embedded C++** highlighting with the
+    `{obj}`/`{num0}`/`{p0}`… placeholders overlaid. The body is a begin/end
+    region that starts at `---` and never ends (`"end": "(?!)"`), so it runs to
+    EOF regardless of what the C++ looks like.
+  - **Language features** (`extension.js`, plain JS, no build step): diagnostics
+    (unknown/duplicate keys, bad `string`/pin/`exec_out` enums, non-contiguous
+    `num*`/`param*`, missing/empty body, `call = fn` with a stray inline body,
+    unknown or undefined `{placeholder}`), hovers for every key/placeholder, and
+    key/value/placeholder completion. A `SPEC` table drives all of it and is
+    kept in sync with `src/flownode.cpp` / `src/screenfx.cpp`.
+  - **Delivery**: `templates.cpp` now also emits `.vscode/extensions.json`
+    (recommends the extension; written-if-missing in `refreshGenerated` so it
+    never clobbers user recommendations, unlike the always-overwritten
+    `c_cpp_properties.json`). The editor installs the extension by copying
+    `tools/vscode-tyra` (found next to the exe) into
+    `~/.vscode/extensions/tyra.tyra-flownode-<version>` — best-effort inside
+    `App::openInVSCode`, plus an explicit **Custom nodes… ▸ Install VS Code
+    extension** menu item. New doc `docs/vscode-extension.md`; corrected the
+    stale "there is no dedicated `.flownode` extension" line in
+    `docs/custom-flow-nodes.md`.
+  - **Verified** (offline, no VS Code UI needed): grammars tokenized with the
+    real `vscode-textmate` engine — header scopes correct, unknown key →
+    `invalid`, bad pin → `invalid.illegal.pin`, and the `---` region runs to EOF
+    with placeholders overlaid; `extension.js` run against a mock `vscode` module
+    (17/17 diagnostics/hover/completion assertions pass, including clean files
+    producing zero diagnostics); the manifest validated by packaging a real
+    `.vsix` with `@vscode/vsce` and installing it via `code --install-extension`
+    (registers as `tyra.tyra-flownode`); the editor builds clean; and a headless
+    `--new` project confirms `.vscode/extensions.json` is generated. The install
+    path was checked by build + the exe-relative source resolving to
+    `tools/vscode-tyra` + the installed folder name matching the "already
+    installed" guard (GUI install not driven headlessly).
 - (86) **Custom screen effects: user-authored full-screen post effects, drop-in
   files, positioned on the UI.** The editor shipped exactly two full-screen post
   effects (bloom, film grain), hard-coded in the engine's `RendererCorePostFx`.

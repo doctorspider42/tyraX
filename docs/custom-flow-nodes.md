@@ -216,13 +216,16 @@ tool when you want the logic to be **triggered from and wired into the graph**
   new files and edits without reopening).
 - **Custom nodes… ▸ Open in VS Code** opens the project (whole-project context,
   so IntelliSense resolves) and jumps to `flow_nodes.hpp`; **Jump to node file**
-  opens a specific `.flownode`.
+  opens a specific `.flownode`. Opening also installs the Tyra VS Code extension
+  (**Custom nodes… ▸ Install VS Code extension** does it on demand), which adds
+  syntax highlighting, snippets and validation for `.flownode` files — see
+  [the VS Code extension](vscode-extension.md).
 - C++ bodies live in `inc/scripts/flow_nodes.hpp` (marker-owned; delete the first
   line to keep your edits). `FlowNodeIO` is defined in `inc/scripts/script.hpp`.
   Because it is a normal project header, `call = fn` bodies get **full C++
-  IntelliSense** in VS Code (via the generated `.vscode/c_cpp_properties.json`) -
-  the reason there is no dedicated `.flownode` editor extension: write real logic
-  in `flow_nodes.hpp`, keep the `.flownode` a thin manifest.
+  IntelliSense** in VS Code (via the generated `.vscode/c_cpp_properties.json`).
+  The `.flownode` file stays a thin manifest — put real logic in `flow_nodes.hpp`
+  — but the extension still colours and checks its header and inline body.
 - Parse / duplicate-id problems are reported in the editor status bar on reload.
 - Implementation: `src/flownode.cpp` (loader/parser), `src/flowgraph.hpp`
   (registry + `CustomFlowNode`), code generation in `flowGraphScript()`
