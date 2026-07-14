@@ -9826,10 +9826,13 @@ void App::matEdSavePaintTarget() {
     matEdSaveLayers();
 }
 
-// One soft round splat at a surface UV (image space, v down), onto the
-// ACTIVE layer (straight-alpha "over"; the eraser mode takes alpha away
-// instead). Coordinates wrap (GS textures repeat), so strokes cross seams
-// cleanly. The caller recomposites once per frame, not per splat.
+// One stamp at a surface UV (image space, v down), onto the ACTIVE layer
+// (straight-alpha "over"; the eraser mode takes alpha away instead). The
+// color brush is a soft round splat; a Brush is the brush IMAGE fitted into
+// the brush diameter - its alpha is the stamp shape, its RGB the paint
+// (GIMP-style dabs, not a tiled pattern). Coordinates wrap (GS textures
+// repeat), so strokes cross seams cleanly. The caller recomposites once per
+// frame, not per stamp.
 void App::matEdStamp(float u, float v) {
     const int w = matEdPaintW_, h = matEdPaintH_;
     if (w < 1 || h < 1 || matEdActiveLayer_ < 0 ||
@@ -9849,35 +9852,37 @@ void App::matEdStamp(float u, float v) {
         for (int dx = -r; dx <= r; ++dx) {
             const int px = icx + dx, py = icy + dy;
             const float ox = px + 0.5f - cx, oy = py + 0.5f - cy;
-            const float d2 = ox * ox + oy * oy;
-            if (d2 > size * size) continue;
-            const float t = std::sqrt(d2) / size;
-            float a = matEdBrushOpacity_ * (1.0f - t * t);  // soft falloff
-            if (a <= 0.0f) continue;
+            float a;
+            float src[3];
+            if (brush) {
+                // the whole brush image spans the stamp: offset -> image UV
+                const float fx = ox / size * 0.5f + 0.5f;
+                const float fy = oy / size * 0.5f + 0.5f;
+                if (fx < 0.0f || fx >= 1.0f || fy < 0.0f || fy >= 1.0f) continue;
+                const int qx = (int)(fx * matEdPatternW_);
+                const int qy = (int)(fy * matEdPatternH_);
+                const unsigned char* sp =
+                    &matEdPatternPixels_[((size_t)qy * matEdPatternW_ + qx) * 4];
+                // the image's own alpha IS the dab shape - no radial falloff
+                a = matEdBrushOpacity_ * (sp[3] / 255.0f);
+                if (a <= 0.0f) continue;
+                src[0] = sp[0], src[1] = sp[1], src[2] = sp[2];
+            } else {
+                const float d2 = ox * ox + oy * oy;
+                if (d2 > size * size) continue;
+                const float t = std::sqrt(d2) / size;
+                a = matEdBrushOpacity_ * (1.0f - t * t);  // soft falloff
+                if (a <= 0.0f) continue;
+                src[0] = matEdBrushColor_[0] * 255.0f;
+                src[1] = matEdBrushColor_[1] * 255.0f;
+                src[2] = matEdBrushColor_[2] * 255.0f;
+            }
             const int sx = ((px % w) + w) % w;
             const int sy = ((py % h) + h) % h;
             unsigned char* dst = &L.pixels[((size_t)sy * w + sx) * 4];
             if (eraser) {
                 dst[3] = (unsigned char)(dst[3] * (1.0f - a) + 0.5f);
                 continue;
-            }
-            float src[3];
-            if (brush) {
-                // brush image sampled in texture space (tiled) - strokes
-                // reveal one continuous image instead of stamping it per splat
-                int qx = (int)std::floor(px * matEdBrushTile_);
-                int qy = (int)std::floor(py * matEdBrushTile_);
-                qx = ((qx % matEdPatternW_) + matEdPatternW_) % matEdPatternW_;
-                qy = ((qy % matEdPatternH_) + matEdPatternH_) % matEdPatternH_;
-                const unsigned char* sp =
-                    &matEdPatternPixels_[((size_t)qy * matEdPatternW_ + qx) * 4];
-                src[0] = sp[0], src[1] = sp[1], src[2] = sp[2];
-                a *= sp[3] / 255.0f;
-                if (a <= 0.0f) continue;
-            } else {
-                src[0] = matEdBrushColor_[0] * 255.0f;
-                src[1] = matEdBrushColor_[1] * 255.0f;
-                src[2] = matEdBrushColor_[2] * 255.0f;
             }
             // straight-alpha "over" onto the layer: a transparent texel takes
             // the stroke color outright (no dark fringe from the RGB zeros)
@@ -9893,30 +9898,48 @@ void App::matEdStamp(float u, float v) {
         }
 }
 
-// Stamp + gap fill: fast mouse moves land samples far apart, so intermediate
-// splats are laid along the segment from the previous UV. A jump longer than
-// a third of the texture is a UV-seam crossing - stamping through it would
-// smear a line across unrelated texels, so the segment breaks instead.
+// Lays stamps along the stroke at the Spacing interval (a % of the brush
+// diameter, GIMP semantics): the residual distance carries across mouse
+// samples, so low spacing draws one continuous line and >=100% drops clearly
+// separated dabs no matter how fast the mouse moves. A jump longer than a
+// third of the texture is a UV-seam crossing - laying dabs through it would
+// smear a line across unrelated texels, so the stroke restarts there instead.
 void App::matEdPaintTo(float u, float v) {
     const float w = (float)matEdPaintW_, h = (float)matEdPaintH_;
     if (w < 1.0f || h < 1.0f) return;
-    if (matEdHaveLastUV_) {
-        const float du = u - matEdLastUV_[0], dv = v - matEdLastUV_[1];
-        const float dist = std::sqrt(du * w * du * w + dv * h * dv * h);
-        const float step = matEdBrushSize_ * 0.4f < 1.0f ? 1.0f : matEdBrushSize_ * 0.4f;
-        const float seamGuard = 0.33f * (w < h ? w : h);
-        if (dist > step && dist < seamGuard) {
-            const int n = (int)(dist / step);
-            for (int i = 1; i <= n; ++i) {
-                const float t = (float)i / (n + 1);
-                matEdStamp(matEdLastUV_[0] + du * t, matEdLastUV_[1] + dv * t);
-            }
-        }
+    const float size = matEdBrushSize_ < 1.0f ? 1.0f : matEdBrushSize_;
+    const float step =
+        std::max(1.0f, matEdBrushSpacing_ * 0.01f * 2.0f * size);
+    if (!matEdHaveLastUV_) {  // stroke start: a dab right under the click
+        matEdStamp(u, v);
+        matEdLastUV_[0] = u, matEdLastUV_[1] = v;
+        matEdHaveLastUV_ = true;
+        matEdStampResidual_ = 0.0f;
+        return;
     }
-    matEdStamp(u, v);
+    const float x0 = matEdLastUV_[0] * w, y0 = matEdLastUV_[1] * h;
+    const float x1 = u * w, y1 = v * h;
+    const float dx = x1 - x0, dy = y1 - y0;
+    const float dist = std::sqrt(dx * dx + dy * dy);
+    const float seamGuard = 0.33f * (w < h ? w : h);
+    if (dist >= seamGuard) {  // seam crossing - restart, dab at the new spot
+        matEdStamp(u, v);
+        matEdLastUV_[0] = u, matEdLastUV_[1] = v;
+        matEdStampResidual_ = 0.0f;
+        return;
+    }
+    float done = 0.0f;
+    float need = step - matEdStampResidual_;  // distance to the next dab
+    while (need <= dist - done) {
+        done += need;
+        const float t = done / dist;
+        matEdStamp((x0 + dx * t) / w, (y0 + dy * t) / h);
+        need = step;
+        matEdStampResidual_ = 0.0f;
+    }
+    matEdStampResidual_ += dist - done;
     matEdLastUV_[0] = u;
     matEdLastUV_[1] = v;
-    matEdHaveLastUV_ = true;
 }
 
 void App::drawMaterialEditorWindow() {
@@ -10411,14 +10434,16 @@ void App::drawMaterialEditorWindow() {
             ImGui::SliderFloat("##brush_op", &matEdBrushOpacity_, 0.05f, 1.0f,
                                "%.2f");
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Brush opacity");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(scaled(90.0f));
+            ImGui::SliderFloat("Spacing", &matEdBrushSpacing_, 5.0f, 300.0f,
+                               "%.0f%%", ImGuiSliderFlags_Logarithmic);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Distance between dabs, as %% of the brush size\n"
+                    "(GIMP-style). Low = one continuous line, 100%%\n"
+                    "and up = clearly separated stamps.");
             if (matEdBrushMode_ == 1) {
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(scaled(90.0f));
-                ImGui::SliderFloat("Tile", &matEdBrushTile_, 0.125f, 8.0f,
-                                   "%.2fx", ImGuiSliderFlags_Logarithmic);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Brush texels per painted texel -\n"
-                                      "higher = denser tiling.");
                 // (re)decode the brush image when the pick changes
                 if (matEdBrush_ != matEdPatternLoaded_) {
                     matEdPatternLoaded_ = matEdBrush_;

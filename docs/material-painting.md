@@ -47,14 +47,20 @@ quantizes it like any other PNG).
 
 - **Color** — a soft round brush; color, size (in texture pixels) and
   opacity.
-- **Brush** — paints with a project brush image. Brushes are PNGs in
-  `res/brushes/` — **global to the project** and never shipped with the
-  game; add one with *Import brush from PNG...* in the brush picker. The
-  brush is sampled in *texture space* and tiled (with a *Tile* density
-  slider), so strokes reveal one continuous image instead of stamping it —
-  think laying grass or rust onto parts of a prop.
+- **Brush** — paints with a project brush image, GIMP-style: each dab
+  **stamps the whole image**, scaled to the brush *Size* — the PNG's alpha
+  is the dab's shape, its RGB is the paint (an irregular splat with soft
+  alpha makes organic blotches; grayscale-on-transparent works like a GIMP
+  grayscale brush). Brushes are PNGs in `res/brushes/` — **global to the
+  project** and never shipped with the game; add one with *Import brush
+  from PNG...* in the brush picker.
 - **Eraser** — takes paint off the active layer (on the Background it makes
   the texture transparent — handy for authoring decal cutouts).
+- **Spacing** — the distance between dabs along a stroke, as a % of the
+  brush size (GIMP semantics; applies to every mode). Low values draw one
+  continuous line; 100% and up drops clearly separated stamps — drag fast
+  or slow, the spacing stays exact because the leftover distance carries
+  across mouse samples.
 - **Undo** — the Material Editor keeps its own undo stack of paint strokes,
   layer add/remove AND committed property edits (color, brightness,
   texture...). Press **Ctrl+Z while the window is focused** (or the *Undo*

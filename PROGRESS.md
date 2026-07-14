@@ -9,6 +9,21 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (96) **GIMP-style brush dabs + Spacing.** User feedback on (95): the Brush
+  mode painted a texture-space *tiled pattern* ("revealing" an image through
+  holes); now each dab **stamps the whole brush image** scaled to the brush
+  Size - the PNG's alpha is the dab shape, its RGB the paint (an irregular
+  splat PNG paints organic blotches). The Tile slider is gone; in its place
+  a **Spacing** slider (5-300%, % of brush diameter, applies to every mode)
+  with the GIMP residual-distance algorithm - the leftover distance carries
+  across mouse samples (`matEdStampResidual_`), so low spacing draws one
+  continuous line and >=100% drops exactly-spaced separate stamps regardless
+  of mouse speed; the stroke seeds a dab at the click and restarts across UV
+  seams. **Verified** (Layer 2, GUI harness): with a 64^2 splat.png (alpha
+  blob) at Spacing 300% a drag left a row of separate orange blotches on the
+  crate; at 5% the same drag drew a continuous ribbon; the splat brush was
+  picked from res/brushes in the picker; layer stack from (95) reloaded from
+  the sidecar across an editor restart. Editor builds clean.
 - (95) **Paint layers with blend modes + project-global brushes.** The paint
   tool grew a per-texture **layer stack**: Background + N transparent layers,
   each with Normal/Multiply/Add/Overlay, an opacity slider and a visibility

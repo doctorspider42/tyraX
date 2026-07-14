@@ -564,7 +564,9 @@ private:
     float matEdBrushSize_ = 24.0f;     // radius in texture pixels
     float matEdBrushOpacity_ = 1.0f;
     std::string matEdBrush_;           // active brush: res/brushes/<x>.png
-    float matEdBrushTile_ = 1.0f;      // brush texels per painted texel
+    // Stamp spacing, % of the brush diameter between stamps along a stroke
+    // (GIMP semantics): low = a continuous line, >=100 = separate stamps.
+    float matEdBrushSpacing_ = 25.0f;
     std::string matEdPaintTexRel_;     // project-relative path of the loaded target
     // Composite of the layer stack = the pixels the PNG on disk holds (what
     // the PS2 loads). Layers are editor-side: painted strokes land on the
@@ -590,8 +592,9 @@ private:
     void matEdSaveLayers();
     std::filesystem::path matEdLayersDirAbs() const;
     bool matEdStroke_ = false;         // LMB stroke in progress
-    float matEdLastUV_[2] = {0, 0};    // previous stamp (gap interpolation)
+    float matEdLastUV_[2] = {0, 0};    // previous sample point on the surface
     bool matEdHaveLastUV_ = false;
+    float matEdStampResidual_ = 0.0f;  // px travelled since the last stamp
     // The Material Editor's own undo (Ctrl+Z while the window is focused, or
     // the Undo button): one stack of paint strokes, layer add/remove and
     // committed property edits, in order. Separate from the project history -
