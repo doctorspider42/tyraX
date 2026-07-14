@@ -3759,6 +3759,17 @@ void App::drawPropertiesWindow() {
             ImGui::TextDisabled(
                 "Skipped at draw time when the camera is farther than this;\n"
                 "collision and logic still run. 0 = always drawn.");
+
+        // Rendered into the dynamic ("@sky") environment map, so reflective
+        // materials mirror this object - costs a second small render per frame.
+        if (ImGui::Checkbox("Show in reflections", &o.reflected)) committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Materials with a <dynamic - live sky> sphere map will mirror\n"
+                "this object (rendered into the reflection map every frame).\n"
+                "Mark the few props that sell the effect - each one costs a\n"
+                "second small render per frame. Editor preview shows the sky\n"
+                "only; check reflections in the game.");
     }
 
     if (o.type == PrimitiveType::Emitter) {
@@ -4250,6 +4261,7 @@ void App::drawMultiProperties() {
     if (allSolid) {
         multiDragF("Draw distance", &SceneObject::drawDistance, 0.5f, 0.0f, 2000.0f,
                    "%.0f units");
+        multiCheck("Show in reflections", &SceneObject::reflected);
         multiCheck("Physics (falls with gravity)", &SceneObject::physics);
         if (!anySavePoint)
             multiCheck("Usable (USE prompt + On Used)", &SceneObject::usable);

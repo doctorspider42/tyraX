@@ -82,10 +82,12 @@ equation, no barriers; dynpip keeps the original 7/5-qword macros), the
 StaPip `TCE` env program family (matcap ST from normals in the ST slot +
 `StaPipTextureBag::coordinatesAreNormals` + the camera basis at
 `VU1_ENV_BASIS_ADDR`), `RendererCoreEnvMap` (128×128 VRAM render target for
-GT3-style dynamic reflections: FRAME/SCISSOR/XYOFFSET redirect bracket with
-masked z writes + `RendererCore3D::pushEnvView/popEnvView`; exposed as a
-VRAM-resident `Texture::vramResident` that `useTexture` binds without a
-PATH3 upload — see `docs/reflective-materials.md`), `physics/CollisionMesh` (XZ-grid
+GT3-style dynamic reflections: FRAME/SCISSOR/XYOFFSET/ZBUF redirect bracket
+with a dedicated 128×128 z-buffer — "reflected" scene objects submitted
+inside the bracket occlude correctly — + `RendererCore3D::pushEnvView/
+popEnvView`; exposed as a VRAM-resident `Texture::vramResident` that
+`useTexture` binds without a PATH3 upload — see
+`docs/reflective-materials.md`), `physics/CollisionMesh` (XZ-grid
 triangle collider) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
 TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot),
 `renderer/models/unique_id.hpp` (`generateUniqueId()`) replacing upstream's

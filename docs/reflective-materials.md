@@ -43,6 +43,14 @@ every frame and samples that as the sphere map — reflections follow the live
 sky, including script retints (*Set Sky Color*). The editor viewport
 approximates it with the analytic horizon/zenith gradient.
 
+**Objects in reflections:** mark an object's *Show in reflections* checkbox
+(Properties; stored as `"reflected": true`) and it is rendered into the env
+map too — chrome then mirrors it, GT3-style. Each marked object costs a
+second (small, wide-FOV) render per frame, so mark the few props that sell
+the effect. The env pass owns a dedicated 128×128 z-buffer, so marked
+objects occlude each other correctly inside the map. The editor viewport's
+approximation shows the sky only — check object reflections in the game.
+
 ## How the PS2 side works
 
 - `LeanObjLoader` parses `refl` (texture + strength) alongside `Kd`/`map_Kd`.

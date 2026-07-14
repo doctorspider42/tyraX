@@ -4683,6 +4683,16 @@ void TerrainGame::renderScene() {
     skyDome.infoBag->zTestType = PipelineZTest_AllPass;
     stapip.core.render(skyDome.bag.get());
     skyDome.infoBag->zTestType = prevZTest;
+    // "Show in reflections" objects render into the map too - base passes
+    // only (no env pass inside the env pass), depth-tested against the
+    // target's dedicated z-buffer so they occlude each other correctly.
+    for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
+      RuntimeObject& ro = runtimeObjects[ri];
+      if (!ro.active || !ro.visible || !ro.data.reflected) continue;
+      if (ro.dirty) rebuildObjectGeometry(ri);
+      for (GeoPart& part : objectGeometry[ri].parts)
+        if (part.bag) stapip.core.render(part.bag.get());
+    }
     core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
     core.envMap.end();
   }
@@ -7065,6 +7075,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none\n"
            "  float drawDistance;  // not drawn farther than this from the camera;\n"
            "                       // 0 = unlimited (collision/logic always run)\n"
+           "  int reflected;  // 1 = rendered into the dynamic (\"@sky\") env map\n"
            "  int animModel;  // animated models: index into ANIM_MODEL_PATHS, -1 = none\n"
            "  const char* animClip;  // animated models: starting clip (\"\" = first)\n"
            "  int animAutoplay;      // animated models: 1 = play at scene start\n"
@@ -7130,7 +7141,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << ", " << floatLit(o.lightBright)
                     << ", " << floatLit(o.lightRadius) << ", " << (o.saveState ? 1 : 0)
                     << ", " << o.collisionMode << ", "
-                    << floatLit(o.drawDistance) << ", " << animModelIndexOf(p, o)
+                    << floatLit(o.drawDistance) << ", " << (o.reflected ? 1 : 0)
+                    << ", " << animModelIndexOf(p, o)
                     << ", \"" << escapeCString(o.animClip) << "\", "
                     << (o.animAutoplay ? 1 : 0) << ", " << (o.animLoop ? 1 : 0)
                     << ", " << floatLit(o.animSpeed) << ", "

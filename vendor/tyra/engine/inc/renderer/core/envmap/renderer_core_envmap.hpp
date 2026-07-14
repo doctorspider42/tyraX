@@ -53,9 +53,10 @@ class RendererCoreEnvMap {
   Texture* getTexture() { return texture; }
 
   /**
-   * Drains in-flight PATH1 rendering, points FRAME/SCISSOR/XYOFFSET at the
-   * env target (z writes masked - the pass shares the main z-buffer address
-   * but must not scribble on it) and clears the target to the given color.
+   * Drains in-flight PATH1 rendering, points FRAME/SCISSOR/XYOFFSET/ZBUF at
+   * the env target (it owns a dedicated 128x128 z-buffer, so "reflected"
+   * scene objects submitted inside the bracket occlude each other properly)
+   * and clears the target color + depth.
    */
   void begin(const Color& clearColor);
 
@@ -68,6 +69,7 @@ class RendererCoreEnvMap {
   RendererCoreSync* sync = nullptr;
   Path1* path1 = nullptr;
   u32 vramAddress = 0;
+  u32 zVramAddress = 0;  // dedicated env z-buffer (128x128, 32-bit)
   texbuffer_t texBuffer;
   Texture* texture = nullptr;
   packet2_t* beginPacket = nullptr;

@@ -146,6 +146,11 @@ struct SceneObject {
     // drawn at all (collision, sounds and scripts still run). 0 = unlimited.
     // The cheapest LOD there is - era-correct for dense scenes.
     float drawDistance = 0.0f;
+    // Show in reflections: this object is also rendered into the dynamic
+    // ("@sky") environment map, so reflective materials mirror it - the GT3
+    // trick's second half. Each marked object costs a second (128x128,
+    // wide-FOV) render per frame; mark the few props that sell the effect.
+    bool reflected = false;
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     // Material library (.mtl) assigned to the object, e.g.
     // "res/materials/walls.mtl". Primitives take the file's FIRST material
@@ -254,6 +259,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
            a.layer == b.layer &&
            a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
+           a.reflected == b.reflected &&
            a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.playerMode == b.playerMode &&
            a.playerWalkSpeed == b.playerWalkSpeed &&

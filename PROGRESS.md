@@ -9,6 +9,26 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (105) **Objects in reflections: the per-object "Show in reflections"
+  flag.** The dynamic ("@sky") env map reflected only the sky dome; now an
+  object marked `reflected` (Properties checkbox, `"reflected": true` in the
+  object json) is rendered into the map too - chrome mirrors it, the second
+  half of the GT3 trick. Engine: `RendererCoreEnvMap` gained a dedicated
+  128x128 z-buffer (begin() clears color+depth in one all-pass sprite,
+  ZBUF_1 points at it with writes ON) so marked objects occlude each other
+  inside the map; the dome still draws first with an AllPass test. Codegen:
+  `SceneObjectData.reflected` (struct field + row column - keep them 1:1),
+  and the renderScene env pass submits marked objects' BASE bags after the
+  dome (no env-in-env), depth-tested in the env target. Full editor chain
+  per tyra-editor-dev: SceneObject field + operator==, save/load (default
+  false stays implicit), single- and multi-select Properties checkbox. The
+  editor viewport's @sky approximation still shows the sky only (noted in
+  the tooltip + docs) - object reflections are checked in the game.
+  **Verified** (Layer 3, software renderer): in examples/reflections the
+  matte control box and the red/blue paint spheres are marked - the dynamic
+  chrome spheres show the red box's blob (and paint-sphere dots) exactly
+  where the scene places them, while static-map spheres are unchanged; log
+  clean. Cost note: each marked object = one extra small render per frame.
 - (104) **examples/reflections rebuilt as a first-person chrome showroom.**
   The original orbit-camera five-object demo (its res/ assets initially
   missed the repo - see 102) is now an FPP scene: an avenue of pedestals

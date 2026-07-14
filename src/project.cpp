@@ -218,6 +218,8 @@ static std::string objectJson(const SceneObject& o) {
         (o.drawDistance > 0.0f
              ? ", \"drawDistance\": " + fmtFloat(o.drawDistance)
              : "") +
+        // rendered into the dynamic env map; default (false) stays implicit
+        (o.reflected ? std::string(", \"reflected\": true") : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + o.modelPath + "\"") +
         (o.materialPath.empty() ? "" : ", \"material\": \"" + o.materialPath + "\"");
     if (o.type == PrimitiveType::Player) {
@@ -1236,6 +1238,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             o.drawDistance = (float)v->numberOr(0.0);
             if (o.drawDistance < 0.0f) o.drawDistance = 0.0f;
         }
+        if (const auto* v = jo.find("reflected")) o.reflected = v->boolOr(false);
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
         // pre-materials projects had a per-object "texture" PNG - dropped

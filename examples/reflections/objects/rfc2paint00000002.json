@@ -1,1 +1,1 @@
-{ "id": "rfc2paint00000002", "name": "paint-blue", "type": "sphere", "position": [7, 1.6, 24], "rotation": [0, 0, 0], "scale": [3.2, 3.2, 3.2], "color": [1, 1, 1], "physics": false, "detail": 24, "material": "res/materials/paint-blue.mtl" }
+{ "id": "rfc2paint00000002", "name": "paint-blue", "type": "sphere", "position": [7, 1.6, 24], "rotation": [0, 0, 0], "scale": [3.2, 3.2, 3.2], "color": [1, 1, 1], "physics": false, "detail": 24, "reflected": true, "material": "res/materials/paint-blue.mtl" }

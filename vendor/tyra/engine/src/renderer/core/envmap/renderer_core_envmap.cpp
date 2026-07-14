@@ -36,8 +36,10 @@ void RendererCoreEnvMap::init(RendererSettings* t_settings,
 
   // The target sits right above the frame/z/post-fx buffers, below every
   // texture - the FIFO vram.free() of texture eviction can never rewind
-  // past a texture address, so this allocation is permanent.
+  // past a texture address, so this allocation is permanent. The dedicated
+  // z-buffer lets "reflected" scene objects occlude each other in the map.
   vramAddress = gs->vram.allocateBuffer(size, size, GS_PSM_32);
+  zVramAddress = gs->vram.allocateBuffer(size, size, GS_PSM_32);
 
   texBuffer.address = vramAddress;
   texBuffer.width = size;
@@ -74,7 +76,7 @@ void RendererCoreEnvMap::begin(const Color& clearColor) {
   // FINISH handshake would spin forever).
   if (path1->isVU1Configured()) sync->align3D();
 
-  const int zbp = static_cast<int>(gs->zBuffer.address) >> 11;
+  const int envZbp = static_cast<int>(zVramAddress) >> 11;
   const int zsm = static_cast<int>(gs->zBuffer.zsm);
   const int half = size / 2;
 
@@ -100,16 +102,16 @@ void RendererCoreEnvMap::begin(const Color& clearColor) {
   q++;
   PACK_GIFTAG(q, GS_SET_SCISSOR(0, size - 1, 0, size - 1), GS_REG_SCISSOR_1);
   q++;
-  // The pass shares the main z-buffer ADDRESS - mask z writes so the sky
-  // draw cannot scribble on the just-cleared scene depth.
-  PACK_GIFTAG(q, GS_SET_ZBUF(zbp, zsm, 1), GS_REG_ZBUF_1);
+  // Dedicated env z-buffer, writes ON - the pass renders real geometry
+  // ("reflected" objects) that must occlude correctly inside the map.
+  PACK_GIFTAG(q, GS_SET_ZBUF(envZbp, zsm, 0), GS_REG_ZBUF_1);
   q++;
   PACK_GIFTAG(q, GS_SET_TEST(0, 0, 0, 0, 0, 0, 1, ZTEST_METHOD_ALLPASS),
               GS_REG_TEST_1);
   q++;
-  // Clear sprite: covers the whole target (wide-FOV sky views leave the
-  // below-horizon half uncovered by dome geometry - it must hold the
-  // horizon color).
+  // Clear sprite: paints the whole target with the horizon color (wide-FOV
+  // sky views leave the below-horizon half uncovered by dome geometry) and,
+  // with the all-pass test + unmasked ZBUF, resets the env depth to 0.
   PACK_GIFTAG(q,
               GS_SET_RGBAQ(static_cast<u8>(clearColor.r),
                            static_cast<u8>(clearColor.g),
