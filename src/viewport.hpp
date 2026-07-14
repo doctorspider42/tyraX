@@ -85,6 +85,15 @@ public:
     // rebuilds the mask each frame from the scene's layer eye toggles.
     void setHiddenMask(std::vector<char> mask) { hiddenMask_ = std::move(mask); }
 
+    // Projected-decal preview meshes, computed app-side (decalproj) because the
+    // app owns the Project. Keyed by object id; each value is a world-space
+    // triangle list, 5 floats/vertex (pos3 + uv2). The GL meshes are rebuilt
+    // only when `version` changes (bumped whenever the app recomputes), so this
+    // can be called every frame cheaply. A projecting decal with an entry here
+    // draws it instead of the flat quad.
+    void setProjectedDecals(const std::map<std::string, std::vector<float>>& meshes,
+                            uint64_t version);
+
     // Renders terrain + objects at the given pixel size, returns GL texture id.
     // selection: indices outlined; primary (the anchor, usually selection.back())
     // is outlined brighter so it reads as the value source for the multi-editor.
@@ -202,6 +211,12 @@ private:
     int maxCells_ = 32;
     std::vector<float> heights_;
     int hmW_ = 0, hmD_ = 0;
+
+    // Projected-decal GL meshes (see setProjectedDecals), keyed by object id;
+    // rebuilt only when projectedDecalVersion_ changes.
+    std::map<std::string, Mesh> projectedDecalMeshes_;
+    uint64_t projectedDecalVersion_ = 0;
+    bool projectedDecalHasVersion_ = false;
     float sky_[3] = {0.25f, 0.55f, 0.78f};
     float skyTop_[3] = {0.08f, 0.3f, 0.65f};
     bool skyGradient_ = true;

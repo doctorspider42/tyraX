@@ -12,6 +12,7 @@
 #include <set>
 #include <sstream>
 
+#include "decalproj.hpp"
 #include "gl_loader.h"
 #include "glbparser.hpp"
 #include "json.hpp"
@@ -397,12 +398,16 @@ int App::run(const std::string& initialProjectDir) {
             openDiscardPopup_ = true;
         }
 
-        // Deferred from attachProject(): the saved window layout can only be
-        // (re)applied between frames - existing windows get re-docked here.
+        // Deferred from attachProject()/switchLayout(): a saved layout dump can
+        // only be (re)applied between frames - existing windows get re-docked
+        // here. Recipe-built layouts take the drawUI path instead.
         if (layoutLoadPending_) {
             layoutLoadPending_ = false;
-            ImGui::LoadIniSettingsFromMemory(project_.windowLayout.c_str(),
-                                             project_.windowLayout.size());
+            const std::string& ini =
+                (hasProject_ && !project_.windowLayouts.empty())
+                    ? project_.windowLayouts[project_.activeLayout].ini
+                    : std::string();
+            ImGui::LoadIniSettingsFromMemory(ini.c_str(), ini.size());
         }
 
         ImGui_ImplOpenGL3_NewFrame();
@@ -442,31 +447,24 @@ void App::drawUI() {
     ImGuizmo::BeginFrame();
     ImGuiID dockspace = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
 
-    // Default layout on first run (no imgui.ini yet)
-    static bool layoutDone = false;
-    if (!layoutDone) {
-        layoutDone = true;
-        if (ImGui::DockBuilderGetNode(dockspace) == nullptr ||
-            ImGui::DockBuilderGetNode(dockspace)->IsLeafNode()) {
-            ImGui::DockBuilderRemoveNode(dockspace);
-            ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
-            ImGui::DockBuilderSetNodeSize(dockspace, ImGui::GetMainViewport()->Size);
+    // Apply a pending layout rebuild now: the dockspace id exists, but no panel
+    // window has been submitted yet this frame (DockBuilder must run before the
+    // windows it docks are drawn). Saved-ini loads take the frame-boundary path
+    // in run() instead - LoadIniSettingsFromMemory can't run mid-frame.
+    if (recipeRebuildPending_) {
+        recipeRebuildPending_ = false;
+        buildLayoutRecipe(recipeRebuildId_, dockspace);
+    }
 
-            ImGuiID center = dockspace;
-            ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.24f, nullptr,
-                                                       &center);
-            ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.26f, nullptr,
-                                                        &center);
-            ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.26f, nullptr,
-                                                         &center);
-            ImGui::DockBuilderDockWindow("Project", left);
-            ImGui::DockBuilderDockWindow("Properties", right);
-            ImGui::DockBuilderDockWindow("Output", bottom);
-            ImGui::DockBuilderDockWindow("Debug", bottom);
-            ImGui::DockBuilderDockWindow("Flow Graph", center);
-            ImGui::DockBuilderDockWindow("Viewport", center);
-            ImGui::DockBuilderFinish(dockspace);
-        }
+    // First-run fallback before any project is open (no imgui.ini yet): the
+    // default arrangement. Once a project attaches, applyActiveLayout() drives
+    // the docking from the project's saved layouts instead.
+    static bool bootLayoutDone = false;
+    if (!bootLayoutDone && !hasProject_) {
+        bootLayoutDone = true;
+        if (ImGui::DockBuilderGetNode(dockspace) == nullptr ||
+            ImGui::DockBuilderGetNode(dockspace)->IsLeafNode())
+            buildLayoutRecipe((int)LayoutRecipe::Default, dockspace);
     }
 
     // Layouts saved before the Properties window existed: carve a slot for it
@@ -514,6 +512,15 @@ void App::drawUI() {
     drawDeleteSceneModal();
     drawDeleteAssetModal();
     drawDiscardModal();
+    drawLayoutModals();
+
+    // Bring the freshly switched layout's headline panel to the front, now that
+    // its window has been submitted this frame (docked as a background tab by
+    // the recipe, or loaded from the saved ini).
+    if (!pendingFocusWindow_.empty() && !layoutLoadPending_ && !recipeRebuildPending_) {
+        ImGui::SetWindowFocus(pendingFocusWindow_.c_str());
+        pendingFocusWindow_.clear();
+    }
 
     // Keyboard shortcuts
     ImGuiIO& io = ImGui::GetIO();
@@ -690,6 +697,10 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("PAL 4:3 frame", nullptr, showPal_)) showPal_ = !showPal_;
             if (ImGui::MenuItem("NTSC frame", nullptr, showNtsc_)) showNtsc_ = !showNtsc_;
 
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Layout", hasProject_)) {
+            drawLayoutMenu();
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Scene", hasProject_)) {
@@ -955,6 +966,58 @@ void App::drawToolbar() {
     }
 }
 
+void App::updateProjectedDecals() {
+    // Cheap signature of everything a projection depends on: the projecting
+    // decals AND every potential receiver's transform/type. Recompute only when
+    // it changes (edits, gizmo drags), so the projection - which walks receiver
+    // geometry - doesn't run every frame. Pure host work; nothing here reaches
+    // the PS2 (see decalproj).
+    const SceneData& sc = project_.active();
+    bool anyProjecting = false;
+    for (const SceneObject& o : sc.objects)
+        if (o.type == PrimitiveType::Decal && o.decalProject) { anyProjecting = true; break; }
+
+    uint64_t sig = 1469598103934665603ull;  // FNV-1a seed
+    auto mix = [&](uint64_t v) { sig = (sig ^ v) * 1099511628211ull; };
+    auto mixf = [&](float f) {
+        uint32_t b;
+        std::memcpy(&b, &f, sizeof(b));
+        mix(b);
+    };
+    if (anyProjecting) {
+        mix(sc.objects.size());
+        for (const SceneObject& o : sc.objects) {
+            mix((uint64_t)o.type);
+            for (int k = 0; k < 3; ++k) { mixf(o.position[k]); mixf(o.rotation[k]); mixf(o.scale[k]); }
+            mix((uint64_t)o.primDetail);
+            for (char c : o.id) mix((uint8_t)c);
+            for (char c : o.modelPath) mix((uint8_t)c);
+            if (o.type == PrimitiveType::Decal) {
+                mix(o.decalProject ? 2u : 1u);
+                for (char c : o.materialPath) mix((uint8_t)c);
+            }
+        }
+        for (float h : sc.heights) mixf(h);  // terrain receiver
+    }
+
+    if (sig == projectedDecalsSig_) {
+        viewport_.setProjectedDecals(projectedDecals_, projectedDecalsVersion_);
+        return;
+    }
+    projectedDecalsSig_ = sig;
+    projectedDecals_.clear();
+    if (anyProjecting) {
+        for (const SceneObject& o : sc.objects) {
+            if (o.type != PrimitiveType::Decal || !o.decalProject || o.materialPath.empty())
+                continue;
+            decalproj::DecalMesh m = decalproj::project(project_, sc, o);
+            if (!m.verts.empty()) projectedDecals_[o.id] = std::move(m.verts);
+        }
+    }
+    ++projectedDecalsVersion_;
+    viewport_.setProjectedDecals(projectedDecals_, projectedDecalsVersion_);
+}
+
 void App::drawViewportWindow() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     // NoNav: keep ImGui keyboard navigation out of the viewport. Otherwise the
@@ -1054,6 +1117,7 @@ void App::drawViewportWindow() {
             }
             viewport_.setHiddenCameras(std::move(hideCams));
         }
+        updateProjectedDecals();
         uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
                                         selection_, selectedObject_);
         // Flip vertically: GL texture origin is bottom-left
@@ -1785,11 +1849,11 @@ void App::saveProject() {
     project_.gizmoOp = gizmoOp_;
     project_.gizmoSpace = gizmoSpace_;
     project_.viewMode = (int)viewport_.viewMode();
-    // While a layout load is pending, the on-screen layout still belongs to
-    // the previously shown project - keep the stored one instead of clobbering
-    // the freshly opened project's docking with it.
-    if (!layoutLoadPending_)
-        project_.windowLayout = ImGui::SaveIniSettingsToMemory();  // clears WantSave
+    // Fold the live docking arrangement + open windows into the active layout.
+    // While a switch is still settling (load or rebuild pending) the on-screen
+    // layout doesn't yet belong to the active layout - keep the stored one
+    // instead of clobbering it.
+    captureActiveLayout();
     if (auto err = project::save(project_); !err.empty())
         MessageBoxA(nullptr, err.c_str(), "Save Project", MB_ICONERROR | MB_OK);
     // Terrain heightmaps live in separate <scene>.heights files (not the .tyra)
@@ -1805,6 +1869,287 @@ void App::saveAll(const char* status) {
         MessageBoxA(nullptr, err.c_str(), "Save History", MB_ICONERROR | MB_OK);
     setDirty(false);
     statusMessage_ = status;
+}
+
+// --- Window layouts ---------------------------------------------------------
+// Named docking arrangements stored per project (project_.windowLayouts) and
+// switched from the Layout menu. A layout is either a saved ImGui ini dump or,
+// while its ini is empty, a built-in DockBuilder recipe rebuilt on demand.
+
+bool* App::showFlagForKey(const std::string& key) {
+    if (key == "cutscene") return &showCutsceneEditor_;
+    if (key == "material") return &showMaterialEditor_;
+    if (key == "ui") return &showUiEditor_;
+    if (key == "menus") return &showMenusEditor_;
+    if (key == "grading") return &showGradingEditor_;
+    if (key == "ambience") return &showAmbienceEditor_;
+    if (key == "loading") return &showLoadingEditor_;
+    if (key == "disc") return &showDiscLayout_;
+    return nullptr;
+}
+
+// The optional windows a layout can carry, in a stable order (also the capture
+// order). Core windows (Viewport/Project/Properties/Flow Graph/Output/Debug)
+// are always drawn and never listed here.
+static const char* const kLayoutWindowKeys[] = {
+    "cutscene", "material", "ui", "menus", "grading", "ambience", "loading", "disc"};
+
+void App::applyOpenWindows(const std::vector<std::string>& keys) {
+    // Deterministic layouts: every optional window's open flag is set to whether
+    // the layout requests it, so switching closes ones the previous layout left
+    // open and opens the ones this layout needs.
+    for (const char* k : kLayoutWindowKeys) {
+        bool* flag = showFlagForKey(k);
+        if (flag)
+            *flag = std::find(keys.begin(), keys.end(), k) != keys.end();
+    }
+}
+
+std::vector<std::string> App::captureOpenWindows() const {
+    std::vector<std::string> keys;
+    for (const char* k : kLayoutWindowKeys) {
+        bool* flag = const_cast<App*>(this)->showFlagForKey(k);
+        if (flag && *flag) keys.emplace_back(k);
+    }
+    return keys;
+}
+
+void App::buildLayoutRecipe(int recipe, unsigned int dockspace) {
+    ImGui::DockBuilderRemoveNode(dockspace);
+    ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
+    ImGui::DockBuilderSetNodeSize(dockspace, ImGui::GetMainViewport()->Size);
+
+    ImGuiID center = dockspace;
+    switch ((LayoutRecipe)recipe) {
+    case LayoutRecipe::Director: {
+        // Viewport in the centre, the Cutscene Director dopesheet along the
+        // bottom, scene tree + properties stacked on a thin left column. Flow
+        // Graph tabs behind the Viewport; Output/Debug behind the dopesheet.
+        ImGuiID left =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.20f, nullptr, &center);
+        ImGuiID bottom =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.34f, nullptr, &center);
+        ImGui::DockBuilderDockWindow("Project", left);
+        ImGui::DockBuilderDockWindow("Properties", left);
+        ImGui::DockBuilderDockWindow("Cutscene Director", bottom);
+        ImGui::DockBuilderDockWindow("Output", bottom);
+        ImGui::DockBuilderDockWindow("Debug", bottom);
+        ImGui::DockBuilderDockWindow("Flow Graph", center);
+        ImGui::DockBuilderDockWindow("Viewport", center);
+        pendingFocusWindow_ = "Cutscene Director";
+        break;
+    }
+    case LayoutRecipe::Material: {
+        // Material Editor fills the window; the always-present core panels dock
+        // as background tabs behind it so nothing floats loose.
+        ImGui::DockBuilderDockWindow("Viewport", center);
+        ImGui::DockBuilderDockWindow("Project", center);
+        ImGui::DockBuilderDockWindow("Properties", center);
+        ImGui::DockBuilderDockWindow("Flow Graph", center);
+        ImGui::DockBuilderDockWindow("Output", center);
+        ImGui::DockBuilderDockWindow("Debug", center);
+        ImGui::DockBuilderDockWindow("Material Editor", center);
+        pendingFocusWindow_ = "Material Editor";
+        break;
+    }
+    case LayoutRecipe::Default:
+    default: {
+        ImGuiID left =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.24f, nullptr, &center);
+        ImGuiID right =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.26f, nullptr, &center);
+        ImGuiID bottom =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.26f, nullptr, &center);
+        ImGui::DockBuilderDockWindow("Project", left);
+        ImGui::DockBuilderDockWindow("Properties", right);
+        ImGui::DockBuilderDockWindow("Output", bottom);
+        ImGui::DockBuilderDockWindow("Debug", bottom);
+        ImGui::DockBuilderDockWindow("Flow Graph", center);
+        ImGui::DockBuilderDockWindow("Viewport", center);
+        pendingFocusWindow_ = "Viewport";
+        break;
+    }
+    }
+    ImGui::DockBuilderFinish(dockspace);
+}
+
+void App::applyActiveLayout() {
+    if (project_.windowLayouts.empty()) return;
+    const WindowLayout& L = project_.windowLayouts[project_.activeLayout];
+    applyOpenWindows(L.openWindows);
+    if (!L.ini.empty()) {
+        // Load the saved dump at the run() frame boundary.
+        layoutLoadPending_ = true;
+        recipeRebuildPending_ = false;
+        // Legacy dumps predating the Properties window lack a slot for it; carve
+        // one once the load settles (drawUI waits for the Project dock node).
+        dockPropertiesPending_ = L.ini.find("[Window][Properties]") == std::string::npos;
+    } else {
+        // Empty ini: (re)build from the built-in recipe in drawUI.
+        recipeRebuildPending_ = true;
+        recipeRebuildId_ = L.recipe;
+        layoutLoadPending_ = false;
+        dockPropertiesPending_ = false;
+    }
+}
+
+void App::captureActiveLayout() {
+    // Skip while a switch is still settling: the on-screen arrangement doesn't
+    // yet belong to the active layout, so capturing would clobber it.
+    if (layoutLoadPending_ || recipeRebuildPending_) return;
+    if (project_.windowLayouts.empty()) return;
+    WindowLayout& L = project_.windowLayouts[project_.activeLayout];
+    L.ini = ImGui::SaveIniSettingsToMemory();  // clears io.WantSaveIniSettings
+    L.openWindows = captureOpenWindows();
+}
+
+void App::switchLayout(int index) {
+    if (!hasProject_ || index < 0 || index >= (int)project_.windowLayouts.size())
+        return;
+    if (index == project_.activeLayout) return;
+    captureActiveLayout();  // don't lose manual edits to the layout we're leaving
+    project_.activeLayout = index;
+    applyActiveLayout();
+    setDirty(true);
+    statusMessage_ = "Layout: " + project_.windowLayouts[index].name;
+}
+
+void App::resetActiveLayoutToRecipe() {
+    if (project_.windowLayouts.empty()) return;
+    WindowLayout& L = project_.windowLayouts[project_.activeLayout];
+    if (L.recipe < 0) return;  // user layout with no built-in arrangement
+    L.ini.clear();             // empty ini -> applyActiveLayout rebuilds the recipe
+    applyActiveLayout();
+    setDirty(true);
+    statusMessage_ = "Reset layout: " + L.name;
+}
+
+void App::drawLayoutMenu() {
+    // Switch: one item per layout, radio-checked on the active one.
+    for (int i = 0; i < (int)project_.windowLayouts.size(); ++i) {
+        const bool active = (i == project_.activeLayout);
+        if (ImGui::MenuItem(project_.windowLayouts[i].name.c_str(), nullptr, active))
+            switchLayout(i);
+    }
+    ImGui::Separator();
+
+    WindowLayout& L = project_.windowLayouts[project_.activeLayout];
+    if (ImGui::MenuItem("Save current arrangement")) {
+        captureActiveLayout();
+        saveAll("Layout saved");
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Store the current window arrangement into '%s'\n"
+                          "(it is also saved whenever you save the project).",
+                          L.name.c_str());
+    const bool hasRecipe = L.recipe >= 0;
+    if (ImGui::MenuItem("Reset to built-in arrangement", nullptr, false, hasRecipe))
+        resetActiveLayoutToRecipe();
+    if (hasRecipe && ImGui::IsItemHovered())
+        ImGui::SetTooltip("Discard manual changes and rebuild the built-in "
+                          "arrangement for '%s'.", L.name.c_str());
+
+    ImGui::Separator();
+    if (ImGui::MenuItem("New layout...")) {
+        std::snprintf(layoutNameBuf_, sizeof(layoutNameBuf_), "Layout %d",
+                      (int)project_.windowLayouts.size() + 1);
+        layoutNameError_.clear();
+        openNewLayoutPopup_ = true;
+    }
+    if (ImGui::MenuItem("Rename layout...")) {
+        std::snprintf(layoutNameBuf_, sizeof(layoutNameBuf_), "%s", L.name.c_str());
+        layoutNameError_.clear();
+        openRenameLayoutPopup_ = true;
+    }
+    const bool canDelete = project_.windowLayouts.size() > 1;
+    if (ImGui::MenuItem("Delete layout", nullptr, false, canDelete)) {
+        project_.windowLayouts.erase(project_.windowLayouts.begin() +
+                                     project_.activeLayout);
+        if (project_.activeLayout >= (int)project_.windowLayouts.size())
+            project_.activeLayout = (int)project_.windowLayouts.size() - 1;
+        applyActiveLayout();  // show the layout that took the deleted one's place
+        setDirty(true);
+        statusMessage_ = "Layout deleted";
+    }
+    if (!canDelete && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("A project must keep at least one layout.");
+}
+
+void App::drawLayoutModals() {
+    // Shared name check: non-empty and unique among the other layouts.
+    auto nameTaken = [&](const std::string& n, int except) {
+        for (int i = 0; i < (int)project_.windowLayouts.size(); ++i)
+            if (i != except && project_.windowLayouts[i].name == n) return true;
+        return false;
+    };
+
+    if (openNewLayoutPopup_) {
+        ImGui::OpenPopup("New Layout");
+        openNewLayoutPopup_ = false;
+    }
+    if (openRenameLayoutPopup_) {
+        ImGui::OpenPopup("Rename Layout");
+        openRenameLayoutPopup_ = false;
+    }
+
+    const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("New Layout", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextDisabled("Saves the current window arrangement as a new layout.");
+        ImGui::InputText("Name", layoutNameBuf_, sizeof(layoutNameBuf_));
+        if (!layoutNameError_.empty())
+            ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "%s", layoutNameError_.c_str());
+        ImGui::Separator();
+        if (ImGui::Button("Create", ImVec2(scaled(120), 0))) {
+            std::string name = layoutNameBuf_;
+            if (name.empty())
+                layoutNameError_ = "Name can't be empty";
+            else if (nameTaken(name, -1))
+                layoutNameError_ = "A layout with that name already exists";
+            else {
+                // Fold the live arrangement into the current layout, then clone
+                // it under the new name and make the clone active.
+                captureActiveLayout();
+                WindowLayout nl;
+                nl.name = name;
+                nl.ini = ImGui::SaveIniSettingsToMemory();
+                nl.recipe = -1;  // user layout: no built-in recipe to reset to
+                nl.openWindows = captureOpenWindows();
+                project_.windowLayouts.push_back(std::move(nl));
+                project_.activeLayout = (int)project_.windowLayouts.size() - 1;
+                setDirty(true);
+                statusMessage_ = "Layout created: " + name;
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Rename Layout", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::InputText("Name", layoutNameBuf_, sizeof(layoutNameBuf_));
+        if (!layoutNameError_.empty())
+            ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "%s", layoutNameError_.c_str());
+        ImGui::Separator();
+        if (ImGui::Button("Rename", ImVec2(scaled(120), 0))) {
+            std::string name = layoutNameBuf_;
+            if (name.empty())
+                layoutNameError_ = "Name can't be empty";
+            else if (nameTaken(name, project_.activeLayout))
+                layoutNameError_ = "A layout with that name already exists";
+            else {
+                project_.windowLayouts[project_.activeLayout].name = name;
+                setDirty(true);
+                statusMessage_ = "Layout renamed";
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
 }
 
 void App::commitChange() {
@@ -2127,16 +2472,15 @@ void App::attachProject() {
     const int viewMode =
         (project_.viewMode >= 0 && project_.viewMode <= 2) ? project_.viewMode : 0;
     viewport_.setViewMode((Viewport::ViewMode)viewMode);
-    // Loading ImGui settings mid-frame is unsupported (the dock nodes rebuild
-    // while this frame's windows still reference the old ones, scattering the
-    // layout) - defer to the frame boundary in run().
-    layoutLoadPending_ = !project_.windowLayout.empty();
-    // Layouts saved before the Properties window existed: dock it under the
-    // Project panel once the deferred load has settled (drawUI waits for the
-    // Project window's dock node to be valid again).
-    dockPropertiesPending_ =
-        layoutLoadPending_ &&
-        project_.windowLayout.find("[Window][Properties]") == std::string::npos;
+    // Window layouts arrived with the .tyra. Guard against an empty/out-of-range
+    // set (hand-edited or very old file), then apply the active one. Applying is
+    // deferred to a frame boundary: loading ImGui settings mid-frame is
+    // unsupported, and a recipe rebuild needs the dockspace id from drawUI.
+    if (project_.windowLayouts.empty()) project::seedBuiltinLayouts(project_);
+    if (project_.activeLayout < 0 ||
+        project_.activeLayout >= (int)project_.windowLayouts.size())
+        project_.activeLayout = 0;
+    applyActiveLayout();
     flowPositionsApplied_ = false;
     statusMessage_.clear();
     wavIssueCache_.clear();
@@ -3683,10 +4027,18 @@ void App::drawPropertiesWindow() {
                                    "Material file missing/empty - plain color.");
             }
         }
-        if (isDecal)
+        if (isDecal) {
             ImGui::TextDisabled(
                 "Assign a material whose map_Kd PNG has transparency.\n"
                 "Sits just in front of its origin; place it on a surface.");
+            if (ImGui::Checkbox("Project onto surfaces", &o.decalProject))
+                committed = true;
+            if (o.decalProject)
+                ImGui::TextDisabled(
+                    "Wraps onto terrain + overlapping objects instead of a flat\n"
+                    "quad. Scale = projection box: X/Y footprint, Z depth into the\n"
+                    "surface; aim +Z at the wall/floor. Baked at build (no PS2 cost).");
+        }
     }
     if (isSolid) {
         if (ImGui::Checkbox("Physics (falls with gravity)", &o.physics)) committed = true;

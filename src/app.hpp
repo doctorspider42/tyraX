@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <map>
 #include <string>
@@ -78,6 +79,30 @@ private:
     void drawNewScriptModal();
     void drawNewSceneModal();
     void drawDeleteSceneModal();
+
+    // --- Window layouts (Layout menu; project_.windowLayouts) --------------
+    void drawLayoutMenu();     // the Layout top-level menu contents
+    void drawLayoutModals();   // New / Rename Layout popups
+    // Switch to layout `index`: fold the current on-screen arrangement into the
+    // layout being left, then apply the target (open its windows + schedule an
+    // ini load or a recipe rebuild). No-op without a project / out of range.
+    void switchLayout(int index);
+    // Arrange the dockspace from a built-in recipe (LayoutRecipe). Runs inside
+    // drawUI (needs the dockspace id) before any panel window is submitted.
+    void buildLayoutRecipe(int recipe, unsigned int dockspace);
+    // Apply the active layout after a switch/open: set optional-window open
+    // flags, then schedule the saved-ini load or the recipe rebuild.
+    void applyActiveLayout();
+    // Fold the live docking arrangement + open windows into the active layout.
+    void captureActiveLayout();
+    // Reset the active layout to its built-in recipe (drops manual edits). No-op
+    // for a user layout that has no recipe.
+    void resetActiveLayoutToRecipe();
+    // Optional editor windows a layout can carry open, keyed by stable string.
+    // showFlagForKey returns nullptr for an unknown key.
+    bool* showFlagForKey(const std::string& key);
+    void applyOpenWindows(const std::vector<std::string>& keys);  // set each flag = membership
+    std::vector<std::string> captureOpenWindows() const;
     void drawFlowGraphWindow();
     // Names used by same-type "Variables" nodes across every scene's graphs
     // (the int / bool / position namespaces are separate).
@@ -353,8 +378,9 @@ private:
     PendingAction pendingAction_ = PendingAction::None;
     bool openDiscardPopup_ = false;
     bool exitConfirmed_ = false;
-    // Set by attachProject(): apply project_.windowLayout at the next frame
-    // boundary (ImGui cannot reload settings between NewFrame and EndFrame).
+    // Set by attachProject()/switchLayout(): load the active layout's saved ini
+    // at the next frame boundary (ImGui cannot reload settings between NewFrame
+    // and EndFrame). Recipe-built layouts use recipeRebuildPending_ instead.
     bool layoutLoadPending_ = false;
     int selectedObject_ = -1;
     // Full multi-selection (indices into the active scene's objects, in click
@@ -366,6 +392,20 @@ private:
     // Layouts saved before the Properties window existed lack a slot for it;
     // when set, the next frame docks it under the Project panel.
     bool dockPropertiesPending_ = false;
+
+    // Window layouts (project_.windowLayouts). A switch/rebuild is applied at a
+    // frame boundary: recipeRebuildPending_ rebuilds the active layout from its
+    // built-in DockBuilder recipe (empty ini) in drawUI; layoutLoadPending_
+    // (above) loads a saved ini dump in the run() loop. After either, focus
+    // pendingFocusWindow_ once it exists so the layout's headline panel is on top.
+    bool recipeRebuildPending_ = false;
+    int recipeRebuildId_ = -1;
+    std::string pendingFocusWindow_;
+    // New / Rename Layout modal state (name buffer shared; error under the field).
+    bool openNewLayoutPopup_ = false;
+    bool openRenameLayoutPopup_ = false;
+    char layoutNameBuf_[64] = {0};
+    std::string layoutNameError_;
 
     // Transform gizmo: 0 = move, 1 = rotate, 2 = scale
     int gizmoOp_ = 0;
@@ -661,6 +701,15 @@ private:
 
     Viewport viewport_;
     Runner runner_;
+
+    // Projected-decal preview: world-space conforming meshes (decalproj) for the
+    // active scene's projecting decals, keyed by object id (pos3+uv2 per vertex).
+    // Recomputed only when a cheap signature of the scene changes, then pushed to
+    // the viewport with a bumped version (see updateProjectedDecals).
+    std::map<std::string, std::vector<float>> projectedDecals_;
+    uint64_t projectedDecalsSig_ = 0;
+    uint64_t projectedDecalsVersion_ = 0;
+    void updateProjectedDecals();
 
     // "New project" modal state
     bool openNewProjectPopup_ = false;
