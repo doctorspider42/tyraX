@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(tyra-editor CXX C)
+project(tyrax-editor CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # it up for the window/taskbar icon too - see resources/app.rc.
 if(WIN32)
     enable_language(RC)
-    set(TYRA_EDITOR_RC resources/app.rc)
+    set(TYRAX_EDITOR_RC resources/app.rc)
     # windres resolves the ICON path relative to its include dirs, not the .rc
     # file - point it at resources/ so it finds icon.ico.
     set(CMAKE_RC_FLAGS "${CMAKE_RC_FLAGS} -I${CMAKE_CURRENT_SOURCE_DIR}/resources")
@@ -36,7 +36,7 @@ target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends)
 target_link_libraries(imgui PUBLIC glfw)
 
 # --- Editor ---
-add_executable(tyra-editor
+add_executable(tyrax-editor
     src/main.cpp
     src/app.cpp
     src/camtake.cpp
@@ -60,19 +60,19 @@ add_executable(tyra-editor
     src/runner.cpp
     vendor/imguizmo/src/ImGuizmo.cpp
     vendor/imnodes/imnodes.cpp
-    ${TYRA_EDITOR_RC}
+    ${TYRAX_EDITOR_RC}
 )
-target_include_directories(tyra-editor PRIVATE src vendor/imguizmo/src vendor/imnodes vendor/stb ${CMAKE_BINARY_DIR}/generated)
-target_compile_definitions(tyra-editor PRIVATE GLFW_INCLUDE_NONE)
-target_link_libraries(tyra-editor PRIVATE imgui glfw opengl32 shell32 ole32 uuid)
+target_include_directories(tyrax-editor PRIVATE src vendor/imguizmo/src vendor/imnodes vendor/stb ${CMAKE_BINARY_DIR}/generated)
+target_compile_definitions(tyrax-editor PRIVATE GLFW_INCLUDE_NONE)
+target_link_libraries(tyrax-editor PRIVATE imgui glfw opengl32 shell32 ole32 uuid)
 
 if(MINGW)
     # Self-contained exe: don't depend on libstdc++/libgcc/libwinpthread DLLs
     # (a mismatched libwinpthread-1.dll on PATH breaks startup otherwise)
-    target_link_options(tyra-editor PRIVATE -static)
+    target_link_options(tyrax-editor PRIVATE -static)
 endif()
 
 if(WIN32)
     # Console subsystem for now - useful to see logs during development
-    set_target_properties(tyra-editor PROPERTIES WIN32_EXECUTABLE OFF)
+    set_target_properties(tyrax-editor PROPERTIES WIN32_EXECUTABLE OFF)
 endif()

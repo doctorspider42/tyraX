@@ -43,7 +43,7 @@ their own or an override `.mtl` — gets the reflection pass. Materials without
   colors, the sphere map as texture, `PipelineZTest_TestOnly` (coplanar with
   the base pass), `fogDisabled` (GS fog would *add* the fog color through the
   additive equation).
-- The additive blend itself is the tyra-editor engine fork's per-bag
+- The additive blend itself is the TyraX engine fork's per-bag
   `PipelineInfoBag::additiveBlendFix`: a non-zero value makes
   `StaPipCore::render` switch the global GS `ALPHA` register to
   `Cv = Cs·FIX/128 + Cd` around that bag's draw (FINISH-barrier drain before

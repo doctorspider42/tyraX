@@ -11,7 +11,7 @@ the PS2.
 ![The Cutscene Director editing "The Reveal": sequence options (14 s duration, Cinema 2.39:1 bars, fades, skippable) above a dopesheet with a camera track and one lane per animated object (hero, obelisk, sparks, cam-dolly, cam-crane). Keyframes are draggable diamonds; the red playhead scrubs the whole scene live in the viewport.](../../docs/img/cutscene-director.png)
 
 Open `cutscene-demo.tyra` in the editor and Build & Run (`F5`), or build
-headless: `tyra-editor.exe --build <this folder> --run`.
+headless: `tyrax-editor.exe --build <this folder> --run`.
 
 ## What to do
 

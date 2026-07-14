@@ -5,7 +5,7 @@
 #-----------------------------------------------------------------------
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
-# Added by tyra-editor: loader for .tskl skeletal-animation models.
+# Added by TyraX: loader for .tskl skeletal-animation models.
 # Binary layout lives in the editor's src/glbparser.cpp (writeTskl) -
 # keep both sides in sync.
 */

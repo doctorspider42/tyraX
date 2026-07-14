@@ -78,7 +78,7 @@ u32 StaPipCore::getMaxVertCountByParams(const bool& isSingleColor,
 void StaPipCore::render(StaPipBag* bag) {
   if (bag->count <= 0) return;
 
-  // Modified by tyra-editor: GS hardware fog - the PRIM FGE bit follows the
+  // Modified by TyraX: GS hardware fog - the PRIM FGE bit follows the
   // renderer-level fog state (see RendererCore::setFog), with a per-bag
   // opt-out (sky dome).
   prim.fogging = rendererCore->fog.enabled && !bag->info->fogDisabled
@@ -119,7 +119,7 @@ void StaPipCore::render(StaPipBag* bag) {
 
   StaPipBagPackagesBBox* bbox = nullptr;
   if (bag->info->frustumCulling == PipelineInfoBagFrustumCulling_Precise) {
-    // tyra-editor: the bag's bboxVersion invalidates the cached boxes for
+    // TyraX: the bag's bboxVersion invalidates the cached boxes for
     // reused vertex buffers with new content (the cacher recomputes the
     // entry in place - per-frame bumps stay allocation-free)
     bbox = cacher.getBBoxes(bag->vertices, bag->count,
@@ -140,7 +140,7 @@ void StaPipCore::render(StaPipBag* bag) {
     }
   }
 
-  // Modified by tyra-editor: per-bag additive blend equation (the spherical
+  // Modified by TyraX: per-bag additive blend equation (the spherical
   // environment-map pass of reflective materials). The GS ALPHA register is
   // global state, so switching it must drain the in-flight PATH1 rendering
   // first (FINISH handshake); restored after this bag's own drain below.
@@ -162,7 +162,7 @@ void StaPipCore::render(StaPipBag* bag) {
     mvp = rendererCore->renderer3D.getViewProj() * *bag->info->model;
   }
 
-  // Modified by tyra-editor: stack storage - sendObjectData consumes the
+  // Modified by TyraX: stack storage - sendObjectData consumes the
   // struct immediately, the old per-bag new/delete was pure heap churn.
   RendererCoreTextureBuffers texBuffersStorage;
   RendererCoreTextureBuffers* texBuffers = nullptr;
@@ -197,7 +197,7 @@ void StaPipCore::render(StaPipBag* bag) {
   auto checkNoClipNo =  // cull all
       !frustumCull && !bag->info->fullClipChecks;
 
-  // Modified by tyra-editor: packager.create returns pooled arrays - no
+  // Modified by TyraX: packager.create returns pooled arrays - no
   // delete[] here (see StaPipBagPackager).
   if (checkYesFrustumInClipYes || checkYesFrustumInClipNo || checkNoClipNo) {
     u16 packagesCount = 0;
@@ -260,7 +260,7 @@ void StaPipCore::renderPkgs(StaPipBagPackage* packages, const bool& doClip,
 }
 
 void StaPipCore::renderSubpkgs(StaPipBagPackage* subpkgs, u16 count) {
-  // Modified by tyra-editor: reused across calls (the renderer is
+  // Modified by TyraX: reused across calls (the renderer is
   // single-threaded) - the two per-call heap allocations were measurable
   // next to the pooled packager.
   static std::vector<u16> doneIndexes;
@@ -327,7 +327,7 @@ void StaPipCore::setMaxVertCount(const u32& count) {
   qbufferRenderer.setMaxVertCount(count);
 }
 
-// Modified by tyra-editor: occupancy cap for clip-classified packages.
+// Modified by TyraX: occupancy cap for clip-classified packages.
 // EE clipper: 1/3 of a VU1 buffer (its fan-out is drained in chunks on the
 // EE). VU1 clipping: 1/5, so the worst-case Sutherland-Hodgman fan-out
 // (7 output triangles per input triangle across 6 planes) still fits in the

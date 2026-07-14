@@ -26,7 +26,7 @@ class RendererCoreGS {
 
   void init(RendererSettings* settings);
 
-  // Modified by tyra-editor: runtime display switching (RendererCore::
+  // Modified by TyraX: runtime display switching (RendererCore::
   // setDisplayOutput). reinit() resets the VRAM allocator and rebuilds the
   // frame/z buffers + video mode for the settings' current display mode -
   // every texture must have been evicted first. reprogramDisplay() only
@@ -38,12 +38,12 @@ class RendererCoreGS {
 
   void enableZTests();
 
-  /** Set the GS FOGCOL register (tyra-editor fork, hardware fog). */
+  /** Set the GS FOGCOL register (TyraX fork, hardware fog). */
   void setFogColor(const u8& r, const u8& g, const u8& b);
 
   /**
    * Set the GS ALPHA_1 register - the context-0 blend equation - via PATH3
-   * (tyra-editor fork, reflective materials). The caller must drain in-flight
+   * (TyraX fork, reflective materials). The caller must drain in-flight
    * PATH1 rendering first (RendererCoreSync::align3D), or the new equation
    * applies to triangles already queued. Pass a GS_SET_ALPHA(...) value;
    * restore GS_SET_ALPHA(0, 1, 0, 1, 0) (the draw_setup_environment default)
@@ -51,7 +51,7 @@ class RendererCoreGS {
    */
   void setAlpha(const u64& alpha);
 
-  /** The buffer currently being drawn to (tyra-editor fork, for post fx). */
+  /** The buffer currently being drawn to (TyraX fork, for post fx). */
   framebuffer_t* getCurrentFrameBuffer() { return &frameBuffers[context]; }
 
  private:
@@ -62,7 +62,7 @@ class RendererCoreGS {
   framebuffer_t frameBuffers[2];
   packet2_t* flipPacket;
   packet2_t* zTestPacket;
-  // Modified by tyra-editor: preallocated ALPHA-register packet (setAlpha
+  // Modified by TyraX: preallocated ALPHA-register packet (setAlpha
   // runs per reflective mesh per frame - no per-call heap churn).
   packet2_t* alphaPacket;
   u8 context;
@@ -72,7 +72,7 @@ class RendererCoreGS {
   void initDrawingEnvironment();
   void initChannels();
   void updateCurrentField();
-  // Modified by tyra-editor: DTV scan modes (480p/1080i) need a custom
+  // Modified by TyraX: DTV scan modes (480p/1080i) need a custom
   // display window and an unfiltered framebuffer scan-out.
   void programDisplay();
   void setDtvDisplay(int modeX, int modeY, int modeDW, int modeDH, int magH,

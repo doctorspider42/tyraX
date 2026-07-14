@@ -10,7 +10,7 @@
 
 #pragma once
 
-// Modified by tyra-editor: create() returns pointers into grow-only pools
+// Modified by TyraX: create() returns pointers into grow-only pools
 // owned by the packager instead of new[] arrays - the per-submit heap
 // round-trip was measurable on partially-visible geometry (hundreds of
 // allocations per frame). Callers must NOT delete[] the result; it stays

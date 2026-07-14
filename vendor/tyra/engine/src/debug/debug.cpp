@@ -10,7 +10,7 @@
 
 #include "debug/debug.hpp"
 
-// Modified by tyra-editor: never append the log to read-only media. When the
+// Modified by TyraX: never append the log to read-only media. When the
 // game boots from a disc image the cwd is cdrom0: and opening
 // "cdrom0:LOG.TXT;1" for write wedges the CDVD driver - the game hangs on its
 // very first TYRA_LOG, before drawing a frame.

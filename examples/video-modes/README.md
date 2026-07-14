@@ -8,7 +8,7 @@ all driven from a proper in-game menu.
 Open `video-modes.tyra` in the editor and Build & Run (F5), or headless:
 
 ```powershell
-build\tyra-editor.exe --build examples\video-modes --run
+build\tyrax-editor.exe --build examples\video-modes --run
 ```
 
 ## The VIDEO OPTIONS menu

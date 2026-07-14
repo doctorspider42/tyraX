@@ -6,7 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
-# Modified by tyra-editor: decode from a whole-file memory buffer
+# Modified by TyraX: decode from a whole-file memory buffer
 */
 
 #include "debug/debug.hpp"
@@ -50,7 +50,7 @@ static void pngReadFromMemory(png_structp pngPtr, png_bytep out,
   src->offset += count;
 }
 
-// Modified by tyra-editor: a visible stand-in texture returned when a PNG can
+// Modified by TyraX: a visible stand-in texture returned when a PNG can
 // not be loaded (missing / empty file), so a missing asset degrades to an
 // obvious magenta-and-black checkerboard instead of crashing the game. 8x8,
 // 32bpp RGBA (power-of-two, always valid for the GS uploader).
@@ -86,7 +86,7 @@ TextureBuilderData* PngLoader::load(const char* fullPath) {
   auto filename = FileUtils::getFilenameFromPath(path);
 
   FILE* file = fopen(fullPath, "rb");
-  // Modified by tyra-editor: a missing texture is no longer fatal - log it (the
+  // Modified by TyraX: a missing texture is no longer fatal - log it (the
   // editor surfaces it) and return a placeholder so the game keeps running.
   if (file == nullptr) {
     TYRA_SOFT_ERROR("Failed to load texture: ", fullPath,
@@ -107,7 +107,7 @@ TextureBuilderData* PngLoader::load(const char* fullPath) {
     fileData.resize(used);
   }
   fclose(file);
-  // Modified by tyra-editor: empty/truncated file -> placeholder, not a crash.
+  // Modified by TyraX: empty/truncated file -> placeholder, not a crash.
   if (fileData.empty()) {
     TYRA_SOFT_ERROR("Empty texture file: ", fullPath, " (using a placeholder)");
     return makePlaceholderTexture(filename);

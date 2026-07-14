@@ -456,7 +456,7 @@ bool Runner::deployToPs2(const Project& p) {
     // host: before booting the engine (launchPCSX2 deletes it, so emulator
     // runs keep the stock IOP-reset path).
     if (std::ofstream marker(fs::path(binDir) / "ps2link.run"); marker)
-        marker << "deployed by tyra-editor\n";
+        marker << "deployed by TyraX\n";
     else
         appendLine("[editor] Warning: could not write bin/ps2link.run marker.");
 

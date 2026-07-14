@@ -38,7 +38,7 @@ StaPipBagPackagesBBox* StapipBagBBoxesCacher::getBBoxes(
 
   if (cache) {
     cache->framesLeftToDestroy = cacheFramesCount * cacheSecondsCount;
-    // Modified by tyra-editor: same buffer, new content - recompute in
+    // Modified by TyraX: same buffer, new content - recompute in
     // place; a changed vertex count needs a fresh part split. The version
     // check alone is not enough: games that free and reallocate vertex
     // buffers (layer streaming) can present a recycled heap address whose

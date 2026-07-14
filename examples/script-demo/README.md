@@ -9,7 +9,7 @@ Open `script-demo.tyra` in the editor (`File > Open Project`) and Build & Run
 (`F5`), or build headless:
 
 ```powershell
-build\tyra-editor.exe --build examples\script-demo --run
+build\tyrax-editor.exe --build examples\script-demo --run
 ```
 
 The `.history` undo file, `.vscode/` IntelliSense config, baked `.res-baked/`,

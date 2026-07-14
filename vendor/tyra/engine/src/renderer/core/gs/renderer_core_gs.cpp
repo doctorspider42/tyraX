@@ -79,7 +79,7 @@ void RendererCoreGS::allocateBuffers() {
                                         frameBuffers[0].height, zBuffer.zsm);
 
   // Resolve Auto to the console's actual region so games can read the real
-  // refresh rate back from RendererSettings (tyra-editor fork).
+  // refresh rate back from RendererSettings (TyraX fork).
   if (settings->getVideoMode() == VideoMode::Auto) {
     settings->setVideoMode(graph_get_region() == GRAPH_MODE_PAL
                                ? VideoMode::PAL
@@ -91,7 +91,7 @@ void RendererCoreGS::allocateBuffers() {
   TYRA_LOG("Framebuffers, zBuffer set and allocated!");
 }
 
-// Modified by tyra-editor: video mode + display window + scan-out, split
+// Modified by TyraX: video mode + display window + scan-out, split
 // from allocateBuffers so runtime display switching can rerun it.
 void RendererCoreGS::programDisplay() {
   // DTV scan modes next to the stock interlaced one.
@@ -141,7 +141,7 @@ void RendererCoreGS::programDisplay() {
   graph_enable_output();
 }
 
-// Modified by tyra-editor: full display rebuild for a runtime scan-mode
+// Modified by TyraX: full display rebuild for a runtime scan-mode
 // switch. The VRAM allocator is a bump allocator and the frame/z buffers
 // are its first allocations, so resizing them means starting the layout
 // over - the caller (RendererCore::setDisplayOutput) evicts all textures
@@ -174,7 +174,7 @@ void RendererCoreGS::reprogramDisplay() {
   }
 }
 
-// Modified by tyra-editor: display window for the DTV modes. ps2sdk's
+// Modified by TyraX: display window for the DTV modes. ps2sdk's
 // graph_set_screen always programs the mode's full VCK width into DW, which
 // only scans 1:1 when the framebuffer width divides it exactly - and no
 // 64-aligned buffer width divides the 1440/1920-VCK DTV rasters, so the GS
@@ -199,7 +199,7 @@ void RendererCoreGS::setDtvDisplay(int modeX, int modeY, int modeDW,
   *GS_REG_DISPLAY2 = display;
 }
 
-// Modified by tyra-editor: scan-out selection per display mode. The stock
+// Modified by TyraX: scan-out selection per display mode. The stock
 // interlaced mode keeps ps2sdk's flicker filter (both read circuits, the
 // second offset by one line). The DTV modes run with the filter off, where
 // graph_enable_output displays read circuit 2 alone - it must scan from
@@ -214,7 +214,7 @@ void RendererCoreGS::presentFrameBuffer(u8 index) {
   }
 }
 
-// Modified by tyra-editor: GS hardware fog color register.
+// Modified by TyraX: GS hardware fog color register.
 #ifndef GS_REG_FOGCOL
 #define GS_REG_FOGCOL 0x3D
 #endif
@@ -291,7 +291,7 @@ qword_t* RendererCoreGS::setXYOffset(qword_t* q, const int& drawContext,
 }
 
 void RendererCoreGS::flipBuffers() {
-  presentFrameBuffer(context);  // Modified by tyra-editor (DTV modes)
+  presentFrameBuffer(context);  // Modified by TyraX (DTV modes)
 
   context ^= 1;
 

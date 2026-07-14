@@ -50,9 +50,9 @@ if not exist "build\build.ninja" (
 echo == Building ==
 cmake --build build || (echo build failed & goto :error)
 
-echo OK: build\tyra-editor.exe
+echo OK: build\tyrax-editor.exe
 
-if defined DO_RUN start "" "%~dp0build\tyra-editor.exe"
+if defined DO_RUN start "" "%~dp0build\tyrax-editor.exe"
 
 endlocal
 exit /b 0

@@ -98,7 +98,7 @@ std::string parseFile(const fs::path& path, CustomScreenFx& out) {
 }
 
 const char* kExampleTemplate =
-    "# Custom screen effect for tyra-editor. Copy this file (or write your own)\n"
+    "# Custom screen effect for TyraX. Copy this file (or write your own)\n"
     "# into <project>/screen-effects/ and it appears in Tools > UI Editor as a\n"
     "# reorderable entry in the screen stack - place it where it should\n"
     "# composite (e.g. under the HUD, or over everything). The file NAME\n"

@@ -21,7 +21,7 @@ description: >
 repo. Edit it like normal project code — no patch machinery, no submodule.
 Rules:
 
-- Mark every departure from upstream with a `Modified by tyra-editor` comment
+- Mark every departure from upstream with a `Modified by TyraX` comment
   near the top of the file (grep for existing examples:
   `audio_song.cpp`, `stapip_clipper.cpp`, `planes_clip_algorithm.cpp`,
   `stapip_qbuffer.cpp`, `render_bbox.cpp`, `vcl_sml.i`).
@@ -33,7 +33,7 @@ Rules:
 ## How an engine change reaches the game
 
 You don't rebuild the engine by hand. The editor's Runner (`src/runner.cpp`)
-does it on every game build (F5 or `tyra-editor.exe --build <projectDir>`):
+does it on every game build (F5 or `tyrax-editor.exe --build <projectDir>`):
 
 1. `vendor/tyra` is bind-mounted **read-only** at `/engine-src` in the
    project's container (service `compiler`, container `<name>-compiler-1`).
@@ -153,7 +153,7 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
   mode with MAGV=2x is visually equivalent (both fields step through every
   buffer line) and works.
 - **Runtime display switching**: `RendererCore::setDisplayOutput(mode, ws)`
-  (tyra-editor fork) switches the scan mode / widescreen between frames.
+  (TyraX fork) switches the scan mode / widescreen between frames.
   A mode change resets the whole VRAM bump allocator (`vram.reset()`),
   rebuilds frame/z buffers + post fx, and `texture.evictAll()` drops every
   texture allocation (they lazily re-upload) — never call it mid-frame.

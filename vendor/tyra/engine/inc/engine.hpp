@@ -32,13 +32,13 @@ struct EngineOptions {
   /** Forced output video signal; Auto follows the console region. */
   VideoMode videoMode = VideoMode::Auto;
 
-  /** Output scan mode (tyra-editor fork): stock interlaced 480i/576i,
+  /** Output scan mode (TyraX fork): stock interlaced 480i/576i,
    * progressive 480p, or 1080i. The DTV modes need component cables on
    * real hardware and always run at 60 Hz (videoMode only picks the
    * region/refresh of the interlaced mode). */
   DisplayMode displayMode = DisplayMode::Interlaced;
 
-  /** 16:9 anamorphic output (tyra-editor fork): widen the projection for a
+  /** 16:9 anamorphic output (TyraX fork): widen the projection for a
    * widescreen display. Both can also be changed at runtime through
    * Renderer::core.setDisplayOutput. */
   bool widescreen = false;

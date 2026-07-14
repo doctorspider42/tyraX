@@ -1,4 +1,4 @@
-// Language features for tyra-editor custom flow nodes (.flownode) and screen
+// Language features for TyraX custom flow nodes (.flownode) and screen
 // effects (.screenfx). Both formats share the same shape: a `key = value`
 // header, a line that is exactly `---`, then a C++ body with {placeholder}
 // substitutions. This file provides diagnostics, hovers and completion on top
@@ -17,7 +17,7 @@ const vscode = require("vscode");
 const PIN_KINDS = ["object", "position", "bool", "text"];
 
 const SPEC = {
-  "tyra-flownode": {
+  "tyrax-flownode": {
     // key -> { doc, kind }. kind drives value validation & completion.
     keys: {
       title: { doc: "Display name in the add-menu and node title bar. Defaults to the file name.", kind: "text" },
@@ -42,7 +42,7 @@ const SPEC = {
     // placeholder -> the indexed key it requires be present in the header.
     placeholderNeeds: { num0: "num0", num1: "num1", num2: "num2", num3: "num3", int0: "num0", int1: "num1", int2: "num2", int3: "num3" },
   },
-  "tyra-screenfx": {
+  "tyrax-screenfx": {
     keys: {
       title: { doc: "Display name in the UI Editor screen stack. Defaults to the file name.", kind: "text" },
     },
@@ -162,7 +162,7 @@ function refreshDiagnostics(doc, collection) {
   }
 
   // Body / separator rules.
-  const isFlow = doc.languageId === "tyra-flownode";
+  const isFlow = doc.languageId === "tyrax-flownode";
   const hasCall = isFlow && p.definedKeys.has("call") && (p.header.find((h) => h.key === "call")?.value.trim() || "") !== "";
   const bodyLines = [];
   if (p.bodyStart >= 0)
@@ -250,7 +250,7 @@ function provideCompletions(doc, position) {
     const items = [];
     for (const [name, docStr] of Object.entries(spec.placeholders)) {
       const it = new vscode.CompletionItem(name, vscode.CompletionItemKind.Variable);
-      it.detail = "Tyra placeholder";
+      it.detail = "TyraX placeholder";
       it.documentation = new vscode.MarkdownString(docStr);
       // Replace what the user typed after `{`; grammar/editor supplies the `}`.
       it.range = new vscode.Range(position.line, position.character - m[1].length, position.line, position.character);
@@ -302,8 +302,8 @@ function provideCompletions(doc, position) {
 // ---- Activation ------------------------------------------------------------
 
 function activate(context) {
-  const selector = [{ language: "tyra-flownode" }, { language: "tyra-screenfx" }];
-  const collection = vscode.languages.createDiagnosticCollection("tyra");
+  const selector = [{ language: "tyrax-flownode" }, { language: "tyrax-screenfx" }];
+  const collection = vscode.languages.createDiagnosticCollection("tyrax");
   context.subscriptions.push(collection);
 
   const run = (doc) => { if (SPEC[doc.languageId]) refreshDiagnostics(doc, collection); };
@@ -320,5 +320,5 @@ function activate(context) {
 function deactivate() {}
 
 // activate/deactivate are the VS Code entry points; the rest are exported for
-// the offline test harness (tools/vscode-tyra tests) and unused by VS Code.
+// the offline test harness (tools/vscode-tyrax tests) and unused by VS Code.
 module.exports = { activate, deactivate, parse, refreshDiagnostics, provideHover, provideCompletions, SPEC };

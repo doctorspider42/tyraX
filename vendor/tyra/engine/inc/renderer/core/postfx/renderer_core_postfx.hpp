@@ -5,7 +5,7 @@
 #-----------------------------------------------------------------------
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
-# Added by the tyra-editor fork.
+# Added by the TyraX fork.
 */
 
 #pragma once
@@ -80,7 +80,7 @@ class RendererCorePostFx {
 
   /**
    * Which effects a given apply() runs. Bloom, color grading and film grain
-   * can be composited at different points in the frame (tyra-editor: the UI
+   * can be composited at different points in the frame (TyraX: the UI
    * Editor screen stack) - e.g. bloom under the HUD, grain over everything.
    * Grading pairs with bloom (it colour-corrects the same scene image).
    */
@@ -101,8 +101,8 @@ class RendererCorePostFx {
    */
   void apply(int passes = PassAll);
 
-  // --- Custom full-screen passes (tyra-editor fork) ------------------------
-  // User-authored screen effects (tyra-editor "custom screen effects") are
+  // --- Custom full-screen passes (TyraX fork) ------------------------
+  // User-authored screen effects (TyraX "custom screen effects") are
   // written the same low-level way as bloom/grain: raw GS blits over the
   // framebuffer. applyCustom() runs one such pass, wrapping it in the exact
   // same GS state setup/teardown + DMA kick apply() uses, so the author only

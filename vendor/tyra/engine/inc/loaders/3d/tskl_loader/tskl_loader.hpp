@@ -5,7 +5,7 @@
 #-----------------------------------------------------------------------
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
-# Added by tyra-editor: loader for .tskl skeletal-animation models.
+# Added by TyraX: loader for .tskl skeletal-animation models.
 */
 
 #pragma once
@@ -78,7 +78,7 @@ struct SkelPart {
 
 /**
  * A skeletal model: shared, immutable data every SkelInstance samples from.
- * Written by the tyra-editor build (src/glbparser.cpp writeTskl) - keep the
+ * Written by the TyraX build (src/glbparser.cpp writeTskl) - keep the
  * binary layout in sync with it.
  */
 struct SkelModel {
@@ -95,7 +95,7 @@ struct SkelModel {
 };
 
 /**
- * Loader for the tyra-editor .tskl format: node hierarchy, skin palette,
+ * Loader for the TyraX .tskl format: node hierarchy, skin palette,
  * bind-pose mesh and keyframe tracks of a .glb model. Poses are evaluated
  * and skinned on the EE at runtime by SkelInstance (renderer/3d/mesh).
  *

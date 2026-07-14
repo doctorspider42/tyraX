@@ -24,7 +24,7 @@ void RendererCoreTexture::init(RendererCoreGS* t_gs, Path3* t_path3) {
   initClut();
 }
 
-// Modified by tyra-editor - see the header comment.
+// Modified by TyraX - see the header comment.
 void RendererCoreTexture::freeTextureBuffers(const u32& texId) {
   auto allocated = getAllocatedBuffersByTextureId(texId);
   if (allocated.id == 0) return;  // never uploaded - nothing on the GS
@@ -32,7 +32,7 @@ void RendererCoreTexture::freeTextureBuffers(const u32& texId) {
   unregisterAllocation(texId);
 }
 
-// Modified by tyra-editor - see the header comment.
+// Modified by TyraX - see the header comment.
 void RendererCoreTexture::evictAll() {
   for (int i = currentAllocations.size() - 1; i >= 0; i--)
     sender.deallocate(currentAllocations[i]);

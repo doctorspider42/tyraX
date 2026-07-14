@@ -37,7 +37,7 @@ compilation** - the editor only scans them (read-only) for
 3. Edit the class:
 
 ```cpp
-// bobber.cpp - created by tyra-editor. This file is yours.
+// bobber.cpp - created by TyraX. This file is yours.
 #include "scripts/script.hpp"
 
 namespace Mygame {

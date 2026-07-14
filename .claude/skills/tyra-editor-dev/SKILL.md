@@ -1,7 +1,7 @@
 ---
 name: tyra-editor-dev
 description: >
-  Architecture map and change-making guide for the tyra-editor codebase — a C++20
+  Architecture map and change-making guide for the TyraX codebase — a C++20
   ImGui/GLFW/OpenGL Windows editor that authors 3D scenes and flow graphs, then
   generates complete Tyra PS2 game projects (built in Docker, run in PCSX2).
   Use this skill BEFORE making ANY change to editor code in src/ — new features,
@@ -13,7 +13,7 @@ description: >
   chain, and this skill tells you which files each kind of change must touch.
 ---
 
-# tyra-editor development
+# TyraX development
 
 ## What this project is
 
@@ -53,10 +53,10 @@ Two sibling skills cover the rest of the system:
 | `main.cpp` | 76 | Entry point. GUI by default; headless `--new <name> <dir> [w] [d] [empty\|fpp]` and `--build <projectDir> [--run]`. |
 | `app.cpp/.hpp` | 2751 | The whole ImGui shell: menus, all panels (Project, Scene, Scripts, HUD, Music, Sounds, Output, Disc Layout, Flow Graph), modals, gizmo + sculpt input, undo/redo, clipboard, wiring viewport ↔ project ↔ runner. |
 | `project.cpp/.hpp` | ~1050 | **Data model + JSON (de)serialization + generated-file refresh.** `Project`, `SceneData`, `SceneObject`, `TerrainConfig`, `ProjectSettings`. `save()`/`load()`: the `<name>.tyra` **manifest** (project-wide data + per-scene ordered object-id list + editor state + window layout) plus one `objects/<id>.json` body per object — `save()` writes every live object then prunes orphaned files; `load()`→`readSceneObjects()` dispatches split (id strings) vs legacy inline (object bodies). `ensureObjectIds()` (stamps stable ids), `create()`, `saveHeights()/loadHeights()`, `saveHistory()/loadHistory()` (`<name>.history` undo stack — stays monolithic/inline, gitignored), `refreshGenerated()`. |
-| `templates.cpp/.hpp` | 3522 | **All code generation.** `templates::generate(Project)` returns `vector<File>` (relativePath + content). Scene tables, terrain game sources, flow-graph compilation, Dockerfile/Makefile/compose, VS Code IntelliSense config (`.vscode/c_cpp_properties.json` always-overwritten; `.vscode/extensions.json` written-if-missing — recommends the `tools/vscode-tyra` extension). |
+| `templates.cpp/.hpp` | 3522 | **All code generation.** `templates::generate(Project)` returns `vector<File>` (relativePath + content). Scene tables, terrain game sources, flow-graph compilation, Dockerfile/Makefile/compose, VS Code IntelliSense config (`.vscode/c_cpp_properties.json` always-overwritten; `.vscode/extensions.json` written-if-missing — recommends the `tools/vscode-tyrax` extension). |
 | `flowgraph.hpp` | 216 | Flow-graph data model: `FlowNode`, `FlowLink` (exec / object-id / position / bool link kinds), `FlowGraph`, the built-in `flowNodeTypes()` registry, and the project-scoped custom-node registry (`CustomFlowNode`, `customFlowNodes()`). Per-object graphs, stored inside each object's `objects/<id>.json` body. |
-| `flownode.cpp` | 230 | Loads project-defined **custom flow nodes** from `<project>/flow-nodes/*.flownode` text files into the global `customFlowNodes()` registry (`flownode::loadForProject`). Called by `project::load` *before* graphs are parsed. Parses the manifest (title/category/params, `in`/`out` pins, `exec_out`, `call`) into a `FlowNodeType`; the node's behavior is an inline C++ snippet or a `call = fn` into `inc/scripts/flow_nodes.hpp`. Also scaffolds the starter file (`writeExample`). See `docs/custom-flow-nodes.md`. **When you add/change a header key or `{placeholder}` here, mirror it in the VS Code extension's `SPEC` table (`tools/vscode-tyra/extension.js`) and the grammar** — that is what colours/validates `.flownode` files (see `docs/vscode-extension.md`). |
-| `screenfx.cpp` / `.hpp` | ~230 | Loads project-defined **custom screen effects** from `<project>/screen-effects/*.screenfx` text files into the global `customScreenEffects()` registry (`screenfx::loadForProject`, called by `project::load` before placements are read). The full-screen-post-effect analogue of custom flow nodes: a manifest (title + up to four numeric params) plus a raw low-level GS-blit C++ body. A `Project` references one only by placement (`ScreenFxPlacement` in project.hpp: key + stack `layer` + `enabled` + params). Placed/reordered in the *UI Editor* screen stack (like bloom/grain), codegen'd to `src/scripts/screen_fx.gen.cpp` (`screenFxSource`/`screenFxHeader` in templates.cpp), run via `RendererCore::applyCustomPostFx` at the effect's slot in the frame loop. Unknown-key placements are dropped on load. See `docs/custom-screen-effects.md`. (Header keys/`{pN}` placeholders are also mirrored in the VS Code extension's `SPEC` — `tools/vscode-tyra/extension.js`; keep them in sync.) |
+| `flownode.cpp` | 230 | Loads project-defined **custom flow nodes** from `<project>/flow-nodes/*.flownode` text files into the global `customFlowNodes()` registry (`flownode::loadForProject`). Called by `project::load` *before* graphs are parsed. Parses the manifest (title/category/params, `in`/`out` pins, `exec_out`, `call`) into a `FlowNodeType`; the node's behavior is an inline C++ snippet or a `call = fn` into `inc/scripts/flow_nodes.hpp`. Also scaffolds the starter file (`writeExample`). See `docs/custom-flow-nodes.md`. **When you add/change a header key or `{placeholder}` here, mirror it in the VS Code extension's `SPEC` table (`tools/vscode-tyrax/extension.js`) and the grammar** — that is what colours/validates `.flownode` files (see `docs/vscode-extension.md`). |
+| `screenfx.cpp` / `.hpp` | ~230 | Loads project-defined **custom screen effects** from `<project>/screen-effects/*.screenfx` text files into the global `customScreenEffects()` registry (`screenfx::loadForProject`, called by `project::load` before placements are read). The full-screen-post-effect analogue of custom flow nodes: a manifest (title + up to four numeric params) plus a raw low-level GS-blit C++ body. A `Project` references one only by placement (`ScreenFxPlacement` in project.hpp: key + stack `layer` + `enabled` + params). Placed/reordered in the *UI Editor* screen stack (like bloom/grain), codegen'd to `src/scripts/screen_fx.gen.cpp` (`screenFxSource`/`screenFxHeader` in templates.cpp), run via `RendererCore::applyCustomPostFx` at the effect's slot in the frame loop. Unknown-key placements are dropped on load. See `docs/custom-screen-effects.md`. (Header keys/`{pN}` placeholders are also mirrored in the VS Code extension's `SPEC` — `tools/vscode-tyrax/extension.js`; keep them in sync.) |
 | `sequence.hpp` | ~230 | Cutscene Director data model + shared math: `Sequence` (object tracks + camera *shots* - free or bound to Camera entities - plus widescreen bars, fades, skippable), `seqEase`/`seqSample`/`seqBarsFractions`/`seqShakeOffset`/`seqCameraForward` (each mirrored in the generated PS2 player - keep in sync). Project-wide (like presets), persisted but not in undo. Compiled to `src/scripts/sequences.gen.cpp` (a runtime player Script + the bars/fade `renderOverlay`); the dopesheet UI + viewport scrub live in `app.cpp`. Object renames remap track/shot name references (`objRenameFrom_`). |
 | `camtake.cpp/.hpp` | ~420 | Phone-recorded 6DoF camera takes (ARKit) → Cutscene Director camera keys. Two strictly separated stages: *acquisition* (loaders producing a `CamTake`: CamTrackAR `.hfcs` via a minimal XML subset reader, canonical CSV — spec + conventions in `docs/camera-takes.md`; phase 2 adds a live streaming receiver) and *bake* (`bakeCamTake`: scale/yaw/origin/time mapping + time-parameterized RDP decimation → free `SeqCameraKey`s, pure and harness-testable). UI = the "Import take..." modal in `app.cpp` (`seqTake*_` members). |
 | `viewport.cpp/.hpp` | 1184 | Offscreen GL 3.3 preview: unit-primitive meshes, terrain grid + heightmap, sky dome, selection outline, live point-light shader, sculpt-brush raycast, orbit/pan camera. Also the Material Editor preview (a primitive or a project .obj with the selected entry's staged values), its paint raycast (`materialPreviewPick`) and the live painted-texture upload (`updateTexturePixels`, shared texCache_ id so the scene updates too). |
@@ -84,10 +84,10 @@ an editable property and skip this, undo/redo and autosave silently break.
 ### 2. Generated-file ownership markers
 `project::refreshGenerated()` (project.cpp:914) runs at the start of every build
 and decides per file:
-- **Always overwritten** (first line `// Generated by tyra-editor. Do not edit -
+- **Always overwritten** (first line `// Generated by TyraX. Do not edit -
   regenerated on every build.`): `Dockerfile`, `docker-compose.yml`,
   `inc/scene_data.hpp`, `inc/terrain_config.hpp`, all `*.gen.hpp` / `*.gen.cpp`.
-- **User-ownable** (first line `// Generated by tyra-editor. Delete this line to
+- **User-ownable** (first line `// Generated by TyraX. Delete this line to
   take ownership of this file.`): `src/terrain_game.cpp`, `inc/terrain_game.hpp`,
   `inc/controls.hpp`, `inc/scripts/script.hpp`. Regenerated only while the marker
   line is intact; the user deletes the line to take over.
@@ -208,7 +208,7 @@ it silently misses the second identical run's error.) `EditorConfig::errorPopup`
 ## Building the editor
 
 ```powershell
-./build.ps1          # configure (if needed) + build → build/tyra-editor.exe
+./build.ps1          # configure (if needed) + build → build/tyrax-editor.exe
 ./build.ps1 -Run     # build and launch
 ./build.ps1 -Clean   # nuke build/ first
 ```
@@ -216,7 +216,7 @@ it silently misses the second identical run's error.) `EditorConfig::errorPopup`
 First run auto-clones `vendor/` deps via `setup.ps1` (imgui docking, glfw 3.4,
 imguizmo, imnodes, stb — all git-ignored; `vendor/tyra` is versioned, see
 tyra-engine-dev). Toolchain: `scoop install mingw cmake ninja`; build.ps1 finds
-scoop's mingw even off-PATH. Single CMake target `tyra-editor`, statically
+scoop's mingw even off-PATH. Single CMake target `tyrax-editor`, statically
 linked (MinGW `-static`), console subsystem on purpose (logs stay visible).
 
 For how to test what you built — headless CLI, codegen checks without Docker,

@@ -1,5 +1,5 @@
 /*
-# Modified by tyra-editor - no heap allocations per clip call; spot light
+# Modified by TyraX - no heap allocations per clip call; spot light
 # (flashlight) injected into vertex colors before clipping (see the
 # StaPipClipperSpot comment in the header); clip output drained in
 # VU1-buffer-sized chunks so a fanned-out triangle can't overflow the buffer.

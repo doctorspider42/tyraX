@@ -5,7 +5,7 @@
 #-----------------------------------------------------------------------
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
-# Added by tyra-editor: loader for .tanm baked-animation models.
+# Added by TyraX: loader for .tanm baked-animation models.
 # Binary layout lives in the editor's src/glbparser.cpp (writeTanm) -
 # keep both sides in sync.
 */

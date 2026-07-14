@@ -2,7 +2,7 @@
 # PCSX2's built-in F8 screenshot is flaky when triggered via SendKeys; this is not.
 # Usage:
 #   powershell -File screenshot-window.ps1 -ProcessName pcsx2-qt -OutFile C:\path\shot.png
-#   powershell -File screenshot-window.ps1 -ProcessName tyra-editor -OutFile shot.png
+#   powershell -File screenshot-window.ps1 -ProcessName tyrax-editor -OutFile shot.png
 param(
     [string]$ProcessName = 'pcsx2-qt',
     [Parameter(Mandatory = $true)][string]$OutFile

@@ -5,7 +5,7 @@
 #-----------------------------------------------------------------------
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
-# Added by tyra-editor: triangle-soup collision with an XZ uniform grid.
+# Added by TyraX: triangle-soup collision with an XZ uniform grid.
 */
 
 #pragma once

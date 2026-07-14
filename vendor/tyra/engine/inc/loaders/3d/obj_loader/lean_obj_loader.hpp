@@ -5,7 +5,7 @@
 #-----------------------------------------------------------------------
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
-# Added by tyra-editor: lightweight OBJ+MTL loader for editor-built games.
+# Added by TyraX: lightweight OBJ+MTL loader for editor-built games.
 */
 
 #pragma once
@@ -61,7 +61,7 @@ struct LeanMtlMaterial {
  *   FileUtils::fromCwd, so it is safe on both host: and cdrom0: (ISO9660
  *   upper-case + ";1" version suffix) boot paths,
  * - computes flat per-face normals (vn is ignored) and flips the V texture
- *   coordinate to image space - the exact semantics of the tyra-editor
+ *   coordinate to image space - the exact semantics of the TyraX
  *   viewport parser (src/objparser.cpp there; keep both in sync), so a scene
  *   previews identically in the editor and on the console,
  * - reads files sequentially into memory (no fseek - unreliable on host fs).

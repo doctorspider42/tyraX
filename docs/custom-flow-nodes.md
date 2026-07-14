@@ -216,7 +216,7 @@ tool when you want the logic to be **triggered from and wired into the graph**
   new files and edits without reopening).
 - **Custom nodes… ▸ Open in VS Code** opens the project (whole-project context,
   so IntelliSense resolves) and jumps to `flow_nodes.hpp`; **Jump to node file**
-  opens a specific `.flownode`. Opening also installs the Tyra VS Code extension
+  opens a specific `.flownode`. Opening also installs the TyraX VS Code extension
   (**Custom nodes… ▸ Install VS Code extension** does it on demand), which adds
   syntax highlighting, snippets and validation for `.flownode` files — see
   [the VS Code extension](vscode-extension.md).

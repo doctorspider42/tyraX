@@ -1,5 +1,5 @@
 /*
-# Modified by tyra-editor - the song player reads the WAV
+# Modified by TyraX - the song player reads the WAV
 # header instead of assuming 16bit/22050Hz/stereo with samples at 0x30.
 # Based on the original by Sandro Sobczynski (h4570/tyra), Apache License 2.0.
 #
@@ -231,7 +231,7 @@ void AudioSong::init() {
 void AudioSong::load(const char* t_path) {
   if (songLoaded) unloadSong();
   wav = fopen(t_path, "rb");
-  // Modified by tyra-editor: a missing music file is no longer fatal - log it
+  // Modified by TyraX: a missing music file is no longer fatal - log it
   // (the editor surfaces it) and leave songLoaded false so play() is a no-op;
   // the game runs on in silence instead of crashing.
   if (wav == nullptr) {
@@ -281,7 +281,7 @@ void AudioSong::load(const char* t_path) {
 void AudioSong::load(const std::string& t_path) { load(t_path.c_str()); }
 
 void AudioSong::play() {
-  // Modified by tyra-editor: play() is a no-op when no song loaded (e.g. the
+  // Modified by TyraX: play() is a no-op when no song loaded (e.g. the
   // file was missing - see load()), instead of asserting and killing the game.
   if (!songLoaded) return;
   if (songFinished) rewindSongToStart();

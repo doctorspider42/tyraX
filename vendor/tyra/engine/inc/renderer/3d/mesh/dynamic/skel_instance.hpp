@@ -5,7 +5,7 @@
 #-----------------------------------------------------------------------
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
-# Added by tyra-editor: per-object skeletal playback; pose evaluation on
+# Added by TyraX: per-object skeletal playback; pose evaluation on
 # the EE, vertex skinning on VU0 in macro mode.
 */
 
@@ -62,7 +62,7 @@ class SkelInstance {
    *
    * @returns true the frame the clip reaches its last frame: once for
    * one-shot clips, on every wrap for looping ones (the animFinished
-   * contract of tyra-editor games).
+   * contract of TyraX games).
    */
   bool update(float dt);
 
