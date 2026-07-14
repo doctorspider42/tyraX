@@ -186,6 +186,9 @@ uniform vec3 uFlashCol;
 uniform float uFlashInvR2;       // 1/range^2
 uniform float uFlashCut2;        // cos^2(half-angle)
 uniform float uFlashSoft;        // softness/(range^2*(1-cos^2))
+uniform int uReflOn;             // spherical environment map (refl) pass
+uniform sampler2D uRefl;         // sphere map, texture unit 1
+uniform float uReflStrength;     // additive gain, 1.0 = full chrome
 out vec4 FragColor;
 void main() {
     vec4 texel = uUseTex != 0 ? texture(uTex, vUV) : vec4(1.0);
@@ -227,6 +230,18 @@ void main() {
         float viewDist = dot(vWorld - uFogEye, uFogFwd);
         float f = clamp((uFogEnd - viewDist) / (uFogEnd - uFogStart), 0.0, 1.0);
         color = mix(uFogColor, color, f);
+    }
+    if (uReflOn != 0) {
+        // Spherical environment map (refl): matcap UVs from the camera-space
+        // normal, added on top - the GL twin of the PS2's additive second
+        // pass (Cs*FIX + Cd; that bag is fogDisabled, hence after the fog
+        // mix). Flat normals from derivatives, exactly like the PS2 pass
+        // built on the loader's per-face normals - keep the two in sync.
+        vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
+        vec3 r = normalize(cross(uFogFwd, vec3(0.0, 1.0, 0.0)));
+        vec3 u = cross(r, uFogFwd);
+        vec2 st = vec2(0.5 + 0.5 * dot(n, r), 0.5 - 0.5 * dot(n, u));
+        color += uReflStrength * texture(uRefl, st).rgb;
     }
     // Decals carry the texture's alpha (cutout above + blend here); everything
     // else outputs opaque.
@@ -748,6 +763,12 @@ bool Viewport::init() {
     uFlashInvR2_ = glGetUniformLocation(program_, "uFlashInvR2");
     uFlashCut2_ = glGetUniformLocation(program_, "uFlashCut2");
     uFlashSoft_ = glGetUniformLocation(program_, "uFlashSoft");
+    uReflOn_ = glGetUniformLocation(program_, "uReflOn");
+    uRefl_ = glGetUniformLocation(program_, "uRefl");
+    uReflStrength_ = glGetUniformLocation(program_, "uReflStrength");
+    glUseProgram(program_);
+    glUniform1i(uRefl_, 1);  // sphere map lives on texture unit 1
+    glUseProgram(0);
 
     GLuint gvs = compile(GL_VERTEX_SHADER, GRADE_VS);
     GLuint gfs = compile(GL_FRAGMENT_SHADER, GRADE_FS);
@@ -1478,6 +1499,10 @@ const Viewport::MatPrevModel* Viewport::matPrevModelDraw(
         part.kd[0] = sub.kd[0], part.kd[1] = sub.kd[1], part.kd[2] = sub.kd[2];
         if (!sub.texture.empty())
             part.texRel = (texDir / sub.texture).generic_string();
+        if (!sub.refl.empty()) {
+            part.reflRel = (texDir / sub.refl).generic_string();
+            part.reflStrength = sub.reflStrength;
+        }
         std::vector<float> interleaved;
         interleaved.reserve(sub.verts.size());
         part.tris.reserve(sub.verts.size() / 8 * 5);
@@ -1545,6 +1570,12 @@ const Viewport::MaterialDraw* Viewport::materialDraw(const std::string& relPath)
             draw.tex = glTexture((std::filesystem::path(relPath).parent_path() /
                                   m.texture)
                                      .generic_string());
+        if (!m.refl.empty()) {
+            draw.reflTex = glTexture(
+                (std::filesystem::path(relPath).parent_path() / m.refl)
+                    .generic_string());
+            draw.reflStrength = m.reflStrength;
+        }
     }
     return &materialCache_.emplace(relPath, draw).first->second;
 }
@@ -1586,6 +1617,10 @@ const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
             part.mesh = uploadMesh(interleaved);
             if (!sub.texture.empty())
                 part.tex = glTexture((modelDir / sub.texture).generic_string());
+            if (!sub.refl.empty()) {
+                part.reflTex = glTexture((modelDir / sub.refl).generic_string());
+                part.reflStrength = sub.reflStrength;
+            }
             draw.parts.push_back(part);
         }
     }
@@ -1911,13 +1946,21 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     auto draw = [&](const Mesh& mesh, GLenum mode, const Mat4& mvp, float r, float g,
                     float b, uint32_t texture = 0, const Mat4* model = nullptr,
-                    bool alpha = false) {
+                    bool alpha = false, uint32_t reflTex = 0,
+                    float reflStrength = 0.0f) {
         glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
         glUniformMatrix4fv(uModel_, 1, GL_FALSE, model ? model->m : identityM.m);
         glUniform1i(uLit_, model ? 1 : 0);  // world matrix given = lit geometry
         glUniform3f(uTint_, r, g, b);
         glUniform1i(uUseTex_, texture ? 1 : 0);
         glUniform1i(uAlpha_, alpha ? 1 : 0);
+        glUniform1i(uReflOn_, reflTex ? 1 : 0);
+        if (reflTex) {
+            glUniform1f(uReflStrength_, reflStrength);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, reflTex);
+            glActiveTexture(GL_TEXTURE0);
+        }
         if (alpha) {
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -2013,7 +2056,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 for (const ModelPart& part : md->parts)
                     draw(part.mesh, GL_TRIANGLES, mvp, o.color[0] * tintScale,
                          o.color[1] * tintScale, o.color[2] * tintScale,
-                         asLines ? 0 : part.tex, lit ? &model : nullptr);
+                         asLines ? 0 : part.tex, lit ? &model : nullptr, false,
+                         asLines ? 0 : part.reflTex, part.reflStrength);
                 continue;
             }
             // primitives: the assigned material's first entry = Kd tint + map_Kd
@@ -2028,7 +2072,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             const bool decalAlpha = o.type == PrimitiveType::Decal && tex && !asLines;
             draw(*meshFor(o), GL_TRIANGLES, mvp, o.color[0] * kr * tintScale,
                  o.color[1] * kg * tintScale, o.color[2] * kb * tintScale,
-                 tex, lit ? &model : nullptr, decalAlpha);
+                 tex, lit ? &model : nullptr, decalAlpha,
+                 (asLines || !mat) ? 0 : mat->reflTex,
+                 mat ? mat->reflStrength : 0.0f);
         }
         if (!asLines) glDisable(GL_POLYGON_OFFSET_FILL);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -2215,17 +2261,26 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
 
     const Mat4 id = identity();
     auto draw = [&](const Mesh& mesh, const Mat4& mvp, float r, float g, float b,
-                    uint32_t texture) {
+                    uint32_t texture, uint32_t reflTex = 0,
+                    float reflStrength = 0.0f) {
         glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
         glUniformMatrix4fv(uModel_, 1, GL_FALSE, id.m);
         glUniform1i(uLit_, 0);
         glUniform3f(uTint_, r, g, b);
         glUniform1i(uUseTex_, texture ? 1 : 0);
         glUniform1i(uAlpha_, 0);
+        glUniform1i(uReflOn_, reflTex ? 1 : 0);
+        if (reflTex) {
+            glUniform1f(uReflStrength_, reflStrength);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, reflTex);
+            glActiveTexture(GL_TEXTURE0);
+        }
         if (texture) glBindTexture(GL_TEXTURE_2D, texture);
         glBindVertexArray(mesh.vao);
         glDrawArrays(GL_TRIANGLES, 0, mesh.vertexCount);
     };
+    glUniform1i(uFogOn_, 0);  // no fog in the preview scene
 
     // backdrop: NDC-space gradient quad, no depth
     glDisable(GL_DEPTH_TEST);
@@ -2253,6 +2308,14 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
                    center.y + dist * std::sin(p),
                    center.z + dist * std::cos(p) * std::sin(a)};
     const Mat4 view = lookAt(eye, center, {0, 1, 0});
+    {
+        // The refl (matcap) shader path derives the camera basis from
+        // uFogEye/uFogFwd - point them at the preview camera (fog itself is
+        // off above).
+        const Vec3 f = normalize(sub(center, eye));
+        glUniform3f(uFogEye_, eye.x, eye.y, eye.z);
+        glUniform3f(uFogFwd_, f.x, f.y, f.z);
+    }
     const float zFar = dist + (model ? model->radius : 1.0f) * 4.0f + 50.0f;
     const Mat4 proj = perspective(45.0f * kPi / 180.0f,
                                   (float)width / (float)height,
@@ -2271,14 +2334,18 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
             const bool staged = part.material == d.entryName;
             const float* kd = staged ? d.kd : part.kd;
             const std::string& tex = staged ? d.texRel : part.texRel;
-            draw(part.mesh, viewProj, kd[0], kd[1], kd[2], glTexture(tex));
+            const std::string& refl = staged ? d.reflRel : part.reflRel;
+            draw(part.mesh, viewProj, kd[0], kd[1], kd[2], glTexture(tex),
+                 glTexture(refl),
+                 staged ? d.reflStrength : part.reflStrength);
         }
     } else {
         const Mesh* mesh = shape == 0   ? &box_
                            : shape == 2 ? &cylinder_
                            : shape == 3 ? &cone_
                                         : &sphere_;
-        draw(*mesh, viewProj, d.kd[0], d.kd[1], d.kd[2], glTexture(d.texRel));
+        draw(*mesh, viewProj, d.kd[0], d.kd[1], d.kd[2], glTexture(d.texRel),
+             glTexture(d.reflRel), d.reflStrength);
     }
 
     glBindVertexArray(0);

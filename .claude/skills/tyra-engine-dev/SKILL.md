@@ -70,7 +70,14 @@ framebuffer/noise/scratch-buffer accessors, and the engine wraps the state
 setup/teardown + DMA kick), WAV-header-aware song
 player, `bboxVersion` on `StaPipBag` for moving geometry, `LeanObjLoader`
 (OBJ+MTL, host:/cdrom0:-safe; parsing semantics mirror the editor's
-`src/objparser.cpp` — keep the two in sync), `physics/CollisionMesh` (XZ-grid
+`src/objparser.cpp` — keep the two in sync; parses the `refl` sphere-map
+statement for reflective materials), per-bag additive blending for the
+reflective-material env pass (`PipelineInfoBag::additiveBlendFix` — non-zero
+makes `StaPipCore::render` drain PATH1 via `sync.align3D()` and switch the
+global GS `ALPHA` register to `Cs*FIX/128 + Cd` through
+`RendererCoreGS::setAlpha`, restoring alpha-over after the bag's own drain;
+ALPHA is global GS state, hence the FINISH barriers — keep additive bags to a
+handful per frame, see `docs/reflective-materials.md`), `physics/CollisionMesh` (XZ-grid
 triangle collider) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
 TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot),
 `renderer/models/unique_id.hpp` (`generateUniqueId()`) replacing upstream's

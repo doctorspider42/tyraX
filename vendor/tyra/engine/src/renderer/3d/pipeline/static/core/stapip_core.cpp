@@ -8,6 +8,7 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
+#include <gs_gp.h>
 #include "renderer/3d/pipeline/static/core/stapip_core.hpp"
 #include "renderer/core/renderer_core.hpp"
 #include "thread/threading.hpp"
@@ -139,6 +140,18 @@ void StaPipCore::render(StaPipBag* bag) {
     }
   }
 
+  // Modified by tyra-editor: per-bag additive blend equation (the spherical
+  // environment-map pass of reflective materials). The GS ALPHA register is
+  // global state, so switching it must drain the in-flight PATH1 rendering
+  // first (FINISH handshake); restored after this bag's own drain below.
+  // Placed after the frustum early-out so a culled bag never flips the state.
+  const u8 additiveFix = bag->info->additiveBlendFix;
+  if (additiveFix != 0) {
+    rendererCore->sync.align3D();
+    // Cv = Cs * FIX/128 + Cd
+    rendererCore->gs.setAlpha(GS_SET_ALPHA(0, 2, 2, 1, additiveFix));
+  }
+
   packager.setRenderBBox(bbox);
 
   M4x4 mvp;
@@ -212,6 +225,13 @@ void StaPipCore::render(StaPipBag* bag) {
   }
 
   qbufferRenderer.flushBuffers();
+
+  if (additiveFix != 0) {
+    // Drain this bag's triangles, then restore the standard alpha-over
+    // equation ((Cs-Cd)*As/128 + Cd, the draw_setup_environment default).
+    rendererCore->sync.align3D();
+    rendererCore->gs.setAlpha(GS_SET_ALPHA(0, 1, 0, 1, 0));
+  }
 
   Verbose("Render finished");
 }

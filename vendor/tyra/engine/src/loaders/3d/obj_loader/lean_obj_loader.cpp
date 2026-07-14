@@ -39,9 +39,12 @@ bool readWholeFile(const std::string& fullPath, std::string& out) {
 struct MtlEntry {
   float kd[3] = {1.0F, 1.0F, 1.0F};
   std::string texture;
+  std::string reflTexture;
+  float reflStrength = 0.0F;
 };
 
-/** newmtl/Kd/map_Kd from one .mtl buffer (map_Kd: last token of the line).
+/** newmtl/Kd/map_Kd/refl from one .mtl buffer (map_Kd/refl: last token of the
+ * line; refl's -mm gain option carries the reflection strength).
  * order (optional) records material names in file order. */
 void parseMtl(const std::string& text, std::map<std::string, MtlEntry>& out,
               std::vector<std::string>* order = nullptr) {
@@ -64,6 +67,25 @@ void parseMtl(const std::string& text, std::map<std::string, MtlEntry>& out,
       for (auto& c : last)
         if (c == '\\') c = '/';
       out[current].texture = last;
+    } else if (tag == "refl" && !current.empty()) {
+      // Spherical environment map (tyra-editor reflective materials):
+      //   refl -type sphere -mm 0 <strength> <file>
+      // Filename = last token; -mm's gain operand is the reflection strength.
+      MtlEntry& m = out[current];
+      std::string tok, last;
+      while (ss >> tok) {
+        if (tok == "-mm") {
+          float base = 0.0F;
+          ss >> base >> m.reflStrength;
+        } else {
+          last = tok;
+        }
+      }
+      for (auto& c : last)
+        if (c == '\\') c = '/';
+      m.reflTexture = last;
+      if (m.reflStrength <= 0.0F && !m.reflTexture.empty())
+        m.reflStrength = 0.5F;  // refl without -mm: sensible default
     }
   }
 }
@@ -88,6 +110,8 @@ std::vector<LeanMtlMaterial> LeanObjLoader::loadMtl(
     m.kd[0] = materials[name].kd[0];
     m.kd[1] = materials[name].kd[1];
     m.kd[2] = materials[name].kd[2];
+    m.reflTextureName = materials[name].reflTexture;
+    m.reflStrength = materials[name].reflStrength;
     result.push_back(m);
   }
   return result;
@@ -146,6 +170,8 @@ std::unique_ptr<LeanObjMesh> LeanObjLoader::load(
       m.kd[1] = mtl->second.kd[1];
       m.kd[2] = mtl->second.kd[2];
       m.textureName = mtl->second.texture;
+      m.reflTextureName = mtl->second.reflTexture;
+      m.reflStrength = mtl->second.reflStrength;
     }
     result->materials.push_back(m);
     materialIndex[name] = (int)result->materials.size() - 1;

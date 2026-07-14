@@ -537,6 +537,9 @@ private:
         std::string texture;      // map_Kd, relative to the .mtl dir ("" = none)
         float tile = 1.0f;        // map_Kd -s: texture repeats per world unit
                                   // (terrain only; objects have baked UVs)
+        std::string refl;           // refl sphere map, relative to the .mtl dir
+                                    // ("" = not reflective)
+        float reflStrength = 0.5f;  // refl -mm gain operand, 0..1
         std::vector<std::string> extra;  // unrecognized lines, preserved verbatim
     };
     std::vector<MatEdEntry> matEdMats_;

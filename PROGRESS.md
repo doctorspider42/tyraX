@@ -9,6 +9,47 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (99) **Reflective materials: sphere-mapped "chrome" (the NFS/GT car-paint
+  trick).** New `refl -type sphere -mm 0 <strength> <file>` statement in
+  `.mtl` files, authored in the Material Editor's new **Reflection** section
+  (sphere-map picker + strength slider, live in both previews). The PS2 side
+  is the period-correct technique: at geometry build the generated game
+  captures world-space normals for reflective parts (`pushVert` /
+  `g_envNormals`); each frame `renderScene` derives the camera basis and
+  rewrites a per-part env ST array on the EE (`u = .5+.5(n·right)`,
+  `v = .5-.5(n·up)`), then submits the part a SECOND time as its own
+  StaPipBag - same vertex array + bboxVersion (shared frustum-bbox cache
+  entry; all-white "many" colors keep the VU1 program shape identical to the
+  base bag), sphere map as texture, `PipelineZTest_TestOnly`, `fogDisabled`
+  (GS fog would ADD the fog color through the additive equation). The
+  additive blend itself is a new engine-fork feature: per-bag
+  `PipelineInfoBag::additiveBlendFix` - `StaPipCore::render` drains PATH1
+  (`sync.align3D()`), switches the global GS ALPHA register to
+  `Cs*FIX/128 + Cd` via the new `RendererCoreGS::setAlpha` (preallocated
+  PATH3 packet, `setFogColor` pattern), and restores alpha-over after the
+  bag's own drain - placed after the frustum early-out so a culled bag never
+  flips global state. Both `.mtl` parsers extended in sync (engine
+  `LeanObjLoader` + editor `objparser.cpp`); the GL twin samples the map in
+  the viewport FS from `dFdx/dFdy` flat normals + the same camera-basis
+  formula (both sides faceted - the loaders' per-face normals, like base
+  lighting). Also threaded through: texbake quality claims, model/material
+  import rewrites (`refl` filename remapped, options preserved), Material
+  Editor round-trip (no longer falls into `extra`). `gl_loader` gained
+  `glActiveTexture`/`GL_TEXTURE0/1` (the sphere map rides texture unit 1).
+  v1 limits: static primitives + .obj models only (no .glb/terrain), EE ST
+  math + two FINISH barriers per reflective mesh - the planned phase 2 moves
+  UV-from-normal into the StaPip VU1 programs (GT3 style) and can smooth
+  normals. **Verified** (Layer 3): editor builds clean; `--new` + overlay
+  scratch project (red chrome sphere detail 24 + chrome box + matte box,
+  128px sky-gradient sphere map) `--resave` round-trips the `refl` line;
+  generated `terrain_game.cpp` carries the env pass; full Docker build
+  (engine + game) compiles; PCSX2 **software renderer** boots clean
+  (`bin/log.txt` free of TYRA banners) and the F8 screenshot shows the
+  horizon flash across the sphere/box while the matte box stays flat; the
+  editor viewport shows the matching matcap on the same scene (GUI
+  screenshot). The Material Editor preview shares the verified shader path;
+  its interactive feel (picker, slider) still wants a hands-on pass. Docs:
+  README, `docs/reflective-materials.md`, engine + editor skills.
 - (98) **Brush opacity settings: labeled slider + per-dab Vary.** Follow-up
   on (97). The opacity slider was an unlabeled 70px stub next to Size - now
   a properly labeled **Opacity** on its own row, and a new **Vary** slider

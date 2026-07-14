@@ -2334,10 +2334,11 @@ std::string App::importModelAsset() {
     // texture file (relative to the .obj) -> sanitized basename in res/models
     std::map<std::string, std::string> textureNames;
     for (const objparser::Submesh& s : parsed.submeshes)
-        if (!s.texture.empty())
-            textureNames.emplace(
-                s.texture,
-                sanitizeAssetName(std::filesystem::path(s.texture).filename().string()));
+        for (const std::string& tex : {s.texture, s.refl})
+            if (!tex.empty())
+                textureNames.emplace(
+                    tex,
+                    sanitizeAssetName(std::filesystem::path(tex).filename().string()));
     std::map<std::string, std::string> mtlNames;
     for (const std::string& m : parsed.mtlLibs)
         mtlNames.emplace(
@@ -2383,13 +2384,20 @@ std::string App::importModelAsset() {
             std::istringstream ss(line);
             std::string tag;
             ss >> tag;
-            if (tag == "map_Kd") {
-                std::string tok, last;
-                while (ss >> tok) last = tok;
+            if (tag == "map_Kd" || tag == "refl") {
+                // last token = filename, remapped to its flattened name; the
+                // refl options (-type/-mm, the strength) are preserved.
+                std::vector<std::string> toks;
+                for (std::string t; ss >> t;) toks.push_back(t);
+                std::string last = toks.empty() ? "" : toks.back();
                 for (char& c : last)
                     if (c == '\\') c = '/';
                 auto it = textureNames.find(last);
-                out << "map_Kd " << (it != textureNames.end() ? it->second : last)
+                out << tag;
+                if (tag == "refl")
+                    for (size_t ti = 0; ti + 1 < toks.size(); ++ti)
+                        out << " " << toks[ti];
+                out << " " << (it != textureNames.end() ? it->second : last)
                     << "\n";
             } else {
                 out << line << "\n";
@@ -2458,10 +2466,11 @@ std::string App::importMaterialAsset() {
     objparser::loadMtl(src, parsed);
     std::map<std::string, std::string> textureNames;
     for (const objparser::MtlMaterial& m : parsed)
-        if (!m.texture.empty())
-            textureNames.emplace(
-                m.texture,
-                sanitizeAssetName(std::filesystem::path(m.texture).filename().string()));
+        for (const std::string& tex : {m.texture, m.refl})
+            if (!tex.empty())
+                textureNames.emplace(
+                    tex,
+                    sanitizeAssetName(std::filesystem::path(tex).filename().string()));
 
     int missing = 0;
     {
@@ -2476,13 +2485,20 @@ std::string App::importMaterialAsset() {
             std::istringstream ss(line);
             std::string tag;
             ss >> tag;
-            if (tag == "map_Kd") {
-                std::string tok, last;
-                while (ss >> tok) last = tok;
+            if (tag == "map_Kd" || tag == "refl") {
+                // last token = filename, remapped to its flattened name; the
+                // refl options (-type/-mm, the strength) are preserved.
+                std::vector<std::string> toks;
+                for (std::string t; ss >> t;) toks.push_back(t);
+                std::string last = toks.empty() ? "" : toks.back();
                 for (char& c : last)
                     if (c == '\\') c = '/';
                 auto it = textureNames.find(last);
-                out << "map_Kd " << (it != textureNames.end() ? it->second : last)
+                out << tag;
+                if (tag == "refl")
+                    for (size_t ti = 0; ti + 1 < toks.size(); ++ti)
+                        out << " " << toks[ti];
+                out << " " << (it != textureNames.end() ? it->second : last)
                     << "\n";
             } else {
                 out << line << "\n";
@@ -9309,9 +9325,9 @@ void App::drawCutsceneWindow() {
 // Materials are the project's plain Wavefront .mtl asset files - the same
 // files objects reference via materialPath and the PS2 runtime parses with
 // LeanObjLoader. The editor reads/writes the subset the whole pipeline
-// understands (newmtl / Kd / map_Kd) plus a "# tyra-brightness" hint line so
-// the color x brightness split survives a round trip (both multiply into the
-// written Kd; every parser ignores comments). Unrecognized lines of
+// understands (newmtl / Kd / map_Kd / refl) plus a "# tyra-brightness" hint
+// line so the color x brightness split survives a round trip (both multiply
+// into the written Kd; every parser ignores comments). Unrecognized lines of
 // hand-imported files are preserved verbatim. Edits are saved straight to
 // disk on commit - assets are not project data, so no undo (same as imports).
 
@@ -9352,6 +9368,23 @@ bool App::loadMaterialFile(const std::string& relPath) {
                         std::istringstream(toks[i + 1]) >> e.tile;
                         break;
                     }
+            }
+        } else if (tag == "refl") {
+            // Spherical environment map: refl -type sphere -mm 0 <strength>
+            // <file>. Filename = last token; -mm's gain is the strength.
+            std::vector<std::string> toks;
+            for (std::string t; ss >> t;) toks.push_back(t);
+            if (!toks.empty()) {
+                e.refl = toks.back();
+                for (char& c : e.refl)
+                    if (c == '\\') c = '/';
+                e.reflStrength = 0.0f;
+                for (size_t i = 0; i + 2 < toks.size(); ++i)
+                    if (toks[i] == "-mm") {
+                        std::istringstream(toks[i + 2]) >> e.reflStrength;
+                        break;
+                    }
+                if (e.reflStrength <= 0.0f) e.reflStrength = 0.5f;
             }
         } else if (tag == "#") {
             std::string what;
@@ -9426,6 +9459,13 @@ void App::saveMaterialFile() {
                 out << buf;
             }
             out << " " << e.texture << "\n";
+        }
+        if (!e.refl.empty()) {
+            // Spherical environment map; the standard -mm option's gain
+            // operand carries the reflection strength (see the PS2 loader).
+            std::snprintf(buf, sizeof(buf), "refl -type sphere -mm 0 %.4g ",
+                          e.reflStrength);
+            out << buf << e.refl << "\n";
         }
         for (const std::string& x : e.extra) out << x << "\n";
         out << "\n";
@@ -10311,6 +10351,75 @@ void App::drawMaterialEditorWindow() {
                               "mesh UVs and ignore this.");
     }
 
+    // --- Reflection (refl): spherical environment map, drawn as a second
+    // additive pass on the PS2 - the NFS/GT-style "chrome/lacquer" look. The
+    // sphere map is a small PNG of the surroundings; UVs come from the
+    // camera-space normals, so the highlight slides over the surface as the
+    // camera moves.
+    ImGui::SeparatorText("Reflection");
+    {
+        const char* noneLabel = "<none - matte>";
+        ImGui::SetNextItemWidth(scaled(240.0f));
+        if (ImGui::BeginCombo("Sphere map",
+                              e.refl.empty() ? noneLabel : e.refl.c_str())) {
+            if (ImGui::Selectable(noneLabel, e.refl.empty()) && !e.refl.empty()) {
+                e.refl.clear();
+                committed = true;
+            }
+            std::error_code ec;
+            for (const auto& f :
+                 std::filesystem::recursive_directory_iterator(mtlDirAbs, ec)) {
+                if (!f.is_regular_file()) continue;
+                std::string ext = f.path().extension().string();
+                for (char& c : ext) c = (char)tolower((unsigned char)c);
+                if (ext != ".png") continue;
+                const std::string rel =
+                    std::filesystem::relative(f.path(), mtlDirAbs, ec).generic_string();
+                if (ImGui::Selectable(rel.c_str(), rel == e.refl) &&
+                    rel != e.refl) {
+                    e.refl = rel;
+                    committed = true;
+                }
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Import PNG...")) {
+                const std::string src = pickPngFile();
+                if (!src.empty()) {
+                    const std::string fileName = sanitizeAssetName(
+                        std::filesystem::path(src).filename().string());
+                    std::error_code cec;
+                    std::filesystem::copy_file(
+                        src, mtlDirAbs / fileName,
+                        std::filesystem::copy_options::overwrite_existing, cec);
+                    if (cec) {
+                        statusMessage_ = "Sphere map import failed: " + cec.message();
+                    } else {
+                        e.refl = fileName;
+                        committed = true;
+                    }
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("A small texture of the environment (sky gradient\n"
+                              "with a bright horizon works great). Drawn additively\n"
+                              "over the material using camera-space normals -\n"
+                              "the PS2-era chrome/car-paint trick.");
+        if (!e.refl.empty()) {
+            std::error_code ec;
+            if (!std::filesystem::exists(mtlDirAbs / e.refl, ec))
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                   "Sphere map missing - reflection is skipped.");
+            ImGui::SetNextItemWidth(scaled(180.0f));
+            ImGui::SliderFloat("Strength", &e.reflStrength, 0.05f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("How much of the sphere map is added on top.\n"
+                                  "1.0 = full chrome.");
+        }
+    }
+
     ImGui::Spacing();
     ImGui::TextDisabled("Saved to the file on every change. The object's own\n"
                         "Color multiplies on top per object.");
@@ -10365,6 +10474,11 @@ void App::drawMaterialEditorWindow() {
             sel.texture.empty()
                 ? ""
                 : (std::filesystem::path(matEdPath_).parent_path() / sel.texture)
+                      .generic_string();
+        const std::string reflRel =
+            sel.refl.empty()
+                ? ""
+                : (std::filesystem::path(matEdPath_).parent_path() / sel.refl)
                       .generic_string();
 
         // --- paint tool ------------------------------------------------------
@@ -10620,6 +10734,8 @@ void App::drawMaterialEditorWindow() {
         Viewport::MatPreviewDesc desc;
         desc.kd[0] = kd[0], desc.kd[1] = kd[1], desc.kd[2] = kd[2];
         desc.texRel = texRel;
+        desc.reflRel = reflRel;
+        desc.reflStrength = sel.refl.empty() ? 0.0f : sel.reflStrength;
         desc.shape = matEdShape_;
         desc.modelRel = matEdModel_;
         desc.mtlRel = matEdPath_;

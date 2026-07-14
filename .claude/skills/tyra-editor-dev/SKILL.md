@@ -190,9 +190,11 @@ it silently misses the second identical run's error.) `EditorConfig::errorPopup`
   verified** (read a few entries to match the tone; they double as the project's
   institutional memory, including dead ends).
 - Comments explain constraints, not narration; match the existing density.
-- The editor viewport and the PS2 game must agree: shading, terrain sampling
-  and sky are implemented twice (GLSL/C++ in viewport, codegen in templates).
-  When you change one formula, grep for its twin.
+- The editor viewport and the PS2 game must agree: shading, terrain sampling,
+  sky and the reflective-material matcap (sphere-map STs from the camera-space
+  normal — `docs/reflective-materials.md`) are implemented twice (GLSL/C++ in
+  viewport, codegen in templates). When you change one formula, grep for its
+  twin.
 - **DPI/zoom: wrap literal pixel sizes in `App::scaled(px)`.** `applyUiScale()`
   scales fonts (`FontScaleMain`) and style spacing (`ScaleAllSizes`) but NOT the
   pixel literals you pass to ImGui. So a hardcoded `SetNextItemWidth(180)`,
