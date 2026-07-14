@@ -1,0 +1,4 @@
+newmtl chrome-dyn
+# tyra-brightness 1
+Kd 0.7000 0.7000 0.7500
+refl -type sphere -mm 0 0.9 @sky

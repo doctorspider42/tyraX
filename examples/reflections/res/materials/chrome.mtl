@@ -1,0 +1,4 @@
+newmtl chrome
+# tyra-brightness 1
+Kd 0.8000 0.1000 0.1000
+refl -type sphere -mm 0 0.8 chrome-sky.png
