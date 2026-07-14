@@ -127,7 +127,7 @@ std::string bake(const Project& p,
         const std::string q = assetQuality(assetRel);
         for (const objparser::Submesh& s : model.submeshes) {
             for (const std::string& tex : {s.texture, s.refl}) {
-                if (tex.empty()) continue;
+                if (tex.empty() || tex == "@sky") continue;  // dynamic env map
                 std::vector<std::string> rel;
                 texturesOf(e.path().parent_path(), tex, &rel);
                 for (const std::string& r : rel) claim(r, q);
@@ -145,7 +145,7 @@ std::string bake(const Project& p,
             const std::string q = assetQuality(assetRel);
             for (const objparser::MtlMaterial& m : materials) {
                 for (const std::string& tex : {m.texture, m.refl}) {
-                    if (tex.empty()) continue;
+                    if (tex.empty() || tex == "@sky") continue;  // dynamic env map
                     std::vector<std::string> rel;
                     texturesOf(e.path().parent_path(), tex, &rel);
                     for (const std::string& r : rel) claim(r, q);

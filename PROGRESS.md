@@ -9,6 +9,37 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (101) **Dynamic environment map: GT3-style live-sky reflections
+  ("@sky").** Phase 2b of (99)/(100). A material's sphere map can now be
+  `<dynamic - live sky>` (Material Editor; stored as the filename token
+  `@sky` in the `refl` statement): the game re-renders the scene's SKY DOME
+  into a 128x128 VRAM texture every frame and reflective materials sample
+  that - reflections track the live sky, script retints included. Engine
+  fork: `RendererCoreEnvMap` (render target allocated at init below the
+  texture region so FIFO vram frees can never reclaim it; begin()/end()
+  bracket = PATH1 drain + FRAME/SCISSOR/XYOFFSET redirect with MASKED z
+  writes + clear sprite, restore + TEXFLUSH), `Texture::vramResident` (a
+  texture whose pixels live only in GS memory - `useTexture` binds its
+  texbuffer directly, no PATH3 upload, never evicted),
+  `RendererCore3D::pushEnvView/popEnvView` (square 110-deg projection along
+  the camera's level forward + frustum planes widened 1.4x for the
+  screen-aspect mismatch - overly wide planes only cost clipping work,
+  never wrongly cull). Generated game: `@sky` materials bind the engine
+  target (`g_dynamicEnvUsers` refcount gates the per-frame dome pass at the
+  top of renderScene, AllPass z-test swapped in for the dome). Editor: the
+  combo entry + `@sky` guards in texbake/import flows/missing-file warning;
+  the GL twin approximates the dome with the analytic horizon/zenith
+  gradient (uReflOn == 2). New pitfall recorded in tyra-engine-dev, cost a
+  debugging round: a GIF A+D giftag whose NLOOP undercounts its register
+  writes (begin()'s clear sprite made it 8, tag said 7) stalls the GIF
+  forever - eternal loading screen, no assert, clean log. **Verified**
+  (Layer 3): PCSX2 software renderer, scratch scene with BOTH modes side by
+  side - the `@sky` sphere reflects the scene's blue sky gradient (top half
+  sky-blue, pale horizon line) while the static-PNG sphere keeps its
+  white-band/brown look and the matte control stays flat; log free of TYRA
+  banners; "Dynamic env map initialized (VRAM at 700416)" confirms the
+  init-time allocation. A live Set-Sky-Color retint of the reflection still
+  wants a hands-on pad test.
 - (100) **Reflective materials on VU1: TCE matcap programs + in-band GS
   ALPHA.** Phase 2a of (99). The env pass's sphere-map STs now come from a
   new StaPip VU1 program family: `stapip_cull_tce_vu1.vclpp` +

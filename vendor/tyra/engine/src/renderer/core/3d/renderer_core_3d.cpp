@@ -61,6 +61,34 @@ void RendererCore3D::setProjection() {
       settings->getNear(), settings->getFar());
 }
 
+// Modified by TyraX: dynamic env map pass camera. The frustum planes are
+// recomputed with a widened FOV - Renderer3DFrustumPlanes derives its aspect
+// from the SCREEN settings while the env target is square, so exact planes
+// would misclassify; the margin only costs some extra clipping work, never
+// wrongly culls.
+void RendererCore3D::pushEnvView(const Vec4& position, const Vec4& lookAt,
+                                 const float& envFov, const float& size) {
+  savedView = view;
+  savedProjection = projection;
+  savedViewProj = viewProj;
+  projection = M4x4::perspective(envFov, size, size,
+                                 settings->getProjectionScale(), 1.0F,
+                                 settings->getNear(), settings->getFar());
+  Vec4 pos = position;
+  Vec4 look = lookAt;
+  M4x4::lookAt(&view, pos, look);
+  viewProj = projection * view;
+  const float planesFov = envFov * 1.4F > 170.0F ? 170.0F : envFov * 1.4F;
+  frustumPlanes.update(CameraInfo3D(&pos, &look), planesFov);
+}
+
+void RendererCore3D::popEnvView(const CameraInfo3D& cameraInfo) {
+  view = savedView;
+  projection = savedProjection;
+  viewProj = savedViewProj;
+  frustumPlanes.update(cameraInfo, fov);
+}
+
 u32 RendererCore3D::uploadVU1Program(VU1Program* program, const u32& address) {
   return path1->uploadProgram(program, address);
 }

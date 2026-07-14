@@ -29,6 +29,20 @@ Any object using the material — primitives via *Material*, `.obj` models via
 their own or an override `.mtl` — gets the reflection pass. Materials without
 `refl` are unaffected.
 
+### Dynamic mode (GT3 style)
+
+Pick **`<dynamic - live sky>`** as the sphere map instead of a PNG (stored as
+the filename token `@sky`):
+
+```
+refl -type sphere -mm 0 0.9 @sky
+```
+
+The game then re-renders the scene's **sky dome** into a small VRAM texture
+every frame and samples that as the sphere map — reflections follow the live
+sky, including script retints (*Set Sky Color*). The editor viewport
+approximates it with the analytic horizon/zenith gradient.
+
 ## How the PS2 side works
 
 - `LeanObjLoader` parses `refl` (texture + strength) alongside `Kd`/`map_Kd`.
@@ -68,5 +82,27 @@ The editor's GLSL twin lives in the viewport fragment shader (`uReflOn` block)
   highlights.
 - Animated (`.glb`) models and terrain don't take reflections; static
   primitives and `.obj` models do.
-- Remaining "pro" ideas: smoothed normals for the env pass and the GT3-style
-  dynamically rendered environment texture (in progress).
+- Dynamic mode reflects the **sky only** — scene geometry (terrain, objects)
+  is not in the env render. The plumbing (`RendererCoreEnvMap::begin/end` +
+  `RendererCore3D::pushEnvView/popEnvView`) supports submitting more bags into
+  the bracket if a project ever wants true GT3 surroundings; it costs frame
+  time per extra pass.
+- Remaining "pro" idea: smoothed normals for the env pass.
+
+## Dynamic env map internals
+
+- `RendererCoreEnvMap` (engine fork): a 128×128×32 render target allocated at
+  init **below the texture region** (the bump allocator's FIFO free can never
+  reclaim it), exposed as a **VRAM-resident `Texture`**
+  (`Texture::vramResident`) that `useTexture` binds directly — no PATH3
+  upload, never evicted.
+- Per frame, `renderScene` (when any loaded material uses `@sky`):
+  `envMap.begin(horizonColor)` drains PATH1 and redirects
+  FRAME/SCISSOR/XYOFFSET at the target (z writes masked — the pass shares the
+  main z-buffer address), clears it, then the sky dome is submitted under
+  `renderer3D.pushEnvView(...)` (square 110° projection along the camera's
+  level forward, widened frustum planes), and `envMap.end()` restores the
+  frame state (+ TEXFLUSH so the scene samples fresh texels).
+- Beware the GIF NLOOP pitfall hit while building this: an A+D giftag whose
+  NLOOP undercounts its register writes stalls the GIF forever — the game
+  hangs on the loading screen inside `draw_wait_finish()`.

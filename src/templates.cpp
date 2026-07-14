@@ -480,9 +480,11 @@ class TerrainGame : public Tyra::Game {
     std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
-    // refl: spherical environment map (nullptr = not reflective)
+    // refl: spherical environment map (nullptr = not reflective).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture).
     Tyra::Texture* reflTexture = nullptr;
     float reflStrength = 0.0F;
+    bool reflDynamic = false;
   };
   struct GameModel {
     std::vector<GameModelPart> parts;  // empty = missing/unparseable model
@@ -534,9 +536,11 @@ class TerrainGame : public Tyra::Game {
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
     std::string texPath;  // texture-cache ref held ("" = untextured)
-    // refl: spherical environment map (nullptr = not reflective)
+    // refl: spherical environment map (nullptr = not reflective).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture).
     Tyra::Texture* reflTexture = nullptr;
     float reflStrength = 0.0F;
+    bool reflDynamic = false;
     std::string reflTexPath;  // texture-cache ref held ("" = none)
   };
   std::vector<GameMaterial> gameMaterials;
@@ -852,9 +856,11 @@ class TerrainGame : public Tyra::Game {
     std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
-    // refl: spherical environment map (nullptr = not reflective)
+    // refl: spherical environment map (nullptr = not reflective).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture).
     Tyra::Texture* reflTexture = nullptr;
     float reflStrength = 0.0F;
+    bool reflDynamic = false;
   };
   struct GameModel {
     std::vector<GameModelPart> parts;  // empty = missing/unparseable model
@@ -906,9 +912,11 @@ class TerrainGame : public Tyra::Game {
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
     std::string texPath;  // texture-cache ref held ("" = untextured)
-    // refl: spherical environment map (nullptr = not reflective)
+    // refl: spherical environment map (nullptr = not reflective).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture).
     Tyra::Texture* reflTexture = nullptr;
     float reflStrength = 0.0F;
+    bool reflDynamic = false;
     std::string reflTexPath;  // texture-cache ref held ("" = none)
   };
   std::vector<GameMaterial> gameMaterials;
@@ -1353,6 +1361,11 @@ bool g_primTextured = false;
 // (world-space) normal of every emitted vertex - the per-frame sphere-map ST
 // computation needs them (see renderScene). Staged per part like g_primKd.
 std::vector<Vec4>* g_envNormals = nullptr;
+
+// Loaded materials/model parts using the "@sky" dynamic env map. While > 0,
+// renderScene renders the sky dome into the engine's env-map target each
+// frame (the GT3 trick - reflections follow the live sky).
+int g_dynamicEnvUsers = 0;
 
 // Every rebuilt vertex buffer gets a process-unique bbox version. The
 // engine's frustum-bbox cache is keyed by (vertex pointer, version); layer
@@ -2450,7 +2463,14 @@ void TerrainGame::loadModelAsset(int i) {
       part.texture = acquireTexture(path);
       gm.texPaths.push_back(path);
     }
-    if (!mat.reflTextureName.empty()) {
+    if (mat.reflTextureName == "@sky") {
+      // Dynamic env map: the engine-owned VRAM target, re-rendered from the
+      // sky dome every frame (renderScene).
+      part.reflTexture = engine->renderer.core.envMap.getTexture();
+      part.reflStrength = mat.reflStrength;
+      part.reflDynamic = true;
+      ++g_dynamicEnvUsers;
+    } else if (!mat.reflTextureName.empty()) {
       const std::string path = dir + mat.reflTextureName;
       part.reflTexture = acquireTexture(path);
       part.reflStrength = mat.reflStrength;
@@ -2473,6 +2493,8 @@ void TerrainGame::freeModelAsset(int i) {
   if (i < 0 || i >= MODEL_COUNT || !modelLoaded[i]) return;
   GameModel& gm = gameModels[i];
   for (const std::string& path : gm.texPaths) releaseTexture(path);
+  for (const GameModelPart& part : gm.parts)
+    if (part.reflDynamic) --g_dynamicEnvUsers;
   gm = GameModel();
   modelLoaded[i] = 0;
 }
@@ -2497,7 +2519,13 @@ void TerrainGame::loadMaterialAsset(int i) {
     gmat.texPath = dir + mat.textureName;
     gmat.texture = acquireTexture(gmat.texPath);
   }
-  if (!mat.reflTextureName.empty()) {
+  if (mat.reflTextureName == "@sky") {
+    // Dynamic env map (see loadModelAsset).
+    gmat.reflTexture = engine->renderer.core.envMap.getTexture();
+    gmat.reflStrength = mat.reflStrength;
+    gmat.reflDynamic = true;
+    ++g_dynamicEnvUsers;
+  } else if (!mat.reflTextureName.empty()) {
     gmat.reflTexPath = dir + mat.reflTextureName;
     gmat.reflTexture = acquireTexture(gmat.reflTexPath);
     gmat.reflStrength = mat.reflStrength;
@@ -2509,6 +2537,7 @@ void TerrainGame::freeMaterialAsset(int i) {
   GameMaterial& gmat = gameMaterials[i];
   if (!gmat.texPath.empty()) releaseTexture(gmat.texPath);
   if (!gmat.reflTexPath.empty()) releaseTexture(gmat.reflTexPath);
+  if (gmat.reflDynamic) --g_dynamicEnvUsers;
   gmat = GameMaterial();
   materialLoaded[i] = 0;
 }
@@ -4602,6 +4631,62 @@ void TerrainGame::renderScene() {
     skyHorizonB = scriptCtx.skyColor.b;
     buildSkyDome();
   }
+  // Reflective materials: camera basis for the sphere-map STs. Matcap UVs
+  // from the camera-space normal - u along the camera's right, v (image
+  // space, 0 = top) against its up. The editor viewport shader and the VU1
+  // CalculateTyraEnvStq macro mirror this formula - keep them in sync.
+  V3 envFwd = {cameraLookAt.x - cameraPosition.x,
+               cameraLookAt.y - cameraPosition.y,
+               cameraLookAt.z - cameraPosition.z};
+  {
+    const float l =
+        sqrtf(envFwd.x * envFwd.x + envFwd.y * envFwd.y + envFwd.z * envFwd.z);
+    if (l > 0.0001F) envFwd.x /= l, envFwd.y /= l, envFwd.z /= l;
+  }
+  V3 envRight = {-envFwd.z, 0.0F, envFwd.x};  // cross(fwd, worldUp)
+  {
+    const float l = sqrtf(envRight.x * envRight.x + envRight.z * envRight.z);
+    if (l > 0.0001F)
+      envRight.x /= l, envRight.z /= l;
+    else
+      envRight = {1.0F, 0.0F, 0.0F};  // looking straight up/down
+  }
+  const V3 envUp = {envRight.y * envFwd.z - envRight.z * envFwd.y,
+                    envRight.z * envFwd.x - envRight.x * envFwd.z,
+                    envRight.x * envFwd.y - envRight.y * envFwd.x};
+
+  // Dynamic env map ("@sky" materials): render the sky dome into the
+  // engine's 128x128 VRAM target from a level wide-FOV view along the
+  // camera forward - the GT3 trick, reflections follow the live sky (script
+  // retints included). Runs before any main-frame 3D so the raster redirect
+  // brackets only the dome submission.
+  if (g_dynamicEnvUsers > 0 && skyDome.bag) {
+    auto& core = engine->renderer.core;
+    skyMat.identity();
+    skyMat.data[12] = cameraPosition.x;
+    skyMat.data[13] = cameraPosition.y;
+    skyMat.data[14] = cameraPosition.z;
+    // Level forward: keeps the sphere map's horizon on its center line.
+    V3 lvl = {envFwd.x, 0.0F, envFwd.z};
+    const float ll = sqrtf(lvl.x * lvl.x + lvl.z * lvl.z);
+    if (ll > 0.0001F)
+      lvl.x /= ll, lvl.z /= ll;
+    else
+      lvl = {1.0F, 0.0F, 0.0F};
+    Vec4 envLook(cameraPosition.x + lvl.x, cameraPosition.y,
+                 cameraPosition.z + lvl.z, 1.0F);
+    core.envMap.begin(Color(scriptCtx.skyColor.r, scriptCtx.skyColor.g,
+                            scriptCtx.skyColor.b, 128.0F));
+    core.renderer3D.pushEnvView(cameraPosition, envLook, 110.0F,
+                                (float)Tyra::RendererCoreEnvMap::size);
+    const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
+    skyDome.infoBag->zTestType = PipelineZTest_AllPass;
+    stapip.core.render(skyDome.bag.get());
+    skyDome.infoBag->zTestType = prevZTest;
+    core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+    core.envMap.end();
+  }
+
   if (skyDome.bag) {
     // Follow the camera: park the dome's centre on the eye so however big the
     // map is, the horizon and zenith always wrap around the player. Only the
@@ -4625,29 +4710,6 @@ void TerrainGame::renderScene() {
   // repaint - two exact-clip passes per frame). OVERLAY mode: the body draws
   // normally in the main pass and the shells are painted ON it afterwards, so
   // it stays in this list only for the shell pass.
-  // Reflective materials: camera basis for the sphere-map STs. Matcap UVs
-  // from the camera-space normal - u along the camera's right, v (image
-  // space, 0 = top) against its up. The editor viewport shader mirrors this
-  // formula (viewport.cpp FS, uReflOn block) - keep the two in sync.
-  V3 envFwd = {cameraLookAt.x - cameraPosition.x,
-               cameraLookAt.y - cameraPosition.y,
-               cameraLookAt.z - cameraPosition.z};
-  {
-    const float l =
-        sqrtf(envFwd.x * envFwd.x + envFwd.y * envFwd.y + envFwd.z * envFwd.z);
-    if (l > 0.0001F) envFwd.x /= l, envFwd.y /= l, envFwd.z /= l;
-  }
-  V3 envRight = {-envFwd.z, 0.0F, envFwd.x};  // cross(fwd, worldUp)
-  {
-    const float l = sqrtf(envRight.x * envRight.x + envRight.z * envRight.z);
-    if (l > 0.0001F)
-      envRight.x /= l, envRight.z /= l;
-    else
-      envRight = {1.0F, 0.0F, 0.0F};  // looking straight up/down
-  }
-  const V3 envUp = {envRight.y * envFwd.z - envRight.z * envFwd.y,
-                    envRight.z * envFwd.x - envRight.x * envFwd.z,
-                    envRight.x * envFwd.y - envRight.y * envFwd.x};
   auto renderEnvPass = [&](GeoPart& part) {
     if (!part.envBag) return;
     if (part.envTexBag->coordinatesAreNormals) {

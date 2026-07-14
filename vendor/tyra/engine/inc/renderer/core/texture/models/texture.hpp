@@ -12,6 +12,7 @@
 
 #include <tamtypes.h>
 #include <vector>
+#include <draw_buffers.h>
 #include <draw_sampling.h>
 #include "./texture_link.hpp"
 #include "./texture_wrap.hpp"
@@ -35,6 +36,14 @@ class Texture {
   std::string name;
   TextureData* core;
   TextureData* clut;
+
+  /**
+   * Modified by TyraX: VRAM-resident texture (the dynamic env map). The
+   * pixels live only in GS memory - rendered there every frame - so
+   * useTexture() binds this texbuffer directly: no PATH3 upload, no
+   * repository allocation, never evicted. nullptr = a normal texture.
+   */
+  texbuffer_t* vramResident = nullptr;
 
   /** Array of texture links with sprites/meshes */
   std::vector<TextureLink> links;

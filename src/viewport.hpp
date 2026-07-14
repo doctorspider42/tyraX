@@ -100,6 +100,7 @@ public:
         std::string texRel;   // staged map_Kd, project-relative ("" = none)
         std::string reflRel;  // staged refl sphere map, project-relative
         float reflStrength = 0.0f;  // staged reflection strength (0 = matte)
+        bool reflSky = false;       // staged "@sky" dynamic mode
         int shape = 1;        // 0 box, 1 sphere, 2 cylinder, 3 cone, 4 model
         std::string modelRel; // .obj shown when shape == 4 (project-relative)
         std::string mtlRel;   // the open .mtl: override library for the model
@@ -253,8 +254,10 @@ private:
     bool flashOn_ = false;
     float flashColor_[3] = {0.75f, 0.75f, 0.62f};
     float flashRange_ = 30.0f, flashAngle_ = 20.0f;
-    // Spherical environment map (refl) preview - matcap on texture unit 1
+    // Spherical environment map (refl) preview - matcap on texture unit 1;
+    // "@sky" dynamic mode approximated by the analytic sky gradient
     int uReflOn_ = -1, uRefl_ = -1, uReflStrength_ = -1;
+    int uReflSkyHorizon_ = -1, uReflSkyTop_ = -1;
 
     // Terrain in chunks of kTerrainChunkCells^2 cells (mesh + grid lines per
     // chunk) so sculpting rebuilds only the chunks under the brush. Grid
@@ -288,6 +291,7 @@ private:
         uint32_t tex = 0;  // GL texture from map_Kd (0 = untextured)
         uint32_t reflTex = 0;      // refl sphere map (0 = not reflective)
         float reflStrength = 0.0f;
+        bool reflSky = false;      // refl "@sky" - live sky gradient
     };
     struct ModelDraw {
         std::vector<ModelPart> parts;  // empty = missing/unparseable model
@@ -322,6 +326,7 @@ private:
         float kd[3] = {1.0f, 1.0f, 1.0f};
         uint32_t reflTex = 0;      // refl sphere map (0 = not reflective)
         float reflStrength = 0.0f;
+        bool reflSky = false;      // refl "@sky" - live sky gradient
     };
     std::map<std::string, MaterialDraw> materialCache_;  // by relative path
     const MaterialDraw* materialDraw(const std::string& relPath);
@@ -383,6 +388,7 @@ private:
         std::string texRel;    // project-relative map_Kd ("" = none)
         std::string reflRel;   // project-relative refl sphere map ("" = none)
         float reflStrength = 0.0f;
+        bool reflSky = false;  // refl "@sky" - live sky gradient
         std::vector<float> tris;  // pos3 + uv2, flat triangle list
     };
     struct MatPrevModel {

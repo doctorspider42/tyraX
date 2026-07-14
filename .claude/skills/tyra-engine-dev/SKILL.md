@@ -76,8 +76,16 @@ reflective-material env pass (`PipelineInfoBag::additiveBlendFix` — non-zero
 makes `StaPipCore::render` drain PATH1 via `sync.align3D()` and switch the
 global GS `ALPHA` register to `Cs*FIX/128 + Cd` through
 `RendererCoreGS::setAlpha`, restoring alpha-over after the bag's own drain;
-ALPHA is global GS state, hence the FINISH barriers — keep additive bags to a
-handful per frame, see `docs/reflective-materials.md`), `physics/CollisionMesh` (XZ-grid
+superseded by the in-band per-mesh ALPHA qword: `VU1_ALPHA_ADDR` +
+`StoreTyraGifTags*Alpha` — every StaPip mesh's tag block carries its blend
+equation, no barriers; dynpip keeps the original 7/5-qword macros), the
+StaPip `TCE` env program family (matcap ST from normals in the ST slot +
+`StaPipTextureBag::coordinatesAreNormals` + the camera basis at
+`VU1_ENV_BASIS_ADDR`), `RendererCoreEnvMap` (128×128 VRAM render target for
+GT3-style dynamic reflections: FRAME/SCISSOR/XYOFFSET redirect bracket with
+masked z writes + `RendererCore3D::pushEnvView/popEnvView`; exposed as a
+VRAM-resident `Texture::vramResident` that `useTexture` binds without a
+PATH3 upload — see `docs/reflective-materials.md`), `physics/CollisionMesh` (XZ-grid
 triangle collider) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
 TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot),
 `renderer/models/unique_id.hpp` (`generateUniqueId()`) replacing upstream's
@@ -137,6 +145,11 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
   wrong, `docker exec <proj>-compiler-1 cat /tyra/engine/obj/.../<prog>.o.vcl`
   shows exactly what vclpp produced — check the expansion before suspecting
   your math.
+- **A GIF A+D giftag whose NLOOP undercounts its register writes stalls the
+  GIF forever** — the stray qword parses as a new giftag with a garbage
+  NLOOP. Symptom: the game hangs on the loading screen (spinning in
+  `draw_wait_finish()` / a FINISH handshake that never arrives), no assert,
+  clean log. Count the qwords after every PACK_GIFTAG edit.
 - The engine bbox cache is keyed by bag pointer — geometry that changes at
   runtime must bump `bboxVersion` on its `StaPipBag`, or culling uses stale
   boxes.

@@ -2335,7 +2335,7 @@ std::string App::importModelAsset() {
     std::map<std::string, std::string> textureNames;
     for (const objparser::Submesh& s : parsed.submeshes)
         for (const std::string& tex : {s.texture, s.refl})
-            if (!tex.empty())
+            if (!tex.empty() && tex != "@sky")  // @sky = dynamic env map, no file
                 textureNames.emplace(
                     tex,
                     sanitizeAssetName(std::filesystem::path(tex).filename().string()));
@@ -2467,7 +2467,7 @@ std::string App::importMaterialAsset() {
     std::map<std::string, std::string> textureNames;
     for (const objparser::MtlMaterial& m : parsed)
         for (const std::string& tex : {m.texture, m.refl})
-            if (!tex.empty())
+            if (!tex.empty() && tex != "@sky")  // @sky = dynamic env map, no file
                 textureNames.emplace(
                     tex,
                     sanitizeAssetName(std::filesystem::path(tex).filename().string()));
@@ -10360,12 +10360,27 @@ void App::drawMaterialEditorWindow() {
     {
         const char* noneLabel = "<none - matte>";
         ImGui::SetNextItemWidth(scaled(240.0f));
+        const char* dynLabel = "<dynamic - live sky>";
         if (ImGui::BeginCombo("Sphere map",
-                              e.refl.empty() ? noneLabel : e.refl.c_str())) {
+                              e.refl.empty()  ? noneLabel
+                              : e.refl == "@sky" ? dynLabel
+                                                 : e.refl.c_str())) {
             if (ImGui::Selectable(noneLabel, e.refl.empty()) && !e.refl.empty()) {
                 e.refl.clear();
                 committed = true;
             }
+            // GT3-style dynamic env map: the game re-renders the scene's sky
+            // dome into a small VRAM texture every frame - reflections track
+            // the live sky (script retints included). Stored as "@sky".
+            if (ImGui::Selectable(dynLabel, e.refl == "@sky") &&
+                e.refl != "@sky") {
+                e.refl = "@sky";
+                committed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The game renders the scene's sky into the\n"
+                                  "sphere map every frame - reflections follow\n"
+                                  "the live sky, including script retints.");
             std::error_code ec;
             for (const auto& f :
                  std::filesystem::recursive_directory_iterator(mtlDirAbs, ec)) {
@@ -10408,7 +10423,8 @@ void App::drawMaterialEditorWindow() {
                               "the PS2-era chrome/car-paint trick.");
         if (!e.refl.empty()) {
             std::error_code ec;
-            if (!std::filesystem::exists(mtlDirAbs / e.refl, ec))
+            if (e.refl != "@sky" &&
+                !std::filesystem::exists(mtlDirAbs / e.refl, ec))
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
                                    "Sphere map missing - reflection is skipped.");
             ImGui::SetNextItemWidth(scaled(180.0f));
@@ -10475,8 +10491,9 @@ void App::drawMaterialEditorWindow() {
                 ? ""
                 : (std::filesystem::path(matEdPath_).parent_path() / sel.texture)
                       .generic_string();
+        const bool reflSky = sel.refl == "@sky";
         const std::string reflRel =
-            sel.refl.empty()
+            (sel.refl.empty() || reflSky)
                 ? ""
                 : (std::filesystem::path(matEdPath_).parent_path() / sel.refl)
                       .generic_string();
@@ -10736,6 +10753,7 @@ void App::drawMaterialEditorWindow() {
         desc.texRel = texRel;
         desc.reflRel = reflRel;
         desc.reflStrength = sel.refl.empty() ? 0.0f : sel.reflStrength;
+        desc.reflSky = reflSky;
         desc.shape = matEdShape_;
         desc.modelRel = matEdModel_;
         desc.mtlRel = matEdPath_;

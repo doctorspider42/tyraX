@@ -30,6 +30,8 @@ void RendererCore::init(VideoMode videoMode, DisplayMode displayMode,
   // Post fx VRAM sits right above the frame/z buffers; allocate it before
   // any texture buffer so texture free (FIFO) never reclaims it.
   postFx.init(&settings, &gs);
+  // Same rule for the dynamic env map's render target (TyraX fork).
+  envMap.init(&settings, &gs, &sync, &path1);
   texture.init(&gs, &path3);
   renderer3D.init(&settings, &path1);
   renderer2D.init(&settings, &texture.clut);
@@ -56,6 +58,7 @@ void RendererCore::setDisplayOutput(const DisplayMode& mode,
     texture.evictAll();
     gs.reinit();
     postFx.init(&settings, &gs);
+    envMap.init(&settings, &gs, &sync, &path1);
   } else {
     // Same buffers - only the display window shape changes (1080i widens;
     // the SDTV modes are stretched by the TV, their window stays as-is).

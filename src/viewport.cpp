@@ -186,9 +186,11 @@ uniform vec3 uFlashCol;
 uniform float uFlashInvR2;       // 1/range^2
 uniform float uFlashCut2;        // cos^2(half-angle)
 uniform float uFlashSoft;        // softness/(range^2*(1-cos^2))
-uniform int uReflOn;             // spherical environment map (refl) pass
+uniform int uReflOn;             // refl pass: 0 off, 1 sphere map, 2 live sky
 uniform sampler2D uRefl;         // sphere map, texture unit 1
 uniform float uReflStrength;     // additive gain, 1.0 = full chrome
+uniform vec3 uReflSkyHorizon;    // "@sky" dynamic env: scene sky colors
+uniform vec3 uReflSkyTop;
 out vec4 FragColor;
 void main() {
     vec4 texel = uUseTex != 0 ? texture(uTex, vUV) : vec4(1.0);
@@ -241,7 +243,13 @@ void main() {
         vec3 r = normalize(cross(uFogFwd, vec3(0.0, 1.0, 0.0)));
         vec3 u = cross(r, uFogFwd);
         vec2 st = vec2(0.5 + 0.5 * dot(n, r), 0.5 - 0.5 * dot(n, u));
-        color += uReflStrength * texture(uRefl, st).rgb;
+        // "@sky" dynamic mode: approximate the PS2's per-frame sky-dome
+        // render with the analytic horizon/zenith gradient (st.y 0 = up).
+        vec3 env = uReflOn == 2
+            ? mix(uReflSkyHorizon, uReflSkyTop,
+                  clamp(1.0 - 2.0 * st.y, 0.0, 1.0))
+            : texture(uRefl, st).rgb;
+        color += uReflStrength * env;
     }
     // Decals carry the texture's alpha (cutout above + blend here); everything
     // else outputs opaque.
@@ -766,6 +774,8 @@ bool Viewport::init() {
     uReflOn_ = glGetUniformLocation(program_, "uReflOn");
     uRefl_ = glGetUniformLocation(program_, "uRefl");
     uReflStrength_ = glGetUniformLocation(program_, "uReflStrength");
+    uReflSkyHorizon_ = glGetUniformLocation(program_, "uReflSkyHorizon");
+    uReflSkyTop_ = glGetUniformLocation(program_, "uReflSkyTop");
     glUseProgram(program_);
     glUniform1i(uRefl_, 1);  // sphere map lives on texture unit 1
     glUseProgram(0);
@@ -1500,7 +1510,10 @@ const Viewport::MatPrevModel* Viewport::matPrevModelDraw(
         if (!sub.texture.empty())
             part.texRel = (texDir / sub.texture).generic_string();
         if (!sub.refl.empty()) {
-            part.reflRel = (texDir / sub.refl).generic_string();
+            if (sub.refl == "@sky")
+                part.reflSky = true;
+            else
+                part.reflRel = (texDir / sub.refl).generic_string();
             part.reflStrength = sub.reflStrength;
         }
         std::vector<float> interleaved;
@@ -1571,9 +1584,12 @@ const Viewport::MaterialDraw* Viewport::materialDraw(const std::string& relPath)
                                   m.texture)
                                      .generic_string());
         if (!m.refl.empty()) {
-            draw.reflTex = glTexture(
-                (std::filesystem::path(relPath).parent_path() / m.refl)
-                    .generic_string());
+            if (m.refl == "@sky")
+                draw.reflSky = true;
+            else
+                draw.reflTex = glTexture(
+                    (std::filesystem::path(relPath).parent_path() / m.refl)
+                        .generic_string());
             draw.reflStrength = m.reflStrength;
         }
     }
@@ -1618,7 +1634,11 @@ const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
             if (!sub.texture.empty())
                 part.tex = glTexture((modelDir / sub.texture).generic_string());
             if (!sub.refl.empty()) {
-                part.reflTex = glTexture((modelDir / sub.refl).generic_string());
+                if (sub.refl == "@sky")
+                    part.reflSky = true;
+                else
+                    part.reflTex =
+                        glTexture((modelDir / sub.refl).generic_string());
                 part.reflStrength = sub.reflStrength;
             }
             draw.parts.push_back(part);
@@ -1906,6 +1926,10 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniform3f(uFogEye_, eye.x, eye.y, eye.z);
         glUniform3f(uFogFwd_, fwd.x, fwd.y, fwd.z);
 
+        // "@sky" reflective materials sample the live sky gradient
+        glUniform3f(uReflSkyHorizon_, sky_[0], sky_[1], sky_[2]);
+        glUniform3f(uReflSkyTop_, skyTop_[0], skyTop_[1], skyTop_[2]);
+
         // Camera flashlight preview (same constants the engine derives)
         glUniform1i(uFlashOn_, flashOn_ ? 1 : 0);
         glUniform3f(uFlashCol_, flashColor_[0], flashColor_[1], flashColor_[2]);
@@ -1947,15 +1971,15 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     auto draw = [&](const Mesh& mesh, GLenum mode, const Mat4& mvp, float r, float g,
                     float b, uint32_t texture = 0, const Mat4* model = nullptr,
                     bool alpha = false, uint32_t reflTex = 0,
-                    float reflStrength = 0.0f) {
+                    float reflStrength = 0.0f, bool reflSky = false) {
         glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
         glUniformMatrix4fv(uModel_, 1, GL_FALSE, model ? model->m : identityM.m);
         glUniform1i(uLit_, model ? 1 : 0);  // world matrix given = lit geometry
         glUniform3f(uTint_, r, g, b);
         glUniform1i(uUseTex_, texture ? 1 : 0);
         glUniform1i(uAlpha_, alpha ? 1 : 0);
-        glUniform1i(uReflOn_, reflTex ? 1 : 0);
-        if (reflTex) {
+        glUniform1i(uReflOn_, reflSky ? 2 : (reflTex ? 1 : 0));
+        if (reflTex || reflSky) {
             glUniform1f(uReflStrength_, reflStrength);
             glActiveTexture(GL_TEXTURE1);
             glBindTexture(GL_TEXTURE_2D, reflTex);
@@ -2057,7 +2081,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                     draw(part.mesh, GL_TRIANGLES, mvp, o.color[0] * tintScale,
                          o.color[1] * tintScale, o.color[2] * tintScale,
                          asLines ? 0 : part.tex, lit ? &model : nullptr, false,
-                         asLines ? 0 : part.reflTex, part.reflStrength);
+                         asLines ? 0 : part.reflTex, part.reflStrength,
+                         asLines ? false : part.reflSky);
                 continue;
             }
             // primitives: the assigned material's first entry = Kd tint + map_Kd
@@ -2074,7 +2099,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                  o.color[1] * kg * tintScale, o.color[2] * kb * tintScale,
                  tex, lit ? &model : nullptr, decalAlpha,
                  (asLines || !mat) ? 0 : mat->reflTex,
-                 mat ? mat->reflStrength : 0.0f);
+                 mat ? mat->reflStrength : 0.0f,
+                 (asLines || !mat) ? false : mat->reflSky);
         }
         if (!asLines) glDisable(GL_POLYGON_OFFSET_FILL);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -2262,15 +2288,15 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
     const Mat4 id = identity();
     auto draw = [&](const Mesh& mesh, const Mat4& mvp, float r, float g, float b,
                     uint32_t texture, uint32_t reflTex = 0,
-                    float reflStrength = 0.0f) {
+                    float reflStrength = 0.0f, bool reflSky = false) {
         glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
         glUniformMatrix4fv(uModel_, 1, GL_FALSE, id.m);
         glUniform1i(uLit_, 0);
         glUniform3f(uTint_, r, g, b);
         glUniform1i(uUseTex_, texture ? 1 : 0);
         glUniform1i(uAlpha_, 0);
-        glUniform1i(uReflOn_, reflTex ? 1 : 0);
-        if (reflTex) {
+        glUniform1i(uReflOn_, reflSky ? 2 : (reflTex ? 1 : 0));
+        if (reflTex || reflSky) {
             glUniform1f(uReflStrength_, reflStrength);
             glActiveTexture(GL_TEXTURE1);
             glBindTexture(GL_TEXTURE_2D, reflTex);
@@ -2281,6 +2307,9 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
         glDrawArrays(GL_TRIANGLES, 0, mesh.vertexCount);
     };
     glUniform1i(uFogOn_, 0);  // no fog in the preview scene
+    // "@sky" reflective materials sample the project's sky gradient
+    glUniform3f(uReflSkyHorizon_, sky_[0], sky_[1], sky_[2]);
+    glUniform3f(uReflSkyTop_, skyTop_[0], skyTop_[1], skyTop_[2]);
 
     // backdrop: NDC-space gradient quad, no depth
     glDisable(GL_DEPTH_TEST);
@@ -2337,7 +2366,8 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
             const std::string& refl = staged ? d.reflRel : part.reflRel;
             draw(part.mesh, viewProj, kd[0], kd[1], kd[2], glTexture(tex),
                  glTexture(refl),
-                 staged ? d.reflStrength : part.reflStrength);
+                 staged ? d.reflStrength : part.reflStrength,
+                 staged ? d.reflSky : part.reflSky);
         }
     } else {
         const Mesh* mesh = shape == 0   ? &box_
@@ -2345,7 +2375,7 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
                            : shape == 3 ? &cone_
                                         : &sphere_;
         draw(*mesh, viewProj, d.kd[0], d.kd[1], d.kd[2], glTexture(d.texRel),
-             glTexture(d.reflRel), d.reflStrength);
+             glTexture(d.reflRel), d.reflStrength, d.reflSky);
     }
 
     glBindVertexArray(0);
