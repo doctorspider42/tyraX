@@ -9,6 +9,23 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (97) **Dab rotation (manual + random) and the Live dab ghost.** Follow-up
+  on (96). Brush-image dabs gained an **Angle** slider (0-360 deg; the
+  stamp offset is rotated back into image space, loop radius padded by
+  sqrt(2) so corners don't clip) and a **Random** toggle re-rolling the
+  rotation per dab from a member LCG (Angle disabled while on) - bricks can
+  be laid deliberately, splats scattered organically. New **Live dab**
+  toggle (default on): every hovered frame the paint pane composites ONE
+  uncommitted stamp under the cursor - the active layer is backed up,
+  stamped, composited, restored, so undo snapshots/stroke starts/saves
+  (which all recomposite first) only ever see clean layers; the ghost pass
+  never re-rolls the random angle (a spinning preview reads as noise) and
+  the composite is wiped when the cursor leaves. **Verified** (Layer 2, GUI
+  harness): a rectangular brick.png brush ghost-previewed on the crate
+  while hovering with the texture PNG's hash untouched; a click stamped the
+  brick rotated by the dialed 67 deg; with Random + 300% spacing a drag
+  left bricks in clearly different orientations; the Angle slider greys out
+  while Random is checked. Editor builds clean.
 - (96) **GIMP-style brush dabs + Spacing.** User feedback on (95): the Brush
   mode painted a texture-space *tiled pattern* ("revealing" an image through
   holes); now each dab **stamps the whole brush image** scaled to the brush

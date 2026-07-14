@@ -61,6 +61,14 @@ quantizes it like any other PNG).
   continuous line; 100% and up drops clearly separated stamps — drag fast
   or slow, the spacing stays exact because the leftover distance carries
   across mouse samples.
+- **Angle / Random** (brush images) — *Angle* rotates every dab by a fixed
+  amount, so bricks, planks or arrows land in exactly the orientation you
+  want; *Random* re-rolls the rotation per dab instead — organic scatter
+  for leaves, splats, rubble.
+- **Live dab** — with the toggle on (next to *Paint*), the stamp is
+  previewed **under the cursor before you click**: one uncommitted dab is
+  drawn on the preview each frame (nothing touches the layers or the file
+  until you actually press the button). Line up a brick, see it land.
 - **Undo** — the Material Editor keeps its own undo stack of paint strokes,
   layer add/remove AND committed property edits (color, brightness,
   texture...). Press **Ctrl+Z while the window is focused** (or the *Undo*

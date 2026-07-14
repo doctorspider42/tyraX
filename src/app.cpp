@@ -9844,9 +9844,24 @@ void App::matEdStamp(float u, float v) {
     v -= std::floor(v);
     const float cx = u * w, cy = v * h;
     const float size = matEdBrushSize_ < 1.0f ? 1.0f : matEdBrushSize_;
-    const int r = (int)std::ceil(size);
     const bool brush = matEdBrushMode_ == 1 && matEdPatternW_ > 0;
     const bool eraser = matEdBrushMode_ == 2;
+    // Dab rotation (brush images only): the manual Angle, or a fresh random
+    // one per dab. The ghost pass never rolls - a preview that spins every
+    // frame reads as noise (and would advance the sequence).
+    float rotC = 1.0f, rotS = 0.0f;
+    if (brush) {
+        float deg = matEdBrushAngle_;
+        if (matEdBrushRandomRot_ && !matEdGhostPass_) {
+            matEdRng_ = matEdRng_ * 1664525u + 1013904223u;
+            deg = (float)(matEdRng_ >> 8) * (360.0f / 16777216.0f);
+        }
+        const float rad = deg * 3.14159265f / 180.0f;
+        rotC = std::cos(rad);
+        rotS = std::sin(rad);
+    }
+    // a rotated square dab pokes past the inscribed circle - pad the loop
+    const int r = (int)std::ceil(size * (brush ? 1.4143f : 1.0f));
     const int icx = (int)cx, icy = (int)cy;
     for (int dy = -r; dy <= r; ++dy)
         for (int dx = -r; dx <= r; ++dx) {
@@ -9855,9 +9870,12 @@ void App::matEdStamp(float u, float v) {
             float a;
             float src[3];
             if (brush) {
-                // the whole brush image spans the stamp: offset -> image UV
-                const float fx = ox / size * 0.5f + 0.5f;
-                const float fy = oy / size * 0.5f + 0.5f;
+                // the whole brush image spans the stamp: rotate the offset
+                // back into image space, then map to image UV
+                const float rx = ox * rotC + oy * rotS;
+                const float ry = -ox * rotS + oy * rotC;
+                const float fx = rx / size * 0.5f + 0.5f;
+                const float fy = ry / size * 0.5f + 0.5f;
                 if (fx < 0.0f || fx >= 1.0f || fy < 0.0f || fy >= 1.0f) continue;
                 const int qx = (int)(fx * matEdPatternW_);
                 const int qy = (int)(fy * matEdPatternH_);
@@ -10349,6 +10367,14 @@ void App::drawMaterialEditorWindow() {
                               "entry's texture (through the UVs). The PNG is\n"
                               "saved on every stroke - what you paint is what\n"
                               "the PS2 loads.");
+        if (matEdPaint_) {
+            ImGui::SameLine();
+            ImGui::Checkbox("Live dab", &matEdGhostOn_);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Preview the stamp under the cursor before\n"
+                                  "clicking - one uncommitted dab drawn on the\n"
+                                  "preview each frame.");
+        }
         bool canPaint = false;
         if (matEdPaint_) {
             if (texRel.empty()) {
@@ -10444,6 +10470,21 @@ void App::drawMaterialEditorWindow() {
                     "(GIMP-style). Low = one continuous line, 100%%\n"
                     "and up = clearly separated stamps.");
             if (matEdBrushMode_ == 1) {
+                // dab orientation: dial bricks in by hand, or scatter organic
+                // splats with a fresh random rotation per dab
+                ImGui::SetNextItemWidth(scaled(110.0f));
+                ImGui::BeginDisabled(matEdBrushRandomRot_);
+                ImGui::SliderFloat("Angle", &matEdBrushAngle_, 0.0f, 360.0f,
+                                   "%.0f deg");
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Rotates every dab - orient bricks,\n"
+                                      "planks, arrows...");
+                ImGui::SameLine();
+                ImGui::Checkbox("Random", &matEdBrushRandomRot_);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Fresh random rotation per dab - organic\n"
+                                      "scatter (leaves, splats, rubble).");
                 // (re)decode the brush image when the pick changes
                 if (matEdBrush_ != matEdPatternLoaded_) {
                     matEdPatternLoaded_ = matEdBrush_;
@@ -10625,6 +10666,35 @@ void App::drawMaterialEditorWindow() {
                 if (matEdStroke_ && !ImGui::IsMouseDown(0)) {
                     matEdStroke_ = false;
                     matEdSavePaintTarget();  // the painted PNG ships as-is
+                }
+                // Live dab ghost: composite one uncommitted stamp under the
+                // cursor. The active layer is backed up and restored right
+                // away, so everything else (undo snapshots, stroke starts,
+                // saves - which all recomposite first) sees clean layers.
+                bool ghostDrawn = false;
+                if (matEdGhostOn_ && hovered && !matEdStroke_ &&
+                    !ImGui::IsMouseDown(0) && matEdActiveLayer_ >= 0 &&
+                    matEdActiveLayer_ < (int)matEdLayers_.size()) {
+                    const float u = (io.MousePos.x - imgPos.x) / (float)pw;
+                    const float v = (io.MousePos.y - imgPos.y) / (float)ph;
+                    float hu = 0.0f, hv = 0.0f;
+                    bool paintable = false;
+                    if (viewport_.materialPreviewPick(u, v, hu, hv, paintable) &&
+                        paintable) {
+                        MatEdLayer& L = matEdLayers_[matEdActiveLayer_];
+                        std::vector<unsigned char> backup = L.pixels;
+                        matEdGhostPass_ = true;
+                        matEdStamp(hu, hv);
+                        matEdGhostPass_ = false;
+                        matEdComposite();
+                        L.pixels = std::move(backup);
+                        matEdGhostShown_ = true;
+                        ghostDrawn = true;
+                    }
+                }
+                if (matEdGhostShown_ && !ghostDrawn) {
+                    matEdComposite();  // wipe the ghost off the composite
+                    matEdGhostShown_ = false;
                 }
                 if (hovered) {
                     // approximate brush footprint (cosmetic cursor)

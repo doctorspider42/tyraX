@@ -567,6 +567,15 @@ private:
     // Stamp spacing, % of the brush diameter between stamps along a stroke
     // (GIMP semantics): low = a continuous line, >=100 = separate stamps.
     float matEdBrushSpacing_ = 25.0f;
+    float matEdBrushAngle_ = 0.0f;     // dab rotation, degrees (brush mode)
+    bool matEdBrushRandomRot_ = false; // re-roll the rotation per dab
+    unsigned matEdRng_ = 22695477u;    // per-dab random rotation state
+    // Live dab preview: each hovered frame composites one UNCOMMITTED dab
+    // under the cursor (the active layer is backed up and restored right
+    // after), so you see where and how the stamp lands before clicking.
+    bool matEdGhostOn_ = true;
+    bool matEdGhostShown_ = false;  // composite currently holds a ghost dab
+    bool matEdGhostPass_ = false;   // stamping the ghost: fixed angle, no roll
     std::string matEdPaintTexRel_;     // project-relative path of the loaded target
     // Composite of the layer stack = the pixels the PNG on disk holds (what
     // the PS2 loads). Layers are editor-side: painted strokes land on the
