@@ -253,9 +253,20 @@ private:
     // Material Editor (Tools > Material Editor): authors the .mtl files the
     // whole pipeline already consumes (newmtl/Kd/map_Kd) with a live preview.
     void drawMaterialEditorWindow();
-    void openMaterialEditor(const std::string& relPath);  // load + show
+    // load + show; modelHint (a res/models .obj) switches the preview to that
+    // model - passed by the Edit... button of Model objects
+    void openMaterialEditor(const std::string& relPath,
+                            const std::string& modelHint = "");
     bool loadMaterialFile(const std::string& relPath);    // disk -> matEd* staging
     void saveMaterialFile();  // matEd* staging -> disk + cache invalidation
+    // Copies the open .mtl (and every texture it references, so the copy is
+    // paint-safe) under a fresh name and opens the duplicate.
+    void duplicateMaterialAsset();
+    // Texture painting on the preview mesh (see drawMaterialEditorWindow).
+    bool matEdLoadPaintTarget(const std::string& texRel);  // PNG -> CPU pixels
+    void matEdSavePaintTarget();  // CPU pixels -> the PNG on disk (the "bake")
+    void matEdStamp(float u, float v);      // one brush splat at a surface UV
+    void matEdPaintTo(float u, float v);    // stamp + gap fill from the last UV
     void handleFileDrop(int count, const char** paths);
     void saveProject();
 
@@ -530,12 +541,102 @@ private:
     };
     std::vector<MatEdEntry> matEdMats_;
     int matEdSel_ = 0;         // selected entry within the file
-    int matEdShape_ = 1;       // preview: 0 box, 1 sphere, 2 cylinder, 3 cone
+    int matEdShape_ = 1;       // preview: 0 box, 1 sphere, 2 cylinder, 3 cone,
+                               // 4 = the .obj in matEdModel_
+    std::string matEdModel_;   // res/models .obj shown when matEdShape_ == 4
     bool matEdSpin_ = true;    // turntable
     float matEdAngle_ = 40.0f;
+    float matEdPitch_ = 30.0f;  // camera elevation (drag up/down on preview)
+    float matEdZoom_ = 1.0f;    // mouse-wheel dolly on the preview
     bool openNewMaterialPopup_ = false;
     char matEdNewName_[64] = "my-material";
     std::string matEdNewError_;
+
+    // Texture painting (Material Editor preview). Strokes splat into a CPU
+    // RGBA copy of the selected entry's texture, live-uploaded into the
+    // shared GL texture each frame; releasing the mouse writes the PNG back
+    // to disk - painting IS the bake, the flat texture is what ships (texbake
+    // still quantizes at build like any other PNG). Asset edits, so no
+    // project undo - a small per-stroke snapshot stack covers mistakes.
+    bool matEdPaint_ = false;          // paint mode toggle
+    int matEdBrushMode_ = 0;           // 0 = color, 1 = brush image, 2 = eraser
+    float matEdBrushColor_[3] = {0.8f, 0.2f, 0.15f};
+    float matEdBrushSize_ = 24.0f;     // radius in texture pixels
+    float matEdBrushOpacity_ = 1.0f;
+    // Random per-dab opacity variation, 0-100%: each dab's opacity is
+    // reduced by up to this fraction (organic, hand-worn strokes).
+    float matEdBrushOpacityVary_ = 0.0f;
+    std::string matEdBrush_;           // active brush: res/brushes/<x>.png
+    // Stamp spacing, % of the brush diameter between stamps along a stroke
+    // (GIMP semantics): low = a continuous line, >=100 = separate stamps.
+    float matEdBrushSpacing_ = 25.0f;
+    float matEdBrushAngle_ = 0.0f;     // dab rotation, degrees (brush mode)
+    bool matEdBrushRandomRot_ = false; // re-roll the rotation per dab
+    unsigned matEdRng_ = 22695477u;    // per-dab random rotation state
+    // Live dab preview: each hovered frame composites one UNCOMMITTED dab
+    // under the cursor (the active layer is backed up and restored right
+    // after), so you see where and how the stamp lands before clicking.
+    bool matEdGhostOn_ = true;
+    bool matEdGhostShown_ = false;  // composite currently holds a ghost dab
+    bool matEdGhostPass_ = false;   // stamping the ghost: fixed angle, no roll
+    std::string matEdPaintTexRel_;     // project-relative path of the loaded target
+    // Composite of the layer stack = the pixels the PNG on disk holds (what
+    // the PS2 loads). Layers are editor-side: painted strokes land on the
+    // ACTIVE layer, the composite is rebuilt after every change and the
+    // stack persists in a `<texture>.layers/` sidecar next to the PNG
+    // (skipped by texbake, so it never ships). One Background layer =
+    // no sidecar - untouched textures stay plain files.
+    std::vector<unsigned char> matEdPaintPixels_;  // RGBA composite, W*H*4
+    int matEdPaintW_ = 0, matEdPaintH_ = 0;
+    struct MatEdLayer {
+        std::string name = "Layer";
+        int blend = 0;         // 0 normal, 1 multiply, 2 add, 3 overlay
+        float opacity = 1.0f;
+        bool visible = true;
+        std::vector<unsigned char> pixels;  // RGBA, W*H*4 (straight alpha)
+    };
+    std::vector<MatEdLayer> matEdLayers_;  // bottom-up; [0] = Background
+    int matEdActiveLayer_ = 0;
+    // layers -> matEdPaintPixels_ + live GL upload of the shared texture
+    void matEdComposite();
+    // sidecar write: `<tex>.layers/layers.json` + layer PNGs; a single
+    // Background layer removes the sidecar instead (keep projects clean)
+    void matEdSaveLayers();
+    std::filesystem::path matEdLayersDirAbs() const;
+    bool matEdStroke_ = false;         // LMB stroke in progress
+    float matEdLastUV_[2] = {0, 0};    // previous sample point on the surface
+    bool matEdHaveLastUV_ = false;
+    float matEdStampResidual_ = 0.0f;  // px travelled since the last stamp
+    // The Material Editor's own undo (Ctrl+Z while the window is focused, or
+    // the Undo button): one stack of paint strokes, layer add/remove and
+    // committed property edits, in order. Separate from the project history -
+    // materials are assets, their edits go straight to disk.
+    struct MatEdUndoStep {
+        enum class Kind { Paint, Props, LayerAdd, LayerRemove };
+        Kind kind = Kind::Paint;
+        std::string texRel;  // paint target the step belongs to (paint/layer)
+        int layer = 0;       // Paint: painted layer; LayerAdd/Remove: index
+        std::vector<unsigned char> pixels;  // Paint: layer texels before it
+        MatEdLayer layerData;               // LayerRemove: the removed layer
+        std::vector<MatEdEntry> mats;       // Props: entries before the edit
+        int sel = 0;
+    };
+    std::vector<MatEdUndoStep> matEdUndo_;
+    std::vector<MatEdEntry> matEdPrevMats_;  // entries as of the last save/undo push
+    bool matEdFocused_ = false;  // window focus last frame (routes Ctrl+Z)
+    // removed: the layer being deleted (LayerRemove steps only)
+    void matEdPushUndo(MatEdUndoStep::Kind kind, int layer = 0,
+                       const MatEdLayer* removed = nullptr);
+    void matEdUndoLast();
+    std::vector<unsigned char> matEdPatternPixels_;  // decoded pattern cache
+    int matEdPatternW_ = 0, matEdPatternH_ = 0;
+    std::string matEdPatternLoaded_;   // path matEdPatternPixels_ came from
+    // "New texture" modal (paintable blank PNG next to the .mtl)
+    bool openNewTexturePopup_ = false;
+    char matEdNewTexName_[64] = "";
+    int matEdNewTexSize_ = 2;          // index: 64/128/256/512
+    float matEdNewTexColor_[3] = {1.0f, 1.0f, 1.0f};
+    std::string matEdNewTexError_;
     struct HudTexture {
         unsigned tex = 0;
         int w = 0, h = 0;
