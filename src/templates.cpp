@@ -2013,6 +2013,16 @@ void TerrainGame::loop() {
   }
 
   scriptCtx.playerPosition = cameraPosition;
+  {
+    // View direction for the scripts (Raycast flow node)
+    Vec4 look = cameraLookAt - cameraPosition;
+    const float lookLen =
+        sqrtf(look.x * look.x + look.y * look.y + look.z * look.z);
+    scriptCtx.playerLook = lookLen > 0.0001F
+                               ? Vec4(look.x / lookLen, look.y / lookLen,
+                                      look.z / lookLen)
+                               : Vec4(0.0F, 0.0F, 1.0F);
+  }
   if (menuOwnsPad) { scriptCtx.usedObject = -1; useTargetIndex = -1; }
   // Menus pause scripts - except the frame a menu entry fires a flow event,
   // which must reach the On Menu Event triggers.
@@ -2089,6 +2099,11 @@ void TerrainGame::loop() {
     engine->renderer.core.postFx.setGrain(scriptCtx.grain);
     scriptCtx.grain = -1;
   }
+  if (scriptCtx.dof >= 0) {
+    engine->renderer.core.postFx.setDepthOfField(
+        scriptCtx.dofFocus, scriptCtx.dofRange, scriptCtx.dof);
+    scriptCtx.dof = -1;
+  }
   if (scriptCtx.particles >= 0) {
     g_particlesOn = scriptCtx.particles != 0;
     scriptCtx.particles = -1;
@@ -2146,6 +2161,7 @@ void TerrainGame::loop() {
     for (int i = 0; i < (int)hudSprites.size(); ++i) {
       if (i == HUD_BLOOM_LAYER)
         engine->renderer.core.applyPostFx(
+            Tyra::RendererCorePostFx::PassDof |
             Tyra::RendererCorePostFx::PassBloom |
             Tyra::RendererCorePostFx::PassGrading);
       if (i == HUD_GRAIN_LAYER)
@@ -2334,6 +2350,7 @@ void TerrainGame::bootFirstScene() {
   scriptCtx.objectCount = (int)runtimeObjects.size();
   scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
   scriptCtx.playerPosition = cameraPosition;
+  scriptCtx.playerLook = Vec4(0.0F, 0.0F, 1.0F);  // real look set per frame
   for (Script* script : getScripts()) script->init(scriptCtx);
 }
 
@@ -5313,6 +5330,16 @@ void TerrainGame::loop() {
   }
 
   scriptCtx.playerPosition = cameraPosition;
+  {
+    // View direction for the scripts (Raycast flow node)
+    Vec4 look = cameraLookAt - cameraPosition;
+    const float lookLen =
+        sqrtf(look.x * look.x + look.y * look.y + look.z * look.z);
+    scriptCtx.playerLook = lookLen > 0.0001F
+                               ? Vec4(look.x / lookLen, look.y / lookLen,
+                                      look.z / lookLen)
+                               : Vec4(0.0F, 0.0F, 1.0F);
+  }
   if (menuOwnsPad) { scriptCtx.usedObject = -1; useTargetIndex = -1; }
   // Menus pause scripts - except the frame a menu entry fires a flow event,
   // which must reach the On Menu Event triggers.
@@ -5416,6 +5443,11 @@ void TerrainGame::loop() {
     engine->renderer.core.postFx.setGrain(scriptCtx.grain);
     scriptCtx.grain = -1;
   }
+  if (scriptCtx.dof >= 0) {
+    engine->renderer.core.postFx.setDepthOfField(
+        scriptCtx.dofFocus, scriptCtx.dofRange, scriptCtx.dof);
+    scriptCtx.dof = -1;
+  }
   if (scriptCtx.particles >= 0) {
     g_particlesOn = scriptCtx.particles != 0;
     scriptCtx.particles = -1;
@@ -5473,6 +5505,7 @@ void TerrainGame::loop() {
     for (int i = 0; i < (int)hudSprites.size(); ++i) {
       if (i == HUD_BLOOM_LAYER)
         engine->renderer.core.applyPostFx(
+            Tyra::RendererCorePostFx::PassDof |
             Tyra::RendererCorePostFx::PassBloom |
             Tyra::RendererCorePostFx::PassGrading);
       if (i == HUD_GRAIN_LAYER)
@@ -6141,6 +6174,7 @@ struct RuntimeObject {
 struct ScriptContext {
   Tyra::Engine* engine = nullptr;  // pad, renderer, audio, ...
   Tyra::Vec4 playerPosition;       // camera/player position this frame
+  Tyra::Vec4 playerLook;           // normalized view direction this frame
   RuntimeObject* objects = nullptr;  // mutable scene objects
   int objectCount = 0;
   Tyra::Color skyColor;  // write to change the clear color
@@ -6198,6 +6232,14 @@ struct ScriptContext {
   int bloom = -1;
   int grain = -1;
   int particles = -1;
+
+  // Depth of field (Set Depth Of Field flow node). dof: -1 = leave, else a
+  // 0..128 blur amount (0 = off). The image blurs progressively from
+  // dofFocus to dofFocus + dofRange (world units from the camera). The game
+  // applies and resets dof.
+  int dof = -1;
+  float dofFocus = 0.0F;
+  float dofRange = 0.0F;
 
   // Analog stick response curves (Set Stick Curve flow node). Per stick:
   // curve = -1 leave, else 0 Linear / 1 Exponential / 2 S-Curve; exp = the
@@ -6554,6 +6596,7 @@ class {{SCRIPT_CLASS}} : public ObjectScript {
     //   self->dirty = true;                           // geometry changed
     //   ctx.engine->pad.getClicked().Cross  - X pressed this frame
     //   ctx.playerPosition                  - camera/player position
+    //   ctx.playerLook                      - normalized view direction
   }
 
   void onUsed(ScriptContext& ctx) override {
@@ -8108,23 +8151,104 @@ std::string flowGraphScript(const Project& p) {
     // Text plane (Log inputs, Convert nodes, save texts) only when used -
     // keeps graphs without text nodes free of the string helpers.
     bool anyTextNode = false;
+    bool anyRaycast = false;
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects)
-            for (const FlowNode& n : o.flowGraph.nodes)
+            for (const FlowNode& n : o.flowGraph.nodes) {
                 if (const FlowNodeType* t = flowNodeType(n.type))
                     anyTextNode |= (t->textIn || t->textOut);
+                anyRaycast |= (n.type == "Raycast");
+            }
 
     std::ostringstream out;
     out << "// Generated by TyraX from the per-object Flow Graphs. Do not\n"
            "// edit - regenerated on every build. Edit the graphs in the editor.\n"
            "#include \"scripts/script.hpp\"\n"
            "#include \"scripts/sequences.gen.hpp\"  // Play/Stop Sequence nodes\n"
-           "#include \"scripts/flow_nodes.hpp\"  // custom-node C++ bodies\n\n"
+           "#include \"scripts/flow_nodes.hpp\"  // custom-node C++ bodies\n";
+    if (anyRaycast)
+        out << "#include \"terrain_heights.gen.hpp\"  // Raycast vs terrain\n";
+    out << "\n"
            "#include <math.h>\n"
            "#include <stdio.h>\n\n"
            "#include <string>\n\n"
            "namespace "
         << ns << " {\n";
+
+    if (anyRaycast) {
+        out << R"(
+// Raycast node: the nearest thing the player's view ray hits within maxDist -
+// object bounding spheres (same marker-type skip list as the USE picker) and
+// the terrain heightmap. hitObj = the hit object index (-1 = none/terrain);
+// hitPos = the hit point (the ray's end when nothing was hit).
+static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
+                        float* hitPos) {
+  const float ox = ctx.playerPosition.x;
+  const float oy = ctx.playerPosition.y;
+  const float oz = ctx.playerPosition.z;
+  float dx = ctx.playerLook.x, dy = ctx.playerLook.y, dz = ctx.playerLook.z;
+  const float dl = sqrtf(dx * dx + dy * dy + dz * dz);
+  *hitObj = -1;
+  if (dl < 0.0001F) {
+    hitPos[0] = ox; hitPos[1] = oy; hitPos[2] = oz;
+    return;
+  }
+  dx /= dl; dy /= dl; dz /= dl;
+  float best = maxDist;
+  const int player = PLAYER_INDEXES[ctx.scene];
+  for (int i = 0; i < ctx.objectCount; ++i) {
+    const RuntimeObject& o = ctx.objects[i];
+    if (!o.active || !o.visible || i == player) continue;
+    const int ty = o.data.type;
+    if (ty == 4 || ty == 6 || ty == 7 || ty == 8 || ty == 9 || ty == 11 ||
+        ty == 14)
+      continue;  // markers/emitters, not geometry
+    // bounding sphere: half the largest scale axis (matches the USE picker)
+    float half = o.data.scale[0];
+    if (o.data.scale[1] > half) half = o.data.scale[1];
+    if (o.data.scale[2] > half) half = o.data.scale[2];
+    half *= 0.5F;
+    const float cx = o.data.position[0] - ox;
+    const float cy = o.data.position[1] - oy;
+    const float cz = o.data.position[2] - oz;
+    const float tca = cx * dx + cy * dy + cz * dz;  // closest approach
+    if (tca < 0.0F || tca - half > best) continue;
+    const float d2 = cx * cx + cy * cy + cz * cz - tca * tca;
+    if (d2 > half * half) continue;
+    float t = tca - sqrtf(half * half - d2);
+    if (t < 0.0F) t = 0.0F;  // ray starts inside the sphere
+    if (t < best) {
+      best = t;
+      *hitObj = i;
+    }
+  }
+  // Terrain: fixed-step march, then a short bisection to tighten the hit.
+  // Only a terrain hit closer than the best object hit wins the ray.
+  float prev = 0.0F;
+  for (float t = 0.5F; t <= best; t += 0.5F) {
+    if (oy + dy * t <=
+        terrainHeightAtScene(ctx.scene, ox + dx * t, oz + dz * t)) {
+      float lo = prev, hi = t;
+      for (int k = 0; k < 8; ++k) {
+        const float mid = (lo + hi) * 0.5F;
+        if (oy + dy * mid <=
+            terrainHeightAtScene(ctx.scene, ox + dx * mid, oz + dz * mid))
+          hi = mid;
+        else
+          lo = mid;
+      }
+      best = hi;
+      *hitObj = -1;  // the terrain stopped the ray first
+      break;
+    }
+    prev = t;
+  }
+  hitPos[0] = ox + dx * best;
+  hitPos[1] = oy + dy * best;
+  hitPos[2] = oz + dz * best;
+}
+)";
+    }
 
     if (anyTextNode) {
         out << "\n// Text-plane helpers (Convert nodes / Get Save Value)\n"
@@ -8260,10 +8384,12 @@ std::string flowGraphScript(const Project& p) {
                     if (k >= 0) return "flowSpawned[" + std::to_string(k) + "]";
                     return "";
                 }
-                // A custom node's object output is a runtime latch var, and is
-                // authoritative (unrelated to the custom node's own inputs).
+                // A custom node's (or Raycast's) object output is a runtime
+                // latch var, and is authoritative (unrelated to the node's
+                // own inputs).
                 if (const FlowNodeType* st = flowNodeType(src->type);
-                    st && st->idOut && flowCustomNode(src->type))
+                    st && st->idOut &&
+                    (flowCustomNode(src->type) || src->type == "Raycast"))
                     return "objOut" + std::to_string(src->id);
                 cur = src;
             }
@@ -8298,9 +8424,11 @@ std::string flowGraphScript(const Project& p) {
                     }
                 }
             }
-            // A custom node's runtime position output (latched member).
+            // A custom node's (or Raycast's) runtime position output
+            // (latched member).
             if (const FlowNodeType* t = flowNodeType(n.type);
-                t && t->posOut && flowCustomNode(n.type)) {
+                t && t->posOut &&
+                (flowCustomNode(n.type) || n.type == "Raycast")) {
                 const std::string base = "posOut" + std::to_string(n.id) + "[";
                 return {base + "0]", base + "1]", base + "2]"};
             }
@@ -8705,6 +8833,42 @@ std::string flowGraphScript(const Project& p) {
                 if (v > 128) v = 128;
                 c << pad << "ctx." << (n.type == "SetBloom" ? "bloom" : "grain")
                   << " = " << v << ";\n";
+            } else if (n.type == "SetDof") {
+                int v = (int)(n.num[2] * 128.0f + 0.5f);
+                if (v < 0) v = 0;
+                if (v > 128) v = 128;
+                // A wired position turns Focus into the live distance from
+                // the player to that point.
+                bool posWired = false;
+                for (const FlowLink& l : fg.links)
+                    posWired |= (l.kind == FlowLinkPos && l.toNode == n.id);
+                if (posWired && v > 0) {
+                    const auto e = posExpr(n);
+                    c << pad << "{\n"
+                      << pad << "  const float fdx = " << e[0]
+                      << " - ctx.playerPosition.x;\n"
+                      << pad << "  const float fdy = " << e[1]
+                      << " - ctx.playerPosition.y;\n"
+                      << pad << "  const float fdz = " << e[2]
+                      << " - ctx.playerPosition.z;\n"
+                      << pad
+                      << "  ctx.dofFocus = sqrtf(fdx * fdx + fdy * fdy + fdz * "
+                         "fdz);\n"
+                      << pad << "}\n";
+                } else {
+                    c << pad << "ctx.dofFocus = "
+                      << floatLit(n.num[0] < 0.0f ? 0.0f : n.num[0]) << ";\n";
+                }
+                c << pad << "ctx.dofRange = "
+                  << floatLit(n.num[1] < 0.1f ? 0.1f : n.num[1]) << ";\n";
+                c << pad << "ctx.dof = " << v << ";\n";
+            } else if (n.type == "Raycast") {
+                // Latch the results into this node's runtime members; the
+                // "after" exec fires right after (emitExec), so downstream
+                // actions read fresh values.
+                const float md = n.num[0] > 0.001f ? n.num[0] : 100.0f;
+                c << pad << "flowRaycast(ctx, " << floatLit(md) << ", &objOut"
+                  << n.id << ", posOut" << n.id << ");\n";
             } else if (n.type == "SetStickCurve") {
                 // Stick: 0 left, 1 right, 2 both. Curve: 0 Linear / 1 Exp /
                 // 2 S-Curve. Exponent clamped to >= 1 (only shapes curves 1/2).
@@ -8955,7 +9119,8 @@ std::string flowGraphScript(const Project& p) {
                 }
                 visited.push_back(m->id);
                 c << actionCode(*m, pad);
-                if (t->execThrough && flowCustomNode(m->type))
+                if (t->execThrough &&
+                    (flowCustomNode(m->type) || m->type == "Raycast"))
                     c << emitExec(m->id, pad, visited);
             }
             return c.str();
@@ -9051,13 +9216,14 @@ std::string flowGraphScript(const Project& p) {
             }
         }
 
-        // Runtime output latches for C++-backed custom nodes: members hold the
-        // last value each output pin produced, so downstream nodes read them as
-        // plain variables (objOut<id>, boolOut<id>, posOut<id>[3], textOut<id>).
-        // Reset to defaults on scene (re)load like the other per-node state.
+        // Runtime output latches for C++-backed custom nodes and the built-in
+        // Raycast: members hold the last value each output pin produced, so
+        // downstream nodes read them as plain variables (objOut<id>,
+        // boolOut<id>, posOut<id>[3], textOut<id>). Reset to defaults on
+        // scene (re)load like the other per-node state.
         for (const FlowNode& n : fg.nodes) {
             const FlowNodeType* t = flowNodeType(n.type);
-            if (!t || !flowCustomNode(n.type)) continue;
+            if (!t || !(flowCustomNode(n.type) || n.type == "Raycast")) continue;
             const std::string id = std::to_string(n.id);
             if (t->idOut) {
                 members << "  int objOut" << id << " = -1;\n";
