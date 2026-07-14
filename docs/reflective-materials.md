@@ -63,9 +63,12 @@ ugly patches up close. It fades back in as you step away.
   every emitted vertex for reflective parts (`pushVert`, `g_envNormals`).
 - The part is submitted a second time as its own `StaPipBag`: same vertex
   array (and `bboxVersion` — the frustum-bbox cache entry is shared), all-white
-  colors, the sphere map as texture, `PipelineZTest_TestOnly` (coplanar with
-  the base pass), `fogDisabled` (GS fog would *add* the fog color through the
-  additive equation).
+  colors, the sphere map as texture, a standard GEQUAL z-test (the passes are
+  coplanar, so the env pass re-writes the same depths — benign; the
+  `TestOnly` alpha-fail trick used at first corrupted close-up frames on the
+  EE-clipped path: later objects punched through the reflective surface), and
+  `fogDisabled` (GS fog would *add* the fog color through the additive
+  equation).
 - **The matcap ST math runs on VU1** (phase 2): the env bag's texture bag has
   `coordinatesAreNormals` set, the normals ride in the vertex stream's ST
   slot, and the `TCE` program family (`stapip_cull_tce_vu1.vclpp` /

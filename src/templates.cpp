@@ -4555,8 +4555,9 @@ void TerrainGame::rebuildObjectGeometry(int index) {
         part.envInfoBag->shadingType = TyraShadingFlat;
         part.envInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
         part.envInfoBag->fullClipChecks = true;
-        // Coplanar with the base pass: depth-test but never write Z.
-        part.envInfoBag->zTestType = PipelineZTest_TestOnly;
+        // Coplanar with the base pass: standard GEQUAL test. (TestOnly's
+        // alpha-fail FB_ONLY trick corrupted close-up frames - see below.)
+        part.envInfoBag->zTestType = PipelineZTest_Standard;
         // GS fog would ADD the fog color through the additive equation
         // (brightening fogged pixels) - the reflection just stays unfogged.
         part.envInfoBag->fogDisabled = true;

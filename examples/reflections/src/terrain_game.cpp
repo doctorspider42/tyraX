@@ -3488,8 +3488,9 @@ void TerrainGame::rebuildObjectGeometry(int index) {
         part.envInfoBag->shadingType = TyraShadingFlat;
         part.envInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
         part.envInfoBag->fullClipChecks = true;
-        // Coplanar with the base pass: depth-test but never write Z.
-        part.envInfoBag->zTestType = PipelineZTest_TestOnly;
+        // Coplanar with the base pass: standard GEQUAL test. (TestOnly's
+        // alpha-fail FB_ONLY trick corrupted close-up frames - see below.)
+        part.envInfoBag->zTestType = PipelineZTest_Standard;
         // GS fog would ADD the fog color through the additive equation
         // (brightening fogged pixels) - the reflection just stays unfogged.
         part.envInfoBag->fogDisabled = true;
@@ -3622,6 +3623,21 @@ void TerrainGame::renderScene() {
     for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
       RuntimeObject& ro = runtimeObjects[ri];
       if (!ro.active || !ro.visible || !ro.data.reflected) continue;
+      // Skip the object the camera is standing at: it would swamp the whole
+      // map - typically the very reflective surface being inspected, whose
+      // own dark self-reflection reads as ugly patches up close. (Bounding
+      // radius approximated from the scale; unit primitives fit a 1x1x1
+      // cube, so half-diagonal = 0.87 * max scale.)
+      {
+        float half = ro.data.scale[0];
+        if (ro.data.scale[1] > half) half = ro.data.scale[1];
+        if (ro.data.scale[2] > half) half = ro.data.scale[2];
+        const float skipR = 0.87F * half * 1.9F;
+        const float sdx = ro.data.position[0] - cameraPosition.x;
+        const float sdy = ro.data.position[1] - cameraPosition.y;
+        const float sdz = ro.data.position[2] - cameraPosition.z;
+        if (sdx * sdx + sdy * sdy + sdz * sdz < skipR * skipR) continue;
+      }
       if (ro.dirty) rebuildObjectGeometry(ri);
       for (GeoPart& part : objectGeometry[ri].parts)
         if (part.bag) stapip.core.render(part.bag.get());

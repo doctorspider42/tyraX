@@ -9,6 +9,23 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (107) **Close-up punch-through fix: the env pass drops the TestOnly
+  trick.** User-reported (third close-up artifact): standing at a static-map
+  chrome sphere, LATER objects (its pedestal) punched through the sphere as
+  a solid block plus dithered fringes, and the whole surface showed z-fight
+  moire dots. Isolated with a scratch FPP scene (sphere right at the
+  player): no-reflection variant clean, so the env pass was the trigger -
+  specifically its `PipelineZTest_TestOnly` (ATEST all-fail + AFAIL
+  keep-zbuffer, color-only writes): correct at distance (cull programs) but
+  on the close-up EE-clipped path it corrupted the depth relationships of
+  everything drawn after. The env pass now uses the standard GEQUAL test -
+  the two passes are coplanar, so re-writing identical depths is benign -
+  and the punch-through is gone. Residual: a subtle sampling moire on very
+  magnified spheres (the 128px map's bands under STQ precision) - cosmetic.
+  WHY TestOnly misbehaves there is not yet root-caused; the highlight hull
+  shells still use it (pre-existing, unchanged). **Verified** (Layer 3,
+  software renderer, scratch close-up scene): pedestal correctly occluded,
+  sunset reflection intact; distance rendering unchanged.
 - (106) **Self-reflection fix: near-camera reflected objects skip the env
   pass.** User-reported (second close-up artifact after 103): a reflective
   object that is ALSO marked "Show in reflections" sampled its own body
