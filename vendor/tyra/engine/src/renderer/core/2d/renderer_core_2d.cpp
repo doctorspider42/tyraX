@@ -6,7 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
-# Modified by tyra-editor: render() no longer emits a FINISH giftag.
+# Modified by TyraX: render() no longer emits a FINISH giftag.
 */
 
 #include "renderer/core/2d/renderer_core_2d.hpp"

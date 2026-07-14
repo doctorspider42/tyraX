@@ -1,9 +1,9 @@
 {
-  "name": "tyra-flownode",
-  "displayName": "Tyra Flow Nodes & Screen Effects",
-  "description": "Syntax highlighting, snippets and validation for tyra-editor custom flow-graph nodes (.flownode) and screen effects (.screenfx).",
+  "name": "tyrax-flownode",
+  "displayName": "TyraX Flow Nodes & Screen Effects",
+  "description": "Syntax highlighting, snippets and validation for TyraX custom flow-graph nodes (.flownode) and screen effects (.screenfx).",
   "version": "0.1.0",
-  "publisher": "tyra",
+  "publisher": "tyrax",
   "license": "MIT",
   "icon": "icon.png",
   "repository": {
@@ -19,44 +19,44 @@
     "Linters"
   ],
   "keywords": [
-    "tyra",
+    "tyrax",
     "ps2",
     "playstation 2",
     "flowgraph",
     "flownode"
   ],
   "activationEvents": [
-    "onLanguage:tyra-flownode",
-    "onLanguage:tyra-screenfx"
+    "onLanguage:tyrax-flownode",
+    "onLanguage:tyrax-screenfx"
   ],
   "main": "./extension.js",
   "contributes": {
     "languages": [
       {
-        "id": "tyra-flownode",
-        "aliases": ["Tyra Flow Node", "flownode"],
+        "id": "tyrax-flownode",
+        "aliases": ["TyraX Flow Node", "flownode"],
         "extensions": [".flownode"],
         "configuration": "./language-configuration.json"
       },
       {
-        "id": "tyra-screenfx",
-        "aliases": ["Tyra Screen Effect", "screenfx"],
+        "id": "tyrax-screenfx",
+        "aliases": ["TyraX Screen Effect", "screenfx"],
         "extensions": [".screenfx"],
         "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
       {
-        "language": "tyra-flownode",
-        "scopeName": "source.tyra-flownode",
+        "language": "tyrax-flownode",
+        "scopeName": "source.tyrax-flownode",
         "path": "./syntaxes/flownode.tmLanguage.json",
         "embeddedLanguages": {
           "meta.embedded.block.cpp": "cpp"
         }
       },
       {
-        "language": "tyra-screenfx",
-        "scopeName": "source.tyra-screenfx",
+        "language": "tyrax-screenfx",
+        "scopeName": "source.tyrax-screenfx",
         "path": "./syntaxes/screenfx.tmLanguage.json",
         "embeddedLanguages": {
           "meta.embedded.block.cpp": "cpp"
@@ -65,11 +65,11 @@
     ],
     "snippets": [
       {
-        "language": "tyra-flownode",
+        "language": "tyrax-flownode",
         "path": "./snippets/flownode.json"
       },
       {
-        "language": "tyra-screenfx",
+        "language": "tyrax-screenfx",
         "path": "./snippets/screenfx.json"
       }
     ]

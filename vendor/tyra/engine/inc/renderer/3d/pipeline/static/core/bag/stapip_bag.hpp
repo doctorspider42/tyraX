@@ -48,7 +48,7 @@ class StaPipBag {
   /** Optional. Object lighting. */
   StaPipLightingBag* lighting;
 
-  /** Bump whenever the content of `vertices` changes (tyra-editor addition).
+  /** Bump whenever the content of `vertices` changes (TyraX addition).
    * The frustum-culling bbox cache is keyed by the vertex pointer plus this
    * version, so reused buffers with new data do not hit stale boxes. */
   u32 bboxVersion;

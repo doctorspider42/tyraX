@@ -19,7 +19,7 @@
 #define VU1_LIGHTS_DIRS_ADDR 12
 #define VU1_LIGHTS_COLORS_ADDR 15
 #define VU1_SET_GIFTAG_ADDR 19
-// Modified by tyra-editor: VU1 clipping (clip program family).
+// Modified by TyraX: VU1 clipping (clip program family).
 // One quad of clip-space constants for the crossing test:
 //   x = nearZ - GUARD  (nearZ = clip-space near plane, see PlanesClipAlgorithm)
 //   y = -farZ - GUARD  (farZ  = -settings.getFar())
@@ -44,7 +44,7 @@
 // Buffer data (xtop)
 #define VU1_STAPIP_VERT_DATA_ADDR 2
 
-// Modified by tyra-editor: VU1 clipping scratch at the top of VU1 data memory
+// Modified by TyraX: VU1 clipping scratch at the top of VU1 data memory
 // (1024 qwords total). The double buffer is capped at VU1_STAPIP_DBUFFER_END
 // so this area is never part of an xtop half. Contents are transient within
 // one clip-program run (other pipelines may clobber them between meshes):

@@ -7,7 +7,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
-# Modified by tyra-editor: restart() out-of-bounds fix for clip sequences.
+# Modified by TyraX: restart() out-of-bounds fix for clip sequences.
 */
 
 #include "math/m4x4.hpp"
@@ -86,7 +86,7 @@ void DynamicMeshAnimation::update() {
   if (callback != nullptr && sendCallback) callback(callbackInfo);
 }
 
-// Modified by tyra-editor: upstream double-indexed the sequence
+// Modified by TyraX: upstream double-indexed the sequence
 // (sequence[sequence[0]]), which reads out of bounds for any sequence that
 // does not start at frame 0 - e.g. a named clip's frame range.
 void DynamicMeshAnimation::restart() {

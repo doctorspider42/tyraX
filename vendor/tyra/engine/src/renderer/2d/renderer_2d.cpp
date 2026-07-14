@@ -6,7 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
-# Modified by tyra-editor: drain PATH1 before the frame's first sprite
+# Modified by TyraX: drain PATH1 before the frame's first sprite
 */
 
 #include "renderer/2d/renderer_2d.hpp"

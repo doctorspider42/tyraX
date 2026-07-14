@@ -26,7 +26,7 @@ class Info {
 
   static bool writeLogsToFile;
 
-  // Modified by tyra-editor: when false (the default) a failed TYRA_ASSERT /
+  // Modified by TyraX: when false (the default) a failed TYRA_ASSERT /
   // TYRA_TRAP no longer seizes the whole screen with the kernel debug console -
   // it prints to the console / host log.txt (which the editor tails into a
   // copyable error dialog) and then halts quietly. Set true to restore the

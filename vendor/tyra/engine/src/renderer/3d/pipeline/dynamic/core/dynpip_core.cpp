@@ -93,7 +93,7 @@ void DynPipCore::begin(PipelineInfoBag* bag) {
 void DynPipCore::render(DynPipBag** bags, const u32& count) {
   if (count <= 0) return;
 
-  // Modified by tyra-editor: GS hardware fog - the PRIM FGE bit follows the
+  // Modified by TyraX: GS hardware fog - the PRIM FGE bit follows the
   // renderer-level fog state (see RendererCore::setFog), with a per-bag
   // opt-out (see PipelineInfoBag::fogDisabled).
   prim.fogging = rendererCore->fog.enabled && !bags[0]->info->fogDisabled

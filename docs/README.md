@@ -1,4 +1,4 @@
-# tyra-editor documentation
+# TyraX documentation
 
 User-facing guides for editor features. Written for people building games
 with the editor; internals live in code comments, `PROGRESS.md` (feature log

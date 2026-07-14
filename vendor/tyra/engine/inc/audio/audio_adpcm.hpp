@@ -76,7 +76,7 @@ class AudioAdpcm {
    * @param t_pan -100 (full left) .. 0 (center) .. 100 (full right)
    * @param t_ch Channel (0-23)
    */
-  // Added by tyra-editor: positional stereo for sound emitters. Uses the
+  // Added by TyraX: positional stereo for sound emitters. Uses the
   // vendored audsrv's audsrv_adpcm_set_volume_and_pan (see audsrv-pan/README).
   void setVolumeAndPan(const u8& t_vol, const s8& t_pan, const s8& t_ch) {
     audsrv_adpcm_set_volume_and_pan(t_ch, t_vol, t_pan);

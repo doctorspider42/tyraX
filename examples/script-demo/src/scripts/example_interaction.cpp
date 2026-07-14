@@ -1,4 +1,4 @@
-// Example tyra-editor script. This file is yours - it is never regenerated.
+// Example TyraX script. This file is yours - it is never regenerated.
 // Walk close to the box and press X: the sky changes color (and a message
 // lands in the PCSX2 log via TYRA_LOG).
 #include "scripts/script.hpp"

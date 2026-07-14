@@ -21,7 +21,7 @@ RendererCore::~RendererCore() {}
 void RendererCore::init(VideoMode videoMode, DisplayMode displayMode,
                         bool widescreen) {
   settings.setVideoMode(videoMode);
-  // Must precede gs.init - it sizes the frame/z buffers (tyra-editor fork).
+  // Must precede gs.init - it sizes the frame/z buffers (TyraX fork).
   settings.setDisplayMode(displayMode);
   settings.setWidescreen(widescreen);
   path3.init(&settings);
@@ -37,7 +37,7 @@ void RendererCore::init(VideoMode videoMode, DisplayMode displayMode,
 
 void RendererCore::setClearScreenColor(const Color& color) { bgColor = color; }
 
-// Modified by tyra-editor: runtime video output switch - see the header.
+// Modified by TyraX: runtime video output switch - see the header.
 void RendererCore::setDisplayOutput(const DisplayMode& mode,
                                     const bool& widescreen) {
   const bool modeChanged = settings.getDisplayMode() != mode;
@@ -67,7 +67,7 @@ void RendererCore::setDisplayOutput(const DisplayMode& mode,
   renderer3D.setFov(renderer3D.getFov());
 }
 
-// Modified by tyra-editor: GS hardware distance fog.
+// Modified by TyraX: GS hardware distance fog.
 void RendererCore::setFog(const Color& color, const float& start,
                           const float& end) {
   TYRA_ASSERT(end > start, "Fog end distance must be greater than start!");
@@ -88,7 +88,7 @@ void RendererCore::disableFog() {
   fog.offset = 255.0F;
 }
 
-// Modified by tyra-editor: dynamic spot light (flashlight).
+// Modified by TyraX: dynamic spot light (flashlight).
 void RendererCore::setSpotLight(const Color& color, const Vec4& position,
                                 const Vec4& direction, const float& range,
                                 const float& cutoffDegrees,
@@ -131,7 +131,7 @@ void RendererCore::beginFrame(const CameraInfo3D& cameraInfo) {
   path3.clearScreen(&gs.zBuffer, bgColor);
 }
 
-// Modified by tyra-editor: mid-frame post fx (Tools > UI Editor screen stack).
+// Modified by TyraX: mid-frame post fx (Tools > UI Editor screen stack).
 // Applies only the not-yet-applied selected passes; the PATH1 drain barrier
 // (endFrame's) runs once, before the first pass that actually draws - after
 // that no more 3D is submitted this frame, so later passes composite safely
@@ -148,7 +148,7 @@ void RendererCore::applyPostFx(int passes) {
   postFx.apply(passes);
 }
 
-// Modified by tyra-editor: user-authored full-screen effect (custom screen
+// Modified by TyraX: user-authored full-screen effect (custom screen
 // effects). Same PATH1 drain barrier as applyPostFx() so the pass composites
 // over finished 3D; no once-per-frame mask (a custom pass always draws).
 void RendererCore::applyCustomPostFx(RendererCorePostFx::CustomFxBuild build,

@@ -137,7 +137,7 @@ std::string parseFile(const fs::path& path, CustomFlowNode& out) {
 }
 
 const char* kExampleTemplate =
-    "# Custom flow node for tyra-editor. Copy this file (or write your own) into\n"
+    "# Custom flow node for TyraX. Copy this file (or write your own) into\n"
     "# <project>/flow-nodes/ and it appears in the Flow Graph add-menu under its\n"
     "# category. The file NAME (without .flownode) is the node's identity - keep\n"
     "# it identical when copying the node to another project, or graphs that use\n"

@@ -6,7 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
-# Modified by tyra-editor: demote the main thread below the audio threads
+# Modified by TyraX: demote the main thread below the audio threads
 */
 
 #include "engine.hpp"

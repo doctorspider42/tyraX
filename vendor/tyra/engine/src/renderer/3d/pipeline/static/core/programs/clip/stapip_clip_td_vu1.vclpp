@@ -5,7 +5,7 @@
 ; Copyright 2022, tyra - https://github.com/h4570/tyra
 ; Licensed under Apache License 2.0
 ; Sandro Sobczyński <sandro.sobczynski@gmail.com>
-; Modified by tyra-editor: VU1 clipping program (clip family).
+; Modified by TyraX: VU1 clipping program (clip family).
 ;
 ;---------------------------------------------------------------
 ; Triangle list
@@ -75,7 +75,7 @@
     LoadTyraStaticData{ gifSetTag }
     MatrixLoad{ mvp, VU1_MVP_MATRIX_ADDR, vi00 }
     LoadTyraTagsTexture{ lodGifTag, testsTag, texBufferClutGifTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR, VU1_CLUT_ADDR }
-    ; Modified by tyra-editor: GS hardware fog (packed XYZF2)
+    ; Modified by TyraX: GS hardware fog (packed XYZF2)
     LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
     ; clip constants: x = nearZ-GUARD, y = -farZ-GUARD, z = 0, w = GUARD
     lq          cvec,       VU1_CLIP_CONSTS_ADDR(vi00)

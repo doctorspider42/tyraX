@@ -34,7 +34,7 @@
     LoadTyraStaticData{ gifSetTag }
     LoadTyraSingleColor{ singleColor, singleColorEnabled, VU1_SINGLE_COLOR_ADDR, VU1_OPTIONS_ADDR }
     LoadTyraTagsTexture{ lodGifTag, testsTag, texBufferClutGifTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR, VU1_CLUT_ADDR }
-    ; Modified by tyra-editor: GS hardware fog (packed XYZF2)
+    ; Modified by TyraX: GS hardware fog (packed XYZF2)
     LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
 
 begin:
@@ -103,7 +103,7 @@ processing:
         PerformTexturePerspectiveCorrection{ outputStq3, stq3 }
         FixColor{ color3 }
 
-        ; Modified by tyra-editor: fog coefficient replaces the zero ADC word
+        ; Modified by TyraX: fog coefficient replaces the zero ADC word
         CalculateTyraFog{ fogInt, vertex1, fogParams }
         StoreTyraFog{ fogInt, destAddress, XYZ2_STORE_OFFSET }
         CalculateTyraFog{ fogInt, vertex2, fogParams }

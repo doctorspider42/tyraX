@@ -34,7 +34,7 @@ void AudioAdpcm::initAUDSRV() {
 
 void AudioAdpcm::reset() { audsrv_adpcm_init(); }
 
-// Modified by tyra-editor: the upstream version read the whole file into a
+// Modified by TyraX: the upstream version read the whole file into a
 // variable-length array on the EE stack (u8 data[size]) - fine for a few-KB
 // one-shot, a guaranteed stack overflow for anything larger - and sized it
 // with fseek/ftell, which are unreliable over the PS2 host filesystem. Read
@@ -106,7 +106,7 @@ AdpcmResult AudioAdpcm::tryPlay(audsrv_adpcm_t* t_adpcm) {
 }
 
 AdpcmResult AudioAdpcm::tryPlay(audsrv_adpcm_t* t_adpcm, const s8& t_ch) {
-  // Modified by tyra-editor: load() now returns nullptr for samples that
+  // Modified by TyraX: load() now returns nullptr for samples that
   // failed to load (e.g. too large for SPU2); treat that as a benign no-op
   // instead of dereferencing it.
   if (!t_adpcm) return AdpcmResult::ADPCM_ERROR;

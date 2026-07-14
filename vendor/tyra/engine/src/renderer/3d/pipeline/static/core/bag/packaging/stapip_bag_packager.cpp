@@ -34,7 +34,7 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_size, StaPipBag* data,
               maxVertCount, " verts. Provided \"", size, "\"");
 
   *o_size = ceil(data->count / static_cast<float>(size));
-  // Modified by tyra-editor: grow-only pool instead of new[] per submit.
+  // Modified by TyraX: grow-only pool instead of new[] per submit.
   // Pool entries are reused, so pointers absent from this bag must be
   // reset - a stale sts/colors/normals from a previous bag would otherwise
   // leak into the fill path.
@@ -64,7 +64,7 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_size, StaPipBag* data,
       result[i].size = size;
     }
 
-    // Modified by tyra-editor: last 1/3 bbox the package overlaps.
+    // Modified by TyraX: last 1/3 bbox the package overlaps.
     result[i].endIndexOf1By3BBox =
         (i * size + result[i].size - 1) / (maxVertCount / 3);
 
@@ -86,7 +86,7 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_count,
               maxVertCount, " verts. Provided \"", size, "\"");
 
   *o_count = ceil(pkg.size / static_cast<float>(size));
-  // Modified by tyra-editor: grow-only pool instead of new[] per split (see
+  // Modified by TyraX: grow-only pool instead of new[] per split (see
   // the bag-level overload above; separate pool - the parent package array
   // is still alive during a split).
   if (splitPackagesPool.size() < *o_count) splitPackagesPool.resize(*o_count);
@@ -111,7 +111,7 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_count,
       result[i].size = size;
     }
 
-    // Modified by tyra-editor: last 1/3 bbox the subpackage overlaps (parent
+    // Modified by TyraX: last 1/3 bbox the subpackage overlaps (parent
     // packages always start on a 1/3 boundary).
     result[i].endIndexOf1By3BBox =
         pkg.indexOf1By3BBox +
@@ -127,7 +127,7 @@ CoreBBoxFrustum StaPipBagPackager::checkFrustum(const StaPipBagPackage& pkg) {
   if (!renderBBox) return CoreBBoxFrustum::OUTSIDE_FRUSTUM;
 
   if (pkg.size <= (maxVertCount / 3)) {  // Is subpackage
-    // Modified by tyra-editor: a subpackage smaller than maxVertCount / 3
+    // Modified by TyraX: a subpackage smaller than maxVertCount / 3
     // (VU1 clipping mode) can straddle a 1/3 bbox boundary - classify it
     // against the merged bbox of every part it overlaps.
     if (pkg.endIndexOf1By3BBox > pkg.indexOf1By3BBox) {

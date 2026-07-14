@@ -42,7 +42,7 @@ class StaPipBagPackage {
   u32 indexOf1By3BBox;
 
   /**
-   * Modified by tyra-editor: index of the LAST 1/3 CoreBBox the package
+   * Modified by TyraX: index of the LAST 1/3 CoreBBox the package
    * overlaps. VU1 clipping uses subpackages smaller than maxVertCount / 3,
    * which do not start on 1/3 boundaries - classifying them with only the
    * starting bbox misclassified visible geometry as outside (notches).

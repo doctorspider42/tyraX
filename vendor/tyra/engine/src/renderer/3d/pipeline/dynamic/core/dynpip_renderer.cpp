@@ -8,7 +8,7 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
-// Modified by tyra-editor: PipelineZTest_TestOnly branch in sendObjectData.
+// Modified by TyraX: PipelineZTest_TestOnly branch in sendObjectData.
 
 #include "renderer/3d/pipeline/dynamic/core/dynpip_renderer.hpp"
 #include "renderer/3d/pipeline/dynamic/core/programs/dynpip_vu1_shared_defines.h"
@@ -127,7 +127,7 @@ void DynPipRenderer::sendObjectData(
                     singleColorEnabled);  // Single color enabled.
     packet2_add_float(objectDataPacket,
                       bag->interpolation);  // Interpolation value
-    // Modified by tyra-editor: GS hardware fog params (see RendererCoreFog)
+    // Modified by TyraX: GS hardware fog params (see RendererCoreFog)
     packet2_add_float(objectDataPacket, rendererCore->fog.scale);
     packet2_add_float(objectDataPacket, rendererCore->fog.offset);
 

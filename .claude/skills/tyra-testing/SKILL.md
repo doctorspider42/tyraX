@@ -23,7 +23,7 @@ PROGRESS.md about which layer you reached (the existing entries distinguish
 ## Layer 0 — build the editor
 
 ```powershell
-./build.ps1          # → build/tyra-editor.exe (auto-clones vendor deps on first run)
+./build.ps1          # → build/tyrax-editor.exe (auto-clones vendor deps on first run)
 ./build.ps1 -Run     # build + launch the GUI
 ./build.ps1 -Clean   # full rebuild
 ```
@@ -34,10 +34,10 @@ everything under `src/` — warnings matter, the build is expected to be clean.
 ## Layer 1 — headless CLI (no GUI needed)
 
 ```powershell
-build\tyra-editor.exe --new <name> <parentDir> [width] [depth] [empty|fpp]
-build\tyra-editor.exe --build <projectDir> [--run]   # exit code 0 = success
-build\tyra-editor.exe --resave <projectDir>          # load + save, no Docker
-build\tyra-editor.exe <projectDir|project.tyra>      # open GUI on a project
+build\tyrax-editor.exe --new <name> <parentDir> [width] [depth] [empty|fpp]
+build\tyrax-editor.exe --build <projectDir> [--run]   # exit code 0 = success
+build\tyrax-editor.exe --resave <projectDir>          # load + save, no Docker
+build\tyrax-editor.exe <projectDir|project.tyra>      # open GUI on a project
 ```
 
 - `--new` scaffolds a complete game project (all generated sources, Makefile,
@@ -95,7 +95,7 @@ Prerequisites: Docker Desktop **running**, PCSX2 installed in
 `Program Files\PCSX2` with a BIOS configured.
 
 ```powershell
-build\tyra-editor.exe --build <projectDir> --run
+build\tyrax-editor.exe --build <projectDir> --run
 ```
 
 What happens (see `src/runner.cpp`): generated files refresh → `docker compose
@@ -137,7 +137,7 @@ Notes:
       -ProcessName pcsx2-qt -OutFile <scratchpad>\shot.png
   ```
 
-  It also works for the editor itself (`-ProcessName tyra-editor`) — useful for
+  It also works for the editor itself (`-ProcessName tyrax-editor`) — useful for
   verifying viewport rendering without a human.
 - **Rendering correctness**: switch PCSX2 to the **software renderer** before
   judging visuals — the HW renderer masks GS raster-window wrap bugs that real

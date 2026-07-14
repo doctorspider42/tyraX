@@ -305,7 +305,7 @@ int App::run(const std::string& initialProjectDir) {
     glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
 
     // Size is the restore-size when the user un-maximizes.
-    window_ = glfwCreateWindow(1600, 900, "Tyra Editor", nullptr, nullptr);
+    window_ = glfwCreateWindow(1600, 900, "TyraX", nullptr, nullptr);
     if (window_) g_dialogOwner = glfwGetWin32Window(window_);
     if (!window_) {
         glfwTerminate();
@@ -1818,7 +1818,7 @@ void App::updateWindowTitle() {
     if (titleShowsDirty_ == dirty_ && titleName_ == project_.name) return;
     titleShowsDirty_ = dirty_;
     titleName_ = project_.name;
-    std::string title = "Tyra Editor";
+    std::string title = "TyraX";
     if (hasProject_) title += " - " + project_.name + (dirty_ ? " *" : "");
     glfwSetWindowTitle(window_, title.c_str());
 }
@@ -5299,7 +5299,7 @@ void App::drawFlowGraphWindow() {
 
 std::string App::installVsCodeExtension() {
     // The extension ships prebuilt as a .vsix next to the exe (dev tree:
-    // <exe>/../tools/vscode-tyra/*.vsix), resolved the same exe-relative way as
+    // <exe>/../tools/vscode-tyrax/*.vsix), resolved the same exe-relative way as
     // the generated c_cpp_properties.json. It MUST be installed through the
     // `code` CLI: modern VS Code (>=1.74) loads only what its own manifest cache
     // lists, so an extension folder merely copied into ~/.vscode/extensions is
@@ -5311,7 +5311,7 @@ std::string App::installVsCodeExtension() {
         return "Could not locate the editor executable";
     std::error_code ec;
     const std::filesystem::path dir = std::filesystem::weakly_canonical(
-        std::filesystem::path(exePath).parent_path() / ".." / "tools" / "vscode-tyra", ec);
+        std::filesystem::path(exePath).parent_path() / ".." / "tools" / "vscode-tyrax", ec);
     std::filesystem::path vsix;
     if (std::filesystem::exists(dir, ec))
         for (const auto& e : std::filesystem::directory_iterator(dir, ec))
@@ -5320,7 +5320,7 @@ std::string App::installVsCodeExtension() {
                 break;
             }
     if (vsix.empty())
-        return "VS Code extension package not found (tools/vscode-tyra/*.vsix)";
+        return "VS Code extension package not found (tools/vscode-tyrax/*.vsix)";
 
     // `code` is a .cmd shim, so route through cmd.exe (same as openInVSCode).
     // Run it synchronously so we can report the real outcome; --force reinstalls
@@ -5342,7 +5342,7 @@ std::string App::installVsCodeExtension() {
     if (exitCode != 0)
         return "VS Code extension install failed - is the 'code' CLI on PATH? "
                "(VS Code: Shell Command: Install 'code' in PATH)";
-    return "Tyra VS Code extension installed - reload the VS Code window if it "
+    return "TyraX VS Code extension installed - reload the VS Code window if it "
            "was already open";
 }
 

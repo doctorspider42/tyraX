@@ -5,7 +5,7 @@
 #-----------------------------------------------------------------------
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
-# Added by tyra-editor: per-object skeletal playback; pose evaluation on
+# Added by TyraX: per-object skeletal playback; pose evaluation on
 # the EE, vertex skinning on VU0 in macro mode (COP2 inline asm).
 # The sampling/pose math mirrors the editor's src/glbparser.cpp (the
 # viewport preview and the stage-1 baker) - keep the formulas in sync so

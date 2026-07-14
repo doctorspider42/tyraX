@@ -39,7 +39,7 @@ StaPipVU1Program* StaPipProgramsRepository::getProgram(
     case StaPipProgramName::StaPipCullTextureColor:
       return &cullTextureColor;
 
-    // Modified by tyra-editor: VU1 clipping programs.
+    // Modified by TyraX: VU1 clipping programs.
     case StaPipProgramName::StaPipClipColor:
       return &clipColor;
     case StaPipProgramName::StaPipClipDirLights:

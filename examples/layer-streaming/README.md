@@ -5,7 +5,7 @@ Two buildings joined by a corridor, streamed GTA3-style with
 are in (plus the corridor) stays in the PS2's memory.
 
 Open `layer-streaming.tyra` in the editor and Build & Run (`F5`), or build
-headless: `tyra-editor.exe --build <this folder> --run`.
+headless: `tyrax-editor.exe --build <this folder> --run`.
 
 ## What to do
 
