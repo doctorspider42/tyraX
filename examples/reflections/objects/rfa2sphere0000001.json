@@ -1,0 +1,1 @@
+{ "id": "rfa2sphere0000001", "name": "chrome-sunset-1", "type": "sphere", "position": [-5, 2.8, 8], "rotation": [0, 0, 0], "scale": [2.4, 2.4, 2.4], "color": [1, 1, 1], "physics": false, "detail": 24, "material": "res/materials/chrome.mtl" }

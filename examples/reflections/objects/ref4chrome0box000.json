@@ -1,1 +1,0 @@
-{ "id": "ref4chrome0box000", "name": "chrome-box", "type": "box", "position": [-3, 1.2, 14], "rotation": [0, 30, 0], "scale": [2.4, 2.4, 2.4], "color": [1, 1, 1], "physics": false, "material": "res/materials/chrome.mtl" }

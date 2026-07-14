@@ -1,4 +1,0 @@
-newmtl paint-dyn
-# tyra-brightness 1
-Kd 0.1000 0.1000 0.5500
-refl -type sphere -mm 0 0.5 @sky

@@ -1,1 +1,0 @@
-{ "id": "ref3paint0sphere0", "name": "car-paint-live", "type": "sphere", "position": [6, 2, 8], "rotation": [0, 0, 0], "scale": [3, 3, 3], "color": [1, 1, 1], "physics": false, "detail": 24, "material": "res/materials/paint-dyn.mtl" }

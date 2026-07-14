@@ -19,11 +19,14 @@ inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1]
 };
 
 // .mtl libraries assigned to primitives (first material = surface)
-constexpr int MATERIAL_COUNT = 3;
+constexpr int MATERIAL_COUNT = 6;
 inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {
+    "materials/pedestal.mtl",
     "materials/chrome.mtl",
     "materials/chrome-dyn.mtl",
-    "materials/paint-dyn.mtl",
+    "materials/paint-red.mtl",
+    "materials/paint-blue.mtl",
+    "materials/paint-black.mtl",
 };
 
 }  // namespace Reflections

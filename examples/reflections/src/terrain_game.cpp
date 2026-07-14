@@ -811,7 +811,14 @@ void renderFrame(Engine* engine, int sceneIdx, float fraction) {
 }  // namespace
 
 TerrainGame::TerrainGame(Engine* t_engine)
-    : engine(t_engine), orbitAngle(0.0F), model(M4x4::Identity) {}
+    : engine(t_engine),
+      playerX(0.0F),
+      playerZ(0.0F),
+      yaw(0.0F),
+      pitch(0.0F),
+      playerY(0.0F),
+      playerVelY(0.0F),
+      model(M4x4::Identity) {}
 
 TerrainGame::~TerrainGame() {}
 
@@ -863,9 +870,18 @@ void TerrainGame::init() {
 
   engine->renderer.setClearScreenColor(Color(SKY_R, SKY_G, SKY_B));
 
-  cameraLookAt = Vec4(0.0F, 0.0F, 0.0F);
-  updateCameraOrbit();
+  // Player start: the first spawn point in the scene (if any)
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+    if (SCENE_OBJECTS[i].type == 4) {
+      playerX = SCENE_OBJECTS[i].position[0];
+      playerZ = SCENE_OBJECTS[i].position[2];
+      yaw = SCENE_OBJECTS[i].rotation[1] * PI / 180.0F;
+      break;
+    }
+  }
+  playerY = terrainHeightAt(playerX, playerZ);
 
+  updatePlayer();
   buildScene();
 
   // scriptCtx wiring + scripts' init() run from bootFirstScene() (loop boot),
@@ -960,7 +976,7 @@ void TerrainGame::loop() {
       saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0;
   g_gameplayPaused = menuActive;  // freezes particles + animation playback
   if (!menuOwnsPad) {
-    if (!updatePlayerEntity()) updateCameraOrbit();
+    if (!updatePlayerEntity()) updatePlayer();
     updateUseTarget();
   }
 
@@ -972,9 +988,9 @@ void TerrainGame::loop() {
     for (Script* script : getScripts()) script->update(scriptCtx);
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
 
-  // Scene switch requested by the flow graph / scripts. With the loading
-  // screen enabled the switch hides behind a short black "LOADING..." hold
-  // (the load itself is synchronous - the hold is presentation).
+  // Scene switch requested by the flow graph / scripts. The built-in FPP
+  // player respawns at the new scene's spawn point.
+  static bool fppSpawnPending = false;
   if (scriptCtx.requestScene >= 0) {
     const int target = scriptCtx.requestScene;
     scriptCtx.requestScene = -1;
@@ -983,6 +999,7 @@ void TerrainGame::loop() {
       loadingFrames = everyFrames(0.7F);  // ~0.7s hold
     } else {
       loadScene(target);
+      fppSpawnPending = true;
     }
   }
   if (loadingFrames > 0) {
@@ -991,17 +1008,37 @@ void TerrainGame::loop() {
     const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
     loadingscreen::renderFrame(engine, loadingTarget, preLoad ? 0.0F : 1.0F);
     --loadingFrames;
-    if (loadingFrames == everyFrames(0.7F) - 5)
-      loadScene(loadingTarget);  // 5 frames shown first
+    if (loadingFrames == everyFrames(0.7F) - 5) {  // a few frames shown first
+      loadScene(loadingTarget);
+      fppSpawnPending = true;
+    }
     return;
+  }
+  if (fppSpawnPending) {
+    // The built-in FPP player respawns at the new scene's spawn point.
+    fppSpawnPending = false;
+    playerX = 0.0F;
+    playerZ = 0.0F;
+    yaw = 0.0F;
+    pitch = 0.0F;
+    for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+      if (SCENE_OBJECTS[i].type == 4) {
+        playerX = SCENE_OBJECTS[i].position[0];
+        playerZ = SCENE_OBJECTS[i].position[2];
+        yaw = SCENE_OBJECTS[i].rotation[1] * PI / 180.0F;
+        break;
+      }
+    }
+    playerY = terrainHeightAt(playerX, playerZ);
+    playerVelY = 0.0F;
   }
 
   // Streaming layers: Load/Unload Layer requests, one asset load per frame,
   // trickle activation of freshly resident layers.
   updateLayerStreaming();
 
-  // Flow graph / script teleport request (needs a Player entity - the orbit
-  // camera itself is not teleportable)
+  // Flow graph / script teleport request: move the Player entity when the
+  // scene has one, the built-in FPP player otherwise.
   if (scriptCtx.teleport) {
     scriptCtx.teleport = false;
     if (PLAYER_INDEX >= 0) {
@@ -1010,6 +1047,12 @@ void TerrainGame::loop() {
       entZ = scriptCtx.teleportPos.z;
       entVelY = 0.0F;
       entYaw = scriptCtx.teleportYaw * PI / 180.0F;
+    } else {
+      playerX = scriptCtx.teleportPos.x;
+      playerY = scriptCtx.teleportPos.y;
+      playerZ = scriptCtx.teleportPos.z;
+      playerVelY = 0.0F;
+      yaw = scriptCtx.teleportYaw * PI / 180.0F;
     }
   }
 
@@ -4250,15 +4293,70 @@ void TerrainGame::renderTerrain() {
       stapip.core.render(ch.bag.get());
 }
 
-void TerrainGame::updateCameraOrbit() {
-  orbitAngle += 0.005F * ORBIT_SPEED * g_frameScale;
-  const float diag = TERRAIN_WIDTH > TERRAIN_DEPTH ? TERRAIN_WIDTH : TERRAIN_DEPTH;
-  const float orbitRadius = diag * 0.9F;
-  const float orbitHeight = diag * 0.55F;
+void TerrainGame::updatePlayer() {
+  const auto& leftJoy = engine->pad.getLeftJoyPad();
+  const auto& rightJoy = engine->pad.getRightJoyPad();
+  // stickAxis applies the per-stick deadzone (ANALOG_DEADZONE_*) and response
+  // curve (g_stickCurve*/g_stickExp* - Preferences > Input / Set Stick Curve).
+  auto axisL = [&](const u8& raw) {
+    return stickAxis(raw, ANALOG_DEADZONE_L, g_stickCurveL, g_stickExpL);
+  };
+  auto axisR = [&](const u8& raw) {
+    return stickAxis(raw, ANALOG_DEADZONE_R, g_stickCurveR, g_stickExpR);
+  };
 
-  cameraPosition.x = orbitRadius * cosf(orbitAngle);
-  cameraPosition.y = orbitHeight;
-  cameraPosition.z = orbitRadius * sinf(orbitAngle);
+  // Right stick: look around (stick right = turn right)
+  yaw -= axisR(rightJoy.h) * 0.05F * LOOK_SPEED * g_frameScale;
+  pitch -= axisR(rightJoy.v) * 0.035F * LOOK_SPEED * g_frameScale;
+  if (pitch > 1.2F) pitch = 1.2F;
+  if (pitch < -1.2F) pitch = -1.2F;
+
+  // Left stick: walk. Forward is where the camera looks (flat).
+  const float fx = sinf(yaw);
+  const float fz = cosf(yaw);
+  const float forward = -axisL(leftJoy.v);
+  const float strafe = axisL(leftJoy.h);
+  float nextX = playerX + (fx * forward - fz * strafe) * WALK_SPEED * g_frameScale;
+  float nextZ = playerZ + (fz * forward + fx * strafe) * WALK_SPEED * g_frameScale;
+
+  // Keep the player on the terrain
+  const float limX = TERRAIN_WIDTH * 0.5F - 1.0F;
+  const float limZ = TERRAIN_DEPTH * 0.5F - 1.0F;
+  if (nextX > limX) nextX = limX;
+  if (nextX < -limX) nextX = -limX;
+  if (nextZ > limZ) nextZ = limZ;
+  if (nextZ < -limZ) nextZ = -limZ;
+
+  // Collision with scene objects (collidePlayer: box/mesh/none per object)
+  // + standing on top of them. Player can step ~0.5 units up.
+  // The floor is the sculpted terrain.
+  float ground = terrainHeightAt(nextX, nextZ);
+  float ceiling = 1e30F;
+  collidePlayer(playerX, playerZ, &nextX, &nextZ, playerY, EYE_HEIGHT, &ground,
+                &ceiling);
+  playerX = nextX;
+  playerZ = nextZ;
+
+  // Gravity & jumping (X). GRAVITY: units/s^2, JUMP_SPEED: units/s.
+  playerVelY -= GRAVITY * g_frameDt * g_frameDt;
+  playerY += playerVelY;
+  // Jump clamp: keep the eye EYE_CLEARANCE below overhead geometry so the
+  // camera never pokes into it (skipped when the gap is too low to stand in)
+  const float maxY = ceiling - EYE_HEIGHT - EYE_CLEARANCE;
+  if (playerY > maxY && maxY >= ground) {
+    playerY = maxY;
+    if (playerVelY > 0.0F) playerVelY = 0.0F;
+  }
+  if (playerY <= ground) {
+    playerY = ground;
+    playerVelY = 0.0F;
+    if (engine->pad.getClicked().BTN_JUMP) playerVelY = JUMP_SPEED * g_frameDt;
+  }
+
+  const float eyeY = playerY + EYE_HEIGHT;
+  cameraPosition = Vec4(playerX, eyeY, playerZ);
+  cameraLookAt = Vec4(playerX + fx * cosf(pitch), eyeY + sinf(pitch),
+                      playerZ + fz * cosf(pitch));
 }
 
 }  // namespace Reflections

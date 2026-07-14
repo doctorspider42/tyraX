@@ -9,6 +9,21 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (104) **examples/reflections rebuilt as a first-person chrome showroom.**
+  The original orbit-camera five-object demo (its res/ assets initially
+  missed the repo - see 102) is now an FPP scene: an avenue of pedestals
+  pairing static-sunset-map chrome against dynamic "@sky" chrome, a tall
+  mirror monolith, three car-paint spheres and a matte control - plus a
+  flow-graph **sky cycler** (Every 14 s -> Set Sky sunset, parallel
+  Delay 7 s -> Set Sky day) that makes the dynamic mode's point in one
+  glance: only "@sky" surfaces follow the retint. Flow-graph codegen
+  gotcha worth remembering: built-in action nodes do NOT chain exec onward
+  (emitExec recurses only through custom exec_out nodes), so
+  trigger->SetSky->Delay silently drops the Delay - wire the Delay to the
+  trigger in parallel. **Verified** (Layer 3, software renderer): two
+  screenshots 7 s apart show the day and sunset phases with the dynamic
+  spheres/monolith tracking the sky while static-map spheres keep their
+  sunset bands; boot log clean.
 - (103) **Dynamic env map fix: the clear sprite never painted (feathery
   reflections).** User-reported: up close, "@sky" surfaces showed grey
   feathering, as if geometry bled through. Diagnosis via a probe material

@@ -26,13 +26,14 @@ class TerrainGame : public Tyra::Game {
   void updateTerrainChunks(float focusX, float focusZ, int budget);
   int countPendingChunks(float focusX, float focusZ);
   void renderTerrain();
-  void updateCameraOrbit();
+  void updatePlayer();
 
   Tyra::Engine* engine;
   Tyra::StaticPipeline stapip;
 
   Tyra::Vec4 cameraPosition, cameraLookAt;
-  float orbitAngle;
+  float playerX, playerZ, yaw, pitch;
+  float playerY, playerVelY;  // feet height + vertical velocity (physics)
 
   // Terrain chunks: the heightmap grid is cut into TERRAIN_CHUNK_CELLS-sized
   // square tiles, one StaPip bag each (see the chunk functions in the .cpp).

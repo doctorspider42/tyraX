@@ -11,7 +11,35 @@
 
 namespace Reflections {
 
-// No object has a flow graph yet.
+// Scene "main": graph of "sky-cycler" (object 13)
+class FlowGraphScript_0_13 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 0) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+      delay3 = 0;
+    }
+    frame++;
+    if (delay3 > 0 && --delay3 == 0) {
+      ctx.skyColor = Tyra::Color(63.75F, 140.25F, 198.9F);
+    }
+    if (frame % everyFrames(14.0F) == 0) {
+      ctx.skyColor = Tyra::Color(255.0F, 127.5F, 63.75F);
+      delay3 = everyFrames(7.0F);
+    }
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+  int delay3 = 0;
+};
 
 }  // namespace Reflections
 
+TYRA_SCRIPT(Reflections::FlowGraphScript_0_13);

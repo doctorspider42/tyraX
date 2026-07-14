@@ -55,15 +55,25 @@ struct SceneObjectData {
 constexpr int SCENE_COUNT = 1;
 
 // scene "main"
-constexpr SceneObjectData SCENE_0_OBJECTS[5] = {
-    {1, {-6.0F, 2.0F, 8.0F}, {0.0F, 0.0F, 0.0F}, {3.0F, 3.0F, 3.0F}, {1.0F, 1.0F, 1.0F}, 0, -1, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 24, -1},  // chrome-static
-    {1, {0.0F, 2.0F, 8.0F}, {0.0F, 0.0F, 0.0F}, {3.0F, 3.0F, 3.0F}, {1.0F, 1.0F, 1.0F}, 0, -1, 1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 24, -1},  // chrome-live-sky
-    {1, {6.0F, 2.0F, 8.0F}, {0.0F, 0.0F, 0.0F}, {3.0F, 3.0F, 3.0F}, {1.0F, 1.0F, 1.0F}, 0, -1, 2, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 24, -1},  // car-paint-live
-    {0, {-3.0F, 1.2F, 14.0F}, {0.0F, 30.0F, 0.0F}, {2.4F, 2.4F, 2.4F}, {1.0F, 1.0F, 1.0F}, 0, -1, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // chrome-box
-    {0, {3.0F, 1.2F, 14.0F}, {0.0F, 0.0F, 0.0F}, {2.4F, 2.4F, 2.4F}, {0.8F, 0.35F, 0.25F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // matte-control
+constexpr SceneObjectData SCENE_0_OBJECTS[15] = {
+    {0, {-5.0F, 0.8F, 8.0F}, {0.0F, 0.0F, 0.0F}, {1.8F, 1.6F, 1.8F}, {1.0F, 1.0F, 1.0F}, 0, -1, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // pedestal-1
+    {1, {-5.0F, 2.8F, 8.0F}, {0.0F, 0.0F, 0.0F}, {2.4F, 2.4F, 2.4F}, {1.0F, 1.0F, 1.0F}, 0, -1, 1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 24, -1},  // chrome-sunset-1
+    {0, {5.0F, 0.8F, 8.0F}, {0.0F, 0.0F, 0.0F}, {1.8F, 1.6F, 1.8F}, {1.0F, 1.0F, 1.0F}, 0, -1, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // pedestal-2
+    {1, {5.0F, 2.8F, 8.0F}, {0.0F, 0.0F, 0.0F}, {2.4F, 2.4F, 2.4F}, {1.0F, 1.0F, 1.0F}, 0, -1, 2, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 24, -1},  // chrome-live-1
+    {0, {-5.0F, 0.8F, 16.0F}, {0.0F, 0.0F, 0.0F}, {1.8F, 1.6F, 1.8F}, {1.0F, 1.0F, 1.0F}, 0, -1, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // pedestal-3
+    {1, {-5.0F, 2.8F, 16.0F}, {0.0F, 0.0F, 0.0F}, {2.4F, 2.4F, 2.4F}, {1.0F, 1.0F, 1.0F}, 0, -1, 1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 24, -1},  // chrome-sunset-2
+    {0, {5.0F, 0.8F, 16.0F}, {0.0F, 0.0F, 0.0F}, {1.8F, 1.6F, 1.8F}, {1.0F, 1.0F, 1.0F}, 0, -1, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // pedestal-4
+    {1, {5.0F, 2.8F, 16.0F}, {0.0F, 0.0F, 0.0F}, {2.4F, 2.4F, 2.4F}, {1.0F, 1.0F, 1.0F}, 0, -1, 2, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 24, -1},  // chrome-live-2
+    {0, {0.0F, 4.0F, 26.0F}, {0.0F, 25.0F, 0.0F}, {4.5F, 8.0F, 1.2F}, {1.0F, 1.0F, 1.0F}, 0, -1, 2, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // mirror-monolith
+    {1, {-7.0F, 1.6F, 24.0F}, {0.0F, 0.0F, 0.0F}, {3.2F, 3.2F, 3.2F}, {1.0F, 1.0F, 1.0F}, 0, -1, 3, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 24, -1},  // paint-red
+    {1, {7.0F, 1.6F, 24.0F}, {0.0F, 0.0F, 0.0F}, {3.2F, 3.2F, 3.2F}, {1.0F, 1.0F, 1.0F}, 0, -1, 4, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 24, -1},  // paint-blue
+    {1, {0.0F, 1.6F, 33.0F}, {0.0F, 0.0F, 0.0F}, {3.2F, 3.2F, 3.2F}, {1.0F, 1.0F, 1.0F}, 0, -1, 5, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 24, -1},  // paint-black
+    {0, {0.0F, 1.0F, 4.0F}, {0.0F, 15.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.8F, 0.35F, 0.25F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // matte-control
+    {11, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // sky-cycler
+    {6, {0.0F, 0.0F, -2.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // player-1
 };
 
-constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {5};
+constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {15};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
@@ -76,7 +86,7 @@ constexpr float SCENE_LAYER_STREAM_RADII[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F
 constexpr int SND_COUNT = 0;
 inline const char* SND_PATHS[1] = {""};
 
-constexpr int PLAYER_INDEXES[SCENE_COUNT] = {-1};
+constexpr int PLAYER_INDEXES[SCENE_COUNT] = {14};
 constexpr int PLAYER_MODES[SCENE_COUNT] = {0};
 constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {0.4F};
 constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
@@ -84,8 +94,8 @@ constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {1.8F};
 constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};
 constexpr bool PLAYER_CAN_JUMPS[SCENE_COUNT] = {true};
 
-constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {48.0F};
-constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {48.0F};
+constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {64.0F};
+constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {64.0F};
 constexpr float SCENE_LIGHT_XS[SCENE_COUNT] = {0.369465F};
 constexpr float SCENE_LIGHT_YS[SCENE_COUNT] = {0.818814F};
 constexpr float SCENE_LIGHT_ZS[SCENE_COUNT] = {0.439363F};
@@ -114,9 +124,9 @@ constexpr float FOG_BS[SCENE_COUNT] = {140.25F};
 constexpr float FOG_STARTS[SCENE_COUNT] = {15.0F};
 constexpr float FOG_ENDS[SCENE_COUNT] = {120.0F};
 constexpr bool FLASHLIGHT_ENABLEDS[SCENE_COUNT] = {false};
-constexpr float FLASHLIGHT_RS[SCENE_COUNT] = {0.0F};
-constexpr float FLASHLIGHT_GS[SCENE_COUNT] = {0.0F};
-constexpr float FLASHLIGHT_BS[SCENE_COUNT] = {0.0F};
+constexpr float FLASHLIGHT_RS[SCENE_COUNT] = {96.0F};
+constexpr float FLASHLIGHT_GS[SCENE_COUNT] = {96.0F};
+constexpr float FLASHLIGHT_BS[SCENE_COUNT] = {79.36F};
 constexpr float FLASHLIGHT_RANGES[SCENE_COUNT] = {30.0F};
 constexpr float FLASHLIGHT_ANGLES[SCENE_COUNT] = {20.0F};
 constexpr bool HIGHLIGHT_USABLES[SCENE_COUNT] = {false};
@@ -155,7 +165,7 @@ constexpr int SAVE_TEXT_COUNT = 0;
 constexpr int SAVE_TEXT_LEN = 32;  // incl. the terminating NUL
 inline const char* SAVE_TEXT_NAMES[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
 inline const char* SAVE_TEXT_DEFAULTS[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
-constexpr int SAVE_OBJECT_MAX = 5;
+constexpr int SAVE_OBJECT_MAX = 15;
 
 }  // namespace Reflections
 
