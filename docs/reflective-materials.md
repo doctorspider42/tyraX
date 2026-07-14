@@ -51,6 +51,11 @@ the effect. The env pass owns a dedicated 128×128 z-buffer, so marked
 objects occlude each other correctly inside the map. The editor viewport's
 approximation shows the sky only — check object reflections in the game.
 
+A marked object the camera is standing right next to is **skipped** from the
+map (within ~1.9× its bounding radius): it would swamp the whole reflection —
+typically as the inspected surface's own dark self-reflection, which read as
+ugly patches up close. It fades back in as you step away.
+
 ## How the PS2 side works
 
 - `LeanObjLoader` parses `refl` (texture + strength) alongside `Kd`/`map_Kd`.

@@ -9,6 +9,20 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (106) **Self-reflection fix: near-camera reflected objects skip the env
+  pass.** User-reported (second close-up artifact after 103): a reflective
+  object that is ALSO marked "Show in reflections" sampled its own body
+  from the env map up close - the object fills most of the wide-FOV env
+  view when the camera stands at it, so chrome showed big dark hatched
+  patches of itself ("siet"). Mid-distance mutual reflections (the red
+  box's blob in a neighboring sphere) look great - the degenerate case is
+  only the object the camera is hugging. Fix in the generated env pass:
+  skip a reflected object when the camera sits within ~1.9x its bounding
+  radius (0.87 * max scale, the unit-cube half-diagonal); it pops back in
+  a step away. **Verified** (Layer 3, software renderer): the screen-
+  filling marked "@sky" sphere from the repro scene is uniformly clean up
+  close; the reflections showcase keeps its marked paint spheres and the
+  red-box blob in neighboring chrome.
 - (105) **Objects in reflections: the per-object "Show in reflections"
   flag.** The dynamic ("@sky") env map reflected only the sky dome; now an
   object marked `reflected` (Properties checkbox, `"reflected": true` in the
