@@ -1899,6 +1899,8 @@ void TerrainGame::init() {
   stapip.core.setVU1Clipping(CLIP_VU1);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
+                                               POSTFX_DOF_RANGE, POSTFX_DOF);
   // GS hardware distance fog (Scene/Project > Preferences > Fog).
   if (FOG_ENABLED)
     engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START,
@@ -2099,7 +2101,12 @@ void TerrainGame::loop() {
     engine->renderer.core.postFx.setGrain(scriptCtx.grain);
     scriptCtx.grain = -1;
   }
-  if (scriptCtx.dof >= 0) {
+  if (scriptCtx.dof == -2) {
+    // Set Depth Of Field, "Scene setting" mode: back to the authored values
+    engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
+                                                 POSTFX_DOF_RANGE, POSTFX_DOF);
+    scriptCtx.dof = -1;
+  } else if (scriptCtx.dof >= 0) {
     engine->renderer.core.postFx.setDepthOfField(
         scriptCtx.dofFocus, scriptCtx.dofRange, scriptCtx.dof);
     scriptCtx.dof = -1;
@@ -2154,6 +2161,11 @@ void TerrainGame::loop() {
   {
     engine->renderer.renderer3D.usePipeline(stapip);
     renderScene();
+    // Depth of field composites right after the 3D scene, BEFORE any 2D:
+    // sprites stamp z = max across their whole rect (transparent margins
+    // included), which would punch sharp rectangles into a later z-tested
+    // DoF pass (a crosshair HUD showed through the blur as a box).
+    engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassDof);
     // Full-screen effects can sit inside the HUD stack (Tools > UI Editor):
     // bloom (with color grading) and film grain composite at independent
     // points, so sprites drawn afterwards stay crisp on top of them. -1 = the
@@ -2161,7 +2173,6 @@ void TerrainGame::loop() {
     for (int i = 0; i < (int)hudSprites.size(); ++i) {
       if (i == HUD_BLOOM_LAYER)
         engine->renderer.core.applyPostFx(
-            Tyra::RendererCorePostFx::PassDof |
             Tyra::RendererCorePostFx::PassBloom |
             Tyra::RendererCorePostFx::PassGrading);
       if (i == HUD_GRAIN_LAYER)
@@ -3389,6 +3400,8 @@ void TerrainGame::loadScene(int sceneIndex) {
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
+                                               POSTFX_DOF_RANGE, POSTFX_DOF);
   // GS hardware distance fog (Scene/Project > Preferences > Fog).
   if (FOG_ENABLED)
     engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START,
@@ -5207,6 +5220,8 @@ void TerrainGame::init() {
   stapip.core.setVU1Clipping(CLIP_VU1);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
+                                               POSTFX_DOF_RANGE, POSTFX_DOF);
   // GS hardware distance fog (Scene/Project > Preferences > Fog).
   if (FOG_ENABLED)
     engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START,
@@ -5443,7 +5458,12 @@ void TerrainGame::loop() {
     engine->renderer.core.postFx.setGrain(scriptCtx.grain);
     scriptCtx.grain = -1;
   }
-  if (scriptCtx.dof >= 0) {
+  if (scriptCtx.dof == -2) {
+    // Set Depth Of Field, "Scene setting" mode: back to the authored values
+    engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
+                                                 POSTFX_DOF_RANGE, POSTFX_DOF);
+    scriptCtx.dof = -1;
+  } else if (scriptCtx.dof >= 0) {
     engine->renderer.core.postFx.setDepthOfField(
         scriptCtx.dofFocus, scriptCtx.dofRange, scriptCtx.dof);
     scriptCtx.dof = -1;
@@ -5498,6 +5518,11 @@ void TerrainGame::loop() {
   {
     engine->renderer.renderer3D.usePipeline(stapip);
     renderScene();
+    // Depth of field composites right after the 3D scene, BEFORE any 2D:
+    // sprites stamp z = max across their whole rect (transparent margins
+    // included), which would punch sharp rectangles into a later z-tested
+    // DoF pass (a crosshair HUD showed through the blur as a box).
+    engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassDof);
     // Full-screen effects can sit inside the HUD stack (Tools > UI Editor):
     // bloom (with color grading) and film grain composite at independent
     // points, so sprites drawn afterwards stay crisp on top of them. -1 = the
@@ -5505,7 +5530,6 @@ void TerrainGame::loop() {
     for (int i = 0; i < (int)hudSprites.size(); ++i) {
       if (i == HUD_BLOOM_LAYER)
         engine->renderer.core.applyPostFx(
-            Tyra::RendererCorePostFx::PassDof |
             Tyra::RendererCorePostFx::PassBloom |
             Tyra::RendererCorePostFx::PassGrading);
       if (i == HUD_GRAIN_LAYER)
@@ -6233,10 +6257,11 @@ struct ScriptContext {
   int grain = -1;
   int particles = -1;
 
-  // Depth of field (Set Depth Of Field flow node). dof: -1 = leave, else a
-  // 0..128 blur amount (0 = off). The image blurs progressively from
-  // dofFocus to dofFocus + dofRange (world units from the camera). The game
-  // applies and resets dof.
+  // Depth of field (Set Depth Of Field flow node). dof: -1 = leave, -2 =
+  // restore the scene's authored setting (Tools > UI Editor), else a 0..128
+  // blur amount (0 = off). The image blurs progressively from dofFocus to
+  // dofFocus + dofRange (world units from the camera). The game applies and
+  // resets dof.
   int dof = -1;
   float dofFocus = 0.0F;
   float dofRange = 0.0F;
@@ -7126,6 +7151,11 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     sceneFloats("SKY_TOP_BS", [&](int si) { return floatLit(rs[si].skyTopColor[2] * 255.0f); });
     sceneInts("POSTFX_BLOOMS", [&](int si) { return fx128(rs[si].bloom); });
     sceneInts("POSTFX_GRAINS", [&](int si) { return fx128(rs[si].grain); });
+    sceneInts("POSTFX_DOFS", [&](int si) { return fx128(rs[si].dofAmount); });
+    sceneFloats("POSTFX_DOF_FOCUSES",
+                [&](int si) { return floatLit(rs[si].dofFocus); });
+    sceneFloats("POSTFX_DOF_RANGES",
+                [&](int si) { return floatLit(rs[si].dofRange); });
     sceneBools("FOG_ENABLEDS", [&](int si) { return rs[si].fogEnabled; });
     sceneFloats("FOG_RS", [&](int si) { return floatLit(rs[si].fogColor[0] * 255.0f); });
     sceneFloats("FOG_GS", [&](int si) { return floatLit(rs[si].fogColor[1] * 255.0f); });
@@ -7366,6 +7396,9 @@ inline int everyFrames(float seconds) {
 #define SKY_TOP_B SKY_TOP_BS[g_activeScene]
 #define POSTFX_BLOOM POSTFX_BLOOMS[g_activeScene]
 #define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
+#define POSTFX_DOF POSTFX_DOFS[g_activeScene]
+#define POSTFX_DOF_FOCUS POSTFX_DOF_FOCUSES[g_activeScene]
+#define POSTFX_DOF_RANGE POSTFX_DOF_RANGES[g_activeScene]
 #define FOG_ENABLED FOG_ENABLEDS[g_activeScene]
 #define FOG_R FOG_RS[g_activeScene]
 #define FOG_G FOG_GS[g_activeScene]
@@ -8834,34 +8867,44 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 c << pad << "ctx." << (n.type == "SetBloom" ? "bloom" : "grain")
                   << " = " << v << ";\n";
             } else if (n.type == "SetDof") {
-                int v = (int)(n.num[2] * 128.0f + 0.5f);
-                if (v < 0) v = 0;
-                if (v > 128) v = 128;
-                // A wired position turns Focus into the live distance from
-                // the player to that point.
-                bool posWired = false;
-                for (const FlowLink& l : fg.links)
-                    posWired |= (l.kind == FlowLinkPos && l.toNode == n.id);
-                if (posWired && v > 0) {
-                    const auto e = posExpr(n);
-                    c << pad << "{\n"
-                      << pad << "  const float fdx = " << e[0]
-                      << " - ctx.playerPosition.x;\n"
-                      << pad << "  const float fdy = " << e[1]
-                      << " - ctx.playerPosition.y;\n"
-                      << pad << "  const float fdz = " << e[2]
-                      << " - ctx.playerPosition.z;\n"
-                      << pad
-                      << "  ctx.dofFocus = sqrtf(fdx * fdx + fdy * fdy + fdz * "
-                         "fdz);\n"
-                      << pad << "}\n";
+                // Mode (num[3]): 0 = set the custom params, 1 = off,
+                // 2 = restore the scene's authored setting (-2 request).
+                const int mode = (int)n.num[3];
+                if (mode == 1) {
+                    c << pad << "ctx.dof = 0;\n";
+                } else if (mode == 2) {
+                    c << pad << "ctx.dof = -2;  // scene setting\n";
                 } else {
-                    c << pad << "ctx.dofFocus = "
-                      << floatLit(n.num[0] < 0.0f ? 0.0f : n.num[0]) << ";\n";
+                    int v = (int)(n.num[2] * 128.0f + 0.5f);
+                    if (v < 0) v = 0;
+                    if (v > 128) v = 128;
+                    // A wired position turns Focus into the live distance
+                    // from the player to that point.
+                    bool posWired = false;
+                    for (const FlowLink& l : fg.links)
+                        posWired |= (l.kind == FlowLinkPos && l.toNode == n.id);
+                    if (posWired && v > 0) {
+                        const auto e = posExpr(n);
+                        c << pad << "{\n"
+                          << pad << "  const float fdx = " << e[0]
+                          << " - ctx.playerPosition.x;\n"
+                          << pad << "  const float fdy = " << e[1]
+                          << " - ctx.playerPosition.y;\n"
+                          << pad << "  const float fdz = " << e[2]
+                          << " - ctx.playerPosition.z;\n"
+                          << pad
+                          << "  ctx.dofFocus = sqrtf(fdx * fdx + fdy * fdy + "
+                             "fdz * fdz);\n"
+                          << pad << "}\n";
+                    } else {
+                        c << pad << "ctx.dofFocus = "
+                          << floatLit(n.num[0] < 0.0f ? 0.0f : n.num[0])
+                          << ";\n";
+                    }
+                    c << pad << "ctx.dofRange = "
+                      << floatLit(n.num[1] < 0.1f ? 0.1f : n.num[1]) << ";\n";
+                    c << pad << "ctx.dof = " << v << ";\n";
                 }
-                c << pad << "ctx.dofRange = "
-                  << floatLit(n.num[1] < 0.1f ? 0.1f : n.num[1]) << ";\n";
-                c << pad << "ctx.dof = " << v << ";\n";
             } else if (n.type == "Raycast") {
                 // Latch the results into this node's runtime members; the
                 // "after" exec fires right after (emitExec), so downstream

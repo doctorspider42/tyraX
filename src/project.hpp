@@ -407,6 +407,14 @@ struct ProjectSettings {
     // pixel shaders on the PS2). 0 = off, 1 = maximum.
     float bloom = 0.0f;  // downsample + blur + additive re-add (glow)
     float grain = 0.0f;  // animated film grain noise overlay
+    // Depth of field: the image blurs progressively past dofFocus (world
+    // units from the camera), reaching the full dofAmount blur at
+    // dofFocus + dofRange. Composites right after the 3D scene (per-pixel
+    // z-tested), so the HUD stack always stays crisp. The Set Depth Of Field
+    // flow node can override or restore these at runtime.
+    float dofAmount = 0.0f;  // far-blur strength, 0 = off
+    float dofFocus = 20.0f;  // sharp up to this camera distance
+    float dofRange = 15.0f;  // full blur reached at dofFocus + dofRange
 
     // GS hardware distance fog (atmospheric fade-out). Geometry blends
     // toward fogColor between fogStart and fogEnd view distances; free on the
@@ -463,7 +471,9 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.ambient == b.ambient && a.diffuse == b.diffuse &&
            eq3(a.lightColor, b.lightColor) && a.brightness == b.brightness &&
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
-           a.grain == b.grain && a.fogEnabled == b.fogEnabled &&
+           a.grain == b.grain && a.dofAmount == b.dofAmount &&
+           a.dofFocus == b.dofFocus && a.dofRange == b.dofRange &&
+           a.fogEnabled == b.fogEnabled &&
            eq3(a.fogColor, b.fogColor) && a.fogStart == b.fogStart &&
            a.fogEnd == b.fogEnd &&
            a.loadingScreen == b.loadingScreen &&
@@ -485,7 +495,7 @@ struct SceneOverrides {
     bool sky = false;         // skyColor, skyTopColor, skyDome
     bool clipping = false;    // clipping mode
     bool terrainMat = false;  // terrainMaterial
-    bool postFx = false;      // bloom, grain
+    bool postFx = false;      // bloom, grain, depth of field
     bool fog = false;         // fogEnabled, fogColor, fogStart, fogEnd
     bool highlight = false;   // highlightUsable + distance/color/width/steps
 };
