@@ -9,6 +9,31 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (94) **Material Editor follow-ups: big preview, own Ctrl+Z undo, Delete.**
+  User feedback on (93). (a) The preview pane now takes ~48% of the window
+  width (floor `scaled(260)`) and the default window grew to 1020x600 - the
+  paint surface is the point of the window. (b) **Ctrl+Z, scoped**: the window
+  keeps ONE undo stack of paint strokes and committed property edits
+  (`MatEdUndoStep` - pixel snapshot or a pre-edit copy of the staged entries,
+  `matEdPrevMats_` baseline, cap 16). While the Material Editor is focused
+  (`matEdFocused_`, same focus-scoping as the Flow Graph's Ctrl+C/V), Ctrl+Z
+  runs `matEdUndoLast()` instead of scene undo (Ctrl+Y is inert there); an
+  Undo button sits next to Duplicate. A paint step restores + rewrites its own
+  texture even if the entry/texture switched since; a property step restores
+  the entries and saves the file. (c) **Delete...** button routes into the
+  existing asset-delete confirm flow (usage count, object/terrain fallbacks);
+  the Material case now also clears the editor's staged state when the open
+  file is the one deleted, and invalidates viewport caches. **Verified**
+  (Layer 2, GUI harness): stroke -> PNG hash changed -> Undo button restored
+  the pixels (0 brush-colored samples); Brightness drag wrote Kd 0.3 to the
+  .mtl -> Undo restored Kd 1.0; Delete showed the confirm modal, removed
+  crate-copy.mtl from disk and the list, cleared the pane, status "Deleted".
+  Ctrl+Z routing verified end-to-end with a temporary debug chord (Ctrl+U ->
+  "Material Editor: nothing to undo" with the window focused, F/T focus flags
+  in the title) because synthetic keybd_event Ctrl+Z is swallowed by
+  something machine-global in the test environment while Ctrl+S/Ctrl+U pass -
+  real-keyboard Ctrl+Z uses the identical `IsKeyChordPressed` path that scene
+  undo always used. Editor builds clean.
 - (93) **Material Editor: preview on real models, texture painting, duplicate,
   new-texture canvas.** Four additions in one coherent pass. (a) The preview
   shape combo now lists every `res/models/*.obj` next to the four primitives;

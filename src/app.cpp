@@ -552,8 +552,17 @@ void App::drawUI() {
             openPreferencesPopup_ = true;
         }
         if (!io.WantTextInput) {
-            if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Z)) undo();
-            if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Y)) redo();
+            // While the Material Editor has focus, Ctrl+Z drives ITS undo
+            // stack (paint strokes + material edits, saved straight to disk) -
+            // undoing scene changes from under an open material would be
+            // surprising. Same focus-scoping as the Flow Graph's Ctrl+C/V.
+            if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Z)) {
+                if (matEdFocused_) matEdUndoLast();
+                else undo();
+            }
+            if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Y) &&
+                !matEdFocused_)
+                redo();
             // While the Flow Graph window has focus, Ctrl+C/V act on its nodes
             // (handled in drawFlowGraphWindow); otherwise they copy scene objects.
             if (!flowGraphFocused_) {
@@ -9310,6 +9319,7 @@ bool App::loadMaterialFile(const std::string& relPath) {
         }
         e.brightness = b;
     }
+    matEdPrevMats_ = matEdMats_;  // undo baseline for the first edit
     return true;
 }
 
@@ -9370,11 +9380,12 @@ void App::openMaterialEditor(const std::string& relPath,
     if (relPath.empty() || relPath == matEdPath_) return;  // keep staged edits
     if (loadMaterialFile(relPath)) {
         matEdPath_ = relPath;
-        // different file - drop the paint session (targets no longer apply)
+        // different file - drop the paint session and its undo (the steps
+        // reference the previous file's entries/textures)
         matEdPaint_ = false;
         matEdStroke_ = false;
         matEdPaintTexRel_.clear();
-        matEdPaintUndo_.clear();
+        matEdUndo_.clear();
         // a model's own library previews best on its model: pick the sibling
         // .obj when the .mtl lives under res/models and no hint was given
         if (modelHint.empty() &&
@@ -9435,7 +9446,8 @@ void App::duplicateMaterialAsset() {
     matEdPaint_ = false;
     matEdStroke_ = false;
     matEdPaintTexRel_.clear();
-    matEdPaintUndo_.clear();
+    matEdUndo_.clear();
+    matEdPrevMats_ = matEdMats_;
     saveMaterialFile();
     statusMessage_ = "Duplicated to " + matEdPath_;
 }
@@ -9447,11 +9459,66 @@ void App::duplicateMaterialAsset() {
 // and the PNG is written back on mouse release. The flat texture on disk IS
 // the bake - the PS2 loads it like any hand-made texture.
 
+// One stack for everything the window changes: a paint step snapshots the
+// texture before the stroke, a property step snapshots the entries as they
+// were at the previous save (matEdPrevMats_). Capped - textures are small
+// (<=512^2 RGBA = 1 MB a step).
+void App::matEdPushUndo(bool paint) {
+    MatEdUndoStep s;
+    s.paint = paint;
+    if (paint) {
+        if (matEdPaintW_ < 1) return;
+        s.pixels = matEdPaintPixels_;
+        s.w = matEdPaintW_;
+        s.h = matEdPaintH_;
+        s.texRel = matEdPaintTexRel_;
+    } else {
+        s.mats = matEdPrevMats_;
+        s.sel = matEdSel_;
+        matEdPrevMats_ = matEdMats_;
+    }
+    if (matEdUndo_.size() >= 16) matEdUndo_.erase(matEdUndo_.begin());
+    matEdUndo_.push_back(std::move(s));
+}
+
+void App::matEdUndoLast() {
+    if (matEdPath_.empty()) return;
+    if (matEdUndo_.empty()) {
+        statusMessage_ = "Material Editor: nothing to undo";
+        return;
+    }
+    MatEdUndoStep s = std::move(matEdUndo_.back());
+    matEdUndo_.pop_back();
+    if (s.paint) {
+        // the stroke's texture may no longer be the loaded target (entry or
+        // texture switched since) - restore that file directly either way
+        viewport_.updateTexturePixels(s.texRel, s.w, s.h, s.pixels.data());
+        const std::string full =
+            (std::filesystem::path(project_.dir) / s.texRel).string();
+        stbi_write_png(full.c_str(), s.w, s.h, 4, s.pixels.data(), s.w * 4);
+        if (matEdPaintTexRel_ == s.texRel) {
+            matEdPaintPixels_ = std::move(s.pixels);
+            matEdPaintW_ = s.w;
+            matEdPaintH_ = s.h;
+            matEdHaveLastUV_ = false;
+        }
+        statusMessage_ = "Undid paint stroke";
+    } else {
+        matEdMats_ = std::move(s.mats);
+        if (matEdMats_.empty()) matEdMats_.push_back(MatEdEntry{});
+        matEdSel_ = s.sel < 0                        ? 0
+                    : s.sel >= (int)matEdMats_.size() ? (int)matEdMats_.size() - 1
+                                                      : s.sel;
+        matEdPrevMats_ = matEdMats_;
+        saveMaterialFile();
+        statusMessage_ = "Undid material edit";
+    }
+}
+
 bool App::matEdLoadPaintTarget(const std::string& texRel) {
     matEdPaintTexRel_ = texRel;  // remembered even on failure (no retry loop)
     matEdPaintPixels_.clear();
     matEdPaintW_ = matEdPaintH_ = 0;
-    matEdPaintUndo_.clear();
     matEdHaveLastUV_ = false;
     const std::string full =
         (std::filesystem::path(project_.dir) / texRel).string();
@@ -9552,14 +9619,20 @@ void App::matEdPaintTo(float u, float v) {
 }
 
 void App::drawMaterialEditorWindow() {
-    if (!showMaterialEditor_ || !hasProject_) return;
+    if (!showMaterialEditor_ || !hasProject_) {
+        matEdFocused_ = false;
+        return;
+    }
 
-    ImGui::SetNextWindowSize(ImVec2(scaled(780), scaled(460)),
+    ImGui::SetNextWindowSize(ImVec2(scaled(1020), scaled(600)),
                              ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Material Editor", &showMaterialEditor_)) {
+        matEdFocused_ = false;
         ImGui::End();
         return;
     }
+    // Routes Ctrl+Z to this window's own undo stack (see handleShortcuts)
+    matEdFocused_ = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
     // --- left: .mtl asset list ----------------------------------------------
     ImGui::BeginChild("##mat_list", ImVec2(scaled(190), 0), ImGuiChildFlags_Borders);
@@ -9608,6 +9681,10 @@ void App::drawMaterialEditorWindow() {
                 e.color[0] = 0.8f, e.color[1] = 0.8f, e.color[2] = 0.8f;
                 matEdMats_.push_back(std::move(e));
                 matEdSel_ = 0;
+                matEdUndo_.clear();
+                matEdPrevMats_ = matEdMats_;
+                matEdPaint_ = false;
+                matEdPaintTexRel_.clear();
                 saveMaterialFile();
                 ImGui::CloseCurrentPopup();
             }
@@ -9635,7 +9712,10 @@ void App::drawMaterialEditorWindow() {
     bool committed = false;
 
     // --- middle: the selected entry's properties ------------------------------
-    const float previewW = scaled(240.0f);
+    // The preview is the working surface (paint lives there): give it the
+    // larger share of the window, the property column keeps a workable floor.
+    float previewW = ImGui::GetContentRegionAvail().x * 0.48f;
+    if (previewW < scaled(260.0f)) previewW = scaled(260.0f);
     ImGui::BeginChild("##mat_edit",
                       ImVec2(ImGui::GetContentRegionAvail().x - previewW - scaled(8.0f), 0));
     ImGui::TextDisabled("%s", matEdPath_.c_str());
@@ -9644,6 +9724,23 @@ void App::drawMaterialEditorWindow() {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Copy this .mtl (and its textures) under a new name -\n"
                           "safe to recolor or repaint without touching the original.");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Delete..."))
+        requestAssetDelete(PendingAssetDelete::Material, matEdPath_,
+                           matEdPath_.rfind("res/", 0) == 0 ? matEdPath_.substr(4)
+                                                            : matEdPath_);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Remove this .mtl from the project (asks first).\n"
+                          "Objects using it fall back to plain color, models\n"
+                          "to their own libraries; textures stay on disk.");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(matEdUndo_.empty());
+    if (ImGui::SmallButton("Undo")) matEdUndoLast();
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Ctrl+Z while this window is focused: undoes the\n"
+                          "last paint stroke or material edit (the editor's\n"
+                          "own history - scene undo is untouched).");
 
     // entry list within the file (universal libraries hold several; the FIRST
     // one is what primitives and emitters use)
@@ -9944,17 +10041,6 @@ void App::drawMaterialEditorWindow() {
             }
         }
         if (matEdPaint_ && canPaint) {
-            ImGui::SameLine();
-            ImGui::BeginDisabled(matEdPaintUndo_.empty());
-            if (ImGui::SmallButton("Undo stroke")) {
-                matEdPaintPixels_ = std::move(matEdPaintUndo_.back());
-                matEdPaintUndo_.pop_back();
-                viewport_.updateTexturePixels(matEdPaintTexRel_, matEdPaintW_,
-                                              matEdPaintH_,
-                                              matEdPaintPixels_.data());
-                matEdSavePaintTarget();
-            }
-            ImGui::EndDisabled();
 
             ImGui::SetNextItemWidth(scaled(110.0f));
             ImGui::Combo("##brush_mode", &matEdBrushMode_, "Color brush\0Texture brush\0");
@@ -10085,10 +10171,7 @@ void App::drawMaterialEditorWindow() {
 
             if (matEdPaint_ && canPaint) {
                 if (ImGui::IsItemActivated() && ImGui::IsMouseDown(0)) {
-                    // stroke start: snapshot for the stroke-undo stack
-                    if (matEdPaintUndo_.size() >= 12)
-                        matEdPaintUndo_.erase(matEdPaintUndo_.begin());
-                    matEdPaintUndo_.push_back(matEdPaintPixels_);
+                    matEdPushUndo(true);  // snapshot before the stroke
                     matEdStroke_ = true;
                     matEdHaveLastUV_ = false;
                 }
@@ -10126,7 +10209,10 @@ void App::drawMaterialEditorWindow() {
 
     ImGui::End();
 
-    if (committed) saveMaterialFile();
+    if (committed) {
+        matEdPushUndo(false);  // the pre-edit entries -> Ctrl+Z target
+        saveMaterialFile();
+    }
 }
 
 // Menu Editor window: menu list on the left, the selected menu's properties,
@@ -11023,6 +11109,17 @@ void App::performAssetDelete(const PendingAssetDelete& d) {
                 if (scene.settings.terrainMaterial == d.relPath)
                     scene.settings.terrainMaterial.clear();
             modelInfoCache_.clear();
+            // The Material Editor may have this very file open (its Delete...
+            // button routes here) - drop the staged copy and paint session.
+            if (matEdPath_ == d.relPath) {
+                matEdPath_.clear();
+                matEdMats_.clear();
+                matEdUndo_.clear();
+                matEdPaint_ = false;
+                matEdStroke_ = false;
+                matEdPaintTexRel_.clear();
+            }
+            viewport_.invalidateAssets();  // cached draws may reference the file
             statusMessage_ = "Deleted " + d.label;
             commitChange();
             break;

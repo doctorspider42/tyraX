@@ -566,7 +566,23 @@ private:
     bool matEdStroke_ = false;         // LMB stroke in progress
     float matEdLastUV_[2] = {0, 0};    // previous stamp (gap interpolation)
     bool matEdHaveLastUV_ = false;
-    std::vector<std::vector<unsigned char>> matEdPaintUndo_;  // stroke snapshots
+    // The Material Editor's own undo (Ctrl+Z while the window is focused, or
+    // the Undo button): one stack of paint strokes AND committed property
+    // edits, in order. Separate from the project history - materials are
+    // assets, their edits go straight to disk.
+    struct MatEdUndoStep {
+        bool paint = false;
+        std::vector<unsigned char> pixels;  // paint: texels before the stroke
+        int w = 0, h = 0;
+        std::string texRel;
+        std::vector<MatEdEntry> mats;  // property edit: entries before it
+        int sel = 0;
+    };
+    std::vector<MatEdUndoStep> matEdUndo_;
+    std::vector<MatEdEntry> matEdPrevMats_;  // entries as of the last save/undo push
+    bool matEdFocused_ = false;  // window focus last frame (routes Ctrl+Z)
+    void matEdPushUndo(bool paint);  // paint: snapshot pixels; else matEdPrevMats_
+    void matEdUndoLast();
     std::vector<unsigned char> matEdPatternPixels_;  // decoded pattern cache
     int matEdPatternW_ = 0, matEdPatternH_ = 0;
     std::string matEdPatternLoaded_;   // path matEdPatternPixels_ came from

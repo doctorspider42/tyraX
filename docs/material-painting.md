@@ -23,13 +23,18 @@ Camera: **drag** orbits (left button normally, **right button while
 painting**), **mouse wheel** zooms, *Spin* keeps the turntable going (paused
 while painting).
 
-## Duplicating a material
+## Duplicating and deleting a material
 
 **Duplicate** (next to the file path) copies the open `.mtl` under a fresh
 `-copy` name — and copies every texture it references (once each, renamed
 `<newname>-<texture>.png`), rewriting the `map_Kd` lines. The duplicate is
 fully independent: recolor or repaint it without ever touching the original's
 pixels. The copy opens immediately.
+
+**Delete...** removes the open `.mtl` from the project after a confirmation
+(the same dialog as the Assets panel, with a usage count). Objects that used
+it fall back to plain color, models to their own libraries, a terrain to the
+checker preview; referenced textures stay on disk.
 
 ## Painting straight onto the mesh
 
@@ -46,8 +51,12 @@ quantizes it like any other PNG).
   sampled in *texture space* and tiled (with a *Tile* density slider), so
   strokes reveal one continuous image instead of stamping it — think laying
   grass or rust onto parts of a prop.
-- **Undo stroke** — a small per-stroke undo stack (assets are outside the
-  project undo history, same as imports).
+- **Undo** — the Material Editor keeps its own undo stack of paint strokes
+  AND committed property edits (color, brightness, texture...). Press
+  **Ctrl+Z while the window is focused** (or the *Undo* button next to
+  Duplicate/Delete) to step back; scene undo is untouched, and Ctrl+Z
+  anywhere else still undoes scene changes as before. Assets are outside the
+  project history, same as imports — this stack is the editor's own.
 
 Painting works on the primitives too (they have generated UVs), but it shines
 on models: only faces mapped to the entry you are editing take paint, so a
