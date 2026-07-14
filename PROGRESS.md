@@ -9,6 +9,50 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (99) **Projected decals (rzutowanie na model) — decals that conform to the
+  receiver geometry.** The flat `Decal` (62) only worked as a sticker on a flat
+  wall; this adds a **"Project onto surfaces"** mode (`SceneObject::decalProject`)
+  that wraps the decal texture onto whatever it covers — angled/curved walls,
+  models, terrain — for wall text/graffiti and **fake blob shadows**. **Key
+  architectural choice, driven by the EE budget:** projection is *pure host-side
+  geometry* and runs entirely at build time. The decal object's oriented unit
+  cube is a projector volume; `decalproj::project` (new `src/decalproj.cpp`)
+  gathers the receiver triangles overlapping it (terrain + every solid object,
+  auto), transforms them into decal-local space, keeps only front-facing
+  (`+Z`-local) surfaces, Sutherland–Hodgman-clips each to the unit cube,
+  fan-triangulates, computes a projected UV and nudges the result along the
+  surface normal to sit in front. The output is a finished **world-space triangle
+  list** baked into `inc/decal_data.gen.hpp` (per scene, per object index). The
+  PS2 just uploads and draws it through the existing per-object static-pipeline
+  path (`rebuildObjectGeometry` case 13, identity model matrix since `pushVert`
+  already bakes world-space verts; alpha + z-fight offset come for free like the
+  flat decal) — **no projection, clipping or CPU transform ever runs on the EE**;
+  it rides the same VU1 path as all geometry, built once per scene, not per
+  frame, capped at 4096 tris. Receiver tessellation was extracted into a shared
+  host module (`src/primmesh.cpp`, box/sphere/cylinder/cone/plane as raw
+  pos+normal+uv) so the projector uses *exactly* the geometry the viewport draws
+  and the game generates; the viewport bakes shade on top (identical output).
+  Live editor preview: the app computes the projected mesh (`updateProjectedDecals`,
+  recomputed only when a scene signature changes) and pushes it to the viewport
+  (`setProjectedDecals`), drawn via the existing decal-alpha path. **Also fixed a
+  latent decal UV-handedness bug** shared with the flat decal: a decal faces `+Z`
+  and is viewed from the `+Z` side where world `+X` is to the viewer's left, so
+  `u = x+0.5` ran textures right-to-left (text mirrored). Switched to the
+  slide-projector convention `u = 0.5−x` in the projected decal, `unitDecal` and
+  `addDecal` so signs/text read correctly and flat/projected stay consistent (the
+  old test images were symmetric, so nobody had noticed). **Verified end-to-end**:
+  a standalone geometry harness (wall + floor cases, footprint/UV/offset asserts,
+  all pass); clean editor build; a scratch project (box wall + projecting "TYRA"
+  text decal + a floor blob-shadow decal on flat terrain) built through Docker +
+  PS2 `make` (`=== Build OK ===`, generated code compiles on the ee-gcc
+  toolchain) and **booted in PCSX2** (software renderer, PAL 50 FPS, no asserts):
+  the shadow conforms to the terrain and the "TYRA" text wraps onto the wall
+  reading correctly (after the UV fix). `decal_data.gen.hpp` emits the baked
+  meshes; `decalProject` load/save round-trips (omitted at its default). The flat
+  decal (`decalProject=false`) is unchanged apart from the shared UV fix.
+  Surface-matched vertex lighting for projected decals (they ship unlit/flat-tint
+  today) and texture-baking into receiver textures are noted as future follow-ups.
+
 - (94) **Raycast + Set Depth Of Field flow nodes.** Two new built-in nodes.
   **Raycast** (Player category) casts a ray from the player's eye along the
   view direction when its exec fires and latches the results into runtime

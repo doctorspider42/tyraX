@@ -12,6 +12,7 @@
 #include <set>
 #include <sstream>
 
+#include "decalproj.hpp"
 #include "gl_loader.h"
 #include "glbparser.hpp"
 #include "json.hpp"
@@ -955,6 +956,58 @@ void App::drawToolbar() {
     }
 }
 
+void App::updateProjectedDecals() {
+    // Cheap signature of everything a projection depends on: the projecting
+    // decals AND every potential receiver's transform/type. Recompute only when
+    // it changes (edits, gizmo drags), so the projection - which walks receiver
+    // geometry - doesn't run every frame. Pure host work; nothing here reaches
+    // the PS2 (see decalproj).
+    const SceneData& sc = project_.active();
+    bool anyProjecting = false;
+    for (const SceneObject& o : sc.objects)
+        if (o.type == PrimitiveType::Decal && o.decalProject) { anyProjecting = true; break; }
+
+    uint64_t sig = 1469598103934665603ull;  // FNV-1a seed
+    auto mix = [&](uint64_t v) { sig = (sig ^ v) * 1099511628211ull; };
+    auto mixf = [&](float f) {
+        uint32_t b;
+        std::memcpy(&b, &f, sizeof(b));
+        mix(b);
+    };
+    if (anyProjecting) {
+        mix(sc.objects.size());
+        for (const SceneObject& o : sc.objects) {
+            mix((uint64_t)o.type);
+            for (int k = 0; k < 3; ++k) { mixf(o.position[k]); mixf(o.rotation[k]); mixf(o.scale[k]); }
+            mix((uint64_t)o.primDetail);
+            for (char c : o.id) mix((uint8_t)c);
+            for (char c : o.modelPath) mix((uint8_t)c);
+            if (o.type == PrimitiveType::Decal) {
+                mix(o.decalProject ? 2u : 1u);
+                for (char c : o.materialPath) mix((uint8_t)c);
+            }
+        }
+        for (float h : sc.heights) mixf(h);  // terrain receiver
+    }
+
+    if (sig == projectedDecalsSig_) {
+        viewport_.setProjectedDecals(projectedDecals_, projectedDecalsVersion_);
+        return;
+    }
+    projectedDecalsSig_ = sig;
+    projectedDecals_.clear();
+    if (anyProjecting) {
+        for (const SceneObject& o : sc.objects) {
+            if (o.type != PrimitiveType::Decal || !o.decalProject || o.materialPath.empty())
+                continue;
+            decalproj::DecalMesh m = decalproj::project(project_, sc, o);
+            if (!m.verts.empty()) projectedDecals_[o.id] = std::move(m.verts);
+        }
+    }
+    ++projectedDecalsVersion_;
+    viewport_.setProjectedDecals(projectedDecals_, projectedDecalsVersion_);
+}
+
 void App::drawViewportWindow() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     // NoNav: keep ImGui keyboard navigation out of the viewport. Otherwise the
@@ -1054,6 +1107,7 @@ void App::drawViewportWindow() {
             }
             viewport_.setHiddenCameras(std::move(hideCams));
         }
+        updateProjectedDecals();
         uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
                                         selection_, selectedObject_);
         // Flip vertically: GL texture origin is bottom-left
@@ -3683,10 +3737,18 @@ void App::drawPropertiesWindow() {
                                    "Material file missing/empty - plain color.");
             }
         }
-        if (isDecal)
+        if (isDecal) {
             ImGui::TextDisabled(
                 "Assign a material whose map_Kd PNG has transparency.\n"
                 "Sits just in front of its origin; place it on a surface.");
+            if (ImGui::Checkbox("Project onto surfaces", &o.decalProject))
+                committed = true;
+            if (o.decalProject)
+                ImGui::TextDisabled(
+                    "Wraps onto terrain + overlapping objects instead of a flat\n"
+                    "quad. Scale = projection box: X/Y footprint, Z depth into the\n"
+                    "surface; aim +Z at the wall/floor. Baked at build (no PS2 cost).");
+        }
     }
     if (isSolid) {
         if (ImGui::Checkbox("Physics (falls with gravity)", &o.physics)) committed = true;

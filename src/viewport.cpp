@@ -9,6 +9,7 @@
 
 #include "gl_loader.h"
 #include "objparser.hpp"
+#include "primmesh.hpp"
 #include <stb_image.h>
 
 // ---------------------------------------------------------------------------
@@ -352,136 +353,49 @@ void pushQuadShaded(std::vector<float>& v, Vec3 a, Vec3 b, Vec3 c, Vec3 d, Vec3 
     pushShaded(v, d, n, 0, 1);
 }
 
-// detail = subdivisions per edge; at 1 this emits exactly the original 6-quad
-// box. Each face is an n x n grid; UVs span 0..1 over the whole face (texture
-// does not tile with detail). Kept in sync with the PS2 runtime addBox.
+// The box/sphere/cylinder/cone/plane tessellation now lives in primmesh (shared
+// with the decal projector so decals conform to exactly this geometry). primmesh
+// emits raw pos+normal+uv; bake the directional shade into the color slot here
+// (shadeOf reads the vertex normal) to get the pos+color+uv layout the GL shader
+// wants. Geometry and UVs are byte-identical to the old local generators; only
+// the middle three floats go normal -> shade.
+std::vector<float> shadedMesh(std::vector<float> m) {
+    for (size_t i = 0; i + 7 < m.size(); i += 8) {
+        const Vec3 s = shadeOf({m[i + 3], m[i + 4], m[i + 5]});
+        m[i + 3] = s.x;
+        m[i + 4] = s.y;
+        m[i + 5] = s.z;
+    }
+    return m;
+}
 std::vector<float> unitBox(int detail = kDefaultBoxDetail) {
-    std::vector<float> v;
-    const int n = clampPrimDetail(PrimitiveType::Box, detail);
-    const float h = 0.5f, H = 1.0f;  // half-extent, full edge
-    // Face grid spanning c0 + s*du + t*dv (s,t in [0,1]); du x dv points along
-    // nrm so the winding stays CCW-outward.
-    auto face = [&](Vec3 c0, Vec3 du, Vec3 dv, Vec3 nrm) {
-        auto P = [&](float s, float t) -> Vec3 {
-            return {c0.x + du.x * s + dv.x * t, c0.y + du.y * s + dv.y * t,
-                    c0.z + du.z * s + dv.z * t};
-        };
-        for (int i = 0; i < n; ++i)
-            for (int j = 0; j < n; ++j) {
-                const float s0 = (float)i / n, s1 = (float)(i + 1) / n;
-                const float t0 = (float)j / n, t1 = (float)(j + 1) / n;
-                const Vec3 a = P(s0, t0), b = P(s1, t0), c = P(s1, t1), d = P(s0, t1);
-                pushShaded(v, a, nrm, s0, t0);
-                pushShaded(v, b, nrm, s1, t0);
-                pushShaded(v, c, nrm, s1, t1);
-                pushShaded(v, a, nrm, s0, t0);
-                pushShaded(v, c, nrm, s1, t1);
-                pushShaded(v, d, nrm, s0, t1);
-            }
-    };
-    face({h, -h, -h}, {0, H, 0}, {0, 0, H}, {1, 0, 0});    // +X
-    face({-h, -h, h}, {0, H, 0}, {0, 0, -H}, {-1, 0, 0});  // -X
-    face({-h, h, -h}, {0, 0, H}, {H, 0, 0}, {0, 1, 0});    // +Y
-    face({-h, -h, h}, {0, 0, -H}, {H, 0, 0}, {0, -1, 0});  // -Y
-    face({-h, -h, h}, {H, 0, 0}, {0, H, 0}, {0, 0, 1});    // +Z
-    face({h, -h, -h}, {-H, 0, 0}, {0, H, 0}, {0, 0, -1});  // -Z
-    return v;
+    return shadedMesh(primmesh::unitBox(detail));
 }
-
-// detail = radial segment count; see project.hpp for the shared tessellation
-// formulas (kept in sync with the PS2 runtime in templates.cpp addSphere).
 std::vector<float> unitSphere(int detail = kDefaultPrimDetail) {
-    std::vector<float> v;
-    const int slices = clampPrimDetail(PrimitiveType::Sphere, detail);
-    const int stacks = primSphereStacks(slices);
-    const float r = 0.5f;
-    auto at = [&](float t, float p) -> Vec3 {
-        return {r * std::sin(t) * std::cos(p), r * std::cos(t), r * std::sin(t) * std::sin(p)};
-    };
-    for (int st = 0; st < stacks; ++st) {
-        const float t0 = kPi * st / stacks, t1 = kPi * (st + 1) / stacks;
-        const float tv0 = (float)st / stacks, tv1 = (float)(st + 1) / stacks;
-        for (int sl = 0; sl < slices; ++sl) {
-            const float p0 = 2 * kPi * sl / slices, p1 = 2 * kPi * (sl + 1) / slices;
-            const float tu0 = (float)sl / slices, tu1 = (float)(sl + 1) / slices;
-            Vec3 v00 = at(t0, p0), v01 = at(t0, p1), v10 = at(t1, p0), v11 = at(t1, p1);
-            auto n = [](Vec3 p) -> Vec3 { return {p.x * 2, p.y * 2, p.z * 2}; };
-            pushShaded(v, v00, n(v00), tu0, tv0);
-            pushShaded(v, v10, n(v10), tu0, tv1);
-            pushShaded(v, v11, n(v11), tu1, tv1);
-            pushShaded(v, v00, n(v00), tu0, tv0);
-            pushShaded(v, v11, n(v11), tu1, tv1);
-            pushShaded(v, v01, n(v01), tu1, tv0);
-        }
-    }
-    return v;
+    return shadedMesh(primmesh::unitSphere(detail));
 }
-
 std::vector<float> unitCylinder(int detail = kDefaultPrimDetail) {
-    std::vector<float> v;
-    const int seg = clampPrimDetail(PrimitiveType::Cylinder, detail);
-    const float r = 0.5f, h = 0.5f;
-    for (int i = 0; i < seg; ++i) {
-        const float a0 = 2 * kPi * i / seg, a1 = 2 * kPi * (i + 1) / seg;
-        const float x0 = r * std::cos(a0), z0 = r * std::sin(a0);
-        const float x1 = r * std::cos(a1), z1 = r * std::sin(a1);
-        const Vec3 n0 = {std::cos(a0), 0, std::sin(a0)};
-        const Vec3 n1 = {std::cos(a1), 0, std::sin(a1)};
-        const float u0 = (float)i / seg, u1 = (float)(i + 1) / seg;
-        pushShaded(v, {x0, -h, z0}, n0, u0, 1);
-        pushShaded(v, {x0, h, z0}, n0, u0, 0);
-        pushShaded(v, {x1, h, z1}, n1, u1, 0);
-        pushShaded(v, {x0, -h, z0}, n0, u0, 1);
-        pushShaded(v, {x1, h, z1}, n1, u1, 0);
-        pushShaded(v, {x1, -h, z1}, n1, u1, 1);
-        pushShaded(v, {0, h, 0}, {0, 1, 0}, 0.5f, 0.5f);
-        pushShaded(v, {x1, h, z1}, {0, 1, 0}, x1 + 0.5f, z1 + 0.5f);
-        pushShaded(v, {x0, h, z0}, {0, 1, 0}, x0 + 0.5f, z0 + 0.5f);
-        pushShaded(v, {0, -h, 0}, {0, -1, 0}, 0.5f, 0.5f);
-        pushShaded(v, {x0, -h, z0}, {0, -1, 0}, x0 + 0.5f, z0 + 0.5f);
-        pushShaded(v, {x1, -h, z1}, {0, -1, 0}, x1 + 0.5f, z1 + 0.5f);
-    }
-    return v;
+    return shadedMesh(primmesh::unitCylinder(detail));
 }
-
 std::vector<float> unitCone(int detail = kDefaultPrimDetail) {
-    std::vector<float> v;
-    const int seg = clampPrimDetail(PrimitiveType::Cone, detail);
-    const float r = 0.5f, h = 0.5f;
-    const float nl = 0.894f, ny = 0.447f;
-    for (int i = 0; i < seg; ++i) {
-        const float a0 = 2 * kPi * i / seg, a1 = 2 * kPi * (i + 1) / seg;
-        const float am = (a0 + a1) * 0.5f;
-        const float x0 = r * std::cos(a0), z0 = r * std::sin(a0);
-        const float x1 = r * std::cos(a1), z1 = r * std::sin(a1);
-        const float u0 = (float)i / seg, u1 = (float)(i + 1) / seg;
-        pushShaded(v, {0, h, 0}, {nl * std::cos(am), ny, nl * std::sin(am)},
-                   (u0 + u1) * 0.5f, 0);
-        pushShaded(v, {x1, -h, z1}, {nl * std::cos(a1), ny, nl * std::sin(a1)}, u1, 1);
-        pushShaded(v, {x0, -h, z0}, {nl * std::cos(a0), ny, nl * std::sin(a0)}, u0, 1);
-        pushShaded(v, {0, -h, 0}, {0, -1, 0}, 0.5f, 0.5f);
-        pushShaded(v, {x0, -h, z0}, {0, -1, 0}, x0 + 0.5f, z0 + 0.5f);
-        pushShaded(v, {x1, -h, z1}, {0, -1, 0}, x1 + 0.5f, z1 + 0.5f);
-    }
-    return v;
+    return shadedMesh(primmesh::unitCone(detail));
 }
-
-// Flat unit square in the XZ plane, double-sided (top +Y and bottom -Y faces)
-// so it is visible from both above and below.
-std::vector<float> unitPlane() {
-    std::vector<float> v;
-    const float h = 0.5f;
-    pushQuadShaded(v, {-h, 0, -h}, {-h, 0, h}, {h, 0, h}, {h, 0, -h}, {0, 1, 0});
-    pushQuadShaded(v, {-h, 0, h}, {-h, 0, -h}, {h, 0, -h}, {h, 0, h}, {0, -1, 0});
-    return v;
-}
+std::vector<float> unitPlane() { return shadedMesh(primmesh::unitPlane()); }
 
 // Decal quad: XY plane facing +Z, nudged +Z by 0.02 (matches addDecal in the
-// codegen). Same corner/UV order as the box +Z face so textures map the same.
+// codegen). U runs with local -X (slide-projector convention) so a texture reads
+// correctly - not mirrored - viewed from the +Z front; V with +Y. Same as the
+// game's addDecal and the projected decal, so the preview matches the console.
 std::vector<float> unitDecal() {
     std::vector<float> v;
     const float h = 0.5f, z = 0.02f;
-    pushQuadShaded(v, {-h, -h, z}, {h, -h, z}, {h, h, z}, {-h, h, z}, {0, 0, 1});
+    const Vec3 n = {0, 0, 1};
+    pushShaded(v, {-h, -h, z}, n, 1, 0);
+    pushShaded(v, {h, -h, z}, n, 0, 0);
+    pushShaded(v, {h, h, z}, n, 0, 1);
+    pushShaded(v, {-h, -h, z}, n, 1, 0);
+    pushShaded(v, {h, h, z}, n, 0, 1);
+    pushShaded(v, {-h, h, z}, n, 1, 1);
     return v;
 }
 
@@ -1379,6 +1293,30 @@ void Viewport::setProjectDir(const std::string& dir) {
     clearTexCache();
 }
 
+void Viewport::setProjectedDecals(
+    const std::map<std::string, std::vector<float>>& meshes, uint64_t version) {
+    if (projectedDecalHasVersion_ && version == projectedDecalVersion_) return;
+    projectedDecalVersion_ = version;
+    projectedDecalHasVersion_ = true;
+    for (auto& [id, m] : projectedDecalMeshes_) destroyMesh(m);
+    projectedDecalMeshes_.clear();
+    // decalproj emits pos3+uv2; expand to the pos3+color3+uv2 GL layout with a
+    // white color (decals draw unlit - the object tint is applied at draw time).
+    // UVs are used as-is: the viewport and the baked game mesh both draw the
+    // same world-space geometry with the same UVs, so the preview matches PS2.
+    for (const auto& [id, verts] : meshes) {
+        if (verts.empty()) continue;
+        std::vector<float> interleaved;
+        interleaved.reserve(verts.size() / 5 * 8);
+        for (size_t i = 0; i + 4 < verts.size(); i += 5) {
+            interleaved.insert(interleaved.end(),
+                               {verts[i], verts[i + 1], verts[i + 2], 1.0f, 1.0f,
+                                1.0f, verts[i + 3], verts[i + 4]});
+        }
+        projectedDecalMeshes_[id] = uploadMesh(interleaved);
+    }
+}
+
 void Viewport::setTerrainMaterial(const std::string& texRelPath, const float kd[3],
                                   bool hasMaterial, const float tile[2]) {
     if (terrainTexture_ == texRelPath && terrainTile_[0] == tile[0] &&
@@ -2026,6 +1964,18 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             // Decals honor their texture's alpha (cutout + blend) - matches the
             // in-game look; other primitives draw opaque.
             const bool decalAlpha = o.type == PrimitiveType::Decal && tex && !asLines;
+            // Projecting decal: draw the precomputed world-space conforming mesh
+            // (identity transform, unlit) instead of the flat quad. Falls back to
+            // the flat quad when projection produced nothing (no receiver/material).
+            if (o.type == PrimitiveType::Decal && o.decalProject) {
+                auto it = projectedDecalMeshes_.find(o.id);
+                if (it != projectedDecalMeshes_.end() && it->second.vertexCount > 0) {
+                    draw(it->second, GL_TRIANGLES, viewProj, o.color[0] * kr * tintScale,
+                         o.color[1] * kg * tintScale, o.color[2] * kb * tintScale, tex,
+                         nullptr, decalAlpha);
+                    continue;
+                }
+            }
             draw(*meshFor(o), GL_TRIANGLES, mvp, o.color[0] * kr * tintScale,
                  o.color[1] * kg * tintScale, o.color[2] * kb * tintScale,
                  tex, lit ? &model : nullptr, decalAlpha);
