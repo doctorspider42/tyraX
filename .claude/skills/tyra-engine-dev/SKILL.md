@@ -124,7 +124,19 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
   finish); every VU1 vertex-loop count must be a multiple of 3 or the loop
   runs off into memory; overflowing the 2048-instruction micro memory is
   SILENT in release builds (the assert is compiled out) - check program sizes
-  with nm on the .o files when adding VU1 code.
+  with nm on the .o files when adding VU1 code. Two vclpp preprocessor traps
+  (each cost a debugging session): a `;` comment line INSIDE a `#macro` body
+  makes vclpp SILENTLY swallow the whole macro — every call site expands to
+  nothing, the program builds fine and just misses your code (document above
+  the `#macro` line instead); and vclpp does not expand nested macro calls —
+  a macro invoking another macro leaves mangled text that `vcl` rejects with
+  "can't find instruction" (inline the callee by hand); and vclpp expands
+  `#define`s only ONE level — an alias define (`#define A B` where B is
+  another define) reaches dvp-as unresolved ("unresolved expression"), so
+  VU1-side defines must be literals. When VU1 output looks
+  wrong, `docker exec <proj>-compiler-1 cat /tyra/engine/obj/.../<prog>.o.vcl`
+  shows exactly what vclpp produced — check the expansion before suspecting
+  your math.
 - The engine bbox cache is keyed by bag pointer — geometry that changes at
   runtime must bump `bboxVersion` on its `StaPipBag`, or culling uses stale
   boxes.

@@ -49,6 +49,12 @@ StaPipVU1Program* StaPipProgramsRepository::getProgram(
     case StaPipProgramName::StaPipClipTextureColor:
       return &clipTextureColor;
 
+    // Modified by TyraX: env (matcap) programs - reflective materials.
+    case StaPipProgramName::StaPipCullTextureEnv:
+      return &cullTextureEnv;
+    case StaPipProgramName::StaPipAsIsTextureEnv:
+      return &asIsTextureEnv;
+
     default:
       TYRA_TRAP("Unknown VU1 program name");
       return &cullTextureDirLights;

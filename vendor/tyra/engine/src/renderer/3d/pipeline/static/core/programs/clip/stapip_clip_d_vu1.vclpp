@@ -73,6 +73,8 @@
     LoadTyraStaticData{ gifSetTag }
     MatrixLoad{ mvp, VU1_MVP_MATRIX_ADDR, vi00 }
     LoadTyraTags{ lodGifTag, testsTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR }
+    ; Modified by TyraX: per-mesh GS blend equation, in-band
+    LoadTyraAlphaTag{ alphaGifTag, VU1_ALPHA_ADDR }
     ; Modified by TyraX: GS hardware fog (packed XYZF2)
     LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
     ; clip constants: x = nearZ-GUARD, y = -farZ-GUARD, z = 0, w = GUARD
@@ -89,7 +91,7 @@ begin:
     iadd    normalData,         vertexData,     vertexCount
     iadd    destAddress,        normalData,     vertexCount
 
-    StoreTyraGifTags{ gifSetTag, lodGifTag, primTag, testsTag, destAddress }
+    StoreTyraGifTagsAlpha{ gifSetTag, lodGifTag, alphaGifTag, primTag, testsTag, destAddress }
 
     iaddiu  outCount,       vi00,           0
     iadd    vertexCounter,  vi00,           vertexCount
@@ -274,7 +276,7 @@ triNext:
     iadd    vertexData, vertexData, vertexCount
     iaddiu  vertMask,   outCount,   0x4000
     iaddiu  vertMask,   vertMask,   0x4000
-    isw.x   vertMask,   4(vertexData)
+    isw.x   vertMask,   6(vertexData)
 
     xgkick vertexData ; dispatch to the GS rasterizer.
 

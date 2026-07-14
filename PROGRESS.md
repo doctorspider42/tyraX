@@ -9,6 +9,34 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (100) **Reflective materials on VU1: TCE matcap programs + in-band GS
+  ALPHA.** Phase 2a of (99). The env pass's sphere-map STs now come from a
+  new StaPip VU1 program family: `stapip_cull_tce_vu1.vclpp` +
+  `stapip_as_is_tce_vu1.vclpp` (`CalculateTyraEnvStq` in `tyra_macros.i`) -
+  the env bag's texture bag sets `coordinatesAreNormals`, the world-space
+  normals ride the vertex stream's ST slot, and VU1 computes
+  `st = (.5+.5(n·r), .5-.5(n·u))` from a per-mesh camera basis uploaded at
+  `VU1_ENV_BASIS_ADDR` (the free lights-matrix area; program selection via
+  `StaPipVU1TextureEnvColor`, EE-clipper set = 10 resident programs). The
+  blend equation moved IN-BAND: every StaPip mesh's tag block gained a GS
+  ALPHA A+D pair (`VU1_ALPHA_ADDR` = 21, `StoreTyraGifTags*Alpha` 9/7-qword
+  variants, `getMaxVertCount` -7 -> -9, clip programs' NLOOP patch offsets
+  6/4 -> 8/6) - alpha-over by default, additive for env bags - so BOTH
+  `sync.align3D()` FINISH barriers and the PATH3 `setAlpha` bracketing in
+  `StaPipCore::render` are gone; reflective mesh count is no longer
+  bottlenecked. dynpip keeps the original 7/5-qword macros (its C++ knows
+  nothing of the ALPHA qword). Generated games fall back to EE-computed STs
+  only in hidden `"clipping": "vu1"` scenes (no clip-family env variant;
+  asserted engine-side). Two NEW vclpp pitfalls recorded in tyra-engine-dev:
+  a `;` comment inside a `#macro` body makes vclpp SILENTLY swallow every
+  call site (the speckled-sphere debugging session: the .o.vcl in the
+  compiler container is the ground truth), and `#define` aliases expand only
+  one level (dvp-as "unresolved expression") - VU1 defines must be literals.
+  **Verified** (Layer 3): Docker build compiles all 14 StaPip programs;
+  PCSX2 software renderer boots clean and the zoomed screenshot shows the
+  chrome sphere's crisp horizon band + per-face box reflections identical in
+  character to the EE version; matte control box unaffected. Real-hardware
+  micro-memory headroom computed, not measured (~1.35k of 2k instr).
 - (99) **Reflective materials: sphere-mapped "chrome" (the NFS/GT car-paint
   trick).** New `refl -type sphere -mm 0 <strength> <file>` statement in
   `.mtl` files, authored in the Material Editor's new **Reflection** section

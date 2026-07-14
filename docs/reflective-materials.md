@@ -34,21 +34,27 @@ their own or an override `.mtl` — gets the reflection pass. Materials without
 - `LeanObjLoader` parses `refl` (texture + strength) alongside `Kd`/`map_Kd`.
 - At geometry build, the generated game captures the **world-space normal** of
   every emitted vertex for reflective parts (`pushVert`, `g_envNormals`).
-- Each frame, `renderScene` derives the camera basis (forward/right/up) and
-  rewrites the part's env ST array on the EE:
-  `u = 0.5 + 0.5·(n·right)`, `v = 0.5 − 0.5·(n·up)` — a few dot products per
-  vertex, negligible for prop-sized meshes.
 - The part is submitted a second time as its own `StaPipBag`: same vertex
   array (and `bboxVersion` — the frustum-bbox cache entry is shared), all-white
   colors, the sphere map as texture, `PipelineZTest_TestOnly` (coplanar with
   the base pass), `fogDisabled` (GS fog would *add* the fog color through the
   additive equation).
-- The additive blend itself is the TyraX engine fork's per-bag
-  `PipelineInfoBag::additiveBlendFix`: a non-zero value makes
-  `StaPipCore::render` switch the global GS `ALPHA` register to
-  `Cv = Cs·FIX/128 + Cd` around that bag's draw (FINISH-barrier drain before
-  and after — keep reflective meshes to a handful per frame), where
-  `FIX = strength · 128`.
+- **The matcap ST math runs on VU1** (phase 2): the env bag's texture bag has
+  `coordinatesAreNormals` set, the normals ride in the vertex stream's ST
+  slot, and the `TCE` program family (`stapip_cull_tce_vu1.vclpp` /
+  `stapip_as_is_tce_vu1.vclpp`, `CalculateTyraEnvStq` in `tyra_macros.i`)
+  computes `u = 0.5 + 0.5·(n·right)`, `v = 0.5 − 0.5·(n·up)` from the
+  per-mesh camera basis uploaded at `VU1_ENV_BASIS_ADDR`. The EE only
+  refreshes two vectors per reflective part per frame. (Scenes running the
+  hidden `"clipping": "vu1"` mode fall back to EE-computed STs — that
+  program set has no env variant.)
+- The additive blend equation travels **in-band**: every StaPip mesh's tag
+  block carries a GS `ALPHA` A+D pair (`VU1_ALPHA_ADDR`,
+  `StoreTyraGifTags*Alpha`) — alpha-over by default, `Cv = Cs·FIX/128 + Cd`
+  with `FIX = strength · 128` when the bag sets
+  `PipelineInfoBag::additiveBlendFix`. No FINISH barriers, no practical limit
+  on reflective mesh count. (The dynamic pipeline keeps the original macros
+  and knows nothing of the ALPHA qword.)
 
 The editor's GLSL twin lives in the viewport fragment shader (`uReflOn` block)
 — flat normals from screen-space derivatives, the same camera-basis formula.
@@ -62,7 +68,5 @@ The editor's GLSL twin lives in the viewport fragment shader (`uReflOn` block)
   highlights.
 - Animated (`.glb`) models and terrain don't take reflections; static
   primitives and `.obj` models do.
-- The ST math runs on the EE. Phase 2 (GT3-style "pro" version) moves the
-  UV-from-normal computation into the StaPip VU1 microprograms — no EE cost,
-  no per-bag pipeline drain — and can add smoothed normals for the env pass,
-  or even a dynamically rendered environment texture.
+- Remaining "pro" ideas: smoothed normals for the env pass and the GT3-style
+  dynamically rendered environment texture (in progress).

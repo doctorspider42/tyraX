@@ -108,6 +108,14 @@ void StaPipCore::render(StaPipBag* bag) {
   TYRA_ASSERT(
       !bag->texture || (bag->texture->texture && bag->texture->coordinates),
       "If you want texture, please provide texture and coordinates!");
+  // Modified by TyraX: env (matcap) bags - normals in the ST slot, ST
+  // computed on VU1. No lighting (the program derives no dir-light color)
+  // and no VU1-clipping mode (that program set has no env variant - use the
+  // EE-computed ST fallback there instead).
+  TYRA_ASSERT(!bag->texture || !bag->texture->coordinatesAreNormals ||
+                  (bag->lighting == nullptr &&
+                   !qbufferRenderer.isVU1ClippingEnabled()),
+              "Env (matcap) bags support neither lighting nor VU1 clipping!");
   TYRA_ASSERT(bag->info->transformationType == TyraMVP ||
                   (!bag->info->fullClipChecks && !frustumCull),
               "Please disable clip checks and frustum culling if not using MVP "
@@ -140,17 +148,10 @@ void StaPipCore::render(StaPipBag* bag) {
     }
   }
 
-  // Modified by TyraX: per-bag additive blend equation (the spherical
-  // environment-map pass of reflective materials). The GS ALPHA register is
-  // global state, so switching it must drain the in-flight PATH1 rendering
-  // first (FINISH handshake); restored after this bag's own drain below.
-  // Placed after the frustum early-out so a culled bag never flips the state.
-  const u8 additiveFix = bag->info->additiveBlendFix;
-  if (additiveFix != 0) {
-    rendererCore->sync.align3D();
-    // Cv = Cs * FIX/128 + Cd
-    rendererCore->gs.setAlpha(GS_SET_ALPHA(0, 2, 2, 1, additiveFix));
-  }
+  // Modified by TyraX: the per-bag blend equation (additiveBlendFix - the
+  // reflective materials' env pass) travels IN-BAND with the mesh's tags
+  // (sendObjectData uploads the ALPHA A+D qword, every program emits it),
+  // so no FINISH barriers are needed here anymore.
 
   packager.setRenderBBox(bbox);
 
@@ -225,13 +226,6 @@ void StaPipCore::render(StaPipBag* bag) {
   }
 
   qbufferRenderer.flushBuffers();
-
-  if (additiveFix != 0) {
-    // Drain this bag's triangles, then restore the standard alpha-over
-    // equation ((Cs-Cd)*As/128 + Cd, the draw_setup_environment default).
-    rendererCore->sync.align3D();
-    rendererCore->gs.setAlpha(GS_SET_ALPHA(0, 1, 0, 1, 0));
-  }
 
   Verbose("Render finished");
 }
