@@ -25,6 +25,7 @@
 // them to PNG for the PS2 (see glbparser.cpp). Viewport/game stay PNG-only.
 #define STBI_ONLY_JPEG
 #include <stb_image.h>
+#include <stb_image_write.h>  // implementation lives in menubake.cpp
 
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_WIN32
@@ -3653,7 +3654,10 @@ void App::drawPropertiesWindow() {
         if (!animatedModel && drawMaterialCombo(o)) committed = true;
         if (!animatedModel && !o.materialPath.empty()) {
             ImGui::SameLine();
-            if (ImGui::SmallButton("Edit...")) openMaterialEditor(o.materialPath);
+            if (ImGui::SmallButton("Edit..."))
+                openMaterialEditor(o.materialPath,
+                                   o.type == PrimitiveType::Model ? o.modelPath
+                                                                  : "");
         }
         if (!o.materialPath.empty() && o.type != PrimitiveType::Model) {
             const ModelInfo& mat = materialInfo(o.materialPath);
@@ -9354,15 +9358,197 @@ void App::saveMaterialFile() {
     statusMessage_ = "Saved " + matEdPath_;
 }
 
-void App::openMaterialEditor(const std::string& relPath) {
+void App::openMaterialEditor(const std::string& relPath,
+                             const std::string& modelHint) {
     showMaterialEditor_ = true;
+    // preview straight on the mesh the material is used by (.obj only - .glb
+    // materials are embedded and never take an .mtl override)
+    if (!modelHint.empty() && !isAnimatedModelPath(modelHint)) {
+        matEdShape_ = 4;
+        matEdModel_ = modelHint;
+    }
     if (relPath.empty() || relPath == matEdPath_) return;  // keep staged edits
     if (loadMaterialFile(relPath)) {
         matEdPath_ = relPath;
+        // different file - drop the paint session (targets no longer apply)
+        matEdPaint_ = false;
+        matEdStroke_ = false;
+        matEdPaintTexRel_.clear();
+        matEdPaintUndo_.clear();
+        // a model's own library previews best on its model: pick the sibling
+        // .obj when the .mtl lives under res/models and no hint was given
+        if (modelHint.empty() &&
+            relPath.rfind("res/models/", 0) == 0) {
+            std::filesystem::path obj(relPath);
+            obj.replace_extension(".obj");
+            std::error_code ec;
+            if (std::filesystem::exists(std::filesystem::path(project_.dir) / obj,
+                                        ec)) {
+                matEdShape_ = 4;
+                matEdModel_ = obj.generic_string();
+            }
+        }
     } else {
         matEdPath_.clear();
         statusMessage_ = "Cannot read " + relPath;
     }
+}
+
+// Duplicate the OPEN .mtl under a fresh "-copy" name. Referenced textures are
+// copied along (once each) and the map_Kd lines rewritten, so repainting the
+// duplicate never bleeds into the original's pixels.
+void App::duplicateMaterialAsset() {
+    if (matEdPath_.empty()) return;
+    const std::filesystem::path rel(matEdPath_);
+    const std::filesystem::path dirAbs =
+        (std::filesystem::path(project_.dir) / rel).parent_path();
+    std::error_code ec;
+    const std::string stem = rel.stem().string();
+    std::string newBase;
+    for (int n = 1;; ++n) {
+        newBase = stem + "-copy" + (n == 1 ? "" : std::to_string(n));
+        if (!std::filesystem::exists(dirAbs / (newBase + ".mtl"), ec)) break;
+    }
+
+    std::map<std::string, std::string> texMap;  // old rel -> copied rel
+    for (MatEdEntry& e : matEdMats_) {
+        if (e.texture.empty()) continue;
+        auto it = texMap.find(e.texture);
+        if (it == texMap.end()) {
+            const std::filesystem::path tex(e.texture);
+            const std::string copied =
+                (tex.parent_path() / (newBase + "-" + tex.filename().string()))
+                    .generic_string();
+            std::error_code cec;
+            std::filesystem::copy_file(dirAbs / e.texture, dirAbs / copied,
+                                       std::filesystem::copy_options::overwrite_existing,
+                                       cec);
+            // keep pointing at the shared original when the copy failed
+            // (missing source) - the duplicate still renders
+            it = texMap.emplace(e.texture, cec ? e.texture : copied).first;
+        }
+        e.texture = it->second;
+    }
+
+    matEdPath_ = (rel.parent_path() / (newBase + ".mtl")).generic_string();
+    matEdSel_ = 0;
+    matEdPaint_ = false;
+    matEdStroke_ = false;
+    matEdPaintTexRel_.clear();
+    matEdPaintUndo_.clear();
+    saveMaterialFile();
+    statusMessage_ = "Duplicated to " + matEdPath_;
+}
+
+// --- Texture painting --------------------------------------------------------
+// Strokes paint the selected entry's PNG through the preview mesh's UVs: the
+// pick returns a surface UV, the brush splats texels around it in a CPU RGBA
+// buffer, the shared GL texture is re-uploaded live (scene viewport included)
+// and the PNG is written back on mouse release. The flat texture on disk IS
+// the bake - the PS2 loads it like any hand-made texture.
+
+bool App::matEdLoadPaintTarget(const std::string& texRel) {
+    matEdPaintTexRel_ = texRel;  // remembered even on failure (no retry loop)
+    matEdPaintPixels_.clear();
+    matEdPaintW_ = matEdPaintH_ = 0;
+    matEdPaintUndo_.clear();
+    matEdHaveLastUV_ = false;
+    const std::string full =
+        (std::filesystem::path(project_.dir) / texRel).string();
+    int w = 0, h = 0, comp = 0;
+    unsigned char* pixels = stbi_load(full.c_str(), &w, &h, &comp, 4);
+    if (!pixels) return false;
+    matEdPaintPixels_.assign(pixels, pixels + (size_t)w * h * 4);
+    stbi_image_free(pixels);
+    matEdPaintW_ = w;
+    matEdPaintH_ = h;
+    return true;
+}
+
+void App::matEdSavePaintTarget() {
+    if (matEdPaintTexRel_.empty() || matEdPaintW_ < 1) return;
+    const std::string full =
+        (std::filesystem::path(project_.dir) / matEdPaintTexRel_).string();
+    if (stbi_write_png(full.c_str(), matEdPaintW_, matEdPaintH_, 4,
+                       matEdPaintPixels_.data(), matEdPaintW_ * 4))
+        statusMessage_ = "Painted " + matEdPaintTexRel_;
+    else
+        statusMessage_ = "Cannot write " + matEdPaintTexRel_;
+}
+
+// One soft round splat at a surface UV (image space, v down). Coordinates
+// wrap (GS textures repeat), so strokes cross seams cleanly.
+void App::matEdStamp(float u, float v) {
+    const int w = matEdPaintW_, h = matEdPaintH_;
+    if (w < 1 || h < 1) return;
+    u -= std::floor(u);
+    v -= std::floor(v);
+    const float cx = u * w, cy = v * h;
+    const float size = matEdBrushSize_ < 1.0f ? 1.0f : matEdBrushSize_;
+    const int r = (int)std::ceil(size);
+    const bool pattern = matEdBrushMode_ == 1 && matEdPatternW_ > 0;
+    const int icx = (int)cx, icy = (int)cy;
+    for (int dy = -r; dy <= r; ++dy)
+        for (int dx = -r; dx <= r; ++dx) {
+            const int px = icx + dx, py = icy + dy;
+            const float ox = px + 0.5f - cx, oy = py + 0.5f - cy;
+            const float d2 = ox * ox + oy * oy;
+            if (d2 > size * size) continue;
+            const float t = std::sqrt(d2) / size;
+            float a = matEdBrushOpacity_ * (1.0f - t * t);  // soft falloff
+            if (a <= 0.0f) continue;
+            const int sx = ((px % w) + w) % w;
+            const int sy = ((py % h) + h) % h;
+            unsigned char* dst = &matEdPaintPixels_[((size_t)sy * w + sx) * 4];
+            float src[3];
+            if (pattern) {
+                // pattern sampled in texture space (tiled) - strokes reveal
+                // one continuous image instead of stamping it per splat
+                int qx = (int)std::floor(px * matEdBrushPatternScale_);
+                int qy = (int)std::floor(py * matEdBrushPatternScale_);
+                qx = ((qx % matEdPatternW_) + matEdPatternW_) % matEdPatternW_;
+                qy = ((qy % matEdPatternH_) + matEdPatternH_) % matEdPatternH_;
+                const unsigned char* sp =
+                    &matEdPatternPixels_[((size_t)qy * matEdPatternW_ + qx) * 4];
+                src[0] = sp[0], src[1] = sp[1], src[2] = sp[2];
+                a *= sp[3] / 255.0f;
+                if (a <= 0.0f) continue;
+            } else {
+                src[0] = matEdBrushColor_[0] * 255.0f;
+                src[1] = matEdBrushColor_[1] * 255.0f;
+                src[2] = matEdBrushColor_[2] * 255.0f;
+            }
+            for (int c = 0; c < 3; ++c)
+                dst[c] = (unsigned char)(dst[c] + (src[c] - dst[c]) * a + 0.5f);
+            // painted texels turn opaque (matters for decal alpha textures)
+            dst[3] = (unsigned char)(dst[3] + (255.0f - dst[3]) * a + 0.5f);
+        }
+}
+
+// Stamp + gap fill: fast mouse moves land samples far apart, so intermediate
+// splats are laid along the segment from the previous UV. A jump longer than
+// a third of the texture is a UV-seam crossing - stamping through it would
+// smear a line across unrelated texels, so the segment breaks instead.
+void App::matEdPaintTo(float u, float v) {
+    const float w = (float)matEdPaintW_, h = (float)matEdPaintH_;
+    if (w < 1.0f || h < 1.0f) return;
+    if (matEdHaveLastUV_) {
+        const float du = u - matEdLastUV_[0], dv = v - matEdLastUV_[1];
+        const float dist = std::sqrt(du * w * du * w + dv * h * dv * h);
+        const float step = matEdBrushSize_ * 0.4f < 1.0f ? 1.0f : matEdBrushSize_ * 0.4f;
+        const float seamGuard = 0.33f * (w < h ? w : h);
+        if (dist > step && dist < seamGuard) {
+            const int n = (int)(dist / step);
+            for (int i = 1; i <= n; ++i) {
+                const float t = (float)i / (n + 1);
+                matEdStamp(matEdLastUV_[0] + du * t, matEdLastUV_[1] + dv * t);
+            }
+        }
+    }
+    matEdStamp(u, v);
+    matEdLastUV_[0] = u;
+    matEdLastUV_[1] = v;
+    matEdHaveLastUV_ = true;
 }
 
 void App::drawMaterialEditorWindow() {
@@ -9453,6 +9639,11 @@ void App::drawMaterialEditorWindow() {
     ImGui::BeginChild("##mat_edit",
                       ImVec2(ImGui::GetContentRegionAvail().x - previewW - scaled(8.0f), 0));
     ImGui::TextDisabled("%s", matEdPath_.c_str());
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Duplicate")) duplicateMaterialAsset();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Copy this .mtl (and its textures) under a new name -\n"
+                          "safe to recolor or repaint without touching the original.");
 
     // entry list within the file (universal libraries hold several; the FIRST
     // one is what primitives and emitters use)
@@ -9578,8 +9769,67 @@ void App::drawMaterialEditorWindow() {
                     }
                 }
             }
+            if (ImGui::MenuItem("New paintable texture...")) {
+                openNewTexturePopup_ = true;
+                std::snprintf(matEdNewTexName_, sizeof(matEdNewTexName_), "%s-tex",
+                              e.name.c_str());
+                matEdNewTexError_.clear();
+            }
             ImGui::EndCombo();
         }
+    }
+
+    // --- "New texture" modal: a blank pow2 PNG next to the .mtl, assigned as
+    // this entry's map_Kd - the canvas for the paint tool.
+    if (openNewTexturePopup_) {
+        ImGui::OpenPopup("New texture");
+        openNewTexturePopup_ = false;
+    }
+    if (ImGui::BeginPopupModal("New texture", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::SetNextItemWidth(scaled(220.0f));
+        ImGui::InputText("Name", matEdNewTexName_, sizeof(matEdNewTexName_));
+        const char* sizes[] = {"64 x 64", "128 x 128", "256 x 256", "512 x 512"};
+        ImGui::SetNextItemWidth(scaled(220.0f));
+        ImGui::Combo("Size", &matEdNewTexSize_, sizes, 4);
+        ImGui::TextDisabled("Power-of-two, as the PS2 GS requires. Bigger eats\n"
+                            "video memory - 256 is plenty for most props.");
+        ImGui::ColorEdit3("Fill color", matEdNewTexColor_);
+        if (!matEdNewTexError_.empty())
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%s",
+                               matEdNewTexError_.c_str());
+        if (ImGui::Button("Create", ImVec2(scaled(120), 0))) {
+            const std::string base = sanitizeAssetName(
+                std::string(matEdNewTexName_).empty() ? "painted" : matEdNewTexName_);
+            const std::string fileName = base + ".png";
+            std::error_code cec;
+            if (std::filesystem::exists(mtlDirAbs / fileName, cec)) {
+                matEdNewTexError_ = fileName + " already exists.";
+            } else {
+                const int s = 64 << (matEdNewTexSize_ < 0   ? 0
+                                     : matEdNewTexSize_ > 3 ? 3
+                                                            : matEdNewTexSize_);
+                std::vector<unsigned char> px((size_t)s * s * 4);
+                for (size_t i = 0; i < px.size(); i += 4) {
+                    px[i] = (unsigned char)(matEdNewTexColor_[0] * 255.0f + 0.5f);
+                    px[i + 1] = (unsigned char)(matEdNewTexColor_[1] * 255.0f + 0.5f);
+                    px[i + 2] = (unsigned char)(matEdNewTexColor_[2] * 255.0f + 0.5f);
+                    px[i + 3] = 255;
+                }
+                if (stbi_write_png((mtlDirAbs / fileName).string().c_str(), s, s, 4,
+                                   px.data(), s * 4)) {
+                    e.texture = fileName;
+                    committed = true;
+                    matEdPaint_ = true;  // the whole point of a blank canvas
+                    ImGui::CloseCurrentPopup();
+                } else {
+                    matEdNewTexError_ = "Cannot write " + fileName;
+                }
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
     }
     if (!e.texture.empty()) {
         const std::filesystem::path texAbs = mtlDirAbs / e.texture;
@@ -9621,17 +9871,44 @@ void App::drawMaterialEditorWindow() {
 
     ImGui::SameLine();
 
-    // --- right: live preview ---------------------------------------------------
+    // --- right: live preview + paint tool ---------------------------------------
     ImGui::BeginChild("##mat_preview", ImVec2(previewW, 0));  // previewW already scaled
     {
+        ImGuiIO& io = ImGui::GetIO();
+        const MatEdEntry& sel = matEdMats_[matEdSel_];
+
+        // Shape: the four unit primitives or any of the project's .obj models
         const char* shapes[] = {"Box", "Sphere", "Cylinder", "Cone"};
-        ImGui::SetNextItemWidth(scaled(100.0f));
-        ImGui::Combo("##mat_shape", &matEdShape_, shapes, 4);
+        const std::string shapeLabel =
+            matEdShape_ == 4
+                ? std::filesystem::path(matEdModel_).filename().string()
+                : shapes[matEdShape_ < 0 || matEdShape_ > 3 ? 1 : matEdShape_];
+        ImGui::SetNextItemWidth(scaled(110.0f));
+        if (ImGui::BeginCombo("##mat_shape", shapeLabel.c_str())) {
+            for (int i = 0; i < 4; ++i)
+                if (ImGui::Selectable(shapes[i], matEdShape_ == i)) matEdShape_ = i;
+            const std::vector<std::string> models = listAssetFiles("models", ".obj");
+            if (!models.empty()) ImGui::Separator();
+            for (const std::string& m : models) {
+                const std::string rel = "res/models/" + m;
+                if (ImGui::Selectable(m.c_str(),
+                                      matEdShape_ == 4 && matEdModel_ == rel)) {
+                    matEdShape_ = 4;
+                    matEdModel_ = rel;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Preview mesh. Pick one of your models to see the\n"
+                              "material (and paint) on the real thing - this file\n"
+                              "acts as the model's material override, entries are\n"
+                              "matched to the model's usemtl names.");
         ImGui::SameLine();
         ImGui::Checkbox("Spin", &matEdSpin_);
-        if (matEdSpin_) matEdAngle_ += ImGui::GetIO().DeltaTime * 24.0f;
+        if (matEdSpin_ && !matEdPaint_) matEdAngle_ += io.DeltaTime * 24.0f;
 
-        const MatEdEntry& sel = matEdMats_[matEdSel_];
+        // Staged values of the selected entry (live during slider drags)
         float kd[3];
         for (int i = 0; i < 3; ++i) {
             kd[i] = sel.color[i] * sel.brightness;
@@ -9642,13 +9919,208 @@ void App::drawMaterialEditorWindow() {
                 ? ""
                 : (std::filesystem::path(matEdPath_).parent_path() / sel.texture)
                       .generic_string();
+
+        // --- paint tool ------------------------------------------------------
+        if (ImGui::Checkbox("Paint", &matEdPaint_) && matEdPaint_)
+            matEdPaintTexRel_.clear();  // (re)load the target below
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Paint on the preview mesh, straight into this\n"
+                              "entry's texture (through the UVs). The PNG is\n"
+                              "saved on every stroke - what you paint is what\n"
+                              "the PS2 loads.");
+        bool canPaint = false;
+        if (matEdPaint_) {
+            if (texRel.empty()) {
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                                   "No texture on this entry.\n"
+                                   "Texture > New paintable texture...");
+            } else {
+                if (matEdPaintTexRel_ != texRel && !matEdLoadPaintTarget(texRel))
+                    statusMessage_ = "Cannot read " + texRel;
+                canPaint = matEdPaintW_ > 0;
+                if (!canPaint)
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                       "Texture file unreadable.");
+            }
+        }
+        if (matEdPaint_ && canPaint) {
+            ImGui::SameLine();
+            ImGui::BeginDisabled(matEdPaintUndo_.empty());
+            if (ImGui::SmallButton("Undo stroke")) {
+                matEdPaintPixels_ = std::move(matEdPaintUndo_.back());
+                matEdPaintUndo_.pop_back();
+                viewport_.updateTexturePixels(matEdPaintTexRel_, matEdPaintW_,
+                                              matEdPaintH_,
+                                              matEdPaintPixels_.data());
+                matEdSavePaintTarget();
+            }
+            ImGui::EndDisabled();
+
+            ImGui::SetNextItemWidth(scaled(110.0f));
+            ImGui::Combo("##brush_mode", &matEdBrushMode_, "Color brush\0Texture brush\0");
+            ImGui::SameLine();
+            if (matEdBrushMode_ == 0) {
+                ImGui::ColorEdit3("##brush_col", matEdBrushColor_,
+                                  ImGuiColorEditFlags_NoInputs);
+            } else {
+                // pattern PNG, tiled in texture space while painting
+                const std::string patLabel =
+                    matEdBrushPattern_.empty()
+                        ? "<pick pattern>"
+                        : std::filesystem::path(matEdBrushPattern_).filename().string();
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                if (ImGui::BeginCombo("##brush_pat", patLabel.c_str())) {
+                    for (const std::string& t : listAssetFiles("textures", ".png")) {
+                        const std::string rel = "res/textures/" + t;
+                        if (ImGui::Selectable(t.c_str(), rel == matEdBrushPattern_))
+                            matEdBrushPattern_ = rel;
+                    }
+                    std::error_code ec;
+                    const std::filesystem::path mtlDirRel =
+                        std::filesystem::path(matEdPath_).parent_path();
+                    for (const auto& f :
+                         std::filesystem::recursive_directory_iterator(mtlDirAbs, ec)) {
+                        if (!f.is_regular_file()) continue;
+                        std::string ext = f.path().extension().string();
+                        for (char& c : ext) c = (char)tolower((unsigned char)c);
+                        if (ext != ".png") continue;
+                        const std::string rel =
+                            (mtlDirRel /
+                             std::filesystem::relative(f.path(), mtlDirAbs, ec))
+                                .generic_string();
+                        if (rel == texRel) continue;  // not the target itself
+                        if (ImGui::Selectable(
+                                std::filesystem::relative(f.path(), mtlDirAbs, ec)
+                                    .generic_string()
+                                    .c_str(),
+                                rel == matEdBrushPattern_))
+                            matEdBrushPattern_ = rel;
+                    }
+                    ImGui::EndCombo();
+                }
+            }
+            ImGui::SetNextItemWidth(scaled(110.0f));
+            ImGui::SliderFloat("Size", &matEdBrushSize_, 1.0f, 128.0f, "%.0f px",
+                               ImGuiSliderFlags_Logarithmic);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(scaled(70.0f));
+            ImGui::SliderFloat("##brush_op", &matEdBrushOpacity_, 0.05f, 1.0f,
+                               "%.2f");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Brush opacity");
+            if (matEdBrushMode_ == 1) {
+                ImGui::SetNextItemWidth(scaled(110.0f));
+                ImGui::SliderFloat("Tile", &matEdBrushPatternScale_, 0.125f, 8.0f,
+                                   "%.2fx", ImGuiSliderFlags_Logarithmic);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Pattern texels per painted texel -\n"
+                                      "higher = denser tiling.");
+                // (re)decode the pattern when the pick changes
+                if (matEdBrushPattern_ != matEdPatternLoaded_) {
+                    matEdPatternLoaded_ = matEdBrushPattern_;
+                    matEdPatternPixels_.clear();
+                    matEdPatternW_ = matEdPatternH_ = 0;
+                    int w = 0, h = 0, comp = 0;
+                    unsigned char* p = stbi_load(
+                        (std::filesystem::path(project_.dir) / matEdBrushPattern_)
+                            .string()
+                            .c_str(),
+                        &w, &h, &comp, 4);
+                    if (p) {
+                        matEdPatternPixels_.assign(p, p + (size_t)w * h * 4);
+                        matEdPatternW_ = w;
+                        matEdPatternH_ = h;
+                        stbi_image_free(p);
+                    }
+                }
+                if (!matEdBrushPattern_.empty() && matEdPatternW_ == 0)
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                       "Pattern unreadable.");
+            }
+        }
+
+        // --- the preview image + mouse interaction ---------------------------
+        Viewport::MatPreviewDesc desc;
+        desc.kd[0] = kd[0], desc.kd[1] = kd[1], desc.kd[2] = kd[2];
+        desc.texRel = texRel;
+        desc.shape = matEdShape_;
+        desc.modelRel = matEdModel_;
+        desc.mtlRel = matEdPath_;
+        desc.entryName = sel.name;
+        desc.angleDeg = matEdAngle_;
+        desc.pitchDeg = matEdPitch_;
+        desc.zoom = matEdZoom_;
+
         const ImVec2 avail = ImGui::GetContentRegionAvail();
-        const int pw = (int)avail.x, ph = (int)avail.y;
-        const uint32_t tex =
-            viewport_.renderMaterialPreview(pw, ph, kd, texRel, matEdShape_, matEdAngle_);
-        if (tex)
+        const int pw = (int)avail.x < 1 ? 1 : (int)avail.x;
+        const int ph = (int)avail.y < 1 ? 1 : (int)avail.y;
+        const uint32_t tex = viewport_.renderMaterialPreview(pw, ph, desc);
+        if (tex) {
+            const ImVec2 imgPos = ImGui::GetCursorScreenPos();
             ImGui::Image((ImTextureID)(intptr_t)tex, ImVec2((float)pw, (float)ph),
                          ImVec2(0, 1), ImVec2(1, 0));
+            ImGui::SetCursorScreenPos(imgPos);
+            ImGui::InvisibleButton("##mat_prev_in", ImVec2((float)pw, (float)ph),
+                                   ImGuiButtonFlags_MouseButtonLeft |
+                                       ImGuiButtonFlags_MouseButtonRight);
+            const bool hovered = ImGui::IsItemHovered();
+            const bool active = ImGui::IsItemActive();
+
+            if (hovered && io.MouseWheel != 0.0f) {
+                matEdZoom_ *= std::pow(1.15f, io.MouseWheel);
+                matEdZoom_ = matEdZoom_ < 0.2f ? 0.2f
+                             : matEdZoom_ > 12.0f ? 12.0f
+                                                  : matEdZoom_;
+            }
+            // orbit: LMB (RMB while painting - LMB is the brush then)
+            const bool orbiting =
+                active && ((matEdPaint_ && ImGui::IsMouseDown(1)) ||
+                           (!matEdPaint_ && ImGui::IsMouseDown(0)));
+            if (orbiting) {
+                matEdAngle_ += io.MouseDelta.x * 0.5f;
+                matEdPitch_ += io.MouseDelta.y * 0.4f;
+                matEdPitch_ = matEdPitch_ < -5.0f ? -5.0f
+                              : matEdPitch_ > 85.0f ? 85.0f
+                                                    : matEdPitch_;
+            }
+
+            if (matEdPaint_ && canPaint) {
+                if (ImGui::IsItemActivated() && ImGui::IsMouseDown(0)) {
+                    // stroke start: snapshot for the stroke-undo stack
+                    if (matEdPaintUndo_.size() >= 12)
+                        matEdPaintUndo_.erase(matEdPaintUndo_.begin());
+                    matEdPaintUndo_.push_back(matEdPaintPixels_);
+                    matEdStroke_ = true;
+                    matEdHaveLastUV_ = false;
+                }
+                if (matEdStroke_ && ImGui::IsMouseDown(0)) {
+                    const float u = (io.MousePos.x - imgPos.x) / (float)pw;
+                    const float v = (io.MousePos.y - imgPos.y) / (float)ph;
+                    float hu = 0.0f, hv = 0.0f;
+                    bool paintable = false;
+                    if (viewport_.materialPreviewPick(u, v, hu, hv, paintable) &&
+                        paintable) {
+                        matEdPaintTo(hu, hv);
+                        viewport_.updateTexturePixels(matEdPaintTexRel_,
+                                                      matEdPaintW_, matEdPaintH_,
+                                                      matEdPaintPixels_.data());
+                    } else {
+                        matEdHaveLastUV_ = false;  // left the paintable surface
+                    }
+                }
+                if (matEdStroke_ && !ImGui::IsMouseDown(0)) {
+                    matEdStroke_ = false;
+                    matEdSavePaintTarget();  // the painted PNG ships as-is
+                }
+                if (hovered) {
+                    // approximate brush footprint (cosmetic cursor)
+                    const float r = matEdBrushSize_ / (float)matEdPaintW_ *
+                                    (float)(pw < ph ? pw : ph) * 0.5f;
+                    ImGui::GetWindowDrawList()->AddCircle(
+                        io.MousePos, r < 3.0f ? 3.0f : r,
+                        IM_COL32(255, 255, 255, 180), 0, 1.5f);
+                }
+            }
+        }
     }
     ImGui::EndChild();
 

@@ -9,6 +9,43 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (93) **Material Editor: preview on real models, texture painting, duplicate,
+  new-texture canvas.** Four additions in one coherent pass. (a) The preview
+  shape combo now lists every `res/models/*.obj` next to the four primitives;
+  a model renders with the open `.mtl` as its override (usemtl-matched, same
+  rule as the game) through a new `Viewport::MatPrevModel` cache that keeps Kd
+  OUT of the vertex colors (it rides the tint uniform) so the selected entry's
+  staged, uncommitted slider values preview live; camera orbits by drag
+  (LMB, or RMB while painting), wheel zooms, AABB-framed. Opening the editor
+  from a Model object's Edit... passes the model as a hint; opening a
+  res/models `.mtl` auto-picks the sibling `.obj`. (b) **Painting**: a Paint
+  toggle raycasts each stroke sample against a CPU copy of the displayed
+  triangles (`materialPreviewPick`, Moller-Trumbore + barycentric UV),
+  splats a soft round brush into a CPU RGBA copy of the entry's texture
+  (segment interpolation between samples, wrap-around repeat, a seam-jump
+  guard that breaks the segment instead of smearing), live-uploads the shared
+  GL texture (`updateTexturePixels` - scene viewport updates too, same
+  texCache_ id) and writes the PNG on mouse release - painting IS the bake,
+  texbake quantizes it at build like any PNG. Brush modes: color, and a
+  **texture brush** sampling a pattern PNG in texture space (tiled, density
+  slider) so strokes reveal one continuous image. Per-stroke undo stack
+  (12 snapshots; assets stay outside project undo, like imports). Only faces
+  whose usemtl matches the edited entry take paint. (c) **Duplicate** copies
+  the open `.mtl` under a `-copy` name plus every referenced texture (once
+  each, `<newbase>-<tex>` in place, map_Kd rewritten) so repainting the copy
+  never bleeds into the original. (d) **New paintable texture...** in the
+  texture combo: a blank pow2 PNG (64-512, fill color) written next to the
+  `.mtl` via stb_image_write, assigned as map_Kd and Paint auto-enabled.
+  **Verified** (Layer 2, GUI harness): scratch project with a UV'd cube .obj +
+  128^2 grid texture; synthetic-input session confirmed - preview auto-landed
+  on crate.obj, a red stroke appeared on the mesh and changed the PNG hash on
+  disk ("Painted res/models/crate.png" status), Undo stroke reverted the hash,
+  Duplicate produced crate-copy.mtl + crate-copy-crate.png with rewritten
+  map_Kd, the grass texture brush painted a continuous checker pattern across
+  faces, RMB-orbit worked mid-paint, and the New texture modal created a 256^2
+  canvas and assigned it. Editor builds clean. Known UV property (documented,
+  not a bug): faces sharing texels (the test cube maps all six faces to the
+  same 0..1 square) all show a stroke painted on any one of them.
 - (88) **Default projects folder (machine-global editor setting).** New Project
   used to always propose `~/TyraProjects` as the location. Now the folder is
   configurable in *Edit > Preferences > New projects* (a "Default folder" text

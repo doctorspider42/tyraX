@@ -248,9 +248,20 @@ private:
     // Material Editor (Tools > Material Editor): authors the .mtl files the
     // whole pipeline already consumes (newmtl/Kd/map_Kd) with a live preview.
     void drawMaterialEditorWindow();
-    void openMaterialEditor(const std::string& relPath);  // load + show
+    // load + show; modelHint (a res/models .obj) switches the preview to that
+    // model - passed by the Edit... button of Model objects
+    void openMaterialEditor(const std::string& relPath,
+                            const std::string& modelHint = "");
     bool loadMaterialFile(const std::string& relPath);    // disk -> matEd* staging
     void saveMaterialFile();  // matEd* staging -> disk + cache invalidation
+    // Copies the open .mtl (and every texture it references, so the copy is
+    // paint-safe) under a fresh name and opens the duplicate.
+    void duplicateMaterialAsset();
+    // Texture painting on the preview mesh (see drawMaterialEditorWindow).
+    bool matEdLoadPaintTarget(const std::string& texRel);  // PNG -> CPU pixels
+    void matEdSavePaintTarget();  // CPU pixels -> the PNG on disk (the "bake")
+    void matEdStamp(float u, float v);      // one brush splat at a surface UV
+    void matEdPaintTo(float u, float v);    // stamp + gap fill from the last UV
     void handleFileDrop(int count, const char** paths);
     void saveProject();
 
@@ -525,12 +536,46 @@ private:
     };
     std::vector<MatEdEntry> matEdMats_;
     int matEdSel_ = 0;         // selected entry within the file
-    int matEdShape_ = 1;       // preview: 0 box, 1 sphere, 2 cylinder, 3 cone
+    int matEdShape_ = 1;       // preview: 0 box, 1 sphere, 2 cylinder, 3 cone,
+                               // 4 = the .obj in matEdModel_
+    std::string matEdModel_;   // res/models .obj shown when matEdShape_ == 4
     bool matEdSpin_ = true;    // turntable
     float matEdAngle_ = 40.0f;
+    float matEdPitch_ = 30.0f;  // camera elevation (drag up/down on preview)
+    float matEdZoom_ = 1.0f;    // mouse-wheel dolly on the preview
     bool openNewMaterialPopup_ = false;
     char matEdNewName_[64] = "my-material";
     std::string matEdNewError_;
+
+    // Texture painting (Material Editor preview). Strokes splat into a CPU
+    // RGBA copy of the selected entry's texture, live-uploaded into the
+    // shared GL texture each frame; releasing the mouse writes the PNG back
+    // to disk - painting IS the bake, the flat texture is what ships (texbake
+    // still quantizes at build like any other PNG). Asset edits, so no
+    // project undo - a small per-stroke snapshot stack covers mistakes.
+    bool matEdPaint_ = false;          // paint mode toggle
+    int matEdBrushMode_ = 0;           // 0 = color, 1 = pattern PNG
+    float matEdBrushColor_[3] = {0.8f, 0.2f, 0.15f};
+    float matEdBrushSize_ = 24.0f;     // radius in texture pixels
+    float matEdBrushOpacity_ = 1.0f;
+    std::string matEdBrushPattern_;    // project-relative PNG (pattern mode)
+    float matEdBrushPatternScale_ = 1.0f;  // pattern texels per target texel
+    std::string matEdPaintTexRel_;     // project-relative path of the loaded target
+    std::vector<unsigned char> matEdPaintPixels_;  // RGBA, matEdPaintW_*H_*4
+    int matEdPaintW_ = 0, matEdPaintH_ = 0;
+    bool matEdStroke_ = false;         // LMB stroke in progress
+    float matEdLastUV_[2] = {0, 0};    // previous stamp (gap interpolation)
+    bool matEdHaveLastUV_ = false;
+    std::vector<std::vector<unsigned char>> matEdPaintUndo_;  // stroke snapshots
+    std::vector<unsigned char> matEdPatternPixels_;  // decoded pattern cache
+    int matEdPatternW_ = 0, matEdPatternH_ = 0;
+    std::string matEdPatternLoaded_;   // path matEdPatternPixels_ came from
+    // "New texture" modal (paintable blank PNG next to the .mtl)
+    bool openNewTexturePopup_ = false;
+    char matEdNewTexName_[64] = "";
+    int matEdNewTexSize_ = 2;          // index: 64/128/256/512
+    float matEdNewTexColor_[3] = {1.0f, 1.0f, 1.0f};
+    std::string matEdNewTexError_;
     struct HudTexture {
         unsigned tex = 0;
         int w = 0, h = 0;

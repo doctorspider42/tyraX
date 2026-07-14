@@ -30,6 +30,10 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   `.screenfx` text files (no editor rebuild): a small manifest plus a raw
   low-level GS-blit body, positioned in the UI Editor screen stack with numeric
   parameters, and how to copy an effect to another project.
+- [Materials: model preview, duplication and texture painting](material-painting.md) -
+  the Material Editor's live preview on your own .obj models, duplicating a
+  material together with its textures, and painting color or tiled-pattern
+  strokes straight onto the mesh through its UVs (the flat PNG is the bake).
 - [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) - importing a
   real ARKit camera move (CamTrackAR `.hfcs` or the app-agnostic CSV) into a
   Cutscene Director camera track: the canonical take space, the mapping and
