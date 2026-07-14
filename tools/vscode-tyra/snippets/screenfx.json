@@ -1,0 +1,26 @@
+{
+  "Screen effect": {
+    "prefix": "screenfx",
+    "body": [
+      "# ${1:Description of what this effect does}",
+      "title = ${2:My Effect}",
+      "param0 = ${3:Amount}, ${4:0.35}, ${5:0}, ${6:1}",
+      "---",
+      "u8 a = (u8)({p0} * 128.0F);",
+      "if (a == 0) return q;",
+      "q = fx.flatQuad(q, fx.currentFbVram(), fx.currentFbBufW(), 0xFF000000u,",
+      "                ${7:0}, ${8:0}, ${9:0}, a, GS_SET_ALPHA(0, 1, 0, 1, 0));$0"
+    ],
+    "description": "A custom full-screen post effect: header params + raw GS-blit C++ body."
+  },
+  "title": {
+    "prefix": "title",
+    "body": "title = ${1:My Effect}",
+    "description": "Display name in the UI Editor screen stack."
+  },
+  "param": {
+    "prefix": "param",
+    "body": "param${1|0,1,2,3|} = ${2:Label}, ${3:0}, ${4:0}, ${5:1}",
+    "description": "A slider parameter: Label, default, min, max (define param0..param3 in order)."
+  }
+}

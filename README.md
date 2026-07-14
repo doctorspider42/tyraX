@@ -147,8 +147,9 @@ All example projects live under [examples/](examples): a general playground, a l
 Deep-dive guides for the bigger features live in [docs/](docs) (indexed in
 [docs/README.md](docs/README.md)): [animated models](docs/animated-models.md),
 [object scripts](docs/object-scripts.md), [custom flow nodes](docs/custom-flow-nodes.md),
-[streaming layers](docs/streaming-layers.md), [camera takes](docs/camera-takes.md)
-and the [profiling](docs/profiling.md) / [VU1 clipping](docs/vu1-clipping-plan.md)
+[streaming layers](docs/streaming-layers.md), [camera takes](docs/camera-takes.md),
+the [VS Code extension](docs/vscode-extension.md) for `.flownode`/`.screenfx`
+files, and the [profiling](docs/profiling.md) / [VU1 clipping](docs/vu1-clipping-plan.md)
 developer notes. Per-feature example projects are listed above; the developer
 architecture guides live under [.claude/skills/](.claude/skills).
 
@@ -158,7 +159,7 @@ architecture guides live under [.claude/skills/](.claude/skills).
 - `examples/` — example projects: a general playground (`script-demo`), a large multi-feature `showcase`, and focused per-feature demos.
 - `vendor/tyra/engine` — the in-tree Tyra engine fork (versioned; Apache License 2.0).
 - `vendor/` (rest) — editor dependencies (not versioned; see `setup.ps1`).
-- `tools/` — PS2 network-deploy tools (`ps2client` versioned, the rest fetched by `setup.ps1`).
+- `tools/` — PS2 network-deploy tools (`ps2client` versioned, the rest fetched by `setup.ps1`) and the [VS Code extension](docs/vscode-extension.md) (`vscode-tyra`) for `.flownode`/`.screenfx` files.
 
 ## Credits
 
