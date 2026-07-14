@@ -66,13 +66,13 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
     // Reflective material (refl in the .mtl): the additive sphere-map second
-    // pass. World-space normals are captured at rebuild; envSts is rewritten
-    // every frame from the camera basis (renderScene). The env bag shares
+    // pass. World-space normals are captured at rebuild and ride in the ST
+    // slot; the TCE VU1 programs compute the matcap ST from the per-mesh
+    // camera basis (refreshed every frame in renderScene). The env bag shares
     // this part's vertex array and bboxVersion and mirrors the base bag's
     // shape (texture + many colors), so both passes share one frustum-bbox
     // cache entry.
     std::vector<Tyra::Vec4> envNormals;
-    std::vector<Tyra::Vec4> envSts;
     std::vector<Tyra::Color> envColors;  // all-white 128 = unmodulated texel
     std::unique_ptr<Tyra::StaPipBag> envBag;
     std::unique_ptr<Tyra::StaPipInfoBag> envInfoBag;

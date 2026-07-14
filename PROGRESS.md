@@ -9,6 +9,38 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (109) **M4: VU1 clipping is the default + the clip_tce env program.**
+  Owner decision after in-situ testing: the close-up/screen-edge corruption
+  on reflective geometry (107/108 saga) does not occur on the VU1 clipping
+  path, so the hidden `"clipping": "vu1"` mode graduated to the default
+  ahead of the originally planned hardware-perf gate (that pass - clipbench
+  PERF + the ADC check on a real console - is still owed before the EE
+  clipper can be deleted). New projects scaffold with `"clipping": "vu1"`;
+  the Preferences combo (project + per-scene override) now shows three
+  options: *Precise clipping on VU1 (default)* / *Precise clipping on EE
+  (legacy)* / *Fast culling*; a `.tyra` WITHOUT a clipping key still loads
+  as `precise`, so existing projects keep their exact behavior until opted
+  in. To make reflective materials work there, the fifth clip variant
+  **clip_tce** (`stapip_clip_tce_vu1.vclpp`) computes the matcap ST from
+  the ST-slot normal BEFORE the Sutherland-Hodgman pass (it then lerps
+  through cuts like a regular texture coordinate; `CalculateTyraEnvStq`'s
+  rsqrt runs before any edge/emit div, so the shared Q register stays
+  safe), and the codegen's EE-computed-ST fallback (`envSts`) is deleted -
+  the env pass is VU1-only in both clipping modes. Micro-memory lesson:
+  cull_tce + clip_tce on top of the 8-program vu1 set measured 2162
+  instructions against the ~2032 ceiling (nm on the .o files - the
+  createProgramsCache assert is compiled out in release), so the vu1 set
+  carries ONLY clip_tce (9 programs) and StaPipCore force-routes every
+  env-bag package through the clip program at clip occupancy
+  (`envForceClip` + `renderSubpkgs(forceClip)`; a full-occupancy package
+  can expand past the buffer half when the 0.9w guard band cuts triangles
+  the EE classified as fully inside, so cull-routing was not an option).
+  `examples/reflections` flipped to vu1 and regenerated. **Verified**
+  (Layer 3, PCSX2 SW renderer): fresh `--new` project scaffolds with vu1 +
+  `CLIP_VU1S={true}`; the close-up repro (chrome sphere at the player,
+  crossing the screen edge) renders clean through clip_tce - no
+  punch-through, no wedges, no smeared polygons; the reflections showcase
+  boots and reflects in vu1 mode; no TYRA banners in the game logs.
 - (108) **Env matcap: normalize the normal on VU1 + close-up artifact
   post-mortem.** Follow-up on the user's screen-edge report (with an FPS
   dip - that part is the known EE-clipper cost for PARTIALLY_IN_FRUSTUM

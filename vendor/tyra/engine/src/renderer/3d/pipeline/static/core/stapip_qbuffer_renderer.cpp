@@ -414,10 +414,14 @@ void StaPipQBufferRenderer::setProgramsCache() {
   // Modified by TyraX: in VU1 clipping mode the clip programs replace
   // the as_is family (both plus cull would overflow VU1 micro memory, and
   // as_is is only ever fed by the retired EE clipper path).
-  // The env (matcap) variants ride along in the EE-clipper set only - the
-  // clip set has no env program (StaPipCore asserts env bags out of the
-  // VU1-clipping mode) and is closer to the micro-memory ceiling.
-  const u32 count = vu1Clipping ? 8 : 10;
+  // The env (matcap) variants: cull_tce + as_is_tce ride along with the EE
+  // clipper set; the VU1-clipping set carries ONLY clip_tce - adding
+  // cull_tce there overflows the 16 KB micro memory (measured 2162 > ~2032
+  // instructions), so StaPipCore routes every env-bag package through the
+  // clip program in that mode (see the envForceClip branch). Check the
+  // micro-memory budget with nm after touching any program - the
+  // createProgramsCache overflow assert is compiled out in release.
+  const u32 count = vu1Clipping ? 9 : 10;
   VU1Program** programs = new VU1Program*[count];
   programs[0] = repository.getProgram(StaPipCullColor);
   programs[1] =
@@ -431,7 +435,9 @@ void StaPipQBufferRenderer::setProgramsCache() {
   programs[6] = repository.getProgram(StaPipCullTextureColor);
   programs[7] = repository.getProgram(vu1Clipping ? StaPipClipTextureColor
                                                   : StaPipAsIsTextureColor);
-  if (!vu1Clipping) {
+  if (vu1Clipping) {
+    programs[8] = repository.getProgram(StaPipClipTextureEnv);
+  } else {
     programs[8] = repository.getProgram(StaPipCullTextureEnv);
     programs[9] = repository.getProgram(StaPipAsIsTextureEnv);
   }
@@ -692,6 +698,8 @@ StaPipVU1Program* StaPipQBufferRenderer::getClipProgramByBag(
     return getProgramByName(StaPipClipTextureDirLights);
   else if (programType == StaPipVU1DirLights)
     return getProgramByName(StaPipClipDirLights);
+  else if (programType == StaPipVU1TextureEnvColor)  // TyraX: env (matcap)
+    return getProgramByName(StaPipClipTextureEnv);
   else if (programType == StaPipVU1TextureColor)
     return getProgramByName(StaPipClipTextureColor);
   else

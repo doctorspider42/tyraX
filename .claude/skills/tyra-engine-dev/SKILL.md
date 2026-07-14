@@ -58,9 +58,11 @@ static/dynamic pipelines, core GS/VU1 code), `thread`, `time`; plus
 (`*.i`, `*.vcl` — preprocessed by vclpp inside the container).
 
 Editor-specific engine additions so far: Cohen–Sutherland outcodes in the EE
-clipper, the StaPip `clip` VU1 program family (on-VU1 Sutherland–Hodgman
-behind the hidden `"clipping": "vu1"` project mode — design + status in
-`docs/vu1-clipping-plan.md`), static pools in `stapip_clipper.cpp` /
+clipper, the StaPip `clip` VU1 program family (on-VU1 Sutherland–Hodgman,
+**the default** clipping mode for new projects since M4; the EE clipper stays
+selectable as "Precise clipping on EE (legacy)" and remains the load-time
+default for pre-M4 `.tyra` files without a `clipping` key — design + status
+in `docs/vu1-clipping-plan.md`), static pools in `stapip_clipper.cpp` /
 `stapip_qbuffer.cpp`,
 `RendererCorePostFx` (bloom + film grain via GS blits; plus `applyCustom()` +
 `RendererCore::applyCustomPostFx()` for user-authored full-screen effects — see
@@ -126,8 +128,8 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
 - **Widening the cull programs' ADC test is retired; real VU1 clipping is a
   separate program family.** Three attempts at a guard band inside
   `PerformClipCheck` all corrupted ADC bits (documented in `vcl_sml.i`); the
-  working approach is the StaPip `clip` programs (hidden `"clipping": "vu1"`
-  mode), which never derive ADC from clip flags. VU1 microcode traps already
+  working approach is the StaPip `clip` programs (the default `"clipping":
+  "vu1"` mode), which never derive ADC from clip flags. VU1 microcode traps already
   paid for there: `fcand` sets VI01 to 0/1 (any-bit), NOT the masked bit
   pattern; a vertex clipped to exactly |x| = w scales to GS coordinate 4096.0
   and wraps the 12.4 XYZ2 field (clip the sides at 0.9w, let the scissor

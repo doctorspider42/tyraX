@@ -72,12 +72,15 @@ ugly patches up close. It fades back in as you step away.
 - **The matcap ST math runs on VU1** (phase 2): the env bag's texture bag has
   `coordinatesAreNormals` set, the normals ride in the vertex stream's ST
   slot, and the `TCE` program family (`stapip_cull_tce_vu1.vclpp` /
-  `stapip_as_is_tce_vu1.vclpp`, `CalculateTyraEnvStq` in `tyra_macros.i`)
-  computes `u = 0.5 + 0.5·(n·right)`, `v = 0.5 − 0.5·(n·up)` from the
-  per-mesh camera basis uploaded at `VU1_ENV_BASIS_ADDR`. The EE only
-  refreshes two vectors per reflective part per frame. (Scenes running the
-  hidden `"clipping": "vu1"` mode fall back to EE-computed STs — that
-  program set has no env variant.)
+  `stapip_as_is_tce_vu1.vclpp` / `stapip_clip_tce_vu1.vclpp`,
+  `CalculateTyraEnvStq` in `tyra_macros.i`) computes
+  `u = 0.5 + 0.5·(n·right)`, `v = 0.5 − 0.5·(n·up)` from the per-mesh camera
+  basis uploaded at `VU1_ENV_BASIS_ADDR`. The EE only refreshes two vectors
+  per reflective part per frame — in **both** clipping modes: the clip_tce
+  variant computes the ST from the normal *before* the Sutherland–Hodgman
+  pass, so it interpolates through the cuts like a regular texture
+  coordinate (the earlier EE-computed-ST fallback for VU1-clipping scenes
+  is gone).
 - The additive blend equation travels **in-band**: every StaPip mesh's tag
   block carries a GS `ALPHA` A+D pair (`VU1_ALPHA_ADDR`,
   `StoreTyraGifTags*Alpha`) — alpha-over by default, `Cv = Cs·FIX/128 + Cd`

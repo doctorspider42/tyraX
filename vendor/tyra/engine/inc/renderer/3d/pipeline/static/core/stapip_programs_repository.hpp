@@ -32,6 +32,7 @@
 // Modified by TyraX: env (matcap) programs - reflective materials.
 #include "./programs/cull/stapip_cull_tce_vu1_program.hpp"
 #include "./programs/as_is/stapip_as_is_tce_vu1_program.hpp"
+#include "./programs/clip/stapip_clip_tce_vu1_program.hpp"
 
 namespace Tyra {
 
@@ -59,6 +60,7 @@ class StaPipProgramsRepository {
   // Modified by TyraX: env (matcap) programs - reflective materials.
   StaPipCullTCEVU1Program cullTextureEnv;
   StaPipAsIsTCEVU1Program asIsTextureEnv;
+  StaPipClipTCEVU1Program clipTextureEnv;
 };
 
 }  // namespace Tyra

@@ -417,13 +417,13 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
     // Reflective material (refl in the .mtl): the additive sphere-map second
-    // pass. World-space normals are captured at rebuild; envSts is rewritten
-    // every frame from the camera basis (renderScene). The env bag shares
+    // pass. World-space normals are captured at rebuild and ride in the ST
+    // slot; the TCE VU1 programs compute the matcap ST from the per-mesh
+    // camera basis (refreshed every frame in renderScene). The env bag shares
     // this part's vertex array and bboxVersion and mirrors the base bag's
     // shape (texture + many colors), so both passes share one frustum-bbox
     // cache entry.
     std::vector<Tyra::Vec4> envNormals;
-    std::vector<Tyra::Vec4> envSts;
     std::vector<Tyra::Color> envColors;  // all-white 128 = unmodulated texel
     std::unique_ptr<Tyra::StaPipBag> envBag;
     std::unique_ptr<Tyra::StaPipInfoBag> envInfoBag;
@@ -793,13 +793,13 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
     // Reflective material (refl in the .mtl): the additive sphere-map second
-    // pass. World-space normals are captured at rebuild; envSts is rewritten
-    // every frame from the camera basis (renderScene). The env bag shares
+    // pass. World-space normals are captured at rebuild and ride in the ST
+    // slot; the TCE VU1 programs compute the matcap ST from the per-mesh
+    // camera basis (refreshed every frame in renderScene). The env bag shares
     // this part's vertex array and bboxVersion and mirrors the base bag's
     // shape (texture + many colors), so both passes share one frustum-bbox
     // cache entry.
     std::vector<Tyra::Vec4> envNormals;
-    std::vector<Tyra::Vec4> envSts;
     std::vector<Tyra::Color> envColors;  // all-white 128 = unmodulated texel
     std::unique_ptr<Tyra::StaPipBag> envBag;
     std::unique_ptr<Tyra::StaPipInfoBag> envInfoBag;
@@ -4575,20 +4575,11 @@ void TerrainGame::rebuildObjectGeometry(int index) {
           fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
       part.envColorBag->many = part.envColors.data();
       part.envTexBag->texture = envTex;
-      if (CLIP_VU1) {
-        // EE fallback: the VU1-clipping program set has no env variant, so
-        // the sphere-map STs are computed per frame on the EE (renderScene).
-        part.envSts.resize(part.vertices.size());
-        part.envTexBag->coordinates = part.envSts.data();
-        part.envTexBag->coordinatesAreNormals = false;
-      } else {
-        // VU1 path: the normals ride in the ST slot and the TCE programs
-        // compute the matcap ST from the per-mesh camera basis - zero EE
-        // per-vertex work, no pipeline barriers.
-        part.envSts.clear();
-        part.envTexBag->coordinates = part.envNormals.data();
-        part.envTexBag->coordinatesAreNormals = true;
-      }
+      // The normals ride in the ST slot and the TCE programs (cull/as_is/
+      // clip) compute the matcap ST from the per-mesh camera basis - zero
+      // EE per-vertex work, no pipeline barriers, in both clipping modes.
+      part.envTexBag->coordinates = part.envNormals.data();
+      part.envTexBag->coordinatesAreNormals = true;
       part.envBag->vertices = part.vertices.data();
       part.envBag->count = static_cast<u32>(part.vertices.size());
       part.envBag->bboxVersion = part.bag->bboxVersion;
@@ -4738,22 +4729,10 @@ void TerrainGame::renderScene() {
   // it stays in this list only for the shell pass.
   auto renderEnvPass = [&](GeoPart& part) {
     if (!part.envBag) return;
-    if (part.envTexBag->coordinatesAreNormals) {
-      // VU1 path (TCE programs): just refresh the per-mesh camera basis.
-      part.envTexBag->envRight.set(envRight.x, envRight.y, envRight.z, 0.0F);
-      part.envTexBag->envUp.set(envUp.x, envUp.y, envUp.z, 0.0F);
-    } else {
-      // EE fallback (VU1-clipping scenes): compute the sphere-map STs here.
-      const u32 n = static_cast<u32>(part.envNormals.size());
-      for (u32 vi = 0; vi < n; ++vi) {
-        const Vec4& nw = part.envNormals[vi];
-        part.envSts[vi].set(
-            0.5F + 0.5F * (nw.x * envRight.x + nw.y * envRight.y +
-                           nw.z * envRight.z),
-            0.5F - 0.5F * (nw.x * envUp.x + nw.y * envUp.y + nw.z * envUp.z),
-            1.0F, 0.0F);
-      }
-    }
+    // TCE programs compute the matcap ST on VU1 - the EE only refreshes the
+    // per-mesh camera basis here.
+    part.envTexBag->envRight.set(envRight.x, envRight.y, envRight.z, 0.0F);
+    part.envTexBag->envUp.set(envUp.x, envUp.y, envUp.z, 0.0F);
     stapip.core.render(part.envBag.get());
   };
   int hlList[8];

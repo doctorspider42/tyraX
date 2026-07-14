@@ -12783,12 +12783,16 @@ void App::drawPreferencesModal() {
     }
 
     ImGui::SeparatorText("Rendering");
-    int clipMode = prefSettings_.clipping == "fast" ? 1 : 0;
+    int clipMode = prefSettings_.clipping == "fast"      ? 2
+                   : prefSettings_.clipping == "precise" ? 1
+                                                         : 0;
     const char* clipNames[] = {
-        "Precise clipping (no holes at screen edges, costs EE time)",
+        "Precise clipping on VU1 (no holes, no EE cost - default)",
+        "Precise clipping on EE (legacy; costs EE time)",
         "Fast culling (fastest; big near triangles may vanish)"};
-    if (ImGui::Combo("Triangles", &clipMode, clipNames, 2))
-        prefSettings_.clipping = clipMode == 1 ? "fast" : "precise";
+    if (ImGui::Combo("Triangles", &clipMode, clipNames, 3))
+        prefSettings_.clipping =
+            clipMode == 2 ? "fast" : clipMode == 1 ? "precise" : "vu1";
 
     ImGui::DragFloat("Animation LOD distance", &prefSettings_.animLodDistance,
                      0.5f, 0.0f, 2000.0f,
@@ -13224,12 +13228,16 @@ void App::drawScenePreferencesModal() {
     }
 
     category("Clipping", ov.clipping, [&] {
-        int clipMode = s.clipping == "fast" ? 1 : 0;
+        int clipMode = s.clipping == "fast"      ? 2
+                       : s.clipping == "precise" ? 1
+                                                 : 0;
         const char* clipNames[] = {
-            "Precise clipping (no holes at screen edges, costs EE time)",
+            "Precise clipping on VU1 (no holes, no EE cost - default)",
+            "Precise clipping on EE (legacy; costs EE time)",
             "Fast culling (fastest; big near triangles may vanish)"};
-        if (ImGui::Combo("Triangles", &clipMode, clipNames, 2))
-            s.clipping = clipMode == 1 ? "fast" : "precise";
+        if (ImGui::Combo("Triangles", &clipMode, clipNames, 3))
+            s.clipping =
+                clipMode == 2 ? "fast" : clipMode == 1 ? "precise" : "vu1";
     });
 
     category("Terrain material", ov.terrainMat, [&] {

@@ -54,6 +54,8 @@ StaPipVU1Program* StaPipProgramsRepository::getProgram(
       return &cullTextureEnv;
     case StaPipProgramName::StaPipAsIsTextureEnv:
       return &asIsTextureEnv;
+    case StaPipProgramName::StaPipClipTextureEnv:
+      return &clipTextureEnv;
 
     default:
       TYRA_TRAP("Unknown VU1 program name");

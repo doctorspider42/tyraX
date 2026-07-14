@@ -334,7 +334,10 @@ struct ProjectSettings {
     // "precise": real per-triangle clipping - no holes at screen edges, but
     // costs EE time. "fast": VU1 cull only - fastest, may drop triangles
     // that extend far beyond the screen.
-    std::string clipping = "precise";
+    // Triangle handling: "vu1" (default - precise clipping in the VU1 clip
+    // programs, no EE cost), "precise" (the legacy EE clipper) or "fast"
+    // (cull-only). Projects saved before the vu1 default keep their value.
+    std::string clipping = "vu1";
 
     // Animation LOD: animated-model instances farther than this from the
     // camera refresh their pose/skinning every 2nd frame (every 4th beyond

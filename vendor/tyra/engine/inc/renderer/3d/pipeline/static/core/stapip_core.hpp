@@ -79,7 +79,10 @@ class StaPipCore {
   StaPipBagPackager packager;
   StaPipQBufferRenderer qbufferRenderer;
   void renderPkgs(StaPipBagPackage* packages, const bool& doClip, u16 count);
-  void renderSubpkgs(StaPipBagPackage* packages, u16 count);
+  // Modified by TyraX: forceClip routes every surviving subpackage to the
+  // clip program (env bags in VU1-clipping mode - no resident cull_tce).
+  void renderSubpkgs(StaPipBagPackage* packages, u16 count,
+                     const bool& forceClip = false);
 };
 
 }  // namespace Tyra
