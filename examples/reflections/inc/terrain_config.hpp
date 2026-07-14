@@ -32,8 +32,8 @@ constexpr float ANALOG_DEADZONE_R = 0.2F;
 // 0 = Linear, 1 = Exponential (pow, finer near center), 2 = S-Curve.
 // STICK_EXP_* tunes curves 1/2 (>=1). These seed the runtime g_stickCurve*/
 // g_stickExp* globals, which the Set Stick Curve flow node can change live.
-constexpr int STICK_CURVE_L = 0;
-constexpr int STICK_CURVE_R = 0;
+constexpr int STICK_CURVE_L = 2;
+constexpr int STICK_CURVE_R = 2;
 constexpr float STICK_EXP_L = 2.0F;
 constexpr float STICK_EXP_R = 2.0F;
 constexpr float ORBIT_SPEED = 1.0F;  // multiplier
@@ -59,8 +59,8 @@ constexpr float MESH_LOD_DISTANCE = 0.0F;
 
 // Debug-profile HUD (Project > Preferences > Build). All forced false in a
 // release-profile build, which folds the overlay + instrumentation away.
-constexpr bool DEBUG_SHOW_FPS = false;
-constexpr bool DEBUG_SHOW_MEM = false;
+constexpr bool DEBUG_SHOW_FPS = true;
+constexpr bool DEBUG_SHOW_MEM = true;
 // Per-phase EE-time breakdown (scene / usable-highlight / particles / whole
 // frame), averaged over ~1s. The COP0-timer reads that feed it are guarded
 // by this constexpr, so a build with it false pays nothing (see drawDebugHud
