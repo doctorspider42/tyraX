@@ -683,4 +683,9 @@ private:
     std::string scenePrefLoading_;   // staged SceneData::loadingScreen
 
     std::string statusMessage_;
+
+    // Install the bundled VS Code extension once per session (from openInVSCode);
+    // vsCodeExtStatus_ keeps the last outcome so it can be shown to the user.
+    bool vsCodeExtInstallTried_ = false;
+    std::string vsCodeExtStatus_;
 };

@@ -1,2 +1,4 @@
-*.vsix
 node_modules/
+# The prebuilt tyra-flownode-*.vsix IS committed (the editor installs it via
+# `code --install-extension`); regenerate it with `npx @vscode/vsce package`
+# whenever the extension changes. Remove the old versioned file when you bump.

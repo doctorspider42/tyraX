@@ -31,16 +31,21 @@ thin manifest — but the extension now colours and checks that manifest too.
 
 You normally don't have to do anything: the first time you use **Open in
 VS Code** (from the Flow Graph *Custom nodes…* menu, the UI Editor *Custom
-effects…* menu, or the Scripts panel) the editor copies the extension into
-`~/.vscode/extensions` and launches VS Code. **Reload the VS Code window once**
-after the first install to activate it. To (re)install without opening a
-project, use **Custom nodes… ▸ Install VS Code extension**.
+effects…* menu, or the Scripts panel) the editor installs the extension and
+launches VS Code. If VS Code was already open, **reload the window once**
+(Command Palette ▸ *Developer: Reload Window*) to activate it. To (re)install
+without opening a project, use **Custom nodes… ▸ Install VS Code extension** —
+it reports the outcome in the status bar.
 
-Under the hood the editor copies `tools/vscode-tyra` (resolved next to the
-`tyra-editor.exe`, the same way `c_cpp_properties.json` finds the engine
-headers) into `~/.vscode/extensions/tyra.tyra-flownode-<version>`, clearing any
-older install of the same id. Generated projects also get a
-`.vscode/extensions.json` that recommends the extension (id
+Under the hood the editor runs `code --install-extension` on the prebuilt
+`tools/vscode-tyra/*.vsix` (resolved next to the `tyra-editor.exe`, the same way
+`c_cpp_properties.json` finds the engine headers). This is the **only** reliable
+way: modern VS Code (≥ 1.74) loads only the extensions listed in its own
+manifest cache, so an extension folder merely copied into `~/.vscode/extensions`
+is silently ignored. It therefore needs VS Code's **`code` CLI on PATH** (in
+VS Code: Command Palette ▸ *Shell Command: Install 'code' command in PATH*); if
+it isn't, the status bar says so instead of failing silently. Generated projects
+also get a `.vscode/extensions.json` recommending the extension (id
 `tyra.tyra-flownode`), so an already-installed copy is not re-prompted.
 
 ### Installing it by hand
@@ -70,6 +75,13 @@ code --install-extension tyra-flownode-*.vsix
   keys, enum values, placeholders) **must stay in sync** with the editor
   parsers `src/flownode.cpp` and `src/screenfx.cpp`; when you add a header key or
   placeholder to one, update the other and the docs above.
+- `tyra-flownode-<version>.vsix` — the **prebuilt package the editor installs**,
+  committed to the repo. It is not rebuilt automatically, so after **any** change
+  to the extension you must regenerate and re-commit it (bump the `version` in
+  `package.json` first so `code --install-extension --force` picks up the new
+  build): `cd tools/vscode-tyra && npx @vscode/vsce package`, then delete the old
+  versioned `.vsix`. A stale `.vsix` is a real trap — the source looks updated
+  but users get the old build.
 
 The extension is verified offline (no VS Code UI needed): the grammars are
 tokenized with `vscode-textmate`, the `extension.js` logic runs against a mock

@@ -28,14 +28,23 @@ generated `.vscode/c_cpp_properties.json`, so open the **whole project folder**
 ## Installing
 
 The tyra-editor installs this automatically the first time you use
-**Open in VS Code** (it copies this folder into `~/.vscode/extensions`; reload
-the window once). To install it by hand, either copy this folder there yourself,
-or package and install a `.vsix`:
+**Open in VS Code** — it runs `code --install-extension` on the prebuilt
+`.vsix` in this folder (reload the VS Code window once if it was already open).
+That needs VS Code's `code` CLI on PATH (Command Palette ▸ *Shell Command:
+Install 'code' command in PATH*).
+
+To install it by hand:
+
+```sh
+code --install-extension tools/vscode-tyra/tyra-flownode-0.1.0.vsix --force
+```
+
+The committed `.vsix` is not rebuilt automatically — regenerate it after any
+change (bump `version` in `package.json` first):
 
 ```sh
 cd tools/vscode-tyra
 npx @vscode/vsce package
-code --install-extension tyra-flownode-*.vsix
 ```
 
 ## Development

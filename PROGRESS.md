@@ -31,25 +31,39 @@ Each finished feature lands as its own commit.
   - **Delivery**: `templates.cpp` now also emits `.vscode/extensions.json`
     (recommends the extension; written-if-missing in `refreshGenerated` so it
     never clobbers user recommendations, unlike the always-overwritten
-    `c_cpp_properties.json`). The editor installs the extension by copying
-    `tools/vscode-tyra` (found next to the exe) into
-    `~/.vscode/extensions/tyra.tyra-flownode-<version>` — best-effort inside
+    `c_cpp_properties.json`). The editor installs the extension by running
+    `code --install-extension` on the **prebuilt `tools/vscode-tyra/*.vsix`**
+    (committed to the repo, found next to the exe), once per session inside
     `App::openInVSCode`, plus an explicit **Custom nodes… ▸ Install VS Code
-    extension** menu item. New doc `docs/vscode-extension.md`; corrected the
-    stale "there is no dedicated `.flownode` extension" line in
-    `docs/custom-flow-nodes.md`.
-  - **Verified** (offline, no VS Code UI needed): grammars tokenized with the
-    real `vscode-textmate` engine — header scopes correct, unknown key →
-    `invalid`, bad pin → `invalid.illegal.pin`, and the `---` region runs to EOF
-    with placeholders overlaid; `extension.js` run against a mock `vscode` module
-    (17/17 diagnostics/hover/completion assertions pass, including clean files
-    producing zero diagnostics); the manifest validated by packaging a real
-    `.vsix` with `@vscode/vsce` and installing it via `code --install-extension`
-    (registers as `tyra.tyra-flownode`); the editor builds clean; and a headless
-    `--new` project confirms `.vscode/extensions.json` is generated. The install
-    path was checked by build + the exe-relative source resolving to
-    `tools/vscode-tyra` + the installed folder name matching the "already
-    installed" guard (GUI install not driven headlessly).
+    extension** menu item; the outcome is reported in the status bar. New doc
+    `docs/vscode-extension.md`; corrected the stale "there is no dedicated
+    `.flownode` extension" line in `docs/custom-flow-nodes.md`.
+  - **Install mechanism — a dead end and the fix.** The first cut *copied*
+    `tools/vscode-tyra` into `~/.vscode/extensions/tyra.tyra-flownode-<version>`.
+    It compiled and looked fine on the dev box only because the extension had
+    *also* been installed there by hand via `code --install-extension` during
+    verification — the copy path itself was never exercised. On a second machine
+    it did nothing and printed nothing. Root cause, then confirmed empirically
+    (`code --list-extensions` after a manual folder drop → not listed): **modern
+    VS Code (≥ 1.74) loads only the extensions in its own manifest cache and
+    ignores folders dropped into `~/.vscode/extensions`.** Fix: ship a prebuilt
+    `.vsix` and install through the `code` CLI (which updates that cache), run
+    synchronously so the real exit code drives a status message — no more silent
+    failure. Lesson: verify the *product's* install path, not a hand-installed
+    stand-in.
+  - **Verified**: grammars tokenized with the real `vscode-textmate` engine —
+    header scopes correct, unknown key → `invalid`, bad pin →
+    `invalid.illegal.pin`, `---` region runs to EOF with placeholders overlaid;
+    `extension.js` against a mock `vscode` module (17/17 diagnostics/hover/
+    completion assertions, clean files = zero diagnostics); the **exact
+    `cmd.exe /S /C "code --install-extension "<vsix>" --force"` string the editor
+    builds** was run and confirmed to install + register the extension
+    (`code --list-extensions` → `tyra.tyra-flownode`, exit 0), and the negative
+    case (manual folder drop → not listed) proved the old path was broken; the
+    editor builds clean (before and after merging `origin/main`); headless
+    `--new` confirms `.vscode/extensions.json` is generated and valid. The C++
+    wrapper runs that verified string via the same `CreateProcessA` mechanism
+    `openInVSCode` already uses; the GUI button itself was not clicked headlessly.
 - (88) **Default projects folder (machine-global editor setting).** New Project
   used to always propose `~/TyraProjects` as the location. Now the folder is
   configurable in *Edit > Preferences > New projects* (a "Default folder" text

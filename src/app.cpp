@@ -5298,59 +5298,62 @@ void App::drawFlowGraphWindow() {
 }
 
 std::string App::installVsCodeExtension() {
-    // The extension ships next to the exe (dev tree: <exe>/../tools/vscode-tyra),
-    // resolved the same exe-relative way as the generated c_cpp_properties.json.
+    // The extension ships prebuilt as a .vsix next to the exe (dev tree:
+    // <exe>/../tools/vscode-tyra/*.vsix), resolved the same exe-relative way as
+    // the generated c_cpp_properties.json. It MUST be installed through the
+    // `code` CLI: modern VS Code (>=1.74) loads only what its own manifest cache
+    // lists, so an extension folder merely copied into ~/.vscode/extensions is
+    // silently ignored - which is why the earlier folder-copy install did
+    // nothing and printed nothing. `code --install-extension <vsix>` registers
+    // it properly.
     char exePath[MAX_PATH] = {};
     if (GetModuleFileNameA(nullptr, exePath, MAX_PATH) == 0)
         return "Could not locate the editor executable";
     std::error_code ec;
-    const std::filesystem::path src = std::filesystem::weakly_canonical(
+    const std::filesystem::path dir = std::filesystem::weakly_canonical(
         std::filesystem::path(exePath).parent_path() / ".." / "tools" / "vscode-tyra", ec);
-    if (!std::filesystem::exists(src / "package.json", ec))
-        return "Bundled VS Code extension not found (tools/vscode-tyra)";
+    std::filesystem::path vsix;
+    if (std::filesystem::exists(dir, ec))
+        for (const auto& e : std::filesystem::directory_iterator(dir, ec))
+            if (e.path().extension() == ".vsix") {
+                vsix = e.path();
+                break;
+            }
+    if (vsix.empty())
+        return "VS Code extension package not found (tools/vscode-tyra/*.vsix)";
 
-    // Pull the version out of package.json so upgrades land in a fresh folder.
-    std::string version = "0.0.0";
-    {
-        std::ifstream f(src / "package.json", std::ios::binary);
-        std::stringstream ss;
-        ss << f.rdbuf();
-        const std::string j = ss.str();
-        if (const size_t k = j.find("\"version\""); k != std::string::npos) {
-            const size_t q1 = j.find('"', j.find(':', k) + 1);
-            const size_t q2 = q1 == std::string::npos ? q1 : j.find('"', q1 + 1);
-            if (q2 != std::string::npos) version = j.substr(q1 + 1, q2 - q1 - 1);
-        }
-    }
-
-    const char* home = getenv("USERPROFILE");
-    if (!home || !*home) return "USERPROFILE is not set";
-    const std::filesystem::path extRoot = std::filesystem::path(home) / ".vscode" / "extensions";
-    const std::filesystem::path dst = extRoot / ("tyra.tyra-flownode-" + version);
-    if (std::filesystem::exists(dst, ec))
-        return "Tyra VS Code extension already installed (v" + version + ")";
-
-    // Clear out older installs of our id so VS Code doesn't load two copies.
-    if (std::filesystem::exists(extRoot, ec))
-        for (const auto& e : std::filesystem::directory_iterator(extRoot, ec)) {
-            const std::string n = e.path().filename().string();
-            if (e.is_directory(ec) && n.rfind("tyra.tyra-flownode-", 0) == 0)
-                std::filesystem::remove_all(e.path(), ec);
-        }
-    std::filesystem::create_directories(dst, ec);
-    std::filesystem::copy(src, dst,
-                          std::filesystem::copy_options::recursive |
-                              std::filesystem::copy_options::overwrite_existing,
-                          ec);
-    if (ec) return "Failed to install VS Code extension: " + ec.message();
-    return "Installed Tyra VS Code extension v" + version +
-           " - reload the VS Code window to activate it";
+    // `code` is a .cmd shim, so route through cmd.exe (same as openInVSCode).
+    // Run it synchronously so we can report the real outcome; --force reinstalls
+    // in place, so this is idempotent.
+    std::string cmd =
+        "cmd.exe /S /C \"code --install-extension \"" + vsix.string() + "\" --force\"";
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+    std::string mutableCmd = cmd;
+    if (!CreateProcessA(nullptr, mutableCmd.data(), nullptr, nullptr, FALSE,
+                        CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi))
+        return "Could not run VS Code's 'code' CLI - is it on PATH?";
+    WaitForSingleObject(pi.hProcess, 60000);
+    DWORD exitCode = 1;
+    GetExitCodeProcess(pi.hProcess, &exitCode);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    if (exitCode != 0)
+        return "VS Code extension install failed - is the 'code' CLI on PATH? "
+               "(VS Code: Shell Command: Install 'code' in PATH)";
+    return "Tyra VS Code extension installed - reload the VS Code window if it "
+           "was already open";
 }
 
 void App::openInVSCode(const std::string& file) {
-    // Make sure our .flownode/.screenfx extension is present first (best-effort;
-    // a fresh install shows up after the user reloads the VS Code window).
-    installVsCodeExtension();
+    // Ensure our .flownode/.screenfx extension is installed (once per session;
+    // the install runs `code --install-extension`, a couple of seconds). Surface
+    // its result so a failure isn't silent the way the old copy-install was.
+    if (!vsCodeExtInstallTried_) {
+        vsCodeExtInstallTried_ = true;
+        vsCodeExtStatus_ = installVsCodeExtension();
+    }
 
     // `code` is a .cmd shim, so it has to go through cmd.exe. Passing the
     // project dir opens (or reuses) that workspace; an extra file path opens it
@@ -5374,6 +5377,9 @@ void App::openInVSCode(const std::string& file) {
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
         statusMessage_ = "Opening in VS Code...";
+        // Append the extension-install outcome so it is visible (a failure here
+        // is the difference between highlighting working or not).
+        if (!vsCodeExtStatus_.empty()) statusMessage_ += "  [" + vsCodeExtStatus_ + "]";
     } else {
         statusMessage_ = "Could not launch VS Code (is 'code' on PATH?)";
     }
