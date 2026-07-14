@@ -66,9 +66,10 @@ enum class PrimitiveType {
 // Box it is the number of subdivisions per edge (1 = the plain 12-triangle
 // box). Higher = more triangles = smoother/finer baked lighting, at PS2 vertex
 // cost. Box grows quadratically, so it has a tighter cap. The same formulas run
-// in three places that must stay in sync: the editor viewport (viewport.cpp
-// unitBox/unitSphere/unitCylinder/unitCone), the generated PS2 runtime
-// (templates.cpp addBox/addSphere/addCylinder/addCone) and primTriangleCount.
+// in three places that must stay in sync: the shared host tessellation
+// (primmesh.cpp unitBox/... - used by the viewport AND the decal projector),
+// the generated PS2 runtime (templates.cpp addBox/addSphere/addCylinder/addCone)
+// and primTriangleCount.
 constexpr int kDefaultPrimDetail = 16;  // curved shapes (radial segments)
 constexpr int kDefaultBoxDetail = 1;    // Box (subdivisions per edge)
 
@@ -153,6 +154,16 @@ struct SceneObject {
     // replaces their own mtl (usemtl names resolve against it). Empty =
     // plain color (primitives) / the model's own materials.
     std::string materialPath;
+
+    // Decal projection (used when type == Decal). false = the flat quad; true =
+    // project the texture onto the receiver geometry (terrain + every solid
+    // object whose bounding box overlaps this decal's oriented unit-cube volume)
+    // so it conforms to walls/models/floors instead of floating as a flat plane.
+    // The transform is the projector: scale = footprint (X/Y) + depth (Z),
+    // rotation aims +Z at the surface, position places it. Computed at build
+    // time on the host (decalproj) and baked to static geometry - zero PS2 cost.
+    // For graffiti/wall text on angled or curved surfaces and fake blob shadows.
+    bool decalProject = false;
 
     // Player entity parameters (used when type == Player)
     int playerMode = 0;            // 0 = walk (FPP), 1 = noclip (fly)
@@ -255,7 +266,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.layer == b.layer &&
            a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
            a.modelPath == b.modelPath &&
-           a.materialPath == b.materialPath && a.playerMode == b.playerMode &&
+           a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
+           a.playerMode == b.playerMode &&
            a.playerWalkSpeed == b.playerWalkSpeed &&
            a.playerLookSpeed == b.playerLookSpeed &&
            a.playerEyeHeight == b.playerEyeHeight &&

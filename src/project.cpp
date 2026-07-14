@@ -219,7 +219,9 @@ static std::string objectJson(const SceneObject& o) {
              ? ", \"drawDistance\": " + fmtFloat(o.drawDistance)
              : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + o.modelPath + "\"") +
-        (o.materialPath.empty() ? "" : ", \"material\": \"" + o.materialPath + "\"");
+        (o.materialPath.empty() ? "" : ", \"material\": \"" + o.materialPath + "\"") +
+        // decal projection: off (flat quad) stays implicit
+        (o.decalProject ? ", \"decalProject\": true" : "");
     if (o.type == PrimitiveType::Player) {
         json += ", \"player\": { \"mode\": \"" +
                 std::string(o.playerMode == 1 ? "noclip" : "walk") +
@@ -1265,6 +1267,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         }
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
+        if (const auto* v = jo.find("decalProject")) o.decalProject = v->boolOr(false);
         // pre-materials projects had a per-object "texture" PNG - dropped
         if (const auto* pl = jo.find("player")) {
             if (const auto* v = pl->find("mode"))
@@ -2368,6 +2371,7 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\loading_data.gen.hpp" ||
             f.relativePath == "inc\\terrain_heights.gen.hpp" ||
             f.relativePath == "inc\\texture_data.gen.hpp" ||
+            f.relativePath == "inc\\decal_data.gen.hpp" ||
             f.relativePath == "inc\\save_system.gen.hpp" ||
             f.relativePath == "src\\save_system.gen.cpp" ||
             f.relativePath == "inc\\menu_data.gen.hpp") {

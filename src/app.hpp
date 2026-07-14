@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <map>
 #include <string>
@@ -700,6 +701,15 @@ private:
 
     Viewport viewport_;
     Runner runner_;
+
+    // Projected-decal preview: world-space conforming meshes (decalproj) for the
+    // active scene's projecting decals, keyed by object id (pos3+uv2 per vertex).
+    // Recomputed only when a cheap signature of the scene changes, then pushed to
+    // the viewport with a bumped version (see updateProjectedDecals).
+    std::map<std::string, std::vector<float>> projectedDecals_;
+    uint64_t projectedDecalsSig_ = 0;
+    uint64_t projectedDecalsVersion_ = 0;
+    void updateProjectedDecals();
 
     // "New project" modal state
     bool openNewProjectPopup_ = false;

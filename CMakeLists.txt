@@ -50,6 +50,8 @@ add_executable(tyrax-editor
     src/menubake.cpp
     src/pcsx2_config.cpp
     src/pngquant.cpp
+    src/primmesh.cpp
+    src/decalproj.cpp
     src/project.cpp
     src/screenfx.cpp
     src/texbake.cpp
