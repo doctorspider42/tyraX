@@ -1,0 +1,77 @@
+{
+  "name": "tyra-flownode",
+  "displayName": "Tyra Flow Nodes & Screen Effects",
+  "description": "Syntax highlighting, snippets and validation for tyra-editor custom flow-graph nodes (.flownode) and screen effects (.screenfx).",
+  "version": "0.1.0",
+  "publisher": "tyra",
+  "license": "MIT",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/doctorspider42/tyra-editor"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets",
+    "Linters"
+  ],
+  "keywords": [
+    "tyra",
+    "ps2",
+    "playstation 2",
+    "flowgraph",
+    "flownode"
+  ],
+  "activationEvents": [
+    "onLanguage:tyra-flownode",
+    "onLanguage:tyra-screenfx"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "tyra-flownode",
+        "aliases": ["Tyra Flow Node", "flownode"],
+        "extensions": [".flownode"],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "tyra-screenfx",
+        "aliases": ["Tyra Screen Effect", "screenfx"],
+        "extensions": [".screenfx"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "tyra-flownode",
+        "scopeName": "source.tyra-flownode",
+        "path": "./syntaxes/flownode.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.cpp": "cpp"
+        }
+      },
+      {
+        "language": "tyra-screenfx",
+        "scopeName": "source.tyra-screenfx",
+        "path": "./syntaxes/screenfx.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.cpp": "cpp"
+        }
+      }
+    ],
+    "snippets": [
+      {
+        "language": "tyra-flownode",
+        "path": "./snippets/flownode.json"
+      },
+      {
+        "language": "tyra-screenfx",
+        "path": "./snippets/screenfx.json"
+      }
+    ]
+  }
+}

@@ -4437,6 +4437,15 @@ void App::drawFlowGraphWindow() {
                 if (ImGui::MenuItem(c->title.c_str())) openInVSCode(c->sourceFile);
             ImGui::EndMenu();
         }
+        ImGui::Separator();
+        // Syntax highlighting + validation for .flownode/.screenfx files. Opening
+        // a project already installs it; this is the manual/refresh entry point.
+        if (ImGui::MenuItem("Install VS Code extension"))
+            statusMessage_ = installVsCodeExtension();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Install the Tyra extension (.flownode/.screenfx highlighting)\n"
+                "into VS Code. Reload the VS Code window afterwards.");
         ImGui::EndPopup();
     }
 
@@ -5301,7 +5310,64 @@ void App::drawFlowGraphWindow() {
     ImGui::End();
 }
 
+std::string App::installVsCodeExtension() {
+    // The extension ships prebuilt as a .vsix next to the exe (dev tree:
+    // <exe>/../tools/vscode-tyra/*.vsix), resolved the same exe-relative way as
+    // the generated c_cpp_properties.json. It MUST be installed through the
+    // `code` CLI: modern VS Code (>=1.74) loads only what its own manifest cache
+    // lists, so an extension folder merely copied into ~/.vscode/extensions is
+    // silently ignored - which is why the earlier folder-copy install did
+    // nothing and printed nothing. `code --install-extension <vsix>` registers
+    // it properly.
+    char exePath[MAX_PATH] = {};
+    if (GetModuleFileNameA(nullptr, exePath, MAX_PATH) == 0)
+        return "Could not locate the editor executable";
+    std::error_code ec;
+    const std::filesystem::path dir = std::filesystem::weakly_canonical(
+        std::filesystem::path(exePath).parent_path() / ".." / "tools" / "vscode-tyra", ec);
+    std::filesystem::path vsix;
+    if (std::filesystem::exists(dir, ec))
+        for (const auto& e : std::filesystem::directory_iterator(dir, ec))
+            if (e.path().extension() == ".vsix") {
+                vsix = e.path();
+                break;
+            }
+    if (vsix.empty())
+        return "VS Code extension package not found (tools/vscode-tyra/*.vsix)";
+
+    // `code` is a .cmd shim, so route through cmd.exe (same as openInVSCode).
+    // Run it synchronously so we can report the real outcome; --force reinstalls
+    // in place, so this is idempotent.
+    std::string cmd =
+        "cmd.exe /S /C \"code --install-extension \"" + vsix.string() + "\" --force\"";
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+    std::string mutableCmd = cmd;
+    if (!CreateProcessA(nullptr, mutableCmd.data(), nullptr, nullptr, FALSE,
+                        CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi))
+        return "Could not run VS Code's 'code' CLI - is it on PATH?";
+    WaitForSingleObject(pi.hProcess, 60000);
+    DWORD exitCode = 1;
+    GetExitCodeProcess(pi.hProcess, &exitCode);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    if (exitCode != 0)
+        return "VS Code extension install failed - is the 'code' CLI on PATH? "
+               "(VS Code: Shell Command: Install 'code' in PATH)";
+    return "Tyra VS Code extension installed - reload the VS Code window if it "
+           "was already open";
+}
+
 void App::openInVSCode(const std::string& file) {
+    // Ensure our .flownode/.screenfx extension is installed (once per session;
+    // the install runs `code --install-extension`, a couple of seconds). Surface
+    // its result so a failure isn't silent the way the old copy-install was.
+    if (!vsCodeExtInstallTried_) {
+        vsCodeExtInstallTried_ = true;
+        vsCodeExtStatus_ = installVsCodeExtension();
+    }
+
     // `code` is a .cmd shim, so it has to go through cmd.exe. Passing the
     // project dir opens (or reuses) that workspace; an extra file path opens it
     // in the same window (-g = goto), so we can jump straight to a script or a
@@ -5324,6 +5390,9 @@ void App::openInVSCode(const std::string& file) {
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
         statusMessage_ = "Opening in VS Code...";
+        // Append the extension-install outcome so it is visible (a failure here
+        // is the difference between highlighting working or not).
+        if (!vsCodeExtStatus_.empty()) statusMessage_ += "  [" + vsCodeExtStatus_ + "]";
     } else {
         statusMessage_ = "Could not launch VS Code (is 'code' on PATH?)";
     }

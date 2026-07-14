@@ -1,0 +1,78 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Tyra Screen Effect",
+  "scopeName": "source.tyra-screenfx",
+  "patterns": [
+    { "include": "#body" },
+    { "include": "#comment" },
+    { "include": "#header" }
+  ],
+  "repository": {
+    "comment": {
+      "match": "^\\s*#.*$",
+      "name": "comment.line.number-sign.tyra-screenfx"
+    },
+    "header": {
+      "patterns": [
+        {
+          "comment": "param0..param3 = Label[, default, min, max]",
+          "begin": "^\\s*(param[0-3])\\s*(=)",
+          "beginCaptures": {
+            "1": { "name": "keyword.control.header.tyra-screenfx" },
+            "2": { "name": "punctuation.separator.key-value.tyra-screenfx" }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "match": ",",
+              "name": "punctuation.separator.parameter.tyra-screenfx"
+            },
+            {
+              "match": "[-+]?[0-9]*\\.?[0-9]+",
+              "name": "constant.numeric.tyra-screenfx"
+            },
+            {
+              "match": "[^,\\s][^,]*?(?=\\s*(,|$))",
+              "name": "string.unquoted.value.tyra-screenfx"
+            }
+          ]
+        },
+        {
+          "comment": "known scalar keys",
+          "match": "^\\s*(title)\\s*(=)\\s*(.*)$",
+          "captures": {
+            "1": { "name": "keyword.control.header.tyra-screenfx" },
+            "2": { "name": "punctuation.separator.key-value.tyra-screenfx" },
+            "3": { "name": "string.unquoted.value.tyra-screenfx" }
+          }
+        },
+        {
+          "comment": "unknown key: still colour key/=/value, flag the key",
+          "match": "^\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*(=)\\s*(.*)$",
+          "captures": {
+            "1": { "name": "invalid.deprecated.unknown-key.tyra-screenfx" },
+            "2": { "name": "punctuation.separator.key-value.tyra-screenfx" },
+            "3": { "name": "string.unquoted.value.tyra-screenfx" }
+          }
+        }
+      ]
+    },
+    "placeholder": {
+      "match": "\\{p[0-3]\\}",
+      "name": "variable.language.placeholder.tyra-screenfx"
+    },
+    "body": {
+      "comment": "Everything after --- is C++ emitted verbatim into screen_fx.gen.cpp; run source.cpp and overlay {pN} placeholders. Runs to EOF.",
+      "begin": "^(---)\\s*$",
+      "beginCaptures": {
+        "1": { "name": "punctuation.section.separator.tyra-screenfx" }
+      },
+      "end": "(?!)",
+      "contentName": "meta.embedded.block.cpp",
+      "patterns": [
+        { "include": "#placeholder" },
+        { "include": "source.cpp" }
+      ]
+    }
+  }
+}

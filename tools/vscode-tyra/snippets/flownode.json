@@ -1,0 +1,69 @@
+{
+  "Inline flow node": {
+    "prefix": "flownode-inline",
+    "body": [
+      "# ${1:Description of what this node does}",
+      "title = ${2:My Node}",
+      "category = ${3:Custom}",
+      "string = ${4|none,object,text|}",
+      "num0 = ${5:Amount}",
+      "---",
+      "ctx.objects[{obj}].data.position[1] += {num0};",
+      "ctx.objects[{obj}].dirty = true;$0"
+    ],
+    "description": "A custom flow node whose C++ body is written inline after ---."
+  },
+  "C++-backed flow node (call = fn)": {
+    "prefix": "flownode-call",
+    "body": [
+      "# ${1:Description}. Implement ${3:myFunction} in inc/scripts/flow_nodes.hpp.",
+      "title = ${2:My Node}",
+      "category = ${4:Custom}",
+      "out = ${5|object,position,bool,text|}",
+      "exec_out = true",
+      "call = ${3:myFunction}",
+      "---$0"
+    ],
+    "description": "A custom flow node backed by a C++ function in flow_nodes.hpp (supports output pins)."
+  },
+  "title": {
+    "prefix": "title",
+    "body": "title = ${1:My Node}",
+    "description": "Display name in the add-menu and node title bar."
+  },
+  "category": {
+    "prefix": "category",
+    "body": "category = ${1:Custom}",
+    "description": "Add-menu submenu."
+  },
+  "string param": {
+    "prefix": "string",
+    "body": "string = ${1|none,object,text|}",
+    "description": "The string param: none, text, or object (the target)."
+  },
+  "num param": {
+    "prefix": "num",
+    "body": "num${1|0,1,2,3|} = ${2:Label}",
+    "description": "A numeric parameter (define num0..num3 in order)."
+  },
+  "in pins": {
+    "prefix": "in",
+    "body": "in = ${1|object,position,bool,text|}",
+    "description": "Extra input pins."
+  },
+  "out pins": {
+    "prefix": "out",
+    "body": "out = ${1|object,position,bool,text|}",
+    "description": "Output pins (require call = fn)."
+  },
+  "exec_out": {
+    "prefix": "exec_out",
+    "body": "exec_out = ${1|true,false|}",
+    "description": "A follow-up exec output that fires downstream after the node runs."
+  },
+  "call": {
+    "prefix": "call",
+    "body": "call = ${1:myFunction}",
+    "description": "Name of a C++ function in inc/scripts/flow_nodes.hpp to run."
+  }
+}
