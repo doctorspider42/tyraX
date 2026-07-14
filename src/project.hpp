@@ -26,7 +26,9 @@ enum class PrimitiveType {
     // Custom .obj mesh (modelPath, relative to the project dir)
     Model = 5,
     // Player entity: marker in the editor; in the game the camera becomes
-    // this player (walk FPP or noclip), regardless of the project template.
+    // this player - walk FPP, noclip, or third person (an orbit camera behind
+    // a visible avatar = the object's own animated .glb model). Regardless of
+    // the project template. See playerMode + the third-person fields below.
     Player = 6,
     // Particle emitter (fire/smoke/fog/sparks/rain): live animated preview in
     // the editor viewport; camera-facing quads (optionally textured via the
@@ -166,12 +168,29 @@ struct SceneObject {
     bool decalProject = false;
 
     // Player entity parameters (used when type == Player)
-    int playerMode = 0;            // 0 = walk (FPP), 1 = noclip (fly)
+    int playerMode = 0;            // 0 = walk (FPP), 1 = noclip (fly), 2 = third person
     float playerWalkSpeed = 0.4f;  // units per frame at full stick
     float playerLookSpeed = 1.0f;  // multiplier
     float playerEyeHeight = 1.8f;
     float playerJumpSpeed = 4.5f;  // units/s (walk mode, X button)
     bool playerCanJump = true;     // walk mode: X jumps
+
+    // Third-person parameters (playerMode == 2). The visible avatar is the
+    // Player object's OWN model (modelPath must be an animated .glb; the same
+    // .glb/anim pipeline that drives NPCs). Its clips are mapped to locomotion
+    // states below and auto-selected from the player's actual planar speed at
+    // runtime - drop in a model, name idle/walk/run, and the character
+    // walks/runs/idles with cross-fades, no scripting. Scripts and the flow
+    // graph can still force any clip (Play Animation on the Player object): a
+    // non-locomotion one-shot plays to the end, then locomotion resumes.
+    std::string playerIdleClip;       // clip name; "" = the model's first clip
+    std::string playerWalkClip;       // "" = the model's first clip
+    std::string playerRunClip;        // "" = never runs (walk covers all speeds)
+    std::string playerJumpClip;       // "" = no airborne clip (holds walk/idle)
+    float playerRunThreshold = 0.55f; // planar-speed fraction where run kicks in
+    float playerCamDist = 6.0f;       // third-person boom length (world units)
+    float playerCamHeight = 1.6f;     // camera/look-at height above the feet
+    float playerTurnRate = 0.25f;     // avatar turn-to-face lerp per 60fps frame
 
     // Camera-attached spot light carried by the player (used when type ==
     // Player). Additive cone + distance falloff computed per vertex on VU1, on
@@ -273,6 +292,14 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.playerEyeHeight == b.playerEyeHeight &&
            a.playerJumpSpeed == b.playerJumpSpeed &&
            a.playerCanJump == b.playerCanJump &&
+           a.playerIdleClip == b.playerIdleClip &&
+           a.playerWalkClip == b.playerWalkClip &&
+           a.playerRunClip == b.playerRunClip &&
+           a.playerJumpClip == b.playerJumpClip &&
+           a.playerRunThreshold == b.playerRunThreshold &&
+           a.playerCamDist == b.playerCamDist &&
+           a.playerCamHeight == b.playerCamHeight &&
+           a.playerTurnRate == b.playerTurnRate &&
            a.flashlightEnabled == b.flashlightEnabled &&
            eq3(a.flashlightColor, b.flashlightColor) &&
            a.flashlightRange == b.flashlightRange &&

@@ -56,6 +56,18 @@ static int modelIndexOf(const Project& p, const SceneObject& o) {
     return -1;
 }
 
+// An object that renders through the skeletal (.glb) pipeline: an animated
+// Model, or a third-person Player whose avatar is its own animated model.
+// The Player reuses the exact same anim path (baking, rendering, LOD,
+// pose-sharing, Play Animation flow node) - the game just drives its transform
+// from input and picks its clip from locomotion each frame.
+static bool hasAnimBody(const SceneObject& o) {
+    if (!isAnimatedModelPath(o.modelPath)) return false;
+    if (o.type == PrimitiveType::Model) return true;
+    if (o.type == PrimitiveType::Player) return o.playerMode == 2;
+    return false;
+}
+
 // Unique .glb paths referenced by animated model objects, first-use order.
 // The index == SceneObjectData::animModel == the ANIM_MODEL_PATHS slot of
 // the baked .tanm. Identity is the path alone (no .mtl overrides for .glb -
@@ -64,8 +76,7 @@ static std::vector<std::string> collectAnimModelPaths(const Project& p) {
     std::vector<std::string> paths;
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects) {
-            if (o.type != PrimitiveType::Model || !isAnimatedModelPath(o.modelPath))
-                continue;
+            if (!hasAnimBody(o)) continue;
             bool seen = false;
             for (const auto& e : paths) seen |= (e == o.modelPath);
             if (!seen) paths.push_back(o.modelPath);
@@ -74,8 +85,7 @@ static std::vector<std::string> collectAnimModelPaths(const Project& p) {
 }
 
 static int animModelIndexOf(const Project& p, const SceneObject& o) {
-    if (o.type != PrimitiveType::Model || !isAnimatedModelPath(o.modelPath))
-        return -1;
+    if (!hasAnimBody(o)) return -1;
     const auto paths = collectAnimModelPaths(p);
     for (size_t i = 0; i < paths.size(); ++i)
         if (paths[i] == o.modelPath) return (int)i;
@@ -598,6 +608,14 @@ class TerrainGame : public Tyra::Game {
   // camera when present. Returns false when the scene has no player.
   bool updatePlayerEntity();
   float entX = 0, entY = 0, entZ = 0, entVelY = 0, entYaw = 0, entPitch = 0;
+  // Third-person only: entYaw/entPitch orbit the camera, entFaceYaw is the
+  // avatar's own facing (turns toward the walk direction). Clip indices are
+  // resolved from the model's clip table at scene load; -1 = unmapped.
+  float entFaceYaw = 0;
+  int playerIdleClip = -1, playerWalkClip = -1, playerRunClip = -1, playerJumpClip = -1;
+  // Picks the third-person avatar's locomotion clip from its planar speed
+  // (fraction of full walk speed) and grounded state, cross-fading on change.
+  void drivePlayerAnim(RuntimeObject& body, float speedFrac, bool grounded);
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
@@ -950,6 +968,14 @@ class TerrainGame : public Tyra::Game {
   // camera when present. Returns false when the scene has no player.
   bool updatePlayerEntity();
   float entX = 0, entY = 0, entZ = 0, entVelY = 0, entYaw = 0, entPitch = 0;
+  // Third-person only: entYaw/entPitch orbit the camera, entFaceYaw is the
+  // avatar's own facing (turns toward the walk direction). Clip indices are
+  // resolved from the model's clip table at scene load; -1 = unmapped.
+  float entFaceYaw = 0;
+  int playerIdleClip = -1, playerWalkClip = -1, playerRunClip = -1, playerJumpClip = -1;
+  // Picks the third-person avatar's locomotion clip from its planar speed
+  // (fraction of full walk speed) and grounded state, cross-fading on change.
+  void drivePlayerAnim(RuntimeObject& body, float speedFrac, bool grounded);
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
@@ -2142,6 +2168,10 @@ void TerrainGame::loop() {
     cameraPosition = scriptCtx.cameraEye;
     cameraLookAt = scriptCtx.cameraAt;
   }
+  // Cutscene "Hide player": drop the third-person avatar for this frame
+  // (applied after scripts so the sequence player's flag wins).
+  if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2)
+    runtimeObjects[PLAYER_INDEX].visible = !scriptCtx.hidePlayer;
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
   // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
   // switch rebuilds the VRAM layout between frames. A switch closes any
@@ -2835,7 +2865,8 @@ void TerrainGame::setupAnimObject(int index) {
   g.animParts.clear();  // bags point into the instance - drop them together
   g.animInfoBag.reset();
   g.animLastTick = 0;  // fresh instance skins on its first in-view frame
-  if (o.data.type != 5 || o.data.animModel < 0 ||
+  // type 5 = animated Model, type 6 = a third-person Player avatar (same path)
+  if ((o.data.type != 5 && o.data.type != 6) || o.data.animModel < 0 ||
       o.data.animModel >= (int)gameAnimModels.size())
     return;
   GameAnimModel& gam = gameAnimModels[o.data.animModel];
@@ -3462,6 +3493,33 @@ void TerrainGame::loadScene(int sceneIndex) {
     entYaw = SCENE_OBJECTS[PLAYER_INDEX].rotation[1] * PI / 180.0F;
     entVelY = 0.0F;
     entPitch = 0.0F;
+    // Third person: the avatar starts facing its authored yaw and its
+    // locomotion clip names resolve to the model's clip indices. The Player
+    // object is a rendered avatar only in this mode - in FPP/noclip its model
+    // (if any) is never built, so its runtime object stays invisible here.
+    entFaceYaw = entYaw;
+    runtimeObjects[PLAYER_INDEX].visible = (PLAYER_MODE == 2);
+    if (PLAYER_MODE == 2) {
+      // Idle/walk fall back to the model's first clip when unset; run/jump are
+      // optional, so an empty name stays unmapped (-1) instead of clip 0.
+      playerIdleClip = resolveClipIndex(PLAYER_INDEX, PLAYER_IDLE_CLIP);
+      playerWalkClip = resolveClipIndex(PLAYER_INDEX, PLAYER_WALK_CLIP);
+      playerRunClip =
+          PLAYER_RUN_CLIP[0] ? resolveClipIndex(PLAYER_INDEX, PLAYER_RUN_CLIP) : -1;
+      playerJumpClip =
+          PLAYER_JUMP_CLIP[0] ? resolveClipIndex(PLAYER_INDEX, PLAYER_JUMP_CLIP) : -1;
+      // Start ON the idle clip so drivePlayerAnim recognizes it as a locomotion
+      // pose from frame one. Without this, setupAnimObject's default (clip 0)
+      // would look like a scripted one-shot when idle isn't clip 0, and a
+      // looping clip 0 would wedge locomotion off (animFinished never fires).
+      if (playerIdleClip >= 0 && objectGeometry[PLAYER_INDEX].animInst) {
+        RuntimeObject& body = runtimeObjects[PLAYER_INDEX];
+        body.animClip = playerIdleClip;
+        body.animLoop = true;
+        body.animPlaying = true;
+        body.animRestart = true;
+      }
+    }
   }
 
   buildParticles();
@@ -4254,6 +4312,84 @@ bool TerrainGame::updatePlayerEntity() {
     return true;
   }
 
+  if (PLAYER_MODE == 2) {
+    // Third person: the left stick moves the avatar relative to the camera,
+    // the avatar turns to face where it walks, and the camera rides a boom
+    // behind it. Terrain bounds + object collision + gravity/jump match walk.
+    float nextX = entX + (fx * forward - fz * strafe) * PLAYER_WALK_SPEED * g_frameScale;
+    float nextZ = entZ + (fz * forward + fx * strafe) * PLAYER_WALK_SPEED * g_frameScale;
+    const float limX = TERRAIN_WIDTH * 0.5F - 1.0F;
+    const float limZ = TERRAIN_DEPTH * 0.5F - 1.0F;
+    if (nextX > limX) nextX = limX;
+    if (nextX < -limX) nextX = -limX;
+    if (nextZ > limZ) nextZ = limZ;
+    if (nextZ < -limZ) nextZ = -limZ;
+
+    float ground = terrainHeightAt(nextX, nextZ);
+    float ceiling = 1e30F;
+    collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground,
+                  &ceiling);
+    const float movedX = nextX - entX, movedZ = nextZ - entZ;
+    entX = nextX;
+    entZ = nextZ;
+
+    entVelY -= GRAVITY * g_frameDt * g_frameDt;
+    entY += entVelY;
+    const float maxY = ceiling - PLAYER_EYE_HEIGHT - EYE_CLEARANCE;
+    if (entY > maxY && maxY >= ground) {
+      entY = maxY;
+      if (entVelY > 0.0F) entVelY = 0.0F;
+    }
+    bool grounded = false;
+    if (entY <= ground) {
+      entY = ground;
+      entVelY = 0.0F;
+      grounded = true;
+      if (PLAYER_CAN_JUMP && engine->pad.getClicked().BTN_JUMP)
+        entVelY = PLAYER_JUMP_SPEED * g_frameDt;
+    }
+
+    // Turn the avatar toward its movement direction (shortest-arc lerp).
+    const float movedLen = sqrtf(movedX * movedX + movedZ * movedZ);
+    if (movedLen > 0.0005F) {
+      float desired = atan2f(movedX, movedZ);
+      float d = desired - entFaceYaw;
+      while (d > PI) d -= 2.0F * PI;
+      while (d < -PI) d += 2.0F * PI;
+      float k = PLAYER_TURN_RATE * g_frameScale;
+      if (k > 1.0F) k = 1.0F;
+      entFaceYaw += d * k;
+    }
+
+    // Camera boom: eye sits PLAYER_CAM_DIST behind/above the head along the
+    // orbit direction; pull it up so it never dips under the terrain.
+    const float headY = entY + PLAYER_CAM_HEIGHT;
+    const float cp = cosf(entPitch);
+    const float boomX = sinf(entYaw) * cp;
+    const float boomZ = cosf(entYaw) * cp;
+    const float boomY = sinf(entPitch);
+    float eyeX = entX - boomX * PLAYER_CAM_DIST;
+    float eyeY = headY - boomY * PLAYER_CAM_DIST;
+    float eyeZ = entZ - boomZ * PLAYER_CAM_DIST;
+    const float minEyeY = terrainHeightAt(eyeX, eyeZ) + 0.4F;
+    if (eyeY < minEyeY) eyeY = minEyeY;
+    cameraPosition = Vec4(eyeX, eyeY, eyeZ);
+    cameraLookAt = Vec4(entX, headY, entZ);
+
+    // Drive the avatar object: stand at the feet, face the walk direction,
+    // and auto-select its locomotion clip. updateAndRenderAnimObjects draws it.
+    if (PLAYER_INDEX >= 0 && PLAYER_INDEX < (int)runtimeObjects.size()) {
+      RuntimeObject& body = runtimeObjects[PLAYER_INDEX];
+      body.data.position[0] = entX;
+      body.data.position[1] = entY;
+      body.data.position[2] = entZ;
+      body.data.rotation[1] = entFaceYaw * 180.0F / PI;
+      const float step = PLAYER_WALK_SPEED * g_frameScale;
+      drivePlayerAnim(body, step > 1e-4F ? movedLen / step : 0.0F, grounded);
+    }
+    return true;
+  }
+
   // Walk mode: terrain bounds, object collision, gravity + jump.
   float nextX = entX + (fx * forward - fz * strafe) * PLAYER_WALK_SPEED * g_frameScale;
   float nextZ = entZ + (fz * forward + fx * strafe) * PLAYER_WALK_SPEED * g_frameScale;
@@ -4293,6 +4429,50 @@ bool TerrainGame::updatePlayerEntity() {
   cameraLookAt = Vec4(entX + fx * cosf(entPitch), eyeY + sinf(entPitch),
                       entZ + fz * cosf(entPitch));
   return true;
+}
+
+// Locomotion-driven clip selection for the third-person avatar. speedFrac is
+// the planar speed as a fraction of full walk speed. The mapping is trivial -
+// idle / walk / run by speed, jump while airborne - and the avatar's playback
+// speed tracks the real speed so the feet don't slide. The escape hatch: if a
+// non-locomotion clip is currently playing (a script/flow "Play Animation"
+// one-shot), locomotion holds off until it finishes, then resumes. This is the
+// whole "third-person for free" story: no state machine, full override.
+void TerrainGame::drivePlayerAnim(RuntimeObject& body, float speedFrac,
+                                  bool grounded) {
+  if (PLAYER_INDEX < 0 || !objectGeometry[PLAYER_INDEX].animInst) return;
+  body.animPlaying = true;
+
+  int want;
+  if (!grounded && playerJumpClip >= 0)
+    want = playerJumpClip;
+  else if (speedFrac < 0.12F)
+    want = playerIdleClip;
+  else if (speedFrac < PLAYER_RUN_THRESHOLD || playerRunClip < 0)
+    want = playerWalkClip;
+  else
+    want = playerRunClip;
+  if (want < 0) want = playerIdleClip;
+  if (want < 0) want = 0;  // no clips mapped: hold the model's first clip
+
+  const bool locomotion =
+      body.animClip == playerIdleClip || body.animClip == playerWalkClip ||
+      body.animClip == playerRunClip || body.animClip == playerJumpClip;
+  if (!locomotion && !body.animFinished) return;  // let a one-shot finish
+
+  if (body.animClip != want) {
+    body.animClip = want;
+    body.animLoop = true;
+    body.animRestart = true;
+    body.animFade = 0.18F;  // cross-fade from the outgoing pose
+  }
+  // Match playback to foot speed on the moving clips (min 0.6x so a slow creep
+  // still animates), otherwise the authored speed.
+  const float base = body.data.animSpeed;
+  if (want == playerWalkClip || want == playerRunClip)
+    body.animSpeed = base * (speedFrac < 0.6F ? 0.6F : speedFrac);
+  else
+    body.animSpeed = base;
 }
 
 void TerrainGame::buildSkyDome() {
@@ -5513,6 +5693,10 @@ void TerrainGame::loop() {
     cameraPosition = scriptCtx.cameraEye;
     cameraLookAt = scriptCtx.cameraAt;
   }
+  // Cutscene "Hide player": drop the third-person avatar for this frame
+  // (applied after scripts so the sequence player's flag wins).
+  if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2)
+    runtimeObjects[PLAYER_INDEX].visible = !scriptCtx.hidePlayer;
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
   // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
   // switch rebuilds the VRAM layout between frames. A switch closes any
@@ -6234,6 +6418,11 @@ struct ScriptContext {
   int barsStyle = 0;
   float barsAmount = 0.0F;  // 0..1 of the style's full coverage
   float fadeAlpha = 0.0F;   // 0..1 black overlay
+
+  // Set by the sequence player while a "Hide player" cutscene is active: the
+  // game hides the third-person avatar for the frame (no effect in FPP/noclip,
+  // which have no visible body). Cleared when the cutscene ends.
+  bool hidePlayer = false;
 
   // Set teleport = true and teleportPos to move the player (Player entity or
   // the FPP template player) there; the game applies and clears it.
@@ -7144,7 +7333,32 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     for (int si = 0; si < sceneCount; ++si)
         out << (si ? ", " : "")
             << (!players[si] || players[si]->playerCanJump ? "true" : "false");
-    out << "};\n\n";
+    out << "};\n";
+
+    // Third-person parameters (playerMode == 2). Clip names resolve to the
+    // avatar model's clip indices at scene load (resolveClipIndex).
+    auto playerFloat = [&](const char* name, auto get, float dflt) {
+        out << "constexpr float " << name << "[SCENE_COUNT] = {";
+        for (int si = 0; si < sceneCount; ++si)
+            out << (si ? ", " : "") << floatLit(players[si] ? get(*players[si]) : dflt);
+        out << "};\n";
+    };
+    playerFloat("PLAYER_RUN_THRESHOLDS", [](const SceneObject& o) { return o.playerRunThreshold; }, 0.55f);
+    playerFloat("PLAYER_CAM_DISTS", [](const SceneObject& o) { return o.playerCamDist; }, 6.0f);
+    playerFloat("PLAYER_CAM_HEIGHTS", [](const SceneObject& o) { return o.playerCamHeight; }, 1.6f);
+    playerFloat("PLAYER_TURN_RATES", [](const SceneObject& o) { return o.playerTurnRate; }, 0.25f);
+    auto playerClip = [&](const char* name, auto get) {
+        out << "constexpr const char* " << name << "[SCENE_COUNT] = {";
+        for (int si = 0; si < sceneCount; ++si)
+            out << (si ? ", " : "") << "\""
+                << (players[si] ? escapeCString(get(*players[si])) : std::string()) << "\"";
+        out << "};\n";
+    };
+    playerClip("PLAYER_IDLE_CLIPS", [](const SceneObject& o) { return o.playerIdleClip; });
+    playerClip("PLAYER_WALK_CLIPS", [](const SceneObject& o) { return o.playerWalkClip; });
+    playerClip("PLAYER_RUN_CLIPS", [](const SceneObject& o) { return o.playerRunClip; });
+    playerClip("PLAYER_JUMP_CLIPS", [](const SceneObject& o) { return o.playerJumpClip; });
+    out << "\n";
 
     // Per-scene settings: the project defaults with each scene's active
     // override categories applied (see project::resolvedSettings). Lighting,
@@ -7426,6 +7640,14 @@ inline int everyFrames(float seconds) {
 #define PLAYER_EYE_HEIGHT PLAYER_EYE_HEIGHTS[g_activeScene]
 #define PLAYER_JUMP_SPEED PLAYER_JUMP_SPEEDS[g_activeScene]
 #define PLAYER_CAN_JUMP PLAYER_CAN_JUMPS[g_activeScene]
+#define PLAYER_RUN_THRESHOLD PLAYER_RUN_THRESHOLDS[g_activeScene]
+#define PLAYER_CAM_DIST PLAYER_CAM_DISTS[g_activeScene]
+#define PLAYER_CAM_HEIGHT PLAYER_CAM_HEIGHTS[g_activeScene]
+#define PLAYER_TURN_RATE PLAYER_TURN_RATES[g_activeScene]
+#define PLAYER_IDLE_CLIP PLAYER_IDLE_CLIPS[g_activeScene]
+#define PLAYER_WALK_CLIP PLAYER_WALK_CLIPS[g_activeScene]
+#define PLAYER_RUN_CLIP PLAYER_RUN_CLIPS[g_activeScene]
+#define PLAYER_JUMP_CLIP PLAYER_JUMP_CLIPS[g_activeScene]
 #define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
 #define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
 #define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]
@@ -7756,6 +7978,7 @@ std::string sequencesScript(const Project& p) {
            "struct CamKey { float t; float eye[3]; float at[3]; float fov;\n"
            "                float shake; int ease; int camScene; int camObj; };\n"
            "struct Seq { const char* name; float duration; int loop; int camEnabled;\n"
+           "             int hidePlayer;  // hide the third-person avatar while playing\n"
            "             int bars; int skippable; float fadeIn; float fadeOut;\n"
            "             float barsSlideIn; float barsSlideOut;  // bars reveal, s\n"
            "             float barTB; float barLR;  // mask coverage per edge\n"
@@ -7850,7 +8073,8 @@ std::string sequencesScript(const Project& p) {
         seqBarsFractions(s.bars, bt, bb, bl, br);
         out << (si ? ", " : "") << "\n  {\"" << escapeCString(s.name) << "\", "
             << floatLit(s.duration) << ", " << (s.loop ? 1 : 0) << ", "
-            << (s.cameraEnabled ? 1 : 0) << ", " << s.bars << ", "
+            << (s.cameraEnabled ? 1 : 0) << ", " << (s.hidePlayer ? 1 : 0) << ", "
+            << s.bars << ", "
             << (s.skippable ? 1 : 0) << ", " << floatLit(s.fadeIn) << ", "
             << floatLit(s.fadeOut) << ", " << floatLit(s.barsSlideIn) << ", "
             << floatLit(s.barsSlideOut) << ", " << floatLit(bt) << ", "
@@ -7858,7 +8082,7 @@ std::string sequencesScript(const Project& p) {
             << sp << "Cam, " << s.cameraKeys.size() << "}";
     }
     if (p.sequences.empty())
-        out << "{\"\", 0.0F, 0, 0, 0, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, "
+        out << "{\"\", 0.0F, 0, 0, 0, 0, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, "
                "nullptr, 0, nullptr, 0}";  // non-empty array
     out << "\n};\n"
         << "static const int kSeqCount = " << p.sequences.size() << ";\n\n";
@@ -7912,6 +8136,7 @@ class SequenceDirector : public Script {
   // projection FOV restored.
   void release(ScriptContext& ctx) {
     ctx.cameraOverride = false;
+    ctx.hidePlayer = false;
     ctx.barsStyle = 0;
     ctx.barsAmount = 0.0F;
     ctx.fadeAlpha = 0.0F;
@@ -7946,6 +8171,7 @@ class SequenceDirector : public Script {
       release(ctx);
       return;
     }
+    ctx.hidePlayer = s.hidePlayer != 0;
     for (int i = 0; i < s.trackCount; ++i) {
       const Track& tr = s.tracks[i];
       if (tr.scene != ctx.scene || tr.obj < 0 || tr.obj >= ctx.objectCount) continue;

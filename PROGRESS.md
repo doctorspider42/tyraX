@@ -9,6 +9,46 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (100) **Third-person player + cutscene "Hide player".** Adds a third
+  `playerMode` (2 = third person) alongside Walk (FPP) and Noclip, plus a
+  per-sequence **Hide player** flag in the Cutscene Director. **Design goal was
+  max flexibility / min boilerplate** — the whole feature *reuses the animated
+  `.glb` pipeline instead of building a new one*: the avatar is the Player
+  object's OWN model (`SceneObject::modelPath`, must be an animated `.glb`), and
+  a new `hasAnimBody()` predicate routes a mode-2 Player through the exact same
+  collection/bake/setup/render/LOD/pose-share path as an animated Model
+  (`collectAnimModelPaths`/`animModelIndexOf`, `setupAnimObject` now accepts
+  type 6, `updateAndRenderAnimObjects` draws it for free). Each frame the
+  third-person branch of `updatePlayerEntity` moves the player relative to the
+  orbit camera, turns the avatar toward its movement direction (shortest-arc
+  yaw lerp → `entFaceYaw`), rides a camera boom behind/above it (pulled above
+  terrain), writes the entity pose into the avatar's runtime object and calls
+  `drivePlayerAnim`. **The "2002 would faint" bit** = `drivePlayerAnim`: a
+  trivial idle/walk/run(/jump) clip mapping auto-selected from the player's
+  *actual* planar speed with 0.18 s cross-fades and foot-speed-matched playback
+  — drop in a model, name three clips, get a fully animated character, no
+  scripting. Escape hatch: a non-locomotion clip fired by a script/flow
+  **Play Animation** one-shot plays to the end (`animFinished`) before
+  locomotion resumes, so waves/attacks compose with zero new API; attached
+  scripts see the avatar as `self`. New fields: `playerIdle/Walk/Run/JumpClip`,
+  `playerRunThreshold`, `playerCamDist/Height/TurnRate` (+ `operator==`, JSON
+  `player.thirdPerson` block, per-scene `PLAYER_*` scene_data tables + macros),
+  and `Sequence::hidePlayer` (JSON, `Seq`/`kSeqs`, `ScriptContext::hidePlayer`
+  written by the sequence player and cleared on release, applied post-scripts in
+  both the orbit and FPP game loops). Editor UI: the Player *Properties* mode
+  dropdown gains **Third person** with a `.glb`-only model picker, idle/walk/run/
+  jump clip combos, run threshold and camera tunables; the Cutscene Director
+  header gains a **Hide player** checkbox; the viewport previews a mode-2 Player
+  as its avatar model. **Verified:** editor builds clean; a scratch project
+  (Player → third person, `wobbler.glb`, idle=Wiggle/walk=Twist, + a
+  hide-player cutscene) round-trips through `--resave`, generates correct
+  `scene_data.hpp` (`PLAYER_MODES={2}`, clip tables, player row `animModel=0`)
+  and sequence codegen, **compiles + links in Docker (PS2 toolchain, `tpp.elf`
+  built, `wobbler.tskl` baked)** and **boots in PCSX2 at full 50 FPS** with the
+  avatar rendered behind the orbit camera playing its idle clip, no assert.
+  Interactive movement feel / turn blend / run threshold and the in-game
+  hide-player trigger still want a hands-on pad test by a human.
+
 - (99) **Projected decals (rzutowanie na model) — decals that conform to the
   receiver geometry.** The flat `Decal` (62) only worked as a sticker on a flat
   wall; this adds a **"Project onto surfaces"** mode (`SceneObject::decalProject`)

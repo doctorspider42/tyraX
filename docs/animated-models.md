@@ -112,6 +112,31 @@ what ships.
 Material (.mtl) overrides do not apply to .glb models - their materials come
 from the file itself.
 
+## Third-person player avatars
+
+A **third-person Player** (`+ Add object > Gameplay > Player`, mode *Third
+person*) reuses this whole pipeline for the visible character - the avatar is
+just the Player object's own animated `.glb` model, baked, skinned, LOD'd and
+rendered exactly like any other animated model. Nothing new to author: import a
+rigged `.glb`, assign it to the Player, and map its clips to locomotion states
+in *Properties*:
+
+| Field | Meaning |
+| --- | --- |
+| **Idle / Walk clip** | Required; fall back to the model's first clip if left unset. |
+| **Run clip** | Optional (`<none>` = walk covers all speeds). |
+| **Jump clip** | Optional (`<none>` = holds walk/idle while airborne). |
+| **Run at** | Planar-speed fraction (of full walk speed) where the run clip takes over. |
+| **Distance / Height / Turn rate** | Camera boom length, look-at height above the feet, and how fast the avatar turns to face its movement direction. |
+
+The runtime auto-selects idle/walk/run/jump from the player's **actual planar
+speed** each frame, cross-fades on change (0.18 s) and matches playback speed to
+the movement so the feet do not slide - **no state machine, no scripting**. The
+override still works: a script or flow-graph **Play Animation** on the Player
+fires any one-shot (wave, attack) that plays to the end before locomotion
+resumes, and scripts attached to the Player see the avatar as `self`. A Cutscene
+Director sequence's **Hide player** flag drops the avatar for the duration.
+
 ## Memory budget
 
 The skeletal runtime stores one bind-pose mesh plus keyframe tracks - clip
