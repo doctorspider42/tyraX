@@ -61,6 +61,10 @@ quantizes it like any other PNG).
   continuous line; 100% and up drops clearly separated stamps — drag fast
   or slow, the spacing stays exact because the leftover distance carries
   across mouse samples.
+- **Opacity / Vary** — *Opacity* sets how strongly each dab covers what is
+  underneath; *Vary* randomly reduces every dab's opacity by up to the set
+  percentage — strokes come out hand-worn and organic instead of a uniform
+  coat (great with high Spacing for scattered, weathered detail).
 - **Angle / Random** (brush images) — *Angle* rotates every dab by a fixed
   amount, so bricks, planks or arrows land in exactly the orientation you
   want; *Random* re-rolls the rotation per dab instead — organic scatter

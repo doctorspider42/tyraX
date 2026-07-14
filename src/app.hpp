@@ -563,6 +563,9 @@ private:
     float matEdBrushColor_[3] = {0.8f, 0.2f, 0.15f};
     float matEdBrushSize_ = 24.0f;     // radius in texture pixels
     float matEdBrushOpacity_ = 1.0f;
+    // Random per-dab opacity variation, 0-100%: each dab's opacity is
+    // reduced by up to this fraction (organic, hand-worn strokes).
+    float matEdBrushOpacityVary_ = 0.0f;
     std::string matEdBrush_;           // active brush: res/brushes/<x>.png
     // Stamp spacing, % of the brush diameter between stamps along a stroke
     // (GIMP semantics): low = a continuous line, >=100 = separate stamps.

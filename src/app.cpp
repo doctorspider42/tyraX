@@ -9860,6 +9860,14 @@ void App::matEdStamp(float u, float v) {
         rotC = std::cos(rad);
         rotS = std::sin(rad);
     }
+    // Per-dab opacity: the base Opacity, randomly reduced by up to Vary%
+    // (ghost pass exempt - the preview shows the base strength).
+    float dabOpacity = matEdBrushOpacity_;
+    if (matEdBrushOpacityVary_ > 0.0f && !matEdGhostPass_) {
+        matEdRng_ = matEdRng_ * 1664525u + 1013904223u;
+        const float r01 = (float)(matEdRng_ >> 8) * (1.0f / 16777216.0f);
+        dabOpacity *= 1.0f - matEdBrushOpacityVary_ * 0.01f * r01;
+    }
     // a rotated square dab pokes past the inscribed circle - pad the loop
     const int r = (int)std::ceil(size * (brush ? 1.4143f : 1.0f));
     const int icx = (int)cx, icy = (int)cy;
@@ -9882,14 +9890,14 @@ void App::matEdStamp(float u, float v) {
                 const unsigned char* sp =
                     &matEdPatternPixels_[((size_t)qy * matEdPatternW_ + qx) * 4];
                 // the image's own alpha IS the dab shape - no radial falloff
-                a = matEdBrushOpacity_ * (sp[3] / 255.0f);
+                a = dabOpacity * (sp[3] / 255.0f);
                 if (a <= 0.0f) continue;
                 src[0] = sp[0], src[1] = sp[1], src[2] = sp[2];
             } else {
                 const float d2 = ox * ox + oy * oy;
                 if (d2 > size * size) continue;
                 const float t = std::sqrt(d2) / size;
-                a = matEdBrushOpacity_ * (1.0f - t * t);  // soft falloff
+                a = dabOpacity * (1.0f - t * t);  // soft falloff
                 if (a <= 0.0f) continue;
                 src[0] = matEdBrushColor_[0] * 255.0f;
                 src[1] = matEdBrushColor_[1] * 255.0f;
@@ -10400,12 +10408,12 @@ void App::drawMaterialEditorWindow() {
                                   "project brush image (res/brushes), tiled\n"
                                   "across the texture. Eraser: takes paint\n"
                                   "off the active layer.");
-            ImGui::SameLine();
             if (matEdBrushMode_ == 0) {
+                ImGui::SameLine();
                 ImGui::ColorEdit3("##brush_col", matEdBrushColor_,
                                   ImGuiColorEditFlags_NoInputs);
-                ImGui::SameLine();
             } else if (matEdBrushMode_ == 1) {
+                ImGui::SameLine();
                 // Brushes are project-global assets: res/brushes/*.png
                 const std::string brushLabel =
                     matEdBrush_.empty()
@@ -10456,12 +10464,13 @@ void App::drawMaterialEditorWindow() {
             ImGui::SliderFloat("Size", &matEdBrushSize_, 1.0f, 128.0f, "%.0f px",
                                ImGuiSliderFlags_Logarithmic);
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(scaled(70.0f));
-            ImGui::SliderFloat("##brush_op", &matEdBrushOpacity_, 0.05f, 1.0f,
+            ImGui::SetNextItemWidth(scaled(110.0f));
+            ImGui::SliderFloat("Opacity", &matEdBrushOpacity_, 0.05f, 1.0f,
                                "%.2f");
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Brush opacity");
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(scaled(90.0f));
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("How strongly each dab covers what is\n"
+                                  "underneath (per dab, not per stroke).");
+            ImGui::SetNextItemWidth(scaled(110.0f));
             ImGui::SliderFloat("Spacing", &matEdBrushSpacing_, 5.0f, 300.0f,
                                "%.0f%%", ImGuiSliderFlags_Logarithmic);
             if (ImGui::IsItemHovered())
@@ -10469,6 +10478,15 @@ void App::drawMaterialEditorWindow() {
                     "Distance between dabs, as %% of the brush size\n"
                     "(GIMP-style). Low = one continuous line, 100%%\n"
                     "and up = clearly separated stamps.");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(scaled(110.0f));
+            ImGui::SliderFloat("Vary", &matEdBrushOpacityVary_, 0.0f, 100.0f,
+                               "%.0f%%");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Random per-dab opacity variation: each dab's\n"
+                    "opacity is reduced by up to this much - organic,\n"
+                    "hand-worn strokes instead of a uniform coat.");
             if (matEdBrushMode_ == 1) {
                 // dab orientation: dial bricks in by hand, or scatter organic
                 // splats with a fresh random rotation per dab

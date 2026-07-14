@@ -9,6 +9,18 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (98) **Brush opacity settings: labeled slider + per-dab Vary.** Follow-up
+  on (97). The opacity slider was an unlabeled 70px stub next to Size - now
+  a properly labeled **Opacity** on its own row, and a new **Vary** slider
+  (0-100%) randomly reduces each dab's opacity by up to that fraction
+  (shared LCG with the rotation roll; the Live-dab ghost pass is exempt so
+  the preview shows the base strength). Brush controls reflowed into stable
+  rows - mode+color/picker, Size+Opacity, Spacing+Vary, (brush) Angle+Random
+  - after the first cut clipped the Opacity label off the pane edge.
+  **Verified** (Layer 2, GUI harness): the cropped control rows show
+  "24 px Size | 1.00 Opacity" and "300% Spacing | 100% Vary"; a stroke at
+  Spacing 300% + Vary 100% left dabs ranging from full-strength red to
+  barely-there pink along one drag. Editor builds clean.
 - (97) **Dab rotation (manual + random) and the Live dab ghost.** Follow-up
   on (96). Brush-image dabs gained an **Angle** slider (0-360 deg; the
   stamp offset is rotated back into image space, loop radius padded by
