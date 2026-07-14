@@ -79,7 +79,17 @@ void RendererCoreEnvMap::begin(const Color& clearColor) {
   const int half = size / 2;
 
   packet2_reset(beginPacket, false);
-  qword_t* q = beginPacket->base;
+  // Center the raster window on the target FIRST (the VU1 pipeline's fixed
+  // 2048 scale expects a window-centered offset) - the clear sprite below is
+  // addressed in this offset's space. With the offset written after it, the
+  // sprite rasterized against the main window's offset, landed outside the
+  // 0..size-1 scissor and never painted: the below-horizon half of the map
+  // stayed black VRAM garbage, which reflective surfaces sampled as dark
+  // feathering.
+  packet2_update(beginPacket,
+                 draw_primitive_xyoffset(beginPacket->base, 0,
+                                         2048.0F - half, 2048.0F - half));
+  qword_t* q = beginPacket->next;
   // NLOOP = 8: FRAME, SCISSOR, ZBUF, TEST, RGBAQ, PRIM and the clear
   // sprite's two XYZ2 - a miscount here stalls the GIF (parses the extra
   // qword as a new giftag) and hangs the frame in draw_wait_finish.
@@ -97,8 +107,9 @@ void RendererCoreEnvMap::begin(const Color& clearColor) {
   PACK_GIFTAG(q, GS_SET_TEST(0, 0, 0, 0, 0, 0, 1, ZTEST_METHOD_ALLPASS),
               GS_REG_TEST_1);
   q++;
-  // Clear sprite: covers the whole target (wide-FOV sky views may leave the
-  // bottom uncovered by dome geometry - it stays at the horizon color).
+  // Clear sprite: covers the whole target (wide-FOV sky views leave the
+  // below-horizon half uncovered by dome geometry - it must hold the
+  // horizon color).
   PACK_GIFTAG(q,
               GS_SET_RGBAQ(static_cast<u8>(clearColor.r),
                            static_cast<u8>(clearColor.g),
@@ -115,11 +126,6 @@ void RendererCoreEnvMap::begin(const Color& clearColor) {
               GS_REG_XYZ2);
   q++;
   packet2_update(beginPacket, q);
-  // Center the raster window on the target (the VU1 pipeline's fixed 2048
-  // scale expects a window-centered offset).
-  packet2_update(beginPacket,
-                 draw_primitive_xyoffset(beginPacket->next, 0,
-                                         2048.0F - half, 2048.0F - half));
   packet2_update(beginPacket, draw_finish(beginPacket->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   dma_channel_send_packet2(beginPacket, DMA_CHANNEL_GIF, true);

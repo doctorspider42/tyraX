@@ -9,6 +9,19 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (103) **Dynamic env map fix: the clear sprite never painted (feathery
+  reflections).** User-reported: up close, "@sky" surfaces showed grey
+  feathering, as if geometry bled through. Diagnosis via a probe material
+  (black base, strength 1.0 - the sphere becomes a monitor for the env map):
+  the map's sky half was clean but the below-horizon half was BLACK - the
+  begin() clear sprite rasterized against the MAIN window's XYOFFSET (the
+  offset switch sat after it in the packet), landed outside the target's
+  0..127 scissor and never painted, so below-horizon samples hit VRAM
+  garbage. Matcap STs crossing the horizon line picked up that black =
+  feathering along facet boundaries. Fix: write the target-centered
+  XYOFFSET before the clear sprite. **Verified** (Layer 3, software
+  renderer): a screen-filling @sky sphere is now uniformly clean - the
+  below-horizon half reflects the horizon color, no dark streaks.
 - (102) **Scaffold fix: res/ assets are tracked by git.** `--new` wrote the
   keep-empty-dir `.gitignore` (`*` + `!.gitignore`) into `res/` - correct
   for `bin/`/`obj/` build output, but it silently excluded every AUTHORED
