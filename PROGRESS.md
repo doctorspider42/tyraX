@@ -9,6 +9,21 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (102) **Scaffold fix: res/ assets are tracked by git.** `--new` wrote the
+  keep-empty-dir `.gitignore` (`*` + `!.gitignore`) into `res/` - correct
+  for `bin/`/`obj/` build output, but it silently excluded every AUTHORED
+  asset from the repo, defeating the whole collaboration format (a teammate
+  pulling the project got "material file missing" on every object; that is
+  exactly how examples/reflections first shipped without its .mtl files).
+  New `TPL_RES_GITIGNORE`: everything under `res/` is checked in except
+  build-regenerated bakes (`/menus/`, `/models/*.tskl`, `/models/*.tanm`).
+  `hud/` is deliberately NOT ignored - user-imported HUD images land there
+  next to the baked text sprites, and losing imports is worse than
+  committing regenerable bakes. NOTE: projects created before this fix keep
+  their old `res/.gitignore` (create-time file, never refreshed) - replace
+  it by hand. examples/reflections aligned to the new template. **Verified**
+  (Layer 1): editor builds clean; a fresh `--new` scaffold emits the new
+  `res/.gitignore`.
 - (101) **Dynamic environment map: GT3-style live-sky reflections
   ("@sky").** Phase 2b of (99)/(100). A material's sphere map can now be
   `<dynamic - live sky>` (Material Editor; stored as the filename token

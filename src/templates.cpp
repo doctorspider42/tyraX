@@ -6876,6 +6876,25 @@ docker-compose.yml
 
 static const char* TPL_DIR_KEEP = "*\n!.gitignore\n";
 
+// res/ holds AUTHORED assets - they must reach the repo (the split-object
+// format exists precisely so a team can share a map through git; a teammate
+// without your textures sees "material file missing" on every object). Only
+// build-regenerated bakes are ignored: menus/ is fully rebuilt from the
+// .tyra at build, and .tskl/.tanm are baked from their .glb source. hud/ is
+// NOT ignored - user-imported HUD images land there next to the baked text
+// sprites, and losing imports is worse than committing regenerable bakes.
+static const char* TPL_RES_GITIGNORE =
+    R"(# Authored assets (models, textures, materials, ui, audio, sfx) are
+# checked in - a pulled project must render without missing files. Only
+# build-regenerated output is ignored.
+/menus/
+
+# Baked animated-model output (.glb is the source; .tskl/.tanm are
+# regenerated from it on every build).
+/models/*.tskl
+/models/*.tanm
+)";
+
 // Multi-user collaboration hints, written once at project creation (a new game
 // map is its own repo, separate from the editor). Object bodies are split one
 // file per object so they merge cleanly; the files below cannot be auto-merged
@@ -10600,7 +10619,7 @@ std::vector<File> generate(const Project& p) {
         {".gitignore", fill(TPL_GITIGNORE)},
         {".gitattributes", TPL_GITATTRIBUTES},
         {"COLLABORATION.md", TPL_COLLABORATION},
-        {"res\\.gitignore", TPL_DIR_KEEP},
+        {"res\\.gitignore", TPL_RES_GITIGNORE},
         {"bin\\.gitignore", TPL_DIR_KEEP},
         {"obj\\.gitignore", TPL_DIR_KEEP},
     };
