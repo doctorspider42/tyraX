@@ -9,6 +9,24 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (108) **Env matcap: normalize the normal on VU1 + close-up artifact
+  post-mortem.** Follow-up on the user's screen-edge report (with an FPS
+  dip - that part is the known EE-clipper cost for PARTIALLY_IN_FRUSTUM
+  bags, paid twice by reflective objects). `CalculateTyraEnvStq` now
+  RE-NORMALIZES the ST-slot normal (inlined rsqrt; the macro must run
+  BEFORE the position's div q - rsqrt shares the Q register) because the
+  EE clipper lerps normals across clip cuts and a lerped normal is short.
+  Honest post-mortem: on the edge repro this changed zero pixels - the
+  visible smudges turned out to be the DOCUMENTED flat-facet patchwork
+  magnified by a screen-filling sphere (detail 24 -> 48 visibly cleans it;
+  facet patches scale with tessellation, confirmed by test), and the hard
+  hatched blocks were already fixed by (107). The normalization stays: it
+  makes clipped strips sample correctly (they are a thin screen-edge band,
+  hence the zero-diff on this repro) and unties the matcap from any
+  non-unit normals (scaled models). Docs updated with the up-close facet
+  guidance and the screen-edge FPS note. **Verified** (Layer 3, software
+  renderer): edge repro pixel-diffed before/after fixes; detail-48 variant
+  visibly smoother; no TYRA banners.
 - (107) **Close-up punch-through fix: the env pass drops the TestOnly
   trick.** User-reported (third close-up artifact): standing at a static-map
   chrome sphere, LATER objects (its pedestal) punched through the sphere as

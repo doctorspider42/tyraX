@@ -177,20 +177,31 @@
 #endmacro
 
 ;// Turns the normal in t_stq into a matcap STQ, in place:
-;//   s = 0.5 + 0.5 * dot(n, right)
-;//   t = 0.5 - 0.5 * dot(n, up)     (image space, v = 0 at the top)
-;//   q = 1.0                        (the standard mulq-by-1/w follows)
+;//   s = 0.5 + 0.5 * dot(normalize(n), right)
+;//   t = 0.5 - 0.5 * dot(normalize(n), up)   (image space, v = 0 at the top)
+;//   q = 1.0                                 (the standard mulq-by-1/w follows)
 ;// The editor viewport shader and the generated game's EE fallback mirror
 ;// this formula - keep the three in sync.
-;// Structure: two inlined dot products (vclpp does not expand nested
-;// macros), then the bias+scale assembled through the accumulator.
+;// The normal is RE-NORMALIZED first: the EE clipper lerps it across clip
+;// cuts, and a lerped normal is SHORT - without this, every clipped chunk's
+;// ST collapsed toward the sphere-map center (dark smudges on screen-edge
+;// geometry). Costs an rsqrt; also covers scaled models' normals.
+;// USES THE Q REGISTER (rsqrt): call this BEFORE the position's div q /
+;// VertexPersCorr, or the later mulq picks up the wrong Q.
+;// Structure: inlined normalize + two dot products (vclpp does not expand
+;// nested macros), then the bias+scale assembled through the accumulator.
 ;// WARNING: no ";" comment lines inside a #macro body - vclpp silently
 ;// swallows the whole expansion of such a macro (drops every call site).
 #macro CalculateTyraEnvStq: t_stq, t_envRight, t_envUp, t_envConsts
-   mul.xyz  tyraEnvDotR, t_stq,       t_envRight
+   mul.xyz  tyraEnvLen,  t_stq,       t_stq
+   add.x    tyraEnvLen,  tyraEnvLen,  tyraEnvLen[y]
+   add.x    tyraEnvLen,  tyraEnvLen,  tyraEnvLen[z]
+   rsqrt    q,           vf00[w],     tyraEnvLen[x]
+   mul.xyz  tyraEnvNrm,  t_stq,       q
+   mul.xyz  tyraEnvDotR, tyraEnvNrm,  t_envRight
    add.x    tyraEnvDotR, tyraEnvDotR, tyraEnvDotR[y]
    add.x    tyraEnvDotR, tyraEnvDotR, tyraEnvDotR[z]
-   mul.xyz  tyraEnvDotU, t_stq,       t_envUp
+   mul.xyz  tyraEnvDotU, tyraEnvNrm,  t_envUp
    add.x    tyraEnvDotU, tyraEnvDotU, tyraEnvDotU[y]
    add.x    tyraEnvDotU, tyraEnvDotU, tyraEnvDotU[z]
    add.xy   acc,     vf00,          t_envConsts[w]

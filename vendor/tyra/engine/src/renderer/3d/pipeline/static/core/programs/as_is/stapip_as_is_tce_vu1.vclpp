@@ -89,24 +89,25 @@ processing:
         lq      vertex3,  2(vertexData)
         lq      stq3,     2(stqData)
 
-        ;--- Calculate vertex1
+        ;--- Calculate vertex1 (env ST first - its rsqrt uses Q, the
+        ;    position divide below must be the LAST Q write before mulq)
+        CalculateTyraEnvStq{ stq1, envRight, envUp, envConsts }
         ScaleVertexToGSFormat{ scale, vertex1 }
         div q,  vf00[w],    vertex1[w]
-        CalculateTyraEnvStq{ stq1, envRight, envUp, envConsts }
         PerformTexturePerspectiveCorrection{ outputStq1, stq1 }
         FixColor{ color1 }
 
         ;--- Calculate vertex2
+        CalculateTyraEnvStq{ stq2, envRight, envUp, envConsts }
         ScaleVertexToGSFormat{ scale, vertex2 }
         div q,  vf00[w],    vertex2[w]
-        CalculateTyraEnvStq{ stq2, envRight, envUp, envConsts }
         PerformTexturePerspectiveCorrection{ outputStq2, stq2 }
         FixColor{ color2 }
 
         ;--- Calculate vertex3
+        CalculateTyraEnvStq{ stq3, envRight, envUp, envConsts }
         ScaleVertexToGSFormat{ scale, vertex3 }
         div q,  vf00[w],    vertex3[w]
-        CalculateTyraEnvStq{ stq3, envRight, envUp, envConsts }
         PerformTexturePerspectiveCorrection{ outputStq3, stq3 }
         FixColor{ color3 }
 

@@ -94,8 +94,16 @@ The editor's GLSL twin lives in the viewport fragment shader (`uReflOn` block)
 
 - Normals are the loaders' **flat per-face normals** (`vn` is ignored, exactly
   like base lighting), so low-poly chrome looks faceted — a disco ball at low
-  sphere detail. Raise the primitive detail or model density for smoother
-  highlights.
+  sphere detail. **Magnified up close this reads as irregular smudges/patches**
+  (each facet samples one point of the map; adjacent facets jump across its
+  bands). Raise the primitive detail (24 → 48 visibly cleans a hero sphere)
+  or model density for smoother highlights.
+- An object crossing the screen edge goes PARTIALLY_IN_FRUSTUM and takes the
+  EE-clipper path — that cost is per pass, so a reflective object pays it
+  twice; expect an FPS dip when a big reflective mesh straddles the edge
+  (same engine characteristic as unreflective geometry, doubled). The VU1
+  matcap re-normalizes the clipper's lerped normals, so clipped strips
+  sample correctly.
 - Animated (`.glb`) models and terrain don't take reflections; static
   primitives and `.obj` models do.
 - Dynamic mode reflects the **sky only** — scene geometry (terrain, objects)
