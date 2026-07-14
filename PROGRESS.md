@@ -9,6 +9,47 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (94) **Window layouts (per-project, switchable, editable).** The editor now
+  keeps a **named collection** of docking arrangements instead of a single dump.
+  A new top-level **Layout** menu lists every layout (radio-checked active one),
+  and switching re-docks the windows. Three built-ins ship with every project:
+  **Default** (the classic Project/Properties/Output+Debug/Viewport arrangement),
+  **Director** (Viewport centre + Cutscene Director dopesheet along the bottom),
+  and **Material Designer** (Material Editor filling the window, core panels as
+  background tabs). Each layout is edited by just rearranging windows and is
+  saved per project; the menu also has *Save current arrangement*, *Reset to
+  built-in arrangement* (recipe-backed layouts only), *New layout…* (captures the
+  live arrangement under a new name), *Rename…* and *Delete* (disabled when only
+  one layout remains — a project must always keep at least one; even the
+  built-ins can be deleted). A layout also carries the set of optional editor
+  windows it wants open (Cutscene Director, Material Editor, …), so switching
+  opens/closes them to match.
+  - **Data/format.** `Project::windowLayout` (one ImGui ini string) →
+    `std::vector<WindowLayout> windowLayouts` + `int activeLayout`
+    (`project.hpp`). A `WindowLayout` is `{name, ini, recipe, openWindows}`; a
+    built-in starts with an empty `ini` and a `recipe` id (`LayoutRecipe`
+    Default/Director/Material) so it can be seeded at `--new` time with no ImGui
+    context — `App::buildLayoutRecipe` arranges it via DockBuilder the first time
+    it's shown, and the resulting dump is captured on save. The `.tyra` now
+    writes `"layouts": [...]` + `"activeLayout"`; the reader **migrates** the old
+    single `"layout"` dump into a seeded built-in set (the dump becomes Default's
+    `ini`, so old projects gain Director/Material while keeping their exact
+    arrangement) and guards against an empty/out-of-range set.
+    `project::seedBuiltinLayouts` is the shared seeder (used by `create` and the
+    migration path). Layouts are editor state — not game data, not in undo.
+  - **Timing.** A switch is applied at a frame boundary: a saved-`ini` layout
+    loads via `LoadIniSettingsFromMemory` in the run() loop (can't run
+    mid-frame); a recipe layout rebuilds in `drawUI` before any panel is
+    submitted (DockBuilder must precede the windows it docks). After either, the
+    layout's headline panel is brought to front (`pendingFocusWindow_`).
+  - **Verified.** Editor builds clean (`build.ps1`). Headless `--new` writes the
+    three seeded built-ins with empty `ini` + recipe ids; `--resave` on a copy of
+    `examples/showcase` (a real legacy project with a `"layout"` dump) migrates it
+    to `layouts`/`activeLayout` with the original docking data preserved verbatim
+    inside Default's `ini` and Director/Material appended. GUI switching itself
+    wasn't machine-driven (no synthetic input on the dev box); the DockBuilder
+    recipes reuse the exact pattern of the previously working default-layout code.
+
 - (94) **Raycast + Set Depth Of Field flow nodes.** Two new built-in nodes.
   **Raycast** (Player category) casts a ray from the player's eye along the
   view direction when its exec fires and latches the results into runtime
