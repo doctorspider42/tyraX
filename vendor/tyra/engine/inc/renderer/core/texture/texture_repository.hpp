@@ -29,7 +29,7 @@ class TextureRepository {
   TextureRepository();
   ~TextureRepository();
 
-  // Modified by tyra-editor: the repository needs its owning core to
+  // Modified by TyraX: the repository needs its owning core to
   // properly deallocate GS texture buffers on free()/removeById() -
   // removeBufferId() only tombstones the allocation entry (id = -1) and
   // leaks the VRAM plus the texbuffer structs, which games that stream
@@ -130,7 +130,7 @@ class TextureRepository {
 
   std::vector<Texture*> textures;
   std::vector<RendererCoreTextureBuffers>* textureBuffers;
-  RendererCoreTexture* coreTexture = nullptr;  // Modified by tyra-editor
+  RendererCoreTexture* coreTexture = nullptr;  // Modified by TyraX
   TextureLoaderSelector texLoaderSelector;
 };
 }  // namespace Tyra

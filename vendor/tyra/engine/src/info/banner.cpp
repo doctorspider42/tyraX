@@ -23,7 +23,7 @@ Banner::~Banner() {}
 void Banner::show(Renderer* renderer) {
   auto* bannerData = ___createTyraSplashBanner();
 
-  // Modified by tyra-editor: 256x128 RGBA logo (resources/tryaX.png), drawn
+  // Modified by TyraX: 256x128 RGBA logo (resources/tryaX.png), drawn
   // larger and centered (2:1, matching the texture).
   TextureBuilderData tbd;
   tbd.bpp = bpp32;
@@ -48,7 +48,7 @@ void Banner::show(Renderer* renderer) {
   texture.addLink(sprite.id);
   renderer->core.texture.repository.add(&texture);
 
-  // Modified by tyra-editor: hold the splash for ~2 real seconds instead of 2
+  // Modified by TyraX: hold the splash for ~2 real seconds instead of 2
   // frames, re-rendering the logo each frame. Re-drawing matters because
   // beginFrame clears the framebuffer; timing off the EE COP0 Count register
   // (294.912 MHz) rather than a frame count keeps it ~2s on both PAL and NTSC.

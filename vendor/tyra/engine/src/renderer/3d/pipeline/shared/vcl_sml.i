@@ -1391,7 +1391,7 @@ QSL3@:
 ;//     triangle.
 ;//---------------------------------------------------------
 #macro PerformClipCheck: t_vertex, t_destAddress, t_destAddressOffset
-   ; tyra-editor note: this macro is intentionally UPSTREAM-ORIGINAL.
+   ; TyraX note: this macro is intentionally UPSTREAM-ORIGINAL.
    ; Three attempts at a guard band here (I-register scale, STATUS-flag
    ; w test, DIV/Q-built constant) all corrupted the ADC bits under VCL
    ; scheduling and rendered flickering garbage when geometry crossed the

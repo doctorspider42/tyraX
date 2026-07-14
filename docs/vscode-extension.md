@@ -1,10 +1,10 @@
-# The Tyra VS Code extension
+# The TyraX VS Code extension
 
 Generated projects carry a bit of C++ that lives in plain text files:
 [custom flow-graph nodes](custom-flow-nodes.md) (`.flownode`) and
 [custom screen effects](custom-screen-effects.md) (`.screenfx`). Both are a
 `key = value` header, a `---` separator, then a C++ body with `{placeholder}`
-substitutions. The **Tyra VS Code extension** (`tools/vscode-tyra`) turns those
+substitutions. The **TyraX VS Code extension** (`tools/vscode-tyrax`) turns those
 files from plain text into a first-class editing experience.
 
 ## What it gives you
@@ -38,7 +38,7 @@ without opening a project, use **Custom nodes… ▸ Install VS Code extension**
 it reports the outcome in the status bar.
 
 Under the hood the editor runs `code --install-extension` on the prebuilt
-`tools/vscode-tyra/*.vsix` (resolved next to the `tyra-editor.exe`, the same way
+`tools/vscode-tyrax/*.vsix` (resolved next to the `tyrax-editor.exe`, the same way
 `c_cpp_properties.json` finds the engine headers). This is the **only** reliable
 way: modern VS Code (≥ 1.74) loads only the extensions listed in its own
 manifest cache, so an extension folder merely copied into `~/.vscode/extensions`
@@ -46,7 +46,7 @@ is silently ignored. It therefore needs VS Code's **`code` CLI on PATH** (in
 VS Code: Command Palette ▸ *Shell Command: Install 'code' command in PATH*); if
 it isn't, the status bar says so instead of failing silently. Generated projects
 also get a `.vscode/extensions.json` recommending the extension (id
-`tyra.tyra-flownode`), so an already-installed copy is not re-prompted.
+`tyrax.tyrax-flownode`), so an already-installed copy is not re-prompted.
 
 ### Installing it by hand
 
@@ -54,17 +54,17 @@ The extension is plain JavaScript with no build step, so you can also drop the
 folder into `~/.vscode/extensions` yourself, or package and install a `.vsix`:
 
 ```sh
-cd tools/vscode-tyra
+cd tools/vscode-tyrax
 npx @vscode/vsce package
-code --install-extension tyra-flownode-*.vsix
+code --install-extension tyrax-flownode-*.vsix
 ```
 
 ## For maintainers
 
-`tools/vscode-tyra` is a self-contained extension:
+`tools/vscode-tyrax` is a self-contained extension:
 
-- `package.json` — declares the two languages (`tyra-flownode` → `.flownode`,
-  `tyra-screenfx` → `.screenfx`), their grammars and snippets.
+- `package.json` — declares the two languages (`tyrax-flownode` → `.flownode`,
+  `tyrax-screenfx` → `.screenfx`), their grammars and snippets.
 - `syntaxes/*.tmLanguage.json` — TextMate grammars. The body is a begin/end
   region that starts at `---` and runs to end-of-file, sets
   `contentName: meta.embedded.block.cpp` (so VS Code injects the C++ grammar),
@@ -75,11 +75,11 @@ code --install-extension tyra-flownode-*.vsix
   keys, enum values, placeholders) **must stay in sync** with the editor
   parsers `src/flownode.cpp` and `src/screenfx.cpp`; when you add a header key or
   placeholder to one, update the other and the docs above.
-- `tyra-flownode-<version>.vsix` — the **prebuilt package the editor installs**,
+- `tyrax-flownode-<version>.vsix` — the **prebuilt package the editor installs**,
   committed to the repo. It is not rebuilt automatically, so after **any** change
   to the extension you must regenerate and re-commit it (bump the `version` in
   `package.json` first so `code --install-extension --force` picks up the new
-  build): `cd tools/vscode-tyra && npx @vscode/vsce package`, then delete the old
+  build): `cd tools/vscode-tyrax && npx @vscode/vsce package`, then delete the old
   versioned `.vsix`. A stale `.vsix` is a real trap — the source looks updated
   but users get the old build.
 

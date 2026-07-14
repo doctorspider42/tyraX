@@ -28,7 +28,7 @@ class Renderer {
 
   RendererCore core;
 
-  // Modified by tyra-editor: displayMode selects the scan mode
+  // Modified by TyraX: displayMode selects the scan mode
   // (480i/480p/1080i), widescreen fits the projection to a 16:9 display.
   void init(VideoMode videoMode = VideoMode::Auto,
             DisplayMode displayMode = DisplayMode::Interlaced,

@@ -52,7 +52,7 @@ class Ray {
                     float* outputDistance = nullptr) const;
 
   /**
-   * Added by tyra-editor. Moller-Trumbore ray/triangle test, both faces.
+   * Added by TyraX. Moller-Trumbore ray/triangle test, both faces.
    * @param a,b,c triangle corners
    * @param outputDistance optional - distance along the ray to the hit.
    * @return true when the ray hits the triangle

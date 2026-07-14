@@ -6,7 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
-# Modified by tyra-editor: setDoubleBuffer() records that VU1 is configured.
+# Modified by TyraX: setDoubleBuffer() records that VU1 is configured.
 */
 
 #include "renderer/core/paths/path1/path1.hpp"
@@ -32,7 +32,7 @@ void Path1::uploadDrawFinishProgram() {
   int count = (&VU1DrawFinish_CodeEnd - &VU1DrawFinish_CodeStart) / 2;
   if (count & 1) count++;
 
-  // Modified by tyra-editor: park the draw-finish helper at the very top of
+  // Modified by TyraX: park the draw-finish helper at the very top of
   // VU1 micro memory (2048 instructions) instead of the old 1000 - count.
   // The pipeline caches upload their programs from address 0 upward, and the
   // GS-hardware-fog VU1 programs pushed the static pipeline's eight programs
@@ -157,7 +157,7 @@ void Path1::setDoubleBuffer(const u16& startingAddress, const u16& bufferSize) {
 
   packet2_utils_vu_add_end_tag(doubleBufferPacket);
   dma_channel_send_packet2(doubleBufferPacket, DMA_CHANNEL_VIF1, true);
-  // Modified by tyra-editor: pipelines call this when they bring VU1 up
+  // Modified by TyraX: pipelines call this when they bring VU1 up
   // (after their own dma_channel_initialize(VIF1)) - from here on the PATH1
   // draw-finish handshake is functional and endFrame() may arm its barrier.
   vu1Configured = true;

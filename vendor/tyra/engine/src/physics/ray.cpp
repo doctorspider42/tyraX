@@ -73,7 +73,7 @@ bool Ray::intersectBox(const Vec4& minCorner, const Vec4& maxCorner,
   return true;
 }
 
-// Added by tyra-editor. Moller-Trumbore, both faces.
+// Added by TyraX. Moller-Trumbore, both faces.
 bool Ray::intersectTriangle(const Vec4& a, const Vec4& b, const Vec4& c,
                             float* outputDistance) const {
   const Vec4 e1 = b - a;

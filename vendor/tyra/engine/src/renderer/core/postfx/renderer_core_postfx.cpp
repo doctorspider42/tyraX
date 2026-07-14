@@ -5,7 +5,7 @@
 #-----------------------------------------------------------------------
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
-# Added by the tyra-editor fork.
+# Added by the TyraX fork.
 */
 
 #include <dma.h>

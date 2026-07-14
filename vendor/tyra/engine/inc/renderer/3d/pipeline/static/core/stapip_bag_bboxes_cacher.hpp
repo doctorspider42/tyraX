@@ -8,7 +8,7 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
-// Modified by tyra-editor: version-aware entries. A bag whose vertex buffer
+// Modified by TyraX: version-aware entries. A bag whose vertex buffer
 // is rewritten in place (skinned meshes, particles) bumps its bboxVersion;
 // the cacher recomputes that entry instead of piling up a new one per frame
 // (250-frame retention made per-frame versions leak entries and allocations).

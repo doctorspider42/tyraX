@@ -8,7 +8,7 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
-// Modified by tyra-editor: TyraDebug::trap() no longer takes over the whole
+// Modified by TyraX: TyraDebug::trap() no longer takes over the whole
 // screen with the kernel debug console on a failed assertion. It keeps writing
 // the assertion to the console / host log.txt (the editor's Debug window tails
 // that and turns it into a copyable error dialog) and then halts quietly. The
@@ -29,7 +29,7 @@
 
 #include <stdio.h>
 #include <debug.h>
-#include <kernel.h>  // SleepThread - quiet halt after an assertion (tyra-editor)
+#include <kernel.h>  // SleepThread - quiet halt after an assertion (TyraX)
 #include <string>
 #include <sstream>
 #include <fstream>
@@ -46,7 +46,7 @@
 #define TYRA_BREAKPOINT() TyraDebug::trap(__FILE__, __LINE__, "Breakpoint")
 #define TYRA_ASSERT(condition, ...) \
   if (!(condition)) TyraDebug::trap(__FILE__, __LINE__, ##__VA_ARGS__)
-// Modified by tyra-editor: a NON-FATAL error. Logs the same delimited block a
+// Modified by TyraX: a NON-FATAL error. Logs the same delimited block a
 // failed assertion does (so the editor's Debug window / error dialog surfaces
 // it identically), but returns instead of halting - the caller has already
 // recovered (a missing texture -> placeholder, a missing sound/model -> skip),
@@ -98,7 +98,7 @@ class TyraDebug {
       printf("%s", ss2.str().c_str());
     }
 
-    // Modified by tyra-editor: the assertion is already on the console / log
+    // Modified by TyraX: the assertion is already on the console / log
     // above. Only seize the screen with the kernel debug console when explicitly
     // opted in (a standalone build on real hardware with nothing watching the
     // console); otherwise halt quietly so the last frame stays on screen and the
@@ -115,7 +115,7 @@ class TyraDebug {
     for (;;) SleepThread();  // dead game - idle the EE, keep the last frame up
   }
 
-  // Modified by tyra-editor: a non-fatal error. Same delimited block as trap()
+  // Modified by TyraX: a non-fatal error. Same delimited block as trap()
   // (so the editor parses it the same way) but a distinct header and NO halt /
   // screen takeover - the caller recovered, the game keeps running.
   template <typename... Args>

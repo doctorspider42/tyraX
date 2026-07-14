@@ -5,7 +5,7 @@
 ; Copyright 2022, tyra - https://github.com/h4570/tyra
 ; Licensed under Apache License 2.0
 ; Sandro Sobczyński <sandro.sobczynski@gmail.com>
-; Modified by tyra-editor: VU1 clipping program (clip family).
+; Modified by TyraX: VU1 clipping program (clip family).
 ;
 ;---------------------------------------------------------------
 ; Triangle list
@@ -86,9 +86,9 @@
     LoadTyraStaticData{ gifSetTag }
     MatrixLoad{ mvp, VU1_MVP_MATRIX_ADDR, vi00 }
     LoadTyraTags{ lodGifTag, testsTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR }
-    ; Modified by tyra-editor: GS hardware fog (packed XYZF2)
+    ; Modified by TyraX: GS hardware fog (packed XYZF2)
     LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
-    ; Modified by tyra-editor: spot light (flashlight)
+    ; Modified by TyraX: spot light (flashlight)
     LoadTyraSpotLight{ spotPos, spotDirV, spotColV, VU1_LIGHTS_DIRS_ADDR }
     ; single color (the enabled flag is reloaded per triangle - VI pressure)
     lq          singleColor, VU1_SINGLE_COLOR_ADDR(vi00)

@@ -6,7 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Wellington Carvalho <wellcoj@gmail.com>
-# Modified by tyra-editor: keepIopResident flag (run under ps2link)
+# Modified by TyraX: keepIopResident flag (run under ps2link)
 */
 
 #pragma once

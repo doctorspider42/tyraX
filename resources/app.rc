@@ -1,4 +1,4 @@
-// Windows resources for tyra-editor.exe.
+// Windows resources for tyrax-editor.exe.
 //
 // The resource is named GLFW_ICON on purpose: GLFW's Win32 backend loads a
 // resource with exactly that name into the window class, so this becomes the

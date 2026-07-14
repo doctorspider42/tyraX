@@ -183,7 +183,7 @@ These are follow-ups, not built yet:
 - Loaded on project open and on **Custom effects… ▸ Reload from folder**.
 - **Custom effects… ▸ Jump to effect file** opens a specific `.screenfx` in
   VS Code (whole-project context, so the engine headers resolve for the body).
-  The Tyra VS Code extension gives `.screenfx` files syntax highlighting,
+  The TyraX VS Code extension gives `.screenfx` files syntax highlighting,
   snippets and validation — see [the VS Code extension](vscode-extension.md).
 - Implementation: `src/screenfx.cpp` (loader/parser), `src/screenfx.hpp`
   (registry + `CustomScreenFx`), `ScreenFxPlacement` in `src/project.hpp`

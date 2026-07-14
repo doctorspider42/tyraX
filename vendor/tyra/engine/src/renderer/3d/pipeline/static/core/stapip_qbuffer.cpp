@@ -1,5 +1,5 @@
 /*
-# Modified by tyra-editor - persistent qbuffer pools.
+# Modified by TyraX - persistent qbuffer pools.
 # The original allocated and freed up to four Vec4 arrays PER FILL CALL,
 # per subpackage, per frame. Arrays are now allocated once per buffer at
 # maxVertCount capacity and reused. Based on the original by

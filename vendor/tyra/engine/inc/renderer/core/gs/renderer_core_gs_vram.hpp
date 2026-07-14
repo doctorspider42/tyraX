@@ -35,7 +35,7 @@ class RendererCoreGSVRam {
   /** Free texture, FIFO order */
   void free(const int& address);
 
-  /** Modified by tyra-editor: forget every allocation (bump allocator back
+  /** Modified by TyraX: forget every allocation (bump allocator back
    * to zero) - used by the runtime display-mode switch, which rebuilds the
    * whole VRAM layout from the frame buffers up. */
   void reset() {

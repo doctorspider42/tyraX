@@ -8,7 +8,7 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
-// Modified by tyra-editor: recalculate() for per-frame dynamic geometry.
+// Modified by TyraX: recalculate() for per-frame dynamic geometry.
 
 #pragma once
 

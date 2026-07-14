@@ -167,7 +167,7 @@
 #endmacro
 
 ;//---------------------------------------------------------
-;// Modified by tyra-editor: GS hardware distance fog.
+;// Modified by TyraX: GS hardware distance fog.
 ;//
 ;// LoadTyraFogParams - Load the options quadword. Fog uses:
 ;//   z - fogScale  = -255 / (fogEnd - fogStart)
@@ -234,7 +234,7 @@
 #endmacro
 
 ;//---------------------------------------------------------
-;// Modified by tyra-editor: dynamic spot light (flashlight).
+;// Modified by TyraX: dynamic spot light (flashlight).
 ;//
 ;// LoadTyraSpotLight - Load the three spot light quads. The
 ;// dir-lights addresses are reused - they are free in the

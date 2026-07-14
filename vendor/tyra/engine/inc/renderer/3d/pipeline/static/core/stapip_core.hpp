@@ -50,7 +50,7 @@ class StaPipCore {
   void reinitVU1Programs();
 
   /**
-   * Modified by tyra-editor: clip frustum-crossing packages on VU1 (clip
+   * Modified by TyraX: clip frustum-crossing packages on VU1 (clip
    * program family) instead of the EE clipper. Call right after
    * setRenderer() or between frames.
    */
@@ -73,7 +73,7 @@ class StaPipCore {
   StapipBagBBoxesCacher cacher;
 
   void setMaxVertCount(const u32& count);
-  // Modified by tyra-editor: VU1 clipping.
+  // Modified by TyraX: VU1 clipping.
   u32 clipDivisor() const;
   u32 clipPackageSize() const;
   StaPipBagPackager packager;

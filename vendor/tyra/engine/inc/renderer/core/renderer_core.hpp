@@ -6,7 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
-# Modified by tyra-editor: drained3DFor2D flag (PATH1 drain before 2D sprites),
+# Modified by TyraX: drained3DFor2D flag (PATH1 drain before 2D sprites),
 # GS hardware distance fog state (setFog/disableFog), camera spot light
 # (setSpotLight/disableSpotLight - the camera flashlight), applyPostFx()
 # (mid-frame post fx, per-pass, so HUD sprites can draw crisp on top of
@@ -29,7 +29,7 @@
 namespace Tyra {
 
 /**
- * GS hardware distance fog state (tyra-editor fork). The 3D pipelines read
+ * GS hardware distance fog state (TyraX fork). The 3D pipelines read
  * this every frame: `enabled` drives the PRIM FGE bit, scale/offset are
  * uploaded to VU1 which computes the per-vertex fog coefficient
  * F = clamp(w * scale + offset, 0, 255) from the view distance w
@@ -45,7 +45,7 @@ struct RendererCoreFog {
 };
 
 /**
- * Dynamic spot light state (tyra-editor fork) - the "flashlight". Applied
+ * Dynamic spot light state (TyraX fork) - the "flashlight". Applied
  * per-vertex on VU1 in the StaPip color pipelines (the ones the editor's
  * generated games use): additive cone + distance falloff on top of the baked
  * vertex colors, no N.L term (there are no normals in the color paths -
@@ -81,16 +81,16 @@ class RendererCore {
   /** Texture transferring. */
   RendererCoreTexture texture;
 
-  /** Full screen post effects: bloom, film grain (tyra-editor fork). */
+  /** Full screen post effects: bloom, film grain (TyraX fork). */
   RendererCorePostFx postFx;
 
   /** EE <-> VU1 synchronization */
   RendererCoreSync sync;
 
-  /** GS hardware distance fog (tyra-editor fork). */
+  /** GS hardware distance fog (TyraX fork). */
   RendererCoreFog fog;
 
-  /** Dynamic spot light - the flashlight (tyra-editor fork). */
+  /** Dynamic spot light - the flashlight (TyraX fork). */
   RendererCoreSpotLight spot;
 
   // Set once Renderer2D has drained PATH1 this frame (sprites race the tail
@@ -104,7 +104,7 @@ class RendererCore {
             bool widescreen = false);
 
   /**
-   * Runtime video output switch (tyra-editor fork): scan mode
+   * Runtime video output switch (TyraX fork): scan mode
    * (480i/480p/1080i) and/or 16:9 widescreen. Call between frames (i.e.
    * before beginFrame, after the previous endFrame). Changing the scan mode
    * re-allocates the frame/z/post-fx buffers (full VRAM reset) and evicts
@@ -118,7 +118,7 @@ class RendererCore {
   void setClearScreenColor(const Color& color);
 
   /**
-   * Enable GS hardware distance fog (tyra-editor fork). Geometry fades to
+   * Enable GS hardware distance fog (TyraX fork). Geometry fades to
    * `color` between view distances `start` and `end`. For an atmospheric
    * fade-out, match `color` with the clear screen color and keep
    * `end` at (or before) the far plane.
@@ -129,7 +129,7 @@ class RendererCore {
   void disableFog();
 
   /**
-   * Enable the dynamic spot light (tyra-editor fork). Position/direction are
+   * Enable the dynamic spot light (TyraX fork). Position/direction are
    * world space (direction gets normalized); cutoffDegrees is the cone
    * half-angle; color is additive on top of the baked vertex colors with
    * 128 = +1.0. Update position/direction every frame to attach it to the
@@ -150,7 +150,7 @@ class RendererCore {
 
   /**
    * Apply a subset of the full-screen post effects NOW instead of at endFrame
-   * (tyra-editor fork). `passes` is a RendererCorePostFx::Pass bitmask - the
+   * (TyraX fork). `passes` is a RendererCorePostFx::Pass bitmask - the
    * UI Editor screen stack applies bloom(+grading) and grain at independent
    * points, e.g. bloom under the HUD, grain over everything. Call it
    * mid-frame - after the scene, before the HUD sprites you want on top.
@@ -161,7 +161,7 @@ class RendererCore {
   void applyPostFx(int passes = RendererCorePostFx::PassAll);
 
   /**
-   * Run one user-authored full-screen post effect NOW (tyra-editor fork,
+   * Run one user-authored full-screen post effect NOW (TyraX fork,
    * "custom screen effects"). Like applyPostFx() it runs the PATH1 drain
    * barrier once so the pass composites over finished 3D, then hands off to
    * RendererCorePostFx::applyCustom(): the `build` callback appends raw GS

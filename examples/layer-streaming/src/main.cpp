@@ -25,7 +25,7 @@ int main(int argc, char** argv) {
 
   // Route TYRA_LOG / TYRA_WARN / TYRA_ERROR and assertion dumps to a host-side
   // "log.txt" (next to the ELF) instead of the EE console, which does not
-  // reach PCSX2's emulog. The tyra-editor Debug window tails that file. Must
+  // reach PCSX2's emulog. The TyraX Debug window tails that file. Must
   // be set before the Engine is constructed (its init logging is the first to
   // hit the file). No cost in a release (NDEBUG) build - the macros compile out.
   // Under ps2link the EE console is BETTER than the file: ps2link forwards

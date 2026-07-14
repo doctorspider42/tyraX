@@ -6,7 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
-# Added by tyra-editor: process-wide unique id source (see comment below)
+# Added by TyraX: process-wide unique id source (see comment below)
 */
 
 #pragma once
@@ -15,7 +15,7 @@
 
 namespace Tyra {
 
-// Modified by tyra-editor: replaces the former `rand() % 1000000` id scheme
+// Modified by TyraX: replaces the former `rand() % 1000000` id scheme
 // used by Sprite / Mesh / MeshFrame / MeshMaterial / MeshMaterialFrame.
 //
 // Those ids share ONE lookup namespace in TextureRepository: a texture is
