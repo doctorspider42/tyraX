@@ -21,6 +21,10 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   function in `flow_nodes.hpp` with input/output pins of any kind (object
   outputs work as runtime refs into built-in nodes), and how to copy a node to
   another project.
+- [Loading screens](loading-screens.md) - defining named loading screens
+  (background, images, baked texts, continuous/quantized progress bars),
+  assigning them per scene or as the project default, how the progress bar
+  tracks real load work, and the built-in fallback.
 - [Custom screen effects](custom-screen-effects.md) - defining your own
   full-screen post effects (like the built-in bloom / film grain) in
   `.screenfx` text files (no editor rebuild): a small manifest plus a raw

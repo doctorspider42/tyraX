@@ -366,6 +366,8 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << ", \"highlight\": " << (o.highlight ? "true" : "false") << " }";
     if (!sc.ambiencePreset.empty())
         j << ", \"ambiencePreset\": \"" << jsonEscape(sc.ambiencePreset) << "\"";
+    if (!sc.loadingScreen.empty())
+        j << ", \"loadingScreen\": \"" << jsonEscape(sc.loadingScreen) << "\"";
 }
 
 // Reads a scene's scene-visual settings + override flags. New files carry an
@@ -450,6 +452,7 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
         // option carries the tiling. Nothing to migrate here.
     }
     if (const auto* v = js.find("ambiencePreset")) sc.ambiencePreset = v->stringOr("");
+    if (const auto* v = js.find("loadingScreen")) sc.loadingScreen = v->stringOr("");
     if (s.brightness < 0.0f) s.brightness = 0.0f;
     if (s.brightness > 2.0f) s.brightness = 2.0f;
     if (s.highlightSteps < 1) s.highlightSteps = 1;
@@ -529,6 +532,17 @@ int ambienceIndexFor(const Project& p, const SceneData& s) {
     return -1;
 }
 
+int loadingScreenIndexFor(const Project& p, const SceneData& s) {
+    if (!s.loadingScreen.empty()) {
+        for (int i = 0; i < (int)p.loadingScreens.size(); ++i)
+            if (p.loadingScreens[i].name == s.loadingScreen) return i;
+    }
+    if (p.defaultLoadingScreen >= 0 &&
+        p.defaultLoadingScreen < (int)p.loadingScreens.size())
+        return p.defaultLoadingScreen;
+    return -1;
+}
+
 TerrainMaterial resolveTerrainMaterial(const Project& p, const std::string& matRel) {
     TerrainMaterial out;
     if (matRel.empty()) return out;
@@ -582,6 +596,10 @@ std::string save(const Project& p) {
          << "    \"lookSpeed\": " << fmtFloat(p.settings.lookSpeed) << ",\n"
          << "    \"stickDeadzoneL\": " << fmtFloat(p.settings.stickDeadzoneL) << ",\n"
          << "    \"stickDeadzoneR\": " << fmtFloat(p.settings.stickDeadzoneR) << ",\n"
+         << "    \"stickCurveL\": " << p.settings.stickCurveL << ",\n"
+         << "    \"stickCurveR\": " << p.settings.stickCurveR << ",\n"
+         << "    \"stickExpL\": " << fmtFloat(p.settings.stickExpL) << ",\n"
+         << "    \"stickExpR\": " << fmtFloat(p.settings.stickExpR) << ",\n"
          << "    \"orbitSpeed\": " << fmtFloat(p.settings.orbitSpeed) << ",\n"
          << "    \"gravity\": " << fmtFloat(p.settings.gravity) << ",\n"
          << "    \"jumpSpeed\": " << fmtFloat(p.settings.jumpSpeed) << ",\n"
@@ -752,6 +770,66 @@ std::string save(const Project& p) {
     }
     json << (p.ambiencePresets.empty() ? "]" : "\n  ]");
     json << ",\n  \"defaultAmbience\": " << p.defaultAmbience;
+    json << ",\n  \"loadingScreens\": [";
+    for (size_t i = 0; i < p.loadingScreens.size(); ++i) {
+        const LoadingScreenDef& ls = p.loadingScreens[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << jsonEscape(ls.name)
+             << "\", \"bgColor\": " << fmtVec3(ls.bgColor) << ",\n      \"images\": [";
+        for (size_t k = 0; k < ls.images.size(); ++k) {
+            const HudImage& h = ls.images[k];
+            json << (k ? ",\n        " : "\n        ") << "{ \"name\": \""
+                 << jsonEscape(h.name) << "\", \"image\": \"" << h.imagePath
+                 << "\", \"pos\": [" << fmtFloat(h.pos[0]) << ", " << fmtFloat(h.pos[1])
+                 << "], \"size\": [" << fmtFloat(h.size[0]) << ", " << fmtFloat(h.size[1])
+                 << "], \"texW\": " << h.texW << ", \"texH\": " << h.texH
+                 << ", \"texQuant\": \"" << h.texQuant << "\" }";
+        }
+        json << (ls.images.empty() ? "]" : "\n      ]") << ",\n      \"texts\": [";
+        for (size_t k = 0; k < ls.texts.size(); ++k) {
+            const HudText& t = ls.texts[k];
+            json << (k ? ",\n        " : "\n        ") << "{ \"name\": \""
+                 << jsonEscape(t.name) << "\", \"text\": \"" << jsonEscape(t.text)
+                 << "\", \"pos\": [" << fmtFloat(t.pos[0]) << ", " << fmtFloat(t.pos[1])
+                 << "], \"size\": " << t.size << ", \"color\": " << fmtVec3(t.color)
+                 << (t.fontPath.empty() ? "" : ", \"font\": \"" + t.fontPath + "\"")
+                 << ", \"shadow\": " << (t.shadow ? "true" : "false") << " }";
+        }
+        json << (ls.texts.empty() ? "]" : "\n      ]") << ",\n      \"bars\": [";
+        for (size_t k = 0; k < ls.bars.size(); ++k) {
+            const LoadingBar& b = ls.bars[k];
+            json << (k ? ",\n        " : "\n        ") << "{ \"name\": \""
+                 << jsonEscape(b.name) << "\", \"kind\": " << b.kind
+                 << ", \"pos\": [" << fmtFloat(b.pos[0]) << ", " << fmtFloat(b.pos[1])
+                 << "], \"size\": [" << fmtFloat(b.size[0]) << ", " << fmtFloat(b.size[1])
+                 << "], \"bgColor\": " << fmtVec3(b.bgColor)
+                 << ", \"fillColor\": " << fmtVec3(b.fillColor)
+                 << ", \"segments\": " << b.segments
+                 << ", \"spacing\": " << fmtFloat(b.spacing);
+            if (!b.segImage.imagePath.empty())
+                json << ", \"segImage\": { \"image\": \"" << b.segImage.imagePath
+                     << "\", \"texW\": " << b.segImage.texW << ", \"texH\": "
+                     << b.segImage.texH << ", \"texQuant\": \"" << b.segImage.texQuant
+                     << "\" }";
+            json << " }";
+        }
+        json << (ls.bars.empty() ? "]" : "\n      ]") << " }";
+    }
+    json << (p.loadingScreens.empty() ? "]" : "\n  ]");
+    json << ",\n  \"defaultLoadingScreen\": " << p.defaultLoadingScreen;
+    json << ",\n  \"splashScreens\": [";
+    for (size_t i = 0; i < p.splashScreens.size(); ++i) {
+        const SplashScreen& s = p.splashScreens[i];
+        const HudImage& h = s.image;
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << jsonEscape(s.name)
+             << "\", \"duration\": " << fmtFloat(s.duration)
+             << ", \"bgColor\": " << fmtVec3(s.bgColor)
+             << ", \"image\": { \"image\": \"" << h.imagePath << "\", \"pos\": ["
+             << fmtFloat(h.pos[0]) << ", " << fmtFloat(h.pos[1]) << "], \"size\": ["
+             << fmtFloat(h.size[0]) << ", " << fmtFloat(h.size[1]) << "], \"texW\": "
+             << h.texW << ", \"texH\": " << h.texH << ", \"texQuant\": \""
+             << h.texQuant << "\" } }";
+    }
+    json << (p.splashScreens.empty() ? "]" : "\n  ]");
     json << ",\n  \"sequences\": [";
     for (size_t i = 0; i < p.sequences.size(); ++i) {
         const Sequence& s = p.sequences[i];
@@ -1402,6 +1480,15 @@ std::string load(Project& out, const std::string& projectDir) {
             st.stickDeadzoneL = (float)v->numberOr(0.2);
         if (const auto* v = s->find("stickDeadzoneR"))
             st.stickDeadzoneR = (float)v->numberOr(0.2);
+        // Response curves default to Linear (0) / exponent 2 on older projects.
+        if (const auto* v = s->find("stickCurveL")) st.stickCurveL = (int)v->numberOr(0);
+        if (const auto* v = s->find("stickCurveR")) st.stickCurveR = (int)v->numberOr(0);
+        if (const auto* v = s->find("stickExpL")) st.stickExpL = (float)v->numberOr(2.0);
+        if (const auto* v = s->find("stickExpR")) st.stickExpR = (float)v->numberOr(2.0);
+        if (st.stickCurveL < 0 || st.stickCurveL > 2) st.stickCurveL = 0;
+        if (st.stickCurveR < 0 || st.stickCurveR > 2) st.stickCurveR = 0;
+        if (st.stickExpL < 1.0f) st.stickExpL = 1.0f;
+        if (st.stickExpR < 1.0f) st.stickExpR = 1.0f;
         if (const auto* v = s->find("orbitSpeed")) st.orbitSpeed = (float)v->numberOr(1.0);
         if (const auto* v = s->find("gravity")) st.gravity = (float)v->numberOr(9.8);
         if (const auto* v = s->find("jumpSpeed")) st.jumpSpeed = (float)v->numberOr(4.5);
@@ -1720,6 +1807,138 @@ std::string load(Project& out, const std::string& projectDir) {
     }
     if (const auto* v = root.find("defaultAmbience"))
         out.defaultAmbience = (int)v->numberOr(-1.0);
+
+    if (const auto* lss = root.find("loadingScreens");
+        lss && lss->type == json::Value::Type::Array) {
+        for (const auto& jl : lss->arr) {
+            LoadingScreenDef ls;
+            if (const auto* v = jl.find("name")) ls.name = v->stringOr("");
+            readVec3(jl.find("bgColor"), ls.bgColor);
+            if (const auto* imgs = jl.find("images");
+                imgs && imgs->type == json::Value::Type::Array) {
+                for (const auto& jh : imgs->arr) {
+                    HudImage h;
+                    if (const auto* v = jh.find("name")) h.name = v->stringOr("");
+                    if (const auto* v = jh.find("image")) h.imagePath = v->stringOr("");
+                    if (const auto* v = jh.find("pos");
+                        v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                        h.pos[0] = (float)v->arr[0].numberOr(0.5);
+                        h.pos[1] = (float)v->arr[1].numberOr(0.5);
+                    }
+                    if (const auto* v = jh.find("size");
+                        v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                        h.size[0] = (float)v->arr[0].numberOr(64.0);
+                        h.size[1] = (float)v->arr[1].numberOr(64.0);
+                    }
+                    if (const auto* v = jh.find("texW")) h.texW = (int)v->numberOr(0);
+                    if (const auto* v = jh.find("texH")) h.texH = (int)v->numberOr(0);
+                    if (const auto* v = jh.find("texQuant")) {
+                        const std::string q = v->stringOr("");
+                        h.texQuant = (q == "none" || q == "8bit" || q == "4bit") ? q : "";
+                    }
+                    if (!h.imagePath.empty()) ls.images.push_back(std::move(h));
+                }
+            }
+            if (const auto* texts = jl.find("texts");
+                texts && texts->type == json::Value::Type::Array) {
+                for (const auto& jt : texts->arr) {
+                    HudText t;
+                    if (const auto* v = jt.find("name")) t.name = v->stringOr("text");
+                    if (const auto* v = jt.find("text")) t.text = v->stringOr("");
+                    if (const auto* v = jt.find("pos");
+                        v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                        t.pos[0] = (float)v->arr[0].numberOr(0.5);
+                        t.pos[1] = (float)v->arr[1].numberOr(0.8);
+                    }
+                    if (const auto* v = jt.find("size")) t.size = (int)v->numberOr(16);
+                    if (t.size < 8) t.size = 8;
+                    if (t.size > 48) t.size = 48;
+                    readVec3(jt.find("color"), t.color);
+                    if (const auto* v = jt.find("font")) t.fontPath = v->stringOr("");
+                    if (const auto* v = jt.find("shadow"))
+                        t.shadow = !(v->type == json::Value::Type::Bool && !v->boolean);
+                    if (!t.name.empty()) ls.texts.push_back(std::move(t));
+                }
+            }
+            if (const auto* bars = jl.find("bars");
+                bars && bars->type == json::Value::Type::Array) {
+                for (const auto& jb : bars->arr) {
+                    LoadingBar b;
+                    if (const auto* v = jb.find("name")) b.name = v->stringOr("bar");
+                    if (const auto* v = jb.find("kind")) b.kind = (int)v->numberOr(0);
+                    if (b.kind != 0 && b.kind != 1) b.kind = 0;
+                    if (const auto* v = jb.find("pos");
+                        v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                        b.pos[0] = (float)v->arr[0].numberOr(0.5);
+                        b.pos[1] = (float)v->arr[1].numberOr(0.75);
+                    }
+                    if (const auto* v = jb.find("size");
+                        v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                        b.size[0] = (float)v->arr[0].numberOr(256.0);
+                        b.size[1] = (float)v->arr[1].numberOr(16.0);
+                    }
+                    readVec3(jb.find("bgColor"), b.bgColor);
+                    readVec3(jb.find("fillColor"), b.fillColor);
+                    if (const auto* v = jb.find("segments")) b.segments = (int)v->numberOr(5);
+                    if (b.segments < 2) b.segments = 2;
+                    if (b.segments > 16) b.segments = 16;
+                    if (const auto* v = jb.find("spacing")) b.spacing = (float)v->numberOr(6.0);
+                    if (b.spacing < 0.0f) b.spacing = 0.0f;
+                    if (const auto* si = jb.find("segImage")) {
+                        if (const auto* v = si->find("image"))
+                            b.segImage.imagePath = v->stringOr("");
+                        if (const auto* v = si->find("texW")) b.segImage.texW = (int)v->numberOr(0);
+                        if (const auto* v = si->find("texH")) b.segImage.texH = (int)v->numberOr(0);
+                        if (const auto* v = si->find("texQuant")) {
+                            const std::string q = v->stringOr("");
+                            b.segImage.texQuant =
+                                (q == "none" || q == "8bit" || q == "4bit") ? q : "";
+                        }
+                    }
+                    ls.bars.push_back(std::move(b));
+                }
+            }
+            if (!ls.name.empty()) out.loadingScreens.push_back(std::move(ls));
+        }
+    }
+    if (const auto* v = root.find("defaultLoadingScreen"))
+        out.defaultLoadingScreen = (int)v->numberOr(-1.0);
+    if (out.defaultLoadingScreen < -1 ||
+        out.defaultLoadingScreen >= (int)out.loadingScreens.size())
+        out.defaultLoadingScreen = -1;
+
+    if (const auto* sps = root.find("splashScreens");
+        sps && sps->type == json::Value::Type::Array) {
+        for (const auto& jsp : sps->arr) {
+            SplashScreen s;
+            if (const auto* v = jsp.find("name")) s.name = v->stringOr("splash");
+            if (const auto* v = jsp.find("duration"))
+                s.duration = (float)v->numberOr(2.0);
+            if (s.duration < 0.1f) s.duration = 0.1f;
+            if (s.duration > 10.0f) s.duration = 10.0f;
+            readVec3(jsp.find("bgColor"), s.bgColor);
+            if (const auto* im = jsp.find("image")) {
+                if (const auto* v = im->find("image")) s.image.imagePath = v->stringOr("");
+                if (const auto* v = im->find("pos");
+                    v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                    s.image.pos[0] = (float)v->arr[0].numberOr(0.5);
+                    s.image.pos[1] = (float)v->arr[1].numberOr(0.5);
+                }
+                if (const auto* v = im->find("size");
+                    v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                    s.image.size[0] = (float)v->arr[0].numberOr(512.0);
+                    s.image.size[1] = (float)v->arr[1].numberOr(448.0);
+                }
+                if (const auto* v = im->find("texW")) s.image.texW = (int)v->numberOr(0);
+                if (const auto* v = im->find("texH")) s.image.texH = (int)v->numberOr(0);
+                if (const auto* v = im->find("texQuant")) {
+                    const std::string q = v->stringOr("");
+                    s.image.texQuant = (q == "none" || q == "8bit" || q == "4bit") ? q : "";
+                }
+            }
+            if (!s.image.imagePath.empty()) out.splashScreens.push_back(std::move(s));
+        }
+    }
 
     if (const auto* seqs = root.find("sequences");
         seqs && seqs->type == json::Value::Type::Array) {
@@ -2090,6 +2309,7 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "src\\scripts\\sequences.gen.cpp" ||
             f.relativePath == "inc\\model_data.gen.hpp" ||
             f.relativePath == "inc\\hud_data.gen.hpp" ||
+            f.relativePath == "inc\\loading_data.gen.hpp" ||
             f.relativePath == "inc\\terrain_heights.gen.hpp" ||
             f.relativePath == "inc\\texture_data.gen.hpp" ||
             f.relativePath == "inc\\save_system.gen.hpp" ||
@@ -2229,6 +2449,27 @@ std::string refreshGenerated(const Project& p) {
         std::ofstream f(path, std::ios::binary);
         if (!f) return "Cannot write HUD text sprite: " + path.string();
         f.write(reinterpret_cast<const char*>(png.data()), (std::streamsize)png.size());
+    }
+
+    // Loading-screen texts: baked like HUD texts, under screen-index-mangled
+    // names ("ls-<i>-<name>") so they never collide with HUD text sprites.
+    // Codegen (loadingDataHeader) applies the identical mangle.
+    for (size_t si = 0; si < p.loadingScreens.size(); ++si) {
+        for (const HudText& t : p.loadingScreens[si].texts) {
+            HudText copy = t;
+            copy.name = "ls-" + std::to_string(si) + "-" + t.name;
+            std::vector<unsigned char> png;
+            if (!menubake::bakeTextPNG(copy, p.dir, png))
+                return "Loading text bake failed (no usable TTF font found)";
+            const fs::path path =
+                fs::path(p.dir) / "res" / "hud" / menubake::textFileName(copy.name);
+            std::error_code ec;
+            fs::create_directories(path.parent_path(), ec);
+            std::ofstream f(path, std::ios::binary);
+            if (!f) return "Cannot write loading text sprite: " + path.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
+        }
     }
     return "";
 }
