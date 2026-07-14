@@ -253,6 +253,127 @@ Each finished feature lands as its own commit.
   screenshot). The Material Editor preview shares the verified shader path;
   its interactive feel (picker, slider) still wants a hands-on pass. Docs:
   README, `docs/reflective-materials.md`, engine + editor skills.
+- (99) **Projected decals (rzutowanie na model) — decals that conform to the
+  receiver geometry.** The flat `Decal` (62) only worked as a sticker on a flat
+  wall; this adds a **"Project onto surfaces"** mode (`SceneObject::decalProject`)
+  that wraps the decal texture onto whatever it covers — angled/curved walls,
+  models, terrain — for wall text/graffiti and **fake blob shadows**. **Key
+  architectural choice, driven by the EE budget:** projection is *pure host-side
+  geometry* and runs entirely at build time. The decal object's oriented unit
+  cube is a projector volume; `decalproj::project` (new `src/decalproj.cpp`)
+  gathers the receiver triangles overlapping it (terrain + every solid object,
+  auto), transforms them into decal-local space, keeps only front-facing
+  (`+Z`-local) surfaces, Sutherland–Hodgman-clips each to the unit cube,
+  fan-triangulates, computes a projected UV and nudges the result along the
+  surface normal to sit in front. The output is a finished **world-space triangle
+  list** baked into `inc/decal_data.gen.hpp` (per scene, per object index). The
+  PS2 just uploads and draws it through the existing per-object static-pipeline
+  path (`rebuildObjectGeometry` case 13, identity model matrix since `pushVert`
+  already bakes world-space verts; alpha + z-fight offset come for free like the
+  flat decal) — **no projection, clipping or CPU transform ever runs on the EE**;
+  it rides the same VU1 path as all geometry, built once per scene, not per
+  frame, capped at 4096 tris. Receiver tessellation was extracted into a shared
+  host module (`src/primmesh.cpp`, box/sphere/cylinder/cone/plane as raw
+  pos+normal+uv) so the projector uses *exactly* the geometry the viewport draws
+  and the game generates; the viewport bakes shade on top (identical output).
+  Live editor preview: the app computes the projected mesh (`updateProjectedDecals`,
+  recomputed only when a scene signature changes) and pushes it to the viewport
+  (`setProjectedDecals`), drawn via the existing decal-alpha path. **Also fixed a
+  latent decal UV-handedness bug** shared with the flat decal: a decal faces `+Z`
+  and is viewed from the `+Z` side where world `+X` is to the viewer's left, so
+  `u = x+0.5` ran textures right-to-left (text mirrored). Switched to the
+  slide-projector convention `u = 0.5−x` in the projected decal, `unitDecal` and
+  `addDecal` so signs/text read correctly and flat/projected stay consistent (the
+  old test images were symmetric, so nobody had noticed). **Verified end-to-end**:
+  a standalone geometry harness (wall + floor cases, footprint/UV/offset asserts,
+  all pass); clean editor build; a scratch project (box wall + projecting "TYRA"
+  text decal + a floor blob-shadow decal on flat terrain) built through Docker +
+  PS2 `make` (`=== Build OK ===`, generated code compiles on the ee-gcc
+  toolchain) and **booted in PCSX2** (software renderer, PAL 50 FPS, no asserts):
+  the shadow conforms to the terrain and the "TYRA" text wraps onto the wall
+  reading correctly (after the UV fix). `decal_data.gen.hpp` emits the baked
+  meshes; `decalProject` load/save round-trips (omitted at its default). The flat
+  decal (`decalProject=false`) is unchanged apart from the shared UV fix.
+  Surface-matched vertex lighting for projected decals (they ship unlit/flat-tint
+  today) and texture-baking into receiver textures are noted as future follow-ups.
+- (94) **Window layouts (per-project, switchable, editable).** The editor now
+  keeps a **named collection** of docking arrangements instead of a single dump.
+  A new top-level **Layout** menu lists every layout (radio-checked active one),
+  and switching re-docks the windows. Three built-ins ship with every project:
+  **Default** (the classic Project/Properties/Output+Debug/Viewport arrangement),
+  **Director** (Viewport centre + Cutscene Director dopesheet along the bottom),
+  and **Material Designer** (Material Editor filling the window, core panels as
+  background tabs). Each layout is edited by just rearranging windows and is
+  saved per project; the menu also has *Save current arrangement*, *Reset to
+  built-in arrangement* (recipe-backed layouts only), *New layout…* (captures the
+  live arrangement under a new name), *Rename…* and *Delete* (disabled when only
+  one layout remains — a project must always keep at least one; even the
+  built-ins can be deleted). A layout also carries the set of optional editor
+  windows it wants open (Cutscene Director, Material Editor, …), so switching
+  opens/closes them to match.
+  - **Data/format.** `Project::windowLayout` (one ImGui ini string) →
+    `std::vector<WindowLayout> windowLayouts` + `int activeLayout`
+    (`project.hpp`). A `WindowLayout` is `{name, ini, recipe, openWindows}`; a
+    built-in starts with an empty `ini` and a `recipe` id (`LayoutRecipe`
+    Default/Director/Material) so it can be seeded at `--new` time with no ImGui
+    context — `App::buildLayoutRecipe` arranges it via DockBuilder the first time
+    it's shown, and the resulting dump is captured on save. The `.tyra` now
+    writes `"layouts": [...]` + `"activeLayout"`; the reader **migrates** the old
+    single `"layout"` dump into a seeded built-in set (the dump becomes Default's
+    `ini`, so old projects gain Director/Material while keeping their exact
+    arrangement) and guards against an empty/out-of-range set.
+    `project::seedBuiltinLayouts` is the shared seeder (used by `create` and the
+    migration path). Layouts are editor state — not game data, not in undo.
+  - **Timing.** A switch is applied at a frame boundary: a saved-`ini` layout
+    loads via `LoadIniSettingsFromMemory` in the run() loop (can't run
+    mid-frame); a recipe layout rebuilds in `drawUI` before any panel is
+    submitted (DockBuilder must precede the windows it docks). After either, the
+    layout's headline panel is brought to front (`pendingFocusWindow_`).
+  - **Verified.** Editor builds clean (`build.ps1`). Headless `--new` writes the
+    three seeded built-ins with empty `ini` + recipe ids; `--resave` on a copy of
+    `examples/showcase` (a real legacy project with a `"layout"` dump) migrates it
+    to `layouts`/`activeLayout` with the original docking data preserved verbatim
+    inside Default's `ini` and Director/Material appended. GUI switching itself
+    wasn't machine-driven (no synthetic input on the dev box); the DockBuilder
+    recipes reuse the exact pattern of the previously working default-layout code.
+
+- (94) **Raycast + Set Depth Of Field flow nodes.** Two new built-in nodes.
+  **Raycast** (Player category) casts a ray from the player's eye along the
+  view direction when its exec fires and latches the results into runtime
+  members exactly like a C++-backed custom node's outputs (`objOut<id>` /
+  `posOut<id>`): the position output is the hit point, the object output the
+  hit object (-1 = none; downstream built-in actions are handle-guarded like
+  Spawn Object clones), and its "after" exec fires immediately after the cast
+  so wired actions read fresh values. The runtime helper (`flowRaycast`,
+  emitted into `flow_graph.gen.cpp` only when a graph uses the node) tests
+  object bounding spheres (same marker-type skip list as the USE picker, the
+  player entity excluded) and marches the terrain heightmap
+  (`terrainHeightAtScene` + bisection); the ray origin/direction come from a
+  new `ScriptContext::playerLook` set next to `playerPosition` in both game
+  templates. **Set Depth Of Field** (Scene category, Focus/Range/Amount)
+  blurs the image progressively past Focus (full blur at Focus+Range,
+  Amount 0..1, 0 = off); a wired position replaces Focus with the distance
+  from the player to that point at fire time (e.g. keep an object in focus
+  via Get Position). Engine side (`RendererCorePostFx`, TyraX fork): a new
+  `PassDof` (applied before bloom, composited at the bloom slot of the screen
+  stack or at endFrame) reuses the bloom blur chain, then blends the blur
+  back through three full-screen sprites drawn at real GS depths with the
+  pass's ordinary GEQUAL z-test (writes masked) — the world-distance → GS-z
+  mapping is solved from the shared perspective matrix
+  (`z(d) = 0xFFFFFF·near·(far−d)/(d·(far−near))`), so the sharp/blurred split
+  follows actual scene depth per pixel at zero EE cost; 2D sprites stamp
+  z = max, so HUD/menus never blur. `blit()` grew an optional z param and the
+  postFx packet grew to 352 qwords (every pass at once now fits).
+  Verified: codegen harness (scratch main() against the build .obj files)
+  over a graph exercising every wiring — static + position-wired SetDof,
+  Raycast → Set Position (pos link) / Hide Object (object link, guarded) /
+  Log via PosToText — then full e2e in Docker + PCSX2: an FPP scene with a
+  2×2×2 box at (0,1,6) logged `ray: (0, 1.8, 5.4)` every 2 s (exactly the
+  analytic sphere hit 6−√(1−0.8²)), Set Object Color driven by the raycast's
+  object output painted the box red in-game, and F8 screenshots on BOTH the
+  HW and software renderers show the near checkerboard sharp and the far
+  terrain/horizon blurred past the 5-unit focus. Interactive feel (walking
+  around with the pad while DoF is on) still deserves a hands-on test.
 - (93) **Rebrand to TyraX.** Our fork — the editor, the repo, the docs and the
   VS Code plugin — is now **TyraX**; the upstream engine we fork keeps the name
   **Tyra**. What changed: the executable / CMake target `tyra-editor` →
