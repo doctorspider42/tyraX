@@ -112,6 +112,49 @@ what ships.
 Material (.mtl) overrides do not apply to .glb models - their materials come
 from the file itself.
 
+## Third-person player avatars
+
+A **third-person Player** (`+ Add object > Gameplay > Player`, mode *Third
+person*) reuses this whole pipeline for the visible character - the avatar is
+just the Player object's own animated `.glb` model, baked, skinned, LOD'd and
+rendered exactly like any other animated model. Nothing new to author: import a
+rigged `.glb`, assign it to the Player, and map its clips to locomotion states
+in *Properties*:
+
+| Field | Meaning |
+| --- | --- |
+| **Idle / Walk clip** | Required; fall back to the model's first clip if left unset. |
+| **Run clip** | Optional (`<none>` = walk covers all speeds). |
+| **Jump clip** | Optional (`<none>` = holds walk/idle while airborne). |
+| **Run at** | Planar-speed fraction (of full walk speed) where the run clip takes over. |
+| **Distance / Height / Shoulder** | The camera rig offset in the camera's own frame: back, up, sideways. `Shoulder` 0 = centered behind, ~0.6 = over-the-shoulder, negative = the left shoulder. |
+| **Turn rate** | How fast the avatar turns to face its movement direction. |
+
+**Over-the-shoulder:** `Shoulder` slides the *whole* rig — the eye and the
+look-at alike — along the camera's right vector, so the avatar sits off-center
+in frame. (Offsetting only the eye would just angle the camera back at the
+player and keep them centered, which is not an over-the-shoulder shot.) The
+offset is itself spring-armed, so a shoulder cam cannot slide into a wall the
+player is hugging; that second cast costs nothing when `Shoulder` is 0.
+
+The camera rides a **spring arm**: each frame the boom is cast from the avatar's
+head toward the desired eye, and the camera stops at the first blocker so it
+never enters walls, props or the terrain - snapping in on a hit (a late pull-in
+would show a clipped frame) and easing back out when the way is clear.
+*Distance* is therefore the maximum boom length, not a guarantee. Objects set to
+collision **none** are ignored by the arm (the camera passes through them),
+which doubles as the opt-out for scenery that should never shove the camera.
+The arm tests **AABBs only**, even for mesh-collision models - camera collision
+needs no triangle precision, and the cost has to fit a per-frame EE budget.
+
+The runtime auto-selects idle/walk/run/jump from the player's **actual planar
+speed** each frame, cross-fades on change (0.18 s) and matches playback speed to
+the movement so the feet do not slide - **no state machine, no scripting**. The
+override still works: a script or flow-graph **Play Animation** on the Player
+fires any one-shot (wave, attack) that plays to the end before locomotion
+resumes, and scripts attached to the Player see the avatar as `self`. A Cutscene
+Director sequence's **Hide player** flag drops the avatar for the duration.
+
 ## Memory budget
 
 The skeletal runtime stores one bind-pose mesh plus keyframe tracks - clip

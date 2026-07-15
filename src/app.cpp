@@ -4256,13 +4256,14 @@ void App::drawPropertiesWindow() {
 
     if (o.type == PrimitiveType::Player) {
         ImGui::SeparatorText("Player");
-        const char* modes[] = {"Walk (FPP)", "Noclip (fly)"};
-        if (ImGui::Combo("Mode", &o.playerMode, modes, 2)) committed = true;
+        const char* modes[] = {"Walk (FPP)", "Noclip (fly)", "Third person"};
+        if (ImGui::Combo("Mode", &o.playerMode, modes, 3)) committed = true;
         ImGui::DragFloat("Walk speed", &o.playerWalkSpeed, 0.02f, 0.05f, 10.0f, "%.2f");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::DragFloat("Look speed", &o.playerLookSpeed, 0.05f, 0.1f, 5.0f, "%.2f");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::DragFloat("Eye height", &o.playerEyeHeight, 0.05f, 0.2f, 50.0f, "%.2f");
+        ImGui::DragFloat(o.playerMode == 2 ? "Body height" : "Eye height",
+                         &o.playerEyeHeight, 0.05f, 0.2f, 50.0f, "%.2f");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         committed |= ImGui::Checkbox("Can jump (X)", &o.playerCanJump);
         if (o.playerCanJump) {
@@ -4270,7 +4271,118 @@ void App::drawPropertiesWindow() {
             committed |= ImGui::IsItemDeactivatedAfterEdit();
         }
         ImGui::TextDisabled("First player in the scene drives the camera in the game.");
-        ImGui::TextDisabled("Noclip: X up, Square down. Walk: X jumps.");
+        if (o.playerMode == 2)
+            ImGui::TextDisabled("Third person: X jumps. The avatar faces where it walks.");
+        else
+            ImGui::TextDisabled("Noclip: X up, Square down. Walk: X jumps.");
+
+        // Third-person avatar: the Player's OWN animated .glb model, with its
+        // clips mapped to locomotion states. The same .glb/anim pipeline as
+        // regular animated models - the runtime just drives the transform and
+        // auto-picks the clip from the player's real speed (walk/run/idle),
+        // cross-faded. Scripts/flow-graph can still force any clip.
+        if (o.playerMode == 2) {
+            ImGui::SeparatorText("Avatar model");
+            const std::string current =
+                o.modelPath.empty()
+                    ? "<none>"
+                    : std::filesystem::path(o.modelPath).filename().string();
+            if (ImGui::BeginCombo("Model", current.c_str())) {
+                const std::vector<std::string> anim = listAssetFiles("models", ".glb");
+                for (const std::string& m : anim) {
+                    const std::string rel = "res/models/" + m;
+                    if (ImGui::Selectable((m + " (animated)").c_str(),
+                                          rel == o.modelPath) &&
+                        rel != o.modelPath) {
+                        o.modelPath = rel;
+                        o.playerIdleClip.clear();
+                        o.playerWalkClip.clear();
+                        o.playerRunClip.clear();
+                        o.playerJumpClip.clear();
+                        committed = true;
+                    }
+                }
+                if (anim.empty())
+                    ImGui::TextDisabled(
+                        "No animated .glb models - Import one in Project > Assets.");
+                ImGui::EndCombo();
+            }
+            if (o.modelPath.empty()) {
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                                   "Pick an animated .glb - the avatar is invisible\n"
+                                   "without one (only the camera moves).");
+            } else if (!isAnimatedModelPath(o.modelPath)) {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                   "Third-person bodies must be an animated .glb.");
+            } else {
+                const GlbInfo& info = glbInfo(o.modelPath);
+                if (!info.ok) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                       "Unusable .glb: %s", info.error.c_str());
+                } else {
+                    ImGui::TextDisabled("%d verts, %d clip(s)", info.vertexCount,
+                                        (int)info.clips.size());
+                    // Locomotion clip mapping. Idle/Walk are required (fall back
+                    // to the first clip); Run/Jump are optional (<none>).
+                    auto clipCombo = [&](const char* label, std::string& clip,
+                                         bool optional) {
+                        const std::string cur =
+                            clip.empty() ? (optional ? "<none>"
+                                                     : (info.clips.empty()
+                                                            ? "<none>"
+                                                            : info.clips.front() +
+                                                                  " (first)"))
+                                         : clip;
+                        if (ImGui::BeginCombo(label, cur.c_str())) {
+                            if (optional && ImGui::Selectable("<none>", clip.empty())) {
+                                if (!clip.empty()) {
+                                    clip.clear();
+                                    committed = true;
+                                }
+                            }
+                            for (const std::string& c : info.clips) {
+                                if (ImGui::Selectable(c.c_str(), c == clip) &&
+                                    clip != c) {
+                                    clip = c;
+                                    committed = true;
+                                }
+                            }
+                            ImGui::EndCombo();
+                        }
+                    };
+                    clipCombo("Idle clip", o.playerIdleClip, false);
+                    clipCombo("Walk clip", o.playerWalkClip, false);
+                    clipCombo("Run clip", o.playerRunClip, true);
+                    clipCombo("Jump clip", o.playerJumpClip, true);
+                    ImGui::DragFloat("Run at", &o.playerRunThreshold, 0.01f, 0.1f,
+                                     1.0f, "%.2f of walk speed");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::TextDisabled(
+                        "Clip auto-selected from real speed; a script/flow\n"
+                        "\"Play Animation\" one-shot plays to the end first.");
+                }
+            }
+
+            ImGui::SeparatorText("Third-person camera");
+            // Distance / Height / Shoulder are the rig offset in the camera's
+            // own frame: back, up, sideways.
+            ImGui::DragFloat("Distance", &o.playerCamDist, 0.1f, 1.0f, 40.0f, "%.1f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("How far back the camera sits. The spring arm may\n"
+                                  "shorten it, so this is the maximum.");
+            ImGui::DragFloat("Height", &o.playerCamHeight, 0.05f, 0.0f, 20.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Shoulder", &o.playerCamShoulder, 0.02f, -3.0f, 3.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Slides the camera sideways for an over-the-shoulder\n"
+                                  "shot: 0 = centered behind, ~0.6 = right shoulder,\n"
+                                  "negative = left. The avatar moves off-center in\n"
+                                  "frame (eye and aim point shift together).");
+            ImGui::DragFloat("Turn rate", &o.playerTurnRate, 0.01f, 0.02f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
 
         ImGui::SeparatorText("Flashlight");
         committed |= ImGui::Checkbox("Enabled", &o.flashlightEnabled);
@@ -9099,6 +9211,11 @@ void App::drawCutsceneWindow() {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Drive the game camera from the camera lane's shots\n"
                           "for the duration of playback.");
+    ImGui::SameLine(0.0f, scaled(14.0f));
+    if (ImGui::Checkbox("Hide player", &s.hidePlayer)) changed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Hide the third-person player avatar while the cutscene\n"
+                          "plays (no effect in FPP/noclip - they have no body).");
 
     // Cinematic dressing: widescreen masks + fades, composited over the frame
     // (and the HUD) on the PS2 and previewed on the viewport image.
