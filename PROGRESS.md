@@ -305,6 +305,108 @@ Each finished feature lands as its own commit.
   screenshot). The Material Editor preview shares the verified shader path;
   its interactive feel (picker, slider) still wants a hands-on pass. Docs:
   README, `docs/reflective-materials.md`, engine + editor skills.
+- (103) **Over-the-shoulder camera offset.** `SceneObject::playerCamShoulder`
+  (Properties > Third-person camera > **Shoulder**, default 0 = unchanged
+  behavior) slides the third-person rig sideways, completing the camera offset:
+  **Distance** is the offset back, **Height** the offset up, **Shoulder** the
+  offset sideways — the three together are the rig in the camera's own frame.
+  The key detail is that Shoulder slides the **whole rig — eye AND look-at
+  alike** — along the camera's right vector, so the avatar sits off-center in
+  frame; offsetting only the eye would merely angle the camera back at the
+  player and keep them centered, which is *not* an over-the-shoulder shot. The
+  right vector `(-cos yaw, 0, sin yaw)` is derived from `cross(forward, up)` and
+  matches the walkers' own strafe convention, so "+ = right" means the same
+  thing to the camera as it does to the stick. The lateral offset is **itself
+  spring-armed** (a second `springArm` cast along the right vector, clamped to
+  the requested offset) so a shoulder cam cannot slide into a wall the player is
+  hugging — and that cast is skipped entirely when the offset is 0, so the
+  default centered camera pays nothing. **Verified:** editor builds clean;
+  scratch third-person project with `camShoulder: 0.8` generates
+  `PLAYER_CAM_SHOULDERS = {0.8F}`, compiles in Docker and boots in PCSX2 — the
+  avatar sits visibly **left** of center (a right-shoulder cam looks past the
+  avatar's right side, exactly the RE4/Gears framing), shifted ~90 px from a
+  450 px half-width, which matches the ~77 px predicted for 0.8 units at a
+  6-unit boom under the ~75° horizontal FOV. 50 FPS, no assert. Wall-hug
+  clamping of the offset still wants a hands-on pad test.
+
+- (102) **Third-person camera spring arm — the camera stops at geometry instead
+  of punching through it.** (101) left the third-person boom naive: it only
+  clamped the eye above the terrain height *at the eye point*, so any wall,
+  prop or ridge between the avatar and the camera was simply passed through
+  (and the avatar disappeared behind it). `TerrainGame::springArm` now casts
+  the boom from the pivot (the avatar's head) toward the desired eye and
+  returns the first blocked distance; the camera stops there. Classic spring
+  behavior: **snap in** on a hit (easing in would show a clipped frame) and
+  **ease back out** when clear (`camBoom`, ~2 s to re-extend a full boom), so
+  leaving cover doesn't pop. `CAM_RADIUS` (0.3, deliberately > the 0.15 near
+  clip) keeps the eye off the surface and inflates the boxes so corners keep
+  clearance; `CAM_MIN_DIST` (0.6) stops the camera collapsing into the head.
+  **The shape is entirely budget-driven** (it runs every frame): **AABBs only,
+  even for mesh-collision models** — camera collision needs no triangle
+  precision (stopping a few cm early is invisible) and a slab test is a few
+  compares with no sqrt, vs walking a collider's triangle list; the boom is
+  short, so a **6-compare broad phase** (boom-segment AABB vs object AABB)
+  rejects nearly every object before a single division; markers/decals/emitters,
+  objects set to collision **none** (the author's opt-out) and **the avatar
+  itself (type 6 — it must never block its own camera)** are skipped outright;
+  and the terrain is a **fixed 8-step march + 4 bisections over the distance
+  that survived the object pass** (constant cost, and shorter once an object
+  already pulled the camera in). Boxes containing the pivot are ignored rather
+  than collapsing the camera (the player brushing a wall). The old
+  `terrainHeightAt` eye clamp stays as a cheap safety net for ridges falling
+  between march samples. Object AABBs are sized exactly like box-mode player
+  collision (real mesh / baked anim AABB when present), so the camera agrees
+  with what the player collides against. **Verified:** editor builds clean; the
+  scratch third-person project + a 12x4x0.5 wall 3 units behind the player
+  compiles in Docker and boots in PCSX2 — **A/B in-engine**: wall at z=-3 pulls
+  the boom 6 → ~2.45 (stops 0.3 in front of the wall face; the avatar fills the
+  frame and is never occluded), wall moved to z=-22 returns the boom to the full
+  6 (identical to the no-wall baseline) — i.e. **it pulls in only when actually
+  blocked, no false positives**. Both at a locked 50 FPS with EE% unchanged
+  within noise (35% → 36-37% *with* the extra wall to render), so the arm's cost
+  does not register. Camera feel while running along walls still wants a
+  hands-on pad test.
+
+- (101) **Third-person player + cutscene "Hide player".** Adds a third
+  `playerMode` (2 = third person) alongside Walk (FPP) and Noclip, plus a
+  per-sequence **Hide player** flag in the Cutscene Director. **Design goal was
+  max flexibility / min boilerplate** — the whole feature *reuses the animated
+  `.glb` pipeline instead of building a new one*: the avatar is the Player
+  object's OWN model (`SceneObject::modelPath`, must be an animated `.glb`), and
+  a new `hasAnimBody()` predicate routes a mode-2 Player through the exact same
+  collection/bake/setup/render/LOD/pose-share path as an animated Model
+  (`collectAnimModelPaths`/`animModelIndexOf`, `setupAnimObject` now accepts
+  type 6, `updateAndRenderAnimObjects` draws it for free). Each frame the
+  third-person branch of `updatePlayerEntity` moves the player relative to the
+  orbit camera, turns the avatar toward its movement direction (shortest-arc
+  yaw lerp → `entFaceYaw`), rides a camera boom behind/above it (pulled above
+  terrain), writes the entity pose into the avatar's runtime object and calls
+  `drivePlayerAnim`. **The "2002 would faint" bit** = `drivePlayerAnim`: a
+  trivial idle/walk/run(/jump) clip mapping auto-selected from the player's
+  *actual* planar speed with 0.18 s cross-fades and foot-speed-matched playback
+  — drop in a model, name three clips, get a fully animated character, no
+  scripting. Escape hatch: a non-locomotion clip fired by a script/flow
+  **Play Animation** one-shot plays to the end (`animFinished`) before
+  locomotion resumes, so waves/attacks compose with zero new API; attached
+  scripts see the avatar as `self`. New fields: `playerIdle/Walk/Run/JumpClip`,
+  `playerRunThreshold`, `playerCamDist/Height/TurnRate` (+ `operator==`, JSON
+  `player.thirdPerson` block, per-scene `PLAYER_*` scene_data tables + macros),
+  and `Sequence::hidePlayer` (JSON, `Seq`/`kSeqs`, `ScriptContext::hidePlayer`
+  written by the sequence player and cleared on release, applied post-scripts in
+  both the orbit and FPP game loops). Editor UI: the Player *Properties* mode
+  dropdown gains **Third person** with a `.glb`-only model picker, idle/walk/run/
+  jump clip combos, run threshold and camera tunables; the Cutscene Director
+  header gains a **Hide player** checkbox; the viewport previews a mode-2 Player
+  as its avatar model. **Verified:** editor builds clean; a scratch project
+  (Player → third person, `wobbler.glb`, idle=Wiggle/walk=Twist, + a
+  hide-player cutscene) round-trips through `--resave`, generates correct
+  `scene_data.hpp` (`PLAYER_MODES={2}`, clip tables, player row `animModel=0`)
+  and sequence codegen, **compiles + links in Docker (PS2 toolchain, `tpp.elf`
+  built, `wobbler.tskl` baked)** and **boots in PCSX2 at full 50 FPS** with the
+  avatar rendered behind the orbit camera playing its idle clip, no assert.
+  Interactive movement feel / turn blend / run threshold and the in-game
+  hide-player trigger still want a hands-on pad test by a human.
+
 - (100) **Engine perf audit: EE→VU0/VU1 work-distribution pass over the render
   hot path (47→73 FPS precise / 120 FPS with VU1 clipping on the 98k
   benchmark).** A deep audit of `vendor/tyra` looking for EE work that belongs

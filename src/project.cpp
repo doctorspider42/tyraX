@@ -225,13 +225,25 @@ static std::string objectJson(const SceneObject& o) {
         // decal projection: off (flat quad) stays implicit
         (o.decalProject ? ", \"decalProject\": true" : "");
     if (o.type == PrimitiveType::Player) {
-        json += ", \"player\": { \"mode\": \"" +
-                std::string(o.playerMode == 1 ? "noclip" : "walk") +
+        const char* modeName = o.playerMode == 1   ? "noclip"
+                               : o.playerMode == 2 ? "thirdperson"
+                                                   : "walk";
+        json += ", \"player\": { \"mode\": \"" + std::string(modeName) +
                 "\", \"walkSpeed\": " + fmtFloat(o.playerWalkSpeed) +
                 ", \"lookSpeed\": " + fmtFloat(o.playerLookSpeed) +
                 ", \"eyeHeight\": " + fmtFloat(o.playerEyeHeight) +
                 ", \"jumpSpeed\": " + fmtFloat(o.playerJumpSpeed) +
                 ", \"canJump\": " + (o.playerCanJump ? "true" : "false") +
+                // Third-person avatar: locomotion clip mapping + camera boom.
+                ", \"thirdPerson\": { \"idleClip\": \"" + jsonEscape(o.playerIdleClip) +
+                "\", \"walkClip\": \"" + jsonEscape(o.playerWalkClip) +
+                "\", \"runClip\": \"" + jsonEscape(o.playerRunClip) +
+                "\", \"jumpClip\": \"" + jsonEscape(o.playerJumpClip) +
+                "\", \"runThreshold\": " + fmtFloat(o.playerRunThreshold) +
+                ", \"camDist\": " + fmtFloat(o.playerCamDist) +
+                ", \"camHeight\": " + fmtFloat(o.playerCamHeight) +
+                ", \"camShoulder\": " + fmtFloat(o.playerCamShoulder) +
+                ", \"turnRate\": " + fmtFloat(o.playerTurnRate) + " }" +
                 ", \"flashlight\": { \"enabled\": " +
                 (o.flashlightEnabled ? "true" : "false") + ", \"color\": " +
                 fmtVec3(o.flashlightColor) + ", \"range\": " +
@@ -860,6 +872,7 @@ std::string save(const Project& p) {
              << "\", \"duration\": " << fmtFloat(s.duration)
              << ", \"loop\": " << (s.loop ? "true" : "false")
              << ", \"cameraEnabled\": " << (s.cameraEnabled ? "true" : "false")
+             << ", \"hidePlayer\": " << (s.hidePlayer ? "true" : "false")
              << ", \"bars\": " << s.bars
              << ", \"skippable\": " << (s.skippable ? "true" : "false")
              << ", \"fadeIn\": " << fmtFloat(s.fadeIn)
@@ -1297,8 +1310,26 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* v = jo.find("decalProject")) o.decalProject = v->boolOr(false);
         // pre-materials projects had a per-object "texture" PNG - dropped
         if (const auto* pl = jo.find("player")) {
-            if (const auto* v = pl->find("mode"))
-                o.playerMode = v->stringOr("walk") == "noclip" ? 1 : 0;
+            if (const auto* v = pl->find("mode")) {
+                const std::string m = v->stringOr("walk");
+                o.playerMode = m == "noclip" ? 1 : (m == "thirdperson" ? 2 : 0);
+            }
+            if (const auto* tp = pl->find("thirdPerson")) {
+                if (const auto* v = tp->find("idleClip")) o.playerIdleClip = v->stringOr("");
+                if (const auto* v = tp->find("walkClip")) o.playerWalkClip = v->stringOr("");
+                if (const auto* v = tp->find("runClip")) o.playerRunClip = v->stringOr("");
+                if (const auto* v = tp->find("jumpClip")) o.playerJumpClip = v->stringOr("");
+                if (const auto* v = tp->find("runThreshold"))
+                    o.playerRunThreshold = (float)v->numberOr(0.55);
+                if (const auto* v = tp->find("camDist"))
+                    o.playerCamDist = (float)v->numberOr(6.0);
+                if (const auto* v = tp->find("camHeight"))
+                    o.playerCamHeight = (float)v->numberOr(1.6);
+                if (const auto* v = tp->find("camShoulder"))
+                    o.playerCamShoulder = (float)v->numberOr(0.0);
+                if (const auto* v = tp->find("turnRate"))
+                    o.playerTurnRate = (float)v->numberOr(0.25);
+            }
             if (const auto* v = pl->find("walkSpeed"))
                 o.playerWalkSpeed = (float)v->numberOr(0.4);
             if (const auto* v = pl->find("lookSpeed"))
@@ -2015,6 +2046,7 @@ std::string load(Project& out, const std::string& projectDir) {
             if (const auto* v = js.find("duration")) s.duration = (float)v->numberOr(5.0);
             if (const auto* v = js.find("loop")) s.loop = v->boolOr(false);
             if (const auto* v = js.find("cameraEnabled")) s.cameraEnabled = v->boolOr(false);
+            if (const auto* v = js.find("hidePlayer")) s.hidePlayer = v->boolOr(false);
             if (const auto* v = js.find("bars")) s.bars = (int)v->numberOr(0.0);
             if (s.bars < 0 || s.bars >= kSeqBarsStyleCount) s.bars = kSeqBarsNone;
             if (const auto* v = js.find("skippable")) s.skippable = v->boolOr(false);

@@ -1996,8 +1996,14 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             const Mat4 mvp = mul(viewProj, model);
             // the bulb gizmo stays emissive - everything else receives light
             const bool lit = !asLines && o.type != PrimitiveType::PointLight;
-            // animated .glb models: dynamic meshes re-lerped this frame
-            if (o.type == PrimitiveType::Model && isAnimatedModelPath(o.modelPath)) {
+            // animated .glb models: dynamic meshes re-lerped this frame. A
+            // third-person Player (mode 2) previews as its own avatar model,
+            // the same way NPC animated models draw.
+            const bool tppAvatar = o.type == PrimitiveType::Player &&
+                                   o.playerMode == 2 &&
+                                   isAnimatedModelPath(o.modelPath);
+            if ((o.type == PrimitiveType::Model || tppAvatar) &&
+                isAnimatedModelPath(o.modelPath)) {
                 AnimModelDraw* ad = animModelDraw(o.modelPath);
                 if (ad && ad->ok) {
                     updateAnimPose(*ad, o);
