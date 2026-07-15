@@ -40,6 +40,7 @@ struct RuntimeObject {
 struct ScriptContext {
   Tyra::Engine* engine = nullptr;  // pad, renderer, audio, ...
   Tyra::Vec4 playerPosition;       // camera/player position this frame
+  Tyra::Vec4 playerLook;           // normalized view direction this frame
   RuntimeObject* objects = nullptr;  // mutable scene objects
   int objectCount = 0;
   Tyra::Color skyColor;  // write to change the clear color
@@ -98,6 +99,15 @@ struct ScriptContext {
   int grain = -1;
   int particles = -1;
 
+  // Depth of field (Set Depth Of Field flow node). dof: -1 = leave, -2 =
+  // restore the scene's authored setting (Tools > UI Editor), else a 0..128
+  // blur amount (0 = off). The image blurs progressively from dofFocus to
+  // dofFocus + dofRange (world units from the camera). The game applies and
+  // resets dof.
+  int dof = -1;
+  float dofFocus = 0.0F;
+  float dofRange = 0.0F;
+
   // Analog stick response curves (Set Stick Curve flow node). Per stick:
   // curve = -1 leave, else 0 Linear / 1 Exponential / 2 S-Curve; exp = the
   // curve exponent, applied only when >= 1 (< 0 = leave). The game copies
@@ -118,6 +128,12 @@ struct ScriptContext {
   int requestDisplayMode = -1;
   float displayConfirmSec = 0.0F;
   int widescreen = -1;
+
+  // Master sound-effect volume as a percentage (0..100), driven by a menu
+  // "Sound volume" option block (applyMenuBindings). 100 = unscaled. Applied
+  // as a multiplier on every Play Sound one-shot and every sound-emitter
+  // sample, so it rides on top of each source's own volume.
+  int sfxVolume = 100;
 
   // Save data: named values persisted in memory card slots (SAVE_VALUE_NAMES
   // order, scene_data.hpp). Set openSaveMenu = true to open the in-game

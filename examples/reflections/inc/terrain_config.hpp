@@ -31,7 +31,8 @@ constexpr float ANALOG_DEADZONE_R = 0.2F;
 // Stick response curve applied after the deadzone (Preferences > Input):
 // 0 = Linear, 1 = Exponential (pow, finer near center), 2 = S-Curve.
 // STICK_EXP_* tunes curves 1/2 (>=1). These seed the runtime g_stickCurve*/
-// g_stickExp* globals, which the Set Stick Curve flow node can change live.
+// g_stickExp* globals, which the Set Stick Curve flow node (and a menu "Aim
+// curve" option block) can change live.
 constexpr int STICK_CURVE_L = 0;
 constexpr int STICK_CURVE_R = 0;
 constexpr float STICK_EXP_L = 2.0F;

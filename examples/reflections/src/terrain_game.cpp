@@ -9,6 +9,7 @@
 #include "menu_data.gen.hpp"
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
+#include "decal_data.gen.hpp"  // baked projected-decal meshes (host-computed)
 #include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
 #include "scripts/screen_fx.gen.hpp"  // custom full-screen effects
 #include <math.h>
@@ -49,15 +50,31 @@ bool g_flashOn = true;
 // skips all simulation + drawing, so every emitter's fill cost disappears.
 bool g_particlesOn = true;
 
+// Runtime analog stick deadzone (Preferences > Input; a menu "Deadzone" option
+// block changes it live via applyMenuBindings). Seeded from the baked
+// ANALOG_DEADZONE_* constants in buildScene (they are namespaced, this scope is
+// not), then read every frame by stickAxis() - so with no option block the
+// sticks behave exactly as the Preferences deadzone.
+float g_deadzoneL = 0.2F;
+float g_deadzoneR = 0.2F;
+
 // Analog stick response curves (Preferences > Input; the Set Stick Curve flow
-// node changes them live). g_stickCurve*: 0 = Linear, 1 = Exponential, 2 =
-// S-Curve; g_stickExp* tunes curves 1/2. Seeded from the baked STICK_*
-// constants in init() (the constants are namespaced, this scope is not), then
-// read every frame by stickAxis(); runtime changes persist across scenes.
+// node and a menu "Aim curve" option block change them live). g_stickCurve*:
+// 0 = Linear, 1 = Exponential, 2 = S-Curve; g_stickExp* tunes curves 1/2.
+// Seeded from the baked STICK_* constants in init() (the constants are
+// namespaced, this scope is not), then read every frame by stickAxis();
+// runtime changes persist across scenes.
 int g_stickCurveL = 0;
 int g_stickCurveR = 0;
 float g_stickExpL = 2.0F;
 float g_stickExpR = 2.0F;
+
+// Last option index a "Display mode" / "Widescreen" menu block applied. Video
+// switches rebuild VRAM + arm the confirm prompt, so they fire only on change
+// (seeded from the saved option in buildScene so a persisted choice does not
+// re-trigger a switch at boot).
+int g_menuDispOpt = -1;
+int g_menuWideOpt = -1;
 
 // Maps a pad axis byte (128 = center) to a signed -1..1 value: it reads 0
 // below the deadzone, rescales from the deadzone edge so there is no step,
@@ -439,11 +456,19 @@ void addPlane(std::vector<Vec4>& verts, std::vector<Color>& cols,
 // material (transparency comes from the texture's alpha - the static pipeline
 // runs an alpha test that drops fully-transparent texels and alpha-blends the
 // rest). Nudged +Z by DECAL_OFFSET so it sits just in front of the surface it
-// is placed on instead of z-fighting it. Single-sided (front only).
+// is placed on instead of z-fighting it. Single-sided (front only). U runs with
+// local -X (slide-projector convention) so the texture reads correctly - not
+// mirrored - viewed from the +Z front; matches unitDecal + the projected decal.
 void addDecal(std::vector<Vec4>& verts, std::vector<Color>& cols,
               std::vector<Vec4>& sts, const SceneObjectData& o) {
   const float h = 0.5F, z = 0.02F;  // DECAL_OFFSET, local units (scaled by Z)
-  pushQuad(verts, cols, sts, o, {-h, -h, z}, {h, -h, z}, {h, h, z}, {-h, h, z}, {0, 0, 1});
+  const V3 n = {0, 0, 1};
+  pushVert(verts, cols, sts, o, {-h, -h, z}, n, 1, 0);
+  pushVert(verts, cols, sts, o, {h, -h, z}, n, 0, 0);
+  pushVert(verts, cols, sts, o, {h, h, z}, n, 0, 1);
+  pushVert(verts, cols, sts, o, {-h, -h, z}, n, 1, 0);
+  pushVert(verts, cols, sts, o, {h, h, z}, n, 0, 1);
+  pushVert(verts, cols, sts, o, {-h, h, z}, n, 1, 1);
 }
 
 void addCone(std::vector<Vec4>& verts, std::vector<Color>& cols,
@@ -858,6 +883,8 @@ void TerrainGame::init() {
   stapip.core.setVU1Clipping(CLIP_VU1);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
+                                               POSTFX_DOF_RANGE, POSTFX_DOF);
   // GS hardware distance fog (Scene/Project > Preferences > Fog).
   if (FOG_ENABLED)
     engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START,
@@ -975,12 +1002,27 @@ void TerrainGame::loop() {
   const bool menuOwnsPad =
       saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0;
   g_gameplayPaused = menuActive;  // freezes particles + animation playback
+  // Option-block menu rows drive their bound engine settings every frame
+  // (volume, deadzone, curve, display) - runs regardless of pause so a saved
+  // setting keeps applying, and before applyVideoRequests so a display switch
+  // it requests lands this frame.
+  applyMenuBindings();
   if (!menuOwnsPad) {
     if (!updatePlayerEntity()) updatePlayer();
     updateUseTarget();
   }
 
   scriptCtx.playerPosition = cameraPosition;
+  {
+    // View direction for the scripts (Raycast flow node)
+    Vec4 look = cameraLookAt - cameraPosition;
+    const float lookLen =
+        sqrtf(look.x * look.x + look.y * look.y + look.z * look.z);
+    scriptCtx.playerLook = lookLen > 0.0001F
+                               ? Vec4(look.x / lookLen, look.y / lookLen,
+                                      look.z / lookLen)
+                               : Vec4(0.0F, 0.0F, 1.0F);
+  }
   if (menuOwnsPad) { scriptCtx.usedObject = -1; useTargetIndex = -1; }
   // Menus pause scripts - except the frame a menu entry fires a flow event,
   // which must reach the On Menu Event triggers.
@@ -1084,6 +1126,16 @@ void TerrainGame::loop() {
     engine->renderer.core.postFx.setGrain(scriptCtx.grain);
     scriptCtx.grain = -1;
   }
+  if (scriptCtx.dof == -2) {
+    // Set Depth Of Field, "Scene setting" mode: back to the authored values
+    engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
+                                                 POSTFX_DOF_RANGE, POSTFX_DOF);
+    scriptCtx.dof = -1;
+  } else if (scriptCtx.dof >= 0) {
+    engine->renderer.core.postFx.setDepthOfField(
+        scriptCtx.dofFocus, scriptCtx.dofRange, scriptCtx.dof);
+    scriptCtx.dof = -1;
+  }
   if (scriptCtx.particles >= 0) {
     g_particlesOn = scriptCtx.particles != 0;
     scriptCtx.particles = -1;
@@ -1134,6 +1186,11 @@ void TerrainGame::loop() {
   {
     engine->renderer.renderer3D.usePipeline(stapip);
     renderScene();
+    // Depth of field composites right after the 3D scene, BEFORE any 2D:
+    // sprites stamp z = max across their whole rect (transparent margins
+    // included), which would punch sharp rectangles into a later z-tested
+    // DoF pass (a crosshair HUD showed through the blur as a box).
+    engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassDof);
     // Full-screen effects can sit inside the HUD stack (Tools > UI Editor):
     // bloom (with color grading) and film grain composite at independent
     // points, so sprites drawn afterwards stay crisp on top of them. -1 = the
@@ -1208,6 +1265,24 @@ void TerrainGame::buildScene() {
   for (int i = 0; i < SAVE_VALUE_COUNT; ++i) saveValues[i] = SAVE_VALUE_DEFAULTS[i];
   scriptCtx.saveValues = saveValues.data();
   scriptCtx.saveValueCount = SAVE_VALUE_COUNT;
+  // Seed the runtime deadzone from the compile-time Preferences defaults (the
+  // constants are namespaced, so this cannot happen at the global def). A menu
+  // "Deadzone" option block overrides these each frame; the stick response
+  // curve globals (g_stickCurve*/g_stickExp*) are seeded separately in init().
+  g_deadzoneL = ANALOG_DEADZONE_L;
+  g_deadzoneR = ANALOG_DEADZONE_R;
+  // Seed the display/widescreen option-block trackers from the current saved
+  // option so applyMenuBindings does not fire a scan-mode switch (+ confirm
+  // prompt) at boot: the game boots in the project's compiled display mode,
+  // and a menu row only switches when the player moves it (or loads a save
+  // that changed it).
+  for (int mi = 0; mi < MENU_COUNT; ++mi)
+    for (int e = 0; e < MENUS[mi].entryCount; ++e) {
+      const MenuEntryData& en = MENUS[mi].entries[e];
+      if (en.param < 0 || en.param >= SAVE_VALUE_COUNT) continue;
+      if (en.bind == 5) g_menuDispOpt = (int)saveValues[en.param];
+      if (en.bind == 6) g_menuWideOpt = (int)saveValues[en.param];
+    }
   saveTexts.assign((SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1) * SAVE_TEXT_LEN, '\0');
   for (int i = 0; i < SAVE_TEXT_COUNT; ++i)
     snprintf(&saveTexts[i * SAVE_TEXT_LEN], SAVE_TEXT_LEN, "%s",
@@ -1326,6 +1401,7 @@ void TerrainGame::bootFirstScene() {
   scriptCtx.objectCount = (int)runtimeObjects.size();
   scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
   scriptCtx.playerPosition = cameraPosition;
+  scriptCtx.playerLook = Vec4(0.0F, 0.0F, 1.0F);  // real look set per frame
   for (Script* script : getScripts()) script->init(scriptCtx);
 }
 
@@ -2393,6 +2469,8 @@ void TerrainGame::loadScene(int sceneIndex) {
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
+                                               POSTFX_DOF_RANGE, POSTFX_DOF);
   // GS hardware distance fog (Scene/Project > Preferences > Fog).
   if (FOG_ENABLED)
     engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START,
@@ -2545,6 +2623,8 @@ void TerrainGame::updateSoundEmitters() {
         }
       }
     }
+    // Master SFX volume (menu "Sound volume" option block); 100 = unscaled.
+    vol = vol * scriptCtx.sfxVolume / 100;
     // audsrv RPCs are synchronous and share one client lock with the music
     // stream - an RPC per emitter per frame stalls the main thread whenever
     // the song thread holds the lock (measured 50 -> 42 FPS in PCSX2 with
@@ -3153,6 +3233,68 @@ bool TerrainGame::updateGameMenu() {
   return pausing();
 }
 
+// Ready-made menu "option blocks" (Menu Editor > Insert option block): a
+// Toggle/Choice row bound to a built-in engine setting. Every frame we map the
+// row's option index (held in its save value) onto the setting, evenly across
+// the row's options - so the same row that persists and previews as a normal
+// stateful entry also drives the engine, with no flow graph. Volume / deadzone
+// / curve are idempotent (re-applied each frame, cheap). Display mode and
+// widescreen rebuild VRAM / arm the confirm prompt, so they fire only when the
+// option actually changes, routed through the same scriptCtx video requests
+// the Set Display Mode / Set Widescreen flow nodes use.
+void TerrainGame::applyMenuBindings() {
+  for (int mi = 0; mi < MENU_COUNT; ++mi) {
+    const MenuData& m = MENUS[mi];
+    for (int e = 0; e < m.entryCount; ++e) {
+      const MenuEntryData& en = m.entries[e];
+      if (en.bind == 0) continue;
+      const int cnt = en.optionCount > 0 ? en.optionCount : 1;
+      int idx = (en.param >= 0 && en.param < SAVE_VALUE_COUNT)
+                    ? (int)saveValues[en.param]
+                    : 0;
+      if (idx < 0) idx = 0;
+      if (idx >= cnt) idx = cnt - 1;
+      // t: option index normalized to 0..1 (single-option rows read as full).
+      const float t = cnt > 1 ? (float)idx / (float)(cnt - 1) : 1.0F;
+      switch (en.bind) {
+        case 1:  // music volume 0..100
+          engine->audio.song.setVolume((u8)(t * 100.0F + 0.5F));
+          break;
+        case 2:  // master sfx volume 0..100
+          scriptCtx.sfxVolume = (int)(t * 100.0F + 0.5F);
+          break;
+        case 3:  // deadzone, both sticks 0..0.4
+          g_deadzoneL = g_deadzoneR = t * 0.4F;
+          break;
+        case 4: {  // aim response curve (both sticks): drives the shared
+          // g_stickCurve*/g_stickExp* runtime (same globals the Set Stick Curve
+          // flow node uses). Option 0 Linear, 1 Smooth (S-curve), 2+ Precise
+          // (exponential - finer near center). Uses idx, not the even mapping.
+          int curve = 0;
+          if (idx == 1) curve = 2;       // S-curve
+          else if (idx >= 2) curve = 1;  // exponential
+          g_stickCurveL = g_stickCurveR = curve;
+          g_stickExpL = g_stickExpR = 2.0F;
+          break;
+        }
+        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0/1/2)
+          if (idx != g_menuDispOpt) {
+            g_menuDispOpt = idx;
+            scriptCtx.requestDisplayMode = idx;
+            scriptCtx.displayConfirmSec = 8.0F;  // keep-or-revert safety net
+          }
+          break;
+        case 6:  // widescreen 4:3 / 16:9
+          if (idx != g_menuWideOpt) {
+            g_menuWideOpt = idx;
+            scriptCtx.widescreen = idx;
+          }
+          break;
+      }
+    }
+  }
+}
+
 void TerrainGame::renderGameMenu() {
   if (gameMenuIndex < 0 || gameMenuIndex >= (int)menuSprites.size()) return;
   if (saveMenuOpen) return;  // the save menu draws on top instead
@@ -3213,13 +3355,14 @@ bool TerrainGame::updatePlayerEntity() {
 
   const auto& leftJoy = engine->pad.getLeftJoyPad();
   const auto& rightJoy = engine->pad.getRightJoyPad();
-  // stickAxis applies the per-stick deadzone (ANALOG_DEADZONE_*) and response
-  // curve (g_stickCurve*/g_stickExp* - Preferences > Input / Set Stick Curve).
+  // stickAxis applies the per-stick deadzone (g_deadzoneL/R - Preferences, or a
+  // menu "Deadzone" option block) and response curve (g_stickCurve*/g_stickExp*
+  // - Preferences > Input / Set Stick Curve node / a menu "Aim curve" block).
   auto axisL = [&](const u8& raw) {
-    return stickAxis(raw, ANALOG_DEADZONE_L, g_stickCurveL, g_stickExpL);
+    return stickAxis(raw, g_deadzoneL, g_stickCurveL, g_stickExpL);
   };
   auto axisR = [&](const u8& raw) {
-    return stickAxis(raw, ANALOG_DEADZONE_R, g_stickCurveR, g_stickExpR);
+    return stickAxis(raw, g_deadzoneR, g_stickCurveR, g_stickExpR);
   };
 
   // Right stick: look around (stick right = turn right)
@@ -3420,7 +3563,34 @@ void TerrainGame::rebuildObjectGeometry(int index) {
       case 9: break;   // point light - invisible source, no geometry
       case 11: break;  // empty - pure transform, no geometry
       case 12: addPlane(p0.vertices, p0.colors, p0.sts, o.data); break;
-      case 13: addDecal(p0.vertices, p0.colors, p0.sts, o.data); break;
+      case 13: {
+        // Projecting decal: a world-space mesh conforming to the receiver
+        // geometry was baked on the host (decalproj) - just upload it (unlit,
+        // tinted; alpha comes from the texture like the flat decal). Falls back
+        // to the flat quad when this object has no baked mesh. index maps 1:1 to
+        // the scene table for authored objects (spawned clones are past the
+        // count, so they never match and use the flat quad).
+        const BakedDecal* dt =
+            (currentScene >= 0 &&
+             currentScene < (int)(sizeof(SCENE_DECAL_TABLES) / sizeof(SCENE_DECAL_TABLES[0])))
+                ? SCENE_DECAL_TABLES[currentScene]
+                : nullptr;
+        if (dt && index < SCENE_DECAL_COUNTS[currentScene] && dt[index].vertCount > 0) {
+          const float cs = g_primTextured ? 128.0F : 255.0F;
+          const Color col(o.data.color[0] * cs, o.data.color[1] * cs,
+                          o.data.color[2] * cs, 128.0F);
+          const float* bv = dt[index].verts;
+          for (int i = 0; i < dt[index].vertCount; ++i) {
+            const float* v = &bv[i * 5];
+            p0.vertices.push_back(Vec4(v[0], v[1], v[2], 1.0F));
+            p0.colors.push_back(col);
+            p0.sts.push_back(Vec4(v[3], v[4], 1.0F, 0.0F));
+          }
+        } else {
+          addDecal(p0.vertices, p0.colors, p0.sts, o.data);
+        }
+        break;
+      }
       case 14: break;  // camera - cutscene shot marker, no geometry
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
@@ -4301,13 +4471,14 @@ void TerrainGame::renderTerrain() {
 void TerrainGame::updatePlayer() {
   const auto& leftJoy = engine->pad.getLeftJoyPad();
   const auto& rightJoy = engine->pad.getRightJoyPad();
-  // stickAxis applies the per-stick deadzone (ANALOG_DEADZONE_*) and response
-  // curve (g_stickCurve*/g_stickExp* - Preferences > Input / Set Stick Curve).
+  // stickAxis applies the per-stick deadzone (g_deadzoneL/R - Preferences, or a
+  // menu "Deadzone" option block) and response curve (g_stickCurve*/g_stickExp*
+  // - Preferences > Input / Set Stick Curve node / a menu "Aim curve" block).
   auto axisL = [&](const u8& raw) {
-    return stickAxis(raw, ANALOG_DEADZONE_L, g_stickCurveL, g_stickExpL);
+    return stickAxis(raw, g_deadzoneL, g_stickCurveL, g_stickExpL);
   };
   auto axisR = [&](const u8& raw) {
-    return stickAxis(raw, ANALOG_DEADZONE_R, g_stickCurveR, g_stickExpR);
+    return stickAxis(raw, g_deadzoneR, g_stickCurveR, g_stickExpR);
   };
 
   // Right stick: look around (stick right = turn right)
