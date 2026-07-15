@@ -210,8 +210,23 @@ callers must not free the result) — measured worth only ~2% of the partial
 branch in PCSX2: the real cost of PARTIALLY_IN_FRUSTUM geometry is the
 per-package bbox classification + EE clipping, which scale with vertex count
 (see PROGRESS entry 79: a single detail-16 box near the camera = 9.2k verts =
-~36 ms of EE; the fix was authoring-side detail, not the allocator). Known
-next target (from PROGRESS.md backlog): upstream's own TODO in
-`stapip_clipper.hpp` — move clipping fully to VU1.
+~36 ms of EE; the fix was authoring-side detail, not the allocator).
+**Classification itself was then rebuilt (PROGRESS entry 100)**: the frustum
+planes are transformed into the bag's object space once per bag
+(`CoreBBox::computeObjectSpacePlanes`) and every package/subpackage is
+classified with the p-vertex/n-vertex AABB test on min/max corners
+(`CoreBBox::frustumCheckAABB`) — no per-package corner transforms, no merged
+8-corner boxes, and `clipFrustumCheck`'s duplicate zero-guard-band re-check
+is gone. Plus a VU0 `vmini`/`vmax` min/max scan in
+`CoreBBox(const Vec4*, count)` and `memcpy` fills in
+`StaPipQBuffer::fillByCopy*`. Net: 47 → 73 FPS on the vsync-off 98k
+benchmark, pixel-identical; the hidden `"clipping": "vu1"` mode hits 120 FPS
+on the same scene now that classification is cheap. When touching
+classification, mind the AABB invariant: every CoreBBox the packager sees is
+axis-aligned with `vertices[0]`/`vertices[7]` as min/max — only the
+matrix-transform constructor breaks that, and it must never feed the AABB
+test. Known next target (from PROGRESS.md backlog): retire the EE clipper —
+flip `"clipping"` to vu1 by default (M4 in docs/vu1-clipping-plan.md, gated
+on a real-PS2 pass).
 Measure with PCSX2's FPS display on the software renderer, 3+ samples, before
 and after; pixel-compare screenshots to prove output is unchanged.
