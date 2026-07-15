@@ -9,6 +9,54 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (101) **Object physics upgraded from "falls straight down" to a
+  rigid-body-lite simulation (bounce, slide, tumble, stacks, shoves,
+  impulses).** The old `updateObjectPhysics` was Y-only gravity that stopped
+  dead at the terrain height. The new one gives every `physics` body: full 3D
+  per-frame velocity; restitution bounces off the terrain using the **real
+  slope normal** (central differences on the heightfield), so bodies kick
+  sideways off hills and slide/roll downhill; per-contact friction; **tumble**
+  (ground contact converts slide into roll-without-slipping spin, integrated
+  into the Euler rotation - visually right, era-appropriate); reflecting
+  world-edge walls; AABB contacts against static solids resolved along the
+  least-penetration axis (crates rest on platforms, land on each other's
+  tops with ground friction); an **impulse pass** between bodies
+  (upright-cylinder contacts, momentum split by relative mass, restitution =
+  max of the pair); and **player shoves** (`pushPhysicsBodies`, called from
+  both walkers before `collidePlayer` with the attempted step - push scales
+  with 1/mass). Perf: near-rest grounded bodies **sleep** after 24 frames
+  (`RuntimeObject::restFrames`) and cost one branch per frame until an
+  impulse/shove/collision/support-loss wakes them - a support-loss check wakes
+  riders when the body under them slides away; the vector work (integrate,
+  normal decompose, reflect, dot/normalize) runs on **VU0** via `Tyra::Vec4`'s
+  macro-mode ops; geometry rebuilds only on frames the transform actually
+  changed. Authoring: per-object physics material - **Mass / Bounciness /
+  Friction / Tumble** (`physMass/physBounce/physFriction/physTumble`,
+  serialized only while `physics` is true, defaults keep old projects loading
+  clean), edited under the Properties *Physics (rigid body)* checkbox. Scripts
+  see `velocityX/Z` + `spin[3]` + `restFrames` next to the kept `velocityY`
+  (legacy scripts compile unchanged); save-restore and Set Position / Move
+  Object By wake the body so it re-settles. New **Apply Impulse** flow node
+  (`PushObject`: X/Y/Z in units/s, converted to per-frame velocity at codegen,
+  wakes the body); Spawn Object clones start with fresh physics state. New
+  `examples/physics-playground` (README-documented): superball vs dead-thud
+  vs medium materials dropped on a terraced slope, a sleeping crate stack the
+  player can topple, and a flow graph that kicks a ball every 3 s while
+  logging its position. Verified per tyra-testing layer 3: scratch FPP
+  project, Docker build, PCSX2 **software renderer** - `bin/log.txt`
+  telemetry shows the kicked ball resting at exactly terrain + radius
+  (y = 3.1 = 2.5 plateau + 0.6), flying on each impulse, descending the
+  terraces to the low plain (y = 0.6) and ping-ponging off the ±23.5 walls;
+  screenshots show both balls mid-air then settled and the crate stack
+  upright; steady state (all bodies asleep) holds **50 FPS, EE ~35%** - same
+  as before the feature; a transient 24 FPS dip appears only while several
+  bodies rebuild geometry mid-flight (the pre-existing moving-object rebuild
+  cost, not the sim). The walk-into-shove path needs a hands-on pad test by a
+  human (no pad in the harness). Dead end for the record: the physics helpers
+  were first emitted as file-`static` functions - `GameModel` is a nested
+  type of `TerrainGame`, so they must be static members (the PS2 gcc error
+  cascade "cannot convert GameModel* to const int*" means exactly this).
+
 - (100) **Engine perf audit: EE→VU0/VU1 work-distribution pass over the render
   hot path (47→73 FPS precise / 120 FPS with VU1 clipping on the 98k
   benchmark).** A deep audit of `vendor/tyra` looking for EE work that belongs

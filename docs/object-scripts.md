@@ -97,7 +97,9 @@ refreshes it every frame. Mutate the object through it, then set
 | `self->data.position/rotation/scale` | The transform (rotation in degrees, X→Y→Z order). |
 | `self->data.color` | RGB 0..1 - mesh tint on solids, particle tint on emitters, free parameter on empties. |
 | `self->visible` | Show/hide (also mutes sound emitters, disables particle emitters). |
-| `self->velocityY` | Vertical velocity used by object physics. |
+| `self->velocityX/Y/Z` | Rigid-body velocity (per-frame displacements) used by object physics. |
+| `self->spin` | Angular velocity, degrees/frame (X/Y/Z) - tumbling. |
+| `self->restFrames` | Physics sleep counter; write `0` after changing velocities to wake a sleeping body (`PHYS_SLEEP_FRAMES` = asleep). |
 | `self->dirty` | Set true after changing any of the above so the frame's rebuild picks it up. |
 | `self->anim*` | Animated-model playback state - prefer the `playAnimation`/`stopAnimation`/`animationFinished` helpers (see [animated-models.md](animated-models.md)). |
 

@@ -162,6 +162,10 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // frame) at Speed units/s until it arrives. Re-triggering re-arms it.
         {"MoveObjectTo", "Move Object To", "Object", false, FlowParamKind::ObjectName, 4,
          {"X", "Y", "Z", "Speed"}, FlowParamKind::None, true, true, true, false},
+        // Physics: add velocity (units/s) to a rigid body and wake it. On a
+        // non-physics object it only nudges the stored velocity - harmless.
+        {"PushObject", "Apply Impulse", "Object", false, FlowParamKind::ObjectName, 3,
+         {"X", "Y", "Z"}, FlowParamKind::None, true, true},
         {"SetObjectColor", "Set Object Color", "Object", false, FlowParamKind::ObjectName,
          3, {}, FlowParamKind::Color, true, true},
         // Position plumbing: Get Position is a pure data node (no exec pins);
