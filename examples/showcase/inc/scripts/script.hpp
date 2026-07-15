@@ -40,7 +40,6 @@ struct RuntimeObject {
 struct ScriptContext {
   Tyra::Engine* engine = nullptr;  // pad, renderer, audio, ...
   Tyra::Vec4 playerPosition;       // camera/player position this frame
-  Tyra::Vec4 playerLook;           // normalized view direction this frame
   RuntimeObject* objects = nullptr;  // mutable scene objects
   int objectCount = 0;
   Tyra::Color skyColor;  // write to change the clear color
@@ -63,11 +62,6 @@ struct ScriptContext {
   int barsStyle = 0;
   float barsAmount = 0.0F;  // 0..1 of the style's full coverage
   float fadeAlpha = 0.0F;   // 0..1 black overlay
-
-  // Set by the sequence player while a "Hide player" cutscene is active: the
-  // game hides the third-person avatar for the frame (no effect in FPP/noclip,
-  // which have no visible body). Cleared when the cutscene ends.
-  bool hidePlayer = false;
 
   // Set teleport = true and teleportPos to move the player (Player entity or
   // the FPP template player) there; the game applies and clears it.
@@ -103,23 +97,6 @@ struct ScriptContext {
   int bloom = -1;
   int grain = -1;
   int particles = -1;
-
-  // Depth of field (Set Depth Of Field flow node). dof: -1 = leave, else a
-  // 0..128 blur amount (0 = off). The image blurs progressively from
-  // dofFocus to dofFocus + dofRange (world units from the camera). The game
-  // applies and resets dof.
-  int dof = -1;
-  float dofFocus = 0.0F;
-  float dofRange = 0.0F;
-
-  // Analog stick response curves (Set Stick Curve flow node). Per stick:
-  // curve = -1 leave, else 0 Linear / 1 Exponential / 2 S-Curve; exp = the
-  // curve exponent, applied only when >= 1 (< 0 = leave). The game copies
-  // both into the runtime g_stickCurve*/g_stickExp* globals and resets them.
-  int stickCurveL = -1;
-  int stickCurveR = -1;
-  float stickExpL = -1.0F;
-  float stickExpR = -1.0F;
 
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes).
   // requestDisplayMode: -1 = leave, else a Tyra::DisplayMode value (0 =

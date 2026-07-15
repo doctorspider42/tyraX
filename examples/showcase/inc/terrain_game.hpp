@@ -24,7 +24,6 @@ class TerrainGame : public Tyra::Game {
   void resetTerrainChunks();
   void buildTerrainChunk(int slot, int cx, int cz);
   void updateTerrainChunks(float focusX, float focusZ, int budget);
-  int countPendingChunks(float focusX, float focusZ);
   void renderTerrain();
   void updatePlayer();
 
@@ -246,27 +245,10 @@ class TerrainGame : public Tyra::Game {
   // camera when present. Returns false when the scene has no player.
   bool updatePlayerEntity();
   float entX = 0, entY = 0, entZ = 0, entVelY = 0, entYaw = 0, entPitch = 0;
-  // Third-person only: entYaw/entPitch orbit the camera, entFaceYaw is the
-  // avatar's own facing (turns toward the walk direction). Clip indices are
-  // resolved from the model's clip table at scene load; -1 = unmapped.
-  float entFaceYaw = 0;
-  int playerIdleClip = -1, playerWalkClip = -1, playerRunClip = -1, playerJumpClip = -1;
-  // Picks the third-person avatar's locomotion clip from its planar speed
-  // (fraction of full walk speed) and grounded state, cross-fading on change.
-  void drivePlayerAnim(RuntimeObject& body, float speedFrac, bool grounded);
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
   void loadScene(int sceneIndex);
-  // Loads scene 0 + runs scripts' init(); called once from the loop's boot
-  // sequence (see bootPhase) so the initial load is vsync-paced.
-  void bootFirstScene();
-  // Boot state: 0 = boot splash images, 1 = loading-screen hold for the first
-  // scene, 2 = gameplay running (the Tyra logo hold lives in the engine's
-  // banner). splashIndex/splashFrames step through the splash sequence.
-  int bootPhase = 0;
-  int splashIndex = 0;
-  int splashFrames = 0;
   int currentScene = 0;
   unsigned int sceneGeneration = 0;
 
@@ -295,8 +277,8 @@ class TerrainGame : public Tyra::Game {
   std::vector<int> sndTimers;               // per-object retrigger countdown
   void updateSoundEmitters();
 
-  // Scene switch target held across the loading-screen frames (the screen
-  // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
+  // Scene switches show res/hud/loading.png on black for a moment
+  Tyra::Sprite loadingSprite;
   int loadingFrames = 0, loadingTarget = -1;
 
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)

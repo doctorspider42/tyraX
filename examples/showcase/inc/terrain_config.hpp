@@ -28,14 +28,6 @@ constexpr float LOOK_SPEED = 1.0F;    // multiplier
 // Per stick: left drives movement, right drives the camera.
 constexpr float ANALOG_DEADZONE_L = 0.2F;
 constexpr float ANALOG_DEADZONE_R = 0.2F;
-// Stick response curve applied after the deadzone (Preferences > Input):
-// 0 = Linear, 1 = Exponential (pow, finer near center), 2 = S-Curve.
-// STICK_EXP_* tunes curves 1/2 (>=1). These seed the runtime g_stickCurve*/
-// g_stickExp* globals, which the Set Stick Curve flow node can change live.
-constexpr int STICK_CURVE_L = 0;
-constexpr int STICK_CURVE_R = 0;
-constexpr float STICK_EXP_L = 2.0F;
-constexpr float STICK_EXP_R = 2.0F;
 constexpr float ORBIT_SPEED = 1.0F;  // multiplier
 constexpr float GRAVITY = 9.8F;          // units/s^2
 constexpr float JUMP_SPEED = 4.5F;    // units/s

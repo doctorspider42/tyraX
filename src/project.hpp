@@ -446,6 +446,14 @@ struct ProjectSettings {
     // pixel shaders on the PS2). 0 = off, 1 = maximum.
     float bloom = 0.0f;  // downsample + blur + additive re-add (glow)
     float grain = 0.0f;  // animated film grain noise overlay
+    // Depth of field: the image blurs progressively past dofFocus (world
+    // units from the camera), reaching the full dofAmount blur at
+    // dofFocus + dofRange. Composites right after the 3D scene (per-pixel
+    // z-tested), so the HUD stack always stays crisp. The Set Depth Of Field
+    // flow node can override or restore these at runtime.
+    float dofAmount = 0.0f;  // far-blur strength, 0 = off
+    float dofFocus = 20.0f;  // sharp up to this camera distance
+    float dofRange = 15.0f;  // full blur reached at dofFocus + dofRange
 
     // GS hardware distance fog (atmospheric fade-out). Geometry blends
     // toward fogColor between fogStart and fogEnd view distances; free on the
@@ -502,7 +510,9 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.ambient == b.ambient && a.diffuse == b.diffuse &&
            eq3(a.lightColor, b.lightColor) && a.brightness == b.brightness &&
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
-           a.grain == b.grain && a.fogEnabled == b.fogEnabled &&
+           a.grain == b.grain && a.dofAmount == b.dofAmount &&
+           a.dofFocus == b.dofFocus && a.dofRange == b.dofRange &&
+           a.fogEnabled == b.fogEnabled &&
            eq3(a.fogColor, b.fogColor) && a.fogStart == b.fogStart &&
            a.fogEnd == b.fogEnd &&
            a.loadingScreen == b.loadingScreen &&
@@ -524,7 +534,7 @@ struct SceneOverrides {
     bool sky = false;         // skyColor, skyTopColor, skyDome
     bool clipping = false;    // clipping mode
     bool terrainMat = false;  // terrainMaterial
-    bool postFx = false;      // bloom, grain
+    bool postFx = false;      // bloom, grain, depth of field
     bool fog = false;         // fogEnabled, fogColor, fogStart, fogEnd
     bool highlight = false;   // highlightUsable + distance/color/width/steps
 };
@@ -812,11 +822,29 @@ struct MenuEntry {
     // Toggle/Choice option labels (value = index into this list). Toggle
     // treats an empty list as {"Off", "On"}.
     std::vector<std::string> options;
+    // Ready-made "option block" binding (Menu Editor > Insert option block).
+    // On a Toggle/Choice row this makes the generated game map the row's
+    // option index (held in the bound save value) straight onto a built-in
+    // engine setting every frame - no flow graph needed. None = a plain
+    // stateful row (the classic behavior). The option index -> value mapping
+    // is spread evenly across the row's options (see applyMenuBindings in the
+    // generated game): e.g. 5 volume options -> 0/25/50/75/100 %.
+    enum Setting {
+        BindNone = 0,
+        BindMusicVolume = 1,  // engine music volume (0..100)
+        BindSfxVolume = 2,    // master sound-effect volume (0..100)
+        BindDeadzone = 3,     // analog stick deadzone, both sticks (0..0.4)
+        BindStickCurve = 4,   // stick response curve exponent (1..3)
+        BindDisplayMode = 5,  // scan mode: interlaced / 480p / 1080i
+        BindWidescreen = 6,   // aspect ratio: 4:3 / 16:9
+    };
+    int settingBind = BindNone;
 };
 
 inline bool operator==(const MenuEntry& a, const MenuEntry& b) {
     return a.label == b.label && a.action == b.action && a.param == b.param &&
-           a.amount == b.amount && a.options == b.options;
+           a.amount == b.amount && a.options == b.options &&
+           a.settingBind == b.settingBind;
 }
 
 // One image composited into a menu's baked panel (see GameMenu::images).
