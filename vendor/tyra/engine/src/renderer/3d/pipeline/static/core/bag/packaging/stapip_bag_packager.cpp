@@ -1,11 +1,8 @@
 /*
-# _____        ____   ___
-#   |     \/   ____| |___|
-#   |     |   |   \  |   |
-#-----------------------------------------------------------------------
-# Copyright 2022, tyra - https://github.com/h4570/tyra
-# Licensed under Apache License 2.0
-# Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX - grow-only package pools (no new[] per submit) and
+# object-space AABB frustum classification in checkFrustum (see the comment
+# on that function).
+# Based on the original by Sandro Sobczynski (h4570/tyra), Apache License 2.0.
 */
 
 #include <tamtypes.h>
@@ -123,30 +120,32 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_count,
   return result;
 }
 
+// Modified by TyraX: classification runs against object-space planes
+// (set once per bag by StaPipCore) with the p-vertex/n-vertex AABB test.
+// The previous shape of this function transformed up to 8 corners of a
+// (possibly freshly merged) bbox per package and dotted each corner against
+// each world plane - the dominant EE cost of partially-visible geometry
+// after the clipper itself.
 CoreBBoxFrustum StaPipBagPackager::checkFrustum(const StaPipBagPackage& pkg) {
-  if (!renderBBox) return CoreBBoxFrustum::OUTSIDE_FRUSTUM;
+  if (!renderBBox || !objectSpacePlanes)
+    return CoreBBoxFrustum::OUTSIDE_FRUSTUM;
+
+  Vec4 min, max;
 
   if (pkg.size <= (maxVertCount / 3)) {  // Is subpackage
-    // Modified by TyraX: a subpackage smaller than maxVertCount / 3
-    // (VU1 clipping mode) can straddle a 1/3 bbox boundary - classify it
-    // against the merged bbox of every part it overlaps.
-    if (pkg.endIndexOf1By3BBox > pkg.indexOf1By3BBox) {
-      auto bbox = renderBBox->createChildBBox(
-          pkg.indexOf1By3BBox,
-          pkg.endIndexOf1By3BBox - pkg.indexOf1By3BBox + 1);
-      return bbox.clipFrustumCheck(frustumPlanes->getAll(),
-                                   *pkg.bag->info->model);
-    }
-    auto& bbox = renderBBox->getChildBBox1By3(pkg.indexOf1By3BBox);
-    return bbox.clipFrustumCheck(frustumPlanes->getAll(),
-                                 *pkg.bag->info->model);
+    // A subpackage smaller than maxVertCount / 3 (VU1 clipping mode) can
+    // straddle a 1/3 bbox boundary - classify it against the merged bbox
+    // of every part it overlaps.
+    renderBBox->getMergedMinMax(
+        pkg.indexOf1By3BBox, pkg.endIndexOf1By3BBox - pkg.indexOf1By3BBox + 1,
+        &min, &max);
   } else {  // Is package
     const auto& indexOfPart = pkg.indexOf1By3BBox;
     auto partSize = ceil(pkg.size / static_cast<float>(maxVertCount / 3));
-    auto bbox = renderBBox->createChildBBox(indexOfPart, partSize);
-    return bbox.clipFrustumCheck(frustumPlanes->getAll(),
-                                 *pkg.bag->info->model);
+    renderBBox->getMergedMinMax(indexOfPart, partSize, &min, &max);
   }
+
+  return CoreBBox::frustumCheckAABB(objectSpacePlanes, min, max);
 }
 
 void StaPipBagPackager::setMaxVertCount(const u32& count) {

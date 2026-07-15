@@ -153,6 +153,26 @@ extend those same spots.)
 (`drawPreferencesModal`) in app.cpp → usually a constant baked into
 `inc/terrain_config.hpp` or `scene_data.hpp` by templates.cpp.
 
+**Menus & option blocks** (`GameMenu`/`MenuEntry` in project.hpp; project-wide,
+not per scene). A menu is baked to a panel sprite at build (menubake.cpp — the
+PS2 has no font), edited in the *Menu Editor* (`drawMenusWindow` in app.cpp),
+and driven at runtime by `updateGameMenu`/`renderGameMenu` (generated in
+`TPL_GAME_CPP_SCENE`, data in `menu_data.gen.hpp` via the `MenuEntryData`/
+`MenuData` codegen). Stateful **Toggle/Choice** rows store an option index in a
+named save value (cycled by the pad, label drawn from a baked value strip).
+**Option blocks** build on that: `MenuEntry::settingBind` (a `Setting` enum,
+0=none) marks a stateful row as driving a built-in engine setting; codegen emits
+it as the `bind` column and `TerrainGame::applyMenuBindings()` (called each
+frame in both loops before `applyVideoRequests`) maps the row's option index
+onto the setting - music/sfx volume, deadzone (`g_deadzoneL/R`), stick curve
+(`g_stickCurve`), display mode / widescreen (via `scriptCtx` video requests).
+The *Menu Editor* "+ Option block" popup and "+ Options menu" scaffolder
+(`addOptionBlock`/`addOptionsMenuPages`, app.cpp) create pre-configured rows +
+their backing save values. So a menu change can touch: `MenuEntry` (+ `==`) →
+menu JSON in project.cpp → `MenuEntryData` codegen + `applyMenuBindings` in
+templates.cpp → the runtime setting site (audio call, `axis`/`axisValue`,
+`applyVideoRequests`) → the Menu Editor UI.
+
 **New machine-global editor setting** (per-installation, NOT in the `.tyra` —
 e.g. UI scale, viewport navigation, emulator path, dev-PS2 IP) → a field on
 `EditorConfig` (app.cpp) with load/save lines in `loadEditorConfig`/

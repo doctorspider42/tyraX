@@ -173,14 +173,26 @@ Retired / simplified:
   computes the sphere-map ST from the object-space normal *before* the
   Sutherland–Hodgman pass (so ST lerps through cuts like a regular texture
   coordinate), letting reflective materials run in VU1-clipping mode — the
-  EE-computed-ST fallback in codegen is deleted. The resident program set
-  stays at 10 (cull ×4 + as_is-or-clip ×4 + cull_tce + as_is_tce-or-
-  clip_tce). The EE `StaPipClipper`/`PlanesClipAlgorithm` are NOT deleted
-  yet — that waits for the still-outstanding hardware pass (clipbench PERF
-  + the SW-renderer-vs-hardware ADC check on a real console).
-- **M5 — companion work (independent, do in parallel):** packager package
-  array pooling (per-frame allocation today). Target: clipbench pre-endFrame
-  < 20 ms ⇒ 50 FPS vsync-locked on the 98k benchmark.
+  EE-computed-ST fallback in codegen is deleted. Micro-memory forced a
+  restructure: cull_tce + clip_tce on top of the 8-program vu1 set is 2162
+  instructions against the ~2032 ceiling, so the vu1 resident set carries
+  ONLY clip_tce (9 programs: cull ×4 + clip ×4 + clip_tce; the EE set keeps
+  10 with cull_tce + as_is_tce) and `StaPipCore` force-routes every env-bag
+  package through the clip program at clip occupancy (`envForceClip`). The
+  EE `StaPipClipper`/`PlanesClipAlgorithm` are NOT deleted yet — that waits
+  for the still-outstanding hardware pass (clipbench PERF + the
+  SW-renderer-vs-hardware ADC check on a real console).
+- **M5 — companion work (independent, do in parallel). DONE 2026-07-15**
+  (in PCSX2 terms). Package array pooling landed earlier (PROGRESS 79,
+  worth ~2%); the real companion win was rebuilding the per-package frustum
+  classification (PROGRESS 100): object-space planes computed once per bag +
+  p-vertex/n-vertex AABB test per package, duplicate zero-guard-band
+  re-check deleted, VU0 min/max bbox scan, memcpy qbuffer fills. On the 98k
+  benchmark (PCSX2 SW renderer, vsync off, debug profile): precise mode
+  47 → 73 FPS pixel-identical, and **this VU1-clipping mode 120 FPS** —
+  2.55× the old precise baseline. The hardware half of the original M4
+  gate (real-PS2 clipbench re-run + SW-vs-hardware ADC check) is still
+  owed before the EE clipper can be deleted.
 
 ## Verification protocol (every milestone)
 

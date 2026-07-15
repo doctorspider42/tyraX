@@ -76,6 +76,10 @@ class StaPipCore {
   // Modified by TyraX: VU1 clipping.
   u32 clipDivisor() const;
   u32 clipPackageSize() const;
+  // Modified by TyraX: frustum planes in the current bag's object space -
+  // computed once per render(), shared by the main-bbox check and every
+  // package classification in the packager.
+  Plane objectSpacePlanes[6];
   StaPipBagPackager packager;
   StaPipQBufferRenderer qbufferRenderer;
   void renderPkgs(StaPipBagPackage* packages, const bool& doClip, u16 count);
