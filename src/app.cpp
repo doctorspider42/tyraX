@@ -4909,16 +4909,28 @@ void App::drawFlowGraphWindow() {
     const float nodeWidth =
         130.0f * zoom + ImGui::GetStyle().ItemInnerSpacing.x +
         ImGui::CalcTextSize("Object").x;
-    // Right-aligns a pin label to the node edge (Indent must be paired with
-    // Unindent - it is window state, not per-attribute)
+    // Right-aligns a pin label to the node edge. The ">" arrow is drawn as
+    // its own item in a FIXED column (same x for every row) instead of being
+    // part of a width-dependent indented string: text rendering truncates
+    // the pen start to whole pixels, so a per-label fractional indent made
+    // the arrows land on different pixels (visibly ragged at some DPI/zoom
+    // combinations). A constant arrow column cannot drift by construction.
     auto rightLabel = [&](const char* txt, bool disabled) {
-        const float indent = nodeWidth - ImGui::CalcTextSize(txt).x;
-        if (indent > 0) ImGui::Indent(indent);
+        const float left = ImGui::GetCursorPosX();
+        const float arrowX = left + nodeWidth - ImGui::CalcTextSize(">").x;
+        const float textX =
+            arrowX - ImGui::CalcTextSize(" ").x - ImGui::CalcTextSize(txt).x;
+        if (textX > left) ImGui::SetCursorPosX(textX);
         if (disabled)
             ImGui::TextDisabled("%s", txt);
         else
             ImGui::TextUnformatted(txt);
-        if (indent > 0) ImGui::Unindent(indent);
+        ImGui::SameLine(0.0f, 0.0f);
+        ImGui::SetCursorPosX(arrowX);
+        if (disabled)
+            ImGui::TextDisabled(">");
+        else
+            ImGui::TextUnformatted(">");
     };
 
     ImNodes::BeginNodeEditor();
@@ -5228,17 +5240,12 @@ void App::drawFlowGraphWindow() {
         // numeric params (own ID scope - a num label may repeat the string
         // param's label, e.g. Set Save Value's combo and drag are both "Value")
         ImGui::PushID("params");
-        // X/Y/Z come from the position link; params past them (Speed) stay
+        // X/Y/Z come from the position link; params past them (Speed) stay.
+        // SetDof draws its own params (mode combo) below.
         int firstNum = 0;
-        if (posLinked && t->posIn && t->numCount >= 3) {
-            if (n.type == "SetDof") {
-                // the link replaces only Focus (with the distance to the point)
-                ImGui::TextDisabled("Focus: distance to linked point");
-                firstNum = 1;
-            } else {
-                ImGui::TextDisabled("Position: from link");
-                firstNum = 3;
-            }
+        if (posLinked && t->posIn && t->numCount >= 3 && n.type != "SetDof") {
+            ImGui::TextDisabled("Position: from link");
+            firstNum = 3;
         }
         if (n.type == "SetVarBool" || n.type == "SetFlashlight" ||
             n.type == "SetFog" || n.type == "SetParticles" ||
@@ -5247,6 +5254,35 @@ void App::drawFlowGraphWindow() {
             if (ImGui::Checkbox(t->numLabels[0], &v)) {
                 n.num[0] = v ? 1.0f : 0.0f;
                 changed = true;
+            }
+        } else if (n.type == "SetDof") {
+            const char* modes[] = {"Set custom", "Off", "Scene setting"};
+            int mode = (int)n.num[3];
+            mode = mode < 0 ? 0 : mode > 2 ? 2 : mode;
+            if (ImGui::Combo("Mode", &mode, modes, 3)) {
+                n.num[3] = (float)mode;
+                changed = true;
+            }
+            if (mode == 0) {
+                if (posLinked) {
+                    // the link replaces Focus with the distance to the point
+                    ImGui::TextDisabled("Focus: distance to linked point");
+                } else {
+                    ImGui::DragFloat("Focus", &n.num[0], 0.5f, 0.5f, 500.0f,
+                                     "%.1f");
+                    changed |= ImGui::IsItemDeactivatedAfterEdit();
+                }
+                ImGui::DragFloat("Range", &n.num[1], 0.5f, 0.1f, 500.0f,
+                                 "%.1f");
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                ImGui::SliderFloat("Amount", &n.num[2], 0.0f, 1.0f, "%.2f");
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+            } else if (mode == 1) {
+                ImGui::TextDisabled("Turns depth of field off.");
+            } else {
+                ImGui::TextDisabled(
+                    "Restores the scene's authored values\n"
+                    "(Tools > UI Editor > Depth of field).");
             }
         } else if (n.type == "SetDisplayMode") {
             const char* modes[] = {"Interlaced (480i/576i)",
@@ -5359,7 +5395,7 @@ void App::drawFlowGraphWindow() {
         if (!t->pure) {
             if (t->trigger) {
                 ImNodes::BeginOutputAttribute(flowOutPin(n.id));
-                rightLabel("then >", false);
+                rightLabel("then", false);
                 ImNodes::EndOutputAttribute();
             } else {
                 ImNodes::BeginInputAttribute(flowInPin(n.id));
@@ -5368,7 +5404,7 @@ void App::drawFlowGraphWindow() {
                 if (t->execThrough) {
                     // action that fires its own exec pulse later (Delay)
                     ImNodes::BeginOutputAttribute(flowOutPin(n.id));
-                    rightLabel("after >", false);
+                    rightLabel("after", false);
                     ImNodes::EndOutputAttribute();
                 }
             }
@@ -5376,7 +5412,7 @@ void App::drawFlowGraphWindow() {
         if (t->idOut) {
             ImNodes::PushColorStyle(ImNodesCol_Pin, idPinCol);
             ImNodes::BeginOutputAttribute(flowIdOutPin(n.id), ImNodesPinShape_QuadFilled);
-            rightLabel("object >", true);
+            rightLabel("object", true);
             ImNodes::EndOutputAttribute();
             ImNodes::PopColorStyle();
         }
@@ -5384,7 +5420,7 @@ void App::drawFlowGraphWindow() {
             ImNodes::PushColorStyle(ImNodesCol_Pin, posPinCol);
             ImNodes::BeginOutputAttribute(flowPosOutPin(n.id),
                                           ImNodesPinShape_TriangleFilled);
-            rightLabel("position >", true);
+            rightLabel("position", true);
             ImNodes::EndOutputAttribute();
             ImNodes::PopColorStyle();
         }
@@ -5392,7 +5428,7 @@ void App::drawFlowGraphWindow() {
             ImNodes::PushColorStyle(ImNodesCol_Pin, boolPinCol);
             ImNodes::BeginOutputAttribute(flowBoolOutPin(n.id),
                                           ImNodesPinShape_CircleFilled);
-            rightLabel("bool >", true);
+            rightLabel("bool", true);
             ImNodes::EndOutputAttribute();
             ImNodes::PopColorStyle();
         }
@@ -5400,7 +5436,7 @@ void App::drawFlowGraphWindow() {
             ImNodes::PushColorStyle(ImNodesCol_Pin, textPinCol);
             ImNodes::BeginOutputAttribute(flowTextOutPin(n.id),
                                           ImNodesPinShape_CircleFilled);
-            rightLabel("text >", true);
+            rightLabel("text", true);
             ImNodes::EndOutputAttribute();
             ImNodes::PopColorStyle();
         }
@@ -5654,7 +5690,7 @@ void App::drawFlowGraphWindow() {
                     if (std::string(t.key) == "SetDof") {
                         n.num[0] = 20.0f;  // focus distance
                         n.num[1] = 15.0f;  // range (full blur at focus+range)
-                        n.num[2] = 1.0f;   // amount
+                        n.num[2] = 1.0f;   // amount (num[3] mode: 0 = set)
                     }
                     if (std::string(t.key) == "SetStickCurve") n.num[2] = 2.0f;  // exponent
                     if (std::string(t.key) == "PlaySound") {
@@ -6329,6 +6365,11 @@ void App::drawUiEditorWindow() {
         }
         ImGui::PopID();
     }
+    // Depth of field is pinned at the very bottom: it composites right after
+    // the 3D scene (per-pixel z-tested against scene depth), so it can never
+    // sit above a sprite - sprites stamp z = max across their whole rect and
+    // would punch sharp rectangles into the blur.
+    if (ImGui::Selectable("[ Depth of field ]", uiFxSel_ == 6)) uiFxSel_ = 6;
     if (project_.hud.empty())
         ImGui::TextDisabled("No HUD images yet.\nImport a PNG above.");
     ImGui::EndChild();
@@ -6371,6 +6412,32 @@ void App::drawUiEditorWindow() {
         ImGui::TextDisabled(
             "Per-scene grain strength: Scene > Scene Preferences > Post "
             "effects.");
+    } else if (uiFxSel_ == 6) {
+        ImGui::SeparatorText("Depth of field");
+        ImGui::SliderFloat("Amount", &project_.settings.dofAmount, 0.0f, 1.0f,
+                           "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat("Focus", &project_.settings.dofFocus, 0.5f, 0.5f,
+                         500.0f, "%.1f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat("Range", &project_.settings.dofRange, 0.5f, 0.1f,
+                         500.0f, "%.1f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::TextDisabled(
+            "The image stays sharp up to Focus (world units from the\n"
+            "camera) and blurs progressively, reaching the full Amount\n"
+            "blur at Focus + Range. Amount 0 = off.");
+        ImGui::Spacing();
+        ImGui::TextWrapped(
+            "Pinned under the whole stack: the blur follows real scene depth "
+            "per pixel (z-tested GS blits), and sprites stamp z across their "
+            "full rect - compositing DoF above them would punch sharp "
+            "rectangles into the blur. Every HUD entry always draws crisp.");
+        ImGui::Spacing();
+        ImGui::TextDisabled(
+            "Per-scene values: Scene > Scene Preferences > Post effects.\n"
+            "Runtime: the Set Depth Of Field flow node overrides these\n"
+            "(and can restore them with its Scene setting mode).");
     } else if (uiFxSel_ == 3) {
         // --- the pinned USE prompt ------------------------------------------
         HudImage& h = project_.usePrompt;
@@ -11101,6 +11168,106 @@ void App::drawMaterialEditorWindow() {
     }
 }
 
+// --- Options-menu "option blocks" ------------------------------------------
+// Ready-made stateful menu rows (Menu Editor > Insert option block) that bind
+// to a built-in engine setting. Each is a Toggle/Choice entry with a curated
+// option set, a backing save value and a MenuEntry::Setting binding the
+// generated game reads (applyMenuBindings). The option index -> value mapping
+// is spread evenly across the options, so editing the labels/count still maps
+// sensibly (e.g. six volume options -> 0/20/40/.../100 %).
+namespace {
+struct OptionBlockSpec {
+    const char* label;         // menu row label
+    int action;                // MenuEntry::Toggle | Choice
+    const char* valueName;     // backing save value (created if missing)
+    float defaultIndex;        // initial option index (save value default)
+    int bind;                  // MenuEntry::Setting
+    std::vector<const char*> options;
+};
+// Index order == the Insert-option-block menu order below.
+const OptionBlockSpec kOptionBlocks[] = {
+    {"MUSIC", MenuEntry::Choice, "opt_music_vol", 4.0f, MenuEntry::BindMusicVolume,
+     {"0%", "25%", "50%", "75%", "100%"}},
+    {"SOUND", MenuEntry::Choice, "opt_sfx_vol", 4.0f, MenuEntry::BindSfxVolume,
+     {"0%", "25%", "50%", "75%", "100%"}},
+    {"DEADZONE", MenuEntry::Choice, "opt_deadzone", 2.0f, MenuEntry::BindDeadzone,
+     {"None", "Low", "Medium", "High", "Max"}},
+    {"AIM CURVE", MenuEntry::Choice, "opt_stick_curve", 0.0f, MenuEntry::BindStickCurve,
+     {"Linear", "Smooth", "Precise"}},
+    {"DISPLAY", MenuEntry::Choice, "opt_display", 0.0f, MenuEntry::BindDisplayMode,
+     {"480i", "480p", "1080i"}},
+    {"ASPECT", MenuEntry::Toggle, "opt_widescreen", 0.0f, MenuEntry::BindWidescreen,
+     {"4:3", "16:9"}},
+};
+constexpr int kOptionBlockCount = (int)(sizeof(kOptionBlocks) / sizeof(kOptionBlocks[0]));
+
+// Append a configured option-block row to a menu, creating its backing save
+// value (with the block's initial option index as the default) if it does not
+// exist yet. No-op when the menu is already at the entry cap.
+void addOptionBlock(Project& p, GameMenu& m, int kind) {
+    if (kind < 0 || kind >= kOptionBlockCount) return;
+    if ((int)m.entries.size() >= menubake::kMaxEntries) return;
+    const OptionBlockSpec& s = kOptionBlocks[kind];
+    bool haveValue = false;
+    for (const SaveValue& sv : p.saveValues)
+        if (sv.name == s.valueName) haveValue = true;
+    if (!haveValue) {
+        SaveValue sv;
+        sv.name = s.valueName;
+        sv.value = s.defaultIndex;
+        p.saveValues.push_back(std::move(sv));
+    }
+    MenuEntry en;
+    en.label = s.label;
+    en.action = s.action;
+    en.param = s.valueName;
+    en.settingBind = s.bind;
+    for (const char* opt : s.options) en.options.push_back(opt);
+    m.entries.push_back(std::move(en));
+}
+
+// Scaffold a full paged options menu: a root OPTIONS menu whose rows open one
+// submenu per category (audio / controls / display), each pre-filled with the
+// matching option blocks. Triangle backs out of a submenu; the root's CLOSE
+// row dismisses everything. Returns the new root menu's index.
+int addOptionsMenuPages(Project& p) {
+    auto uniqueName = [&](const std::string& base) {
+        std::string name = base;
+        for (int n = 2;; ++n) {
+            bool taken = false;
+            for (const GameMenu& o : p.menus) taken |= (o.name == name);
+            if (!taken) break;
+            name = base + "-" + std::to_string(n);
+        }
+        return name;
+    };
+    // Submenus rely on Triangle to return to the root (the baked panel already
+    // shows the "^ BACK" hint); a Close-action "back" row would instead dismiss
+    // the whole menu tree, so submenus carry only their option blocks.
+    auto makeSub = [&](const char* base, const char* title, int b0, int b1) {
+        GameMenu sub;
+        sub.name = uniqueName(base);
+        sub.title = title;
+        addOptionBlock(p, sub, b0);
+        addOptionBlock(p, sub, b1);
+        p.menus.push_back(std::move(sub));
+        return p.menus.back().name;
+    };
+    const std::string audio = makeSub("options-audio", "AUDIO", 0, 1);
+    const std::string controls = makeSub("options-controls", "CONTROLS", 2, 3);
+    const std::string display = makeSub("options-display", "DISPLAY", 4, 5);
+    GameMenu root;
+    root.name = uniqueName("options");
+    root.title = "OPTIONS";
+    root.entries.push_back(MenuEntry{"AUDIO", MenuEntry::OpenMenu, audio, 0.0f});
+    root.entries.push_back(MenuEntry{"CONTROLS", MenuEntry::OpenMenu, controls, 0.0f});
+    root.entries.push_back(MenuEntry{"DISPLAY", MenuEntry::OpenMenu, display, 0.0f});
+    root.entries.push_back(MenuEntry{"CLOSE", MenuEntry::Close, "", 0.0f});
+    p.menus.push_back(std::move(root));
+    return (int)p.menus.size() - 1;
+}
+}  // namespace
+
 // Menu Editor window: menu list on the left, the selected menu's properties,
 // entries and a live baked-panel preview (the exact pixels the PS2 will
 // draw) on the right.
@@ -11135,6 +11302,16 @@ void App::drawMenusWindow() {
         selectedMenu_ = (int)project_.menus.size() - 1;
         changed = true;
     }
+    if (ImGui::Button("+ Options menu", ImVec2(-1, 0))) {
+        selectedMenu_ = addOptionsMenuPages(project_);
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Scaffold a paged options menu: an OPTIONS root that opens\n"
+            "AUDIO / CONTROLS / DISPLAY submenus, each pre-filled with\n"
+            "ready-made setting rows (volume, deadzone, aim curve,\n"
+            "display mode, aspect). Style and edit them like any menu.");
     ImGui::Separator();
     for (int i = 0; i < (int)project_.menus.size(); ++i) {
         ImGui::PushID(i);
@@ -11556,6 +11733,22 @@ void App::drawMenusWindow() {
                     }
                 }
             }
+            // Setting binding: makes this stateful row drive a built-in engine
+            // setting at runtime (no flow graph). The option index maps evenly
+            // onto the setting - see the Insert-option-block presets.
+            ImGui::SetNextItemWidth(scaled(150.0f));
+            if (ImGui::Combo("Bind##optbind", &en.settingBind,
+                             "None\0Music volume\0Sound volume\0Deadzone\0"
+                             "Stick curve\0Display mode\0Widescreen\0"))
+                changed = true;
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Drives a built-in setting from this row's option index,\n"
+                    "spread evenly across the options: volume 0-100%%, deadzone\n"
+                    "0-0.4, aim curve 1-3, display 480i/480p/1080i, aspect\n"
+                    "4:3/16:9. None = a plain save-value row (flow graphs react).");
             ImGui::Unindent(scaled(46.0f));
         }
         ImGui::PopID();
@@ -11564,6 +11757,24 @@ void App::drawMenusWindow() {
         if (ImGui::SmallButton("+ Entry")) {
             m.entries.push_back(MenuEntry{});
             changed = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("+ Option block")) ImGui::OpenPopup("##optblock");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Insert a ready-made setting row (backed by a save value):\n"
+                "volume, controller deadzone / aim curve, display mode,\n"
+                "aspect ratio. Restyle and relabel it like any other entry.");
+        if (ImGui::BeginPopup("##optblock")) {
+            static const char* kBlockMenu[] = {
+                "Music volume", "Sound volume", "Controller deadzone",
+                "Aim response curve", "Display mode", "Widescreen (aspect)"};
+            for (int b = 0; b < kOptionBlockCount; ++b)
+                if (ImGui::Selectable(kBlockMenu[b])) {
+                    addOptionBlock(project_, m, b);
+                    changed = true;
+                }
+            ImGui::EndPopup();
         }
     } else {
         ImGui::TextDisabled("Max %d entries per menu.", menubake::kMaxEntries);
@@ -13459,6 +13670,9 @@ void App::drawScenePreferencesModal() {
     category("Post effects", ov.postFx, [&] {
         ImGui::SliderFloat("Bloom", &s.bloom, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Film grain", &s.grain, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("DoF amount", &s.dofAmount, 0.0f, 1.0f, "%.2f");
+        ImGui::DragFloat("DoF focus", &s.dofFocus, 0.5f, 0.5f, 500.0f, "%.1f");
+        ImGui::DragFloat("DoF range", &s.dofRange, 0.5f, 0.1f, 500.0f, "%.1f");
     });
 
     category("Usable objects", ov.highlight, [&] {
