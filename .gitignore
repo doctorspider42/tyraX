@@ -21,6 +21,9 @@ tools/silencer/*
 !tools/silencer/main.c
 !tools/silencer/Makefile
 !tools/silencer/silencer.elf
+# ...and the VS Code extension for .flownode/.screenfx files (see
+# tools/vscode-tyrax/README.md; its own .gitignore drops *.vsix + node_modules).
+!tools/vscode-tyrax/
 
 # Vendored dependencies are fetched separately (see README)...
 vendor/*

@@ -8,7 +8,7 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
-// Modified by tyra-editor: PipelineZTest_TestOnly branch in sendObjectData;
+// Modified by TyraX: PipelineZTest_TestOnly branch in sendObjectData;
 // per-mesh object-space spot light (flashlight) upload for the color VU1
 // programs + EE clipper.
 
@@ -62,7 +62,7 @@ StaPipQBufferRenderer::StaPipQBufferRenderer() {
 
 void StaPipQBufferRenderer::allocateOnUse() {
   staticDataPacket = packet2_create(3, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
-  // Modified by tyra-editor: +6 qwords for the spot light unpack, +16 for the
+  // Modified by TyraX: +6 qwords for the spot light unpack, +16 for the
   // VU1 clipping constants + plane table.
   objectDataPacket = packet2_create(42, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
 
@@ -106,7 +106,7 @@ void StaPipQBufferRenderer::init(RendererCore* t_core, prim_t* t_prim,
   prim = t_prim;
   lod = t_lod;
 
-  // Modified by tyra-editor: the clip-space planes the VU1 clip programs cut
+  // Modified by TyraX: the clip-space planes the VU1 clip programs cut
   // against - the same ones the EE clipper uses (see PlanesClipAlgorithm::init;
   // clipMargin must be set before setRenderer, like the EE path requires).
   clipNearZ =
@@ -223,7 +223,7 @@ void StaPipQBufferRenderer::sendObjectData(
                                      4, false);
   }
 
-  // Modified by tyra-editor: spot light (flashlight) for the color programs.
+  // Modified by TyraX: spot light (flashlight) for the color programs.
   // The dir-lights addresses are free when the bag has no lighting - the
   // C/TC programs read the three spot quads from there. Always uploaded
   // (the programs always compute; a zero color makes it a no-op) and the
@@ -253,7 +253,7 @@ void StaPipQBufferRenderer::sendObjectData(
     packet2_utils_vu_close_unpack(objectDataPacket);
   }
 
-  // Modified by tyra-editor: VU1 clipping data. One quad of constants for the
+  // Modified by TyraX: VU1 clipping data. One quad of constants for the
   // per-triangle crossing test (see stapip_vu1_shared_defines.h) and the six
   // clip planes as (A,B,C,D)+(E,0,0,0) pairs; inside = dot4(v,ABCD) + E >= 0.
   // Uploaded per mesh: other pipelines may reuse this VU1 memory in between.
@@ -300,7 +300,7 @@ void StaPipQBufferRenderer::sendObjectData(
     packet2_add_u32(objectDataPacket,
                     singleColorEnabled);   // Single color enabled.
     packet2_add_u32(objectDataPacket, 0);  // not used (dynpip lerp slot)
-    // Modified by tyra-editor: GS hardware fog params (see RendererCoreFog)
+    // Modified by TyraX: GS hardware fog params (see RendererCoreFog)
     packet2_add_float(objectDataPacket, rendererCore->fog.scale);
     packet2_add_float(objectDataPacket, rendererCore->fog.offset);
 
@@ -369,7 +369,7 @@ void StaPipQBufferRenderer::sendStaticData() const {
 }
 
 void StaPipQBufferRenderer::setProgramsCache() {
-  // Modified by tyra-editor: in VU1 clipping mode the clip programs replace
+  // Modified by TyraX: in VU1 clipping mode the clip programs replace
   // the as_is family (both plus cull would overflow VU1 micro memory, and
   // as_is is only ever fed by the retired EE clipper path).
   VU1Program** programs = new VU1Program*[8];
@@ -409,7 +409,7 @@ void StaPipQBufferRenderer::uploadPrograms() {
 
 void StaPipQBufferRenderer::setDoubleBuffer() {
   u16 startingAddr = VU1_STAPIP_LAST_ITEM_ADDR + 1;
-  // Modified by tyra-editor: the double buffer stops below the VU1 clipping
+  // Modified by TyraX: the double buffer stops below the VU1 clipping
   // scratch area (plane table + Sutherland-Hodgman polygons) at the top of
   // VU1 data memory - see stapip_vu1_shared_defines.h.
   const u16 bufferMaxSize = VU1_STAPIP_DBUFFER_END;
@@ -496,7 +496,7 @@ void StaPipQBufferRenderer::clip(StaPipQBuffer* buffer) {
     return;
   }
 
-  // Modified by tyra-editor: VU1 clipping - clip-classified packages go to
+  // Modified by TyraX: VU1 clipping - clip-classified packages go to
   // the clip VU1 programs with raw object-space vertices (exactly like the
   // cull path); the EE clipper is bypassed entirely. The package occupancy
   // cap (StaPipCore::getClipPackageDivisor) bounds the on-VU1 fan-out.
@@ -518,7 +518,7 @@ void StaPipQBufferRenderer::clip(StaPipQBuffer* buffer) {
     return;
   }
 
-  // Modified by tyra-editor: a subpackage clipped against the frustum can fan
+  // Modified by TyraX: a subpackage clipped against the frustum can fan
   // out into more verts than one VU1 buffer holds (maxVertCount). Drain the
   // clip result across as many buffer slots / VU1 draws as needed instead of
   // overflowing a single buffer (that tripped the "Max buffer size in VU1"
@@ -631,7 +631,7 @@ StaPipVU1Program* StaPipQBufferRenderer::getAsIsProgramByBag(
     return getProgramByName(StaPipAsIsColor);
 }
 
-// Modified by tyra-editor: VU1 clipping.
+// Modified by TyraX: VU1 clipping.
 StaPipVU1Program* StaPipQBufferRenderer::getClipProgramByBag(
     const StaPipBag* bag) {
   auto programType = getDrawProgramTypeByBag(bag);

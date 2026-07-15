@@ -204,6 +204,16 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // overrides the object's position.
         {"TeleportPlayer", "Spawn Player At", "Player", false, FlowParamKind::ObjectName,
          0, {}, FlowParamKind::None, true, true, true, false, false},
+        // Casts a ray from the player's eye along the view direction when its
+        // exec fires, and latches the results: the position output is the hit
+        // point (an object's bounding sphere or the terrain; the ray's end at
+        // Max Dist when nothing was hit) and the object output is the hit
+        // object (a runtime reference, -1 = none - actions fed it are guarded
+        // like Spawn Object clones). The "after" exec fires right after the
+        // cast, so downstream actions read fresh results.
+        {"Raycast", "Raycast", "Player", false, FlowParamKind::None, 1,
+         {"Max Dist"}, FlowParamKind::None, false, true, false, true, false,
+         false, false, false, false, true},
         // Sets the player's flashlight master switch (the Player object's
         // "Enabled"). On = 1 turns it on, 0 off. The optional toggle button on
         // the player still gates the beam on/off, but only while enabled.
@@ -251,6 +261,17 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          FlowParamKind::None, false, false},
         {"SetGrain", "Set Grain", "Scene", false, FlowParamKind::None, 1, {"Amount"},
          FlowParamKind::None, false, false},
+        // Depth of field: the image blurs progressively past Focus (world
+        // units from the camera), reaching full blur at Focus + Range; Amount
+        // 0..1 scales the far blur. The authored baseline lives in Tools >
+        // UI Editor > Depth of field (per-scene overridable); this node's
+        // Mode switches it at runtime: 0 = set the custom Focus/Range/Amount
+        // params, 1 = off, 2 = restore the scene's authored setting. A
+        // position link replaces Focus with the distance from the player to
+        // that point (e.g. keep an object in focus via Get Position).
+        {"SetDof", "Set Depth Of Field", "Scene", false, FlowParamKind::None, 4,
+         {"Focus", "Range", "Amount", "Mode"}, FlowParamKind::None, false,
+         false, true, false, false},
         {"SetParticles", "Set Particles", "Scene", false, FlowParamKind::None, 1, {"On"},
          FlowParamKind::None, false, false},
         // Runtime video output (options menus). Set Display Mode switches the

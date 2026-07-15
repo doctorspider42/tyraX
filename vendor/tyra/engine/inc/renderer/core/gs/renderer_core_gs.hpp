@@ -26,7 +26,7 @@ class RendererCoreGS {
 
   void init(RendererSettings* settings);
 
-  // Modified by tyra-editor: runtime display switching (RendererCore::
+  // Modified by TyraX: runtime display switching (RendererCore::
   // setDisplayOutput). reinit() resets the VRAM allocator and rebuilds the
   // frame/z buffers + video mode for the settings' current display mode -
   // every texture must have been evicted first. reprogramDisplay() only
@@ -38,10 +38,10 @@ class RendererCoreGS {
 
   void enableZTests();
 
-  /** Set the GS FOGCOL register (tyra-editor fork, hardware fog). */
+  /** Set the GS FOGCOL register (TyraX fork, hardware fog). */
   void setFogColor(const u8& r, const u8& g, const u8& b);
 
-  /** The buffer currently being drawn to (tyra-editor fork, for post fx). */
+  /** The buffer currently being drawn to (TyraX fork, for post fx). */
   framebuffer_t* getCurrentFrameBuffer() { return &frameBuffers[context]; }
 
  private:
@@ -59,7 +59,7 @@ class RendererCoreGS {
   void initDrawingEnvironment();
   void initChannels();
   void updateCurrentField();
-  // Modified by tyra-editor: DTV scan modes (480p/1080i) need a custom
+  // Modified by TyraX: DTV scan modes (480p/1080i) need a custom
   // display window and an unfiltered framebuffer scan-out.
   void programDisplay();
   void setDtvDisplay(int modeX, int modeY, int modeDW, int modeDH, int magH,

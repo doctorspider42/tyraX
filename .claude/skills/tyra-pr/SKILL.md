@@ -26,7 +26,7 @@ git merge origin/main                 # merge NOW, locally
 ```
 
 If the merge conflicts: resolve, rebuild the editor (`./build.ps1`), run at
-least one Docker game build (`build\tyra-editor.exe --build <projectDir>` -
+least one Docker game build (`build\tyrax-editor.exe --build <projectDir>` -
 codegen conflicts compile only inside the container), commit the merge, THEN
 create the PR.
 

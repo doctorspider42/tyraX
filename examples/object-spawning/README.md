@@ -6,7 +6,7 @@ piece for GTA-style traffic (spawn a few templates around the player,
 despawn what falls behind).
 
 Open `object-spawning.tyra` in the editor and Build & Run (`F5`), or build
-headless: `tyra-editor.exe --build <this folder> --run`.
+headless: `tyrax-editor.exe --build <this folder> --run`.
 
 ## What to do
 

@@ -27,7 +27,7 @@ enum StaPipProgramName {
   StaPipCullTextureColor,
   StaPipAsIsTextureColor,
 
-  // Modified by tyra-editor: VU1 clipping programs (replace the as_is family
+  // Modified by TyraX: VU1 clipping programs (replace the as_is family
   // + EE clipper when StaPipQBufferRenderer::setVU1Clipping(true) is active).
   StaPipClipColor,
   StaPipClipDirLights,

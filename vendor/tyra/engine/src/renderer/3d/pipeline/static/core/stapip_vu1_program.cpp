@@ -51,7 +51,7 @@ void StaPipVU1Program::addStandardBufferDataToPacket(packet2_t* packet,
   {
     packet2_add_float(packet, 2048.0F);     // scale
     packet2_add_float(packet, 2048.0F);     // scale
-    // Modified by tyra-editor: 16x the upstream Z scale. Vertices are sent
+    // Modified by TyraX: 16x the upstream Z scale. Vertices are sent
     // as packed XYZF2 (for GS hardware fog), which reads Z from bits 4-27
     // of the word - ftoi4 already shifts by 4, so the float range must be
     // the full 24 bits for the same effective depth precision as before.

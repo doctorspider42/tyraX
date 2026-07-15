@@ -5,7 +5,7 @@
 #-----------------------------------------------------------------------
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
-# Added by tyra-editor: loader for .tanm baked-animation models.
+# Added by TyraX: loader for .tanm baked-animation models.
 */
 
 #pragma once
@@ -42,7 +42,7 @@ struct TanmModel {
 };
 
 /**
- * Loader for the tyra-editor .tanm format: animation clips of a .glb model,
+ * Loader for the TyraX .tanm format: animation clips of a .glb model,
  * pre-sampled ("baked") by the editor into MD2-style morph frames for the
  * dynamic pipeline. Layout documented in the editor's src/glbparser.cpp
  * (writeTanm) - keep both sides in sync.

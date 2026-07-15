@@ -17,10 +17,10 @@ namespace Tyra {
 
 /** Output video signal. Auto follows the console region (ps2sdk
  * graph_get_region), the other two force a 60 Hz NTSC / 50 Hz PAL mode
- * regardless of region (tyra-editor fork). */
+ * regardless of region (TyraX fork). */
 enum class VideoMode { Auto, NTSC, PAL };
 
-/** Output scan mode (tyra-editor fork). Interlaced is the stock 480i/576i
+/** Output scan mode (TyraX fork). Interlaced is the stock 480i/576i
  * FIELD mode (512x448 framebuffer). Progressive480p outputs a flicker-free
  * 448x448 frame over DTV 480p; HiDef1080i outputs a 448x540 frame as
  * 1080i (each field scans the same buffer - the gsKit/OPL approach). Both
@@ -49,14 +49,14 @@ class RendererSettings {
   void setVideoMode(const VideoMode& mode) { videoMode = mode; }
   const DisplayMode& getDisplayMode() const { return displayMode; }
   const bool& getWidescreen() const { return widescreen; }
-  /** Selects the scan mode and its framebuffer size (tyra-editor fork).
+  /** Selects the scan mode and its framebuffer size (TyraX fork).
    * When (re)selected before RendererCoreGS allocates buffers, sizes them;
    * at runtime RendererCore::setDisplayOutput drives the re-allocation. */
   void setDisplayMode(const DisplayMode& mode) {
     displayMode = mode;
     updateGeometry();
   }
-  /** 16:9 anamorphic output (tyra-editor fork): widens the projection so the
+  /** 16:9 anamorphic output (TyraX fork): widens the projection so the
    * picture has correct proportions on a widescreen display (the framebuffer
    * stays the same - the TV does the horizontal stretch; in 1080i the GS
    * display window widens instead). */
@@ -95,7 +95,7 @@ class RendererSettings {
   DisplayMode displayMode;
   bool widescreen = false;
 
-  /** Framebuffer size per scan mode + projection aspect (tyra-editor fork).
+  /** Framebuffer size per scan mode + projection aspect (TyraX fork).
    * The projection aspect keeps the stock 512/448 value as the 4:3 baseline
    * and scales with the physical shape of the mode's display window, so
    * world proportions look the same in every mode on the same TV. */

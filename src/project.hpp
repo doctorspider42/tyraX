@@ -66,9 +66,10 @@ enum class PrimitiveType {
 // Box it is the number of subdivisions per edge (1 = the plain 12-triangle
 // box). Higher = more triangles = smoother/finer baked lighting, at PS2 vertex
 // cost. Box grows quadratically, so it has a tighter cap. The same formulas run
-// in three places that must stay in sync: the editor viewport (viewport.cpp
-// unitBox/unitSphere/unitCylinder/unitCone), the generated PS2 runtime
-// (templates.cpp addBox/addSphere/addCylinder/addCone) and primTriangleCount.
+// in three places that must stay in sync: the shared host tessellation
+// (primmesh.cpp unitBox/... - used by the viewport AND the decal projector),
+// the generated PS2 runtime (templates.cpp addBox/addSphere/addCylinder/addCone)
+// and primTriangleCount.
 constexpr int kDefaultPrimDetail = 16;  // curved shapes (radial segments)
 constexpr int kDefaultBoxDetail = 1;    // Box (subdivisions per edge)
 
@@ -153,6 +154,16 @@ struct SceneObject {
     // replaces their own mtl (usemtl names resolve against it). Empty =
     // plain color (primitives) / the model's own materials.
     std::string materialPath;
+
+    // Decal projection (used when type == Decal). false = the flat quad; true =
+    // project the texture onto the receiver geometry (terrain + every solid
+    // object whose bounding box overlaps this decal's oriented unit-cube volume)
+    // so it conforms to walls/models/floors instead of floating as a flat plane.
+    // The transform is the projector: scale = footprint (X/Y) + depth (Z),
+    // rotation aims +Z at the surface, position places it. Computed at build
+    // time on the host (decalproj) and baked to static geometry - zero PS2 cost.
+    // For graffiti/wall text on angled or curved surfaces and fake blob shadows.
+    bool decalProject = false;
 
     // Player entity parameters (used when type == Player)
     int playerMode = 0;            // 0 = walk (FPP), 1 = noclip (fly)
@@ -255,7 +266,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.layer == b.layer &&
            a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
            a.modelPath == b.modelPath &&
-           a.materialPath == b.materialPath && a.playerMode == b.playerMode &&
+           a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
+           a.playerMode == b.playerMode &&
            a.playerWalkSpeed == b.playerWalkSpeed &&
            a.playerLookSpeed == b.playerLookSpeed &&
            a.playerEyeHeight == b.playerEyeHeight &&
@@ -407,6 +419,14 @@ struct ProjectSettings {
     // pixel shaders on the PS2). 0 = off, 1 = maximum.
     float bloom = 0.0f;  // downsample + blur + additive re-add (glow)
     float grain = 0.0f;  // animated film grain noise overlay
+    // Depth of field: the image blurs progressively past dofFocus (world
+    // units from the camera), reaching the full dofAmount blur at
+    // dofFocus + dofRange. Composites right after the 3D scene (per-pixel
+    // z-tested), so the HUD stack always stays crisp. The Set Depth Of Field
+    // flow node can override or restore these at runtime.
+    float dofAmount = 0.0f;  // far-blur strength, 0 = off
+    float dofFocus = 20.0f;  // sharp up to this camera distance
+    float dofRange = 15.0f;  // full blur reached at dofFocus + dofRange
 
     // GS hardware distance fog (atmospheric fade-out). Geometry blends
     // toward fogColor between fogStart and fogEnd view distances; free on the
@@ -463,7 +483,9 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.ambient == b.ambient && a.diffuse == b.diffuse &&
            eq3(a.lightColor, b.lightColor) && a.brightness == b.brightness &&
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
-           a.grain == b.grain && a.fogEnabled == b.fogEnabled &&
+           a.grain == b.grain && a.dofAmount == b.dofAmount &&
+           a.dofFocus == b.dofFocus && a.dofRange == b.dofRange &&
+           a.fogEnabled == b.fogEnabled &&
            eq3(a.fogColor, b.fogColor) && a.fogStart == b.fogStart &&
            a.fogEnd == b.fogEnd &&
            a.loadingScreen == b.loadingScreen &&
@@ -485,7 +507,7 @@ struct SceneOverrides {
     bool sky = false;         // skyColor, skyTopColor, skyDome
     bool clipping = false;    // clipping mode
     bool terrainMat = false;  // terrainMaterial
-    bool postFx = false;      // bloom, grain
+    bool postFx = false;      // bloom, grain, depth of field
     bool fog = false;         // fogEnabled, fogColor, fogStart, fogEnd
     bool highlight = false;   // highlightUsable + distance/color/width/steps
 };
@@ -633,6 +655,27 @@ inline bool operator==(const SplashScreen& a, const SplashScreen& b) {
            a.bgColor[0] == b.bgColor[0] && a.bgColor[1] == b.bgColor[1] &&
            a.bgColor[2] == b.bgColor[2] && a.duration == b.duration;
 }
+
+// A named editor window layout (docking arrangement), stored per project and
+// switchable from the Layout menu. `ini` is an ImGui docking dump
+// (SaveIniSettingsToMemory); when it is empty and `recipe` >= 0 the layout is
+// (re)built programmatically from a built-in DockBuilder recipe the first time
+// it is shown - this is how the seeded built-ins (Default/Director/Material)
+// start life without needing an ImGui context at project-create time.
+// `openWindows` lists the optional editor windows (Cutscene Director, Material
+// Editor, ...) that must be open for the layout to make sense; switching to the
+// layout opens them, and saving the layout captures whichever are currently
+// open. Layouts are editor state, not game data or undo history.
+struct WindowLayout {
+    std::string name;
+    std::string ini;                       // ImGui docking dump; empty = use recipe
+    int recipe = -1;                       // -1 none, 0 default, 1 director, 2 material
+    std::vector<std::string> openWindows;  // optional-window keys (see App::layoutWindowKeys)
+};
+
+// Built-in DockBuilder recipe ids (WindowLayout::recipe). The arrangement lives
+// in App::buildLayoutRecipe; only the id travels in the .tyra file.
+enum class LayoutRecipe { None = -1, Default = 0, Director = 1, Material = 2 };
 
 // One custom screen effect placed in the screen stack. The effect body lives
 // in a <project>/screen-effects/<stem>.screenfx file (loaded into
@@ -977,7 +1020,12 @@ struct Project {
     int gizmoOp = 0;           // transform gizmo: 0 move, 1 rotate, 2 scale
     int gizmoSpace = 0;        // gizmo axes: 0 absolute (world), 1 camera-relative
     int viewMode = 0;          // viewport shading: 0 solid, 1 wire, 2 wire+solid
-    std::string windowLayout;  // ImGui docking layout (SaveIniSettingsToMemory)
+    // Named window layouts (docking arrangements), switchable from the Layout
+    // menu and edited by simply rearranging windows. Every project keeps at
+    // least one; seedBuiltinLayouts() fills a fresh/legacy project with the
+    // Default/Director/Material built-ins. activeLayout indexes into this list.
+    std::vector<WindowLayout> windowLayouts;
+    int activeLayout = 0;
     // Emulator path + dev-PS2 IP. These are machine-global editor settings
     // (stored in editor.ini, edited in Edit > Preferences), NOT persisted in the
     // .tyra file. They live on Project only as the runtime transport the Runner
@@ -1000,6 +1048,13 @@ namespace project {
 // Returns empty string on success, error message otherwise.
 std::string create(Project& out, const std::string& name, const std::string& parentDir,
                    const TerrainConfig& terrain, const std::string& preset = "empty");
+
+// Fills p.windowLayouts with the three built-in layouts (Default, Director,
+// Material Designer) as recipe-backed entries with empty ini, and resets
+// activeLayout to 0. Used for fresh projects and to migrate older projects that
+// predate named layouts. A pre-existing single "layout" dump can be preserved
+// by the caller by assigning it into windowLayouts[0].ini after seeding.
+void seedBuiltinLayouts(Project& p);
 
 // A fresh opaque object id (16 hex chars from a 64-bit random value). Unique
 // within a project with negligible collision odds; the merge/file-split layout
@@ -1088,7 +1143,7 @@ std::string loadHistory(const Project& p, History& h);
 // Rewrites editor-owned files from the current templates and project data:
 // docker infra (Dockerfile, docker-compose.yml) and generated headers
 // (terrain_config.hpp, scene_data.hpp) are always rewritten; game sources
-// are rewritten only while they still carry the "Generated by tyra-editor"
+// are rewritten only while they still carry the "Generated by TyraX"
 // marker in the first line (delete it to take ownership of a file).
 // Called before every build.
 std::string refreshGenerated(const Project& p);

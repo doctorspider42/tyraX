@@ -33,7 +33,7 @@
     LoadTyraStaticData{ gifSetTag }
     LoadTyraDirectionalLights{ lightMatrix, lightDirections, lightColors, ambientColor, VU1_LIGHTS_DIRS_ADDR, VU1_LIGHTS_COLORS_ADDR, VU1_LIGHTS_MATRIX_ADDR }
     LoadTyraTags{ lodGifTag, testsTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR }
-    ; Modified by tyra-editor: GS hardware fog (packed XYZF2)
+    ; Modified by TyraX: GS hardware fog (packed XYZF2)
     LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
 
 begin:
@@ -78,7 +78,7 @@ vertexLoop:
         CalculateTyraDirectionalLights{ outputColor3, normal3, lightDirections, lightColors, lightMatrix, ambientColor }
         FixColor{ outputColor3 }
 
-        ; Modified by tyra-editor: fog coefficient replaces the zero ADC word
+        ; Modified by TyraX: fog coefficient replaces the zero ADC word
         CalculateTyraFog{ fogInt, vertex1, fogParams }
         StoreTyraFog{ fogInt, destAddress, XYZ2_STORE_OFFSET }
         CalculateTyraFog{ fogInt, vertex2, fogParams }

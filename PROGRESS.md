@@ -9,6 +9,387 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (100) **DoF review-feedback round: authored in the UI Editor, HUD rectangle
+  fix, node modes, pin-label alignment.** Four fixes from testing the Raycast
+  / Set Depth Of Field entry (94, PR #90) on a real project. (a) **Crosshair
+  punched a sharp rectangle into the blur**:
+  2D sprites stamp z = max across their whole rect (transparent margins
+  included - see the Renderer2D drain comment), so a DoF pass composited at
+  the bloom slot / endFrame z-failed under every sprite's rectangle. DoF now
+  composites via `applyPostFx(PassDof)` immediately after `renderScene()`,
+  before any 2D, in both game templates - the HUD can never interact with it
+  again. (b) **DoF is now authored like bloom/grain**: `dofAmount`/`dofFocus`
+  /`dofRange` on `ProjectSettings` (postFx override category, per-scene in
+  Scene Preferences), serialized with the other post effects, edited in
+  *Tools > UI Editor* as a `[ Depth of field ]` stack entry pinned under the
+  whole stack (see (a) for why it cannot be dragged above sprites), codegen'd
+  to `POSTFX_DOFS`/`POSTFX_DOF_FOCUSES`/`POSTFX_DOF_RANGES` in scene_data.hpp
+  and applied at boot + every scene (re)load like bloom. (c) The **Set Depth
+  Of Field node got a Mode combo**: *Set custom* (Focus/Range/Amount as
+  before, position link = live distance), *Off*, and *Scene setting* - a new
+  `ctx.dof = -2` request the game answers by re-applying the scene's authored
+  values. (d) **Output pin labels ragged**: `rightLabel()` right-aligned each
+  label by a text-width-dependent `Indent()`, and text rendering truncates
+  the pen start to whole pixels - per-label fractional indents put the ">"
+  arrows on different pixels at some DPI/zoom combos. The arrow is now its
+  own item in a fixed column (same x every row, cannot drift); labels
+  right-align against it. Verified: codegen harness asserts the mode
+  emissions (`ctx.dof = 0` / `-2` / custom), the scene_data arrays, the
+  authored apply and the PassDof-before-HUD ordering; full Docker + PCSX2
+  e2e with an authored DoF (no flow node) and a 64x64 crosshair HUD with
+  transparent margins shows the cross crisp with NO rectangle seam over the
+  blurred horizon, far terrain blurred, near sharp, raycast still logging
+  the analytic hit. Alignment could not be reproduced on this machine
+  (pixel-scans at uiScale 2.5 x zoom 100%/121% all read a shared right edge
+  +-1px), so the fix removes the mechanism rather than chasing the combo;
+  GUI screenshots after the change still line up.
+- (99) **Projected decals (rzutowanie na model) — decals that conform to the
+  receiver geometry.** The flat `Decal` (62) only worked as a sticker on a flat
+  wall; this adds a **"Project onto surfaces"** mode (`SceneObject::decalProject`)
+  that wraps the decal texture onto whatever it covers — angled/curved walls,
+  models, terrain — for wall text/graffiti and **fake blob shadows**. **Key
+  architectural choice, driven by the EE budget:** projection is *pure host-side
+  geometry* and runs entirely at build time. The decal object's oriented unit
+  cube is a projector volume; `decalproj::project` (new `src/decalproj.cpp`)
+  gathers the receiver triangles overlapping it (terrain + every solid object,
+  auto), transforms them into decal-local space, keeps only front-facing
+  (`+Z`-local) surfaces, Sutherland–Hodgman-clips each to the unit cube,
+  fan-triangulates, computes a projected UV and nudges the result along the
+  surface normal to sit in front. The output is a finished **world-space triangle
+  list** baked into `inc/decal_data.gen.hpp` (per scene, per object index). The
+  PS2 just uploads and draws it through the existing per-object static-pipeline
+  path (`rebuildObjectGeometry` case 13, identity model matrix since `pushVert`
+  already bakes world-space verts; alpha + z-fight offset come for free like the
+  flat decal) — **no projection, clipping or CPU transform ever runs on the EE**;
+  it rides the same VU1 path as all geometry, built once per scene, not per
+  frame, capped at 4096 tris. Receiver tessellation was extracted into a shared
+  host module (`src/primmesh.cpp`, box/sphere/cylinder/cone/plane as raw
+  pos+normal+uv) so the projector uses *exactly* the geometry the viewport draws
+  and the game generates; the viewport bakes shade on top (identical output).
+  Live editor preview: the app computes the projected mesh (`updateProjectedDecals`,
+  recomputed only when a scene signature changes) and pushes it to the viewport
+  (`setProjectedDecals`), drawn via the existing decal-alpha path. **Also fixed a
+  latent decal UV-handedness bug** shared with the flat decal: a decal faces `+Z`
+  and is viewed from the `+Z` side where world `+X` is to the viewer's left, so
+  `u = x+0.5` ran textures right-to-left (text mirrored). Switched to the
+  slide-projector convention `u = 0.5−x` in the projected decal, `unitDecal` and
+  `addDecal` so signs/text read correctly and flat/projected stay consistent (the
+  old test images were symmetric, so nobody had noticed). **Verified end-to-end**:
+  a standalone geometry harness (wall + floor cases, footprint/UV/offset asserts,
+  all pass); clean editor build; a scratch project (box wall + projecting "TYRA"
+  text decal + a floor blob-shadow decal on flat terrain) built through Docker +
+  PS2 `make` (`=== Build OK ===`, generated code compiles on the ee-gcc
+  toolchain) and **booted in PCSX2** (software renderer, PAL 50 FPS, no asserts):
+  the shadow conforms to the terrain and the "TYRA" text wraps onto the wall
+  reading correctly (after the UV fix). `decal_data.gen.hpp` emits the baked
+  meshes; `decalProject` load/save round-trips (omitted at its default). The flat
+  decal (`decalProject=false`) is unchanged apart from the shared UV fix.
+  Surface-matched vertex lighting for projected decals (they ship unlit/flat-tint
+  today) and texture-baking into receiver textures are noted as future follow-ups.
+- (94) **Window layouts (per-project, switchable, editable).** The editor now
+  keeps a **named collection** of docking arrangements instead of a single dump.
+  A new top-level **Layout** menu lists every layout (radio-checked active one),
+  and switching re-docks the windows. Three built-ins ship with every project:
+  **Default** (the classic Project/Properties/Output+Debug/Viewport arrangement),
+  **Director** (Viewport centre + Cutscene Director dopesheet along the bottom),
+  and **Material Designer** (Material Editor filling the window, core panels as
+  background tabs). Each layout is edited by just rearranging windows and is
+  saved per project; the menu also has *Save current arrangement*, *Reset to
+  built-in arrangement* (recipe-backed layouts only), *New layout…* (captures the
+  live arrangement under a new name), *Rename…* and *Delete* (disabled when only
+  one layout remains — a project must always keep at least one; even the
+  built-ins can be deleted). A layout also carries the set of optional editor
+  windows it wants open (Cutscene Director, Material Editor, …), so switching
+  opens/closes them to match.
+  - **Data/format.** `Project::windowLayout` (one ImGui ini string) →
+    `std::vector<WindowLayout> windowLayouts` + `int activeLayout`
+    (`project.hpp`). A `WindowLayout` is `{name, ini, recipe, openWindows}`; a
+    built-in starts with an empty `ini` and a `recipe` id (`LayoutRecipe`
+    Default/Director/Material) so it can be seeded at `--new` time with no ImGui
+    context — `App::buildLayoutRecipe` arranges it via DockBuilder the first time
+    it's shown, and the resulting dump is captured on save. The `.tyra` now
+    writes `"layouts": [...]` + `"activeLayout"`; the reader **migrates** the old
+    single `"layout"` dump into a seeded built-in set (the dump becomes Default's
+    `ini`, so old projects gain Director/Material while keeping their exact
+    arrangement) and guards against an empty/out-of-range set.
+    `project::seedBuiltinLayouts` is the shared seeder (used by `create` and the
+    migration path). Layouts are editor state — not game data, not in undo.
+  - **Timing.** A switch is applied at a frame boundary: a saved-`ini` layout
+    loads via `LoadIniSettingsFromMemory` in the run() loop (can't run
+    mid-frame); a recipe layout rebuilds in `drawUI` before any panel is
+    submitted (DockBuilder must precede the windows it docks). After either, the
+    layout's headline panel is brought to front (`pendingFocusWindow_`).
+  - **Verified.** Editor builds clean (`build.ps1`). Headless `--new` writes the
+    three seeded built-ins with empty `ini` + recipe ids; `--resave` on a copy of
+    `examples/showcase` (a real legacy project with a `"layout"` dump) migrates it
+    to `layouts`/`activeLayout` with the original docking data preserved verbatim
+    inside Default's `ini` and Director/Material appended. GUI switching itself
+    wasn't machine-driven (no synthetic input on the dev box); the DockBuilder
+    recipes reuse the exact pattern of the previously working default-layout code.
+
+- (94) **Raycast + Set Depth Of Field flow nodes.** Two new built-in nodes.
+  **Raycast** (Player category) casts a ray from the player's eye along the
+  view direction when its exec fires and latches the results into runtime
+  members exactly like a C++-backed custom node's outputs (`objOut<id>` /
+  `posOut<id>`): the position output is the hit point, the object output the
+  hit object (-1 = none; downstream built-in actions are handle-guarded like
+  Spawn Object clones), and its "after" exec fires immediately after the cast
+  so wired actions read fresh values. The runtime helper (`flowRaycast`,
+  emitted into `flow_graph.gen.cpp` only when a graph uses the node) tests
+  object bounding spheres (same marker-type skip list as the USE picker, the
+  player entity excluded) and marches the terrain heightmap
+  (`terrainHeightAtScene` + bisection); the ray origin/direction come from a
+  new `ScriptContext::playerLook` set next to `playerPosition` in both game
+  templates. **Set Depth Of Field** (Scene category, Focus/Range/Amount)
+  blurs the image progressively past Focus (full blur at Focus+Range,
+  Amount 0..1, 0 = off); a wired position replaces Focus with the distance
+  from the player to that point at fire time (e.g. keep an object in focus
+  via Get Position). Engine side (`RendererCorePostFx`, TyraX fork): a new
+  `PassDof` (composited right after the 3D scene since entry 100's HUD fix)
+  reuses the bloom blur chain, then blends the blur
+  back through three full-screen sprites drawn at real GS depths with the
+  pass's ordinary GEQUAL z-test (writes masked) — the world-distance → GS-z
+  mapping is solved from the shared perspective matrix
+  (`z(d) = 0xFFFFFF·near·(far−d)/(d·(far−near))`), so the sharp/blurred split
+  follows actual scene depth per pixel at zero EE cost; 2D sprites stamp
+  z = max, so HUD/menus never blur. `blit()` grew an optional z param and the
+  postFx packet grew to 352 qwords (every pass at once now fits).
+  Verified: codegen harness (scratch main() against the build .obj files)
+  over a graph exercising every wiring — static + position-wired SetDof,
+  Raycast → Set Position (pos link) / Hide Object (object link, guarded) /
+  Log via PosToText — then full e2e in Docker + PCSX2: an FPP scene with a
+  2×2×2 box at (0,1,6) logged `ray: (0, 1.8, 5.4)` every 2 s (exactly the
+  analytic sphere hit 6−√(1−0.8²)), Set Object Color driven by the raycast's
+  object output painted the box red in-game, and F8 screenshots on BOTH the
+  HW and software renderers show the near checkerboard sharp and the far
+  terrain/horizon blurred past the 5-unit focus. Interactive feel (walking
+  around with the pad while DoF is on) still deserves a hands-on test.
+- (93) **Rebrand to TyraX.** Our fork — the editor, the repo, the docs and the
+  VS Code plugin — is now **TyraX**; the upstream engine we fork keeps the name
+  **Tyra**. What changed: the executable / CMake target `tyra-editor` →
+  `tyrax-editor` (`build\tyrax-editor.exe`, CLI usage strings, `resources/app.rc`,
+  build scripts, testing/PR skills, `-ProcessName`); the window title and all
+  user-facing prose "Tyra Editor" → "TyraX"; the generated- and engine-fork
+  markers `Generated by tyra-editor` / `Modified by tyra-editor` /
+  `Added by tyra-editor` / `tyra-editor guard band` → the `TyraX` equivalents
+  (154 `Modified` + 14 `Added` sites across `vendor/tyra`, every `.gen.*` and
+  ownable file in `examples/`, and the `templates.cpp` writers); the VS Code
+  extension `tools/vscode-tyra` → `tools/vscode-tyrax`, package `tyra-flownode`
+  → `tyrax-flownode`, publisher `tyra` → `tyrax`, id `tyrax.tyrax-flownode`,
+  languages/scopes `tyra-{flownode,screenfx}` → `tyrax-*`, display names →
+  "TyraX …", and the committed VSIX rebuilt (`tyrax-flownode-0.1.0.vsix` via
+  `npx @vscode/vsce package`); the generated `.vscode/extensions.json`
+  recommendation follows to `tyrax.tyrax-flownode`.
+  - **Kept as-is on purpose** (internal/on-disk state, or upstream): the `.tyra`
+    project-file extension (user decision — no migration, examples untouched);
+    the engine and everything under `vendor/tyra` stays the **Tyra** engine
+    (`libtyra`, `Tyra::`, `TYRA_*` macros, `tyra-engine-shared`, the `h4570/tyra`
+    Docker image); `%LOCALAPPDATA%\tyra-editor` (editor.ini + ps2sdk cache — a
+    rename would silently drop user prefs and force a multi-hundred-MB re-extract);
+    the `%TEMP%\tyra-editor-test\` scratch convention; the `.claude/skills/tyra-*`
+    folder identifiers (harness-referenced) — their prose was rebranded, the
+    slugs left; and the GitHub URL `doctorspider42/tyra-editor` (per request —
+    the repo itself isn't renamed here). PROGRESS/plan history left unrewritten.
+  - **Compat**: the ownership-marker check in `project.cpp` now accepts **both**
+    `Generated by TyraX` and legacy `Generated by tyra-editor`, so `.tyra`
+    projects authored before the rebrand keep syncing their ownable files.
+  - **Verified**: clean `build.ps1 -Clean` links `tyrax-editor.exe`; headless
+    `--new rebrandtest` scaffolds a project whose generated files carry
+    `Generated by TyraX` ×21 with **zero** stale `tyra-editor` markers, and whose
+    `.vscode/extensions.json` recommends `tyrax.tyrax-flownode`; engine tokens
+    (`h4570/tyra`, `libtyra`, `Tyra::`, `TYRA_OBJECT_SCRIPT`) confirmed intact.
+    Docker game-build round-trip not run (no engine/codegen logic changed, only
+    marker text).
+
+- (98) **Brush opacity settings: labeled slider + per-dab Vary.** Follow-up
+  on (97). The opacity slider was an unlabeled 70px stub next to Size - now
+  a properly labeled **Opacity** on its own row, and a new **Vary** slider
+  (0-100%) randomly reduces each dab's opacity by up to that fraction
+  (shared LCG with the rotation roll; the Live-dab ghost pass is exempt so
+  the preview shows the base strength). Brush controls reflowed into stable
+  rows - mode+color/picker, Size+Opacity, Spacing+Vary, (brush) Angle+Random
+  - after the first cut clipped the Opacity label off the pane edge.
+  **Verified** (Layer 2, GUI harness): the cropped control rows show
+  "24 px Size | 1.00 Opacity" and "300% Spacing | 100% Vary"; a stroke at
+  Spacing 300% + Vary 100% left dabs ranging from full-strength red to
+  barely-there pink along one drag. Editor builds clean.
+- (97) **Dab rotation (manual + random) and the Live dab ghost.** Follow-up
+  on (96). Brush-image dabs gained an **Angle** slider (0-360 deg; the
+  stamp offset is rotated back into image space, loop radius padded by
+  sqrt(2) so corners don't clip) and a **Random** toggle re-rolling the
+  rotation per dab from a member LCG (Angle disabled while on) - bricks can
+  be laid deliberately, splats scattered organically. New **Live dab**
+  toggle (default on): every hovered frame the paint pane composites ONE
+  uncommitted stamp under the cursor - the active layer is backed up,
+  stamped, composited, restored, so undo snapshots/stroke starts/saves
+  (which all recomposite first) only ever see clean layers; the ghost pass
+  never re-rolls the random angle (a spinning preview reads as noise) and
+  the composite is wiped when the cursor leaves. **Verified** (Layer 2, GUI
+  harness): a rectangular brick.png brush ghost-previewed on the crate
+  while hovering with the texture PNG's hash untouched; a click stamped the
+  brick rotated by the dialed 67 deg; with Random + 300% spacing a drag
+  left bricks in clearly different orientations; the Angle slider greys out
+  while Random is checked. Editor builds clean.
+- (96) **GIMP-style brush dabs + Spacing.** User feedback on (95): the Brush
+  mode painted a texture-space *tiled pattern* ("revealing" an image through
+  holes); now each dab **stamps the whole brush image** scaled to the brush
+  Size - the PNG's alpha is the dab shape, its RGB the paint (an irregular
+  splat PNG paints organic blotches). The Tile slider is gone; in its place
+  a **Spacing** slider (5-300%, % of brush diameter, applies to every mode)
+  with the GIMP residual-distance algorithm - the leftover distance carries
+  across mouse samples (`matEdStampResidual_`), so low spacing draws one
+  continuous line and >=100% drops exactly-spaced separate stamps regardless
+  of mouse speed; the stroke seeds a dab at the click and restarts across UV
+  seams. **Verified** (Layer 2, GUI harness): with a 64^2 splat.png (alpha
+  blob) at Spacing 300% a drag left a row of separate orange blotches on the
+  crate; at 5% the same drag drew a continuous ribbon; the splat brush was
+  picked from res/brushes in the picker; layer stack from (95) reloaded from
+  the sidecar across an editor restart. Editor builds clean.
+- (95) **Paint layers with blend modes + project-global brushes.** The paint
+  tool grew a per-texture **layer stack**: Background + N transparent layers,
+  each with Normal/Multiply/Add/Overlay, an opacity slider and a visibility
+  eye; strokes land on the active layer, `+`/`-`/Up/Down manage the stack.
+  The **flattened composite** is rebuilt after every change and written to
+  the texture PNG - the PS2 pipeline still sees a plain texture. The stack
+  persists in a `<texture>.png.layers/` sidecar (layerN.png + layers.json,
+  read via the in-tree json parser; any inconsistency falls back to a single
+  Background - never fails a load); one Background = sidecar removed, so
+  untouched textures stay plain files. texbake skips (and scrubs from stale
+  bakes) the sidecars AND the new `res/brushes/` dir, so neither ships in
+  .res-baked/bin/ISO; Duplicate copies a texture's sidecar along. The old
+  "texture brush" was renamed to **Brush** and its sources moved from
+  ad-hoc PNGs to **project-global brushes** in `res/brushes/*.png` with an
+  "Import brush from PNG..." item in the picker; a third **Eraser** mode
+  removes paint from the active layer (or punches decal alpha on the
+  Background). Stamps now compose with straight-alpha "over" so strokes on
+  transparent layers have no dark fringe. Undo gained typed steps (paint =
+  layer snapshot, layer add/remove restore the structure, props as before);
+  paint/layer steps apply only while their texture is loaded. **Verified**
+  (Layer 2, GUI harness): + added "Layer 1", a red stroke on it wrote the
+  sidecar (layers.json + layer0/1.png listed on disk); Multiply visibly
+  darkened the blobs (grid shows through); the grass brush appeared in the
+  picker from res/brushes and painted a continuous checker; Eraser chewed a
+  hole in a red blob; the visibility eye toggled the composite PNG hash and
+  restored it exactly; a headless --build's .res-baked contained neither
+  brushes/ nor crate.png.layers/ while the composite crate.png shipped.
+  Editor builds clean.
+- (94) **Material Editor follow-ups: big preview, own Ctrl+Z undo, Delete.**
+  User feedback on (93). (a) The preview pane now takes ~48% of the window
+  width (floor `scaled(260)`) and the default window grew to 1020x600 - the
+  paint surface is the point of the window. (b) **Ctrl+Z, scoped**: the window
+  keeps ONE undo stack of paint strokes and committed property edits
+  (`MatEdUndoStep` - pixel snapshot or a pre-edit copy of the staged entries,
+  `matEdPrevMats_` baseline, cap 16). While the Material Editor is focused
+  (`matEdFocused_`, same focus-scoping as the Flow Graph's Ctrl+C/V), Ctrl+Z
+  runs `matEdUndoLast()` instead of scene undo (Ctrl+Y is inert there); an
+  Undo button sits next to Duplicate. A paint step restores + rewrites its own
+  texture even if the entry/texture switched since; a property step restores
+  the entries and saves the file. (c) **Delete...** button routes into the
+  existing asset-delete confirm flow (usage count, object/terrain fallbacks);
+  the Material case now also clears the editor's staged state when the open
+  file is the one deleted, and invalidates viewport caches. **Verified**
+  (Layer 2, GUI harness): stroke -> PNG hash changed -> Undo button restored
+  the pixels (0 brush-colored samples); Brightness drag wrote Kd 0.3 to the
+  .mtl -> Undo restored Kd 1.0; Delete showed the confirm modal, removed
+  crate-copy.mtl from disk and the list, cleared the pane, status "Deleted".
+  Ctrl+Z routing verified end-to-end with a temporary debug chord (Ctrl+U ->
+  "Material Editor: nothing to undo" with the window focused, F/T focus flags
+  in the title) because synthetic keybd_event Ctrl+Z is swallowed by
+  something machine-global in the test environment while Ctrl+S/Ctrl+U pass -
+  real-keyboard Ctrl+Z uses the identical `IsKeyChordPressed` path that scene
+  undo always used. Editor builds clean.
+- (93) **Material Editor: preview on real models, texture painting, duplicate,
+  new-texture canvas.** Four additions in one coherent pass. (a) The preview
+  shape combo now lists every `res/models/*.obj` next to the four primitives;
+  a model renders with the open `.mtl` as its override (usemtl-matched, same
+  rule as the game) through a new `Viewport::MatPrevModel` cache that keeps Kd
+  OUT of the vertex colors (it rides the tint uniform) so the selected entry's
+  staged, uncommitted slider values preview live; camera orbits by drag
+  (LMB, or RMB while painting), wheel zooms, AABB-framed. Opening the editor
+  from a Model object's Edit... passes the model as a hint; opening a
+  res/models `.mtl` auto-picks the sibling `.obj`. (b) **Painting**: a Paint
+  toggle raycasts each stroke sample against a CPU copy of the displayed
+  triangles (`materialPreviewPick`, Moller-Trumbore + barycentric UV),
+  splats a soft round brush into a CPU RGBA copy of the entry's texture
+  (segment interpolation between samples, wrap-around repeat, a seam-jump
+  guard that breaks the segment instead of smearing), live-uploads the shared
+  GL texture (`updateTexturePixels` - scene viewport updates too, same
+  texCache_ id) and writes the PNG on mouse release - painting IS the bake,
+  texbake quantizes it at build like any PNG. Brush modes: color, and a
+  **texture brush** sampling a pattern PNG in texture space (tiled, density
+  slider) so strokes reveal one continuous image. Per-stroke undo stack
+  (12 snapshots; assets stay outside project undo, like imports). Only faces
+  whose usemtl matches the edited entry take paint. (c) **Duplicate** copies
+  the open `.mtl` under a `-copy` name plus every referenced texture (once
+  each, `<newbase>-<tex>` in place, map_Kd rewritten) so repainting the copy
+  never bleeds into the original. (d) **New paintable texture...** in the
+  texture combo: a blank pow2 PNG (64-512, fill color) written next to the
+  `.mtl` via stb_image_write, assigned as map_Kd and Paint auto-enabled.
+  **Verified** (Layer 2, GUI harness): scratch project with a UV'd cube .obj +
+  128^2 grid texture; synthetic-input session confirmed - preview auto-landed
+  on crate.obj, a red stroke appeared on the mesh and changed the PNG hash on
+  disk ("Painted res/models/crate.png" status), Undo stroke reverted the hash,
+  Duplicate produced crate-copy.mtl + crate-copy-crate.png with rewritten
+  map_Kd, the grass texture brush painted a continuous checker pattern across
+  faces, RMB-orbit worked mid-paint, and the New texture modal created a 256^2
+  canvas and assigned it. Editor builds clean. Known UV property (documented,
+  not a bug): faces sharing texels (the test cube maps all six faces to the
+  same 0..1 square) all show a stroke painted on any one of them.
+- (89) **VS Code extension for `.flownode` / `.screenfx` files (the "full deluxe
+  package").** The two text formats a project uses for custom logic — custom
+  flow nodes and custom screen effects — were plain text in VS Code. They now
+  get a real language extension (`tools/vscode-tyra`, id `tyra.tyra-flownode`).
+  Both formats share the same shape (a `key = value` header, a `---` line, then a
+  C++ body with `{placeholder}`s), so the extension defines two languages over
+  one design.
+  - **Highlighting**: TextMate grammars colour the header (keys / enum values /
+    `#` comments) and, after `---`, inject `source.cpp` (`contentName:
+    meta.embedded.block.cpp`) for **full embedded C++** highlighting with the
+    `{obj}`/`{num0}`/`{p0}`… placeholders overlaid. The body is a begin/end
+    region that starts at `---` and never ends (`"end": "(?!)"`), so it runs to
+    EOF regardless of what the C++ looks like.
+  - **Language features** (`extension.js`, plain JS, no build step): diagnostics
+    (unknown/duplicate keys, bad `string`/pin/`exec_out` enums, non-contiguous
+    `num*`/`param*`, missing/empty body, `call = fn` with a stray inline body,
+    unknown or undefined `{placeholder}`), hovers for every key/placeholder, and
+    key/value/placeholder completion. A `SPEC` table drives all of it and is
+    kept in sync with `src/flownode.cpp` / `src/screenfx.cpp`.
+  - **Delivery**: `templates.cpp` now also emits `.vscode/extensions.json`
+    (recommends the extension; written-if-missing in `refreshGenerated` so it
+    never clobbers user recommendations, unlike the always-overwritten
+    `c_cpp_properties.json`). The editor installs the extension by running
+    `code --install-extension` on the **prebuilt `tools/vscode-tyra/*.vsix`**
+    (committed to the repo, found next to the exe), once per session inside
+    `App::openInVSCode`, plus an explicit **Custom nodes… ▸ Install VS Code
+    extension** menu item; the outcome is reported in the status bar. New doc
+    `docs/vscode-extension.md`; corrected the stale "there is no dedicated
+    `.flownode` extension" line in `docs/custom-flow-nodes.md`.
+  - **Install mechanism — a dead end and the fix.** The first cut *copied*
+    `tools/vscode-tyra` into `~/.vscode/extensions/tyra.tyra-flownode-<version>`.
+    It compiled and looked fine on the dev box only because the extension had
+    *also* been installed there by hand via `code --install-extension` during
+    verification — the copy path itself was never exercised. On a second machine
+    it did nothing and printed nothing. Root cause, then confirmed empirically
+    (`code --list-extensions` after a manual folder drop → not listed): **modern
+    VS Code (≥ 1.74) loads only the extensions in its own manifest cache and
+    ignores folders dropped into `~/.vscode/extensions`.** Fix: ship a prebuilt
+    `.vsix` and install through the `code` CLI (which updates that cache), run
+    synchronously so the real exit code drives a status message — no more silent
+    failure. Lesson: verify the *product's* install path, not a hand-installed
+    stand-in.
+  - **Verified**: grammars tokenized with the real `vscode-textmate` engine —
+    header scopes correct, unknown key → `invalid`, bad pin →
+    `invalid.illegal.pin`, `---` region runs to EOF with placeholders overlaid;
+    `extension.js` against a mock `vscode` module (17/17 diagnostics/hover/
+    completion assertions, clean files = zero diagnostics); the **exact
+    `cmd.exe /S /C "code --install-extension "<vsix>" --force"` string the editor
+    builds** was run and confirmed to install + register the extension
+    (`code --list-extensions` → `tyra.tyra-flownode`, exit 0), and the negative
+    case (manual folder drop → not listed) proved the old path was broken; the
+    editor builds clean (before and after merging `origin/main`); headless
+    `--new` confirms `.vscode/extensions.json` is generated and valid. The C++
+    wrapper runs that verified string via the same `CreateProcessA` mechanism
+    `openInVSCode` already uses; the GUI button itself was not clicked headlessly.
 - (93) **Options-menu editor: ready-made setting blocks + paged category menus.**
   Building an in-game options screen used to mean hand-wiring every row to a
   save value and a flow graph (the `video-modes` example does this by hand).

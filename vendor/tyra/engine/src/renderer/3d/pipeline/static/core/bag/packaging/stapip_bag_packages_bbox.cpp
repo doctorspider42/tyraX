@@ -58,7 +58,7 @@ StaPipBagPackagesBBox::~StaPipBagPackagesBBox() {
   delete mainBBox;
 }
 
-// Modified by tyra-editor: skinned meshes rewrite the same vertex buffer
+// Modified by TyraX: skinned meshes rewrite the same vertex buffer
 // every frame - rebuild the boxes in place instead of a fresh cache entry.
 void StaPipBagPackagesBBox::recalculate(const Vec4* t_vertices,
                                         const u32& t_maxVertCount) {

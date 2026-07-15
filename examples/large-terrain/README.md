@@ -5,7 +5,7 @@ playable by [terrain chunking](../../src/templates.cpp) and view-distance
 streaming — plus a crowd of animated models to stress the EE.
 
 Open `large-terrain.tyra` in the editor and Build & Run (`F5`), or build
-headless: `tyra-editor.exe --build <this folder> --run`. It ships in the
+headless: `tyrax-editor.exe --build <this folder> --run`. It ships in the
 **debug** profile so the on-screen **FPS** and free-**MEM** readouts are
 visible (top-left). Walk with the left stick, look with the right.
 

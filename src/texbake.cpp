@@ -169,11 +169,22 @@ std::string bake(const Project& p,
         if (!s.image.imagePath.empty()) hudBake[s.image.imagePath] = &s.image;
 
     // --- mirror res/ into .res-baked/ --------------------------------------
+    // Editor-only assets never ship: paint brushes (res/brushes) and the
+    // Material Editor's paint-layer sidecars (`<texture>.layers/` dirs) -
+    // the game loads the flattened composite PNG next to them.
+    auto editorOnly = [](const fs::path& rel) {
+        for (const fs::path& part : rel)
+            if (part.string().size() > 7 &&
+                part.string().rfind(".layers") == part.string().size() - 7)
+                return true;
+        return rel.begin()->generic_string() == "brushes";
+    };
     const std::string defaultQ = p.settings.textureQuant;  // none/8bit/4bit
     int quantized = 0, copied = 0;
     for (const auto& e : fs::recursive_directory_iterator(res, ec)) {
         if (!e.is_regular_file()) continue;
         const fs::path rel = fs::relative(e.path(), res, ec);
+        if (editorOnly(rel)) continue;
         const fs::path dst = baked / rel;
         fs::create_directories(dst.parent_path(), ec);
 
@@ -226,13 +237,15 @@ std::string bake(const Project& p,
         }
     }
 
-    // drop baked files whose source vanished (they would still reach bin/)
+    // drop baked files whose source vanished (they would still reach bin/) -
+    // and editor-only files a pre-exclusion bake may have mirrored
     std::vector<fs::path> stale;
     for (const auto& e : fs::recursive_directory_iterator(baked, ec)) {
         if (!e.is_regular_file()) continue;
         const fs::path rel = fs::relative(e.path(), baked, ec);
         std::error_code sec;
-        if (!fs::exists(res / rel, sec)) stale.push_back(e.path());
+        if (!fs::exists(res / rel, sec) || editorOnly(rel))
+            stale.push_back(e.path());
     }
     for (const fs::path& s : stale) fs::remove(s, ec);
 

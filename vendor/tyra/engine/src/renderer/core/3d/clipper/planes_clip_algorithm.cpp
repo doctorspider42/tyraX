@@ -1,5 +1,5 @@
 /*
-# Modified by tyra-editor - fast clipping via outcodes.
+# Modified by TyraX - fast clipping via outcodes.
 # Based on the original by Sandro Sobczynski (h4570/tyra), Apache License 2.0.
 */
 

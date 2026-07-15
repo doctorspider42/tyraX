@@ -5,7 +5,7 @@
 #-----------------------------------------------------------------------
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
-# Added by the tyra-editor fork.
+# Added by the TyraX fork.
 */
 
 #include <dma.h>
@@ -32,11 +32,16 @@ RendererCorePostFx::RendererCorePostFx() {
   gs = nullptr;
   bloom = 0;
   grain = 0;
+  dof = 0;
+  dofFocus = 0.0F;
+  dofRange = 0.01F;
   clearGrading();
   rng = 0xC0FFEE01u;
   curFbVram = 0;
   curFbBufW = 0;
-  packet = packet2_create(224, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
+  // Sized for every pass at once: DoF (8 blits) + bloom (6) + grading (6
+  // quads) + grain (2) + setup/teardown still leave headroom.
+  packet = packet2_create(352, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
 }
 
 RendererCorePostFx::~RendererCorePostFx() {
@@ -97,7 +102,7 @@ qword_t* RendererCorePostFx::blit(qword_t* q, int srcVram, int srcBufW,
                                   int texW, int texH, int u0, int v0, int u1,
                                   int v1, int dstVram, int dstBufW, int x0,
                                   int y0, int x1, int y1, bool linear,
-                                  bool wrap, int abe, u64 alpha) {
+                                  bool wrap, int abe, u64 alpha, u32 z) {
   PACK_GIFTAG(q, GIF_SET_TAG(11, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
   q++;
   // The previous blit's output is this blit's input - invalidate the cache.
@@ -128,12 +133,12 @@ qword_t* RendererCorePostFx::blit(qword_t* q, int srcVram, int srcBufW,
   q++;
   PACK_GIFTAG(q, GS_SET_UV(u0, v0), GS_REG_UV);
   q++;
-  PACK_GIFTAG(q, GS_SET_XYZ((2048 + x0) << 4, (2048 + y0) << 4, 0xFFFFFFFFu),
+  PACK_GIFTAG(q, GS_SET_XYZ((2048 + x0) << 4, (2048 + y0) << 4, z),
               GS_REG_XYZ2);
   q++;
   PACK_GIFTAG(q, GS_SET_UV(u1, v1), GS_REG_UV);
   q++;
-  PACK_GIFTAG(q, GS_SET_XYZ((2048 + x1) << 4, (2048 + y1) << 4, 0xFFFFFFFFu),
+  PACK_GIFTAG(q, GS_SET_XYZ((2048 + x1) << 4, (2048 + y1) << 4, z),
               GS_REG_XYZ2);
   q++;
   return q;
@@ -251,6 +256,58 @@ void RendererCorePostFx::apply(int passes) {
               GS_REG_TEST_1);
   q++;
 
+  // Depth of field first: it crossfades the frame toward its own blur, so
+  // bloom / grading / grain later composite over the already-defocused image.
+  if ((passes & PassDof) && dof > 0 && dofFocus > 0.0F) {
+    const int w4 = lowW << 4, h4 = lowH << 4;
+    // Blur chain identical to bloom's: 1/8-res bilinear downsample, then
+    // soften low0 into low1 with offset taps.
+    q = blit(q, fbVram, fbBufW, fbW, fbH, 0, 0, fbW << 4, fbH << 4, lowVram[0],
+             lowBufW, 0, 0, lowW, lowH, true, false, 0, 0);
+    q = blit(q, lowVram[0], lowBufW, lowW, lowH, 0, 0, w4, h4, lowVram[1],
+             lowBufW, 0, 0, lowW, lowH, true, false, 0, 0);
+    q = blit(q, lowVram[0], lowBufW, lowW, lowH, 16, 16, w4 + 16, h4 + 16,
+             lowVram[1], lowBufW, 0, 0, lowW, lowH, true, false, 1,
+             GS_SET_ALPHA(0, 1, 2, 1, 64));
+    q = blit(q, lowVram[0], lowBufW, lowW, lowH, 16, 0, w4 + 16, h4,
+             lowVram[1], lowBufW, 0, 0, lowW, lowH, true, false, 1,
+             GS_SET_ALPHA(0, 1, 2, 1, 43));
+    q = blit(q, lowVram[0], lowBufW, lowW, lowH, 0, 16, w4, h4 + 16,
+             lowVram[1], lowBufW, 0, 0, lowW, lowH, true, false, 1,
+             GS_SET_ALPHA(0, 1, 2, 1, 32));
+
+    // World distance -> GS depth: the VU1 vertex path writes
+    // z = (z_ndc + 1) * 0xFFFFFF/2 with z_ndc from the shared perspective
+    // matrix (m4x4.cpp), which solves to
+    // z(d) = 0xFFFFFF * near * (far - d) / (d * (far - near))
+    // (near plane = 0xFFFFFF, far plane = 0). A sprite drawn at z(d) passes
+    // the pass's GEQUAL z-test exactly where the scene is d or farther.
+    const float zn = settings->getNear();
+    const float zf = settings->getFar();
+    auto zAt = [&](float d) -> u32 {
+      if (d <= zn) return 0xFFFFFFu;
+      if (d >= zf) return 0u;
+      const float z = 16777215.0F * zn * (zf - d) / (d * (zf - zn));
+      return z <= 0.0F ? 0u : (z >= 16777215.0F ? 0xFFFFFFu : (u32)z);
+    };
+
+    // Three z-tested layers step the blur in between dofFocus and
+    // dofFocus + dofRange. Blends accumulate multiplicatively, so each layer
+    // blends the share of the *remaining* sharp image that lands the
+    // cumulative blur on dof * i/3.
+    int cum = 0;
+    for (int i = 1; i <= 3; i++) {
+      const int target = (int)dof * i / 3;
+      const int fix = cum < 128 ? (128 * (target - cum)) / (128 - cum) : 0;
+      cum = target;
+      if (fix <= 0) continue;
+      const u32 layerZ = zAt(dofFocus + dofRange * (float)(i - 1) / 3.0F);
+      q = blit(q, lowVram[1], lowBufW, lowW, lowH, 0, 0, w4, h4, fbVram,
+               fbBufW, 0, 0, fbW, fbH, true, false, 1,
+               GS_SET_ALPHA(0, 1, 2, 1, fix), layerZ);
+    }
+  }
+
   if ((passes & PassBloom) && bloom > 0) {
     const int w4 = lowW << 4, h4 = lowH << 4;
     // Downsample the frame to quarter res (bilinear averages 2x2).
@@ -358,8 +415,8 @@ void RendererCorePostFx::applyCustom(CustomFxBuild build, void* user) {
   q++;
 
   // The user-authored effect appends its GS primitives here. It draws through
-  // blit()/flatQuad() (or raw PACK_GIFTAG) and advances the cursor. The 224-
-  // qword packet leaves ~200 qwords after this setup: roughly 18 blits or 33
+  // blit()/flatQuad() (or raw PACK_GIFTAG) and advances the cursor. The 352-
+  // qword packet leaves ~330 qwords after this setup: roughly 27 blits or 47
   // flat quads - plenty for a screen effect, but not unbounded.
   q = build(*this, q, user);
 

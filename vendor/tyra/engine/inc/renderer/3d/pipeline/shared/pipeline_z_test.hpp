@@ -8,7 +8,7 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
-// Modified by tyra-editor: PipelineZTest_TestOnly (depth-tested, no z write).
+// Modified by TyraX: PipelineZTest_TestOnly (depth-tested, no z write).
 
 #pragma once
 

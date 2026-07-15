@@ -19,7 +19,7 @@
 namespace Tyra {
 
 /**
- * Modified by tyra-editor: per-mesh spot light state. The as_is VU1 programs
+ * Modified by TyraX: per-mesh spot light state. The as_is VU1 programs
  * cannot evaluate the spot light (vertices reach them already clipped and
  * perspective-divided), so the EE injects it into the vertex colors before
  * clipping interpolates them - keeps screen-edge triangles consistent with
@@ -48,7 +48,7 @@ class StaPipClipper {
   ~StaPipClipper();
 
   /**
-   * Modified by tyra-editor: clipping is drained in VU1-buffer-sized chunks.
+   * Modified by TyraX: clipping is drained in VU1-buffer-sized chunks.
    * A single triangle clipped against the frustum fans out into up to 7
    * triangles (21 verts), so one subpackage can produce more verts than a VU1
    * buffer holds (maxVertCount). clipToPool() runs the whole clip into an

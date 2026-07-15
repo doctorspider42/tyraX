@@ -5,7 +5,7 @@ Graph nodes you add in a text file, no editor rebuild. Full guide:
 [docs/custom-flow-nodes.md](../../docs/custom-flow-nodes.md).
 
 Open `custom-nodes.tyra` in the editor and Build & Run (`F5`), or build
-headless: `tyra-editor.exe --build <this folder> --run`.
+headless: `tyrax-editor.exe --build <this folder> --run`.
 
 ## What to do
 

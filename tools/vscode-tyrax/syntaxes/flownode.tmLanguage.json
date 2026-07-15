@@ -1,0 +1,103 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "TyraX Flow Node",
+  "scopeName": "source.tyrax-flownode",
+  "patterns": [
+    { "include": "#body" },
+    { "include": "#comment" },
+    { "include": "#header" }
+  ],
+  "repository": {
+    "comment": {
+      "match": "^\\s*#.*$",
+      "name": "comment.line.number-sign.tyrax-flownode"
+    },
+    "header": {
+      "patterns": [
+        {
+          "comment": "string = none|text|object",
+          "match": "^\\s*(string)\\s*(=)\\s*(none|text|object)?(.*)$",
+          "captures": {
+            "1": { "name": "keyword.control.header.tyrax-flownode" },
+            "2": { "name": "punctuation.separator.key-value.tyrax-flownode" },
+            "3": { "name": "constant.language.tyrax-flownode" },
+            "4": { "name": "string.unquoted.value.tyrax-flownode" }
+          }
+        },
+        {
+          "comment": "exec_out = true|false",
+          "match": "^\\s*(exec_out)\\s*(=)\\s*(true|false)?(.*)$",
+          "captures": {
+            "1": { "name": "keyword.control.header.tyrax-flownode" },
+            "2": { "name": "punctuation.separator.key-value.tyrax-flownode" },
+            "3": { "name": "constant.language.tyrax-flownode" },
+            "4": { "name": "string.unquoted.value.tyrax-flownode" }
+          }
+        },
+        {
+          "comment": "in / out = object position bool text (space separated pins)",
+          "begin": "^\\s*(in|out)\\s*(=)",
+          "beginCaptures": {
+            "1": { "name": "keyword.control.header.tyrax-flownode" },
+            "2": { "name": "punctuation.separator.key-value.tyrax-flownode" }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "match": "\\b(object|position|bool|text)\\b",
+              "name": "constant.language.pin.tyrax-flownode"
+            },
+            {
+              "match": "[^\\s]+",
+              "name": "invalid.illegal.pin.tyrax-flownode"
+            }
+          ]
+        },
+        {
+          "comment": "num0..num3 = Label",
+          "match": "^\\s*(num[0-3])\\s*(=)\\s*(.*)$",
+          "captures": {
+            "1": { "name": "keyword.control.header.tyrax-flownode" },
+            "2": { "name": "punctuation.separator.key-value.tyrax-flownode" },
+            "3": { "name": "string.unquoted.value.tyrax-flownode" }
+          }
+        },
+        {
+          "comment": "known scalar keys",
+          "match": "^\\s*(title|category|call)\\s*(=)\\s*(.*)$",
+          "captures": {
+            "1": { "name": "keyword.control.header.tyrax-flownode" },
+            "2": { "name": "punctuation.separator.key-value.tyrax-flownode" },
+            "3": { "name": "string.unquoted.value.tyrax-flownode" }
+          }
+        },
+        {
+          "comment": "unknown key: still colour key/=/value, flag the key",
+          "match": "^\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*(=)\\s*(.*)$",
+          "captures": {
+            "1": { "name": "invalid.deprecated.unknown-key.tyrax-flownode" },
+            "2": { "name": "punctuation.separator.key-value.tyrax-flownode" },
+            "3": { "name": "string.unquoted.value.tyrax-flownode" }
+          }
+        }
+      ]
+    },
+    "placeholder": {
+      "match": "\\{(obj|self|str|num[0-3]|int[0-3])\\}",
+      "name": "variable.language.placeholder.tyrax-flownode"
+    },
+    "body": {
+      "comment": "Everything after the --- line is C++ emitted verbatim into flow_graph.gen.cpp; run source.cpp over it and overlay {placeholder} tokens. The region never ends (runs to EOF).",
+      "begin": "^(---)\\s*$",
+      "beginCaptures": {
+        "1": { "name": "punctuation.section.separator.tyrax-flownode" }
+      },
+      "end": "(?!)",
+      "contentName": "meta.embedded.block.cpp",
+      "patterns": [
+        { "include": "#placeholder" },
+        { "include": "source.cpp" }
+      ]
+    }
+  }
+}

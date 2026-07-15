@@ -9,11 +9,11 @@
 #include "runner.hpp"
 
 // Headless helper:
-//   tyra-editor.exe --new <name> <parentDir> [width] [depth] [empty|fpp]
+//   tyrax-editor.exe --new <name> <parentDir> [width] [depth] [empty|fpp]
 static int createFromCli(int argc, char** argv) {
     if (argc < 4) {
         std::fprintf(stderr,
-                     "usage: tyra-editor --new <name> <parentDir> [width] [depth] "
+                     "usage: tyrax-editor --new <name> <parentDir> [width] [depth] "
                      "[empty|fpp]\n");
         return 2;
     }
@@ -33,11 +33,11 @@ static int createFromCli(int argc, char** argv) {
     return 0;
 }
 
-// Headless helper: tyra-editor.exe --build <projectDir> [--run | --run-ps2 [ip]]
+// Headless helper: tyrax-editor.exe --build <projectDir> [--run | --run-ps2 [ip]]
 static int buildFromCli(int argc, char** argv) {
     if (argc < 3) {
         std::fprintf(stderr,
-                     "usage: tyra-editor --build <projectDir> [--run | --run-ps2 [ip]]\n");
+                     "usage: tyrax-editor --build <projectDir> [--run | --run-ps2 [ip]]\n");
         return 2;
     }
     const bool run = argc > 3 && std::strcmp(argv[3], "--run") == 0;
@@ -83,7 +83,7 @@ static int buildFromCli(int argc, char** argv) {
     return 0;
 }
 
-// Headless helper: tyra-editor.exe --resave <projectDir>
+// Headless helper: tyrax-editor.exe --resave <projectDir>
 // Loads a project and writes it straight back out. On its own it is a no-op for
 // an up-to-date project, but loading runs every format migration (e.g. stamping
 // stable object ids on pre-id projects), so this is the one-shot way to migrate
@@ -92,7 +92,7 @@ static int buildFromCli(int argc, char** argv) {
 // merge-friendly workflow.
 static int resaveFromCli(int argc, char** argv) {
     if (argc < 3) {
-        std::fprintf(stderr, "usage: tyra-editor --resave <projectDir>\n");
+        std::fprintf(stderr, "usage: tyrax-editor --resave <projectDir>\n");
         return 2;
     }
     Project p;

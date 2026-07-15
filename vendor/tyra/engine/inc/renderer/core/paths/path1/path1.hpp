@@ -6,7 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
-# Modified by tyra-editor: track whether the VU1 double buffer was configured,
+# Modified by TyraX: track whether the VU1 double buffer was configured,
 # so RendererCore::endFrame() only arms the PATH1 drain barrier once the VU1
 # side (VIF1 DMA init + BASE/OFST) exists - see renderer_core.cpp.
 */

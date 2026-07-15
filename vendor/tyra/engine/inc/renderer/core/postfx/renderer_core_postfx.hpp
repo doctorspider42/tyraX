@@ -5,7 +5,7 @@
 #-----------------------------------------------------------------------
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
-# Added by the tyra-editor fork.
+# Added by the TyraX fork.
 */
 
 #pragma once
@@ -32,6 +32,12 @@ namespace Tyra {
  * - Film grain: a small noise texture is drawn over the frame twice
  *   (subtractive, then additive) with different random offsets every frame,
  *   which yields zero-mean grain out of unsigned GS math.
+ * - Depth of field: the frame is downsampled/softened like bloom, then the
+ *   blur is alpha-blended back through full-screen sprites drawn at GS depths
+ *   derived from the focus distance, with the ordinary z-test (GEQUAL, z
+ *   writes masked) gating them per pixel - only pixels whose scene depth is
+ *   beyond each layer's distance take that layer's share of the blur, so the
+ *   image sharp/blurred split follows real geometry at zero EE cost.
  *
  * Total cost is a handful of sprites per frame - GS fill only, no EE/VU work.
  */
@@ -48,8 +54,22 @@ class RendererCorePostFx {
   /** Film grain strength: 0 = off, 128 = maximum. */
   void setGrain(const u8 strength) { grain = strength; }
 
+  /**
+   * Depth of field: the image blurs progressively from focusDist to
+   * focusDist + range (world units from the camera; the projection near/far
+   * from RendererSettings convert them to GS depths). strength: 0 = off,
+   * 128 = the far image fully replaced by the blur.
+   */
+  void setDepthOfField(const float focusDist, const float range,
+                       const u8 strength) {
+    dofFocus = focusDist;
+    dofRange = range > 0.01F ? range : 0.01F;
+    dof = strength;
+  }
+
   u8 getBloom() const { return bloom; }
   u8 getGrain() const { return grain; }
+  u8 getDepthOfField() const { return dof; }
 
   /**
    * Color grading, applied between bloom and grain. Per channel:
@@ -80,17 +100,24 @@ class RendererCorePostFx {
 
   /**
    * Which effects a given apply() runs. Bloom, color grading and film grain
-   * can be composited at different points in the frame (tyra-editor: the UI
+   * can be composited at different points in the frame (TyraX: the UI
    * Editor screen stack) - e.g. bloom under the HUD, grain over everything.
    * Grading pairs with bloom (it colour-corrects the same scene image).
    */
-  enum Pass { PassBloom = 1, PassGrading = 2, PassGrain = 4, PassAll = 7 };
+  enum Pass {
+    PassBloom = 1,
+    PassGrading = 2,
+    PassGrain = 4,
+    PassDof = 8,
+    PassAll = 15
+  };
 
   /** True when any of the selected effects is active (apply draws something). */
   bool isEnabled(int passes = PassAll) const {
     return (((passes & PassBloom) && bloom != 0) ||
             ((passes & PassGrading) && hasGrading()) ||
-            ((passes & PassGrain) && grain != 0));
+            ((passes & PassGrain) && grain != 0) ||
+            ((passes & PassDof) && dof != 0 && dofFocus > 0.0F));
   }
 
   /**
@@ -101,8 +128,8 @@ class RendererCorePostFx {
    */
   void apply(int passes = PassAll);
 
-  // --- Custom full-screen passes (tyra-editor fork) ------------------------
-  // User-authored screen effects (tyra-editor "custom screen effects") are
+  // --- Custom full-screen passes (TyraX fork) ------------------------
+  // User-authored screen effects (TyraX "custom screen effects") are
   // written the same low-level way as bloom/grain: raw GS blits over the
   // framebuffer. applyCustom() runs one such pass, wrapping it in the exact
   // same GS state setup/teardown + DMA kick apply() uses, so the author only
@@ -144,10 +171,12 @@ class RendererCorePostFx {
   // One textured sprite: src rect (UV in 1/16 texel) -> dst rect (pixels).
   // texW/texH describe the source texture (for TW/TH and region clamping),
   // abe + alpha select the blend equation. Public so custom passes can blit.
+  // z: sprite depth for the pass's z-test (GEQUAL, writes masked); the
+  // default passes everywhere - depth of field uses real thresholds.
   qword_t* blit(qword_t* q, int srcVram, int srcBufW, int texW, int texH,
                 int u0, int v0, int u1, int v1, int dstVram, int dstBufW,
                 int x0, int y0, int x1, int y1, bool linear, bool wrap,
-                int abe, u64 alpha);
+                int abe, u64 alpha, u32 z = 0xFFFFFFFFu);
 
   // One untextured full-screen sprite: flat RGBAQ color, blended over the
   // frame by `alpha`; `fbmsk` bits protect framebuffer bits from the write
@@ -163,6 +192,9 @@ class RendererCorePostFx {
   RendererCoreGS* gs;
   packet2_t* packet;
   u8 bloom, grain;
+  u8 dof;         // depth-of-field strength, 0 = off
+  float dofFocus; // sharp up to this camera distance (world units)
+  float dofRange; // full blur reached at dofFocus + dofRange
   u8 gGain[3];   // per-channel multiplier, 128 = 1x
   s16 gLift[3];  // per-channel offset, -255..255
   u8 gMix[3];    // mix target color

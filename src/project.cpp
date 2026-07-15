@@ -219,7 +219,9 @@ static std::string objectJson(const SceneObject& o) {
              ? ", \"drawDistance\": " + fmtFloat(o.drawDistance)
              : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + o.modelPath + "\"") +
-        (o.materialPath.empty() ? "" : ", \"material\": \"" + o.materialPath + "\"");
+        (o.materialPath.empty() ? "" : ", \"material\": \"" + o.materialPath + "\"") +
+        // decal projection: off (flat quad) stays implicit
+        (o.decalProject ? ", \"decalProject\": true" : "");
     if (o.type == PrimitiveType::Player) {
         json += ", \"player\": { \"mode\": \"" +
                 std::string(o.playerMode == 1 ? "noclip" : "walk") +
@@ -347,7 +349,10 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << " }, \"clipping\": \"" << s.clipping
       << "\", \"terrainMaterial\": \"" << s.terrainMaterial
       << "\", \"postfx\": { \"bloom\": " << fmtFloat(s.bloom)
-      << ", \"grain\": " << fmtFloat(s.grain) << " }, \"fog\": { \"enabled\": "
+      << ", \"grain\": " << fmtFloat(s.grain)
+      << ", \"dofAmount\": " << fmtFloat(s.dofAmount)
+      << ", \"dofFocus\": " << fmtFloat(s.dofFocus)
+      << ", \"dofRange\": " << fmtFloat(s.dofRange) << " }, \"fog\": { \"enabled\": "
       << (s.fogEnabled ? "true" : "false") << ", \"color\": " << fmtVec3(s.fogColor)
       << ", \"start\": " << fmtFloat(s.fogStart) << ", \"end\": " << fmtFloat(s.fogEnd)
       << " }, \"highlight\": { \"usable\": "
@@ -403,6 +408,12 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
             if (const auto* pf = st->find("postfx")) {
                 if (const auto* v = pf->find("bloom")) s.bloom = clamp01((float)v->numberOr(0.0));
                 if (const auto* v = pf->find("grain")) s.grain = clamp01((float)v->numberOr(0.0));
+                if (const auto* v = pf->find("dofAmount"))
+                    s.dofAmount = clamp01((float)v->numberOr(0.0));
+                if (const auto* v = pf->find("dofFocus"))
+                    s.dofFocus = (float)v->numberOr(s.dofFocus);
+                if (const auto* v = pf->find("dofRange"))
+                    s.dofRange = (float)v->numberOr(s.dofRange);
             }
             if (const auto* fg = st->find("fog")) {
                 if (const auto* v = fg->find("enabled")) s.fogEnabled = v->boolOr(false);
@@ -480,6 +491,9 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
     if (s.overrides.postFx) {
         r.bloom = o.bloom;
         r.grain = o.grain;
+        r.dofAmount = o.dofAmount;
+        r.dofFocus = o.dofFocus;
+        r.dofRange = o.dofRange;
     }
     if (s.overrides.fog) {
         r.fogEnabled = o.fogEnabled;
@@ -611,6 +625,9 @@ std::string save(const Project& p) {
          << "    \"terrainMaterial\": \"" << p.settings.terrainMaterial << "\",\n"
          << "    \"bloom\": " << fmtFloat(p.settings.bloom) << ",\n"
          << "    \"grain\": " << fmtFloat(p.settings.grain) << ",\n"
+         << "    \"dofAmount\": " << fmtFloat(p.settings.dofAmount) << ",\n"
+         << "    \"dofFocus\": " << fmtFloat(p.settings.dofFocus) << ",\n"
+         << "    \"dofRange\": " << fmtFloat(p.settings.dofRange) << ",\n"
          << "    \"fogEnabled\": " << (p.settings.fogEnabled ? "true" : "false")
          << ",\n"
          << "    \"fogColor\": " << fmtVec3(p.settings.fogColor) << ",\n"
@@ -950,7 +967,19 @@ std::string save(const Project& p) {
     // emulatorPath / ps2LinkIp used to live here but are now machine-global
     // editor settings (editor.ini), no longer written per-project. The reader
     // still accepts them to migrate older projects into the global config.
-    json << ",\n  \"layout\": \"" << jsonEscape(p.windowLayout) << "\"";
+    // Named window layouts (docking arrangements) + the active one. Replaces the
+    // former single "layout" dump; the reader still migrates that legacy key.
+    json << ",\n  \"activeLayout\": " << p.activeLayout;
+    json << ",\n  \"layouts\": [";
+    for (size_t i = 0; i < p.windowLayouts.size(); ++i) {
+        const WindowLayout& L = p.windowLayouts[i];
+        json << (i ? ",\n" : "\n") << "    { \"name\": \"" << jsonEscape(L.name)
+             << "\", \"recipe\": " << L.recipe << ", \"open\": [";
+        for (size_t j = 0; j < L.openWindows.size(); ++j)
+            json << (j ? ", " : "") << "\"" << jsonEscape(L.openWindows[j]) << "\"";
+        json << "], \"ini\": \"" << jsonEscape(L.ini) << "\" }";
+    }
+    json << (p.windowLayouts.empty() ? "]" : "\n  ]");
     json << "\n}\n";
 
     // One file per object. Write every live object, then prune objects/*.json
@@ -1001,6 +1030,18 @@ void ensureObjectIds(Project& p) {
         }
 }
 
+void seedBuiltinLayouts(Project& p) {
+    p.windowLayouts.clear();
+    // recipe-backed, empty ini: App::buildLayoutRecipe arranges them the first
+    // time each is shown (see WindowLayout / LayoutRecipe).
+    p.windowLayouts.push_back({"Default", "", (int)LayoutRecipe::Default, {}});
+    p.windowLayouts.push_back(
+        {"Director", "", (int)LayoutRecipe::Director, {"cutscene"}});
+    p.windowLayouts.push_back(
+        {"Material Designer", "", (int)LayoutRecipe::Material, {"material"}});
+    p.activeLayout = 0;
+}
+
 std::string create(Project& out, const std::string& name, const std::string& parentDir,
                    const TerrainConfig& terrain, const std::string& preset) {
     if (name.empty()) return "Project name is empty";
@@ -1028,6 +1069,9 @@ std::string create(Project& out, const std::string& name, const std::string& par
     amb.name = "Default";
     out.ambiencePresets.push_back(amb);
     out.defaultAmbience = 0;
+
+    // Seed the built-in window layouts (Default/Director/Material Designer).
+    seedBuiltinLayouts(out);
 
     // Two presets: "fpp" (FPP game template with a single player entity) and
     // "empty" (orbit camera, no objects). Anything else is treated as empty.
@@ -1243,6 +1287,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         }
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
+        if (const auto* v = jo.find("decalProject")) o.decalProject = v->boolOr(false);
         // pre-materials projects had a per-object "texture" PNG - dropped
         if (const auto* pl = jo.find("player")) {
             if (const auto* v = pl->find("mode"))
@@ -1392,7 +1437,7 @@ std::string load(Project& out, const std::string& projectDir) {
         }
     }
     if (tyraPath.empty())
-        return "Not a tyra-editor project (no .tyra file): " + projectDir;
+        return "Not a TyraX project (no .tyra file): " + projectDir;
     std::ifstream f(tyraPath, std::ios::binary);
     if (!f) return "Cannot open project file: " + tyraPath.string();
     std::stringstream ss;
@@ -1508,6 +1553,12 @@ std::string load(Project& out, const std::string& projectDir) {
         auto clamp01 = [](float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
         if (const auto* v = s->find("bloom")) st.bloom = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("grain")) st.grain = clamp01((float)v->numberOr(0.0));
+        if (const auto* v = s->find("dofAmount"))
+            st.dofAmount = clamp01((float)v->numberOr(0.0));
+        if (const auto* v = s->find("dofFocus"))
+            st.dofFocus = (float)v->numberOr(st.dofFocus);
+        if (const auto* v = s->find("dofRange"))
+            st.dofRange = (float)v->numberOr(st.dofRange);
         if (const auto* v = s->find("fogEnabled"))
             st.fogEnabled = v->type == json::Value::Type::Bool && v->boolean;
         readVec3(s->find("fogColor"), st.fogColor);
@@ -2202,7 +2253,36 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = ed->find("emulatorPath")) out.emulatorPath = v->stringOr("");
         if (const auto* v = ed->find("ps2LinkIp")) out.ps2LinkIp = v->stringOr("");
     }
-    if (const auto* v = root.find("layout")) out.windowLayout = v->stringOr("");
+    // Window layouts. New format: a "layouts" array + "activeLayout" index.
+    // Legacy format: a single "layout" dump - migrate it into the built-in set
+    // so older projects gain Director/Material while keeping their arrangement.
+    if (const auto* layouts = root.find("layouts");
+        layouts && layouts->type == json::Value::Type::Array) {
+        for (const auto& jl : layouts->arr) {
+            WindowLayout L;
+            if (const auto* v = jl.find("name")) L.name = v->stringOr("");
+            if (const auto* v = jl.find("recipe")) L.recipe = (int)v->numberOr(-1);
+            if (const auto* v = jl.find("ini")) L.ini = v->stringOr("");
+            if (const auto* v = jl.find("open");
+                v && v->type == json::Value::Type::Array)
+                for (const auto& jo : v->arr)
+                    if (jo.type == json::Value::Type::String) L.openWindows.push_back(jo.str);
+            if (!L.name.empty()) out.windowLayouts.push_back(std::move(L));
+        }
+        if (const auto* v = root.find("activeLayout"))
+            out.activeLayout = (int)v->numberOr(0);
+    } else {
+        seedBuiltinLayouts(out);
+        if (const auto* v = root.find("layout")) {
+            const std::string legacy = v->stringOr("");
+            if (!legacy.empty()) out.windowLayouts[0].ini = legacy;  // keep old arrangement
+        }
+    }
+    // A project must always have at least one layout, and activeLayout must be
+    // in range (a hand-edited or corrupt file could break either).
+    if (out.windowLayouts.empty()) seedBuiltinLayouts(out);
+    if (out.activeLayout < 0 || out.activeLayout >= (int)out.windowLayouts.size())
+        out.activeLayout = 0;
 
     return "";
 }
@@ -2328,6 +2408,7 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\loading_data.gen.hpp" ||
             f.relativePath == "inc\\terrain_heights.gen.hpp" ||
             f.relativePath == "inc\\texture_data.gen.hpp" ||
+            f.relativePath == "inc\\decal_data.gen.hpp" ||
             f.relativePath == "inc\\save_system.gen.hpp" ||
             f.relativePath == "src\\save_system.gen.cpp" ||
             f.relativePath == "inc\\menu_data.gen.hpp") {
@@ -2346,9 +2427,20 @@ std::string refreshGenerated(const Project& p) {
                 std::stringstream content;
                 content << existing.rdbuf();
                 std::string firstLine = content.str().substr(0, content.str().find('\n'));
-                write = firstLine.find("Generated by tyra-editor") != std::string::npos ||
+                // Accept the current "Generated by TyraX" marker and the legacy
+                // "Generated by tyra-editor" one (projects created before the
+                // TyraX rebrand) so their ownable files keep syncing.
+                write = firstLine.find("Generated by TyraX") != std::string::npos ||
+                        firstLine.find("Generated by tyra-editor") != std::string::npos ||
                         templates::matchesLegacy(p, f.relativePath, content.str());
             }
+        } else if (f.relativePath == ".vscode\\extensions.json") {
+            // Static, machine-independent recommendation list: write it once so
+            // existing projects pick it up on the next build, but never clobber
+            // recommendations the user may have added (JSON has no room for the
+            // ownership-marker line the ownable sources above use).
+            std::error_code ec;
+            write = !fs::exists(path, ec);
         }
 
         if (write) {

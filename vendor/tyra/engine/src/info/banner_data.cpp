@@ -1,4 +1,4 @@
-// Modified by tyra-editor: splash logo replaced with resources/tyraX.png
+// Modified by TyraX: splash logo replaced with resources/tyraX.png
 // (256x128 RGBA, packed R + G<<8 + B<<16 + A<<24; the cyan X is pushed
 // toward azure-blue by pulling green down on bluish pixels. Regenerated,
 // not hand-edited - see the note in PROGRESS.md).

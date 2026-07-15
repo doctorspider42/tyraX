@@ -37,7 +37,7 @@
     LoadTyraSingleColor{ singleColor, singleColorEnabled, VU1_SINGLE_COLOR_ADDR, VU1_OPTIONS_ADDR }
     LoadTyraTags{ lodGifTag, testsTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR }
     FixColor{ singleColor }
-    ; Modified by tyra-editor: GS hardware fog (packed XYZF2)
+    ; Modified by TyraX: GS hardware fog (packed XYZF2)
     MakeTyraAdcMask{ adcMask }
 
 begin:
@@ -52,7 +52,7 @@ begin:
     iadd    kickAddress,        kickAddress,    vertexCount
 
     StoreTyraGifTags{ gifSetTag, lodGifTag, primTag, testsTag, destAddress }
-    ; Modified by tyra-editor: full options quad - y is still the lerp
+    ; Modified by TyraX: full options quad - y is still the lerp
     ; value, z/w carry the fog params
     LoadTyraFogParams{ interp, VU1_OPTIONS_ADDR }
     LoadTyraScaleValue{ scale, buffer }

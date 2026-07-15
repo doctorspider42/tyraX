@@ -42,8 +42,8 @@ Write-Host '== Building ==' -ForegroundColor Cyan
 cmake --build build
 if ($LASTEXITCODE -ne 0) { throw 'build failed' }
 
-Write-Host "OK: build\tyra-editor.exe" -ForegroundColor Green
+Write-Host "OK: build\tyrax-editor.exe" -ForegroundColor Green
 
 if ($Run) {
-    Start-Process -FilePath "$PSScriptRoot\build\tyra-editor.exe"
+    Start-Process -FilePath "$PSScriptRoot\build\tyrax-editor.exe"
 }

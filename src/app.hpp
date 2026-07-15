@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <map>
 #include <string>
@@ -78,6 +79,30 @@ private:
     void drawNewScriptModal();
     void drawNewSceneModal();
     void drawDeleteSceneModal();
+
+    // --- Window layouts (Layout menu; project_.windowLayouts) --------------
+    void drawLayoutMenu();     // the Layout top-level menu contents
+    void drawLayoutModals();   // New / Rename Layout popups
+    // Switch to layout `index`: fold the current on-screen arrangement into the
+    // layout being left, then apply the target (open its windows + schedule an
+    // ini load or a recipe rebuild). No-op without a project / out of range.
+    void switchLayout(int index);
+    // Arrange the dockspace from a built-in recipe (LayoutRecipe). Runs inside
+    // drawUI (needs the dockspace id) before any panel window is submitted.
+    void buildLayoutRecipe(int recipe, unsigned int dockspace);
+    // Apply the active layout after a switch/open: set optional-window open
+    // flags, then schedule the saved-ini load or the recipe rebuild.
+    void applyActiveLayout();
+    // Fold the live docking arrangement + open windows into the active layout.
+    void captureActiveLayout();
+    // Reset the active layout to its built-in recipe (drops manual edits). No-op
+    // for a user layout that has no recipe.
+    void resetActiveLayoutToRecipe();
+    // Optional editor windows a layout can carry open, keyed by stable string.
+    // showFlagForKey returns nullptr for an unknown key.
+    bool* showFlagForKey(const std::string& key);
+    void applyOpenWindows(const std::vector<std::string>& keys);  // set each flag = membership
+    std::vector<std::string> captureOpenWindows() const;
     void drawFlowGraphWindow();
     // Names used by same-type "Variables" nodes across every scene's graphs
     // (the int / bool / position namespaces are separate).
@@ -86,6 +111,11 @@ private:
     // absolute) is also opened in that window - jump straight to a script /
     // custom node while keeping the whole project in context.
     void openInVSCode(const std::string& file = "");
+    // Install/refresh the bundled TyraX VS Code extension (syntax highlighting +
+    // validation for .flownode/.screenfx) into the user's ~/.vscode/extensions.
+    // Best-effort and idempotent; called before openInVSCode and from the
+    // "Install VS Code extension" menu item. Returns a human-readable status.
+    std::string installVsCodeExtension();
     void drawOutputWindow();
     void drawDebugWindow();
     void drawDiscLayoutWindow();
@@ -248,9 +278,20 @@ private:
     // Material Editor (Tools > Material Editor): authors the .mtl files the
     // whole pipeline already consumes (newmtl/Kd/map_Kd) with a live preview.
     void drawMaterialEditorWindow();
-    void openMaterialEditor(const std::string& relPath);  // load + show
+    // load + show; modelHint (a res/models .obj) switches the preview to that
+    // model - passed by the Edit... button of Model objects
+    void openMaterialEditor(const std::string& relPath,
+                            const std::string& modelHint = "");
     bool loadMaterialFile(const std::string& relPath);    // disk -> matEd* staging
     void saveMaterialFile();  // matEd* staging -> disk + cache invalidation
+    // Copies the open .mtl (and every texture it references, so the copy is
+    // paint-safe) under a fresh name and opens the duplicate.
+    void duplicateMaterialAsset();
+    // Texture painting on the preview mesh (see drawMaterialEditorWindow).
+    bool matEdLoadPaintTarget(const std::string& texRel);  // PNG -> CPU pixels
+    void matEdSavePaintTarget();  // CPU pixels -> the PNG on disk (the "bake")
+    void matEdStamp(float u, float v);      // one brush splat at a surface UV
+    void matEdPaintTo(float u, float v);    // stamp + gap fill from the last UV
     void handleFileDrop(int count, const char** paths);
     void saveProject();
 
@@ -337,8 +378,9 @@ private:
     PendingAction pendingAction_ = PendingAction::None;
     bool openDiscardPopup_ = false;
     bool exitConfirmed_ = false;
-    // Set by attachProject(): apply project_.windowLayout at the next frame
-    // boundary (ImGui cannot reload settings between NewFrame and EndFrame).
+    // Set by attachProject()/switchLayout(): load the active layout's saved ini
+    // at the next frame boundary (ImGui cannot reload settings between NewFrame
+    // and EndFrame). Recipe-built layouts use recipeRebuildPending_ instead.
     bool layoutLoadPending_ = false;
     int selectedObject_ = -1;
     // Full multi-selection (indices into the active scene's objects, in click
@@ -350,6 +392,20 @@ private:
     // Layouts saved before the Properties window existed lack a slot for it;
     // when set, the next frame docks it under the Project panel.
     bool dockPropertiesPending_ = false;
+
+    // Window layouts (project_.windowLayouts). A switch/rebuild is applied at a
+    // frame boundary: recipeRebuildPending_ rebuilds the active layout from its
+    // built-in DockBuilder recipe (empty ini) in drawUI; layoutLoadPending_
+    // (above) loads a saved ini dump in the run() loop. After either, focus
+    // pendingFocusWindow_ once it exists so the layout's headline panel is on top.
+    bool recipeRebuildPending_ = false;
+    int recipeRebuildId_ = -1;
+    std::string pendingFocusWindow_;
+    // New / Rename Layout modal state (name buffer shared; error under the field).
+    bool openNewLayoutPopup_ = false;
+    bool openRenameLayoutPopup_ = false;
+    char layoutNameBuf_[64] = {0};
+    std::string layoutNameError_;
 
     // Transform gizmo: 0 = move, 1 = rotate, 2 = scale
     int gizmoOp_ = 0;
@@ -525,12 +581,102 @@ private:
     };
     std::vector<MatEdEntry> matEdMats_;
     int matEdSel_ = 0;         // selected entry within the file
-    int matEdShape_ = 1;       // preview: 0 box, 1 sphere, 2 cylinder, 3 cone
+    int matEdShape_ = 1;       // preview: 0 box, 1 sphere, 2 cylinder, 3 cone,
+                               // 4 = the .obj in matEdModel_
+    std::string matEdModel_;   // res/models .obj shown when matEdShape_ == 4
     bool matEdSpin_ = true;    // turntable
     float matEdAngle_ = 40.0f;
+    float matEdPitch_ = 30.0f;  // camera elevation (drag up/down on preview)
+    float matEdZoom_ = 1.0f;    // mouse-wheel dolly on the preview
     bool openNewMaterialPopup_ = false;
     char matEdNewName_[64] = "my-material";
     std::string matEdNewError_;
+
+    // Texture painting (Material Editor preview). Strokes splat into a CPU
+    // RGBA copy of the selected entry's texture, live-uploaded into the
+    // shared GL texture each frame; releasing the mouse writes the PNG back
+    // to disk - painting IS the bake, the flat texture is what ships (texbake
+    // still quantizes at build like any other PNG). Asset edits, so no
+    // project undo - a small per-stroke snapshot stack covers mistakes.
+    bool matEdPaint_ = false;          // paint mode toggle
+    int matEdBrushMode_ = 0;           // 0 = color, 1 = brush image, 2 = eraser
+    float matEdBrushColor_[3] = {0.8f, 0.2f, 0.15f};
+    float matEdBrushSize_ = 24.0f;     // radius in texture pixels
+    float matEdBrushOpacity_ = 1.0f;
+    // Random per-dab opacity variation, 0-100%: each dab's opacity is
+    // reduced by up to this fraction (organic, hand-worn strokes).
+    float matEdBrushOpacityVary_ = 0.0f;
+    std::string matEdBrush_;           // active brush: res/brushes/<x>.png
+    // Stamp spacing, % of the brush diameter between stamps along a stroke
+    // (GIMP semantics): low = a continuous line, >=100 = separate stamps.
+    float matEdBrushSpacing_ = 25.0f;
+    float matEdBrushAngle_ = 0.0f;     // dab rotation, degrees (brush mode)
+    bool matEdBrushRandomRot_ = false; // re-roll the rotation per dab
+    unsigned matEdRng_ = 22695477u;    // per-dab random rotation state
+    // Live dab preview: each hovered frame composites one UNCOMMITTED dab
+    // under the cursor (the active layer is backed up and restored right
+    // after), so you see where and how the stamp lands before clicking.
+    bool matEdGhostOn_ = true;
+    bool matEdGhostShown_ = false;  // composite currently holds a ghost dab
+    bool matEdGhostPass_ = false;   // stamping the ghost: fixed angle, no roll
+    std::string matEdPaintTexRel_;     // project-relative path of the loaded target
+    // Composite of the layer stack = the pixels the PNG on disk holds (what
+    // the PS2 loads). Layers are editor-side: painted strokes land on the
+    // ACTIVE layer, the composite is rebuilt after every change and the
+    // stack persists in a `<texture>.layers/` sidecar next to the PNG
+    // (skipped by texbake, so it never ships). One Background layer =
+    // no sidecar - untouched textures stay plain files.
+    std::vector<unsigned char> matEdPaintPixels_;  // RGBA composite, W*H*4
+    int matEdPaintW_ = 0, matEdPaintH_ = 0;
+    struct MatEdLayer {
+        std::string name = "Layer";
+        int blend = 0;         // 0 normal, 1 multiply, 2 add, 3 overlay
+        float opacity = 1.0f;
+        bool visible = true;
+        std::vector<unsigned char> pixels;  // RGBA, W*H*4 (straight alpha)
+    };
+    std::vector<MatEdLayer> matEdLayers_;  // bottom-up; [0] = Background
+    int matEdActiveLayer_ = 0;
+    // layers -> matEdPaintPixels_ + live GL upload of the shared texture
+    void matEdComposite();
+    // sidecar write: `<tex>.layers/layers.json` + layer PNGs; a single
+    // Background layer removes the sidecar instead (keep projects clean)
+    void matEdSaveLayers();
+    std::filesystem::path matEdLayersDirAbs() const;
+    bool matEdStroke_ = false;         // LMB stroke in progress
+    float matEdLastUV_[2] = {0, 0};    // previous sample point on the surface
+    bool matEdHaveLastUV_ = false;
+    float matEdStampResidual_ = 0.0f;  // px travelled since the last stamp
+    // The Material Editor's own undo (Ctrl+Z while the window is focused, or
+    // the Undo button): one stack of paint strokes, layer add/remove and
+    // committed property edits, in order. Separate from the project history -
+    // materials are assets, their edits go straight to disk.
+    struct MatEdUndoStep {
+        enum class Kind { Paint, Props, LayerAdd, LayerRemove };
+        Kind kind = Kind::Paint;
+        std::string texRel;  // paint target the step belongs to (paint/layer)
+        int layer = 0;       // Paint: painted layer; LayerAdd/Remove: index
+        std::vector<unsigned char> pixels;  // Paint: layer texels before it
+        MatEdLayer layerData;               // LayerRemove: the removed layer
+        std::vector<MatEdEntry> mats;       // Props: entries before the edit
+        int sel = 0;
+    };
+    std::vector<MatEdUndoStep> matEdUndo_;
+    std::vector<MatEdEntry> matEdPrevMats_;  // entries as of the last save/undo push
+    bool matEdFocused_ = false;  // window focus last frame (routes Ctrl+Z)
+    // removed: the layer being deleted (LayerRemove steps only)
+    void matEdPushUndo(MatEdUndoStep::Kind kind, int layer = 0,
+                       const MatEdLayer* removed = nullptr);
+    void matEdUndoLast();
+    std::vector<unsigned char> matEdPatternPixels_;  // decoded pattern cache
+    int matEdPatternW_ = 0, matEdPatternH_ = 0;
+    std::string matEdPatternLoaded_;   // path matEdPatternPixels_ came from
+    // "New texture" modal (paintable blank PNG next to the .mtl)
+    bool openNewTexturePopup_ = false;
+    char matEdNewTexName_[64] = "";
+    int matEdNewTexSize_ = 2;          // index: 64/128/256/512
+    float matEdNewTexColor_[3] = {1.0f, 1.0f, 1.0f};
+    std::string matEdNewTexError_;
     struct HudTexture {
         unsigned tex = 0;
         int w = 0, h = 0;
@@ -555,6 +701,15 @@ private:
 
     Viewport viewport_;
     Runner runner_;
+
+    // Projected-decal preview: world-space conforming meshes (decalproj) for the
+    // active scene's projecting decals, keyed by object id (pos3+uv2 per vertex).
+    // Recomputed only when a cheap signature of the scene changes, then pushed to
+    // the viewport with a bumped version (see updateProjectedDecals).
+    std::map<std::string, std::vector<float>> projectedDecals_;
+    uint64_t projectedDecalsSig_ = 0;
+    uint64_t projectedDecalsVersion_ = 0;
+    void updateProjectedDecals();
 
     // "New project" modal state
     bool openNewProjectPopup_ = false;
@@ -678,4 +833,9 @@ private:
     std::string scenePrefLoading_;   // staged SceneData::loadingScreen
 
     std::string statusMessage_;
+
+    // Install the bundled VS Code extension once per session (from openInVSCode);
+    // vsCodeExtStatus_ keeps the last outcome so it can be shown to the user.
+    bool vsCodeExtInstallTried_ = false;
+    std::string vsCodeExtStatus_;
 };

@@ -50,7 +50,7 @@ void DynPipVU1Program::addStandardBufferDataToPacket(packet2_t* packet,
   {
     packet2_add_float(packet, 2048.0F);  // scale
     packet2_add_float(packet, 2048.0F);  // scale
-    // Modified by tyra-editor: 16x the upstream Z scale - packed XYZF2
+    // Modified by TyraX: 16x the upstream Z scale - packed XYZF2
     // reads Z from bits 4-27 (see stapip_vu1_program.cpp).
     packet2_add_float(packet, static_cast<float>(0xFFFFFF) / 2.0F);  // scale
     packet2_add_u32(packet, bag->count);  // vertex count

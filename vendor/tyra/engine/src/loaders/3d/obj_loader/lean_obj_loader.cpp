@@ -5,7 +5,7 @@
 #-----------------------------------------------------------------------
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
-# Added by tyra-editor: lightweight OBJ+MTL loader for editor-built games.
+# Added by TyraX: lightweight OBJ+MTL loader for editor-built games.
 # Parsing semantics mirror the editor's src/objparser.cpp - keep in sync.
 */
 
