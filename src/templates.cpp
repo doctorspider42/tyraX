@@ -616,6 +616,12 @@ class TerrainGame : public Tyra::Game {
   // Picks the third-person avatar's locomotion clip from its planar speed
   // (fraction of full walk speed) and grounded state, cross-fading on change.
   void drivePlayerAnim(RuntimeObject& body, float speedFrac, bool grounded);
+  // Spring arm: the distance down the boom (from the head, along d) at which
+  // the camera would enter geometry or the terrain. camBoom is the smoothed
+  // boom length actually used - it snaps in on a hit and eases back out.
+  float springArm(float px, float py, float pz, float dx, float dy, float dz,
+                  float maxDist) const;
+  float camBoom = 0;
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
@@ -976,6 +982,12 @@ class TerrainGame : public Tyra::Game {
   // Picks the third-person avatar's locomotion clip from its planar speed
   // (fraction of full walk speed) and grounded state, cross-fading on change.
   void drivePlayerAnim(RuntimeObject& body, float speedFrac, bool grounded);
+  // Spring arm: the distance down the boom (from the head, along d) at which
+  // the camera would enter geometry or the terrain. camBoom is the smoothed
+  // boom length actually used - it snaps in on a hit and eases back out.
+  float springArm(float px, float py, float pz, float dx, float dy, float dz,
+                  float maxDist) const;
+  float camBoom = 0;
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
@@ -3498,6 +3510,7 @@ void TerrainGame::loadScene(int sceneIndex) {
     // object is a rendered avatar only in this mode - in FPP/noclip its model
     // (if any) is never built, so its runtime object stays invisible here.
     entFaceYaw = entYaw;
+    camBoom = PLAYER_CAM_DIST;  // start fully extended, not easing out from 0
     runtimeObjects[PLAYER_INDEX].visible = (PLAYER_MODE == 2);
     if (PLAYER_MODE == 2) {
       // Idle/walk fall back to the model's first clip when unset; run/jump are
@@ -4272,6 +4285,134 @@ void TerrainGame::updateAndRenderHudTexts() {
   }
 }
 
+// Spring arm (third person only): how far the camera may sit down the boom
+// before it would end up inside geometry or under the terrain. Casts the boom
+// from the pivot (the avatar's head) toward the desired eye and returns the
+// first blocked distance, so the caller can pull the camera to the collision
+// point instead of letting it punch through walls.
+//
+// Budget-driven shape - this runs every frame, so:
+//  - AABB only, even for mesh-collision objects. Camera collision needs no
+//    triangle precision (stopping a few cm early is invisible), and a slab
+//    test is a few compares with no sqrt, vs walking a collider's triangles.
+//  - The boom is short (PLAYER_CAM_DIST), so a 6-compare broad phase (boom
+//    segment AABB vs object AABB) rejects nearly every object before any
+//    division happens; only real candidates reach the slab test.
+//  - Objects marked collision "none" and the markers/visual-only types are
+//    skipped - including the avatar itself (type 6), which must never block
+//    its own camera.
+//  - The terrain march is a fixed 8 steps + 4 bisections over the distance
+//    that SURVIVED the object pass (constant cost, and shorter once an object
+//    already pulled the camera in).
+constexpr float CAM_RADIUS = 0.3F;    // eye clearance kept off surfaces; must
+                                      // exceed the 0.15 near clip
+constexpr float CAM_MIN_DIST = 0.6F;  // never pull closer than this to the head
+float TerrainGame::springArm(float px, float py, float pz, float dx, float dy,
+                             float dz, float maxDist) const {
+  const float r = CAM_RADIUS;
+  float best = maxDist;
+
+  // Broad-phase key: the boom segment's AABB, expanded by the camera radius.
+  const float qx = px + dx * maxDist, qy = py + dy * maxDist,
+              qz = pz + dz * maxDist;
+  const float sminX = (px < qx ? px : qx) - r, smaxX = (px > qx ? px : qx) + r;
+  const float sminY = (py < qy ? py : qy) - r, smaxY = (py > qy ? py : qy) + r;
+  const float sminZ = (pz < qz ? pz : qz) - r, smaxZ = (pz > qz ? pz : qz) + r;
+
+  for (const RuntimeObject& o : runtimeObjects) {
+    if (!o.active || !o.visible) continue;
+    const int ty = o.data.type;
+    if (ty == 4 || ty == 6 || ty == 7 || ty == 8 || ty == 9 || ty == 11 ||
+        ty == 13 || ty == 14)
+      continue;  // markers / emitters / decals / the avatar - not blockers
+    if (o.data.collision == 2) continue;  // "none": the camera passes through
+
+    // World AABB, sized exactly like box-mode player collision (the real mesh
+    // or baked anim AABB when the object has one, else the unit scale box).
+    const GameModel* gm = nullptr;
+    if (ty == 5 && o.data.model >= 0 && o.data.model < (int)gameModels.size())
+      gm = &gameModels[o.data.model];
+    const SkelModel* anim = nullptr;
+    if (ty == 5 && o.data.animModel >= 0 &&
+        o.data.animModel < (int)gameAnimModels.size())
+      anim = gameAnimModels[o.data.animModel].src.get();
+    float cx = o.data.position[0], cy = o.data.position[1],
+          cz = o.data.position[2];
+    float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
+          ez = 0.5F * o.data.scale[2];
+    const float* mn = gm ? gm->mn : (anim ? anim->min : nullptr);
+    const float* mx = gm ? gm->mx : (anim ? anim->max : nullptr);
+    if (mn && mx) {
+      cx += 0.5F * (mn[0] + mx[0]) * o.data.scale[0];
+      cy += 0.5F * (mn[1] + mx[1]) * o.data.scale[1];
+      cz += 0.5F * (mn[2] + mx[2]) * o.data.scale[2];
+      ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
+      ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
+      ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
+    }
+    const float bminX = cx - ex - r, bmaxX = cx + ex + r;
+    const float bminY = cy - ey - r, bmaxY = cy + ey + r;
+    const float bminZ = cz - ez - r, bmaxZ = cz + ez + r;
+    if (bmaxX < sminX || bminX > smaxX || bmaxY < sminY || bminY > smaxY ||
+        bmaxZ < sminZ || bminZ > smaxZ)
+      continue;  // broad phase: nowhere near the boom
+
+    // Slab test against the expanded box.
+    float t0 = 0.0F, t1 = best;
+    bool miss = false;
+    auto slab = [&](float o1, float d1, float lo1, float hi1) {
+      if (miss) return;
+      if (d1 > 1e-6F || d1 < -1e-6F) {
+        const float inv = 1.0F / d1;
+        float ta = (lo1 - o1) * inv, tb = (hi1 - o1) * inv;
+        if (ta > tb) {
+          const float s = ta;
+          ta = tb;
+          tb = s;
+        }
+        if (ta > t0) t0 = ta;
+        if (tb < t1) t1 = tb;
+      } else if (o1 < lo1 || o1 > hi1) {
+        miss = true;  // parallel and outside the slab
+      }
+    };
+    slab(px, dx, bminX, bmaxX);
+    slab(py, dy, bminY, bmaxY);
+    slab(pz, dz, bminZ, bmaxZ);
+    if (miss || t0 > t1) continue;
+    // t0 < 0 = the pivot is already inside this (inflated) box - e.g. the
+    // player brushing a wall. Ignore it rather than collapse the camera onto
+    // the head; a box we are standing in cannot usefully block the boom.
+    if (t0 < 0.0F) continue;
+    if (t0 < best) best = t0;
+  }
+
+  // Terrain: march the surviving distance, then bisect to tighten the hit.
+  // `- r` keeps the eye a radius clear of the ground, and `lo` (the last
+  // known-free sample) is the conservative answer.
+  const float step = best * 0.125F;
+  if (step > 1e-4F) {
+    float prev = 0.0F;
+    for (int i = 1; i <= 8; ++i) {
+      const float t = step * i;
+      if (py + dy * t - r <= terrainHeightAt(px + dx * t, pz + dz * t)) {
+        float lo = prev, hi = t;
+        for (int k = 0; k < 4; ++k) {
+          const float mid = (lo + hi) * 0.5F;
+          if (py + dy * mid - r <= terrainHeightAt(px + dx * mid, pz + dz * mid))
+            hi = mid;
+          else
+            lo = mid;
+        }
+        best = lo;
+        break;
+      }
+      prev = t;
+    }
+  }
+  return best;
+}
+
 bool TerrainGame::updatePlayerEntity() {
   if (PLAYER_INDEX < 0) return false;
 
@@ -4361,16 +4502,31 @@ bool TerrainGame::updatePlayerEntity() {
       entFaceYaw += d * k;
     }
 
-    // Camera boom: eye sits PLAYER_CAM_DIST behind/above the head along the
-    // orbit direction; pull it up so it never dips under the terrain.
+    // Camera boom: the eye rides PLAYER_CAM_DIST behind/above the head along
+    // the orbit direction. The spring arm shortens the boom to the first thing
+    // it hits so the camera never enters geometry or the terrain. Classic
+    // spring behavior: pull IN instantly (a late pull-in means a visible clip
+    // through a wall) and ease back OUT, so leaving cover doesn't snap.
     const float headY = entY + PLAYER_CAM_HEIGHT;
     const float cp = cosf(entPitch);
     const float boomX = sinf(entYaw) * cp;
     const float boomZ = cosf(entYaw) * cp;
     const float boomY = sinf(entPitch);
-    float eyeX = entX - boomX * PLAYER_CAM_DIST;
-    float eyeY = headY - boomY * PLAYER_CAM_DIST;
-    float eyeZ = entZ - boomZ * PLAYER_CAM_DIST;
+    float want =
+        springArm(entX, headY, entZ, -boomX, -boomY, -boomZ, PLAYER_CAM_DIST);
+    if (want < CAM_MIN_DIST) want = CAM_MIN_DIST;
+    if (want < camBoom) {
+      camBoom = want;  // blocked: snap in, never clip
+    } else {
+      float k = 0.06F * g_frameScale;  // ~2 s to close a full-length boom
+      if (k > 1.0F) k = 1.0F;
+      camBoom += (want - camBoom) * k;
+    }
+    float eyeX = entX - boomX * camBoom;
+    float eyeY = headY - boomY * camBoom;
+    float eyeZ = entZ - boomZ * camBoom;
+    // Safety net: the march samples the heightmap discretely, so a sharp ridge
+    // between two samples could still leave the eye underground.
     const float minEyeY = terrainHeightAt(eyeX, eyeZ) + 0.4F;
     if (eyeY < minEyeY) eyeY = minEyeY;
     cameraPosition = Vec4(eyeX, eyeY, eyeZ);

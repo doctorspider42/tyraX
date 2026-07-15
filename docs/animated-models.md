@@ -129,6 +129,16 @@ in *Properties*:
 | **Run at** | Planar-speed fraction (of full walk speed) where the run clip takes over. |
 | **Distance / Height / Turn rate** | Camera boom length, look-at height above the feet, and how fast the avatar turns to face its movement direction. |
 
+The camera rides a **spring arm**: each frame the boom is cast from the avatar's
+head toward the desired eye, and the camera stops at the first blocker so it
+never enters walls, props or the terrain - snapping in on a hit (a late pull-in
+would show a clipped frame) and easing back out when the way is clear.
+*Distance* is therefore the maximum boom length, not a guarantee. Objects set to
+collision **none** are ignored by the arm (the camera passes through them),
+which doubles as the opt-out for scenery that should never shove the camera.
+The arm tests **AABBs only**, even for mesh-collision models - camera collision
+needs no triangle precision, and the cost has to fit a per-frame EE budget.
+
 The runtime auto-selects idle/walk/run/jump from the player's **actual planar
 speed** each frame, cross-fades on change (0.18 s) and matches playback speed to
 the movement so the feet do not slide - **no state machine, no scripting**. The

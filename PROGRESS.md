@@ -9,6 +9,44 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (101) **Third-person camera spring arm — the camera stops at geometry instead
+  of punching through it.** (100) left the third-person boom naive: it only
+  clamped the eye above the terrain height *at the eye point*, so any wall,
+  prop or ridge between the avatar and the camera was simply passed through
+  (and the avatar disappeared behind it). `TerrainGame::springArm` now casts
+  the boom from the pivot (the avatar's head) toward the desired eye and
+  returns the first blocked distance; the camera stops there. Classic spring
+  behavior: **snap in** on a hit (easing in would show a clipped frame) and
+  **ease back out** when clear (`camBoom`, ~2 s to re-extend a full boom), so
+  leaving cover doesn't pop. `CAM_RADIUS` (0.3, deliberately > the 0.15 near
+  clip) keeps the eye off the surface and inflates the boxes so corners keep
+  clearance; `CAM_MIN_DIST` (0.6) stops the camera collapsing into the head.
+  **The shape is entirely budget-driven** (it runs every frame): **AABBs only,
+  even for mesh-collision models** — camera collision needs no triangle
+  precision (stopping a few cm early is invisible) and a slab test is a few
+  compares with no sqrt, vs walking a collider's triangle list; the boom is
+  short, so a **6-compare broad phase** (boom-segment AABB vs object AABB)
+  rejects nearly every object before a single division; markers/decals/emitters,
+  objects set to collision **none** (the author's opt-out) and **the avatar
+  itself (type 6 — it must never block its own camera)** are skipped outright;
+  and the terrain is a **fixed 8-step march + 4 bisections over the distance
+  that survived the object pass** (constant cost, and shorter once an object
+  already pulled the camera in). Boxes containing the pivot are ignored rather
+  than collapsing the camera (the player brushing a wall). The old
+  `terrainHeightAt` eye clamp stays as a cheap safety net for ridges falling
+  between march samples. Object AABBs are sized exactly like box-mode player
+  collision (real mesh / baked anim AABB when present), so the camera agrees
+  with what the player collides against. **Verified:** editor builds clean; the
+  scratch third-person project + a 12x4x0.5 wall 3 units behind the player
+  compiles in Docker and boots in PCSX2 — **A/B in-engine**: wall at z=-3 pulls
+  the boom 6 → ~2.45 (stops 0.3 in front of the wall face; the avatar fills the
+  frame and is never occluded), wall moved to z=-22 returns the boom to the full
+  6 (identical to the no-wall baseline) — i.e. **it pulls in only when actually
+  blocked, no false positives**. Both at a locked 50 FPS with EE% unchanged
+  within noise (35% → 36-37% *with* the extra wall to render), so the arm's cost
+  does not register. Camera feel while running along walls still wants a
+  hands-on pad test.
+
 - (100) **Third-person player + cutscene "Hide player".** Adds a third
   `playerMode` (2 = third person) alongside Walk (FPP) and Noclip, plus a
   per-sequence **Hide player** flag in the Cutscene Director. **Design goal was
