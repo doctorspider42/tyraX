@@ -87,7 +87,15 @@ ugly patches up close. It fades back in as you step away.
   with `FIX = strength · 128` when the bag sets
   `PipelineInfoBag::additiveBlendFix`. No FINISH barriers, no practical limit
   on reflective mesh count. (The dynamic pipeline keeps the original macros
-  and knows nothing of the ALPHA qword.)
+  and knows nothing of the ALPHA qword.) Consequence for everything drawn
+  AFTER the 3D scene: the GS `ALPHA` register holds whatever the last mesh
+  set, so the 2D sprite path pins the standard source-alpha equation in
+  every sprite packet (`RendererCore2D::render`) — without it the debug
+  HUD font drew additively after a reflective frame and its black outline
+  vanished (found on real hardware).
+- The dynamic env map is re-rendered **every second frame** (the GT3 cadence
+  — the VRAM target persists, and a 25/30 Hz refresh of a blurry 128 px
+  reflection is imperceptible), halving the pass's per-frame cost.
 
 The editor's GLSL twin lives in the viewport fragment shader (`uReflOn` block)
 — flat normals from screen-space derivatives, the same camera-basis formula.

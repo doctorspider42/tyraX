@@ -9,6 +9,29 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (111) **Real-hardware follow-ups: the 2D ALPHA leak (vanishing HUD font
+  outline) + GT3-cadence env map (95 -> 107 FPS).** The owner's console run
+  of the reflections showcase surfaced two things. (1) The debug HUD font
+  lost its black outline on reflective frames: the in-band per-mesh ALPHA
+  (105) leaves the GS `ALPHA` register holding whatever the LAST 3D mesh
+  set - after an additive env pass everything drawn through the 2D sprite
+  path (which never touched ALPHA, it inherited state) blended additively,
+  and black texels add nothing. `RendererCore2D::render` now pins the
+  standard source-alpha equation in every sprite packet - in-band on
+  PATH3, no syncs. (2) The FPS dip when large reflective spheres cross the
+  screen edges (SCENE 18.35 ms on hardware vs ~8 in PCSX2 - the emulator
+  undercounts the clip programs' per-triangle cost) is trimmed with the
+  other GT3 trick: the dynamic env map now re-renders every SECOND frame
+  (`envMapTick` in renderScene; the VRAM target persists between hits, and
+  a 25/30 Hz refresh of a blurry 128px reflection is imperceptible - the
+  first frame always renders, fresh VRAM). **Verified** (Layer 3, PCSX2 SW
+  renderer, debug + vsync off): bench envmap phase 1.6 -> 0.7 ms avg,
+  frame 9.75 ms (95 -> 107 FPS); the HUD font keeps its dark outline over
+  the bright sunset sky (the exact condition that exposed the leak on
+  hardware); dynamic spheres reflect the current sky phase with no visible
+  update lag. The edge-crossing clip cost itself is the remaining lever on
+  that spot - authoring-side (hero-sphere detail) or a future LOD; noted,
+  not attempted here.
 - (110) **Reflections-map perf: 46 -> 95 FPS by putting cull_tce back in the
   VU1-clipping program set.** The user's report (an average map hits ~100
   FPS with vsync off, the reflections showcase ~25) profiled to the env

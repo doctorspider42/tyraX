@@ -4829,8 +4829,13 @@ void TerrainGame::renderScene() {
   // engine's 128x128 VRAM target from a level wide-FOV view along the
   // camera forward - the GT3 trick, reflections follow the live sky (script
   // retints included). Runs before any main-frame 3D so the raster redirect
-  // brackets only the dome submission.
-  if (g_dynamicEnvUsers > 0 && skyDome.bag) {
+  // brackets only the dome submission. Refreshed every SECOND frame (also
+  // the GT3 trick): the target persists in VRAM, and a 25/30 Hz update of
+  // a blurry 128px reflection is imperceptible while the pass costs a
+  // couple of ms per hit on real hardware.
+  static bool envMapTick = false;  // first frame MUST render (fresh VRAM)
+  envMapTick = !envMapTick;
+  if (g_dynamicEnvUsers > 0 && skyDome.bag && envMapTick) {
     auto& core = engine->renderer.core;
     skyMat.identity();
     skyMat.data[12] = cameraPosition.x;
