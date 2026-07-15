@@ -254,9 +254,19 @@ fanLoop:
         iaddiu  fanNext,    fanPtr,     2
         ibeq    fanNext,    srcEnd,     triNext
 
-        EmitClipVertexD{ srcBase, destAddress, scale, fogParams }
-        EmitClipVertexD{ fanPtr,  destAddress, scale, fogParams }
-        EmitClipVertexD{ fanNext, destAddress, scale, fogParams }
+        ; one shared emitter instance - the corner pointer rotates
+        ; srcBase -> fanPtr -> fanNext across three iterations. Saves ~2/3
+        ; of the emit code vs three inlined copies: the freed micro memory
+        ; is what lets cull_tce join the VU1-clipping program set.
+        iadd    emitPtr,    srcBase,    vi00
+        iadd    emitNxt,    fanPtr,     vi00
+        iaddiu  emitCnt,    vi00,       3
+fanEmitLoop:
+        EmitClipVertexD{ emitPtr, destAddress, scale, fogParams }
+        iadd    emitPtr,    emitNxt,    vi00
+        iadd    emitNxt,    fanNext,    vi00
+        iaddi   emitCnt,    emitCnt,    -1
+        ibgtz   emitCnt,    fanEmitLoop
         iaddiu  outCount,   outCount,   3
 
         iadd    fanPtr,     fanNext,    vi00

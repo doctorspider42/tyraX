@@ -114,15 +114,6 @@ void StaPipCore::render(StaPipBag* bag) {
   TYRA_ASSERT(!bag->texture || !bag->texture->coordinatesAreNormals ||
                   bag->lighting == nullptr,
               "Env (matcap) bags do not support lighting!");
-  // In VU1-clipping mode env bags always take the subpackage->clip route
-  // (see envForceClip below), which needs per-package frustum bboxes.
-  TYRA_ASSERT(!qbufferRenderer.isVU1ClippingEnabled() || !bag->texture ||
-                  !bag->texture->coordinatesAreNormals ||
-                  (bag->info->fullClipChecks &&
-                   bag->info->frustumCulling ==
-                       PipelineInfoBagFrustumCulling_Precise),
-              "Env (matcap) bags in VU1-clipping mode require precise "
-              "frustum culling and full clip checks!");
   TYRA_ASSERT(bag->info->transformationType == TyraMVP ||
                   (!bag->info->fullClipChecks && !frustumCull),
               "Please disable clip checks and frustum culling if not using MVP "
@@ -213,25 +204,9 @@ void StaPipCore::render(StaPipBag* bag) {
   auto checkNoClipNo =  // cull all
       !frustumCull && !bag->info->fullClipChecks;
 
-  // Modified by TyraX: env bags in VU1-clipping mode always go through the
-  // clip_tce program at clip occupancy - cull_tce is not resident in that
-  // program set (micro-memory budget, see setProgramsCache), and a
-  // full-occupancy package could expand past the buffer half when the
-  // program's 0.9w guard band cuts triangles the EE classified as fully
-  // inside the exact frustum.
-  const bool envForceClip = qbufferRenderer.isVU1ClippingEnabled() &&
-                            bag->texture != nullptr &&
-                            bag->texture->coordinatesAreNormals;
-
   // Modified by TyraX: packager.create returns pooled arrays - no
   // delete[] here (see StaPipBagPackager).
-  if (envForceClip) {
-    u16 packagesCount = 0;
-    auto* subpkgs = packager.create(&packagesCount, bag, clipPackageSize());
-    Verbose("Material - env, forced clip. Subpackages: ", packagesCount);
-    renderSubpkgs(subpkgs, packagesCount, true);
-  } else if (checkYesFrustumInClipYes || checkYesFrustumInClipNo ||
-             checkNoClipNo) {
+  if (checkYesFrustumInClipYes || checkYesFrustumInClipNo || checkNoClipNo) {
     u16 packagesCount = 0;
     auto* biggerPkgs = packager.create(&packagesCount, bag, maxVertCount);
     Verbose("Material - in frustum. Pkgs: ", packagesCount,
@@ -284,8 +259,7 @@ void StaPipCore::renderPkgs(StaPipBagPackage* packages, const bool& doClip,
   }
 }
 
-void StaPipCore::renderSubpkgs(StaPipBagPackage* subpkgs, u16 count,
-                               const bool& forceClip) {
+void StaPipCore::renderSubpkgs(StaPipBagPackage* subpkgs, u16 count) {
   // Modified by TyraX: reused across calls (the renderer is
   // single-threaded) - the two per-call heap allocations were measurable
   // next to the pooled packager.
@@ -293,19 +267,6 @@ void StaPipCore::renderSubpkgs(StaPipBagPackage* subpkgs, u16 count,
   static std::vector<u16> loadedIndexes;
   doneIndexes.clear();
   loadedIndexes.clear();
-
-  // Modified by TyraX: forceClip (env bags in VU1-clipping mode) skips the
-  // in-frustum cull coalescing - the cull program for this bag type is not
-  // resident, every surviving subpackage goes to the clip program.
-  if (forceClip) {
-    for (u16 i = 0; i < count; i++) {
-      if (subpkgs[i].isInFrustum == OUTSIDE_FRUSTUM) continue;
-      auto buffer = qbufferRenderer.getBuffer();
-      buffer->fillByCopy1By3(subpkgs[i]);
-      qbufferRenderer.clip(buffer);
-    }
-    return;
-  }
 
   // Check if some subpkgs are full in frustum
   for (u16 i = 0; i < count; i++) {

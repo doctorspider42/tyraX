@@ -9,6 +9,35 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (110) **Reflections-map perf: 46 -> 95 FPS by putting cull_tce back in the
+  VU1-clipping program set.** The user's report (an average map hits ~100
+  FPS with vsync off, the reflections showcase ~25) profiled to the env
+  second pass: an owned-copy COP0 breakdown of renderScene on the showcase
+  (debug, SW renderer, vsync off) read envmap 1.7 / dome 0.13 / terrain
+  1.43 / objects 16.5 ms - of which the reflective env pass was **14.2
+  ms**, ~6x its own base geometry (2.3 ms). Cause: (109)'s micro-memory
+  compromise force-routed every env-bag package through clip_tce at 1/5
+  occupancy with per-subpackage copies, and the EE then waited on the much
+  heavier per-triangle clip program for geometry that was 95% fully
+  in-frustum (A/B: the same scene on the EE clipper ran the env pass in
+  2.75 ms through cull_tce). Fix, two parts: (a) all five clip programs now
+  share ONE fan-emitter instance in a rotating 3-iteration loop
+  (`fanEmitLoop`; the corner pointer walks srcBase -> fanPtr -> fanNext)
+  instead of three inlined emit copies - frees 116 instructions; (b)
+  upstream's `createProgramsCache` padded every program with "+1"
+  micro-memory word although `getProgramSize()` is already even-rounded
+  (MPG uploads in 64-bit pairs) - packing back to back frees 10 more. Both
+  together fit the full 10-program vu1 set (2036 <= the 2042 ceiling; the
+  overflow assert fired correctly at 2046 during bring-up), so env bags now
+  route like any textured bag: in-frustum -> cull_tce, crossing ->
+  clip_tce, and StaPipCore's forced-clip branch is deleted. **Verified**
+  (Layer 3, PCSX2 SW renderer, debug + vsync off): showcase env pass 14.2
+  -> 2.56 ms, whole frame 21.2 -> 11.35 ms (46 -> 95 FPS), reflections
+  visually intact; the close-up screen-edge repro (clipped reflective
+  sphere) renders identically clean after the emitter rewrite; and a fresh
+  98k clipbench (fpp, terrain detail 128, vu1) still reads **120 FPS** -
+  the fan loop's few extra instructions per *clipped* triangle don't move
+  the general-path baseline.
 - (109) **M4: VU1 clipping is the default + the clip_tce env program.**
   Owner decision after in-situ testing: the close-up/screen-edge corruption
   on reflective geometry (107/108 saga) does not occur on the VU1 clipping

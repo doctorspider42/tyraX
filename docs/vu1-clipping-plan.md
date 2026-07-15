@@ -173,14 +173,22 @@ Retired / simplified:
   computes the sphere-map ST from the object-space normal *before* the
   Sutherland–Hodgman pass (so ST lerps through cuts like a regular texture
   coordinate), letting reflective materials run in VU1-clipping mode — the
-  EE-computed-ST fallback in codegen is deleted. Micro-memory forced a
-  restructure: cull_tce + clip_tce on top of the 8-program vu1 set is 2162
-  instructions against the ~2032 ceiling, so the vu1 resident set carries
-  ONLY clip_tce (9 programs: cull ×4 + clip ×4 + clip_tce; the EE set keeps
-  10 with cull_tce + as_is_tce) and `StaPipCore` force-routes every env-bag
-  package through the clip program at clip occupancy (`envForceClip`). The
-  EE `StaPipClipper`/`PlanesClipAlgorithm` are NOT deleted yet — that waits
-  for the still-outstanding hardware pass (clipbench PERF + the
+  EE-computed-ST fallback in codegen is deleted. Micro-memory: cull_tce +
+  clip_tce on top of the 8-program vu1 set measured 2162 instructions
+  against the 2042 ceiling (2048 − the 6-instruction draw-finish helper).
+  First attempt shipped a 9-program set (no cull_tce) with every env-bag
+  package force-routed through clip_tce at clip occupancy — correct but
+  ~5× slower on the env pass (14.2 ms vs 2.7 ms on the reflections
+  showcase: 1/5-occupancy subpackages, copies, and the clip program's
+  per-triangle work on VU1 that the EE then waits on). The shipped fix
+  instead shrinks all five clip programs: the fan-triangulation emitter is
+  ONE macro instance in a rotating 3-iteration loop (`fanEmitLoop`,
+  corner pointer rotates srcBase → fanPtr → fanNext) instead of three
+  inlined copies, freeing enough micro memory for the full 10-program vu1
+  set (cull ×4 + clip ×4 + cull_tce + clip_tce) — env bags route exactly
+  like any textured bag (in-frustum → cull_tce, crossing → clip_tce). The
+  EE `StaPipClipper`/`PlanesClipAlgorithm` are NOT deleted yet — that
+  waits for the still-outstanding hardware pass (clipbench PERF + the
   SW-renderer-vs-hardware ADC check on a real console).
 - **M5 — companion work (independent, do in parallel). DONE 2026-07-15**
   (in PCSX2 terms). Package array pooling landed earlier (PROGRESS 79,
