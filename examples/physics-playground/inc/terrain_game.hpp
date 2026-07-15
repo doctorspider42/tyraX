@@ -257,6 +257,20 @@ class TerrainGame : public Tyra::Game {
   // camera when present. Returns false when the scene has no player.
   bool updatePlayerEntity();
   float entX = 0, entY = 0, entZ = 0, entVelY = 0, entYaw = 0, entPitch = 0;
+  // Third-person only: entYaw/entPitch orbit the camera, entFaceYaw is the
+  // avatar's own facing (turns toward the walk direction). Clip indices are
+  // resolved from the model's clip table at scene load; -1 = unmapped.
+  float entFaceYaw = 0;
+  int playerIdleClip = -1, playerWalkClip = -1, playerRunClip = -1, playerJumpClip = -1;
+  // Picks the third-person avatar's locomotion clip from its planar speed
+  // (fraction of full walk speed) and grounded state, cross-fading on change.
+  void drivePlayerAnim(RuntimeObject& body, float speedFrac, bool grounded);
+  // Spring arm: the distance down the boom (from the head, along d) at which
+  // the camera would enter geometry or the terrain. camBoom is the smoothed
+  // boom length actually used - it snaps in on a hit and eases back out.
+  float springArm(float px, float py, float pz, float dx, float dy, float dz,
+                  float maxDist) const;
+  float camBoom = 0;
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.

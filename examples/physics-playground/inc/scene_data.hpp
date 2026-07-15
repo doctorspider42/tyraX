@@ -89,6 +89,15 @@ constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
 constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {1.8F};
 constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};
 constexpr bool PLAYER_CAN_JUMPS[SCENE_COUNT] = {true};
+constexpr float PLAYER_RUN_THRESHOLDS[SCENE_COUNT] = {0.55F};
+constexpr float PLAYER_CAM_DISTS[SCENE_COUNT] = {6.0F};
+constexpr float PLAYER_CAM_HEIGHTS[SCENE_COUNT] = {1.6F};
+constexpr float PLAYER_CAM_SHOULDERS[SCENE_COUNT] = {0.0F};
+constexpr float PLAYER_TURN_RATES[SCENE_COUNT] = {0.25F};
+constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_JUMP_CLIPS[SCENE_COUNT] = {""};
 
 constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {48.0F};
 constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {48.0F};
@@ -213,6 +222,15 @@ inline int everyFrames(float seconds) {
 #define PLAYER_EYE_HEIGHT PLAYER_EYE_HEIGHTS[g_activeScene]
 #define PLAYER_JUMP_SPEED PLAYER_JUMP_SPEEDS[g_activeScene]
 #define PLAYER_CAN_JUMP PLAYER_CAN_JUMPS[g_activeScene]
+#define PLAYER_RUN_THRESHOLD PLAYER_RUN_THRESHOLDS[g_activeScene]
+#define PLAYER_CAM_DIST PLAYER_CAM_DISTS[g_activeScene]
+#define PLAYER_CAM_HEIGHT PLAYER_CAM_HEIGHTS[g_activeScene]
+#define PLAYER_CAM_SHOULDER PLAYER_CAM_SHOULDERS[g_activeScene]
+#define PLAYER_TURN_RATE PLAYER_TURN_RATES[g_activeScene]
+#define PLAYER_IDLE_CLIP PLAYER_IDLE_CLIPS[g_activeScene]
+#define PLAYER_WALK_CLIP PLAYER_WALK_CLIPS[g_activeScene]
+#define PLAYER_RUN_CLIP PLAYER_RUN_CLIPS[g_activeScene]
+#define PLAYER_JUMP_CLIP PLAYER_JUMP_CLIPS[g_activeScene]
 #define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
 #define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
 #define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]

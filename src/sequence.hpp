@@ -109,6 +109,7 @@ struct Sequence {
     float duration = 5.0f;         // seconds; playback ends (or loops) here
     bool loop = false;             // restart at 0 instead of ending
     bool cameraEnabled = false;    // drive the game camera from cameraKeys
+    bool hidePlayer = false;       // hide the third-person avatar while playing
     int bars = kSeqBarsNone;       // widescreen mask style while playing
     bool skippable = false;        // START ends the cutscene early
     float fadeIn = 0.0f;           // seconds: fade from black at the start
@@ -124,7 +125,8 @@ struct Sequence {
 
 inline bool operator==(const Sequence& a, const Sequence& b) {
     return a.name == b.name && a.duration == b.duration && a.loop == b.loop &&
-           a.cameraEnabled == b.cameraEnabled && a.bars == b.bars &&
+           a.cameraEnabled == b.cameraEnabled && a.hidePlayer == b.hidePlayer &&
+           a.bars == b.bars &&
            a.skippable == b.skippable && a.fadeIn == b.fadeIn &&
            a.fadeOut == b.fadeOut && a.barsSlideIn == b.barsSlideIn &&
            a.barsSlideOut == b.barsSlideOut && a.tracks == b.tracks &&
