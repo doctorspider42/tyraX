@@ -390,6 +390,65 @@ Each finished feature lands as its own commit.
     `--new` confirms `.vscode/extensions.json` is generated and valid. The C++
     wrapper runs that verified string via the same `CreateProcessA` mechanism
     `openInVSCode` already uses; the GUI button itself was not clicked headlessly.
+- (93) **Options-menu editor: ready-made setting blocks + paged category menus.**
+  Building an in-game options screen used to mean hand-wiring every row to a
+  save value and a flow graph (the `video-modes` example does this by hand).
+  The Menu Editor now scaffolds it directly. Two additions:
+  - **Insert option block** (per-menu "+ Option block" popup): appends a fully
+    configured stateful row bound to a built-in engine setting - **Music
+    volume**, **Sound volume** (master SFX), **Controller deadzone**, **Aim
+    response curve**, **Display mode** (480i/480p/1080i) and **Widescreen**
+    (4:3/16:9). Each is an ordinary Toggle/Choice entry (restyle/relabel it like
+    any other), backed by an auto-created save value, plus a new
+    `MenuEntry::settingBind`. A **Bind** combo on any Toggle/Choice row exposes
+    the same binding for manual use.
+  - **+ Options menu** (menu list): scaffolds a whole paged options screen - an
+    `OPTIONS` root whose rows open `AUDIO` / `CONTROLS` / `DISPLAY` submenus
+    (Triangle backs out), each pre-filled with the matching blocks. Categories
+    are plain submenus, so all existing styling (accent, fonts, images, layout)
+    applies.
+  - **How it drives the game:** codegen adds a `bind` column to `MenuEntryData`
+    and a `TerrainGame::applyMenuBindings()` run every frame (both orbit and fpp
+    loops, before `applyVideoRequests`) that maps a bound row's option index -
+    held in its save value, so it persists and previews like any stateful row -
+    onto the setting, spread evenly across the row's options (5 volume options
+    -> 0/25/.../100 %; deadzone -> 0..0.4). Volume/deadzone/curve are idempotent
+    (re-applied each frame); master SFX rides on `ScriptContext::sfxVolume`
+    (0..100), multiplied into every Play Sound one-shot and sound-emitter sample.
+    The deadzone block adds runtime globals `g_deadzoneL/R` (seeded in
+    `buildScene` from the compile-time `ANALOG_DEADZONE_*` Preferences constants,
+    so with no block the sticks behave exactly as before) that the shared
+    `stickAxis()` reads. The **Aim curve** block reuses the per-stick response
+    curve landed in parallel on main (entry 88, "Analog stick sensitivity
+    curves"): it drives the same `g_stickCurve*`/`g_stickExp*` runtime globals
+    the Set Stick Curve flow node uses (Linear / Smooth = S-curve / Precise =
+    exponential), so there is one curve mechanism, not two. Display/widescreen
+    rebuild VRAM + arm the keep-or-revert confirm, so they fire only on change
+    through the existing `scriptCtx.requestDisplayMode`/`widescreen` path (seeded
+    at boot so a saved choice does not re-switch the picture on startup).
+  - **Verified**: editor builds clean; a scratch orbit project with an OPTIONS
+    menu carrying all six block types round-trips through `--resave` (every
+    `bind` string preserved); `--build` regenerates `menu_data.gen.hpp` with the
+    correct `bind` column (music=1 .. widescreen=6, 0 on the non-stateful AUDIO
+    row) and `terrain_game.cpp` with `applyMenuBindings` + the buildScene
+    deadzone seed + the `scriptCtx.sfxVolume` scale + the curve mapping onto
+    `g_stickCurve*`. The full PS2 toolchain compiled + linked the ELF in Docker,
+    and it **booted in PCSX2**: the OPTIONS panel renders at a steady 50 FPS with
+    the bound rows' current values shown (MUSIC/SOUND 100 %, DEADZONE Medium via
+    the baked value strip), no assert in `bin/log.txt`, and no spurious display
+    switch at boot (the applyMenuBindings-every-frame path is crash-free). Known:
+    with many value-rows crammed into one menu the shared value strip hits the
+    512 px texture cap and the overflow rows show no current-value label
+    (pre-existing limit; the paged scaffold keeps each submenu well under it).
+    (The pre-merge verification ran against a single stick-curve exponent; the
+    curve block was then rebased onto main's per-stick curve and the editor
+    rebuilt clean - the interactive re-check rides on the note below.) The
+    **interactive path** - cycling a row with the dpad and hearing/seeing the
+    volume / deadzone / display actually change - still needs a hands-on pad
+    test by a human (established convention for pad-driven behavior). Docs:
+    README "Game menus"/"Options menus" bullets, `tyra-editor-dev` skill (menu
+    chain + applyMenuBindings). Follow-up worth proposing: a dedicated
+    `examples/options-menu` demo project.
 - (88) **Default projects folder (machine-global editor setting).** New Project
   used to always propose `~/TyraProjects` as the location. Now the folder is
   configurable in *Edit > Preferences > New projects* (a "Default folder" text

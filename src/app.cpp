@@ -11168,6 +11168,106 @@ void App::drawMaterialEditorWindow() {
     }
 }
 
+// --- Options-menu "option blocks" ------------------------------------------
+// Ready-made stateful menu rows (Menu Editor > Insert option block) that bind
+// to a built-in engine setting. Each is a Toggle/Choice entry with a curated
+// option set, a backing save value and a MenuEntry::Setting binding the
+// generated game reads (applyMenuBindings). The option index -> value mapping
+// is spread evenly across the options, so editing the labels/count still maps
+// sensibly (e.g. six volume options -> 0/20/40/.../100 %).
+namespace {
+struct OptionBlockSpec {
+    const char* label;         // menu row label
+    int action;                // MenuEntry::Toggle | Choice
+    const char* valueName;     // backing save value (created if missing)
+    float defaultIndex;        // initial option index (save value default)
+    int bind;                  // MenuEntry::Setting
+    std::vector<const char*> options;
+};
+// Index order == the Insert-option-block menu order below.
+const OptionBlockSpec kOptionBlocks[] = {
+    {"MUSIC", MenuEntry::Choice, "opt_music_vol", 4.0f, MenuEntry::BindMusicVolume,
+     {"0%", "25%", "50%", "75%", "100%"}},
+    {"SOUND", MenuEntry::Choice, "opt_sfx_vol", 4.0f, MenuEntry::BindSfxVolume,
+     {"0%", "25%", "50%", "75%", "100%"}},
+    {"DEADZONE", MenuEntry::Choice, "opt_deadzone", 2.0f, MenuEntry::BindDeadzone,
+     {"None", "Low", "Medium", "High", "Max"}},
+    {"AIM CURVE", MenuEntry::Choice, "opt_stick_curve", 0.0f, MenuEntry::BindStickCurve,
+     {"Linear", "Smooth", "Precise"}},
+    {"DISPLAY", MenuEntry::Choice, "opt_display", 0.0f, MenuEntry::BindDisplayMode,
+     {"480i", "480p", "1080i"}},
+    {"ASPECT", MenuEntry::Toggle, "opt_widescreen", 0.0f, MenuEntry::BindWidescreen,
+     {"4:3", "16:9"}},
+};
+constexpr int kOptionBlockCount = (int)(sizeof(kOptionBlocks) / sizeof(kOptionBlocks[0]));
+
+// Append a configured option-block row to a menu, creating its backing save
+// value (with the block's initial option index as the default) if it does not
+// exist yet. No-op when the menu is already at the entry cap.
+void addOptionBlock(Project& p, GameMenu& m, int kind) {
+    if (kind < 0 || kind >= kOptionBlockCount) return;
+    if ((int)m.entries.size() >= menubake::kMaxEntries) return;
+    const OptionBlockSpec& s = kOptionBlocks[kind];
+    bool haveValue = false;
+    for (const SaveValue& sv : p.saveValues)
+        if (sv.name == s.valueName) haveValue = true;
+    if (!haveValue) {
+        SaveValue sv;
+        sv.name = s.valueName;
+        sv.value = s.defaultIndex;
+        p.saveValues.push_back(std::move(sv));
+    }
+    MenuEntry en;
+    en.label = s.label;
+    en.action = s.action;
+    en.param = s.valueName;
+    en.settingBind = s.bind;
+    for (const char* opt : s.options) en.options.push_back(opt);
+    m.entries.push_back(std::move(en));
+}
+
+// Scaffold a full paged options menu: a root OPTIONS menu whose rows open one
+// submenu per category (audio / controls / display), each pre-filled with the
+// matching option blocks. Triangle backs out of a submenu; the root's CLOSE
+// row dismisses everything. Returns the new root menu's index.
+int addOptionsMenuPages(Project& p) {
+    auto uniqueName = [&](const std::string& base) {
+        std::string name = base;
+        for (int n = 2;; ++n) {
+            bool taken = false;
+            for (const GameMenu& o : p.menus) taken |= (o.name == name);
+            if (!taken) break;
+            name = base + "-" + std::to_string(n);
+        }
+        return name;
+    };
+    // Submenus rely on Triangle to return to the root (the baked panel already
+    // shows the "^ BACK" hint); a Close-action "back" row would instead dismiss
+    // the whole menu tree, so submenus carry only their option blocks.
+    auto makeSub = [&](const char* base, const char* title, int b0, int b1) {
+        GameMenu sub;
+        sub.name = uniqueName(base);
+        sub.title = title;
+        addOptionBlock(p, sub, b0);
+        addOptionBlock(p, sub, b1);
+        p.menus.push_back(std::move(sub));
+        return p.menus.back().name;
+    };
+    const std::string audio = makeSub("options-audio", "AUDIO", 0, 1);
+    const std::string controls = makeSub("options-controls", "CONTROLS", 2, 3);
+    const std::string display = makeSub("options-display", "DISPLAY", 4, 5);
+    GameMenu root;
+    root.name = uniqueName("options");
+    root.title = "OPTIONS";
+    root.entries.push_back(MenuEntry{"AUDIO", MenuEntry::OpenMenu, audio, 0.0f});
+    root.entries.push_back(MenuEntry{"CONTROLS", MenuEntry::OpenMenu, controls, 0.0f});
+    root.entries.push_back(MenuEntry{"DISPLAY", MenuEntry::OpenMenu, display, 0.0f});
+    root.entries.push_back(MenuEntry{"CLOSE", MenuEntry::Close, "", 0.0f});
+    p.menus.push_back(std::move(root));
+    return (int)p.menus.size() - 1;
+}
+}  // namespace
+
 // Menu Editor window: menu list on the left, the selected menu's properties,
 // entries and a live baked-panel preview (the exact pixels the PS2 will
 // draw) on the right.
@@ -11202,6 +11302,16 @@ void App::drawMenusWindow() {
         selectedMenu_ = (int)project_.menus.size() - 1;
         changed = true;
     }
+    if (ImGui::Button("+ Options menu", ImVec2(-1, 0))) {
+        selectedMenu_ = addOptionsMenuPages(project_);
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Scaffold a paged options menu: an OPTIONS root that opens\n"
+            "AUDIO / CONTROLS / DISPLAY submenus, each pre-filled with\n"
+            "ready-made setting rows (volume, deadzone, aim curve,\n"
+            "display mode, aspect). Style and edit them like any menu.");
     ImGui::Separator();
     for (int i = 0; i < (int)project_.menus.size(); ++i) {
         ImGui::PushID(i);
@@ -11623,6 +11733,22 @@ void App::drawMenusWindow() {
                     }
                 }
             }
+            // Setting binding: makes this stateful row drive a built-in engine
+            // setting at runtime (no flow graph). The option index maps evenly
+            // onto the setting - see the Insert-option-block presets.
+            ImGui::SetNextItemWidth(scaled(150.0f));
+            if (ImGui::Combo("Bind##optbind", &en.settingBind,
+                             "None\0Music volume\0Sound volume\0Deadzone\0"
+                             "Stick curve\0Display mode\0Widescreen\0"))
+                changed = true;
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Drives a built-in setting from this row's option index,\n"
+                    "spread evenly across the options: volume 0-100%%, deadzone\n"
+                    "0-0.4, aim curve 1-3, display 480i/480p/1080i, aspect\n"
+                    "4:3/16:9. None = a plain save-value row (flow graphs react).");
             ImGui::Unindent(scaled(46.0f));
         }
         ImGui::PopID();
@@ -11631,6 +11757,24 @@ void App::drawMenusWindow() {
         if (ImGui::SmallButton("+ Entry")) {
             m.entries.push_back(MenuEntry{});
             changed = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("+ Option block")) ImGui::OpenPopup("##optblock");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Insert a ready-made setting row (backed by a save value):\n"
+                "volume, controller deadzone / aim curve, display mode,\n"
+                "aspect ratio. Restyle and relabel it like any other entry.");
+        if (ImGui::BeginPopup("##optblock")) {
+            static const char* kBlockMenu[] = {
+                "Music volume", "Sound volume", "Controller deadzone",
+                "Aim response curve", "Display mode", "Widescreen (aspect)"};
+            for (int b = 0; b < kOptionBlockCount; ++b)
+                if (ImGui::Selectable(kBlockMenu[b])) {
+                    addOptionBlock(project_, m, b);
+                    changed = true;
+                }
+            ImGui::EndPopup();
         }
     } else {
         ImGui::TextDisabled("Max %d entries per menu.", menubake::kMaxEntries);

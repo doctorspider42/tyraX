@@ -795,11 +795,29 @@ struct MenuEntry {
     // Toggle/Choice option labels (value = index into this list). Toggle
     // treats an empty list as {"Off", "On"}.
     std::vector<std::string> options;
+    // Ready-made "option block" binding (Menu Editor > Insert option block).
+    // On a Toggle/Choice row this makes the generated game map the row's
+    // option index (held in the bound save value) straight onto a built-in
+    // engine setting every frame - no flow graph needed. None = a plain
+    // stateful row (the classic behavior). The option index -> value mapping
+    // is spread evenly across the row's options (see applyMenuBindings in the
+    // generated game): e.g. 5 volume options -> 0/25/50/75/100 %.
+    enum Setting {
+        BindNone = 0,
+        BindMusicVolume = 1,  // engine music volume (0..100)
+        BindSfxVolume = 2,    // master sound-effect volume (0..100)
+        BindDeadzone = 3,     // analog stick deadzone, both sticks (0..0.4)
+        BindStickCurve = 4,   // stick response curve exponent (1..3)
+        BindDisplayMode = 5,  // scan mode: interlaced / 480p / 1080i
+        BindWidescreen = 6,   // aspect ratio: 4:3 / 16:9
+    };
+    int settingBind = BindNone;
 };
 
 inline bool operator==(const MenuEntry& a, const MenuEntry& b) {
     return a.label == b.label && a.action == b.action && a.param == b.param &&
-           a.amount == b.amount && a.options == b.options;
+           a.amount == b.amount && a.options == b.options &&
+           a.settingBind == b.settingBind;
 }
 
 // One image composited into a menu's baked panel (see GameMenu::images).

@@ -310,7 +310,8 @@ constexpr float ANALOG_DEADZONE_R = {{DEADZONE_R}};
 // Stick response curve applied after the deadzone (Preferences > Input):
 // 0 = Linear, 1 = Exponential (pow, finer near center), 2 = S-Curve.
 // STICK_EXP_* tunes curves 1/2 (>=1). These seed the runtime g_stickCurve*/
-// g_stickExp* globals, which the Set Stick Curve flow node can change live.
+// g_stickExp* globals, which the Set Stick Curve flow node (and a menu "Aim
+// curve" option block) can change live.
 constexpr int STICK_CURVE_L = {{STICK_CURVE_L}};
 constexpr int STICK_CURVE_R = {{STICK_CURVE_R}};
 constexpr float STICK_EXP_L = {{STICK_EXP_L}};
@@ -674,6 +675,9 @@ class TerrainGame : public Tyra::Game {
   // Gameplay pauses while one is open; Triangle walks the submenu stack.
   bool updateGameMenu();
   void renderGameMenu();
+  // Ready-made option-block rows (Menu Editor): map each bound Toggle/Choice
+  // row's option index onto its engine setting (volume/deadzone/curve/display).
+  void applyMenuBindings();
   std::vector<Tyra::Sprite> menuSprites;
   // Toggle/Choice entry values: one sub-rect sprite per menu into its baked
   // value strip (menu_data.gen.hpp; only menus with such entries have one).
@@ -1026,6 +1030,9 @@ class TerrainGame : public Tyra::Game {
   // Gameplay pauses while one is open; Triangle walks the submenu stack.
   bool updateGameMenu();
   void renderGameMenu();
+  // Ready-made option-block rows (Menu Editor): map each bound Toggle/Choice
+  // row's option index onto its engine setting (volume/deadzone/curve/display).
+  void applyMenuBindings();
   std::vector<Tyra::Sprite> menuSprites;
   // Toggle/Choice entry values: one sub-rect sprite per menu into its baked
   // value strip (menu_data.gen.hpp; only menus with such entries have one).
@@ -1107,15 +1114,31 @@ bool g_flashOn = true;
 // skips all simulation + drawing, so every emitter's fill cost disappears.
 bool g_particlesOn = true;
 
+// Runtime analog stick deadzone (Preferences > Input; a menu "Deadzone" option
+// block changes it live via applyMenuBindings). Seeded from the baked
+// ANALOG_DEADZONE_* constants in buildScene (they are namespaced, this scope is
+// not), then read every frame by stickAxis() - so with no option block the
+// sticks behave exactly as the Preferences deadzone.
+float g_deadzoneL = 0.2F;
+float g_deadzoneR = 0.2F;
+
 // Analog stick response curves (Preferences > Input; the Set Stick Curve flow
-// node changes them live). g_stickCurve*: 0 = Linear, 1 = Exponential, 2 =
-// S-Curve; g_stickExp* tunes curves 1/2. Seeded from the baked STICK_*
-// constants in init() (the constants are namespaced, this scope is not), then
-// read every frame by stickAxis(); runtime changes persist across scenes.
+// node and a menu "Aim curve" option block change them live). g_stickCurve*:
+// 0 = Linear, 1 = Exponential, 2 = S-Curve; g_stickExp* tunes curves 1/2.
+// Seeded from the baked STICK_* constants in init() (the constants are
+// namespaced, this scope is not), then read every frame by stickAxis();
+// runtime changes persist across scenes.
 int g_stickCurveL = 0;
 int g_stickCurveR = 0;
 float g_stickExpL = 2.0F;
 float g_stickExpR = 2.0F;
+
+// Last option index a "Display mode" / "Widescreen" menu block applied. Video
+// switches rebuild VRAM + arm the confirm prompt, so they fire only on change
+// (seeded from the saved option in buildScene so a persisted choice does not
+// re-trigger a switch at boot).
+int g_menuDispOpt = -1;
+int g_menuWideOpt = -1;
 
 // Maps a pad axis byte (128 = center) to a signed -1..1 value: it reads 0
 // below the deadzone, rescales from the deadzone edge so there is no step,
@@ -2019,6 +2042,11 @@ void TerrainGame::loop() {
   const bool menuOwnsPad =
       saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0;
   g_gameplayPaused = menuActive;  // freezes particles + animation playback
+  // Option-block menu rows drive their bound engine settings every frame
+  // (volume, deadzone, curve, display) - runs regardless of pause so a saved
+  // setting keeps applying, and before applyVideoRequests so a display switch
+  // it requests lands this frame.
+  applyMenuBindings();
   if (!menuOwnsPad) {
     if (!updatePlayerEntity()) updateCameraOrbit();
     updateUseTarget();
@@ -2253,6 +2281,24 @@ void TerrainGame::buildScene() {
   for (int i = 0; i < SAVE_VALUE_COUNT; ++i) saveValues[i] = SAVE_VALUE_DEFAULTS[i];
   scriptCtx.saveValues = saveValues.data();
   scriptCtx.saveValueCount = SAVE_VALUE_COUNT;
+  // Seed the runtime deadzone from the compile-time Preferences defaults (the
+  // constants are namespaced, so this cannot happen at the global def). A menu
+  // "Deadzone" option block overrides these each frame; the stick response
+  // curve globals (g_stickCurve*/g_stickExp*) are seeded separately in init().
+  g_deadzoneL = ANALOG_DEADZONE_L;
+  g_deadzoneR = ANALOG_DEADZONE_R;
+  // Seed the display/widescreen option-block trackers from the current saved
+  // option so applyMenuBindings does not fire a scan-mode switch (+ confirm
+  // prompt) at boot: the game boots in the project's compiled display mode,
+  // and a menu row only switches when the player moves it (or loads a save
+  // that changed it).
+  for (int mi = 0; mi < MENU_COUNT; ++mi)
+    for (int e = 0; e < MENUS[mi].entryCount; ++e) {
+      const MenuEntryData& en = MENUS[mi].entries[e];
+      if (en.param < 0 || en.param >= SAVE_VALUE_COUNT) continue;
+      if (en.bind == 5) g_menuDispOpt = (int)saveValues[en.param];
+      if (en.bind == 6) g_menuWideOpt = (int)saveValues[en.param];
+    }
   saveTexts.assign((SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1) * SAVE_TEXT_LEN, '\0');
   for (int i = 0; i < SAVE_TEXT_COUNT; ++i)
     snprintf(&saveTexts[i * SAVE_TEXT_LEN], SAVE_TEXT_LEN, "%s",
@@ -3564,6 +3610,8 @@ void TerrainGame::updateSoundEmitters() {
         }
       }
     }
+    // Master SFX volume (menu "Sound volume" option block); 100 = unscaled.
+    vol = vol * scriptCtx.sfxVolume / 100;
     // audsrv RPCs are synchronous and share one client lock with the music
     // stream - an RPC per emitter per frame stalls the main thread whenever
     // the song thread holds the lock (measured 50 -> 42 FPS in PCSX2 with
@@ -4172,6 +4220,68 @@ bool TerrainGame::updateGameMenu() {
   return pausing();
 }
 
+// Ready-made menu "option blocks" (Menu Editor > Insert option block): a
+// Toggle/Choice row bound to a built-in engine setting. Every frame we map the
+// row's option index (held in its save value) onto the setting, evenly across
+// the row's options - so the same row that persists and previews as a normal
+// stateful entry also drives the engine, with no flow graph. Volume / deadzone
+// / curve are idempotent (re-applied each frame, cheap). Display mode and
+// widescreen rebuild VRAM / arm the confirm prompt, so they fire only when the
+// option actually changes, routed through the same scriptCtx video requests
+// the Set Display Mode / Set Widescreen flow nodes use.
+void TerrainGame::applyMenuBindings() {
+  for (int mi = 0; mi < MENU_COUNT; ++mi) {
+    const MenuData& m = MENUS[mi];
+    for (int e = 0; e < m.entryCount; ++e) {
+      const MenuEntryData& en = m.entries[e];
+      if (en.bind == 0) continue;
+      const int cnt = en.optionCount > 0 ? en.optionCount : 1;
+      int idx = (en.param >= 0 && en.param < SAVE_VALUE_COUNT)
+                    ? (int)saveValues[en.param]
+                    : 0;
+      if (idx < 0) idx = 0;
+      if (idx >= cnt) idx = cnt - 1;
+      // t: option index normalized to 0..1 (single-option rows read as full).
+      const float t = cnt > 1 ? (float)idx / (float)(cnt - 1) : 1.0F;
+      switch (en.bind) {
+        case 1:  // music volume 0..100
+          engine->audio.song.setVolume((u8)(t * 100.0F + 0.5F));
+          break;
+        case 2:  // master sfx volume 0..100
+          scriptCtx.sfxVolume = (int)(t * 100.0F + 0.5F);
+          break;
+        case 3:  // deadzone, both sticks 0..0.4
+          g_deadzoneL = g_deadzoneR = t * 0.4F;
+          break;
+        case 4: {  // aim response curve (both sticks): drives the shared
+          // g_stickCurve*/g_stickExp* runtime (same globals the Set Stick Curve
+          // flow node uses). Option 0 Linear, 1 Smooth (S-curve), 2+ Precise
+          // (exponential - finer near center). Uses idx, not the even mapping.
+          int curve = 0;
+          if (idx == 1) curve = 2;       // S-curve
+          else if (idx >= 2) curve = 1;  // exponential
+          g_stickCurveL = g_stickCurveR = curve;
+          g_stickExpL = g_stickExpR = 2.0F;
+          break;
+        }
+        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0/1/2)
+          if (idx != g_menuDispOpt) {
+            g_menuDispOpt = idx;
+            scriptCtx.requestDisplayMode = idx;
+            scriptCtx.displayConfirmSec = 8.0F;  // keep-or-revert safety net
+          }
+          break;
+        case 6:  // widescreen 4:3 / 16:9
+          if (idx != g_menuWideOpt) {
+            g_menuWideOpt = idx;
+            scriptCtx.widescreen = idx;
+          }
+          break;
+      }
+    }
+  }
+}
+
 void TerrainGame::renderGameMenu() {
   if (gameMenuIndex < 0 || gameMenuIndex >= (int)menuSprites.size()) return;
   if (saveMenuOpen) return;  // the save menu draws on top instead
@@ -4232,13 +4342,14 @@ bool TerrainGame::updatePlayerEntity() {
 
   const auto& leftJoy = engine->pad.getLeftJoyPad();
   const auto& rightJoy = engine->pad.getRightJoyPad();
-  // stickAxis applies the per-stick deadzone (ANALOG_DEADZONE_*) and response
-  // curve (g_stickCurve*/g_stickExp* - Preferences > Input / Set Stick Curve).
+  // stickAxis applies the per-stick deadzone (g_deadzoneL/R - Preferences, or a
+  // menu "Deadzone" option block) and response curve (g_stickCurve*/g_stickExp*
+  // - Preferences > Input / Set Stick Curve node / a menu "Aim curve" block).
   auto axisL = [&](const u8& raw) {
-    return stickAxis(raw, ANALOG_DEADZONE_L, g_stickCurveL, g_stickExpL);
+    return stickAxis(raw, g_deadzoneL, g_stickCurveL, g_stickExpL);
   };
   auto axisR = [&](const u8& raw) {
-    return stickAxis(raw, ANALOG_DEADZONE_R, g_stickCurveR, g_stickExpR);
+    return stickAxis(raw, g_deadzoneR, g_stickCurveR, g_stickExpR);
   };
 
   // Right stick: look around (stick right = turn right)
@@ -5376,6 +5487,11 @@ void TerrainGame::loop() {
   const bool menuOwnsPad =
       saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0;
   g_gameplayPaused = menuActive;  // freezes particles + animation playback
+  // Option-block menu rows drive their bound engine settings every frame
+  // (volume, deadzone, curve, display) - runs regardless of pause so a saved
+  // setting keeps applying, and before applyVideoRequests so a display switch
+  // it requests lands this frame.
+  applyMenuBindings();
   if (!menuOwnsPad) {
     if (!updatePlayerEntity()) updatePlayer();
     updateUseTarget();
@@ -5595,13 +5711,14 @@ static const char* TPL_GAME_CPP_FPP_TAIL = R"(
 void TerrainGame::updatePlayer() {
   const auto& leftJoy = engine->pad.getLeftJoyPad();
   const auto& rightJoy = engine->pad.getRightJoyPad();
-  // stickAxis applies the per-stick deadzone (ANALOG_DEADZONE_*) and response
-  // curve (g_stickCurve*/g_stickExp* - Preferences > Input / Set Stick Curve).
+  // stickAxis applies the per-stick deadzone (g_deadzoneL/R - Preferences, or a
+  // menu "Deadzone" option block) and response curve (g_stickCurve*/g_stickExp*
+  // - Preferences > Input / Set Stick Curve node / a menu "Aim curve" block).
   auto axisL = [&](const u8& raw) {
-    return stickAxis(raw, ANALOG_DEADZONE_L, g_stickCurveL, g_stickExpL);
+    return stickAxis(raw, g_deadzoneL, g_stickCurveL, g_stickExpL);
   };
   auto axisR = [&](const u8& raw) {
-    return stickAxis(raw, ANALOG_DEADZONE_R, g_stickCurveR, g_stickExpR);
+    return stickAxis(raw, g_deadzoneR, g_stickCurveR, g_stickExpR);
   };
 
   // Right stick: look around (stick right = turn right)
@@ -6323,6 +6440,12 @@ struct ScriptContext {
   int requestDisplayMode = -1;
   float displayConfirmSec = 0.0F;
   int widescreen = -1;
+
+  // Master sound-effect volume as a percentage (0..100), driven by a menu
+  // "Sound volume" option block (applyMenuBindings). 100 = unscaled. Applied
+  // as a multiplier on every Play Sound one-shot and every sound-emitter
+  // sample, so it rides on top of each source's own volume.
+  int sfxVolume = 100;
 
   // Save data: named values persisted in memory card slots (SAVE_VALUE_NAMES
   // order, scene_data.hpp). Set openSaveMenu = true to open the in-game
@@ -9075,7 +9198,8 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                         c << pad << "  const s8 ch = (s8)sfxNextCh;\n"
                           << pad << "  sfxNextCh = (sfxNextCh + 1) % 24;\n";
                     }
-                    c << pad << "  ctx.engine->audio.adpcm.setVolume(" << vol << ", ch);\n"
+                    c << pad << "  ctx.engine->audio.adpcm.setVolume(" << vol
+                      << " * ctx.sfxVolume / 100, ch);\n"
                       << pad << "  ctx.engine->audio.adpcm.tryPlay(sfx" << si << ", ch);\n"
                       << pad << "}\n";
                 }
@@ -10022,6 +10146,9 @@ static std::string menuDataHeader(const Project& p) {
            "  float amount;\n"
            "  int optionCount;  // toggle/choice: how many options cycle\n"
            "  int cell;         // first cell in the value strip (-1 = none)\n"
+           "  int bind;         // option-block binding (applyMenuBindings):\n"
+           "                    // 0 none, 1 music vol, 2 sfx vol, 3 deadzone,\n"
+           "                    // 4 stick curve, 5 display mode, 6 widescreen\n"
            "};\n\n"
            "struct MenuData {\n"
            "  const char* panel;  // baked panel sprite, relative to the ELF\n"
@@ -10051,7 +10178,7 @@ static std::string menuDataHeader(const Project& p) {
             << "constexpr MenuEntryData MENU_" << mi << "_ENTRIES["
             << (entries > 0 ? entries : 1) << "] = {\n";
         if (entries == 0) {
-            out << "    {0, -1, 0.0F, 0, -1},\n";
+            out << "    {0, -1, 0.0F, 0, -1, 0},\n";
         } else {
             for (int e = 0; e < entries; ++e) {
                 const MenuEntry& en = m.entries[e];
@@ -10069,15 +10196,20 @@ static std::string menuDataHeader(const Project& p) {
                 const int optionCount =
                     (int)menubake::entryOptionLabels(en).size();
                 const int cell = e < (int)vl.firstCell.size() ? vl.firstCell[e] : -1;
+                // Bindings only make sense on stateful (Toggle/Choice) rows.
+                const int bind = (en.action == MenuEntry::Toggle ||
+                                  en.action == MenuEntry::Choice)
+                                     ? en.settingBind
+                                     : 0;
                 out << "    {" << en.action << ", " << param << ", "
                     << floatLit(en.amount) << ", " << optionCount << ", " << cell
-                    << "},  // " << en.label << "\n";
+                    << ", " << bind << "},  // " << en.label << "\n";
             }
         }
         out << "};\n";
     }
     if (p.menus.empty())
-        out << "constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F, 0, -1}};\n";
+        out << "constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F, 0, -1, 0}};\n";
 
     int titleMenu = -1;
     for (size_t mi = 0; mi < p.menus.size(); ++mi)

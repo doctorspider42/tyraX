@@ -950,6 +950,11 @@ std::string save(const Project& p) {
                          << "\"";
                 json << "]";
             }
+            static const char* kMenuBinds[] = {
+                "",           "music-volume", "sfx-volume", "deadzone",
+                "stick-curve", "display-mode", "widescreen"};
+            if (en.settingBind >= 1 && en.settingBind <= 6)
+                json << ", \"bind\": \"" << kMenuBinds[en.settingBind] << "\"";
             json << " }";
         }
         json << (m.entries.empty() ? "]" : "\n      ]") << " }";
@@ -2200,6 +2205,17 @@ std::string load(Project& out, const std::string& projectDir) {
                             const std::string s = jo.stringOr("");
                             if (!s.empty()) en.options.push_back(s);
                         }
+                    }
+                    if (const auto* v = je.find("bind")) {
+                        const std::string b = v->stringOr("");
+                        en.settingBind =
+                            b == "music-volume"  ? MenuEntry::BindMusicVolume
+                            : b == "sfx-volume"  ? MenuEntry::BindSfxVolume
+                            : b == "deadzone"    ? MenuEntry::BindDeadzone
+                            : b == "stick-curve" ? MenuEntry::BindStickCurve
+                            : b == "display-mode" ? MenuEntry::BindDisplayMode
+                            : b == "widescreen"  ? MenuEntry::BindWidescreen
+                                                 : MenuEntry::BindNone;
                     }
                     m.entries.push_back(std::move(en));
                 }
