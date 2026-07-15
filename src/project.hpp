@@ -188,8 +188,14 @@ struct SceneObject {
     std::string playerRunClip;        // "" = never runs (walk covers all speeds)
     std::string playerJumpClip;       // "" = no airborne clip (holds walk/idle)
     float playerRunThreshold = 0.55f; // planar-speed fraction where run kicks in
+    // The camera rig, expressed in the camera's own frame: Dist is the offset
+    // back, Height the offset up, Shoulder the offset sideways - together a
+    // full camera offset. Shoulder slides the whole rig (eye AND look-at) along
+    // the camera's right vector, so the avatar sits off-center: 0 = centered
+    // behind, ~0.6 = over-the-shoulder, negative = the left shoulder.
     float playerCamDist = 6.0f;       // third-person boom length (world units)
     float playerCamHeight = 1.6f;     // camera/look-at height above the feet
+    float playerCamShoulder = 0.0f;   // lateral rig offset; + = right shoulder
     float playerTurnRate = 0.25f;     // avatar turn-to-face lerp per 60fps frame
 
     // Camera-attached spot light carried by the player (used when type ==
@@ -299,6 +305,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.playerRunThreshold == b.playerRunThreshold &&
            a.playerCamDist == b.playerCamDist &&
            a.playerCamHeight == b.playerCamHeight &&
+           a.playerCamShoulder == b.playerCamShoulder &&
            a.playerTurnRate == b.playerTurnRate &&
            a.flashlightEnabled == b.flashlightEnabled &&
            eq3(a.flashlightColor, b.flashlightColor) &&

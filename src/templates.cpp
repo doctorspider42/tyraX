@@ -4636,8 +4636,27 @@ bool TerrainGame::updatePlayerEntity() {
     const float boomX = sinf(entYaw) * cp;
     const float boomZ = cosf(entYaw) * cp;
     const float boomY = sinf(entPitch);
+
+    // Over-the-shoulder: slide the WHOLE rig - eye and look-at alike - along
+    // the camera's right vector, so the avatar sits off-center in frame.
+    // (Offsetting only the eye would just angle the camera back at the player
+    // and keep them centered - that is not an over-the-shoulder shot.) The
+    // right vector matches the walkers' own strafe convention. The offset is
+    // itself spring-armed so a shoulder cam cannot slide into a wall the player
+    // is hugging - and this second cast costs nothing at all when the offset is
+    // 0, which is the default.
+    const float rx = -cosf(entYaw), rz = sinf(entYaw);
+    float shoulder = PLAYER_CAM_SHOULDER;
+    if (shoulder > 0.0001F || shoulder < -0.0001F) {
+      const float s = shoulder < 0.0F ? -1.0F : 1.0F;
+      shoulder = s * springArm(entX, headY, entZ, rx * s, 0.0F, rz * s,
+                               shoulder * s);
+    }
+    const float pivotX = entX + rx * shoulder;
+    const float pivotZ = entZ + rz * shoulder;
+
     float want =
-        springArm(entX, headY, entZ, -boomX, -boomY, -boomZ, PLAYER_CAM_DIST);
+        springArm(pivotX, headY, pivotZ, -boomX, -boomY, -boomZ, PLAYER_CAM_DIST);
     if (want < CAM_MIN_DIST) want = CAM_MIN_DIST;
     if (want < camBoom) {
       camBoom = want;  // blocked: snap in, never clip
@@ -4646,15 +4665,15 @@ bool TerrainGame::updatePlayerEntity() {
       if (k > 1.0F) k = 1.0F;
       camBoom += (want - camBoom) * k;
     }
-    float eyeX = entX - boomX * camBoom;
+    float eyeX = pivotX - boomX * camBoom;
     float eyeY = headY - boomY * camBoom;
-    float eyeZ = entZ - boomZ * camBoom;
+    float eyeZ = pivotZ - boomZ * camBoom;
     // Safety net: the march samples the heightmap discretely, so a sharp ridge
     // between two samples could still leave the eye underground.
     const float minEyeY = terrainHeightAt(eyeX, eyeZ) + 0.4F;
     if (eyeY < minEyeY) eyeY = minEyeY;
     cameraPosition = Vec4(eyeX, eyeY, eyeZ);
-    cameraLookAt = Vec4(entX, headY, entZ);
+    cameraLookAt = Vec4(pivotX, headY, pivotZ);
 
     // Drive the avatar object: stand at the feet, face the walk direction,
     // and auto-select its locomotion clip. updateAndRenderAnimObjects draws it.
@@ -7650,6 +7669,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     playerFloat("PLAYER_RUN_THRESHOLDS", [](const SceneObject& o) { return o.playerRunThreshold; }, 0.55f);
     playerFloat("PLAYER_CAM_DISTS", [](const SceneObject& o) { return o.playerCamDist; }, 6.0f);
     playerFloat("PLAYER_CAM_HEIGHTS", [](const SceneObject& o) { return o.playerCamHeight; }, 1.6f);
+    playerFloat("PLAYER_CAM_SHOULDERS", [](const SceneObject& o) { return o.playerCamShoulder; }, 0.0f);
     playerFloat("PLAYER_TURN_RATES", [](const SceneObject& o) { return o.playerTurnRate; }, 0.25f);
     auto playerClip = [&](const char* name, auto get) {
         out << "constexpr const char* " << name << "[SCENE_COUNT] = {";
@@ -7952,6 +7972,7 @@ inline int everyFrames(float seconds) {
 #define PLAYER_RUN_THRESHOLD PLAYER_RUN_THRESHOLDS[g_activeScene]
 #define PLAYER_CAM_DIST PLAYER_CAM_DISTS[g_activeScene]
 #define PLAYER_CAM_HEIGHT PLAYER_CAM_HEIGHTS[g_activeScene]
+#define PLAYER_CAM_SHOULDER PLAYER_CAM_SHOULDERS[g_activeScene]
 #define PLAYER_TURN_RATE PLAYER_TURN_RATES[g_activeScene]
 #define PLAYER_IDLE_CLIP PLAYER_IDLE_CLIPS[g_activeScene]
 #define PLAYER_WALK_CLIP PLAYER_WALK_CLIPS[g_activeScene]

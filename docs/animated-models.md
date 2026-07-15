@@ -127,7 +127,15 @@ in *Properties*:
 | **Run clip** | Optional (`<none>` = walk covers all speeds). |
 | **Jump clip** | Optional (`<none>` = holds walk/idle while airborne). |
 | **Run at** | Planar-speed fraction (of full walk speed) where the run clip takes over. |
-| **Distance / Height / Turn rate** | Camera boom length, look-at height above the feet, and how fast the avatar turns to face its movement direction. |
+| **Distance / Height / Shoulder** | The camera rig offset in the camera's own frame: back, up, sideways. `Shoulder` 0 = centered behind, ~0.6 = over-the-shoulder, negative = the left shoulder. |
+| **Turn rate** | How fast the avatar turns to face its movement direction. |
+
+**Over-the-shoulder:** `Shoulder` slides the *whole* rig — the eye and the
+look-at alike — along the camera's right vector, so the avatar sits off-center
+in frame. (Offsetting only the eye would just angle the camera back at the
+player and keep them centered, which is not an over-the-shoulder shot.) The
+offset is itself spring-armed, so a shoulder cam cannot slide into a wall the
+player is hugging; that second cast costs nothing when `Shoulder` is 0.
 
 The camera rides a **spring arm**: each frame the boom is cast from the avatar's
 head toward the desired eye, and the camera stops at the first blocker so it

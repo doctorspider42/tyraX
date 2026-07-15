@@ -4360,10 +4360,22 @@ void App::drawPropertiesWindow() {
             }
 
             ImGui::SeparatorText("Third-person camera");
+            // Distance / Height / Shoulder are the rig offset in the camera's
+            // own frame: back, up, sideways.
             ImGui::DragFloat("Distance", &o.playerCamDist, 0.1f, 1.0f, 40.0f, "%.1f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("How far back the camera sits. The spring arm may\n"
+                                  "shorten it, so this is the maximum.");
             ImGui::DragFloat("Height", &o.playerCamHeight, 0.05f, 0.0f, 20.0f, "%.2f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Shoulder", &o.playerCamShoulder, 0.02f, -3.0f, 3.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Slides the camera sideways for an over-the-shoulder\n"
+                                  "shot: 0 = centered behind, ~0.6 = right shoulder,\n"
+                                  "negative = left. The avatar moves off-center in\n"
+                                  "frame (eye and aim point shift together).");
             ImGui::DragFloat("Turn rate", &o.playerTurnRate, 0.01f, 0.02f, 1.0f, "%.2f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
         }

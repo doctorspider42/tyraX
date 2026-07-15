@@ -240,6 +240,7 @@ static std::string objectJson(const SceneObject& o) {
                 "\", \"runThreshold\": " + fmtFloat(o.playerRunThreshold) +
                 ", \"camDist\": " + fmtFloat(o.playerCamDist) +
                 ", \"camHeight\": " + fmtFloat(o.playerCamHeight) +
+                ", \"camShoulder\": " + fmtFloat(o.playerCamShoulder) +
                 ", \"turnRate\": " + fmtFloat(o.playerTurnRate) + " }" +
                 ", \"flashlight\": { \"enabled\": " +
                 (o.flashlightEnabled ? "true" : "false") + ", \"color\": " +
@@ -1317,6 +1318,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                     o.playerCamDist = (float)v->numberOr(6.0);
                 if (const auto* v = tp->find("camHeight"))
                     o.playerCamHeight = (float)v->numberOr(1.6);
+                if (const auto* v = tp->find("camShoulder"))
+                    o.playerCamShoulder = (float)v->numberOr(0.0);
                 if (const auto* v = tp->find("turnRate"))
                     o.playerTurnRate = (float)v->numberOr(0.25);
             }

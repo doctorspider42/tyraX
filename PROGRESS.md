@@ -9,6 +9,30 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (103) **Over-the-shoulder camera offset.** `SceneObject::playerCamShoulder`
+  (Properties > Third-person camera > **Shoulder**, default 0 = unchanged
+  behavior) slides the third-person rig sideways, completing the camera offset:
+  **Distance** is the offset back, **Height** the offset up, **Shoulder** the
+  offset sideways — the three together are the rig in the camera's own frame.
+  The key detail is that Shoulder slides the **whole rig — eye AND look-at
+  alike** — along the camera's right vector, so the avatar sits off-center in
+  frame; offsetting only the eye would merely angle the camera back at the
+  player and keep them centered, which is *not* an over-the-shoulder shot. The
+  right vector `(-cos yaw, 0, sin yaw)` is derived from `cross(forward, up)` and
+  matches the walkers' own strafe convention, so "+ = right" means the same
+  thing to the camera as it does to the stick. The lateral offset is **itself
+  spring-armed** (a second `springArm` cast along the right vector, clamped to
+  the requested offset) so a shoulder cam cannot slide into a wall the player is
+  hugging — and that cast is skipped entirely when the offset is 0, so the
+  default centered camera pays nothing. **Verified:** editor builds clean;
+  scratch third-person project with `camShoulder: 0.8` generates
+  `PLAYER_CAM_SHOULDERS = {0.8F}`, compiles in Docker and boots in PCSX2 — the
+  avatar sits visibly **left** of center (a right-shoulder cam looks past the
+  avatar's right side, exactly the RE4/Gears framing), shifted ~90 px from a
+  450 px half-width, which matches the ~77 px predicted for 0.8 units at a
+  6-unit boom under the ~75° horizontal FOV. 50 FPS, no assert. Wall-hug
+  clamping of the offset still wants a hands-on pad test.
+
 - (102) **Third-person camera spring arm — the camera stops at geometry instead
   of punching through it.** (101) left the third-person boom naive: it only
   clamped the eye above the terrain height *at the eye point*, so any wall,
