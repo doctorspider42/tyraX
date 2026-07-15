@@ -40,6 +40,7 @@ struct RuntimeObject {
 struct ScriptContext {
   Tyra::Engine* engine = nullptr;  // pad, renderer, audio, ...
   Tyra::Vec4 playerPosition;       // camera/player position this frame
+  Tyra::Vec4 playerLook;           // normalized view direction this frame
   RuntimeObject* objects = nullptr;  // mutable scene objects
   int objectCount = 0;
   Tyra::Color skyColor;  // write to change the clear color
@@ -85,6 +86,18 @@ struct ScriptContext {
   float* textDuration = nullptr;
   int textCount = 0;
 
+  // Runtime texts (DYN_TEXTS order, font_data.gen.hpp - one slot per Display
+  // Text node). Same request protocol as textRequest above, but the string is
+  // not baked: write it into dynTextBuf + i * DYN_TEXT_LEN. dynTextOn[i] tells
+  // a script whether its slot is currently on screen, so it only pays for the
+  // refresh while the text is actually visible.
+  signed char* dynTextRequest = nullptr;
+  float* dynTextDuration = nullptr;
+  char* dynTextBuf = nullptr;
+  const unsigned char* dynTextOn = nullptr;
+  int dynTextCount = 0;
+  int dynTextLen = 0;  // stride of dynTextBuf (DYN_TEXT_LEN)
+
   // Camera flashlight master switch (the Player object's "Enabled"). Write 1
   // to turn it on, 0 to turn it off, -1 to leave it unchanged; the game
   // applies and resets it. The optional toggle button still gates the beam.
@@ -98,6 +111,24 @@ struct ScriptContext {
   int grain = -1;
   int particles = -1;
 
+  // Depth of field (Set Depth Of Field flow node). dof: -1 = leave, -2 =
+  // restore the scene's authored setting (Tools > UI Editor), else a 0..128
+  // blur amount (0 = off). The image blurs progressively from dofFocus to
+  // dofFocus + dofRange (world units from the camera). The game applies and
+  // resets dof.
+  int dof = -1;
+  float dofFocus = 0.0F;
+  float dofRange = 0.0F;
+
+  // Analog stick response curves (Set Stick Curve flow node). Per stick:
+  // curve = -1 leave, else 0 Linear / 1 Exponential / 2 S-Curve; exp = the
+  // curve exponent, applied only when >= 1 (< 0 = leave). The game copies
+  // both into the runtime g_stickCurve*/g_stickExp* globals and resets them.
+  int stickCurveL = -1;
+  int stickCurveR = -1;
+  float stickExpL = -1.0F;
+  float stickExpR = -1.0F;
+
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes).
   // requestDisplayMode: -1 = leave, else a Tyra::DisplayMode value (0 =
   // interlaced, 1 = progressive 480p, 2 = 1080i). displayConfirmSec > 0
@@ -109,6 +140,12 @@ struct ScriptContext {
   int requestDisplayMode = -1;
   float displayConfirmSec = 0.0F;
   int widescreen = -1;
+
+  // Master sound-effect volume as a percentage (0..100), driven by a menu
+  // "Sound volume" option block (applyMenuBindings). 100 = unscaled. Applied
+  // as a multiplier on every Play Sound one-shot and every sound-emitter
+  // sample, so it rides on top of each source's own volume.
+  int sfxVolume = 100;
 
   // Save data: named values persisted in memory card slots (SAVE_VALUE_NAMES
   // order, scene_data.hpp). Set openSaveMenu = true to open the in-game

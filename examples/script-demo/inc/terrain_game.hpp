@@ -24,6 +24,7 @@ class TerrainGame : public Tyra::Game {
   void resetTerrainChunks();
   void buildTerrainChunk(int slot, int cx, int cz);
   void updateTerrainChunks(float focusX, float focusZ, int budget);
+  int countPendingChunks(float focusX, float focusZ);
   void renderTerrain();
   void updatePlayer();
 
@@ -249,6 +250,15 @@ class TerrainGame : public Tyra::Game {
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
   void loadScene(int sceneIndex);
+  // Loads scene 0 + runs scripts' init(); called once from the loop's boot
+  // sequence (see bootPhase) so the initial load is vsync-paced.
+  void bootFirstScene();
+  // Boot state: 0 = boot splash images, 1 = loading-screen hold for the first
+  // scene, 2 = gameplay running (the Tyra logo hold lives in the engine's
+  // banner). splashIndex/splashFrames step through the splash sequence.
+  int bootPhase = 0;
+  int splashIndex = 0;
+  int splashFrames = 0;
   int currentScene = 0;
   unsigned int sceneGeneration = 0;
 
@@ -277,8 +287,8 @@ class TerrainGame : public Tyra::Game {
   std::vector<int> sndTimers;               // per-object retrigger countdown
   void updateSoundEmitters();
 
-  // Scene switches show res/hud/loading.png on black for a moment
-  Tyra::Sprite loadingSprite;
+  // Scene switch target held across the loading-screen frames (the screen
+  // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
   int loadingFrames = 0, loadingTarget = -1;
 
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
@@ -312,19 +322,31 @@ class TerrainGame : public Tyra::Game {
   // Gameplay pauses while one is open; Triangle walks the submenu stack.
   bool updateGameMenu();
   void renderGameMenu();
+  // Ready-made option-block rows (Menu Editor): map each bound Toggle/Choice
+  // row's option index onto its engine setting (volume/deadzone/curve/display).
+  void applyMenuBindings();
   std::vector<Tyra::Sprite> menuSprites;
   // Toggle/Choice entry values: one sub-rect sprite per menu into its baked
   // value strip (menu_data.gen.hpp; only menus with such entries have one).
   std::vector<Tyra::Sprite> menuValueSprites;
 
-  // On-screen texts (hud_data.gen.hpp): baked text sprites the Show Text /
-  // Hide Text flow nodes flip via ScriptContext; a positive timer auto-hides.
+  // On-screen texts (hud_data.gen.hpp): baked text sprites the Set Text
+  // Visible flow node flips via ScriptContext; a positive timer auto-hides.
   void updateAndRenderHudTexts();
   std::vector<Tyra::Sprite> hudTextSprites;
   std::vector<signed char> hudTextReq;   // ScriptContext::textRequest
   std::vector<float> hudTextDur;         // ScriptContext::textDuration
   std::vector<unsigned char> hudTextOn;  // visible this frame
   std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
+
+  // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
+  // glyph by glyph from a font atlas because the string is only known now.
+  void updateAndRenderDynTexts();
+  std::vector<signed char> dynTextReq;   // ScriptContext::dynTextRequest
+  std::vector<float> dynTextDur;         // ScriptContext::dynTextDuration
+  std::vector<char> dynTextBuf;          // DYN_TEXT_COUNT * DYN_TEXT_LEN
+  std::vector<unsigned char> dynTextOn;  // visible this frame
+  std::vector<float> dynTextTimer;
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;

@@ -15,6 +15,9 @@
 //  - position links (triangle pins): pass XYZ coordinates between nodes
 //  - bool links (circle pins): per-frame conditions for the logic gates
 //  - text links (circle pins): strings for Log Message / Set Save Text.
+// An action may expose SEVERAL exec inputs (Set Object Visible: show / hide /
+// toggle); FlowLink::toPin says which one a link targets, so one node replaces
+// what used to be a pair of Show*/Hide* nodes.
 // Object-referencing nodes resolve their target in this order:
 //  1. incoming object link  ->  the source node's resolved object
 //  2. explicit object name (str)
@@ -45,6 +48,10 @@ struct FlowLink {
     int fromNode = 0;  // output side
     int toNode = 0;    // input side
     int kind = FlowLinkExec;
+    // Which exec input of toNode this link fires (exec links only; 0 = the
+    // node's first pin, "> do" on a single-input action). Index into the
+    // target type's execInLabels.
+    int toPin = 0;
 };
 
 struct FlowGraph {
@@ -64,7 +71,7 @@ inline bool operator==(const FlowNode& a, const FlowNode& b) {
 
 inline bool operator==(const FlowLink& a, const FlowLink& b) {
     return a.id == b.id && a.fromNode == b.fromNode && a.toNode == b.toNode &&
-           a.kind == b.kind;
+           a.kind == b.kind && a.toPin == b.toPin;
 }
 
 inline bool operator==(const FlowGraph& a, const FlowGraph& b) {
@@ -72,6 +79,11 @@ inline bool operator==(const FlowGraph& a, const FlowGraph& b) {
 }
 
 // ---------------------------------------------------------------------------
+
+// Exec input pins per node. The pin-id space (see the flow*Pin helpers at the
+// bottom) reserves slot 2 plus slots 10..15 for them, so seven is the ceiling
+// - well past what any node needs (the widest is show/hide/toggle).
+constexpr int kFlowMaxExecIn = 7;
 
 enum class FlowParamKind {
     None,
@@ -91,6 +103,7 @@ enum class FlowParamKind {
     LayerName,  // name of a SceneData::layers entry (streaming layer)
     SequenceName,  // name of a Project::sequences entry (Cutscene Director)
     HudTextName,  // name of a Project::hudTexts entry (baked text sprite)
+    FontName,  // name of a Project::fonts entry (Tools > Font Manager)
 };
 
 struct FlowNodeType {
@@ -113,6 +126,12 @@ struct FlowNodeType {
     bool textOut = false; // exposes a text value as a text output
     // action that ALSO has an exec output fired later (Delay's "after >")
     bool execThrough = false;
+    // Exec input pins on an action. 1 = the plain "> do" pin. More than one
+    // gives the node a labeled pin per branch (Set Object Visible: show /
+    // hide / toggle) - the branch a link fires is FlowLink::toPin, and the
+    // node's codegen switches on it. Ignored by triggers and pure nodes.
+    int execInCount = 1;
+    const char* execInLabels[kFlowMaxExecIn] = {};
 };
 
 inline const std::vector<FlowNodeType>& flowNodeTypes() {
@@ -149,13 +168,14 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // empty; this makes the reference explicit and wireable into any pin.
         {"Self", "Self", "Object", false, FlowParamKind::None, 0, {},
          FlowParamKind::None, false, true, false, true, true},
-        // Object actions (id in = target, id out = the same target)
-        {"ShowObject", "Show Object", "Object", false, FlowParamKind::ObjectName, 0, {},
-         FlowParamKind::None, true, true},
-        {"HideObject", "Hide Object", "Object", false, FlowParamKind::ObjectName, 0, {},
-         FlowParamKind::None, true, true},
-        {"ToggleObject", "Toggle Object", "Object", false, FlowParamKind::ObjectName, 0, {},
-         FlowParamKind::None, true, true},
+        // Object actions (id in = target, id out = the same target).
+        // Visibility folds show/hide/toggle into one node: wire the trigger
+        // that reveals the object into "show", the one that hides it into
+        // "hide". Read back with the pure bool Is Visible.
+        {"SetObjectVisible", "Set Object Visible", "Object", false,
+         FlowParamKind::ObjectName, 0, {}, FlowParamKind::None, true, true, false,
+         false, false, false, false, false, false, false,
+         3, {"show", "hide", "toggle"}},
         {"MoveObjectBy", "Move Object By", "Object", false, FlowParamKind::ObjectName, 3,
          {"dX", "dY", "dZ"}, FlowParamKind::None, true, true},
         // Glides the target toward X/Y/Z (or a linked position, re-read every
@@ -188,16 +208,15 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         {"DespawnObject", "Despawn Object", "Object", false, FlowParamKind::ObjectName,
          0, {}, FlowParamKind::None, true, false},
         // Animation (animated .glb model objects; no-ops on anything else).
-        // Play Animation: str = clip name ("" = the model's first clip); the
-        // target object comes from an object link or defaults to self (the
-        // str slot holds the clip, not an object name). Loop: 1 = loop,
-        // 0 = play once. Speed: playback multiplier (0 = authored default).
-        // Fade: crossfade seconds from the current pose (0 = instant).
-        {"PlayAnimation", "Play Animation", "Animation", false, FlowParamKind::Text,
-         3, {"Loop", "Speed", "Fade"}, FlowParamKind::None, true, true},
-        // Freezes the target's animation on its current pose.
-        {"StopAnimation", "Stop Animation", "Animation", false, FlowParamKind::None,
-         0, {}, FlowParamKind::None, true, true},
+        // str = clip name ("" = the model's first clip); the target object
+        // comes from an object link or defaults to self (the str slot holds
+        // the clip, not an object name). Loop: 1 = loop, 0 = play once.
+        // Speed: playback multiplier (0 = authored default). Fade: crossfade
+        // seconds from the current pose (0 = instant). "stop" freezes the
+        // target on its current pose and ignores the params.
+        {"Animation", "Animation", "Animation", false, FlowParamKind::Text,
+         3, {"Loop", "Speed", "Fade"}, FlowParamKind::None, true, true, false,
+         false, false, false, false, false, false, false, 2, {"play", "stop"}},
         // Player
         // Teleports the player (entity or FPP template player) to the target
         // object's position - e.g. respawn at a spawn point. A position link
@@ -234,15 +253,14 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // state resets; textures/models stay loaded (shared across scenes).
         {"SwitchScene", "Switch Scene", "Scene", false, FlowParamKind::SceneName, 0, {},
          FlowParamKind::None, false, false},
-        // Streaming layers (GTA3-style): Load Layer starts pulling the layer's
+        // Streaming layers (GTA3-style): "load" starts pulling the layer's
         // assets into memory (spread over frames, no hitch) and activates its
-        // objects when everything is resident; Unload Layer deactivates the
+        // objects when everything is resident; "unload" deactivates the
         // objects immediately and frees assets no other loaded layer uses.
         // Is Layer Loaded is a pure bool: true once the layer is fully in.
-        {"LoadLayer", "Load Layer", "Scene", false, FlowParamKind::LayerName, 0, {},
-         FlowParamKind::None, false, false},
-        {"UnloadLayer", "Unload Layer", "Scene", false, FlowParamKind::LayerName, 0, {},
-         FlowParamKind::None, false, false},
+        {"SetLayerLoaded", "Set Layer Loaded", "Scene", false,
+         FlowParamKind::LayerName, 0, {}, FlowParamKind::None, false, false, false,
+         false, false, false, false, false, false, false, 2, {"load", "unload"}},
         {"IsLayerLoaded", "Is Layer Loaded", "Scene", false, FlowParamKind::LayerName,
          0, {}, FlowParamKind::None, false, false, false, false, true, false, true},
         // Applies a color grading preset (Tools > Color Grading) as the
@@ -300,19 +318,28 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         {"StopSequence", "Stop Sequence", "Scene", false, FlowParamKind::None,
          0, {}, FlowParamKind::None, false, false},
         // HUD (all HUD images at once; the USE prompt is unaffected)
-        {"ShowHud", "Show HUD", "HUD", false, FlowParamKind::None, 0, {},
-         FlowParamKind::None, false, false},
-        {"HideHud", "Hide HUD", "HUD", false, FlowParamKind::None, 0, {},
-         FlowParamKind::None, false, false},
-        {"ToggleHud", "Toggle HUD", "HUD", false, FlowParamKind::None, 0, {},
-         FlowParamKind::None, false, false},
+        {"SetHudVisible", "Set HUD Visible", "HUD", false, FlowParamKind::None, 0,
+         {}, FlowParamKind::None, false, false, false, false, false, false, false,
+         false, false, false, 3, {"show", "hide", "toggle"}},
         // On-screen texts (Tools > UI Editor > Texts; baked to sprites at
-        // build). Show Text: Seconds > 0 auto-hides after that long, 0 =
-        // stays until a Hide Text (subtitles, tutorial hints, pickup toasts).
-        {"ShowText", "Show Text", "HUD", false, FlowParamKind::HudTextName, 1,
-         {"Seconds"}, FlowParamKind::None, false, false},
-        {"HideText", "Hide Text", "HUD", false, FlowParamKind::HudTextName, 0, {},
-         FlowParamKind::None, false, false},
+        // build). Seconds > 0 auto-hides that long after "show"; 0 = stays
+        // until "hide" (subtitles, tutorial hints, pickup toasts).
+        {"SetTextVisible", "Set Text Visible", "HUD", false,
+         FlowParamKind::HudTextName, 1, {"Seconds"}, FlowParamKind::None, false,
+         false, false, false, false, false, false, false, false, false,
+         2, {"show", "hide"}},
+        // Runtime text: draws the wired text value with a Font Manager font
+        // (Tools > Font Manager), glyph by glyph from that font's baked
+        // atlas - so unlike Set Text Visible the string is NOT frozen at
+        // build and can be a live save value / counter / variable. X and Y
+        // are normalized screen position (center anchor), Size the glyph
+        // height in pixels, Seconds > 0 an auto-hide after "show". The text
+        // is re-read every frame while shown. Color and drop shadow come
+        // from the font entry. The atlas only reaches VRAM once the text is
+        // actually on screen.
+        {"DisplayText", "Display Text", "HUD", false, FlowParamKind::FontName, 4,
+         {"X", "Y", "Size", "Seconds"}, FlowParamKind::None, false, false, false,
+         false, false, false, false, true, false, false, 2, {"show", "hide"}},
         // Audio (music: 16-bit 22kHz stereo WAV; sounds: ADPCM one-shots)
         {"PlayMusic", "Play Music", "Audio", false, FlowParamKind::MusicTrack, 2,
          {"Volume", "Loop"}, FlowParamKind::None, false, false},
@@ -416,6 +443,42 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
 }
 
 // ---------------------------------------------------------------------------
+// Node types retired by the exec-pin merge: each Show*/Hide*/Toggle* family
+// collapsed into one node carrying a labeled exec pin per branch. A pre-merge
+// graph would otherwise lose those nodes outright (readFlowGraph drops unknown
+// types), so project::readFlowGraph rewrites the type and retargets every exec
+// link landing on the node to `pin`.
+struct FlowLegacyNode {
+    const char* from;  // the retired FlowNode::type
+    const char* to;    // its replacement
+    int pin;           // exec input the old node's behavior now lives on
+};
+
+inline const std::vector<FlowLegacyNode>& flowLegacyNodes() {
+    static const std::vector<FlowLegacyNode> v = {
+        {"ShowObject", "SetObjectVisible", 0},
+        {"HideObject", "SetObjectVisible", 1},
+        {"ToggleObject", "SetObjectVisible", 2},
+        {"ShowHud", "SetHudVisible", 0},
+        {"HideHud", "SetHudVisible", 1},
+        {"ToggleHud", "SetHudVisible", 2},
+        {"ShowText", "SetTextVisible", 0},
+        {"HideText", "SetTextVisible", 1},
+        {"LoadLayer", "SetLayerLoaded", 0},
+        {"UnloadLayer", "SetLayerLoaded", 1},
+        {"PlayAnimation", "Animation", 0},
+        {"StopAnimation", "Animation", 1},
+    };
+    return v;
+}
+
+inline const FlowLegacyNode* flowLegacyNode(const std::string& type) {
+    for (const FlowLegacyNode& m : flowLegacyNodes())
+        if (type == m.from) return &m;
+    return nullptr;
+}
+
+// ---------------------------------------------------------------------------
 // Project-defined custom nodes (see flownode.cpp).
 //
 // A custom node is a user-authored *action* node loaded from a .flownode text
@@ -506,7 +569,8 @@ std::string writeExample(const std::string& projectDir);
 
 // imnodes pin ids derived from node ids (pin % 16 encodes the pin kind,
 // pin / 16 the node): object-id in / exec out / exec in / object-id out /
-// position in / position out / bool in / bool out / text in / text out.
+// position in / position out / bool in / bool out / text in / text out,
+// and slots 10..15 for a node's 2nd..7th exec input.
 // Pin ids are never persisted, so widening from 8 to 16 slots is safe.
 inline int flowIdInPin(int nodeId) { return nodeId * 16; }
 inline int flowOutPin(int nodeId) { return nodeId * 16 + 1; }
@@ -518,3 +582,23 @@ inline int flowBoolInPin(int nodeId) { return nodeId * 16 + 6; }
 inline int flowBoolOutPin(int nodeId) { return nodeId * 16 + 7; }
 inline int flowTextInPin(int nodeId) { return nodeId * 16 + 8; }
 inline int flowTextOutPin(int nodeId) { return nodeId * 16 + 9; }
+
+// Exec input `pin` of a node: the first keeps the original slot 2, the rest
+// take the spare slots 10..15 (hence kFlowMaxExecIn == 7).
+inline int flowExecInPin(int nodeId, int pin) {
+    return pin <= 0 ? nodeId * 16 + 2 : nodeId * 16 + 9 + pin;
+}
+
+// Inverse of flowExecInPin for a pin slot (pin % 16): the exec input index,
+// or -1 when the slot is not an exec input.
+inline int flowExecInIndex(int slot) {
+    if (slot == 2) return 0;
+    if (slot >= 10 && slot < 10 + kFlowMaxExecIn - 1) return slot - 9;
+    return -1;
+}
+
+// Label shown on exec input `pin` of `t` ("> do" when the type declares none).
+inline const char* flowExecInLabel(const FlowNodeType& t, int pin) {
+    if (t.execInCount <= 1 || pin < 0 || pin >= t.execInCount) return "do";
+    return t.execInLabels[pin] ? t.execInLabels[pin] : "do";
+}

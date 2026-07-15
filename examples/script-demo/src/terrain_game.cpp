@@ -5,10 +5,14 @@
 #include "scene_data.hpp"
 #include "model_data.gen.hpp"
 #include "hud_data.gen.hpp"
+#include "font_data.gen.hpp"
+#include "loading_data.gen.hpp"
 #include "menu_data.gen.hpp"
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
+#include "decal_data.gen.hpp"  // baked projected-decal meshes (host-computed)
 #include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
+#include "scripts/screen_fx.gen.hpp"  // custom full-screen effects
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -46,6 +50,51 @@ bool g_flashOn = true;
 // Global emitter draw switch (Set Particles flow node). false = updateParticles
 // skips all simulation + drawing, so every emitter's fill cost disappears.
 bool g_particlesOn = true;
+
+// Runtime analog stick deadzone (Preferences > Input; a menu "Deadzone" option
+// block changes it live via applyMenuBindings). Seeded from the baked
+// ANALOG_DEADZONE_* constants in buildScene (they are namespaced, this scope is
+// not), then read every frame by stickAxis() - so with no option block the
+// sticks behave exactly as the Preferences deadzone.
+float g_deadzoneL = 0.2F;
+float g_deadzoneR = 0.2F;
+
+// Analog stick response curves (Preferences > Input; the Set Stick Curve flow
+// node and a menu "Aim curve" option block change them live). g_stickCurve*:
+// 0 = Linear, 1 = Exponential, 2 = S-Curve; g_stickExp* tunes curves 1/2.
+// Seeded from the baked STICK_* constants in init() (the constants are
+// namespaced, this scope is not), then read every frame by stickAxis();
+// runtime changes persist across scenes.
+int g_stickCurveL = 0;
+int g_stickCurveR = 0;
+float g_stickExpL = 2.0F;
+float g_stickExpR = 2.0F;
+
+// Last option index a "Display mode" / "Widescreen" menu block applied. Video
+// switches rebuild VRAM + arm the confirm prompt, so they fire only on change
+// (seeded from the saved option in buildScene so a persisted choice does not
+// re-trigger a switch at boot).
+int g_menuDispOpt = -1;
+int g_menuWideOpt = -1;
+
+// Maps a pad axis byte (128 = center) to a signed -1..1 value: it reads 0
+// below the deadzone, rescales from the deadzone edge so there is no step,
+// then shapes the magnitude by the per-stick response curve. Both the FPP
+// player and the Player-entity update call this (keep the two in sync).
+float stickAxis(const u8& raw, float dz, int curve, float e) {
+  const float v = (raw - 128.0F) / 128.0F;
+  const float mag = v < 0.0F ? -v : v;
+  if (mag <= dz) return 0.0F;
+  float s = (mag - dz) / (1.0F - dz);  // 0 at the edge .. 1 at full deflection
+  if (curve == 1) {
+    s = powf(s, e);  // Exponential: gentle near center, snappy at the edge
+  } else if (curve == 2) {
+    // S-Curve: smoothstep (soft center + firm cap), sharpened by the exponent.
+    const float smooth = s * s * (3.0F - 2.0F * s);
+    s = e == 1.0F ? smooth : powf(smooth, e);
+  }
+  return v < 0.0F ? -s : s;
+}
 
 // Measures the real time since the previous frame (EE COP0 Count register,
 // 294.912 MHz, wrap-safe) and folds it into g_frameDt / g_frameScale.
@@ -397,11 +446,19 @@ void addPlane(std::vector<Vec4>& verts, std::vector<Color>& cols,
 // material (transparency comes from the texture's alpha - the static pipeline
 // runs an alpha test that drops fully-transparent texels and alpha-blends the
 // rest). Nudged +Z by DECAL_OFFSET so it sits just in front of the surface it
-// is placed on instead of z-fighting it. Single-sided (front only).
+// is placed on instead of z-fighting it. Single-sided (front only). U runs with
+// local -X (slide-projector convention) so the texture reads correctly - not
+// mirrored - viewed from the +Z front; matches unitDecal + the projected decal.
 void addDecal(std::vector<Vec4>& verts, std::vector<Color>& cols,
               std::vector<Vec4>& sts, const SceneObjectData& o) {
   const float h = 0.5F, z = 0.02F;  // DECAL_OFFSET, local units (scaled by Z)
-  pushQuad(verts, cols, sts, o, {-h, -h, z}, {h, -h, z}, {h, h, z}, {-h, h, z}, {0, 0, 1});
+  const V3 n = {0, 0, 1};
+  pushVert(verts, cols, sts, o, {-h, -h, z}, n, 1, 0);
+  pushVert(verts, cols, sts, o, {h, -h, z}, n, 0, 0);
+  pushVert(verts, cols, sts, o, {h, h, z}, n, 0, 1);
+  pushVert(verts, cols, sts, o, {-h, -h, z}, n, 1, 0);
+  pushVert(verts, cols, sts, o, {h, h, z}, n, 0, 1);
+  pushVert(verts, cols, sts, o, {-h, h, z}, n, 1, 1);
 }
 
 void addCone(std::vector<Vec4>& verts, std::vector<Color>& cols,
@@ -459,6 +516,78 @@ void drawHudText(Engine* engine, const char* s, float x, float y) {
 }
 
 float hudTextWidth(const char* s) { return (float)strlen(s) * 14.0F; }
+
+/** Runtime text drawn from a Font Manager glyph atlas (Display Text nodes).
+ *
+ * VRAM: the atlas Texture is only handed to the repository the first time this
+ * font actually draws, and the engine only DMAs a texture to GS VRAM on its
+ * first render - so a font nobody displays costs zero VRAM, and one that is
+ * hidden again keeps costing only its EE-side copy. We deliberately never call
+ * useTexture() eagerly here (unlike the streamed model textures), because that
+ * would pin the sheet before anything asked for it. */
+float fontTextWidth(int fontIdx, const char* s, float size) {
+  const FontData& f = FONTS[fontIdx];
+  if (!f.glyphs) return 0.0F;
+  const float k = size / (float)f.baseSize;
+  float w = 0.0F;
+  for (; *s; ++s) {
+    const int gi = (int)(unsigned char)*s - FONT_FIRST_CHAR;
+    if (gi < 0 || gi >= FONT_CHAR_COUNT) continue;
+    w += (float)f.glyphs[gi].adv * k;
+  }
+  return w;
+}
+
+void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
+                  float cy, float size) {
+  const FontData& f = FONTS[fontIdx];
+  if (!f.glyphs || !f.atlas[0]) return;
+
+  // One sprite per font, kept across frames: the texture link is by sprite id,
+  // so every glyph of a font reuses the same id and the same atlas binding.
+  static Sprite glyph[FONT_COUNT > 0 ? FONT_COUNT : 1];
+  static bool ready[FONT_COUNT > 0 ? FONT_COUNT : 1] = {};
+  if (!ready[fontIdx]) {
+    glyph[fontIdx].mode = SpriteMode::MODE_REPEAT;  // sample a sub-rect
+    auto* texture = engine->renderer.getTextureRepository().add(
+        FileUtils::fromCwd(f.atlas));
+    texture->addLink(glyph[fontIdx].id);
+    ready[fontIdx] = true;
+  }
+
+  Sprite& sp = glyph[fontIdx];
+  const float k = size / (float)f.baseSize;
+  sp.scale = k;
+
+  // Center anchor, like the baked HUD text sprites.
+  const float startX = cx - fontTextWidth(fontIdx, s, size) * 0.5F;
+  const float top = cy - (float)f.lineH * k * 0.5F;
+
+  // Shadow first, then the glyphs: two passes over the same cells, the dark
+  // one offset by a pixel (the baked texts get theirs at bake time instead).
+  for (int pass = f.shadow ? 0 : 1; pass < 2; ++pass) {
+    const float ox = pass == 0 ? 1.0F : 0.0F;
+    if (pass == 0)
+      sp.color = Color(10.0F, 12.0F, 16.0F, 100.0F);
+    else
+      sp.color = Color((float)f.r, (float)f.g, (float)f.b, 128.0F);
+
+    float pen = startX;
+    for (const char* c = s; *c; ++c) {
+      const int gi = (int)(unsigned char)*c - FONT_FIRST_CHAR;
+      if (gi < 0 || gi >= FONT_CHAR_COUNT) continue;
+      const FontGlyph& g = f.glyphs[gi];
+      if (g.w > 0 && g.h > 0) {
+        sp.size = Vec2((float)g.w, (float)g.h);
+        sp.offset = Vec2((float)g.u, (float)g.v);
+        sp.position = Vec2(pen + (float)g.xoff * k + ox,
+                           top + (float)g.yoff * k + ox);
+        engine->renderer.renderer2D.render(sp);
+      }
+      pen += (float)g.adv * k;
+    }
+  }
+}
 
 // Debug frame profiler (Project > Preferences > Build > Show frame profiler).
 // renderScene brackets its three heavy phases with EE COP0-timer reads and
@@ -603,6 +732,169 @@ void drawVideoConfirm(Engine* engine) {
   drawHudText(engine, line, (w - hudTextWidth(line)) * 0.5F, h * 0.5F + 2.0F);
 }
 
+// --- Loading screens (loading_data.gen.hpp) --------------------------------
+// Presents one frame of the loading screen a scene resolves to (background +
+// images + baked texts + progress bars) at load progress `fraction` (0..1).
+// Called from loadScene while it drains assets/terrain AND from the loop's
+// scene-switch hold; the whole point of pumping frames mid-load is that the
+// bar advances for real. Sprites and texture links are built once, lazily
+// (loadScene(0) at boot can run before init() finishes its own sprite setup),
+// then reused - the colored-rect quads share one white 8x8 sprite re-rendered
+// per rectangle, exactly like sequences::renderOverlay's black quad.
+struct LoadingScreenState {
+  bool ready = false;
+  bool builtinReady = false;
+  Tyra::Sprite builtin;                // hud/loading.png fallback
+  Tyra::Sprite white;                  // tinted into every bar quad
+  std::vector<Tyra::Sprite> images;    // LS_IMAGE_TOTAL, one per LS_IMAGES
+  std::vector<Tyra::Sprite> texts;     // LS_TEXT_TOTAL, one per LS_TEXTS
+  std::vector<Tyra::Sprite> segs;      // LS_BAR_TOTAL, linked only for seg bars
+  std::vector<Tyra::Sprite> splashes;  // SPLASH_COUNT, one per SPLASHES
+};
+LoadingScreenState g_loading;
+
+void loadingEnsureReady(Engine* engine) {
+  if (g_loading.ready) return;
+  g_loading.ready = true;
+  auto& repo = engine->renderer.getTextureRepository();
+  g_loading.white.mode = SpriteMode::MODE_STRETCH;
+  repo.add(FileUtils::fromCwd("hud/loading-white.png"))->addLink(g_loading.white.id);
+  g_loading.images.resize(LS_IMAGE_TOTAL > 0 ? LS_IMAGE_TOTAL : 0);
+  for (int i = 0; i < LS_IMAGE_TOTAL; ++i) {
+    g_loading.images[i].mode = SpriteMode::MODE_STRETCH;
+    repo.add(FileUtils::fromCwd(LS_IMAGES[i].path))->addLink(g_loading.images[i].id);
+  }
+  g_loading.texts.resize(LS_TEXT_TOTAL > 0 ? LS_TEXT_TOTAL : 0);
+  for (int i = 0; i < LS_TEXT_TOTAL; ++i) {
+    g_loading.texts[i].mode = SpriteMode::MODE_STRETCH;
+    repo.add(FileUtils::fromCwd(LS_TEXTS[i].path))->addLink(g_loading.texts[i].id);
+  }
+  g_loading.segs.resize(LS_BAR_TOTAL > 0 ? LS_BAR_TOTAL : 0);
+  for (int i = 0; i < LS_BAR_TOTAL; ++i) {
+    if (LS_BARS[i].segPath[0] == '\0') continue;
+    g_loading.segs[i].mode = SpriteMode::MODE_STRETCH;
+    repo.add(FileUtils::fromCwd(LS_BARS[i].segPath))->addLink(g_loading.segs[i].id);
+  }
+  g_loading.splashes.resize(SPLASH_COUNT > 0 ? SPLASH_COUNT : 0);
+  for (int i = 0; i < SPLASH_COUNT; ++i) {
+    g_loading.splashes[i].mode = SpriteMode::MODE_STRETCH;
+    repo.add(FileUtils::fromCwd(SPLASHES[i].path))->addLink(g_loading.splashes[i].id);
+  }
+}
+
+namespace loadingscreen {
+// One boot splash frame: the image (i) on its background color. Vsync-paced by
+// the caller (the loop's boot sequence), held for SPLASHES[i].seconds.
+void renderSplash(Engine* engine, int i) {
+  if (i < 0 || i >= SPLASH_COUNT) return;
+  loadingEnsureReady(engine);
+  const SplashData& s = SPLASHES[i];
+  const auto& scr = engine->renderer.core.getSettings();
+  const float W = scr.getWidth(), H = scr.getHeight();
+  engine->renderer.setClearScreenColor(Color(s.bg[0], s.bg[1], s.bg[2]));
+  engine->renderer.beginFrame();
+  Sprite& sp = g_loading.splashes[i];
+  sp.size = Vec2(s.w, s.h);
+  sp.position = Vec2(s.x * W - s.w * 0.5F, s.y * H - s.h * 0.5F);
+  engine->renderer.renderer2D.render(sp);
+  engine->renderer.endFrame();
+}
+
+void renderFrame(Engine* engine, int sceneIdx, float fraction) {
+  if (fraction < 0.0F) fraction = 0.0F;
+  if (fraction > 1.0F) fraction = 1.0F;
+
+  int screen = -1;
+  if (LS_COUNT > 0) {
+    if (sceneIdx >= 0 && sceneIdx < SCENE_COUNT)
+      screen = SCENE_LOADING_SCREEN[sceneIdx];
+    else
+      screen = LS_DEFAULT;
+    if (screen < 0 || screen >= LS_COUNT) screen = LS_DEFAULT;
+  }
+
+  const auto& scr = engine->renderer.core.getSettings();
+  const float W = scr.getWidth();
+  const float H = scr.getHeight();
+
+  // No authored screen resolves here: the classic built-in (hud/loading.png
+  // centered on black), pixel-identical to the pre-editor loading screen.
+  if (screen < 0 || screen >= LS_COUNT) {
+    if (!g_loading.builtinReady) {
+      g_loading.builtin.mode = SpriteMode::MODE_STRETCH;
+      g_loading.builtin.size = Vec2(256.0F, 64.0F);
+      g_loading.builtin.position = Vec2((W - 256.0F) * 0.5F, (H - 64.0F) * 0.5F);
+      engine->renderer.getTextureRepository()
+          .add(FileUtils::fromCwd("hud/loading.png"))
+          ->addLink(g_loading.builtin.id);
+      g_loading.builtinReady = true;
+    }
+    engine->renderer.setClearScreenColor(Color(0.0F, 0.0F, 0.0F));
+    engine->renderer.beginFrame();
+    engine->renderer.renderer2D.render(g_loading.builtin);
+    engine->renderer.endFrame();
+    return;
+  }
+
+  loadingEnsureReady(engine);
+  const LoadingScreenData& s = LS_SCREENS[screen];
+  engine->renderer.setClearScreenColor(Color(s.bg[0], s.bg[1], s.bg[2]));
+  engine->renderer.beginFrame();
+
+  // A tinted white quad (GS modulation, tint already in 0..128 range).
+  auto quad = [&](float x, float y, float w, float h, const float* c) {
+    if (w < 1.0F || h < 1.0F) return;
+    g_loading.white.size = Vec2(w, h);
+    g_loading.white.position = Vec2(x, y);
+    g_loading.white.color = Color(c[0], c[1], c[2], 128.0F);
+    engine->renderer.renderer2D.render(g_loading.white);
+  };
+
+  for (int i = 0; i < s.imgCount; ++i) {
+    const LoadingImageData& im = LS_IMAGES[s.imgFirst + i];
+    Sprite& sp = g_loading.images[s.imgFirst + i];
+    sp.size = Vec2(im.w, im.h);
+    sp.position = Vec2(im.x * W - im.w * 0.5F, im.y * H - im.h * 0.5F);
+    engine->renderer.renderer2D.render(sp);
+  }
+  for (int i = 0; i < s.txtCount; ++i) {
+    const LoadingTextData& t = LS_TEXTS[s.txtFirst + i];
+    Sprite& sp = g_loading.texts[s.txtFirst + i];
+    sp.size = Vec2((float)t.w, (float)t.h);
+    sp.position = Vec2(t.x * W - t.w * 0.5F, t.y * H - t.h * 0.5F);
+    engine->renderer.renderer2D.render(sp);
+  }
+  for (int i = 0; i < s.barCount; ++i) {
+    const LoadingBarData& b = LS_BARS[s.barFirst + i];
+    const float bx = b.x * W - b.w * 0.5F;  // top-left of the bar
+    const float by = b.y * H - b.h * 0.5F;
+    if (b.kind == 0) {
+      // Continuous: track under a left-anchored fill scaled by progress.
+      quad(bx, by, b.w, b.h, b.bg);
+      quad(bx, by, b.w * fraction, b.h, b.fill);
+    } else {
+      const int segs = b.segments < 1 ? 1 : b.segments;
+      const int lit = (int)(fraction * segs + 0.001F);
+      const float segW = (b.w - b.spacing * (segs - 1)) / segs;
+      for (int k = 0; k < segs; ++k) {
+        const float sx = bx + k * (segW + b.spacing);
+        const float* c = (k < lit) ? b.fill : b.bg;
+        if (b.segPath[0] != '\0') {
+          Sprite& sp = g_loading.segs[s.barFirst + i];  // reused per segment
+          sp.size = Vec2(segW, b.h);
+          sp.position = Vec2(sx, by);
+          sp.color = Color(c[0], c[1], c[2], 128.0F);
+          engine->renderer.renderer2D.render(sp);
+        } else {
+          quad(sx, by, segW, b.h, c);
+        }
+      }
+    }
+  }
+  engine->renderer.endFrame();
+}
+}  // namespace loadingscreen
+
 }  // namespace
 
 TerrainGame::TerrainGame(Engine* t_engine)
@@ -636,6 +928,13 @@ void TerrainGame::init() {
   g_frameRate = engine->renderer.core.getSettings().getRefreshRate();
   g_frameDt = 1.0F / g_frameRate;
   g_frameScale = 50.0F / g_frameRate;
+  // Seed the analog stick response curves from the project defaults (the
+  // Set Stick Curve flow node overrides them at runtime; namespaced constants
+  // so they cannot initialize the global-scope g_stick* definitions directly).
+  g_stickCurveL = STICK_CURVE_L;
+  g_stickCurveR = STICK_CURVE_R;
+  g_stickExpL = STICK_EXP_L;
+  g_stickExpR = STICK_EXP_R;
   // Experimental (Project > Preferences > Build): skip the vsync wait -
   // continuous frame rate instead of the 50/25 vsync snap, with tearing.
   if (!FRAME_LIMIT) engine->renderer.core.setFrameLimit(false);
@@ -646,6 +945,8 @@ void TerrainGame::init() {
   stapip.core.setVU1Clipping(CLIP_VU1);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
+                                               POSTFX_DOF_RANGE, POSTFX_DOF);
   // GS hardware distance fog (Scene/Project > Preferences > Fog).
   if (FOG_ENABLED)
     engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START,
@@ -672,12 +973,8 @@ void TerrainGame::init() {
   updatePlayer();
   buildScene();
 
-  scriptCtx.engine = engine;
-  scriptCtx.objects = runtimeObjects.data();
-  scriptCtx.objectCount = (int)runtimeObjects.size();
-  scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
-  scriptCtx.playerPosition = cameraPosition;
-  for (Script* script : getScripts()) script->init(scriptCtx);
+  // scriptCtx wiring + scripts' init() run from bootFirstScene() (loop boot),
+  // after the deferred scene load - scripts' onStart must see scene 0's objects.
 
   // HUD sprites (see hud_data.gen.hpp)
   const auto& screen = engine->renderer.core.getSettings();
@@ -707,14 +1004,8 @@ void TerrainGame::init() {
       FileUtils::fromCwd(USE_PROMPT_PATH));
   useTexture->addLink(usePromptSprite.id);
 
-  // Loading screen sprite (res/hud/loading.png), shown on scene switches
-  loadingSprite.mode = SpriteMode::MODE_STRETCH;
-  loadingSprite.size = Vec2(256.0F, 64.0F);
-  loadingSprite.position = Vec2((screen.getWidth() - 256.0F) * 0.5F,
-                                (screen.getHeight() - 64.0F) * 0.5F);
-  auto* loadingTexture = engine->renderer.getTextureRepository().add(
-      FileUtils::fromCwd("hud/loading.png"));
-  loadingTexture->addLink(loadingSprite.id);
+  // The loading screen (loading_data.gen.hpp) builds its own sprites lazily on
+  // first present (loadingscreen::renderFrame), so nothing to set up here.
 
   // Sound emitter samples (adpenc output next to the ELF)
   for (int i = 0; i < SND_COUNT; ++i)
@@ -724,6 +1015,45 @@ void TerrainGame::init() {
 
 void TerrainGame::loop() {
   updateFrameClock();  // real dt: frame drops slow the picture, not the game
+
+  // Boot sequence (the engine holds the Tyra logo ~2s before this):
+  //   phase 0 - boot splash images, each shown for its duration (in order),
+  //   phase 1 - load scene 0 behind the loading screen (when enabled).
+  // Everything runs from the loop, not init(): a frame presented from init()
+  // (before the main loop) isn't vsync-paced and flashes by, so the boot
+  // visuals were invisible; from the loop they pace normally.
+  if (bootPhase < 2) {
+    if (bootPhase == 0) {
+      if (splashIndex < SPLASH_COUNT) {
+        if (splashFrames <= 0)
+          splashFrames = everyFrames(SPLASHES[splashIndex].seconds);
+        loadingscreen::renderSplash(engine, splashIndex);
+        if (--splashFrames <= 0) ++splashIndex;
+        return;
+      }
+      bootPhase = 1;
+      if (LOADING_SCREEN) {
+        loadingTarget = 0;
+        loadingFrames = everyFrames(0.7F);
+      }
+    }
+    if (bootPhase == 1) {
+      if (!LOADING_SCREEN) {
+        bootFirstScene();
+        bootPhase = 2;
+      } else {
+        if (loadingFrames > 0) {
+          const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
+          loadingscreen::renderFrame(engine, 0, preLoad ? 0.0F : 1.0F);
+          --loadingFrames;
+          if (loadingFrames == everyFrames(0.7F) - 5) bootFirstScene();
+          return;
+        }
+        bootPhase = 2;
+      }
+    }
+  }
+
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuWasOpen = gameMenuIndex >= 0;  // before updateGameMenu()
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
@@ -734,12 +1064,27 @@ void TerrainGame::loop() {
   const bool menuOwnsPad =
       saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0;
   g_gameplayPaused = menuActive;  // freezes particles + animation playback
+  // Option-block menu rows drive their bound engine settings every frame
+  // (volume, deadzone, curve, display) - runs regardless of pause so a saved
+  // setting keeps applying, and before applyVideoRequests so a display switch
+  // it requests lands this frame.
+  applyMenuBindings();
   if (!menuOwnsPad) {
     if (!updatePlayerEntity()) updatePlayer();
     updateUseTarget();
   }
 
   scriptCtx.playerPosition = cameraPosition;
+  {
+    // View direction for the scripts (Raycast flow node)
+    Vec4 look = cameraLookAt - cameraPosition;
+    const float lookLen =
+        sqrtf(look.x * look.x + look.y * look.y + look.z * look.z);
+    scriptCtx.playerLook = lookLen > 0.0001F
+                               ? Vec4(look.x / lookLen, look.y / lookLen,
+                                      look.z / lookLen)
+                               : Vec4(0.0F, 0.0F, 1.0F);
+  }
   if (menuOwnsPad) { scriptCtx.usedObject = -1; useTargetIndex = -1; }
   // Menus pause scripts - except the frame a menu entry fires a flow event,
   // which must reach the On Menu Event triggers.
@@ -762,10 +1107,10 @@ void TerrainGame::loop() {
     }
   }
   if (loadingFrames > 0) {
-    engine->renderer.setClearScreenColor(Color(0.0F, 0.0F, 0.0F));
-    engine->renderer.beginFrame();
-    engine->renderer.renderer2D.render(loadingSprite);
-    engine->renderer.endFrame();
+    // A few frames at 0% before the (blocking) load, which pumps the bar from
+    // 0 to 1 itself, then the remaining frames at 100%.
+    const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
+    loadingscreen::renderFrame(engine, loadingTarget, preLoad ? 0.0F : 1.0F);
     --loadingFrames;
     if (loadingFrames == everyFrames(0.7F) - 5) {  // a few frames shown first
       loadScene(loadingTarget);
@@ -843,9 +1188,36 @@ void TerrainGame::loop() {
     engine->renderer.core.postFx.setGrain(scriptCtx.grain);
     scriptCtx.grain = -1;
   }
+  if (scriptCtx.dof == -2) {
+    // Set Depth Of Field, "Scene setting" mode: back to the authored values
+    engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
+                                                 POSTFX_DOF_RANGE, POSTFX_DOF);
+    scriptCtx.dof = -1;
+  } else if (scriptCtx.dof >= 0) {
+    engine->renderer.core.postFx.setDepthOfField(
+        scriptCtx.dofFocus, scriptCtx.dofRange, scriptCtx.dof);
+    scriptCtx.dof = -1;
+  }
   if (scriptCtx.particles >= 0) {
     g_particlesOn = scriptCtx.particles != 0;
     scriptCtx.particles = -1;
+  }
+  // Analog stick response curves (Set Stick Curve flow node).
+  if (scriptCtx.stickCurveL >= 0) {
+    g_stickCurveL = scriptCtx.stickCurveL;
+    scriptCtx.stickCurveL = -1;
+  }
+  if (scriptCtx.stickCurveR >= 0) {
+    g_stickCurveR = scriptCtx.stickCurveR;
+    scriptCtx.stickCurveR = -1;
+  }
+  if (scriptCtx.stickExpL >= 1.0F) {
+    g_stickExpL = scriptCtx.stickExpL;
+    scriptCtx.stickExpL = -1.0F;
+  }
+  if (scriptCtx.stickExpR >= 1.0F) {
+    g_stickExpR = scriptCtx.stickExpR;
+    scriptCtx.stickExpR = -1.0F;
   }
   // Cutscene camera override: a Cutscene Director sequence with a camera track
   // drives the frame camera (Play/Stop Sequence). Applied after scripts so the
@@ -876,6 +1248,11 @@ void TerrainGame::loop() {
   {
     engine->renderer.renderer3D.usePipeline(stapip);
     renderScene();
+    // Depth of field composites right after the 3D scene, BEFORE any 2D:
+    // sprites stamp z = max across their whole rect (transparent margins
+    // included), which would punch sharp rectangles into a later z-tested
+    // DoF pass (a crosshair HUD showed through the blur as a box).
+    engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassDof);
     // Full-screen effects can sit inside the HUD stack (Tools > UI Editor):
     // bloom (with color grading) and film grain composite at independent
     // points, so sprites drawn afterwards stay crisp on top of them. -1 = the
@@ -890,8 +1267,11 @@ void TerrainGame::loop() {
       if (scriptCtx.hudVisible)
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
+    // Custom screen effects placed at the top of the stack (layer -1): drawn
+    // over the whole HUD stack, under the USE prompt / texts / pause menus.
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
     updateAndRenderHudTexts();
+    updateAndRenderDynTexts();
     // Cutscene Director widescreen bars + fade-to-black: solid quads over the
     // scene and HUD (texts included), under the pause menus (no-op unless a
     // cutscene draws).
@@ -948,6 +1328,24 @@ void TerrainGame::buildScene() {
   for (int i = 0; i < SAVE_VALUE_COUNT; ++i) saveValues[i] = SAVE_VALUE_DEFAULTS[i];
   scriptCtx.saveValues = saveValues.data();
   scriptCtx.saveValueCount = SAVE_VALUE_COUNT;
+  // Seed the runtime deadzone from the compile-time Preferences defaults (the
+  // constants are namespaced, so this cannot happen at the global def). A menu
+  // "Deadzone" option block overrides these each frame; the stick response
+  // curve globals (g_stickCurve*/g_stickExp*) are seeded separately in init().
+  g_deadzoneL = ANALOG_DEADZONE_L;
+  g_deadzoneR = ANALOG_DEADZONE_R;
+  // Seed the display/widescreen option-block trackers from the current saved
+  // option so applyMenuBindings does not fire a scan-mode switch (+ confirm
+  // prompt) at boot: the game boots in the project's compiled display mode,
+  // and a menu row only switches when the player moves it (or loads a save
+  // that changed it).
+  for (int mi = 0; mi < MENU_COUNT; ++mi)
+    for (int e = 0; e < MENUS[mi].entryCount; ++e) {
+      const MenuEntryData& en = MENUS[mi].entries[e];
+      if (en.param < 0 || en.param >= SAVE_VALUE_COUNT) continue;
+      if (en.bind == 5) g_menuDispOpt = (int)saveValues[en.param];
+      if (en.bind == 6) g_menuWideOpt = (int)saveValues[en.param];
+    }
   saveTexts.assign((SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1) * SAVE_TEXT_LEN, '\0');
   for (int i = 0; i < SAVE_TEXT_COUNT; ++i)
     snprintf(&saveTexts[i * SAVE_TEXT_LEN], SAVE_TEXT_LEN, "%s",
@@ -1042,6 +1440,22 @@ void TerrainGame::buildScene() {
     scriptCtx.textRequest = hudTextReq.data();
     scriptCtx.textDuration = hudTextDur.data();
     scriptCtx.textCount = HUD_TEXT_COUNT;
+
+    // Runtime texts (font_data.gen.hpp). Buffers only - no texture is touched
+    // here: a font atlas reaches the repository (and VRAM) on the first frame
+    // a Display Text using it is actually drawn. See drawFontText.
+    dynTextReq.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, -1);
+    dynTextDur.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0.0F);
+    dynTextOn.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0);
+    dynTextTimer.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0.0F);
+    dynTextBuf.assign((DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1) * DYN_TEXT_LEN,
+                      '\0');
+    scriptCtx.dynTextRequest = dynTextReq.data();
+    scriptCtx.dynTextDuration = dynTextDur.data();
+    scriptCtx.dynTextBuf = dynTextBuf.data();
+    scriptCtx.dynTextOn = dynTextOn.data();
+    scriptCtx.dynTextCount = DYN_TEXT_COUNT;
+    scriptCtx.dynTextLen = DYN_TEXT_LEN;
     if (TITLE_MENU >= 0) {
       gameMenuIndex = TITLE_MENU;
       gameMenuCursor = 0;
@@ -1051,7 +1465,23 @@ void TerrainGame::buildScene() {
     }
   }
 
+  // The first scene is loaded from the loop (bootFirstScene), not here, so
+  // its load is vsync-paced behind the loading screen after the logo hold.
+}
+
+// Loads scene 0 and runs the scripts' init() once - the boot equivalent of a
+// scene switch. Deferred out of init()/buildScene() into the loop's boot
+// sequence so the load runs at vsync pace (a visible loading-screen progress
+// bar) instead of flashing by before the first presented frame.
+void TerrainGame::bootFirstScene() {
   loadScene(0);
+  scriptCtx.engine = engine;
+  scriptCtx.objects = runtimeObjects.data();
+  scriptCtx.objectCount = (int)runtimeObjects.size();
+  scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
+  scriptCtx.playerPosition = cameraPosition;
+  scriptCtx.playerLook = Vec4(0.0F, 0.0F, 1.0F);  // real look set per frame
+  for (Script* script : getScripts()) script->init(scriptCtx);
 }
 
 // Shared texture cache: one engine texture per path, reference-counted so
@@ -1990,6 +2420,36 @@ void TerrainGame::loadScene(int sceneIndex) {
   // this scene's point lights (see collectScenePointLights).
   collectScenePointLights();
 
+  // Size the terrain chunk pool for this scene's grid up front (independent
+  // of the streamed assets below) so the loading bar's denominator can count
+  // the in-view chunks that still have to be built.
+  if (infoBag) resetTerrainChunks();
+  // Terrain view focus, same source the synchronous drain used to use (the
+  // player entity's authored position, else the orbit look-at).
+  const float lsFocusX = (PLAYER_INDEX >= 0 && PLAYER_INDEX < SCENE_OBJECT_COUNT)
+                             ? SCENE_OBJECTS[PLAYER_INDEX].position[0]
+                             : cameraLookAt.x;
+  const float lsFocusZ = (PLAYER_INDEX >= 0 && PLAYER_INDEX < SCENE_OBJECT_COUNT)
+                             ? SCENE_OBJECTS[PLAYER_INDEX].position[2]
+                             : cameraLookAt.z;
+
+  // Loading-screen progress pump. The load is otherwise blocking, so we count
+  // the work units (assets to stream + objects to build + terrain chunks) and
+  // present a loading-screen frame every ~1/24th of the way through, so the
+  // bar reflects real progress. lsStep caps presented frames (rendering every
+  // unit would slow chunk-heavy loads). With LOADING_SCREEN off, lsPump is a
+  // no-op and the load behaves exactly as before.
+  int lsDone = 0, lsMark = 0, lsTotal = 0, lsStep = 1;
+  auto lsPump = [&](int n) {
+    if (!LOADING_SCREEN) return;
+    lsDone += n;
+    if (lsDone >= lsMark) {
+      lsMark += lsStep;
+      loadingscreen::renderFrame(
+          engine, sceneIndex, lsTotal > 0 ? (float)lsDone / (float)lsTotal : 1.0F);
+    }
+  };
+
   // Streaming layers: desired residency from the scene's authored defaults.
   {
     // The previous scene's runtime objects (spawn-pool clones included) are
@@ -2028,17 +2488,26 @@ void TerrainGame::loadScene(int sceneIndex) {
       }
     }
     applyLayerResidency();
-    while (!streamQueue.empty()) processOneStreamJob();
+    // Now the work is known: assets queued + objects to build + chunks in view.
+    if (LOADING_SCREEN) {
+      lsTotal = (int)streamQueue.size() + SCENE_OBJECT_COUNT +
+                countPendingChunks(lsFocusX, lsFocusZ);
+      lsStep = lsTotal > 0 ? (lsTotal + 23) / 24 : 1;
+      loadingscreen::renderFrame(engine, sceneIndex, 0.0F);  // first frame
+    }
+    while (!streamQueue.empty()) {
+      processOneStreamJob();
+      lsPump(1);
+    }
     for (int l = 0; l < lc; ++l) layerState[l] = layerTarget[l] ? 2 : 0;
   }
 
   // Terrain, lighting, sky, clipping and post-FX are per scene (Scene >
-  // Preferences overrides) - reset the terrain chunk pool for this scene's
-  // grid (the chunks themselves are drained synchronously at the end of this
-  // function, once the view focus is known) and re-apply render settings.
+  // Preferences overrides) - re-apply render settings (the chunk pool was
+  // reset at the top; the chunks themselves drain at the end of this
+  // function, once the view focus is known).
   if (infoBag) {
     infoBag->fullClipChecks = CLIP_PRECISE;
-    resetTerrainChunks();
     skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
     buildSkyDome();
   }
@@ -2050,6 +2519,8 @@ void TerrainGame::loadScene(int sceneIndex) {
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
+                                               POSTFX_DOF_RANGE, POSTFX_DOF);
   // GS hardware distance fog (Scene/Project > Preferences > Fog).
   if (FOG_ENABLED)
     engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START,
@@ -2088,6 +2559,7 @@ void TerrainGame::loadScene(int sceneIndex) {
       runtimeObjects[i].visible = false;
       runtimeObjects[i].dirty = false;
     }
+    lsPump(1);
   }
   // Animated models: fresh per-object mesh instances + playback defaults
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
@@ -2128,11 +2600,24 @@ void TerrainGame::loadScene(int sceneIndex) {
   if (pendingObjScene == sceneIndex && !pendingObjState.empty())
     applySavedObjects();
 
-  // Terrain: build every chunk in view of the start focus synchronously -
-  // the scene switch hides behind the loading screen, exactly like the
-  // layer-asset drain above. From here on renderScene streams the ring.
-  updateTerrainChunks(PLAYER_INDEX >= 0 ? entX : cameraLookAt.x,
-                      PLAYER_INDEX >= 0 ? entZ : cameraLookAt.z, 0x7FFFFFFF);
+  // Terrain: build every chunk in view of the start focus. From here on
+  // renderScene streams the ring. With no loading screen this is the old
+  // one-shot drain; with one, the chunks build in lsStep-sized batches so the
+  // bar can advance between them (breaking if the pool momentarily can't make
+  // progress, which the view-rect-sized pool should never hit at load time).
+  if (!LOADING_SCREEN) {
+    updateTerrainChunks(lsFocusX, lsFocusZ, 0x7FFFFFFF);
+  } else {
+    int pending = countPendingChunks(lsFocusX, lsFocusZ);
+    while (pending > 0) {
+      updateTerrainChunks(lsFocusX, lsFocusZ, lsStep);
+      const int now = countPendingChunks(lsFocusX, lsFocusZ);
+      if (now >= pending) break;  // no forward progress (pool cap) - bail out
+      lsPump(pending - now);
+      pending = now;
+    }
+    loadingscreen::renderFrame(engine, sceneIndex, 1.0F);  // final frame
+  }
 }
 
 // --- Sound emitters ----------------------------------------------------
@@ -2188,6 +2673,8 @@ void TerrainGame::updateSoundEmitters() {
         }
       }
     }
+    // Master SFX volume (menu "Sound volume" option block); 100 = unscaled.
+    vol = vol * scriptCtx.sfxVolume / 100;
     // audsrv RPCs are synchronous and share one client lock with the music
     // stream - an RPC per emitter per frame stalls the main thread whenever
     // the song thread holds the lock (measured 50 -> 42 FPS in PCSX2 with
@@ -2796,6 +3283,68 @@ bool TerrainGame::updateGameMenu() {
   return pausing();
 }
 
+// Ready-made menu "option blocks" (Menu Editor > Insert option block): a
+// Toggle/Choice row bound to a built-in engine setting. Every frame we map the
+// row's option index (held in its save value) onto the setting, evenly across
+// the row's options - so the same row that persists and previews as a normal
+// stateful entry also drives the engine, with no flow graph. Volume / deadzone
+// / curve are idempotent (re-applied each frame, cheap). Display mode and
+// widescreen rebuild VRAM / arm the confirm prompt, so they fire only when the
+// option actually changes, routed through the same scriptCtx video requests
+// the Set Display Mode / Set Widescreen flow nodes use.
+void TerrainGame::applyMenuBindings() {
+  for (int mi = 0; mi < MENU_COUNT; ++mi) {
+    const MenuData& m = MENUS[mi];
+    for (int e = 0; e < m.entryCount; ++e) {
+      const MenuEntryData& en = m.entries[e];
+      if (en.bind == 0) continue;
+      const int cnt = en.optionCount > 0 ? en.optionCount : 1;
+      int idx = (en.param >= 0 && en.param < SAVE_VALUE_COUNT)
+                    ? (int)saveValues[en.param]
+                    : 0;
+      if (idx < 0) idx = 0;
+      if (idx >= cnt) idx = cnt - 1;
+      // t: option index normalized to 0..1 (single-option rows read as full).
+      const float t = cnt > 1 ? (float)idx / (float)(cnt - 1) : 1.0F;
+      switch (en.bind) {
+        case 1:  // music volume 0..100
+          engine->audio.song.setVolume((u8)(t * 100.0F + 0.5F));
+          break;
+        case 2:  // master sfx volume 0..100
+          scriptCtx.sfxVolume = (int)(t * 100.0F + 0.5F);
+          break;
+        case 3:  // deadzone, both sticks 0..0.4
+          g_deadzoneL = g_deadzoneR = t * 0.4F;
+          break;
+        case 4: {  // aim response curve (both sticks): drives the shared
+          // g_stickCurve*/g_stickExp* runtime (same globals the Set Stick Curve
+          // flow node uses). Option 0 Linear, 1 Smooth (S-curve), 2+ Precise
+          // (exponential - finer near center). Uses idx, not the even mapping.
+          int curve = 0;
+          if (idx == 1) curve = 2;       // S-curve
+          else if (idx >= 2) curve = 1;  // exponential
+          g_stickCurveL = g_stickCurveR = curve;
+          g_stickExpL = g_stickExpR = 2.0F;
+          break;
+        }
+        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0/1/2)
+          if (idx != g_menuDispOpt) {
+            g_menuDispOpt = idx;
+            scriptCtx.requestDisplayMode = idx;
+            scriptCtx.displayConfirmSec = 8.0F;  // keep-or-revert safety net
+          }
+          break;
+        case 6:  // widescreen 4:3 / 16:9
+          if (idx != g_menuWideOpt) {
+            g_menuWideOpt = idx;
+            scriptCtx.widescreen = idx;
+          }
+          break;
+      }
+    }
+  }
+}
+
 void TerrainGame::renderGameMenu() {
   if (gameMenuIndex < 0 || gameMenuIndex >= (int)menuSprites.size()) return;
   if (saveMenuOpen) return;  // the save menu draws on top instead
@@ -2851,32 +3400,58 @@ void TerrainGame::updateAndRenderHudTexts() {
   }
 }
 
+// Runtime texts: same request/timer protocol as the baked ones, but the string
+// lives in dynTextBuf (refreshed every frame by the owning flow-graph script
+// while the slot is on) and is drawn glyph by glyph from the font's atlas.
+void TerrainGame::updateAndRenderDynTexts() {
+  for (int i = 0; i < DYN_TEXT_COUNT; ++i) {
+    if (scriptCtx.dynTextRequest[i] >= 0) {
+      dynTextOn[i] = scriptCtx.dynTextRequest[i] != 0 ? 1 : 0;
+      dynTextTimer[i] = dynTextOn[i] ? scriptCtx.dynTextDuration[i] : 0.0F;
+      scriptCtx.dynTextRequest[i] = -1;
+    }
+    if (dynTextOn[i] && dynTextTimer[i] > 0.0F) {
+      dynTextTimer[i] -= g_frameDt;
+      if (dynTextTimer[i] <= 0.0F) {
+        dynTextOn[i] = 0;
+        dynTextTimer[i] = 0.0F;
+      }
+    }
+    if (!dynTextOn[i]) continue;
+    const DynTextData& d = DYN_TEXTS[i];
+    const char* s = &dynTextBuf[(size_t)i * DYN_TEXT_LEN];
+    if (!s[0]) continue;
+    const auto& scr = engine->renderer.core.getSettings();
+    drawFontText(engine, d.font, s, d.x * scr.getWidth(), d.y * scr.getHeight(),
+                 d.size);
+  }
+}
+
 bool TerrainGame::updatePlayerEntity() {
   if (PLAYER_INDEX < 0) return false;
 
   const auto& leftJoy = engine->pad.getLeftJoyPad();
   const auto& rightJoy = engine->pad.getRightJoyPad();
-  // ANALOG_DEADZONE_L/_R (Preferences > Input) zero resting drift per stick;
-  // above the deadzone the value rescales from 0 so the edge does not step.
-  auto axis = [](const u8& raw, const float dz) {
-    const float v = (raw - 128.0F) / 128.0F;
-    const float mag = v < 0.0F ? -v : v;
-    if (mag <= dz) return 0.0F;
-    const float scaled = (mag - dz) / (1.0F - dz);
-    return v < 0.0F ? -scaled : scaled;
+  // stickAxis applies the per-stick deadzone (g_deadzoneL/R - Preferences, or a
+  // menu "Deadzone" option block) and response curve (g_stickCurve*/g_stickExp*
+  // - Preferences > Input / Set Stick Curve node / a menu "Aim curve" block).
+  auto axisL = [&](const u8& raw) {
+    return stickAxis(raw, g_deadzoneL, g_stickCurveL, g_stickExpL);
+  };
+  auto axisR = [&](const u8& raw) {
+    return stickAxis(raw, g_deadzoneR, g_stickCurveR, g_stickExpR);
   };
 
   // Right stick: look around (stick right = turn right)
-  entYaw -= axis(rightJoy.h, ANALOG_DEADZONE_R) * 0.05F * PLAYER_LOOK_SPEED * g_frameScale;
-  entPitch -=
-      axis(rightJoy.v, ANALOG_DEADZONE_R) * 0.035F * PLAYER_LOOK_SPEED * g_frameScale;
+  entYaw -= axisR(rightJoy.h) * 0.05F * PLAYER_LOOK_SPEED * g_frameScale;
+  entPitch -= axisR(rightJoy.v) * 0.035F * PLAYER_LOOK_SPEED * g_frameScale;
   if (entPitch > 1.35F) entPitch = 1.35F;
   if (entPitch < -1.35F) entPitch = -1.35F;
 
   const float fx = sinf(entYaw);
   const float fz = cosf(entYaw);
-  const float forward = -axis(leftJoy.v, ANALOG_DEADZONE_L);
-  const float strafe = axis(leftJoy.h, ANALOG_DEADZONE_L);
+  const float forward = -axisL(leftJoy.v);
+  const float strafe = axisL(leftJoy.h);
 
   if (PLAYER_MODE == 1) {
     // Noclip: fly where the camera looks; X up, Square down.
@@ -3060,7 +3635,34 @@ void TerrainGame::rebuildObjectGeometry(int index) {
       case 9: break;   // point light - invisible source, no geometry
       case 11: break;  // empty - pure transform, no geometry
       case 12: addPlane(p0.vertices, p0.colors, p0.sts, o.data); break;
-      case 13: addDecal(p0.vertices, p0.colors, p0.sts, o.data); break;
+      case 13: {
+        // Projecting decal: a world-space mesh conforming to the receiver
+        // geometry was baked on the host (decalproj) - just upload it (unlit,
+        // tinted; alpha comes from the texture like the flat decal). Falls back
+        // to the flat quad when this object has no baked mesh. index maps 1:1 to
+        // the scene table for authored objects (spawned clones are past the
+        // count, so they never match and use the flat quad).
+        const BakedDecal* dt =
+            (currentScene >= 0 &&
+             currentScene < (int)(sizeof(SCENE_DECAL_TABLES) / sizeof(SCENE_DECAL_TABLES[0])))
+                ? SCENE_DECAL_TABLES[currentScene]
+                : nullptr;
+        if (dt && index < SCENE_DECAL_COUNTS[currentScene] && dt[index].vertCount > 0) {
+          const float cs = g_primTextured ? 128.0F : 255.0F;
+          const Color col(o.data.color[0] * cs, o.data.color[1] * cs,
+                          o.data.color[2] * cs, 128.0F);
+          const float* bv = dt[index].verts;
+          for (int i = 0; i < dt[index].vertCount; ++i) {
+            const float* v = &bv[i * 5];
+            p0.vertices.push_back(Vec4(v[0], v[1], v[2], 1.0F));
+            p0.colors.push_back(col);
+            p0.sts.push_back(Vec4(v[3], v[4], 1.0F, 0.0F));
+          }
+        } else {
+          addDecal(p0.vertices, p0.colors, p0.sts, o.data);
+        }
+        break;
+      }
       case 14: break;  // camera - cutscene shot marker, no geometry
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
@@ -3683,6 +4285,37 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   ch.bag->bboxVersion = ++g_bboxStamp;
 }
 
+// Unbuilt chunks in the current view rect (the same rect updateTerrainChunks
+// builds into). loadScene uses this as the loading-bar denominator and to
+// drive the batched terrain drain to completion.
+int TerrainGame::countPendingChunks(float focusX, float focusZ) {
+  if (terrainChunksX <= 0 || terrainChunksZ <= 0 || !infoBag) return 0;
+  const int cellsX = HM_W - 1;
+  const int cellsZ = HM_D - 1;
+  const float spanX = TERRAIN_CHUNK_CELLS * ((float)TERRAIN_WIDTH / cellsX);
+  const float spanZ = TERRAIN_CHUNK_CELLS * ((float)TERRAIN_DEPTH / cellsZ);
+  const float startX = -TERRAIN_WIDTH * 0.5F;
+  const float startZ = -TERRAIN_DEPTH * 0.5F;
+  int cx0 = 0, cz0 = 0, cx1 = terrainChunksX - 1, cz1 = terrainChunksZ - 1;
+  if (TERRAIN_VIEW_DISTANCE > 0.0F) {
+    auto clampX = [&](int v) {
+      return v < 0 ? 0 : (v > terrainChunksX - 1 ? terrainChunksX - 1 : v);
+    };
+    auto clampZ = [&](int v) {
+      return v < 0 ? 0 : (v > terrainChunksZ - 1 ? terrainChunksZ - 1 : v);
+    };
+    cx0 = clampX((int)((focusX - TERRAIN_VIEW_DISTANCE - startX) / spanX));
+    cx1 = clampX((int)((focusX + TERRAIN_VIEW_DISTANCE - startX) / spanX));
+    cz0 = clampZ((int)((focusZ - TERRAIN_VIEW_DISTANCE - startZ) / spanZ));
+    cz1 = clampZ((int)((focusZ + TERRAIN_VIEW_DISTANCE - startZ) / spanZ));
+  }
+  int pending = 0;
+  for (int cz = cz0; cz <= cz1; ++cz)
+    for (int cx = cx0; cx <= cx1; ++cx)
+      if (terrainChunkSlot[cz * terrainChunksX + cx] < 0) ++pending;
+  return pending;
+}
+
 // Keeps the resident chunk set centered on the view focus. View distance off
 // (0) = the whole map stays resident (small maps - matches the old
 // behavior). Otherwise chunks outside the focus rect are freed - with one
@@ -3760,35 +4393,30 @@ void TerrainGame::renderTerrain() {
       stapip.core.render(ch.bag.get());
 }
 
-namespace {
-
-// ANALOG_DEADZONE_L/_R (Preferences > Input) zero resting drift per stick;
-// above the deadzone the value rescales from 0 so the edge does not step.
-float axisValue(const u8& raw, const float dz) {
-  const float v = (raw - 128.0F) / 128.0F;
-  const float mag = v < 0.0F ? -v : v;
-  if (mag <= dz) return 0.0F;
-  const float scaled = (mag - dz) / (1.0F - dz);
-  return v < 0.0F ? -scaled : scaled;
-}
-
-}  // namespace
-
 void TerrainGame::updatePlayer() {
   const auto& leftJoy = engine->pad.getLeftJoyPad();
   const auto& rightJoy = engine->pad.getRightJoyPad();
+  // stickAxis applies the per-stick deadzone (g_deadzoneL/R - Preferences, or a
+  // menu "Deadzone" option block) and response curve (g_stickCurve*/g_stickExp*
+  // - Preferences > Input / Set Stick Curve node / a menu "Aim curve" block).
+  auto axisL = [&](const u8& raw) {
+    return stickAxis(raw, g_deadzoneL, g_stickCurveL, g_stickExpL);
+  };
+  auto axisR = [&](const u8& raw) {
+    return stickAxis(raw, g_deadzoneR, g_stickCurveR, g_stickExpR);
+  };
 
   // Right stick: look around (stick right = turn right)
-  yaw -= axisValue(rightJoy.h, ANALOG_DEADZONE_R) * 0.05F * LOOK_SPEED * g_frameScale;
-  pitch -= axisValue(rightJoy.v, ANALOG_DEADZONE_R) * 0.035F * LOOK_SPEED * g_frameScale;
+  yaw -= axisR(rightJoy.h) * 0.05F * LOOK_SPEED * g_frameScale;
+  pitch -= axisR(rightJoy.v) * 0.035F * LOOK_SPEED * g_frameScale;
   if (pitch > 1.2F) pitch = 1.2F;
   if (pitch < -1.2F) pitch = -1.2F;
 
   // Left stick: walk. Forward is where the camera looks (flat).
   const float fx = sinf(yaw);
   const float fz = cosf(yaw);
-  const float forward = -axisValue(leftJoy.v, ANALOG_DEADZONE_L);
-  const float strafe = axisValue(leftJoy.h, ANALOG_DEADZONE_L);
+  const float forward = -axisL(leftJoy.v);
+  const float strafe = axisL(leftJoy.h);
   float nextX = playerX + (fx * forward - fz * strafe) * WALK_SPEED * g_frameScale;
   float nextZ = playerZ + (fz * forward + fx * strafe) * WALK_SPEED * g_frameScale;
 
