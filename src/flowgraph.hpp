@@ -262,13 +262,16 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         {"SetGrain", "Set Grain", "Scene", false, FlowParamKind::None, 1, {"Amount"},
          FlowParamKind::None, false, false},
         // Depth of field: the image blurs progressively past Focus (world
-        // units from the camera), reaching full blur at Focus + Range.
-        // Amount 0..1 scales the far blur (0 = off). A position link replaces
-        // Focus with the live distance from the player to that point (e.g.
-        // keep an object in focus via Get Position).
-        {"SetDof", "Set Depth Of Field", "Scene", false, FlowParamKind::None, 3,
-         {"Focus", "Range", "Amount"}, FlowParamKind::None, false, false, true,
-         false, false},
+        // units from the camera), reaching full blur at Focus + Range; Amount
+        // 0..1 scales the far blur. The authored baseline lives in Tools >
+        // UI Editor > Depth of field (per-scene overridable); this node's
+        // Mode switches it at runtime: 0 = set the custom Focus/Range/Amount
+        // params, 1 = off, 2 = restore the scene's authored setting. A
+        // position link replaces Focus with the distance from the player to
+        // that point (e.g. keep an object in focus via Get Position).
+        {"SetDof", "Set Depth Of Field", "Scene", false, FlowParamKind::None, 4,
+         {"Focus", "Range", "Amount", "Mode"}, FlowParamKind::None, false,
+         false, true, false, false},
         {"SetParticles", "Set Particles", "Scene", false, FlowParamKind::None, 1, {"On"},
          FlowParamKind::None, false, false},
         // Runtime video output (options menus). Set Display Mode switches the

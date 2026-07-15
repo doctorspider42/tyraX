@@ -9,6 +9,40 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (100) **DoF review-feedback round: authored in the UI Editor, HUD rectangle
+  fix, node modes, pin-label alignment.** Four fixes from testing the Raycast
+  / Set Depth Of Field entry (94, PR #90) on a real project. (a) **Crosshair
+  punched a sharp rectangle into the blur**:
+  2D sprites stamp z = max across their whole rect (transparent margins
+  included - see the Renderer2D drain comment), so a DoF pass composited at
+  the bloom slot / endFrame z-failed under every sprite's rectangle. DoF now
+  composites via `applyPostFx(PassDof)` immediately after `renderScene()`,
+  before any 2D, in both game templates - the HUD can never interact with it
+  again. (b) **DoF is now authored like bloom/grain**: `dofAmount`/`dofFocus`
+  /`dofRange` on `ProjectSettings` (postFx override category, per-scene in
+  Scene Preferences), serialized with the other post effects, edited in
+  *Tools > UI Editor* as a `[ Depth of field ]` stack entry pinned under the
+  whole stack (see (a) for why it cannot be dragged above sprites), codegen'd
+  to `POSTFX_DOFS`/`POSTFX_DOF_FOCUSES`/`POSTFX_DOF_RANGES` in scene_data.hpp
+  and applied at boot + every scene (re)load like bloom. (c) The **Set Depth
+  Of Field node got a Mode combo**: *Set custom* (Focus/Range/Amount as
+  before, position link = live distance), *Off*, and *Scene setting* - a new
+  `ctx.dof = -2` request the game answers by re-applying the scene's authored
+  values. (d) **Output pin labels ragged**: `rightLabel()` right-aligned each
+  label by a text-width-dependent `Indent()`, and text rendering truncates
+  the pen start to whole pixels - per-label fractional indents put the ">"
+  arrows on different pixels at some DPI/zoom combos. The arrow is now its
+  own item in a fixed column (same x every row, cannot drift); labels
+  right-align against it. Verified: codegen harness asserts the mode
+  emissions (`ctx.dof = 0` / `-2` / custom), the scene_data arrays, the
+  authored apply and the PassDof-before-HUD ordering; full Docker + PCSX2
+  e2e with an authored DoF (no flow node) and a 64x64 crosshair HUD with
+  transparent margins shows the cross crisp with NO rectangle seam over the
+  blurred horizon, far terrain blurred, near sharp, raycast still logging
+  the analytic hit. Alignment could not be reproduced on this machine
+  (pixel-scans at uiScale 2.5 x zoom 100%/121% all read a shared right edge
+  +-1px), so the fix removes the mechanism rather than chasing the combo;
+  GUI screenshots after the change still line up.
 - (99) **Projected decals (rzutowanie na model) — decals that conform to the
   receiver geometry.** The flat `Decal` (62) only worked as a sticker on a flat
   wall; this adds a **"Project onto surfaces"** mode (`SceneObject::decalProject`)
@@ -111,8 +145,8 @@ Each finished feature lands as its own commit.
   Amount 0..1, 0 = off); a wired position replaces Focus with the distance
   from the player to that point at fire time (e.g. keep an object in focus
   via Get Position). Engine side (`RendererCorePostFx`, TyraX fork): a new
-  `PassDof` (applied before bloom, composited at the bloom slot of the screen
-  stack or at endFrame) reuses the bloom blur chain, then blends the blur
+  `PassDof` (composited right after the 3D scene since entry 100's HUD fix)
+  reuses the bloom blur chain, then blends the blur
   back through three full-screen sprites drawn at real GS depths with the
   pass's ordinary GEQUAL z-test (writes masked) — the world-distance → GS-z
   mapping is solved from the shared perspective matrix

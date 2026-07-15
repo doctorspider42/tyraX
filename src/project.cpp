@@ -349,7 +349,10 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << " }, \"clipping\": \"" << s.clipping
       << "\", \"terrainMaterial\": \"" << s.terrainMaterial
       << "\", \"postfx\": { \"bloom\": " << fmtFloat(s.bloom)
-      << ", \"grain\": " << fmtFloat(s.grain) << " }, \"fog\": { \"enabled\": "
+      << ", \"grain\": " << fmtFloat(s.grain)
+      << ", \"dofAmount\": " << fmtFloat(s.dofAmount)
+      << ", \"dofFocus\": " << fmtFloat(s.dofFocus)
+      << ", \"dofRange\": " << fmtFloat(s.dofRange) << " }, \"fog\": { \"enabled\": "
       << (s.fogEnabled ? "true" : "false") << ", \"color\": " << fmtVec3(s.fogColor)
       << ", \"start\": " << fmtFloat(s.fogStart) << ", \"end\": " << fmtFloat(s.fogEnd)
       << " }, \"highlight\": { \"usable\": "
@@ -405,6 +408,12 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
             if (const auto* pf = st->find("postfx")) {
                 if (const auto* v = pf->find("bloom")) s.bloom = clamp01((float)v->numberOr(0.0));
                 if (const auto* v = pf->find("grain")) s.grain = clamp01((float)v->numberOr(0.0));
+                if (const auto* v = pf->find("dofAmount"))
+                    s.dofAmount = clamp01((float)v->numberOr(0.0));
+                if (const auto* v = pf->find("dofFocus"))
+                    s.dofFocus = (float)v->numberOr(s.dofFocus);
+                if (const auto* v = pf->find("dofRange"))
+                    s.dofRange = (float)v->numberOr(s.dofRange);
             }
             if (const auto* fg = st->find("fog")) {
                 if (const auto* v = fg->find("enabled")) s.fogEnabled = v->boolOr(false);
@@ -482,6 +491,9 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
     if (s.overrides.postFx) {
         r.bloom = o.bloom;
         r.grain = o.grain;
+        r.dofAmount = o.dofAmount;
+        r.dofFocus = o.dofFocus;
+        r.dofRange = o.dofRange;
     }
     if (s.overrides.fog) {
         r.fogEnabled = o.fogEnabled;
@@ -613,6 +625,9 @@ std::string save(const Project& p) {
          << "    \"terrainMaterial\": \"" << p.settings.terrainMaterial << "\",\n"
          << "    \"bloom\": " << fmtFloat(p.settings.bloom) << ",\n"
          << "    \"grain\": " << fmtFloat(p.settings.grain) << ",\n"
+         << "    \"dofAmount\": " << fmtFloat(p.settings.dofAmount) << ",\n"
+         << "    \"dofFocus\": " << fmtFloat(p.settings.dofFocus) << ",\n"
+         << "    \"dofRange\": " << fmtFloat(p.settings.dofRange) << ",\n"
          << "    \"fogEnabled\": " << (p.settings.fogEnabled ? "true" : "false")
          << ",\n"
          << "    \"fogColor\": " << fmtVec3(p.settings.fogColor) << ",\n"
@@ -1533,6 +1548,12 @@ std::string load(Project& out, const std::string& projectDir) {
         auto clamp01 = [](float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
         if (const auto* v = s->find("bloom")) st.bloom = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("grain")) st.grain = clamp01((float)v->numberOr(0.0));
+        if (const auto* v = s->find("dofAmount"))
+            st.dofAmount = clamp01((float)v->numberOr(0.0));
+        if (const auto* v = s->find("dofFocus"))
+            st.dofFocus = (float)v->numberOr(st.dofFocus);
+        if (const auto* v = s->find("dofRange"))
+            st.dofRange = (float)v->numberOr(st.dofRange);
         if (const auto* v = s->find("fogEnabled"))
             st.fogEnabled = v->type == json::Value::Type::Bool && v->boolean;
         readVec3(s->find("fogColor"), st.fogColor);

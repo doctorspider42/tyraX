@@ -4909,16 +4909,28 @@ void App::drawFlowGraphWindow() {
     const float nodeWidth =
         130.0f * zoom + ImGui::GetStyle().ItemInnerSpacing.x +
         ImGui::CalcTextSize("Object").x;
-    // Right-aligns a pin label to the node edge (Indent must be paired with
-    // Unindent - it is window state, not per-attribute)
+    // Right-aligns a pin label to the node edge. The ">" arrow is drawn as
+    // its own item in a FIXED column (same x for every row) instead of being
+    // part of a width-dependent indented string: text rendering truncates
+    // the pen start to whole pixels, so a per-label fractional indent made
+    // the arrows land on different pixels (visibly ragged at some DPI/zoom
+    // combinations). A constant arrow column cannot drift by construction.
     auto rightLabel = [&](const char* txt, bool disabled) {
-        const float indent = nodeWidth - ImGui::CalcTextSize(txt).x;
-        if (indent > 0) ImGui::Indent(indent);
+        const float left = ImGui::GetCursorPosX();
+        const float arrowX = left + nodeWidth - ImGui::CalcTextSize(">").x;
+        const float textX =
+            arrowX - ImGui::CalcTextSize(" ").x - ImGui::CalcTextSize(txt).x;
+        if (textX > left) ImGui::SetCursorPosX(textX);
         if (disabled)
             ImGui::TextDisabled("%s", txt);
         else
             ImGui::TextUnformatted(txt);
-        if (indent > 0) ImGui::Unindent(indent);
+        ImGui::SameLine(0.0f, 0.0f);
+        ImGui::SetCursorPosX(arrowX);
+        if (disabled)
+            ImGui::TextDisabled(">");
+        else
+            ImGui::TextUnformatted(">");
     };
 
     ImNodes::BeginNodeEditor();
@@ -5228,17 +5240,12 @@ void App::drawFlowGraphWindow() {
         // numeric params (own ID scope - a num label may repeat the string
         // param's label, e.g. Set Save Value's combo and drag are both "Value")
         ImGui::PushID("params");
-        // X/Y/Z come from the position link; params past them (Speed) stay
+        // X/Y/Z come from the position link; params past them (Speed) stay.
+        // SetDof draws its own params (mode combo) below.
         int firstNum = 0;
-        if (posLinked && t->posIn && t->numCount >= 3) {
-            if (n.type == "SetDof") {
-                // the link replaces only Focus (with the distance to the point)
-                ImGui::TextDisabled("Focus: distance to linked point");
-                firstNum = 1;
-            } else {
-                ImGui::TextDisabled("Position: from link");
-                firstNum = 3;
-            }
+        if (posLinked && t->posIn && t->numCount >= 3 && n.type != "SetDof") {
+            ImGui::TextDisabled("Position: from link");
+            firstNum = 3;
         }
         if (n.type == "SetVarBool" || n.type == "SetFlashlight" ||
             n.type == "SetFog" || n.type == "SetParticles" ||
@@ -5247,6 +5254,35 @@ void App::drawFlowGraphWindow() {
             if (ImGui::Checkbox(t->numLabels[0], &v)) {
                 n.num[0] = v ? 1.0f : 0.0f;
                 changed = true;
+            }
+        } else if (n.type == "SetDof") {
+            const char* modes[] = {"Set custom", "Off", "Scene setting"};
+            int mode = (int)n.num[3];
+            mode = mode < 0 ? 0 : mode > 2 ? 2 : mode;
+            if (ImGui::Combo("Mode", &mode, modes, 3)) {
+                n.num[3] = (float)mode;
+                changed = true;
+            }
+            if (mode == 0) {
+                if (posLinked) {
+                    // the link replaces Focus with the distance to the point
+                    ImGui::TextDisabled("Focus: distance to linked point");
+                } else {
+                    ImGui::DragFloat("Focus", &n.num[0], 0.5f, 0.5f, 500.0f,
+                                     "%.1f");
+                    changed |= ImGui::IsItemDeactivatedAfterEdit();
+                }
+                ImGui::DragFloat("Range", &n.num[1], 0.5f, 0.1f, 500.0f,
+                                 "%.1f");
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                ImGui::SliderFloat("Amount", &n.num[2], 0.0f, 1.0f, "%.2f");
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+            } else if (mode == 1) {
+                ImGui::TextDisabled("Turns depth of field off.");
+            } else {
+                ImGui::TextDisabled(
+                    "Restores the scene's authored values\n"
+                    "(Tools > UI Editor > Depth of field).");
             }
         } else if (n.type == "SetDisplayMode") {
             const char* modes[] = {"Interlaced (480i/576i)",
@@ -5359,7 +5395,7 @@ void App::drawFlowGraphWindow() {
         if (!t->pure) {
             if (t->trigger) {
                 ImNodes::BeginOutputAttribute(flowOutPin(n.id));
-                rightLabel("then >", false);
+                rightLabel("then", false);
                 ImNodes::EndOutputAttribute();
             } else {
                 ImNodes::BeginInputAttribute(flowInPin(n.id));
@@ -5368,7 +5404,7 @@ void App::drawFlowGraphWindow() {
                 if (t->execThrough) {
                     // action that fires its own exec pulse later (Delay)
                     ImNodes::BeginOutputAttribute(flowOutPin(n.id));
-                    rightLabel("after >", false);
+                    rightLabel("after", false);
                     ImNodes::EndOutputAttribute();
                 }
             }
@@ -5376,7 +5412,7 @@ void App::drawFlowGraphWindow() {
         if (t->idOut) {
             ImNodes::PushColorStyle(ImNodesCol_Pin, idPinCol);
             ImNodes::BeginOutputAttribute(flowIdOutPin(n.id), ImNodesPinShape_QuadFilled);
-            rightLabel("object >", true);
+            rightLabel("object", true);
             ImNodes::EndOutputAttribute();
             ImNodes::PopColorStyle();
         }
@@ -5384,7 +5420,7 @@ void App::drawFlowGraphWindow() {
             ImNodes::PushColorStyle(ImNodesCol_Pin, posPinCol);
             ImNodes::BeginOutputAttribute(flowPosOutPin(n.id),
                                           ImNodesPinShape_TriangleFilled);
-            rightLabel("position >", true);
+            rightLabel("position", true);
             ImNodes::EndOutputAttribute();
             ImNodes::PopColorStyle();
         }
@@ -5392,7 +5428,7 @@ void App::drawFlowGraphWindow() {
             ImNodes::PushColorStyle(ImNodesCol_Pin, boolPinCol);
             ImNodes::BeginOutputAttribute(flowBoolOutPin(n.id),
                                           ImNodesPinShape_CircleFilled);
-            rightLabel("bool >", true);
+            rightLabel("bool", true);
             ImNodes::EndOutputAttribute();
             ImNodes::PopColorStyle();
         }
@@ -5400,7 +5436,7 @@ void App::drawFlowGraphWindow() {
             ImNodes::PushColorStyle(ImNodesCol_Pin, textPinCol);
             ImNodes::BeginOutputAttribute(flowTextOutPin(n.id),
                                           ImNodesPinShape_CircleFilled);
-            rightLabel("text >", true);
+            rightLabel("text", true);
             ImNodes::EndOutputAttribute();
             ImNodes::PopColorStyle();
         }
@@ -5654,7 +5690,7 @@ void App::drawFlowGraphWindow() {
                     if (std::string(t.key) == "SetDof") {
                         n.num[0] = 20.0f;  // focus distance
                         n.num[1] = 15.0f;  // range (full blur at focus+range)
-                        n.num[2] = 1.0f;   // amount
+                        n.num[2] = 1.0f;   // amount (num[3] mode: 0 = set)
                     }
                     if (std::string(t.key) == "SetStickCurve") n.num[2] = 2.0f;  // exponent
                     if (std::string(t.key) == "PlaySound") {
@@ -6329,6 +6365,11 @@ void App::drawUiEditorWindow() {
         }
         ImGui::PopID();
     }
+    // Depth of field is pinned at the very bottom: it composites right after
+    // the 3D scene (per-pixel z-tested against scene depth), so it can never
+    // sit above a sprite - sprites stamp z = max across their whole rect and
+    // would punch sharp rectangles into the blur.
+    if (ImGui::Selectable("[ Depth of field ]", uiFxSel_ == 6)) uiFxSel_ = 6;
     if (project_.hud.empty())
         ImGui::TextDisabled("No HUD images yet.\nImport a PNG above.");
     ImGui::EndChild();
@@ -6371,6 +6412,32 @@ void App::drawUiEditorWindow() {
         ImGui::TextDisabled(
             "Per-scene grain strength: Scene > Scene Preferences > Post "
             "effects.");
+    } else if (uiFxSel_ == 6) {
+        ImGui::SeparatorText("Depth of field");
+        ImGui::SliderFloat("Amount", &project_.settings.dofAmount, 0.0f, 1.0f,
+                           "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat("Focus", &project_.settings.dofFocus, 0.5f, 0.5f,
+                         500.0f, "%.1f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat("Range", &project_.settings.dofRange, 0.5f, 0.1f,
+                         500.0f, "%.1f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::TextDisabled(
+            "The image stays sharp up to Focus (world units from the\n"
+            "camera) and blurs progressively, reaching the full Amount\n"
+            "blur at Focus + Range. Amount 0 = off.");
+        ImGui::Spacing();
+        ImGui::TextWrapped(
+            "Pinned under the whole stack: the blur follows real scene depth "
+            "per pixel (z-tested GS blits), and sprites stamp z across their "
+            "full rect - compositing DoF above them would punch sharp "
+            "rectangles into the blur. Every HUD entry always draws crisp.");
+        ImGui::Spacing();
+        ImGui::TextDisabled(
+            "Per-scene values: Scene > Scene Preferences > Post effects.\n"
+            "Runtime: the Set Depth Of Field flow node overrides these\n"
+            "(and can restore them with its Scene setting mode).");
     } else if (uiFxSel_ == 3) {
         // --- the pinned USE prompt ------------------------------------------
         HudImage& h = project_.usePrompt;
@@ -13459,6 +13526,9 @@ void App::drawScenePreferencesModal() {
     category("Post effects", ov.postFx, [&] {
         ImGui::SliderFloat("Bloom", &s.bloom, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Film grain", &s.grain, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("DoF amount", &s.dofAmount, 0.0f, 1.0f, "%.2f");
+        ImGui::DragFloat("DoF focus", &s.dofFocus, 0.5f, 0.5f, 500.0f, "%.1f");
+        ImGui::DragFloat("DoF range", &s.dofRange, 0.5f, 0.1f, 500.0f, "%.1f");
     });
 
     category("Usable objects", ov.highlight, [&] {
