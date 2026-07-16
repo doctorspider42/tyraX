@@ -5,8 +5,24 @@
 #include <thread>
 
 #include "app.hpp"
+#include "migrations.hpp"
 #include "project.hpp"
 #include "runner.hpp"
+
+// Shared gate for the headless commands: a project with pending format
+// migrations is refused instead of silently and irreversibly rewritten by a
+// script/CI - migrating is an explicit act (--migrate, or opening in the GUI).
+// Purely additive format gaps pass (nothing to transform); files from a newer
+// editor never get here (project::load refuses them).
+static bool refuseUnmigrated(const Project& p) {
+    if (migrations::stepsFor(p.formatVersionOnDisk).empty()) return false;
+    std::fprintf(stderr,
+                 "error: project format v%d needs migration to v%d.\n"
+                 "Run: tyrax-editor --migrate <projectDir> (a backup is created "
+                 "automatically), or open the project in the editor.\n",
+                 p.formatVersionOnDisk, version::kFormatVersion);
+    return true;
+}
 
 // Headless helper:
 //   tyrax-editor.exe --new <name> <parentDir> [width] [depth] [empty|fpp]
@@ -49,6 +65,7 @@ static int buildFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
+    if (refuseUnmigrated(p)) return 1;
     if (runPs2 && argc > 4) p.ps2LinkIp = argv[4];
 
     Runner runner;
@@ -85,11 +102,11 @@ static int buildFromCli(int argc, char** argv) {
 
 // Headless helper: tyrax-editor.exe --resave <projectDir>
 // Loads a project and writes it straight back out. On its own it is a no-op for
-// an up-to-date project, but loading runs every format migration (e.g. stamping
-// stable object ids on pre-id projects), so this is the one-shot way to migrate
-// an existing project to the current on-disk format without opening the GUI -
-// handy for batch-migrating a team's projects before they switch to the
-// merge-friendly workflow.
+// an up-to-date project, but the tolerant loader lifts every legacy shape (e.g.
+// stamping stable object ids on pre-id projects), so this refreshes a project
+// to the current on-disk format without opening the GUI. Projects with pending
+// REGISTERED migration steps (data transforms) are refused - that irreversible
+// path is --migrate's job.
 static int resaveFromCli(int argc, char** argv) {
     if (argc < 3) {
         std::fprintf(stderr, "usage: tyrax-editor --resave <projectDir>\n");
@@ -100,6 +117,7 @@ static int resaveFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
+    if (refuseUnmigrated(p)) return 1;
     if (std::string err = project::save(p); !err.empty()) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
@@ -112,10 +130,62 @@ static int resaveFromCli(int argc, char** argv) {
     return 0;
 }
 
+// Headless helper: tyrax-editor.exe --migrate <projectDir>
+// The CLI twin of the editor's migration prompt: backs up the format-bearing
+// files into _backup\, applies the pending migration steps and rewrites the
+// project in the current format. Degrades to a plain resave when the project
+// only needs a version stamp. Disk is not touched when a step fails.
+static int migrateFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor --migrate <projectDir>\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    const auto steps = migrations::stepsFor(p.formatVersionOnDisk);
+    if (!steps.empty()) {
+        std::string backupDir;
+        if (std::string err = migrations::backup(p, p.formatVersionOnDisk, backupDir);
+            !err.empty()) {
+            std::fprintf(stderr,
+                         "error: backup failed, migration aborted (project not "
+                         "modified): %s\n", err.c_str());
+            return 1;
+        }
+        std::printf("backup: %s\n", backupDir.c_str());
+        for (const auto* m : steps)
+            std::printf("migrating: v%d -> v%d: %s\n", m->from, m->from + 1,
+                        m->summary);
+        if (std::string err = migrations::run(p, p.formatVersionOnDisk);
+            !err.empty()) {
+            std::fprintf(stderr,
+                         "error: cannot migrate (project not modified): %s\n",
+                         err.c_str());
+            return 1;
+        }
+        p.formatVersionOnDisk = version::kFormatVersion;
+    }
+    if (std::string err = project::save(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (std::string err = project::saveHeights(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    std::printf("migrated: %s (format v%d)\n", p.dir.c_str(),
+                version::kFormatVersion);
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if (argc > 1 && std::strcmp(argv[1], "--new") == 0) return createFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--build") == 0) return buildFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--resave") == 0) return resaveFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--migrate") == 0) return migrateFromCli(argc, argv);
 
     App app;
     return app.run(argc > 1 ? argv[1] : "");

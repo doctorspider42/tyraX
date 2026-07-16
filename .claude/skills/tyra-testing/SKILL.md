@@ -37,6 +37,7 @@ everything under `src/` — warnings matter, the build is expected to be clean.
 build\tyrax-editor.exe --new <name> <parentDir> [width] [depth] [empty|fpp]
 build\tyrax-editor.exe --build <projectDir> [--run]   # exit code 0 = success
 build\tyrax-editor.exe --resave <projectDir>          # load + save, no Docker
+build\tyrax-editor.exe --migrate <projectDir>         # backup + format migrations
 build\tyrax-editor.exe <projectDir|project.tyra>      # open GUI on a project
 ```
 
@@ -46,10 +47,17 @@ build\tyrax-editor.exe <projectDir|project.tyra>      # open GUI on a project
 - `--build` streams the whole Docker build log to stdout and returns a real
   exit code — the backbone of scripted e2e runs.
 - `--resave` loads a project and writes the `.tyra` (+ heights) straight back
-  out — **no Docker**. Because `project::load` runs every format migration,
-  this is the clean way to test/round-trip a `.tyra`-format change headlessly:
-  strip/alter a field, `--resave`, and inspect the rewritten file. Also the
-  one-shot batch-migration tool for existing projects.
+  out — **no Docker**. The tolerant loader lifts every legacy shape, so this
+  is the clean way to test/round-trip a `.tyra`-format change headlessly:
+  strip/alter a field, `--resave`, and inspect the rewritten file.
+- **Format versioning** (see `docs/format-versioning.md`): `--build`/`--resave`
+  refuse a project whose `formatVersion` has pending REGISTERED migration
+  steps (exit 1) — `--migrate` is the explicit tool (backs up `.tyra` +
+  `objects/` + heights + flow-nodes/screen-effects into `_backup\`, applies
+  the steps, resaves; degrades to a plain resave when current). To test a
+  version gate, hand-edit `"formatVersion"` in the manifest: a value above
+  `version::kFormatVersion` must be refused by every path, a lower one opens
+  silently unless a step is registered in `migrations.cpp`.
 - Create scratch projects in a **short** path outside the repo — the
   convention is `%TEMP%\tyra-editor-test\<name>`. Do NOT use the session
   scratchpad for anything that will boot in PCSX2: its path is ~180+ chars

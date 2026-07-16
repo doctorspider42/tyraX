@@ -9,6 +9,40 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (104) **Editor + project-format versioning with migrations.** Two
+  deliberately separate numbers in the new `src/version.hpp`: the editor
+  semver (`1.0.0`, title bar + informational `"editorVersion"` in the
+  manifest; feature → MINOR, fix → PATCH, breaking → MAJOR) and the on-disk
+  format contract `version::kFormatVersion` (monotonic int, `"formatVersion"`
+  in the manifest, pre-versioning files read as v0). The format version — not
+  the editor version — gates opening, so patch/minor releases never nag.
+  `project::load` refuses files from a NEWER editor outright (they would lose
+  their unknown fields on the next save; the message names both versions and
+  every path — GUI, `--build`, `--resave` — shares the guard). Older files:
+  silent open when only additive changes happened (the tolerant reader keeps
+  lifting legacy keys forever, restamp on next save); when registered
+  migration steps exist (`migrations.cpp`, steps `from → from+1` chained
+  across any version gap), the GUI prompts with the step list + irreversibility
+  warning, backs up the format-bearing files (`.tyra`, `objects/`,
+  `terrain-*.heights`, `flow-nodes/`, `screen-effects/` — never `res/`) into
+  `_backup/format-v<old>-<stamp>/`, migrates in memory and saves only on
+  success — a failing step leaves disk untouched. Headless refuses
+  migration-needing projects (CI must not irreversibly rewrite a project);
+  the new `--migrate <dir>` is the explicit CLI twin (backup + steps +
+  resave, degrades to a resave when current). Rules for contributors (bump on
+  every save-shape change, register a step only for real data transforms) in
+  `docs/format-versioning.md`. **Verified:** fresh `--new` project carries
+  both fields; hand-stripped v0 manifest resaves silently and restamps; a
+  v99 manifest is refused by `--resave` with the update-TyraX message
+  (exit 1); with a temporary test step compiled in, `--build` on a v0 project
+  refused pointing at `--migrate`, and `--migrate` printed the backup dir +
+  step, transformed the data and stamped v1 (backup verified to hold the
+  pre-migration v0 manifest + objects/ + heights); the GUI migration prompt
+  was screenshotted live (window-title GDI capture of the "Project
+  Migration" MessageBox, No = default button) on a v0 scratch project; the
+  checked-in `examples/script-demo` (real pre-versioning project) resaves
+  silently and restamps to v1.
+
 - (103) **Over-the-shoulder camera offset.** `SceneObject::playerCamShoulder`
   (Properties > Third-person camera > **Shoulder**, default 0 = unchanged
   behavior) slides the third-person rig sideways, completing the camera offset:

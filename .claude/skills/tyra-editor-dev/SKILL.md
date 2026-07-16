@@ -64,6 +64,7 @@ Two sibling skills cover the rest of the system:
 | `pcsx2_config.cpp` | 86 | Finds PCSX2.ini (portable dir first, then the Documents known folder — beware OneDrive redirection) and force-enables `HostFs = true` before launch. |
 | `iso9660.cpp`, `isoexport.cpp` | 379+264 | In-tree ISO9660 writer + disc layout planning (`Project > Export PS2 ISO`, Disc Layout window). |
 | `json.cpp/.hpp` | 158 | Tiny standalone JSON parser used for reading the `.tyra` project file. |
+| `version.hpp` + `migrations.cpp/.hpp` | ~150 | **Editor/format versioning.** `version.hpp`: the editor semver (title bar + informational `"editorVersion"` in the manifest) and `kFormatVersion`, the on-disk contract (`"formatVersion"`; pre-versioning files = v0). `load()` refuses newer-format files; older ones open silently unless `migrations::stepsFor` returns registered steps — then the GUI (`App::openProjectFrom`) prompts, backs up the format-bearing files into `_backup/` and migrates in memory (save only on success), and headless `--build`/`--resave` refuse (use `--migrate`). Rules + step-authoring example: `docs/format-versioning.md`. |
 | `objparser.cpp` | 109 | Wavefront .obj importer for custom models. |
 | `primmesh.cpp/.hpp` | ~180 | Shared, GL-agnostic **unit-primitive tessellation** (box/sphere/cylinder/cone/plane → raw `pos+normal+uv`). The single host source: the viewport bakes shade on top of it, and `decalproj` uses it as receiver geometry, so a projected decal conforms to exactly the geometry the viewport draws. (templates.cpp keeps its own generated-string builders for the PS2 runtime — the pre-existing twin.) |
 | `decalproj.cpp/.hpp` | ~230 | **Projected-decal geometry** (host-only, no GL). `project(Project, SceneData, decal)` clips the receiver triangles (terrain + overlapping objects, auto) against the decal's oriented unit-cube projector, computes projected UVs and a surface-normal offset, and returns a world-space triangle list. Used by the viewport (live preview) AND codegen (`decalDataHeader` bakes it into `inc/decal_data.gen.hpp`); the game just draws it — **no projection/clipping on the PS2 EE**. See PROGRESS (99). |
@@ -128,6 +129,15 @@ path that clones an existing object** (like `pasteObject`), clear the copy's
 default-constructed objects need nothing (empty id → `ensureObjectIds` fills
 it). Migrate/round-trip `.tyra`-format changes headlessly with `--resave` (see
 tyra-testing).
+
+**Any change to what `project::save()` writes** (new field included) →
+`version::kFormatVersion++` in version.hpp, so an older editor refuses the
+newer file instead of silently dropping the field on its next save. Keep the
+read tolerant (default it) as always; ADDITIONALLY register a step in
+migrations.cpp only when existing files need active transformation (rename,
+unit/semantic change, moved data) — that is what triggers the editor's
+backup-and-migrate prompt. Bump the editor semver in the same PR (feature →
+MINOR, fix → PATCH). See `docs/format-versioning.md`.
 
 **New flow-graph node** → node kind in flowgraph.hpp → node UI (pins, params)
 in the flow-graph editor in app.cpp → codegen in `flowGraphScript()`

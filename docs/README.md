@@ -38,6 +38,10 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   and validation for the `.flownode` and `.screenfx` text files: what it does,
   how the editor installs it automatically (and how to package a `.vsix` by
   hand), and how to keep it in sync when you add header keys or placeholders.
+- [Project format versioning & migrations](format-versioning.md) - the
+  editor/format version split, what happens when you open an older or newer
+  project (silent open vs the migrate-with-backup prompt vs refusal), the
+  `--migrate` CLI, and the bump/migration rules for contributors.
 - [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) - importing a
   real ARKit camera move (CamTrackAR `.hfcs` or the app-agnostic CSV) into a
   Cutscene Director camera track: the canonical take space, the mapping and

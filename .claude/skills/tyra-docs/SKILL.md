@@ -57,6 +57,13 @@ whatever the change affected.
   boots (see `tyra-testing`). Don't force one for a small tweak; do offer it
   whenever a feature is big enough that a user would want to see it in action.
 
+- **`src/version.hpp`** — not a doc, but part of the same per-change ritual:
+  bump the editor semver for every user-facing change (feature → MINOR, fix →
+  PATCH, breaking → MAJOR), and bump `kFormatVersion` whenever the change
+  alters what `project::save()` writes — plus a migration step in
+  `migrations.cpp` when existing files need transforming. See
+  `docs/format-versioning.md`.
+
 - **`CLAUDE.md`** — only when a project-wide, always-on rule changes (it is the
   always-loaded instruction file; keep it tiny).
 

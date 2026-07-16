@@ -17,6 +17,7 @@
 #include "glbparser.hpp"
 #include "json.hpp"
 #include "menubake.hpp"
+#include "migrations.hpp"
 #include "objparser.hpp"
 #include "templates.hpp"
 #include "wavconvert.hpp"
@@ -376,13 +377,7 @@ int App::run(const std::string& initialProjectDir) {
         std::string dir = initialProjectDir;
         if (std::filesystem::path(dir).extension() == ".tyra")
             dir = std::filesystem::path(dir).parent_path().string();
-        Project p;
-        if (project::load(p, dir).empty()) {
-            project_ = p;
-            hasProject_ = true;
-            applyProjectToViewport();
-            attachProject();  // resets dirty + window title
-        }
+        openProjectFrom(dir);  // shared format-version gate + migration prompt
     }
 
     while (true) {
@@ -2174,7 +2169,7 @@ void App::updateWindowTitle() {
     if (titleShowsDirty_ == dirty_ && titleName_ == project_.name) return;
     titleShowsDirty_ = dirty_;
     titleName_ = project_.name;
-    std::string title = "TyraX";
+    std::string title = std::string("TyraX ") + version::kEditorVersion;
     if (hasProject_) title += " - " + project_.name + (dirty_ ? " *" : "");
     glfwSetWindowTitle(window_, title.c_str());
 }
@@ -13822,18 +13817,73 @@ void App::openProjectDialog() {
     // Projects are opened through their project file (<name>.tyra).
     std::string solutionFile = pickSolutionFile();
     if (solutionFile.empty()) return;
-    const std::string dir = std::filesystem::path(solutionFile).parent_path().string();
+    openProjectFrom(std::filesystem::path(solutionFile).parent_path().string());
+}
+
+bool App::openProjectFrom(const std::string& dir) {
     Project p;
-    std::string err = project::load(p, dir);
-    if (err.empty()) {
-        project_ = p;
-        hasProject_ = true;
-        applyProjectToViewport();
-        attachProject();  // resets dirty + window title
-    } else {
-        runner_.clearLog();
-        // Surface the error in the Output window via the runner log is hacky;
-        // show a popup instead on next frame. Simple approach: message box.
-        MessageBoxA(nullptr, err.c_str(), "Open Project", MB_ICONERROR | MB_OK);
+    // load() itself refuses a file from a newer editor (the message names both
+    // versions), so every open path shares that guard.
+    if (std::string err = project::load(p, dir); !err.empty()) {
+        MessageBoxA(g_dialogOwner, err.c_str(), "Open Project",
+                    MB_ICONERROR | MB_OK);
+        return false;
     }
+
+    // Older format: silent when only additive changes happened since (the
+    // tolerant reader already handled them; the version is re-stamped on the
+    // next save). A prompt + backup appear exactly when registered migration
+    // steps will transform the data - that is the irreversible part.
+    if (const auto steps = migrations::stepsFor(p.formatVersionOnDisk);
+        !steps.empty()) {
+        std::string msg = "This project uses an older format (v" +
+                          std::to_string(p.formatVersionOnDisk) +
+                          "; this editor writes v" +
+                          std::to_string(version::kFormatVersion) +
+                          ").\n\nOpening it will apply:\n";
+        for (const auto* m : steps)
+            msg += "  v" + std::to_string(m->from) + " -> v" +
+                   std::to_string(m->from + 1) + ": " + m->summary + "\n";
+        msg += "\nThis cannot be undone. A backup of the project files will "
+               "be created in _backup\\ first.\n\nMigrate and open?";
+        if (MessageBoxA(g_dialogOwner, msg.c_str(), "Project Migration",
+                        MB_ICONWARNING | MB_YESNO | MB_DEFBUTTON2) != IDYES)
+            return false;
+
+        std::string backupDir;
+        if (std::string err = migrations::backup(p, p.formatVersionOnDisk, backupDir);
+            !err.empty()) {
+            MessageBoxA(g_dialogOwner,
+                        ("Backup failed - migration aborted, the project was "
+                         "not modified.\n\n" + err).c_str(),
+                        "Project Migration", MB_ICONERROR | MB_OK);
+            return false;
+        }
+        if (std::string err = migrations::run(p, p.formatVersionOnDisk);
+            !err.empty()) {
+            MessageBoxA(g_dialogOwner,
+                        ("This project cannot be migrated.\n\n" + err +
+                         "\n\nThe project on disk was not modified.").c_str(),
+                        "Project Migration", MB_ICONERROR | MB_OK);
+            return false;
+        }
+        p.formatVersionOnDisk = version::kFormatVersion;
+        // Persist the migrated format right away so disk, undo history and
+        // every later save share one baseline.
+        std::string err = project::save(p);
+        if (err.empty()) err = project::saveHeights(p);
+        if (!err.empty()) {
+            MessageBoxA(g_dialogOwner,
+                        ("Migration succeeded but saving failed:\n" + err +
+                         "\n\nThe backup in " + backupDir + " is intact.").c_str(),
+                        "Project Migration", MB_ICONERROR | MB_OK);
+            return false;
+        }
+    }
+
+    project_ = p;
+    hasProject_ = true;
+    applyProjectToViewport();
+    attachProject();  // resets dirty + window title
+    return true;
 }

@@ -87,14 +87,18 @@ Projects can also be created and built headlessly:
 ```powershell
 tyrax-editor.exe --new <name> <parentDir> [width] [depth] [orbit|fpp]
 tyrax-editor.exe --build <projectDir> [--run]
-tyrax-editor.exe --resave <projectDir>        # load + save (runs format migrations)
+tyrax-editor.exe --resave <projectDir>        # load + save in the current format
+tyrax-editor.exe --migrate <projectDir>       # backup + apply format migrations
 tyrax-editor.exe <projectDir|project.tyra>    # open GUI with a project loaded
 ```
 
-`--resave` loads a project and writes it straight back out, running every
-on-disk format migration in the process (e.g. stamping stable object ids on
-older projects). Use it to batch-migrate existing projects to the current
-format without opening the GUI.
+`--resave` loads a project and writes it straight back out in the current
+on-disk format (e.g. stamping stable object ids and the format version on
+older projects). Projects that need real format *migrations* (data
+transforms) are refused by `--build`/`--resave`; run `--migrate` instead - it
+backs up the project files into `_backup\` first, applies the pending steps
+and resaves. Opening such a project in the GUI prompts for the same
+backup-and-migrate. See [docs/format-versioning.md](docs/format-versioning.md).
 
 ## How Build & Run works
 

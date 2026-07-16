@@ -127,6 +127,11 @@ private:
     void drawScenePreferencesModal();
     void openScenePreferences();  // stage the active scene into scenePref* + open
     void openProjectDialog();
+    // Load + attach a project directory through the format-version gate:
+    // newer-format files are refused (by project::load), older ones with
+    // pending migration steps prompt for an irreversible backup + migrate.
+    // Silent when no physical migration applies. False = not opened.
+    bool openProjectFrom(const std::string& dir);
     void applyProjectToViewport();
     void addObject(PrimitiveType type);
     void addEmitter(int kind);  // Effects menu presets (fire/smoke/fog/sparks)
