@@ -2,7 +2,7 @@ name: cutscene-demo
 volumes:
   tyra-game-volume:
   tyra-engine:
-    name: tyra-engine-ef85de16
+    name: tyra-engine-5c72951d
 services:
   compiler:
     environment:
@@ -16,4 +16,4 @@ services:
       - tyra-game-volume:/src
       - tyra-engine:/tyra
       - ./:/host
-      - "D:/tyra-editor/.claude/worktrees/menu-input-blocking-a52566/vendor/tyra:/engine-src:ro"
+      - "F:/Projects/tyra-editor/.claude/worktrees/clipping-handler-ee-vu-744ff5/vendor/tyra:/engine-src:ro"
