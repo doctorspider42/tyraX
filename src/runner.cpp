@@ -574,6 +574,26 @@ void Runner::worker(Project p, bool build, bool run, bool ps2) {
         if (auto err = project::refreshGenerated(p); !err.empty())
             appendLine("[editor] Warning: could not refresh generated files: " + err);
 
+        // Live Link handshake: drop any stale snapshot (the rebuilt game bakes
+        // the current scene state - an old livelink.bin would re-apply
+        // pre-build values at boot) and record the as-built structure this
+        // build bakes in. The editor streams livelink.bin only while the
+        // project still matches bin/livelink.sig (see project.hpp). With the
+        // preference off (or a release profile) the poller isn't compiled, so
+        // remove the sig too - the editor then shows no session at all.
+        {
+            std::error_code ec;
+            fs::create_directories(fs::path(p.dir) / "bin", ec);
+            fs::remove(fs::path(p.dir) / "bin" / "livelink.bin", ec);
+            if (p.settings.buildProfile == "debug" && p.settings.liveLink) {
+                std::ofstream sig(fs::path(p.dir) / "bin" / "livelink.sig",
+                                  std::ios::trunc);
+                if (sig) sig << project::liveLinkSigFile(p);
+            } else {
+                fs::remove(fs::path(p.dir) / "bin" / "livelink.sig", ec);
+            }
+        }
+
         // Texture bake: res/ -> .res-baked/ (PNG quantization per the project
         // policy; the generated Makefile copies .res-baked next to the ELF).
         if (auto err = texbake::bake(p, [this](const std::string& l) { appendLine(l); });

@@ -28,13 +28,14 @@ struct Track { int scene; int obj; int chPos; int chRot; int chScale;
 struct CamKey { float t; float eye[3]; float at[3]; float fov;
                 float shake; int ease; int camScene; int camObj; };
 struct Seq { const char* name; float duration; int loop; int camEnabled;
+             int hidePlayer;  // hide the third-person avatar while playing
              int bars; int skippable; float fadeIn; float fadeOut;
              float barsSlideIn; float barsSlideOut;  // bars reveal, s
              float barTB; float barLR;  // mask coverage per edge
              const Track* tracks; int trackCount;
              const CamKey* camKeys; int camKeyCount; };
 
-static const Seq kSeqs[] = {{"", 0.0F, 0, 0, 0, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, nullptr, 0, nullptr, 0}
+static const Seq kSeqs[] = {{"", 0.0F, 0, 0, 0, 0, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, nullptr, 0, nullptr, 0}
 };
 static const int kSeqCount = 0;
 
@@ -86,6 +87,7 @@ class SequenceDirector : public Script {
   // projection FOV restored.
   void release(ScriptContext& ctx) {
     ctx.cameraOverride = false;
+    ctx.hidePlayer = false;
     ctx.barsStyle = 0;
     ctx.barsAmount = 0.0F;
     ctx.fadeAlpha = 0.0F;
@@ -120,6 +122,7 @@ class SequenceDirector : public Script {
       release(ctx);
       return;
     }
+    ctx.hidePlayer = s.hidePlayer != 0;
     for (int i = 0; i < s.trackCount; ++i) {
       const Track& tr = s.tracks[i];
       if (tr.scene != ctx.scene || tr.obj < 0 || tr.obj >= ctx.objectCount) continue;

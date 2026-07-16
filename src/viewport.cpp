@@ -172,6 +172,7 @@ uniform vec3 uTint;
 uniform int uUseTex;
 uniform sampler2D uTex;
 uniform int uAlpha;              // 1: honor texture alpha (decal cutout + blend)
+uniform float uOpacity;          // constant alpha multiplier (mirror glass)
 uniform int uLit;                // 0: lines/markers/sky - skip point lights
 uniform int uLightCount;
 uniform vec4 uLightPos[8];       // xyz = world position, w = radius
@@ -259,9 +260,9 @@ void main() {
             : texture(uRefl, st).rgb;
         color += uReflStrength * env;
     }
-    // Decals carry the texture's alpha (cutout above + blend here); everything
-    // else outputs opaque.
-    FragColor = vec4(color, a);
+    // Decals carry the texture's alpha (cutout above + blend here), mirror
+    // glass a constant opacity; everything else outputs opaque.
+    FragColor = vec4(color, a * uOpacity);
 }
 )";
 
@@ -676,6 +677,7 @@ bool Viewport::init() {
     uTint_ = glGetUniformLocation(program_, "uTint");
     uUseTex_ = glGetUniformLocation(program_, "uUseTex");
     uAlpha_ = glGetUniformLocation(program_, "uAlpha");
+    uOpacity_ = glGetUniformLocation(program_, "uOpacity");
     uModel_ = glGetUniformLocation(program_, "uModel");
     uLit_ = glGetUniformLocation(program_, "uLit");
     uLightCount_ = glGetUniformLocation(program_, "uLightCount");
@@ -1865,6 +1867,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     }
 
     glUseProgram(program_);
+    // uOpacity persists across draws (the sky/outline sites below don't set
+    // it) - reset the mirror pass's leftover so the frame starts opaque.
+    glUniform1f(uOpacity_, 1.0f);
 
     // Sky dome: centered on the camera (an "infinite" sky) and scaled well
     // past the scene but inside the far plane, drawn first with no depth so
@@ -1939,9 +1944,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     auto draw = [&](const Mesh& mesh, GLenum mode, const Mat4& mvp, float r, float g,
                     float b, uint32_t texture = 0, const Mat4* model = nullptr,
-                    bool alpha = false, uint32_t reflTex = 0,
-                    float reflStrength = 0.0f, bool reflSky = false,
-                    bool reflRounded = false,
+                    bool alpha = false, float opacity = 1.0f,
+                    uint32_t reflTex = 0, float reflStrength = 0.0f,
+                    bool reflSky = false, bool reflRounded = false,
                     const float* reflCenter = nullptr) {
         glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
         glUniformMatrix4fv(uModel_, 1, GL_FALSE, model ? model->m : identityM.m);
@@ -1960,14 +1965,16 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             glBindTexture(GL_TEXTURE_2D, reflTex);
             glActiveTexture(GL_TEXTURE0);
         }
-        if (alpha) {
+        glUniform1f(uOpacity_, opacity);
+        const bool blend = alpha || opacity < 1.0f;
+        if (blend) {
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         }
         if (texture) glBindTexture(GL_TEXTURE_2D, texture);
         glBindVertexArray(mesh.vao);
         glDrawArrays(mode, 0, mesh.vertexCount);
-        if (alpha) glDisable(GL_BLEND);
+        if (blend) glDisable(GL_BLEND);
     };
 
     auto meshFor = [&](const SceneObject& o) -> const Mesh* {
@@ -1979,6 +1986,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             case PrimitiveType::SavePoint: return &primMesh(o.type, o.primDetail);
             case PrimitiveType::Plane: return &plane_;
             case PrimitiveType::Decal: return &decal_;
+            case PrimitiveType::Mirror: return &decal_;  // glass quad, +Z face
             case PrimitiveType::SpawnPoint: return &spawnMarker_;
             case PrimitiveType::Player: return &playerMarker_;
             case PrimitiveType::SoundEmitter: return &sphere_;  // speaker-ish marker
@@ -2029,6 +2037,10 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                      o.color[2] * dim * tintScale);
                 continue;
             }
+            // Mirrors draw in their own pass after the scene (reflected
+            // copies first, glass blended over them); the wire passes still
+            // outline the quad here so wireframe views show the rectangle.
+            if (o.type == PrimitiveType::Mirror && !asLines) continue;
             const Mat4 model = modelMatrix(o);
             const Mat4 mvp = mul(viewProj, model);
             // the bulb gizmo stays emissive - everything else receives light
@@ -2072,7 +2084,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                     draw(part.mesh, GL_TRIANGLES, mvp, o.color[0] * tintScale,
                          o.color[1] * tintScale, o.color[2] * tintScale,
                          asLines ? 0 : part.tex, lit ? &model : nullptr, false,
-                         asLines ? 0 : part.reflTex, part.reflStrength,
+                         1.0f, asLines ? 0 : part.reflTex, part.reflStrength,
                          asLines ? false : part.reflSky, part.reflRounded, c);
                 }
                 continue;
@@ -2103,7 +2115,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             // rounded-normal centre is simply the object's world position
             draw(*meshFor(o), GL_TRIANGLES, mvp, o.color[0] * kr * tintScale,
                  o.color[1] * kg * tintScale, o.color[2] * kb * tintScale,
-                 tex, lit ? &model : nullptr, decalAlpha,
+                 tex, lit ? &model : nullptr, decalAlpha, 1.0f,
                  (asLines || !mat) ? 0 : mat->reflTex,
                  mat ? mat->reflStrength : 0.0f,
                  (asLines || !mat) ? false : mat->reflSky,
@@ -2120,6 +2132,101 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             scenePass(true, 0.15f);
             break;
         default: scenePass(false, 1.0f); break;
+    }
+
+    // Mirror objects: draw the reflected copies first (real geometry behind
+    // the plane, z-tested against the finished scene), then blend the glass
+    // quad over them - the same order the generated game uses. Skipped in
+    // pure wireframe (the wire passes already outline the quad).
+    if (viewMode_ != ViewMode::Wireframe) {
+        // one reflected draw - the static subset of the scene pass (marker
+        // types never make it into a mirror list)
+        auto drawReflected = [&](const SceneObject& t, const Mat4& model) {
+            const Mat4 mvp = mul(viewProj, model);
+            if (t.type == PrimitiveType::Model && isAnimatedModelPath(t.modelPath)) {
+                // pose already advanced by this frame's scene pass - reuse it
+                AnimModelDraw* ad = animModelDraw(t.modelPath);
+                if (ad && ad->ok) {
+                    for (const AnimModelDraw::Part& part : ad->parts)
+                        draw(part.mesh, GL_TRIANGLES, mvp, t.color[0], t.color[1],
+                             t.color[2], part.tex, &model);
+                    return;
+                }
+            }
+            const ModelDraw* md = t.type == PrimitiveType::Model
+                                      ? modelDraw(t.modelPath, t.materialPath)
+                                      : nullptr;
+            if (md) {
+                for (const ModelPart& part : md->parts)
+                    draw(part.mesh, GL_TRIANGLES, mvp, t.color[0], t.color[1],
+                         t.color[2], part.tex, &model);
+                return;
+            }
+            const MaterialDraw* mat =
+                t.type == PrimitiveType::Model ? nullptr : materialDraw(t.materialPath);
+            const float kr = mat ? mat->kd[0] : 1.0f;
+            const float kg = mat ? mat->kd[1] : 1.0f;
+            const float kb = mat ? mat->kd[2] : 1.0f;
+            const uint32_t tex = mat ? mat->tex : 0;
+            const bool decalAlpha = t.type == PrimitiveType::Decal && tex;
+            draw(*meshFor(t), GL_TRIANGLES, mvp, t.color[0] * kr, t.color[1] * kg,
+                 t.color[2] * kb, tex, &model, decalAlpha);
+        };
+        for (size_t mi = 0; mi < objects.size(); ++mi) {
+            const SceneObject& m = objects[mi];
+            if (m.type != PrimitiveType::Mirror || hiddenAt(mi)) continue;
+            const Mat4 mirrorModel = modelMatrix(m);
+            // plane through the mirror position, normal = the rotated +Z face
+            // (third model-matrix column, normalized)
+            Vec3 n = normalize({mirrorModel.m[8], mirrorModel.m[9], mirrorModel.m[10]});
+            if (n.x == 0.0f && n.y == 0.0f && n.z == 0.0f) n = {0, 0, 1};
+            const float d =
+                n.x * m.position[0] + n.y * m.position[1] + n.z * m.position[2];
+            // Householder reflection about the plane: x' = x - 2((x.n) - d) n
+            Mat4 refl = identity();
+            refl.m[0] = 1.0f - 2.0f * n.x * n.x;
+            refl.m[1] = -2.0f * n.x * n.y;
+            refl.m[2] = -2.0f * n.x * n.z;
+            refl.m[4] = -2.0f * n.x * n.y;
+            refl.m[5] = 1.0f - 2.0f * n.y * n.y;
+            refl.m[6] = -2.0f * n.y * n.z;
+            refl.m[8] = -2.0f * n.x * n.z;
+            refl.m[9] = -2.0f * n.y * n.z;
+            refl.m[10] = 1.0f - 2.0f * n.z * n.z;
+            refl.m[12] = 2.0f * d * n.x;
+            refl.m[13] = 2.0f * d * n.y;
+            refl.m[14] = 2.0f * d * n.z;
+            for (const std::string& tname : m.mirrorObjects) {
+                int ti = -1;
+                for (size_t k = 0; k < objects.size(); ++k)
+                    if (objects[k].name == tname) { ti = (int)k; break; }
+                if (ti < 0 || hiddenAt((size_t)ti)) continue;
+                drawReflected(objects[(size_t)ti],
+                              mul(refl, modelMatrix(objects[(size_t)ti])));
+            }
+            // "Reflect player": only a third-person avatar has a body to show
+            // (same rule as the game - an FPP player casts no reflection)
+            if (m.mirrorReflectPlayer) {
+                for (size_t k = 0; k < objects.size(); ++k) {
+                    const SceneObject& p = objects[k];
+                    if (p.type != PrimitiveType::Player || p.playerMode != 2 ||
+                        !isAnimatedModelPath(p.modelPath) || hiddenAt(k))
+                        continue;
+                    AnimModelDraw* ad = animModelDraw(p.modelPath);
+                    if (ad && ad->ok) {
+                        const Mat4 model = mul(refl, modelMatrix(p));
+                        const Mat4 mvp = mul(viewProj, model);
+                        for (const AnimModelDraw::Part& part : ad->parts)
+                            draw(part.mesh, GL_TRIANGLES, mvp, p.color[0],
+                                 p.color[1], p.color[2], part.tex, &model);
+                    }
+                    break;  // first player entity wins, like in the game
+                }
+            }
+            // glass quad last, blended over whatever the copies drew
+            draw(decal_, GL_TRIANGLES, mul(viewProj, mirrorModel), m.color[0],
+                 m.color[1], m.color[2], 0, &mirrorModel, false, m.mirrorOpacity);
+        }
     }
 
     // Grid lines, axes and the selection outline are unaffected by view mode

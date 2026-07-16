@@ -3,8 +3,11 @@
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <ctime>
 
 #include <filesystem>
 #include <fstream>
@@ -486,6 +489,10 @@ void App::drawUI() {
     // Watch the running game's log for a fresh assertion dump (throttled).
     pollGameError();
 
+    // Stream scene edits to the running debug game (throttled; no-op unless
+    // the live-patchable state changed since the last write).
+    liveLinkTick();
+
     drawMenuBar();
     drawViewportWindow();
     drawProjectWindow();
@@ -752,6 +759,21 @@ void App::drawMenuBar() {
                 ImGui::SetTooltip("Kills the file server and resets ps2link - the "
                                   "console reboots back to its listening state.");
             ImGui::Separator();
+            if (ImGui::MenuItem("Live Link", nullptr,
+                                project_.settings.liveLink)) {
+                project_.settings.liveLink = !project_.settings.liveLink;
+                commitChange();
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Mirror scene edits (move/rotate/scale/recolor objects, "
+                    "add/delete them)\ninto the running game without a rebuild "
+                    "- PCSX2 and real-PS2 deploys alike.\nA project setting: "
+                    "off = the game is built without the poller and the "
+                    "editor\nnever writes snapshots. Needs the \"debug\" build "
+                    "profile (Project >\nPreferences > Build). Also toggled by "
+                    "clicking the LIVE chip in the toolbar.");
+            ImGui::Separator();
             if (ImGui::MenuItem("Cancel Build", nullptr, false, busy)) runner_.cancel();
             if (ImGui::MenuItem("Clean", nullptr, false, !busy))
                 runner_.clean(project_);
@@ -944,6 +966,70 @@ void App::drawToolbar() {
                    paintStop(stopPs2Enabled ? colStop : colDim))) {
         if (busy) runner_.cancel();
         else runner_.stopPs2(project_);
+    }
+
+    // Live Link chip: a dot + label after the run groups, ALSO the on/off
+    // switch (clicking toggles the project's Live Link preference, same as
+    // Build > Live Link). Shown whenever the project builds in the debug
+    // profile: gray "LIVE off" = disabled, dim "LIVE (build)" = enabled but
+    // no Live-Link-capable build yet (F5), green "LIVE" = edits stream into
+    // the running game, amber "LIVE (rebuild)" = an edit the session can't
+    // absorb - rebuild to resync. Hidden in the release profile (the poller
+    // only exists in debug builds).
+    if (project_.settings.buildProfile == "debug") {
+        const bool on = project_.settings.liveLink;
+        ImU32 c = colDim;
+        const char* label = "LIVE off";
+        const char* tip =
+            "Live Link is off (project setting) - the game is built without "
+            "the poller\nand the editor writes no snapshots. Click to enable "
+            "(then Build & Run).";
+        if (on) {
+            switch (liveLinkState_) {
+                case LiveLinkState::Live:
+                    c = IM_COL32(95, 200, 115, 255);
+                    label = "LIVE";
+                    tip = "Live Link: object edits (move/rotate/scale/recolor,"
+                          " add/delete) stream\ninto the running game. Click "
+                          "to turn off (project setting).";
+                    break;
+                case LiveLinkState::RebuildNeeded:
+                    c = IM_COL32(240, 175, 70, 255);
+                    label = "LIVE (rebuild)";
+                    tip = "Live Link: the scene changed in a way the session "
+                          "can't absorb (model/\nmaterial swaps, lights, "
+                          "projected decals, mirrors, layers, objects with\n"
+                          "logic...) - Build & Run (F5) to resync. Click to "
+                          "turn off.";
+                    break;
+                default:  // Off (transient) / NoBuild
+                    label = "LIVE (build)";
+                    tip = "Live Link is on, but the last build has no poller "
+                          "yet - Build & Run\n(F5) once and edits start "
+                          "streaming. Click to turn off.";
+                    break;
+            }
+        }
+        ImGui::SameLine(0.0f, gapGroup);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float dotR = h * 0.14f;
+        const float textW = ImGui::CalcTextSize(label).x;
+        if (ImGui::InvisibleButton("##tb_livelink",
+                                   ImVec2(dotR * 2.0f + 4.0f + textW, h))) {
+            project_.settings.liveLink = !on;
+            commitChange();
+        }
+        if (ImGui::IsItemHovered())
+            dl->AddRectFilled(p, ImVec2(p.x + dotR * 2.0f + 4.0f + textW,
+                                        p.y + h),
+                              ImGui::GetColorU32(ImGuiCol_ButtonHovered),
+                              round);
+        dl->AddCircleFilled(ImVec2(p.x + dotR, p.y + h * 0.5f), dotR, c);
+        dl->AddText(ImVec2(p.x + dotR * 2.0f + 4.0f,
+                           p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
+                    c, label);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
     }
 
     // Dropdown menus for the two Play carets (anchored just under each caret).
@@ -2457,6 +2543,18 @@ void App::attachProject() {
     flowGraphObject_ = -1;
     flowPositionsApplied_ = false;
     layerRamCache_.clear();
+    // Live Link is per project: forget the previous project's cached as-built
+    // record and written payload, re-read/re-write for this one. The sequence
+    // counter is seeded from the clock: a game left running remembers the last
+    // seq it applied, so a restarted editor beginning again at 1 would collide
+    // with its predecessor's first write and the (different) snapshot would be
+    // deduped away - time makes consecutive sessions never reuse a seq.
+    liveLinkState_ = LiveLinkState::Off;
+    liveLinkBuilt_ = LiveLinkBuilt();
+    liveLinkLastPayload_.clear();
+    liveLinkSeq_ = (uint32_t)std::time(nullptr);
+    liveLinkSigNextRead_ = 0.0;
+    liveLinkNextTick_ = 0.0;
     history_.reset({project_.scenes});
     // The history file restores the undo stack when it is in sync with the
     // project file; otherwise we start fresh (and write a new one).
@@ -2571,6 +2669,15 @@ void App::addDecal() {
     // white so the texture shows untinted (color modulates the map_Kd)
     o.color[0] = o.color[1] = o.color[2] = 1.0f;
     o.collisionMode = 2;  // visual overlay - never blocks the player
+    saveAll("Saved");
+}
+void App::addMirror() {
+    addObject(PrimitiveType::Mirror);
+    SceneObject& o = project_.objects().back();
+    // an upright dressing-mirror rectangle at standing height, cool glass tint
+    o.position[1] = 1.2f;
+    o.scale[0] = 1.4f, o.scale[1] = 2.2f, o.scale[2] = 1.0f;
+    o.color[0] = 0.62f, o.color[1] = 0.78f, o.color[2] = 0.88f;
     saveAll("Saved");
 }
 void App::addSavePoint() {
@@ -3281,6 +3388,9 @@ void App::drawAddObjectMenu() {
         // Textured quad with transparency (sign/poster/text on a wall). Assign
         // a material whose map_Kd PNG has an alpha channel in the Properties.
         if (ImGui::MenuItem("Decal")) addDecal();
+        // Rectangle that re-draws its listed objects mirrored across its
+        // plane (real geometry behind the glass - build it into a wall).
+        if (ImGui::MenuItem("Mirror")) addMirror();
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Gameplay")) {
@@ -3740,6 +3850,7 @@ static const char* typeLabel(PrimitiveType t) {
         case PrimitiveType::SavePoint: return "Save point";
         case PrimitiveType::Empty: return "Empty";
         case PrimitiveType::Camera: return "Camera";
+        case PrimitiveType::Mirror: return "Mirror";
     }
     return "Object";
 }
@@ -3802,6 +3913,11 @@ void App::drawPropertiesWindow() {
                     if (k.camera == from) k.camera = o.name;
             }
             if (lookThroughCam_ == from) lookThroughCam_ = o.name;
+            // Mirror target lists reference objects by name too.
+            for (SceneObject& m : project_.objects())
+                if (m.type == PrimitiveType::Mirror)
+                    for (std::string& t : m.mirrorObjects)
+                        if (t == from) t = o.name;
         }
     }
 
@@ -3989,24 +4105,28 @@ void App::drawPropertiesWindow() {
     const bool isDecal = o.type == PrimitiveType::Decal;
     // Camera entity: position + rotation aim the shot, color tints the marker.
     const bool isCamera = o.type == PrimitiveType::Camera;
+    // Mirror: transform places the glass rectangle (+Z = the reflective
+    // face), color tints it; the mirror-specific block sits further down.
+    const bool isMirror = o.type == PrimitiveType::Mirror;
 
     ImGui::DragFloat3("Position", o.position, 0.1f);
     committed |= ImGui::IsItemDeactivatedAfterEdit();
     // custom emitters rotate too - the rotation aims the emission direction
-    if (isSolid || isEmpty || isDecal || isCamera ||
+    if (isSolid || isEmpty || isDecal || isCamera || isMirror ||
         (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
         ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
-    if (isSolid || isEmpty || isDecal || o.type == PrimitiveType::Emitter) {
+    if (isSolid || isEmpty || isDecal || isMirror ||
+        o.type == PrimitiveType::Emitter) {
         ImGui::DragFloat3("Scale", o.scale, 0.05f, 0.01f, 1000.0f);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
     // Color: mesh tint for solids, particle tint for emitters, light color
-    // for point lights, marker tint + free script parameter for empties,
-    // texture tint for decals, marker/frustum tint for camera entities. The
-    // remaining markers draw in fixed colors.
-    if (isSolid || isEmpty || isDecal || isCamera ||
+    // for point lights, marker tint + free per-object parameter for empties,
+    // texture tint for decals, marker/frustum tint for camera entities, glass
+    // tint for mirrors. The remaining markers draw in fixed colors.
+    if (isSolid || isEmpty || isDecal || isCamera || isMirror ||
         o.type == PrimitiveType::Emitter || o.type == PrimitiveType::PointLight) {
         ImGui::ColorEdit3("Color", o.color);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -4102,8 +4222,9 @@ void App::drawPropertiesWindow() {
     }
 
     // Rendering cut-off - the cheapest LOD. Only drawing stops beyond the
-    // distance; collision, sounds and scripts keep running.
-    if (isSolid) {
+    // distance; collision, sounds and scripts keep running. For a mirror it
+    // gates the glass AND every reflected copy - the whole illusion.
+    if (isSolid || isMirror) {
         ImGui::DragFloat("Draw distance", &o.drawDistance, 0.5f, 0.0f, 2000.0f,
                          o.drawDistance > 0.0f ? "%.0f units" : "unlimited");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -4122,6 +4243,70 @@ void App::drawPropertiesWindow() {
                 "Mark the few props that sell the effect - each one costs a\n"
                 "second small render per frame. Editor preview shows the sky\n"
                 "only; check reflections in the game.");
+    }
+
+    if (isMirror) {
+        ImGui::SeparatorText("Mirror");
+        ImGui::TextDisabled(
+            "Re-draws the listed objects mirrored across this rectangle\n"
+            "(+Z face). The copies are real geometry behind the plane -\n"
+            "build the mirror into a wall so only the glass shows them.");
+        ImGui::SliderFloat("Glass opacity", &o.mirrorOpacity, 0.0f, 1.0f, "%.2f");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::Checkbox("Reflect player", &o.mirrorReflectPlayer)) committed = true;
+        if (o.mirrorReflectPlayer)
+            ImGui::TextDisabled(
+                "Reflects the third-person avatar. An FPP player has no\n"
+                "body to reflect (vampire rules).");
+        bool solid = o.collisionMode != 2;
+        if (ImGui::Checkbox("Collision (blocks the player)", &solid)) {
+            o.collisionMode = solid ? 0 : 2;
+            committed = true;
+        }
+        ImGui::TextUnformatted("Reflected objects:");
+        int removeAt = -1;
+        for (size_t i = 0; i < o.mirrorObjects.size(); ++i) {
+            ImGui::PushID((int)i);
+            if (ImGui::SmallButton("x")) removeAt = (int)i;
+            ImGui::SameLine();
+            bool exists = false;
+            for (const SceneObject& t : project_.objects())
+                if (t.name == o.mirrorObjects[i]) { exists = true; break; }
+            if (exists)
+                ImGui::TextUnformatted(o.mirrorObjects[i].c_str());
+            else
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                   "%s (missing)", o.mirrorObjects[i].c_str());
+            ImGui::PopID();
+        }
+        if (removeAt >= 0) {
+            o.mirrorObjects.erase(o.mirrorObjects.begin() + removeAt);
+            committed = true;
+        }
+        if (ImGui::BeginCombo("##mirrorAdd", "+ Add object...")) {
+            for (const SceneObject& t : project_.objects()) {
+                // only types the game draws as static/animated geometry can
+                // show up in the glass; the player has its own checkbox
+                const bool reflectable =
+                    t.type == PrimitiveType::Box || t.type == PrimitiveType::Sphere ||
+                    t.type == PrimitiveType::Cylinder ||
+                    t.type == PrimitiveType::Cone || t.type == PrimitiveType::Plane ||
+                    t.type == PrimitiveType::SavePoint ||
+                    t.type == PrimitiveType::Model || t.type == PrimitiveType::Decal;
+                if (!reflectable || t.name == o.name) continue;
+                bool listed = false;
+                for (const std::string& n : o.mirrorObjects)
+                    if (n == t.name) { listed = true; break; }
+                if (listed) continue;
+                if (ImGui::Selectable(t.name.c_str())) {
+                    o.mirrorObjects.push_back(t.name);
+                    committed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (o.mirrorObjects.empty() && !o.mirrorReflectPlayer)
+            ImGui::TextDisabled("Nothing listed - the mirror shows only glass.");
     }
 
     if (o.type == PrimitiveType::Emitter) {
@@ -4567,6 +4752,7 @@ void App::drawMultiProperties() {
             shape || o.type == PrimitiveType::Model || o.type == PrimitiveType::SavePoint;
         const bool empty = o.type == PrimitiveType::Empty;
         const bool decal = o.type == PrimitiveType::Decal;
+        const bool mirror = o.type == PrimitiveType::Mirror;
         // Detail (segments/subdivisions) exists for the curved/box-like
         // primitives (SavePoint tessellates as a Box), not for the flat Plane.
         const bool hasDetail = o.type == PrimitiveType::Box ||
@@ -4583,10 +4769,13 @@ void App::drawMultiProperties() {
         allLight = allLight && (o.type == PrimitiveType::PointLight);
         anyModel = anyModel || (o.type == PrimitiveType::Model);
         anySavePoint = anySavePoint || (o.type == PrimitiveType::SavePoint);
-        allRot = allRot && (solid || empty || decal || o.type == PrimitiveType::Camera ||
+        allRot = allRot && (solid || empty || decal || mirror ||
+                            o.type == PrimitiveType::Camera ||
                             (o.type == PrimitiveType::Emitter && o.emitterKind == 5));
-        allScale = allScale && (solid || empty || decal || o.type == PrimitiveType::Emitter);
-        allColor = allColor && (solid || empty || decal || o.type == PrimitiveType::Emitter ||
+        allScale = allScale && (solid || empty || decal || mirror ||
+                                o.type == PrimitiveType::Emitter);
+        allColor = allColor && (solid || empty || decal || mirror ||
+                                o.type == PrimitiveType::Emitter ||
                                 o.type == PrimitiveType::PointLight ||
                                 o.type == PrimitiveType::Camera);
         allSaveable = allSaveable && (solid || empty || o.type == PrimitiveType::Emitter ||
@@ -12817,6 +13006,180 @@ std::string App::latestGameAssert() const {
     return extractLastTyraAssert(text);
 }
 
+// Streams scene edits to the running (debug-profile) game - see the member
+// block in app.hpp for the design. Self-throttled; the actual file write only
+// happens when the live-representable state really changed.
+void App::liveLinkTick() {
+    namespace fs = std::filesystem;
+    if (!hasProject_ || !project_.settings.liveLink ||
+        project_.settings.buildProfile != "debug") {
+        liveLinkState_ = LiveLinkState::Off;
+        return;
+    }
+
+    const double now = ImGui::GetTime();
+    if (now < liveLinkNextTick_) return;  // keep the last state between ticks
+    liveLinkNextTick_ = now + 0.1;  // ~10 Hz matches the game's poll cadence
+
+    // The as-built record the running build was made from. Re-read at most
+    // every 1.5 s - a finished build (or Clean) must be picked up, but the
+    // file is not worth hitting the disk for at tick rate.
+    const fs::path binDir = fs::path(project_.dir) / "bin";
+    if (now >= liveLinkSigNextRead_) {
+        liveLinkSigNextRead_ = now + 1.5;
+        liveLinkBuilt_ = LiveLinkBuilt();
+        std::ifstream f(binDir / "livelink.sig");
+        std::string line;
+        if (f && std::getline(f, line) && line == "2") {
+            LiveLinkBuilt b;
+            bool ok = true;
+            while (std::getline(f, line)) {
+                if (line.rfind("ctx ", 0) == 0) {
+                    b.ctxHash = std::strtoull(line.c_str() + 4, nullptr, 16);
+                } else if (line.rfind("scene ", 0) == 0) {
+                    b.scenes.emplace_back();
+                } else if (line.size() >= 33 && !b.scenes.empty()) {
+                    char* end = nullptr;
+                    const uint64_t id = std::strtoull(line.c_str(), &end, 16);
+                    const uint64_t recipe = std::strtoull(end, nullptr, 16);
+                    b.scenes.back().emplace_back(id, recipe);
+                } else {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) {
+                b.loaded = true;
+                liveLinkBuilt_ = std::move(b);
+            }
+        }
+    }
+    if (!liveLinkBuilt_.loaded) {
+        liveLinkState_ = LiveLinkState::NoBuild;
+        return;
+    }
+
+    // Is the live project representable against the as-built record? Built
+    // objects must keep their recipe (a live patch can't change it); new
+    // objects need an equal-recipe as-built template to clone (and must be
+    // spawnable at all); the cross-object context must be untouched.
+    const int scene = project_.activeScene;
+    if (liveLinkBuilt_.ctxHash != project::liveLinkContextHash(project_) ||
+        scene >= (int)liveLinkBuilt_.scenes.size()) {
+        liveLinkState_ = LiveLinkState::RebuildNeeded;
+        return;
+    }
+    const auto& built = liveLinkBuilt_.scenes[scene];
+    const SceneData& sc = project_.active();
+
+    // Per-record resolution: templateIdx = -1 for as-built ids, else the
+    // as-built index of an equal-recipe object to clone. The spawn pool holds
+    // 32 clones - past that the session stops being representable.
+    struct Rec {
+        uint64_t id;
+        int32_t tmpl;
+        const SceneObject* o;
+    };
+    std::vector<Rec> recs;
+    recs.reserve(sc.objects.size());
+    int spawned = 0;
+    for (const SceneObject& o : sc.objects) {
+        const uint64_t id = project::liveLinkIdHash(o);
+        const uint64_t recipe = project::liveLinkRecipeHash(o);
+        int32_t tmpl = -1;
+        bool foundId = false;
+        for (size_t i = 0; i < built.size(); ++i) {
+            if (built[i].first == id) {
+                foundId = true;
+                if (built[i].second != recipe) {
+                    liveLinkState_ = LiveLinkState::RebuildNeeded;
+                    return;
+                }
+                break;
+            }
+        }
+        if (!foundId) {
+            if (!project::liveLinkCanSpawnLive(o) ||
+                ++spawned > 32 /* MAX_SPAWNED_OBJECTS */) {
+                liveLinkState_ = LiveLinkState::RebuildNeeded;
+                return;
+            }
+            tmpl = -1;
+            for (size_t i = 0; i < built.size(); ++i)
+                if (built[i].second == recipe) {
+                    tmpl = (int32_t)i;
+                    break;
+                }
+            if (tmpl < 0) {
+                liveLinkState_ = LiveLinkState::RebuildNeeded;
+                return;
+            }
+        }
+        recs.push_back({id, tmpl, &o});
+    }
+    liveLinkState_ = LiveLinkState::Live;
+
+    // Snapshot body: scene + count + one 64-byte record per object (id +
+    // template + 12 floats). Deletions are implicit - the game hides whatever
+    // is absent.
+    std::vector<unsigned char> body;
+    body.reserve(8 + recs.size() * 64);
+    auto put = [&](const void* v, size_t n) {
+        const unsigned char* b = static_cast<const unsigned char*>(v);
+        body.insert(body.end(), b, b + n);
+    };
+    const int32_t scene32 = scene;
+    const int32_t count = (int32_t)recs.size();
+    put(&scene32, 4);
+    put(&count, 4);
+    const uint32_t pad = 0;
+    for (const Rec& r : recs) {
+        put(&r.id, 8);
+        put(&r.tmpl, 4);
+        put(&pad, 4);
+        put(r.o->position, 12);
+        put(r.o->rotation, 12);
+        put(r.o->scale, 12);
+        put(r.o->color, 12);
+    }
+    if (body == liveLinkLastPayload_) return;  // nothing to stream
+
+    // Full file: header (magic/version/seq + body's scene/count/reserved),
+    // records, footer echoing seq - the game rejects torn writes. Written to
+    // a sibling tmp and renamed so the game never sees a half file; if the
+    // rename loses a race with the game's fread, retry on the next tick.
+    const uint32_t seq = liveLinkSeq_ + 1;
+    std::vector<unsigned char> file;
+    file.reserve(24 + body.size() - 8 + 4);
+    const uint32_t magic = 0x4C4C5854, version = 2, reserved = 0;
+    const uint32_t footer = seq ^ 0x5A5A5A5AU;
+    auto app32 = [&](const void* v) {
+        const unsigned char* b = static_cast<const unsigned char*>(v);
+        file.insert(file.end(), b, b + 4);
+    };
+    app32(&magic), app32(&version), app32(&seq);
+    file.insert(file.end(), body.begin(), body.begin() + 8);  // scene, count
+    app32(&reserved);
+    file.insert(file.end(), body.begin() + 8, body.end());
+    app32(&footer);
+
+    const fs::path tmp = binDir / "livelink.tmp";
+    const fs::path dst = binDir / "livelink.bin";
+    {
+        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+        if (!out) return;
+        out.write(reinterpret_cast<const char*>(file.data()),
+                  (std::streamsize)file.size());
+        if (!out) return;
+    }
+    std::error_code ec;
+    fs::rename(tmp, dst, ec);
+    if (ec) return;  // game holds the file open right now - next tick retries
+
+    liveLinkSeq_ = seq;
+    liveLinkLastPayload_ = std::move(body);
+}
+
 void App::pollGameError() {
     if (!hasProject_) return;
     const double now = ImGui::GetTime();
@@ -13434,6 +13797,15 @@ void App::drawPreferencesModal() {
         "frames per second, free EE RAM, and a per-phase EE-time breakdown\n"
         "(whole frame / scene / usable-highlight / particles, avg ms over\n"
         "~1s). Stripped from release builds.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Live Link", &prefSettings_.liveLink);
+    ImGui::EndDisabled();
+    ImGui::TextDisabled(
+        "Debug builds poll livelink.bin next to the ELF so the editor can\n"
+        "stream scene edits into the running game (docs/live-link.md). Turn\n"
+        "off if you don't want your game patched from outside; release\n"
+        "builds never carry the poller. Also toggled by the LIVE chip in\n"
+        "the toolbar and Build > Live Link.");
 
     ImGui::SeparatorText("Terrain");
     ImGui::InputInt("Width (units)", &prefTerrain_.width);

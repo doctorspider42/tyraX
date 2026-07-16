@@ -252,6 +252,7 @@ private:
     int uTint_ = -1;
     int uUseTex_ = -1;
     int uAlpha_ = -1;  // decal cutout/blend toggle
+    int uOpacity_ = -1;  // constant alpha multiplier (mirror glass)
     // Live point-light preview (fragment shader, world-space)
     int uModel_ = -1;
     int uLit_ = -1;

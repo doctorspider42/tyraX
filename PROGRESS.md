@@ -9,6 +9,7 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+<<<<<<< HEAD
 - (112) **Rounded reflection normals - flat surfaces stop reflecting "one
   pixel".** Owner's observation on the console: the mirror monolith showed
   a single uniform patch of the env map per face while the spheres "reflect
@@ -329,6 +330,140 @@ Each finished feature lands as its own commit.
   screenshot). The Material Editor preview shares the verified shader path;
   its interactive feel (picker, slider) still wants a hands-on pass. Docs:
   README, `docs/reflective-materials.md`, engine + editor skills.
+=======
+- (107) **Live Link v2 — per-project on/off + live add/delete of objects.**
+  Two follow-ups to (106). First, the on/off is now a **project setting**
+  (`ProjectSettings::liveLink`, default on; *Project > Preferences > Build*,
+  *Build > Live Link*, and the toolbar **LIVE chip itself is the switch** —
+  click to toggle): off = `live_link.gen.cpp` is an empty TU even in debug
+  builds and the Runner deletes `livelink.sig`, so the game carries no poller
+  at all for anyone who doesn't want debug builds patched from outside (the
+  short-lived editor.ini flag from (106) is gone — the setting travels with
+  the `.tyra`). The chip is always visible in the debug profile with four
+  states: gray "LIVE off", dim "LIVE (build)" (no poller-capable build yet),
+  green "LIVE", amber "LIVE (rebuild)". Second, the protocol moved from
+  index-addressed to **id-addressed records** (v2: 64 B per object = FNV-1a 64
+  of the editor object id + a spawn-template index + the 12 live floats;
+  `SCENE_*_OBJECT_ID_HASHES` tables baked into scene_data.hpp, binary-searched
+  on the EE), which buys: renames/reorders are non-events, **adding an object
+  live works** — the game clones an equal-recipe authored template through the
+  existing runtime spawn pool (`ctx.spawnObject`, ≤32 clones) and patches the
+  clone — and **deleting live hides** the object (undo restores; spawned
+  clones despawn). `bin/livelink.sig` became an as-built record (per-object
+  id + recipe hash in built order + a context hash) the editor evaluates
+  per tick: recipe drift on a built object, a new object with no template or
+  one that can't be faithfully spawned (point lights / projecting decals /
+  mirrors / objects carrying flow graphs or scripts), or layer-table changes
+  → amber chip, zero writes. Trap fixed along the way: the editor seeds its
+  snapshot sequence from the clock at project attach — a restarted editor
+  starting again at seq=1 collided with the previous session's seq=1 that the
+  still-running game remembered, and the (different) snapshot was deduped
+  away. **Verified in PCSX2 (SW renderer, 50 FPS steady):** live ADD — a
+  box added to the project files spawned in the running game via template
+  index 1 and took its own color/rotation; live DELETE — removing the pillar
+  from the manifest hid it in the running game while the spawned box
+  survived; all four chip states screenshotted (off/build/live/rebuild);
+  recipe change (box detail 1→4) flipped amber with `livelink.bin` untouched;
+  `liveLink: false` build emitted the stub TU and removed the sig. All nine
+  examples regenerated/rebuilt clean in Docker. Real-PS2 pass still pending
+  (as in (106)).
+
+- (106) **Live Link — edit the running game.** Scene edits (object position /
+  rotation / scale / color) stream into the running game with **no rebuild**:
+  drag a gizmo in the editor and the box slides across the PS2 screen. No
+  socket and no new protocol — the transport is the host filesystem the game
+  already loads assets from (PCSX2 Host Filesystem, or the ps2link/ps2client
+  file server on a real console), so one mechanism covers both targets. The
+  editor (`App::liveLinkTick`, ~10 Hz) writes `bin/livelink.bin` (little-endian
+  `TXLL` blob: seq + scene + 12 floats per authored object + a seq-echo footer,
+  written atomically tmp→rename) whenever the live-patchable state changed; a
+  generated global script (`templates::liveLinkScript` →
+  `src/scripts/live_link.gen.cpp`, **debug profile only** — release emits an
+  empty TU) polls it every 6 frames (25 under ps2link, where each fopen is a
+  network round-trip), rejects torn/stale reads (magic + exact size + footer,
+  seq dedupe), and patches `RuntimeObject.data` + `dirty` only for objects
+  whose values really changed — the same dirty-rebuild path the Move/Set Color
+  flow nodes use, so physics/collision/shading follow. Index-mapping safety:
+  `project::liveLinkSignature` (FNV-1a over scene/object order, ids, types,
+  model/material, prim detail, layers, and the build-baked cases — point
+  lights, projected-decal projectors) is stamped into `bin/livelink.sig` by the
+  Runner at build start (which also deletes any stale `livelink.bin`); the
+  editor streams only while the project still hashes identically, and the
+  toolbar shows **● LIVE** (green) / **● LIVE (rebuild)** (amber) accordingly —
+  a structural edit can pause, an Undo or a rebuild resumes automatically.
+  Master switch in *Build > Live Link* (`editor.ini`, default on). Docs:
+  `docs/live-link.md`. **Verified in PCSX2 (SW renderer, 50 FPS steady):**
+  (1) game-side poller — scratch debug FPP project booted, a hand-crafted
+  `livelink.bin` moved/rotated/stretched/recolored the box on the live game
+  (screenshots A/B); (2) full editor→game loop — object JSON edited, editor
+  GUI opened on the project, it auto-wrote seq=1 and the running game showed
+  the new pose/color with no rebuild (screenshot C); (3) structure guard —
+  adding a third object flipped the toolbar to amber and blocked writes (seq
+  unchanged), a headless rebuild refreshed `livelink.sig` and streaming
+  resumed on its own (fresh 3-object snapshot). Release codegen verified to
+  emit the stub. Real-PS2 pass (ps2link cadence) still wants a hands-on test.
+
+- (105) **examples/mirror-room — the Mirror object demo.** A committed example
+  for (104): a gray wall built in three pieces **around an opening**, a Mirror
+  filling the opening, crate/ball/pillar props, and a third-person wobbler
+  player with **Reflect player** on. The wall pieces are themselves on the
+  mirror's list, so the glass shows a furnished room, and the README spells
+  out the load-bearing detail (a solid wall behind the glass would z-occlude
+  the copies — the opening IS the mirror). The terrain needs no list entry:
+  it extends behind the wall and doubles as the mirror room's floor.
+  **Verified:** authored inline, `--resave`d to the split layout, built in
+  Docker and booted in PCSX2 (software renderer) from a short-path copy —
+  props, walls and **the live avatar** all reflect through the opening at a
+  locked 50 FPS, no asserts in `bin/log.txt`; the verified project was then
+  copied into `examples/` minus the gitignored build outputs. This is also
+  the first in-PCSX2 proof of the Reflect-player path (a real `.glb` avatar
+  reflecting its live pose).
+
+- (104) **Mirror objects — the PS2-era mirror as a scene object type.**
+  `PrimitiveType::Mirror` (15): a rectangle (the decal quad, +Z face) that
+  fakes a real mirror by **physically drawing its listed objects a second
+  time**, reflected across the glass plane — no render-to-texture, no
+  stencil. The parameters follow the "hard list beats a radius" call: an
+  explicit **Reflected objects** list (names; renames remap alongside the
+  sequence tracks, dangling names drop silently at codegen), **Reflect
+  player** (third-person avatar only — an FPP player has no body), **glass
+  opacity** (the shared color field is the tint) and the usual
+  collision/draw-distance controls. Codegen keeps `SceneObjectData` a fixed
+  POD by emitting a flat `MIRRORS`/`MIRROR_TARGETS` side table into
+  `scene_data.hpp` (the `OBJECT_SCRIPT_ATTACHES` pattern), names resolved to
+  scene-table indices at generation. The runtime trick is the highlight-hull
+  one, generalized: `renderMirrors()` builds a Householder reflection about
+  the live plane (normal = rotated +Z) and **re-submits each target's
+  existing bags with the info bag's model pointer swapped onto it** — static
+  parts are world-space-baked so the matrix reflects world coords; animated
+  targets (and the avatar) compose `reflection * animMat` — so VU1 does all
+  the per-vertex work, the EE never copies a vertex, and moving/animated
+  targets reflect their **live pose** for free. Winding flips under a
+  reflection but the GS draws both faces, so no reordering. Draw order is
+  the load-bearing part: mirrors skip the main static loop entirely (the
+  quad would z-write the plane and z-reject the copies behind it), then
+  after `updateAndRenderAnimObjects` the copies draw first and the tinted
+  quad alpha-blends over them (vertex alpha = opacity, patched after
+  `addDecal` in `rebuildObjectGeometry` case 15). The viewport previews the
+  same illusion (reflection matrix pass after the scene, constant-alpha
+  `uOpacity` uniform added to the shader — reset at frame start so the
+  sky/outline draws don't inherit it). The copies are real geometry on the
+  far side of the plane, so the docs/tooltips say it plainly: build the
+  mirror into a wall — the wall hides the mirror world outside the frame.
+  **Verified:** editor builds clean; scratch project (box + mirror listing
+  it, `reflectPlayer: true`, opacity 0.4) round-trips through `--resave`
+  (legacy inline → split objects keep the `mirror` block); generated
+  `scene_data.hpp` carries `MIRRORS[1] = {{0, 1, 0.4F, 1, 0, 1}}` +
+  `MIRROR_TARGETS[1] = {0}` and both header templates (orbit + FPP) the new
+  members; the game compiles in Docker and **boots in PCSX2 (software
+  renderer): original box, translucent glass and the mirrored copy on the
+  opposite side all render at a locked 50 FPS, no asserts in `bin/log.txt`**;
+  editor-viewport screenshot shows the same scene (copy + tinted glass).
+  Player reflection compiles through the shared anim-bag path but wants a
+  hands-on test with a .glb avatar; real-hardware A/B pending like every
+  perf-adjacent change.
+
+>>>>>>> origin/main
 - (103) **Over-the-shoulder camera offset.** `SceneObject::playerCamShoulder`
   (Properties > Third-person camera > **Shoulder**, default 0 = unchanged
   behavior) slides the third-person rig sideways, completing the camera offset:

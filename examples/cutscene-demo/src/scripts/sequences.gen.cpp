@@ -28,6 +28,7 @@ struct Track { int scene; int obj; int chPos; int chRot; int chScale;
 struct CamKey { float t; float eye[3]; float at[3]; float fov;
                 float shake; int ease; int camScene; int camObj; };
 struct Seq { const char* name; float duration; int loop; int camEnabled;
+             int hidePlayer;  // hide the third-person avatar while playing
              int bars; int skippable; float fadeIn; float fadeOut;
              float barsSlideIn; float barsSlideOut;  // bars reveal, s
              float barTB; float barLR;  // mask coverage per edge
@@ -43,7 +44,7 @@ static const Track kS0Tracks[] = {{0, 2, 1, 1, 0, 0, 0, kS0T0K, 4}, {0, 3, 0, 0,
 static const CamKey kS0Cam[] = {{0.0F, {-14.0F, 6.0F, 16.0F}, {-13.311F, 5.77505F, 15.311F}, 65.0F, 0.0F, 2, 0, 7} /* "cam-wide" */, {3.5F, {7.0F, 1.0F, 9.0F}, {6.29462F, 1.06976F, 8.29462F}, 90.0F, 0.08F, 2, 0, 8} /* "cam-low" */, {5.0F, {-16.0F, 2.5F, -10.0F}, {-16.0F, 2.36083F, -9.00973F}, 45.0F, 0.0F, 2, 0, 9} /* "cam-dolly" */, {10.0F, {5.0F, 1.5F, 7.0F}, {4.46146F, 1.87687F, 6.24638F}, 55.0F, 0.1F, 1, 0, 10} /* "cam-hero" */, {13.0F, {12.0F, 10.0F, 16.0F}, {11.4117F, 9.80388F, 15.2155F}, 60.0F, 0.0F, 1, 0, 11} /* "cam-crane" */};
 
 static const Seq kSeqs[] = {
-  {"The Reveal", 14.0F, 0, 1, 1, 1, 0.8F, 1.0F, 0.6F, 1.0F, 0.22106F, 0.0F, kS0Tracks, 5, kS0Cam, 5}
+  {"The Reveal", 14.0F, 0, 1, 0, 1, 1, 0.8F, 1.0F, 0.6F, 1.0F, 0.22106F, 0.0F, kS0Tracks, 5, kS0Cam, 5}
 };
 static const int kSeqCount = 1;
 
@@ -95,6 +96,7 @@ class SequenceDirector : public Script {
   // projection FOV restored.
   void release(ScriptContext& ctx) {
     ctx.cameraOverride = false;
+    ctx.hidePlayer = false;
     ctx.barsStyle = 0;
     ctx.barsAmount = 0.0F;
     ctx.fadeAlpha = 0.0F;
@@ -129,6 +131,7 @@ class SequenceDirector : public Script {
       release(ctx);
       return;
     }
+    ctx.hidePlayer = s.hidePlayer != 0;
     for (int i = 0; i < s.trackCount; ++i) {
       const Track& tr = s.tracks[i];
       if (tr.scene != ctx.scene || tr.obj < 0 || tr.obj >= ctx.objectCount) continue;
