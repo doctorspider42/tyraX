@@ -823,6 +823,34 @@ private:
     std::string latestGameAssert() const;
     void drawErrorModal();
 
+    // Live Link: mirrors scene edits into the running game without a rebuild.
+    // Debug-profile builds compile a poller (live_link.gen.cpp) that re-reads
+    // bin/livelink.bin over host: - the same file channel PCSX2's Host
+    // Filesystem and the ps2link file server already serve assets through, so
+    // one mechanism covers the emulator AND a real console. liveLinkTick()
+    // (each frame from drawUI, self-throttled to ~10 Hz) snapshots the active
+    // scene's live-patchable state (object transforms + colors), and writes it
+    // atomically (tmp + rename) with a bumped sequence number whenever it
+    // changed - a gizmo drag streams to the console as it happens. Snapshots
+    // flow only while project::liveLinkSignature still equals bin/livelink.sig
+    // (stamped by the Runner at build start): a structural edit (add/delete
+    // object, model/material change...) would shift indices or need re-baking,
+    // so the toolbar flips to "rebuild" instead of mis-patching.
+    enum class LiveLinkState {
+        Off,           // disabled, no project, or release build profile
+        NoBuild,       // no bin/livelink.sig yet - run a debug build first
+        Live,          // streaming; toolbar shows the green LIVE dot
+        RebuildNeeded  // structure signature drifted - F5 to resync
+    };
+    LiveLinkState liveLinkState_ = LiveLinkState::Off;
+    bool liveLinkEnabled_ = true;      // editor.ini master switch (Build menu)
+    uint32_t liveLinkSeq_ = 0;         // last written sequence number
+    std::vector<unsigned char> liveLinkLastPayload_;  // last written body
+    std::string liveLinkBuiltSig_;     // cached bin/livelink.sig content
+    double liveLinkSigNextRead_ = 0.0; // ImGui::GetTime() gate for sig re-read
+    double liveLinkNextTick_ = 0.0;    // ImGui::GetTime() gate for the ticker
+    void liveLinkTick();
+
     // "Scene Preferences" modal staging (applied on OK): the active scene's
     // per-category overrides of the project defaults.
     bool openScenePrefsPopup_ = false;

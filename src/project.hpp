@@ -1182,4 +1182,15 @@ std::string loadHistory(const Project& p, History& h);
 // Called before every build.
 std::string refreshGenerated(const Project& p);
 
+// Live Link structure signature: a stable hash over everything that fixes the
+// object *indices* and baked geometry sources of the generated game - scene
+// order, object order/identity, types, model/material assignments, primitive
+// detail, layers, projected-decal projectors and point lights (both are baked
+// at build). Transforms and colors of ordinary objects are deliberately NOT
+// included: those are exactly what Live Link patches at runtime. The Runner
+// writes this to bin/livelink.sig at build start; the editor only streams
+// livelink.bin snapshots while the project still hashes to the same value
+// (anything else needs a real rebuild). See templates::liveLinkScript.
+std::string liveLinkSignature(const Project& p);
+
 }  // namespace project

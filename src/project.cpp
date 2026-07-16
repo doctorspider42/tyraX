@@ -1,7 +1,9 @@
 #include "project.hpp"
 
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <random>
@@ -2419,6 +2421,58 @@ std::string loadHistory(const Project& p, History& h) {
     return "";
 }
 
+std::string liveLinkSignature(const Project& p) {
+    // FNV-1a 64 (same recipe as App::updateProjectedDecals' signature).
+    uint64_t sig = 1469598103934665603ull;
+    auto mix = [&](uint64_t v) { sig = (sig ^ v) * 1099511628211ull; };
+    auto mixS = [&](const std::string& s) {
+        for (unsigned char c : s) mix(c);
+        mix(0xFF);  // terminator so {"ab",""} != {"a","b"}
+    };
+    auto mixF = [&](float f) {
+        uint32_t b;
+        std::memcpy(&b, &f, sizeof(b));
+        mix(b);
+    };
+    auto mix3 = [&](const float* v) { mixF(v[0]), mixF(v[1]), mixF(v[2]); };
+
+    mix(p.scenes.size());
+    for (const SceneData& sc : p.scenes) {
+        mix(0x5C);  // scene separator
+        mix(sc.objects.size());
+        // Layer *tables* are baked (indices + zones); object membership too.
+        for (const auto& l : sc.layers) {
+            mixS(l.name);
+            mix(l.startLoaded ? 1 : 0);
+            mix(l.autoStream ? 1 : 0);
+            mixF(l.streamX), mixF(l.streamZ), mixF(l.streamRadius);
+        }
+        for (const SceneObject& o : sc.objects) {
+            mixS(o.id.empty() ? o.name : o.id);
+            mix((uint64_t)o.type);
+            mixS(o.modelPath);
+            mixS(o.materialPath);
+            mix((uint64_t)o.primDetail);
+            mixS(o.layer);
+            // Projected decals are clipped/baked on the host at build time -
+            // their transform IS the projector, so moving one needs a build.
+            if (o.type == PrimitiveType::Decal && o.decalProject) {
+                mix3(o.position), mix3(o.rotation), mix3(o.scale);
+            }
+            // Point lights are baked into nearby vertex colors at build time;
+            // any change to one is invisible until rebuilt.
+            if (o.type == PrimitiveType::PointLight) {
+                mix3(o.position), mix3(o.color);
+                mixF(o.lightBright), mixF(o.lightRadius);
+            }
+        }
+    }
+
+    char buf[17];
+    std::snprintf(buf, sizeof(buf), "%016llx", (unsigned long long)sig);
+    return buf;
+}
+
 std::string refreshGenerated(const Project& p) {
     for (const auto& f : templates::generate(p)) {
         const fs::path path = fs::path(p.dir) / f.relativePath;
@@ -2430,6 +2484,7 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\scene_data.hpp" ||
             f.relativePath == ".vscode\\c_cpp_properties.json" ||
             f.relativePath == "src\\scripts\\flow_graph.gen.cpp" ||
+            f.relativePath == "src\\scripts\\live_link.gen.cpp" ||
             f.relativePath == "src\\scripts\\object_scripts.gen.cpp" ||
             f.relativePath == "src\\scripts\\screen_fx.gen.cpp" ||
             f.relativePath == "inc\\scripts\\screen_fx.gen.hpp" ||

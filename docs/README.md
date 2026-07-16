@@ -38,6 +38,11 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   and validation for the `.flownode` and `.screenfx` text files: what it does,
   how the editor installs it automatically (and how to package a `.vsix` by
   hand), and how to keep it in sync when you add header keys or placeholders.
+- [Live Link (edit the running game)](live-link.md) - streaming object
+  moves/rotations/scales/recolors into the game running in PCSX2 or on a real
+  PS2, with no rebuild: the debug-profile requirement, the LIVE / LIVE
+  (rebuild) toolbar indicator, what updates live vs what needs a build, and
+  how the host-filesystem transport works.
 - [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) - importing a
   real ARKit camera move (CamTrackAR `.hfcs` or the app-agnostic CSV) into a
   Cutscene Director camera track: the canonical take space, the mapping and

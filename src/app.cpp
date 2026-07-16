@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 
@@ -79,6 +80,10 @@ struct EditorConfig {
     // Parent folder proposed as the location for new projects. Empty = fall
     // back to ~/TyraProjects.
     std::string defaultProjectsDir;
+    // Live Link (Build menu): mirror scene edits into the running game by
+    // writing bin/livelink.bin snapshots the (debug-profile) game polls over
+    // host:. Editor-side master switch; costs nothing while no game runs.
+    bool liveLink = true;
 };
 
 static std::filesystem::path editorConfigPath() {
@@ -118,6 +123,7 @@ static EditorConfig loadEditorConfig() {
         else if (match("ps2LinkIp", v)) cfg.ps2LinkIp = v;
         else if (match("errorPopup", v)) cfg.errorPopup = toI(v, 1) != 0;
         else if (match("defaultProjectsDir", v)) cfg.defaultProjectsDir = v;
+        else if (match("liveLink", v)) cfg.liveLink = toI(v, 1) != 0;
     }
     return cfg;
 }
@@ -142,7 +148,8 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "emulatorPath=" << cfg.emulatorPath << "\n"
       << "ps2LinkIp=" << cfg.ps2LinkIp << "\n"
       << "errorPopup=" << (cfg.errorPopup ? 1 : 0) << "\n"
-      << "defaultProjectsDir=" << cfg.defaultProjectsDir << "\n";
+      << "defaultProjectsDir=" << cfg.defaultProjectsDir << "\n"
+      << "liveLink=" << (cfg.liveLink ? 1 : 0) << "\n";
 }
 
 // Default parent directory proposed for new projects: the configured global
@@ -350,6 +357,7 @@ int App::run(const std::string& initialProjectDir) {
         globalPs2Ip_ = cfg.ps2LinkIp;
         errorPopupEnabled_ = cfg.errorPopup;
         globalDefaultProjectsDir_ = cfg.defaultProjectsDir;
+        liveLinkEnabled_ = cfg.liveLink;
     }
     applyUiScale();
 
@@ -486,6 +494,10 @@ void App::drawUI() {
     // Watch the running game's log for a fresh assertion dump (throttled).
     pollGameError();
 
+    // Stream scene edits to the running debug game (throttled; no-op unless
+    // the live-patchable state changed since the last write).
+    liveLinkTick();
+
     drawMenuBar();
     drawViewportWindow();
     drawProjectWindow();
@@ -600,7 +612,8 @@ void App::applyUiScale() {
 // UI-scale or navigation change.
 void App::saveGlobalConfig() {
     saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_,
-                      errorPopupEnabled_, globalDefaultProjectsDir_});
+                      errorPopupEnabled_, globalDefaultProjectsDir_,
+                      liveLinkEnabled_});
 }
 
 void App::setUiScale(float userScale) {
@@ -751,6 +764,19 @@ void App::drawMenuBar() {
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Kills the file server and resets ps2link - the "
                                   "console reboots back to its listening state.");
+            ImGui::Separator();
+            if (ImGui::MenuItem("Live Link", nullptr, liveLinkEnabled_)) {
+                liveLinkEnabled_ = !liveLinkEnabled_;
+                saveGlobalConfig();
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Mirror scene edits (move/rotate/scale/recolor) into the "
+                    "running game\nwithout a rebuild - PCSX2 and real-PS2 "
+                    "deploys alike. Needs the \"debug\"\nbuild profile "
+                    "(Project > Preferences > Build); structural changes "
+                    "(add/delete\nobjects, models, materials...) still need "
+                    "a build (F5).");
             ImGui::Separator();
             if (ImGui::MenuItem("Cancel Build", nullptr, false, busy)) runner_.cancel();
             if (ImGui::MenuItem("Clean", nullptr, false, !busy))
@@ -944,6 +970,39 @@ void App::drawToolbar() {
                    paintStop(stopPs2Enabled ? colStop : colDim))) {
         if (busy) runner_.cancel();
         else runner_.stopPs2(project_);
+    }
+
+    // Live Link indicator: a dot + label after the run groups. Green = edits
+    // stream into the running debug game as they happen; amber = the scene
+    // changed structurally (or the last build predates Live Link) and needs a
+    // rebuild before streaming resumes. Hidden entirely when Live Link is off,
+    // the profile is "release", or no debug build exists yet - no clutter.
+    if (liveLinkState_ == LiveLinkState::Live ||
+        liveLinkState_ == LiveLinkState::RebuildNeeded) {
+        const bool live = liveLinkState_ == LiveLinkState::Live;
+        const ImU32 c = live ? IM_COL32(95, 200, 115, 255)
+                             : IM_COL32(240, 175, 70, 255);
+        const char* label = live ? "LIVE" : "LIVE (rebuild)";
+        ImGui::SameLine(0.0f, gapGroup);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float dotR = h * 0.14f;
+        const float textW = ImGui::CalcTextSize(label).x;
+        ImGui::InvisibleButton("##tb_livelink",
+                               ImVec2(dotR * 2.0f + 4.0f + textW, h));
+        dl->AddCircleFilled(ImVec2(p.x + dotR, p.y + h * 0.5f), dotR, c);
+        dl->AddText(ImVec2(p.x + dotR * 2.0f + 4.0f,
+                           p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
+                    c, label);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                live ? "Live Link: object moves/rotations/scales/colors "
+                       "stream into the running game."
+                     : "Live Link: the scene changed structurally (objects "
+                       "added/removed, model or\nmaterial swapped, lights/"
+                       "projected decals edited...) - Build & Run (F5)\nto "
+                       "resync. Transform/color edits resume streaming after "
+                       "the build.");
     }
 
     // Dropdown menus for the two Play carets (anchored just under each caret).
@@ -2457,6 +2516,13 @@ void App::attachProject() {
     flowGraphObject_ = -1;
     flowPositionsApplied_ = false;
     layerRamCache_.clear();
+    // Live Link is per project: forget the previous project's cached built
+    // signature and written payload, re-read/re-write for this one.
+    liveLinkState_ = LiveLinkState::Off;
+    liveLinkBuiltSig_.clear();
+    liveLinkLastPayload_.clear();
+    liveLinkSigNextRead_ = 0.0;
+    liveLinkNextTick_ = 0.0;
     history_.reset({project_.scenes});
     // The history file restores the undo stack when it is in sync with the
     // project file; otherwise we start fresh (and write a new one).
@@ -12654,6 +12720,98 @@ std::string App::latestGameAssert() const {
     text += '\n';
     text += rlog.size() > kRunnerTail ? rlog.substr(rlog.size() - kRunnerTail) : rlog;
     return extractLastTyraAssert(text);
+}
+
+// Streams scene edits to the running (debug-profile) game - see the member
+// block in app.hpp for the design. Self-throttled; the actual file write only
+// happens when the live-patchable state really changed.
+void App::liveLinkTick() {
+    namespace fs = std::filesystem;
+    if (!hasProject_ || !liveLinkEnabled_ ||
+        project_.settings.buildProfile != "debug") {
+        liveLinkState_ = LiveLinkState::Off;
+        return;
+    }
+
+    const double now = ImGui::GetTime();
+    if (now < liveLinkNextTick_) return;  // keep the last state between ticks
+    liveLinkNextTick_ = now + 0.1;  // ~10 Hz matches the game's poll cadence
+
+    // The signature the running build was made from. Re-read at most every
+    // 1.5 s - a finished build (or Clean) must be picked up, but the file is
+    // not worth hitting the disk for at tick rate.
+    const fs::path binDir = fs::path(project_.dir) / "bin";
+    if (now >= liveLinkSigNextRead_) {
+        liveLinkSigNextRead_ = now + 1.5;
+        liveLinkBuiltSig_.clear();
+        std::ifstream f(binDir / "livelink.sig");
+        if (f) std::getline(f, liveLinkBuiltSig_);
+    }
+    if (liveLinkBuiltSig_.empty()) {
+        liveLinkState_ = LiveLinkState::NoBuild;
+        return;
+    }
+    if (liveLinkBuiltSig_ != project::liveLinkSignature(project_)) {
+        liveLinkState_ = LiveLinkState::RebuildNeeded;
+        return;
+    }
+    liveLinkState_ = LiveLinkState::Live;
+
+    // Snapshot body: scene + count + 12 floats per authored object, in the
+    // exact order codegen emitted them (= the scene's object order).
+    const SceneData& sc = project_.active();
+    std::vector<unsigned char> body;
+    body.reserve(8 + sc.objects.size() * 48);
+    auto put32 = [&](const void* v) {
+        const unsigned char* b = static_cast<const unsigned char*>(v);
+        body.insert(body.end(), b, b + 4);
+    };
+    const int32_t scene = project_.activeScene;
+    const int32_t count = (int32_t)sc.objects.size();
+    put32(&scene);
+    put32(&count);
+    for (const SceneObject& o : sc.objects) {
+        for (int i = 0; i < 3; ++i) put32(&o.position[i]);
+        for (int i = 0; i < 3; ++i) put32(&o.rotation[i]);
+        for (int i = 0; i < 3; ++i) put32(&o.scale[i]);
+        for (int i = 0; i < 3; ++i) put32(&o.color[i]);
+    }
+    if (body == liveLinkLastPayload_) return;  // nothing to stream
+
+    // Full file: header (magic/version/seq + body's scene/count/reserved),
+    // body values, footer echoing seq - the game rejects torn writes. Written
+    // to a sibling tmp and renamed so the game never sees a half file; if the
+    // rename loses a race with the game's fread, retry on the next tick.
+    const uint32_t seq = liveLinkSeq_ + 1;
+    std::vector<unsigned char> file;
+    file.reserve(24 + body.size() - 8 + 4);
+    const uint32_t magic = 0x4C4C5854, version = 1, reserved = 0;
+    const uint32_t footer = seq ^ 0x5A5A5A5AU;
+    auto app32 = [&](const void* v) {
+        const unsigned char* b = static_cast<const unsigned char*>(v);
+        file.insert(file.end(), b, b + 4);
+    };
+    app32(&magic), app32(&version), app32(&seq);
+    file.insert(file.end(), body.begin(), body.begin() + 8);  // scene, count
+    app32(&reserved);
+    file.insert(file.end(), body.begin() + 8, body.end());
+    app32(&footer);
+
+    const fs::path tmp = binDir / "livelink.tmp";
+    const fs::path dst = binDir / "livelink.bin";
+    {
+        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+        if (!out) return;
+        out.write(reinterpret_cast<const char*>(file.data()),
+                  (std::streamsize)file.size());
+        if (!out) return;
+    }
+    std::error_code ec;
+    fs::rename(tmp, dst, ec);
+    if (ec) return;  // game holds the file open right now - next tick retries
+
+    liveLinkSeq_ = seq;
+    liveLinkLastPayload_ = std::move(body);
 }
 
 void App::pollGameError() {

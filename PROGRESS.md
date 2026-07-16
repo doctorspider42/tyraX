@@ -9,6 +9,41 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (104) **Live Link — edit the running game.** Scene edits (object position /
+  rotation / scale / color) stream into the running game with **no rebuild**:
+  drag a gizmo in the editor and the box slides across the PS2 screen. No
+  socket and no new protocol — the transport is the host filesystem the game
+  already loads assets from (PCSX2 Host Filesystem, or the ps2link/ps2client
+  file server on a real console), so one mechanism covers both targets. The
+  editor (`App::liveLinkTick`, ~10 Hz) writes `bin/livelink.bin` (little-endian
+  `TXLL` blob: seq + scene + 12 floats per authored object + a seq-echo footer,
+  written atomically tmp→rename) whenever the live-patchable state changed; a
+  generated global script (`templates::liveLinkScript` →
+  `src/scripts/live_link.gen.cpp`, **debug profile only** — release emits an
+  empty TU) polls it every 6 frames (25 under ps2link, where each fopen is a
+  network round-trip), rejects torn/stale reads (magic + exact size + footer,
+  seq dedupe), and patches `RuntimeObject.data` + `dirty` only for objects
+  whose values really changed — the same dirty-rebuild path the Move/Set Color
+  flow nodes use, so physics/collision/shading follow. Index-mapping safety:
+  `project::liveLinkSignature` (FNV-1a over scene/object order, ids, types,
+  model/material, prim detail, layers, and the build-baked cases — point
+  lights, projected-decal projectors) is stamped into `bin/livelink.sig` by the
+  Runner at build start (which also deletes any stale `livelink.bin`); the
+  editor streams only while the project still hashes identically, and the
+  toolbar shows **● LIVE** (green) / **● LIVE (rebuild)** (amber) accordingly —
+  a structural edit can pause, an Undo or a rebuild resumes automatically.
+  Master switch in *Build > Live Link* (`editor.ini`, default on). Docs:
+  `docs/live-link.md`. **Verified in PCSX2 (SW renderer, 50 FPS steady):**
+  (1) game-side poller — scratch debug FPP project booted, a hand-crafted
+  `livelink.bin` moved/rotated/stretched/recolored the box on the live game
+  (screenshots A/B); (2) full editor→game loop — object JSON edited, editor
+  GUI opened on the project, it auto-wrote seq=1 and the running game showed
+  the new pose/color with no rebuild (screenshot C); (3) structure guard —
+  adding a third object flipped the toolbar to amber and blocked writes (seq
+  unchanged), a headless rebuild refreshed `livelink.sig` and streaming
+  resumed on its own (fresh 3-object snapshot). Release codegen verified to
+  emit the stub. Real-PS2 pass (ps2link cadence) still wants a hands-on test.
+
 - (103) **Over-the-shoulder camera offset.** `SceneObject::playerCamShoulder`
   (Properties > Third-person camera > **Shoulder**, default 0 = unchanged
   behavior) slides the third-person rig sideways, completing the camera offset:
