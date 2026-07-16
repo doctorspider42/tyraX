@@ -60,6 +60,13 @@ enum class PrimitiveType {
     // game). A camera-track keyframe bound to it takes eye/look-at/FOV from
     // the entity - animate the entity itself for dolly/crane shots.
     Camera = 14,
+    // Mirror: a rectangle (unit XY quad facing +Z, like a decal) that fakes a
+    // real mirror the PS2 way: the game re-draws each listed object a second
+    // time, reflected across the mirror plane, then blends the tinted glass
+    // quad over the copies. No render-to-texture, no stencil - the "mirror
+    // world" is real geometry behind the plane, so build it into a wall (the
+    // wall hides the copies outside the frame). See mirrorObjects below.
+    Mirror = 15,
 };
 
 // Tessellation detail for the geometry primitives, stored per object in
@@ -254,6 +261,19 @@ struct SceneObject {
     // it to the real PS2 projection for the duration of the shot.
     float cameraFov = 60.0f;
 
+    // Mirror parameters (used when type == Mirror). An explicit list of scene
+    // object names this mirror reflects (renames remap; a dangling name is
+    // skipped) - a hard list instead of a radius, so the geometry cost is
+    // always visible to the author. Reflected copies follow the live object
+    // (movement, visibility, layer streaming). mirrorReflectPlayer also
+    // reflects the player avatar (visible flesh only - a third-person model;
+    // FPP players have no body to reflect). The shared `color` field tints
+    // the glass quad; mirrorOpacity is its alpha (0 = invisible glass,
+    // 1 = opaque - the reflection shows through low values).
+    std::vector<std::string> mirrorObjects;
+    bool mirrorReflectPlayer = false;
+    float mirrorOpacity = 0.35f;
+
     // Animated model parameters (Model objects whose modelPath ends in .glb;
     // the editor bakes the file's clips to morph frames - see glbparser.hpp).
     std::string animClip;       // starting clip name ("" = the file's first)
@@ -326,6 +346,9 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.soundOnPlayer == b.soundOnPlayer &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
            a.cameraFov == b.cameraFov &&
+           a.mirrorObjects == b.mirrorObjects &&
+           a.mirrorReflectPlayer == b.mirrorReflectPlayer &&
+           a.mirrorOpacity == b.mirrorOpacity &&
            a.animClip == b.animClip && a.animAutoplay == b.animAutoplay &&
            a.animLoop == b.animLoop && a.animSpeed == b.animSpeed &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts;

@@ -9,6 +9,50 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (104) **Mirror objects — the PS2-era mirror as a scene object type.**
+  `PrimitiveType::Mirror` (15): a rectangle (the decal quad, +Z face) that
+  fakes a real mirror by **physically drawing its listed objects a second
+  time**, reflected across the glass plane — no render-to-texture, no
+  stencil. The parameters follow the "hard list beats a radius" call: an
+  explicit **Reflected objects** list (names; renames remap alongside the
+  sequence tracks, dangling names drop silently at codegen), **Reflect
+  player** (third-person avatar only — an FPP player has no body), **glass
+  opacity** (the shared color field is the tint) and the usual
+  collision/draw-distance controls. Codegen keeps `SceneObjectData` a fixed
+  POD by emitting a flat `MIRRORS`/`MIRROR_TARGETS` side table into
+  `scene_data.hpp` (the `OBJECT_SCRIPT_ATTACHES` pattern), names resolved to
+  scene-table indices at generation. The runtime trick is the highlight-hull
+  one, generalized: `renderMirrors()` builds a Householder reflection about
+  the live plane (normal = rotated +Z) and **re-submits each target's
+  existing bags with the info bag's model pointer swapped onto it** — static
+  parts are world-space-baked so the matrix reflects world coords; animated
+  targets (and the avatar) compose `reflection * animMat` — so VU1 does all
+  the per-vertex work, the EE never copies a vertex, and moving/animated
+  targets reflect their **live pose** for free. Winding flips under a
+  reflection but the GS draws both faces, so no reordering. Draw order is
+  the load-bearing part: mirrors skip the main static loop entirely (the
+  quad would z-write the plane and z-reject the copies behind it), then
+  after `updateAndRenderAnimObjects` the copies draw first and the tinted
+  quad alpha-blends over them (vertex alpha = opacity, patched after
+  `addDecal` in `rebuildObjectGeometry` case 15). The viewport previews the
+  same illusion (reflection matrix pass after the scene, constant-alpha
+  `uOpacity` uniform added to the shader — reset at frame start so the
+  sky/outline draws don't inherit it). The copies are real geometry on the
+  far side of the plane, so the docs/tooltips say it plainly: build the
+  mirror into a wall — the wall hides the mirror world outside the frame.
+  **Verified:** editor builds clean; scratch project (box + mirror listing
+  it, `reflectPlayer: true`, opacity 0.4) round-trips through `--resave`
+  (legacy inline → split objects keep the `mirror` block); generated
+  `scene_data.hpp` carries `MIRRORS[1] = {{0, 1, 0.4F, 1, 0, 1}}` +
+  `MIRROR_TARGETS[1] = {0}` and both header templates (orbit + FPP) the new
+  members; the game compiles in Docker and **boots in PCSX2 (software
+  renderer): original box, translucent glass and the mirrored copy on the
+  opposite side all render at a locked 50 FPS, no asserts in `bin/log.txt`**;
+  editor-viewport screenshot shows the same scene (copy + tinted glass).
+  Player reflection compiles through the shared anim-bag path but wants a
+  hands-on test with a .glb avatar; real-hardware A/B pending like every
+  perf-adjacent change.
+
 - (103) **Over-the-shoulder camera offset.** `SceneObject::playerCamShoulder`
   (Properties > Third-person camera > **Shoulder**, default 0 = unchanged
   behavior) slides the third-person rig sideways, completing the camera offset:
