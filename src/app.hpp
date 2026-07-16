@@ -249,6 +249,7 @@ private:
     void countAssetUsers(const PendingAssetDelete& d, int& objectUsers,
                          int& nodeUsers) const;
     void drawSaveDataSection();
+    void drawSaveEditorWindow();
     void drawMenusWindow();
     void drawGradingWindow();
     void drawAmbienceWindow();
@@ -468,6 +469,12 @@ private:
     // the baked panel (re-baked whenever the menu's content changes)
     bool showMenusEditor_ = false;
     int selectedMenu_ = -1;
+
+    // Save Editor (Tools > Save Editor): live preview of the memory card
+    // icon texture (rebuilt when the picked image changes).
+    bool showSaveEditor_ = false;
+    unsigned saveIconPreviewTex_ = 0;
+    std::string saveIconPreviewKey_;
     unsigned menuPreviewTex_ = 0;
     int menuPreviewW_ = 0, menuPreviewH_ = 0;
     int menuPreviewContentH_ = 0;  // drawn part (layout cached at bake time)

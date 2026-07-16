@@ -58,6 +58,26 @@ const std::vector<BuiltinAsset>& saveMenuAssets();
 std::string scriptStub(const Project& p, const std::string& className,
                        const std::string& fileName);
 
+// What one memory card save slot holds and costs, mirroring the generated
+// SaveGameData layout byte for byte (the Save Editor's size estimate; the
+// same buffer is the in-RAM checkpoint). Keep in sync with saveSystemHeader
+// and the SAVE_* tables in sceneDataContent.
+struct SaveSizeInfo {
+    int values = 0;       // Project::saveValues entries
+    int texts = 0;        // Project::saveTexts entries
+    int objectSlots = 0;  // SAVE_OBJECT_MAX (max save-flagged count, min 1)
+    int headerBytes = 0;  // magic/version/scene/player + the three counters
+    int valuesBytes = 0;
+    int textsBytes = 0;
+    int objectsBytes = 0;
+    int payloadBytes = 0;  // the slot file: sum above, 64-byte aligned
+    int iconBytes = 0;     // icon.sys + list.icn, written once per card
+};
+SaveSizeInfo saveSizeInfo(const Project& p);
+
+// The game's save directory on the memory card ("/TYRA-<NAME>").
+std::string saveDirName(const Project& p);
+
 // True when `content` is byte-identical to what an older editor version
 // generated for this file - i.e. the user never edited it and it is safe
 // to regenerate even though it predates the ownership marker.

@@ -12,6 +12,7 @@
 #include "json.hpp"
 #include "menubake.hpp"
 #include "objparser.hpp"
+#include "savebake.hpp"
 #include "templates.hpp"
 
 namespace fs = std::filesystem;
@@ -764,6 +765,8 @@ std::string save(const Project& p) {
              << jsonEscape(p.saveTexts[i].name) << "\", \"default\": \""
              << jsonEscape(p.saveTexts[i].value) << "\" }";
     json << (p.saveTexts.empty() ? "]" : "\n  ]");
+    json << ",\n  \"saveTitle\": \"" << jsonEscape(p.saveTitle) << "\"";
+    json << ",\n  \"saveIcon\": \"" << jsonEscape(p.saveIcon) << "\"";
     json << ",\n  \"gradings\": [";
     for (size_t i = 0; i < p.gradings.size(); ++i) {
         const ColorGradingPreset& g = p.gradings[i];
@@ -1843,6 +1846,11 @@ std::string load(Project& out, const std::string& projectDir) {
         }
     }
 
+    // Absent in projects saved before the Save Editor - both default to ""
+    // (project-name title, built-in icon).
+    if (const auto* t = root.find("saveTitle")) out.saveTitle = t->stringOr("");
+    if (const auto* ic = root.find("saveIcon")) out.saveIcon = ic->stringOr("");
+
     if (const auto* gradings = root.find("gradings");
         gradings && gradings->type == json::Value::Type::Array) {
         for (const auto& jg : gradings->arr) {
@@ -2539,6 +2547,42 @@ std::string refreshGenerated(const Project& p) {
         fs::create_directories(png.parent_path(), ec);
         std::ofstream f(png, std::ios::binary);
         if (f) f.write(reinterpret_cast<const char*>(a.data), (std::streamsize)a.size);
+    }
+    // "Checking memory card" overlay: baked text sprite, written when missing
+    // so it stays user-replaceable like the save-menu sprites above.
+    {
+        const fs::path busy = fs::path(p.dir) / "res" / "hud" / "save-busy.png";
+        std::error_code ec;
+        if (!fs::exists(busy, ec)) {
+            std::vector<unsigned char> png;
+            if (!menubake::bakeTextPNG(savebake::busyText(), p.dir, png))
+                return "Save overlay bake failed (no usable TTF font found)";
+            fs::create_directories(busy.parent_path(), ec);
+            std::ofstream f(busy, std::ios::binary);
+            if (!f) return "Cannot write save overlay: " + busy.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
+        }
+    }
+    // Memory card icon (icon.sys + list.icn): derived from project data
+    // (title, icon image), so always rebaked like the menu panels. The
+    // generated save system copies them onto the card next to the slots.
+    {
+        const fs::path saveDir = fs::path(p.dir) / "res" / "save";
+        std::error_code ec;
+        fs::create_directories(saveDir, ec);
+        const std::vector<unsigned char> sys = savebake::iconSys(p);
+        const std::vector<unsigned char> icn = savebake::iconIcn(p);
+        auto write = [&](const char* name,
+                         const std::vector<unsigned char>& bytes) -> bool {
+            std::ofstream f(saveDir / name, std::ios::binary);
+            if (!f) return false;
+            f.write(reinterpret_cast<const char*>(bytes.data()),
+                    (std::streamsize)bytes.size());
+            return true;
+        };
+        if (!write("icon.sys", sys)) return "Cannot write save icon: icon.sys";
+        if (!write("list.icn", icn)) return "Cannot write save icon: list.icn";
     }
 
     // Game menu panels: derived from project data (labels, colors), so

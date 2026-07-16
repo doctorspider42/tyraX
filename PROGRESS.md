@@ -9,6 +9,56 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (104) **Save Editor, memory card identity (icon.sys + 3D icon), checkpoints,
+  and the classic "checking memory card" screen.** The save system grew from a
+  Project-panel section into a real tool. **Save Editor** (*Tools > Save
+  Editor*, layout window key `save`): the card **title** (two browser lines,
+  `|` breaks) and **icon image** (any project PNG/JPG) with a live preview of
+  the exact 128x128 texture that ships; an exact **byte breakdown of one save
+  slot** (header / each value / 32-byte text slots / flagged-object states →
+  slot file size, card icon cost, full 3-slot footprint) via
+  `templates::saveSizeInfo`, which mirrors the generated `SaveGameData` layout
+  byte for byte; a per-scene list of every *Save state* object (answers "what
+  actually lands in my save?"); and the save values/texts editors moved in
+  from the Project panel. **Card identity** (`savebake.cpp`): bakes
+  `res/save/icon.sys` (964 B per the icon.sys spec) + `res/save/list.icn` (a
+  PS2 3D icon: static two-sided quad, 128x128 BGR555 texture, Akesson "PS2
+  Icon Format v0.5") on every `refreshGenerated`; the generated save system
+  copies both onto the card once per boot (`saveEnsureIcons`, 64-byte-aligned
+  DMA buffer, skipped when the card already has them). Hard-won detail: **the
+  PS2 browser's OSD font renders only FULL-WIDTH Shift-JIS** — a plain-ASCII
+  title (valid S-JIS!) displays as *nothing* (observed in the PCSX2 BIOS
+  browser), which is why every save tool converts; the title encoder maps
+  ASCII onto the 0x82/0x81-row full-width forms. **Payload optimization**:
+  `SAVE_OBJECT_MAX` now counts only save-flagged objects (max across scenes,
+  min 1) instead of the whole scene size — slot files and the checkpoint
+  buffer shrink accordingly (SAVE_VERSION 2 → 3; old, larger slot files fail
+  the size/version check and read as empty slots). **Checkpoints**: `doSave`/
+  `doLoad` refactored into `captureState`/`applyState`; ONE static in-RAM
+  `SaveGameData` buffer by design (a few KB, no checkpoint history — the
+  Save Editor displays its exact RAM cost) behind four flow nodes: *Save
+  Checkpoint* (instant snapshot, no card), *Load Checkpoint* (instant restore,
+  no-op when none), *Commit Checkpoint* (writes the buffer to card Slot 0..2),
+  and *Has Checkpoint* (pure bool source). **"Checking memory card" screen**:
+  every card write/read goes through `beginCardOp` — the baked warning sprite
+  (`res/hud/save-busy.png`, from `savebake::busyText()` via the menubake text
+  baker, written-if-missing/replaceable; codegen emits matching `SAVE_BUSY_W/H`
+  from the same HudText) is presented over a dim BEFORE the blocking libmc
+  transfer runs, then holds ~1.5 s minimum, exactly like retail games; menu
+  save/load and checkpoint commits all route through it. **Verified**: a
+  34-check headless harness (linked against the build's .obj files — model
+  round-trip, refreshGenerated, icon.sys/icn binary layout, codegen greps,
+  size math vs the generated struct); editor builds clean; scratch FPP project
+  compiles in Docker ("Build OK", -Wall); PCSX2 e2e with an unattended flow
+  graph (On Start → Delay → Save Checkpoint → Commit): the busy overlay was
+  captured on screen mid-commit, `bin/log.txt` shows "memory card ready" +
+  "Save icons: written to the card" **on a fully wiped (unformatted) card
+  image** (the probe-format path), the card image contains
+  TYRA-SAVETEST / icon.sys / list.icn / the committed slot file, and the PS2
+  **BIOS browser** shows the save with the custom two-line title and the
+  rendered 3D icon (screenshots). Save Editor window verified by GUI
+  screenshot at 1.5x UI scale. The in-game save menu's pad flow is unchanged
+  but keeps its usual "needs a hands-on pad test" caveat.
 - (103) **Over-the-shoulder camera offset.** `SceneObject::playerCamShoulder`
   (Properties > Third-person camera > **Shoulder**, default 0 = unchanged
   behavior) slides the third-person rig sideways, completing the camera offset:

@@ -1005,10 +1005,18 @@ struct Project {
     // Sound effects (16-bit 22kHz WAV in res/sfx/, converted to ADPCM by the
     // toolchain at build). One-shots via the flow graph Play Sound action.
     std::vector<std::string> sounds;
-    // Custom values persisted in memory card saves (Project panel, Save data).
+    // Custom values persisted in memory card saves (Tools > Save Editor).
     std::vector<SaveValue> saveValues;
-    // Custom text values persisted in memory card saves (same panel).
+    // Custom text values persisted in memory card saves (same window).
     std::vector<SaveTextValue> saveTexts;
+    // Memory card save appearance (Tools > Save Editor): the PS2 browser
+    // shows this title + icon for the game's save directory. Baked into
+    // res/save/icon.sys + list.icn on every build (savebake). Title breaks
+    // to a second line at '|'; "" falls back to the project name. saveIcon
+    // is a project-relative image path ("res/...", any stb-readable format,
+    // resampled to the 128x128 icon texture); "" = built-in placeholder.
+    std::string saveTitle;
+    std::string saveIcon;
     // Per-asset texture-quality overrides of ProjectSettings::textureQuant,
     // keyed by asset path (a res/models .obj or a .mtl library): "none" /
     // "8bit" / "4bit". Textures referenced by several assets take the

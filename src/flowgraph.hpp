@@ -323,7 +323,7 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         {"PlaySound", "Play Sound", "Audio", false, FlowParamKind::SoundTrack, 2,
          {"Volume", "Channel"}, FlowParamKind::None, false, false},
         // Save data: named values persisted in memory card slots (defined in
-        // the Project panel, "Save data"). "Value At Least" is a pure bool
+        // Tools > Save Editor). "Value At Least" is a pure bool
         // source (value >= threshold, evaluated fresh every frame) for logic
         // gates / On Condition. "Get Save Value" / "Get Save Text" are pure
         // text sources (wire into Log Message / Set Save Text). "Open Save
@@ -349,6 +349,22 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          false, true},
         {"OpenSaveMenu", "Open Save Menu", "Save", false, FlowParamKind::None, 0, {},
          FlowParamKind::None, false, false},
+        // Checkpoints: Save Checkpoint snapshots the exact save payload into
+        // a single RAM buffer - instant, nothing touches the memory card.
+        // Load Checkpoint restores it (a no-op until one was taken); Commit
+        // Checkpoint writes the buffer to card Slot 0..2 behind the
+        // "checking memory card" warning. Has Checkpoint is a pure bool
+        // source. Only ONE checkpoint exists at a time - deliberately, so
+        // checkpoints cost a few KB of RAM instead of accumulating.
+        {"SaveCheckpoint", "Save Checkpoint", "Save", false, FlowParamKind::None,
+         0, {}, FlowParamKind::None, false, false},
+        {"LoadCheckpoint", "Load Checkpoint", "Save", false, FlowParamKind::None,
+         0, {}, FlowParamKind::None, false, false},
+        {"CommitCheckpoint", "Commit Checkpoint", "Save", false,
+         FlowParamKind::None, 1, {"Slot"}, FlowParamKind::None, false, false},
+        {"HasCheckpoint", "Has Checkpoint", "Save", false, FlowParamKind::None,
+         0, {}, FlowParamKind::None, false, false, false, false, true, false,
+         true},
         // Variables: named game-global values (one namespace per type - int,
         // bool, position), zeroed at boot, kept across scene switches, NOT
         // saved to the memory card (use Save data for persistence). Setters

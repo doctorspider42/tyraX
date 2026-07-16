@@ -18,6 +18,7 @@
 #include "json.hpp"
 #include "menubake.hpp"
 #include "objparser.hpp"
+#include "savebake.hpp"
 #include "templates.hpp"
 #include "wavconvert.hpp"
 
@@ -495,6 +496,7 @@ void App::drawUI() {
     drawDebugWindow();
     drawDiscLayoutWindow();
     drawMenusWindow();
+    drawSaveEditorWindow();
     drawGradingWindow();
     drawAmbienceWindow();
     drawCutsceneWindow();
@@ -764,6 +766,7 @@ void App::drawMenuBar() {
         if (hasProject_ && ImGui::BeginMenu("Tools")) {
             if (ImGui::MenuItem("Material Editor...")) showMaterialEditor_ = true;
             if (ImGui::MenuItem("Menu Editor...")) showMenusEditor_ = true;
+            if (ImGui::MenuItem("Save Editor...")) showSaveEditor_ = true;
             if (ImGui::MenuItem("Color Grading...")) showGradingEditor_ = true;
             if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
             if (ImGui::MenuItem("Cutscene Director...")) showCutsceneEditor_ = true;
@@ -1824,7 +1827,6 @@ void App::drawProjectWindow() {
     drawAssetsSection();
     drawMusicSection();
     drawSoundsSection();
-    drawSaveDataSection();
     drawScriptsSection();
 
     // Building lives in the top-level Build menu (F5 / F6 / Ctrl+Shift+B);
@@ -1881,6 +1883,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "material") return &showMaterialEditor_;
     if (key == "ui") return &showUiEditor_;
     if (key == "menus") return &showMenusEditor_;
+    if (key == "save") return &showSaveEditor_;
     if (key == "grading") return &showGradingEditor_;
     if (key == "ambience") return &showAmbienceEditor_;
     if (key == "loading") return &showLoadingEditor_;
@@ -1892,7 +1895,8 @@ bool* App::showFlagForKey(const std::string& key) {
 // order). Core windows (Viewport/Project/Properties/Flow Graph/Output/Debug)
 // are always drawn and never listed here.
 static const char* const kLayoutWindowKeys[] = {
-    "cutscene", "material", "ui", "menus", "grading", "ambience", "loading", "disc"};
+    "cutscene", "material", "ui",      "menus", "save",
+    "grading",  "ambience", "loading", "disc"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -5225,7 +5229,7 @@ void App::drawFlowGraphWindow() {
                     }
                 }
                 if (project_.saveValues.empty())
-                    ImGui::TextDisabled("Add values in the\nProject panel (Save data).");
+                    ImGui::TextDisabled("Add values in\nTools > Save Editor.");
                 ImGui::EndCombo();
             }
         } else if (t->strKind == FlowParamKind::SaveText) {
@@ -5237,7 +5241,7 @@ void App::drawFlowGraphWindow() {
                     }
                 }
                 if (project_.saveTexts.empty())
-                    ImGui::TextDisabled("Add text values in the\nProject panel (Save data).");
+                    ImGui::TextDisabled("Add text values in\nTools > Save Editor.");
                 ImGui::EndCombo();
             }
             if (n.type == "SetSaveText") {
@@ -7725,12 +7729,170 @@ void App::drawSoundsSection() {
     }
 }
 
+// Save Editor (Tools > Save Editor): everything about memory card saves in
+// one place - how the save presents in the PS2 browser (title + icon, baked
+// to res/save/ by refreshGenerated), an exact byte breakdown of what one
+// slot stores (the same fixed payload the in-RAM checkpoint buffer holds),
+// and the custom save values/texts (drawSaveDataSection below).
+void App::drawSaveEditorWindow() {
+    if (!showSaveEditor_ || !hasProject_) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(440.0f), scaled(600.0f)),
+                             ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Save Editor", &showSaveEditor_)) {
+        ImGui::End();
+        return;
+    }
+
+    // --- Memory card appearance --------------------------------------------
+    ImGui::SeparatorText("Memory card appearance");
+    char titleBuf[68];
+    std::snprintf(titleBuf, sizeof(titleBuf), "%s", project_.saveTitle.c_str());
+    ImGui::SetNextItemWidth(scaled(240.0f));
+    if (ImGui::InputTextWithHint("Save title", project_.name.c_str(), titleBuf,
+                                 sizeof(titleBuf)))
+        project_.saveTitle = titleBuf;
+    if (ImGui::IsItemDeactivatedAfterEdit()) saveAll("Saved");
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The name the PS2 browser shows for this game's\n"
+                          "saves (icon.sys). '|' breaks it onto a second\n"
+                          "line; empty = the project name. ASCII only.");
+
+    // Icon image: any res/ PNG/JPG, resampled to the 128x128 icon texture.
+    if (ImGui::BeginCombo("Icon image",
+                          project_.saveIcon.empty() ? "(built-in placeholder)"
+                                                    : project_.saveIcon.c_str())) {
+        if (ImGui::Selectable("(built-in placeholder)",
+                              project_.saveIcon.empty()) &&
+            !project_.saveIcon.empty()) {
+            project_.saveIcon.clear();
+            saveAll("Saved");
+        }
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path res = fs::path(project_.dir) / "res";
+        for (fs::recursive_directory_iterator it(res, ec), end; it != end;
+             it.increment(ec)) {
+            if (ec) break;
+            if (!it->is_regular_file(ec)) continue;
+            std::string ext = it->path().extension().string();
+            for (char& c : ext) c = (char)tolower((unsigned char)c);
+            if (ext != ".png" && ext != ".jpg" && ext != ".jpeg") continue;
+            const std::string rel =
+                "res/" + fs::relative(it->path(), res, ec).generic_string();
+            if (ImGui::Selectable(rel.c_str(), rel == project_.saveIcon)) {
+                project_.saveIcon = rel;
+                saveAll("Saved");
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    // Preview: the exact 128x128 texture the baked .icn ships (savebake).
+    if (saveIconPreviewKey_ != project_.saveIcon || !saveIconPreviewTex_) {
+        const std::vector<unsigned char> rgba =
+            savebake::iconTextureRGBA(project_);
+        if (!saveIconPreviewTex_) glGenTextures(1, &saveIconPreviewTex_);
+        glBindTexture(GL_TEXTURE_2D, saveIconPreviewTex_);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 128, 128, 0, GL_RGBA,
+                     GL_UNSIGNED_BYTE, rgba.data());
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        saveIconPreviewKey_ = project_.saveIcon;
+    }
+    ImGui::Image((ImTextureID)(intptr_t)saveIconPreviewTex_,
+                 ImVec2(scaled(72.0f), scaled(72.0f)));
+    ImGui::SameLine();
+    ImGui::BeginGroup();
+    std::string title = savebake::displayTitle(project_);
+    for (char& c : title)
+        if (c == '|') c = '\n';
+    ImGui::TextUnformatted(title.c_str());
+    ImGui::TextDisabled("Card folder: %s",
+                        templates::saveDirName(project_).c_str());
+    ImGui::TextDisabled("Written to the card with the first save.");
+    ImGui::EndGroup();
+
+    // --- What lands in a save slot ------------------------------------------
+    ImGui::SeparatorText("What a save slot stores");
+    const templates::SaveSizeInfo sz = templates::saveSizeInfo(project_);
+    if (ImGui::BeginTable("savesize", 2, ImGuiTableFlags_SizingStretchProp)) {
+        auto row = [](const char* label, const std::string& value) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(label);
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(value.c_str());
+        };
+        auto bytes = [](int b) {
+            char buf[32];
+            if (b >= 1024)
+                std::snprintf(buf, sizeof(buf), "%.1f KB", b / 1024.0);
+            else
+                std::snprintf(buf, sizeof(buf), "%d B", b);
+            return std::string(buf);
+        };
+        row("Header (scene, player position, facing)", bytes(sz.headerBytes));
+        row(("Save values (" + std::to_string(sz.values) + ")").c_str(),
+            bytes(sz.valuesBytes));
+        row(("Save texts (" + std::to_string(sz.texts) + " x 32 B)").c_str(),
+            bytes(sz.textsBytes));
+        row(("Object states (" + std::to_string(sz.objectSlots) +
+             " slots x 32 B)")
+                .c_str(),
+            bytes(sz.objectsBytes));
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::Text("Save slot file (64-byte aligned)");
+        ImGui::TableNextColumn();
+        ImGui::Text("%s", bytes(sz.payloadBytes).c_str());
+        row("Card icon (icon.sys + list.icn, once)", bytes(sz.iconBytes));
+        row("Full card footprint (3 slots + icon)",
+            bytes(sz.payloadBytes * 3 + sz.iconBytes));
+        ImGui::EndTable();
+    }
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "A slot stores the scene index, the player position/facing,\n"
+            "every save value and text below, and position/color/visibility\n"
+            "of objects with \"Save state\" enabled (sized by the largest\n"
+            "per-scene count of such objects). The in-game checkpoint\n"
+            "(Save Checkpoint flow node) keeps exactly ONE copy of this\n"
+            "payload in RAM until it is committed to the card.");
+    ImGui::Text("Checkpoint buffer in game RAM: %d KB",
+                (sz.payloadBytes + 1023) / 1024);
+
+    // Save-flagged objects, per scene - "what is actually in my save?"
+    if (ImGui::TreeNode("Save-flagged objects")) {
+        for (const SceneData& sc : project_.scenes) {
+            int flagged = 0;
+            for (const SceneObject& o : sc.objects)
+                if (o.saveState) ++flagged;
+            if (ImGui::TreeNode(sc.name.c_str(), "%s (%d)", sc.name.c_str(),
+                                flagged)) {
+                for (const SceneObject& o : sc.objects)
+                    if (o.saveState) ImGui::BulletText("%s", o.name.c_str());
+                if (flagged == 0)
+                    ImGui::TextDisabled("None - enable \"Save state\" in an\n"
+                                        "object's properties to persist it.");
+                ImGui::TreePop();
+            }
+        }
+        ImGui::TreePop();
+    }
+
+    // --- Save data -----------------------------------------------------------
+    ImGui::SeparatorText("Save data");
+    drawSaveDataSection();
+    ImGui::End();
+}
+
 // Custom values persisted in memory card save slots. Flow graph "Save"
 // nodes (Set/Add/Value At Least) reference them by name; the defaults are
-// the fresh-game state.
+// the fresh-game state. Drawn inside the Save Editor window.
 void App::drawSaveDataSection() {
-    if (!ImGui::CollapsingHeader("Save data")) return;
-
     if (ImGui::SmallButton("+ Value")) {
         // unique default name: value-1, value-2, ...
         int counter = 0;

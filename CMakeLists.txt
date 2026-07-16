@@ -53,6 +53,7 @@ add_executable(tyrax-editor
     src/primmesh.cpp
     src/decalproj.cpp
     src/project.cpp
+    src/savebake.cpp
     src/screenfx.cpp
     src/texbake.cpp
     src/save_assets.cpp
