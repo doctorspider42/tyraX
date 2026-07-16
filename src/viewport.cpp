@@ -188,6 +188,13 @@ uniform vec3 uFlashCol;
 uniform float uFlashInvR2;       // 1/range^2
 uniform float uFlashCut2;        // cos^2(half-angle)
 uniform float uFlashSoft;        // softness/(range^2*(1-cos^2))
+uniform int uReflOn;             // refl pass: 0 off, 1 sphere map, 2 live sky
+uniform sampler2D uRefl;         // sphere map, texture unit 1
+uniform float uReflStrength;     // additive gain, 1.0 = full chrome
+uniform vec3 uReflSkyHorizon;    // "@sky" dynamic env: scene sky colors
+uniform vec3 uReflSkyTop;
+uniform int uReflRounded;        // refl -rounded: centroid-radial normals
+uniform vec3 uReflCenter;        // world-space centroid for the rounded mode
 out vec4 FragColor;
 void main() {
     vec4 texel = uUseTex != 0 ? texture(uTex, vUV) : vec4(1.0);
@@ -229,6 +236,29 @@ void main() {
         float viewDist = dot(vWorld - uFogEye, uFogFwd);
         float f = clamp((uFogEnd - viewDist) / (uFogEnd - uFogStart), 0.0, 1.0);
         color = mix(uFogColor, color, f);
+    }
+    if (uReflOn != 0) {
+        // Spherical environment map (refl): matcap UVs from the camera-space
+        // normal, added on top - the GL twin of the PS2's additive second
+        // pass (Cs*FIX + Cd; that bag is fogDisabled, hence after the fog
+        // mix). Flat normals from derivatives, exactly like the PS2 pass
+        // built on the loader's per-face normals - keep the two in sync.
+        // "-rounded": normals radiate from the part centroid instead, so a
+        // flat face sweeps a gradient of the map (PS2 twin: the rebuild
+        // overwrites envNormals with normalize(vertex - centroid)).
+        vec3 n = uReflRounded != 0
+            ? normalize(vWorld - uReflCenter)
+            : normalize(cross(dFdx(vWorld), dFdy(vWorld)));
+        vec3 r = normalize(cross(uFogFwd, vec3(0.0, 1.0, 0.0)));
+        vec3 u = cross(r, uFogFwd);
+        vec2 st = vec2(0.5 + 0.5 * dot(n, r), 0.5 - 0.5 * dot(n, u));
+        // "@sky" dynamic mode: approximate the PS2's per-frame sky-dome
+        // render with the analytic horizon/zenith gradient (st.y 0 = up).
+        vec3 env = uReflOn == 2
+            ? mix(uReflSkyHorizon, uReflSkyTop,
+                  clamp(1.0 - 2.0 * st.y, 0.0, 1.0))
+            : texture(uRefl, st).rgb;
+        color += uReflStrength * env;
     }
     // Decals carry the texture's alpha (cutout above + blend here), mirror
     // glass a constant opacity; everything else outputs opaque.
@@ -664,6 +694,16 @@ bool Viewport::init() {
     uFlashInvR2_ = glGetUniformLocation(program_, "uFlashInvR2");
     uFlashCut2_ = glGetUniformLocation(program_, "uFlashCut2");
     uFlashSoft_ = glGetUniformLocation(program_, "uFlashSoft");
+    uReflOn_ = glGetUniformLocation(program_, "uReflOn");
+    uRefl_ = glGetUniformLocation(program_, "uRefl");
+    uReflStrength_ = glGetUniformLocation(program_, "uReflStrength");
+    uReflSkyHorizon_ = glGetUniformLocation(program_, "uReflSkyHorizon");
+    uReflSkyTop_ = glGetUniformLocation(program_, "uReflSkyTop");
+    uReflRounded_ = glGetUniformLocation(program_, "uReflRounded");
+    uReflCenter_ = glGetUniformLocation(program_, "uReflCenter");
+    glUseProgram(program_);
+    glUniform1i(uRefl_, 1);  // sphere map lives on texture unit 1
+    glUseProgram(0);
 
     GLuint gvs = compile(GL_VERTEX_SHADER, GRADE_VS);
     GLuint gfs = compile(GL_FRAGMENT_SHADER, GRADE_FS);
@@ -1418,6 +1458,24 @@ const Viewport::MatPrevModel* Viewport::matPrevModelDraw(
         part.kd[0] = sub.kd[0], part.kd[1] = sub.kd[1], part.kd[2] = sub.kd[2];
         if (!sub.texture.empty())
             part.texRel = (texDir / sub.texture).generic_string();
+        if (!sub.refl.empty()) {
+            if (sub.refl == "@sky")
+                part.reflSky = true;
+            else
+                part.reflRel = (texDir / sub.refl).generic_string();
+            part.reflStrength = sub.reflStrength;
+            part.reflRounded = sub.reflRounded;
+            // Part centroid - the origin the rounded env normals radiate
+            // from (twin of the PS2 rebuild's centroid).
+            const size_t n = sub.verts.size() / 8;
+            for (size_t i = 0; i + 7 < sub.verts.size(); i += 8) {
+                part.centroid[0] += sub.verts[i];
+                part.centroid[1] += sub.verts[i + 1];
+                part.centroid[2] += sub.verts[i + 2];
+            }
+            if (n > 0)
+                for (float& c : part.centroid) c /= (float)n;
+        }
         std::vector<float> interleaved;
         interleaved.reserve(sub.verts.size());
         part.tris.reserve(sub.verts.size() / 8 * 5);
@@ -1485,6 +1543,16 @@ const Viewport::MaterialDraw* Viewport::materialDraw(const std::string& relPath)
             draw.tex = glTexture((std::filesystem::path(relPath).parent_path() /
                                   m.texture)
                                      .generic_string());
+        if (!m.refl.empty()) {
+            if (m.refl == "@sky")
+                draw.reflSky = true;
+            else
+                draw.reflTex = glTexture(
+                    (std::filesystem::path(relPath).parent_path() / m.refl)
+                        .generic_string());
+            draw.reflStrength = m.reflStrength;
+            draw.reflRounded = m.reflRounded;
+        }
     }
     return &materialCache_.emplace(relPath, draw).first->second;
 }
@@ -1526,6 +1594,24 @@ const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
             part.mesh = uploadMesh(interleaved);
             if (!sub.texture.empty())
                 part.tex = glTexture((modelDir / sub.texture).generic_string());
+            if (!sub.refl.empty()) {
+                if (sub.refl == "@sky")
+                    part.reflSky = true;
+                else
+                    part.reflTex =
+                        glTexture((modelDir / sub.refl).generic_string());
+                part.reflStrength = sub.reflStrength;
+                part.reflRounded = sub.reflRounded;
+                // Part centroid (model space) for the rounded env normals.
+                const size_t n = sub.verts.size() / 8;
+                for (size_t i = 0; i + 7 < sub.verts.size(); i += 8) {
+                    part.centroid[0] += sub.verts[i];
+                    part.centroid[1] += sub.verts[i + 1];
+                    part.centroid[2] += sub.verts[i + 2];
+                }
+                if (n > 0)
+                    for (float& c : part.centroid) c /= (float)n;
+            }
             draw.parts.push_back(part);
         }
     }
@@ -1814,6 +1900,10 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniform3f(uFogEye_, eye.x, eye.y, eye.z);
         glUniform3f(uFogFwd_, fwd.x, fwd.y, fwd.z);
 
+        // "@sky" reflective materials sample the live sky gradient
+        glUniform3f(uReflSkyHorizon_, sky_[0], sky_[1], sky_[2]);
+        glUniform3f(uReflSkyTop_, skyTop_[0], skyTop_[1], skyTop_[2]);
+
         // Camera flashlight preview (same constants the engine derives)
         glUniform1i(uFlashOn_, flashOn_ ? 1 : 0);
         glUniform3f(uFlashCol_, flashColor_[0], flashColor_[1], flashColor_[2]);
@@ -1854,13 +1944,27 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     auto draw = [&](const Mesh& mesh, GLenum mode, const Mat4& mvp, float r, float g,
                     float b, uint32_t texture = 0, const Mat4* model = nullptr,
-                    bool alpha = false, float opacity = 1.0f) {
+                    bool alpha = false, float opacity = 1.0f,
+                    uint32_t reflTex = 0, float reflStrength = 0.0f,
+                    bool reflSky = false, bool reflRounded = false,
+                    const float* reflCenter = nullptr) {
         glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
         glUniformMatrix4fv(uModel_, 1, GL_FALSE, model ? model->m : identityM.m);
         glUniform1i(uLit_, model ? 1 : 0);  // world matrix given = lit geometry
         glUniform3f(uTint_, r, g, b);
         glUniform1i(uUseTex_, texture ? 1 : 0);
         glUniform1i(uAlpha_, alpha ? 1 : 0);
+        glUniform1i(uReflOn_, reflSky ? 2 : (reflTex ? 1 : 0));
+        if (reflTex || reflSky) {
+            glUniform1f(uReflStrength_, reflStrength);
+            glUniform1i(uReflRounded_, reflRounded ? 1 : 0);
+            if (reflRounded && reflCenter)
+                glUniform3f(uReflCenter_, reflCenter[0], reflCenter[1],
+                            reflCenter[2]);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, reflTex);
+            glActiveTexture(GL_TEXTURE0);
+        }
         glUniform1f(uOpacity_, opacity);
         const bool blend = alpha || opacity < 1.0f;
         if (blend) {
@@ -1966,10 +2070,23 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                                       ? modelDraw(o.modelPath, o.materialPath)
                                       : nullptr;
             if (md) {
-                for (const ModelPart& part : md->parts)
+                for (const ModelPart& part : md->parts) {
+                    // rounded env normals radiate from the part centroid -
+                    // transform it to world space with the object matrix
+                    float c[3] = {0, 0, 0};
+                    if (part.reflRounded) {
+                        const float* mm = model.m;
+                        for (int a = 0; a < 3; ++a)
+                            c[a] = mm[a] * part.centroid[0] +
+                                   mm[a + 4] * part.centroid[1] +
+                                   mm[a + 8] * part.centroid[2] + mm[a + 12];
+                    }
                     draw(part.mesh, GL_TRIANGLES, mvp, o.color[0] * tintScale,
                          o.color[1] * tintScale, o.color[2] * tintScale,
-                         asLines ? 0 : part.tex, lit ? &model : nullptr);
+                         asLines ? 0 : part.tex, lit ? &model : nullptr, false,
+                         1.0f, asLines ? 0 : part.reflTex, part.reflStrength,
+                         asLines ? false : part.reflSky, part.reflRounded, c);
+                }
                 continue;
             }
             // primitives: the assigned material's first entry = Kd tint + map_Kd
@@ -1994,9 +2111,15 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                     continue;
                 }
             }
+            // primitives are modeled around their local origin, so the
+            // rounded-normal centre is simply the object's world position
             draw(*meshFor(o), GL_TRIANGLES, mvp, o.color[0] * kr * tintScale,
                  o.color[1] * kg * tintScale, o.color[2] * kb * tintScale,
-                 tex, lit ? &model : nullptr, decalAlpha);
+                 tex, lit ? &model : nullptr, decalAlpha, 1.0f,
+                 (asLines || !mat) ? 0 : mat->reflTex,
+                 mat ? mat->reflStrength : 0.0f,
+                 (asLines || !mat) ? false : mat->reflSky,
+                 mat ? mat->reflRounded : false, o.position);
         }
         if (!asLines) glDisable(GL_POLYGON_OFFSET_FILL);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -2278,17 +2401,35 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
 
     const Mat4 id = identity();
     auto draw = [&](const Mesh& mesh, const Mat4& mvp, float r, float g, float b,
-                    uint32_t texture) {
+                    uint32_t texture, uint32_t reflTex = 0,
+                    float reflStrength = 0.0f, bool reflSky = false,
+                    bool reflRounded = false,
+                    const float* reflCenter = nullptr) {
         glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
         glUniformMatrix4fv(uModel_, 1, GL_FALSE, id.m);
         glUniform1i(uLit_, 0);
         glUniform3f(uTint_, r, g, b);
         glUniform1i(uUseTex_, texture ? 1 : 0);
         glUniform1i(uAlpha_, 0);
+        glUniform1i(uReflOn_, reflSky ? 2 : (reflTex ? 1 : 0));
+        if (reflTex || reflSky) {
+            glUniform1f(uReflStrength_, reflStrength);
+            glUniform1i(uReflRounded_, reflRounded ? 1 : 0);
+            if (reflRounded && reflCenter)
+                glUniform3f(uReflCenter_, reflCenter[0], reflCenter[1],
+                            reflCenter[2]);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, reflTex);
+            glActiveTexture(GL_TEXTURE0);
+        }
         if (texture) glBindTexture(GL_TEXTURE_2D, texture);
         glBindVertexArray(mesh.vao);
         glDrawArrays(GL_TRIANGLES, 0, mesh.vertexCount);
     };
+    glUniform1i(uFogOn_, 0);  // no fog in the preview scene
+    // "@sky" reflective materials sample the project's sky gradient
+    glUniform3f(uReflSkyHorizon_, sky_[0], sky_[1], sky_[2]);
+    glUniform3f(uReflSkyTop_, skyTop_[0], skyTop_[1], skyTop_[2]);
 
     // backdrop: NDC-space gradient quad, no depth
     glDisable(GL_DEPTH_TEST);
@@ -2316,6 +2457,14 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
                    center.y + dist * std::sin(p),
                    center.z + dist * std::cos(p) * std::sin(a)};
     const Mat4 view = lookAt(eye, center, {0, 1, 0});
+    {
+        // The refl (matcap) shader path derives the camera basis from
+        // uFogEye/uFogFwd - point them at the preview camera (fog itself is
+        // off above).
+        const Vec3 f = normalize(sub(center, eye));
+        glUniform3f(uFogEye_, eye.x, eye.y, eye.z);
+        glUniform3f(uFogFwd_, f.x, f.y, f.z);
+    }
     const float zFar = dist + (model ? model->radius : 1.0f) * 4.0f + 50.0f;
     const Mat4 proj = perspective(45.0f * kPi / 180.0f,
                                   (float)width / (float)height,
@@ -2334,14 +2483,23 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
             const bool staged = part.material == d.entryName;
             const float* kd = staged ? d.kd : part.kd;
             const std::string& tex = staged ? d.texRel : part.texRel;
-            draw(part.mesh, viewProj, kd[0], kd[1], kd[2], glTexture(tex));
+            const std::string& refl = staged ? d.reflRel : part.reflRel;
+            draw(part.mesh, viewProj, kd[0], kd[1], kd[2], glTexture(tex),
+                 glTexture(refl),
+                 staged ? d.reflStrength : part.reflStrength,
+                 staged ? d.reflSky : part.reflSky,
+                 staged ? d.reflRounded : part.reflRounded, part.centroid);
         }
     } else {
+        // unit shapes sit at the origin - that's the rounded-normal centre
+        static const float origin[3] = {0.0f, 0.0f, 0.0f};
         const Mesh* mesh = shape == 0   ? &box_
                            : shape == 2 ? &cylinder_
                            : shape == 3 ? &cone_
                                         : &sphere_;
-        draw(*mesh, viewProj, d.kd[0], d.kd[1], d.kd[2], glTexture(d.texRel));
+        draw(*mesh, viewProj, d.kd[0], d.kd[1], d.kd[2], glTexture(d.texRel),
+             glTexture(d.reflRel), d.reflStrength, d.reflSky, d.reflRounded,
+             origin);
     }
 
     glBindVertexArray(0);

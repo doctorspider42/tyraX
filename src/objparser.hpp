@@ -13,6 +13,9 @@ struct Submesh {
                            // that defined it (the .obj's directory when the
                            // library came from mtllib/the sibling .mtl)
     float kd[3] = {1.0f, 1.0f, 1.0f};  // diffuse color, multiplies the object color
+    std::string refl;           // refl sphere map ("" = not reflective)
+    float reflStrength = 0.0f;  // reflection strength 0..1
+    bool reflRounded = false;   // -rounded: centroid-radial env normals
     std::vector<float> verts;
 };
 
@@ -34,6 +37,9 @@ struct MtlMaterial {
     std::string texture;  // map_Kd, relative to the .mtl's directory ("" = none)
     float kd[3] = {1.0f, 1.0f, 1.0f};
     float scale[2] = {1.0f, 1.0f};  // map_Kd -s (u, v) UV multiplier; 1 = as-is
+    std::string refl;           // refl sphere map ("" = not reflective)
+    float reflStrength = 0.0f;  // reflection strength 0..1 (refl -mm gain)
+    bool reflRounded = false;   // -rounded: centroid-radial env normals
 };
 
 // Loads a Wavefront .obj (+ its .mtl material libraries, resolved relative to
@@ -53,7 +59,7 @@ struct MtlMaterial {
 bool load(const std::string& path, Model& out,
           const std::string& overrideMtl = "");
 
-// Parses a standalone .mtl library (newmtl/Kd/map_Kd), materials in file
+// Parses a standalone .mtl library (newmtl/Kd/map_Kd/refl), materials in file
 // order. Returns false when the file cannot be read or defines no materials.
 bool loadMtl(const std::string& path, std::vector<MtlMaterial>& out);
 

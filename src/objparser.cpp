@@ -15,6 +15,9 @@ struct Material {
     float kd[3] = {1.0f, 1.0f, 1.0f};
     std::string texture;  // map_Kd, relative to its .mtl's directory
     float scale[2] = {1.0f, 1.0f};  // map_Kd -s (u, v); UV multiplier
+    std::string refl;          // refl sphere map, relative to the .mtl ("" = none)
+    float reflStrength = 0.0f;  // refl -mm gain operand, 0..1
+    bool reflRounded = false;   // refl -rounded: centroid-radial env normals
 };
 
 // Parses the tokens after "map_Kd" into a texture filename (the last token)
@@ -65,6 +68,27 @@ bool parseMtl(const std::filesystem::path& path,
         } else if (tag == "map_Kd" && !current.empty()) {
             Material& m = materials[current];
             parseMapKd(ss, m.texture, m.scale);
+        } else if (tag == "refl" && !current.empty()) {
+            // Spherical environment map:
+            //   refl -type sphere -mm 0 <strength> [-rounded] <file>.
+            // Filename = last token; -mm's gain operand is the strength;
+            // -rounded switches the env pass to centroid-radial normals.
+            Material& m = materials[current];
+            std::vector<std::string> toks;
+            for (std::string t; ss >> t;) toks.push_back(t);
+            if (toks.empty()) continue;
+            m.refl = toks.back();
+            for (char& c : m.refl)
+                if (c == '\\') c = '/';
+            for (size_t i = 0; i + 2 < toks.size(); ++i) {
+                if (toks[i] != "-mm") continue;
+                m.reflStrength = std::strtof(toks[i + 2].c_str(), nullptr);
+                break;
+            }
+            for (size_t i = 0; i + 1 < toks.size(); ++i)
+                if (toks[i] == "-rounded") m.reflRounded = true;
+            if (m.reflStrength <= 0.0f && !m.refl.empty())
+                m.reflStrength = 0.5f;  // refl without -mm: sensible default
         }
     }
     return true;
@@ -86,6 +110,9 @@ bool loadMtl(const std::string& path, std::vector<MtlMaterial>& out) {
         m.kd[2] = materials[name].kd[2];
         m.scale[0] = materials[name].scale[0];
         m.scale[1] = materials[name].scale[1];
+        m.refl = materials[name].refl;
+        m.reflStrength = materials[name].reflStrength;
+        m.reflRounded = materials[name].reflRounded;
         out.push_back(std::move(m));
     }
     return !out.empty();
@@ -133,6 +160,9 @@ bool load(const std::string& path, Model& out, const std::string& overrideMtl) {
             s.kd[1] = m->second.kd[1];
             s.kd[2] = m->second.kd[2];
             s.texture = m->second.texture;
+            s.refl = m->second.refl;
+            s.reflStrength = m->second.reflStrength;
+            s.reflRounded = m->second.reflRounded;
         }
         out.submeshes.push_back(std::move(s));
         submeshIndex[matName] = (int)out.submeshes.size() - 1;

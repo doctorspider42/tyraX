@@ -157,6 +157,11 @@ struct SceneObject {
     // drawn at all (collision, sounds and scripts still run). 0 = unlimited.
     // The cheapest LOD there is - era-correct for dense scenes.
     float drawDistance = 0.0f;
+    // Show in reflections: this object is also rendered into the dynamic
+    // ("@sky") environment map, so reflective materials mirror it - the GT3
+    // trick's second half. Each marked object costs a second (128x128,
+    // wide-FOV) render per frame; mark the few props that sell the effect.
+    bool reflected = false;
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     // Material library (.mtl) assigned to the object, e.g.
     // "res/materials/walls.mtl". Primitives take the file's FIRST material
@@ -311,6 +316,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
            a.layer == b.layer &&
            a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
+           a.reflected == b.reflected &&
            a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
            a.playerMode == b.playerMode &&
@@ -403,7 +409,10 @@ struct ProjectSettings {
     // "precise": real per-triangle clipping - no holes at screen edges, but
     // costs EE time. "fast": VU1 cull only - fastest, may drop triangles
     // that extend far beyond the screen.
-    std::string clipping = "precise";
+    // Triangle handling: "vu1" (default - precise clipping in the VU1 clip
+    // programs, no EE cost), "precise" (the legacy EE clipper) or "fast"
+    // (cull-only). Projects saved before the vu1 default keep their value.
+    std::string clipping = "vu1";
 
     // Animation LOD: animated-model instances farther than this from the
     // camera refresh their pose/skinning every 2nd frame (every 4th beyond

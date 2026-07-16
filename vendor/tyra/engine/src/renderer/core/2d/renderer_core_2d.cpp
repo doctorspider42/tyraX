@@ -13,6 +13,7 @@
 #include <dma.h>
 #include <draw.h>
 #include <gif_tags.h>
+#include <gs_gp.h>
 
 namespace Tyra {
 
@@ -117,6 +118,15 @@ void RendererCore2D::render(const Sprite& sprite,
 
   packet2_utils_gif_add_set(packet, 1);
   packet2_utils_gs_add_lod(packet, &lod);
+  // Modified by TyraX: pin the 2D blend equation. StaPip meshes carry
+  // their blend equation IN-BAND (VU1_ALPHA_ADDR), so after the 3D scene
+  // the GS ALPHA register holds whatever the last mesh set - after a
+  // reflective env pass that is the ADDITIVE equation, and sprites
+  // inheriting it lose their dark texels (on hardware the debug HUD
+  // font's black outline visibly vanished). Every sprite sets the
+  // standard source-alpha blend explicitly.
+  packet2_utils_gif_add_set(packet, 1);
+  packet2_add_2x_s64(packet, GS_SET_ALPHA(0, 1, 0, 1, 0), GS_REG_ALPHA_1);
   packet2_utils_gif_add_set(packet, 1);
   packet2_utils_gs_add_texbuff_clut(packet, texBuffers.core, clutBuffer);
   draw_enable_blending();

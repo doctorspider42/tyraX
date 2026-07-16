@@ -1,0 +1,1 @@
+{ "id": "rfa5pedestal00003", "name": "pedestal-3", "type": "box", "position": [-5, 0.8, 16], "rotation": [0, 0, 0], "scale": [1.8, 1.6, 1.8], "color": [1, 1, 1], "physics": false, "material": "res/materials/pedestal.mtl" }

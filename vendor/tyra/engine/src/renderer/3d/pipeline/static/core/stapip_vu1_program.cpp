@@ -66,7 +66,9 @@ void StaPipVU1Program::addStandardBufferDataToPacket(packet2_t* packet,
 
 u16 StaPipVU1Program::getMaxVertCount(const bool& singleColorEnabled,
                                       const u16& bufferSize) const {
-  u16 res = bufferSize - 7;  // 7 because of -> StoreTyraGifTags{}
+  // Modified by TyraX: 9 because of -> StoreTyraGifTags*Alpha{} (the tag
+  // block grew by a (set, ALPHA) pair - the in-band per-mesh blend equation)
+  u16 res = bufferSize - 9;
   u8 colorElementsPerVertex =
       singleColorEnabled ? elementsPerVertex - 1 : elementsPerVertex;
   res /= (colorElementsPerVertex + reglistCount);
