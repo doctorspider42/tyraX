@@ -15,6 +15,7 @@ struct Submesh {
     float kd[3] = {1.0f, 1.0f, 1.0f};  // diffuse color, multiplies the object color
     std::string refl;           // refl sphere map ("" = not reflective)
     float reflStrength = 0.0f;  // reflection strength 0..1
+    bool reflRounded = false;   // -rounded: centroid-radial env normals
     std::vector<float> verts;
 };
 
@@ -38,6 +39,7 @@ struct MtlMaterial {
     float scale[2] = {1.0f, 1.0f};  // map_Kd -s (u, v) UV multiplier; 1 = as-is
     std::string refl;           // refl sphere map ("" = not reflective)
     float reflStrength = 0.0f;  // reflection strength 0..1 (refl -mm gain)
+    bool reflRounded = false;   // -rounded: centroid-radial env normals
 };
 
 // Loads a Wavefront .obj (+ its .mtl material libraries, resolved relative to

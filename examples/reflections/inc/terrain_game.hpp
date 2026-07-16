@@ -130,10 +130,12 @@ class TerrainGame : public Tyra::Game {
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
     // refl: spherical environment map (nullptr = not reflective).
-    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
+    // reflRounded = "-rounded": env normals radiate from the part centroid.
     Tyra::Texture* reflTexture = nullptr;
     float reflStrength = 0.0F;
     bool reflDynamic = false;
+    bool reflRounded = false;
   };
   struct GameModel {
     std::vector<GameModelPart> parts;  // empty = missing/unparseable model
@@ -186,10 +188,12 @@ class TerrainGame : public Tyra::Game {
     float kd[3] = {1.0F, 1.0F, 1.0F};
     std::string texPath;  // texture-cache ref held ("" = untextured)
     // refl: spherical environment map (nullptr = not reflective).
-    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
+    // reflRounded = "-rounded": env normals radiate from the part centroid.
     Tyra::Texture* reflTexture = nullptr;
     float reflStrength = 0.0F;
     bool reflDynamic = false;
+    bool reflRounded = false;
     std::string reflTexPath;  // texture-cache ref held ("" = none)
   };
   std::vector<GameMaterial> gameMaterials;
@@ -270,6 +274,20 @@ class TerrainGame : public Tyra::Game {
   // camera when present. Returns false when the scene has no player.
   bool updatePlayerEntity();
   float entX = 0, entY = 0, entZ = 0, entVelY = 0, entYaw = 0, entPitch = 0;
+  // Third-person only: entYaw/entPitch orbit the camera, entFaceYaw is the
+  // avatar's own facing (turns toward the walk direction). Clip indices are
+  // resolved from the model's clip table at scene load; -1 = unmapped.
+  float entFaceYaw = 0;
+  int playerIdleClip = -1, playerWalkClip = -1, playerRunClip = -1, playerJumpClip = -1;
+  // Picks the third-person avatar's locomotion clip from its planar speed
+  // (fraction of full walk speed) and grounded state, cross-fading on change.
+  void drivePlayerAnim(RuntimeObject& body, float speedFrac, bool grounded);
+  // Spring arm: the distance down the boom (from the head, along d) at which
+  // the camera would enter geometry or the terrain. camBoom is the smoothed
+  // boom length actually used - it snaps in on a hit and eases back out.
+  float springArm(float px, float py, float pz, float dx, float dy, float dz,
+                  float maxDist) const;
+  float camBoom = 0;
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.

@@ -192,6 +192,8 @@ uniform sampler2D uRefl;         // sphere map, texture unit 1
 uniform float uReflStrength;     // additive gain, 1.0 = full chrome
 uniform vec3 uReflSkyHorizon;    // "@sky" dynamic env: scene sky colors
 uniform vec3 uReflSkyTop;
+uniform int uReflRounded;        // refl -rounded: centroid-radial normals
+uniform vec3 uReflCenter;        // world-space centroid for the rounded mode
 out vec4 FragColor;
 void main() {
     vec4 texel = uUseTex != 0 ? texture(uTex, vUV) : vec4(1.0);
@@ -240,7 +242,12 @@ void main() {
         // pass (Cs*FIX + Cd; that bag is fogDisabled, hence after the fog
         // mix). Flat normals from derivatives, exactly like the PS2 pass
         // built on the loader's per-face normals - keep the two in sync.
-        vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
+        // "-rounded": normals radiate from the part centroid instead, so a
+        // flat face sweeps a gradient of the map (PS2 twin: the rebuild
+        // overwrites envNormals with normalize(vertex - centroid)).
+        vec3 n = uReflRounded != 0
+            ? normalize(vWorld - uReflCenter)
+            : normalize(cross(dFdx(vWorld), dFdy(vWorld)));
         vec3 r = normalize(cross(uFogFwd, vec3(0.0, 1.0, 0.0)));
         vec3 u = cross(r, uFogFwd);
         vec2 st = vec2(0.5 + 0.5 * dot(n, r), 0.5 - 0.5 * dot(n, u));
@@ -690,6 +697,8 @@ bool Viewport::init() {
     uReflStrength_ = glGetUniformLocation(program_, "uReflStrength");
     uReflSkyHorizon_ = glGetUniformLocation(program_, "uReflSkyHorizon");
     uReflSkyTop_ = glGetUniformLocation(program_, "uReflSkyTop");
+    uReflRounded_ = glGetUniformLocation(program_, "uReflRounded");
+    uReflCenter_ = glGetUniformLocation(program_, "uReflCenter");
     glUseProgram(program_);
     glUniform1i(uRefl_, 1);  // sphere map lives on texture unit 1
     glUseProgram(0);
@@ -1453,6 +1462,17 @@ const Viewport::MatPrevModel* Viewport::matPrevModelDraw(
             else
                 part.reflRel = (texDir / sub.refl).generic_string();
             part.reflStrength = sub.reflStrength;
+            part.reflRounded = sub.reflRounded;
+            // Part centroid - the origin the rounded env normals radiate
+            // from (twin of the PS2 rebuild's centroid).
+            const size_t n = sub.verts.size() / 8;
+            for (size_t i = 0; i + 7 < sub.verts.size(); i += 8) {
+                part.centroid[0] += sub.verts[i];
+                part.centroid[1] += sub.verts[i + 1];
+                part.centroid[2] += sub.verts[i + 2];
+            }
+            if (n > 0)
+                for (float& c : part.centroid) c /= (float)n;
         }
         std::vector<float> interleaved;
         interleaved.reserve(sub.verts.size());
@@ -1529,6 +1549,7 @@ const Viewport::MaterialDraw* Viewport::materialDraw(const std::string& relPath)
                     (std::filesystem::path(relPath).parent_path() / m.refl)
                         .generic_string());
             draw.reflStrength = m.reflStrength;
+            draw.reflRounded = m.reflRounded;
         }
     }
     return &materialCache_.emplace(relPath, draw).first->second;
@@ -1578,6 +1599,16 @@ const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
                     part.reflTex =
                         glTexture((modelDir / sub.refl).generic_string());
                 part.reflStrength = sub.reflStrength;
+                part.reflRounded = sub.reflRounded;
+                // Part centroid (model space) for the rounded env normals.
+                const size_t n = sub.verts.size() / 8;
+                for (size_t i = 0; i + 7 < sub.verts.size(); i += 8) {
+                    part.centroid[0] += sub.verts[i];
+                    part.centroid[1] += sub.verts[i + 1];
+                    part.centroid[2] += sub.verts[i + 2];
+                }
+                if (n > 0)
+                    for (float& c : part.centroid) c /= (float)n;
             }
             draw.parts.push_back(part);
         }
@@ -1909,7 +1940,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     auto draw = [&](const Mesh& mesh, GLenum mode, const Mat4& mvp, float r, float g,
                     float b, uint32_t texture = 0, const Mat4* model = nullptr,
                     bool alpha = false, uint32_t reflTex = 0,
-                    float reflStrength = 0.0f, bool reflSky = false) {
+                    float reflStrength = 0.0f, bool reflSky = false,
+                    bool reflRounded = false,
+                    const float* reflCenter = nullptr) {
         glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
         glUniformMatrix4fv(uModel_, 1, GL_FALSE, model ? model->m : identityM.m);
         glUniform1i(uLit_, model ? 1 : 0);  // world matrix given = lit geometry
@@ -1919,6 +1952,10 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniform1i(uReflOn_, reflSky ? 2 : (reflTex ? 1 : 0));
         if (reflTex || reflSky) {
             glUniform1f(uReflStrength_, reflStrength);
+            glUniform1i(uReflRounded_, reflRounded ? 1 : 0);
+            if (reflRounded && reflCenter)
+                glUniform3f(uReflCenter_, reflCenter[0], reflCenter[1],
+                            reflCenter[2]);
             glActiveTexture(GL_TEXTURE1);
             glBindTexture(GL_TEXTURE_2D, reflTex);
             glActiveTexture(GL_TEXTURE0);
@@ -2021,12 +2058,23 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                                       ? modelDraw(o.modelPath, o.materialPath)
                                       : nullptr;
             if (md) {
-                for (const ModelPart& part : md->parts)
+                for (const ModelPart& part : md->parts) {
+                    // rounded env normals radiate from the part centroid -
+                    // transform it to world space with the object matrix
+                    float c[3] = {0, 0, 0};
+                    if (part.reflRounded) {
+                        const float* mm = model.m;
+                        for (int a = 0; a < 3; ++a)
+                            c[a] = mm[a] * part.centroid[0] +
+                                   mm[a + 4] * part.centroid[1] +
+                                   mm[a + 8] * part.centroid[2] + mm[a + 12];
+                    }
                     draw(part.mesh, GL_TRIANGLES, mvp, o.color[0] * tintScale,
                          o.color[1] * tintScale, o.color[2] * tintScale,
                          asLines ? 0 : part.tex, lit ? &model : nullptr, false,
                          asLines ? 0 : part.reflTex, part.reflStrength,
-                         asLines ? false : part.reflSky);
+                         asLines ? false : part.reflSky, part.reflRounded, c);
+                }
                 continue;
             }
             // primitives: the assigned material's first entry = Kd tint + map_Kd
@@ -2051,12 +2099,15 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                     continue;
                 }
             }
+            // primitives are modeled around their local origin, so the
+            // rounded-normal centre is simply the object's world position
             draw(*meshFor(o), GL_TRIANGLES, mvp, o.color[0] * kr * tintScale,
                  o.color[1] * kg * tintScale, o.color[2] * kb * tintScale,
                  tex, lit ? &model : nullptr, decalAlpha,
                  (asLines || !mat) ? 0 : mat->reflTex,
                  mat ? mat->reflStrength : 0.0f,
-                 (asLines || !mat) ? false : mat->reflSky);
+                 (asLines || !mat) ? false : mat->reflSky,
+                 mat ? mat->reflRounded : false, o.position);
         }
         if (!asLines) glDisable(GL_POLYGON_OFFSET_FILL);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -2244,7 +2295,9 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
     const Mat4 id = identity();
     auto draw = [&](const Mesh& mesh, const Mat4& mvp, float r, float g, float b,
                     uint32_t texture, uint32_t reflTex = 0,
-                    float reflStrength = 0.0f, bool reflSky = false) {
+                    float reflStrength = 0.0f, bool reflSky = false,
+                    bool reflRounded = false,
+                    const float* reflCenter = nullptr) {
         glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
         glUniformMatrix4fv(uModel_, 1, GL_FALSE, id.m);
         glUniform1i(uLit_, 0);
@@ -2254,6 +2307,10 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
         glUniform1i(uReflOn_, reflSky ? 2 : (reflTex ? 1 : 0));
         if (reflTex || reflSky) {
             glUniform1f(uReflStrength_, reflStrength);
+            glUniform1i(uReflRounded_, reflRounded ? 1 : 0);
+            if (reflRounded && reflCenter)
+                glUniform3f(uReflCenter_, reflCenter[0], reflCenter[1],
+                            reflCenter[2]);
             glActiveTexture(GL_TEXTURE1);
             glBindTexture(GL_TEXTURE_2D, reflTex);
             glActiveTexture(GL_TEXTURE0);
@@ -2323,15 +2380,19 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
             draw(part.mesh, viewProj, kd[0], kd[1], kd[2], glTexture(tex),
                  glTexture(refl),
                  staged ? d.reflStrength : part.reflStrength,
-                 staged ? d.reflSky : part.reflSky);
+                 staged ? d.reflSky : part.reflSky,
+                 staged ? d.reflRounded : part.reflRounded, part.centroid);
         }
     } else {
+        // unit shapes sit at the origin - that's the rounded-normal centre
+        static const float origin[3] = {0.0f, 0.0f, 0.0f};
         const Mesh* mesh = shape == 0   ? &box_
                            : shape == 2 ? &cylinder_
                            : shape == 3 ? &cone_
                                         : &sphere_;
         draw(*mesh, viewProj, d.kd[0], d.kd[1], d.kd[2], glTexture(d.texRel),
-             glTexture(d.reflRel), d.reflStrength, d.reflSky);
+             glTexture(d.reflRel), d.reflStrength, d.reflSky, d.reflRounded,
+             origin);
     }
 
     glBindVertexArray(0);

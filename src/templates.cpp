@@ -493,10 +493,12 @@ class TerrainGame : public Tyra::Game {
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
     // refl: spherical environment map (nullptr = not reflective).
-    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
+    // reflRounded = "-rounded": env normals radiate from the part centroid.
     Tyra::Texture* reflTexture = nullptr;
     float reflStrength = 0.0F;
     bool reflDynamic = false;
+    bool reflRounded = false;
   };
   struct GameModel {
     std::vector<GameModelPart> parts;  // empty = missing/unparseable model
@@ -549,10 +551,12 @@ class TerrainGame : public Tyra::Game {
     float kd[3] = {1.0F, 1.0F, 1.0F};
     std::string texPath;  // texture-cache ref held ("" = untextured)
     // refl: spherical environment map (nullptr = not reflective).
-    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
+    // reflRounded = "-rounded": env normals radiate from the part centroid.
     Tyra::Texture* reflTexture = nullptr;
     float reflStrength = 0.0F;
     bool reflDynamic = false;
+    bool reflRounded = false;
     std::string reflTexPath;  // texture-cache ref held ("" = none)
   };
   std::vector<GameMaterial> gameMaterials;
@@ -886,10 +890,12 @@ class TerrainGame : public Tyra::Game {
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
     // refl: spherical environment map (nullptr = not reflective).
-    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
+    // reflRounded = "-rounded": env normals radiate from the part centroid.
     Tyra::Texture* reflTexture = nullptr;
     float reflStrength = 0.0F;
     bool reflDynamic = false;
+    bool reflRounded = false;
   };
   struct GameModel {
     std::vector<GameModelPart> parts;  // empty = missing/unparseable model
@@ -942,10 +948,12 @@ class TerrainGame : public Tyra::Game {
     float kd[3] = {1.0F, 1.0F, 1.0F};
     std::string texPath;  // texture-cache ref held ("" = untextured)
     // refl: spherical environment map (nullptr = not reflective).
-    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
+    // reflRounded = "-rounded": env normals radiate from the part centroid.
     Tyra::Texture* reflTexture = nullptr;
     float reflStrength = 0.0F;
     bool reflDynamic = false;
+    bool reflRounded = false;
     std::string reflTexPath;  // texture-cache ref held ("" = none)
   };
   std::vector<GameMaterial> gameMaterials;
@@ -2602,6 +2610,7 @@ void TerrainGame::loadModelAsset(int i) {
       part.reflStrength = mat.reflStrength;
       gm.texPaths.push_back(path);
     }
+    part.reflRounded = mat.reflRounded;
     gm.parts.push_back(std::move(part));
   }
   if (MODEL_NEEDS_COLLIDER[i]) {
@@ -2656,6 +2665,7 @@ void TerrainGame::loadMaterialAsset(int i) {
     gmat.reflTexture = acquireTexture(gmat.reflTexPath);
     gmat.reflStrength = mat.reflStrength;
   }
+  gmat.reflRounded = mat.reflRounded;
 }
 
 void TerrainGame::freeMaterialAsset(int i) {
@@ -5108,6 +5118,34 @@ void TerrainGame::rebuildObjectGeometry(int index) {
           fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
       part.envColorBag->many = part.envColors.data();
       part.envTexBag->texture = envTex;
+      // "-rounded" materials: overwrite the captured face normals with
+      // directions radiating from the part centroid - a flat face then
+      // sweeps a gradient of the sphere map instead of showing one uniform
+      // sample (the viewport shader mirrors this via uReflRounded).
+      const bool envRounded = o.data.type == 5
+                                  ? gm->parts[pi].reflRounded
+                                  : (gmat && gmat->reflRounded);
+      if (envRounded && !part.vertices.empty()) {
+        const u32 nv = static_cast<u32>(part.vertices.size());
+        float cx = 0.0F, cy = 0.0F, cz = 0.0F;
+        for (u32 vi = 0; vi < nv; ++vi) {
+          cx += part.vertices[vi].x;
+          cy += part.vertices[vi].y;
+          cz += part.vertices[vi].z;
+        }
+        cx /= (float)nv, cy /= (float)nv, cz /= (float)nv;
+        for (u32 vi = 0; vi < nv; ++vi) {
+          float dx = part.vertices[vi].x - cx;
+          float dy = part.vertices[vi].y - cy;
+          float dz = part.vertices[vi].z - cz;
+          const float l = sqrtf(dx * dx + dy * dy + dz * dz);
+          if (l > 0.0001F)
+            dx /= l, dy /= l, dz /= l;
+          else
+            dx = 0.0F, dy = 1.0F, dz = 0.0F;
+          part.envNormals[vi].set(dx, dy, dz, 0.0F);
+        }
+      }
       // The normals ride in the ST slot and the TCE programs (cull/as_is/
       // clip) compute the matcap ST from the per-mesh camera basis - zero
       // EE per-vertex work, no pipeline barriers, in both clipping modes.

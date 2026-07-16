@@ -9,6 +9,30 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (112) **Rounded reflection normals - flat surfaces stop reflecting "one
+  pixel".** Owner's observation on the console: the mirror monolith showed
+  a single uniform patch of the env map per face while the spheres "reflect
+  like RTX ON" - inherent to matcap math (UV comes from the normal; a flat
+  face has ONE normal -> one sample stretched across it). New per-material
+  **Rounded normals** checkbox (Material Editor > Reflection; stored as the
+  TyraX `-rounded` flag in the `refl` statement, placed before the filename
+  so last-token parsers stay compatible): the env pass swaps the captured
+  face normals for directions radiating from the part centroid
+  (`normalize(vertex - centroid)`, recomputed at geometry rebuild), so every
+  corner of a flat face gets a different UV and the face sweeps a gradient
+  of the map that pans with the camera - the curved-lacquer look. Spheres
+  are unchanged by construction (their true normals are already radial);
+  lighting/geometry untouched; zero runtime cost (different data in the env
+  ST slot). Full chain: both .mtl parsers (LeanObjLoader + objparser),
+  MatEd UI + writer + import rewrite (option tokens before the filename
+  already survive), viewport GLSL twin (`uReflRounded`/`uReflCenter`,
+  world-space part centroid), codegen rebuild override. The showcase's
+  `chrome-dyn` material flipped to rounded (the monolith demos it; the
+  chrome-live spheres share the material - no visual change for them).
+  **Verified** (Layer 3, PCSX2 SW renderer): the monolith face sweeps the
+  sunset gradient AND shows the reflected prop instead of one flat patch;
+  spheres identical; no TYRA banners; editor GUI opens the showcase and the
+  viewport twin shows the same gradient on the monolith (GUI screenshot).
 - (111) **Real-hardware follow-ups: the 2D ALPHA leak (vanishing HUD font
   outline) + GT3-cadence env map (95 -> 107 FPS).** The owner's console run
   of the reflections showcase surfaced two things. (1) The debug HUD font

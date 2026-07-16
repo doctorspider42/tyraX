@@ -580,6 +580,8 @@ private:
         std::string refl;           // refl sphere map, relative to the .mtl dir
                                     // ("" = not reflective)
         float reflStrength = 0.5f;  // refl -mm gain operand, 0..1
+        bool reflRounded = false;   // refl -rounded: centroid-radial env
+                                    // normals (flat faces get a gradient)
         std::vector<std::string> extra;  // unrecognized lines, preserved verbatim
     };
     std::vector<MatEdEntry> matEdMats_;

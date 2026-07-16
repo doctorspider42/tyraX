@@ -9946,6 +9946,8 @@ bool App::loadMaterialFile(const std::string& relPath) {
                         std::istringstream(toks[i + 2]) >> e.reflStrength;
                         break;
                     }
+                for (size_t i = 0; i + 1 < toks.size(); ++i)
+                    if (toks[i] == "-rounded") e.reflRounded = true;
                 if (e.reflStrength <= 0.0f) e.reflStrength = 0.5f;
             }
         } else if (tag == "#") {
@@ -10024,10 +10026,14 @@ void App::saveMaterialFile() {
         }
         if (!e.refl.empty()) {
             // Spherical environment map; the standard -mm option's gain
-            // operand carries the reflection strength (see the PS2 loader).
+            // operand carries the reflection strength (see the PS2 loader);
+            // the TyraX -rounded flag rides before the filename so parsers
+            // that take the last token as the file stay compatible.
             std::snprintf(buf, sizeof(buf), "refl -type sphere -mm 0 %.4g ",
                           e.reflStrength);
-            out << buf << e.refl << "\n";
+            out << buf;
+            if (e.reflRounded) out << "-rounded ";
+            out << e.refl << "\n";
         }
         for (const std::string& x : e.extra) out << x << "\n";
         out << "\n";
@@ -10995,6 +11001,14 @@ void App::drawMaterialEditorWindow() {
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("How much of the sphere map is added on top.\n"
                                   "1.0 = full chrome.");
+            committed |= ImGui::Checkbox("Rounded normals", &e.reflRounded);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Reflection UVs from normals radiating out of the object's\n"
+                    "center instead of the real face normals. A flat face shows\n"
+                    "a gradient of the map (curved-lacquer look) instead of one\n"
+                    "uniform sample - flat walls of boxes/monoliths reflect like\n"
+                    "the spheres do. Curved shapes barely change.");
         }
     }
 
@@ -11316,6 +11330,7 @@ void App::drawMaterialEditorWindow() {
         desc.reflRel = reflRel;
         desc.reflStrength = sel.refl.empty() ? 0.0f : sel.reflStrength;
         desc.reflSky = reflSky;
+        desc.reflRounded = sel.reflRounded;
         desc.shape = matEdShape_;
         desc.modelRel = matEdModel_;
         desc.mtlRel = matEdPath_;

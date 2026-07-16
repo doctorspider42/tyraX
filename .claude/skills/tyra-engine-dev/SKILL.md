@@ -80,7 +80,8 @@ setup/teardown + DMA kick), WAV-header-aware song
 player, `bboxVersion` on `StaPipBag` for moving geometry, `LeanObjLoader`
 (OBJ+MTL, host:/cdrom0:-safe; parsing semantics mirror the editor's
 `src/objparser.cpp` — keep the two in sync; parses the `refl` sphere-map
-statement for reflective materials), per-bag additive blending for the
+statement for reflective materials incl. the TyraX `-rounded` flag:
+centroid-radial env normals for flat surfaces), per-bag additive blending for the
 reflective-material env pass (`PipelineInfoBag::additiveBlendFix` — non-zero
 makes `StaPipCore::render` drain PATH1 via `sync.align3D()` and switch the
 global GS `ALPHA` register to `Cs*FIX/128 + Cd` through

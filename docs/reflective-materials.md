@@ -29,6 +29,27 @@ Any object using the material — primitives via *Material*, `.obj` models via
 their own or an override `.mtl` — gets the reflection pass. Materials without
 `refl` are unaffected.
 
+### Rounded normals (flat surfaces)
+
+Matcap UVs come from the surface normal, so a **flat face has one normal →
+one sample of the map stretched across the whole face** — a box reflects as
+six uniform patches while a sphere sweeps the entire map. Tick **Rounded
+normals** in the Reflection section (stored as the TyraX `-rounded` flag,
+placed before the filename so last-token parsers stay compatible):
+
+```
+refl -type sphere -mm 0 0.9 -rounded @sky
+```
+
+The env pass then uses normals **radiating from the part's centroid**
+(`normalize(vertex − centroid)`, recomputed at geometry rebuild) instead of
+the face normals: every corner of a flat face gets a different UV and the
+face sweeps a gradient of the map that pans with the camera — the
+curved-lacquer look flat walls and monoliths need. Spheres are unchanged by
+construction (their real normals are already radial); base lighting and
+geometry are untouched. Zero runtime cost — it is just different data in the
+env bag's ST slot.
+
 ### Dynamic mode (GT3 style)
 
 Pick **`<dynamic - live sky>`** as the sphere map instead of a PNG (stored as
