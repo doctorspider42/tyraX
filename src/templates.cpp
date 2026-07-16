@@ -1171,6 +1171,11 @@ int g_stickCurveR = 0;
 float g_stickExpL = 2.0F;
 float g_stickExpR = 2.0F;
 
+// Pad vibration auto-stop: > 0 counts down (real seconds, g_frameDt) to a
+// setActuators(false, 0), armed by a Vibrate Pad request with Seconds > 0.
+// Global runtime state - a running countdown survives a scene switch.
+float g_rumbleTimer = 0.0F;
+
 // Last option index a "Display mode" / "Widescreen" menu block applied. Video
 // switches rebuild VRAM + arm the confirm prompt, so they fire only on change
 // (seeded from the saved option in buildScene so a persisted choice does not
@@ -2207,6 +2212,24 @@ void TerrainGame::loop() {
   if (scriptCtx.stickExpR >= 1.0F) {
     g_stickExpR = scriptCtx.stickExpR;
     scriptCtx.stickExpR = -1.0F;
+  }
+  // Pad vibration (Vibrate Pad flow node / padVibrate() in scripts): a
+  // request drives the DualShock actuators; rumbleSec > 0 arms the auto-stop
+  // countdown (0 = vibrate until the next request). The countdown runs even
+  // while a menu pauses the scripts, so a timed rumble always ends.
+  if (scriptCtx.rumble >= 0) {
+    engine->pad.setActuators(scriptCtx.rumbleSmall != 0, (u8)scriptCtx.rumble);
+    g_rumbleTimer = (scriptCtx.rumble > 0 || scriptCtx.rumbleSmall != 0)
+                        ? scriptCtx.rumbleSec
+                        : 0.0F;
+    scriptCtx.rumble = -1;
+  }
+  if (g_rumbleTimer > 0.0F) {
+    g_rumbleTimer -= g_frameDt;
+    if (g_rumbleTimer <= 0.0F) {
+      g_rumbleTimer = 0.0F;
+      engine->pad.setActuators(false, 0);
+    }
   }
   // Cutscene camera override: a Cutscene Director sequence with a camera track
   // drives the frame camera (Play/Stop Sequence). Applied after scripts so the
@@ -5997,6 +6020,24 @@ void TerrainGame::loop() {
     g_stickExpR = scriptCtx.stickExpR;
     scriptCtx.stickExpR = -1.0F;
   }
+  // Pad vibration (Vibrate Pad flow node / padVibrate() in scripts): a
+  // request drives the DualShock actuators; rumbleSec > 0 arms the auto-stop
+  // countdown (0 = vibrate until the next request). The countdown runs even
+  // while a menu pauses the scripts, so a timed rumble always ends.
+  if (scriptCtx.rumble >= 0) {
+    engine->pad.setActuators(scriptCtx.rumbleSmall != 0, (u8)scriptCtx.rumble);
+    g_rumbleTimer = (scriptCtx.rumble > 0 || scriptCtx.rumbleSmall != 0)
+                        ? scriptCtx.rumbleSec
+                        : 0.0F;
+    scriptCtx.rumble = -1;
+  }
+  if (g_rumbleTimer > 0.0F) {
+    g_rumbleTimer -= g_frameDt;
+    if (g_rumbleTimer <= 0.0F) {
+      g_rumbleTimer = 0.0F;
+      engine->pad.setActuators(false, 0);
+    }
+  }
   // Cutscene camera override: a Cutscene Director sequence with a camera track
   // drives the frame camera (Play/Stop Sequence). Applied after scripts so the
   // sequence player (a global Script) has posed the camera for this frame.
@@ -6793,6 +6834,15 @@ struct ScriptContext {
   float stickExpL = -1.0F;
   float stickExpR = -1.0F;
 
+  // Pad vibration (Vibrate Pad flow node / padVibrate() below). rumble: -1 =
+  // leave, else the DualShock big-motor power 0..255 (0 = off); rumbleSmall:
+  // the on/off buzz motor. rumbleSec > 0 auto-stops the vibration after that
+  // many seconds, 0 = vibrate until the next request. The game applies the
+  // request to the pad actuators and resets rumble to -1.
+  int rumble = -1;
+  int rumbleSmall = 0;
+  float rumbleSec = 0.0F;
+
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes).
   // requestDisplayMode: -1 = leave, else a Tyra::DisplayMode value (0 =
   // interlaced, 1 = progressive 480p, 2 = 1080i). displayConfirmSec > 0
@@ -6910,6 +6960,17 @@ inline void playAnimation(ScriptContext& ctx, int objectIndex,
 inline void stopAnimation(ScriptContext& ctx, int objectIndex) {
   if (objectIndex < 0 || objectIndex >= ctx.objectCount) return;
   ctx.objects[objectIndex].animPlaying = false;
+}
+
+/** Vibrates the DualShock pad: big = heavy-motor strength 0..1, small = the
+ * on/off buzz motor. seconds > 0 auto-stops after that long, 0 = vibrate
+ * until the next call. padVibrate(ctx, 0.0F) stops immediately. */
+inline void padVibrate(ScriptContext& ctx, float big, bool small = false,
+                       float seconds = 0.0F) {
+  const int power = (int)(big * 255.0F + 0.5F);
+  ctx.rumble = power < 0 ? 0 : power > 255 ? 255 : power;
+  ctx.rumbleSmall = small ? 1 : 0;
+  ctx.rumbleSec = seconds < 0.0F ? 0.0F : seconds;
 }
 
 /** True the frame an object's clip reached its last frame (one-shots: once;
@@ -9548,6 +9609,17 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                     c << pad << "ctx.stickCurveR = " << curve << ";\n";
                     c << pad << "ctx.stickExpR = " << floatLit(e) << ";\n";
                 }
+            } else if (n.type == "VibratePad") {
+                // Big: heavy motor 0..1 -> 0..255. Small: on/off buzz motor.
+                // Seconds > 0 auto-stops (0 = until the next Vibrate Pad).
+                float big = n.num[0] < 0.0f ? 0.0f : n.num[0] > 1.0f ? 1.0f
+                                                                     : n.num[0];
+                float secs = n.num[2] < 0.0f ? 0.0f : n.num[2];
+                c << pad << "ctx.rumble = " << (int)(big * 255.0f + 0.5f)
+                  << ";\n";
+                c << pad << "ctx.rumbleSmall = "
+                  << (n.num[1] != 0.0f ? 1 : 0) << ";\n";
+                c << pad << "ctx.rumbleSec = " << floatLit(secs) << ";\n";
             } else if (n.type == "SetDisplayMode") {
                 int mode = (int)n.num[0];
                 mode = mode < 0 ? 0 : mode > 2 ? 2 : mode;

@@ -226,6 +226,11 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // low-sensitivity curve, or an options menu offering response presets.
         {"SetStickCurve", "Set Stick Curve", "Player", false, FlowParamKind::None, 3,
          {"Stick", "Curve", "Exponent"}, FlowParamKind::None, false, false},
+        // Vibrates the DualShock pad: Big = heavy-motor strength 0..1, Small
+        // = the on/off buzz motor, Seconds > 0 auto-stops after that long
+        // (0 = vibrate until the next Vibrate Pad). Big 0 + Small off stops.
+        {"VibratePad", "Vibrate Pad", "Player", false, FlowParamKind::None, 3,
+         {"Big", "Small", "Seconds"}, FlowParamKind::None, false, false},
         // Scene
         {"SetSky", "Set Sky Color", "Scene", false, FlowParamKind::None, 3, {},
          FlowParamKind::Color, false, false},
