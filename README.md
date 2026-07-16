@@ -147,6 +147,7 @@ All example projects live under [examples/](examples): a general playground, a l
 - [examples/custom-nodes](examples/custom-nodes) — [custom flow-graph nodes](docs/custom-flow-nodes.md): press Cross and a C++-backed node picks the nearest crate at runtime and feeds it to a built-in Hide Object; press Square and an inline-snippet node spins a crate (see its [README](examples/custom-nodes/README.md)).
 - [examples/large-terrain](examples/large-terrain) — a 2048×2048 world that never fits in 32 MB at once, kept playable by chunked view-distance terrain streaming, ~1100 draw-distance-culled props and 80 skeletal-animated "wobblers" that stress the [animation/mesh LOD chain](docs/animated-models.md); ships in the debug profile so the on-screen FPS/MEM overlay is visible (see its [README](examples/large-terrain/README.md)).
 - [examples/object-spawning](examples/object-spawning) — runtime object spawning driven entirely from a flow graph: **Spawn Object** clones an animated template at a marker on a timer and its object output feeds a **Despawn Object** that removes exactly that clone after a delay — the missing piece for GTA-style traffic (see its [README](examples/object-spawning/README.md)).
+- [examples/mirror-room](examples/mirror-room) — a working **Mirror object**: a wall built around an opening, the glass filling it, and the room's props + walls + **the third-person avatar** reflecting live on the other side — walk behind the wall to see the PS2-era trick from backstage (see its [README](examples/mirror-room/README.md)).
 
 ## Documentation
 

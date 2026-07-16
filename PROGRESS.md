@@ -9,6 +9,22 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (105) **examples/mirror-room — the Mirror object demo.** A committed example
+  for (104): a gray wall built in three pieces **around an opening**, a Mirror
+  filling the opening, crate/ball/pillar props, and a third-person wobbler
+  player with **Reflect player** on. The wall pieces are themselves on the
+  mirror's list, so the glass shows a furnished room, and the README spells
+  out the load-bearing detail (a solid wall behind the glass would z-occlude
+  the copies — the opening IS the mirror). The terrain needs no list entry:
+  it extends behind the wall and doubles as the mirror room's floor.
+  **Verified:** authored inline, `--resave`d to the split layout, built in
+  Docker and booted in PCSX2 (software renderer) from a short-path copy —
+  props, walls and **the live avatar** all reflect through the opening at a
+  locked 50 FPS, no asserts in `bin/log.txt`; the verified project was then
+  copied into `examples/` minus the gitignored build outputs. This is also
+  the first in-PCSX2 proof of the Reflect-player path (a real `.glb` avatar
+  reflecting its live pose).
+
 - (104) **Mirror objects — the PS2-era mirror as a scene object type.**
   `PrimitiveType::Mirror` (15): a rectangle (the decal quad, +Z face) that
   fakes a real mirror by **physically drawing its listed objects a second
