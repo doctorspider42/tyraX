@@ -212,21 +212,30 @@ it silently misses the second identical run's error.) `EditorConfig::errorPopup`
 (default on) gates the dialog; off = errors go only to the Debug window / console.
 
 **Live Link** (`App::liveLinkTick`, called each frame from `drawUI`; docs in
-`docs/live-link.md`): with the **debug** build profile, the editor streams
-object transform/color edits into the running game by rewriting
-`bin/livelink.bin` (atomic tmp→rename; `TXLL` header + 12 floats/object +
-seq-echo footer), which the generated `src/scripts/live_link.gen.cpp`
-(`templates::liveLinkScript`; empty TU in release) polls over host: — the
-same file channel both PCSX2 and ps2link already serve assets through.
-Consistency is guarded by `project::liveLinkSignature` (project.cpp): the
-Runner stamps it into `bin/livelink.sig` at build start (and deletes stale
-`livelink.bin`); the editor writes only while the live project hashes the
-same, else the toolbar indicator flips from green LIVE to amber
-LIVE (rebuild). **If you add a build-time-baked object property** (like point
-lights / projected decals, both already covered), add its fields to
-`liveLinkSignature` too, or Live Link will silently not show that edit while
-claiming LIVE. The editor.ini master switch is `liveLink`
-(`EditorConfig`/Build menu).
+`docs/live-link.md`): with the **debug** build profile and the
+`ProjectSettings::liveLink` preference on (default; toggled by the toolbar
+LIVE chip, *Build > Live Link* and *Preferences > Build*), the editor streams
+scene edits into the running game by rewriting `bin/livelink.bin` (atomic
+tmp→rename; `TXLL` v2 header + one 64-byte record per object + seq-echo
+footer), which the generated `src/scripts/live_link.gen.cpp`
+(`templates::liveLinkScript`; empty TU in release or with the preference off)
+polls over host: — the same file channel both PCSX2 and ps2link already serve
+assets through. Records address objects by `project::liveLinkIdHash` (baked
+as `SCENE_*_OBJECT_ID_HASHES` in scene_data.hpp), so renames/reorders are
+safe, newly added objects are **live-spawned** from an equal-recipe template
+via the runtime spawn pool, and deleted ones are hidden. Consistency is
+guarded by the as-built record `bin/livelink.sig`
+(`project::liveLinkSigFile`: per-object id + `liveLinkRecipeHash` + a context
+hash, stamped by the Runner at build start, which also deletes stale
+`livelink.bin`); recipe drift / unspawnable new objects
+(`liveLinkCanSpawnLive`: baked lights, projecting decals, mirrors, objects
+with graphs/scripts) flip the chip from green LIVE to amber LIVE (rebuild)
+and stop writes. **If you add an object property**, decide where it belongs:
+build-time-baked or clone-relevant fields go into `liveLinkRecipeHash` (and
+new unspawnable categories into `liveLinkCanSpawnLive`), or Live Link will
+silently not show that edit while claiming LIVE. The snapshot seq is seeded
+from the clock at attach — a restarted editor must never reuse a seq the
+still-running game already applied.
 
 ### 4. Conventions
 - Files: `snake_case.cpp/.hpp`, paired header/impl, flat `src/`.

@@ -825,29 +825,43 @@ private:
     void drawErrorModal();
 
     // Live Link: mirrors scene edits into the running game without a rebuild.
-    // Debug-profile builds compile a poller (live_link.gen.cpp) that re-reads
-    // bin/livelink.bin over host: - the same file channel PCSX2's Host
-    // Filesystem and the ps2link file server already serve assets through, so
-    // one mechanism covers the emulator AND a real console. liveLinkTick()
-    // (each frame from drawUI, self-throttled to ~10 Hz) snapshots the active
-    // scene's live-patchable state (object transforms + colors), and writes it
+    // Debug-profile builds with the project's "Live Link" preference on
+    // compile a poller (live_link.gen.cpp) that re-reads bin/livelink.bin over
+    // host: - the same file channel PCSX2's Host Filesystem and the ps2link
+    // file server already serve assets through, so one mechanism covers the
+    // emulator AND a real console. liveLinkTick() (each frame from drawUI,
+    // self-throttled to ~10 Hz) snapshots the active scene - one 64-byte
+    // record per object, addressed by project::liveLinkIdHash - and writes it
     // atomically (tmp + rename) with a bumped sequence number whenever it
-    // changed - a gizmo drag streams to the console as it happens. Snapshots
-    // flow only while project::liveLinkSignature still equals bin/livelink.sig
-    // (stamped by the Runner at build start): a structural edit (add/delete
-    // object, model/material change...) would shift indices or need re-baking,
-    // so the toolbar flips to "rebuild" instead of mis-patching.
+    // changed; a gizmo drag streams to the console as it happens. The game
+    // patches matching objects, SPAWNS newly added ones (each record carries
+    // the as-built index of an equal-recipe template to clone) and hides ones
+    // missing from the snapshot (deleted; undo restores). Streaming happens
+    // only while the live project is representable against bin/livelink.sig
+    // (the as-built record the Runner stamps at build start, parsed into
+    // liveLinkBuilt_): a changed recipe on a built object, a new object with
+    // no template (or carrying logic / baked lights / projected decals /
+    // mirrors), or layer-table drift flips the toolbar chip to "rebuild"
+    // instead of mis-patching. The chip doubles as the on/off switch for the
+    // project preference (also in Build > Live Link and Preferences > Build).
     enum class LiveLinkState {
-        Off,           // disabled, no project, or release build profile
+        Off,           // preference off, no project, or release build profile
         NoBuild,       // no bin/livelink.sig yet - run a debug build first
         Live,          // streaming; toolbar shows the green LIVE dot
-        RebuildNeeded  // structure signature drifted - F5 to resync
+        RebuildNeeded  // the session can't represent the edit - F5 to resync
+    };
+    // bin/livelink.sig parsed: per scene the as-built (idHash, recipeHash)
+    // list in authored order (line position = the spawn-template index the
+    // records reference), plus the cross-object context hash.
+    struct LiveLinkBuilt {
+        bool loaded = false;
+        uint64_t ctxHash = 0;
+        std::vector<std::vector<std::pair<uint64_t, uint64_t>>> scenes;
     };
     LiveLinkState liveLinkState_ = LiveLinkState::Off;
-    bool liveLinkEnabled_ = true;      // editor.ini master switch (Build menu)
+    LiveLinkBuilt liveLinkBuilt_;
     uint32_t liveLinkSeq_ = 0;         // last written sequence number
     std::vector<unsigned char> liveLinkLastPayload_;  // last written body
-    std::string liveLinkBuiltSig_;     // cached bin/livelink.sig content
     double liveLinkSigNextRead_ = 0.0; // ImGui::GetTime() gate for sig re-read
     double liveLinkNextTick_ = 0.0;    // ImGui::GetTime() gate for the ticker
     void liveLinkTick();

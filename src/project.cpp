@@ -615,6 +615,8 @@ std::string save(const Project& p) {
          << ",\n"
          << "    \"showProfiler\": "
          << (p.settings.showProfiler ? "true" : "false") << ",\n"
+         << "    \"liveLink\": " << (p.settings.liveLink ? "true" : "false")
+         << ",\n"
          << "    \"disableVsync\": "
          << (p.settings.disableVsync ? "true" : "false") << ",\n"
          << "    \"clipping\": \"" << p.settings.clipping << "\",\n"
@@ -1547,6 +1549,7 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = s->find("showMemory")) st.showMemory = v->boolOr(false);
         if (const auto* v = s->find("showProfiler"))
             st.showProfiler = v->boolOr(false);
+        if (const auto* v = s->find("liveLink")) st.liveLink = v->boolOr(true);
         if (const auto* v = s->find("disableVsync"))
             st.disableVsync = v->boolOr(false);
         if (const auto* v = s->find("clipping")) {
@@ -2446,56 +2449,153 @@ std::string loadHistory(const Project& p, History& h) {
     return "";
 }
 
-std::string liveLinkSignature(const Project& p) {
-    // FNV-1a 64 (same recipe as App::updateProjectedDecals' signature).
-    uint64_t sig = 1469598103934665603ull;
-    auto mix = [&](uint64_t v) { sig = (sig ^ v) * 1099511628211ull; };
-    auto mixS = [&](const std::string& s) {
-        for (unsigned char c : s) mix(c);
-        mix(0xFF);  // terminator so {"ab",""} != {"a","b"}
-    };
-    auto mixF = [&](float f) {
-        uint32_t b;
-        std::memcpy(&b, &f, sizeof(b));
-        mix(b);
-    };
-    auto mix3 = [&](const float* v) { mixF(v[0]), mixF(v[1]), mixF(v[2]); };
+// --- Live Link hashing (see docs/live-link.md) -------------------------------
+// FNV-1a 64 primitives (same recipe as App::updateProjectedDecals' signature).
+namespace {
+constexpr uint64_t kFnvSeed = 1469598103934665603ull;
+constexpr uint64_t kFnvPrime = 1099511628211ull;
+inline void fnvMix(uint64_t& h, uint64_t v) { h = (h ^ v) * kFnvPrime; }
+inline void fnvMixS(uint64_t& h, const std::string& s) {
+    for (unsigned char c : s) fnvMix(h, c);
+    fnvMix(h, 0xFF);  // terminator so {"ab",""} != {"a","b"}
+}
+inline void fnvMixF(uint64_t& h, float f) {
+    uint32_t b;
+    std::memcpy(&b, &f, sizeof(b));
+    fnvMix(h, b);
+}
+inline void fnvMix3(uint64_t& h, const float* v) {
+    fnvMixF(h, v[0]), fnvMixF(h, v[1]), fnvMixF(h, v[2]);
+}
+}  // namespace
 
-    mix(p.scenes.size());
+uint64_t liveLinkIdHash(const SceneObject& o) {
+    uint64_t h = kFnvSeed;
+    fnvMixS(h, o.id.empty() ? o.name : o.id);
+    return h;
+}
+
+uint64_t liveLinkRecipeHash(const SceneObject& o) {
+    // Everything a live patch CANNOT change and a spawned clone copies from
+    // its template - i.e. all of SceneObject except identity (id/name), the
+    // live-patched transform + color, and the per-object logic (flow graph /
+    // scripts are compiled per authored object; liveLinkCanSpawnLive refuses
+    // objects that carry any). Two objects with equal recipes are
+    // interchangeable as spawn templates.
+    uint64_t h = kFnvSeed;
+    fnvMix(h, (uint64_t)o.type);
+    fnvMix(h, (o.physics ? 1 : 0) | (o.usable ? 2 : 0) | (o.saveState ? 4 : 0) |
+                  (o.decalProject ? 8 : 0));
+    fnvMix(h, (uint64_t)o.collisionMode);
+    fnvMixS(h, o.layer);
+    fnvMix(h, (uint64_t)o.primDetail);
+    fnvMixF(h, o.drawDistance);
+    fnvMixS(h, o.modelPath);
+    fnvMixS(h, o.materialPath);
+    // Player entity tunables (markers in the world, but baked per scene).
+    fnvMix(h, (uint64_t)o.playerMode);
+    fnvMixF(h, o.playerWalkSpeed), fnvMixF(h, o.playerLookSpeed);
+    fnvMixF(h, o.playerEyeHeight), fnvMixF(h, o.playerJumpSpeed);
+    fnvMix(h, o.playerCanJump ? 1 : 0);
+    fnvMixS(h, o.playerIdleClip), fnvMixS(h, o.playerWalkClip);
+    fnvMixS(h, o.playerRunClip), fnvMixS(h, o.playerJumpClip);
+    fnvMixF(h, o.playerRunThreshold);
+    fnvMixF(h, o.playerCamDist), fnvMixF(h, o.playerCamHeight);
+    fnvMixF(h, o.playerCamShoulder), fnvMixF(h, o.playerTurnRate);
+    fnvMix(h, o.flashlightEnabled ? 1 : 0);
+    fnvMix3(h, o.flashlightColor);
+    fnvMixF(h, o.flashlightRange), fnvMixF(h, o.flashlightAngle);
+    fnvMixS(h, o.flashlightToggleButton);
+    fnvMix(h, (uint64_t)o.emitterKind);
+    fnvMix(h, (uint64_t)o.emitterCount);
+    fnvMixF(h, o.emitterSize);
+    fnvMix(h, (o.emitterEnabled ? 1 : 0) | (o.emitterFollowPlayer ? 2 : 0) |
+                  (o.emitterDieOnGround ? 4 : 0));
+    fnvMixF(h, o.emitterSpeed), fnvMixF(h, o.emitterSpread);
+    fnvMixF(h, o.emitterGravity), fnvMixF(h, o.emitterWeight);
+    fnvMixF(h, o.emitterLife), fnvMixF(h, o.emitterGrow);
+    fnvMixF(h, o.emitterOpacity);
+    fnvMixS(h, o.soundPath);
+    fnvMix(h, (o.soundAuto ? 1 : 0) | (o.soundOnPlayer ? 2 : 0));
+    fnvMixF(h, o.soundRange), fnvMixF(h, o.soundInterval);
+    fnvMixF(h, o.cameraFov);
+    fnvMixS(h, o.animClip);
+    fnvMix(h, (o.animAutoplay ? 1 : 0) | (o.animLoop ? 2 : 0));
+    fnvMixF(h, o.animSpeed);
+    // Mirror parameters live in a baked side table (MIRRORS/MIRROR_TARGETS).
+    for (const auto& n : o.mirrorObjects) fnvMixS(h, n);
+    fnvMix(h, o.mirrorReflectPlayer ? 1 : 0);
+    fnvMixF(h, o.mirrorOpacity);
+    // Build-time-baked transforms: a projected decal's transform IS the
+    // projector, a point light's pose/color/falloff is baked into nearby
+    // vertex colors. Folding them into the recipe makes any live edit of
+    // these objects read as "rebuild needed" instead of silently no-op.
+    if (o.type == PrimitiveType::Decal && o.decalProject) {
+        fnvMix3(h, o.position), fnvMix3(h, o.rotation), fnvMix3(h, o.scale);
+    }
+    if (o.type == PrimitiveType::PointLight) {
+        fnvMix3(h, o.position), fnvMix3(h, o.color);
+        fnvMixF(h, o.lightBright), fnvMixF(h, o.lightRadius);
+    }
+    return h;
+}
+
+bool liveLinkCanSpawnLive(const SceneObject& o) {
+    // Objects a live session may instantiate through the runtime spawn pool
+    // (given a matching template). The exceptions rely on build-time baking
+    // or per-authored-object codegen, so a live-spawned instance would be a
+    // silent dud: point lights (vertex-color bake), projecting decals (host
+    // projection bake), mirrors (baked MIRRORS side table), and anything
+    // carrying per-object logic (flow graphs / attached scripts are compiled
+    // for authored objects only).
+    if (o.type == PrimitiveType::PointLight) return false;
+    if (o.type == PrimitiveType::Decal && o.decalProject) return false;
+    if (o.type == PrimitiveType::Mirror) return false;
+    if (!o.flowGraph.nodes.empty() || !o.scripts.empty()) return false;
+    return true;
+}
+
+uint64_t liveLinkContextHash(const Project& p) {
+    // Cross-object structure a live session cannot absorb: scene list shape
+    // and the baked streaming-layer tables (indices + zones).
+    uint64_t h = kFnvSeed;
+    fnvMix(h, p.scenes.size());
     for (const SceneData& sc : p.scenes) {
-        mix(0x5C);  // scene separator
-        mix(sc.objects.size());
-        // Layer *tables* are baked (indices + zones); object membership too.
+        fnvMix(h, 0x5C);  // scene separator
+        fnvMix(h, sc.layers.size());
         for (const auto& l : sc.layers) {
-            mixS(l.name);
-            mix(l.startLoaded ? 1 : 0);
-            mix(l.autoStream ? 1 : 0);
-            mixF(l.streamX), mixF(l.streamZ), mixF(l.streamRadius);
-        }
-        for (const SceneObject& o : sc.objects) {
-            mixS(o.id.empty() ? o.name : o.id);
-            mix((uint64_t)o.type);
-            mixS(o.modelPath);
-            mixS(o.materialPath);
-            mix((uint64_t)o.primDetail);
-            mixS(o.layer);
-            // Projected decals are clipped/baked on the host at build time -
-            // their transform IS the projector, so moving one needs a build.
-            if (o.type == PrimitiveType::Decal && o.decalProject) {
-                mix3(o.position), mix3(o.rotation), mix3(o.scale);
-            }
-            // Point lights are baked into nearby vertex colors at build time;
-            // any change to one is invisible until rebuilt.
-            if (o.type == PrimitiveType::PointLight) {
-                mix3(o.position), mix3(o.color);
-                mixF(o.lightBright), mixF(o.lightRadius);
-            }
+            fnvMixS(h, l.name);
+            fnvMix(h, (l.startLoaded ? 1 : 0) | (l.autoStream ? 2 : 0));
+            fnvMixF(h, l.streamX), fnvMixF(h, l.streamZ);
+            fnvMixF(h, l.streamRadius);
         }
     }
+    return h;
+}
 
+std::string liveLinkSigFile(const Project& p) {
+    // The as-built structure record the editor checks live edits against
+    // (bin/livelink.sig, stamped by the Runner at build start). Text, one
+    // token pair per authored object IN BUILT ORDER - the editor derives
+    // spawn-template indices from the line positions.
+    std::ostringstream out;
+    out << "2\n";  // format version (matches LL_VERSION in live_link.gen.cpp)
     char buf[17];
-    std::snprintf(buf, sizeof(buf), "%016llx", (unsigned long long)sig);
-    return buf;
+    std::snprintf(buf, sizeof(buf), "%016llx",
+                  (unsigned long long)liveLinkContextHash(p));
+    out << "ctx " << buf << "\n";
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        out << "scene " << si << "\n";
+        for (const SceneObject& o : p.scenes[si].objects) {
+            std::snprintf(buf, sizeof(buf), "%016llx",
+                          (unsigned long long)liveLinkIdHash(o));
+            out << buf;
+            std::snprintf(buf, sizeof(buf), "%016llx",
+                          (unsigned long long)liveLinkRecipeHash(o));
+            out << " " << buf << "\n";
+        }
+    }
+    return out.str();
 }
 
 std::string refreshGenerated(const Project& p) {

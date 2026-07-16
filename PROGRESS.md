@@ -9,6 +9,43 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (107) **Live Link v2 — per-project on/off + live add/delete of objects.**
+  Two follow-ups to (106). First, the on/off is now a **project setting**
+  (`ProjectSettings::liveLink`, default on; *Project > Preferences > Build*,
+  *Build > Live Link*, and the toolbar **LIVE chip itself is the switch** —
+  click to toggle): off = `live_link.gen.cpp` is an empty TU even in debug
+  builds and the Runner deletes `livelink.sig`, so the game carries no poller
+  at all for anyone who doesn't want debug builds patched from outside (the
+  short-lived editor.ini flag from (106) is gone — the setting travels with
+  the `.tyra`). The chip is always visible in the debug profile with four
+  states: gray "LIVE off", dim "LIVE (build)" (no poller-capable build yet),
+  green "LIVE", amber "LIVE (rebuild)". Second, the protocol moved from
+  index-addressed to **id-addressed records** (v2: 64 B per object = FNV-1a 64
+  of the editor object id + a spawn-template index + the 12 live floats;
+  `SCENE_*_OBJECT_ID_HASHES` tables baked into scene_data.hpp, binary-searched
+  on the EE), which buys: renames/reorders are non-events, **adding an object
+  live works** — the game clones an equal-recipe authored template through the
+  existing runtime spawn pool (`ctx.spawnObject`, ≤32 clones) and patches the
+  clone — and **deleting live hides** the object (undo restores; spawned
+  clones despawn). `bin/livelink.sig` became an as-built record (per-object
+  id + recipe hash in built order + a context hash) the editor evaluates
+  per tick: recipe drift on a built object, a new object with no template or
+  one that can't be faithfully spawned (point lights / projecting decals /
+  mirrors / objects carrying flow graphs or scripts), or layer-table changes
+  → amber chip, zero writes. Trap fixed along the way: the editor seeds its
+  snapshot sequence from the clock at project attach — a restarted editor
+  starting again at seq=1 collided with the previous session's seq=1 that the
+  still-running game remembered, and the (different) snapshot was deduped
+  away. **Verified in PCSX2 (SW renderer, 50 FPS steady):** live ADD — a
+  box added to the project files spawned in the running game via template
+  index 1 and took its own color/rotation; live DELETE — removing the pillar
+  from the manifest hid it in the running game while the spawned box
+  survived; all four chip states screenshotted (off/build/live/rebuild);
+  recipe change (box detail 1→4) flipped amber with `livelink.bin` untouched;
+  `liveLink: false` build emitted the stub TU and removed the sig. All nine
+  examples regenerated/rebuilt clean in Docker. Real-PS2 pass still pending
+  (as in (106)).
+
 - (106) **Live Link — edit the running game.** Scene edits (object position /
   rotation / scale / color) stream into the running game with **no rebuild**:
   drag a gizmo in the editor and the box slides across the PS2 screen. No

@@ -5,7 +5,9 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <ctime>
 
 #include <filesystem>
 #include <fstream>
@@ -80,10 +82,6 @@ struct EditorConfig {
     // Parent folder proposed as the location for new projects. Empty = fall
     // back to ~/TyraProjects.
     std::string defaultProjectsDir;
-    // Live Link (Build menu): mirror scene edits into the running game by
-    // writing bin/livelink.bin snapshots the (debug-profile) game polls over
-    // host:. Editor-side master switch; costs nothing while no game runs.
-    bool liveLink = true;
 };
 
 static std::filesystem::path editorConfigPath() {
@@ -123,7 +121,6 @@ static EditorConfig loadEditorConfig() {
         else if (match("ps2LinkIp", v)) cfg.ps2LinkIp = v;
         else if (match("errorPopup", v)) cfg.errorPopup = toI(v, 1) != 0;
         else if (match("defaultProjectsDir", v)) cfg.defaultProjectsDir = v;
-        else if (match("liveLink", v)) cfg.liveLink = toI(v, 1) != 0;
     }
     return cfg;
 }
@@ -148,8 +145,7 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "emulatorPath=" << cfg.emulatorPath << "\n"
       << "ps2LinkIp=" << cfg.ps2LinkIp << "\n"
       << "errorPopup=" << (cfg.errorPopup ? 1 : 0) << "\n"
-      << "defaultProjectsDir=" << cfg.defaultProjectsDir << "\n"
-      << "liveLink=" << (cfg.liveLink ? 1 : 0) << "\n";
+      << "defaultProjectsDir=" << cfg.defaultProjectsDir << "\n";
 }
 
 // Default parent directory proposed for new projects: the configured global
@@ -357,7 +353,6 @@ int App::run(const std::string& initialProjectDir) {
         globalPs2Ip_ = cfg.ps2LinkIp;
         errorPopupEnabled_ = cfg.errorPopup;
         globalDefaultProjectsDir_ = cfg.defaultProjectsDir;
-        liveLinkEnabled_ = cfg.liveLink;
     }
     applyUiScale();
 
@@ -612,8 +607,7 @@ void App::applyUiScale() {
 // UI-scale or navigation change.
 void App::saveGlobalConfig() {
     saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_,
-                      errorPopupEnabled_, globalDefaultProjectsDir_,
-                      liveLinkEnabled_});
+                      errorPopupEnabled_, globalDefaultProjectsDir_});
 }
 
 void App::setUiScale(float userScale) {
@@ -765,18 +759,20 @@ void App::drawMenuBar() {
                 ImGui::SetTooltip("Kills the file server and resets ps2link - the "
                                   "console reboots back to its listening state.");
             ImGui::Separator();
-            if (ImGui::MenuItem("Live Link", nullptr, liveLinkEnabled_)) {
-                liveLinkEnabled_ = !liveLinkEnabled_;
-                saveGlobalConfig();
+            if (ImGui::MenuItem("Live Link", nullptr,
+                                project_.settings.liveLink)) {
+                project_.settings.liveLink = !project_.settings.liveLink;
+                commitChange();
             }
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip(
-                    "Mirror scene edits (move/rotate/scale/recolor) into the "
-                    "running game\nwithout a rebuild - PCSX2 and real-PS2 "
-                    "deploys alike. Needs the \"debug\"\nbuild profile "
-                    "(Project > Preferences > Build); structural changes "
-                    "(add/delete\nobjects, models, materials...) still need "
-                    "a build (F5).");
+                    "Mirror scene edits (move/rotate/scale/recolor objects, "
+                    "add/delete them)\ninto the running game without a rebuild "
+                    "- PCSX2 and real-PS2 deploys alike.\nA project setting: "
+                    "off = the game is built without the poller and the "
+                    "editor\nnever writes snapshots. Needs the \"debug\" build "
+                    "profile (Project >\nPreferences > Build). Also toggled by "
+                    "clicking the LIVE chip in the toolbar.");
             ImGui::Separator();
             if (ImGui::MenuItem("Cancel Build", nullptr, false, busy)) runner_.cancel();
             if (ImGui::MenuItem("Clean", nullptr, false, !busy))
@@ -972,37 +968,68 @@ void App::drawToolbar() {
         else runner_.stopPs2(project_);
     }
 
-    // Live Link indicator: a dot + label after the run groups. Green = edits
-    // stream into the running debug game as they happen; amber = the scene
-    // changed structurally (or the last build predates Live Link) and needs a
-    // rebuild before streaming resumes. Hidden entirely when Live Link is off,
-    // the profile is "release", or no debug build exists yet - no clutter.
-    if (liveLinkState_ == LiveLinkState::Live ||
-        liveLinkState_ == LiveLinkState::RebuildNeeded) {
-        const bool live = liveLinkState_ == LiveLinkState::Live;
-        const ImU32 c = live ? IM_COL32(95, 200, 115, 255)
-                             : IM_COL32(240, 175, 70, 255);
-        const char* label = live ? "LIVE" : "LIVE (rebuild)";
+    // Live Link chip: a dot + label after the run groups, ALSO the on/off
+    // switch (clicking toggles the project's Live Link preference, same as
+    // Build > Live Link). Shown whenever the project builds in the debug
+    // profile: gray "LIVE off" = disabled, dim "LIVE (build)" = enabled but
+    // no Live-Link-capable build yet (F5), green "LIVE" = edits stream into
+    // the running game, amber "LIVE (rebuild)" = an edit the session can't
+    // absorb - rebuild to resync. Hidden in the release profile (the poller
+    // only exists in debug builds).
+    if (project_.settings.buildProfile == "debug") {
+        const bool on = project_.settings.liveLink;
+        ImU32 c = colDim;
+        const char* label = "LIVE off";
+        const char* tip =
+            "Live Link is off (project setting) - the game is built without "
+            "the poller\nand the editor writes no snapshots. Click to enable "
+            "(then Build & Run).";
+        if (on) {
+            switch (liveLinkState_) {
+                case LiveLinkState::Live:
+                    c = IM_COL32(95, 200, 115, 255);
+                    label = "LIVE";
+                    tip = "Live Link: object edits (move/rotate/scale/recolor,"
+                          " add/delete) stream\ninto the running game. Click "
+                          "to turn off (project setting).";
+                    break;
+                case LiveLinkState::RebuildNeeded:
+                    c = IM_COL32(240, 175, 70, 255);
+                    label = "LIVE (rebuild)";
+                    tip = "Live Link: the scene changed in a way the session "
+                          "can't absorb (model/\nmaterial swaps, lights, "
+                          "projected decals, mirrors, layers, objects with\n"
+                          "logic...) - Build & Run (F5) to resync. Click to "
+                          "turn off.";
+                    break;
+                default:  // Off (transient) / NoBuild
+                    label = "LIVE (build)";
+                    tip = "Live Link is on, but the last build has no poller "
+                          "yet - Build & Run\n(F5) once and edits start "
+                          "streaming. Click to turn off.";
+                    break;
+            }
+        }
         ImGui::SameLine(0.0f, gapGroup);
         ImDrawList* dl = ImGui::GetWindowDrawList();
         const ImVec2 p = ImGui::GetCursorScreenPos();
         const float dotR = h * 0.14f;
         const float textW = ImGui::CalcTextSize(label).x;
-        ImGui::InvisibleButton("##tb_livelink",
-                               ImVec2(dotR * 2.0f + 4.0f + textW, h));
+        if (ImGui::InvisibleButton("##tb_livelink",
+                                   ImVec2(dotR * 2.0f + 4.0f + textW, h))) {
+            project_.settings.liveLink = !on;
+            commitChange();
+        }
+        if (ImGui::IsItemHovered())
+            dl->AddRectFilled(p, ImVec2(p.x + dotR * 2.0f + 4.0f + textW,
+                                        p.y + h),
+                              ImGui::GetColorU32(ImGuiCol_ButtonHovered),
+                              round);
         dl->AddCircleFilled(ImVec2(p.x + dotR, p.y + h * 0.5f), dotR, c);
         dl->AddText(ImVec2(p.x + dotR * 2.0f + 4.0f,
                            p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
                     c, label);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip(
-                live ? "Live Link: object moves/rotations/scales/colors "
-                       "stream into the running game."
-                     : "Live Link: the scene changed structurally (objects "
-                       "added/removed, model or\nmaterial swapped, lights/"
-                       "projected decals edited...) - Build & Run (F5)\nto "
-                       "resync. Transform/color edits resume streaming after "
-                       "the build.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
     }
 
     // Dropdown menus for the two Play carets (anchored just under each caret).
@@ -2516,11 +2543,16 @@ void App::attachProject() {
     flowGraphObject_ = -1;
     flowPositionsApplied_ = false;
     layerRamCache_.clear();
-    // Live Link is per project: forget the previous project's cached built
-    // signature and written payload, re-read/re-write for this one.
+    // Live Link is per project: forget the previous project's cached as-built
+    // record and written payload, re-read/re-write for this one. The sequence
+    // counter is seeded from the clock: a game left running remembers the last
+    // seq it applied, so a restarted editor beginning again at 1 would collide
+    // with its predecessor's first write and the (different) snapshot would be
+    // deduped away - time makes consecutive sessions never reuse a seq.
     liveLinkState_ = LiveLinkState::Off;
-    liveLinkBuiltSig_.clear();
+    liveLinkBuilt_ = LiveLinkBuilt();
     liveLinkLastPayload_.clear();
+    liveLinkSeq_ = (uint32_t)std::time(nullptr);
     liveLinkSigNextRead_ = 0.0;
     liveLinkNextTick_ = 0.0;
     history_.reset({project_.scenes});
@@ -12815,10 +12847,10 @@ std::string App::latestGameAssert() const {
 
 // Streams scene edits to the running (debug-profile) game - see the member
 // block in app.hpp for the design. Self-throttled; the actual file write only
-// happens when the live-patchable state really changed.
+// happens when the live-representable state really changed.
 void App::liveLinkTick() {
     namespace fs = std::filesystem;
-    if (!hasProject_ || !liveLinkEnabled_ ||
+    if (!hasProject_ || !project_.settings.liveLink ||
         project_.settings.buildProfile != "debug") {
         liveLinkState_ = LiveLinkState::Off;
         return;
@@ -12828,55 +12860,137 @@ void App::liveLinkTick() {
     if (now < liveLinkNextTick_) return;  // keep the last state between ticks
     liveLinkNextTick_ = now + 0.1;  // ~10 Hz matches the game's poll cadence
 
-    // The signature the running build was made from. Re-read at most every
-    // 1.5 s - a finished build (or Clean) must be picked up, but the file is
-    // not worth hitting the disk for at tick rate.
+    // The as-built record the running build was made from. Re-read at most
+    // every 1.5 s - a finished build (or Clean) must be picked up, but the
+    // file is not worth hitting the disk for at tick rate.
     const fs::path binDir = fs::path(project_.dir) / "bin";
     if (now >= liveLinkSigNextRead_) {
         liveLinkSigNextRead_ = now + 1.5;
-        liveLinkBuiltSig_.clear();
+        liveLinkBuilt_ = LiveLinkBuilt();
         std::ifstream f(binDir / "livelink.sig");
-        if (f) std::getline(f, liveLinkBuiltSig_);
+        std::string line;
+        if (f && std::getline(f, line) && line == "2") {
+            LiveLinkBuilt b;
+            bool ok = true;
+            while (std::getline(f, line)) {
+                if (line.rfind("ctx ", 0) == 0) {
+                    b.ctxHash = std::strtoull(line.c_str() + 4, nullptr, 16);
+                } else if (line.rfind("scene ", 0) == 0) {
+                    b.scenes.emplace_back();
+                } else if (line.size() >= 33 && !b.scenes.empty()) {
+                    char* end = nullptr;
+                    const uint64_t id = std::strtoull(line.c_str(), &end, 16);
+                    const uint64_t recipe = std::strtoull(end, nullptr, 16);
+                    b.scenes.back().emplace_back(id, recipe);
+                } else {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) {
+                b.loaded = true;
+                liveLinkBuilt_ = std::move(b);
+            }
+        }
     }
-    if (liveLinkBuiltSig_.empty()) {
+    if (!liveLinkBuilt_.loaded) {
         liveLinkState_ = LiveLinkState::NoBuild;
         return;
     }
-    if (liveLinkBuiltSig_ != project::liveLinkSignature(project_)) {
+
+    // Is the live project representable against the as-built record? Built
+    // objects must keep their recipe (a live patch can't change it); new
+    // objects need an equal-recipe as-built template to clone (and must be
+    // spawnable at all); the cross-object context must be untouched.
+    const int scene = project_.activeScene;
+    if (liveLinkBuilt_.ctxHash != project::liveLinkContextHash(project_) ||
+        scene >= (int)liveLinkBuilt_.scenes.size()) {
         liveLinkState_ = LiveLinkState::RebuildNeeded;
         return;
     }
+    const auto& built = liveLinkBuilt_.scenes[scene];
+    const SceneData& sc = project_.active();
+
+    // Per-record resolution: templateIdx = -1 for as-built ids, else the
+    // as-built index of an equal-recipe object to clone. The spawn pool holds
+    // 32 clones - past that the session stops being representable.
+    struct Rec {
+        uint64_t id;
+        int32_t tmpl;
+        const SceneObject* o;
+    };
+    std::vector<Rec> recs;
+    recs.reserve(sc.objects.size());
+    int spawned = 0;
+    for (const SceneObject& o : sc.objects) {
+        const uint64_t id = project::liveLinkIdHash(o);
+        const uint64_t recipe = project::liveLinkRecipeHash(o);
+        int32_t tmpl = -1;
+        bool foundId = false;
+        for (size_t i = 0; i < built.size(); ++i) {
+            if (built[i].first == id) {
+                foundId = true;
+                if (built[i].second != recipe) {
+                    liveLinkState_ = LiveLinkState::RebuildNeeded;
+                    return;
+                }
+                break;
+            }
+        }
+        if (!foundId) {
+            if (!project::liveLinkCanSpawnLive(o) ||
+                ++spawned > 32 /* MAX_SPAWNED_OBJECTS */) {
+                liveLinkState_ = LiveLinkState::RebuildNeeded;
+                return;
+            }
+            tmpl = -1;
+            for (size_t i = 0; i < built.size(); ++i)
+                if (built[i].second == recipe) {
+                    tmpl = (int32_t)i;
+                    break;
+                }
+            if (tmpl < 0) {
+                liveLinkState_ = LiveLinkState::RebuildNeeded;
+                return;
+            }
+        }
+        recs.push_back({id, tmpl, &o});
+    }
     liveLinkState_ = LiveLinkState::Live;
 
-    // Snapshot body: scene + count + 12 floats per authored object, in the
-    // exact order codegen emitted them (= the scene's object order).
-    const SceneData& sc = project_.active();
+    // Snapshot body: scene + count + one 64-byte record per object (id +
+    // template + 12 floats). Deletions are implicit - the game hides whatever
+    // is absent.
     std::vector<unsigned char> body;
-    body.reserve(8 + sc.objects.size() * 48);
-    auto put32 = [&](const void* v) {
+    body.reserve(8 + recs.size() * 64);
+    auto put = [&](const void* v, size_t n) {
         const unsigned char* b = static_cast<const unsigned char*>(v);
-        body.insert(body.end(), b, b + 4);
+        body.insert(body.end(), b, b + n);
     };
-    const int32_t scene = project_.activeScene;
-    const int32_t count = (int32_t)sc.objects.size();
-    put32(&scene);
-    put32(&count);
-    for (const SceneObject& o : sc.objects) {
-        for (int i = 0; i < 3; ++i) put32(&o.position[i]);
-        for (int i = 0; i < 3; ++i) put32(&o.rotation[i]);
-        for (int i = 0; i < 3; ++i) put32(&o.scale[i]);
-        for (int i = 0; i < 3; ++i) put32(&o.color[i]);
+    const int32_t scene32 = scene;
+    const int32_t count = (int32_t)recs.size();
+    put(&scene32, 4);
+    put(&count, 4);
+    const uint32_t pad = 0;
+    for (const Rec& r : recs) {
+        put(&r.id, 8);
+        put(&r.tmpl, 4);
+        put(&pad, 4);
+        put(r.o->position, 12);
+        put(r.o->rotation, 12);
+        put(r.o->scale, 12);
+        put(r.o->color, 12);
     }
     if (body == liveLinkLastPayload_) return;  // nothing to stream
 
     // Full file: header (magic/version/seq + body's scene/count/reserved),
-    // body values, footer echoing seq - the game rejects torn writes. Written
-    // to a sibling tmp and renamed so the game never sees a half file; if the
+    // records, footer echoing seq - the game rejects torn writes. Written to
+    // a sibling tmp and renamed so the game never sees a half file; if the
     // rename loses a race with the game's fread, retry on the next tick.
     const uint32_t seq = liveLinkSeq_ + 1;
     std::vector<unsigned char> file;
     file.reserve(24 + body.size() - 8 + 4);
-    const uint32_t magic = 0x4C4C5854, version = 1, reserved = 0;
+    const uint32_t magic = 0x4C4C5854, version = 2, reserved = 0;
     const uint32_t footer = seq ^ 0x5A5A5A5AU;
     auto app32 = [&](const void* v) {
         const unsigned char* b = static_cast<const unsigned char*>(v);
@@ -13522,6 +13636,15 @@ void App::drawPreferencesModal() {
         "frames per second, free EE RAM, and a per-phase EE-time breakdown\n"
         "(whole frame / scene / usable-highlight / particles, avg ms over\n"
         "~1s). Stripped from release builds.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Live Link", &prefSettings_.liveLink);
+    ImGui::EndDisabled();
+    ImGui::TextDisabled(
+        "Debug builds poll livelink.bin next to the ELF so the editor can\n"
+        "stream scene edits into the running game (docs/live-link.md). Turn\n"
+        "off if you don't want your game patched from outside; release\n"
+        "builds never carry the poller. Also toggled by the LIVE chip in\n"
+        "the toolbar and Build > Live Link.");
 
     ImGui::SeparatorText("Terrain");
     ImGui::InputInt("Width (units)", &prefTerrain_.width);

@@ -1,54 +1,74 @@
 # Live Link — edit the running game
 
 Live Link mirrors scene edits into the **running** game without a rebuild:
-drag an object with the gizmo, spin it, scale it, recolor it — and watch it
-move on the PS2 (or in PCSX2) as you drag. In 2002 this kind of live tuning
-loop was devkit-studio magic; here it rides entirely on infrastructure the
-project already has.
+drag an object with the gizmo, spin it, scale it, recolor it — even **add or
+delete objects** — and watch the scene change on the PS2 (or in PCSX2) as you
+work. In 2002 this kind of live tuning loop was devkit-studio magic; here it
+rides entirely on infrastructure the project already has.
 
 ## Using it
 
 1. Set the project's build profile to **debug** (*Project > Preferences >
    Build > Build profile*). Release builds carry no Live Link code at all.
 2. Build & run as usual — **F5** (PCSX2) or **F6** (real PS2 over ps2link).
-3. Edit the scene: move / rotate / scale / recolor objects. The changes appear
-   in the running game within a fraction of a second; a gizmo drag streams
-   continuously.
+3. Edit the scene: move / rotate / scale / recolor objects, duplicate them,
+   delete them. The changes appear in the running game within a fraction of a
+   second; a gizmo drag streams continuously.
 
-The toolbar shows the session state next to the run buttons:
+The **LIVE chip** in the toolbar (after the run buttons) shows the session
+state — and clicking it toggles Live Link on/off:
 
 - **● LIVE** (green) — edits are streaming into the game.
-- **● LIVE (rebuild)** (amber) — the scene changed *structurally* (see limits
-  below); streaming is paused so the wrong object can never be patched. Build
-  & Run again and it resumes automatically — you don't even have to restart
-  the game if the structure went back to what was built (e.g. after an Undo).
+- **● LIVE (rebuild)** (amber) — the scene changed in a way the session can't
+  absorb (see below); streaming is paused so nothing is ever mis-patched.
+  Build & Run again and it resumes automatically — an Undo back to the built
+  structure also resumes it without any rebuild.
+- **● LIVE (build)** (dim) — Live Link is on but the last build has no poller
+  yet; Build & Run once.
+- **● LIVE off** (gray) — disabled for this project.
 
-The master switch is *Build > Live Link* (on by default, stored in
-`editor.ini`, machine-global). With Live Link off, or a release profile, the
-editor writes nothing.
+On/off is a **project setting** (*Project > Preferences > Build > Live Link*,
+also in *Build > Live Link* and the chip; default on, stored in the `.tyra`).
+Off means the game is **built without the poller** and the editor never writes
+snapshots — for anyone who doesn't want their debug builds patched from
+outside. Release builds never carry the poller regardless.
 
 ## What updates live vs what needs a build
 
-Live: **position, rotation, scale, color** of every scene object — the same
-mutations the *Move/Show/Set Color* flow nodes perform at runtime, so geometry
-rebuild, physics and collision all follow the patched values. Applying a
-snapshot is idempotent; objects the game moved itself (physics, flow graphs)
-are only stomped when you actually change something in the editor.
+Live:
 
-Everything else needs a normal build, exactly like before. The editor detects
-the cases that would *corrupt* a live session (they change object indices or
-build-time-baked geometry) and flips the indicator to amber:
+- **position, rotation, scale, color** of every scene object — the same
+  mutations the *Move/Set Color* flow nodes perform at runtime, so geometry
+  rebuild, physics and collision all follow the patched values;
+- **adding objects** — a new object is instantiated through the game's runtime
+  spawn pool by cloning an authored object with the same "recipe" (same type,
+  model, material, detail, layer, physics…), then patched to its own
+  transform/color. A freshly duplicated (`Ctrl+C`/`Ctrl+V`) or same-type
+  inserted object just appears in the game. Up to 32 live-added objects
+  (the spawn pool size);
+- **deleting objects** — the deleted object is hidden in the running game
+  (its baked geometry stays until a rebuild, and — like the *Hide Object*
+  flow node — collision remains). Undo restores it live;
+- **renames and reorders** — records address objects by a stable id, so both
+  are non-events for the session.
 
-- adding / deleting / reordering objects, or changing an object's type
-- assigning a different model / material, changing primitive detail
-- streaming-layer membership or layer definitions
-- moving/editing a **point light** (its light is baked into vertex colors)
-- moving a **projected decal** (its transform is the projector, baked on the
-  host)
+Needs a build — the chip flips to amber instead of applying something wrong:
 
-Other non-live properties (physics flag, emitter parameters, player tunables,
-terrain sculpting, sky…) don't endanger the session — they simply don't show
-up in the game until the next build.
+- changing a built object's **recipe**: its type, model / material assignment,
+  primitive detail, physics/collision, layer membership, emitter / sound /
+  player / animation parameters…
+- adding an object with **no matching template** in the built scene (nothing
+  of the same recipe existed at build time), or an object that can't be
+  faithfully spawned at runtime: **point lights** (baked into vertex colors),
+  **projecting decals** (baked host projection), **mirrors** (baked reflection
+  table), or objects carrying a **flow graph / attached scripts** (compiled
+  per authored object);
+- editing an existing point light / projecting decal (their transforms are
+  baked at build);
+- streaming-layer definitions, scene add/remove.
+
+Other non-live properties (sky, terrain sculpting, HUD…) don't endanger the
+session — they simply don't show up in the game until the next build.
 
 ## How it works
 
@@ -57,40 +77,47 @@ filesystem the game already loads its assets from**: PCSX2's *Host Filesystem*
 on the emulator, the ps2link/ps2client file server on a real console. One
 mechanism, both targets.
 
-- The editor (`App::liveLinkTick`, ~10 Hz) snapshots the active scene's
-  live-patchable state. When it differs from the last written snapshot it
-  writes `bin/livelink.bin` — a tiny little-endian blob (`TXLL` magic,
-  sequence number, scene index, 12 floats per object, a footer echoing the
-  sequence) — atomically via a sibling tmp file + rename.
+- The editor (`App::liveLinkTick`, ~10 Hz) snapshots the active scene as one
+  64-byte record per object — a stable **id hash** (FNV-1a 64 of the object's
+  editor id), a spawn-template index for objects added since the build, and
+  the 12 live floats — and writes `bin/livelink.bin` (`TXLL` magic, version,
+  sequence number, a footer echoing the sequence) atomically via a sibling
+  tmp file + rename, whenever the payload changed.
 - The game side is a generated global script, `src/scripts/live_link.gen.cpp`
-  (debug profile only; the release variant is an empty translation unit). It
-  re-reads the file every 6 frames (every 25 under ps2link — each `fopen`
-  there is a network round-trip), validates magic/size/footer so a torn write
-  is ignored, skips already-applied sequence numbers, and patches
-  `RuntimeObject.data` + `dirty` for objects whose values actually changed.
-- The index mapping between the two sides is guarded by a **structure
-  signature** (`project::liveLinkSignature`): the Runner stamps it into
-  `bin/livelink.sig` at the start of every build, and the editor streams only
-  while the live project still hashes to the same value. Structural drift →
-  amber indicator, no writes.
+  (debug profile + Live Link preference only; otherwise an empty translation
+  unit). It re-reads the file every 6 frames (every 25 under ps2link — each
+  `fopen` there is a network round-trip), validates magic/size/footer so a
+  torn write is ignored, skips already-applied sequence numbers, and maps
+  records onto runtime objects through the id-hash table baked into
+  `scene_data.hpp`. Known ids are patched in place (`dirty` only on a real
+  change); unknown ids are spawned from their template via the runtime spawn
+  pool; authored objects absent from the snapshot are hidden (and restored
+  when they reappear); spawned ones absent are despawned.
+- Safety is guarded by the **as-built record** (`bin/livelink.sig`): the
+  Runner stamps every authored object's id + recipe hash (plus a cross-object
+  context hash) at build start, and the editor streams only while the live
+  project is representable against it. Recipe drift on a built object, a new
+  object with no template, layer-table changes → amber chip, no writes.
 - The Runner also deletes `bin/livelink.bin` at build start: the fresh build
   bakes the current scene state, so a stale snapshot must not be re-applied at
   boot. Conversely, a *Run (no build)* keeps the snapshot — edits made while
   the game was down are applied as soon as it boots.
 
-Cost: zero in release builds (the poller doesn't exist), an `fopen` + a few
-hundred bytes read every 6/25 frames in debug builds, and nothing on the GS —
-patched objects go through the exact same dirty-rebuild path the flow-graph
-object actions already use.
+Cost: zero in release builds or with the preference off (the poller doesn't
+exist), an `fopen` + at most a few tens of KB read every 6/25 frames in a live
+debug build, and nothing on the GS — patched objects go through the exact same
+dirty-rebuild path the flow-graph object actions already use.
 
 ## Limits & notes
 
-- Only **authored** objects are patched — never the runtime spawn pool
-  (*Spawn Object* clones live past the authored table and are left alone).
 - The snapshot targets the editor's **active scene**; if the game is in a
   different scene it ignores it (switch scenes in the editor to tune there).
-- Sequence numbers make application idempotent, but an object that physics is
-  actively moving will be snapped back once per edit — that's the same
-  behavior a *Set Position* flow node has.
+- A live-added object has no compiled flow graph / scripts / save-state until
+  the next build (spawning refuses such objects — amber chip — so this can't
+  surprise you silently).
+- Deleting live hides the object; its collision stays until a rebuild
+  (exactly the *Hide Object* approximation).
+- An object that physics is actively moving will be snapped back once per
+  edit — the same behavior a *Set Position* flow node has.
 - On a real PS2 the poll cadence is ~0.5 s to keep the ps2link file server
   happy; PCSX2 polls ~10x per second.

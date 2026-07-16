@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
@@ -387,6 +388,11 @@ struct ProjectSettings {
     bool showMemory = false;  // debug profile only: on-screen free-RAM readout
     bool showProfiler = false;  // debug profile only: per-phase EE-time HUD
                                 // (scene / highlight / particles / whole frame)
+    // Debug profile only: compile the Live Link poller into the game, so the
+    // editor can stream scene edits into the running game (docs/live-link.md).
+    // Off = the game never reads livelink.bin and the editor never writes it -
+    // for anyone who does not want their debug builds patched from outside.
+    bool liveLink = true;
 
     // Experimental: skip the vsync wait before the buffer flip. Frame rate
     // becomes continuous instead of quantized to 50/25 (PAL), at the cost
@@ -522,6 +528,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.displayMode == b.displayMode && a.widescreen == b.widescreen &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler &&
+           a.liveLink == b.liveLink &&
            a.disableVsync == b.disableVsync &&
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
            a.meshLodDistance == b.meshLodDistance &&
@@ -1205,15 +1212,29 @@ std::string loadHistory(const Project& p, History& h);
 // Called before every build.
 std::string refreshGenerated(const Project& p);
 
-// Live Link structure signature: a stable hash over everything that fixes the
-// object *indices* and baked geometry sources of the generated game - scene
-// order, object order/identity, types, model/material assignments, primitive
-// detail, layers, projected-decal projectors and point lights (both are baked
-// at build). Transforms and colors of ordinary objects are deliberately NOT
-// included: those are exactly what Live Link patches at runtime. The Runner
-// writes this to bin/livelink.sig at build start; the editor only streams
-// livelink.bin snapshots while the project still hashes to the same value
-// (anything else needs a real rebuild). See templates::liveLinkScript.
-std::string liveLinkSignature(const Project& p);
+// --- Live Link structure hashing (docs/live-link.md) ------------------------
+// Objects are addressed by a stable 64-bit id hash, so a live session
+// survives renames/reorders and can even spawn NEWLY ADDED objects through
+// the game's runtime spawn pool (cloning an authored template with an equal
+// "recipe"). The Runner writes liveLinkSigFile() to bin/livelink.sig at build
+// start; the editor compares the live project against it every tick and
+// streams livelink.bin only while the session is representable - anything
+// else flips the toolbar to "LIVE (rebuild)". See templates::liveLinkScript.
+
+// Stable per-object identity: FNV-1a 64 of SceneObject::id (name fallback).
+// Also baked into scene_data.hpp (SCENE_*_OBJECT_ID_HASHES) for the game.
+uint64_t liveLinkIdHash(const SceneObject& o);
+// Everything a live patch can't change and a spawn clone copies from its
+// template - equal recipes = interchangeable as templates. Transform + color
+// (the live-patched fields) are excluded, except for objects whose transform
+// is baked at build (point lights, projecting decals).
+uint64_t liveLinkRecipeHash(const SceneObject& o);
+// False for objects the spawn pool can't faithfully instantiate (baked
+// lights/decals/mirrors, objects carrying flow graphs or attached scripts).
+bool liveLinkCanSpawnLive(const SceneObject& o);
+// Cross-object structure (scene count, streaming-layer tables).
+uint64_t liveLinkContextHash(const Project& p);
+// The whole as-built record written to bin/livelink.sig.
+std::string liveLinkSigFile(const Project& p);
 
 }  // namespace project

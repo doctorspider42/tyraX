@@ -8,6 +8,7 @@ struct SceneObjectData {
              // 6=player 7=emitter 8=sound 9=point-light 10=save-point
              // 11=empty (pure transform, no geometry/collision)
              // 12=plane 13=decal 14=camera (cutscene shot marker)
+             // 15=mirror (glass quad; reflections via MIRRORS below)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -73,12 +74,32 @@ constexpr SceneObjectData SCENE_0_OBJECTS[12] = {
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {12};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[12] = {0xcb55e654ae1a9d64ULL, 0x513eb345a6a746b6ULL, 0xe14500e87416665fULL, 0x8335c3a9601fdb7dULL, 0x54a46fe92e52d168ULL, 0x684a785b29c79d21ULL, 0x5b5c1b0205bc09d1ULL, 0x1eff408bc8b41586ULL, 0xa4cd387c62ea8abdULL, 0x040c76bd3cf5dd82ULL, 0x72ac1ecea631390cULL, 0x938dcdee3ed99a08ULL};
+inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
+
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
 constexpr int SCENE_MAX_LAYERS = 1;
 constexpr bool SCENE_LAYER_STARTS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{true}};
 constexpr float SCENE_LAYER_STREAM_XS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
 constexpr float SCENE_LAYER_STREAM_ZS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
 constexpr float SCENE_LAYER_STREAM_RADII[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
+
+// Mirrors (type 15): each entry re-draws its target objects
+// reflected across the mirror plane (renderMirrors in the game
+// cpp). Targets index the mirror's own scene object table.
+struct MirrorData {
+  int scene;          // scene index
+  int object;         // the mirror's index in its scene table
+  float opacity;      // glass alpha 0..1 (tint = object color)
+  int reflectPlayer;  // 1 = also reflect the third-person avatar
+  int firstTarget;    // first entry in MIRROR_TARGETS
+  int targetCount;
+};
+constexpr int MIRROR_COUNT = 0;
+constexpr MirrorData MIRRORS[1] = {
+    {0, -1, 0.0F, 0, 0, 0}
+};
+constexpr int MIRROR_TARGETS[1] = {-1};
 
 constexpr int SND_COUNT = 0;
 inline const char* SND_PATHS[1] = {""};

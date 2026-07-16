@@ -8,6 +8,7 @@ struct SceneObjectData {
              // 6=player 7=emitter 8=sound 9=point-light 10=save-point
              // 11=empty (pure transform, no geometry/collision)
              // 12=plane 13=decal 14=camera (cutscene shot marker)
+             // 15=mirror (glass quad; reflections via MIRRORS below)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -86,12 +87,32 @@ constexpr SceneObjectData SCENE_0_OBJECTS[25] = {
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {25};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[25] = {0x031fb0363c770bd3ULL, 0xda525cf996218228ULL, 0xd85659d3d9253648ULL, 0xcfb9eb5b9f9157ebULL, 0xb4f8154c7130e9eeULL, 0x5ab857e5edec3ee8ULL, 0xc7df1ed2c7981b57ULL, 0x7ec596c2b12fc103ULL, 0xcb2b91811f3ac994ULL, 0xd99e6e1d35db21c7ULL, 0xa3de1d5e1250f2bfULL, 0x630a3fc72ce66f6aULL, 0x08ab2917536f5755ULL, 0x178334c6cc04f87fULL, 0xe389558a7ac4237fULL, 0x8f9b92deb6123237ULL, 0x238f175c96857c77ULL, 0x13d17e31f71edee1ULL, 0x39c87868a45a3d6fULL, 0xe596551f0ed21967ULL, 0x72d1abcf630c500cULL, 0xe3fb5d0c305829c3ULL, 0xfcb71d84cdbc1ce2ULL, 0xe5efe496f2f42049ULL, 0x160025fe66a13dceULL};
+inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
+
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {2};
 constexpr int SCENE_MAX_LAYERS = 2;
 constexpr bool SCENE_LAYER_STARTS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{true, false}};
 constexpr float SCENE_LAYER_STREAM_XS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F, 0.0F}};
 constexpr float SCENE_LAYER_STREAM_ZS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F, 0.0F}};
 constexpr float SCENE_LAYER_STREAM_RADII[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F, 0.0F}};
+
+// Mirrors (type 15): each entry re-draws its target objects
+// reflected across the mirror plane (renderMirrors in the game
+// cpp). Targets index the mirror's own scene object table.
+struct MirrorData {
+  int scene;          // scene index
+  int object;         // the mirror's index in its scene table
+  float opacity;      // glass alpha 0..1 (tint = object color)
+  int reflectPlayer;  // 1 = also reflect the third-person avatar
+  int firstTarget;    // first entry in MIRROR_TARGETS
+  int targetCount;
+};
+constexpr int MIRROR_COUNT = 0;
+constexpr MirrorData MIRRORS[1] = {
+    {0, -1, 0.0F, 0, 0, 0}
+};
+constexpr int MIRROR_TARGETS[1] = {-1};
 
 constexpr int SND_COUNT = 0;
 inline const char* SND_PATHS[1] = {""};
