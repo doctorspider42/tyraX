@@ -102,8 +102,8 @@ const int* saveInitCodes() { return initCodes; }
 // them next to the ELF as save/icon.sys + save/list.icn; here they are copied
 // into the save directory so the PS2 browser shows the game's title and icon.
 // mcWrite DMAs straight from the buffer - same 64-byte alignment rule as the
-// slot payload.
-alignas(64) static unsigned char iconBuf[34816];  // >= list.icn (33112 B)
+// slot payload. The buffer is sized by codegen to this build's baked icon.
+alignas(64) static unsigned char iconBuf[33792];
 
 static bool mcCopyToCard(const char* hostRel, const char* cardName) {
   FILE* f = fopen(Tyra::FileUtils::fromCwd(hostRel).c_str(), "rb");
