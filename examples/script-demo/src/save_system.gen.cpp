@@ -87,6 +87,7 @@ bool saveInit() {
       mcReady = fd >= 0;
     }
   }
+  if (mcReady) saveEnsureIcons();
   TYRA_LOG("Save system: ", mcReady ? "memory card ready"
                                     : "no memory card - using host files");
   return mcReady;
@@ -95,6 +96,60 @@ bool saveInit() {
 bool saveMcReady() { return mcReady; }
 
 const int* saveInitCodes() { return initCodes; }
+
+// --- Save icon (icon.sys + list.icn) ----------------------------------------
+// The editor bakes both into res/save/ (savebake.cpp) and the Makefile ships
+// them next to the ELF as save/icon.sys + save/list.icn; here they are copied
+// into the save directory so the PS2 browser shows the game's title and icon.
+// mcWrite DMAs straight from the buffer - same 64-byte alignment rule as the
+// slot payload.
+alignas(64) static unsigned char iconBuf[34816];  // >= list.icn (33112 B)
+
+static bool mcCopyToCard(const char* hostRel, const char* cardName) {
+  FILE* f = fopen(Tyra::FileUtils::fromCwd(hostRel).c_str(), "rb");
+  if (!f) return false;
+  fseek(f, 0, SEEK_END);
+  const long n = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  if (n <= 0 || n > (long)sizeof(iconBuf)) {
+    fclose(f);
+    return false;
+  }
+  const size_t got = fread(iconBuf, 1, (size_t)n, f);
+  fclose(f);
+  if ((long)got != n) return false;
+  std::string path = std::string(SAVE_MC_DIR) + "/" + cardName;
+  int fd = -1;
+  mcOpen(0, 0, path.c_str(), kMcWronly | kMcCreat);
+  mcSync(MC_WAIT, nullptr, &fd);
+  if (fd < 0) return false;
+  int wrote = -1, ret = 0;
+  mcWrite(fd, iconBuf, (int)n);
+  mcSync(MC_WAIT, nullptr, &wrote);
+  mcClose(fd);
+  mcSync(MC_WAIT, nullptr, &ret);
+  return wrote == (int)n;
+}
+
+void saveEnsureIcons() {
+  static bool tried = false;
+  if (!mcReady || tried) return;
+  tried = true;
+  // Already iconized by a previous boot - skip the ~33KB rewrite.
+  int fd = -100;
+  std::string probe = std::string(SAVE_MC_DIR) + "/icon.sys";
+  mcOpen(0, 0, probe.c_str(), kMcRdonly);
+  mcSync(MC_WAIT, nullptr, &fd);
+  if (fd >= 0) {
+    int r = 0;
+    mcClose(fd);
+    mcSync(MC_WAIT, nullptr, &r);
+    return;
+  }
+  const bool sys = mcCopyToCard("save/icon.sys", "icon.sys");
+  const bool icn = mcCopyToCard("save/list.icn", "list.icn");
+  TYRA_LOG("Save icons: ", sys && icn ? "written to the card" : "copy failed");
+}
 
 static std::string mcSlotName(int slot) {
   char buf[96];

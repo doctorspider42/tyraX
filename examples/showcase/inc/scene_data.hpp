@@ -92,7 +92,7 @@ constexpr SceneObjectData SCENE_0_OBJECTS[60] = {
     {1, {20.0F, 1.6948F, -8.0F}, {0.0F, 0.0F, 0.0F}, {1.3F, 1.04F, 1.3F}, {0.42F, 0.44F, 0.46F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 82.0F, -1, "", 1, 1, 1.0F, 12, -1},  // sphere-3
     {1, {-16.0F, -0.5702F, -6.0F}, {0.0F, 0.0F, 0.0F}, {0.9F, 0.72F, 0.9F}, {0.42F, 0.44F, 0.46F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 82.0F, -1, "", 1, 1, 1.0F, 12, -1},  // sphere-4
     {5, {3.0F, 0.9064F, 6.0F}, {0.0F, 0.0F, 0.0F}, {1.2F, 1.2F, 1.2F}, {0.9F, 0.95F, 0.95F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, "Wiggle", 1, 1, 1.0F, 16, -1},  // model-1
-    {5, {-2.0F, 0.5092F, 9.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.9F, 0.95F, 0.95F}, 0, -1, -1, 1, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, "Wiggle", 1, 1, 1.3F, 16, -1},  // model-2
+    {5, {-2.0F, 0.5092F, 9.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.9F, 0.95F, 0.95F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, "Wiggle", 1, 1, 1.3F, 16, -1},  // model-2
     {7, {0.0F, 12.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {16.0F, 1.0F, 16.0F}, {0.6F, 0.7F, 0.85F}, 0, -1, -1, 0, 4, 120, 0.12F, 1, 1, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, 3},  // rain
     {0, {36.0F, 2.2762F, -39.0F}, {0.0F, 0.0F, 0.0F}, {6.0F, 5.0F, 6.0F}, {0.7F, 0.6F, 0.45F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, 1},  // box-2
     {0, {45.0F, 3.3595F, -34.0F}, {0.0F, 0.0F, 0.0F}, {5.0F, 7.0F, 5.0F}, {0.6F, 0.55F, 0.5F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, 1},  // box-3
@@ -155,6 +155,15 @@ constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F, 1.0F};
 constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {1.8F, 1.8F};
 constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {4.5F, 4.5F};
 constexpr bool PLAYER_CAN_JUMPS[SCENE_COUNT] = {true, true};
+constexpr float PLAYER_RUN_THRESHOLDS[SCENE_COUNT] = {0.55F, 0.55F};
+constexpr float PLAYER_CAM_DISTS[SCENE_COUNT] = {6.0F, 6.0F};
+constexpr float PLAYER_CAM_HEIGHTS[SCENE_COUNT] = {1.6F, 1.6F};
+constexpr float PLAYER_CAM_SHOULDERS[SCENE_COUNT] = {0.0F, 0.0F};
+constexpr float PLAYER_TURN_RATES[SCENE_COUNT] = {0.25F, 0.25F};
+constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {"", ""};
+constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {"", ""};
+constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {"", ""};
+constexpr const char* PLAYER_JUMP_CLIPS[SCENE_COUNT] = {"", ""};
 
 constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {192.0F, 64.0F};
 constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {192.0F, 64.0F};
@@ -179,6 +188,9 @@ constexpr float SKY_TOP_GS[SCENE_COUNT] = {40.8F, 5.1F};
 constexpr float SKY_TOP_BS[SCENE_COUNT] = {107.1F, 15.3F};
 constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {20, 64};
 constexpr int POSTFX_GRAINS[SCENE_COUNT] = {12, 32};
+constexpr int POSTFX_DOFS[SCENE_COUNT] = {0, 0};
+constexpr float POSTFX_DOF_FOCUSES[SCENE_COUNT] = {20.0F, 20.0F};
+constexpr float POSTFX_DOF_RANGES[SCENE_COUNT] = {15.0F, 15.0F};
 constexpr bool FOG_ENABLEDS[SCENE_COUNT] = {true, true};
 constexpr float FOG_RS[SCENE_COUNT] = {209.1F, 15.3F};
 constexpr float FOG_GS[SCENE_COUNT] = {140.25F, 20.4F};
@@ -227,7 +239,7 @@ constexpr int SAVE_TEXT_COUNT = 0;
 constexpr int SAVE_TEXT_LEN = 32;  // incl. the terminating NUL
 inline const char* SAVE_TEXT_NAMES[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
 inline const char* SAVE_TEXT_DEFAULTS[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
-constexpr int SAVE_OBJECT_MAX = 60;
+constexpr int SAVE_OBJECT_MAX = 1;
 
 }  // namespace Showcase
 
@@ -278,6 +290,15 @@ inline int everyFrames(float seconds) {
 #define PLAYER_EYE_HEIGHT PLAYER_EYE_HEIGHTS[g_activeScene]
 #define PLAYER_JUMP_SPEED PLAYER_JUMP_SPEEDS[g_activeScene]
 #define PLAYER_CAN_JUMP PLAYER_CAN_JUMPS[g_activeScene]
+#define PLAYER_RUN_THRESHOLD PLAYER_RUN_THRESHOLDS[g_activeScene]
+#define PLAYER_CAM_DIST PLAYER_CAM_DISTS[g_activeScene]
+#define PLAYER_CAM_HEIGHT PLAYER_CAM_HEIGHTS[g_activeScene]
+#define PLAYER_CAM_SHOULDER PLAYER_CAM_SHOULDERS[g_activeScene]
+#define PLAYER_TURN_RATE PLAYER_TURN_RATES[g_activeScene]
+#define PLAYER_IDLE_CLIP PLAYER_IDLE_CLIPS[g_activeScene]
+#define PLAYER_WALK_CLIP PLAYER_WALK_CLIPS[g_activeScene]
+#define PLAYER_RUN_CLIP PLAYER_RUN_CLIPS[g_activeScene]
+#define PLAYER_JUMP_CLIP PLAYER_JUMP_CLIPS[g_activeScene]
 #define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
 #define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
 #define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]
@@ -312,6 +333,9 @@ inline int everyFrames(float seconds) {
 #define SKY_TOP_B SKY_TOP_BS[g_activeScene]
 #define POSTFX_BLOOM POSTFX_BLOOMS[g_activeScene]
 #define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
+#define POSTFX_DOF POSTFX_DOFS[g_activeScene]
+#define POSTFX_DOF_FOCUS POSTFX_DOF_FOCUSES[g_activeScene]
+#define POSTFX_DOF_RANGE POSTFX_DOF_RANGES[g_activeScene]
 #define FOG_ENABLED FOG_ENABLEDS[g_activeScene]
 #define FOG_R FOG_RS[g_activeScene]
 #define FOG_G FOG_GS[g_activeScene]

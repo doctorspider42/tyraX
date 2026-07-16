@@ -1,0 +1,19 @@
+name: large-terrain
+volumes:
+  tyra-game-volume:
+  tyra-engine:
+    name: tyra-engine-852bd3a7
+services:
+  compiler:
+    environment:
+      TERM: xterm-256color
+    network_mode: host
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    tty: true
+    volumes:
+      - tyra-game-volume:/src
+      - tyra-engine:/tyra
+      - ./:/host
+      - "D:/tyra-editor/.claude/worktrees/project-docs-review-719523/vendor/tyra:/engine-src:ro"

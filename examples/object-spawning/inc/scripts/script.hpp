@@ -40,6 +40,7 @@ struct RuntimeObject {
 struct ScriptContext {
   Tyra::Engine* engine = nullptr;  // pad, renderer, audio, ...
   Tyra::Vec4 playerPosition;       // camera/player position this frame
+  Tyra::Vec4 playerLook;           // normalized view direction this frame
   RuntimeObject* objects = nullptr;  // mutable scene objects
   int objectCount = 0;
   Tyra::Color skyColor;  // write to change the clear color
@@ -62,6 +63,11 @@ struct ScriptContext {
   int barsStyle = 0;
   float barsAmount = 0.0F;  // 0..1 of the style's full coverage
   float fadeAlpha = 0.0F;   // 0..1 black overlay
+
+  // Set by the sequence player while a "Hide player" cutscene is active: the
+  // game hides the third-person avatar for the frame (no effect in FPP/noclip,
+  // which have no visible body). Cleared when the cutscene ends.
+  bool hidePlayer = false;
 
   // Set teleport = true and teleportPos to move the player (Player entity or
   // the FPP template player) there; the game applies and clears it.
@@ -98,6 +104,24 @@ struct ScriptContext {
   int grain = -1;
   int particles = -1;
 
+  // Depth of field (Set Depth Of Field flow node). dof: -1 = leave, -2 =
+  // restore the scene's authored setting (Tools > UI Editor), else a 0..128
+  // blur amount (0 = off). The image blurs progressively from dofFocus to
+  // dofFocus + dofRange (world units from the camera). The game applies and
+  // resets dof.
+  int dof = -1;
+  float dofFocus = 0.0F;
+  float dofRange = 0.0F;
+
+  // Analog stick response curves (Set Stick Curve flow node). Per stick:
+  // curve = -1 leave, else 0 Linear / 1 Exponential / 2 S-Curve; exp = the
+  // curve exponent, applied only when >= 1 (< 0 = leave). The game copies
+  // both into the runtime g_stickCurve*/g_stickExp* globals and resets them.
+  int stickCurveL = -1;
+  int stickCurveR = -1;
+  float stickExpL = -1.0F;
+  float stickExpR = -1.0F;
+
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes).
   // requestDisplayMode: -1 = leave, else a Tyra::DisplayMode value (0 =
   // interlaced, 1 = progressive 480p, 2 = 1080i). displayConfirmSec > 0
@@ -110,6 +134,12 @@ struct ScriptContext {
   float displayConfirmSec = 0.0F;
   int widescreen = -1;
 
+  // Master sound-effect volume as a percentage (0..100), driven by a menu
+  // "Sound volume" option block (applyMenuBindings). 100 = unscaled. Applied
+  // as a multiplier on every Play Sound one-shot and every sound-emitter
+  // sample, so it rides on top of each source's own volume.
+  int sfxVolume = 100;
+
   // Save data: named values persisted in memory card slots (SAVE_VALUE_NAMES
   // order, scene_data.hpp). Set openSaveMenu = true to open the in-game
   // save/load menu (also opened by using a Save point object); the game
@@ -121,6 +151,17 @@ struct ScriptContext {
   char* saveTexts = nullptr;
   int saveTextCount = 0;
   bool openSaveMenu = false;
+  // Checkpoints: ONE in-RAM snapshot of the exact payload a card slot
+  // stores (a single static buffer, a few KB - never grows, no history).
+  // saveCheckpoint captures it, loadCheckpoint restores it (no-op when none
+  // was taken); both are instant RAM ops. commitCheckpoint >= 0 writes the
+  // snapshot to that card slot behind the "checking memory card" warning.
+  // hasCheckpoint mirrors whether the buffer holds one (Has Checkpoint
+  // node). The game applies and clears the requests each frame.
+  bool saveCheckpoint = false;
+  bool loadCheckpoint = false;
+  int commitCheckpoint = -1;
+  bool hasCheckpoint = false;
 
   // Game menus (menu_data.gen.hpp order). Write a menu index into openMenu
   // to open it (the game applies and clears it). menuEvent holds the index

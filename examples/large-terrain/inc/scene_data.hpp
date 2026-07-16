@@ -1259,6 +1259,15 @@ constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
 constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {1.8F};
 constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};
 constexpr bool PLAYER_CAN_JUMPS[SCENE_COUNT] = {true};
+constexpr float PLAYER_RUN_THRESHOLDS[SCENE_COUNT] = {0.55F};
+constexpr float PLAYER_CAM_DISTS[SCENE_COUNT] = {6.0F};
+constexpr float PLAYER_CAM_HEIGHTS[SCENE_COUNT] = {1.6F};
+constexpr float PLAYER_CAM_SHOULDERS[SCENE_COUNT] = {0.0F};
+constexpr float PLAYER_TURN_RATES[SCENE_COUNT] = {0.25F};
+constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_JUMP_CLIPS[SCENE_COUNT] = {""};
 
 constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {2048.0F};
 constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {2048.0F};
@@ -1283,6 +1292,9 @@ constexpr float SKY_TOP_GS[SCENE_COUNT] = {76.5F};
 constexpr float SKY_TOP_BS[SCENE_COUNT] = {165.75F};
 constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {0};
 constexpr int POSTFX_GRAINS[SCENE_COUNT] = {0};
+constexpr int POSTFX_DOFS[SCENE_COUNT] = {0};
+constexpr float POSTFX_DOF_FOCUSES[SCENE_COUNT] = {20.0F};
+constexpr float POSTFX_DOF_RANGES[SCENE_COUNT] = {15.0F};
 constexpr bool FOG_ENABLEDS[SCENE_COUNT] = {true};
 constexpr float FOG_RS[SCENE_COUNT] = {114.75F};
 constexpr float FOG_GS[SCENE_COUNT] = {153.0F};
@@ -1331,7 +1343,7 @@ constexpr int SAVE_TEXT_COUNT = 0;
 constexpr int SAVE_TEXT_LEN = 32;  // incl. the terminating NUL
 inline const char* SAVE_TEXT_NAMES[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
 inline const char* SAVE_TEXT_DEFAULTS[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
-constexpr int SAVE_OBJECT_MAX = 1181;
+constexpr int SAVE_OBJECT_MAX = 1;
 
 }  // namespace Large_terrain
 
@@ -1380,6 +1392,15 @@ inline int everyFrames(float seconds) {
 #define PLAYER_EYE_HEIGHT PLAYER_EYE_HEIGHTS[g_activeScene]
 #define PLAYER_JUMP_SPEED PLAYER_JUMP_SPEEDS[g_activeScene]
 #define PLAYER_CAN_JUMP PLAYER_CAN_JUMPS[g_activeScene]
+#define PLAYER_RUN_THRESHOLD PLAYER_RUN_THRESHOLDS[g_activeScene]
+#define PLAYER_CAM_DIST PLAYER_CAM_DISTS[g_activeScene]
+#define PLAYER_CAM_HEIGHT PLAYER_CAM_HEIGHTS[g_activeScene]
+#define PLAYER_CAM_SHOULDER PLAYER_CAM_SHOULDERS[g_activeScene]
+#define PLAYER_TURN_RATE PLAYER_TURN_RATES[g_activeScene]
+#define PLAYER_IDLE_CLIP PLAYER_IDLE_CLIPS[g_activeScene]
+#define PLAYER_WALK_CLIP PLAYER_WALK_CLIPS[g_activeScene]
+#define PLAYER_RUN_CLIP PLAYER_RUN_CLIPS[g_activeScene]
+#define PLAYER_JUMP_CLIP PLAYER_JUMP_CLIPS[g_activeScene]
 #define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
 #define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
 #define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]
@@ -1414,6 +1435,9 @@ inline int everyFrames(float seconds) {
 #define SKY_TOP_B SKY_TOP_BS[g_activeScene]
 #define POSTFX_BLOOM POSTFX_BLOOMS[g_activeScene]
 #define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
+#define POSTFX_DOF POSTFX_DOFS[g_activeScene]
+#define POSTFX_DOF_FOCUS POSTFX_DOF_FOCUSES[g_activeScene]
+#define POSTFX_DOF_RANGE POSTFX_DOF_RANGES[g_activeScene]
 #define FOG_ENABLED FOG_ENABLEDS[g_activeScene]
 #define FOG_R FOG_RS[g_activeScene]
 #define FOG_G FOG_GS[g_activeScene]

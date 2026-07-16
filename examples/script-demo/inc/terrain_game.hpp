@@ -24,6 +24,7 @@ class TerrainGame : public Tyra::Game {
   void resetTerrainChunks();
   void buildTerrainChunk(int slot, int cx, int cz);
   void updateTerrainChunks(float focusX, float focusZ, int budget);
+  int countPendingChunks(float focusX, float focusZ);
   void renderTerrain();
   void updatePlayer();
 
@@ -245,10 +246,33 @@ class TerrainGame : public Tyra::Game {
   // camera when present. Returns false when the scene has no player.
   bool updatePlayerEntity();
   float entX = 0, entY = 0, entZ = 0, entVelY = 0, entYaw = 0, entPitch = 0;
+  // Third-person only: entYaw/entPitch orbit the camera, entFaceYaw is the
+  // avatar's own facing (turns toward the walk direction). Clip indices are
+  // resolved from the model's clip table at scene load; -1 = unmapped.
+  float entFaceYaw = 0;
+  int playerIdleClip = -1, playerWalkClip = -1, playerRunClip = -1, playerJumpClip = -1;
+  // Picks the third-person avatar's locomotion clip from its planar speed
+  // (fraction of full walk speed) and grounded state, cross-fading on change.
+  void drivePlayerAnim(RuntimeObject& body, float speedFrac, bool grounded);
+  // Spring arm: the distance down the boom (from the head, along d) at which
+  // the camera would enter geometry or the terrain. camBoom is the smoothed
+  // boom length actually used - it snaps in on a hit and eases back out.
+  float springArm(float px, float py, float pz, float dx, float dy, float dz,
+                  float maxDist) const;
+  float camBoom = 0;
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
   void loadScene(int sceneIndex);
+  // Loads scene 0 + runs scripts' init(); called once from the loop's boot
+  // sequence (see bootPhase) so the initial load is vsync-paced.
+  void bootFirstScene();
+  // Boot state: 0 = boot splash images, 1 = loading-screen hold for the first
+  // scene, 2 = gameplay running (the Tyra logo hold lives in the engine's
+  // banner). splashIndex/splashFrames step through the splash sequence.
+  int bootPhase = 0;
+  int splashIndex = 0;
+  int splashFrames = 0;
   int currentScene = 0;
   unsigned int sceneGeneration = 0;
 
@@ -277,8 +301,8 @@ class TerrainGame : public Tyra::Game {
   std::vector<int> sndTimers;               // per-object retrigger countdown
   void updateSoundEmitters();
 
-  // Scene switches show res/hud/loading.png on black for a moment
-  Tyra::Sprite loadingSprite;
+  // Scene switch target held across the loading-screen frames (the screen
+  // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
   int loadingFrames = 0, loadingTarget = -1;
 
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
@@ -291,6 +315,8 @@ class TerrainGame : public Tyra::Game {
   // open. updateSaveMenu() returns true while it owns the pad.
   bool updateSaveMenu();
   void renderSaveMenu();
+  void captureState(SaveGameData& d);  // fill d with the live game state
+  void applyState(SaveGameData& d);    // restore d (sanitizes texts in place)
   void doSave(int slot);
   void doLoad(int slot);
   void applySavedObjects();
@@ -306,12 +332,29 @@ class TerrainGame : public Tyra::Game {
   int saveFeedback = 0, saveFeedbackFrames = 0;  // 1 saved, 2 loaded, 3 error
   Tyra::Sprite saveMenuSprite, saveCursorSprite, saveUsedSprite;
   Tyra::Sprite saveFeedbackSprites[3];  // saved / loaded / error
+  // Checkpoint: ONE static snapshot of the save payload, in RAM only. The
+  // payload is fixed-size and bounded by the save-flagged object count, so
+  // this stays a few KB - no checkpoint history is kept by design. The
+  // Commit Checkpoint flow node writes it to a card slot on request.
+  SaveGameData checkpointData;
+  bool checkpointValid = false;
+  // Memory card busy overlay ("checking memory card, do not remove..."):
+  // every card op goes through beginCardOp so the warning is presented
+  // BEFORE the blocking libmc transfer runs, then holds a minimum time.
+  void beginCardOp(int op, int slot);  // 0 save, 1 load, 2 commit checkpoint
+  int cardOp = -1, cardOpSlot = 0;
+  int cardOpDelay = 0;     // frames until the blocking op runs
+  int cardBusyFrames = 0;  // minimum overlay hold left
+  Tyra::Sprite saveBusySprite;
 
   // Game menus (menu_data.gen.hpp): panels baked by the editor, opened by
   // the Open Menu flow node, a menu entry, or at boot (title screen).
   // Gameplay pauses while one is open; Triangle walks the submenu stack.
   bool updateGameMenu();
   void renderGameMenu();
+  // Ready-made option-block rows (Menu Editor): map each bound Toggle/Choice
+  // row's option index onto its engine setting (volume/deadzone/curve/display).
+  void applyMenuBindings();
   std::vector<Tyra::Sprite> menuSprites;
   // Toggle/Choice entry values: one sub-rect sprite per menu into its baked
   // value strip (menu_data.gen.hpp; only menus with such entries have one).
