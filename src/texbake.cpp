@@ -126,10 +126,12 @@ std::string bake(const Project& p,
         if (!objparser::load(e.path().string(), model)) continue;
         const std::string q = assetQuality(assetRel);
         for (const objparser::Submesh& s : model.submeshes) {
-            if (s.texture.empty()) continue;
-            std::vector<std::string> rel;
-            texturesOf(e.path().parent_path(), s.texture, &rel);
-            for (const std::string& r : rel) claim(r, q);
+            for (const std::string& tex : {s.texture, s.refl}) {
+                if (tex.empty() || tex == "@sky") continue;  // dynamic env map
+                std::vector<std::string> rel;
+                texturesOf(e.path().parent_path(), tex, &rel);
+                for (const std::string& r : rel) claim(r, q);
+            }
         }
     }
     // standalone material libraries (res/materials + mtls next to models)
@@ -142,10 +144,12 @@ std::string bake(const Project& p,
             if (!objparser::loadMtl(e.path().string(), materials)) continue;
             const std::string q = assetQuality(assetRel);
             for (const objparser::MtlMaterial& m : materials) {
-                if (m.texture.empty()) continue;
-                std::vector<std::string> rel;
-                texturesOf(e.path().parent_path(), m.texture, &rel);
-                for (const std::string& r : rel) claim(r, q);
+                for (const std::string& tex : {m.texture, m.refl}) {
+                    if (tex.empty() || tex == "@sky") continue;  // dynamic env map
+                    std::vector<std::string> rel;
+                    texturesOf(e.path().parent_path(), tex, &rel);
+                    for (const std::string& r : rel) claim(r, q);
+                }
             }
         }
     }

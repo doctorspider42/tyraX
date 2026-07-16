@@ -113,9 +113,12 @@ at their default) → properties UI in app.cpp (+ `commitChange()`) →
 `terrain_game.cpp` template (`TPL_*` strings in templates.cpp) → viewport
 rendering if it's visual.
 
-**New object type** → `PrimitiveType` enum (0–9 used so far; keep values stable,
+**New object type** → `PrimitiveType` enum (0–15 used so far; keep values stable,
 they're serialized) → mesh/marker in viewport.cpp → insert menu in app.cpp →
-codegen + runtime as above.
+codegen + runtime as above. If the type needs per-object variable-length data
+(like Mirror's reflected-object list), don't grow the fixed `SceneObjectData`
+POD — emit a flat side table into scene_data.hpp keyed by (scene, object), the
+`OBJECT_SCRIPT_ATTACHES` / `MIRRORS` pattern.
 
 **Object identity: `SceneObject::id`.** Every object carries an opaque, stable
 `id` (first JSON key; part of `operator==`) — the merge/persistence key for the
@@ -208,6 +211,32 @@ reads as a shrink. (Don't revert to text-only dedup re-baselined per build/run �
 it silently misses the second identical run's error.) `EditorConfig::errorPopup`
 (default on) gates the dialog; off = errors go only to the Debug window / console.
 
+**Live Link** (`App::liveLinkTick`, called each frame from `drawUI`; docs in
+`docs/live-link.md`): with the **debug** build profile and the
+`ProjectSettings::liveLink` preference on (default; toggled by the toolbar
+LIVE chip, *Build > Live Link* and *Preferences > Build*), the editor streams
+scene edits into the running game by rewriting `bin/livelink.bin` (atomic
+tmp→rename; `TXLL` v2 header + one 64-byte record per object + seq-echo
+footer), which the generated `src/scripts/live_link.gen.cpp`
+(`templates::liveLinkScript`; empty TU in release or with the preference off)
+polls over host: — the same file channel both PCSX2 and ps2link already serve
+assets through. Records address objects by `project::liveLinkIdHash` (baked
+as `SCENE_*_OBJECT_ID_HASHES` in scene_data.hpp), so renames/reorders are
+safe, newly added objects are **live-spawned** from an equal-recipe template
+via the runtime spawn pool, and deleted ones are hidden. Consistency is
+guarded by the as-built record `bin/livelink.sig`
+(`project::liveLinkSigFile`: per-object id + `liveLinkRecipeHash` + a context
+hash, stamped by the Runner at build start, which also deletes stale
+`livelink.bin`); recipe drift / unspawnable new objects
+(`liveLinkCanSpawnLive`: baked lights, projecting decals, mirrors, objects
+with graphs/scripts) flip the chip from green LIVE to amber LIVE (rebuild)
+and stop writes. **If you add an object property**, decide where it belongs:
+build-time-baked or clone-relevant fields go into `liveLinkRecipeHash` (and
+new unspawnable categories into `liveLinkCanSpawnLive`), or Live Link will
+silently not show that edit while claiming LIVE. The snapshot seq is seeded
+from the clock at attach — a restarted editor must never reuse a seq the
+still-running game already applied.
+
 ### 4. Conventions
 - Files: `snake_case.cpp/.hpp`, paired header/impl, flat `src/`.
 - One feature = one commit. `PROGRESS.md` is a living log — every finished
@@ -215,9 +244,11 @@ it silently misses the second identical run's error.) `EditorConfig::errorPopup`
   verified** (read a few entries to match the tone; they double as the project's
   institutional memory, including dead ends).
 - Comments explain constraints, not narration; match the existing density.
-- The editor viewport and the PS2 game must agree: shading, terrain sampling
-  and sky are implemented twice (GLSL/C++ in viewport, codegen in templates).
-  When you change one formula, grep for its twin.
+- The editor viewport and the PS2 game must agree: shading, terrain sampling,
+  sky and the reflective-material matcap (sphere-map STs from the camera-space
+  normal — `docs/reflective-materials.md`) are implemented twice (GLSL/C++ in
+  viewport, codegen in templates). When you change one formula, grep for its
+  twin.
 - **DPI/zoom: wrap literal pixel sizes in `App::scaled(px)`.** `applyUiScale()`
   scales fonts (`FontScaleMain`) and style spacing (`ScaleAllSizes`) but NOT the
   pixel literals you pass to ImGui. So a hardcoded `SetNextItemWidth(180)`,

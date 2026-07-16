@@ -22,6 +22,7 @@
 #include "./gs/renderer_core_gs.hpp"
 #include "./texture/renderer_core_texture.hpp"
 #include "./postfx/renderer_core_postfx.hpp"
+#include "./envmap/renderer_core_envmap.hpp"
 #include "./paths/path3/path3.hpp"
 #include "./paths/path1/path1.hpp"
 #include "./renderer_core_sync.hpp"
@@ -83,6 +84,9 @@ class RendererCore {
 
   /** Full screen post effects: bloom, film grain (TyraX fork). */
   RendererCorePostFx postFx;
+
+  /** Dynamic environment map for reflective materials (TyraX fork). */
+  RendererCoreEnvMap envMap;
 
   /** EE <-> VU1 synchronization */
   RendererCoreSync sync;

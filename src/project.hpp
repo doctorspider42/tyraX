@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
@@ -60,6 +61,13 @@ enum class PrimitiveType {
     // game). A camera-track keyframe bound to it takes eye/look-at/FOV from
     // the entity - animate the entity itself for dolly/crane shots.
     Camera = 14,
+    // Mirror: a rectangle (unit XY quad facing +Z, like a decal) that fakes a
+    // real mirror the PS2 way: the game re-draws each listed object a second
+    // time, reflected across the mirror plane, then blends the tinted glass
+    // quad over the copies. No render-to-texture, no stencil - the "mirror
+    // world" is real geometry behind the plane, so build it into a wall (the
+    // wall hides the copies outside the frame). See mirrorObjects below.
+    Mirror = 15,
 };
 
 // Tessellation detail for the geometry primitives, stored per object in
@@ -157,6 +165,11 @@ struct SceneObject {
     // drawn at all (collision, sounds and scripts still run). 0 = unlimited.
     // The cheapest LOD there is - era-correct for dense scenes.
     float drawDistance = 0.0f;
+    // Show in reflections: this object is also rendered into the dynamic
+    // ("@sky") environment map, so reflective materials mirror it - the GT3
+    // trick's second half. Each marked object costs a second (128x128,
+    // wide-FOV) render per frame; mark the few props that sell the effect.
+    bool reflected = false;
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     // Material library (.mtl) assigned to the object, e.g.
     // "res/materials/walls.mtl". Primitives take the file's FIRST material
@@ -262,6 +275,19 @@ struct SceneObject {
     // it to the real PS2 projection for the duration of the shot.
     float cameraFov = 60.0f;
 
+    // Mirror parameters (used when type == Mirror). An explicit list of scene
+    // object names this mirror reflects (renames remap; a dangling name is
+    // skipped) - a hard list instead of a radius, so the geometry cost is
+    // always visible to the author. Reflected copies follow the live object
+    // (movement, visibility, layer streaming). mirrorReflectPlayer also
+    // reflects the player avatar (visible flesh only - a third-person model;
+    // FPP players have no body to reflect). The shared `color` field tints
+    // the glass quad; mirrorOpacity is its alpha (0 = invisible glass,
+    // 1 = opaque - the reflection shows through low values).
+    std::vector<std::string> mirrorObjects;
+    bool mirrorReflectPlayer = false;
+    float mirrorOpacity = 0.35f;
+
     // Animated model parameters (Model objects whose modelPath ends in .glb;
     // the editor bakes the file's clips to morph frames - see glbparser.hpp).
     std::string animClip;       // starting clip name ("" = the file's first)
@@ -300,6 +326,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
            a.layer == b.layer &&
            a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
+           a.reflected == b.reflected &&
            a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
            a.playerMode == b.playerMode &&
@@ -336,6 +363,9 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.soundOnPlayer == b.soundOnPlayer &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
            a.cameraFov == b.cameraFov &&
+           a.mirrorObjects == b.mirrorObjects &&
+           a.mirrorReflectPlayer == b.mirrorReflectPlayer &&
+           a.mirrorOpacity == b.mirrorOpacity &&
            a.animClip == b.animClip && a.animAutoplay == b.animAutoplay &&
            a.animLoop == b.animLoop && a.animSpeed == b.animSpeed &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts;
@@ -374,6 +404,11 @@ struct ProjectSettings {
     bool showMemory = false;  // debug profile only: on-screen free-RAM readout
     bool showProfiler = false;  // debug profile only: per-phase EE-time HUD
                                 // (scene / highlight / particles / whole frame)
+    // Debug profile only: compile the Live Link poller into the game, so the
+    // editor can stream scene edits into the running game (docs/live-link.md).
+    // Off = the game never reads livelink.bin and the editor never writes it -
+    // for anyone who does not want their debug builds patched from outside.
+    bool liveLink = true;
 
     // Experimental: skip the vsync wait before the buffer flip. Frame rate
     // becomes continuous instead of quantized to 50/25 (PAL), at the cost
@@ -384,7 +419,10 @@ struct ProjectSettings {
     // "precise": real per-triangle clipping - no holes at screen edges, but
     // costs EE time. "fast": VU1 cull only - fastest, may drop triangles
     // that extend far beyond the screen.
-    std::string clipping = "precise";
+    // Triangle handling: "vu1" (default - precise clipping in the VU1 clip
+    // programs, no EE cost), "precise" (the legacy EE clipper) or "fast"
+    // (cull-only). Projects saved before the vu1 default keep their value.
+    std::string clipping = "vu1";
 
     // Animation LOD: animated-model instances farther than this from the
     // camera refresh their pose/skinning every 2nd frame (every 4th beyond
@@ -509,6 +547,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.displayMode == b.displayMode && a.widescreen == b.widescreen &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler &&
+           a.liveLink == b.liveLink &&
            a.disableVsync == b.disableVsync &&
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
            a.meshLodDistance == b.meshLodDistance &&
@@ -1191,5 +1230,30 @@ std::string loadHistory(const Project& p, History& h);
 // marker in the first line (delete it to take ownership of a file).
 // Called before every build.
 std::string refreshGenerated(const Project& p);
+
+// --- Live Link structure hashing (docs/live-link.md) ------------------------
+// Objects are addressed by a stable 64-bit id hash, so a live session
+// survives renames/reorders and can even spawn NEWLY ADDED objects through
+// the game's runtime spawn pool (cloning an authored template with an equal
+// "recipe"). The Runner writes liveLinkSigFile() to bin/livelink.sig at build
+// start; the editor compares the live project against it every tick and
+// streams livelink.bin only while the session is representable - anything
+// else flips the toolbar to "LIVE (rebuild)". See templates::liveLinkScript.
+
+// Stable per-object identity: FNV-1a 64 of SceneObject::id (name fallback).
+// Also baked into scene_data.hpp (SCENE_*_OBJECT_ID_HASHES) for the game.
+uint64_t liveLinkIdHash(const SceneObject& o);
+// Everything a live patch can't change and a spawn clone copies from its
+// template - equal recipes = interchangeable as templates. Transform + color
+// (the live-patched fields) are excluded, except for objects whose transform
+// is baked at build (point lights, projecting decals).
+uint64_t liveLinkRecipeHash(const SceneObject& o);
+// False for objects the spawn pool can't faithfully instantiate (baked
+// lights/decals/mirrors, objects carrying flow graphs or attached scripts).
+bool liveLinkCanSpawnLive(const SceneObject& o);
+// Cross-object structure (scene count, streaming-layer tables).
+uint64_t liveLinkContextHash(const Project& p);
+// The whole as-built record written to bin/livelink.sig.
+std::string liveLinkSigFile(const Project& p);
 
 }  // namespace project

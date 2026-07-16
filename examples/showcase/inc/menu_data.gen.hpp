@@ -14,6 +14,9 @@ struct MenuEntryData {
   float amount;
   int optionCount;  // toggle/choice: how many options cycle
   int cell;         // first cell in the value strip (-1 = none)
+  int bind;         // option-block binding (applyMenuBindings):
+                    // 0 none, 1 music vol, 2 sfx vol, 3 deadzone,
+                    // 4 stick curve, 5 display mode, 6 widescreen
 };
 
 struct MenuData {
@@ -37,16 +40,16 @@ constexpr int MENU_COUNT = 2;
 
 // menu "pause"
 constexpr MenuEntryData MENU_0_ENTRIES[2] = {
-    {0, -1, 0.0F, 0, -1},  // Resume
-    {2, -1, 0.0F, 0, -1},  // Save Game
+    {0, -1, 0.0F, 0, -1, 0},  // Resume
+    {2, -1, 0.0F, 0, -1, 0},  // Save Game
 };
 // menu "options"
 constexpr MenuEntryData MENU_1_ENTRIES[5] = {
-    {7, 1, 0.0F, 2, 0},  // Fog
-    {7, 2, 0.0F, 2, 2},  // Grain
-    {7, 3, 0.0F, 2, 4},  // Bloom
-    {7, 4, 0.0F, 2, 6},  // Particles
-    {0, -1, 0.0F, 0, -1},  // Close
+    {7, 1, 0.0F, 2, 0, 0},  // Fog
+    {7, 2, 0.0F, 2, 2, 0},  // Grain
+    {7, 3, 0.0F, 2, 4, 0},  // Bloom
+    {7, 4, 0.0F, 2, 6, 0},  // Particles
+    {0, -1, 0.0F, 0, -1, 0},  // Close
 };
 
 inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {

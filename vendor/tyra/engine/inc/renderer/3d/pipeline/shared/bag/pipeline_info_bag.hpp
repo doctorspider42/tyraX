@@ -7,6 +7,7 @@
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 # Modified by TyraX: per-bag fogDisabled flag (GS hardware fog opt-out)
+# and per-bag additive blend equation (additiveBlendFix, reflective materials)
 */
 
 #pragma once
@@ -34,6 +35,7 @@ class PipelineInfoBag {
     frustumCulling = PipelineInfoBagFrustumCulling_None;
     zTestType = PipelineZTest_Standard;
     fogDisabled = false;
+    additiveBlendFix = 0;
   }
   ~PipelineInfoBag() {}
 
@@ -67,6 +69,17 @@ class PipelineInfoBag {
    * fog end distance and would otherwise be painted solid fog color).
    */
   bool fogDisabled;
+
+  /**
+   * 0 = the standard alpha-over blend equation (Cs-Cd)*As/128 + Cd.
+   * 1..255 = draw this bag with the additive equation Cs*FIX/128 + Cd,
+   * FIX = this value (128 = +1.0) - the spherical-environment-map pass of
+   * reflective materials. The GS ALPHA register is global, so a non-zero
+   * value drains the pipeline (FINISH barrier) before and after the bag's
+   * draw - keep it for a handful of meshes per frame. Consumed by the
+   * static pipeline only (StaPipCore::render).
+   */
+  u8 additiveBlendFix;
 };
 
 }  // namespace Tyra

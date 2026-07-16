@@ -25,6 +25,11 @@ struct LeanObjMaterial {
   std::string name;         // usemtl name ("" = no material)
   std::string textureName;  // map_Kd, relative to the .obj directory ("" = none)
   float kd[3] = {1.0F, 1.0F, 1.0F};  // diffuse color 0..1
+  // refl: spherical environment map ("" = not reflective) + strength 0..1;
+  // rounded = env normals radiate from the part centroid ("-rounded" flag)
+  std::string reflTextureName;
+  float reflStrength = 0.0F;
+  bool reflRounded = false;
   std::vector<float> vertices;
 };
 
@@ -44,6 +49,11 @@ struct LeanMtlMaterial {
   std::string name;
   std::string textureName;  // map_Kd, relative to the .mtl directory ("" = none)
   float kd[3] = {1.0F, 1.0F, 1.0F};
+  // refl: spherical environment map ("" = not reflective) + strength 0..1;
+  // rounded = env normals radiate from the part centroid ("-rounded" flag)
+  std::string reflTextureName;
+  float reflStrength = 0.0F;
+  bool reflRounded = false;
 };
 
 /**
@@ -74,7 +84,7 @@ class LeanObjLoader {
                                            const std::string& overrideMtl = "");
 
   /**
-   * Parses a standalone .mtl library (newmtl/Kd/map_Kd), file order.
+   * Parses a standalone .mtl library (newmtl/Kd/map_Kd/refl), file order.
    * @return materials, empty when the file is missing or defines none
    */
   static std::vector<LeanMtlMaterial> loadMtl(const std::string& relativePath);

@@ -1,4 +1,4 @@
-﻿# Progress log
+# Progress log
 
 Living document: what is being worked on right now, what is done, what is queued.
 Each finished feature lands as its own commit.
@@ -9,7 +9,7 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (104) **Object physics upgraded from "falls straight down" to a
+- (113) **Object physics upgraded from "falls straight down" to a
   rigid-body-lite simulation (bounce, slide, tumble, stacks, shoves,
   impulses).** The old `updateObjectPhysics` was Y-only gravity that stopped
   dead at the terrain height. The new one gives every `physics` body: full 3D
@@ -56,6 +56,459 @@ Each finished feature lands as its own commit.
   were first emitted as file-`static` functions - `GameModel` is a nested
   type of `TerrainGame`, so they must be static members (the PS2 gcc error
   cascade "cannot convert GameModel* to const int*" means exactly this).
+
+- (112) **Rounded reflection normals - flat surfaces stop reflecting "one
+  pixel".** Owner's observation on the console: the mirror monolith showed
+  a single uniform patch of the env map per face while the spheres "reflect
+  like RTX ON" - inherent to matcap math (UV comes from the normal; a flat
+  face has ONE normal -> one sample stretched across it). New per-material
+  **Rounded normals** checkbox (Material Editor > Reflection; stored as the
+  TyraX `-rounded` flag in the `refl` statement, placed before the filename
+  so last-token parsers stay compatible): the env pass swaps the captured
+  face normals for directions radiating from the part centroid
+  (`normalize(vertex - centroid)`, recomputed at geometry rebuild), so every
+  corner of a flat face gets a different UV and the face sweeps a gradient
+  of the map that pans with the camera - the curved-lacquer look. Spheres
+  are unchanged by construction (their true normals are already radial);
+  lighting/geometry untouched; zero runtime cost (different data in the env
+  ST slot). Full chain: both .mtl parsers (LeanObjLoader + objparser),
+  MatEd UI + writer + import rewrite (option tokens before the filename
+  already survive), viewport GLSL twin (`uReflRounded`/`uReflCenter`,
+  world-space part centroid), codegen rebuild override. The showcase's
+  `chrome-dyn` material flipped to rounded (the monolith demos it; the
+  chrome-live spheres share the material - no visual change for them).
+  **Verified** (Layer 3, PCSX2 SW renderer): the monolith face sweeps the
+  sunset gradient AND shows the reflected prop instead of one flat patch;
+  spheres identical; no TYRA banners; editor GUI opens the showcase and the
+  viewport twin shows the same gradient on the monolith (GUI screenshot).
+- (111) **Real-hardware follow-ups: the 2D ALPHA leak (vanishing HUD font
+  outline) + GT3-cadence env map (95 -> 107 FPS).** The owner's console run
+  of the reflections showcase surfaced two things. (1) The debug HUD font
+  lost its black outline on reflective frames: the in-band per-mesh ALPHA
+  (105) leaves the GS `ALPHA` register holding whatever the LAST 3D mesh
+  set - after an additive env pass everything drawn through the 2D sprite
+  path (which never touched ALPHA, it inherited state) blended additively,
+  and black texels add nothing. `RendererCore2D::render` now pins the
+  standard source-alpha equation in every sprite packet - in-band on
+  PATH3, no syncs. (2) The FPS dip when large reflective spheres cross the
+  screen edges (SCENE 18.35 ms on hardware vs ~8 in PCSX2 - the emulator
+  undercounts the clip programs' per-triangle cost) is trimmed with the
+  other GT3 trick: the dynamic env map now re-renders every SECOND frame
+  (`envMapTick` in renderScene; the VRAM target persists between hits, and
+  a 25/30 Hz refresh of a blurry 128px reflection is imperceptible - the
+  first frame always renders, fresh VRAM). **Verified** (Layer 3, PCSX2 SW
+  renderer, debug + vsync off): bench envmap phase 1.6 -> 0.7 ms avg,
+  frame 9.75 ms (95 -> 107 FPS); the HUD font keeps its dark outline over
+  the bright sunset sky (the exact condition that exposed the leak on
+  hardware); dynamic spheres reflect the current sky phase with no visible
+  update lag. The edge-crossing clip cost itself is the remaining lever on
+  that spot - authoring-side (hero-sphere detail) or a future LOD; noted,
+  not attempted here.
+- (110) **Reflections-map perf: 46 -> 95 FPS by putting cull_tce back in the
+  VU1-clipping program set.** The user's report (an average map hits ~100
+  FPS with vsync off, the reflections showcase ~25) profiled to the env
+  second pass: an owned-copy COP0 breakdown of renderScene on the showcase
+  (debug, SW renderer, vsync off) read envmap 1.7 / dome 0.13 / terrain
+  1.43 / objects 16.5 ms - of which the reflective env pass was **14.2
+  ms**, ~6x its own base geometry (2.3 ms). Cause: (109)'s micro-memory
+  compromise force-routed every env-bag package through clip_tce at 1/5
+  occupancy with per-subpackage copies, and the EE then waited on the much
+  heavier per-triangle clip program for geometry that was 95% fully
+  in-frustum (A/B: the same scene on the EE clipper ran the env pass in
+  2.75 ms through cull_tce). Fix, two parts: (a) all five clip programs now
+  share ONE fan-emitter instance in a rotating 3-iteration loop
+  (`fanEmitLoop`; the corner pointer walks srcBase -> fanPtr -> fanNext)
+  instead of three inlined emit copies - frees 116 instructions; (b)
+  upstream's `createProgramsCache` padded every program with "+1"
+  micro-memory word although `getProgramSize()` is already even-rounded
+  (MPG uploads in 64-bit pairs) - packing back to back frees 10 more. Both
+  together fit the full 10-program vu1 set (2036 <= the 2042 ceiling; the
+  overflow assert fired correctly at 2046 during bring-up), so env bags now
+  route like any textured bag: in-frustum -> cull_tce, crossing ->
+  clip_tce, and StaPipCore's forced-clip branch is deleted. **Verified**
+  (Layer 3, PCSX2 SW renderer, debug + vsync off): showcase env pass 14.2
+  -> 2.56 ms, whole frame 21.2 -> 11.35 ms (46 -> 95 FPS), reflections
+  visually intact; the close-up screen-edge repro (clipped reflective
+  sphere) renders identically clean after the emitter rewrite; and a fresh
+  98k clipbench (fpp, terrain detail 128, vu1) still reads **120 FPS** -
+  the fan loop's few extra instructions per *clipped* triangle don't move
+  the general-path baseline.
+- (109) **M4: VU1 clipping is the default + the clip_tce env program.**
+  Owner decision after in-situ testing: the close-up/screen-edge corruption
+  on reflective geometry (107/108 saga) does not occur on the VU1 clipping
+  path, so the hidden `"clipping": "vu1"` mode graduated to the default
+  ahead of the originally planned hardware-perf gate (that pass - clipbench
+  PERF + the ADC check on a real console - is still owed before the EE
+  clipper can be deleted). New projects scaffold with `"clipping": "vu1"`;
+  the Preferences combo (project + per-scene override) now shows three
+  options: *Precise clipping on VU1 (default)* / *Precise clipping on EE
+  (legacy)* / *Fast culling*; a `.tyra` WITHOUT a clipping key still loads
+  as `precise`, so existing projects keep their exact behavior until opted
+  in. To make reflective materials work there, the fifth clip variant
+  **clip_tce** (`stapip_clip_tce_vu1.vclpp`) computes the matcap ST from
+  the ST-slot normal BEFORE the Sutherland-Hodgman pass (it then lerps
+  through cuts like a regular texture coordinate; `CalculateTyraEnvStq`'s
+  rsqrt runs before any edge/emit div, so the shared Q register stays
+  safe), and the codegen's EE-computed-ST fallback (`envSts`) is deleted -
+  the env pass is VU1-only in both clipping modes. Micro-memory lesson:
+  cull_tce + clip_tce on top of the 8-program vu1 set measured 2162
+  instructions against the ~2032 ceiling (nm on the .o files - the
+  createProgramsCache assert is compiled out in release), so the vu1 set
+  carries ONLY clip_tce (9 programs) and StaPipCore force-routes every
+  env-bag package through the clip program at clip occupancy
+  (`envForceClip` + `renderSubpkgs(forceClip)`; a full-occupancy package
+  can expand past the buffer half when the 0.9w guard band cuts triangles
+  the EE classified as fully inside, so cull-routing was not an option).
+  `examples/reflections` flipped to vu1 and regenerated. **Verified**
+  (Layer 3, PCSX2 SW renderer): fresh `--new` project scaffolds with vu1 +
+  `CLIP_VU1S={true}`; the close-up repro (chrome sphere at the player,
+  crossing the screen edge) renders clean through clip_tce - no
+  punch-through, no wedges, no smeared polygons; the reflections showcase
+  boots and reflects in vu1 mode; no TYRA banners in the game logs.
+- (108) **Env matcap: normalize the normal on VU1 + close-up artifact
+  post-mortem.** Follow-up on the user's screen-edge report (with an FPS
+  dip - that part is the known EE-clipper cost for PARTIALLY_IN_FRUSTUM
+  bags, paid twice by reflective objects). `CalculateTyraEnvStq` now
+  RE-NORMALIZES the ST-slot normal (inlined rsqrt; the macro must run
+  BEFORE the position's div q - rsqrt shares the Q register) because the
+  EE clipper lerps normals across clip cuts and a lerped normal is short.
+  Honest post-mortem: on the edge repro this changed zero pixels - the
+  visible smudges turned out to be the DOCUMENTED flat-facet patchwork
+  magnified by a screen-filling sphere (detail 24 -> 48 visibly cleans it;
+  facet patches scale with tessellation, confirmed by test), and the hard
+  hatched blocks were already fixed by (107). The normalization stays: it
+  makes clipped strips sample correctly (they are a thin screen-edge band,
+  hence the zero-diff on this repro) and unties the matcap from any
+  non-unit normals (scaled models). Docs updated with the up-close facet
+  guidance and the screen-edge FPS note. **Verified** (Layer 3, software
+  renderer): edge repro pixel-diffed before/after fixes; detail-48 variant
+  visibly smoother; no TYRA banners.
+- (107) **Close-up punch-through fix: the env pass drops the TestOnly
+  trick.** User-reported (third close-up artifact): standing at a static-map
+  chrome sphere, LATER objects (its pedestal) punched through the sphere as
+  a solid block plus dithered fringes, and the whole surface showed z-fight
+  moire dots. Isolated with a scratch FPP scene (sphere right at the
+  player): no-reflection variant clean, so the env pass was the trigger -
+  specifically its `PipelineZTest_TestOnly` (ATEST all-fail + AFAIL
+  keep-zbuffer, color-only writes): correct at distance (cull programs) but
+  on the close-up EE-clipped path it corrupted the depth relationships of
+  everything drawn after. The env pass now uses the standard GEQUAL test -
+  the two passes are coplanar, so re-writing identical depths is benign -
+  and the punch-through is gone. Residual: a subtle sampling moire on very
+  magnified spheres (the 128px map's bands under STQ precision) - cosmetic.
+  WHY TestOnly misbehaves there is not yet root-caused; the highlight hull
+  shells still use it (pre-existing, unchanged). **Verified** (Layer 3,
+  software renderer, scratch close-up scene): pedestal correctly occluded,
+  sunset reflection intact; distance rendering unchanged.
+- (106) **Self-reflection fix: near-camera reflected objects skip the env
+  pass.** User-reported (second close-up artifact after 103): a reflective
+  object that is ALSO marked "Show in reflections" sampled its own body
+  from the env map up close - the object fills most of the wide-FOV env
+  view when the camera stands at it, so chrome showed big dark hatched
+  patches of itself ("siet"). Mid-distance mutual reflections (the red
+  box's blob in a neighboring sphere) look great - the degenerate case is
+  only the object the camera is hugging. Fix in the generated env pass:
+  skip a reflected object when the camera sits within ~1.9x its bounding
+  radius (0.87 * max scale, the unit-cube half-diagonal); it pops back in
+  a step away. **Verified** (Layer 3, software renderer): the screen-
+  filling marked "@sky" sphere from the repro scene is uniformly clean up
+  close; the reflections showcase keeps its marked paint spheres and the
+  red-box blob in neighboring chrome.
+- (105) **Objects in reflections: the per-object "Show in reflections"
+  flag.** The dynamic ("@sky") env map reflected only the sky dome; now an
+  object marked `reflected` (Properties checkbox, `"reflected": true` in the
+  object json) is rendered into the map too - chrome mirrors it, the second
+  half of the GT3 trick. Engine: `RendererCoreEnvMap` gained a dedicated
+  128x128 z-buffer (begin() clears color+depth in one all-pass sprite,
+  ZBUF_1 points at it with writes ON) so marked objects occlude each other
+  inside the map; the dome still draws first with an AllPass test. Codegen:
+  `SceneObjectData.reflected` (struct field + row column - keep them 1:1),
+  and the renderScene env pass submits marked objects' BASE bags after the
+  dome (no env-in-env), depth-tested in the env target. Full editor chain
+  per tyra-editor-dev: SceneObject field + operator==, save/load (default
+  false stays implicit), single- and multi-select Properties checkbox. The
+  editor viewport's @sky approximation still shows the sky only (noted in
+  the tooltip + docs) - object reflections are checked in the game.
+  **Verified** (Layer 3, software renderer): in examples/reflections the
+  matte control box and the red/blue paint spheres are marked - the dynamic
+  chrome spheres show the red box's blob (and paint-sphere dots) exactly
+  where the scene places them, while static-map spheres are unchanged; log
+  clean. Cost note: each marked object = one extra small render per frame.
+- (104) **examples/reflections rebuilt as a first-person chrome showroom.**
+  The original orbit-camera five-object demo (its res/ assets initially
+  missed the repo - see 102) is now an FPP scene: an avenue of pedestals
+  pairing static-sunset-map chrome against dynamic "@sky" chrome, a tall
+  mirror monolith, three car-paint spheres and a matte control - plus a
+  flow-graph **sky cycler** (Every 14 s -> Set Sky sunset, parallel
+  Delay 7 s -> Set Sky day) that makes the dynamic mode's point in one
+  glance: only "@sky" surfaces follow the retint. Flow-graph codegen
+  gotcha worth remembering: built-in action nodes do NOT chain exec onward
+  (emitExec recurses only through custom exec_out nodes), so
+  trigger->SetSky->Delay silently drops the Delay - wire the Delay to the
+  trigger in parallel. **Verified** (Layer 3, software renderer): two
+  screenshots 7 s apart show the day and sunset phases with the dynamic
+  spheres/monolith tracking the sky while static-map spheres keep their
+  sunset bands; boot log clean.
+- (103) **Dynamic env map fix: the clear sprite never painted (feathery
+  reflections).** User-reported: up close, "@sky" surfaces showed grey
+  feathering, as if geometry bled through. Diagnosis via a probe material
+  (black base, strength 1.0 - the sphere becomes a monitor for the env map):
+  the map's sky half was clean but the below-horizon half was BLACK - the
+  begin() clear sprite rasterized against the MAIN window's XYOFFSET (the
+  offset switch sat after it in the packet), landed outside the target's
+  0..127 scissor and never painted, so below-horizon samples hit VRAM
+  garbage. Matcap STs crossing the horizon line picked up that black =
+  feathering along facet boundaries. Fix: write the target-centered
+  XYOFFSET before the clear sprite. **Verified** (Layer 3, software
+  renderer): a screen-filling @sky sphere is now uniformly clean - the
+  below-horizon half reflects the horizon color, no dark streaks.
+- (102) **Scaffold fix: res/ assets are tracked by git.** `--new` wrote the
+  keep-empty-dir `.gitignore` (`*` + `!.gitignore`) into `res/` - correct
+  for `bin/`/`obj/` build output, but it silently excluded every AUTHORED
+  asset from the repo, defeating the whole collaboration format (a teammate
+  pulling the project got "material file missing" on every object; that is
+  exactly how examples/reflections first shipped without its .mtl files).
+  New `TPL_RES_GITIGNORE`: everything under `res/` is checked in except
+  build-regenerated bakes (`/menus/`, `/models/*.tskl`, `/models/*.tanm`).
+  `hud/` is deliberately NOT ignored - user-imported HUD images land there
+  next to the baked text sprites, and losing imports is worse than
+  committing regenerable bakes. NOTE: projects created before this fix keep
+  their old `res/.gitignore` (create-time file, never refreshed) - replace
+  it by hand. examples/reflections aligned to the new template. **Verified**
+  (Layer 1): editor builds clean; a fresh `--new` scaffold emits the new
+  `res/.gitignore`.
+- (101) **Dynamic environment map: GT3-style live-sky reflections
+  ("@sky").** Phase 2b of (99)/(100). A material's sphere map can now be
+  `<dynamic - live sky>` (Material Editor; stored as the filename token
+  `@sky` in the `refl` statement): the game re-renders the scene's SKY DOME
+  into a 128x128 VRAM texture every frame and reflective materials sample
+  that - reflections track the live sky, script retints included. Engine
+  fork: `RendererCoreEnvMap` (render target allocated at init below the
+  texture region so FIFO vram frees can never reclaim it; begin()/end()
+  bracket = PATH1 drain + FRAME/SCISSOR/XYOFFSET redirect with MASKED z
+  writes + clear sprite, restore + TEXFLUSH), `Texture::vramResident` (a
+  texture whose pixels live only in GS memory - `useTexture` binds its
+  texbuffer directly, no PATH3 upload, never evicted),
+  `RendererCore3D::pushEnvView/popEnvView` (square 110-deg projection along
+  the camera's level forward + frustum planes widened 1.4x for the
+  screen-aspect mismatch - overly wide planes only cost clipping work,
+  never wrongly cull). Generated game: `@sky` materials bind the engine
+  target (`g_dynamicEnvUsers` refcount gates the per-frame dome pass at the
+  top of renderScene, AllPass z-test swapped in for the dome). Editor: the
+  combo entry + `@sky` guards in texbake/import flows/missing-file warning;
+  the GL twin approximates the dome with the analytic horizon/zenith
+  gradient (uReflOn == 2). New pitfall recorded in tyra-engine-dev, cost a
+  debugging round: a GIF A+D giftag whose NLOOP undercounts its register
+  writes (begin()'s clear sprite made it 8, tag said 7) stalls the GIF
+  forever - eternal loading screen, no assert, clean log. **Verified**
+  (Layer 3): PCSX2 software renderer, scratch scene with BOTH modes side by
+  side - the `@sky` sphere reflects the scene's blue sky gradient (top half
+  sky-blue, pale horizon line) while the static-PNG sphere keeps its
+  white-band/brown look and the matte control stays flat; log free of TYRA
+  banners; "Dynamic env map initialized (VRAM at 700416)" confirms the
+  init-time allocation. A live Set-Sky-Color retint of the reflection still
+  wants a hands-on pad test.
+- (100) **Reflective materials on VU1: TCE matcap programs + in-band GS
+  ALPHA.** Phase 2a of (99). The env pass's sphere-map STs now come from a
+  new StaPip VU1 program family: `stapip_cull_tce_vu1.vclpp` +
+  `stapip_as_is_tce_vu1.vclpp` (`CalculateTyraEnvStq` in `tyra_macros.i`) -
+  the env bag's texture bag sets `coordinatesAreNormals`, the world-space
+  normals ride the vertex stream's ST slot, and VU1 computes
+  `st = (.5+.5(n·r), .5-.5(n·u))` from a per-mesh camera basis uploaded at
+  `VU1_ENV_BASIS_ADDR` (the free lights-matrix area; program selection via
+  `StaPipVU1TextureEnvColor`, EE-clipper set = 10 resident programs). The
+  blend equation moved IN-BAND: every StaPip mesh's tag block gained a GS
+  ALPHA A+D pair (`VU1_ALPHA_ADDR` = 21, `StoreTyraGifTags*Alpha` 9/7-qword
+  variants, `getMaxVertCount` -7 -> -9, clip programs' NLOOP patch offsets
+  6/4 -> 8/6) - alpha-over by default, additive for env bags - so BOTH
+  `sync.align3D()` FINISH barriers and the PATH3 `setAlpha` bracketing in
+  `StaPipCore::render` are gone; reflective mesh count is no longer
+  bottlenecked. dynpip keeps the original 7/5-qword macros (its C++ knows
+  nothing of the ALPHA qword). Generated games fall back to EE-computed STs
+  only in hidden `"clipping": "vu1"` scenes (no clip-family env variant;
+  asserted engine-side). Two NEW vclpp pitfalls recorded in tyra-engine-dev:
+  a `;` comment inside a `#macro` body makes vclpp SILENTLY swallow every
+  call site (the speckled-sphere debugging session: the .o.vcl in the
+  compiler container is the ground truth), and `#define` aliases expand only
+  one level (dvp-as "unresolved expression") - VU1 defines must be literals.
+  **Verified** (Layer 3): Docker build compiles all 14 StaPip programs;
+  PCSX2 software renderer boots clean and the zoomed screenshot shows the
+  chrome sphere's crisp horizon band + per-face box reflections identical in
+  character to the EE version; matte control box unaffected. Real-hardware
+  micro-memory headroom computed, not measured (~1.35k of 2k instr).
+- (99) **Reflective materials: sphere-mapped "chrome" (the NFS/GT car-paint
+  trick).** New `refl -type sphere -mm 0 <strength> <file>` statement in
+  `.mtl` files, authored in the Material Editor's new **Reflection** section
+  (sphere-map picker + strength slider, live in both previews). The PS2 side
+  is the period-correct technique: at geometry build the generated game
+  captures world-space normals for reflective parts (`pushVert` /
+  `g_envNormals`); each frame `renderScene` derives the camera basis and
+  rewrites a per-part env ST array on the EE (`u = .5+.5(n·right)`,
+  `v = .5-.5(n·up)`), then submits the part a SECOND time as its own
+  StaPipBag - same vertex array + bboxVersion (shared frustum-bbox cache
+  entry; all-white "many" colors keep the VU1 program shape identical to the
+  base bag), sphere map as texture, `PipelineZTest_TestOnly`, `fogDisabled`
+  (GS fog would ADD the fog color through the additive equation). The
+  additive blend itself is a new engine-fork feature: per-bag
+  `PipelineInfoBag::additiveBlendFix` - `StaPipCore::render` drains PATH1
+  (`sync.align3D()`), switches the global GS ALPHA register to
+  `Cs*FIX/128 + Cd` via the new `RendererCoreGS::setAlpha` (preallocated
+  PATH3 packet, `setFogColor` pattern), and restores alpha-over after the
+  bag's own drain - placed after the frustum early-out so a culled bag never
+  flips global state. Both `.mtl` parsers extended in sync (engine
+  `LeanObjLoader` + editor `objparser.cpp`); the GL twin samples the map in
+  the viewport FS from `dFdx/dFdy` flat normals + the same camera-basis
+  formula (both sides faceted - the loaders' per-face normals, like base
+  lighting). Also threaded through: texbake quality claims, model/material
+  import rewrites (`refl` filename remapped, options preserved), Material
+  Editor round-trip (no longer falls into `extra`). `gl_loader` gained
+  `glActiveTexture`/`GL_TEXTURE0/1` (the sphere map rides texture unit 1).
+  v1 limits: static primitives + .obj models only (no .glb/terrain), EE ST
+  math + two FINISH barriers per reflective mesh - the planned phase 2 moves
+  UV-from-normal into the StaPip VU1 programs (GT3 style) and can smooth
+  normals. **Verified** (Layer 3): editor builds clean; `--new` + overlay
+  scratch project (red chrome sphere detail 24 + chrome box + matte box,
+  128px sky-gradient sphere map) `--resave` round-trips the `refl` line;
+  generated `terrain_game.cpp` carries the env pass; full Docker build
+  (engine + game) compiles; PCSX2 **software renderer** boots clean
+  (`bin/log.txt` free of TYRA banners) and the F8 screenshot shows the
+  horizon flash across the sphere/box while the matte box stays flat; the
+  editor viewport shows the matching matcap on the same scene (GUI
+  screenshot). The Material Editor preview shares the verified shader path;
+  its interactive feel (picker, slider) still wants a hands-on pass. Docs:
+  README, `docs/reflective-materials.md`, engine + editor skills.
+
+- (107) **Live Link v2 — per-project on/off + live add/delete of objects.**
+  Two follow-ups to (106). First, the on/off is now a **project setting**
+  (`ProjectSettings::liveLink`, default on; *Project > Preferences > Build*,
+  *Build > Live Link*, and the toolbar **LIVE chip itself is the switch** —
+  click to toggle): off = `live_link.gen.cpp` is an empty TU even in debug
+  builds and the Runner deletes `livelink.sig`, so the game carries no poller
+  at all for anyone who doesn't want debug builds patched from outside (the
+  short-lived editor.ini flag from (106) is gone — the setting travels with
+  the `.tyra`). The chip is always visible in the debug profile with four
+  states: gray "LIVE off", dim "LIVE (build)" (no poller-capable build yet),
+  green "LIVE", amber "LIVE (rebuild)". Second, the protocol moved from
+  index-addressed to **id-addressed records** (v2: 64 B per object = FNV-1a 64
+  of the editor object id + a spawn-template index + the 12 live floats;
+  `SCENE_*_OBJECT_ID_HASHES` tables baked into scene_data.hpp, binary-searched
+  on the EE), which buys: renames/reorders are non-events, **adding an object
+  live works** — the game clones an equal-recipe authored template through the
+  existing runtime spawn pool (`ctx.spawnObject`, ≤32 clones) and patches the
+  clone — and **deleting live hides** the object (undo restores; spawned
+  clones despawn). `bin/livelink.sig` became an as-built record (per-object
+  id + recipe hash in built order + a context hash) the editor evaluates
+  per tick: recipe drift on a built object, a new object with no template or
+  one that can't be faithfully spawned (point lights / projecting decals /
+  mirrors / objects carrying flow graphs or scripts), or layer-table changes
+  → amber chip, zero writes. Trap fixed along the way: the editor seeds its
+  snapshot sequence from the clock at project attach — a restarted editor
+  starting again at seq=1 collided with the previous session's seq=1 that the
+  still-running game remembered, and the (different) snapshot was deduped
+  away. **Verified in PCSX2 (SW renderer, 50 FPS steady):** live ADD — a
+  box added to the project files spawned in the running game via template
+  index 1 and took its own color/rotation; live DELETE — removing the pillar
+  from the manifest hid it in the running game while the spawned box
+  survived; all four chip states screenshotted (off/build/live/rebuild);
+  recipe change (box detail 1→4) flipped amber with `livelink.bin` untouched;
+  `liveLink: false` build emitted the stub TU and removed the sig. All nine
+  examples regenerated/rebuilt clean in Docker. Real-PS2 pass still pending
+  (as in (106)).
+
+- (106) **Live Link — edit the running game.** Scene edits (object position /
+  rotation / scale / color) stream into the running game with **no rebuild**:
+  drag a gizmo in the editor and the box slides across the PS2 screen. No
+  socket and no new protocol — the transport is the host filesystem the game
+  already loads assets from (PCSX2 Host Filesystem, or the ps2link/ps2client
+  file server on a real console), so one mechanism covers both targets. The
+  editor (`App::liveLinkTick`, ~10 Hz) writes `bin/livelink.bin` (little-endian
+  `TXLL` blob: seq + scene + 12 floats per authored object + a seq-echo footer,
+  written atomically tmp→rename) whenever the live-patchable state changed; a
+  generated global script (`templates::liveLinkScript` →
+  `src/scripts/live_link.gen.cpp`, **debug profile only** — release emits an
+  empty TU) polls it every 6 frames (25 under ps2link, where each fopen is a
+  network round-trip), rejects torn/stale reads (magic + exact size + footer,
+  seq dedupe), and patches `RuntimeObject.data` + `dirty` only for objects
+  whose values really changed — the same dirty-rebuild path the Move/Set Color
+  flow nodes use, so physics/collision/shading follow. Index-mapping safety:
+  `project::liveLinkSignature` (FNV-1a over scene/object order, ids, types,
+  model/material, prim detail, layers, and the build-baked cases — point
+  lights, projected-decal projectors) is stamped into `bin/livelink.sig` by the
+  Runner at build start (which also deletes any stale `livelink.bin`); the
+  editor streams only while the project still hashes identically, and the
+  toolbar shows **● LIVE** (green) / **● LIVE (rebuild)** (amber) accordingly —
+  a structural edit can pause, an Undo or a rebuild resumes automatically.
+  Master switch in *Build > Live Link* (`editor.ini`, default on). Docs:
+  `docs/live-link.md`. **Verified in PCSX2 (SW renderer, 50 FPS steady):**
+  (1) game-side poller — scratch debug FPP project booted, a hand-crafted
+  `livelink.bin` moved/rotated/stretched/recolored the box on the live game
+  (screenshots A/B); (2) full editor→game loop — object JSON edited, editor
+  GUI opened on the project, it auto-wrote seq=1 and the running game showed
+  the new pose/color with no rebuild (screenshot C); (3) structure guard —
+  adding a third object flipped the toolbar to amber and blocked writes (seq
+  unchanged), a headless rebuild refreshed `livelink.sig` and streaming
+  resumed on its own (fresh 3-object snapshot). Release codegen verified to
+  emit the stub. Real-PS2 pass (ps2link cadence) still wants a hands-on test.
+
+- (105) **examples/mirror-room — the Mirror object demo.** A committed example
+  for (104): a gray wall built in three pieces **around an opening**, a Mirror
+  filling the opening, crate/ball/pillar props, and a third-person wobbler
+  player with **Reflect player** on. The wall pieces are themselves on the
+  mirror's list, so the glass shows a furnished room, and the README spells
+  out the load-bearing detail (a solid wall behind the glass would z-occlude
+  the copies — the opening IS the mirror). The terrain needs no list entry:
+  it extends behind the wall and doubles as the mirror room's floor.
+  **Verified:** authored inline, `--resave`d to the split layout, built in
+  Docker and booted in PCSX2 (software renderer) from a short-path copy —
+  props, walls and **the live avatar** all reflect through the opening at a
+  locked 50 FPS, no asserts in `bin/log.txt`; the verified project was then
+  copied into `examples/` minus the gitignored build outputs. This is also
+  the first in-PCSX2 proof of the Reflect-player path (a real `.glb` avatar
+  reflecting its live pose).
+
+- (104) **Mirror objects — the PS2-era mirror as a scene object type.**
+  `PrimitiveType::Mirror` (15): a rectangle (the decal quad, +Z face) that
+  fakes a real mirror by **physically drawing its listed objects a second
+  time**, reflected across the glass plane — no render-to-texture, no
+  stencil. The parameters follow the "hard list beats a radius" call: an
+  explicit **Reflected objects** list (names; renames remap alongside the
+  sequence tracks, dangling names drop silently at codegen), **Reflect
+  player** (third-person avatar only — an FPP player has no body), **glass
+  opacity** (the shared color field is the tint) and the usual
+  collision/draw-distance controls. Codegen keeps `SceneObjectData` a fixed
+  POD by emitting a flat `MIRRORS`/`MIRROR_TARGETS` side table into
+  `scene_data.hpp` (the `OBJECT_SCRIPT_ATTACHES` pattern), names resolved to
+  scene-table indices at generation. The runtime trick is the highlight-hull
+  one, generalized: `renderMirrors()` builds a Householder reflection about
+  the live plane (normal = rotated +Z) and **re-submits each target's
+  existing bags with the info bag's model pointer swapped onto it** — static
+  parts are world-space-baked so the matrix reflects world coords; animated
+  targets (and the avatar) compose `reflection * animMat` — so VU1 does all
+  the per-vertex work, the EE never copies a vertex, and moving/animated
+  targets reflect their **live pose** for free. Winding flips under a
+  reflection but the GS draws both faces, so no reordering. Draw order is
+  the load-bearing part: mirrors skip the main static loop entirely (the
+  quad would z-write the plane and z-reject the copies behind it), then
+  after `updateAndRenderAnimObjects` the copies draw first and the tinted
+  quad alpha-blends over them (vertex alpha = opacity, patched after
+  `addDecal` in `rebuildObjectGeometry` case 15). The viewport previews the
+  same illusion (reflection matrix pass after the scene, constant-alpha
+  `uOpacity` uniform added to the shader — reset at frame start so the
+  sky/outline draws don't inherit it). The copies are real geometry on the
+  far side of the plane, so the docs/tooltips say it plainly: build the
+  mirror into a wall — the wall hides the mirror world outside the frame.
+  **Verified:** editor builds clean; scratch project (box + mirror listing
+  it, `reflectPlayer: true`, opacity 0.4) round-trips through `--resave`
+  (legacy inline → split objects keep the `mirror` block); generated
+  `scene_data.hpp` carries `MIRRORS[1] = {{0, 1, 0.4F, 1, 0, 1}}` +
+  `MIRROR_TARGETS[1] = {0}` and both header templates (orbit + FPP) the new
+  members; the game compiles in Docker and **boots in PCSX2 (software
+  renderer): original box, translucent glass and the mirrored copy on the
+  opposite side all render at a locked 50 FPS, no asserts in `bin/log.txt`**;
+  editor-viewport screenshot shows the same scene (copy + tinted glass).
+  Player reflection compiles through the shared anim-bag path but wants a
+  hands-on test with a .glb avatar; real-hardware A/B pending like every
+  perf-adjacent change.
 
 - (103) **Over-the-shoulder camera offset.** `SceneObject::playerCamShoulder`
   (Properties > Third-person camera > **Shoulder**, default 0 = unchanged

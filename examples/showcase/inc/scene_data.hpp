@@ -8,6 +8,7 @@ struct SceneObjectData {
              // 6=player 7=emitter 8=sound 9=point-light 10=save-point
              // 11=empty (pure transform, no geometry/collision)
              // 12=plane 13=decal 14=camera (cutscene shot marker)
+             // 15=mirror (glass quad; reflections via MIRRORS below)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -92,7 +93,7 @@ constexpr SceneObjectData SCENE_0_OBJECTS[60] = {
     {1, {20.0F, 1.6948F, -8.0F}, {0.0F, 0.0F, 0.0F}, {1.3F, 1.04F, 1.3F}, {0.42F, 0.44F, 0.46F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 82.0F, -1, "", 1, 1, 1.0F, 12, -1},  // sphere-3
     {1, {-16.0F, -0.5702F, -6.0F}, {0.0F, 0.0F, 0.0F}, {0.9F, 0.72F, 0.9F}, {0.42F, 0.44F, 0.46F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 82.0F, -1, "", 1, 1, 1.0F, 12, -1},  // sphere-4
     {5, {3.0F, 0.9064F, 6.0F}, {0.0F, 0.0F, 0.0F}, {1.2F, 1.2F, 1.2F}, {0.9F, 0.95F, 0.95F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, "Wiggle", 1, 1, 1.0F, 16, -1},  // model-1
-    {5, {-2.0F, 0.5092F, 9.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.9F, 0.95F, 0.95F}, 0, -1, -1, 1, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, "Wiggle", 1, 1, 1.3F, 16, -1},  // model-2
+    {5, {-2.0F, 0.5092F, 9.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.9F, 0.95F, 0.95F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, "Wiggle", 1, 1, 1.3F, 16, -1},  // model-2
     {7, {0.0F, 12.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {16.0F, 1.0F, 16.0F}, {0.6F, 0.7F, 0.85F}, 0, -1, -1, 0, 4, 120, 0.12F, 1, 1, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, 3},  // rain
     {0, {36.0F, 2.2762F, -39.0F}, {0.0F, 0.0F, 0.0F}, {6.0F, 5.0F, 6.0F}, {0.7F, 0.6F, 0.45F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, 1},  // box-2
     {0, {45.0F, 3.3595F, -34.0F}, {0.0F, 0.0F, 0.0F}, {5.0F, 7.0F, 5.0F}, {0.6F, 0.55F, 0.5F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, 1},  // box-3
@@ -138,12 +139,33 @@ constexpr SceneObjectData SCENE_1_OBJECTS[14] = {
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {60, 14};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS, SCENE_1_OBJECTS};
 
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[60] = {0xd9dcdb32b73feb70ULL, 0x580466f2787a1530ULL, 0x9311a917d523fbf6ULL, 0x995000570f4f4334ULL, 0x88bc5ec7b182dad3ULL, 0xa183fce02c07d2d1ULL, 0x7dbeac9a2873ea08ULL, 0x1b9609e52b0b437cULL, 0xf35d41a24e27af45ULL, 0x0c69b388796b0e89ULL, 0x7984d5a3f29517b9ULL, 0x118b2a8f7c342dc7ULL, 0xdd9a5e4859644172ULL, 0x0587c349f7e4007cULL, 0x6231be6218add6feULL, 0xb4e4105fe9f6b715ULL, 0xcad26e81b81b1022ULL, 0x64a751a0aa03a4f0ULL, 0x88201a4e92a82a1aULL, 0xd0a9f5f0595a18cbULL, 0x5c94e1405acf4db7ULL, 0x25719986b039b8bfULL, 0xb5aad98e5dd868c9ULL, 0x13754908f82a0e2fULL, 0x2f74c701af66eb3dULL, 0x32f3718282919b22ULL, 0xe87383fdf8164aebULL, 0x247bdf685a7441feULL, 0x1eb55684583dac65ULL, 0x79fb9051d516cc2eULL, 0x734fe2985e9a4386ULL, 0x1698da25404fd33bULL, 0x41a2bffdd80747feULL, 0x5e082e130666f17eULL, 0x30ba0e237136fa47ULL, 0x0b896bb536660e7dULL, 0x3e25f8091b69f93cULL, 0x53c6c8bc75338de4ULL, 0xd21972f3e56d82b5ULL, 0xa533d208b3b1eaeeULL, 0x65a40a2865e245a5ULL, 0xb9834c6db35c60e3ULL, 0x394f58bb1cda2cedULL, 0xb2f6ea12bb1ff97eULL, 0xb77571e0512dc475ULL, 0xb5790a871bdcd659ULL, 0x7ebb0004976d17caULL, 0xfd8aab0c5ce95279ULL, 0xd8d296b4b400524aULL, 0xc5df021d33df45f5ULL, 0x615f602d046ee9d4ULL, 0x24987bd8c518b897ULL, 0x1b1b92a235a35425ULL, 0x3ddd89f917a2dc06ULL, 0x868eb40cfd3f78d8ULL, 0x307011be939f54bdULL, 0x8f54867811c5d3e6ULL, 0x09110107c82942ddULL, 0xbe72a4bf9cfb0994ULL, 0x25d0043245caf981ULL};
+constexpr unsigned long long SCENE_1_OBJECT_ID_HASHES[14] = {0x4988a18b7bcdfc16ULL, 0x0dc345608a0641e1ULL, 0xf2a96ee9f285b9f8ULL, 0xabee7e6cc5cbff26ULL, 0xb62185af60613628ULL, 0xe5b45f5fa46e0053ULL, 0x355e48314be2243dULL, 0xdc3a0ad008c5ca65ULL, 0x841d7d8708dd286eULL, 0x6af0f9d96c86c357ULL, 0x477753c0f0d099caULL, 0xd38c45d0f819463aULL, 0x26822ad53d1e7f78ULL, 0xd473ad5ea73cf17eULL};
+inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES, SCENE_1_OBJECT_ID_HASHES};
+
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {4, 1};
 constexpr int SCENE_MAX_LAYERS = 4;
 constexpr bool SCENE_LAYER_STARTS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{true, false, false, true}, {true, true, true, true}};
 constexpr float SCENE_LAYER_STREAM_XS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F, 0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F, 0.0F}};
 constexpr float SCENE_LAYER_STREAM_ZS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F, 0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F, 0.0F}};
 constexpr float SCENE_LAYER_STREAM_RADII[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F, 0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F, 0.0F}};
+
+// Mirrors (type 15): each entry re-draws its target objects
+// reflected across the mirror plane (renderMirrors in the game
+// cpp). Targets index the mirror's own scene object table.
+struct MirrorData {
+  int scene;          // scene index
+  int object;         // the mirror's index in its scene table
+  float opacity;      // glass alpha 0..1 (tint = object color)
+  int reflectPlayer;  // 1 = also reflect the third-person avatar
+  int firstTarget;    // first entry in MIRROR_TARGETS
+  int targetCount;
+};
+constexpr int MIRROR_COUNT = 0;
+constexpr MirrorData MIRRORS[1] = {
+    {0, -1, 0.0F, 0, 0, 0}
+};
+constexpr int MIRROR_TARGETS[1] = {-1};
 
 constexpr int SND_COUNT = 1;
 inline const char* SND_PATHS[1] = {"sfx/fire.adpcm"};
@@ -155,6 +177,15 @@ constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F, 1.0F};
 constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {1.8F, 1.8F};
 constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {4.5F, 4.5F};
 constexpr bool PLAYER_CAN_JUMPS[SCENE_COUNT] = {true, true};
+constexpr float PLAYER_RUN_THRESHOLDS[SCENE_COUNT] = {0.55F, 0.55F};
+constexpr float PLAYER_CAM_DISTS[SCENE_COUNT] = {6.0F, 6.0F};
+constexpr float PLAYER_CAM_HEIGHTS[SCENE_COUNT] = {1.6F, 1.6F};
+constexpr float PLAYER_CAM_SHOULDERS[SCENE_COUNT] = {0.0F, 0.0F};
+constexpr float PLAYER_TURN_RATES[SCENE_COUNT] = {0.25F, 0.25F};
+constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {"", ""};
+constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {"", ""};
+constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {"", ""};
+constexpr const char* PLAYER_JUMP_CLIPS[SCENE_COUNT] = {"", ""};
 
 constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {192.0F, 64.0F};
 constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {192.0F, 64.0F};
@@ -179,6 +210,9 @@ constexpr float SKY_TOP_GS[SCENE_COUNT] = {40.8F, 5.1F};
 constexpr float SKY_TOP_BS[SCENE_COUNT] = {107.1F, 15.3F};
 constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {20, 64};
 constexpr int POSTFX_GRAINS[SCENE_COUNT] = {12, 32};
+constexpr int POSTFX_DOFS[SCENE_COUNT] = {0, 0};
+constexpr float POSTFX_DOF_FOCUSES[SCENE_COUNT] = {20.0F, 20.0F};
+constexpr float POSTFX_DOF_RANGES[SCENE_COUNT] = {15.0F, 15.0F};
 constexpr bool FOG_ENABLEDS[SCENE_COUNT] = {true, true};
 constexpr float FOG_RS[SCENE_COUNT] = {209.1F, 15.3F};
 constexpr float FOG_GS[SCENE_COUNT] = {140.25F, 20.4F};
@@ -278,6 +312,15 @@ inline int everyFrames(float seconds) {
 #define PLAYER_EYE_HEIGHT PLAYER_EYE_HEIGHTS[g_activeScene]
 #define PLAYER_JUMP_SPEED PLAYER_JUMP_SPEEDS[g_activeScene]
 #define PLAYER_CAN_JUMP PLAYER_CAN_JUMPS[g_activeScene]
+#define PLAYER_RUN_THRESHOLD PLAYER_RUN_THRESHOLDS[g_activeScene]
+#define PLAYER_CAM_DIST PLAYER_CAM_DISTS[g_activeScene]
+#define PLAYER_CAM_HEIGHT PLAYER_CAM_HEIGHTS[g_activeScene]
+#define PLAYER_CAM_SHOULDER PLAYER_CAM_SHOULDERS[g_activeScene]
+#define PLAYER_TURN_RATE PLAYER_TURN_RATES[g_activeScene]
+#define PLAYER_IDLE_CLIP PLAYER_IDLE_CLIPS[g_activeScene]
+#define PLAYER_WALK_CLIP PLAYER_WALK_CLIPS[g_activeScene]
+#define PLAYER_RUN_CLIP PLAYER_RUN_CLIPS[g_activeScene]
+#define PLAYER_JUMP_CLIP PLAYER_JUMP_CLIPS[g_activeScene]
 #define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
 #define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
 #define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]
@@ -312,6 +355,9 @@ inline int everyFrames(float seconds) {
 #define SKY_TOP_B SKY_TOP_BS[g_activeScene]
 #define POSTFX_BLOOM POSTFX_BLOOMS[g_activeScene]
 #define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
+#define POSTFX_DOF POSTFX_DOFS[g_activeScene]
+#define POSTFX_DOF_FOCUS POSTFX_DOF_FOCUSES[g_activeScene]
+#define POSTFX_DOF_RANGE POSTFX_DOF_RANGES[g_activeScene]
 #define FOG_ENABLED FOG_ENABLEDS[g_activeScene]
 #define FOG_R FOG_RS[g_activeScene]
 #define FOG_G FOG_GS[g_activeScene]

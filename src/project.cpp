@@ -1,7 +1,9 @@
 #include "project.hpp"
 
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <random>
@@ -33,6 +35,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Plane: return "plane";
         case PrimitiveType::Decal: return "decal";
         case PrimitiveType::Camera: return "camera";
+        case PrimitiveType::Mirror: return "mirror";
     }
     return "box";
 }
@@ -52,6 +55,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "plane") return PrimitiveType::Plane;
     if (s == "decal") return PrimitiveType::Decal;
     if (s == "camera") return PrimitiveType::Camera;
+    if (s == "mirror") return PrimitiveType::Mirror;
     return PrimitiveType::Box;
 }
 
@@ -224,6 +228,8 @@ static std::string objectJson(const SceneObject& o) {
         (o.drawDistance > 0.0f
              ? ", \"drawDistance\": " + fmtFloat(o.drawDistance)
              : "") +
+        // rendered into the dynamic env map; default (false) stays implicit
+        (o.reflected ? std::string(", \"reflected\": true") : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + o.modelPath + "\"") +
         (o.materialPath.empty() ? "" : ", \"material\": \"" + o.materialPath + "\"") +
         // decal projection: off (flat quad) stays implicit
@@ -289,6 +295,14 @@ static std::string objectJson(const SceneObject& o) {
     }
     if (o.type == PrimitiveType::Camera) {
         json += ", \"camera\": { \"fov\": " + fmtFloat(o.cameraFov) + " }";
+    }
+    if (o.type == PrimitiveType::Mirror) {
+        json += ", \"mirror\": { \"opacity\": " + fmtFloat(o.mirrorOpacity) +
+                ", \"reflectPlayer\": " +
+                (o.mirrorReflectPlayer ? "true" : "false") + ", \"objects\": [";
+        for (size_t i = 0; i < o.mirrorObjects.size(); ++i)
+            json += (i ? ", \"" : "\"") + o.mirrorObjects[i] + "\"";
+        json += "] }";
     }
     if (o.type == PrimitiveType::Model && isAnimatedModelPath(o.modelPath)) {
         json += ", \"anim\": { \"clip\": \"" + o.animClip +
@@ -417,10 +431,14 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
                     s.zenithSize = (float)v->numberOr(0.5);
             }
             if (const auto* v = st->find("clipping")) {
-                // "vu1" is a hidden third mode (no UI): precise per-package
-                // classification + clipping on VU1 instead of the EE.
-                const std::string c = v->stringOr("precise");
-                s.clipping = (c == "fast" || c == "vu1") ? c : "precise";
+                // "vu1" (default) = precise per-package classification +
+                // clipping on VU1; "precise" = the legacy EE clipper.
+                const std::string c = v->stringOr("vu1");
+                s.clipping = (c == "fast" || c == "precise") ? c : "vu1";
+            } else {
+                // pre-clipping-key projects were authored against the EE
+                // clipper - keep their behavior
+                s.clipping = "precise";
             }
             if (const auto* v = st->find("terrainMaterial")) s.terrainMaterial = v->stringOr("");
             if (const auto* pf = st->find("postfx")) {
@@ -609,6 +627,8 @@ std::string save(const Project& p) {
          << ",\n"
          << "    \"showProfiler\": "
          << (p.settings.showProfiler ? "true" : "false") << ",\n"
+         << "    \"liveLink\": " << (p.settings.liveLink ? "true" : "false")
+         << ",\n"
          << "    \"disableVsync\": "
          << (p.settings.disableVsync ? "true" : "false") << ",\n"
          << "    \"clipping\": \"" << p.settings.clipping << "\",\n"
@@ -1316,6 +1336,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             o.drawDistance = (float)v->numberOr(0.0);
             if (o.drawDistance < 0.0f) o.drawDistance = 0.0f;
         }
+        if (const auto* v = jo.find("reflected")) o.reflected = v->boolOr(false);
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
         if (const auto* v = jo.find("decalProject")) o.decalProject = v->boolOr(false);
@@ -1422,6 +1443,21 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (const auto* v = cm->find("fov")) o.cameraFov = (float)v->numberOr(60.0);
             if (o.cameraFov < 20.0f) o.cameraFov = 20.0f;
             if (o.cameraFov > 110.0f) o.cameraFov = 110.0f;
+        }
+        if (const auto* mr = jo.find("mirror")) {
+            if (const auto* v = mr->find("opacity")) {
+                o.mirrorOpacity = (float)v->numberOr(0.35);
+                if (o.mirrorOpacity < 0.0f) o.mirrorOpacity = 0.0f;
+                if (o.mirrorOpacity > 1.0f) o.mirrorOpacity = 1.0f;
+            }
+            if (const auto* v = mr->find("reflectPlayer"))
+                o.mirrorReflectPlayer = v->boolOr(false);
+            if (const auto* v = mr->find("objects");
+                v && v->type == json::Value::Type::Array) {
+                for (const auto& s : v->arr)
+                    if (s.type == json::Value::Type::String && !s.str.empty())
+                        o.mirrorObjects.push_back(s.str);
+            }
         }
         if (const auto* an = jo.find("anim")) {
             if (const auto* v = an->find("clip")) o.animClip = v->stringOr("");
@@ -1538,13 +1574,18 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = s->find("showMemory")) st.showMemory = v->boolOr(false);
         if (const auto* v = s->find("showProfiler"))
             st.showProfiler = v->boolOr(false);
+        if (const auto* v = s->find("liveLink")) st.liveLink = v->boolOr(true);
         if (const auto* v = s->find("disableVsync"))
             st.disableVsync = v->boolOr(false);
         if (const auto* v = s->find("clipping")) {
-            // "vu1" is a hidden third mode (no UI): precise per-package
-            // classification + clipping on VU1 instead of the EE.
-            const std::string c = v->stringOr("precise");
-            st.clipping = (c == "fast" || c == "vu1") ? c : "precise";
+            // "vu1" (default) = precise per-package classification +
+            // clipping on VU1; "precise" = the legacy EE clipper.
+            const std::string c = v->stringOr("vu1");
+            st.clipping = (c == "fast" || c == "precise") ? c : "vu1";
+        } else {
+            // pre-clipping-key projects were authored against the EE
+            // clipper - keep their behavior
+            st.clipping = "precise";
         }
         if (const auto* v = s->find("animLodDistance")) {
             st.animLodDistance = (float)v->numberOr(0.0);
@@ -2437,6 +2478,155 @@ std::string loadHistory(const Project& p, History& h) {
     return "";
 }
 
+// --- Live Link hashing (see docs/live-link.md) -------------------------------
+// FNV-1a 64 primitives (same recipe as App::updateProjectedDecals' signature).
+namespace {
+constexpr uint64_t kFnvSeed = 1469598103934665603ull;
+constexpr uint64_t kFnvPrime = 1099511628211ull;
+inline void fnvMix(uint64_t& h, uint64_t v) { h = (h ^ v) * kFnvPrime; }
+inline void fnvMixS(uint64_t& h, const std::string& s) {
+    for (unsigned char c : s) fnvMix(h, c);
+    fnvMix(h, 0xFF);  // terminator so {"ab",""} != {"a","b"}
+}
+inline void fnvMixF(uint64_t& h, float f) {
+    uint32_t b;
+    std::memcpy(&b, &f, sizeof(b));
+    fnvMix(h, b);
+}
+inline void fnvMix3(uint64_t& h, const float* v) {
+    fnvMixF(h, v[0]), fnvMixF(h, v[1]), fnvMixF(h, v[2]);
+}
+}  // namespace
+
+uint64_t liveLinkIdHash(const SceneObject& o) {
+    uint64_t h = kFnvSeed;
+    fnvMixS(h, o.id.empty() ? o.name : o.id);
+    return h;
+}
+
+uint64_t liveLinkRecipeHash(const SceneObject& o) {
+    // Everything a live patch CANNOT change and a spawned clone copies from
+    // its template - i.e. all of SceneObject except identity (id/name), the
+    // live-patched transform + color, and the per-object logic (flow graph /
+    // scripts are compiled per authored object; liveLinkCanSpawnLive refuses
+    // objects that carry any). Two objects with equal recipes are
+    // interchangeable as spawn templates.
+    uint64_t h = kFnvSeed;
+    fnvMix(h, (uint64_t)o.type);
+    fnvMix(h, (o.physics ? 1 : 0) | (o.usable ? 2 : 0) | (o.saveState ? 4 : 0) |
+                  (o.decalProject ? 8 : 0));
+    fnvMix(h, (uint64_t)o.collisionMode);
+    fnvMixS(h, o.layer);
+    fnvMix(h, (uint64_t)o.primDetail);
+    fnvMixF(h, o.drawDistance);
+    fnvMixS(h, o.modelPath);
+    fnvMixS(h, o.materialPath);
+    // Player entity tunables (markers in the world, but baked per scene).
+    fnvMix(h, (uint64_t)o.playerMode);
+    fnvMixF(h, o.playerWalkSpeed), fnvMixF(h, o.playerLookSpeed);
+    fnvMixF(h, o.playerEyeHeight), fnvMixF(h, o.playerJumpSpeed);
+    fnvMix(h, o.playerCanJump ? 1 : 0);
+    fnvMixS(h, o.playerIdleClip), fnvMixS(h, o.playerWalkClip);
+    fnvMixS(h, o.playerRunClip), fnvMixS(h, o.playerJumpClip);
+    fnvMixF(h, o.playerRunThreshold);
+    fnvMixF(h, o.playerCamDist), fnvMixF(h, o.playerCamHeight);
+    fnvMixF(h, o.playerCamShoulder), fnvMixF(h, o.playerTurnRate);
+    fnvMix(h, o.flashlightEnabled ? 1 : 0);
+    fnvMix3(h, o.flashlightColor);
+    fnvMixF(h, o.flashlightRange), fnvMixF(h, o.flashlightAngle);
+    fnvMixS(h, o.flashlightToggleButton);
+    fnvMix(h, (uint64_t)o.emitterKind);
+    fnvMix(h, (uint64_t)o.emitterCount);
+    fnvMixF(h, o.emitterSize);
+    fnvMix(h, (o.emitterEnabled ? 1 : 0) | (o.emitterFollowPlayer ? 2 : 0) |
+                  (o.emitterDieOnGround ? 4 : 0));
+    fnvMixF(h, o.emitterSpeed), fnvMixF(h, o.emitterSpread);
+    fnvMixF(h, o.emitterGravity), fnvMixF(h, o.emitterWeight);
+    fnvMixF(h, o.emitterLife), fnvMixF(h, o.emitterGrow);
+    fnvMixF(h, o.emitterOpacity);
+    fnvMixS(h, o.soundPath);
+    fnvMix(h, (o.soundAuto ? 1 : 0) | (o.soundOnPlayer ? 2 : 0));
+    fnvMixF(h, o.soundRange), fnvMixF(h, o.soundInterval);
+    fnvMixF(h, o.cameraFov);
+    fnvMixS(h, o.animClip);
+    fnvMix(h, (o.animAutoplay ? 1 : 0) | (o.animLoop ? 2 : 0));
+    fnvMixF(h, o.animSpeed);
+    // Mirror parameters live in a baked side table (MIRRORS/MIRROR_TARGETS).
+    for (const auto& n : o.mirrorObjects) fnvMixS(h, n);
+    fnvMix(h, o.mirrorReflectPlayer ? 1 : 0);
+    fnvMixF(h, o.mirrorOpacity);
+    // Build-time-baked transforms: a projected decal's transform IS the
+    // projector, a point light's pose/color/falloff is baked into nearby
+    // vertex colors. Folding them into the recipe makes any live edit of
+    // these objects read as "rebuild needed" instead of silently no-op.
+    if (o.type == PrimitiveType::Decal && o.decalProject) {
+        fnvMix3(h, o.position), fnvMix3(h, o.rotation), fnvMix3(h, o.scale);
+    }
+    if (o.type == PrimitiveType::PointLight) {
+        fnvMix3(h, o.position), fnvMix3(h, o.color);
+        fnvMixF(h, o.lightBright), fnvMixF(h, o.lightRadius);
+    }
+    return h;
+}
+
+bool liveLinkCanSpawnLive(const SceneObject& o) {
+    // Objects a live session may instantiate through the runtime spawn pool
+    // (given a matching template). The exceptions rely on build-time baking
+    // or per-authored-object codegen, so a live-spawned instance would be a
+    // silent dud: point lights (vertex-color bake), projecting decals (host
+    // projection bake), mirrors (baked MIRRORS side table), and anything
+    // carrying per-object logic (flow graphs / attached scripts are compiled
+    // for authored objects only).
+    if (o.type == PrimitiveType::PointLight) return false;
+    if (o.type == PrimitiveType::Decal && o.decalProject) return false;
+    if (o.type == PrimitiveType::Mirror) return false;
+    if (!o.flowGraph.nodes.empty() || !o.scripts.empty()) return false;
+    return true;
+}
+
+uint64_t liveLinkContextHash(const Project& p) {
+    // Cross-object structure a live session cannot absorb: scene list shape
+    // and the baked streaming-layer tables (indices + zones).
+    uint64_t h = kFnvSeed;
+    fnvMix(h, p.scenes.size());
+    for (const SceneData& sc : p.scenes) {
+        fnvMix(h, 0x5C);  // scene separator
+        fnvMix(h, sc.layers.size());
+        for (const auto& l : sc.layers) {
+            fnvMixS(h, l.name);
+            fnvMix(h, (l.startLoaded ? 1 : 0) | (l.autoStream ? 2 : 0));
+            fnvMixF(h, l.streamX), fnvMixF(h, l.streamZ);
+            fnvMixF(h, l.streamRadius);
+        }
+    }
+    return h;
+}
+
+std::string liveLinkSigFile(const Project& p) {
+    // The as-built structure record the editor checks live edits against
+    // (bin/livelink.sig, stamped by the Runner at build start). Text, one
+    // token pair per authored object IN BUILT ORDER - the editor derives
+    // spawn-template indices from the line positions.
+    std::ostringstream out;
+    out << "2\n";  // format version (matches LL_VERSION in live_link.gen.cpp)
+    char buf[17];
+    std::snprintf(buf, sizeof(buf), "%016llx",
+                  (unsigned long long)liveLinkContextHash(p));
+    out << "ctx " << buf << "\n";
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        out << "scene " << si << "\n";
+        for (const SceneObject& o : p.scenes[si].objects) {
+            std::snprintf(buf, sizeof(buf), "%016llx",
+                          (unsigned long long)liveLinkIdHash(o));
+            out << buf;
+            std::snprintf(buf, sizeof(buf), "%016llx",
+                          (unsigned long long)liveLinkRecipeHash(o));
+            out << " " << buf << "\n";
+        }
+    }
+    return out.str();
+}
+
 std::string refreshGenerated(const Project& p) {
     for (const auto& f : templates::generate(p)) {
         const fs::path path = fs::path(p.dir) / f.relativePath;
@@ -2448,6 +2638,7 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\scene_data.hpp" ||
             f.relativePath == ".vscode\\c_cpp_properties.json" ||
             f.relativePath == "src\\scripts\\flow_graph.gen.cpp" ||
+            f.relativePath == "src\\scripts\\live_link.gen.cpp" ||
             f.relativePath == "src\\scripts\\object_scripts.gen.cpp" ||
             f.relativePath == "src\\scripts\\screen_fx.gen.cpp" ||
             f.relativePath == "inc\\scripts\\screen_fx.gen.hpp" ||

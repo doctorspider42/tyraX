@@ -8,6 +8,7 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
+#include <gs_gp.h>
 #include "renderer/3d/pipeline/static/core/stapip_core.hpp"
 #include "renderer/core/renderer_core.hpp"
 #include "thread/threading.hpp"
@@ -107,6 +108,12 @@ void StaPipCore::render(StaPipBag* bag) {
   TYRA_ASSERT(
       !bag->texture || (bag->texture->texture && bag->texture->coordinates),
       "If you want texture, please provide texture and coordinates!");
+  // Modified by TyraX: env (matcap) bags - normals in the ST slot, ST
+  // computed on VU1 (cull_tce + as_is_tce / clip_tce). No lighting - the
+  // env programs derive no dir-light color.
+  TYRA_ASSERT(!bag->texture || !bag->texture->coordinatesAreNormals ||
+                  bag->lighting == nullptr,
+              "Env (matcap) bags do not support lighting!");
   TYRA_ASSERT(bag->info->transformationType == TyraMVP ||
                   (!bag->info->fullClipChecks && !frustumCull),
               "Please disable clip checks and frustum culling if not using MVP "
@@ -145,6 +152,11 @@ void StaPipCore::render(StaPipBag* bag) {
       return;
     }
   }
+
+  // Modified by TyraX: the per-bag blend equation (additiveBlendFix - the
+  // reflective materials' env pass) travels IN-BAND with the mesh's tags
+  // (sendObjectData uploads the ALPHA A+D qword, every program emits it),
+  // so no FINISH barriers are needed here anymore.
 
   packager.setRenderBBox(bbox);
   packager.setObjectSpacePlanes(frustumCull ? objectSpacePlanes : nullptr);

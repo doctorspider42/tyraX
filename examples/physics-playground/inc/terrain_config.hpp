@@ -46,7 +46,7 @@ constexpr bool LOADING_SCREEN = true;
 
 // Experimental (Preferences > Build > Disable VSync): false skips the vsync
 // wait before the flip - continuous frame rate, screen tearing possible.
-constexpr bool FRAME_LIMIT = true;
+constexpr bool FRAME_LIMIT = false;
 
 // Animation LOD (Preferences > Rendering): animated instances farther than
 // this refresh pose/skinning every 2nd frame, every 4th beyond twice the
@@ -60,7 +60,7 @@ constexpr float MESH_LOD_DISTANCE = 0.0F;
 
 // Debug-profile HUD (Project > Preferences > Build). All forced false in a
 // release-profile build, which folds the overlay + instrumentation away.
-constexpr bool DEBUG_SHOW_FPS = false;
+constexpr bool DEBUG_SHOW_FPS = true;
 constexpr bool DEBUG_SHOW_MEM = false;
 // Per-phase EE-time breakdown (scene / usable-highlight / particles / whole
 // frame), averaged over ~1s. The COP0-timer reads that feed it are guarded
