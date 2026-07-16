@@ -114,9 +114,12 @@ at their default) → properties UI in app.cpp (+ `commitChange()`) →
 `terrain_game.cpp` template (`TPL_*` strings in templates.cpp) → viewport
 rendering if it's visual.
 
-**New object type** → `PrimitiveType` enum (0–9 used so far; keep values stable,
+**New object type** → `PrimitiveType` enum (0–15 used so far; keep values stable,
 they're serialized) → mesh/marker in viewport.cpp → insert menu in app.cpp →
-codegen + runtime as above.
+codegen + runtime as above. If the type needs per-object variable-length data
+(like Mirror's reflected-object list), don't grow the fixed `SceneObjectData`
+POD — emit a flat side table into scene_data.hpp keyed by (scene, object), the
+`OBJECT_SCRIPT_ATTACHES` / `MIRRORS` pattern.
 
 **Object identity: `SceneObject::id`.** Every object carries an opaque, stable
 `id` (first JSON key; part of `operator==`) — the merge/persistence key for the
