@@ -7759,7 +7759,90 @@ void App::drawSaveEditorWindow() {
                           "saves (icon.sys). '|' breaks it onto a second\n"
                           "line; empty = the project name. ASCII only.");
 
-    // Icon image: any res/ PNG/JPG, resampled to the 128x128 icon texture.
+    // Geometry: the flat image quad, or a 3D icon from a project model -
+    // .obj (static, gently swaying) / .glb (a clip sampled into morph
+    // shapes: a real animated icon, like retail games).
+    namespace fs = std::filesystem;
+    if (ImGui::BeginCombo("Icon model",
+                          project_.saveIconModel.empty()
+                              ? "(flat image quad)"
+                              : project_.saveIconModel.c_str())) {
+        if (ImGui::Selectable("(flat image quad)",
+                              project_.saveIconModel.empty()) &&
+            !project_.saveIconModel.empty()) {
+            project_.saveIconModel.clear();
+            saveAll("Saved");
+        }
+        std::error_code ec;
+        const fs::path models = fs::path(project_.dir) / "res" / "models";
+        for (fs::directory_iterator it(models, ec), end; it != end;
+             it.increment(ec)) {
+            if (ec) break;
+            if (!it->is_regular_file(ec)) continue;
+            std::string ext = it->path().extension().string();
+            for (char& c : ext) c = (char)tolower((unsigned char)c);
+            if (ext != ".obj" && ext != ".glb") continue;
+            const std::string rel =
+                "res/models/" + it->path().filename().generic_string();
+            if (ImGui::Selectable(rel.c_str(), rel == project_.saveIconModel)) {
+                project_.saveIconModel = rel;
+                saveAll("Saved");
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    std::string modelExt =
+        fs::path(project_.saveIconModel).extension().string();
+    for (char& c : modelExt) c = (char)tolower((unsigned char)c);
+    if (modelExt == ".glb") {
+        // Clip picker: parse the model's clip list once per picked file.
+        if (saveIconClipsModel_ != project_.saveIconModel) {
+            saveIconClips_.clear();
+            glbparser::Baked baked;
+            std::string err;
+            if (glbparser::bake((fs::path(project_.dir) /
+                                 project_.saveIconModel).string(),
+                                12.0f, baked, err))
+                for (const glbparser::Clip& c : baked.clips)
+                    saveIconClips_.push_back(c.name);
+            saveIconClipsModel_ = project_.saveIconModel;
+        }
+        const char* shown = project_.saveIconClip.empty()
+                                ? "(first clip)"
+                                : project_.saveIconClip.c_str();
+        if (ImGui::BeginCombo("Clip", shown)) {
+            if (ImGui::Selectable("(first clip)",
+                                  project_.saveIconClip.empty()) &&
+                !project_.saveIconClip.empty()) {
+                project_.saveIconClip.clear();
+                saveAll("Saved");
+            }
+            for (const std::string& c : saveIconClips_)
+                if (ImGui::Selectable(c.c_str(), c == project_.saveIconClip)) {
+                    project_.saveIconClip = c;
+                    saveAll("Saved");
+                }
+            ImGui::EndCombo();
+        }
+    }
+    if (!project_.saveIconModel.empty()) {
+        ImGui::SetNextItemWidth(scaled(120.0f));
+        ImGui::SliderInt("Frames", &project_.saveIconFrames, 1,
+                         savebake::kMaxIconShapes);
+        if (ImGui::IsItemDeactivatedAfterEdit()) saveAll("Saved");
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Animation shapes baked into the icon. A .glb clip is\n"
+                "sampled into this many morph frames; an .obj model (and\n"
+                "the flat quad) gets a gentle idle sway. More frames =\n"
+                "smoother motion but a bigger icon file.");
+    }
+
+    // Icon image: any res/ PNG/JPG, resampled to the 128x128 icon texture
+    // (a model with its own texture ships that instead).
     if (ImGui::BeginCombo("Icon image",
                           project_.saveIcon.empty() ? "(built-in placeholder)"
                                                     : project_.saveIcon.c_str())) {
@@ -7769,7 +7852,6 @@ void App::drawSaveEditorWindow() {
             project_.saveIcon.clear();
             saveAll("Saved");
         }
-        namespace fs = std::filesystem;
         std::error_code ec;
         const fs::path res = fs::path(project_.dir) / "res";
         for (fs::recursive_directory_iterator it(res, ec), end; it != end;
@@ -7789,17 +7871,33 @@ void App::drawSaveEditorWindow() {
         ImGui::EndCombo();
     }
 
-    // Preview: the exact 128x128 texture the baked .icn ships (savebake).
-    if (saveIconPreviewKey_ != project_.saveIcon || !saveIconPreviewTex_) {
-        const std::vector<unsigned char> rgba =
-            savebake::iconTextureRGBA(project_);
+    // Preview: decoded straight from the baked .icn's texture segment, so
+    // it is byte-exact with what ships (model texture included) - and the
+    // same bake fills the stats line below.
+    const std::string previewKey = project_.saveIcon + "|" +
+                                   project_.saveIconModel + "|" +
+                                   project_.saveIconClip + "|" +
+                                   std::to_string(project_.saveIconFrames);
+    if (saveIconPreviewKey_ != previewKey || !saveIconPreviewTex_) {
+        const std::vector<unsigned char> icn =
+            savebake::iconIcn(project_, &saveIconInfo_);
+        std::vector<unsigned char> rgba(128 * 128 * 4, 255);
+        if (icn.size() >= 128 * 128 * 2) {
+            const unsigned char* tex = icn.data() + icn.size() - 128 * 128 * 2;
+            for (int i = 0; i < 128 * 128; ++i) {
+                const unsigned v = tex[i * 2] | (tex[i * 2 + 1] << 8);
+                rgba[i * 4 + 0] = (unsigned char)((v & 0x1F) << 3);
+                rgba[i * 4 + 1] = (unsigned char)(((v >> 5) & 0x1F) << 3);
+                rgba[i * 4 + 2] = (unsigned char)(((v >> 10) & 0x1F) << 3);
+            }
+        }
         if (!saveIconPreviewTex_) glGenTextures(1, &saveIconPreviewTex_);
         glBindTexture(GL_TEXTURE_2D, saveIconPreviewTex_);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 128, 128, 0, GL_RGBA,
                      GL_UNSIGNED_BYTE, rgba.data());
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        saveIconPreviewKey_ = project_.saveIcon;
+        saveIconPreviewKey_ = previewKey;
     }
     ImGui::Image((ImTextureID)(intptr_t)saveIconPreviewTex_,
                  ImVec2(scaled(72.0f), scaled(72.0f)));
@@ -7811,6 +7909,13 @@ void App::drawSaveEditorWindow() {
     ImGui::TextUnformatted(title.c_str());
     ImGui::TextDisabled("Card folder: %s",
                         templates::saveDirName(project_).c_str());
+    ImGui::TextDisabled("%s - %d tris, %d shape%s, %.1f KB",
+                        saveIconInfo_.source.c_str(), saveIconInfo_.triangles,
+                        saveIconInfo_.shapes, saveIconInfo_.shapes == 1 ? "" : "s",
+                        saveIconInfo_.bytes / 1024.0);
+    if (!saveIconInfo_.warning.empty())
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "%s",
+                           saveIconInfo_.warning.c_str());
     ImGui::TextDisabled("Written to the card with the first save.");
     ImGui::EndGroup();
 

@@ -10846,7 +10846,9 @@ SaveSizeInfo saveSizeInfo(const Project& p) {
     const int raw =
         s.headerBytes + s.valuesBytes + s.textsBytes + s.objectsBytes;
     s.payloadBytes = (raw + 63) / 64 * 64;  // alignas(64)
-    s.iconBytes = savebake::kIconSysBytes + savebake::kIcnBytes;
+    // list.icn size depends on the icon source (flat quad vs a project
+    // model's triangle/shape count) - ask the baker.
+    s.iconBytes = savebake::kIconSysBytes + savebake::iconInfo(p).bytes;
     return s;
 }
 
@@ -11039,8 +11041,8 @@ const int* saveInitCodes() { return initCodes; }
 // them next to the ELF as save/icon.sys + save/list.icn; here they are copied
 // into the save directory so the PS2 browser shows the game's title and icon.
 // mcWrite DMAs straight from the buffer - same 64-byte alignment rule as the
-// slot payload.
-alignas(64) static unsigned char iconBuf[34816];  // >= list.icn (33112 B)
+// slot payload. The buffer is sized by codegen to this build's baked icon.
+alignas(64) static unsigned char iconBuf[{{ICON_BUF_BYTES}}];
 
 static bool mcCopyToCard(const char* hostRel, const char* cardName) {
   FILE* f = fopen(Tyra::FileUtils::fromCwd(hostRel).c_str(), "rb");
@@ -11155,7 +11157,11 @@ bool saveSlotUsed(int slot) {
 
 }  // namespace )"
         << ns << "\n";
-    return out.str();
+    // Size the icon copy buffer for THIS build's baked icon (a 3D model icon
+    // can be several hundred KB; the flat quad ~34 KB), 64-byte aligned.
+    const int icnBytes = savebake::iconInfo(p).bytes;
+    const int bufBytes = ((icnBytes > 964 ? icnBytes : 964) + 63) / 64 * 64;
+    return replaceAll(out.str(), "{{ICON_BUF_BYTES}}", std::to_string(bufBytes));
 }
 
 std::string scriptStub(const Project& p, const std::string& className,

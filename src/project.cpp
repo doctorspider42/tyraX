@@ -767,6 +767,9 @@ std::string save(const Project& p) {
     json << (p.saveTexts.empty() ? "]" : "\n  ]");
     json << ",\n  \"saveTitle\": \"" << jsonEscape(p.saveTitle) << "\"";
     json << ",\n  \"saveIcon\": \"" << jsonEscape(p.saveIcon) << "\"";
+    json << ",\n  \"saveIconModel\": \"" << jsonEscape(p.saveIconModel) << "\"";
+    json << ",\n  \"saveIconClip\": \"" << jsonEscape(p.saveIconClip) << "\"";
+    json << ",\n  \"saveIconFrames\": " << p.saveIconFrames;
     json << ",\n  \"gradings\": [";
     for (size_t i = 0; i < p.gradings.size(); ++i) {
         const ColorGradingPreset& g = p.gradings[i];
@@ -1846,10 +1849,19 @@ std::string load(Project& out, const std::string& projectDir) {
         }
     }
 
-    // Absent in projects saved before the Save Editor - both default to ""
-    // (project-name title, built-in icon).
+    // Absent in projects saved before the Save Editor - all default to ""
+    // (project-name title, built-in flat icon).
     if (const auto* t = root.find("saveTitle")) out.saveTitle = t->stringOr("");
     if (const auto* ic = root.find("saveIcon")) out.saveIcon = ic->stringOr("");
+    if (const auto* m = root.find("saveIconModel"))
+        out.saveIconModel = m->stringOr("");
+    if (const auto* c = root.find("saveIconClip"))
+        out.saveIconClip = c->stringOr("");
+    if (const auto* f = root.find("saveIconFrames")) {
+        out.saveIconFrames = (int)f->numberOr(6.0);
+        if (out.saveIconFrames < 1) out.saveIconFrames = 1;
+        if (out.saveIconFrames > 8) out.saveIconFrames = 8;
+    }
 
     if (const auto* gradings = root.find("gradings");
         gradings && gradings->type == json::Value::Type::Array) {

@@ -13,6 +13,7 @@
 #include "isoexport.hpp"
 #include "project.hpp"
 #include "runner.hpp"
+#include "savebake.hpp"
 #include "viewport.hpp"
 
 struct GLFWwindow;
@@ -471,10 +472,14 @@ private:
     int selectedMenu_ = -1;
 
     // Save Editor (Tools > Save Editor): live preview of the memory card
-    // icon texture (rebuilt when the picked image changes).
+    // icon texture + baked-icon stats (rebuilt when any icon setting
+    // changes), and the cached clip list of the picked .glb icon model.
     bool showSaveEditor_ = false;
     unsigned saveIconPreviewTex_ = 0;
     std::string saveIconPreviewKey_;
+    savebake::IconInfo saveIconInfo_;
+    std::string saveIconClipsModel_;
+    std::vector<std::string> saveIconClips_;
     unsigned menuPreviewTex_ = 0;
     int menuPreviewW_ = 0, menuPreviewH_ = 0;
     int menuPreviewContentH_ = 0;  // drawn part (layout cached at bake time)

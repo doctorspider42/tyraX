@@ -1017,6 +1017,13 @@ struct Project {
     // resampled to the 128x128 icon texture); "" = built-in placeholder.
     std::string saveTitle;
     std::string saveIcon;
+    // 3D icon: a project model shown instead of the flat image quad -
+    // res/models .obj (static, gently swaying) or .glb (saveIconClip
+    // sampled into saveIconFrames morph shapes: a real animated icon).
+    // "" = the flat quad. See savebake::iconInfo.
+    std::string saveIconModel;
+    std::string saveIconClip;   // .glb clip name ("" = the first clip)
+    int saveIconFrames = 6;     // animation shapes, 1..kMaxIconShapes
     // Per-asset texture-quality overrides of ProjectSettings::textureQuant,
     // keyed by asset path (a res/models .obj or a .mtl library): "none" /
     // "8bit" / "4bit". Textures referenced by several assets take the
