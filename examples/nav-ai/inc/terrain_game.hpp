@@ -65,6 +65,19 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    // Reflective material (refl in the .mtl): the additive sphere-map second
+    // pass. World-space normals are captured at rebuild and ride in the ST
+    // slot; the TCE VU1 programs compute the matcap ST from the per-mesh
+    // camera basis (refreshed every frame in renderScene). The env bag shares
+    // this part's vertex array and bboxVersion and mirrors the base bag's
+    // shape (texture + many colors), so both passes share one frustum-bbox
+    // cache entry.
+    std::vector<Tyra::Vec4> envNormals;
+    std::vector<Tyra::Color> envColors;  // all-white 128 = unmodulated texel
+    std::unique_ptr<Tyra::StaPipBag> envBag;
+    std::unique_ptr<Tyra::StaPipInfoBag> envInfoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> envColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> envTexBag;
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
@@ -116,6 +129,13 @@ class TerrainGame : public Tyra::Game {
     std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
+    // refl: spherical environment map (nullptr = not reflective).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
+    // reflRounded = "-rounded": env normals radiate from the part centroid.
+    Tyra::Texture* reflTexture = nullptr;
+    float reflStrength = 0.0F;
+    bool reflDynamic = false;
+    bool reflRounded = false;
   };
   struct GameModel {
     std::vector<GameModelPart> parts;  // empty = missing/unparseable model
@@ -167,6 +187,14 @@ class TerrainGame : public Tyra::Game {
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
     std::string texPath;  // texture-cache ref held ("" = untextured)
+    // refl: spherical environment map (nullptr = not reflective).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
+    // reflRounded = "-rounded": env normals radiate from the part centroid.
+    Tyra::Texture* reflTexture = nullptr;
+    float reflStrength = 0.0F;
+    bool reflDynamic = false;
+    bool reflRounded = false;
+    std::string reflTexPath;  // texture-cache ref held ("" = none)
   };
   std::vector<GameMaterial> gameMaterials;
   void loadMaterialAsset(int index);

@@ -222,6 +222,8 @@ static std::string objectJson(const SceneObject& o) {
         (o.drawDistance > 0.0f
              ? ", \"drawDistance\": " + fmtFloat(o.drawDistance)
              : "") +
+        // rendered into the dynamic env map; default (false) stays implicit
+        (o.reflected ? std::string(", \"reflected\": true") : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + o.modelPath + "\"") +
         (o.materialPath.empty() ? "" : ", \"material\": \"" + o.materialPath + "\"") +
         // decal projection: off (flat quad) stays implicit
@@ -423,10 +425,14 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
                     s.zenithSize = (float)v->numberOr(0.5);
             }
             if (const auto* v = st->find("clipping")) {
-                // "vu1" is a hidden third mode (no UI): precise per-package
-                // classification + clipping on VU1 instead of the EE.
-                const std::string c = v->stringOr("precise");
-                s.clipping = (c == "fast" || c == "vu1") ? c : "precise";
+                // "vu1" (default) = precise per-package classification +
+                // clipping on VU1; "precise" = the legacy EE clipper.
+                const std::string c = v->stringOr("vu1");
+                s.clipping = (c == "fast" || c == "precise") ? c : "vu1";
+            } else {
+                // pre-clipping-key projects were authored against the EE
+                // clipper - keep their behavior
+                s.clipping = "precise";
             }
             if (const auto* v = st->find("terrainMaterial")) s.terrainMaterial = v->stringOr("");
             if (const auto* pf = st->find("postfx")) {
@@ -1316,6 +1322,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             o.drawDistance = (float)v->numberOr(0.0);
             if (o.drawDistance < 0.0f) o.drawDistance = 0.0f;
         }
+        if (const auto* v = jo.find("reflected")) o.reflected = v->boolOr(false);
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
         if (const auto* v = jo.find("decalProject")) o.decalProject = v->boolOr(false);
@@ -1557,10 +1564,14 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = s->find("disableVsync"))
             st.disableVsync = v->boolOr(false);
         if (const auto* v = s->find("clipping")) {
-            // "vu1" is a hidden third mode (no UI): precise per-package
-            // classification + clipping on VU1 instead of the EE.
-            const std::string c = v->stringOr("precise");
-            st.clipping = (c == "fast" || c == "vu1") ? c : "precise";
+            // "vu1" (default) = precise per-package classification +
+            // clipping on VU1; "precise" = the legacy EE clipper.
+            const std::string c = v->stringOr("vu1");
+            st.clipping = (c == "fast" || c == "precise") ? c : "vu1";
+        } else {
+            // pre-clipping-key projects were authored against the EE
+            // clipper - keep their behavior
+            st.clipping = "precise";
         }
         if (const auto* v = s->find("animLodDistance")) {
             st.animLodDistance = (float)v->numberOr(0.0);

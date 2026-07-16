@@ -69,6 +69,8 @@ typedef ptrdiff_t GLintptr;
 #define GL_REPEAT 0x2901
 #define GL_TEXTURE_WRAP_S 0x2802
 #define GL_TEXTURE_WRAP_T 0x2803
+#define GL_TEXTURE0 0x84C0
+#define GL_TEXTURE1 0x84C1
 
 #define TYRA_GL_FUNCS(X) \
     X(void, Clear, GLbitfield) \
@@ -85,6 +87,7 @@ typedef ptrdiff_t GLintptr;
     X(void, GenTextures, GLsizei, GLuint*) \
     X(void, DeleteTextures, GLsizei, const GLuint*) \
     X(void, BindTexture, GLenum, GLuint) \
+    X(void, ActiveTexture, GLenum) \
     X(void, TexImage2D, GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void*) \
     X(void, TexParameteri, GLenum, GLenum, GLint) \
     X(void, DrawArrays, GLenum, GLint, GLsizei) \

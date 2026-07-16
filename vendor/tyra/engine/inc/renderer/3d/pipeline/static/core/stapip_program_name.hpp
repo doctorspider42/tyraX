@@ -33,6 +33,12 @@ enum StaPipProgramName {
   StaPipClipDirLights,
   StaPipClipTextureDirLights,
   StaPipClipTextureColor,
+
+  // Modified by TyraX: env (matcap) variants - texture + color with the ST
+  // computed on VU1 from normals (reflective materials).
+  StaPipCullTextureEnv,
+  StaPipAsIsTextureEnv,
+  StaPipClipTextureEnv,
 };
 
 }  // namespace Tyra

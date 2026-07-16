@@ -36,6 +36,8 @@
     MatrixLoad{ mvp, VU1_MVP_MATRIX_ADDR, vi00 }
     LoadTyraDirectionalLights{ lightMatrix, lightDirections, lightColors, ambientColor, VU1_LIGHTS_DIRS_ADDR, VU1_LIGHTS_COLORS_ADDR, VU1_LIGHTS_MATRIX_ADDR }
     LoadTyraTagsTexture{ lodGifTag, testsTag, texBufferClutGifTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR, VU1_CLUT_ADDR }
+    ; Modified by TyraX: per-mesh GS blend equation, in-band
+    LoadTyraAlphaTag{ alphaGifTag, VU1_ALPHA_ADDR }
     ; Modified by TyraX: GS hardware fog (packed XYZF2)
     LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
     MakeTyraAdcMask{ adcMask }
@@ -51,7 +53,7 @@ begin:
     iadd    kickAddress,        normalData,     vertexCount
     iadd    destAddress,        normalData,     vertexCount
 
-    StoreTyraGifTagsTexture{ gifSetTag, lodGifTag, texBufferClutGifTag, primTag, testsTag, destAddress }
+    StoreTyraGifTagsTextureAlpha{ gifSetTag, lodGifTag, texBufferClutGifTag, alphaGifTag, primTag, testsTag, destAddress }
 
     ;--- Loop
     iadd vertexCounter, buffer, vertexCount
