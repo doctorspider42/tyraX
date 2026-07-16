@@ -586,6 +586,14 @@ class TerrainGame : public Tyra::Game {
                      float* ceiling);
   void updateObjectPhysics();
   void renderScene();
+  // Mirror objects (type 15): re-submit each listed target's live bags
+  // under a reflection matrix about the glass plane, then blend the quad
+  // over the copies. mirrorMat holds the reflection for the mirror being
+  // drawn; mirrorAnimMat composes it with an animated target's animMat.
+  void renderMirrors();
+  void renderMirroredObject(int index);
+  Tyra::M4x4 mirrorMat;
+  Tyra::M4x4 mirrorAnimMat;
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
   void buildHighlightProxy(int index);
@@ -955,6 +963,14 @@ class TerrainGame : public Tyra::Game {
                      float* ceiling);
   void updateObjectPhysics();
   void renderScene();
+  // Mirror objects (type 15): re-submit each listed target's live bags
+  // under a reflection matrix about the glass plane, then blend the quad
+  // over the copies. mirrorMat holds the reflection for the mirror being
+  // drawn; mirrorAnimMat composes it with an animated target's animMat.
+  void renderMirrors();
+  void renderMirroredObject(int index);
+  Tyra::M4x4 mirrorMat;
+  Tyra::M4x4 mirrorAnimMat;
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
   void buildHighlightProxy(int index);
@@ -4929,6 +4945,22 @@ void TerrainGame::rebuildObjectGeometry(int index) {
         break;
       }
       case 14: break;  // camera - cutscene shot marker, no geometry
+      case 15: {
+        // mirror: only the glass quad is geometry (the reflected copies are
+        // re-submitted per frame by renderMirrors). Reuses the decal quad
+        // (+Z face, slight +Z nudge keeps it off a backing wall), then
+        // rewrites the vertex alpha with the authored glass opacity - the
+        // GS alpha-blends it over the copies drawn just before it.
+        addDecal(p0.vertices, p0.colors, p0.sts, o.data);
+        float opacity = 0.35F;
+        for (int mi = 0; mi < MIRROR_COUNT; ++mi)
+          if (MIRRORS[mi].scene == currentScene && MIRRORS[mi].object == index) {
+            opacity = MIRRORS[mi].opacity;
+            break;
+          }
+        for (Color& c : p0.colors) c.a = opacity * 128.0F;
+        break;
+      }
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
     g_primKd = nullptr;
@@ -5044,6 +5076,10 @@ void TerrainGame::renderScene() {
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
     if (!runtimeObjects[i].visible) continue;
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
+    // mirrors draw after the scene (copies first, then the blended glass -
+    // see renderMirrors); drawing the quad here would z-write the plane and
+    // reject the reflected geometry behind it
+    if (runtimeObjects[i].data.type == 15) continue;
     if (hlActive && hlCount < 8 && runtimeObjects[i].data.usable &&
         highlightInReach(i)) {
       const float ddx = runtimeObjects[i].data.position[0] - cameraPosition.x;
@@ -5059,6 +5095,9 @@ void TerrainGame::renderScene() {
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
   updateAndRenderAnimObjects();
+  // Mirrors after the whole scene (including the skinned avatars their
+  // copies re-use): reflected copies first, glass quads blended over them
+  renderMirrors();
   if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - profScene0;
   // Highlight shells after the whole scene so they depth-test against the
   // finished z-buffer and can't be punched through by a later draw. Sorted
@@ -5093,6 +5132,98 @@ void TerrainGame::renderScene() {
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
+}
+
+// Mirror objects (type 15): the PS2-era mirror. Every listed target is
+// submitted a SECOND time under a reflection matrix about the glass plane -
+// VU1 re-transforms the target's live vertex arrays (the same trick as the
+// highlight shells re-submitting under hullMat), so the EE never touches a
+// vertex and moving or animated targets reflect their current frame for
+// free. The copies are real geometry on the far side of the plane: build
+// the mirror into a wall (or give it a backing) so only the glass reveals
+// them. Winding flips under a reflection, but the GS draws both faces, so
+// no triangle reordering is needed. Draw order: copies first (plain
+// z-tested scene geometry), then the tinted glass quad alpha-blends over
+// them; highlight shells and particles still sort on top afterwards.
+void TerrainGame::renderMirrors() {
+  for (int mi = 0; mi < MIRROR_COUNT; ++mi) {
+    const MirrorData& mir = MIRRORS[mi];
+    if (mir.scene != currentScene || mir.object < 0 ||
+        mir.object >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[mir.object];
+    if (!m.active || !m.visible) continue;
+    if (beyondDrawDistance(m.data, cameraPosition)) continue;
+
+    // Householder reflection about the glass plane (normal = the mirror's
+    // rotated +Z, through its live position): x' = x - 2*((x . n) - d) * n
+    V3 n = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+    const float nl = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
+    if (nl > 0.0001F) n.x /= nl, n.y /= nl, n.z /= nl;
+    const float d = n.x * m.data.position[0] + n.y * m.data.position[1] +
+                    n.z * m.data.position[2];
+    mirrorMat.identity();
+    mirrorMat.data[0] = 1.0F - 2.0F * n.x * n.x;
+    mirrorMat.data[1] = -2.0F * n.x * n.y;
+    mirrorMat.data[2] = -2.0F * n.x * n.z;
+    mirrorMat.data[4] = -2.0F * n.x * n.y;
+    mirrorMat.data[5] = 1.0F - 2.0F * n.y * n.y;
+    mirrorMat.data[6] = -2.0F * n.y * n.z;
+    mirrorMat.data[8] = -2.0F * n.x * n.z;
+    mirrorMat.data[9] = -2.0F * n.y * n.z;
+    mirrorMat.data[10] = 1.0F - 2.0F * n.z * n.z;
+    mirrorMat.data[12] = 2.0F * d * n.x;
+    mirrorMat.data[13] = 2.0F * d * n.y;
+    mirrorMat.data[14] = 2.0F * d * n.z;
+
+    for (int t = 0; t < mir.targetCount; ++t)
+      renderMirroredObject(MIRROR_TARGETS[mir.firstTarget + t]);
+    if (mir.reflectPlayer) {
+      // only a visible body reflects: the third-person avatar is a normal
+      // runtime object (visible only in mode 2), so the FPP player - no
+      // body - is skipped by the visibility check inside
+      const int pi = PLAYER_INDEXES[currentScene];
+      if (pi >= 0) renderMirroredObject(pi);
+    }
+
+    // the glass quad itself, alpha-blended over the copies (its vertex
+    // alpha carries the opacity - see rebuildObjectGeometry case 15)
+    for (GeoPart& part : objectGeometry[mir.object].parts)
+      if (part.bag) stapip.core.render(part.bag.get());
+  }
+}
+
+// One reflected copy: re-submit the target's live bags under mirrorMat.
+// Static parts hold world-space vertices (the reflection maps world to
+// world); animated parts hold model-space vertices under animMat, so the
+// copy composes reflection * animMat. The swapped-in matrix pointer is
+// consumed during render() (packets are built synchronously - the highlight
+// shells rewrite hullMat between submits on the same fact), so restoring it
+// right after the call is safe.
+void TerrainGame::renderMirroredObject(int index) {
+  if (index < 0 || index >= (int)runtimeObjects.size()) return;
+  RuntimeObject& o = runtimeObjects[index];
+  // no mirror-in-mirror: a mirror listing another mirror would recurse the
+  // illusion with a matrix that is only valid for the outer plane
+  if (!o.active || !o.visible || o.data.type == 15) return;
+  if (beyondDrawDistance(o.data, cameraPosition)) return;
+  ObjectGeometry& g = objectGeometry[index];
+  for (GeoPart& part : g.parts) {
+    if (!part.bag) continue;
+    part.infoBag->model = &mirrorMat;
+    stapip.core.render(part.bag.get());
+    part.infoBag->model = &model;
+  }
+  if (g.animInfoBag && !g.animParts.empty()) {
+    // The anim bags point at whatever updateAndRenderAnimObjects last
+    // skinned - an on-screen target reflects its exact current pose; a
+    // target that skipped this frame's skinning reflects its held pose.
+    mirrorAnimMat = mirrorMat * g.animMat;
+    g.animInfoBag->model = &mirrorAnimMat;
+    for (ObjectGeometry::AnimPart& ap : g.animParts)
+      if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+    g.animInfoBag->model = &g.animMat;
+  }
 }
 
 // True when the usable object sits inside the highlight distance (same
@@ -7426,6 +7557,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "             // 6=player 7=emitter 8=sound 9=point-light 10=save-point\n"
            "             // 11=empty (pure transform, no geometry/collision)\n"
            "             // 12=plane 13=decal 14=camera (cutscene shot marker)\n"
+           "             // 15=mirror (glass quad; reflections via MIRRORS below)\n"
            "  float position[3];\n"
            "  float rotation[3];  // degrees\n"
            "  float scale[3];\n"
@@ -7595,6 +7727,54 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         return l.autoStream ? l.streamRadius : 0.0f;
     });
     out << "\n";
+
+    // Mirror objects (type 15): a flat side-table keyed by (scene, object)
+    // like OBJECT_SCRIPT_ATTACHES, so SceneObjectData stays a fixed POD.
+    // Target names resolve to scene-table indices here; a dangling name (the
+    // object was deleted) is silently dropped and the mirror just shows less.
+    {
+        std::ostringstream infos, targets;
+        int mirrorCount = 0, targetCount = 0;
+        for (int si = 0; si < sceneCount; ++si) {
+            const auto& objs = p.scenes[si].objects;
+            for (size_t oi = 0; oi < objs.size(); ++oi) {
+                const SceneObject& o = objs[oi];
+                if (o.type != PrimitiveType::Mirror) continue;
+                const int first = targetCount;
+                for (const std::string& name : o.mirrorObjects)
+                    for (size_t ti = 0; ti < objs.size(); ++ti) {
+                        if (ti == oi || objs[ti].name != name) continue;
+                        targets << (targetCount ? ", " : "") << ti;
+                        ++targetCount;
+                        break;
+                    }
+                infos << (mirrorCount ? ",\n    " : "    ") << "{" << si << ", "
+                      << oi << ", " << floatLit(o.mirrorOpacity) << ", "
+                      << (o.mirrorReflectPlayer ? 1 : 0) << ", " << first << ", "
+                      << (targetCount - first) << "},  // " << o.name;
+                ++mirrorCount;
+            }
+        }
+        out << "// Mirrors (type 15): each entry re-draws its target objects\n"
+               "// reflected across the mirror plane (renderMirrors in the game\n"
+               "// cpp). Targets index the mirror's own scene object table.\n"
+               "struct MirrorData {\n"
+               "  int scene;          // scene index\n"
+               "  int object;         // the mirror's index in its scene table\n"
+               "  float opacity;      // glass alpha 0..1 (tint = object color)\n"
+               "  int reflectPlayer;  // 1 = also reflect the third-person avatar\n"
+               "  int firstTarget;    // first entry in MIRROR_TARGETS\n"
+               "  int targetCount;\n"
+               "};\n"
+            << "constexpr int MIRROR_COUNT = " << mirrorCount << ";\n"
+            << "constexpr MirrorData MIRRORS[" << (mirrorCount ? mirrorCount : 1)
+            << "] = {\n"
+            << (mirrorCount ? infos.str() : "    {0, -1, 0.0F, 0, 0, 0}")
+            << "\n};\n"
+            << "constexpr int MIRROR_TARGETS["
+            << (targetCount ? targetCount : 1) << "] = {"
+            << (targetCount ? targets.str() : "-1") << "};\n\n";
+    }
 
     // Sound effect samples referenced by sound emitters (SceneObjectData.snd
     // indexes this list; res/sfx/x.wav -> sfx/x.adpcm next to the ELF)

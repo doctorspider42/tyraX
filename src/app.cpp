@@ -2639,6 +2639,15 @@ void App::addDecal() {
     o.collisionMode = 2;  // visual overlay - never blocks the player
     saveAll("Saved");
 }
+void App::addMirror() {
+    addObject(PrimitiveType::Mirror);
+    SceneObject& o = project_.objects().back();
+    // an upright dressing-mirror rectangle at standing height, cool glass tint
+    o.position[1] = 1.2f;
+    o.scale[0] = 1.4f, o.scale[1] = 2.2f, o.scale[2] = 1.0f;
+    o.color[0] = 0.62f, o.color[1] = 0.78f, o.color[2] = 0.88f;
+    saveAll("Saved");
+}
 void App::addSavePoint() {
     addObject(PrimitiveType::SavePoint);
     SceneObject& o = project_.objects().back();
@@ -3331,6 +3340,9 @@ void App::drawAddObjectMenu() {
         // Textured quad with transparency (sign/poster/text on a wall). Assign
         // a material whose map_Kd PNG has an alpha channel in the Properties.
         if (ImGui::MenuItem("Decal")) addDecal();
+        // Rectangle that re-draws its listed objects mirrored across its
+        // plane (real geometry behind the glass - build it into a wall).
+        if (ImGui::MenuItem("Mirror")) addMirror();
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Gameplay")) {
@@ -3790,6 +3802,7 @@ static const char* typeLabel(PrimitiveType t) {
         case PrimitiveType::SavePoint: return "Save point";
         case PrimitiveType::Empty: return "Empty";
         case PrimitiveType::Camera: return "Camera";
+        case PrimitiveType::Mirror: return "Mirror";
     }
     return "Object";
 }
@@ -3852,6 +3865,11 @@ void App::drawPropertiesWindow() {
                     if (k.camera == from) k.camera = o.name;
             }
             if (lookThroughCam_ == from) lookThroughCam_ = o.name;
+            // Mirror target lists reference objects by name too.
+            for (SceneObject& m : project_.objects())
+                if (m.type == PrimitiveType::Mirror)
+                    for (std::string& t : m.mirrorObjects)
+                        if (t == from) t = o.name;
         }
     }
 
@@ -4039,24 +4057,28 @@ void App::drawPropertiesWindow() {
     const bool isDecal = o.type == PrimitiveType::Decal;
     // Camera entity: position + rotation aim the shot, color tints the marker.
     const bool isCamera = o.type == PrimitiveType::Camera;
+    // Mirror: transform places the glass rectangle (+Z = the reflective
+    // face), color tints it; the mirror-specific block sits further down.
+    const bool isMirror = o.type == PrimitiveType::Mirror;
 
     ImGui::DragFloat3("Position", o.position, 0.1f);
     committed |= ImGui::IsItemDeactivatedAfterEdit();
     // custom emitters rotate too - the rotation aims the emission direction
-    if (isSolid || isEmpty || isDecal || isCamera ||
+    if (isSolid || isEmpty || isDecal || isCamera || isMirror ||
         (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
         ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
-    if (isSolid || isEmpty || isDecal || o.type == PrimitiveType::Emitter) {
+    if (isSolid || isEmpty || isDecal || isMirror ||
+        o.type == PrimitiveType::Emitter) {
         ImGui::DragFloat3("Scale", o.scale, 0.05f, 0.01f, 1000.0f);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
     // Color: mesh tint for solids, particle tint for emitters, light color
-    // for point lights, marker tint + free script parameter for empties,
-    // texture tint for decals, marker/frustum tint for camera entities. The
-    // remaining markers draw in fixed colors.
-    if (isSolid || isEmpty || isDecal || isCamera ||
+    // for point lights, marker tint + free per-object parameter for empties,
+    // texture tint for decals, marker/frustum tint for camera entities, glass
+    // tint for mirrors. The remaining markers draw in fixed colors.
+    if (isSolid || isEmpty || isDecal || isCamera || isMirror ||
         o.type == PrimitiveType::Emitter || o.type == PrimitiveType::PointLight) {
         ImGui::ColorEdit3("Color", o.color);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -4152,8 +4174,9 @@ void App::drawPropertiesWindow() {
     }
 
     // Rendering cut-off - the cheapest LOD. Only drawing stops beyond the
-    // distance; collision, sounds and scripts keep running.
-    if (isSolid) {
+    // distance; collision, sounds and scripts keep running. For a mirror it
+    // gates the glass AND every reflected copy - the whole illusion.
+    if (isSolid || isMirror) {
         ImGui::DragFloat("Draw distance", &o.drawDistance, 0.5f, 0.0f, 2000.0f,
                          o.drawDistance > 0.0f ? "%.0f units" : "unlimited");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -4161,6 +4184,70 @@ void App::drawPropertiesWindow() {
             ImGui::TextDisabled(
                 "Skipped at draw time when the camera is farther than this;\n"
                 "collision and logic still run. 0 = always drawn.");
+    }
+
+    if (isMirror) {
+        ImGui::SeparatorText("Mirror");
+        ImGui::TextDisabled(
+            "Re-draws the listed objects mirrored across this rectangle\n"
+            "(+Z face). The copies are real geometry behind the plane -\n"
+            "build the mirror into a wall so only the glass shows them.");
+        ImGui::SliderFloat("Glass opacity", &o.mirrorOpacity, 0.0f, 1.0f, "%.2f");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::Checkbox("Reflect player", &o.mirrorReflectPlayer)) committed = true;
+        if (o.mirrorReflectPlayer)
+            ImGui::TextDisabled(
+                "Reflects the third-person avatar. An FPP player has no\n"
+                "body to reflect (vampire rules).");
+        bool solid = o.collisionMode != 2;
+        if (ImGui::Checkbox("Collision (blocks the player)", &solid)) {
+            o.collisionMode = solid ? 0 : 2;
+            committed = true;
+        }
+        ImGui::TextUnformatted("Reflected objects:");
+        int removeAt = -1;
+        for (size_t i = 0; i < o.mirrorObjects.size(); ++i) {
+            ImGui::PushID((int)i);
+            if (ImGui::SmallButton("x")) removeAt = (int)i;
+            ImGui::SameLine();
+            bool exists = false;
+            for (const SceneObject& t : project_.objects())
+                if (t.name == o.mirrorObjects[i]) { exists = true; break; }
+            if (exists)
+                ImGui::TextUnformatted(o.mirrorObjects[i].c_str());
+            else
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                   "%s (missing)", o.mirrorObjects[i].c_str());
+            ImGui::PopID();
+        }
+        if (removeAt >= 0) {
+            o.mirrorObjects.erase(o.mirrorObjects.begin() + removeAt);
+            committed = true;
+        }
+        if (ImGui::BeginCombo("##mirrorAdd", "+ Add object...")) {
+            for (const SceneObject& t : project_.objects()) {
+                // only types the game draws as static/animated geometry can
+                // show up in the glass; the player has its own checkbox
+                const bool reflectable =
+                    t.type == PrimitiveType::Box || t.type == PrimitiveType::Sphere ||
+                    t.type == PrimitiveType::Cylinder ||
+                    t.type == PrimitiveType::Cone || t.type == PrimitiveType::Plane ||
+                    t.type == PrimitiveType::SavePoint ||
+                    t.type == PrimitiveType::Model || t.type == PrimitiveType::Decal;
+                if (!reflectable || t.name == o.name) continue;
+                bool listed = false;
+                for (const std::string& n : o.mirrorObjects)
+                    if (n == t.name) { listed = true; break; }
+                if (listed) continue;
+                if (ImGui::Selectable(t.name.c_str())) {
+                    o.mirrorObjects.push_back(t.name);
+                    committed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (o.mirrorObjects.empty() && !o.mirrorReflectPlayer)
+            ImGui::TextDisabled("Nothing listed - the mirror shows only glass.");
     }
 
     if (o.type == PrimitiveType::Emitter) {
@@ -4606,6 +4693,7 @@ void App::drawMultiProperties() {
             shape || o.type == PrimitiveType::Model || o.type == PrimitiveType::SavePoint;
         const bool empty = o.type == PrimitiveType::Empty;
         const bool decal = o.type == PrimitiveType::Decal;
+        const bool mirror = o.type == PrimitiveType::Mirror;
         // Detail (segments/subdivisions) exists for the curved/box-like
         // primitives (SavePoint tessellates as a Box), not for the flat Plane.
         const bool hasDetail = o.type == PrimitiveType::Box ||
@@ -4622,10 +4710,13 @@ void App::drawMultiProperties() {
         allLight = allLight && (o.type == PrimitiveType::PointLight);
         anyModel = anyModel || (o.type == PrimitiveType::Model);
         anySavePoint = anySavePoint || (o.type == PrimitiveType::SavePoint);
-        allRot = allRot && (solid || empty || decal || o.type == PrimitiveType::Camera ||
+        allRot = allRot && (solid || empty || decal || mirror ||
+                            o.type == PrimitiveType::Camera ||
                             (o.type == PrimitiveType::Emitter && o.emitterKind == 5));
-        allScale = allScale && (solid || empty || decal || o.type == PrimitiveType::Emitter);
-        allColor = allColor && (solid || empty || decal || o.type == PrimitiveType::Emitter ||
+        allScale = allScale && (solid || empty || decal || mirror ||
+                                o.type == PrimitiveType::Emitter);
+        allColor = allColor && (solid || empty || decal || mirror ||
+                                o.type == PrimitiveType::Emitter ||
                                 o.type == PrimitiveType::PointLight ||
                                 o.type == PrimitiveType::Camera);
         allSaveable = allSaveable && (solid || empty || o.type == PrimitiveType::Emitter ||

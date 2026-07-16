@@ -35,6 +35,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Plane: return "plane";
         case PrimitiveType::Decal: return "decal";
         case PrimitiveType::Camera: return "camera";
+        case PrimitiveType::Mirror: return "mirror";
     }
     return "box";
 }
@@ -54,6 +55,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "plane") return PrimitiveType::Plane;
     if (s == "decal") return PrimitiveType::Decal;
     if (s == "camera") return PrimitiveType::Camera;
+    if (s == "mirror") return PrimitiveType::Mirror;
     return PrimitiveType::Box;
 }
 
@@ -285,6 +287,14 @@ static std::string objectJson(const SceneObject& o) {
     }
     if (o.type == PrimitiveType::Camera) {
         json += ", \"camera\": { \"fov\": " + fmtFloat(o.cameraFov) + " }";
+    }
+    if (o.type == PrimitiveType::Mirror) {
+        json += ", \"mirror\": { \"opacity\": " + fmtFloat(o.mirrorOpacity) +
+                ", \"reflectPlayer\": " +
+                (o.mirrorReflectPlayer ? "true" : "false") + ", \"objects\": [";
+        for (size_t i = 0; i < o.mirrorObjects.size(); ++i)
+            json += (i ? ", \"" : "\"") + o.mirrorObjects[i] + "\"";
+        json += "] }";
     }
     if (o.type == PrimitiveType::Model && isAnimatedModelPath(o.modelPath)) {
         json += ", \"anim\": { \"clip\": \"" + o.animClip +
@@ -1406,6 +1416,21 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (const auto* v = cm->find("fov")) o.cameraFov = (float)v->numberOr(60.0);
             if (o.cameraFov < 20.0f) o.cameraFov = 20.0f;
             if (o.cameraFov > 110.0f) o.cameraFov = 110.0f;
+        }
+        if (const auto* mr = jo.find("mirror")) {
+            if (const auto* v = mr->find("opacity")) {
+                o.mirrorOpacity = (float)v->numberOr(0.35);
+                if (o.mirrorOpacity < 0.0f) o.mirrorOpacity = 0.0f;
+                if (o.mirrorOpacity > 1.0f) o.mirrorOpacity = 1.0f;
+            }
+            if (const auto* v = mr->find("reflectPlayer"))
+                o.mirrorReflectPlayer = v->boolOr(false);
+            if (const auto* v = mr->find("objects");
+                v && v->type == json::Value::Type::Array) {
+                for (const auto& s : v->arr)
+                    if (s.type == json::Value::Type::String && !s.str.empty())
+                        o.mirrorObjects.push_back(s.str);
+            }
         }
         if (const auto* an = jo.find("anim")) {
             if (const auto* v = an->find("clip")) o.animClip = v->stringOr("");
