@@ -712,6 +712,15 @@ private:
     uint64_t projectedDecalsVersion_ = 0;
     void updateProjectedDecals();
 
+    // Nav-mesh overlay (View > Nav Mesh Overlay): the active scene's baked
+    // walkable grid, recomputed only when its inputs change (same signature
+    // trick as the projected decals). Session state, not persisted.
+    bool showNavOverlay_ = false;
+    navmesh::NavGrid navGrid_;
+    uint64_t navOverlaySig_ = 0;
+    uint64_t navOverlayVersion_ = 0;
+    void updateNavOverlay();
+
     // "New project" modal state
     bool openNewProjectPopup_ = false;
     char newName_[128] = "my-game";

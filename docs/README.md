@@ -44,6 +44,11 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   requirement, the clickable LIVE toolbar chip (per-project on/off), what
   updates live vs what needs a build, and how the host-filesystem transport
   and the spawn-pool cloning work.
+- [NavMesh + NPC AI](navigation-ai.md) - the build-time navigation-grid bake
+  (walkability rules, the AI navigation preferences, the viewport overlay),
+  the A*-on-EE runtime, and the AI flow nodes (Patrol Waypoints / Chase
+  Player / Flee From Player / Stop AI / On Player Seen) with the classic
+  guard wiring, plus the deliberate era-appropriate limitations.
 - [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) - importing a
   real ARKit camera move (CamTrackAR `.hfcs` or the app-agnostic CSV) into a
   Cutscene Director camera track: the canonical take space, the mapping and

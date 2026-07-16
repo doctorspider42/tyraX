@@ -9,6 +9,47 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (108) **NavMesh + NPC AI — Patrol / Chase / Flee / On Player Seen.** NPCs
+  can finally go somewhere on their own. Three layers, all
+  pay-for-what-you-use (a project without AI nodes carries zero nav data or
+  code): (1) a **host-side bake** (`src/navmesh.cpp`, shared by codegen and
+  the editor) rasterizes each scene into a walkable-cell bitmap — terrain
+  slope from the same bilinear heightmap the game samples, blockers
+  mirroring `collidePlayer`'s box mode (AABB, step-onto/walk-under rules,
+  mesh-collision objects never block — they're ramps) inflated by an agent
+  radius; grid capped at 128×128 so the PS2 arrays stay static. Tunables in
+  *Preferences > AI navigation* (`navCellSize`/`navMaxSlope`/
+  `navAgentRadius`), live preview via *View > Nav mesh overlay* (green
+  quads, signature-cached recompute like the projected decals). (2) A
+  **generated runtime** (`nav_data.gen.hpp` + `navigation.gen.cpp`): A* on
+  the EE (8-connected, no corner cutting, octile heuristic, expansion cap,
+  **one pathfind per frame round-robin**, unreachable goals path to the
+  closest reachable cell), string-pulled paths, one agent state per runtime
+  object (spawn-pool clones included), terrain snapping + shortest-arc
+  turn-to-face (the avatar's convention, so walk clips line up). (3) Five
+  **flow nodes** (category "AI"): Patrol Waypoints (waypoints = objects
+  named `<prefix>1..n`, resolved at codegen with natural sort), Chase
+  Player (stop distance, give-up), Flee From Player (sideways fan-out when
+  the straight-away is blocked), Stop AI Movement, and the On Player Seen
+  trigger (range + FOV cone around facing + optional terrain LOS;
+  edge-fired exec like Near Object, plus a bool output for the gates). Two
+  design traps hit and fixed during verification: the tick script's
+  scene-generation reset ran *after* an On Start command in the same frame
+  and wiped it (fix: lazy shared `navSyncGeneration` called from both the
+  commands and the tick), and the patrol arrival radius was tighter than
+  the grid raster (a path ends at a cell *center*, a waypoint can sit on a
+  cell *corner* — 0.75 cells deadlocked; now 1.1× cell). Verified on PCSX2
+  (layer 3) with position telemetry logged from the graph itself
+  (`Every N Seconds → Get Position → Position To Text → Log`): patrol
+  cycles wp1→wp2→wp3 with a clean **A\* detour around a wall** (passes at
+  the obstacle's inflated edge), On Player Seen → Chase closes in and holds
+  at exactly Stop Dist, Flee runs to exactly Safe Dist then idles; steady
+  50 FPS. Stop AI compile-verified only (trivial `mode = 0`); LOS terrain
+  march and the editor overlay rendering still want a hands-on eyeball
+  pass. New example `examples/nav-ai` (guard + rabbit, boots clean) and
+  `docs/navigation-ai.md`; `examples/script-demo` regenerated (picks up the
+  new gen-file stubs + stale id hashes from before this change).
+
 - (107) **Live Link v2 — per-project on/off + live add/delete of objects.**
   Two follow-ups to (106). First, the on/off is now a **project setting**
   (`ProjectSettings::liveLink`, default on; *Project > Preferences > Build*,

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "glbparser.hpp"
+#include "navmesh.hpp"
 #include "project.hpp"
 
 // 3D preview of the project terrain and scene objects, rendered into an
@@ -84,6 +85,12 @@ public:
     // the objects vector) are skipped by render() and pick(). The app
     // rebuilds the mask each frame from the scene's layer eye toggles.
     void setHiddenMask(std::vector<char> mask) { hiddenMask_ = std::move(mask); }
+
+    // Nav-mesh overlay (View > Nav Mesh Overlay): translucent green quads
+    // over the walkable cells of the app-baked grid (navmesh::bake - the app
+    // owns the Project). The GL mesh is rebuilt only when `version` changes,
+    // so this can be called every frame cheaply; pass nullptr to hide.
+    void setNavOverlay(const navmesh::NavGrid* grid, uint64_t version);
 
     // Projected-decal preview meshes, computed app-side (decalproj) because the
     // app owns the Project. Keyed by object id; each value is a world-space
@@ -211,6 +218,12 @@ private:
     int maxCells_ = 32;
     std::vector<float> heights_;
     int hmW_ = 0, hmD_ = 0;
+
+    // Nav-mesh overlay mesh (see setNavOverlay)
+    bool navOverlayOn_ = false;
+    uint64_t navOverlayVersion_ = 0;
+    bool navOverlayHasVersion_ = false;
+    Mesh navOverlayMesh_;
 
     // Projected-decal GL meshes (see setProjectedDecals), keyed by object id;
     // rebuilt only when projectedDecalVersion_ changes.

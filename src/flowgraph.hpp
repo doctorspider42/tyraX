@@ -198,6 +198,39 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // Freezes the target's animation on its current pose.
         {"StopAnimation", "Stop Animation", "Animation", false, FlowParamKind::None,
          0, {}, FlowParamKind::None, true, true},
+        // AI (docs/navigation-ai.md). NPCs walk the nav grid baked at build
+        // time (navmesh.cpp -> nav_data.gen.hpp); paths come from A* on the
+        // EE (navigation.gen.cpp), agents snap to the terrain and turn to
+        // face their motion. The movement actions drive ONE shared AI state
+        // per object - starting a new one replaces the previous (a Chase
+        // interrupts a Patrol; Stop AI returns the NPC to idle).
+        // Patrol Waypoints: the target (object link > self) loops through the
+        // scene objects whose names start with the prefix (natural order:
+        // "wp1", "wp2", ... - use Empty objects as waypoints). Pause = wait
+        // seconds at each waypoint; Once 1 = one pass then idle, 0 = cycle
+        // forever (the fresh-node default).
+        {"PatrolWaypoints", "Patrol Waypoints", "AI", false, FlowParamKind::Text, 3,
+         {"Speed", "Pause s", "Once"}, FlowParamKind::None, true, true},
+        // Chase Player: pursue the player, repathing as they move. Stops
+        // (keeps facing) within Stop Dist; Give Up > 0 drops to idle once the
+        // player is farther than that (0 = never gives up).
+        {"ChasePlayer", "Chase Player", "AI", false, FlowParamKind::ObjectName, 3,
+         {"Speed", "Stop Dist", "Give Up"}, FlowParamKind::None, true, true},
+        // Flee From Player: run away until Safe Dist from the player, then
+        // idle (re-trigger from On Player Seen for repeated scares).
+        {"FleePlayer", "Flee From Player", "AI", false, FlowParamKind::ObjectName, 2,
+         {"Speed", "Safe Dist"}, FlowParamKind::None, true, true},
+        {"StopAi", "Stop AI Movement", "AI", false, FlowParamKind::ObjectName, 0, {},
+         FlowParamKind::None, true, true},
+        // On Player Seen: fires (rising edge) when the watched object (link >
+        // name > self) sees the player - within Range, inside a vision cone
+        // of FOV degrees around the object's facing (+Z rotated by its Y
+        // rotation), and with LOS 1 also requires terrain line-of-sight (a
+        // hill hides the player; other objects do not block). Its bool output
+        // is the live "seen right now" condition for the logic gates.
+        {"OnPlayerSeen", "On Player Seen", "AI", true, FlowParamKind::ObjectName, 3,
+         {"Range", "FOV deg", "LOS"}, FlowParamKind::None, true, true, false,
+         false, false, false, true},
         // Player
         // Teleports the player (entity or FPP template player) to the target
         // object's position - e.g. respawn at a spawn point. A position link

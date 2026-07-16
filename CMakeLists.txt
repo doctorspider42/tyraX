@@ -52,6 +52,7 @@ add_executable(tyrax-editor
     src/pngquant.cpp
     src/primmesh.cpp
     src/decalproj.cpp
+    src/navmesh.cpp
     src/project.cpp
     src/screenfx.cpp
     src/texbake.cpp
