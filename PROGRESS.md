@@ -16,6 +16,31 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (114) **Collaboration wire transport (src/wire.hpp/.cpp).** The byte layer
+  under the upcoming live sessions, deliberately independent of the project
+  model. Frames are `[u32 jsonLen][u32 binLen][json][bin]` (LE): JSON carries
+  the message, the raw binary trailer carries bulk payloads (file chunks,
+  heightmap grids) so bytes never pass through json.cpp (which collapses
+  `\u` escapes). Hard caps (4 MiB json / 16 MiB bin per frame) kill a
+  malformed/hostile connection instead of ballooning memory; the incremental
+  `FrameDecoder` survives arbitrary short reads. The `wire::Transport`
+  interface (`listen/connect/poll/send/sendBacklog/kick/close`, single-thread
+  contract, `Event` stream of Connected/Disconnected/Frame) is **the seam a
+  future internet transport plugs into** (WebSocket-through-tunnel etc. -
+  session code never sees sockets); `makeTcpTransport()` is the LAN
+  implementation: Winsock2 non-blocking sockets + `WSAPoll`, TCP_NODELAY,
+  no SO_REUSEADDR (a second host must get "port is already in use", not
+  steal the socket), per-peer send queues drained on poll. Plus
+  `wire::fnv1a64`/`hashFile` (streamed content hash for the transfer cache)
+  and `localIPv4()` for the host UI. CMake links `ws2_32`. **Verified**
+  (headless harness, single process pumping host+client transports on
+  127.0.0.1): codec reassembles frames from 1-byte feeds and round-trips
+  empty json/bin; oversized header latches error; 1000 small frames arrive
+  in order; an 8 MiB binary round-trips byte-exact; client close surfaces
+  Disconnected on the host and kick() surfaces it on the client; connect to
+  a dead port errors; double-listen and port-in-use report cleanly;
+  hashFile == fnv1a64 on known bytes and false on a missing file.
+
 - (113) **Collaboration groundwork: manifest sections, projectId, in-memory
   model files, objectJson escaping fix.** The serialization layer learns the
   shapes the upcoming live-session wire format needs, with the .tyra byte
