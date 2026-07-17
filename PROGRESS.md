@@ -5,11 +5,44 @@ Each finished feature lands as its own commit.
 
 ## In progress
 
-- (nothing - the feature marathon batch is complete; see Backlog for next steps)
+- **Remote collaboration (live LAN sessions)** — one user hosts their open
+  project, others join over the network and edit simultaneously; the host is
+  authoritative and the only one who saves/commits. Landing in phases:
+  serializer groundwork (113, done) → wire transport → session host/join +
+  full project transfer with a local cache → live model sync (per-object LWW)
+  → presence/kick/close UX → docs. Internet exposure (tunnels) deliberately
+  deferred; the transport hides behind a small interface so it can be added
+  without touching the protocol.
 
 ## Also done after the marathon
 
-- (112) **Rounded reflection normals - flat surfaces stop reflecting "one
+- (113) **Collaboration groundwork: manifest sections, projectId, in-memory
+  model files, objectJson escaping fix.** The serialization layer learns the
+  shapes the upcoming live-session wire format needs, with the .tyra byte
+  layout unchanged. `save()`/`load()` are recomposed from per-section
+  writers/readers (`project::Section`: Settings / Hud / Audio / TexQuality /
+  SaveData / Gradings / Ambience / LoadingScreens / Splash / Sequences /
+  Menus); `project::sectionJson()` / `applySectionJson()` expose each group of
+  manifest keys as one standalone JSON blob (apply is total-replace with
+  reset-to-defaults, not a patch - the LWW unit for project-wide data).
+  `project::objectJson()` / `parseObject()` are now public - one object as a
+  wire string and back (the objects/<id>.json body). `Project::projectId`
+  (16-hex, `ensureProjectId`; stamped at create, backfilled on load, omitted
+  from the manifest while empty) gives the remote-project cache a stable key.
+  `project::manifestFiles()` returns byte images of the .tyra + every
+  objects/<id>.json + terrain-*.heights straight from the live in-memory
+  model (a dirty host must ship its live state, not the last save).
+  Fixed in passing: `objectJson` wrote name/layer/model/material/sound paths,
+  mirror-target names, script names and anim clips **without `jsonEscape`** -
+  a `"` in an object name corrupted the saved file; likewise music/sound
+  paths and textureQuality keys in the manifest. **Verified** (headless
+  harness vs .obj files, all 10 examples/): golden byte-diff of load->save
+  output pre/post refactor is identical after id canonicalization except the
+  intended `projectId` line; per-section `sectionJson -> applySectionJson ->
+  sectionJson` string-equal both onto a copy and onto a field-clobbered
+  project; `manifestFiles()` bytes == the files `save()`/`saveHeights()`
+  write; every object round-trips `objectJson -> parseObject` (`operator==`),
+  plus an escaping regression case with quotes/backslashes/newlines. - flat surfaces stop reflecting "one
   pixel".** Owner's observation on the console: the mirror monolith showed
   a single uniform patch of the env map per face while the spheres "reflect
   like RTX ON" - inherent to matcap math (UV comes from the normal; a flat
