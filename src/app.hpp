@@ -379,6 +379,10 @@ private:
     // Parent folder proposed as the location for new projects (Edit >
     // Preferences). Empty = fall back to ~/TyraProjects.
     std::string globalDefaultProjectsDir_;
+    // Collaboration (editor.ini): the name other session participants see
+    // (empty = USERNAME) and the remote-project cache root (empty = default).
+    std::string globalDisplayName_;
+    std::string globalSessionCacheDir_;
     // Selection index the orbit pivot was last snapped to; -1 = none. Lets
     // "orbit around selection" re-center only when the selection changes.
     int navFocusedIndex_ = -1;
@@ -848,6 +852,8 @@ private:
     char prefEmulatorPath_[512] = "";  // PCSX2 exe path (auto-detect if empty)
     char prefPs2Ip_[64] = "";          // ps2link IP for Run on PS2
     char prefDefaultProjectsDir_[512] = "";  // default parent folder for new projects
+    char prefDisplayName_[48] = "";          // session display name (editor.ini)
+    char prefSessionCacheDir_[512] = "";     // remote-project cache root override
 
     // "Debug" window: tails a log from disk (reloaded, throttled). Source 0 is
     // the game's own log (bin/log.txt, written by TYRA_LOG); source 1 is the

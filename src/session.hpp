@@ -73,6 +73,7 @@ struct AppEvent {
         PeerJoined,   // peer
         PeerLeft,     // peer; text = "left" | "kicked" | "timeout"
         SyncDone,     // client: text = the materialized project directory
+        Refreshed,    // client: a mid-session file refresh finished; text = dir
         Ended,        // session is over; text = human-readable reason
         Frame,        // an application frame (edit/presence); peer.id = origin
     };
@@ -130,6 +131,11 @@ class Session {
     // Host: disconnect one peer (sends bye{kicked}).
     void kickPeer(int peerId);
 
+    // Client: re-run the manifest diff against the host mid-session - fetches
+    // assets the host imported since the join (and drops removed ones), then
+    // surfaces AppEvent::Refreshed. Cheap when nothing changed (hash cache).
+    void requestRefresh();
+
     // Ends the session: hosting broadcasts bye{closed}, a client just leaves.
     // Blocks until the worker thread is joined. Safe to call when idle.
     void close();
@@ -166,7 +172,7 @@ class Session {
     // Main-thread -> worker commands (public only so the worker-side helpers
     // in session.cpp can name the type; not part of the App-facing API).
     struct Cmd {
-        enum class Type { Kick, Broadcast, ToHost };
+        enum class Type { Kick, Broadcast, ToHost, Refresh };
         Type type = Type::Kick;
         int peer = -1;        // Kick: target; Broadcast: excluded peer or -1
         wire::Frame frame;    // Broadcast / ToHost

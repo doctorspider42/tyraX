@@ -5,16 +5,31 @@ Each finished feature lands as its own commit.
 
 ## In progress
 
-- **Remote collaboration (live LAN sessions)** — one user hosts their open
-  project, others join over the network and edit simultaneously; the host is
-  authoritative and the only one who saves/commits. Landing in phases:
-  serializer groundwork (113, done) → wire transport → session host/join +
-  full project transfer with a local cache → live model sync (per-object LWW)
-  → presence/kick/close UX → docs. Internet exposure (tunnels) deliberately
-  deferred; the transport hides behind a small interface so it can be added
-  without touching the protocol.
+- (nothing — remote collaboration v1 (113-118) is complete; internet
+  exposure for sessions is deliberately deferred, see Backlog)
 
 ## Also done after the marathon
+
+- (118) **Collaboration polish: mid-session file refresh, session prefs,
+  docs.** Closes out remote-collaboration v1. **Refresh project files**
+  (client, Session window): re-runs the join-time manifest diff mid-session -
+  the host rescans its disk, the client fetches only new/changed files through
+  the same chunk pipeline (hash cache makes an unchanged project a no-op),
+  then drops every disk-derived cache (`Viewport::invalidateAssets`, model/
+  wav caches) and rescans assets. This is how assets the host imported
+  mid-session reach clients - scene edits never need it (they stream live);
+  clients' own disk-writing edits (Material Editor paint) stay a documented
+  v1 limitation. **Prefs (editor.ini):** `displayName=` (name shown to peers;
+  seeded from USERNAME, remembered from the last session modal) and
+  `sessionCacheDir=` (remote-project cache root override) - both editable in
+  *Edit > Preferences > Collaboration sessions*. **Docs:**
+  `docs/collaboration.md` (usage, sync/conflict semantics, cache layout,
+  trust model, v1 limitations), README feature bullet + docs index, testing
+  skill gains the headless-session + two-instance recipes. **Verified:**
+  headless harness - a file written into the host's res/ mid-session arrives
+  at the client via requestRefresh (exactly 1 file fetched) and the
+  `Refreshed` event fires; all earlier session/convergence harnesses re-pass;
+  editor builds clean.
 
 - (117) **Session presence + client-mode UX.** The "who is doing what" layer
   and the participant-facing polish. **Presence:** every editor broadcasts its
@@ -5606,6 +5621,15 @@ Each finished feature lands as its own commit.
   (VU1-clipping toggle, data-driven USE prompt, menu value strips).
 
 ## Backlog (rough order)
+
+- **Session internet exposure** — today sessions are LAN (or any mesh VPN:
+  Tailscale/ZeroTier make remote peers look local, zero code). The researched
+  built-in options, in preference order: a Cloudflare quick tunnel
+  (`cloudflared`, free, no account, random URL per session = invite link;
+  needs a WebSocket `wire::Transport` impl - client side via native WinHTTP,
+  no OpenSSL), playit.gg (free TCP tunnels, account required), UPnP
+  (miniupnpc, best-effort, dies on CGNAT). The `wire::Transport` interface is
+  the only integration point - protocol/session code never sees sockets.
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)
 - Object physics vs objects (stacking), player physics polish (pad feel)

@@ -89,6 +89,19 @@ asserts on the emitted strings. This works because `project.cpp`,
 tiny host harness without the GUI. Fine pattern; keep such harnesses in the
 scratchpad, not the repo.
 
+**Collaboration sessions are headless-testable the same way**: `session.cpp` +
+`wire.cpp` have no GUI dependency, so a harness can run a host `Session` and a
+client `Session` **in one process over 127.0.0.1 with real sockets** (drain
+`drainEvents()` in a sleep loop) to test join/transfer/cache/kick/refresh, and
+drive `session::diffModel`/`applyEdit` directly on two `Project` replicas for
+convergence property tests (random concurrent edits + the host relay rule →
+assert byte-identical serializations; that test caught two real divergence
+bugs). Link the same .obj set as the model harness plus `session`, `wire`, and
+`-lws2_32`. For the interactive layer, run **two editor instances on one
+machine** (the second without a project), host from A, join from B at
+`127.0.0.1` — loopback is not blocked by Windows Firewall even when the LAN
+prompt was declined.
+
 ## Layer 3 — full e2e: Docker build + PCSX2 boot
 
 Prerequisites: Docker Desktop **running**, PCSX2 installed in

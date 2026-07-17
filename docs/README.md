@@ -44,6 +44,11 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   requirement, the clickable LIVE toolbar chip (per-project on/off), what
   updates live vs what needs a build, and how the host-filesystem transport
   and the spawn-pool cloning work.
+- [Live collaboration sessions](collaboration.md) - real-time multi-user
+  editing: hosting a project, joining over the LAN with a code, what syncs
+  live and how conflicts resolve (host-ordered last-write-wins), presence
+  highlights, the joined-project cache and mid-session file refresh, the
+  host-owns-saving rule, and the trust model / v1 limitations.
 - [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) - importing a
   real ARKit camera move (CamTrackAR `.hfcs` or the app-agnostic CSV) into a
   Cutscene Director camera track: the canonical take space, the mapping and

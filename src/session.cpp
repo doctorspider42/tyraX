@@ -817,6 +817,17 @@ struct HostRun {
                             else transportKick(ev.peer);  // protocol violation
                         } else if (t == "need") {
                             handleNeed(ev.peer, p, msg);
+                        } else if (t == "refresh") {
+                            // Mid-session file refresh: rescan the disk (the
+                            // host may have imported assets since the last
+                            // scan) and hand this peer a fresh manifest; the
+                            // normal need/file/sync-done pipeline finishes it.
+                            diskFiles_.clear();
+                            scanDisk();  // errors here just yield fewer files
+                            std::string manifestJson;
+                            buildPeerManifest(p, manifestJson);
+                            ctx.sendJson(ev.peer, manifestJson);
+                            p.lastSend = now;
                         } else if (t == "ping") {
                             ctx.sendJson(ev.peer, "{\"t\":\"pong\"}");
                             p.lastSend = now;
@@ -942,6 +953,7 @@ struct ClientRun {
             return false;
         }
         std::vector<std::string> need;
+        manifestByPath.clear();  // a refresh replaces the previous manifest
         prog = Session::SyncProgress{};
         std::error_code ec;
         for (const auto& jf : files->arr) {
@@ -1076,6 +1088,9 @@ struct ClientRun {
                 if (cmd.type == Session::Cmd::Type::ToHost && live) {
                     ctx.transport->send(wire::kHostPeer, cmd.frame);
                     lastSend = nowSec();
+                } else if (cmd.type == Session::Cmd::Type::Refresh && live) {
+                    ctx.sendJson(wire::kHostPeer, "{\"t\":\"refresh\"}");
+                    lastSend = nowSec();
                 }
             }
             events.clear();
@@ -1122,11 +1137,14 @@ struct ClientRun {
                     }
                 } else if (t == "sync-done") {
                     saveCacheMap(cacheDir / "cache.json", cacheMap);
+                    AppEvent e;
+                    // The first sync-done completes the join; later ones
+                    // complete a mid-session file refresh.
+                    e.type = live ? AppEvent::Type::Refreshed
+                                  : AppEvent::Type::SyncDone;
+                    e.text = projectRoot.string();
                     live = true;
                     ctx.setState(Session::State::Live);
-                    AppEvent e;
-                    e.type = AppEvent::Type::SyncDone;
-                    e.text = projectRoot.string();
                     ctx.pushEvent(std::move(e));
                 } else if (t == "peer-join") {
                     PeerView pv{(int)intField(msg, "id", -1), strField(msg, "name"),
@@ -1247,6 +1265,11 @@ void Session::workerMain() {
 
 void Session::kickPeer(int peerId) {
     pushCmd({Cmd::Type::Kick, peerId, {}});
+}
+
+void Session::requestRefresh() {
+    if (role_.load() != Role::Client) return;
+    pushCmd({Cmd::Type::Refresh, -1, {}});
 }
 
 void Session::broadcastFrame(const wire::Frame& f, int exceptPeer) {

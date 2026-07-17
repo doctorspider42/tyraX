@@ -82,6 +82,11 @@ struct EditorConfig {
     // Parent folder proposed as the location for new projects. Empty = fall
     // back to ~/TyraProjects.
     std::string defaultProjectsDir;
+    // Collaboration sessions: the name shown to other participants (empty =
+    // the Windows user name) and where joined projects materialize (empty =
+    // %LOCALAPPDATA%\tyra-editor\remote-cache).
+    std::string displayName;
+    std::string sessionCacheDir;
 };
 
 static std::filesystem::path editorConfigPath() {
@@ -121,6 +126,8 @@ static EditorConfig loadEditorConfig() {
         else if (match("ps2LinkIp", v)) cfg.ps2LinkIp = v;
         else if (match("errorPopup", v)) cfg.errorPopup = toI(v, 1) != 0;
         else if (match("defaultProjectsDir", v)) cfg.defaultProjectsDir = v;
+        else if (match("displayName", v)) cfg.displayName = v;
+        else if (match("sessionCacheDir", v)) cfg.sessionCacheDir = v;
     }
     return cfg;
 }
@@ -145,7 +152,9 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "emulatorPath=" << cfg.emulatorPath << "\n"
       << "ps2LinkIp=" << cfg.ps2LinkIp << "\n"
       << "errorPopup=" << (cfg.errorPopup ? 1 : 0) << "\n"
-      << "defaultProjectsDir=" << cfg.defaultProjectsDir << "\n";
+      << "defaultProjectsDir=" << cfg.defaultProjectsDir << "\n"
+      << "displayName=" << cfg.displayName << "\n"
+      << "sessionCacheDir=" << cfg.sessionCacheDir << "\n";
 }
 
 // Default parent directory proposed for new projects: the configured global
@@ -353,6 +362,8 @@ int App::run(const std::string& initialProjectDir) {
         globalPs2Ip_ = cfg.ps2LinkIp;
         errorPopupEnabled_ = cfg.errorPopup;
         globalDefaultProjectsDir_ = cfg.defaultProjectsDir;
+        globalDisplayName_ = cfg.displayName;
+        globalSessionCacheDir_ = cfg.sessionCacheDir;
     }
     applyUiScale();
 
@@ -619,7 +630,8 @@ void App::applyUiScale() {
 // UI-scale or navigation change.
 void App::saveGlobalConfig() {
     saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_,
-                      errorPopupEnabled_, globalDefaultProjectsDir_});
+                      errorPopupEnabled_, globalDefaultProjectsDir_,
+                      globalDisplayName_, globalSessionCacheDir_});
 }
 
 void App::setUiScale(float userScale) {
@@ -670,6 +682,10 @@ void App::drawMenuBar() {
                 snprintf(prefPs2Ip_, sizeof(prefPs2Ip_), "%s", globalPs2Ip_.c_str());
                 snprintf(prefDefaultProjectsDir_, sizeof(prefDefaultProjectsDir_), "%s",
                          globalDefaultProjectsDir_.c_str());
+                snprintf(prefDisplayName_, sizeof(prefDisplayName_), "%s",
+                         globalDisplayName_.c_str());
+                snprintf(prefSessionCacheDir_, sizeof(prefSessionCacheDir_), "%s",
+                         globalSessionCacheDir_.c_str());
                 openEditorPrefsPopup_ = true;
             }
             ImGui::EndMenu();
@@ -2495,6 +2511,16 @@ void App::sessionTick() {
             case session::AppEvent::Type::SyncDone:
                 openRemoteProject(e.text);
                 break;
+            case session::AppEvent::Type::Refreshed:
+                // Mid-session file refresh finished: assets on disk may have
+                // changed under us - drop every disk-derived cache and rescan.
+                viewport_.invalidateAssets();
+                wavIssueCache_.clear();
+                modelInfoCache_.clear();
+                rescanAssets(false);
+                applyProjectToViewport();
+                statusMessage_ = "Project files refreshed from the host";
+                break;
             case session::AppEvent::Type::Ended:
                 // The worker is already winding down; join it and reset.
                 session_.close();
@@ -2660,6 +2686,11 @@ void App::startHostSession() {
     cfg.projectId = project_.projectId;
     cfg.projectName = project_.name;
     cfg.modelFiles = project::manifestFiles(project_);
+    // Remember the typed name for future sessions (editor.ini).
+    if (globalDisplayName_ != sessionName_) {
+        globalDisplayName_ = sessionName_;
+        saveGlobalConfig();
+    }
     session_.host(std::move(cfg));
     // Baseline the diff against the exact model we're serving, so nothing
     // re-emits as a "change" until the user actually edits.
@@ -2706,10 +2737,14 @@ void App::openRemoteProject(const std::string& dir) {
     statusMessage_ = "Joined session: " + project_.name;
 }
 
-// Seed the display-name field once per modal open: USERNAME is right far more
-// often than an empty box.
-static void seedSessionName(char* buf, size_t n) {
+// Seed the display-name field once per modal open: the configured name
+// (Edit > Preferences), else USERNAME - both beat an empty box.
+static void seedSessionName(char* buf, size_t n, const std::string& configured) {
     if (buf[0]) return;
+    if (!configured.empty()) {
+        std::snprintf(buf, n, "%s", configured.c_str());
+        return;
+    }
     const char* u = getenv("USERNAME");
     std::snprintf(buf, n, "%s", (u && *u) ? u : "user");
 }
@@ -2718,7 +2753,7 @@ void App::drawHostSessionModal() {
     if (openHostSessionPopup_) {
         ImGui::OpenPopup("Host Session");
         openHostSessionPopup_ = false;
-        seedSessionName(sessionName_, sizeof(sessionName_));
+        seedSessionName(sessionName_, sizeof(sessionName_), globalDisplayName_);
         if (!sessionCode_[0])
             std::snprintf(sessionCode_, sizeof(sessionCode_), "%s",
                           session::newJoinCode().c_str());
@@ -2766,7 +2801,7 @@ void App::drawJoinSessionModal() {
     if (openJoinSessionPopup_) {
         ImGui::OpenPopup("Join Session");
         openJoinSessionPopup_ = false;
-        seedSessionName(sessionName_, sizeof(sessionName_));
+        seedSessionName(sessionName_, sizeof(sessionName_), globalDisplayName_);
         sessionError_.clear();
     }
     joinModalVisible_ = false;
@@ -2828,6 +2863,12 @@ void App::drawJoinSessionModal() {
                 cfg.port = (uint16_t)sessionPort_;
                 cfg.joinCode = sessionCode_;
                 cfg.displayName = sessionName_;
+                cfg.cacheRoot = globalSessionCacheDir_;
+                // Remember the typed name for future sessions (editor.ini).
+                if (globalDisplayName_ != sessionName_) {
+                    globalDisplayName_ = sessionName_;
+                    saveGlobalConfig();
+                }
                 session_.join(std::move(cfg));
             }
             ImGui::SameLine();
@@ -2879,6 +2920,16 @@ void App::drawSessionWindow() {
     } else {
         ImGui::Text("Joined \"%s\" @ %s", project_.name.c_str(), sessionAddr_);
         ImGui::TextDisabled("The host owns saving and committing.");
+        if (ImGui::SmallButton("Refresh project files")) session_.requestRefresh();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Re-syncs assets/sources from the host (fetches files the "
+                "host\nimported since you joined; unchanged files are "
+                "skipped).\nScene edits stream live and never need this.");
+        const auto prog = session_.syncProgress();
+        if (prog.filesTotal > prog.filesDone)
+            ImGui::TextDisabled("  fetching %d / %d files...", prog.filesDone,
+                                prog.filesTotal);
     }
     ImGui::Separator();
     ImGui::TextDisabled("Participants");
@@ -14704,11 +14755,32 @@ void App::drawEditorPreferencesModal() {
         "Run on PS2 (F6): the game boots on the console over ethernet with its\n"
         "assets served from this PC - no ISO, no SMB. Leave empty to disable.");
 
+    ImGui::SeparatorText("Collaboration sessions");
+    ImGui::InputText("Display name", prefDisplayName_, sizeof(prefDisplayName_));
+    ImGui::TextDisabled(
+        "The name other participants see in a live session. Leave empty to\n"
+        "use your Windows user name.");
+    ImGui::InputText("Joined-project cache", prefSessionCacheDir_,
+                     sizeof(prefSessionCacheDir_));
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Browse...##sesscache")) {
+        const std::string dir = pickFolder();
+        if (!dir.empty())
+            snprintf(prefSessionCacheDir_, sizeof(prefSessionCacheDir_), "%s",
+                     dir.c_str());
+    }
+    ImGui::TextDisabled(
+        "Where projects you JOIN materialize (re-joins reuse it, so unchanged\n"
+        "files never transfer twice). Leave empty for\n"
+        "%%LOCALAPPDATA%%\\tyra-editor\\remote-cache.");
+
     ImGui::Separator();
     if (ImGui::Button("Save", ImVec2(scaled(120), 0))) {
         globalEmulatorPath_ = prefEmulatorPath_;
         globalPs2Ip_ = prefPs2Ip_;
         globalDefaultProjectsDir_ = prefDefaultProjectsDir_;
+        globalDisplayName_ = prefDisplayName_;
+        globalSessionCacheDir_ = prefSessionCacheDir_;
         saveGlobalConfig();
         // Feed the new values into the open project (the Runner's transport).
         if (hasProject_) {
