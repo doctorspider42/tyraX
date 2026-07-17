@@ -9,7 +9,6 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-<<<<<<< HEAD
 - (112) **Rounded reflection normals - flat surfaces stop reflecting "one
   pixel".** Owner's observation on the console: the mirror monolith showed
   a single uniform patch of the env map per face while the spheres "reflect
@@ -330,8 +329,10 @@ Each finished feature lands as its own commit.
   screenshot). The Material Editor preview shares the verified shader path;
   its interactive feel (picker, slider) still wants a hands-on pass. Docs:
   README, `docs/reflective-materials.md`, engine + editor skills.
-=======
 - (107) **Live Link v2 — per-project on/off + live add/delete of objects.**
+  *(Numbering note: entries 104-107 appear twice — the reflections marathon
+  above and the Live Link/mirror line below landed from parallel branches
+  with the same numbers; both are kept.)*
   Two follow-ups to (106). First, the on/off is now a **project setting**
   (`ProjectSettings::liveLink`, default on; *Project > Preferences > Build*,
   *Build > Live Link*, and the toolbar **LIVE chip itself is the switch** —
@@ -463,7 +464,6 @@ Each finished feature lands as its own commit.
   hands-on test with a .glb avatar; real-hardware A/B pending like every
   perf-adjacent change.
 
->>>>>>> origin/main
 - (103) **Over-the-shoulder camera offset.** `SceneObject::playerCamShoulder`
   (Properties > Third-person camera > **Shoulder**, default 0 = unchanged
   behavior) slides the third-person rig sideways, completing the camera offset:
