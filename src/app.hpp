@@ -389,8 +389,9 @@ private:
     // discard-confirmation guard). Layout/docking changes do not set this -
     // they fold into the .tyra only when the user saves the project.
     bool dirty_ = false;
-    bool titleShowsDirty_ = false;  // last title state pushed to GLFW
-    std::string titleName_;         // project name currently in the title
+    bool titleShowsDirty_ = false;   // last title state pushed to GLFW
+    bool titleShowsJoined_ = false;  // last session-client marker in the title
+    std::string titleName_;          // project name currently in the title
     // Discard guard (Exit/Open/New while dirty). pendingAction_ is what runs
     // once the user resolves the modal; exitConfirmed_ lets the main loop close
     // after a confirmed Exit without re-prompting.
@@ -422,6 +423,18 @@ private:
     std::string sessionError_;      // inline error in the join modal
     std::string sessionEndedText_;  // reason shown by the session-ended popup
     std::vector<session::PeerView> sessionPeers_;
+    // Presence: what each OTHER participant has selected (object ids + the
+    // scene index they are editing), keyed by peer id. Rendered as per-peer
+    // outlines in the viewport and dots in the object list. Our own selection
+    // is broadcast throttled whenever it changes.
+    struct PeerPresence {
+        int scene = 0;
+        std::vector<std::string> sel;  // object ids
+    };
+    std::map<int, PeerPresence> peerPresence_;
+    std::vector<std::string> presenceSentSel_;
+    int presenceSentScene_ = -1;
+    double presenceNextSend_ = 0.0;
     // Set by attachProject()/switchLayout(): load the active layout's saved ini
     // at the next frame boundary (ImGui cannot reload settings between NewFrame
     // and EndFrame). Recipe-built layouts use recipeRebuildPending_ instead.

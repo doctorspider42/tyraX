@@ -16,6 +16,27 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (117) **Session presence + client-mode UX.** The "who is doing what" layer
+  and the participant-facing polish. **Presence:** every editor broadcasts its
+  selection (stable object ids + the scene index) as a `presence` frame,
+  throttled to 5 Hz and only on change; the host relays to everyone else.
+  Remote selections render as **wire outlines in each peer's color** in the
+  viewport (drawn under the local amber so local always reads on top;
+  `Viewport::setPeerSelections`, ids resolved to indices per frame), as
+  **colored dots** on the object rows in the Project panel, and as "- <scene>"
+  next to each participant in the Session window. **Client-mode gating:** a
+  joined client's Save is disabled everywhere (File menu with an explanatory
+  tooltip, Ctrl+S, the toolbar floppy) - the HOST owns saving/committing; the
+  title bar shows `[joined]` while in a session and drops it on leave/kick/
+  close. Presence state resets on session start and clears on end. **Verified**
+  (two editor instances over 127.0.0.1, synthetic input + screenshots): the
+  client's selection shows on the host as a blue dot on that object's row and
+  the Session window lists "papaj - main <ip:port>" with a Kick button;
+  kicking pops the client's "You were removed from the session by the host /
+  the project stays open as a local copy" modal, the `[joined]` title marker
+  disappears and the synced project stays open; the client's title showed
+  `sesstest [joined]` and its participants list exactly two entries.
+
 - (116) **Live model sync - simultaneous editing with per-object last-write-
   wins.** The heart of the collaboration feature: everyone in a session edits
   at once and every editor converges on the same model. Engine

@@ -136,6 +136,9 @@ class Session {
 
     Role role() const { return role_.load(); }
     State state() const { return state_.load(); }
+    // This editor's peer id in the session: 0 while hosting, the id assigned
+    // by the host's welcome as a client (0 until the welcome arrives).
+    int selfId() const { return selfId_.load(); }
     bool active() const {
         const State s = state_.load();
         return s != State::Idle && s != State::Error;
@@ -176,6 +179,7 @@ class Session {
 
     std::atomic<Role> role_{Role::None};
     std::atomic<State> state_{State::Idle};
+    std::atomic<int> selfId_{0};
     std::atomic<bool> stopRequested_{false};
 
     mutable std::mutex mutex_;  // guards everything below

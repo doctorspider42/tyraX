@@ -436,6 +436,7 @@ struct WorkerCtx {
 
     // shared push helpers -------------------------------------------------
     void setState(Session::State st) { s.state_.store(st); }
+    void setSelfId(int id) { s.selfId_.store(id); }
     bool stopping() const { return s.stopRequested_.load(); }
     void pushEvent(AppEvent e) {
         std::lock_guard<std::mutex> lk(s.mutex_);
@@ -896,6 +897,7 @@ struct ClientRun {
         projectName = strField(msg, "projectName", "project");
         myId = (int)intField(msg, "you", -1);
         myColorIdx = (int)intField(msg, "colorIdx", 1);
+        ctx.setSelfId(myId);
         if (projectId.empty() || myId < 0) {
             err = "malformed welcome from host";
             return false;
@@ -1194,6 +1196,7 @@ void Session::startWorker(Role role) {
     close();
     stopRequested_.store(false);
     role_.store(role);
+    selfId_.store(0);  // host id; a client overwrites it from the welcome
     {
         std::lock_guard<std::mutex> lk(mutex_);
         errorText_.clear();
