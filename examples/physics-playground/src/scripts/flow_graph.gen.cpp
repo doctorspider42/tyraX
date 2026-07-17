@@ -23,8 +23,8 @@ static inline std::string flowPosText(float x, float y, float z) {
   return std::string(b);
 }
 
-// Scene "main": graph of "kicked-ball" (object 6)
-class FlowGraphScript_0_6 : public Script {
+// Scene "main": graph of "kicked-ball" (object 1)
+class FlowGraphScript_0_1 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
@@ -38,11 +38,11 @@ class FlowGraphScript_0_6 : public Script {
     frame++;
     if (--every1 <= 0) {
       every1 = everyFrames(3.0F);
-      ctx.objects[6].velocityX += -4.0F * g_frameDt;
-      ctx.objects[6].velocityY += 7.0F * g_frameDt;
-      ctx.objects[6].velocityZ += 1.5F * g_frameDt;
-      ctx.objects[6].restFrames = 0;
-      TYRA_LOG("kicked-ball at", " ", flowPosText(ctx.objects[6].data.position[0], ctx.objects[6].data.position[1], ctx.objects[6].data.position[2]));
+      ctx.objects[1].velocityX += -4.0F * g_frameDt;
+      ctx.objects[1].velocityY += 7.0F * g_frameDt;
+      ctx.objects[1].velocityZ += 1.5F * g_frameDt;
+      ctx.objects[1].restFrames = 0;
+      TYRA_LOG("kicked-ball at", " ", flowPosText(ctx.objects[1].data.position[0], ctx.objects[1].data.position[1], ctx.objects[1].data.position[2]));
     }
   }
 
@@ -55,4 +55,4 @@ class FlowGraphScript_0_6 : public Script {
 
 }  // namespace Physics_playground
 
-TYRA_SCRIPT(Physics_playground::FlowGraphScript_0_6);
+TYRA_SCRIPT(Physics_playground::FlowGraphScript_0_1);

@@ -1,1 +1,0 @@
-{ "id": "box00dead000001", "name": "dead-box", "type": "box", "position": [-4, 10, 8], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.4, 0.4, 0.45], "physics": true, "physMass": 2, "physBounce": 0, "physFriction": 0.9, "physTumble": false }

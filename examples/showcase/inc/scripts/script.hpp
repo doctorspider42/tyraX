@@ -64,11 +64,6 @@ struct ScriptContext {
   float barsAmount = 0.0F;  // 0..1 of the style's full coverage
   float fadeAlpha = 0.0F;   // 0..1 black overlay
 
-  // Set by the sequence player while a "Hide player" cutscene is active: the
-  // game hides the third-person avatar for the frame (no effect in FPP/noclip,
-  // which have no visible body). Cleared when the cutscene ends.
-  bool hidePlayer = false;
-
   // Set teleport = true and teleportPos to move the player (Player entity or
   // the FPP template player) there; the game applies and clears it.
   // teleportYaw: facing direction in degrees (Y rotation, 0 = +Z).

@@ -1,1 +1,0 @@
-{ "id": "crate0stack00001", "name": "crate-1", "type": "box", "position": [-7, 4.2, 4], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.7, 0.5, 0.2], "physics": true, "physMass": 1.5, "physBounce": 0.15, "physFriction": 0.7, "physTumble": true }
