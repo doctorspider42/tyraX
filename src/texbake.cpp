@@ -2,12 +2,14 @@
 
 #include <filesystem>
 #include <map>
+#include <set>
 #include <vector>
 
 #include <stb_image.h>
 
 #include "objparser.hpp"
 #include "pngquant.hpp"
+#include "stochtile.hpp"
 
 namespace fs = std::filesystem;
 
@@ -220,6 +222,42 @@ std::string bake(const Project& p,
         if (auto it = quality.find(relRes); it != quality.end()) q = it->second;
         const int colors = quantizable ? colorsOf(q) : 0;
 
+        // Scene textures must be PS2-valid (power-of-two, max 512 per axis -
+        // the engine asserts otherwise). An oversized/odd import (a "1k"
+        // download, say) is resized INTO THE BAKE like HUD sprites are; the
+        // source in res/ keeps its full resolution for the editor viewport.
+        if (quantizable) {
+            int sw = 0, sh = 0, comp = 0;
+            if (stbi_info(e.path().string().c_str(), &sw, &sh, &comp) &&
+                (sw != nearestValidDim(sw) || sh != nearestValidDim(sh))) {
+                const int tw = nearestValidDim(sw), th = nearestValidDim(sh);
+                unsigned char* px =
+                    stbi_load(e.path().string().c_str(), &sw, &sh, &comp, 4);
+                if (px) {
+                    std::vector<unsigned char> buf =
+                        pngquant::resizeRGBA(px, sw, sh, tw, th);
+                    stbi_image_free(px);
+                    std::string err;
+                    const bool ok =
+                        colors > 0 ? pngquant::quantizeRGBA(dst.string(), buf.data(),
+                                                            tw, th, colors, err)
+                                   : pngquant::writePngRGBA(dst.string(), buf.data(),
+                                                            tw, th, err);
+                    if (ok) {
+                        log("[editor] texture bake: " + relRes + ": " +
+                            std::to_string(sw) + "x" + std::to_string(sh) +
+                            " resized to PS2-valid " + std::to_string(tw) + "x" +
+                            std::to_string(th));
+                        ++quantized;
+                        continue;
+                    }
+                    log("[editor] texture bake: " + relRes + ": " + err +
+                        " - copied at original size (the game may reject it)");
+                }
+                // decode/write failed - fall through to the plain paths below
+            }
+        }
+
         if (colors > 0) {
             std::string err;
             if (pngquant::quantize(e.path().string(), dst.string(), colors, err)) {
@@ -247,11 +285,60 @@ std::string bake(const Project& p,
     for (const auto& e : fs::recursive_directory_iterator(baked, ec)) {
         if (!e.is_regular_file()) continue;
         const fs::path rel = fs::relative(e.path(), baked, ec);
+        // stoch/ holds generated supertiles with no res/ source - regenerated
+        // wholesale below, so leave them out of the vanished-source sweep.
+        if (rel.begin()->generic_string() == "stoch") continue;
         std::error_code sec;
         if (!fs::exists(res / rel, sec) || editorOnly(rel))
             stale.push_back(e.path());
     }
     for (const fs::path& s : stale) fs::remove(s, ec);
+
+    // Stochastic-tiling supertiles (docs/terrain-painting.md): one
+    // non-repeating supertile per stochastic terrain texture, generated into
+    // .res-baked/stoch (never mirrored from res/) and quantized like its
+    // source. Regenerated wholesale so un-toggled layers leave nothing behind.
+    fs::remove_all(baked / "stoch", ec);
+    {
+        std::set<std::string> done;  // a texture shared by layers bakes once
+        int stochCount = 0;
+        auto genStoch = [&](const std::string& srcRel) {
+            if (srcRel.empty() || !done.insert(srcRel).second) return;
+            int w = 0, h = 0, factor = 1;
+            std::vector<unsigned char> px = stochtile::generate(
+                (res.parent_path() / srcRel).string(), srcRel, w, h, factor);
+            if (px.empty()) {
+                log("[editor] stochastic tiling: cannot read " + srcRel);
+                return;
+            }
+            const fs::path dst = baked / stochtile::bakedBinPath(srcRel);
+            fs::create_directories(dst.parent_path(), ec);
+            std::string q = defaultQ;
+            if (auto it = quality.find(srcRel); it != quality.end()) q = it->second;
+            const int cols = colorsOf(q);
+            std::string err;
+            const bool ok =
+                cols > 0
+                    ? pngquant::quantizeRGBA(dst.string(), px.data(), w, h, cols, err)
+                    : pngquant::writePngRGBA(dst.string(), px.data(), w, h, err);
+            if (ok)
+                ++stochCount;
+            else
+                log("[editor] stochastic tiling: " + srcRel + ": " + err);
+        };
+        for (const SceneData& sc : p.scenes) {
+            if (sc.terrainBaseStochastic)
+                genStoch(project::resolveTerrainMaterial(
+                             p, project::resolvedSettings(p, sc).terrainMaterial)
+                             .texture);
+            for (const TerrainLayer& l : sc.terrainLayers)
+                if (l.stochastic)
+                    genStoch(project::resolveTerrainMaterial(p, l.material).texture);
+        }
+        if (stochCount)
+            log("[editor] Stochastic tiling: baked " + std::to_string(stochCount) +
+                " supertile(s)");
+    }
 
     if (quantized || !stale.empty())
         log("[editor] Texture bake: " + std::to_string(quantized) +

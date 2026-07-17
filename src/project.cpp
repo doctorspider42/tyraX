@@ -360,6 +360,37 @@ static void readLayersArray(const json::Value& arr, std::vector<SceneLayer>& lay
     }
 }
 
+// Paintable terrain layers (docs/terrain-painting.md). The per-texel splat
+// weights live in the terrain-<scene>.splat sidecar; only the layer list (a
+// name + .mtl material each) travels in the project / history JSON.
+static void writeTerrainLayersArray(std::ostream& json,
+                                    const std::vector<TerrainLayer>& layers) {
+    json << "[";
+    for (size_t i = 0; i < layers.size(); ++i) {
+        json << (i ? ", " : "") << "{ \"name\": \"" << layers[i].name
+             << "\", \"material\": \"" << layers[i].material << "\", \"scale\": "
+             << fmtFloat(layers[i].scale);
+        if (layers[i].stochastic) json << ", \"stochastic\": true";
+        json << " }";
+    }
+    json << "]";
+}
+
+static void readTerrainLayersArray(const json::Value& arr,
+                                   std::vector<TerrainLayer>& layers) {
+    layers.clear();
+    if (arr.type != json::Value::Type::Array) return;
+    for (const auto& jl : arr.arr) {
+        TerrainLayer l;
+        if (const auto* v = jl.find("name")) l.name = v->stringOr("Layer");
+        if (const auto* v = jl.find("material")) l.material = v->stringOr("");
+        if (const auto* v = jl.find("scale")) l.scale = (float)v->numberOr(1.0);
+        if (l.scale <= 0.0f) l.scale = 1.0f;
+        if (const auto* v = jl.find("stochastic")) l.stochastic = v->boolOr(false);
+        layers.push_back(l);
+    }
+}
+
 // A scene's "settings" + "overrides" blocks (shared by the project file and
 // the history file). `settings` carries the scene's own scene-visual values;
 // `overrides` says which categories are active. Emitted without surrounding
@@ -690,6 +721,12 @@ std::string save(const Project& p) {
             json << ",\n      \"layers\": ";
             writeLayersArray(json, sc.layers);
         }
+        if (!sc.terrainLayers.empty()) {
+            json << ",\n      \"terrainLayers\": ";
+            writeTerrainLayersArray(json, sc.terrainLayers);
+        }
+        if (sc.terrainBaseStochastic)
+            json << ",\n      \"terrainBaseStochastic\": true";
         // Ordered ids only - each object's body is a separate objects/<id>.json
         // file (written below). Order is significant (first Player / SpawnPoint
         // wins, draw order), so it is preserved by the list.
@@ -1279,6 +1316,202 @@ void loadHeights(Project& p) {
     }
     ensureHeightmap(p);  // resample if the grid config changed meanwhile
 }
+
+// --- Terrain splatmap --------------------------------------------------------
+
+static void ensureSceneSplatmap(const Project& p, SceneData& s) {
+    const int n = (int)s.terrainLayers.size();
+    if (n == 0) {  // no layers -> the single-material terrain, no splat
+        s.splat.clear();
+        s.splatW = s.splatD = 0;
+        return;
+    }
+    // Per-VERTEX weights on the terrain render grid: the blend ships as
+    // Gouraud vertex alpha, so vertex resolution IS the blend resolution.
+    int vw = 0, vd = 0;
+    sceneGridDims(p, s, vw, vd);
+    if (s.splatW == vw && s.splatD == vd && (int)s.splat.size() == vw * vd * n)
+        return;  // already matches
+
+    // Resample the existing map (nearest) into the new grid/stride. Layers keep
+    // their index, so adding a layer at the end leaves a fresh empty column and
+    // a terrain-detail change preserves the painted shape (same policy as
+    // ensureSceneHeightmap). Mid-list add/remove is handled by the caller
+    // shifting the byte columns before this runs.
+    const int oldN =
+        (s.splatW > 0 && s.splatD > 0)
+            ? (int)(s.splat.size() / ((size_t)s.splatW * s.splatD))
+            : 0;
+    std::vector<uint8_t> next((size_t)vw * vd * n, 0);
+    if (oldN > 0 && (int)s.splat.size() == s.splatW * s.splatD * oldN) {
+        const int copyN = n < oldN ? n : oldN;
+        for (int z = 0; z < vd; ++z)
+            for (int x = 0; x < vw; ++x) {
+                const int sx = (int)((float)x / (vw - 1) * (s.splatW - 1) + 0.5f);
+                const int sz = (int)((float)z / (vd - 1) * (s.splatD - 1) + 0.5f);
+                const uint8_t* src =
+                    &s.splat[((size_t)sz * s.splatW + sx) * oldN];
+                uint8_t* dst = &next[((size_t)z * vw + x) * n];
+                for (int l = 0; l < copyN; ++l) dst[l] = src[l];
+            }
+    }
+    s.splat = std::move(next);
+    s.splatW = vw;
+    s.splatD = vd;
+}
+
+void ensureSplatmap(Project& p) {
+    for (SceneData& s : p.scenes) ensureSceneSplatmap(p, s);
+}
+
+void paintSplat(Project& p, int layer, float worldX, float worldZ, float radius,
+                float delta) {
+    SceneData& s = p.active();
+    const int n = (int)s.terrainLayers.size();
+    if (n == 0 || layer < 0 || layer >= n) return;
+    if (s.splatW < 1 || s.splatD < 1 ||
+        (int)s.splat.size() != s.splatW * s.splatD * n)
+        ensureSceneSplatmap(p, s);
+    if (s.splatW < 1 || radius <= 0.0f) return;
+
+    const float w = (float)s.terrain.width, d = (float)s.terrain.depth;
+    // Vertex positions on the render grid - the same lattice sculptHeightmap
+    // brushes, since the weights live on the terrain vertices.
+    const float stepX = w / (s.splatW - 1), stepZ = d / (s.splatD - 1);
+    const bool erase = delta < 0.0f;
+    const float mag = std::fabs(delta);
+
+    for (int z = 0; z < s.splatD; ++z) {
+        for (int x = 0; x < s.splatW; ++x) {
+            const float vx = -w * 0.5f + x * stepX;
+            const float vz = -d * 0.5f + z * stepZ;
+            const float dx = vx - worldX, dz = vz - worldZ;
+            const float dist = std::sqrt(dx * dx + dz * dz);
+            if (dist >= radius) continue;
+            const float t = dist / radius;
+            const float falloff = 0.5f + 0.5f * std::cos(t * 3.14159265f);
+            const float amt = mag * falloff * 255.0f;
+            uint8_t* cell = &s.splat[((size_t)z * s.splatW + x) * n];
+            auto clamp8 = [](float v) {
+                return (uint8_t)(v < 0.0f ? 0.0f : (v > 255.0f ? 255.0f : v));
+            };
+            if (erase) {
+                cell[layer] = clamp8(cell[layer] - amt);  // reveal what's below
+            } else {
+                cell[layer] = clamp8(cell[layer] + amt);
+                // Painting a layer pushes the OTHER extra layers back (and the
+                // base fills the remainder), so a stroke reads as "replace".
+                for (int l = 0; l < n; ++l)
+                    if (l != layer) cell[l] = clamp8(cell[l] - amt);
+            }
+        }
+    }
+}
+
+void addTerrainLayer(Project& p, const std::string& name,
+                     const std::string& material) {
+    SceneData& s = p.active();
+    TerrainLayer l;
+    l.name = name;
+    l.material = material;
+    s.terrainLayers.push_back(l);
+    ensureSceneSplatmap(p, s);  // grows the stride, new column zero-filled
+}
+
+void removeTerrainLayer(Project& p, int idx) {
+    SceneData& s = p.active();
+    const int n = (int)s.terrainLayers.size();
+    if (idx < 0 || idx >= n) return;
+    // Drop the layer's byte column from the interleaved splat before erasing it.
+    if (n > 1 && s.splatW > 0 && s.splatD > 0 &&
+        (int)s.splat.size() == s.splatW * s.splatD * n) {
+        std::vector<uint8_t> next((size_t)s.splatW * s.splatD * (n - 1));
+        const size_t texels = (size_t)s.splatW * s.splatD;
+        for (size_t t = 0; t < texels; ++t) {
+            const uint8_t* src = &s.splat[t * n];
+            uint8_t* dst = &next[t * (n - 1)];
+            int w = 0;
+            for (int l = 0; l < n; ++l)
+                if (l != idx) dst[w++] = src[l];
+        }
+        s.splat = std::move(next);
+    } else if (n == 1) {
+        s.splat.clear();
+        s.splatW = s.splatD = 0;
+    }
+    s.terrainLayers.erase(s.terrainLayers.begin() + idx);
+    ensureSceneSplatmap(p, s);
+}
+
+void moveTerrainLayer(Project& p, int idx, int dir) {
+    SceneData& s = p.active();
+    const int n = (int)s.terrainLayers.size();
+    const int j = idx + dir;
+    if (idx < 0 || idx >= n || j < 0 || j >= n) return;
+    std::swap(s.terrainLayers[idx], s.terrainLayers[j]);
+    if (s.splatW > 0 && s.splatD > 0 &&
+        (int)s.splat.size() == s.splatW * s.splatD * n) {
+        const size_t texels = (size_t)s.splatW * s.splatD;
+        for (size_t t = 0; t < texels; ++t) {
+            uint8_t* cell = &s.splat[t * n];
+            std::swap(cell[idx], cell[j]);
+        }
+    }
+}
+
+// One splat sidecar per scene: terrain-<scene>.splat. Binary (a 256x256 map is
+// far too big for the text format heights use): "TXSP", int32 w/h/layers,
+// then w*h*layers weight bytes (row-major, layer-interleaved).
+static fs::path splatPath(const Project& p, const SceneData& s) {
+    return fs::path(p.dir) / ("terrain-" + s.name + ".splat");
+}
+
+std::string saveSplat(const Project& p) {
+    for (const SceneData& s : p.scenes) {
+        const int n = (int)s.terrainLayers.size();
+        if (n == 0 || s.splat.empty()) {  // no layers -> drop any stale sidecar
+            std::error_code ec;
+            fs::remove(splatPath(p, s), ec);
+            continue;
+        }
+        std::string buf;
+        buf.reserve(16 + s.splat.size());
+        buf.append("TXSP", 4);
+        auto putI = [&](int32_t v) {
+            buf.append(reinterpret_cast<const char*>(&v), sizeof(v));
+        };
+        putI(s.splatW);
+        putI(s.splatD);
+        putI(n);
+        buf.append(reinterpret_cast<const char*>(s.splat.data()), s.splat.size());
+        if (auto err = writeFile(splatPath(p, s), buf); !err.empty()) return err;
+    }
+    return "";
+}
+
+void loadSplat(Project& p) {
+    for (SceneData& s : p.scenes) {
+        std::ifstream f(splatPath(p, s), std::ios::binary);
+        if (!f) continue;
+        char magic[4] = {0};
+        f.read(magic, 4);
+        if (std::string(magic, 4) != "TXSP") continue;
+        int32_t w = 0, h = 0, n = 0;
+        f.read(reinterpret_cast<char*>(&w), sizeof(w));
+        f.read(reinterpret_cast<char*>(&h), sizeof(h));
+        f.read(reinterpret_cast<char*>(&n), sizeof(n));
+        if (!f || w < 2 || h < 2 || w > 1024 || h > 1024 || n < 1 || n > 64)
+            continue;
+        std::vector<uint8_t> data((size_t)w * h * n);
+        f.read(reinterpret_cast<char*>(data.data()), (std::streamsize)data.size());
+        if (!f) continue;
+        s.splat = std::move(data);
+        s.splatW = w;
+        s.splatD = h;
+    }
+    ensureSplatmap(p);  // reconcile with the current layer count / resolution
+}
+
 static void readVec3(const json::Value* v, float* out) {
     if (!v || v->type != json::Value::Type::Array || v->arr.size() < 3) return;
     for (int i = 0; i < 3; ++i) out[i] = (float)v->arr[i].numberOr(out[i]);
@@ -1673,6 +1906,10 @@ std::string load(Project& out, const std::string& projectDir) {
                 SceneData sc;
                 if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
                 if (const auto* ls = js.find("layers")) readLayersArray(*ls, sc.layers);
+                if (const auto* tl = js.find("terrainLayers"))
+                    readTerrainLayersArray(*tl, sc.terrainLayers);
+                if (const auto* v = js.find("terrainBaseStochastic"))
+                    sc.terrainBaseStochastic = v->boolOr(false);
                 if (const auto* objs = js.find("objects"))
                     readSceneObjects(out, *objs, sc.objects);
                 if (const auto* t = js.find("terrain")) {
@@ -2299,6 +2536,7 @@ std::string load(Project& out, const std::string& projectDir) {
 
     loadHeights(out);
     ensureHeightmap(out);
+    loadSplat(out);  // reads <scene>.splat sidecars + reconciles with the layers
 
     // Legacy project-level flow graph (pre per-object graphs): adopt it into
     // the first object so old projects keep working. It is written back in
@@ -2383,6 +2621,12 @@ std::string saveHistory(const Project& p, const History& h) {
                 json << ", \"layers\": ";
                 writeLayersArray(json, sc.layers);
             }
+            if (!sc.terrainLayers.empty()) {
+                json << ", \"terrainLayers\": ";
+                writeTerrainLayersArray(json, sc.terrainLayers);
+            }
+            if (sc.terrainBaseStochastic)
+                json << ", \"terrainBaseStochastic\": true";
             json << ", \"objects\": ";
             writeObjectsArray(json, sc.objects, "        ");
             json << " }";
@@ -2418,6 +2662,10 @@ std::string loadHistory(const Project& p, History& h) {
                 SceneData sc;
                 if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
                 if (const auto* ls = js.find("layers")) readLayersArray(*ls, sc.layers);
+                if (const auto* tl = js.find("terrainLayers"))
+                    readTerrainLayersArray(*tl, sc.terrainLayers);
+                if (const auto* v = js.find("terrainBaseStochastic"))
+                    sc.terrainBaseStochastic = v->boolOr(false);
                 if (const auto* objs = js.find("objects"))
                     readObjectsArray(*objs, sc.objects);
                 if (const auto* t = js.find("terrain")) {

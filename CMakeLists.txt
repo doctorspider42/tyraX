@@ -54,6 +54,7 @@ add_executable(tyrax-editor
     src/decalproj.cpp
     src/project.cpp
     src/screenfx.cpp
+    src/stochtile.cpp
     src/texbake.cpp
     src/save_assets.cpp
     src/templates.cpp

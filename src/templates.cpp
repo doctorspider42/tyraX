@@ -19,8 +19,27 @@
 #include "glbparser.hpp"
 #include "menubake.hpp"
 #include "project.hpp"
+#include "stochtile.hpp"
 
 namespace templates {
+
+// The texture-table key for a terrain texture: the baked supertile path when
+// stochastic tiling is on (docs/terrain-painting.md), else the source as-is.
+// Used identically by collectTexturePaths and the per-scene texture indices so
+// they resolve to the same slot.
+static std::string terrainTexKey(const std::string& srcRel, bool stochastic) {
+    if (srcRel.empty()) return srcRel;
+    return stochastic ? stochtile::bakedBinPath(srcRel) : srcRel;
+}
+
+// Stochastic tiling multiplies the supertile's world span by `factor`, so the
+// runtime repeats-per-unit is divided by it to keep the source at its size.
+static float terrainStochFactor(const Project& p, const std::string& srcRel,
+                                 bool stochastic) {
+    if (srcRel.empty() || !stochastic) return 1.0f;
+    return (float)stochtile::factorFor(
+        (std::filesystem::path(p.dir) / srcRel).string());
+}
 
 static std::vector<std::string> collectMenuEvents(const Project& p);
 
@@ -135,9 +154,19 @@ static std::vector<std::string> collectTexturePaths(const Project& p) {
             if (e == t) return;
         paths.push_back(t);
     };
-    for (const SceneData& sc : p.scenes)
-        add(project::resolveTerrainMaterial(p, project::resolvedSettings(p, sc).terrainMaterial)
-                .texture);
+    for (const SceneData& sc : p.scenes) {
+        const std::string baseTex =
+            project::resolveTerrainMaterial(p, project::resolvedSettings(p, sc).terrainMaterial)
+                .texture;
+        add(terrainTexKey(baseTex, sc.terrainBaseStochastic));
+        // Painted terrain layers (docs/terrain-painting.md): each layer's
+        // material texture ships too - the game blends them over the base at
+        // runtime (two-pass vertex-alpha splatting), full tiled resolution.
+        // A stochastic layer/base ships its baked supertile instead.
+        for (const TerrainLayer& l : sc.terrainLayers)
+            add(terrainTexKey(project::resolveTerrainMaterial(p, l.material).texture,
+                              l.stochastic));
+    }
     return paths;
 }
 
@@ -409,6 +438,18 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     Tyra::StaPipTextureBag texBag;
+    // Painted terrain layers: one extra alpha-blended pass over the base per
+    // layer with any weight in this chunk. Shares the chunk's vertices; own
+    // tiled STs + shade colors whose alpha carries the painted weight.
+    struct LayerPass {
+      std::vector<Tyra::Color> colors;
+      std::vector<Tyra::Vec4> sts;
+      std::unique_ptr<Tyra::StaPipBag> bag;
+      std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+      Tyra::StaPipTextureBag texBag;
+      int layer = -1;
+    };
+    std::vector<LayerPass> layerPasses;
     int cx = -1, cz = -1;  // chunk coords; -1 = free pool slot
   };
   std::vector<TerrainChunk> terrainChunks;  // slot pool
@@ -417,6 +458,9 @@ class TerrainGame : public Tyra::Game {
 
   Tyra::M4x4 model;
   std::unique_ptr<Tyra::StaPipInfoBag> infoBag;  // shared by all chunk bags
+  // Same render settings as infoBag but with GS blending on - shared by every
+  // chunk's layer passes (the base pass must stay opaque).
+  std::unique_ptr<Tyra::StaPipInfoBag> layerInfoBag;
 
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])
@@ -814,6 +858,18 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     Tyra::StaPipTextureBag texBag;
+    // Painted terrain layers: one extra alpha-blended pass over the base per
+    // layer with any weight in this chunk. Shares the chunk's vertices; own
+    // tiled STs + shade colors whose alpha carries the painted weight.
+    struct LayerPass {
+      std::vector<Tyra::Color> colors;
+      std::vector<Tyra::Vec4> sts;
+      std::unique_ptr<Tyra::StaPipBag> bag;
+      std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+      Tyra::StaPipTextureBag texBag;
+      int layer = -1;
+    };
+    std::vector<LayerPass> layerPasses;
     int cx = -1, cz = -1;  // chunk coords; -1 = free pool slot
   };
   std::vector<TerrainChunk> terrainChunks;  // slot pool
@@ -822,6 +878,9 @@ class TerrainGame : public Tyra::Game {
 
   Tyra::M4x4 model;
   std::unique_ptr<Tyra::StaPipInfoBag> infoBag;  // shared by all chunk bags
+  // Same render settings as infoBag but with GS blending on - shared by every
+  // chunk's layer passes (the base pass must stay opaque).
+  std::unique_ptr<Tyra::StaPipInfoBag> layerInfoBag;
 
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])
@@ -2394,6 +2453,16 @@ void TerrainGame::buildScene() {
   // window and smears giant polygons (faithful on real HW / SW renderer).
   infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
   infoBag->fullClipChecks = CLIP_PRECISE;
+  // Terrain layer passes: identical settings, but with GS alpha blending on
+  // (PRIM ABE) - the per-mesh ALPHA qword defaults to standard alpha-over, so
+  // Gouraud vertex alpha = the painted splat weight blends the layer texture
+  // over the base pass.
+  layerInfoBag = std::make_unique<StaPipInfoBag>();
+  layerInfoBag->model = &model;
+  layerInfoBag->shadingType = TyraShadingFlat;
+  layerInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+  layerInfoBag->fullClipChecks = CLIP_PRECISE;
+  layerInfoBag->blendingEnabled = true;
   // The terrain mesh itself is built per chunk by loadScene(0) below
   // (resetTerrainChunks + the synchronous chunk drain).
 
@@ -2800,6 +2869,11 @@ void TerrainGame::applyLayerResidency() {
   }
   if (TERRAIN_TEXTURE >= 0 && TERRAIN_TEXTURE < (int)texNeed.size())
     texNeed[TERRAIN_TEXTURE] = 1;
+  // Painted terrain layers keep their tiled textures resident with the scene.
+  for (int l = 0; l < TERRAIN_LAYER_COUNT; ++l) {
+    const int t = TERRAIN_LAYER_TEXTURES[g_activeScene][l];
+    if (t >= 0 && t < (int)texNeed.size()) texNeed[t] = 1;
+  }
 
   for (int i = 0; i < (int)modelNeed.size(); ++i)
     if (!modelNeed[i] && modelLoaded[i]) freeModelAsset(i);
@@ -5897,6 +5971,43 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   ch.colors.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
   if (textured) ch.sts.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
 
+  // Painted terrain layers: find which layers have any weight on this chunk's
+  // vertices - each gets one extra alpha-blended pass sharing ch.vertices.
+  // (Bag pointers into layerPasses elements are re-set after the resize below,
+  // every build - the vector may reallocate.)
+  const int layerN = TERRAIN_LAYER_COUNT;
+  const unsigned char* splatW8 = TERRAIN_SPLAT_WEIGHTS;
+  int activeLayers[TERRAIN_MAX_LAYERS];
+  int activeN = 0;
+  if (layerN > 0 && splatW8) {
+    for (int l = 0; l < layerN; ++l) {
+      bool any = false;
+      for (int z = gz0; z <= gz1 && !any; ++z)
+        for (int x = gx0; x <= gx1; ++x)
+          if (splatW8[((size_t)z * HM_W + x) * layerN + l]) {
+            any = true;
+            break;
+          }
+      if (any) activeLayers[activeN++] = l;
+    }
+  }
+  ch.layerPasses.resize(activeN);
+  for (int a = 0; a < activeN; ++a) {
+    TerrainChunk::LayerPass& lp = ch.layerPasses[a];
+    lp.layer = activeLayers[a];
+    lp.colors.clear();
+    lp.sts.clear();
+    lp.colors.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
+    lp.sts.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
+  }
+  auto splatAt = [&](int ix, int iz, int l) -> float {
+    if (ix < 0) ix = 0;
+    if (iz < 0) iz = 0;
+    if (ix > HM_W - 1) ix = HM_W - 1;
+    if (iz > HM_D - 1) iz = HM_D - 1;
+    return splatW8[((size_t)iz * HM_W + ix) * layerN + l] / 255.0F;
+  };
+
   for (int z = gz0; z < gz1; ++z) {
     for (int x = gx0; x < gx1; ++x) {
       const float x0 = startX + x * stepX;
@@ -5939,6 +6050,40 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       ch.colors.push_back(shaded(s10));
       ch.colors.push_back(shaded(s11));
       ch.colors.push_back(shaded(s01));
+
+      // Layer passes: same triangles, tiled layer STs, shade-lit tint colors
+      // whose alpha is the painted weight (128 = fully this layer). Weights sit
+      // on the vertices, so the GS Gouraud-interpolates the blend per pixel.
+      for (int a = 0; a < activeN; ++a) {
+        TerrainChunk::LayerPass& lp = ch.layerPasses[a];
+        const int l = lp.layer;
+        const float* tint = TERRAIN_LAYER_TINTS[g_activeScene][l];
+        const bool ltex = TERRAIN_LAYER_TEXTURES[g_activeScene][l] >= 0;
+        const float lk = ltex ? 128.0F : 255.0F;
+        const float ltu = TERRAIN_LAYER_TILE_US[g_activeScene][l];
+        const float ltv = TERRAIN_LAYER_TILE_VS[g_activeScene][l];
+        auto lcol = [&](const V3& s, float w) {
+          return Color(tint[0] * lk * s.x, tint[1] * lk * s.y,
+                       tint[2] * lk * s.z, w * 128.0F);
+        };
+        const float w00 = splatAt(x, z, l), w10 = splatAt(x + 1, z, l);
+        const float w01 = splatAt(x, z + 1, l), w11 = splatAt(x + 1, z + 1, l);
+        lp.colors.push_back(lcol(s00, w00));
+        lp.colors.push_back(lcol(s10, w10));
+        lp.colors.push_back(lcol(s01, w01));
+        lp.colors.push_back(lcol(s10, w10));
+        lp.colors.push_back(lcol(s11, w11));
+        lp.colors.push_back(lcol(s01, w01));
+        auto lst = [&](float wx, float wz) {
+          lp.sts.push_back(Vec4(wx * ltu, wz * ltv, 1.0F, 0.0F));
+        };
+        lst(x0, z0);
+        lst(x1, z0);
+        lst(x0, z1);
+        lst(x1, z0);
+        lst(x1, z1);
+        lst(x0, z1);
+      }
     }
   }
 
@@ -5962,6 +6107,31 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   // Reused slot = same bag pointer with new vertex content: without the bump
   // the engine's bbox cacher would cull this chunk with the old chunk's boxes.
   ch.bag->bboxVersion = ++g_bboxStamp;
+
+  // Layer-pass bags: blend-enabled info bag, the chunk's own vertices, the
+  // pass's tiled STs and weight-alpha colors. Pointers are (re)set every build
+  // because resize() may have moved the LayerPass elements.
+  for (TerrainChunk::LayerPass& lp : ch.layerPasses) {
+    if (!lp.bag) {
+      lp.colorBag = std::make_unique<StaPipColorBag>();
+      lp.bag = std::make_unique<StaPipBag>();
+      lp.bag->lighting = nullptr;
+    }
+    lp.bag->info = layerInfoBag.get();
+    lp.colorBag->many = lp.colors.data();
+    lp.bag->color = lp.colorBag.get();
+    lp.bag->vertices = ch.vertices.data();
+    lp.bag->count = static_cast<u32>(ch.vertices.size());
+    const int lti = TERRAIN_LAYER_TEXTURES[g_activeScene][lp.layer];
+    if (lti >= 0 && loadedTextures[lti]) {
+      lp.texBag.texture = loadedTextures[lti];
+      lp.texBag.coordinates = lp.sts.data();
+      lp.bag->texture = &lp.texBag;
+    } else {
+      lp.bag->texture = nullptr;
+    }
+    lp.bag->bboxVersion = ++g_bboxStamp;
+  }
 }
 
 // Unbuilt chunks in the current view rect (the same rect updateTerrainChunks
@@ -6067,9 +6237,15 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ, int budget) {
 }
 
 void TerrainGame::renderTerrain() {
-  for (TerrainChunk& ch : terrainChunks)
-    if (ch.cx >= 0 && ch.bag && ch.bag->count > 0)
-      stapip.core.render(ch.bag.get());
+  for (TerrainChunk& ch : terrainChunks) {
+    if (ch.cx < 0 || !ch.bag || ch.bag->count == 0) continue;
+    stapip.core.render(ch.bag.get());
+    // Painted layers: alpha-blend over the base pass right away (same
+    // geometry = equal depth passes the GS >= z-test; keeping base + layers
+    // adjacent also keeps the texture cache warm per chunk).
+    for (TerrainChunk::LayerPass& lp : ch.layerPasses)
+      if (lp.bag && lp.bag->count > 0) stapip.core.render(lp.bag.get());
+  }
 }
 )";
 
@@ -8507,6 +8683,9 @@ inline int everyFrames(float seconds) {
 #define HM_D HM_DS[g_activeScene]
 #define TERRAIN_HEIGHTS TERRAIN_HEIGHTS_TABLES[g_activeScene]
 #define TERRAIN_TEXTURE TERRAIN_TEXTURES[g_activeScene]
+// Painted terrain layers (two-pass splatting; docs/terrain-painting.md)
+#define TERRAIN_LAYER_COUNT TERRAIN_LAYER_COUNTS[g_activeScene]
+#define TERRAIN_SPLAT_WEIGHTS TERRAIN_SPLAT_TABLES[g_activeScene]
 #define TERRAIN_TILE_U TERRAIN_TILE_US[g_activeScene]
 #define TERRAIN_TILE_V TERRAIN_TILE_VS[g_activeScene]
 #define TERRAIN_HAS_MATERIAL TERRAIN_HAS_MATERIALS[g_activeScene]
@@ -10964,6 +11143,53 @@ static std::string terrainHeightsHeader(const Project& p) {
     out << "inline const float* TERRAIN_HEIGHTS_TABLES[SCENE_COUNT] = {";
     for (int si = 0; si < sceneCount; ++si)
         out << (si ? ", " : "") << "HM_" << si << "_HEIGHTS";
+    out << "};\n\n";
+
+    // Painted terrain-layer weights (docs/terrain-painting.md), on the SAME
+    // vertex grid as the heightmap: layerCount bytes per vertex (0..255,
+    // layer-interleaved), drawn as Gouraud vertex alpha by the layer passes.
+    // nullptr = unpainted scene. Layer descriptors live in texture_data.gen.hpp.
+    for (int si = 0; si < sceneCount; ++si) {
+        const SceneData& sc = p.scenes[si];
+        const int n = (int)sc.terrainLayers.size();
+        if (n == 0) continue;
+        out << "constexpr unsigned char SPLAT_" << si << "_WEIGHTS["
+            << vws[si] * vds[si] * n << "] = {";
+        const bool match = sc.splatW == vws[si] && sc.splatD == vds[si] &&
+                           (int)sc.splat.size() == sc.splatW * sc.splatD * n;
+        for (int z = 0; z < vds[si]; ++z) {
+            for (int x = 0; x < vws[si]; ++x) {
+                // Defensive nearest resample: the splat normally already sits
+                // on this grid (ensureSplatmap), but a hand-edited project may
+                // disagree - never emit a mis-sized table.
+                int sx = x, sz = z;
+                if (!match && sc.splatW > 1 && sc.splatD > 1) {
+                    sx = (int)((float)x / (vws[si] - 1) * (sc.splatW - 1) + 0.5f);
+                    sz = (int)((float)z / (vds[si] - 1) * (sc.splatD - 1) + 0.5f);
+                }
+                for (int l = 0; l < n; ++l) {
+                    const size_t i = ((size_t)z * vws[si] + x) * n + l;
+                    if (i % 20 == 0) out << "\n    ";
+                    const bool ok = match || (sc.splatW > 1 && sc.splatD > 1 &&
+                                              (int)sc.splat.size() >=
+                                                  (sz * sc.splatW + sx + 1) * n);
+                    out << (ok ? (int)sc.splat[((size_t)sz * sc.splatW + sx) * n + l]
+                               : 0)
+                        << ",";
+                }
+            }
+        }
+        out << "\n};\n";
+    }
+    out << "inline const unsigned char* TERRAIN_SPLAT_TABLES[SCENE_COUNT] = {";
+    for (int si = 0; si < sceneCount; ++si) {
+        const bool has = !p.scenes[si].terrainLayers.empty();
+        out << (si ? ", " : "");
+        if (has)
+            out << "SPLAT_" << si << "_WEIGHTS";
+        else
+            out << "nullptr";
+    }
     out << "};\n\n"
            "/** Bilinear terrain height at world coordinates in a scene. The\n"
            " * game maps terrainHeightAt(x, z) to the active scene. */\n"
@@ -11014,23 +11240,30 @@ static std::string textureDataHeader(const Project& p) {
     // Per scene: the terrain material's map_Kd texture index (-1 = none), the
     // tiling scale, whether a material is assigned at all, and its Kd tint.
     std::vector<project::TerrainMaterial> terrain(p.scenes.size());
-    for (size_t si = 0; si < p.scenes.size(); ++si)
+    std::vector<float> baseStochF(p.scenes.size(), 1.0f);
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
         terrain[si] = project::resolveTerrainMaterial(
             p, project::resolvedSettings(p, p.scenes[si]).terrainMaterial);
+        baseStochF[si] = terrainStochFactor(p, terrain[si].texture,
+                                            p.scenes[si].terrainBaseStochastic);
+    }
     out << "};\n\n"
         << "constexpr int TERRAIN_TEXTURES[" << p.scenes.size() << "] = {";
     for (size_t si = 0; si < p.scenes.size(); ++si)
-        out << (si ? ", " : "") << textureIndexOf(p, terrain[si].texture);
+        out << (si ? ", " : "")
+            << textureIndexOf(p, terrainTexKey(terrain[si].texture,
+                                               p.scenes[si].terrainBaseStochastic));
     out << "};\n"
         // Texture tiling from the material's map_Kd "-s" option: UV repeats per
-        // world unit, per axis (u across X, v across Z).
+        // world unit, per axis (u across X, v across Z). Divided by the
+        // stochastic factor so the baked supertile keeps the source at its size.
         << "constexpr float TERRAIN_TILE_US[" << p.scenes.size() << "] = {";
     for (size_t si = 0; si < p.scenes.size(); ++si)
-        out << (si ? ", " : "") << floatLit(terrain[si].tile[0]);
+        out << (si ? ", " : "") << floatLit(terrain[si].tile[0] / baseStochF[si]);
     out << "};\n"
         << "constexpr float TERRAIN_TILE_VS[" << p.scenes.size() << "] = {";
     for (size_t si = 0; si < p.scenes.size(); ++si)
-        out << (si ? ", " : "") << floatLit(terrain[si].tile[1]);
+        out << (si ? ", " : "") << floatLit(terrain[si].tile[1] / baseStochF[si]);
     out << "};\n"
         << "constexpr bool TERRAIN_HAS_MATERIALS[" << p.scenes.size() << "] = {";
     for (size_t si = 0; si < p.scenes.size(); ++si)
@@ -11040,7 +11273,102 @@ static std::string textureDataHeader(const Project& p) {
     for (size_t si = 0; si < p.scenes.size(); ++si)
         out << (si ? ", " : "") << "{" << floatLit(terrain[si].kd[0]) << ", "
             << floatLit(terrain[si].kd[1]) << ", " << floatLit(terrain[si].kd[2]) << "}";
-    out << "};\n\n}  // namespace " << ns << "\n";
+    out << "};\n";
+
+    // Painted terrain layers (docs/terrain-painting.md): per scene, each
+    // layer's texture index / tiling (the material's map_Kd "-s" divided by the
+    // layer Size - bigger Size = larger pattern) / Kd tint / has-material flag.
+    // The per-vertex blend weights live in terrain_heights.gen.hpp (same grid
+    // as the heightmap); the game draws one extra alpha-blended pass per layer
+    // present in a chunk.
+    size_t maxLayers = 0;
+    for (const SceneData& sc : p.scenes)
+        maxLayers = sc.terrainLayers.size() > maxLayers ? sc.terrainLayers.size()
+                                                        : maxLayers;
+    out << "\nconstexpr int TERRAIN_LAYER_COUNTS[" << p.scenes.size() << "] = {";
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        out << (si ? ", " : "") << p.scenes[si].terrainLayers.size();
+    out << "};\n"
+        << "constexpr int TERRAIN_MAX_LAYERS = " << (maxLayers > 0 ? maxLayers : 1)
+        << ";\n";
+    auto layerMat = [&](const SceneData& sc, size_t li) {
+        return project::resolveTerrainMaterial(p, sc.terrainLayers[li].material);
+    };
+    auto perLayer = [&](const char* name, auto emit) {
+        out << name << "[" << p.scenes.size() << "][TERRAIN_MAX_LAYERS] = {";
+        for (size_t si = 0; si < p.scenes.size(); ++si) {
+            out << (si ? ", " : "") << "{";
+            for (size_t li = 0; li < maxLayers; ++li) {
+                out << (li ? ", " : "");
+                if (li < p.scenes[si].terrainLayers.size())
+                    emit(p.scenes[si], li);
+                else
+                    out << "0";
+            }
+            out << "}";
+        }
+        out << "};\n";
+    };
+    if (maxLayers == 0) {
+        // Keep the arrays compilable for the loops that index them.
+        out << "constexpr int TERRAIN_LAYER_TEXTURES[" << p.scenes.size()
+            << "][1] = {};\n"
+            << "constexpr float TERRAIN_LAYER_TILE_US[" << p.scenes.size()
+            << "][1] = {};\n"
+            << "constexpr float TERRAIN_LAYER_TILE_VS[" << p.scenes.size()
+            << "][1] = {};\n"
+            << "constexpr float TERRAIN_LAYER_TINTS[" << p.scenes.size()
+            << "][1][3] = {};\n";
+    } else {
+        auto layerStoch = [&](const SceneData& sc, size_t li) {
+            return terrainStochFactor(p, layerMat(sc, li).texture,
+                                      sc.terrainLayers[li].stochastic);
+        };
+        perLayer("constexpr int TERRAIN_LAYER_TEXTURES", [&](const SceneData& sc,
+                                                             size_t li) {
+            out << textureIndexOf(
+                p, terrainTexKey(layerMat(sc, li).texture,
+                                 sc.terrainLayers[li].stochastic));
+        });
+        perLayer("constexpr float TERRAIN_LAYER_TILE_US",
+                 [&](const SceneData& sc, size_t li) {
+                     const float s = sc.terrainLayers[li].scale > 0.0f
+                                         ? sc.terrainLayers[li].scale
+                                         : 1.0f;
+                     out << floatLit(layerMat(sc, li).tile[0] /
+                                     (s * layerStoch(sc, li)));
+                 });
+        perLayer("constexpr float TERRAIN_LAYER_TILE_VS",
+                 [&](const SceneData& sc, size_t li) {
+                     const float s = sc.terrainLayers[li].scale > 0.0f
+                                         ? sc.terrainLayers[li].scale
+                                         : 1.0f;
+                     out << floatLit(layerMat(sc, li).tile[1] /
+                                     (s * layerStoch(sc, li)));
+                 });
+        out << "constexpr float TERRAIN_LAYER_TINTS[" << p.scenes.size()
+            << "][TERRAIN_MAX_LAYERS][3] = {";
+        for (size_t si = 0; si < p.scenes.size(); ++si) {
+            out << (si ? ", " : "") << "{";
+            for (size_t li = 0; li < maxLayers; ++li) {
+                out << (li ? ", " : "") << "{";
+                if (li < p.scenes[si].terrainLayers.size()) {
+                    const project::TerrainMaterial m = layerMat(p.scenes[si], li);
+                    // No material assigned = the neutral gray the editor shows.
+                    const float g = m.present ? 1.0f : 0.6f;
+                    out << floatLit(m.present ? m.kd[0] : g) << ", "
+                        << floatLit(m.present ? m.kd[1] : g) << ", "
+                        << floatLit(m.present ? m.kd[2] : g);
+                } else {
+                    out << "0, 0, 0";
+                }
+                out << "}";
+            }
+            out << "}";
+        }
+        out << "};\n";
+    }
+    out << "\n}  // namespace " << ns << "\n";
     return out.str();
 }
 

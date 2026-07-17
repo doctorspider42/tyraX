@@ -1,0 +1,140 @@
+# Terrain splat painting
+
+Terrain used to wear a single tiled material (the scene's terrain `.mtl`,
+repeated across the surface). **Splat painting** lets you blend several terrain
+**layers** - grass here, a dirt path there, rock on the cliffs - by painting
+their weights with a brush. The PlayStation 2 draws the blend the way era games
+did: **two-pass splatting on the GS** - the base terrain draws as usual, then
+each painted layer draws once more over it with its own tiled texture and the
+painted weight as Gouraud vertex alpha. Layer textures stay **tiled at full
+resolution** at any distance and on any map size; there is no baked composite
+to run out of texels.
+
+It lives in the **Terrain Editor** (*Tools > Terrain Editor*) - the one window
+for both terrain brushes: **Sculpt** (the heightmap brush) and **Paint** (this
+feature), switched by the two tool buttons at the top. The same toggles sit in
+the viewport toolbar as *Sculpt (4)* and *Paint (6)*; grabbing either tool
+opens the window with its options. One brush is in hand at a time.
+
+## The brush
+
+Both tools share one brush: **Radius** (with **`[` / `]`** to resize from the
+keyboard, mid-stroke) and a per-tool **Strength**. The ranges **scale with the
+map** - radius up to half the map's size, sculpt strength growing with it too -
+so a 2000x2000 world sculpts and paints as comfortably as a 64x64 garden (the
+sliders are logarithmic, so small values keep their precision on any map).
+Compact copies of the brush controls float in the viewport corner while a tool
+is active; they edit the same values as the window.
+
+## Layers
+
+A scene's terrain always has a **base**: its terrain material (Scene
+Preferences > Terrain material), or a flat green when none is assigned. On top
+of the base you add **layers**, each one an existing Material Editor `.mtl` - so
+a layer inherits that material's texture (`map_Kd`), color tint (`Kd`) and
+tiling (`map_Kd -s`) exactly like the base terrain does. Grass, dirt, rock and
+path are just ordinary materials you already know how to author. Oversized
+imports are safe: the PS2 caps textures at 512x512, and the build bake resizes
+any bigger (or non-power-of-two) material texture down automatically - the
+full-resolution source stays in `res/` for the editor.
+
+In the Terrain Editor each layer row has an **active** radio (the layer
+the brush paints), a name, a material picker, reorder arrows and a remove
+button, plus a **Size** below it - how large that layer's texture pattern
+appears on the ground (a multiplier on the material's own tiling: `2.00x` makes
+the pattern twice as big / repeat half as often) - and a **Stochastic** toggle
+(see below). Size lets you tune the look without editing the `.mtl`; it has no
+effect on a flat, textureless layer. `+ Add layer` appends one - and puts the
+paint brush straight in hand, since a fresh layer is there to be painted. The
+base terrain material has its own **Stochastic tiling** toggle at the top of
+the list. A scene with **no layers behaves exactly as before** - the single
+terrain material, tiled, one draw pass.
+
+## Stochastic tiling (breaking the grid)
+
+A tiled texture repeats on a regular grid, and the eye latches onto that
+"checkerboard" the moment the camera pulls back. **Stochastic tiling** (a.k.a.
+texture bombing) breaks it. Tick **Stochastic** on the base or any layer and the
+build bakes that texture into one larger, **still-perfectly-tileable
+"supertile"** (up to 512x512) whose interior scatters randomly rotated, flipped
+and offset patches of the source, feathered so the seams disappear. The game
+tiles the supertile like any texture - **the same single pass, zero runtime
+cost** - but the repetition period is 2-8x longer (depending on the source
+size), so the tell-tale grid leaves the visible range.
+
+- It shines on **organic** textures - grass, sand, dirt, rock. Leave it **off**
+  for anything with fixed seams that must line up (brick, tile, planks): bombing
+  rotates and offsets the pattern, which would scramble those.
+- The supertile is generated deterministically at build (into `.res-baked/stoch`,
+  never your `res/`), and the editor viewport previews the exact same pixels.
+- The runtime tiling is automatically divided by the supertile factor, so the
+  texture keeps its on-ground size - toggling Stochastic doesn't change the
+  scale, only the variety.
+- Cost is VRAM (one ≤512² texture per stochastic terrain texture) and a little
+  detail on very large source textures (a source bigger than 256px is sampled
+  down so at least a 2x2 arrangement fits the 512 cap).
+
+## Painting
+
+Grab the **Paint** tool (the button at the top of the Terrain Editor, the
+viewport toolbar, or the **6** key), then **drag on the terrain** in the 3D
+viewport - same brush raycast and ring as sculpting:
+
+- **Radius / Strength** - the brush footprint and how hard each stroke pushes
+  the active layer's weight (cosine falloff from the center).
+- Painting a layer **pushes the other layers back** where you paint, and the
+  base fills whatever weight is left - so a stroke reads as "replace with this".
+- **Erase** (the toggle, or hold **Shift**) takes the active layer's weight
+  back off, revealing the layers/base underneath.
+
+The viewport draws the **same two passes the PS2 does** - what you see while
+painting is what ships. Each finished stroke is one undo step.
+
+## Blend resolution
+
+The painted weights live **on the terrain vertices** (the same grid as the
+heightmap), because that is exactly what the hardware interpolates: the GS
+shades the blend per pixel from the vertex alphas (Gouraud), so the blend
+gradient is as fine as the terrain grid. Texture detail is unaffected - it
+comes from the tiled layer textures. For crisper blend *edges* on a big map,
+raise **Terrain detail** (Project Preferences); the weights resample
+automatically, like the heightmap does.
+
+## How it is stored
+
+- The **layer list** travels in the `.tyra` project manifest (per scene: a
+  name, an `.mtl` and the Size multiplier each).
+- The painted **weights** live in a per-scene binary sidecar
+  `terrain-<scene>.splat` (like the heightmap's `terrain-<scene>.heights`): a
+  `splatW x splatD` vertex grid, one 0..255 byte per layer per vertex (the base
+  weight is the remainder). It is tracked in git and rides the editor undo
+  snapshot.
+
+## How it ships (build time)
+
+Codegen bakes the per-vertex weights into `inc/terrain_heights.gen.hpp`
+(`SPLAT_<scene>_WEIGHTS`, next to the heightmap tables - same grid) and the
+layer descriptors (texture index, tiling incl. Size, tint) into
+`inc/texture_data.gen.hpp`. At runtime `buildTerrainChunk` builds, for each
+16x16-cell chunk, the base bag plus **one extra StaPip bag per layer that has
+any weight on that chunk** - same vertices, the layer's tiled STs, shade-lit
+colors whose alpha is the weight - and `renderTerrain` submits them right after
+the chunk's base bag. The layer bags share a blending-enabled info bag (GS PRIM
+ABE with the default alpha-over equation carried in-band per mesh). Unpainted
+chunks cost exactly what they did before; layer textures ride the normal scene
+texture streaming and are tiny (they are ordinary tiled material textures).
+
+Measured on the 64x64 demo scene (PCSX2 software renderer, PAL): 50 FPS with
+two painted layers vs 50 FPS unpainted - EE 36% in both, VU 3% vs 2%. The extra
+passes only exist where you painted.
+
+### Why not a baked composite texture
+
+The first version of this feature baked the blend into one whole-terrain
+texture at build time (zero runtime cost). It hit a hard wall: the PS2 caps
+textures at 512x512, so a whole map's surface detail had to fit one 512-texel
+square - embarrassingly blurry up close, and unfixable (per-chunk baked
+textures would thrash the ~1 MB GS texture budget through the mid-frame PATH3
+upload hazard). Two-pass vertex-alpha splatting is how era games solved exactly
+this, and it keeps the full tiled texture detail for a small, painted-area-only
+runtime cost.

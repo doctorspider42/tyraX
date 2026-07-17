@@ -108,6 +108,10 @@ static int resaveFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
+    if (std::string err = project::saveSplat(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
     std::printf("resaved: %s\n", p.dir.c_str());
     return 0;
 }

@@ -71,6 +71,24 @@ public:
     void setTerrainMaterial(const std::string& texRelPath, const float kd[3],
                             bool hasMaterial, const float tile[2]);
 
+    // Terrain splat painting preview (docs/terrain-painting.md): the same
+    // two-pass blending the PS2 does - the base terrain draws as usual, then
+    // every painted layer alpha-blends over it as a second pass of the same
+    // grid (tiled layer texture, Gouraud vertex alpha = the painted weight).
+    struct TerrainLayerDraw {
+        std::string texture;  // res-relative map_Kd ("" = flat color)
+        float kd[3] = {0.6f, 0.6f, 0.6f};
+        float tile[2] = {1.0f, 1.0f};  // repeats per world unit (incl. Size)
+    };
+    // weights: hmW*hmD*layers bytes, layer-interleaved per vertex (the
+    // project's SceneData::splat). Rebuilds the terrain meshes.
+    void setTerrainLayers(const std::vector<TerrainLayerDraw>& layers,
+                          const std::vector<uint8_t>& weights);
+    // Cheap during-a-stroke update: new weights, rebuild only the chunks under
+    // the brush (the paint twin of updateTerrainRegion).
+    void updateSplatRegion(const std::vector<uint8_t>& weights, float worldX,
+                           float worldZ, float radius);
+
     // "Highlight usable objects" preference: marks usable objects with a wire
     // box in the highlight color (proximity is a game-runtime condition)
     void setUsableHighlight(bool enabled, const float* rgb);
@@ -209,6 +227,8 @@ private:
     void buildTerrainMesh();
     void buildPrimitiveMeshes();
     Mesh uploadMesh(const std::vector<float>& interleaved);  // pos3 + color3
+    // pos3 + color4 + uv2 (the particle-shader layout) - terrain layer passes
+    Mesh uploadMesh9(const std::vector<float>& interleaved);
     void destroyMesh(Mesh& m);
 
     TerrainConfig terrain_;
@@ -286,6 +306,11 @@ private:
     static constexpr int kTerrainFullGridCells = 128 * 128;
     std::vector<Mesh> terrainChunkMeshes_;  // tcChunksX_ * tcChunksZ_, row-major
     std::vector<Mesh> terrainLineMeshes_;
+    // Painted-layer passes: [layer * chunkCount + chunk]; an empty Mesh where a
+    // layer has no weight on that chunk. Drawn blended after the base chunks.
+    std::vector<Mesh> terrainLayerMeshes_;
+    std::vector<TerrainLayerDraw> terrainLayers_;
+    std::vector<uint8_t> splat_;  // hmW_*hmD_*layers, layer-interleaved
     int tcChunksX_ = 0, tcChunksZ_ = 0;
     int tcCellsX_ = 0, tcCellsZ_ = 0;
     void buildTerrainChunkMesh(int cx, int cz);

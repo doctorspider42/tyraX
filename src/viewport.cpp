@@ -649,6 +649,29 @@ Viewport::Mesh Viewport::uploadMesh(const std::vector<float>& interleaved) {
     return m;
 }
 
+// The particle-shader layout (pos3 + rgba4 + uv2): terrain layer passes carry
+// the painted weight in the vertex alpha, exactly like the PS2's color stream.
+Viewport::Mesh Viewport::uploadMesh9(const std::vector<float>& interleaved) {
+    Mesh m;
+    m.vertexCount = (int)(interleaved.size() / 9);
+    glGenVertexArrays(1, &m.vao);
+    glGenBuffers(1, &m.vbo);
+    glBindVertexArray(m.vao);
+    glBindBuffer(GL_ARRAY_BUFFER, m.vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(interleaved.size() * sizeof(float)),
+                 interleaved.data(), GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 9 * sizeof(float),
+                          (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 9 * sizeof(float),
+                          (void*)(7 * sizeof(float)));
+    glBindVertexArray(0);
+    return m;
+}
+
 void Viewport::destroyMesh(Mesh& m) {
     if (m.vbo) glDeleteBuffers(1, &m.vbo);
     if (m.vao) glDeleteVertexArrays(1, &m.vao);
@@ -776,6 +799,8 @@ void Viewport::shutdown() {
     terrainChunkMeshes_.clear();
     for (Mesh& m : terrainLineMeshes_) destroyMesh(m);
     terrainLineMeshes_.clear();
+    for (Mesh& m : terrainLayerMeshes_) destroyMesh(m);
+    terrainLayerMeshes_.clear();
     destroyMesh(axes_);
     destroyMesh(box_);
     destroyMesh(sphere_);
@@ -962,6 +987,7 @@ void Viewport::buildTerrainMesh() {
     if (!program_) return;  // init() not called yet
     for (Mesh& m : terrainChunkMeshes_) destroyMesh(m);
     for (Mesh& m : terrainLineMeshes_) destroyMesh(m);
+    for (Mesh& m : terrainLayerMeshes_) destroyMesh(m);
     destroyMesh(axes_);
 
     // Match the generated PS2 game: checker pattern, capped cell count,
@@ -973,6 +999,8 @@ void Viewport::buildTerrainMesh() {
     tcChunksZ_ = (tcCellsZ_ + kTerrainChunkCells - 1) / kTerrainChunkCells;
     terrainChunkMeshes_.assign((size_t)tcChunksX_ * tcChunksZ_, Mesh());
     terrainLineMeshes_.assign((size_t)tcChunksX_ * tcChunksZ_, Mesh());
+    terrainLayerMeshes_.assign(
+        terrainLayers_.size() * (size_t)tcChunksX_ * tcChunksZ_, Mesh());
     for (int cz = 0; cz < tcChunksZ_; ++cz)
         for (int cx = 0; cx < tcChunksX_; ++cx) buildTerrainChunkMesh(cx, cz);
 
@@ -1020,6 +1048,9 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
     // With a material every cell takes its Kd tint (the shader modulates the
     // texture by it when one is bound; a flat color otherwise). Without a
     // material the terrain falls back to the two-green checker.
+    // With a material every cell takes its Kd tint (the shader modulates the
+    // texture by it when one is bound; a flat color otherwise). Without a
+    // material the terrain falls back to the two-green checker.
     const float cA[3] = {terrainHasMaterial_ ? terrainKd_[0] : 96 / 255.0f,
                          terrainHasMaterial_ ? terrainKd_[1] : 160 / 255.0f,
                          terrainHasMaterial_ ? terrainKd_[2] : 72 / 255.0f};
@@ -1029,6 +1060,8 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
     // Texture tiling from the material's map_Kd "-s": UV repeats per world
     // unit, per axis (u across X, v across Z). Matches the game's st() lambda.
     const float tu = terrainTile_[0], tv = terrainTile_[1];
+    auto uvU = [&](float wx) { return wx * tu; };
+    auto uvV = [&](float wz) { return wz * tv; };
 
     const int gx0 = cx * kTerrainChunkCells;
     const int gz0 = cz * kTerrainChunkCells;
@@ -1047,17 +1080,17 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
             const Vec3 s00 = shadeAt(x, z), s10 = shadeAt(x + 1, z);
             const Vec3 s01 = shadeAt(x, z + 1), s11 = shadeAt(x + 1, z + 1);
             pushVertexColor(tri, ax, h00, az, c[0] * s00.x, c[1] * s00.y, c[2] * s00.z,
-                            ax * tu, az * tv);
+                            uvU(ax), uvV(az));
             pushVertexColor(tri, bx, h10, az, c[0] * s10.x, c[1] * s10.y, c[2] * s10.z,
-                            bx * tu, az * tv);
+                            uvU(bx), uvV(az));
             pushVertexColor(tri, ax, h01, bz, c[0] * s01.x, c[1] * s01.y, c[2] * s01.z,
-                            ax * tu, bz * tv);
+                            uvU(ax), uvV(bz));
             pushVertexColor(tri, bx, h10, az, c[0] * s10.x, c[1] * s10.y, c[2] * s10.z,
-                            bx * tu, az * tv);
+                            uvU(bx), uvV(az));
             pushVertexColor(tri, bx, h11, bz, c[0] * s11.x, c[1] * s11.y, c[2] * s11.z,
-                            bx * tu, bz * tv);
+                            uvU(bx), uvV(bz));
             pushVertexColor(tri, ax, h01, bz, c[0] * s01.x, c[1] * s01.y, c[2] * s01.z,
-                            ax * tu, bz * tv);
+                            uvU(ax), uvV(bz));
         }
     }
     terrainChunkMeshes_[ci] = uploadMesh(tri);
@@ -1091,6 +1124,68 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
         }
     }
     terrainLineMeshes_[ci] = uploadMesh(lines);
+
+    // Painted-layer passes (docs/terrain-painting.md): per layer with any
+    // weight on this chunk, the same triangles again - tiled layer UVs,
+    // shade-lit tint, vertex alpha = the painted weight. The GS twin builds
+    // identical passes in buildTerrainChunk (templates.cpp); keep them in sync.
+    const int layerN = (int)terrainLayers_.size();
+    const int vw = cellsX + 1, vd = cellsZ + 1;  // weights live on the vertices
+    const bool haveSplat =
+        layerN > 0 && (int)splat_.size() == vw * vd * layerN;
+    for (int l = 0; l < layerN; ++l) {
+        Mesh& lm =
+            terrainLayerMeshes_[(size_t)l * tcChunksX_ * tcChunksZ_ + ci];
+        destroyMesh(lm);
+        if (!haveSplat) continue;
+        auto wAt = [&](int ix, int iz) {
+            ix = ix < 0 ? 0 : ix > vw - 1 ? vw - 1 : ix;
+            iz = iz < 0 ? 0 : iz > vd - 1 ? vd - 1 : iz;
+            return splat_[((size_t)iz * vw + ix) * layerN + l] / 255.0f;
+        };
+        bool any = false;
+        for (int z = gz0; z <= gz1 && !any; ++z)
+            for (int x = gx0; x <= gx1; ++x)
+                if (wAt(x, z) > 0.0f) {
+                    any = true;
+                    break;
+                }
+        if (!any) continue;  // empty Mesh = no pass for this layer here
+
+        const TerrainLayerDraw& L = terrainLayers_[l];
+        std::vector<float> lt;
+        lt.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6 * 9);
+        auto pushL = [&](float px, float pz, float h, const Vec3& s, float wgt) {
+            lt.push_back(px);
+            lt.push_back(h);
+            lt.push_back(pz);
+            lt.push_back(L.kd[0] * s.x);
+            lt.push_back(L.kd[1] * s.y);
+            lt.push_back(L.kd[2] * s.z);
+            lt.push_back(wgt);
+            lt.push_back(px * L.tile[0]);
+            lt.push_back(pz * L.tile[1]);
+        };
+        for (int z = gz0; z < gz1; ++z) {
+            for (int x = gx0; x < gx1; ++x) {
+                const float ax = x0 + x * sx, az = z0 + z * sz;
+                const float bx = ax + sx, bz = az + sz;
+                const float h00 = hAt(x, z), h10 = hAt(x + 1, z);
+                const float h01 = hAt(x, z + 1), h11 = hAt(x + 1, z + 1);
+                const Vec3 s00 = shadeAt(x, z), s10 = shadeAt(x + 1, z);
+                const Vec3 s01 = shadeAt(x, z + 1), s11 = shadeAt(x + 1, z + 1);
+                const float w00 = wAt(x, z), w10 = wAt(x + 1, z);
+                const float w01 = wAt(x, z + 1), w11 = wAt(x + 1, z + 1);
+                pushL(ax, az, h00, s00, w00);
+                pushL(bx, az, h10, s10, w10);
+                pushL(ax, bz, h01, s01, w01);
+                pushL(bx, az, h10, s10, w10);
+                pushL(bx, bz, h11, s11, w11);
+                pushL(ax, bz, h01, s01, w01);
+            }
+        }
+        lm = uploadMesh9(lt);
+    }
 }
 
 void Viewport::updateTerrainRegion(const std::vector<float>& heights, float worldX,
@@ -1370,6 +1465,38 @@ void Viewport::setTerrainMaterial(const std::string& texRelPath, const float kd[
     terrainHasMaterial_ = hasMaterial;
     terrainKd_[0] = kd[0], terrainKd_[1] = kd[1], terrainKd_[2] = kd[2];
     if (program_) buildTerrainMesh();
+}
+
+void Viewport::setTerrainLayers(const std::vector<TerrainLayerDraw>& layers,
+                                const std::vector<uint8_t>& weights) {
+    // No cheap equality check: callers send this on layer edits and scene
+    // switches, both of which want the rebuild anyway.
+    terrainLayers_ = layers;
+    splat_ = weights;
+    if (program_) buildTerrainMesh();
+}
+
+void Viewport::updateSplatRegion(const std::vector<uint8_t>& weights, float worldX,
+                                 float worldZ, float radius) {
+    splat_ = weights;
+    if (terrainChunkMeshes_.empty()) {
+        buildTerrainMesh();
+        return;
+    }
+    // Same brush-to-chunk mapping as updateTerrainRegion (heights sculpting).
+    const float w = (float)terrain_.width, d = (float)terrain_.depth;
+    const float sx = w / tcCellsX_, sz = d / tcCellsZ_;
+    const int minCellX = (int)((worldX - radius + w * 0.5f) / sx) - 2;
+    const int maxCellX = (int)((worldX + radius + w * 0.5f) / sx) + 2;
+    const int minCellZ = (int)((worldZ - radius + d * 0.5f) / sz) - 2;
+    const int maxCellZ = (int)((worldZ + radius + d * 0.5f) / sz) + 2;
+    auto clampi = [](int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); };
+    const int c0x = clampi(minCellX / kTerrainChunkCells, 0, tcChunksX_ - 1);
+    const int c1x = clampi(maxCellX / kTerrainChunkCells, 0, tcChunksX_ - 1);
+    const int c0z = clampi(minCellZ / kTerrainChunkCells, 0, tcChunksZ_ - 1);
+    const int c1z = clampi(maxCellZ / kTerrainChunkCells, 0, tcChunksZ_ - 1);
+    for (int cz = c0z; cz <= c1z; ++cz)
+        for (int cx = c0x; cx <= c1x; ++cx) buildTerrainChunkMesh(cx, cz);
 }
 
 void Viewport::setUsableHighlight(bool enabled, const float* rgb) {
@@ -2012,6 +2139,34 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         for (const Mesh& chunk : terrainChunkMeshes_)
             draw(chunk, GL_TRIANGLES, viewProj, tintScale, tintScale, tintScale,
                  terrainTex, asLines ? nullptr : &identityM);
+
+        // Painted terrain layers: alpha-blend each layer's pass over the base
+        // chunks - the GL twin of the PS2's two-pass splatting (renderTerrain
+        // in templates.cpp). Same geometry, and the frame already runs with
+        // LEQUAL depth, so the equal-depth pass wins; no depth writes so later
+        // object draws still z-test against the base terrain.
+        if (!asLines && !terrainLayerMeshes_.empty()) {
+            glUseProgram(particleProgram_);
+            glUniformMatrix4fv(uPartMvp_, 1, GL_FALSE, viewProj.m);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glDepthMask(GL_FALSE);
+            const size_t chunkCount = (size_t)tcChunksX_ * tcChunksZ_;
+            for (size_t l = 0; l < terrainLayers_.size(); ++l) {
+                const uint32_t tex = glTexture(terrainLayers_[l].texture);
+                glUniform1i(uPartUseTex_, tex ? 1 : 0);
+                if (tex) glBindTexture(GL_TEXTURE_2D, tex);
+                for (size_t ci = 0; ci < chunkCount; ++ci) {
+                    const Mesh& lm = terrainLayerMeshes_[l * chunkCount + ci];
+                    if (!lm.vao || lm.vertexCount == 0) continue;
+                    glBindVertexArray(lm.vao);
+                    glDrawArrays(GL_TRIANGLES, 0, lm.vertexCount);
+                }
+            }
+            glDepthMask(GL_TRUE);
+            glDisable(GL_BLEND);
+            glUseProgram(program_);
+        }
         for (size_t oi = 0; oi < objects.size(); ++oi) {
             if (hiddenAt(oi)) continue;
             const SceneObject& o = objects[oi];

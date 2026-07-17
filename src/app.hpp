@@ -279,6 +279,15 @@ private:
     // Material Editor (Tools > Material Editor): authors the .mtl files the
     // whole pipeline already consumes (newmtl/Kd/map_Kd) with a live preview.
     void drawMaterialEditorWindow();
+    // The unified terrain tool (Tools > Terrain Editor): Sculpt and Paint as
+    // switchable modes over one shared, map-size-aware brush.
+    void drawTerrainWindow();
+    // Push the active scene's resolved terrain layers + per-vertex weights to
+    // the viewport (two-pass splatting preview). Empty layers clear the passes.
+    void rebakeSplatPreview();
+    // Generate + upload a stochastic-tiling supertile for a terrain texture to
+    // the viewport's cache; returns the synthetic texture key + tiling factor.
+    std::string uploadStochPreview(const std::string& srcRel, float& factor);
     // load + show; modelHint (a res/models .obj) switches the preview to that
     // model - passed by the Edit... button of Model objects
     void openMaterialEditor(const std::string& relPath,
@@ -425,6 +434,16 @@ private:
     bool sculptFlatten_ = false;   // level toward flattenHeight_ instead of raise
     float flattenHeight_ = 0.0f;   // flatten target height (world units)
 
+    // Terrain splat painting (docs/terrain-painting.md). Paints the active layer
+    // into SceneData::splat with the same brush raycast as sculpting (mutually
+    // exclusive with it). splatPreviewDirty_ requests a live composite re-bake.
+    bool paintMode_ = false;
+    int paintLayer_ = 0;            // active additional-layer index
+    float paintStrength_ = 0.5f;    // per-stroke-step weight, 0..1
+    bool paintErase_ = false;       // subtract the active layer instead of add
+    bool paintStroke_ = false;      // an LMB paint stroke is in progress
+    bool splatPreviewDirty_ = false;
+
     History history_;
     std::vector<SceneObject> clipboard_;  // copy/paste a whole selection at once
 
@@ -570,6 +589,7 @@ private:
     // edit rewrites the file and invalidates the caches - the scene viewport
     // updates live. Not project data, so no undo history (same as imports).
     bool showMaterialEditor_ = false;
+    bool showTerrainEditor_ = false;  // the unified Sculpt + Paint terrain tool
     std::string matEdPath_;  // project-relative path of the open .mtl ("" = none)
     struct MatEdEntry {
         std::string name;
