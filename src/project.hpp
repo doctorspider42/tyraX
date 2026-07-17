@@ -68,6 +68,16 @@ enum class PrimitiveType {
     // world" is real geometry behind the plane, so build it into a wall (the
     // wall hides the copies outside the frame). See mirrorObjects below.
     Mirror = 15,
+    // Endless scroller: a conveyor-belt marker that streams authored
+    // "segments" (named groups of scene objects) past itself forever - the
+    // train-window level generator. The belt runs along the object's local +Z
+    // (rotated by its rotation); segments spawn scrollAhead units in front
+    // and retire scrollBehind units past the origin, repositioned each frame
+    // by a generated runtime script. Codegen bakes extra copies of each
+    // segment's objects into the scene tables so the same tunnel piece can be
+    // on screen several times at once. See scrollSegments below and
+    // docs/endless-scroller.md.
+    Scroller = 16,
 };
 
 // Tessellation detail for the geometry primitives, stored per object in
@@ -118,6 +128,23 @@ inline int primTriangleCount(PrimitiveType type, int detail) {
         case PrimitiveType::Cone: return d * 2;      // side + base (1/seg each)
         default: return 0;
     }
+}
+
+// One segment of an endless Scroller (type 16): a named group of scene objects
+// (referenced by name, like Mirror::mirrorObjects) that the belt treats as one
+// rigid "chunk" and tiles along its axis. `length` is the belt-space the chunk
+// occupies before the next segment starts; <= 0 means auto-measure from the
+// members' extent along the belt axis (see scrollsim::segmentLength). Segments
+// repeat in list order forever. A dangling name is skipped (the chunk just
+// carries fewer objects).
+struct ScrollSegment {
+    std::string name = "segment";
+    float length = 0.0f;  // belt units; <= 0 = auto from member extent
+    std::vector<std::string> objects;
+};
+
+inline bool operator==(const ScrollSegment& a, const ScrollSegment& b) {
+    return a.name == b.name && a.length == b.length && a.objects == b.objects;
 }
 
 // Unit primitives fit a 1x1x1 cube centered at origin and are transformed by
@@ -280,6 +307,31 @@ struct SceneObject {
     bool mirrorReflectPlayer = false;
     float mirrorOpacity = 0.35f;
 
+    // Endless scroller parameters (used when type == Scroller). The belt runs
+    // along the object's local +Z (its forward, rotated by `rotation`). It
+    // tiles `scrollSegments` in order and slides them along the axis at
+    // scrollSpeed units/s. Objects are kept populated from scrollBehind units
+    // behind the scroller origin to scrollAhead units in front; a segment
+    // instance leaving the back is recycled to the front (see scrollsim). Its
+    // authored member objects are the templates: the editor hides their raw
+    // selves and previews scrolling ghosts, the build bakes enough clones to
+    // fill the window into the scene tables and a generated ScrollerDirector
+    // repositions them each frame. See docs/endless-scroller.md.
+    std::vector<ScrollSegment> scrollSegments;
+    float scrollSpeed = 6.0f;    // belt units/s along +Z; negative = reverse
+    float scrollAhead = 40.0f;   // populate this far in front of the origin
+    float scrollBehind = 10.0f;  // keep instances this far behind before retiring
+    bool scrollAutostart = true; // belt runs at scene start (else Start Scroller)
+    // Safety cap on baked clones per scroller (build drops extra copies and
+    // warns past this). Guards against a huge window * tiny segment blowing up
+    // the scene table / per-frame repositioning cost.
+    int scrollMaxClones = 120;
+    // Anti-z-fighting seam overlap (world units): every baked clone is
+    // stretched this much along the belt axis, so consecutive pieces slightly
+    // interpenetrate instead of butting up with exactly coplanar end faces
+    // (coplanar faces flicker on the GS). 0 = exact tiling.
+    float scrollOverlap = 0.02f;
+
     // Animated model parameters (Model objects whose modelPath ends in .glb;
     // the editor bakes the file's clips to morph frames - see glbparser.hpp).
     std::string animClip;       // starting clip name ("" = the file's first)
@@ -356,6 +408,12 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.mirrorObjects == b.mirrorObjects &&
            a.mirrorReflectPlayer == b.mirrorReflectPlayer &&
            a.mirrorOpacity == b.mirrorOpacity &&
+           a.scrollSegments == b.scrollSegments &&
+           a.scrollSpeed == b.scrollSpeed && a.scrollAhead == b.scrollAhead &&
+           a.scrollBehind == b.scrollBehind &&
+           a.scrollAutostart == b.scrollAutostart &&
+           a.scrollMaxClones == b.scrollMaxClones &&
+           a.scrollOverlap == b.scrollOverlap &&
            a.animClip == b.animClip && a.animAutoplay == b.animAutoplay &&
            a.animLoop == b.animLoop && a.animSpeed == b.animSpeed &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts;

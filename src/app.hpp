@@ -136,6 +136,7 @@ private:
     void addEmpty();
     void addDecal();
     void addMirror();
+    void addScroller();
     void drawAddObjectMenu();
     // Copies a picked .obj (with its .mtl + textures, references rewritten to
     // the sanitized names) into res/models. Returns the project-relative path

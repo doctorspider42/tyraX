@@ -299,6 +299,16 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          0, {}, FlowParamKind::None, false, false},
         {"StopSequence", "Stop Sequence", "Scene", false, FlowParamKind::None,
          0, {}, FlowParamKind::None, false, false},
+        // Endless scroller (Insert > World > Scroller). Start/Stop run or freeze
+        // the belt of the target scroller object (defaults to self); Set
+        // Scroller Speed changes its belt speed live (units/s, negative =
+        // reverse). The target is the Scroller object itself, not its members.
+        {"StartScroller", "Start Scroller", "Scroller", false,
+         FlowParamKind::ObjectName, 0, {}, FlowParamKind::None, true, true},
+        {"StopScroller", "Stop Scroller", "Scroller", false,
+         FlowParamKind::ObjectName, 0, {}, FlowParamKind::None, true, true},
+        {"SetScrollerSpeed", "Set Scroller Speed", "Scroller", false,
+         FlowParamKind::ObjectName, 1, {"Speed"}, FlowParamKind::None, true, true},
         // HUD (all HUD images at once; the USE prompt is unaffected)
         {"ShowHud", "Show HUD", "HUD", false, FlowParamKind::None, 0, {},
          FlowParamKind::None, false, false},

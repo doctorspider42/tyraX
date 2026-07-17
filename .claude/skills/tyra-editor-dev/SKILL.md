@@ -67,6 +67,7 @@ Two sibling skills cover the rest of the system:
 | `objparser.cpp` | 109 | Wavefront .obj importer for custom models. |
 | `primmesh.cpp/.hpp` | ~180 | Shared, GL-agnostic **unit-primitive tessellation** (box/sphere/cylinder/cone/plane → raw `pos+normal+uv`). The single host source: the viewport bakes shade on top of it, and `decalproj` uses it as receiver geometry, so a projected decal conforms to exactly the geometry the viewport draws. (templates.cpp keeps its own generated-string builders for the PS2 runtime — the pre-existing twin.) |
 | `decalproj.cpp/.hpp` | ~230 | **Projected-decal geometry** (host-only, no GL). `project(Project, SceneData, decal)` clips the receiver triangles (terrain + overlapping objects, auto) against the decal's oriented unit-cube projector, computes projected UVs and a surface-normal offset, and returns a world-space triangle list. Used by the viewport (live preview) AND codegen (`decalDataHeader` bakes it into `inc/decal_data.gen.hpp`); the game just draws it — **no projection/clipping on the PS2 EE**. See PROGRESS (99). |
+| `scrollsim.cpp/.hpp` | ~180 | **Endless-scroller belt math** (host-only, no GL), the single source of truth for `PrimitiveType::Scroller` (16). Given a scene's objects + a scroller object it computes the belt axis, per-segment length, pattern period, clone count and the recycle `wrapU`/placement of every segment instance at a given scroll distance. The viewport reads it for the animated ghost preview; `templates.cpp` reads it at build to bake clone rest positions + the `SCROLLERS`/`SCROLLER_CLONES`/`SCROLLER_HIDDEN` side tables. The generated `ScrollerDirector` (`scroller.gen.cpp`) is the per-frame twin — its `sc_wrapU` mirrors `scrollsim::wrapU`; keep in sync. See PROGRESS (113), `docs/endless-scroller.md`. |
 | `history.hpp` | 59 | Undo/redo snapshot stack. |
 | `gl_loader.h/.cpp` | 137 | Minimal hand-rolled GL 3.3 loader (only what the viewport needs). |
 
@@ -113,12 +114,19 @@ at their default) → properties UI in app.cpp (+ `commitChange()`) →
 `terrain_game.cpp` template (`TPL_*` strings in templates.cpp) → viewport
 rendering if it's visual.
 
-**New object type** → `PrimitiveType` enum (0–15 used so far; keep values stable,
+**New object type** → `PrimitiveType` enum (0–16 used so far; keep values stable,
 they're serialized) → mesh/marker in viewport.cpp → insert menu in app.cpp →
 codegen + runtime as above. If the type needs per-object variable-length data
 (like Mirror's reflected-object list), don't grow the fixed `SceneObjectData`
 POD — emit a flat side table into scene_data.hpp keyed by (scene, object), the
-`OBJECT_SCRIPT_ATTACHES` / `MIRRORS` pattern.
+`OBJECT_SCRIPT_ATTACHES` / `MIRRORS` / `SCROLLERS` pattern. A **marker** type
+(no game geometry) must be added to `case N: break;` in the geometry builder
+(else `default:` builds a Box), the collision skip list AND the usable-scan
+skip list in templates.cpp — Scroller (16) missed all three would be an
+invisible box collider. A type whose data drives OTHER baked objects (Scroller
+appends clone objects to the scene table + a generated director script) is the
+heaviest kind: mirror the `scrollsim.cpp` shared-host / `scroller.gen.cpp`
+per-frame-twin split so the editor preview and the PS2 runtime agree.
 
 **Object identity: `SceneObject::id`.** Every object carries an opaque, stable
 `id` (first JSON key; part of `operator==`) — the merge/persistence key for the

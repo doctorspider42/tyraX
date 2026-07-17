@@ -9,7 +9,85 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-<<<<<<< HEAD
+- (113) **Endless scroller — the train-window level generator.** New scene
+  object type `PrimitiveType::Scroller` (id 16): a conveyor-belt marker that
+  tiles authored "segments" of scene objects along its local +Z forever, so a
+  hand-built tunnel piece / terrain strip / row of trees wallpapers off to the
+  horizon and scrolls past to nausea. A `ScrollSegment` names a group of scene
+  objects (like `Mirror::mirrorObjects`) plus a belt `length` (0 = auto-measure
+  from the members' extent along the axis); segments repeat in list order.
+  Belt params: speed (units/s, negative reverses), populate-ahead / keep-behind
+  window, run-at-start, and a `scrollMaxClones` safety cap. **One shared host
+  simulator** (`src/scrollsim.cpp/.hpp`) is the single source of truth for the
+  belt math (axis, pattern length, cell count, the recycle `wrapU` + visibility
+  test); the editor viewport reads it for the live animated ghost preview and
+  codegen reads it to bake the clones — the PS2 runtime `sc_wrapU` is a
+  documented twin (like the reflective-matcap twins). **Codegen** (`sceneData-
+  Content` in templates.cpp): for each scroller it APPENDS baked clone objects
+  to its scene's `SCENE_*_OBJECTS` table (authored indices never shift, so flow
+  graphs / mirrors / scripts / players still resolve), enough copies to tile the
+  window, and emits `SCROLLERS` / `SCROLLER_CLONES` / `SCROLLER_HIDDEN` side
+  tables (the MIRRORS idiom). A generated `ScrollerDirector` Script
+  (`scroller.gen.cpp`, registered like `SequenceDirector`) advances each belt by
+  `g_frameDt`, wraps every clone into the window, slides it along the axis
+  (`data.position = home + u*axis; dirty=true`, skipped when a clone hasn't
+  moved) and forces the authored member templates `active=false`. Type 16 was
+  added to the geometry builder (marker — no mesh), the collision skip list and
+  the usable-scan skip list so the belt marker is invisible and intangible.
+  Three flow nodes (Scroller category): **Start / Stop Scroller** and **Set
+  Scroller Speed** (`scroller::` API keyed by baked scene+object index). Editor:
+  Insert > World > Scroller, an `addScroller()` marker, a Properties section
+  (belt params + a per-segment editor with member add/remove, reorder, auto-
+  length readout, live clone-count cost + cap warning + missing-name warnings),
+  a **"Make endless scroller from selection"** button in the multi-object
+  Properties, and rename remapping of segment member names alongside the mirror
+  remap. Live Link refuses scrollers (baked clones + generated director) and its
+  context hash folds every scroller's belt params, segment membership and each
+  member's transform so any edit flips the chip to "rebuild". **Verified**:
+  Layer 0 clean editor build; Layer 1 `--resave` round-trips the scroller +
+  segments through the split-object format; Layer 2 inspected the generated
+  `scene_data.hpp` (28 clones for a 2-member/len-4 segment in a [-8,40] window =
+  14 cells × 2, rest positions tiling z ∈ [-8,44], axis {0,0,1}, hidden {0,1},
+  ID hashes padded) and `scroller.gen.cpp` (director matches the host
+  simulator); Layer 3 full Docker build compiles `scroller.gen.cpp` on the PS2
+  toolchain and boots in PCSX2 — the belt renders as a seamless continuous
+  conveyor of the 28 tiled rail clones at a stable 50 FPS (EE ~33%), no TYRA
+  asserts, authored templates correctly hidden (no double-draw); the editor GUI
+  opens the project and the viewport shows the same ghost belt. A uniform
+  segment looks visually static while scrolling (identical pieces tile
+  seamlessly) — motion reads best with varied segments or a fixed camera; the
+  scroll advance itself is confirmed by the director math + host-twin parity.
+  **Seam flicker fix** (owner spotted flickering joints between tiled clones in
+  the first run): exactly-coplanar surfaces at the seams — consecutive boxes'
+  end caps, and box undersides resting exactly on the terrain plane. Fixes:
+  (a) new per-scroller **Seam overlap** (`scrollOverlap`, default 0.02;
+  Properties + serialized + both Live-Link hashes) — `scrollsim::seamScale`
+  stretches every clone along its belt-most local axis so neighbors
+  interpenetrate instead of butting (applied identically in the clone bake and
+  the viewport ghosts); (b) the docs/example rule that **continuous belt
+  surfaces should be Planes, not boxes** — a closed box's cap edge lies exactly
+  ON the visible surface at the joint, so a 1-px line can flicker no matter the
+  overlap (verified empirically: 0.15 overlap still showed it); planes have no
+  caps. The example tunnel's floor/walls became planes lifted off the terrain
+  plane; re-verified in PCSX2 (two frames 0.9 s apart, software renderer):
+  floor and walls seam-free in both, 50 FPS. `docs/endless-scroller.md` gained
+  a "Seams" section with the rules. Second owner report (dashed dark lines +
+  a two-tone floor in motion) exposed a **latent Plane-primitive bug**: the
+  plane is double-sided with BOTH faces at the same local height, and nothing
+  on the PS2 backface-culls (grepped vendor/tyra — no culling in the render
+  pipeline), so the darker underside dither-fights the lit top face across
+  the whole surface. Fixed at the source in both twins (templates.cpp
+  `addPlane` + primmesh `unitPlane`): the underside now sits 0.01 local units
+  below the top. Also bumped the example's *Keep behind* to 24 so the tunnel
+  extends behind the player too (the ahead/behind window has always been
+  two-sided). Verified with zoomed screenshot crops (PCSX2 SW renderer, two
+  frames): floor one uniform lit shade to the vanishing point, walls uniform,
+  no dashes, no banding. A dedicated demo lives in
+  **examples/endless-scroller** (FPP corridor streaming past at -7 u/s: plane
+  floor/walls + a cyan arch box every 3 units; committed with fresh generated
+  files, boots to a seam-free endless tunnel).
+  See docs/endless-scroller.md.
+
 - (112) **Rounded reflection normals - flat surfaces stop reflecting "one
   pixel".** Owner's observation on the console: the mirror monolith showed
   a single uniform patch of the env map per face while the spheres "reflect
@@ -330,7 +408,10 @@ Each finished feature lands as its own commit.
   screenshot). The Material Editor preview shares the verified shader path;
   its interactive feel (picker, slider) still wants a hands-on pass. Docs:
   README, `docs/reflective-materials.md`, engine + editor skills.
-=======
+(The entries below landed via a parallel branch that double-assigned numbers
+104–107 — the reflection series above and the Live-Link/Mirror series below are
+all real, distinct features; both sets are kept as written.)
+
 - (107) **Live Link v2 — per-project on/off + live add/delete of objects.**
   Two follow-ups to (106). First, the on/off is now a **project setting**
   (`ProjectSettings::liveLink`, default on; *Project > Preferences > Build*,
@@ -463,7 +544,6 @@ Each finished feature lands as its own commit.
   hands-on test with a .glb avatar; real-hardware A/B pending like every
   perf-adjacent change.
 
->>>>>>> origin/main
 - (103) **Over-the-shoulder camera offset.** `SceneObject::playerCamShoulder`
   (Properties > Third-person camera > **Shoulder**, default 0 = unchanged
   behavior) slides the third-person rig sideways, completing the camera offset:

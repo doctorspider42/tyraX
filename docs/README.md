@@ -15,6 +15,10 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the game loads/unloads from memory at runtime (GTA3-style interior
   streaming): the Layers panel, the Load / Unload / Is Layer Loaded flow
   nodes, the corridor trigger pattern, what gets freed, troubleshooting.
+- [Endless scroller](endless-scroller.md) - the conveyor-belt object that
+  tiles authored segments of scene objects along its axis forever (the
+  train-window level generator): segments, belt settings, the Start / Stop /
+  Set Scroller Speed flow nodes, seam rules, how the clone bake works.
 - [Custom flow-graph nodes](custom-flow-nodes.md) - defining your own Flow
   Graph action nodes in `.flownode` text files (no editor rebuild): inline C++
   snippets with `{placeholders}`, or `call = fn` nodes backed by a real

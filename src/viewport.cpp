@@ -10,6 +10,7 @@
 #include "gl_loader.h"
 #include "objparser.hpp"
 #include "primmesh.hpp"
+#include "scrollsim.hpp"
 #include <stb_image.h>
 
 // ---------------------------------------------------------------------------
@@ -2018,6 +2019,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             // The camera(s) being previewed through don't draw their body -
             // it would sit on the near plane and cover the whole view.
             if (o.type == PrimitiveType::Camera && camHidden(o.name)) continue;
+            // Scroller: an invisible belt marker; its gizmo + animated ghost
+            // belt draw in a dedicated pass after the scene.
+            if (o.type == PrimitiveType::Scroller) continue;
             // Emitters preview as live particles (drawn after the scene); in
             // the scene pass they only get a small fixed-size cone marker so
             // the gizmo has something to grab. Dimmed when disabled.
@@ -2226,6 +2230,73 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             // glass quad last, blended over whatever the copies drew
             draw(decal_, GL_TRIANGLES, mul(viewProj, mirrorModel), m.color[0],
                  m.color[1], m.color[2], 0, &mirrorModel, false, m.mirrorOpacity);
+        }
+    }
+
+    // Endless scroller previews: a small origin marker plus animated,
+    // semi-transparent "ghost" clones of each segment's members sliding along
+    // the belt (the same scrollsim layout the build bakes and the game runs, so
+    // what you see here is what ships). animClock_ drives the scroll so the belt
+    // moves live in the editor.
+    if (viewMode_ != ViewMode::Wireframe) {
+        auto ghostDraw = [&](const SceneObject& mem, const Mat4& gm, float op) {
+            const Mat4 mvp = mul(viewProj, gm);
+            if (mem.type == PrimitiveType::Model && isAnimatedModelPath(mem.modelPath)) {
+                AnimModelDraw* ad = animModelDraw(mem.modelPath);
+                if (ad && ad->ok) {
+                    updateAnimPose(*ad, mem);
+                    for (const AnimModelDraw::Part& part : ad->parts)
+                        draw(part.mesh, GL_TRIANGLES, mvp, mem.color[0], mem.color[1],
+                             mem.color[2], part.tex, &gm, false, op);
+                    return;
+                }
+            }
+            const ModelDraw* md = mem.type == PrimitiveType::Model
+                                      ? modelDraw(mem.modelPath, mem.materialPath)
+                                      : nullptr;
+            if (md) {
+                for (const ModelPart& part : md->parts)
+                    draw(part.mesh, GL_TRIANGLES, mvp, mem.color[0], mem.color[1],
+                         mem.color[2], part.tex, &gm, false, op);
+                return;
+            }
+            const MaterialDraw* mat =
+                mem.type == PrimitiveType::Model ? nullptr : materialDraw(mem.materialPath);
+            const float kr = mat ? mat->kd[0] : 1.0f;
+            const float kg = mat ? mat->kd[1] : 1.0f;
+            const float kb = mat ? mat->kd[2] : 1.0f;
+            const uint32_t tex = mat ? mat->tex : 0;
+            draw(*meshFor(mem), GL_TRIANGLES, mvp, mem.color[0] * kr, mem.color[1] * kg,
+                 mem.color[2] * kb, tex, &gm, false, op);
+        };
+        for (size_t si = 0; si < objects.size(); ++si) {
+            const SceneObject& s = objects[si];
+            if (s.type != PrimitiveType::Scroller || hiddenAt(si)) continue;
+            float axis[3];
+            scrollsim::beltAxis(s.rotation, axis);
+            // origin marker so the invisible belt object is locatable
+            const Mat4 om = mul(translation(s.position[0], s.position[1], s.position[2]),
+                                scaleM(0.3f, 0.3f, 0.3f));
+            draw(sphere_, GL_TRIANGLES, mul(viewProj, om), s.color[0], s.color[1],
+                 s.color[2], 0, &om);
+            if (s.scrollSegments.empty()) continue;
+            const float beltScroll = (float)animClock_ * s.scrollSpeed;
+            for (const scrollsim::Placement& pl :
+                 scrollsim::placements(objects, s, beltScroll)) {
+                if (!pl.visible) continue;
+                const ScrollSegment& seg = s.scrollSegments[pl.segment];
+                for (int mi : scrollsim::segmentMembers(objects, seg)) {
+                    // Same seam-overlap stretch the build bakes into the
+                    // clones, so the preview shows the shipped geometry.
+                    SceneObject mem = objects[(size_t)mi];
+                    scrollsim::seamScale(objects[(size_t)mi], axis, s.scrollOverlap,
+                                         mem.scale);
+                    const Mat4 gm = mul(translation(pl.u * axis[0], pl.u * axis[1],
+                                                    pl.u * axis[2]),
+                                        modelMatrix(mem));
+                    ghostDraw(mem, gm, 0.55f);
+                }
+            }
         }
     }
 

@@ -36,6 +36,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Decal: return "decal";
         case PrimitiveType::Camera: return "camera";
         case PrimitiveType::Mirror: return "mirror";
+        case PrimitiveType::Scroller: return "scroller";
     }
     return "box";
 }
@@ -56,6 +57,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "decal") return PrimitiveType::Decal;
     if (s == "camera") return PrimitiveType::Camera;
     if (s == "mirror") return PrimitiveType::Mirror;
+    if (s == "scroller") return PrimitiveType::Scroller;
     return PrimitiveType::Box;
 }
 
@@ -296,6 +298,24 @@ static std::string objectJson(const SceneObject& o) {
                 (o.mirrorReflectPlayer ? "true" : "false") + ", \"objects\": [";
         for (size_t i = 0; i < o.mirrorObjects.size(); ++i)
             json += (i ? ", \"" : "\"") + o.mirrorObjects[i] + "\"";
+        json += "] }";
+    }
+    if (o.type == PrimitiveType::Scroller) {
+        json += ", \"scroller\": { \"speed\": " + fmtFloat(o.scrollSpeed) +
+                ", \"ahead\": " + fmtFloat(o.scrollAhead) +
+                ", \"behind\": " + fmtFloat(o.scrollBehind) +
+                ", \"autostart\": " + (o.scrollAutostart ? "true" : "false") +
+                ", \"maxClones\": " + std::to_string(o.scrollMaxClones) +
+                ", \"overlap\": " + fmtFloat(o.scrollOverlap) +
+                ", \"segments\": [";
+        for (size_t i = 0; i < o.scrollSegments.size(); ++i) {
+            const ScrollSegment& s = o.scrollSegments[i];
+            json += (i ? ", " : "") + std::string("{ \"name\": \"") + s.name +
+                    "\", \"length\": " + fmtFloat(s.length) + ", \"objects\": [";
+            for (size_t k = 0; k < s.objects.size(); ++k)
+                json += (k ? ", \"" : "\"") + s.objects[k] + "\"";
+            json += "] }";
+        }
         json += "] }";
     }
     if (o.type == PrimitiveType::Model && isAnimatedModelPath(o.modelPath)) {
@@ -1441,6 +1461,39 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                         o.mirrorObjects.push_back(s.str);
             }
         }
+        if (const auto* sr = jo.find("scroller")) {
+            if (const auto* v = sr->find("speed")) o.scrollSpeed = (float)v->numberOr(6.0);
+            if (const auto* v = sr->find("ahead")) o.scrollAhead = (float)v->numberOr(40.0);
+            if (o.scrollAhead < 0.0f) o.scrollAhead = 0.0f;
+            if (const auto* v = sr->find("behind"))
+                o.scrollBehind = (float)v->numberOr(10.0);
+            if (o.scrollBehind < 0.0f) o.scrollBehind = 0.0f;
+            if (const auto* v = sr->find("autostart"))
+                o.scrollAutostart = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (const auto* v = sr->find("maxClones"))
+                o.scrollMaxClones = (int)v->numberOr(120);
+            if (o.scrollMaxClones < 1) o.scrollMaxClones = 1;
+            if (const auto* v = sr->find("overlap"))
+                o.scrollOverlap = (float)v->numberOr(0.02);
+            if (o.scrollOverlap < 0.0f) o.scrollOverlap = 0.0f;
+            if (const auto* segs = sr->find("segments");
+                segs && segs->type == json::Value::Type::Array) {
+                for (const auto& js : segs->arr) {
+                    if (js.type != json::Value::Type::Object) continue;
+                    ScrollSegment seg;
+                    if (const auto* v = js.find("name")) seg.name = v->stringOr("segment");
+                    if (const auto* v = js.find("length"))
+                        seg.length = (float)v->numberOr(0.0);
+                    if (const auto* v = js.find("objects");
+                        v && v->type == json::Value::Type::Array) {
+                        for (const auto& s : v->arr)
+                            if (s.type == json::Value::Type::String && !s.str.empty())
+                                seg.objects.push_back(s.str);
+                    }
+                    o.scrollSegments.push_back(std::move(seg));
+                }
+            }
+        }
         if (const auto* an = jo.find("anim")) {
             if (const auto* v = an->find("clip")) o.animClip = v->stringOr("");
             if (const auto* v = an->find("autoplay"))
@@ -2537,6 +2590,18 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     for (const auto& n : o.mirrorObjects) fnvMixS(h, n);
     fnvMix(h, o.mirrorReflectPlayer ? 1 : 0);
     fnvMixF(h, o.mirrorOpacity);
+    // Scroller parameters + segment membership are baked (SCROLLERS /
+    // SCROLLER_CLONES side tables + the appended clone objects), so any edit
+    // must read as "rebuild needed" for Live Link.
+    fnvMixF(h, o.scrollSpeed), fnvMixF(h, o.scrollAhead), fnvMixF(h, o.scrollBehind);
+    fnvMix(h, (o.scrollAutostart ? 1 : 0));
+    fnvMix(h, (uint64_t)o.scrollMaxClones);
+    fnvMixF(h, o.scrollOverlap);
+    for (const ScrollSegment& s : o.scrollSegments) {
+        fnvMixS(h, s.name);
+        fnvMixF(h, s.length);
+        for (const auto& n : s.objects) fnvMixS(h, n);
+    }
     // Build-time-baked transforms: a projected decal's transform IS the
     // projector, a point light's pose/color/falloff is baked into nearby
     // vertex colors. Folding them into the recipe makes any live edit of
@@ -2562,6 +2627,7 @@ bool liveLinkCanSpawnLive(const SceneObject& o) {
     if (o.type == PrimitiveType::PointLight) return false;
     if (o.type == PrimitiveType::Decal && o.decalProject) return false;
     if (o.type == PrimitiveType::Mirror) return false;
+    if (o.type == PrimitiveType::Scroller) return false;  // baked clones + gen'd director
     if (!o.flowGraph.nodes.empty() || !o.scripts.empty()) return false;
     return true;
 }
@@ -2579,6 +2645,31 @@ uint64_t liveLinkContextHash(const Project& p) {
             fnvMix(h, (l.startLoaded ? 1 : 0) | (l.autoStream ? 2 : 0));
             fnvMixF(h, l.streamX), fnvMixF(h, l.streamZ);
             fnvMixF(h, l.streamRadius);
+        }
+        // Scrollers bake their belt layout (clone objects + SCROLLERS tables)
+        // from their segments AND the current transforms of the member objects
+        // they reference. A live session cannot restripe the belt, so fold the
+        // belt params, segment membership and every member's transform in here
+        // - editing any of them flips the context hash to "rebuild needed".
+        for (const SceneObject& o : sc.objects) {
+            if (o.type != PrimitiveType::Scroller) continue;
+            fnvMix(h, 0x5D);  // scroller separator
+            fnvMixF(h, o.scrollSpeed), fnvMixF(h, o.scrollAhead);
+            fnvMixF(h, o.scrollBehind), fnvMix(h, o.scrollAutostart ? 1 : 0);
+            fnvMixF(h, o.scrollOverlap);
+            fnvMix3(h, o.rotation);  // belt axis
+            for (const ScrollSegment& s : o.scrollSegments) {
+                fnvMixS(h, s.name), fnvMixF(h, s.length);
+                for (const std::string& name : s.objects) {
+                    fnvMixS(h, name);
+                    for (const SceneObject& m : sc.objects)
+                        if (m.name == name) {
+                            fnvMix3(h, m.position), fnvMix3(h, m.rotation);
+                            fnvMix3(h, m.scale);
+                            break;
+                        }
+                }
+            }
         }
     }
     return h;
