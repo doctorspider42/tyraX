@@ -12,9 +12,11 @@
 // cache live here; the live edit sync (diff/apply engine) is layered on top
 // via sendFrameToHost()/broadcastFrame() and AppEvent::Frame.
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -25,6 +27,32 @@
 #include "wire.hpp"
 
 namespace session {
+
+// --- Live model diff / apply engine ---------------------------------------------
+// The last-broadcast view of the model, kept beside project_. diffModel()
+// compares the live project against it and emits one edit frame per changed
+// unit (object / scene layout / heightmap / project-wide section); applyEdit()
+// folds an inbound frame into BOTH the project and the shadow, so an echo of
+// our own edit produces no further diff. All pure (Project& in, frames out) -
+// headless-testable, no ImGui / sockets.
+struct ModelShadow {
+    std::vector<SceneData> scenes;  // per-object + heightmap comparison
+    std::string scenesLayout;       // structural (names/meta/membership) compare
+    std::array<std::string, project::kSectionCount> sectionBlobs;
+};
+
+ModelShadow makeShadow(const Project& p);
+
+// Emits an edit frame per changed unit, in an order safe to apply as a batch
+// (object upserts before the scene layout before heights before sections),
+// then advances `shadow` to match `p`. No-op when nothing changed.
+void diffModel(const Project& p, ModelShadow& shadow,
+               const std::function<void(wire::Frame)>& emit);
+
+// Applies one inbound edit frame to `p` and mirrors it into `shadow`. Returns
+// false when the frame is not an edit frame (a control message) - the caller
+// then ignores it. Bounds-checked; a malformed frame is dropped, never fatal.
+bool applyEdit(Project& p, ModelShadow& shadow, const wire::Frame& f);
 
 // Bumped on any incompatible protocol/message change. Mismatch = deny at
 // hello; both sides show "editor versions differ".
@@ -92,6 +120,13 @@ class Session {
     void host(HostConfig cfg);
     void join(JoinConfig cfg);
 
+    // Host: replace the model snapshot served to FUTURE joiners, so a peer
+    // that connects after the host has edited still gets the current state
+    // (already-Live peers track edits through the live sync instead). Called
+    // from the main thread whenever the model changes; cheap (model files are
+    // the .tyra + objects + heights, not res/).
+    void setModelFiles(std::vector<project::VirtualFile> files);
+
     // Host: disconnect one peer (sends bye{kicked}).
     void kickPeer(int peerId);
 
@@ -154,6 +189,9 @@ class Session {
 
     HostConfig hostCfg_;
     JoinConfig joinCfg_;
+    // Latest model snapshot served to new joiners (host). Guarded by mutex_;
+    // seeded from hostCfg_ at host(), refreshed by setModelFiles().
+    std::vector<project::VirtualFile> hostModelFiles_;
     std::thread thread_;
 
     friend struct WorkerCtx;

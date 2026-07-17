@@ -84,6 +84,12 @@ codegen changed since, they drift silently. Regenerate (load + save +
 UI code in `app.cpp` mutates `project_` freely; one logical user action ends with
 a single `commitChange()`, which pushes an undo snapshot and saves. If you add
 an editable property and skip this, undo/redo and autosave silently break.
+**Collaboration corollary:** the live-session sync detects edits through
+`modelEditSerial_`, bumped only in `commitChange()`, `applySnapshot()` and
+`setDirty(true)`. A mutation path that avoids all three (writes project state
+but never dirties) will save fine locally and **silently never reach session
+peers** — route new edit paths through commitChange/setDirty like everything
+else.
 
 ### 2. Generated-file ownership markers
 `project::refreshGenerated()` (project.cpp:914) runs at the start of every build

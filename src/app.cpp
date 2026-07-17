@@ -2321,10 +2321,15 @@ void App::commitChange() {
     // Stamp ids on any freshly inserted / pasted object before it enters an
     // undo snapshot or hits disk, so every persisted object has a stable id.
     project::ensureObjectIds(project_);
+    ++modelEditSerial_;  // let the session diff pick up this edit (see sessionTick)
     if (history_.push({project_.scenes})) setDirty(true);
 }
 
 void App::setDirty(bool dirty) {
+    // Any dirtying edit advances the session serial - some model edits mark
+    // dirty without going through commitChange (UI Editor, layouts). Done
+    // BEFORE the no-op early-out below, which gates only the title refresh.
+    if (dirty) ++modelEditSerial_;
     if (dirty_ == dirty) return;
     dirty_ = dirty;
     updateWindowTitle();
@@ -2450,6 +2455,10 @@ static const ImU32 kPeerColors[session::kMaxPeers] = {
 };
 
 void App::sessionTick() {
+    const auto role = session_.role();
+    const bool host = role == session::Session::Role::Host;
+    bool appliedInbound = false;
+
     // Cheap when idle: one mutex-guarded empty drain + a small vector copy.
     for (auto& e : session_.drainEvents()) {
         switch (e.type) {
@@ -2476,10 +2485,55 @@ void App::sessionTick() {
                 }
                 break;
             case session::AppEvent::Type::Frame:
-                // Edit/presence frames - handled by the live-sync layer.
+                // An edit from a peer. Fold it into project_ AND the shadow
+                // (so our own diff never re-emits it), then - on the host,
+                // which is the total-order hub - rebroadcast to EVERY peer
+                // including the origin so concurrent last-write-wins edits
+                // converge (TCP preserves the host's order per client).
+                if (session::applyEdit(project_, sessionShadow_, e.frame)) {
+                    appliedInbound = true;
+                    if (host) session_.broadcastFrame(e.frame, -1);
+                }
                 break;
         }
     }
+
+    if (appliedInbound) {
+        // Remote edits bypass commitChange; refresh the derived state its
+        // callers rely on, and push one undo anchor per applied batch (so
+        // local undo rewinds remote edits batch-by-batch instead of a
+        // whole-session teleport; push() dedupes a no-op echo batch).
+        pruneSelection();
+        flowPositionsApplied_ = false;
+        layerRamCache_.clear();
+        applyProjectToViewport();
+        history_.push({project_.scenes});
+        if (host) {
+            setDirty(true);  // the host owns saving; mark unsaved
+            session_.setModelFiles(project::manifestFiles(project_));
+        }
+        // The inbound apply already advanced the shadow, so re-sync our
+        // scan cursor: this batch must not diff back out as a local edit.
+        sessionScannedSerial_ = modelEditSerial_;
+    }
+
+    // Outbound: diff our live model against the shadow whenever an edit moved
+    // it past the last scan, and ship the delta (host -> all peers, client ->
+    // host). Runs only while the session can carry edits.
+    const auto st = session_.state();
+    const bool canSend = (host && st == session::Session::State::Listening) ||
+                         (!host && st == session::Session::State::Live);
+    if (canSend && modelEditSerial_ != sessionScannedSerial_) {
+        project::ensureObjectIds(project_);
+        session::diffModel(project_, sessionShadow_, [&](wire::Frame f) {
+            if (host) session_.broadcastFrame(f, -1);
+            else session_.sendFrameToHost(f);
+        });
+        sessionScannedSerial_ = modelEditSerial_;
+        // Keep the joiner snapshot current so a late peer gets these edits.
+        if (host) session_.setModelFiles(project::manifestFiles(project_));
+    }
+
     sessionPeers_ = session_.peers();
 }
 
@@ -2506,6 +2560,10 @@ void App::startHostSession() {
     cfg.projectName = project_.name;
     cfg.modelFiles = project::manifestFiles(project_);
     session_.host(std::move(cfg));
+    // Baseline the diff against the exact model we're serving, so nothing
+    // re-emits as a "change" until the user actually edits.
+    sessionShadow_ = session::makeShadow(project_);
+    sessionScannedSerial_ = modelEditSerial_;
     showSessionWindow_ = true;
     statusMessage_ = "Hosting session";
 }
@@ -2533,6 +2591,9 @@ void App::openRemoteProject(const std::string& dir) {
     sessionAttachKeep_ = true;  // attachProject must not close the session
     attachProject();
     sessionAttachKeep_ = false;
+    // Baseline the live-sync shadow against the just-synced model.
+    sessionShadow_ = session::makeShadow(project_);
+    sessionScannedSerial_ = modelEditSerial_;
     showSessionWindow_ = true;
     statusMessage_ = "Joined session: " + project_.name;
 }

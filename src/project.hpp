@@ -1210,6 +1210,21 @@ struct VirtualFile {
 // unsaved) model, not the last saved state.
 std::vector<VirtualFile> manifestFiles(const Project& p);
 
+// The scene table WITHOUT the per-object bodies: each scene's name, terrain
+// size, scene-visual settings/overrides, ambience/loading refs, layers, and
+// its ordered list of object ids. This is the collaboration "scene-layout"
+// message - the structural skeleton; object bodies travel separately as
+// objectJson. Deterministic (equal state = equal string).
+std::string scenesLayoutJson(const Project& p);
+
+// Rebuilds p.scenes from a scenesLayoutJson() string: scene count / names /
+// meta / ordered membership. Objects are pulled BY ID out of p's current
+// scenes into the new arrangement (so a move/reorder keeps the object's body);
+// an id with no current object gets a default placeholder (a matching
+// objectJson upsert is expected to have arrived first). Per-scene heightmaps
+// are preserved by scene index. Returns false when the string is malformed.
+bool applyScenesLayout(Project& p, const std::string& body);
+
 // The effective settings for a scene: the project defaults with each scene
 // category (lighting, sky, clipping, terrain material, post-FX, highlight)
 // replaced by the scene's own values where its override flag is set. All

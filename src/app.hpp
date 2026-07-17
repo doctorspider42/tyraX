@@ -401,6 +401,14 @@ private:
     // Collaboration session state (see the method block above). The Session
     // owns the worker thread; these are the UI-side latches and input buffers.
     session::Session session_;
+    // Live model sync. modelEditSerial_ is bumped by every mutation path
+    // (commitChange / applySnapshot / setDirty-true); sessionTick diffs the
+    // model against sessionShadow_ whenever it moves past what it last
+    // scanned, and mirrors inbound edits into the same shadow (so an echo of
+    // our own edit re-diffs to nothing). Seeded when a session goes live.
+    session::ModelShadow sessionShadow_;
+    uint64_t modelEditSerial_ = 0;
+    uint64_t sessionScannedSerial_ = 0;
     bool showSessionWindow_ = false;
     bool openHostSessionPopup_ = false;
     bool openJoinSessionPopup_ = false;

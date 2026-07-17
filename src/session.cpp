@@ -4,7 +4,9 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
+#include <utility>
 #include <fstream>
 #include <map>
 #include <random>
@@ -218,7 +220,11 @@ struct FileEntry {
     std::string path;   // forward-slash relative path
     uint64_t size = 0;
     uint64_t hash = 0;
-    int mem = -1;  // >= 0: index into HostConfig::modelFiles (serve from memory)
+    // Model files are served from memory (the live snapshot captured when this
+    // peer's manifest was built); everything else streams from disk. inMem
+    // files carry their bytes here (small: the .tyra + objects + heights).
+    bool inMem = false;
+    std::string mem;
 };
 
 // Directories/files that never travel: build outputs, git, bakes, undo
@@ -249,6 +255,175 @@ std::string newJoinCode() {
     char buf[8];
     std::snprintf(buf, sizeof(buf), "%06u", (unsigned)(rng() % 1000000u));
     return buf;
+}
+
+// --- Live model diff / apply -----------------------------------------------------
+
+ModelShadow makeShadow(const Project& p) {
+    ModelShadow s;
+    s.scenes = p.scenes;
+    s.scenesLayout = project::scenesLayoutJson(p);
+    for (int i = 0; i < project::kSectionCount; ++i)
+        s.sectionBlobs[i] = project::sectionJson(p, (project::Section)i);
+    return s;
+}
+
+namespace {
+
+// Find an object by id anywhere in `scenes`. Returns {scene, index} or {-1,-1}.
+std::pair<int, int> findObject(const std::vector<SceneData>& scenes,
+                               const std::string& id) {
+    for (int s = 0; s < (int)scenes.size(); ++s)
+        for (int k = 0; k < (int)scenes[s].objects.size(); ++k)
+            if (scenes[s].objects[k].id == id) return {s, k};
+    return {-1, -1};
+}
+
+// Apply an object body wherever it lives (replace in place), else append to
+// `sceneIdx`. Used identically on the project and the shadow so they stay in
+// lockstep. The scene layout that follows fixes membership/order.
+void upsertObject(std::vector<SceneData>& scenes, int sceneIdx, const SceneObject& o) {
+    auto [s, k] = findObject(scenes, o.id);
+    if (s >= 0) {
+        scenes[s].objects[k] = o;
+    } else if (sceneIdx >= 0 && sceneIdx < (int)scenes.size()) {
+        scenes[sceneIdx].objects.push_back(o);
+    }
+}
+
+std::string frameType(const wire::Frame& f) {
+    json::Value msg;
+    if (!json::parse(f.json, msg)) return "";
+    return strField(msg, "t");
+}
+
+}  // namespace
+
+void diffModel(const Project& p, ModelShadow& shadow,
+               const std::function<void(wire::Frame)>& emit) {
+    // 1. Object upserts FIRST (a following scene-layout may reference new ids;
+    //    the host emits bodies before the layout so placeholders never linger).
+    std::unordered_map<std::string, const SceneObject*> shadowObjs;
+    for (const SceneData& s : shadow.scenes)
+        for (const SceneObject& o : s.objects) shadowObjs[o.id] = &o;
+    for (int si = 0; si < (int)p.scenes.size(); ++si) {
+        for (const SceneObject& o : p.scenes[si].objects) {
+            auto it = shadowObjs.find(o.id);
+            if (it != shadowObjs.end() && *it->second == o) continue;  // unchanged
+            wire::Frame f;
+            f.json = "{\"t\":\"obj-upsert\",\"scene\":" + std::to_string(si) + "}";
+            f.bin = project::objectJson(o);  // body in the trailer (no re-escaping)
+            emit(std::move(f));
+        }
+    }
+
+    // 2. Scene layout (names / meta / membership / order). One message covers
+    //    scene add/remove/rename/reorder and object move/reorder/delete.
+    std::string layout = project::scenesLayoutJson(p);
+    if (layout != shadow.scenesLayout) {
+        wire::Frame f;
+        f.json = "{\"t\":\"scene-layout\"}";
+        f.bin = layout;
+        emit(std::move(f));
+    }
+
+    // 3. Heightmaps (per scene, only when the grid actually changed).
+    for (int si = 0; si < (int)p.scenes.size(); ++si) {
+        const SceneData& sc = p.scenes[si];
+        const bool same = si < (int)shadow.scenes.size() &&
+                          shadow.scenes[si].hmW == sc.hmW &&
+                          shadow.scenes[si].hmD == sc.hmD &&
+                          shadow.scenes[si].heights == sc.heights;
+        if (same) continue;
+        wire::Frame f;
+        f.json = "{\"t\":\"heights\",\"scene\":" + std::to_string(si) +
+                 ",\"w\":" + std::to_string(sc.hmW) + ",\"h\":" + std::to_string(sc.hmD) +
+                 "}";
+        f.bin.assign(reinterpret_cast<const char*>(sc.heights.data()),
+                     sc.heights.size() * sizeof(float));
+        emit(std::move(f));
+    }
+
+    // 4. Project-wide sections (settings, menus, sequences, ...).
+    for (int s = 0; s < project::kSectionCount; ++s) {
+        std::string cur = project::sectionJson(p, (project::Section)s);
+        if (cur == shadow.sectionBlobs[s]) continue;
+        wire::Frame f;
+        f.json = std::string("{\"t\":\"section\",\"name\":\"") +
+                 project::sectionName((project::Section)s) + "\"}";
+        f.bin = std::move(cur);
+        emit(std::move(f));
+    }
+
+    shadow = makeShadow(p);
+}
+
+bool applyEdit(Project& p, ModelShadow& shadow, const wire::Frame& f) {
+    json::Value msg;
+    if (!json::parse(f.json, msg)) return false;
+    const std::string t = strField(msg, "t");
+
+    if (t == "obj-upsert") {
+        SceneObject o;
+        if (!project::parseObject(f.bin, o) || o.id.empty()) return true;
+        // The sender's scene index may not exist here yet (scene added in the
+        // same batch - upserts precede the layout). Land the body in ANY
+        // scene: the scene-layout that follows re-homes it by id; what must
+        // not happen is dropping the body (the layout would then skip the id
+        // and the object would be lost on this side only).
+        int si = (int)intField(msg, "scene", -1);
+        if (si < 0 || si >= (int)p.scenes.size()) si = 0;
+        upsertObject(p.scenes, si, o);
+        upsertObject(shadow.scenes, si, o);
+        return true;
+    }
+    if (t == "scene-layout") {
+        if (project::applyScenesLayout(p, f.bin)) {
+            // Mirror the SAME structural change onto the shadow using the
+            // shadow's OWN object bodies (the last-broadcast state) - NOT a
+            // copy of p.scenes. p may carry a local object edit this peer has
+            // not diffed/broadcast yet; copying it into the shadow would make
+            // the next diff think it was already sent and drop it (a reorder
+            // from one peer would silently swallow a concurrent recolor here).
+            Project sp;
+            sp.scenes = shadow.scenes;
+            project::applyScenesLayout(sp, f.bin);
+            shadow.scenesLayout = project::scenesLayoutJson(sp);
+            shadow.scenes = std::move(sp.scenes);
+        }
+        return true;
+    }
+    if (t == "heights") {
+        const int si = (int)intField(msg, "scene", -1);
+        const int w = (int)intField(msg, "w", 0);
+        const int h = (int)intField(msg, "h", 0);
+        if (si < 0 || si >= (int)p.scenes.size() || w < 0 || h < 0) return true;
+        const size_t n = (size_t)w * (size_t)h;
+        if (f.bin.size() != n * sizeof(float)) return true;  // corrupt - drop
+        auto setGrid = [&](std::vector<SceneData>& scenes) {
+            if (si >= (int)scenes.size()) return;
+            SceneData& sc = scenes[si];
+            sc.hmW = w;
+            sc.hmD = h;
+            sc.heights.resize(n);
+            if (n) std::memcpy(sc.heights.data(), f.bin.data(), n * sizeof(float));
+        };
+        setGrid(p.scenes);
+        setGrid(shadow.scenes);
+        return true;
+    }
+    if (t == "section") {
+        const std::string name = strField(msg, "name");
+        for (int s = 0; s < project::kSectionCount; ++s) {
+            if (name != project::sectionName((project::Section)s)) continue;
+            if (project::applySectionJson(p, (project::Section)s, f.bin))
+                shadow.sectionBlobs[s] =
+                    project::sectionJson(p, (project::Section)s);
+            return true;
+        }
+        return true;  // unknown section name - drop
+    }
+    return false;  // not an edit frame (control message)
 }
 
 // --- Worker context -------------------------------------------------------------
@@ -291,6 +466,10 @@ struct WorkerCtx {
         s.cmds_.clear();
         return out;
     }
+    std::vector<project::VirtualFile> modelSnapshot() {
+        std::lock_guard<std::mutex> lk(s.mutex_);
+        return s.hostModelFiles_;
+    }
     bool sendJson(wire::PeerId peer, const std::string& json,
                   const std::string& bin = "") {
         wire::Frame f;
@@ -310,7 +489,10 @@ struct HostPeer {
     int colorIdx = 0;
     std::string address;
     double lastRecv = 0, lastSend = 0;
-    std::deque<int> sendQueue;  // manifest indices still to stream
+    // This peer's own manifest (model files captured from the live snapshot at
+    // the moment it joined, so a late joiner gets the current model).
+    std::vector<FileEntry> manifest;
+    std::deque<int> sendQueue;  // indices into `manifest` still to stream
     int streaming = -1;         // manifest index currently chunked, -1 = none
     uint64_t streamOff = 0;
     std::ifstream stream;       // open disk file for `streaming`
@@ -320,24 +502,13 @@ struct HostPeer {
 struct HostRun {
     WorkerCtx& ctx;
     const HostConfig& cfg;
-    std::vector<FileEntry> manifest;
-    std::string manifestJson;  // pre-serialized (same for every joiner)
+    std::vector<FileEntry> diskFiles_;  // non-model files, scanned once
     std::map<wire::PeerId, HostPeer> peers;
 
-    std::string buildManifest() {
-        // Model files from memory (the live model wins over disk).
-        std::unordered_set<std::string> modelPaths;
-        for (size_t i = 0; i < cfg.modelFiles.size(); ++i) {
-            const auto& vf = cfg.modelFiles[i];
-            FileEntry e;
-            e.path = vf.relativePath;
-            e.size = vf.content.size();
-            e.hash = wire::fnv1a64(vf.content.data(), vf.content.size());
-            e.mem = (int)i;
-            manifest.push_back(std::move(e));
-            modelPaths.insert(vf.relativePath);
-        }
-        // Everything else from disk, content-hash memoized across sessions.
+    // Scan the on-disk (non-model) files once at start, content-hash memoized
+    // across sessions. Model files (.tyra / objects / heights) are excluded -
+    // they come from the live snapshot per joiner.
+    std::string scanDisk() {
         HashMemo memo = loadHashMemo();
         bool memoDirty = false;
         std::error_code ec;
@@ -348,10 +519,7 @@ struct HostRun {
             if (!it->is_regular_file(ec)) continue;
             std::string rel = fs::relative(it->path(), root, ec).generic_string();
             if (ec || rel.empty()) continue;
-            if (hostSkipsPath(rel) || modelPaths.count(rel)) continue;
-            // Model-file shapes always come from memory even if the manifest
-            // snapshot happens to miss them (defensive: stale disk copies of a
-            // renamed scene's heights would otherwise resurrect).
+            if (hostSkipsPath(rel)) continue;
             if (rel.rfind("objects/", 0) == 0) continue;
             if (rel.find('/') == std::string::npos) {
                 if (rel.size() > 5 && rel.compare(rel.size() - 5, 5, ".tyra") == 0)
@@ -367,8 +535,7 @@ struct HostRun {
             e.path = rel;
             e.size = size;
             auto mi = memo.find(abs);
-            if (mi != memo.end() && mi->second.size == size &&
-                mi->second.mtime == mtime) {
+            if (mi != memo.end() && mi->second.size == size && mi->second.mtime == mtime) {
                 e.hash = mi->second.hash;
             } else {
                 uint64_t h = 0, sz = 0;
@@ -378,20 +545,36 @@ struct HostRun {
                 memo[abs] = {sz, mtime, h};
                 memoDirty = true;
             }
-            manifest.push_back(std::move(e));
+            diskFiles_.push_back(std::move(e));
         }
         if (memoDirty) saveHashMemo(memo);
+        return "";
+    }
+
+    // Build this peer's manifest: the current live model snapshot (in memory,
+    // wins over any stale disk copy) plus the once-scanned disk files.
+    void buildPeerManifest(HostPeer& p, std::string& manifestJsonOut) {
+        p.manifest.clear();
+        for (auto& vf : ctx.modelSnapshot()) {
+            FileEntry e;
+            e.path = vf.relativePath;
+            e.size = vf.content.size();
+            e.hash = wire::fnv1a64(vf.content.data(), vf.content.size());
+            e.inMem = true;
+            e.mem = std::move(vf.content);
+            p.manifest.push_back(std::move(e));
+        }
+        for (const auto& e : diskFiles_) p.manifest.push_back(e);
 
         std::ostringstream mj;
         mj << "{\"t\":\"manifest\",\"files\":[";
-        for (size_t i = 0; i < manifest.size(); ++i) {
-            const auto& e = manifest[i];
+        for (size_t i = 0; i < p.manifest.size(); ++i) {
+            const auto& e = p.manifest[i];
             mj << (i ? "," : "") << "{\"p\":\"" << jsonEsc(e.path) << "\",\"s\":" << e.size
                << ",\"h\":\"" << hex16(e.hash) << "\"}";
         }
         mj << "]}";
-        manifestJson = mj.str();
-        return "";
+        manifestJsonOut = mj.str();
     }
 
     std::vector<PeerView> peerViews() {
@@ -473,6 +656,8 @@ struct HostRun {
                              "\",\"you\":" + std::to_string(id) +
                              ",\"colorIdx\":" + std::to_string(p.colorIdx) +
                              ",\"peers\":" + peersJson() + "}");
+        std::string manifestJson;
+        buildPeerManifest(p, manifestJson);  // model files = current snapshot
         ctx.sendJson(id, manifestJson);
         p.lastSend = nowSec();
         broadcast("{\"t\":\"peer-join\",\"id\":" + std::to_string(id) + ",\"name\":\"" +
@@ -491,7 +676,8 @@ struct HostRun {
         if (const auto* paths = msg.find("paths");
             paths && paths->type == json::Value::Type::Array) {
             std::unordered_map<std::string, int> index;
-            for (size_t i = 0; i < manifest.size(); ++i) index[manifest[i].path] = (int)i;
+            for (size_t i = 0; i < p.manifest.size(); ++i)
+                index[p.manifest[i].path] = (int)i;
             for (const auto& jp : paths->arr) {
                 auto it = index.find(jp.stringOr(""));
                 if (it != index.end()) p.sendQueue.push_back(it->second);
@@ -516,8 +702,8 @@ struct HostRun {
                 p.streaming = p.sendQueue.front();
                 p.sendQueue.pop_front();
                 p.streamOff = 0;
-                const FileEntry& e = manifest[p.streaming];
-                if (e.mem < 0) {
+                const FileEntry& e = p.manifest[p.streaming];
+                if (!e.inMem) {
                     p.stream.close();
                     p.stream.clear();
                     p.stream.open(joinRel(cfg.projectDir, e.path), std::ios::binary);
@@ -527,10 +713,10 @@ struct HostRun {
                     }
                 }
             }
-            const FileEntry& e = manifest[p.streaming];
+            const FileEntry& e = p.manifest[p.streaming];
             std::string bin;
-            if (e.mem >= 0) {
-                const std::string& src = cfg.modelFiles[e.mem].content;
+            if (e.inMem) {
+                const std::string& src = e.mem;
                 const size_t n = std::min(kChunkSize, src.size() - (size_t)p.streamOff);
                 bin.assign(src, (size_t)p.streamOff, n);
             } else {
@@ -566,7 +752,7 @@ struct HostRun {
     }
 
     void run() {
-        if (auto err = buildManifest(); !err.empty()) {
+        if (auto err = scanDisk(); !err.empty()) {
             ctx.setError(err);
             return;
         }
@@ -721,7 +907,11 @@ struct ClientRun {
                 peers.push_back({(int)intField(p, "id", -1), strField(p, "name"),
                                  (int)intField(p, "colorIdx", 0), ""});
         }
-        peers.push_back({myId, cfg.displayName, myColorIdx, ""});
+        // The host's peer list already includes us (hello completed before the
+        // welcome was built); append only if a host ever sends it without.
+        bool haveSelf = false;
+        for (const auto& pv : peers) haveSelf |= (pv.id == myId);
+        if (!haveSelf) peers.push_back({myId, cfg.displayName, myColorIdx, ""});
         publish();
 
         const std::string root =
@@ -1021,7 +1211,17 @@ void Session::startWorker(Role role) {
 
 void Session::host(HostConfig cfg) {
     hostCfg_ = std::move(cfg);
+    {
+        std::lock_guard<std::mutex> lk(mutex_);
+        hostModelFiles_ = hostCfg_.modelFiles;  // baseline snapshot for joiners
+    }
     startWorker(Role::Host);
+}
+
+void Session::setModelFiles(std::vector<project::VirtualFile> files) {
+    if (role_.load() != Role::Host) return;
+    std::lock_guard<std::mutex> lk(mutex_);
+    hostModelFiles_ = std::move(files);
 }
 
 void Session::join(JoinConfig cfg) {

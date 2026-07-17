@@ -8,6 +8,7 @@
 #include <fstream>
 #include <random>
 #include <sstream>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "history.hpp"
@@ -1381,6 +1382,79 @@ std::string saveHeights(const Project& p) {
             return err;
     }
     return "";
+}
+
+std::string scenesLayoutJson(const Project& p) {
+    std::ostringstream j;
+    j << "{ ";
+    writeScenesTable(j, p);
+    j << " }";
+    return j.str();
+}
+
+bool applyScenesLayout(Project& p, const std::string& body) {
+    json::Value root;
+    if (!json::parse(body, root) || root.type != json::Value::Type::Object)
+        return false;
+    const auto* scenes = root.find("scenes");
+    if (!scenes || scenes->type != json::Value::Type::Array) return false;
+
+    // Pool every current object by id, so a reorder / cross-scene move keeps
+    // the object's live body (only membership + order come from the layout).
+    std::unordered_map<std::string, SceneObject> pool;
+    for (SceneData& s : p.scenes)
+        for (SceneObject& o : s.objects)
+            if (!o.id.empty()) pool.emplace(o.id, std::move(o));
+
+    // Old per-index heights, preserved across a layout that only renames /
+    // reorders (a real terrain edit arrives as its own heights message).
+    struct Grid {
+        std::vector<float> h;
+        int w = 0, d = 0;
+    };
+    std::vector<Grid> oldGrids;
+    for (const SceneData& s : p.scenes) oldGrids.push_back({s.heights, s.hmW, s.hmD});
+
+    std::vector<SceneData> next;
+    for (const auto& js : scenes->arr) {
+        SceneData sc;
+        if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
+        if (const auto* ls = js.find("layers")) readLayersArray(*ls, sc.layers);
+        if (const auto* t = js.find("terrain")) {
+            if (const auto* v = t->find("width")) sc.terrain.width = (int)v->numberOr(64);
+            if (const auto* v = t->find("depth")) sc.terrain.depth = (int)v->numberOr(64);
+        }
+        readSceneVisuals(js, sc);
+        if (const auto* objs = js.find("objects");
+            objs && objs->type == json::Value::Type::Array) {
+            for (const auto& jid : objs->arr) {
+                const std::string id = jid.stringOr("");
+                if (id.empty()) continue;
+                auto it = pool.find(id);
+                if (it != pool.end()) {
+                    sc.objects.push_back(std::move(it->second));
+                    pool.erase(it);
+                }
+                // An id with no current body is SKIPPED, never turned into an
+                // empty placeholder: fabricating one would diverge from a peer
+                // that still holds the real object (a delete-vs-keep race). In
+                // normal flow the body's upsert always precedes this layout in
+                // the same batch, so the id is in the pool.
+            }
+        }
+        const size_t idx = next.size();
+        if (idx < oldGrids.size()) {
+            sc.heights = std::move(oldGrids[idx].h);
+            sc.hmW = oldGrids[idx].w;
+            sc.hmD = oldGrids[idx].d;
+        }
+        next.push_back(std::move(sc));
+    }
+    if (next.empty()) next.push_back(SceneData{});
+    p.scenes = std::move(next);
+    if (p.activeScene < 0 || p.activeScene >= (int)p.scenes.size()) p.activeScene = 0;
+    ensureHeightmap(p);
+    return true;
 }
 
 std::vector<VirtualFile> manifestFiles(const Project& p) {

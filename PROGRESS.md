@@ -16,6 +16,53 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (116) **Live model sync - simultaneous editing with per-object last-write-
+  wins.** The heart of the collaboration feature: everyone in a session edits
+  at once and every editor converges on the same model. Engine
+  (session.hpp/.cpp, pure `Project&` in / frames out - fully headless-
+  testable): `ModelShadow` is the last-broadcast view of the model;
+  `diffModel()` compares the live project against it and emits one frame per
+  changed unit - `obj-upsert` (the objectJson body; emitted BEFORE the
+  layout), `scene-layout` (the whole scene table: names/meta/ordered id
+  lists - covers scene add/remove/rename/reorder + object add/delete/move/
+  reorder in one LWW unit; `project::scenesLayoutJson`/`applyScenesLayout`
+  re-home objects BY ID so a move keeps its live body), `heights` (raw float
+  grid in the binary trailer) and `section` (the Phase-113 blobs).
+  `applyEdit()` folds an inbound frame into the project AND the shadow, so
+  the echo of your own edit re-diffs to nothing. **Convergence rule: the host
+  is the total order** - it applies every client frame and rebroadcasts it to
+  ALL peers including the origin; TCP preserves that order per client.
+  Editor integration: `modelEditSerial_` bumped in `commitChange`,
+  `applySnapshot` (undo/redo broadcasts!) and `setDirty(true)` (the UI-Editor
+  / layout paths that bypass commitChange) - **any new mutation path must hit
+  one of those or the session silently misses it**; `sessionTick` diffs when
+  the serial moved and applies inbound batches (then: selection prune,
+  viewport push, one history anchor per batch so undo rewinds remote edits
+  batch-wise, host marks dirty + refreshes the joiner snapshot via
+  `setModelFiles` so a late joiner gets the CURRENT model, not the
+  host-start state). Two subtle bugs found by the property test and fixed:
+  (a) `applyScenesLayout` fabricated an empty placeholder for an unknown id -
+  a delete-vs-keep race then diverged; unknown ids are now skipped (the body
+  upsert always precedes the layout in a batch); (b) applying a remote
+  `scene-layout` used to copy `p.scenes` into the shadow wholesale, which
+  captured this peer's not-yet-broadcast local edits as "already sent" - a
+  reorder from one peer silently swallowed a concurrent recolor from the
+  other; the shadow now mirrors the structural change onto its OWN bodies.
+  Also fixed: the client duplicated itself in the participants list (the
+  host's welcome already includes the joiner). **Verified.** Headless
+  property test: host+client replicas, 6 seeds x 6000 rounds of concurrent
+  random edits (add/delete/move/recolor/rename/reorder objects, scene
+  add/remove/rename, cross-scene moves, terrain sculpts, section edits)
+  through the real engine + relay rule -> byte-identical models after every
+  round (whole-model FNV hash over layout+bodies+heights+sections), plus a
+  shadow-vs-fresh-shadow drift probe each round; all Phase 113-115 harnesses
+  re-pass. Interactive (two editor instances over 127.0.0.1, driven by
+  synthetic input, screenshots): host adds an Empty via Scene>Add -> it
+  appears in the client's object list + viewport within a second; client
+  adds one -> it appears on the host (auto-named `empty-2` against the
+  synced state) and the host titlebar gains the dirty `*`; participants
+  list shows host + client with address and a Kick button.
+
 - (115) **Collaboration session: host / join / full transfer + local cache
   (src/session.hpp/.cpp).** The connection layer of the live sessions.
   `Session` owns one worker thread (Runner idiom: `std::atomic` state +
