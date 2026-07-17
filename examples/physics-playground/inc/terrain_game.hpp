@@ -81,6 +81,15 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    // Physics fast path (awake bodies): parts hold LOCAL-space vertices
+    // (scale baked in, shading frozen at the wake pose) and every
+    // part.infoBag->model points at objMat, rebuilt from position/rotation
+    // each frame - VU1 applies the motion, the EE stops re-tessellating and
+    // re-shading mid-flight. Any full rebuild (rebuildObjectGeometry default
+    // = world-space bake) turns it off; going to sleep forces one, so a
+    // settled body gets correct rest-pose shading back.
+    Tyra::M4x4 objMat;
+    bool matrixMode = false;
     // Animated models (.glb): this object's skeletal instance (own
     // playback state + skinned output mesh, samples the shared SkelModel).
     std::unique_ptr<Tyra::SkelInstance> animInst;
@@ -241,7 +250,13 @@ class TerrainGame : public Tyra::Game {
   std::vector<Tyra::Sprite> hudSprites;
 
   void buildSkyDome();
-  void rebuildObjectGeometry(int index);
+  // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
+  void rebuildObjectGeometry(int index, bool localSpace = false);
+  // A moving body takes the matrix fast path unless another consumer assumes
+  // world-space vertex arrays (usable highlight hull, reflective matcap
+  // normals) or it is an animated model (animMat already drives those).
+  bool physFastPathEligible(int index) const;
+  void updateObjMat(int index);
   // Player-vs-objects collision shared by both walkers: box (scale box or
   // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision.
   // ceiling receives the lowest overhead surface so the walkers can keep the
@@ -269,6 +284,7 @@ class TerrainGame : public Tyra::Game {
   void renderMirrors();
   void renderMirroredObject(int index);
   Tyra::M4x4 mirrorMat;
+  Tyra::M4x4 mirrorObjMat;  // reflection * objMat for fast-path bodies
   Tyra::M4x4 mirrorAnimMat;
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
@@ -351,6 +367,10 @@ class TerrainGame : public Tyra::Game {
   // Scene switch target held across the loading-screen frames (the screen
   // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
   int loadingFrames = 0, loadingTarget = -1;
+  // Snapshot of the armed hold length: everyFrames() tracks the measured
+  // frame time now, so re-evaluating it in a == comparison against the
+  // counter could miss its frame at uncapped FPS.
+  int loadingTotal = 0;
 
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
   void updateUseTarget();

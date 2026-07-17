@@ -33,14 +33,15 @@ class FlowGraphScript_0_6 : public Script {
       generation = ctx.sceneGeneration;
       frame = 0;
       started = false;
+      every1 = 1;
     }
     frame++;
-    if (frame % everyFrames(3.0F) == 0) {
+    if (--every1 <= 0) {
+      every1 = everyFrames(3.0F);
       ctx.objects[6].velocityX += -4.0F * g_frameDt;
       ctx.objects[6].velocityY += 7.0F * g_frameDt;
       ctx.objects[6].velocityZ += 1.5F * g_frameDt;
       ctx.objects[6].restFrames = 0;
-      ctx.objects[6].dirty = true;
       TYRA_LOG("kicked-ball at", " ", flowPosText(ctx.objects[6].data.position[0], ctx.objects[6].data.position[1], ctx.objects[6].data.position[2]));
     }
   }
@@ -49,6 +50,7 @@ class FlowGraphScript_0_6 : public Script {
   unsigned int generation = 0;
   int frame = 0;
   bool started = false;
+  int every1 = 1;
 };
 
 }  // namespace Physics_playground

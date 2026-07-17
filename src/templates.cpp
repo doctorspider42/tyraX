@@ -444,6 +444,15 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    // Physics fast path (awake bodies): parts hold LOCAL-space vertices
+    // (scale baked in, shading frozen at the wake pose) and every
+    // part.infoBag->model points at objMat, rebuilt from position/rotation
+    // each frame - VU1 applies the motion, the EE stops re-tessellating and
+    // re-shading mid-flight. Any full rebuild (rebuildObjectGeometry default
+    // = world-space bake) turns it off; going to sleep forces one, so a
+    // settled body gets correct rest-pose shading back.
+    Tyra::M4x4 objMat;
+    bool matrixMode = false;
     // Animated models (.glb): this object's skeletal instance (own
     // playback state + skinned output mesh, samples the shared SkelModel).
     std::unique_ptr<Tyra::SkelInstance> animInst;
@@ -604,7 +613,13 @@ class TerrainGame : public Tyra::Game {
   std::vector<Tyra::Sprite> hudSprites;
 
   void buildSkyDome();
-  void rebuildObjectGeometry(int index);
+  // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
+  void rebuildObjectGeometry(int index, bool localSpace = false);
+  // A moving body takes the matrix fast path unless another consumer assumes
+  // world-space vertex arrays (usable highlight hull, reflective matcap
+  // normals) or it is an animated model (animMat already drives those).
+  bool physFastPathEligible(int index) const;
+  void updateObjMat(int index);
   // Player-vs-objects collision shared by both walkers: box (scale box or
   // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision.
   // ceiling receives the lowest overhead surface so the walkers can keep the
@@ -632,6 +647,7 @@ class TerrainGame : public Tyra::Game {
   void renderMirrors();
   void renderMirroredObject(int index);
   Tyra::M4x4 mirrorMat;
+  Tyra::M4x4 mirrorObjMat;  // reflection * objMat for fast-path bodies
   Tyra::M4x4 mirrorAnimMat;
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
@@ -714,6 +730,10 @@ class TerrainGame : public Tyra::Game {
   // Scene switch target held across the loading-screen frames (the screen
   // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
   int loadingFrames = 0, loadingTarget = -1;
+  // Snapshot of the armed hold length: everyFrames() tracks the measured
+  // frame time now, so re-evaluating it in a == comparison against the
+  // counter could miss its frame at uncapped FPS.
+  int loadingTotal = 0;
 
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
   void updateUseTarget();
@@ -860,6 +880,15 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    // Physics fast path (awake bodies): parts hold LOCAL-space vertices
+    // (scale baked in, shading frozen at the wake pose) and every
+    // part.infoBag->model points at objMat, rebuilt from position/rotation
+    // each frame - VU1 applies the motion, the EE stops re-tessellating and
+    // re-shading mid-flight. Any full rebuild (rebuildObjectGeometry default
+    // = world-space bake) turns it off; going to sleep forces one, so a
+    // settled body gets correct rest-pose shading back.
+    Tyra::M4x4 objMat;
+    bool matrixMode = false;
     // Animated models (.glb): this object's skeletal instance (own
     // playback state + skinned output mesh, samples the shared SkelModel).
     std::unique_ptr<Tyra::SkelInstance> animInst;
@@ -1020,7 +1049,13 @@ class TerrainGame : public Tyra::Game {
   std::vector<Tyra::Sprite> hudSprites;
 
   void buildSkyDome();
-  void rebuildObjectGeometry(int index);
+  // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
+  void rebuildObjectGeometry(int index, bool localSpace = false);
+  // A moving body takes the matrix fast path unless another consumer assumes
+  // world-space vertex arrays (usable highlight hull, reflective matcap
+  // normals) or it is an animated model (animMat already drives those).
+  bool physFastPathEligible(int index) const;
+  void updateObjMat(int index);
   // Player-vs-objects collision shared by both walkers: box (scale box or
   // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision.
   // ceiling receives the lowest overhead surface so the walkers can keep the
@@ -1048,6 +1083,7 @@ class TerrainGame : public Tyra::Game {
   void renderMirrors();
   void renderMirroredObject(int index);
   Tyra::M4x4 mirrorMat;
+  Tyra::M4x4 mirrorObjMat;  // reflection * objMat for fast-path bodies
   Tyra::M4x4 mirrorAnimMat;
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
@@ -1130,6 +1166,10 @@ class TerrainGame : public Tyra::Game {
   // Scene switch target held across the loading-screen frames (the screen
   // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
   int loadingFrames = 0, loadingTarget = -1;
+  // Snapshot of the armed hold length: everyFrames() tracks the measured
+  // frame time now, so re-evaluating it in a == comparison against the
+  // counter could miss its frame at uncapped FPS.
+  int loadingTotal = 0;
 
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
   void updateUseTarget();
@@ -1465,6 +1505,10 @@ V3 pointLightAt(const V3& wp, const V3& n) {
 // explicitly via the kd/textured parameters instead.
 const float* g_primKd = nullptr;
 bool g_primTextured = false;
+// Physics fast path: push LOCAL-space positions (scale baked, rotation and
+// translation left to ObjectGeometry::objMat). Shading still bakes from the
+// full wake pose, so the switch itself never pops a color.
+bool g_bakeLocal = false;
 
 // Reflective materials: while non-null, pushVert also captures the rotated
 // (world-space) normal of every emitted vertex - the per-frame sphere-map ST
@@ -1515,6 +1559,7 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   const float* kd = kdArg ? kdArg : g_primKd;
   const bool textured = texturedArg || g_primTextured;
   p.x *= o.scale[0], p.y *= o.scale[1], p.z *= o.scale[2];
+  const V3 lp = p;  // local (scaled) position - what g_bakeLocal pushes
   p = rotated(p, o.rotation);
   n = rotated(n, o.rotation);
   const V3 wp = {p.x + o.position[0], p.y + o.position[1], p.z + o.position[2]};
@@ -1525,7 +1570,8 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   if (shade.y > 1.0F) shade.y = 1.0F;
   if (shade.z > 1.0F) shade.z = 1.0F;
   if (kd) shade.x *= kd[0], shade.y *= kd[1], shade.z *= kd[2];
-  verts.push_back(Vec4(wp.x, wp.y, wp.z, 1.0F));
+  verts.push_back(g_bakeLocal ? Vec4(lp.x, lp.y, lp.z, 1.0F)
+                              : Vec4(wp.x, wp.y, wp.z, 1.0F));
   // In textured mode the color modulates the texture (128 = 1.0). Kd may
   // exceed 1 (material brightness) - cap at the GS's 255 so untextured
   // colors cannot wrap.
@@ -2155,7 +2201,7 @@ void TerrainGame::loop() {
       bootPhase = 1;
       if (LOADING_SCREEN) {
         loadingTarget = 0;
-        loadingFrames = everyFrames(0.7F);
+        loadingFrames = loadingTotal = everyFrames(0.7F);
       }
     }
     if (bootPhase == 1) {
@@ -2164,10 +2210,10 @@ void TerrainGame::loop() {
         bootPhase = 2;
       } else {
         if (loadingFrames > 0) {
-          const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
+          const bool preLoad = loadingFrames > loadingTotal - 5;
           loadingscreen::renderFrame(engine, 0, preLoad ? 0.0F : 1.0F);
           --loadingFrames;
-          if (loadingFrames == everyFrames(0.7F) - 5) bootFirstScene();
+          if (loadingFrames == loadingTotal - 5) bootFirstScene();
           return;
         }
         bootPhase = 2;
@@ -2221,7 +2267,7 @@ void TerrainGame::loop() {
     scriptCtx.requestScene = -1;
     if (LOADING_SCREEN) {
       loadingTarget = target;
-      loadingFrames = everyFrames(0.7F);  // ~0.7s hold
+      loadingFrames = loadingTotal = everyFrames(0.7F);  // ~0.7s hold
     } else {
       loadScene(target);
     }
@@ -2229,10 +2275,10 @@ void TerrainGame::loop() {
   if (loadingFrames > 0) {
     // A few frames at 0% before the (blocking) load, which pumps the bar from
     // 0 to 1 itself, then the remaining frames at 100%.
-    const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
+    const bool preLoad = loadingFrames > loadingTotal - 5;
     loadingscreen::renderFrame(engine, loadingTarget, preLoad ? 0.0F : 1.0F);
     --loadingFrames;
-    if (loadingFrames == everyFrames(0.7F) - 5)
+    if (loadingFrames == loadingTotal - 5)
       loadScene(loadingTarget);  // 5 frames shown first
     return;
   }
@@ -4988,10 +5034,13 @@ void TerrainGame::buildSkyDome() {
   skyDome.bag->bboxVersion = ++g_bboxStamp;  // dome rebuilds on retint
 }
 
-void TerrainGame::rebuildObjectGeometry(int index) {
+void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
   o.dirty = false;
+  g.matrixMode = localSpace;
+  g_bakeLocal = localSpace;
+  if (localSpace) updateObjMat(index);
   g.apronVerts.clear();  // position/size changed - the highlight ring follows
   g.hullProxyVerts.clear();  // and the shell proxy re-bakes the transform
 
@@ -5100,6 +5149,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     g_primTextured = false;
     g_envNormals = nullptr;
   }
+  g_bakeLocal = false;
 
   for (int pi = 0; pi < partCount; ++pi) {
     GeoPart& part = g.parts[pi];
@@ -5128,6 +5178,10 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     part.bag->vertices = part.vertices.data();
     part.bag->count = static_cast<u32>(part.vertices.size());
     part.bag->bboxVersion = ++g_bboxStamp;  // geometry changed - fresh boxes
+    // Fast-path bodies render local vertices under objMat; everything else
+    // sits in world space under the shared identity. Reset on every rebuild
+    // (the bag may have been created under the other mode).
+    part.infoBag->model = g.matrixMode ? &g.objMat : &model;
 
     // models: the part's own map_Kd; primitives: the assigned material's
     Texture* tex =
@@ -5251,6 +5305,47 @@ void TerrainGame::physExtents(const SceneObjectData& d, const GameModel* gm,
       if (ext[a] < 0.01F) ext[a] = 0.01F;
     }
   }
+}
+
+// A moving body renders through objMat (local vertices, VU1 applies the
+// motion) unless a consumer of its vertex arrays assumes world space: the
+// usable-highlight hull/apron and reflective matcap normals both do, and
+// animated models already ride their own animMat.
+bool TerrainGame::physFastPathEligible(int index) const {
+  const RuntimeObject& o = runtimeObjects[index];
+  const int t = o.data.type;
+  if (t != 0 && t != 1 && t != 2 && t != 3 && t != 5 && t != 12) return false;
+  if (o.data.usable) return false;
+  if (t == 5) {
+    if (o.data.animModel >= 0) return false;
+    if (o.data.model < 0 || o.data.model >= (int)gameModels.size())
+      return false;
+    for (const GameModelPart& mp : gameModels[o.data.model].parts)
+      if (mp.reflTexture) return false;
+  } else if (o.data.material >= 0 &&
+             o.data.material < (int)gameMaterials.size() &&
+             gameMaterials[o.data.material].reflTexture) {
+    return false;
+  }
+  return true;
+}
+
+// Rotation columns come from the same rotated() the vertex bake uses, so the
+// matrix path and the bake path can never disagree on the Euler order. Scale
+// is baked into the local vertices - the basis stays unit-length.
+void TerrainGame::updateObjMat(int index) {
+  const RuntimeObject& o = runtimeObjects[index];
+  M4x4& m = objectGeometry[index].objMat;
+  const V3 bx = rotated({1.0F, 0.0F, 0.0F}, o.data.rotation);
+  const V3 by = rotated({0.0F, 1.0F, 0.0F}, o.data.rotation);
+  const V3 bz = rotated({0.0F, 0.0F, 1.0F}, o.data.rotation);
+  m.identity();
+  m.data[0] = bx.x, m.data[1] = bx.y, m.data[2] = bx.z;
+  m.data[4] = by.x, m.data[5] = by.y, m.data[6] = by.z;
+  m.data[8] = bz.x, m.data[9] = bz.y, m.data[10] = bz.z;
+  m.data[12] = o.data.position[0];
+  m.data[13] = o.data.position[1];
+  m.data[14] = o.data.position[2];
 }
 
 // Solid enough to block/bump a physics body (matches collidePlayer's list).
@@ -5460,6 +5555,9 @@ void TerrainGame::updateObjectPhysics() {
       if (o.restFrames >= PHYS_SLEEP_FRAMES) {
         vel = Vec4(0.0F, 0.0F, 0.0F, 0.0F);
         o.spin[0] = o.spin[1] = o.spin[2] = 0.0F;
+        // settle: one world-space rebuild restores rest-pose shading and
+        // hands the vertex arrays back to the world-space consumers
+        if (objectGeometry[i].matrixMode) o.dirty = true;
       }
     } else {
       o.restFrames = 0;
@@ -5482,7 +5580,15 @@ void TerrainGame::updateObjectPhysics() {
         if (o.data.rotation[a] < -360.0F) o.data.rotation[a] += 720.0F;
       }
     }
-    if (dPos > 1e-5F || spinMag > 0.001F) o.dirty = true;
+    if (dPos > 1e-5F || spinMag > 0.001F) {
+      // Moving: eligible bodies get ONE local-space bake and ride objMat
+      // from then on (refreshed in renderScene - no EE re-bake per frame);
+      // the rest fall back to the legacy world-space rebuild.
+      ObjectGeometry& g = objectGeometry[i];
+      if (!g.matrixMode && !o.dirty && physFastPathEligible(i))
+        rebuildObjectGeometry(i, true);
+      if (!g.matrixMode) o.dirty = true;
+    }
   }
 
   // Pass 2: momentum exchange between bodies. Upright-cylinder contacts (XZ
@@ -5583,8 +5689,10 @@ void TerrainGame::updateObjectPhysics() {
       }
       a.restFrames = 0;
       b.restFrames = 0;
-      a.dirty = true;
-      b.dirty = true;
+      // Fast-path bodies pick the separation up through objMat next render;
+      // forcing dirty would throw away their local bake every contact frame.
+      if (!objectGeometry[i].matrixMode) a.dirty = true;
+      if (!objectGeometry[j].matrixMode) b.dirty = true;
     }
   }
 }
@@ -5630,8 +5738,7 @@ void TerrainGame::pushPhysicsBodies(float prevX, float prevZ, float nextX,
     const float push = sqrtf(m2) * PHYS_PUSH / mass;
     o.velocityX += dx * inv * push;
     o.velocityZ += dz * inv * push;
-    o.restFrames = 0;
-    o.dirty = true;
+    o.restFrames = 0;  // velocity-only change: the physics pass moves it
   }
 }
 
@@ -5728,6 +5835,7 @@ void TerrainGame::renderScene() {
         if (sdx * sdx + sdy * sdy + sdz * sdz < skipR * skipR) continue;
       }
       if (ro.dirty) rebuildObjectGeometry(ri);
+      if (objectGeometry[ri].matrixMode) updateObjMat(ri);
       for (GeoPart& part : objectGeometry[ri].parts)
         if (part.bag) stapip.core.render(part.bag.get());
     }
@@ -5774,6 +5882,10 @@ void TerrainGame::renderScene() {
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (!runtimeObjects[i].active) continue;  // streamed out with its layer
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
+    // Fast-path bodies: this matrix refresh is their whole per-frame render
+    // cost - it also folds in pass-2 separations and player pushes applied
+    // after the physics integration wrote the matrix.
+    if (objectGeometry[i].matrixMode) updateObjMat(i);
     if (!runtimeObjects[i].visible) continue;
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
     // mirrors draw after the scene (copies first, then the blended glass -
@@ -5914,11 +6026,14 @@ void TerrainGame::renderMirroredObject(int index) {
   if (!o.active || !o.visible || o.data.type == 15) return;
   if (beyondDrawDistance(o.data, cameraPosition)) return;
   ObjectGeometry& g = objectGeometry[index];
+  // Fast-path bodies hold local vertices under objMat - the copy composes
+  // reflection * objMat, exactly like the animated path right below.
+  if (g.matrixMode) mirrorObjMat = mirrorMat * g.objMat;
   for (GeoPart& part : g.parts) {
     if (!part.bag) continue;
-    part.infoBag->model = &mirrorMat;
+    part.infoBag->model = g.matrixMode ? &mirrorObjMat : &mirrorMat;
     stapip.core.render(part.bag.get());
-    part.infoBag->model = &model;
+    part.infoBag->model = g.matrixMode ? &g.objMat : &model;
   }
   if (g.animInfoBag && !g.animParts.empty()) {
     // The anim bags point at whatever updateAndRenderAnimObjects last
@@ -6649,7 +6764,7 @@ void TerrainGame::loop() {
       bootPhase = 1;
       if (LOADING_SCREEN) {
         loadingTarget = 0;
-        loadingFrames = everyFrames(0.7F);
+        loadingFrames = loadingTotal = everyFrames(0.7F);
       }
     }
     if (bootPhase == 1) {
@@ -6658,10 +6773,10 @@ void TerrainGame::loop() {
         bootPhase = 2;
       } else {
         if (loadingFrames > 0) {
-          const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
+          const bool preLoad = loadingFrames > loadingTotal - 5;
           loadingscreen::renderFrame(engine, 0, preLoad ? 0.0F : 1.0F);
           --loadingFrames;
-          if (loadingFrames == everyFrames(0.7F) - 5) bootFirstScene();
+          if (loadingFrames == loadingTotal - 5) bootFirstScene();
           return;
         }
         bootPhase = 2;
@@ -6715,7 +6830,7 @@ void TerrainGame::loop() {
     scriptCtx.requestScene = -1;
     if (LOADING_SCREEN) {
       loadingTarget = target;
-      loadingFrames = everyFrames(0.7F);  // ~0.7s hold
+      loadingFrames = loadingTotal = everyFrames(0.7F);  // ~0.7s hold
     } else {
       loadScene(target);
       fppSpawnPending = true;
@@ -6724,10 +6839,10 @@ void TerrainGame::loop() {
   if (loadingFrames > 0) {
     // A few frames at 0% before the (blocking) load, which pumps the bar from
     // 0 to 1 itself, then the remaining frames at 100%.
-    const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
+    const bool preLoad = loadingFrames > loadingTotal - 5;
     loadingscreen::renderFrame(engine, loadingTarget, preLoad ? 0.0F : 1.0F);
     --loadingFrames;
-    if (loadingFrames == everyFrames(0.7F) - 5) {  // a few frames shown first
+    if (loadingFrames == loadingTotal - 5) {  // a few frames shown first
       loadScene(loadingTarget);
       fppSpawnPending = true;
     }
@@ -8912,8 +9027,14 @@ extern bool g_flashOn;
            "  return false;\n"
            "}\n";
     out << R"(// Frames per `seconds` of wall-clock time (>= 1), for frame-counter timers.
+// Uses the MEASURED frame time, not the nominal vsync rate: with vsync
+// disabled the loop free-runs way past 50 FPS and a nominal-rate count would
+// make every timer (Delay, Every N Seconds, splash holds, sound retriggers)
+// fire that much too fast - the disableVsync contract is "faster picture,
+// same gameplay speed". At vsync the measured dt snaps to nominal, so this
+// is bit-identical to the old seconds * g_frameRate there.
 inline int everyFrames(float seconds) {
-  const int f = (int)(seconds * g_frameRate);
+  const int f = (int)(seconds / (g_frameDt > 0.0001F ? g_frameDt : 0.02F));
   return f < 1 ? 1 : f;
 }
 #define SCENE_OBJECT_COUNT SCENE_OBJECT_COUNTS[g_activeScene]
@@ -10352,7 +10473,9 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 c << pad << obj << ".restFrames = 0;\n";  // wake physics bodies
                 c << pad << obj << ".dirty = true;\n";
             } else if (n.type == "PushObject") {
-                // params are units/s; velocities are per-frame displacements
+                // params are units/s; velocities are per-frame displacements.
+                // Velocity-only change: waking is enough, the physics pass
+                // moves the body (no dirty - that would drop its fast path).
                 const char* velField[3] = {".velocityX", ".velocityY",
                                            ".velocityZ"};
                 for (int a = 0; a < 3; ++a)
@@ -10360,7 +10483,6 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                         c << pad << obj << velField[a]
                           << " += " << floatLit(n.num[a]) << " * g_frameDt;\n";
                 c << pad << obj << ".restFrames = 0;\n";
-                c << pad << obj << ".dirty = true;\n";
             } else if (n.type == "SetObjectColor") {
                 for (int a = 0; a < 3; ++a)
                     c << pad << obj << ".data.color[" << a
@@ -10935,8 +11057,15 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                     << floatLit(r * r) << ";\n      if (isNear && !" << flag << ") {\n"
                     << body << "      }\n      " << flag << " = isNear;\n    }\n";
             } else if (n.type == "EverySeconds") {
-                clsOut << "    if (frame % everyFrames(" << floatLit(n.num[0])
-                       << ") == 0) {\n" << body << "    }\n";
+                // Countdown, not `frame % everyFrames(s)`: the divisor now
+                // tracks the measured dt, and a modulo against a moving
+                // divisor can skip its == 0 frame entirely at uncapped FPS.
+                const std::string var = "every" + std::to_string(n.id);
+                members << "  int " << var << " = 1;\n";  // first frame fires
+                flagResets << "      " << var << " = 1;\n";
+                clsOut << "    if (--" << var << " <= 0) {\n      " << var
+                       << " = everyFrames(" << floatLit(n.num[0]) << ");\n"
+                       << body << "    }\n";
             } else if (n.type == "OnAnimFinished") {
                 const std::string dyn = targetExpr(n);
                 if (!dyn.empty()) {

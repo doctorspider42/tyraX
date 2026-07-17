@@ -9,6 +9,49 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (114) **Physics perf: moving bodies render through a VU1 model matrix
+  (28-body bench 14 → 156 FPS) + frame-counter timers made wall-clock true
+  under disableVsync.** Profiling the (113) physics with bodies scattered
+  showed the frame dying not in the solver (VU0, trivial) but in
+  `rebuildObjectGeometry`: every awake body re-tessellated and re-shaded its
+  whole mesh on the EE every frame it moved. Now an awake body takes a
+  **matrix fast path**: one local-space bake on wake (scale baked into the
+  vertices, shading frozen at the wake pose - the light rides along while it
+  tumbles, corrected by a world re-bake on sleep) and from then on only
+  `ObjectGeometry::objMat` (rotation basis via the same `rotated()` the bake
+  uses + translation) is refreshed per frame; every `part.infoBag->model`
+  points at it, so **VU1 applies the motion** inside the transform it already
+  does, frustum classification uses the engine's object-space-planes path
+  (proven by animated models, which have always rendered model-space vertices
+  under `animMat`), and the bbox cache stays valid (no per-frame bboxVersion
+  bump). Mirrors compose `reflection * objMat` exactly like the animated
+  path; the dynamic-env-map base pass needs nothing (bags carry their
+  matrix). **Exclusions** (legacy re-bake path): usable objects (the
+  highlight hull/apron reads world-space vertex arrays), reflective-material
+  objects (matcap env normals bake in world space), animated models (already
+  matrix-driven). Impulse-pass separations and player shoves stopped setting
+  `dirty` (the matrix refresh in renderScene picks the moved positions up);
+  the Apply Impulse node emits no `dirty` at all now (velocity-only).
+  **Bench** (tyra-testing layer 3, PCSX2 software renderer, debug + FPS
+  overlay + vsync off + vu1 clipping, 28 high-bounce bodies dropped from
+  8-20 units): before 14-16 FPS all-airborne / 33 part-settled; after **156
+  FPS all-airborne / 137 FPS**, VU 4% → 41-45% - the work measurably moved
+  to the VUs; no asserts, tumbled boxes render visibly rotated. Bonus bug
+  found by the unlocked frame rate: `everyFrames()` counted frames at the
+  NOMINAL vsync rate, so with disableVsync every frame-counter timer (Every N
+  Seconds, Delay, splash holds, sound retriggers) ran as much too fast as the
+  FPS exceeded 50 - the physics-playground kicked ball got re-kicked every
+  ~1.1 s real and climbed into the sky. `everyFrames` now divides by the
+  measured `g_frameDt` (bit-identical at vsync - the clock snaps to nominal),
+  **Every N Seconds** compiles to a per-node countdown instead of
+  `frame % everyFrames(s)` (a modulo against a divisor that tracks measured
+  dt can skip its ==0 frame), and the loading-screen holds compare against a
+  `loadingTotal` snapshot instead of re-evaluating `everyFrames(0.7F)` in a
+  `==` (which could now miss and never load the scene). Verified: example
+  telemetry back to sane pacing (ball lands between kicks, rests at
+  terrain + radius, descends the terraces, wall-bounces at ±23.5) with the
+  scene still uncapped >130 FPS.
+
 - (113) **Object physics upgraded from "falls straight down" to a
   rigid-body-lite simulation (bounce, slide, tumble, stacks, shoves,
   impulses).** The old `updateObjectPhysics` was Y-only gravity that stopped

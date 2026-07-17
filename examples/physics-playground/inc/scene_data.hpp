@@ -226,8 +226,14 @@ inline bool flashlightTogglePressed(TEngine* engine) {
   return false;
 }
 // Frames per `seconds` of wall-clock time (>= 1), for frame-counter timers.
+// Uses the MEASURED frame time, not the nominal vsync rate: with vsync
+// disabled the loop free-runs way past 50 FPS and a nominal-rate count would
+// make every timer (Delay, Every N Seconds, splash holds, sound retriggers)
+// fire that much too fast - the disableVsync contract is "faster picture,
+// same gameplay speed". At vsync the measured dt snaps to nominal, so this
+// is bit-identical to the old seconds * g_frameRate there.
 inline int everyFrames(float seconds) {
-  const int f = (int)(seconds * g_frameRate);
+  const int f = (int)(seconds / (g_frameDt > 0.0001F ? g_frameDt : 0.02F));
   return f < 1 ? 1 : f;
 }
 #define SCENE_OBJECT_COUNT SCENE_OBJECT_COUNTS[g_activeScene]
