@@ -13,6 +13,7 @@
 #include "isoexport.hpp"
 #include "project.hpp"
 #include "runner.hpp"
+#include "session.hpp"
 #include "viewport.hpp"
 
 struct GLFWwindow;
@@ -313,12 +314,29 @@ private:
     // Guarded actions that would discard unsaved edits (Exit / Open / New).
     // When the project is dirty they open a confirm modal instead of running
     // immediately; the modal's Save/Discard buttons then run the pending one.
-    enum class PendingAction { None, Exit, Open, New };
+    enum class PendingAction { None, Exit, Open, New, JoinSession };
     void requestExit();
     void requestOpenProject();
     void requestNewProject();
     void performPendingAction();
     void drawDiscardModal();
+
+    // --- Collaboration session (docs/collaboration.md) ----------------------
+    // Live LAN sessions: this editor hosts its open project or joins another
+    // editor's. Session (session.hpp) runs the network side on a worker
+    // thread; sessionTick() drains its events once per frame on the UI thread
+    // and is the ONLY place session state meets project_/ImGui.
+    void sessionTick();
+    void requestJoinSession();  // dirty-guarded like Open/New
+    void startHostSession();    // reads the session* input fields
+    void closeSession();        // host: ends for everyone; client: leaves
+    // Open the freshly synced remote project from its cache directory,
+    // keeping the session alive across attachProject().
+    void openRemoteProject(const std::string& dir);
+    void drawHostSessionModal();
+    void drawJoinSessionModal();
+    void drawSessionEndedModal();
+    void drawSessionWindow();
     void copyObject();
     void pasteObject();
 
@@ -379,6 +397,23 @@ private:
     PendingAction pendingAction_ = PendingAction::None;
     bool openDiscardPopup_ = false;
     bool exitConfirmed_ = false;
+
+    // Collaboration session state (see the method block above). The Session
+    // owns the worker thread; these are the UI-side latches and input buffers.
+    session::Session session_;
+    bool showSessionWindow_ = false;
+    bool openHostSessionPopup_ = false;
+    bool openJoinSessionPopup_ = false;
+    bool openSessionEndedPopup_ = false;
+    bool joinModalVisible_ = false;   // Ended errors go inline while it shows
+    bool sessionAttachKeep_ = false;  // openRemoteProject: don't close on attach
+    char sessionName_[48] = "";
+    char sessionAddr_[128] = "";
+    int sessionPort_ = 7797;
+    char sessionCode_[16] = "";
+    std::string sessionError_;      // inline error in the join modal
+    std::string sessionEndedText_;  // reason shown by the session-ended popup
+    std::vector<session::PeerView> sessionPeers_;
     // Set by attachProject()/switchLayout(): load the active layout's saved ini
     // at the next frame boundary (ImGui cannot reload settings between NewFrame
     // and EndFrame). Recipe-built layouts use recipeRebuildPending_ instead.

@@ -16,6 +16,48 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (115) **Collaboration session: host / join / full transfer + local cache
+  (src/session.hpp/.cpp).** The connection layer of the live sessions.
+  `Session` owns one worker thread (Runner idiom: `std::atomic` state +
+  mutex-guarded queues; the UI thread drains `drainEvents()` once per frame in
+  `App::sessionTick()` and is the ONLY place session data meets `project_` /
+  ImGui). Host: hashes/scans the project (excludes bin/ obj/ .git/ .res-baked/
+  *.history; the .tyra + objects/*.json + terrain-*.heights come from the LIVE
+  in-memory model via `manifestFiles()`), listens, and on each join sends
+  `welcome` + a content-hash `manifest`; the client diffs against its cache,
+  `need`s only the misses, receives chunked `file` frames (256 KiB, per-peer
+  backlog-capped so one slow peer can't balloon host RAM) and `sync-done`,
+  then opens the materialized project. Remote projects live under
+  `%LOCALAPPDATA%\tyra-editor\remote-cache\<projectId>\project`; `cache.json`
+  (size+hash+mtime) makes a re-join of an unchanged project fetch **zero**
+  files and a one-asset change fetch **exactly one**. Host-side hashing is
+  memoized across sessions (`hash-cache.json`) so hosting a big project never
+  rehashes unchanged assets twice. Handshake gates: protocol-version and
+  6-digit join-code mismatch → `deny`, session-full → `deny`, 5 s ping /
+  15 s timeout keepalive, host `kick` and `close` broadcast `bye`. Path safety:
+  the client rejects any manifest path that is absolute / has a drive / climbs
+  `..`. `wire::Transport` stays the swappable seam (LAN TCP today).
+  UI: a **Session** top-level menu (Host / Join / Session Window / Close-Leave),
+  the Host and Join modals (display name, port, join code, local host IPs, a
+  firewall hint; the Join modal shows a live transfer progress bar and inline
+  errors), a Session window (participants with per-peer color dots + Kick), a
+  session-ended modal, and a toolbar **SESSION chip** cloned from the LIVE chip
+  (green "SESSION (n)" hosting / blue "JOINED" / amber "SYNC"). A project
+  switch (`attachProject`) tears the session down, except the join handoff
+  which keeps it alive. **Verified.** Headless harness (host+client `Session`
+  in one process over 127.0.0.1, real sockets): a join transfers the whole
+  scratch project (40 files / 615 KB incl. a 300 KB binary asset) and the
+  client's loaded model is byte-identical to the host - `scenes ==`, every one
+  of the 11 sections' `sectionJson` equal, asset bytes equal, `projectId`
+  equal; a re-join of the unchanged project fetches 0 files; changing one asset
+  fetches exactly 1 and its new bytes arrive; a wrong join code is denied with
+  the code-specific message; a kicked client sees the removal message; the host
+  sees PeerJoined / PeerLeft. GUI (editor, screenshots): the Session menu, the
+  Host modal (name=USERNAME, port 7797, generated join code, three LAN IPs),
+  the green SESSION (0) toolbar chip, and the Session window (participant
+  "papaj (host)" + Close button) all render; starting the host raised the
+  Windows Firewall prompt the modal warns about.
+
 - (114) **Collaboration wire transport (src/wire.hpp/.cpp).** The byte layer
   under the upcoming live sessions, deliberately independent of the project
   model. Frames are `[u32 jsonLen][u32 binLen][json][bin]` (LE): JSON carries

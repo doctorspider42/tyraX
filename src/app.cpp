@@ -493,6 +493,10 @@ void App::drawUI() {
     // the live-patchable state changed since the last write).
     liveLinkTick();
 
+    // Drain collaboration-session events (peer joins/leaves, sync completion,
+    // session end) - the only place session state meets project_/ImGui.
+    sessionTick();
+
     drawMenuBar();
     drawViewportWindow();
     drawProjectWindow();
@@ -508,6 +512,7 @@ void App::drawUI() {
     drawMaterialEditorWindow();
     drawUiEditorWindow();
     drawLoadingScreenWindow();
+    drawSessionWindow();
     drawNewProjectModal();
     drawPreferencesModal();
     drawEditorPreferencesModal();
@@ -520,6 +525,9 @@ void App::drawUI() {
     drawDeleteAssetModal();
     drawDiscardModal();
     drawLayoutModals();
+    drawHostSessionModal();
+    drawJoinSessionModal();
+    drawSessionEndedModal();
 
     // Bring the freshly switched layout's headline panel to the front, now that
     // its window has been submitted this frame (docked as a background tab by
@@ -783,6 +791,24 @@ void App::drawMenuBar() {
             ImGui::EndMenu();
         }
 
+        if (ImGui::BeginMenu("Session")) {
+            const bool active = session_.active();
+            if (ImGui::MenuItem("Host Session...", nullptr, false,
+                                hasProject_ && !active))
+                openHostSessionPopup_ = true;
+            if (ImGui::MenuItem("Join Session...", nullptr, false, !active))
+                requestJoinSession();
+            ImGui::Separator();
+            if (ImGui::MenuItem("Session Window", nullptr, showSessionWindow_, active))
+                showSessionWindow_ = !showSessionWindow_;
+            if (ImGui::MenuItem(session_.role() == session::Session::Role::Client
+                                    ? "Leave Session"
+                                    : "Close Session",
+                                nullptr, false, active))
+                closeSession();
+            ImGui::EndMenu();
+        }
+
         if (hasProject_ && ImGui::BeginMenu("Tools")) {
             if (ImGui::MenuItem("Material Editor...")) showMaterialEditor_ = true;
             if (ImGui::MenuItem("Menu Editor...")) showMenusEditor_ = true;
@@ -1030,6 +1056,56 @@ void App::drawToolbar() {
                            p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
                     c, label);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+    }
+
+    // Collaboration session chip (same pattern as the LIVE chip): hidden when
+    // idle, green "SESSION (n)" while hosting, blue "JOINED" as a client,
+    // amber while connecting/syncing. Click opens the Session window.
+    {
+        const auto st = session_.state();
+        if (st != session::Session::State::Idle &&
+            st != session::Session::State::Error) {
+            char label[32] = "SESSION";
+            ImU32 c = IM_COL32(240, 175, 70, 255);
+            const char* tip = "Connecting...";
+            switch (st) {
+                case session::Session::State::Listening: {
+                    const int others = (int)sessionPeers_.size() - 1;
+                    std::snprintf(label, sizeof(label), "SESSION (%d)",
+                                  others < 0 ? 0 : others);
+                    c = IM_COL32(95, 200, 115, 255);
+                    tip = "Hosting a live session - click for peers / kick / "
+                          "close.";
+                    break;
+                }
+                case session::Session::State::Live:
+                    std::snprintf(label, sizeof(label), "JOINED");
+                    c = IM_COL32(80, 160, 245, 255);
+                    tip = "Joined a live session - the host owns saving. Click "
+                          "for the Session window.";
+                    break;
+                default:  // Starting / Connecting / Syncing
+                    std::snprintf(label, sizeof(label), "SYNC");
+                    tip = "Session is starting up / transferring the project.";
+                    break;
+            }
+            ImGui::SameLine(0.0f, gapGroup);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float dotR = h * 0.14f;
+            const float textW = ImGui::CalcTextSize(label).x;
+            if (ImGui::InvisibleButton("##tb_session",
+                                       ImVec2(dotR * 2.0f + 4.0f + textW, h)))
+                showSessionWindow_ = true;
+            if (ImGui::IsItemHovered())
+                dl->AddRectFilled(p, ImVec2(p.x + dotR * 2.0f + 4.0f + textW, p.y + h),
+                                  ImGui::GetColorU32(ImGuiCol_ButtonHovered), round);
+            dl->AddCircleFilled(ImVec2(p.x + dotR, p.y + h * 0.5f), dotR, c);
+            dl->AddText(ImVec2(p.x + dotR * 2.0f + 4.0f,
+                               p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
+                        c, label);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+        }
     }
 
     // Dropdown menus for the two Play carets (anchored just under each caret).
@@ -2310,6 +2386,9 @@ void App::performPendingAction() {
         case PendingAction::New:
             openNewProjectPopup_ = true;
             break;
+        case PendingAction::JoinSession:
+            openJoinSessionPopup_ = true;
+            break;
         case PendingAction::None:
             break;
     }
@@ -2350,6 +2429,318 @@ void App::drawDiscardModal() {
         }
         ImGui::EndPopup();
     }
+}
+
+// --- Collaboration session -------------------------------------------------
+// The Session (session.hpp) runs the network side on a worker thread; this
+// block is the UI half: per-frame event drain, the Host/Join modals, the
+// Session window and the project handoff when a join finishes syncing.
+
+// Peer colors, indexed by PeerView::colorIdx (host = 0). Used by the Session
+// window rows and (later) the viewport presence highlights.
+static const ImU32 kPeerColors[session::kMaxPeers] = {
+    IM_COL32(95, 200, 115, 255),   // 0 host - green
+    IM_COL32(80, 160, 245, 255),   // blue
+    IM_COL32(240, 175, 70, 255),   // amber
+    IM_COL32(225, 100, 210, 255),  // magenta
+    IM_COL32(90, 210, 205, 255),   // teal
+    IM_COL32(245, 130, 100, 255),  // coral
+    IM_COL32(180, 150, 250, 255),  // violet
+    IM_COL32(215, 205, 95, 255),   // olive
+};
+
+void App::sessionTick() {
+    // Cheap when idle: one mutex-guarded empty drain + a small vector copy.
+    for (auto& e : session_.drainEvents()) {
+        switch (e.type) {
+            case session::AppEvent::Type::PeerJoined:
+                statusMessage_ = e.peer.name + " joined the session";
+                break;
+            case session::AppEvent::Type::PeerLeft:
+                statusMessage_ = e.peer.name + (e.text == "kicked"  ? " was kicked"
+                                                : e.text == "timeout"
+                                                    ? " timed out"
+                                                    : " left the session");
+                break;
+            case session::AppEvent::Type::SyncDone:
+                openRemoteProject(e.text);
+                break;
+            case session::AppEvent::Type::Ended:
+                // The worker is already winding down; join it and reset.
+                session_.close();
+                if (joinModalVisible_) {
+                    sessionError_ = e.text;  // shown inline in the join modal
+                } else {
+                    sessionEndedText_ = e.text;
+                    openSessionEndedPopup_ = true;
+                }
+                break;
+            case session::AppEvent::Type::Frame:
+                // Edit/presence frames - handled by the live-sync layer.
+                break;
+        }
+    }
+    sessionPeers_ = session_.peers();
+}
+
+void App::requestJoinSession() {
+    if (hasProject_ && dirty_) {
+        pendingAction_ = PendingAction::JoinSession;
+        openDiscardPopup_ = true;
+    } else {
+        openJoinSessionPopup_ = true;
+    }
+}
+
+void App::startHostSession() {
+    // Pre-projectId projects get their id now (persists on the next save);
+    // fresh pastes get object ids so the model snapshot is complete.
+    project::ensureProjectId(project_);
+    project::ensureObjectIds(project_);
+    session::HostConfig cfg;
+    cfg.port = (uint16_t)sessionPort_;
+    cfg.joinCode = sessionCode_;
+    cfg.displayName = sessionName_;
+    cfg.projectDir = project_.dir;
+    cfg.projectId = project_.projectId;
+    cfg.projectName = project_.name;
+    cfg.modelFiles = project::manifestFiles(project_);
+    session_.host(std::move(cfg));
+    showSessionWindow_ = true;
+    statusMessage_ = "Hosting session";
+}
+
+void App::closeSession() {
+    const bool wasClient = session_.role() == session::Session::Role::Client;
+    session_.close();
+    showSessionWindow_ = false;
+    // A client keeps the synced project open as a local snapshot.
+    statusMessage_ = wasClient ? "Left the session" : "Session closed";
+}
+
+void App::openRemoteProject(const std::string& dir) {
+    Project p;
+    const std::string err = project::load(p, dir);
+    if (!err.empty()) {
+        session_.close();
+        sessionEndedText_ = "Failed to open the synced project: " + err;
+        openSessionEndedPopup_ = true;
+        return;
+    }
+    project_ = p;
+    hasProject_ = true;
+    applyProjectToViewport();
+    sessionAttachKeep_ = true;  // attachProject must not close the session
+    attachProject();
+    sessionAttachKeep_ = false;
+    showSessionWindow_ = true;
+    statusMessage_ = "Joined session: " + project_.name;
+}
+
+// Seed the display-name field once per modal open: USERNAME is right far more
+// often than an empty box.
+static void seedSessionName(char* buf, size_t n) {
+    if (buf[0]) return;
+    const char* u = getenv("USERNAME");
+    std::snprintf(buf, n, "%s", (u && *u) ? u : "user");
+}
+
+void App::drawHostSessionModal() {
+    if (openHostSessionPopup_) {
+        ImGui::OpenPopup("Host Session");
+        openHostSessionPopup_ = false;
+        seedSessionName(sessionName_, sizeof(sessionName_));
+        if (!sessionCode_[0])
+            std::snprintf(sessionCode_, sizeof(sessionCode_), "%s",
+                          session::newJoinCode().c_str());
+    }
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Host Session", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted(
+            ("Host \"" + project_.name + "\" as a live session.").c_str());
+        ImGui::Spacing();
+        ImGui::SetNextItemWidth(scaled(220));
+        ImGui::InputText("Your name", sessionName_, sizeof(sessionName_));
+        ImGui::SetNextItemWidth(scaled(110));
+        ImGui::InputInt("Port", &sessionPort_, 0, 0);
+        sessionPort_ = ImClamp(sessionPort_, 1024, 65535);
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("Join code: %s", sessionCode_);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("New code"))
+            std::snprintf(sessionCode_, sizeof(sessionCode_), "%s",
+                          session::newJoinCode().c_str());
+        ImGui::Spacing();
+        const auto ips = wire::localIPv4();
+        if (!ips.empty()) {
+            ImGui::TextDisabled("Peers connect to:");
+            for (const auto& ip : ips)
+                ImGui::TextDisabled("  %s:%d", ip.c_str(), sessionPort_);
+        }
+        ImGui::TextDisabled(
+            "Windows Firewall may ask for permission on the first start.");
+        ImGui::Spacing();
+        if (ImGui::Button("Start hosting", ImVec2(scaled(120), 0))) {
+            startHostSession();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+            ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+}
+
+void App::drawJoinSessionModal() {
+    if (openJoinSessionPopup_) {
+        ImGui::OpenPopup("Join Session");
+        openJoinSessionPopup_ = false;
+        seedSessionName(sessionName_, sizeof(sessionName_));
+        sessionError_.clear();
+    }
+    joinModalVisible_ = false;
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Join Session", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        joinModalVisible_ = true;
+        const auto st = session_.state();
+        const bool busy = st == session::Session::State::Connecting ||
+                          st == session::Session::State::Syncing ||
+                          st == session::Session::State::Starting;
+        if (busy) {
+            const auto prog = session_.syncProgress();
+            if (st == session::Session::State::Syncing && prog.filesTotal > 0) {
+                ImGui::Text("Transferring project: %d / %d files", prog.filesDone,
+                            prog.filesTotal);
+                const float frac =
+                    prog.bytesTotal
+                        ? (float)((double)prog.bytesDone / (double)prog.bytesTotal)
+                        : 1.0f;
+                char overlay[64];
+                std::snprintf(overlay, sizeof(overlay), "%.1f / %.1f MB",
+                              prog.bytesDone / 1048576.0, prog.bytesTotal / 1048576.0);
+                ImGui::ProgressBar(frac, ImVec2(scaled(320), 0), overlay);
+                if (!prog.currentFile.empty())
+                    ImGui::TextDisabled("%s", prog.currentFile.c_str());
+            } else {
+                ImGui::TextUnformatted(st == session::Session::State::Connecting
+                                           ? "Connecting..."
+                                           : "Preparing transfer...");
+            }
+            ImGui::Spacing();
+            if (ImGui::Button("Cancel")) {
+                session_.close();
+                ImGui::CloseCurrentPopup();
+            }
+        } else if (st == session::Session::State::Live) {
+            // Sync finished; sessionTick opened the project - close quietly.
+            ImGui::CloseCurrentPopup();
+        } else {
+            ImGui::SetNextItemWidth(scaled(220));
+            ImGui::InputText("Host address", sessionAddr_, sizeof(sessionAddr_));
+            ImGui::SetNextItemWidth(scaled(110));
+            ImGui::InputInt("Port", &sessionPort_, 0, 0);
+            sessionPort_ = ImClamp(sessionPort_, 1024, 65535);
+            ImGui::SetNextItemWidth(scaled(110));
+            ImGui::InputText("Join code", sessionCode_, sizeof(sessionCode_));
+            ImGui::SetNextItemWidth(scaled(220));
+            ImGui::InputText("Your name", sessionName_, sizeof(sessionName_));
+            if (!sessionError_.empty())
+                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s",
+                                   sessionError_.c_str());
+            ImGui::Spacing();
+            if (ImGui::Button("Join", ImVec2(scaled(120), 0))) {
+                sessionError_.clear();
+                session::JoinConfig cfg;
+                cfg.address = sessionAddr_;
+                cfg.port = (uint16_t)sessionPort_;
+                cfg.joinCode = sessionCode_;
+                cfg.displayName = sessionName_;
+                session_.join(std::move(cfg));
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+                ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
+void App::drawSessionEndedModal() {
+    if (openSessionEndedPopup_) {
+        ImGui::OpenPopup("Session");
+        openSessionEndedPopup_ = false;
+    }
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Session", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted(sessionEndedText_.c_str());
+        if (session_.role() == session::Session::Role::None && hasProject_)
+            ImGui::TextDisabled(
+                "The project stays open as a local copy on this machine.");
+        ImGui::Spacing();
+        if (ImGui::Button("OK", ImVec2(scaled(90), 0)) ||
+            ImGui::IsKeyPressed(ImGuiKey_Escape))
+            ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+}
+
+void App::drawSessionWindow() {
+    if (!showSessionWindow_) return;
+    if (!session_.active()) {
+        showSessionWindow_ = false;
+        return;
+    }
+    ImGui::SetNextWindowSize(ImVec2(scaled(340), scaled(260)), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Session", &showSessionWindow_)) {
+        ImGui::End();
+        return;
+    }
+    const bool hosting = session_.role() == session::Session::Role::Host;
+    if (hosting) {
+        ImGui::Text("Hosting \"%s\"", project_.name.c_str());
+        ImGui::Text("Port %d - join code %s", sessionPort_, sessionCode_);
+        for (const auto& ip : wire::localIPv4())
+            ImGui::TextDisabled("  %s:%d", ip.c_str(), sessionPort_);
+    } else {
+        ImGui::Text("Joined \"%s\" @ %s", project_.name.c_str(), sessionAddr_);
+        ImGui::TextDisabled("The host owns saving and committing.");
+    }
+    ImGui::Separator();
+    ImGui::TextDisabled("Participants");
+    for (const auto& peer : sessionPeers_) {
+        ImGui::PushID(peer.id);
+        const ImU32 c = kPeerColors[peer.colorIdx % session::kMaxPeers];
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float r = ImGui::GetTextLineHeight() * 0.32f;
+        dl->AddCircleFilled(ImVec2(p.x + r, p.y + ImGui::GetTextLineHeight() * 0.55f),
+                            r, c);
+        ImGui::Dummy(ImVec2(r * 2.0f + 4.0f, 0));
+        ImGui::SameLine();
+        ImGui::TextUnformatted(peer.name.c_str());
+        if (peer.id == 0) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("(host)");
+        }
+        if (hosting && peer.id != 0) {
+            if (!peer.address.empty()) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s", peer.address.c_str());
+            }
+            ImGui::SameLine(ImGui::GetContentRegionAvail().x - scaled(30));
+            if (ImGui::SmallButton("Kick")) session_.kickPeer(peer.id);
+        }
+        ImGui::PopID();
+    }
+    ImGui::Separator();
+    if (ImGui::Button(hosting ? "Close session" : "Leave session")) closeSession();
+    ImGui::End();
 }
 
 void App::applySnapshot(const SceneSnapshot& s) {
@@ -2522,6 +2913,15 @@ void App::pasteObject() {
 }
 
 void App::attachProject() {
+    // A project switch ends any live session - the session is bound to the
+    // project it was started on. The join flow is the one exception: it
+    // attaches the freshly synced remote project with the session kept alive
+    // (openRemoteProject sets sessionAttachKeep_ around this call).
+    if (!sessionAttachKeep_ && session_.active()) {
+        session_.close();
+        statusMessage_ = "Session closed";
+    }
+
     // Emulator path and PS2 IP are machine-global editor settings (editor.ini),
     // not project data. Migrate any value carried by an older .tyra file into
     // the global config the first time such a project is opened, then feed the
