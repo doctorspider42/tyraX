@@ -13782,6 +13782,13 @@ void App::drawPreferencesModal() {
     const char* profileNames[] = {"Release", "Debug"};
     if (ImGui::Combo("Profile", &profile, profileNames, 2))
         prefSettings_.buildProfile = profile == 1 ? "debug" : "release";
+    ImGui::Checkbox("Keyboard && mouse controls", &prefSettings_.keyboardMouse);
+    ImGui::TextDisabled(
+        "The game loads the USB keyboard/mouse drivers: WASD walks, the\n"
+        "mouse looks, E uses, Space jumps, Esc pauses, arrows + Enter drive\n"
+        "menus (bindings live in inc/controls.hpp). Works in PCSX2 (the\n"
+        "editor sets its emulated USB devices automatically) and with real\n"
+        "USB devices on a console. Skipped on ps2link deploys.");
     ImGui::Checkbox("Disable VSync (experimental)", &prefSettings_.disableVsync);
     ImGui::TextDisabled(
         "Skips the vsync wait before the buffer flip. The frame rate becomes\n"

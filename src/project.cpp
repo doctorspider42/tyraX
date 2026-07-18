@@ -623,6 +623,8 @@ std::string save(const Project& p) {
          << (p.settings.showProfiler ? "true" : "false") << ",\n"
          << "    \"liveLink\": " << (p.settings.liveLink ? "true" : "false")
          << ",\n"
+         << "    \"keyboardMouse\": "
+         << (p.settings.keyboardMouse ? "true" : "false") << ",\n"
          << "    \"disableVsync\": "
          << (p.settings.disableVsync ? "true" : "false") << ",\n"
          << "    \"clipping\": \"" << p.settings.clipping << "\",\n"
@@ -1557,6 +1559,8 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = s->find("showProfiler"))
             st.showProfiler = v->boolOr(false);
         if (const auto* v = s->find("liveLink")) st.liveLink = v->boolOr(true);
+        if (const auto* v = s->find("keyboardMouse"))
+            st.keyboardMouse = v->boolOr(true);
         if (const auto* v = s->find("disableVsync"))
             st.disableVsync = v->boolOr(false);
         if (const auto* v = s->find("clipping")) {

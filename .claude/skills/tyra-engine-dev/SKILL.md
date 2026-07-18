@@ -101,7 +101,16 @@ popEnvView`; exposed as a VRAM-resident `Texture::vramResident` that
 triangle collider) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
 TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot),
 `renderer/models/unique_id.hpp` (`generateUniqueId()`) replacing upstream's
-`rand() % 1000000` object ids (see the pitfall below), and a **quiet-halt
+`rand() % 1000000` object ids (see the pitfall below), **USB keyboard/mouse
+input** (`pad/kbd_mouse.*` — `Engine::kbdMouse` polls the PS2SDK `ps2kbd`
+(raw mode, 256-bit HID-code bitmap) and `ps2mouse` (DIFF mode: per-frame
+deltas + button mask) drivers, loaded by the IrxLoader behind
+`EngineOptions::loadUsbKbdMouse`; `Pad::injectVirtual` overlays a virtual
+pad — held buttons OR into the polled state, click edges derived from the
+previous overlay, stick offsets clamped — which is how generated games map
+keys onto the pad; **skipped under ps2link**: a second usbd on an IOP that
+may already run one wedges the USB stack, and PS2MouseInit would spin
+forever binding an RPC whose server never loaded), and a **quiet-halt
 assert** (`debug/debug.hpp` `TyraDebug::trap`): a failed `TYRA_ASSERT` /
 `TYRA_TRAP` no longer runs upstream's `init_scr()` + infinite `scr_printf` loop
 that seized the whole screen; it still prints the dump to the console / host

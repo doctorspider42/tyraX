@@ -6,7 +6,8 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
-# Modified by TyraX: demote the main thread below the audio threads
+# Modified by TyraX: demote the main thread below the audio threads;
+#                    USB keyboard/mouse device (kbdMouse)
 */
 
 #include "engine.hpp"
@@ -33,6 +34,7 @@ void Engine::run(Game* t_game) {
 
 void Engine::realLoop() {
   pad.update();
+  if (kbdMouse.isEnabled()) kbdMouse.update();
   game->loop();
   info.update();
 }
@@ -54,11 +56,18 @@ void Engine::initAll(const EngineOptions& options) {
   ChangeThreadPriority(GetThreadId(), 0x40);
 
   srand(time(nullptr));
-  irx.loadAll(options.loadUsbDriver, info.writeLogsToFile);
+  // No keyboard/mouse under ps2link: its IOP may already run usbd (ps2link
+  // is commonly booted from a USB stick) and a second USB stack wedges the
+  // first. Skipping the drivers also means PS2MouseInit() must not run - it
+  // would spin forever binding an RPC server that never loads.
+  const bool withKbdMouse =
+      options.loadUsbKbdMouse && !IrxLoader::keepIopResident;
+  irx.loadAll(options.loadUsbDriver, withKbdMouse, info.writeLogsToFile);
   renderer.init(options.videoMode, options.displayMode, options.widescreen);
   banner.show(&renderer);
   audio.init();
   pad.init();
+  if (withKbdMouse) kbdMouse.init();
 }
 
 }  // namespace Tyra

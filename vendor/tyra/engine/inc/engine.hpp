@@ -12,6 +12,7 @@
 
 #include "./renderer/renderer.hpp"
 #include "./pad/pad.hpp"
+#include "./pad/kbd_mouse.hpp"
 #include "./audio/audio.hpp"
 #include "./irx/irx_loader.hpp"
 #include "./info/info.hpp"
@@ -28,6 +29,11 @@ struct EngineOptions {
   bool writeLogsToFile = false;
 
   bool loadUsbDriver = false;
+
+  /** Load the USB keyboard/mouse drivers (TyraX fork) and poll them each
+   * frame through Engine::kbdMouse. Games map that state onto the pad
+   * (Pad::injectVirtual) / camera themselves. */
+  bool loadUsbKbdMouse = false;
 
   /** Forced output video signal; Auto follows the console region. */
   VideoMode videoMode = VideoMode::Auto;
@@ -52,6 +58,7 @@ class Engine {
 
   Renderer renderer;
   Pad pad;
+  KbdMouse kbdMouse;
   Audio audio;
   Info info;
 

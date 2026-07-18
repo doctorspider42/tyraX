@@ -5437,6 +5437,45 @@ Each finished feature lands as its own commit.
   regen also pulled in accumulated codegen drift these samples had missed
   (VU1-clipping toggle, data-driven USE prompt, menu value strips).
 
+- (65) **Keyboard & mouse controls (USB)** - generated games are playable
+  with a USB keyboard/mouse: WASD walks, the mouse looks, E uses, Space
+  jumps, Esc pauses, arrows + Enter drive menus. Engine fork grew a
+  `KbdMouse` device (`pad/kbd_mouse.*`: libkbd raw-mode 256-bit key bitmap +
+  libmouse DIFF-mode deltas/buttons, polled in `realLoop`), `ps2kbd`/
+  `ps2mouse` IRX embeds, `IrxLoader` split (usbd / mass storage / HID) and
+  `Pad::injectVirtual` - a virtual-pad overlay that ORs held buttons into
+  the freshly polled pad, derives click edges, and offsets the sticks. The
+  generated `controls.hpp` (user-ownable) holds the whole mapping - HID key
+  codes -> pad buttons, WASD -> full left-stick deflection (deadzone/curve
+  apply as usual), mouse buttons -> pad buttons, `MOUSE_SENSITIVITY` - plus
+  `applyKeyboardMouseInput`, called first thing in both loop() templates, so
+  menus / save menu / flow *On Button* / scripts react with zero knowledge
+  of the keyboard. Mouse look bypasses the sticks: both walkers add the
+  per-frame deltas to yaw/pitch directly (no g_frameScale - deltas are
+  already per-frame; no deadzone eating slow swipes). Guarded by
+  `TYRAX_KBD_MOUSE` so an older user-owned controls.hpp keeps compiling.
+  New `ProjectSettings::keyboardMouse` (default on, in `==`, saved/loaded,
+  Preferences > Build checkbox) -> `options.loadUsbKbdMouse` in main.cpp;
+  under ps2link the engine skips the drivers (a second usbd on an IOP that
+  may already run one - ps2link booted from a USB stick - wedges the USB
+  stack, and PS2MouseInit would spin forever without its IRX). The Runner
+  now also configures PCSX2's emulated USB ports before launch
+  (`pcsx2::ensureUsbKbdMouse`, same force-policy as HostFs: USB1=hidkbd
+  bound to the host keyboard, USB2=hidmouse bound to Pointer-0). Verified
+  e2e in PCSX2 on an FPP scratch project: both drivers enumerate
+  (`KbdMouse: ... ready` in bin/log.txt), synthetic-focused W-hold walked
+  the player z 0->31 with the virtual stick visible in a debug log
+  (`ljv=0`), Space fired the example script's Cross interaction twice
+  (click edges work), and mouse capture behaves like a real FPS (PCSX2
+  hides + recenters the cursor; signs verified: cursor above center =
+  look up, right = turn right; controlled wiggle gave symmetric yaw with
+  no drift). Docker build clean incl. the engine rebuild (-lkbd -lmouse).
+  Caveat: mouse BUTTONS never registered under synthetic input
+  (SendInput/PostMessage with verified focus; motion worked throughout) -
+  they may require real hardware events in PCSX2, so LMB/RMB/MMB need a
+  hands-on click test; keyboard covers every mapped action meanwhile.
+  Editor GUI checkbox is compile-verified only (stock ImGui pattern).
+
 ## Backlog (rough order)
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)

@@ -20,4 +20,11 @@ enum class HostFsResult { AlreadyEnabled, Enabled, WriteFailed };
 // (the PCSX2 default), so it is added when absent.
 HostFsResult ensureHostFs(const std::filesystem::path& ini);
 
+// Configures PCSX2's emulated USB devices for the keyboard & mouse project
+// preference: [USB1] becomes a HID keyboard bound to the host keyboard and
+// [USB2] a HID mouse bound to the host pointer, matching the ps2kbd/ps2mouse
+// drivers the generated game loads. Overwrites whatever occupied the ports
+// (logged by the caller) - same policy as ensureHostFs.
+HostFsResult ensureUsbKbdMouse(const std::filesystem::path& ini);
+
 }  // namespace pcsx2

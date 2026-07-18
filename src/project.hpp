@@ -400,6 +400,15 @@ struct ProjectSettings {
     // for anyone who does not want their debug builds patched from outside.
     bool liveLink = true;
 
+    // USB keyboard & mouse controls: the game loads the usbd/ps2kbd/ps2mouse
+    // drivers and maps keys/mouse onto a virtual pad (bindings live in the
+    // generated controls.hpp). Works in PCSX2 (the editor configures its
+    // emulated USB devices before launch) and with real USB devices on a
+    // console. Skipped automatically on ps2link deploys - a second usbd on
+    // an IOP that may already run one (ps2link booted from a USB stick)
+    // wedges the USB stack.
+    bool keyboardMouse = true;
+
     // Experimental: skip the vsync wait before the buffer flip. Frame rate
     // becomes continuous instead of quantized to 50/25 (PAL), at the cost
     // of screen tearing. Gameplay speed is unaffected either way - the
@@ -538,6 +547,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler &&
            a.liveLink == b.liveLink &&
+           a.keyboardMouse == b.keyboardMouse &&
            a.disableVsync == b.disableVsync &&
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
            a.meshLodDistance == b.meshLodDistance &&

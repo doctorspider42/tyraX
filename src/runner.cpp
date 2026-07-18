@@ -298,6 +298,25 @@ bool Runner::launchPCSX2(const Project& p) {
             case pcsx2::HostFsResult::AlreadyEnabled:
                 break;
         }
+        // Keyboard & mouse preference: point PCSX2's emulated USB ports at
+        // the host keyboard/pointer so the ps2kbd/ps2mouse drivers the game
+        // loads see real devices. Only touched while the preference is on.
+        if (p.settings.keyboardMouse) {
+            switch (pcsx2::ensureUsbKbdMouse(ini)) {
+                case pcsx2::HostFsResult::Enabled:
+                    appendLine(
+                        "[editor] Configured PCSX2 USB ports for keyboard & "
+                        "mouse (USB1 = keyboard, USB2 = mouse).");
+                    break;
+                case pcsx2::HostFsResult::WriteFailed:
+                    appendLine("[editor] Could not update " + ini.string() +
+                               " - set USB Port 1 to 'HID Keyboard' and USB "
+                               "Port 2 to 'HID Mouse' in PCSX2 manually.");
+                    break;
+                case pcsx2::HostFsResult::AlreadyEnabled:
+                    break;
+            }
+        }
     }
 
     appendLine("[editor] Launching PCSX2: " + exe);
