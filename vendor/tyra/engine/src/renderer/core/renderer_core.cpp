@@ -32,6 +32,8 @@ void RendererCore::init(VideoMode videoMode, DisplayMode displayMode,
   postFx.init(&settings, &gs);
   // Same rule for the dynamic env map's render target (TyraX fork).
   envMap.init(&settings, &gs, &sync, &path1);
+  // Split-screen viewports (TyraX fork) - no VRAM, just raster brackets.
+  splitView.init(&settings, &gs, &sync, &path1);
   texture.init(&gs, &path3);
   renderer3D.init(&settings, &path1);
   renderer2D.init(&settings, &texture.clut);

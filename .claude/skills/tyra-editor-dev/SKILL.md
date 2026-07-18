@@ -151,6 +151,18 @@ runtime-latch machinery: every `flowCustomNode(...)` check on that path also
 accepts `type == "Raycast"` — a new built-in node with runtime outputs should
 extend those same spots.)
 
+**Player / two-player work** (docs/multiplayer.md): the generated game's
+walker state is a per-player `PlayerCtl` struct (`players[2]` in the game hpp
+templates) and the walker is `updatePlayerWalker(PlayerCtl&, pi, Tyra::Pad&)`
+in `TPL_GAME_CPP_SCENE` — NOT the old loose `entX/entYaw/...` members. The
+scene tables come in pairs (`PLAYER_*` / `PLAYER2_*`, first/second Player
+object per scene) selected via the `PP_*(pi)` macros in scene_data.hpp; a new
+per-player Player-object property must be added to the paired table emitter
+(one loop emits both prefixes) and read through a new `PP_` macro.
+`ProjectSettings::multiplayer` ("off"/"shared"/"split") + `p2JoinOnStart`
+gate everything; menu bind 7 = Player count (edge-triggered +
+`syncPlayerCountMenuValue` write-back).
+
 **New project preference** (travels with the `.tyra`, part of the game) →
 `ProjectSettings` → save/load in project.cpp → the *Project* Preferences dialog
 (`drawPreferencesModal`) in app.cpp → usually a constant baked into

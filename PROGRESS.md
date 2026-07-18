@@ -9,7 +9,44 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-<<<<<<< HEAD
+- (113) **Two-player games: shared screen + split screen, runtime join/leave.**
+  `ProjectSettings::multiplayer` ("off"/"shared"/"split", *Preferences >
+  Multiplayer*) + `p2JoinOnStart`; player 2 is the scene's **second Player
+  object** (scene order picks the slots; the Player properties panel says
+  which is which). The single-player walker state (`entX/entYaw/...`,
+  `camBoom`, clip indices) is hoisted into a per-player `PlayerCtl` struct
+  and the walker is parameterized (`updatePlayerWalker(PlayerCtl&, pi,
+  Tyra::Pad&)`) - all three modes (walk/noclip/third person) work per
+  player, with per-player tuning from new `PLAYER2_*` scene tables +
+  `PP_*(pi)` selection macros in scene_data.hpp. **Shared screen**: one
+  camera orbits the pair's midpoint (P1's right stick), boom stretched by
+  separation, spring-armed like the solo boom. **Split screen**: new engine
+  `RendererCoreSplitView` (env-map-style raster bracket: PATH1 drain +
+  XYOFFSET shift + SCISSOR + per-half color/z clear - a vertical *crop* of
+  the unchanged full-screen projection, so proportions are exact), camera
+  swapped between halves via `renderer3D.update()` (frustum follows per
+  mesh). Engine `Pad` gains `initOptional(port)` - padInit is once-global,
+  a missing controller no longer blocks/asserts (upstream `update()`
+  busy-waited forever), and it keeps polling: **hot-join**. Runtime switch
+  both ways: Start on pad 2 joins; a new **Player count (1P/2P)** menu
+  option block (bind 7, edge-triggered + write-back so the row and pad-2
+  joins never fight) toggles anytime; scene switches keep P2 while the new
+  scene has a second Player. Cutscene overrides suspend the split; the env
+  map pauses refresh during split halves (its bracket restores a full-screen
+  raster); HUD/menus/post-fx stay full-screen (documented v1 limits in
+  `docs/multiplayer.md`). ScriptContext gains `player2Active/player2Position`
+  (the "nearest player" seam for the NavMesh PR). Verified: editor builds
+  clean; headless harness (scratch project with two Players, split mode, the
+  menu block) round-trips save/load incl. the new fields and
+  `refreshGenerated` emits the PLAYER2 tables / split render path / bind 7
+  row; full Docker build (engine + game) compiles; PCSX2 boots and the
+  keyboard-driven pad-1 menu toggle flips full-screen 1P <-> top/bottom
+  split with both cameras live (F8 screenshots). Pad-2 hot-join and shared
+  mode's feel still want a hands-on two-controller test. Docs: README,
+  `docs/multiplayer.md`, editor + engine + testing skills.
+  *(While here: PROGRESS.md carried a committed, unresolved merge conflict
+  from c96caaa - markers removed; the two (104)-(107) runs below came from
+  parallel branches, both kept as written.)*
 - (112) **Rounded reflection normals - flat surfaces stop reflecting "one
   pixel".** Owner's observation on the console: the mirror monolith showed
   a single uniform patch of the env map per face while the spheres "reflect

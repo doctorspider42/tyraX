@@ -646,6 +646,8 @@ std::string save(const Project& p) {
          << "    \"stickCurveR\": " << p.settings.stickCurveR << ",\n"
          << "    \"stickExpL\": " << fmtFloat(p.settings.stickExpL) << ",\n"
          << "    \"stickExpR\": " << fmtFloat(p.settings.stickExpR) << ",\n"
+         << "    \"multiplayer\": \"" << p.settings.multiplayer << "\",\n"
+         << "    \"p2JoinOnStart\": " << (p.settings.p2JoinOnStart ? "true" : "false") << ",\n"
          << "    \"orbitSpeed\": " << fmtFloat(p.settings.orbitSpeed) << ",\n"
          << "    \"gravity\": " << fmtFloat(p.settings.gravity) << ",\n"
          << "    \"jumpSpeed\": " << fmtFloat(p.settings.jumpSpeed) << ",\n"
@@ -984,9 +986,9 @@ std::string save(const Project& p) {
                 json << "]";
             }
             static const char* kMenuBinds[] = {
-                "",           "music-volume", "sfx-volume", "deadzone",
-                "stick-curve", "display-mode", "widescreen"};
-            if (en.settingBind >= 1 && en.settingBind <= 6)
+                "",           "music-volume", "sfx-volume",  "deadzone",
+                "stick-curve", "display-mode", "widescreen", "player-count"};
+            if (en.settingBind >= 1 && en.settingBind <= 7)
                 json << ", \"bind\": \"" << kMenuBinds[en.settingBind] << "\"";
             json << " }";
         }
@@ -1611,6 +1613,11 @@ std::string load(Project& out, const std::string& projectDir) {
         if (st.stickCurveR < 0 || st.stickCurveR > 2) st.stickCurveR = 0;
         if (st.stickExpL < 1.0f) st.stickExpL = 1.0f;
         if (st.stickExpR < 1.0f) st.stickExpR = 1.0f;
+        if (const auto* v = s->find("multiplayer")) st.multiplayer = v->stringOr("off");
+        if (st.multiplayer != "off" && st.multiplayer != "shared" &&
+            st.multiplayer != "split")
+            st.multiplayer = "off";
+        if (const auto* v = s->find("p2JoinOnStart")) st.p2JoinOnStart = v->boolOr(true);
         if (const auto* v = s->find("orbitSpeed")) st.orbitSpeed = (float)v->numberOr(1.0);
         if (const auto* v = s->find("gravity")) st.gravity = (float)v->numberOr(9.8);
         if (const auto* v = s->find("jumpSpeed")) st.jumpSpeed = (float)v->numberOr(4.5);
@@ -2288,6 +2295,7 @@ std::string load(Project& out, const std::string& projectDir) {
                             : b == "stick-curve" ? MenuEntry::BindStickCurve
                             : b == "display-mode" ? MenuEntry::BindDisplayMode
                             : b == "widescreen"  ? MenuEntry::BindWidescreen
+                            : b == "player-count" ? MenuEntry::BindPlayerCount
                                                  : MenuEntry::BindNone;
                     }
                     m.entries.push_back(std::move(en));

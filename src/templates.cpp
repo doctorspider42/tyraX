@@ -330,6 +330,15 @@ constexpr float ORBIT_SPEED = {{ORBIT_SPEED}};  // multiplier
 constexpr float GRAVITY = {{GRAVITY}};          // units/s^2
 constexpr float JUMP_SPEED = {{JUMP_SPEED}};    // units/s
 
+// Two players (Preferences > Multiplayer, docs/multiplayer.md). The mode
+// while player 2 is active: 0 = off (single player only), 1 = shared screen
+// (one camera frames both avatars), 2 = split screen (P1 top / P2 bottom).
+// Player 2 exists in scenes with a second Player object (PLAYER2_INDEXES in
+// scene_data.hpp); joins with Start on pad 2 (when enabled) or a menu
+// "Player count" option block, both mid-game.
+constexpr int MULTIPLAYER_MODE = {{MULTIPLAYER_MODE}};
+constexpr bool P2_JOIN_ON_START = {{P2_JOIN_ON_START}};
+
 // Scene switches show res/hud/loading.png on black for a moment
 constexpr bool LOADING_SCREEN = {{LOADING_SCREEN}};
 
@@ -641,24 +650,54 @@ class TerrainGame : public Tyra::Game {
   std::unique_ptr<Tyra::StaPipInfoBag> apronInfoBag;
   std::unique_ptr<Tyra::StaPipColorBag> apronColorBag;
 
-  // Player entity (PLAYER_INDEXES in scene_data.hpp); overrides the template
-  // camera when present. Returns false when the scene has no player.
+  // Player entities (PLAYER_INDEXES / PLAYER2_INDEXES in scene_data.hpp);
+  // override the template camera when present. players[0] is the scene's
+  // first Player object (P1), players[1] the second (P2 - only meaningful
+  // with MULTIPLAYER_MODE != 0, see docs/multiplayer.md).
+  struct PlayerCtl {
+    int objIndex = -1;  // scene object index, -1 = this player doesn't exist
+    float x = 0, y = 0, z = 0, velY = 0, yaw = 0, pitch = 0;
+    // Third-person only: yaw/pitch orbit the camera, faceYaw is the avatar's
+    // own facing (turns toward the walk direction). Clip indices are resolved
+    // from the model's clip table at scene load; -1 = unmapped.
+    float faceYaw = 0;
+    int idleClip = -1, walkClip = -1, runClip = -1, jumpClip = -1;
+    // Smoothed spring-arm boom length - snaps in on a hit, eases back out.
+    float boom = 0;
+    // This player's own view; the dispatcher (or the split-screen render
+    // pass) picks which of these drives the frame camera.
+    Tyra::Vec4 camPos, camLook;
+  };
+  PlayerCtl players[2];
+  // Dispatcher: walks P1 (and P2 while active), then composes the frame
+  // camera. Returns false when the scene has no player.
   bool updatePlayerEntity();
-  float entX = 0, entY = 0, entZ = 0, entVelY = 0, entYaw = 0, entPitch = 0;
-  // Third-person only: entYaw/entPitch orbit the camera, entFaceYaw is the
-  // avatar's own facing (turns toward the walk direction). Clip indices are
-  // resolved from the model's clip table at scene load; -1 = unmapped.
-  float entFaceYaw = 0;
-  int playerIdleClip = -1, playerWalkClip = -1, playerRunClip = -1, playerJumpClip = -1;
+  // Walks one player from its pad and writes its camera into camPos/camLook.
+  void updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad);
+  // Shared-screen camera: orbits (P1's right stick) around the midpoint of
+  // both players, boom stretched by their separation. Writes cameraPosition.
+  void updateSharedCamera();
+  float sharedBoom = 0;
+  // Player 2 join/leave, both mid-game: Start on pad 2 (P2_JOIN_ON_START) or
+  // a menu Toggle bound to "Player count". Shows/hides the P2 avatar.
+  void setPlayerTwoActive(bool active);
+  void syncPlayerCountMenuValue();
+  bool playerTwoActive = false;
+  Tyra::Pad pad2;              // connector 2; optional, hot-join friendly
+  int menuPlayerCountPrev = -2;  // edge detect for the menu bind
+  // True while renderScene runs inside a split-screen half: the dynamic
+  // env-map bracket restores a FULL-screen raster on end(), which would
+  // break the active half, so the env pass pauses during split rendering
+  // (the VRAM target keeps its last content).
+  bool splitPassActive = false;
   // Picks the third-person avatar's locomotion clip from its planar speed
   // (fraction of full walk speed) and grounded state, cross-fading on change.
-  void drivePlayerAnim(RuntimeObject& body, float speedFrac, bool grounded);
+  void drivePlayerAnim(PlayerCtl& P, RuntimeObject& body, float speedFrac,
+                       bool grounded);
   // Spring arm: the distance down the boom (from the head, along d) at which
-  // the camera would enter geometry or the terrain. camBoom is the smoothed
-  // boom length actually used - it snaps in on a hit and eases back out.
+  // the camera would enter geometry or the terrain.
   float springArm(float px, float py, float pz, float dx, float dy, float dz,
                   float maxDist) const;
-  float camBoom = 0;
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
@@ -1046,24 +1085,54 @@ class TerrainGame : public Tyra::Game {
   std::unique_ptr<Tyra::StaPipInfoBag> apronInfoBag;
   std::unique_ptr<Tyra::StaPipColorBag> apronColorBag;
 
-  // Player entity (PLAYER_INDEXES in scene_data.hpp); overrides the template
-  // camera when present. Returns false when the scene has no player.
+  // Player entities (PLAYER_INDEXES / PLAYER2_INDEXES in scene_data.hpp);
+  // override the template camera when present. players[0] is the scene's
+  // first Player object (P1), players[1] the second (P2 - only meaningful
+  // with MULTIPLAYER_MODE != 0, see docs/multiplayer.md).
+  struct PlayerCtl {
+    int objIndex = -1;  // scene object index, -1 = this player doesn't exist
+    float x = 0, y = 0, z = 0, velY = 0, yaw = 0, pitch = 0;
+    // Third-person only: yaw/pitch orbit the camera, faceYaw is the avatar's
+    // own facing (turns toward the walk direction). Clip indices are resolved
+    // from the model's clip table at scene load; -1 = unmapped.
+    float faceYaw = 0;
+    int idleClip = -1, walkClip = -1, runClip = -1, jumpClip = -1;
+    // Smoothed spring-arm boom length - snaps in on a hit, eases back out.
+    float boom = 0;
+    // This player's own view; the dispatcher (or the split-screen render
+    // pass) picks which of these drives the frame camera.
+    Tyra::Vec4 camPos, camLook;
+  };
+  PlayerCtl players[2];
+  // Dispatcher: walks P1 (and P2 while active), then composes the frame
+  // camera. Returns false when the scene has no player.
   bool updatePlayerEntity();
-  float entX = 0, entY = 0, entZ = 0, entVelY = 0, entYaw = 0, entPitch = 0;
-  // Third-person only: entYaw/entPitch orbit the camera, entFaceYaw is the
-  // avatar's own facing (turns toward the walk direction). Clip indices are
-  // resolved from the model's clip table at scene load; -1 = unmapped.
-  float entFaceYaw = 0;
-  int playerIdleClip = -1, playerWalkClip = -1, playerRunClip = -1, playerJumpClip = -1;
+  // Walks one player from its pad and writes its camera into camPos/camLook.
+  void updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad);
+  // Shared-screen camera: orbits (P1's right stick) around the midpoint of
+  // both players, boom stretched by their separation. Writes cameraPosition.
+  void updateSharedCamera();
+  float sharedBoom = 0;
+  // Player 2 join/leave, both mid-game: Start on pad 2 (P2_JOIN_ON_START) or
+  // a menu Toggle bound to "Player count". Shows/hides the P2 avatar.
+  void setPlayerTwoActive(bool active);
+  void syncPlayerCountMenuValue();
+  bool playerTwoActive = false;
+  Tyra::Pad pad2;              // connector 2; optional, hot-join friendly
+  int menuPlayerCountPrev = -2;  // edge detect for the menu bind
+  // True while renderScene runs inside a split-screen half: the dynamic
+  // env-map bracket restores a FULL-screen raster on end(), which would
+  // break the active half, so the env pass pauses during split rendering
+  // (the VRAM target keeps its last content).
+  bool splitPassActive = false;
   // Picks the third-person avatar's locomotion clip from its planar speed
   // (fraction of full walk speed) and grounded state, cross-fading on change.
-  void drivePlayerAnim(RuntimeObject& body, float speedFrac, bool grounded);
+  void drivePlayerAnim(PlayerCtl& P, RuntimeObject& body, float speedFrac,
+                       bool grounded);
   // Spring arm: the distance down the boom (from the head, along d) at which
-  // the camera would enter geometry or the terrain. camBoom is the smoothed
-  // boom length actually used - it snaps in on a hit and eases back out.
+  // the camera would enter geometry or the terrain.
   float springArm(float px, float py, float pz, float dx, float dy, float dz,
                   float maxDist) const;
-  float camBoom = 0;
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
@@ -2067,6 +2136,11 @@ void TerrainGame::init() {
 
   engine->renderer.setClearScreenColor(Color(SKY_R, SKY_G, SKY_B));
 
+  // Two-player modes: open pad 2 (connector 2). Optional - no controller
+  // there never blocks or asserts; it keeps polling so player 2 can plug in
+  // and join mid-game (Start, see the loop).
+  if (MULTIPLAYER_MODE != 0) pad2.initOptional(1);
+
   cameraLookAt = Vec4(0.0F, 0.0F, 0.0F);
   updateCameraOrbit();
 
@@ -2114,6 +2188,8 @@ void TerrainGame::init() {
 
 void TerrainGame::loop() {
   updateFrameClock();  // real dt: frame drops slow the picture, not the game
+  // The engine pumps pad 1; pad 2 is ours (optional - polls for a hot-join).
+  if (MULTIPLAYER_MODE != 0) pad2.update();
 
   // Boot sequence (the engine holds the Tyra logo ~2s before this):
   //   phase 0 - boot splash images, each shown for its duration (in order),
@@ -2168,12 +2244,23 @@ void TerrainGame::loop() {
   // setting keeps applying, and before applyVideoRequests so a display switch
   // it requests lands this frame.
   applyMenuBindings();
+  // Player 2 hot-join: Start on pad 2, any time gameplay owns the pads.
+  // Leaving goes through a menu "Player count" Toggle (setPlayerTwoActive).
+  if (MULTIPLAYER_MODE != 0 && P2_JOIN_ON_START && !menuOwnsPad &&
+      !playerTwoActive && pad2.getClicked().Start)
+    setPlayerTwoActive(true);
   if (!menuOwnsPad) {
     if (!updatePlayerEntity()) updateCameraOrbit();
     updateUseTarget();
   }
 
   scriptCtx.playerPosition = cameraPosition;
+  scriptCtx.player2Active =
+      MULTIPLAYER_MODE != 0 && playerTwoActive && players[1].objIndex >= 0;
+  scriptCtx.player2Position =
+      scriptCtx.player2Active
+          ? Vec4(players[1].x, players[1].y + PP_EYE_HEIGHT(1), players[1].z)
+          : scriptCtx.playerPosition;
   {
     // View direction for the scripts (Raycast flow node)
     Vec4 look = cameraLookAt - cameraPosition;
@@ -2220,15 +2307,24 @@ void TerrainGame::loop() {
   updateLayerStreaming();
 
   // Flow graph / script teleport request (needs a Player entity - the orbit
-  // camera itself is not teleportable)
+  // camera itself is not teleportable). Teleports P1; an active P2 comes
+  // along, dropped a step to the side so the two don't interpenetrate.
   if (scriptCtx.teleport) {
     scriptCtx.teleport = false;
     if (PLAYER_INDEX >= 0) {
-      entX = scriptCtx.teleportPos.x;
-      entY = scriptCtx.teleportPos.y;
-      entZ = scriptCtx.teleportPos.z;
-      entVelY = 0.0F;
-      entYaw = scriptCtx.teleportYaw * PI / 180.0F;
+      players[0].x = scriptCtx.teleportPos.x;
+      players[0].y = scriptCtx.teleportPos.y;
+      players[0].z = scriptCtx.teleportPos.z;
+      players[0].velY = 0.0F;
+      players[0].yaw = scriptCtx.teleportYaw * PI / 180.0F;
+      if (playerTwoActive && players[1].objIndex >= 0) {
+        players[1].x = players[0].x + 1.2F;
+        players[1].z = players[0].z;
+        players[1].y = PP_MODE(1) == 1 ? players[0].y
+                                       : terrainHeightAt(players[1].x, players[1].z);
+        players[1].velY = 0.0F;
+        players[1].yaw = players[0].yaw;
+      }
     }
   }
 
@@ -2302,6 +2398,9 @@ void TerrainGame::loop() {
   // (applied after scripts so the sequence player's flag wins).
   if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2)
     runtimeObjects[PLAYER_INDEX].visible = !scriptCtx.hidePlayer;
+  if (players[1].objIndex >= 0 && PP_MODE(1) == 2)
+    runtimeObjects[players[1].objIndex].visible =
+        !scriptCtx.hidePlayer && playerTwoActive;
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
   // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
   // switch rebuilds the VRAM layout between frames. A switch closes any
@@ -2323,7 +2422,35 @@ void TerrainGame::loop() {
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
-    renderScene();
+    // Split screen (two players): the scene renders twice, top half from
+    // P1's camera and bottom half from P2's (players[1].camPos, written by
+    // its walker). A cutscene camera override takes the whole screen. HUD /
+    // menus / post fx stay full-screen, drawn after splitView.end().
+    const bool splitFrame = MULTIPLAYER_MODE == 2 && playerTwoActive &&
+                            players[1].objIndex >= 0 &&
+                            !scriptCtx.cameraOverride;
+    if (splitFrame) {
+      auto& core = engine->renderer.core;
+      splitPassActive = true;
+      core.splitView.begin(0, scriptCtx.skyColor);
+      renderScene();
+      // Swap the whole camera state to P2: renderScene reads cameraPosition
+      // (sky dome centering, LOD, streaming focus), and the renderer needs
+      // the second half's view matrix + frustum planes.
+      const Vec4 savedPos = cameraPosition, savedLook = cameraLookAt;
+      cameraPosition = players[1].camPos;
+      cameraLookAt = players[1].camLook;
+      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
+      core.splitView.begin(1, scriptCtx.skyColor);
+      renderScene();
+      core.splitView.end();
+      cameraPosition = savedPos;
+      cameraLookAt = savedLook;
+      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
+      splitPassActive = false;
+    } else {
+      renderScene();
+    }
     // Depth of field composites right after the 3D scene, BEFORE any 2D:
     // sprites stamp z = max across their whole rect (transparent margins
     // included), which would punch sharp rectangles into a later z-tested
@@ -3669,38 +3796,51 @@ void TerrainGame::loadScene(int sceneIndex) {
   scriptCtx.usedObject = -1;
   useTargetIndex = -1;
 
-  // Player entity start state for this scene
-  if (PLAYER_INDEX >= 0 && PLAYER_INDEX < SCENE_OBJECT_COUNT) {
-    entX = SCENE_OBJECTS[PLAYER_INDEX].position[0];
-    entZ = SCENE_OBJECTS[PLAYER_INDEX].position[2];
-    entY = PLAYER_MODE == 1 ? SCENE_OBJECTS[PLAYER_INDEX].position[1]
-                            : terrainHeightAt(entX, entZ);
-    entYaw = SCENE_OBJECTS[PLAYER_INDEX].rotation[1] * PI / 180.0F;
-    entVelY = 0.0F;
-    entPitch = 0.0F;
+  // Player entity start state for this scene. players[0] = the first Player
+  // object (P1), players[1] = the second (P2 of the two-player modes; -1
+  // when the scene has only one). Player 2 stays active across scene
+  // switches as long as the new scene can host it.
+  if (playerTwoActive && PLAYER2_INDEX < 0) {
+    playerTwoActive = false;
+    syncPlayerCountMenuValue();
+  }
+  sharedBoom = 0.0F;
+  for (int pi = 0; pi < 2; ++pi) {
+    PlayerCtl& P = players[pi];
+    P.objIndex = PP_INDEX(pi) < SCENE_OBJECT_COUNT ? PP_INDEX(pi) : -1;
+    if (P.objIndex < 0) continue;
+    P.x = SCENE_OBJECTS[P.objIndex].position[0];
+    P.z = SCENE_OBJECTS[P.objIndex].position[2];
+    P.y = PP_MODE(pi) == 1 ? SCENE_OBJECTS[P.objIndex].position[1]
+                           : terrainHeightAt(P.x, P.z);
+    P.yaw = SCENE_OBJECTS[P.objIndex].rotation[1] * PI / 180.0F;
+    P.velY = 0.0F;
+    P.pitch = 0.0F;
     // Third person: the avatar starts facing its authored yaw and its
     // locomotion clip names resolve to the model's clip indices. The Player
     // object is a rendered avatar only in this mode - in FPP/noclip its model
     // (if any) is never built, so its runtime object stays invisible here.
-    entFaceYaw = entYaw;
-    camBoom = PLAYER_CAM_DIST;  // start fully extended, not easing out from 0
-    runtimeObjects[PLAYER_INDEX].visible = (PLAYER_MODE == 2);
-    if (PLAYER_MODE == 2) {
+    // The P2 avatar shows only while player 2 is actually in the game.
+    P.faceYaw = P.yaw;
+    P.boom = PP_CAM_DIST(pi);  // start fully extended, not easing out from 0
+    runtimeObjects[P.objIndex].visible =
+        PP_MODE(pi) == 2 && (pi == 0 || playerTwoActive);
+    if (PP_MODE(pi) == 2) {
       // Idle/walk fall back to the model's first clip when unset; run/jump are
       // optional, so an empty name stays unmapped (-1) instead of clip 0.
-      playerIdleClip = resolveClipIndex(PLAYER_INDEX, PLAYER_IDLE_CLIP);
-      playerWalkClip = resolveClipIndex(PLAYER_INDEX, PLAYER_WALK_CLIP);
-      playerRunClip =
-          PLAYER_RUN_CLIP[0] ? resolveClipIndex(PLAYER_INDEX, PLAYER_RUN_CLIP) : -1;
-      playerJumpClip =
-          PLAYER_JUMP_CLIP[0] ? resolveClipIndex(PLAYER_INDEX, PLAYER_JUMP_CLIP) : -1;
+      P.idleClip = resolveClipIndex(P.objIndex, PP_IDLE_CLIP(pi));
+      P.walkClip = resolveClipIndex(P.objIndex, PP_WALK_CLIP(pi));
+      P.runClip =
+          PP_RUN_CLIP(pi)[0] ? resolveClipIndex(P.objIndex, PP_RUN_CLIP(pi)) : -1;
+      P.jumpClip =
+          PP_JUMP_CLIP(pi)[0] ? resolveClipIndex(P.objIndex, PP_JUMP_CLIP(pi)) : -1;
       // Start ON the idle clip so drivePlayerAnim recognizes it as a locomotion
       // pose from frame one. Without this, setupAnimObject's default (clip 0)
       // would look like a scripted one-shot when idle isn't clip 0, and a
       // looping clip 0 would wedge locomotion off (animFinished never fires).
-      if (playerIdleClip >= 0 && objectGeometry[PLAYER_INDEX].animInst) {
-        RuntimeObject& body = runtimeObjects[PLAYER_INDEX];
-        body.animClip = playerIdleClip;
+      if (P.idleClip >= 0 && objectGeometry[P.objIndex].animInst) {
+        RuntimeObject& body = runtimeObjects[P.objIndex];
+        body.animClip = P.idleClip;
         body.animLoop = true;
         body.animPlaying = true;
         body.animRestart = true;
@@ -4179,10 +4319,10 @@ void TerrainGame::doSave(int slot) {
   // otherwise derived from the camera (the FPP template player; the orbit
   // camera simply ignores the restore).
   if (PLAYER_INDEX >= 0) {
-    d.playerPos[0] = entX;
-    d.playerPos[1] = entY;
-    d.playerPos[2] = entZ;
-    d.playerYaw = entYaw * 180.0F / PI;
+    d.playerPos[0] = players[0].x;
+    d.playerPos[1] = players[0].y;
+    d.playerPos[2] = players[0].z;
+    d.playerYaw = players[0].yaw * 180.0F / PI;
   } else {
     d.playerPos[0] = cameraPosition.x;
     d.playerPos[1] = cameraPosition.y - EYE_HEIGHT;
@@ -4462,7 +4602,31 @@ void TerrainGame::applyMenuBindings() {
             scriptCtx.widescreen = idx;
           }
           break;
+        case 7:  // player count (1P / 2P) - edge-triggered, so the pad-2
+          // Start join isn't reverted by the bind on the next frame
+          // (setPlayerTwoActive writes the row's save value back in sync).
+          if (idx != menuPlayerCountPrev) {
+            menuPlayerCountPrev = idx;
+            setPlayerTwoActive(idx >= 1);
+          }
+          break;
       }
+    }
+  }
+}
+
+// Keep a bound "Player count" menu row's save value (and the bind's edge
+// detector) in line with the actual player-2 state, so a pad-2 Start join
+// shows up in the menu instead of fighting it.
+void TerrainGame::syncPlayerCountMenuValue() {
+  const int idx = playerTwoActive ? 1 : 0;
+  menuPlayerCountPrev = idx;
+  for (int mi = 0; mi < MENU_COUNT; ++mi) {
+    const MenuData& m = MENUS[mi];
+    for (int e = 0; e < m.entryCount; ++e) {
+      const MenuEntryData& en = m.entries[e];
+      if (en.bind == 7 && en.param >= 0 && en.param < SAVE_VALUE_COUNT)
+        saveValues[en.param] = (float)idx;
     }
   }
 }
@@ -4650,11 +4814,37 @@ float TerrainGame::springArm(float px, float py, float pz, float dx, float dy,
   return best;
 }
 
+// Dispatcher: walk P1 (and P2 while active) from their pads, then compose the
+// frame camera. Shared screen frames the pair with one camera; split screen
+// keeps each player's own view (the render pass reads players[1].camPos).
 bool TerrainGame::updatePlayerEntity() {
   if (PLAYER_INDEX < 0) return false;
 
-  const auto& leftJoy = engine->pad.getLeftJoyPad();
-  const auto& rightJoy = engine->pad.getRightJoyPad();
+  updatePlayerWalker(players[0], 0, engine->pad);
+  const bool p2 =
+      MULTIPLAYER_MODE != 0 && playerTwoActive && players[1].objIndex >= 0;
+  if (p2) {
+    if (MULTIPLAYER_MODE == 1) {
+      // Shared screen: P2 moves relative to the one camera - its movement
+      // basis mirrors P1's orbit (the walker skips its right stick).
+      players[1].yaw = players[0].yaw;
+      players[1].pitch = players[0].pitch;
+    }
+    updatePlayerWalker(players[1], 1, pad2);
+  }
+
+  if (p2 && MULTIPLAYER_MODE == 1) {
+    updateSharedCamera();
+  } else {
+    cameraPosition = players[0].camPos;
+    cameraLookAt = players[0].camLook;
+  }
+  return true;
+}
+
+void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
+  const auto& leftJoy = pad.getLeftJoyPad();
+  const auto& rightJoy = pad.getRightJoyPad();
   // stickAxis applies the per-stick deadzone (g_deadzoneL/R - Preferences, or a
   // menu "Deadzone" option block) and response curve (g_stickCurve*/g_stickExp*
   // - Preferences > Input / Set Stick Curve node / a menu "Aim curve" block).
@@ -4665,38 +4855,43 @@ bool TerrainGame::updatePlayerEntity() {
     return stickAxis(raw, g_deadzoneR, g_stickCurveR, g_stickExpR);
   };
 
-  // Right stick: look around (stick right = turn right)
-  entYaw -= axisR(rightJoy.h) * 0.05F * PLAYER_LOOK_SPEED * g_frameScale;
-  entPitch -= axisR(rightJoy.v) * 0.035F * PLAYER_LOOK_SPEED * g_frameScale;
-  if (entPitch > 1.35F) entPitch = 1.35F;
-  if (entPitch < -1.35F) entPitch = -1.35F;
+  // Right stick: look around (stick right = turn right). A shared-screen P2
+  // has no camera of its own (the dispatcher mirrors P1's orbit into it), so
+  // only players that own a view read the right stick.
+  const bool ownCamera = pi == 0 || MULTIPLAYER_MODE == 2;
+  if (ownCamera) {
+    P.yaw -= axisR(rightJoy.h) * 0.05F * PP_LOOK_SPEED(pi) * g_frameScale;
+    P.pitch -= axisR(rightJoy.v) * 0.035F * PP_LOOK_SPEED(pi) * g_frameScale;
+    if (P.pitch > 1.35F) P.pitch = 1.35F;
+    if (P.pitch < -1.35F) P.pitch = -1.35F;
+  }
 
-  const float fx = sinf(entYaw);
-  const float fz = cosf(entYaw);
+  const float fx = sinf(P.yaw);
+  const float fz = cosf(P.yaw);
   const float forward = -axisL(leftJoy.v);
   const float strafe = axisL(leftJoy.h);
 
-  if (PLAYER_MODE == 1) {
+  if (PP_MODE(pi) == 1) {
     // Noclip: fly where the camera looks; X up, Square down.
-    const float cp = cosf(entPitch);
-    const float step = PLAYER_WALK_SPEED * g_frameScale;
-    entX += (fx * cp * forward - fz * strafe) * step;
-    entZ += (fz * cp * forward + fx * strafe) * step;
-    entY += sinf(entPitch) * forward * step;
-    if (engine->pad.getPressed().BTN_FLY_UP) entY += step;
-    if (engine->pad.getPressed().BTN_FLY_DOWN) entY -= step;
+    const float cp = cosf(P.pitch);
+    const float step = PP_WALK_SPEED(pi) * g_frameScale;
+    P.x += (fx * cp * forward - fz * strafe) * step;
+    P.z += (fz * cp * forward + fx * strafe) * step;
+    P.y += sinf(P.pitch) * forward * step;
+    if (pad.getPressed().BTN_FLY_UP) P.y += step;
+    if (pad.getPressed().BTN_FLY_DOWN) P.y -= step;
 
-    cameraPosition = Vec4(entX, entY, entZ);
-    cameraLookAt = Vec4(entX + fx * cp, entY + sinf(entPitch), entZ + fz * cp);
-    return true;
+    P.camPos = Vec4(P.x, P.y, P.z);
+    P.camLook = Vec4(P.x + fx * cp, P.y + sinf(P.pitch), P.z + fz * cp);
+    return;
   }
 
-  if (PLAYER_MODE == 2) {
+  if (PP_MODE(pi) == 2) {
     // Third person: the left stick moves the avatar relative to the camera,
     // the avatar turns to face where it walks, and the camera rides a boom
     // behind it. Terrain bounds + object collision + gravity/jump match walk.
-    float nextX = entX + (fx * forward - fz * strafe) * PLAYER_WALK_SPEED * g_frameScale;
-    float nextZ = entZ + (fz * forward + fx * strafe) * PLAYER_WALK_SPEED * g_frameScale;
+    float nextX = P.x + (fx * forward - fz * strafe) * PP_WALK_SPEED(pi) * g_frameScale;
+    float nextZ = P.z + (fz * forward + fx * strafe) * PP_WALK_SPEED(pi) * g_frameScale;
     const float limX = TERRAIN_WIDTH * 0.5F - 1.0F;
     const float limZ = TERRAIN_DEPTH * 0.5F - 1.0F;
     if (nextX > limX) nextX = limX;
@@ -4706,50 +4901,50 @@ bool TerrainGame::updatePlayerEntity() {
 
     float ground = terrainHeightAt(nextX, nextZ);
     float ceiling = 1e30F;
-    collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground,
+    collidePlayer(P.x, P.z, &nextX, &nextZ, P.y, PP_EYE_HEIGHT(pi), &ground,
                   &ceiling);
-    const float movedX = nextX - entX, movedZ = nextZ - entZ;
-    entX = nextX;
-    entZ = nextZ;
+    const float movedX = nextX - P.x, movedZ = nextZ - P.z;
+    P.x = nextX;
+    P.z = nextZ;
 
-    entVelY -= GRAVITY * g_frameDt * g_frameDt;
-    entY += entVelY;
-    const float maxY = ceiling - PLAYER_EYE_HEIGHT - EYE_CLEARANCE;
-    if (entY > maxY && maxY >= ground) {
-      entY = maxY;
-      if (entVelY > 0.0F) entVelY = 0.0F;
+    P.velY -= GRAVITY * g_frameDt * g_frameDt;
+    P.y += P.velY;
+    const float maxY = ceiling - PP_EYE_HEIGHT(pi) - EYE_CLEARANCE;
+    if (P.y > maxY && maxY >= ground) {
+      P.y = maxY;
+      if (P.velY > 0.0F) P.velY = 0.0F;
     }
     bool grounded = false;
-    if (entY <= ground) {
-      entY = ground;
-      entVelY = 0.0F;
+    if (P.y <= ground) {
+      P.y = ground;
+      P.velY = 0.0F;
       grounded = true;
-      if (PLAYER_CAN_JUMP && engine->pad.getClicked().BTN_JUMP)
-        entVelY = PLAYER_JUMP_SPEED * g_frameDt;
+      if (PP_CAN_JUMP(pi) && pad.getClicked().BTN_JUMP)
+        P.velY = PP_JUMP_SPEED(pi) * g_frameDt;
     }
 
     // Turn the avatar toward its movement direction (shortest-arc lerp).
     const float movedLen = sqrtf(movedX * movedX + movedZ * movedZ);
     if (movedLen > 0.0005F) {
       float desired = atan2f(movedX, movedZ);
-      float d = desired - entFaceYaw;
+      float d = desired - P.faceYaw;
       while (d > PI) d -= 2.0F * PI;
       while (d < -PI) d += 2.0F * PI;
-      float k = PLAYER_TURN_RATE * g_frameScale;
+      float k = PP_TURN_RATE(pi) * g_frameScale;
       if (k > 1.0F) k = 1.0F;
-      entFaceYaw += d * k;
+      P.faceYaw += d * k;
     }
 
-    // Camera boom: the eye rides PLAYER_CAM_DIST behind/above the head along
+    // Camera boom: the eye rides PP_CAM_DIST behind/above the head along
     // the orbit direction. The spring arm shortens the boom to the first thing
     // it hits so the camera never enters geometry or the terrain. Classic
     // spring behavior: pull IN instantly (a late pull-in means a visible clip
     // through a wall) and ease back OUT, so leaving cover doesn't snap.
-    const float headY = entY + PLAYER_CAM_HEIGHT;
-    const float cp = cosf(entPitch);
-    const float boomX = sinf(entYaw) * cp;
-    const float boomZ = cosf(entYaw) * cp;
-    const float boomY = sinf(entPitch);
+    const float headY = P.y + PP_CAM_HEIGHT(pi);
+    const float cp = cosf(P.pitch);
+    const float boomX = sinf(P.yaw) * cp;
+    const float boomZ = cosf(P.yaw) * cp;
+    const float boomY = sinf(P.pitch);
 
     // Over-the-shoulder: slide the WHOLE rig - eye and look-at alike - along
     // the camera's right vector, so the avatar sits off-center in frame.
@@ -4759,53 +4954,53 @@ bool TerrainGame::updatePlayerEntity() {
     // itself spring-armed so a shoulder cam cannot slide into a wall the player
     // is hugging - and this second cast costs nothing at all when the offset is
     // 0, which is the default.
-    const float rx = -cosf(entYaw), rz = sinf(entYaw);
-    float shoulder = PLAYER_CAM_SHOULDER;
+    const float rx = -cosf(P.yaw), rz = sinf(P.yaw);
+    float shoulder = PP_CAM_SHOULDER(pi);
     if (shoulder > 0.0001F || shoulder < -0.0001F) {
       const float s = shoulder < 0.0F ? -1.0F : 1.0F;
-      shoulder = s * springArm(entX, headY, entZ, rx * s, 0.0F, rz * s,
+      shoulder = s * springArm(P.x, headY, P.z, rx * s, 0.0F, rz * s,
                                shoulder * s);
     }
-    const float pivotX = entX + rx * shoulder;
-    const float pivotZ = entZ + rz * shoulder;
+    const float pivotX = P.x + rx * shoulder;
+    const float pivotZ = P.z + rz * shoulder;
 
     float want =
-        springArm(pivotX, headY, pivotZ, -boomX, -boomY, -boomZ, PLAYER_CAM_DIST);
+        springArm(pivotX, headY, pivotZ, -boomX, -boomY, -boomZ, PP_CAM_DIST(pi));
     if (want < CAM_MIN_DIST) want = CAM_MIN_DIST;
-    if (want < camBoom) {
-      camBoom = want;  // blocked: snap in, never clip
+    if (want < P.boom) {
+      P.boom = want;  // blocked: snap in, never clip
     } else {
       float k = 0.06F * g_frameScale;  // ~2 s to close a full-length boom
       if (k > 1.0F) k = 1.0F;
-      camBoom += (want - camBoom) * k;
+      P.boom += (want - P.boom) * k;
     }
-    float eyeX = pivotX - boomX * camBoom;
-    float eyeY = headY - boomY * camBoom;
-    float eyeZ = pivotZ - boomZ * camBoom;
+    float eyeX = pivotX - boomX * P.boom;
+    float eyeY = headY - boomY * P.boom;
+    float eyeZ = pivotZ - boomZ * P.boom;
     // Safety net: the march samples the heightmap discretely, so a sharp ridge
     // between two samples could still leave the eye underground.
     const float minEyeY = terrainHeightAt(eyeX, eyeZ) + 0.4F;
     if (eyeY < minEyeY) eyeY = minEyeY;
-    cameraPosition = Vec4(eyeX, eyeY, eyeZ);
-    cameraLookAt = Vec4(pivotX, headY, pivotZ);
+    P.camPos = Vec4(eyeX, eyeY, eyeZ);
+    P.camLook = Vec4(pivotX, headY, pivotZ);
 
     // Drive the avatar object: stand at the feet, face the walk direction,
     // and auto-select its locomotion clip. updateAndRenderAnimObjects draws it.
-    if (PLAYER_INDEX >= 0 && PLAYER_INDEX < (int)runtimeObjects.size()) {
-      RuntimeObject& body = runtimeObjects[PLAYER_INDEX];
-      body.data.position[0] = entX;
-      body.data.position[1] = entY;
-      body.data.position[2] = entZ;
-      body.data.rotation[1] = entFaceYaw * 180.0F / PI;
-      const float step = PLAYER_WALK_SPEED * g_frameScale;
-      drivePlayerAnim(body, step > 1e-4F ? movedLen / step : 0.0F, grounded);
+    if (P.objIndex >= 0 && P.objIndex < (int)runtimeObjects.size()) {
+      RuntimeObject& body = runtimeObjects[P.objIndex];
+      body.data.position[0] = P.x;
+      body.data.position[1] = P.y;
+      body.data.position[2] = P.z;
+      body.data.rotation[1] = P.faceYaw * 180.0F / PI;
+      const float step = PP_WALK_SPEED(pi) * g_frameScale;
+      drivePlayerAnim(P, body, step > 1e-4F ? movedLen / step : 0.0F, grounded);
     }
-    return true;
+    return;
   }
 
   // Walk mode: terrain bounds, object collision, gravity + jump.
-  float nextX = entX + (fx * forward - fz * strafe) * PLAYER_WALK_SPEED * g_frameScale;
-  float nextZ = entZ + (fz * forward + fx * strafe) * PLAYER_WALK_SPEED * g_frameScale;
+  float nextX = P.x + (fx * forward - fz * strafe) * PP_WALK_SPEED(pi) * g_frameScale;
+  float nextZ = P.z + (fz * forward + fx * strafe) * PP_WALK_SPEED(pi) * g_frameScale;
 
   const float limX = TERRAIN_WIDTH * 0.5F - 1.0F;
   const float limZ = TERRAIN_DEPTH * 0.5F - 1.0F;
@@ -4816,32 +5011,82 @@ bool TerrainGame::updatePlayerEntity() {
 
   float ground = terrainHeightAt(nextX, nextZ);
   float ceiling = 1e30F;
-  collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground,
+  collidePlayer(P.x, P.z, &nextX, &nextZ, P.y, PP_EYE_HEIGHT(pi), &ground,
                 &ceiling);
-  entX = nextX;
-  entZ = nextZ;
+  P.x = nextX;
+  P.z = nextZ;
 
-  entVelY -= GRAVITY * g_frameDt * g_frameDt;  // GRAVITY is units/s^2
-  entY += entVelY;
+  P.velY -= GRAVITY * g_frameDt * g_frameDt;  // GRAVITY is units/s^2
+  P.y += P.velY;
   // Jump clamp: keep the eye EYE_CLEARANCE below overhead geometry so the
   // camera never pokes into it (skipped when the gap is too low to stand in)
-  const float maxY = ceiling - PLAYER_EYE_HEIGHT - EYE_CLEARANCE;
-  if (entY > maxY && maxY >= ground) {
-    entY = maxY;
-    if (entVelY > 0.0F) entVelY = 0.0F;
+  const float maxY = ceiling - PP_EYE_HEIGHT(pi) - EYE_CLEARANCE;
+  if (P.y > maxY && maxY >= ground) {
+    P.y = maxY;
+    if (P.velY > 0.0F) P.velY = 0.0F;
   }
-  if (entY <= ground) {
-    entY = ground;
-    entVelY = 0.0F;
-    if (PLAYER_CAN_JUMP && engine->pad.getClicked().BTN_JUMP)
-      entVelY = PLAYER_JUMP_SPEED * g_frameDt;  // units/s
+  if (P.y <= ground) {
+    P.y = ground;
+    P.velY = 0.0F;
+    if (PP_CAN_JUMP(pi) && pad.getClicked().BTN_JUMP)
+      P.velY = PP_JUMP_SPEED(pi) * g_frameDt;  // units/s
   }
 
-  const float eyeY = entY + PLAYER_EYE_HEIGHT;
-  cameraPosition = Vec4(entX, eyeY, entZ);
-  cameraLookAt = Vec4(entX + fx * cosf(entPitch), eyeY + sinf(entPitch),
-                      entZ + fz * cosf(entPitch));
-  return true;
+  const float eyeY = P.y + PP_EYE_HEIGHT(pi);
+  P.camPos = Vec4(P.x, eyeY, P.z);
+  P.camLook = Vec4(P.x + fx * cosf(P.pitch), eyeY + sinf(P.pitch),
+                   P.z + fz * cosf(P.pitch));
+}
+
+// Shared-screen camera: orbit (P1's right stick, mirrored into both players'
+// yaw/pitch by the dispatcher) around the midpoint of the two avatars, with
+// the boom stretched by their separation so the pair stays in frame. The
+// spring arm and terrain safety net match the single-player boom.
+void TerrainGame::updateSharedCamera() {
+  PlayerCtl& A = players[0];
+  PlayerCtl& B = players[1];
+  const float midX = (A.x + B.x) * 0.5F;
+  const float midZ = (A.z + B.z) * 0.5F;
+  const float midY = (A.y + B.y) * 0.5F + PP_CAM_HEIGHT(0);
+  const float dx = A.x - B.x, dy = A.y - B.y, dz = A.z - B.z;
+  const float sep = sqrtf(dx * dx + dy * dy + dz * dz);
+  const float dist = PP_CAM_DIST(0) + sep * 0.7F;
+
+  const float cp = cosf(A.pitch);
+  const float boomX = sinf(A.yaw) * cp;
+  const float boomZ = cosf(A.yaw) * cp;
+  const float boomY = sinf(A.pitch);
+
+  float want = springArm(midX, midY, midZ, -boomX, -boomY, -boomZ, dist);
+  if (want < CAM_MIN_DIST) want = CAM_MIN_DIST;
+  if (want < sharedBoom) {
+    sharedBoom = want;  // blocked: snap in, never clip
+  } else {
+    float k = 0.06F * g_frameScale;
+    if (k > 1.0F) k = 1.0F;
+    sharedBoom += (want - sharedBoom) * k;
+  }
+  float eyeX = midX - boomX * sharedBoom;
+  float eyeY = midY - boomY * sharedBoom;
+  float eyeZ = midZ - boomZ * sharedBoom;
+  const float minEyeY = terrainHeightAt(eyeX, eyeZ) + 0.4F;
+  if (eyeY < minEyeY) eyeY = minEyeY;
+  cameraPosition = Vec4(eyeX, eyeY, eyeZ);
+  cameraLookAt = Vec4(midX, midY, midZ);
+}
+
+// Player 2 join/leave (Start on pad 2, or a menu Toggle bound to "Player
+// count"). Guarded: joining needs a two-player mode and a second Player
+// object in the scene. Shows/hides the P2 third-person avatar and keeps the
+// bound menu row's save value in sync so both entry points agree.
+void TerrainGame::setPlayerTwoActive(bool active) {
+  if (active && (MULTIPLAYER_MODE == 0 || players[1].objIndex < 0)) return;
+  if (playerTwoActive == active) return;
+  playerTwoActive = active;
+  if (players[1].objIndex >= 0 && PP_MODE(1) == 2 &&
+      players[1].objIndex < (int)runtimeObjects.size())
+    runtimeObjects[players[1].objIndex].visible = active;
+  syncPlayerCountMenuValue();
 }
 
 // Locomotion-driven clip selection for the third-person avatar. speedFrac is
@@ -4851,26 +5096,27 @@ bool TerrainGame::updatePlayerEntity() {
 // non-locomotion clip is currently playing (a script/flow "Play Animation"
 // one-shot), locomotion holds off until it finishes, then resumes. This is the
 // whole "third-person for free" story: no state machine, full override.
-void TerrainGame::drivePlayerAnim(RuntimeObject& body, float speedFrac,
-                                  bool grounded) {
-  if (PLAYER_INDEX < 0 || !objectGeometry[PLAYER_INDEX].animInst) return;
+void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
+                                  float speedFrac, bool grounded) {
+  if (P.objIndex < 0 || !objectGeometry[P.objIndex].animInst) return;
+  const int pi = &P == &players[1] ? 1 : 0;
   body.animPlaying = true;
 
   int want;
-  if (!grounded && playerJumpClip >= 0)
-    want = playerJumpClip;
+  if (!grounded && P.jumpClip >= 0)
+    want = P.jumpClip;
   else if (speedFrac < 0.12F)
-    want = playerIdleClip;
-  else if (speedFrac < PLAYER_RUN_THRESHOLD || playerRunClip < 0)
-    want = playerWalkClip;
+    want = P.idleClip;
+  else if (speedFrac < PP_RUN_THRESHOLD(pi) || P.runClip < 0)
+    want = P.walkClip;
   else
-    want = playerRunClip;
-  if (want < 0) want = playerIdleClip;
+    want = P.runClip;
+  if (want < 0) want = P.idleClip;
   if (want < 0) want = 0;  // no clips mapped: hold the model's first clip
 
   const bool locomotion =
-      body.animClip == playerIdleClip || body.animClip == playerWalkClip ||
-      body.animClip == playerRunClip || body.animClip == playerJumpClip;
+      body.animClip == P.idleClip || body.animClip == P.walkClip ||
+      body.animClip == P.runClip || body.animClip == P.jumpClip;
   if (!locomotion && !body.animFinished) return;  // let a one-shot finish
 
   if (body.animClip != want) {
@@ -4882,7 +5128,7 @@ void TerrainGame::drivePlayerAnim(RuntimeObject& body, float speedFrac,
   // Match playback to foot speed on the moving clips (min 0.6x so a slow creep
   // still animates), otherwise the authored speed.
   const float base = body.data.animSpeed;
-  if (want == playerWalkClip || want == playerRunClip)
+  if (want == P.walkClip || want == P.runClip)
     body.animSpeed = base * (speedFrac < 0.6F ? 0.6F : speedFrac);
   else
     body.animSpeed = base;
@@ -5260,7 +5506,10 @@ void TerrainGame::renderScene() {
   // couple of ms per hit on real hardware.
   static bool envMapTick = false;  // first frame MUST render (fresh VRAM)
   envMapTick = !envMapTick;
-  if (g_dynamicEnvUsers > 0 && skyDome.bag && envMapTick) {
+  // Not inside a split half: the env bracket's end() restores a full-screen
+  // raster, which would undo the half's scissor/offset. Reflections keep the
+  // last rendered map while split-screen is active.
+  if (g_dynamicEnvUsers > 0 && skyDome.bag && envMapTick && !splitPassActive) {
     auto& core = engine->renderer.core;
     skyMat.identity();
     skyMat.data[12] = cameraPosition.x;
@@ -6151,6 +6400,11 @@ void TerrainGame::init() {
 
   engine->renderer.setClearScreenColor(Color(SKY_R, SKY_G, SKY_B));
 
+  // Two-player modes: open pad 2 (connector 2). Optional - no controller
+  // there never blocks or asserts; it keeps polling so player 2 can plug in
+  // and join mid-game (Start, see the loop).
+  if (MULTIPLAYER_MODE != 0) pad2.initOptional(1);
+
   // Player start: the first spawn point in the scene (if any)
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     if (SCENE_OBJECTS[i].type == 4) {
@@ -6207,6 +6461,8 @@ void TerrainGame::init() {
 
 void TerrainGame::loop() {
   updateFrameClock();  // real dt: frame drops slow the picture, not the game
+  // The engine pumps pad 1; pad 2 is ours (optional - polls for a hot-join).
+  if (MULTIPLAYER_MODE != 0) pad2.update();
 
   // Boot sequence (the engine holds the Tyra logo ~2s before this):
   //   phase 0 - boot splash images, each shown for its duration (in order),
@@ -6261,12 +6517,23 @@ void TerrainGame::loop() {
   // setting keeps applying, and before applyVideoRequests so a display switch
   // it requests lands this frame.
   applyMenuBindings();
+  // Player 2 hot-join: Start on pad 2, any time gameplay owns the pads.
+  // Leaving goes through a menu "Player count" Toggle (setPlayerTwoActive).
+  if (MULTIPLAYER_MODE != 0 && P2_JOIN_ON_START && !menuOwnsPad &&
+      !playerTwoActive && pad2.getClicked().Start)
+    setPlayerTwoActive(true);
   if (!menuOwnsPad) {
     if (!updatePlayerEntity()) updatePlayer();
     updateUseTarget();
   }
 
   scriptCtx.playerPosition = cameraPosition;
+  scriptCtx.player2Active =
+      MULTIPLAYER_MODE != 0 && playerTwoActive && players[1].objIndex >= 0;
+  scriptCtx.player2Position =
+      scriptCtx.player2Active
+          ? Vec4(players[1].x, players[1].y + PP_EYE_HEIGHT(1), players[1].z)
+          : scriptCtx.playerPosition;
   {
     // View direction for the scripts (Raycast flow node)
     Vec4 look = cameraLookAt - cameraPosition;
@@ -6334,15 +6601,24 @@ void TerrainGame::loop() {
   updateLayerStreaming();
 
   // Flow graph / script teleport request: move the Player entity when the
-  // scene has one, the built-in FPP player otherwise.
+  // scene has one, the built-in FPP player otherwise. Teleports P1; an
+  // active P2 comes along, dropped a step to the side.
   if (scriptCtx.teleport) {
     scriptCtx.teleport = false;
     if (PLAYER_INDEX >= 0) {
-      entX = scriptCtx.teleportPos.x;
-      entY = scriptCtx.teleportPos.y;
-      entZ = scriptCtx.teleportPos.z;
-      entVelY = 0.0F;
-      entYaw = scriptCtx.teleportYaw * PI / 180.0F;
+      players[0].x = scriptCtx.teleportPos.x;
+      players[0].y = scriptCtx.teleportPos.y;
+      players[0].z = scriptCtx.teleportPos.z;
+      players[0].velY = 0.0F;
+      players[0].yaw = scriptCtx.teleportYaw * PI / 180.0F;
+      if (playerTwoActive && players[1].objIndex >= 0) {
+        players[1].x = players[0].x + 1.2F;
+        players[1].z = players[0].z;
+        players[1].y = PP_MODE(1) == 1 ? players[0].y
+                                       : terrainHeightAt(players[1].x, players[1].z);
+        players[1].velY = 0.0F;
+        players[1].yaw = players[0].yaw;
+      }
     } else {
       playerX = scriptCtx.teleportPos.x;
       playerY = scriptCtx.teleportPos.y;
@@ -6422,6 +6698,9 @@ void TerrainGame::loop() {
   // (applied after scripts so the sequence player's flag wins).
   if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2)
     runtimeObjects[PLAYER_INDEX].visible = !scriptCtx.hidePlayer;
+  if (players[1].objIndex >= 0 && PP_MODE(1) == 2)
+    runtimeObjects[players[1].objIndex].visible =
+        !scriptCtx.hidePlayer && playerTwoActive;
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
   // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
   // switch rebuilds the VRAM layout between frames. A switch closes any
@@ -6443,7 +6722,35 @@ void TerrainGame::loop() {
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
-    renderScene();
+    // Split screen (two players): the scene renders twice, top half from
+    // P1's camera and bottom half from P2's (players[1].camPos, written by
+    // its walker). A cutscene camera override takes the whole screen. HUD /
+    // menus / post fx stay full-screen, drawn after splitView.end().
+    const bool splitFrame = MULTIPLAYER_MODE == 2 && playerTwoActive &&
+                            players[1].objIndex >= 0 &&
+                            !scriptCtx.cameraOverride;
+    if (splitFrame) {
+      auto& core = engine->renderer.core;
+      splitPassActive = true;
+      core.splitView.begin(0, scriptCtx.skyColor);
+      renderScene();
+      // Swap the whole camera state to P2: renderScene reads cameraPosition
+      // (sky dome centering, LOD, streaming focus), and the renderer needs
+      // the second half's view matrix + frustum planes.
+      const Vec4 savedPos = cameraPosition, savedLook = cameraLookAt;
+      cameraPosition = players[1].camPos;
+      cameraLookAt = players[1].camLook;
+      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
+      core.splitView.begin(1, scriptCtx.skyColor);
+      renderScene();
+      core.splitView.end();
+      cameraPosition = savedPos;
+      cameraLookAt = savedLook;
+      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
+      splitPassActive = false;
+    } else {
+      renderScene();
+    }
     // Depth of field composites right after the 3D scene, BEFORE any 2D:
     // sprites stamp z = max across their whole rect (transparent margins
     // included), which would punch sharp rectangles into a later z-tested
@@ -7126,6 +7433,11 @@ struct ScriptContext {
   Tyra::Engine* engine = nullptr;  // pad, renderer, audio, ...
   Tyra::Vec4 playerPosition;       // camera/player position this frame
   Tyra::Vec4 playerLook;           // normalized view direction this frame
+  // Two-player modes (docs/multiplayer.md): player 2's eye position while
+  // active; equals playerPosition otherwise, so "nearest player" logic can
+  // read it unconditionally.
+  Tyra::Vec4 player2Position;
+  bool player2Active = false;
   RuntimeObject* objects = nullptr;  // mutable scene objects
   int objectCount = 0;
   Tyra::Color skyColor;  // write to change the clear color
@@ -8128,74 +8440,73 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     }
     out << "};\n\n";
 
-    // Player entity per scene: the first Player object drives the camera
-    std::vector<const SceneObject*> players(sceneCount, nullptr);
-    std::vector<int> playerIdx(sceneCount, -1);
-    for (int si = 0; si < sceneCount; ++si)
-        for (size_t i = 0; i < p.scenes[si].objects.size(); ++i)
+    // Player entities per scene: the first Player object drives the camera
+    // (P1); the second one, when present, is player 2 of the two-player modes
+    // (docs/multiplayer.md). Both get the same table set, P2's prefixed
+    // PLAYER2_; the per-player accessor macros below the scene tables select
+    // by player index.
+    std::vector<const SceneObject*> players[2] = {
+        std::vector<const SceneObject*>(sceneCount, nullptr),
+        std::vector<const SceneObject*>(sceneCount, nullptr)};
+    std::vector<int> playerIdx[2] = {std::vector<int>(sceneCount, -1),
+                                     std::vector<int>(sceneCount, -1)};
+    for (int si = 0; si < sceneCount; ++si) {
+        int found = 0;
+        for (size_t i = 0; i < p.scenes[si].objects.size() && found < 2; ++i)
             if (p.scenes[si].objects[i].type == PrimitiveType::Player) {
-                players[si] = &p.scenes[si].objects[i];
-                playerIdx[si] = (int)i;
-                break;
+                players[found][si] = &p.scenes[si].objects[i];
+                playerIdx[found][si] = (int)i;
+                ++found;
             }
+    }
 
-    out << "constexpr int PLAYER_INDEXES[SCENE_COUNT] = {";
-    for (int si = 0; si < sceneCount; ++si) out << (si ? ", " : "") << playerIdx[si];
-    out << "};\n"
-        << "constexpr int PLAYER_MODES[SCENE_COUNT] = {";  // 0 = walk, 1 = noclip
-    for (int si = 0; si < sceneCount; ++si)
-        out << (si ? ", " : "") << (players[si] ? players[si]->playerMode : 0);
-    out << "};\n"
-        << "constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {";
-    for (int si = 0; si < sceneCount; ++si)
-        out << (si ? ", " : "")
-            << floatLit(players[si] ? players[si]->playerWalkSpeed : 0.4f);
-    out << "};\n"
-        << "constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {";
-    for (int si = 0; si < sceneCount; ++si)
-        out << (si ? ", " : "")
-            << floatLit(players[si] ? players[si]->playerLookSpeed : 1.0f);
-    out << "};\n"
-        << "constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {";
-    for (int si = 0; si < sceneCount; ++si)
-        out << (si ? ", " : "")
-            << floatLit(players[si] ? players[si]->playerEyeHeight : 1.8f);
-    out << "};\n"
-        << "constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {";
-    for (int si = 0; si < sceneCount; ++si)
-        out << (si ? ", " : "")
-            << floatLit(players[si] ? players[si]->playerJumpSpeed : 4.5f);
-    out << "};\n"
-        << "constexpr bool PLAYER_CAN_JUMPS[SCENE_COUNT] = {";
-    for (int si = 0; si < sceneCount; ++si)
-        out << (si ? ", " : "")
-            << (!players[si] || players[si]->playerCanJump ? "true" : "false");
-    out << "};\n";
+    for (int pl = 0; pl < 2; ++pl) {
+        const std::string pre = pl == 0 ? "PLAYER_" : "PLAYER2_";
+        const auto& ps = players[pl];
+        out << "constexpr int " << pre << "INDEXES[SCENE_COUNT] = {";
+        for (int si = 0; si < sceneCount; ++si)
+            out << (si ? ", " : "") << playerIdx[pl][si];
+        out << "};\n"
+            << "constexpr int " << pre << "MODES[SCENE_COUNT] = {";  // 0 = walk, 1 = noclip
+        for (int si = 0; si < sceneCount; ++si)
+            out << (si ? ", " : "") << (ps[si] ? ps[si]->playerMode : 0);
+        out << "};\n";
 
-    // Third-person parameters (playerMode == 2). Clip names resolve to the
-    // avatar model's clip indices at scene load (resolveClipIndex).
-    auto playerFloat = [&](const char* name, auto get, float dflt) {
-        out << "constexpr float " << name << "[SCENE_COUNT] = {";
+        auto playerFloat = [&](const char* name, auto get, float dflt) {
+            out << "constexpr float " << pre << name << "[SCENE_COUNT] = {";
+            for (int si = 0; si < sceneCount; ++si)
+                out << (si ? ", " : "") << floatLit(ps[si] ? get(*ps[si]) : dflt);
+            out << "};\n";
+        };
+        playerFloat("WALK_SPEEDS", [](const SceneObject& o) { return o.playerWalkSpeed; }, 0.4f);
+        playerFloat("LOOK_SPEEDS", [](const SceneObject& o) { return o.playerLookSpeed; }, 1.0f);
+        playerFloat("EYE_HEIGHTS", [](const SceneObject& o) { return o.playerEyeHeight; }, 1.8f);
+        playerFloat("JUMP_SPEEDS", [](const SceneObject& o) { return o.playerJumpSpeed; }, 4.5f);
+        out << "constexpr bool " << pre << "CAN_JUMPS[SCENE_COUNT] = {";
         for (int si = 0; si < sceneCount; ++si)
-            out << (si ? ", " : "") << floatLit(players[si] ? get(*players[si]) : dflt);
+            out << (si ? ", " : "")
+                << (!ps[si] || ps[si]->playerCanJump ? "true" : "false");
         out << "};\n";
-    };
-    playerFloat("PLAYER_RUN_THRESHOLDS", [](const SceneObject& o) { return o.playerRunThreshold; }, 0.55f);
-    playerFloat("PLAYER_CAM_DISTS", [](const SceneObject& o) { return o.playerCamDist; }, 6.0f);
-    playerFloat("PLAYER_CAM_HEIGHTS", [](const SceneObject& o) { return o.playerCamHeight; }, 1.6f);
-    playerFloat("PLAYER_CAM_SHOULDERS", [](const SceneObject& o) { return o.playerCamShoulder; }, 0.0f);
-    playerFloat("PLAYER_TURN_RATES", [](const SceneObject& o) { return o.playerTurnRate; }, 0.25f);
-    auto playerClip = [&](const char* name, auto get) {
-        out << "constexpr const char* " << name << "[SCENE_COUNT] = {";
-        for (int si = 0; si < sceneCount; ++si)
-            out << (si ? ", " : "") << "\""
-                << (players[si] ? escapeCString(get(*players[si])) : std::string()) << "\"";
-        out << "};\n";
-    };
-    playerClip("PLAYER_IDLE_CLIPS", [](const SceneObject& o) { return o.playerIdleClip; });
-    playerClip("PLAYER_WALK_CLIPS", [](const SceneObject& o) { return o.playerWalkClip; });
-    playerClip("PLAYER_RUN_CLIPS", [](const SceneObject& o) { return o.playerRunClip; });
-    playerClip("PLAYER_JUMP_CLIPS", [](const SceneObject& o) { return o.playerJumpClip; });
+
+        // Third-person parameters (playerMode == 2). Clip names resolve to the
+        // avatar model's clip indices at scene load (resolveClipIndex).
+        playerFloat("RUN_THRESHOLDS", [](const SceneObject& o) { return o.playerRunThreshold; }, 0.55f);
+        playerFloat("CAM_DISTS", [](const SceneObject& o) { return o.playerCamDist; }, 6.0f);
+        playerFloat("CAM_HEIGHTS", [](const SceneObject& o) { return o.playerCamHeight; }, 1.6f);
+        playerFloat("CAM_SHOULDERS", [](const SceneObject& o) { return o.playerCamShoulder; }, 0.0f);
+        playerFloat("TURN_RATES", [](const SceneObject& o) { return o.playerTurnRate; }, 0.25f);
+        auto playerClip = [&](const char* name, auto get) {
+            out << "constexpr const char* " << pre << name << "[SCENE_COUNT] = {";
+            for (int si = 0; si < sceneCount; ++si)
+                out << (si ? ", " : "") << "\""
+                    << (ps[si] ? escapeCString(get(*ps[si])) : std::string()) << "\"";
+            out << "};\n";
+        };
+        playerClip("IDLE_CLIPS", [](const SceneObject& o) { return o.playerIdleClip; });
+        playerClip("WALK_CLIPS", [](const SceneObject& o) { return o.playerWalkClip; });
+        playerClip("RUN_CLIPS", [](const SceneObject& o) { return o.playerRunClip; });
+        playerClip("JUMP_CLIPS", [](const SceneObject& o) { return o.playerJumpClip; });
+    }
     out << "\n";
 
     // Per-scene settings: the project defaults with each scene's active
@@ -8287,22 +8598,23 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // fixed per scene; the enabled flag is only the runtime master's initial
     // value - the flow graph / toggle button change it live). No player in a
     // scene = no flashlight there.
-    sceneBools("FLASHLIGHT_ENABLEDS",
-               [&](int si) { return players[si] && players[si]->flashlightEnabled; });
+    sceneBools("FLASHLIGHT_ENABLEDS", [&](int si) {
+        return players[0][si] && players[0][si]->flashlightEnabled;
+    });
     sceneFloats("FLASHLIGHT_RS", [&](int si) {
-        return floatLit((players[si] ? players[si]->flashlightColor[0] : 0.0f) * 128.0f);
+        return floatLit((players[0][si] ? players[0][si]->flashlightColor[0] : 0.0f) * 128.0f);
     });
     sceneFloats("FLASHLIGHT_GS", [&](int si) {
-        return floatLit((players[si] ? players[si]->flashlightColor[1] : 0.0f) * 128.0f);
+        return floatLit((players[0][si] ? players[0][si]->flashlightColor[1] : 0.0f) * 128.0f);
     });
     sceneFloats("FLASHLIGHT_BS", [&](int si) {
-        return floatLit((players[si] ? players[si]->flashlightColor[2] : 0.0f) * 128.0f);
+        return floatLit((players[0][si] ? players[0][si]->flashlightColor[2] : 0.0f) * 128.0f);
     });
     sceneFloats("FLASHLIGHT_RANGES", [&](int si) {
-        return floatLit(players[si] ? players[si]->flashlightRange : 30.0f);
+        return floatLit(players[0][si] ? players[0][si]->flashlightRange : 30.0f);
     });
     sceneFloats("FLASHLIGHT_ANGLES", [&](int si) {
-        return floatLit(players[si] ? players[si]->flashlightAngle : 20.0f);
+        return floatLit(players[0][si] ? players[0][si]->flashlightAngle : 20.0f);
     });
     sceneBools("HIGHLIGHT_USABLES", [&](int si) { return rs[si].highlightUsable; });
     sceneFloats("HIGHLIGHT_DISTANCES", [&](int si) { return floatLit(rs[si].highlightDistance); });
@@ -8457,9 +8769,9 @@ extern bool g_flashOn;
            "  (void)engine;\n"
            "  switch (g_activeScene) {\n";
     for (int si = 0; si < sceneCount; ++si)
-        if (players[si] && !players[si]->flashlightToggleButton.empty())
+        if (players[0][si] && !players[0][si]->flashlightToggleButton.empty())
             out << "    case " << si << ": return engine->pad.getClicked()."
-                << players[si]->flashlightToggleButton << ";\n";
+                << players[0][si]->flashlightToggleButton << ";\n";
     out << "    default: break;\n"
            "  }\n"
            "  return false;\n"
@@ -8492,6 +8804,26 @@ inline int everyFrames(float seconds) {
 #define PLAYER_WALK_CLIP PLAYER_WALK_CLIPS[g_activeScene]
 #define PLAYER_RUN_CLIP PLAYER_RUN_CLIPS[g_activeScene]
 #define PLAYER_JUMP_CLIP PLAYER_JUMP_CLIPS[g_activeScene]
+#define PLAYER2_INDEX PLAYER2_INDEXES[g_activeScene]
+// Per-player table selection for the shared walker (pi: 0 = P1, 1 = P2).
+#define PP_TBL(pi, T) \
+  ((pi) == 0 ? PLAYER_##T[g_activeScene] : PLAYER2_##T[g_activeScene])
+#define PP_INDEX(pi) PP_TBL(pi, INDEXES)
+#define PP_MODE(pi) PP_TBL(pi, MODES)
+#define PP_WALK_SPEED(pi) PP_TBL(pi, WALK_SPEEDS)
+#define PP_LOOK_SPEED(pi) PP_TBL(pi, LOOK_SPEEDS)
+#define PP_EYE_HEIGHT(pi) PP_TBL(pi, EYE_HEIGHTS)
+#define PP_JUMP_SPEED(pi) PP_TBL(pi, JUMP_SPEEDS)
+#define PP_CAN_JUMP(pi) PP_TBL(pi, CAN_JUMPS)
+#define PP_RUN_THRESHOLD(pi) PP_TBL(pi, RUN_THRESHOLDS)
+#define PP_CAM_DIST(pi) PP_TBL(pi, CAM_DISTS)
+#define PP_CAM_HEIGHT(pi) PP_TBL(pi, CAM_HEIGHTS)
+#define PP_CAM_SHOULDER(pi) PP_TBL(pi, CAM_SHOULDERS)
+#define PP_TURN_RATE(pi) PP_TBL(pi, TURN_RATES)
+#define PP_IDLE_CLIP(pi) PP_TBL(pi, IDLE_CLIPS)
+#define PP_WALK_CLIP(pi) PP_TBL(pi, WALK_CLIPS)
+#define PP_RUN_CLIP(pi) PP_TBL(pi, RUN_CLIPS)
+#define PP_JUMP_CLIP(pi) PP_TBL(pi, JUMP_CLIPS)
 #define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
 #define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
 #define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]
@@ -8704,6 +9036,11 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{STICK_EXP_L}}", floatLit(st.stickExpL));
     s = replaceAll(s, "{{STICK_EXP_R}}", floatLit(st.stickExpR));
     s = replaceAll(s, "{{ORBIT_SPEED}}", floatLit(st.orbitSpeed));
+    s = replaceAll(s, "{{MULTIPLAYER_MODE}}", st.multiplayer == "shared" ? "1"
+                                              : st.multiplayer == "split" ? "2"
+                                                                          : "0");
+    s = replaceAll(s, "{{P2_JOIN_ON_START}}",
+                   st.p2JoinOnStart ? "true" : "false");
     s = replaceAll(s, "{{GRAVITY}}", floatLit(st.gravity));
     s = replaceAll(s, "{{JUMP_SPEED}}", floatLit(st.jumpSpeed));
     s = replaceAll(s, "{{LOADING_SCREEN}}", st.loadingScreen ? "true" : "false");

@@ -4478,7 +4478,29 @@ void App::drawPropertiesWindow() {
             ImGui::DragFloat("Jump speed", &o.playerJumpSpeed, 0.1f, 0.0f, 50.0f, "%.1f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
         }
-        ImGui::TextDisabled("First player in the scene drives the camera in the game.");
+        {
+            // Which player slot this object fills: scene order decides - the
+            // first Player object is P1, the second is P2 (two-player modes,
+            // Preferences > Multiplayer). Any further ones are ignored.
+            int slot = 0, seen = 0;
+            for (const auto& other : project_.objects()) {
+                if (other.type != PrimitiveType::Player) continue;
+                ++seen;
+                if (&other == &o) slot = seen;
+            }
+            if (slot == 1)
+                ImGui::TextDisabled(
+                    "Player 1 (first in the scene) - drives the camera.");
+            else if (slot == 2)
+                ImGui::TextDisabled(
+                    project_.settings.multiplayer != "off"
+                        ? "Player 2 - joins in the two-player modes."
+                        : "Player 2 - inactive until Preferences > Multiplayer "
+                          "is enabled.");
+            else if (slot > 2)
+                ImGui::TextDisabled(
+                    "Extra Player object - the game uses only the first two.");
+        }
         if (o.playerMode == 2)
             ImGui::TextDisabled("Third person: X jumps. The avatar faces where it walks.");
         else
@@ -11665,6 +11687,8 @@ const OptionBlockSpec kOptionBlocks[] = {
      {"480i", "480p", "1080i"}},
     {"ASPECT", MenuEntry::Toggle, "opt_widescreen", 0.0f, MenuEntry::BindWidescreen,
      {"4:3", "16:9"}},
+    {"PLAYERS", MenuEntry::Choice, "opt_players", 0.0f, MenuEntry::BindPlayerCount,
+     {"1 Player", "2 Players"}},
 };
 constexpr int kOptionBlockCount = (int)(sizeof(kOptionBlocks) / sizeof(kOptionBlocks[0]));
 
@@ -12206,7 +12230,8 @@ void App::drawMenusWindow() {
             ImGui::SetNextItemWidth(scaled(150.0f));
             if (ImGui::Combo("Bind##optbind", &en.settingBind,
                              "None\0Music volume\0Sound volume\0Deadzone\0"
-                             "Stick curve\0Display mode\0Widescreen\0"))
+                             "Stick curve\0Display mode\0Widescreen\0"
+                             "Player count\0"))
                 changed = true;
             ImGui::SameLine();
             ImGui::TextDisabled("(?)");
@@ -12215,7 +12240,8 @@ void App::drawMenusWindow() {
                     "Drives a built-in setting from this row's option index,\n"
                     "spread evenly across the options: volume 0-100%%, deadzone\n"
                     "0-0.4, aim curve 1-3, display 480i/480p/1080i, aspect\n"
-                    "4:3/16:9. None = a plain save-value row (flow graphs react).");
+                    "4:3/16:9, player count 1P/2P (needs a Multiplayer mode +\n"
+                    "a second Player object). None = a plain save-value row.");
             ImGui::Unindent(scaled(46.0f));
         }
         ImGui::PopID();
@@ -12231,11 +12257,13 @@ void App::drawMenusWindow() {
             ImGui::SetTooltip(
                 "Insert a ready-made setting row (backed by a save value):\n"
                 "volume, controller deadzone / aim curve, display mode,\n"
-                "aspect ratio. Restyle and relabel it like any other entry.");
+                "aspect ratio, player count (1P/2P, two-player modes).\n"
+                "Restyle and relabel it like any other entry.");
         if (ImGui::BeginPopup("##optblock")) {
             static const char* kBlockMenu[] = {
                 "Music volume", "Sound volume", "Controller deadzone",
-                "Aim response curve", "Display mode", "Widescreen (aspect)"};
+                "Aim response curve", "Display mode", "Widescreen (aspect)",
+                "Player count (1P/2P)"};
             for (int b = 0; b < kOptionBlockCount; ++b)
                 if (ImGui::Selectable(kBlockMenu[b])) {
                     addOptionBlock(project_, m, b);
@@ -13972,6 +14000,28 @@ void App::drawPreferencesModal() {
     } else {
         ImGui::SeparatorText("Orbit camera");
         ImGui::DragFloat("Orbit speed", &prefSettings_.orbitSpeed, 0.05f, 0.0f, 10.0f, "%.2f");
+    }
+
+    ImGui::SeparatorText("Multiplayer");
+    {
+        int mpMode = prefSettings_.multiplayer == "shared"  ? 1
+                     : prefSettings_.multiplayer == "split" ? 2
+                                                            : 0;
+        const char* mpNames[] = {"Off (single player)", "Shared screen",
+                                 "Split screen (top / bottom)"};
+        if (ImGui::Combo("Two players", &mpMode, mpNames, 3))
+            prefSettings_.multiplayer =
+                mpMode == 1 ? "shared" : mpMode == 2 ? "split" : "off";
+        if (mpMode != 0) {
+            ImGui::Checkbox("Player 2 joins with Start on pad 2",
+                            &prefSettings_.p2JoinOnStart);
+            ImGui::TextDisabled(
+                "Player 2 exists in scenes that contain a SECOND Player object\n"
+                "(the first is P1, the second P2). Shared screen frames both\n"
+                "with one camera; split screen renders each player's own view.\n"
+                "A menu Toggle bound to 'Player count' can also switch 1P/2P\n"
+                "mid-game (Menu Editor > + Option block).");
+        }
     }
 
     ImGui::SeparatorText("Input");

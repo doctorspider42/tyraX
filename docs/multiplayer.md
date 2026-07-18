@@ -1,0 +1,94 @@
+# Two-player games (shared screen & split screen)
+
+TyraX games can host a second local player: both players on one screen with a
+camera that frames the pair (**shared screen**), or each player with their own
+view (**split screen**, P1 top / P2 bottom). Player 2 can join and leave while
+the game is running.
+
+## Authoring
+
+1. **Preferences.** *Project > Preferences > Multiplayer > Two players*:
+   - **Off** – single player; every 2P code path is compiled out.
+   - **Shared screen** – one camera orbits the midpoint of the two avatars and
+     stretches its boom with their separation. Both players should use
+     third-person Player objects (a shared camera has nobody's eyes to look
+     through).
+   - **Split screen (top / bottom)** – the scene renders twice per frame, the
+     top half from player 1's camera and the bottom half from player 2's. Any
+     player mode works (walk/FPP, noclip, third person).
+2. **A second Player object.** In each scene that should support two players,
+   insert a second *Player* object (*Insert > Player*). Scene order decides the
+   slots: the **first** Player object is P1, the **second** is P2 (the
+   properties panel shows which is which). P2 has its own spawn position,
+   movement parameters, and (for third person) its own avatar model and clips.
+   A scene without a second Player object simply stays single-player.
+3. **Joining and leaving mid-game** (both runtime, no rebuild):
+   - *Start on pad 2* (Preferences > "Player 2 joins with Start on pad 2",
+     default on): pressing Start on the second controller drops P2 into the
+     scene at its authored spawn. The pad is opened in a hot-join-friendly way —
+     the controller can be plugged in after boot.
+   - *Menu option block*: the Menu Editor's **+ Option block > Player count
+     (1P/2P)** inserts a ready-made Toggle row (backed by the `opt_players`
+     save value, bind `player-count`). Cycling it to "2 Players" activates P2,
+     back to "1 Player" removes them — the classic title-screen /
+     pause-menu choice. The row and the Start join stay in sync (a pad-2 join
+     updates the menu row's save value), and because the state lives in a save
+     value it persists through memory-card saves.
+
+## What the game does
+
+- **Input**: player 1 keeps the engine pad (connector 1); player 2 reads a
+  second `Tyra::Pad` on connector 2. The pad is *optional* — no controller
+  never blocks or asserts, and the game keeps polling so plugging one in
+  mid-session works (`Pad::initOptional`, `vendor/tyra` fork).
+- **Walkers**: both players run the same per-player walker
+  (`updatePlayerWalker(PlayerCtl&, pi, pad)` in the generated
+  `terrain_game.cpp`) — terrain bounds, object collision, gravity/jump,
+  third-person avatar driving and per-player spring-arm boom all work per
+  player. Per-player tuning comes from the `PLAYER_*` / `PLAYER2_*` scene
+  tables in `scene_data.hpp` (selected via the `PP_*(pi)` macros).
+- **Shared screen**: the frame camera orbits (P1's right stick) around the
+  players' midpoint; the boom grows with their separation (`updateSharedCamera`)
+  and is spring-armed against geometry like the single-player boom. P2's
+  movement is relative to that shared camera (its right stick is unused).
+- **Split screen**: the engine fork gains `RendererCore::splitView`
+  (`vendor/tyra/.../splitview/`), a raster bracket modeled on the env-map
+  redirect: per half it drains PATH1, shifts XYOFFSET so the *central* half of
+  the normal full-screen projection lands on that half of the framebuffer (a
+  vertical crop — per-pixel scale and proportions stay correct, no projection
+  change), scissors to the half and clears its color + depth region. Between
+  the halves the game swaps the camera with `renderer3D.update(cam2)` (view +
+  frustum planes follow per mesh, so culling is correct per half).
+- **Full-screen things stay full-screen**: HUD, menus, texts, post FX (bloom /
+  grain / DoF) and cutscene overlays draw once over the whole frame. A cutscene
+  camera override suspends the split for its duration (cutscenes own the whole
+  screen). The dynamic env map (reflective materials) pauses its refresh while
+  split rendering is active — its bracket would reset the half's raster state —
+  so reflections keep the last rendered map during split play.
+- **Scripts / flow graphs**: `ScriptContext` gains `player2Active` and
+  `player2Position` (equal to `playerPosition` while P2 is inactive, so
+  "nearest player" logic can read it unconditionally). Existing input-driven
+  flow nodes (button triggers etc.) keep reading pad 1.
+- **Scene switches**: P2 stays in the game across scene loads as long as the
+  new scene has a second Player object; otherwise the game drops back to 1P
+  (and the menu row follows). Teleports move P1 and bring an active P2 along
+  a step to the side.
+
+## Limitations (v1)
+
+- Two players maximum (the two console pad ports; no multitap).
+- The split is horizontal (top / bottom) only.
+- HUD is shared — there are no per-player HUD elements yet.
+- Depth of field uses a single focus for the whole frame; in split mode both
+  halves share it. Consider disabling DoF in split-screen projects.
+- Flow-graph button/stick nodes read pad 1 only.
+
+## Testing
+
+The harness recipe (see `tyra-testing`): a scratch project with two Player
+objects, `"multiplayer": "split"`, and a pause menu carrying the Player-count
+block round-trips through save/load and generates the split render path; in
+PCSX2 the menu toggle can be driven from the keyboard (pad-1 bindings) to
+flip between full-screen 1P and split-screen 2P without a second controller.
+Pad-2 hot-join needs a second controller configured in PCSX2 (or real
+hardware).

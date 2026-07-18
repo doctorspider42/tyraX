@@ -101,7 +101,20 @@ popEnvView`; exposed as a VRAM-resident `Texture::vramResident` that
 triangle collider) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
 TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot),
 `renderer/models/unique_id.hpp` (`generateUniqueId()`) replacing upstream's
-`rand() % 1000000` object ids (see the pitfall below), and a **quiet-halt
+`rand() % 1000000` object ids (see the pitfall below), **two-player support**
+(docs/multiplayer.md): `Pad::initOptional(port, slot)` (padInit is now
+once-global; an optional pad never blocks or asserts on a missing controller —
+upstream `update()` busy-waited forever on DISCONN — and keeps polling for a
+hot-join; sticks are centered while disconnected) plus
+`RendererCoreSplitView` (`renderer/core/splitview/`, public
+`RendererCore::splitView`): the split-screen raster bracket modeled on the
+env-map redirect — per half it drains PATH1, shifts XYOFFSET so the CENTRAL
+h/2 rows of the *unchanged* full-screen projection land on that half (a
+vertical crop; no projection change, proportions stay exact), scissors the
+half and clears its color + z region; the game swaps cameras between halves
+with `renderer3D.update(cam2)` (the pipelines read view/frustum lazily per
+mesh). Mind the interplay: any bracket that restores a full-screen raster
+(env map!) must not run inside a split half. And a **quiet-halt
 assert** (`debug/debug.hpp` `TyraDebug::trap`): a failed `TYRA_ASSERT` /
 `TYRA_TRAP` no longer runs upstream's `init_scr()` + infinite `scr_printf` loop
 that seized the whole screen; it still prints the dump to the console / host

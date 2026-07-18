@@ -467,6 +467,16 @@ struct ProjectSettings {
     float stickExpL = 2.0f;  // exponent for the L curve (>=1)
     float stickExpR = 2.0f;  // exponent for the R curve (>=1)
 
+    // Two-player support (docs/multiplayer.md). The mode used while player 2
+    // is active: "shared" = both avatars on one screen, the camera frames the
+    // pair; "split" = horizontal split screen (P1 top, P2 bottom). "off"
+    // compiles every 2P path out. Player 2 exists only in scenes that contain
+    // a second Player object (the first one is P1, the second P2).
+    std::string multiplayer = "off";  // "off" | "shared" | "split"
+    // Player 2 can join mid-game by pressing Start on pad 2 (and a menu
+    // Toggle bound to "Player count" can switch 1P/2P at any time).
+    bool p2JoinOnStart = true;
+
     // Orbit template
     float orbitSpeed = 1.0f;  // multiplier
 
@@ -551,6 +561,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.stickDeadzoneR == b.stickDeadzoneR &&
            a.stickCurveL == b.stickCurveL && a.stickCurveR == b.stickCurveR &&
            a.stickExpL == b.stickExpL && a.stickExpR == b.stickExpR &&
+           a.multiplayer == b.multiplayer &&
+           a.p2JoinOnStart == b.p2JoinOnStart &&
            a.orbitSpeed == b.orbitSpeed && a.gravity == b.gravity &&
            a.jumpSpeed == b.jumpSpeed && eq3(a.lightDir, b.lightDir) &&
            a.ambient == b.ambient && a.diffuse == b.diffuse &&
@@ -883,6 +895,7 @@ struct MenuEntry {
         BindStickCurve = 4,   // stick response curve exponent (1..3)
         BindDisplayMode = 5,  // scan mode: interlaced / 480p / 1080i
         BindWidescreen = 6,   // aspect ratio: 4:3 / 16:9
+        BindPlayerCount = 7,  // 1 / 2 players (two-player modes; runtime join)
     };
     int settingBind = BindNone;
 };
