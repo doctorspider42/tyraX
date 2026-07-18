@@ -8,6 +8,7 @@ struct SceneObjectData {
              // 6=player 7=emitter 8=sound 9=point-light 10=save-point
              // 11=empty (pure transform, no geometry/collision)
              // 12=plane 13=decal 14=camera (cutscene shot marker)
+             // 15=mirror (glass quad; reflections via MIRRORS below)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -77,12 +78,32 @@ constexpr SceneObjectData SCENE_0_OBJECTS[15] = {
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {15};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[15] = {0xd5215e577efcddbfULL, 0x67c912af291c6119ULL, 0x8d7697bde62e50deULL, 0x2b1d48c3e1d64b68ULL, 0xd17a5a959d20610dULL, 0x61d2d2f70b00963bULL, 0x738221dc36ea5368ULL, 0x87033104afca49b6ULL, 0xa79147ccdfc648aaULL, 0x4311c73fd20c2bffULL, 0x89f757e229708705ULL, 0x89954987362e2bbbULL, 0xfa0fb7c7e95e38a7ULL, 0x80a2e64570ad97c2ULL, 0xb559f1971a4d7cd8ULL};
+inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
+
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
 constexpr int SCENE_MAX_LAYERS = 1;
 constexpr bool SCENE_LAYER_STARTS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{true}};
 constexpr float SCENE_LAYER_STREAM_XS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
 constexpr float SCENE_LAYER_STREAM_ZS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
 constexpr float SCENE_LAYER_STREAM_RADII[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
+
+// Mirrors (type 15): each entry re-draws its target objects
+// reflected across the mirror plane (renderMirrors in the game
+// cpp). Targets index the mirror's own scene object table.
+struct MirrorData {
+  int scene;          // scene index
+  int object;         // the mirror's index in its scene table
+  float opacity;      // glass alpha 0..1 (tint = object color)
+  int reflectPlayer;  // 1 = also reflect the third-person avatar
+  int firstTarget;    // first entry in MIRROR_TARGETS
+  int targetCount;
+};
+constexpr int MIRROR_COUNT = 0;
+constexpr MirrorData MIRRORS[1] = {
+    {0, -1, 0.0F, 0, 0, 0}
+};
+constexpr int MIRROR_TARGETS[1] = {-1};
 
 constexpr int SND_COUNT = 0;
 inline const char* SND_PATHS[1] = {""};
@@ -99,6 +120,10 @@ constexpr float PLAYER_CAM_DISTS[SCENE_COUNT] = {6.0F};
 constexpr float PLAYER_CAM_HEIGHTS[SCENE_COUNT] = {1.6F};
 constexpr float PLAYER_CAM_SHOULDERS[SCENE_COUNT] = {0.0F};
 constexpr float PLAYER_TURN_RATES[SCENE_COUNT] = {0.25F};
+constexpr int PLAYER_CAM_STYLES[SCENE_COUNT] = {0};
+constexpr float PLAYER_CAM_PITCHES[SCENE_COUNT] = {0.959931F};
+constexpr float PLAYER_CAM_YAWS[SCENE_COUNT] = {0.785398F};
+constexpr bool PLAYER_CAM_YAW_ROTATES[SCENE_COUNT] = {false};
 constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {""};
@@ -232,6 +257,10 @@ inline int everyFrames(float seconds) {
 #define PLAYER_CAM_HEIGHT PLAYER_CAM_HEIGHTS[g_activeScene]
 #define PLAYER_CAM_SHOULDER PLAYER_CAM_SHOULDERS[g_activeScene]
 #define PLAYER_TURN_RATE PLAYER_TURN_RATES[g_activeScene]
+#define PLAYER_CAM_STYLE PLAYER_CAM_STYLES[g_activeScene]
+#define PLAYER_CAM_PITCH PLAYER_CAM_PITCHES[g_activeScene]
+#define PLAYER_CAM_YAW PLAYER_CAM_YAWS[g_activeScene]
+#define PLAYER_CAM_YAW_ROTATE PLAYER_CAM_YAW_ROTATES[g_activeScene]
 #define PLAYER_IDLE_CLIP PLAYER_IDLE_CLIPS[g_activeScene]
 #define PLAYER_WALK_CLIP PLAYER_WALK_CLIPS[g_activeScene]
 #define PLAYER_RUN_CLIP PLAYER_RUN_CLIPS[g_activeScene]

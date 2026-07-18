@@ -43,6 +43,7 @@ struct SceneObjectData {
   int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none
   float drawDistance;  // not drawn farther than this from the camera;
                        // 0 = unlimited (collision/logic always run)
+  int reflected;  // 1 = rendered into the dynamic ("@sky") env map
   int animModel;  // animated models: index into ANIM_MODEL_PATHS, -1 = none
   const char* animClip;  // animated models: starting clip ("" = first)
   int animAutoplay;      // animated models: 1 = play at scene start
@@ -57,16 +58,16 @@ constexpr int SCENE_COUNT = 1;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[4] = {
-    {6, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // player-1
-    {0, {-2.0F, 0.5F, 6.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.85F, 0.25F, 0.2F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // crate-1
-    {0, {0.0F, 0.5F, 9.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.3F, 0.7F, 0.3F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // crate-2
-    {0, {2.0F, 0.5F, 12.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.25F, 0.4F, 0.85F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // crate-3
+    {6, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 16, -1},  // player-1
+    {0, {-2.0F, 0.5F, 6.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.85F, 0.25F, 0.2F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, -1},  // crate-1
+    {0, {0.0F, 0.5F, 9.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.3F, 0.7F, 0.3F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, -1},  // crate-2
+    {0, {2.0F, 0.5F, 12.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.25F, 0.4F, 0.85F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, -1},  // crate-3
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {4};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
-constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[4] = {0x79019740d3d879a7ULL, 0xe7699091815be194ULL, 0x331c93016705ae3dULL, 0x2b0f26ec1b4840d7ULL};
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[4] = {0xf57cdb364cd2510aULL, 0x283a42af9ae5dc16ULL, 0xf4dc938c9ac34bbcULL, 0xb44a4a6907966b98ULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
@@ -108,6 +109,10 @@ constexpr float PLAYER_CAM_DISTS[SCENE_COUNT] = {6.0F};
 constexpr float PLAYER_CAM_HEIGHTS[SCENE_COUNT] = {1.6F};
 constexpr float PLAYER_CAM_SHOULDERS[SCENE_COUNT] = {0.0F};
 constexpr float PLAYER_TURN_RATES[SCENE_COUNT] = {0.25F};
+constexpr int PLAYER_CAM_STYLES[SCENE_COUNT] = {0};
+constexpr float PLAYER_CAM_PITCHES[SCENE_COUNT] = {0.959931F};
+constexpr float PLAYER_CAM_YAWS[SCENE_COUNT] = {0.785398F};
+constexpr bool PLAYER_CAM_YAW_ROTATES[SCENE_COUNT] = {false};
 constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {""};
@@ -241,6 +246,10 @@ inline int everyFrames(float seconds) {
 #define PLAYER_CAM_HEIGHT PLAYER_CAM_HEIGHTS[g_activeScene]
 #define PLAYER_CAM_SHOULDER PLAYER_CAM_SHOULDERS[g_activeScene]
 #define PLAYER_TURN_RATE PLAYER_TURN_RATES[g_activeScene]
+#define PLAYER_CAM_STYLE PLAYER_CAM_STYLES[g_activeScene]
+#define PLAYER_CAM_PITCH PLAYER_CAM_PITCHES[g_activeScene]
+#define PLAYER_CAM_YAW PLAYER_CAM_YAWS[g_activeScene]
+#define PLAYER_CAM_YAW_ROTATE PLAYER_CAM_YAW_ROTATES[g_activeScene]
 #define PLAYER_IDLE_CLIP PLAYER_IDLE_CLIPS[g_activeScene]
 #define PLAYER_WALK_CLIP PLAYER_WALK_CLIPS[g_activeScene]
 #define PLAYER_RUN_CLIP PLAYER_RUN_CLIPS[g_activeScene]
