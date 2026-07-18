@@ -210,6 +210,16 @@ struct SceneObject {
     float playerCamHeight = 1.6f;     // camera/look-at height above the feet
     float playerCamShoulder = 0.0f;   // lateral rig offset; + = right shoulder
     float playerTurnRate = 0.25f;     // avatar turn-to-face lerp per 60fps frame
+    // Camera style. 0 = Orbit (free look behind the avatar - the classic rig).
+    // The fixed styles pin the camera angle for top-down / isometric games:
+    // 1 = Top-down and 2 = Isometric are presets of 3 = Fixed angle (the UI
+    // seeds their pitch/yaw on selection; the angles stay editable in all
+    // three). The left stick keeps moving the avatar relative to the camera
+    // heading, and the spring arm still keeps the boom out of geometry.
+    int playerCamStyle = 0;           // 0 orbit, 1 top-down, 2 isometric, 3 fixed
+    float playerCamPitch = 55.0f;     // fixed styles: elevation above horizon, deg (10..85)
+    float playerCamYaw = 45.0f;       // fixed styles: world heading the camera looks along, deg
+    bool playerCamYawRotate = false;  // fixed styles: right stick still orbits the yaw
 
     // Camera-attached spot light carried by the player (used when type ==
     // Player). Additive cone + distance falloff computed per vertex on VU1, on
@@ -334,6 +344,10 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.playerCamHeight == b.playerCamHeight &&
            a.playerCamShoulder == b.playerCamShoulder &&
            a.playerTurnRate == b.playerTurnRate &&
+           a.playerCamStyle == b.playerCamStyle &&
+           a.playerCamPitch == b.playerCamPitch &&
+           a.playerCamYaw == b.playerCamYaw &&
+           a.playerCamYawRotate == b.playerCamYawRotate &&
            a.flashlightEnabled == b.flashlightEnabled &&
            eq3(a.flashlightColor, b.flashlightColor) &&
            a.flashlightRange == b.flashlightRange &&
