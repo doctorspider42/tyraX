@@ -20,7 +20,9 @@ script under `src/scripts/`.
 ## What to do
 
 You spawn on flat terrain in first person. Walk with the **left stick**, look
-with the **right stick**. Walk up to the **orange box** and press **X**: the sky
+with the **right stick** — or use the keyboard and mouse (**WASD** walks, the
+mouse looks, **Space** is X; see `docs/keyboard-mouse.md` in the repo root).
+Walk up to the **orange box** and press **X**: the sky
 snaps to a warm orange, and press X again to toggle it back. Each press also
 logs `Box says hello!` to the PCSX2 console (visible in the editor's *Output*
 window, or `bin/log.txt`).

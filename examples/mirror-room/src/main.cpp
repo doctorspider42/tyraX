@@ -45,6 +45,11 @@ int main(int argc, char** argv) {
   options.displayMode = Tyra::DisplayMode::Interlaced;
   // 16:9 anamorphic output (Preferences > Build > Widescreen).
   options.widescreen = false;
+  // USB keyboard & mouse (Preferences > Build > Keyboard & mouse): loads the
+  // usbd + ps2kbd + ps2mouse drivers; controls.hpp maps the keys onto a
+  // virtual pad every frame. Works in PCSX2 (the editor sets USB1=hidkbd,
+  // USB2=hidmouse in PCSX2.ini) and with real USB devices on a console.
+  options.loadUsbKbdMouse = true;
   Tyra::Engine engine(options);
   Mirror_room::TerrainGame game(&engine);
   engine.run(&game);

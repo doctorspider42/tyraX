@@ -251,6 +251,14 @@ class TerrainGame : public Tyra::Game {
                      float* ceiling);
   void updateObjectPhysics();
   void renderScene();
+  // Mirror objects (type 15): re-submit each listed target's live bags
+  // under a reflection matrix about the glass plane, then blend the quad
+  // over the copies. mirrorMat holds the reflection for the mirror being
+  // drawn; mirrorAnimMat composes it with an animated target's animMat.
+  void renderMirrors();
+  void renderMirroredObject(int index);
+  Tyra::M4x4 mirrorMat;
+  Tyra::M4x4 mirrorAnimMat;
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
   void buildHighlightProxy(int index);
