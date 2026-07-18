@@ -5544,3 +5544,22 @@ Each finished feature lands as its own commit.
   GRAPH section with both, and the stub's edited reply (5s, no Triangle
   nodes) landed as the saved graph with untouched ids preserved. Editor
   builds clean; modal shows a hint that the AI sees the current graph.
+
+- (67) **Get Position gained exec pins (sample-and-latch)** - user-found gap:
+  Get Position was a pure node, so there was no way to trigger a read - you
+  could not capture "where was the object when X happened" and keep it after
+  the target moved on (a pos link always read live at the consumer's exec).
+  It is now execThrough (like Raycast) while REMAINING a live source when
+  its exec pins are unwired, so every existing graph compiles identically:
+  codegen keys off "has an incoming exec link" (getPosLatched in
+  templates.cpp) - unwired nodes never run and posExpr resolves them live
+  as before; wired ones get a posOut<id>[3] member (reset on scene reload),
+  an action branch latching the target's position at exec time, a posExpr
+  branch handing consumers the latched member, and emitExec chains their
+  "after" exec inline (the registry's execThrough sites all extended, per
+  the tyra-editor-dev note). Object output stays compile-time - only the
+  position latches. Verified via --apply-graph + --refresh-gen on a graph
+  with both forms: OnButton -> GetPosition -> (exec+pos) -> SetVarPos emits
+  the latch then flowPos[0][i] = posOut2[i], while an unwired GetPosition
+  feeding SetPosition still emits the live ctx.objects[i].data.position
+  read; full Docker PS2 build of the project compiles clean (Build OK).

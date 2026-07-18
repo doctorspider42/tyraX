@@ -164,11 +164,19 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          {"X", "Y", "Z", "Speed"}, FlowParamKind::None, true, true, true, false},
         {"SetObjectColor", "Set Object Color", "Object", false, FlowParamKind::ObjectName,
          3, {}, FlowParamKind::Color, true, true},
-        // Position plumbing: Get Position is a pure data node (no exec pins);
-        // Set Object Position uses its X/Y/Z params unless a position link
-        // feeds it. Both pass the object through and expose the position.
+        // Position plumbing: Get Position exposes its target's position.
+        // With nothing wired to its exec pins it behaves as a live data
+        // source - consumers re-read the target's position whenever THEY run
+        // (the original pure behavior; old graphs are unaffected). Wire its
+        // exec input to SAMPLE instead: the position is latched the moment
+        // the exec fires (runtime posOut member, like Raycast) and the
+        // "after" exec chains on - so a graph can capture "where was it when
+        // X happened" and use it later, after the target moved on. Set
+        // Object Position uses its X/Y/Z params unless a position link feeds
+        // it. Both pass the object through and expose the position.
         {"GetPosition", "Get Position", "Object", false, FlowParamKind::ObjectName, 0, {},
-         FlowParamKind::None, true, true, false, true, true},
+         FlowParamKind::None, true, true, false, true, false, false, false,
+         false, false, true},
         // Pure bool getter: is the target object visible this frame?
         {"IsVisible", "Is Visible", "Object", false, FlowParamKind::ObjectName, 0, {},
          FlowParamKind::None, true, true, false, false, true, false, true},

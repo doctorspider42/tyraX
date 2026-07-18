@@ -99,7 +99,12 @@ static const char* nodeDoc(const std::string& key) {
          "frame) at num[3] (Speed) units/s until it arrives."},
         {"SetObjectColor", "Tints the target; num[0..2] = RGB, each 0..1."},
         {"GetPosition",
-         "Pure data node: exposes the target object and its position."},
+         "Exposes the target object and its position. With its exec pins "
+         "unwired it is a live data source: consumers read the target's "
+         "CURRENT position whenever they run. Wire its exec input to SAMPLE "
+         "instead: the position output freezes at the moment the exec fires "
+         "and the 'after' exec chains on - use this to remember where "
+         "something was when an event happened."},
         {"IsVisible", "Pure bool: is the target visible this frame?"},
         {"SetPosition",
          "Sets the target's position to X/Y/Z (a linked position overrides "
