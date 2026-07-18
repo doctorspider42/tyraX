@@ -5838,6 +5838,33 @@ void App::drawFlowGraphWindow() {
     const bool editorHovered = ImNodes::IsEditorHovered();
     ImNodes::EndNodeEditor();
 
+    // Rest the mouse on a node to get its description (FlowNodeType::desc -
+    // the same text the add-menu tooltips and the AI catalog use). Delayed so
+    // it never flickers while wiring/dragging; any mouse button suppresses it.
+    {
+        int hovered = -1;
+        if (ImNodes::IsNodeHovered(&hovered) && !ImGui::IsAnyMouseDown()) {
+            if (hovered != flowDescNode_) {
+                flowDescNode_ = hovered;
+                flowDescSince_ = ImGui::GetTime();
+            } else if (ImGui::GetTime() - flowDescSince_ > 0.6) {
+                const FlowNodeType* ht = nullptr;
+                for (const FlowNode& n : fg.nodes)
+                    if (n.id == hovered) ht = flowNodeType(n.type);
+                if (ht && ht->desc && *ht->desc) {
+                    ImGui::BeginTooltip();
+                    ImGui::PushTextWrapPos(scaled(340.0f));
+                    ImGui::TextUnformatted(ht->title);
+                    ImGui::TextDisabled("%s", ht->desc);
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndTooltip();
+                }
+            }
+        } else {
+            flowDescNode_ = -1;
+        }
+    }
+
     nstyle = savedStyle;
     ImGui::PopStyleVar(3);
     ImGui::SetWindowFontScale(1.0f);
@@ -6067,6 +6094,17 @@ void App::drawFlowGraphWindow() {
                     fg.nodes.push_back(n);
                     ImNodes::SetNodeScreenSpacePos(n.id, clickPos);
                     changed = true;
+                }
+                // The node's registry description doubles as its add-menu
+                // tooltip (FlowNodeType::desc - custom nodes fill it from
+                // their `desc =` header key).
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) &&
+                    t.desc && *t.desc) {
+                    ImGui::BeginTooltip();
+                    ImGui::PushTextWrapPos(scaled(340.0f));
+                    ImGui::TextUnformatted(t.desc);
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndTooltip();
                 }
             }
             ImGui::EndMenu();

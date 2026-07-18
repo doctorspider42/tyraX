@@ -40,7 +40,10 @@ The system prompt is built fresh per request from the live editor state, so it
 never drifts from the code:
 
 - the full node catalog from `flowNodeTypes()` **including the project's
-  custom `.flownode` nodes**, with pins, params and per-node semantics;
+  custom `.flownode` nodes**, with pins, params and per-node semantics — the
+  semantics come from each node's `desc` (the same text the editor shows as
+  the add-menu / node-hover tooltip; custom nodes set it with the `desc =`
+  header key), so a documented node is documented for the AI too;
 - the graph JSON schema and the link-validity rules;
 - the project context: the owner object, scene objects (with usable/animated
   flags and positions), scenes, layers, music/sound tracks, save values and

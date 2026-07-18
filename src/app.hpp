@@ -442,6 +442,10 @@ private:
     // Clipboard for flow-graph copy/paste: the copied nodes plus the links that
     // connect two of them (dangling links are dropped). nextId is unused.
     FlowGraph flowClipboard_;
+    // Node-description tooltip (FlowNodeType::desc): node the mouse rests on
+    // and since when - shown after a short delay, reset on hover change.
+    int flowDescNode_ = -1;
+    double flowDescSince_ = 0.0;
 
     // Viewport overlays: TV frames (PAL 4:3 and NTSC, which shows a
     // slightly wider slice of the same 512x448 buffer)

@@ -39,6 +39,7 @@ Header keys:
 |---|---|
 | `title` | Display name (default: the file stem) |
 | `category` | Add-menu submenu (default: `Custom`) |
+| `desc` | One-line behavior description — the node's editor tooltip AND its entry in the AI generator's catalog. Always write one. |
 | `string` | The node's string param: `none` \| `text` \| `object` |
 | `num0`..`num3` | Labels for up to 4 numeric params (define in order) |
 | `in` | Extra input pins: any of `object position bool text` |
