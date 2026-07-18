@@ -5163,8 +5163,6 @@ void App::drawFlowGraphWindow() {
     ImGui::SameLine();
     if (ImGui::SmallButton("Generate with AI...")) {
         aiGenTargetObject_ = flowGraphObject_;
-        // Default to the non-destructive mode when a graph already exists.
-        aiGenAppend_ = !project_.objects()[flowGraphObject_].flowGraph.empty();
         aiGenError_.clear();
         aiGenWarnings_.clear();
         openAiGeneratePopup_ = true;
@@ -14296,10 +14294,11 @@ void App::drawAiGenerateModal() {
             if (!err.empty()) {
                 aiGenError_ = err;
             } else {
-                if (aiGenAppend_ && !owner.flowGraph.empty())
-                    aigen::appendGraph(owner.flowGraph, fg);
-                else
-                    owner.flowGraph = fg;
+                // The reply is always the complete resulting graph - with an
+                // existing graph the model saw it in the prompt and returned
+                // the updated whole (edits, additions and fresh starts all
+                // land the same way).
+                owner.flowGraph = fg;
                 commitChange();
                 // Show the result: focus this object's graph and push the new
                 // node positions into imnodes.
@@ -14321,8 +14320,8 @@ void App::drawAiGenerateModal() {
     }
 
     const bool busy = aiGen_.busy();
-    ImGui::Text("Graph of: %s%s", owner.name.c_str(),
-                aiGenAppend_ && !owner.flowGraph.empty() ? "  (adding to it)" : "");
+    const bool hasGraph = !owner.flowGraph.empty();
+    ImGui::Text("Graph of: %s", owner.name.c_str());
     ImGui::TextDisabled(
         "%s%s%s%s - change in Edit > Preferences > AI assistant.",
         aigen::backendLabel(globalAi_.backend),
@@ -14330,12 +14329,14 @@ void App::drawAiGenerateModal() {
         globalAi_.model.c_str(), globalAi_.thinking ? ", thinking" : "");
 
     ImGui::BeginDisabled(busy);
-    ImGui::TextUnformatted("Describe the logic you want:");
+    ImGui::TextUnformatted(hasGraph ? "Describe new logic or a change:"
+                                    : "Describe the logic you want:");
     ImGui::InputTextMultiline("##aiprompt", aiPromptBuf_, sizeof(aiPromptBuf_),
                               ImVec2(-FLT_MIN, scaled(110)));
-    if (!owner.flowGraph.empty())
-        ImGui::Checkbox("Add to the existing graph (off = replace it)",
-                        &aiGenAppend_);
+    if (hasGraph)
+        ImGui::TextDisabled(
+            "The AI sees the current graph and decides from your request\n"
+            "whether to change it, extend it, or rebuild it.");
     ImGui::EndDisabled();
 
     if (!aiGenError_.empty() && !busy) {
@@ -14367,7 +14368,9 @@ void App::drawAiGenerateModal() {
             aiGenError_.clear();
             aiGenWarnings_.clear();
             aiGen_.start(globalAi_,
-                         aigen::systemPrompt(project_, aiGenTargetObject_),
+                         aigen::systemPrompt(project_, aiGenTargetObject_,
+                                             hasGraph ? &owner.flowGraph
+                                                      : nullptr),
                          aiPromptBuf_);
             aiGenInFlight_ = true;
         }

@@ -73,18 +73,19 @@ over guessing from this file.
 
 ## AI generation
 
-The editor can generate a graph from a natural-language request, either from
-the GUI (Flow Graph window → "Generate with AI...") or headlessly:
+The editor can generate — or edit — a graph from a natural-language request,
+either from the GUI (Flow Graph window → "Generate with AI...") or headlessly:
 
 ```
 "{TYRAX_EXE}" --ai-graph <projectDir> <objectName> "open the door when the player uses the lever" \
-    [sceneName] [--backend claude|copilot|openai] [--model <m>] [--thinking] [--append]
+    [sceneName] [--backend claude|copilot|openai] [--model <m>] [--thinking]
 ```
 
 Backend/model defaults come from the editor's global preferences (Edit >
 Preferences > AI assistant). The reply is validated exactly like
-`--apply-graph`. `--append` merges into the existing graph instead of
-replacing it.
+`--apply-graph`. An existing graph is included in the prompt automatically:
+the model decides from the request whether to change, extend or rebuild it
+and always returns the complete resulting graph.
 
 If you (the assistant) are asked to write game logic yourself, you do not need
 `--ai-graph` - author the JSON directly and use `--apply-graph`.

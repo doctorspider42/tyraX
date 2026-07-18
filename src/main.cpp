@@ -368,19 +368,21 @@ static aigen::Config aiConfigFromEditorIni() {
 
 // tyrax-editor.exe --ai-graph <projectDir> <objectName> <prompt|prompt-file>
 //                  [sceneName] [--backend claude|copilot|openai] [--model m]
-//                  [--thinking] [--append]
+//                  [--thinking]
 // The whole AI generation pipeline, headless: build the system prompt, run
-// the backend, parse/validate the reply, write the graph, save.
+// the backend, parse/validate the reply, write the graph, save. An existing
+// graph goes into the prompt and the model decides from the request whether
+// to change, extend or rebuild it - the reply is always the complete
+// resulting graph (same behavior as the GUI modal).
 static int aiGraphFromCli(int argc, char** argv) {
     if (argc < 5) {
         std::fprintf(stderr,
                      "usage: tyrax-editor --ai-graph <projectDir> <objectName> "
                      "<prompt|prompt-file> [sceneName] [--backend claude|copilot|"
-                     "openai] [--model <m>] [--thinking] [--append]\n");
+                     "openai] [--model <m>] [--thinking]\n");
         return 2;
     }
     aigen::Config cfg = aiConfigFromEditorIni();
-    bool append = false;
     const char* sceneName = nullptr;
     for (int i = 5; i < argc; ++i) {
         if (std::strcmp(argv[i], "--backend") == 0 && i + 1 < argc)
@@ -389,8 +391,6 @@ static int aiGraphFromCli(int argc, char** argv) {
             cfg.model = argv[++i];
         else if (std::strcmp(argv[i], "--thinking") == 0)
             cfg.thinking = true;
-        else if (std::strcmp(argv[i], "--append") == 0)
-            append = true;
         else
             sceneName = argv[i];
     }
@@ -413,12 +413,18 @@ static int aiGraphFromCli(int argc, char** argv) {
         prompt = ss.str();
     }
 
-    std::fprintf(stderr, "[ai] backend=%s model=%s thinking=%d\n",
+    const bool hasGraph = !p.objects()[idx].flowGraph.empty();
+    std::fprintf(stderr, "[ai] backend=%s model=%s thinking=%d%s\n",
                  cfg.backend.c_str(),
                  cfg.model.empty() ? "(default)" : cfg.model.c_str(),
-                 cfg.thinking ? 1 : 0);
+                 cfg.thinking ? 1 : 0,
+                 hasGraph ? " (existing graph in prompt)" : "");
     aigen::Generator gen;
-    gen.start(cfg, aigen::systemPrompt(p, idx), prompt);
+    gen.start(cfg,
+              aigen::systemPrompt(p, idx,
+                                  hasGraph ? &p.objects()[idx].flowGraph
+                                           : nullptr),
+              prompt);
     while (gen.busy()) std::this_thread::sleep_for(std::chrono::milliseconds(200));
     if (gen.state() != aigen::Generator::State::Success) {
         std::fprintf(stderr, "error: %s\n", gen.error().c_str());
@@ -434,10 +440,7 @@ static int aiGraphFromCli(int argc, char** argv) {
         return 1;
     }
     if (!warnings.empty()) std::fprintf(stderr, "warning: %s\n", warnings.c_str());
-    if (append)
-        aigen::appendGraph(p.objects()[idx].flowGraph, fg);
-    else
-        p.objects()[idx].flowGraph = fg;
+    p.objects()[idx].flowGraph = fg;
     if (std::string err = project::save(p); !err.empty()) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
@@ -500,7 +503,7 @@ int main(int argc, char** argv) {
             "  --apply-graph <projectDir> <object> <graph.json> [scene] [--append]\n"
             "  --ai-graph <projectDir> <object> <prompt|file> [scene]\n"
             "             [--backend claude|copilot|openai] [--model <m>]\n"
-            "             [--thinking] [--append]\n"
+            "             [--thinking]\n"
             "  --add-ai-support <projectDir> [claude] [copilot]\n");
         return 0;
     }

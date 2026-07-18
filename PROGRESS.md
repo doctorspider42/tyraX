@@ -5526,3 +5526,21 @@ Each finished feature lands as its own commit.
   renders, spinner animates, Cancel present, error shown in red);
   --add-ai-support installs 6 files, second run after deleting a marker
   keeps the user-owned file.
+
+- (66) **AI graph generation is edit-aware (no mode switch)** - "Generate
+  with AI" (and --ai-graph) now sends the object's CURRENT graph along in
+  the prompt whenever it has one, serialized in the same schema the model
+  must reply in, with instructions to judge from the request whether to
+  change, extend or rebuild - and to always answer with the COMPLETE
+  resulting graph (unchanged nodes keep ids/positions/params; omissions
+  delete). So "change the timer to 5 seconds" edits in place and "also do X
+  on Circle" extends, with no Edit/Add/Replace UI - an earlier draft had a
+  3-way radio, dropped per feedback for the model deciding itself. The
+  reply always just replaces the stored graph; appendGraph() remains only
+  for --apply-graph --append. Verified with the stub-claude harness (see
+  65/ai-backend-testing): a demo project whose graph had a 3s timer +
+  Triangle-hide branch, request "change the timer from 3 to 5 seconds and
+  remove the Triangle hide logic" - the dumped prompt contains the CURRENT
+  GRAPH section with both, and the stub's edited reply (5s, no Triangle
+  nodes) landed as the saved graph with untouched ids preserved. Editor
+  builds clean; modal shows a hint that the AI sees the current graph.

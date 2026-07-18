@@ -13,7 +13,7 @@ tyrax-editor.exe --dump-graph <projectDir> <object> [scene]
 tyrax-editor.exe --apply-graph <projectDir> <object> <graph.json> [scene] [--append]
 tyrax-editor.exe --refresh-gen <projectDir>
 tyrax-editor.exe --ai-graph <projectDir> <object> <prompt|prompt-file> [scene]
-                 [--backend claude|copilot|openai] [--model <m>] [--thinking] [--append]
+                 [--backend claude|copilot|openai] [--model <m>] [--thinking]
 tyrax-editor.exe --add-ai-support <projectDir> [claude] [copilot]
 ```
 
@@ -38,8 +38,11 @@ tyrax-editor.exe --add-ai-support <projectDir> [claude] [copilot]
   `// node N: unknown ...` comments in `src/scripts/flow_graph.gen.cpp`.
 - **`--ai-graph`** — the whole [AI generation pipeline](ai-flow-graph.md)
   headlessly. The prompt argument is a file path if one exists, literal text
-  otherwise. Backend/model/thinking default to the editor's global
-  preferences (`editor.ini`); the flags override per call.
+  otherwise. An existing graph goes into the prompt automatically and the
+  model decides from the request whether to change, extend or rebuild it —
+  the reply is always the complete resulting graph. Backend/model/thinking
+  default to the editor's global preferences (`editor.ini`); the flags
+  override per call.
 - **`--add-ai-support`** — (re)install the [AI support](ai-support.md) skill
   files (defaults to `claude` when neither provider is named).
 

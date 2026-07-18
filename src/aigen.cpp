@@ -312,7 +312,38 @@ static std::string nameList(const std::vector<T>& v, F name) {
     return s;
 }
 
-std::string systemPrompt(const Project& p, int ownerIndex) {
+// A graph in the REPLY schema ("kind" strings), for the edit-mode prompt -
+// the model sees its input in exactly the shape it must answer in. (The
+// project-file serializer uses bool flags instead; parseGraph reads both.)
+static std::string graphPromptJson(const FlowGraph& fg) {
+    std::ostringstream o;
+    o << "{ \"nodes\": [";
+    for (size_t i = 0; i < fg.nodes.size(); ++i) {
+        const FlowNode& n = fg.nodes[i];
+        o << (i ? ", " : "") << "{ \"id\": " << n.id << ", \"type\": \"" << n.type
+          << "\", \"pos\": [" << (int)n.pos[0] << ", " << (int)n.pos[1] << "]";
+        if (!n.str.empty()) o << ", \"str\": \"" << jsonEsc(n.str) << "\"";
+        if (!n.str2.empty()) o << ", \"str2\": \"" << jsonEsc(n.str2) << "\"";
+        o << ", \"num\": [" << n.num[0] << ", " << n.num[1] << ", " << n.num[2]
+          << ", " << n.num[3] << "] }";
+    }
+    o << "], \"links\": [";
+    for (size_t i = 0; i < fg.links.size(); ++i) {
+        const FlowLink& l = fg.links[i];
+        const char* kind = l.kind == FlowLinkObject ? "object"
+                           : l.kind == FlowLinkPos  ? "pos"
+                           : l.kind == FlowLinkBool ? "bool"
+                           : l.kind == FlowLinkText ? "text"
+                                                    : "exec";
+        o << (i ? ", " : "") << "{ \"from\": " << l.fromNode
+          << ", \"to\": " << l.toNode << ", \"kind\": \"" << kind << "\" }";
+    }
+    o << "] }";
+    return o.str();
+}
+
+std::string systemPrompt(const Project& p, int ownerIndex,
+                         const FlowGraph* editing) {
     const SceneData& sc = p.active();
     std::ostringstream o;
     o << "You are a flow-graph author for TyraX, an editor that generates "
@@ -421,6 +452,20 @@ std::string systemPrompt(const Project& p, int ownerIndex) {
          "project context, prefer the closest existing name; only invent "
          "names for variables (Set Int / Set Bool / Set Position), which are "
          "created on first use.\n";
+
+    if (editing && !editing->empty()) {
+        o << "\nCURRENT GRAPH: this object ALREADY HAS the flow graph below "
+             "(same JSON schema as your reply). Judge from the request what "
+             "is wanted: change or extend this graph (the usual case), or "
+             "build something fresh if the request clearly asks to start "
+             "over. Either way reply with the COMPLETE graph that should "
+             "exist afterwards - every node and link, not a diff; anything "
+             "you leave out is DELETED. Keep the ids, positions and "
+             "parameter values of nodes you are not changing exactly as they "
+             "are; give new nodes fresh unused ids and place them near the "
+             "nodes they relate to without overlapping.\n"
+          << graphPromptJson(*editing) << "\n";
+    }
     return o.str();
 }
 

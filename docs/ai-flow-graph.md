@@ -1,8 +1,11 @@
 # AI flow-graph generation
 
 Describe the logic you want in plain language and the editor builds the flow
-graph: `Flow Graph` window → **Generate with AI...** (or headlessly,
-`tyrax-editor --ai-graph` — see [ai-tools.md](ai-tools.md)).
+graph — or, when the object already has one, **edits it**: the current graph
+goes into the prompt and the model decides from your request whether to
+change it, extend it, or rebuild it. `Flow Graph` window → **Generate with
+AI...** (or headlessly, `tyrax-editor --ai-graph` — see
+[ai-tools.md](ai-tools.md)).
 
 ## Using it
 
@@ -18,14 +21,18 @@ graph: `Flow Graph` window → **Generate with AI...** (or headlessly,
    **Thinking** turns on extended reasoning where the backend supports it
    (slower, better on tricky logic; ignored by the Copilot CLI).
 2. In the Flow Graph window pick the object whose graph you're editing and
-   press **Generate with AI...**. Describe the behavior ("when the player
-   uses the lever, open the door and play a clank sound"), press
-   **Generate**. A spinner shows while the backend runs; **Cancel** kills the
-   whole backend process tree.
+   press **Generate with AI...**. Describe new behavior ("when the player
+   uses the lever, open the door and play a clank sound") **or a change to
+   the existing graph** ("make the timer 5 seconds", "remove the Triangle
+   logic", "also play a sound when the door opens") and press **Generate**.
+   A spinner shows while the backend runs; **Cancel** kills the whole
+   backend process tree.
 3. The reply is validated (node types against the live registry, link pin
    rules — the same checks the graph editor enforces) and applied as **one
-   undo step** — a bad generation is a `Ctrl+Z` away. With an existing graph
-   the default is **Add to the existing graph**; untick it to replace.
+   undo step** — a bad generation is a `Ctrl+Z` away. There is no
+   edit-vs-create switch: with an existing graph the model always sees it
+   and replies with the complete graph that should exist afterwards
+   (untouched nodes keep their ids, positions and parameters).
 
 ## What the model knows
 
@@ -38,7 +45,9 @@ never drifts from the code:
 - the project context: the owner object, scene objects (with usable/animated
   flags and positions), scenes, layers, music/sound tracks, save values and
   texts, menus and their flow events, on-screen texts, gradings, ambience
-  presets and sequences — so generated `str` params reference real names.
+  presets and sequences — so generated `str` params reference real names;
+- the object's **current graph**, when it has one, with instructions to
+  return the complete post-change graph and to keep unchanged nodes intact.
 
 ## Failure modes
 
@@ -52,7 +61,8 @@ never drifts from the code:
 ## Internals (for editor developers)
 
 `src/aigen.cpp`: `systemPrompt()` (registry + project context → instruction
-text), `Generator` (worker thread; the prompt travels via a temp file + stdin
+text; a non-null `editing` graph appends the CURRENT GRAPH section in the
+reply schema), `Generator` (worker thread; the prompt travels via a temp file + stdin
 redirect — never the command line; the child runs in a kill-on-close Job
 Object so Cancel takes down the whole tree; stderr goes to a temp file so it
 cannot interleave with the reply), `parseGraph()` (fence/prose-tolerant JSON

@@ -814,7 +814,6 @@ private:
     // changed selection can't retarget an in-flight reply.
     bool openAiGeneratePopup_ = false;
     char aiPromptBuf_[2048] = "";
-    bool aiGenAppend_ = false;      // add to the existing graph vs replace it
     int aiGenTargetObject_ = -1;
     bool aiGenInFlight_ = false;    // a started request's result is unconsumed
     aigen::Generator aiGen_;

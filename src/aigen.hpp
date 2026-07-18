@@ -47,8 +47,12 @@ std::vector<const char*> modelPresets(const std::string& backend);
 
 // The instruction text sent as the first part of every request (the user's
 // request is appended after it). ownerIndex = the object whose graph is being
-// generated, in the ACTIVE scene of p.
-std::string systemPrompt(const Project& p, int ownerIndex);
+// generated, in the ACTIVE scene of p. When `editing` is non-null the prompt
+// switches to edit mode: it embeds that graph (in the reply schema) and
+// instructs the model to return the COMPLETE updated graph - the caller then
+// replaces the object's graph with the reply.
+std::string systemPrompt(const Project& p, int ownerIndex,
+                         const FlowGraph* editing = nullptr);
 
 // Parses a model reply into `out` (which is REPLACED). Returns "" on success,
 // a human-readable error otherwise. Non-fatal issues (dropped invalid links,
@@ -59,9 +63,10 @@ std::string systemPrompt(const Project& p, int ownerIndex);
 std::string parseGraph(const std::string& reply, FlowGraph& out,
                        std::string* warnings = nullptr);
 
-// Merges `add` into `dst` ("Add to graph" mode): node/link ids are shifted
-// past dst's, positions are shifted below dst's lowest node. Used by both the
-// GUI modal and the --ai-graph/--apply-graph --append CLI paths.
+// Merges `add` into `dst`: node/link ids are shifted past dst's, positions
+// are shifted below dst's lowest node. Used by --apply-graph --append (the
+// AI paths instead put the current graph into the prompt and take the
+// model's reply as the complete result).
 void appendGraph(FlowGraph& dst, FlowGraph add);
 
 // Runs one generation request on a worker thread.
