@@ -15,6 +15,7 @@
 #include <set>
 #include <sstream>
 
+#include "aisupport.hpp"
 #include "decalproj.hpp"
 #include "gl_loader.h"
 #include "glbparser.hpp"
@@ -82,6 +83,10 @@ struct EditorConfig {
     // Parent folder proposed as the location for new projects. Empty = fall
     // back to ~/TyraProjects.
     std::string defaultProjectsDir;
+    // AI assistant backend for flow-graph generation (aigen.hpp). Machine
+    // config, not project data: which CLIs/keys exist is a property of this
+    // PC. The --ai-graph CLI reads the same keys (main.cpp).
+    aigen::Config ai;
 };
 
 static std::filesystem::path editorConfigPath() {
@@ -121,7 +126,11 @@ static EditorConfig loadEditorConfig() {
         else if (match("ps2LinkIp", v)) cfg.ps2LinkIp = v;
         else if (match("errorPopup", v)) cfg.errorPopup = toI(v, 1) != 0;
         else if (match("defaultProjectsDir", v)) cfg.defaultProjectsDir = v;
+        else if (match("aiBackend", v)) cfg.ai.backend = v;
+        else if (match("aiModel", v)) cfg.ai.model = v;
+        else if (match("aiThinking", v)) cfg.ai.thinking = toI(v, 0) != 0;
     }
+    if (cfg.ai.backend.empty()) cfg.ai.backend = "claude";
     return cfg;
 }
 
@@ -145,7 +154,10 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "emulatorPath=" << cfg.emulatorPath << "\n"
       << "ps2LinkIp=" << cfg.ps2LinkIp << "\n"
       << "errorPopup=" << (cfg.errorPopup ? 1 : 0) << "\n"
-      << "defaultProjectsDir=" << cfg.defaultProjectsDir << "\n";
+      << "defaultProjectsDir=" << cfg.defaultProjectsDir << "\n"
+      << "aiBackend=" << cfg.ai.backend << "\n"
+      << "aiModel=" << cfg.ai.model << "\n"
+      << "aiThinking=" << (cfg.ai.thinking ? 1 : 0) << "\n";
 }
 
 // Default parent directory proposed for new projects: the configured global
@@ -353,6 +365,7 @@ int App::run(const std::string& initialProjectDir) {
         globalPs2Ip_ = cfg.ps2LinkIp;
         errorPopupEnabled_ = cfg.errorPopup;
         globalDefaultProjectsDir_ = cfg.defaultProjectsDir;
+        globalAi_ = cfg.ai;
     }
     applyUiScale();
 
@@ -511,6 +524,7 @@ void App::drawUI() {
     drawNewProjectModal();
     drawPreferencesModal();
     drawEditorPreferencesModal();
+    drawAiGenerateModal();
     drawErrorModal();
     drawNavigationModal();
     drawScenePreferencesModal();
@@ -607,7 +621,7 @@ void App::applyUiScale() {
 // UI-scale or navigation change.
 void App::saveGlobalConfig() {
     saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_,
-                      errorPopupEnabled_, globalDefaultProjectsDir_});
+                      errorPopupEnabled_, globalDefaultProjectsDir_, globalAi_});
 }
 
 void App::setUiScale(float userScale) {
@@ -651,6 +665,15 @@ void App::drawMenuBar() {
                 snprintf(prefPs2Ip_, sizeof(prefPs2Ip_), "%s", globalPs2Ip_.c_str());
                 snprintf(prefDefaultProjectsDir_, sizeof(prefDefaultProjectsDir_), "%s",
                          globalDefaultProjectsDir_.c_str());
+                prefAiBackend_ = 0;
+                {
+                    const auto ids = aigen::backendIds();
+                    for (int i = 0; i < (int)ids.size(); ++i)
+                        if (globalAi_.backend == ids[i]) prefAiBackend_ = i;
+                }
+                snprintf(prefAiModel_, sizeof(prefAiModel_), "%s",
+                         globalAi_.model.c_str());
+                prefAiThinking_ = globalAi_.thinking;
                 openEditorPrefsPopup_ = true;
             }
             ImGui::EndMenu();
@@ -5129,6 +5152,19 @@ void App::drawFlowGraphWindow() {
                 "Install the Tyra extension (.flownode/.screenfx highlighting)\n"
                 "into VS Code. Reload the VS Code window afterwards.");
         ImGui::EndPopup();
+    }
+
+    // AI generation: describe the logic, get a graph (aigen.hpp). The modal
+    // pins the target object now - selection changes must not retarget an
+    // in-flight request.
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Generate with AI...")) {
+        aiGenTargetObject_ = flowGraphObject_;
+        // Default to the non-destructive mode when a graph already exists.
+        aiGenAppend_ = !project_.objects()[flowGraphObject_].flowGraph.empty();
+        aiGenError_.clear();
+        aiGenWarnings_.clear();
+        openAiGeneratePopup_ = true;
     }
 
     SceneObject& owner = project_.objects()[flowGraphObject_];
@@ -13663,6 +13699,17 @@ void App::drawNewProjectModal() {
             "FPP (a single player entity)"};
         ImGui::Combo("Preset", &newTemplate_, presetNames, 2);
 
+        ImGui::SeparatorText("AI support");
+        ImGui::Checkbox("Claude Code", &newAiClaude_);
+        ImGui::SameLine();
+        ImGui::Checkbox("GitHub Copilot", &newAiCopilot_);
+        ImGui::TextDisabled(
+            "Copies assistant guides into the project (.claude/skills/ +\n"
+            "CLAUDE.md, .github/copilot-instructions.md): how the project is\n"
+            "structured, flow graphs, custom scripts and the editor's CLI -\n"
+            "so an AI assistant opened in the project knows what it is doing.\n"
+            "Can also be added later in Project > Preferences.");
+
         ImGui::TextDisabled("Creates: %s\\%s", newLocation_, newName_);
         ImGui::TextDisabled("Default scene \"main\" with a flat %d x %d terrain.%s", newWidth_,
                             newDepth_,
@@ -13678,6 +13725,9 @@ void App::drawNewProjectModal() {
             const char* preset = newTemplate_ == 1 ? "fpp" : "empty";
             std::string err = project::create(p, newName_, newLocation_, t, preset);
             if (err.empty()) {
+                if (newAiClaude_ || newAiCopilot_)
+                    statusMessage_ =
+                        aisupport::install(p.dir, newAiClaude_, newAiCopilot_);
                 project_ = p;
                 hasProject_ = true;
                 applyProjectToViewport();
@@ -14027,6 +14077,29 @@ void App::drawPreferencesModal() {
                          "%.1f");
     ImGui::TextDisabled("Objects with the 'Physics' flag fall; the FPP player jumps with X.");
 
+    ImGui::SeparatorText("AI support");
+    ImGui::TextDisabled(
+        "Copies assistant guides into the project (.claude/skills/ + CLAUDE.md\n"
+        "for Claude Code, .github/copilot-instructions.md for Copilot): the\n"
+        "project structure, flow-graph format, custom scripting and the\n"
+        "editor's headless CLI. Installing again refreshes the files unless\n"
+        "you took ownership (deleted their marker line). Applied immediately\n"
+        "- these are files on disk, not project settings.");
+    {
+        const bool haveClaude = aisupport::installed(project_.dir, "claude");
+        const bool haveCopilot = aisupport::installed(project_.dir, "copilot");
+        if (ImGui::Button(haveClaude ? "Refresh Claude Code files"
+                                     : "Add Claude Code support"))
+            statusMessage_ = aisupport::install(project_.dir, true, false);
+        ImGui::SameLine();
+        if (ImGui::Button(haveCopilot ? "Refresh Copilot files"
+                                      : "Add Copilot support"))
+            statusMessage_ = aisupport::install(project_.dir, false, true);
+        if (haveClaude || haveCopilot)
+            ImGui::TextDisabled("Installed:%s%s", haveClaude ? " Claude Code" : "",
+                                haveCopilot ? " Copilot" : "");
+    }
+
     ImGui::Separator();
     ImGui::TextDisabled(
         "These are project-wide defaults. Scenes inherit them unless a\n"
@@ -14108,11 +14181,47 @@ void App::drawEditorPreferencesModal() {
         "Run on PS2 (F6): the game boots on the console over ethernet with its\n"
         "assets served from this PC - no ISO, no SMB. Leave empty to disable.");
 
+    ImGui::SeparatorText("AI assistant");
+    {
+        const auto ids = aigen::backendIds();
+        if (prefAiBackend_ < 0 || prefAiBackend_ >= (int)ids.size())
+            prefAiBackend_ = 0;
+        if (ImGui::BeginCombo("Backend", aigen::backendLabel(ids[prefAiBackend_]))) {
+            for (int i = 0; i < (int)ids.size(); ++i)
+                if (ImGui::Selectable(aigen::backendLabel(ids[i]),
+                                      prefAiBackend_ == i))
+                    prefAiBackend_ = i;
+            ImGui::EndCombo();
+        }
+        // Model: free text (new models work the day they ship) + a preset
+        // popup for the common choices. Empty = the backend's default.
+        ImGui::InputTextWithHint("Model", "backend default", prefAiModel_,
+                                 sizeof(prefAiModel_));
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Presets##aimodel")) ImGui::OpenPopup("##aimodels");
+        if (ImGui::BeginPopup("##aimodels")) {
+            for (const char* m : aigen::modelPresets(ids[prefAiBackend_]))
+                if (ImGui::MenuItem(*m ? m : "(backend default)"))
+                    snprintf(prefAiModel_, sizeof(prefAiModel_), "%s", m);
+            ImGui::EndPopup();
+        }
+        ImGui::Checkbox("Thinking", &prefAiThinking_);
+        ImGui::TextDisabled(
+            "Backend used by Flow Graph > Generate with AI (and the --ai-graph\n"
+            "CLI). Claude CLI needs 'claude' on PATH, Copilot CLI 'copilot';\n"
+            "the OpenAI API needs the OPENAI_API_KEY environment variable and\n"
+            "uses curl. Thinking = extended reasoning where the backend\n"
+            "supports it (slower, better on tricky logic).");
+    }
+
     ImGui::Separator();
     if (ImGui::Button("Save", ImVec2(scaled(120), 0))) {
         globalEmulatorPath_ = prefEmulatorPath_;
         globalPs2Ip_ = prefPs2Ip_;
         globalDefaultProjectsDir_ = prefDefaultProjectsDir_;
+        globalAi_.backend = aigen::backendIds()[prefAiBackend_];
+        globalAi_.model = prefAiModel_;
+        globalAi_.thinking = prefAiThinking_;
         saveGlobalConfig();
         // Feed the new values into the open project (the Runner's transport).
         if (hasProject_) {
@@ -14123,6 +14232,129 @@ void App::drawEditorPreferencesModal() {
     }
     ImGui::SameLine();
     if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+}
+
+// "Generate with AI" (Flow Graph window). The Generator runs the backend on a
+// worker thread; this modal polls it each frame - spinner + Cancel while busy,
+// then the parsed graph is applied through commitChange (one undo step, so a
+// bad generation is a Ctrl+Z away).
+void App::drawAiGenerateModal() {
+    if (openAiGeneratePopup_) {
+        ImGui::OpenPopup("Generate Flow Graph with AI");
+        openAiGeneratePopup_ = false;
+    }
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(scaled(620), 0), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal("Generate Flow Graph with AI", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+
+    // The target can vanish mid-request (undo, scene switch, delete).
+    const bool targetOk = hasProject_ && aiGenTargetObject_ >= 0 &&
+                          aiGenTargetObject_ < (int)project_.objects().size();
+    if (!targetOk) {
+        if (aiGen_.busy()) aiGen_.cancel();
+        aiGenInFlight_ = false;
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+    SceneObject& owner = project_.objects()[aiGenTargetObject_];
+
+    // Consume a finished request exactly once.
+    if (aiGenInFlight_ && !aiGen_.busy()) {
+        aiGenInFlight_ = false;
+        if (aiGen_.state() == aigen::Generator::State::Success) {
+            FlowGraph fg;
+            aiGenWarnings_.clear();
+            const std::string err =
+                aigen::parseGraph(aiGen_.reply(), fg, &aiGenWarnings_);
+            if (!err.empty()) {
+                aiGenError_ = err;
+            } else {
+                if (aiGenAppend_ && !owner.flowGraph.empty())
+                    aigen::appendGraph(owner.flowGraph, fg);
+                else
+                    owner.flowGraph = fg;
+                commitChange();
+                // Show the result: focus this object's graph and push the new
+                // node positions into imnodes.
+                flowGraphObject_ = aiGenTargetObject_;
+                flowPositionsApplied_ = false;
+                statusMessage_ = "AI graph: " + std::to_string(fg.nodes.size()) +
+                                 " nodes, " + std::to_string(fg.links.size()) +
+                                 " links -> " + owner.name +
+                                 (aiGenWarnings_.empty()
+                                      ? ""
+                                      : "  [" + aiGenWarnings_ + "]");
+                ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+                return;
+            }
+        } else {
+            aiGenError_ = aiGen_.error();
+        }
+    }
+
+    const bool busy = aiGen_.busy();
+    ImGui::Text("Graph of: %s%s", owner.name.c_str(),
+                aiGenAppend_ && !owner.flowGraph.empty() ? "  (adding to it)" : "");
+    ImGui::TextDisabled(
+        "%s%s%s%s - change in Edit > Preferences > AI assistant.",
+        aigen::backendLabel(globalAi_.backend),
+        globalAi_.model.empty() ? "" : ", model ",
+        globalAi_.model.c_str(), globalAi_.thinking ? ", thinking" : "");
+
+    ImGui::BeginDisabled(busy);
+    ImGui::TextUnformatted("Describe the logic you want:");
+    ImGui::InputTextMultiline("##aiprompt", aiPromptBuf_, sizeof(aiPromptBuf_),
+                              ImVec2(-FLT_MIN, scaled(110)));
+    if (!owner.flowGraph.empty())
+        ImGui::Checkbox("Add to the existing graph (off = replace it)",
+                        &aiGenAppend_);
+    ImGui::EndDisabled();
+
+    if (!aiGenError_.empty() && !busy) {
+        ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + scaled(590));
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s",
+                           aiGenError_.c_str());
+        ImGui::PopTextWrapPos();
+    }
+
+    ImGui::Separator();
+    if (busy) {
+        // Spinner: an arc revolving with time, next to the status text.
+        const float r = scaled(8.0f), thick = scaled(3.0f);
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float t = (float)ImGui::GetTime() * 6.0f;
+        dl->PathArcTo(ImVec2(pos.x + r + thick, pos.y + r + thick), r, t,
+                      t + 4.4f, 24);
+        dl->PathStroke(ImGui::GetColorU32(ImGuiCol_ButtonHovered), 0, thick);
+        ImGui::Dummy(ImVec2((r + thick) * 2.0f, (r + thick) * 2.0f));
+        ImGui::SameLine();
+        ImGui::Text("Generating...");
+        ImGui::SameLine(0.0f, scaled(20.0f));
+        if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) aiGen_.cancel();
+    } else {
+        const bool emptyPrompt = aiPromptBuf_[0] == '\0';
+        ImGui::BeginDisabled(emptyPrompt);
+        if (ImGui::Button("Generate", ImVec2(scaled(120), 0))) {
+            aiGenError_.clear();
+            aiGenWarnings_.clear();
+            aiGen_.start(globalAi_,
+                         aigen::systemPrompt(project_, aiGenTargetObject_),
+                         aiPromptBuf_);
+            aiGenInFlight_ = true;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Close", ImVec2(scaled(120), 0)))
+            ImGui::CloseCurrentPopup();
+    }
     ImGui::EndPopup();
 }
 

@@ -36,6 +36,9 @@ Then in the editor:
 - **Project file, window layouts & undo history** — the project is a `<name>.tyra` **manifest** (project-wide settings, HUD, menus, sequences, save data, plus editor-side state — selection, active tool, view mode — and the named window layouts above, so your arrangements are restored per project) alongside an `objects/` folder holding **one file per scene object** (`objects/<id>.json`); the manifest lists each scene's objects by id in order. This layout keeps git merges painless for teams: two people editing different objects touch different files (see **Multi-user collaboration** below). The undo history (up to 100 snapshots) lives in a sidecar `<name>.history` file, so undo/redo survives editor restarts; it is gitignored in generated projects. The `<name>.tyra` + `objects/` are the source of truth — if edited outside the editor, the stored history is discarded automatically. (Projects from older editor versions used a single monolithic `.tyra`; they load unchanged and migrate to the split layout on the next save, or in bulk via `--resave`.)
 - **Multi-user collaboration** — each new project is scaffolded for team work: because scene objects are split one-per-file, editing/moving/recoloring *different* objects never conflicts in git. A generated `COLLABORATION.md` explains the workflow, and a `.gitattributes` marks the files that *can't* be auto-merged — terrain heightmaps and imported `res/` assets — as `lockable`, so a team can `git lfs lock` them before editing (it uses only Git LFS's lock registry — no LFS storage or special server — and is inert until `git lfs install`, so it never disturbs a solo/non-LFS workflow).
 - **Copy/paste** — duplicate scene objects with `Ctrl+C` / `Ctrl+V` (the copy lands next to the original with a unique name).
+- **AI flow-graph generation** — *Flow Graph* window → **Generate with AI...**: describe the logic in plain language and the configured backend (Claude CLI, GitHub Copilot CLI or the OpenAI API — pick backend/model + a *Thinking* toggle in `Edit > Preferences > AI assistant`) builds the graph. The reply is validated against the live node registry (including your custom `.flownode` nodes) and applied as one undo step; a spinner + **Cancel** cover the wait. Also headless: `--ai-graph`. [docs/ai-flow-graph.md](docs/ai-flow-graph.md).
+- **AI-agent CLI** — the editor exe doubles as a headless toolbox for AI assistants and scripts: `--dump` (project summary), `--list-nodes` (node catalog), `--dump-graph`/`--apply-graph` (validated graph I/O), `--refresh-gen` (regenerate game sources without Docker). [docs/ai-tools.md](docs/ai-tools.md).
+- **AI support in projects** — the **New Project** dialog (and later `Project > Preferences > AI support`) can install assistant guidance into the game project: Claude Code skills + `CLAUDE.md` and/or `.github/copilot-instructions.md`, teaching an AI assistant the project structure, the ownership markers, flow graphs, custom scripting and the CLI above. Refreshable with the same delete-the-marker-to-own rule as generated sources. [docs/ai-support.md](docs/ai-support.md).
 
 ## Shortcuts
 
@@ -90,6 +93,7 @@ Projects can also be created and built headlessly:
 tyrax-editor.exe --new <name> <parentDir> [width] [depth] [orbit|fpp]
 tyrax-editor.exe --build <projectDir> [--run]
 tyrax-editor.exe --resave <projectDir>        # load + save (runs format migrations)
+tyrax-editor.exe --refresh-gen <projectDir>   # regenerate game sources (no Docker)
 tyrax-editor.exe <projectDir|project.tyra>    # open GUI with a project loaded
 ```
 
@@ -97,6 +101,10 @@ tyrax-editor.exe <projectDir|project.tyra>    # open GUI with a project loaded
 on-disk format migration in the process (e.g. stamping stable object ids on
 older projects). Use it to batch-migrate existing projects to the current
 format without opening the GUI.
+
+A second family of commands targets AI assistants working inside a generated
+project — `--dump`, `--list-nodes`, `--dump-graph`, `--apply-graph`,
+`--ai-graph`, `--add-ai-support` — see [docs/ai-tools.md](docs/ai-tools.md).
 
 ## How Build & Run works
 
@@ -158,6 +166,8 @@ Deep-dive guides for the bigger features live in [docs/](docs) (indexed in
 [object scripts](docs/object-scripts.md), [custom flow nodes](docs/custom-flow-nodes.md),
 [streaming layers](docs/streaming-layers.md), [Live Link](docs/live-link.md),
 [camera takes](docs/camera-takes.md),
+[AI flow-graph generation](docs/ai-flow-graph.md), the
+[AI-agent CLI](docs/ai-tools.md), [AI support in projects](docs/ai-support.md),
 the [VS Code extension](docs/vscode-extension.md) for `.flownode`/`.screenfx`
 files, and the [profiling](docs/profiling.md) / [VU1 clipping](docs/vu1-clipping-plan.md)
 developer notes. Per-feature example projects are listed above; the developer
@@ -165,7 +175,8 @@ architecture guides live under [.claude/skills/](.claude/skills).
 
 ## Structure
 
-- `src/` — editor code (`app` UI, `viewport` GL preview, `project`+`templates` project generator, `flownode` custom flow-graph node loader, `runner` docker/PCSX2 pipeline, `gl_loader` minimal GL loader).
+- `src/` — editor code (`app` UI, `viewport` GL preview, `project`+`templates` project generator, `flownode` custom flow-graph node loader, `aigen` AI flow-graph generation, `aisupport` AI-support installer, `runner` docker/PCSX2 pipeline, `gl_loader` minimal GL loader).
+- `ai-support/` — source markdown for the AI assistant guides installed into projects (embedded into the exe at build time; see [docs/ai-support.md](docs/ai-support.md)).
 - `examples/` — example projects: a general playground (`script-demo`), a large multi-feature `showcase`, and focused per-feature demos.
 - `vendor/tyra/engine` — the in-tree Tyra engine fork (versioned; Apache License 2.0).
 - `vendor/` (rest) — editor dependencies (not versioned; see `setup.ps1`).

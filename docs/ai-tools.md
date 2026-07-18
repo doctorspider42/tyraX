@@ -1,0 +1,48 @@
+# AI-agent CLI tools
+
+The editor executable doubles as a headless toolbox for AI coding assistants
+(and scripts) working inside a generated project: inspect the project, read
+and write flow graphs, regenerate the game sources and drive AI generation —
+all without the GUI. Projects with [AI support](ai-support.md) installed ship
+skill files that teach the assistant these commands.
+
+```powershell
+tyrax-editor.exe --dump <projectDir>
+tyrax-editor.exe --list-nodes <projectDir>
+tyrax-editor.exe --dump-graph <projectDir> <object> [scene]
+tyrax-editor.exe --apply-graph <projectDir> <object> <graph.json> [scene] [--append]
+tyrax-editor.exe --refresh-gen <projectDir>
+tyrax-editor.exe --ai-graph <projectDir> <object> <prompt|prompt-file> [scene]
+                 [--backend claude|copilot|openai] [--model <m>] [--thinking] [--append]
+tyrax-editor.exe --add-ai-support <projectDir> [claude] [copilot]
+```
+
+- **`--dump`** — one JSON summary of the project: scenes with their objects
+  (name, type, position, usable/model/layer/scripts, graph size) and layers,
+  plus every name a flow-graph parameter can reference (music, sounds, save
+  values/texts, menus, HUD texts, gradings, ambience presets, sequences).
+- **`--list-nodes`** — the flow-node catalog (built-ins + the project's
+  custom `.flownode` nodes) with pins, params and semantics, plus the graph
+  JSON schema and link rules. This is literally the AI system prompt, so it
+  is always in sync with the registry.
+- **`--dump-graph` / `--apply-graph`** — read/write one object's graph as
+  JSON. Apply validates node types and link pin rules (same checks as the
+  editor), drops invalid links with a warning, auto-lays-out unpositioned
+  nodes, and saves the project. `--append` merges instead of replacing.
+  Accepts both the editor's stored format and the AI schema
+  (`"kind": "exec"|"object"|"pos"|"bool"|"text"`), and tolerates markdown
+  fences/prose around the JSON.
+- **`--refresh-gen`** — regenerate every editor-owned game source from the
+  project data without building (no Docker). The fast way to check what a
+  data change does to the code; dangling references show up as
+  `// node N: unknown ...` comments in `src/scripts/flow_graph.gen.cpp`.
+- **`--ai-graph`** — the whole [AI generation pipeline](ai-flow-graph.md)
+  headlessly. The prompt argument is a file path if one exists, literal text
+  otherwise. Backend/model/thinking default to the editor's global
+  preferences (`editor.ini`); the flags override per call.
+- **`--add-ai-support`** — (re)install the [AI support](ai-support.md) skill
+  files (defaults to `claude` when neither provider is named).
+
+`--new`, `--build`, `--resave` (see the README's CLI section) complete the
+loop: an agent can create, edit, regenerate, build and run a project end to
+end.
