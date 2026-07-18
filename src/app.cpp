@@ -673,6 +673,9 @@ void App::drawMenuBar() {
                 }
                 snprintf(prefAiModel_, sizeof(prefAiModel_), "%s",
                          globalAi_.model.c_str());
+                prefAiCustomModel_ = true;
+                for (const char* m : aigen::modelPresets(globalAi_.backend))
+                    if (globalAi_.model == m) prefAiCustomModel_ = false;
                 prefAiThinking_ = globalAi_.thinking;
                 openEditorPrefsPopup_ = true;
             }
@@ -14193,18 +14196,36 @@ void App::drawEditorPreferencesModal() {
                     prefAiBackend_ = i;
             ImGui::EndCombo();
         }
-        // Model: free text (new models work the day they ship) + a preset
-        // popup for the common choices. Empty = the backend's default.
-        ImGui::InputTextWithHint("Model", "backend default", prefAiModel_,
-                                 sizeof(prefAiModel_));
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Presets##aimodel")) ImGui::OpenPopup("##aimodels");
-        if (ImGui::BeginPopup("##aimodels")) {
-            for (const char* m : aigen::modelPresets(ids[prefAiBackend_]))
-                if (ImGui::MenuItem(*m ? m : "(backend default)"))
+        // Model: a dropdown of the backend's known models plus "Custom..." -
+        // picking Custom opens a free-text field, so brand-new models work
+        // the day they ship. "" = the backend's default model.
+        const auto models = aigen::modelPresets(ids[prefAiBackend_]);
+        auto modelLabel = [](const char* m) {
+            return *m ? m : "Backend default";
+        };
+        // A staged model the list doesn't know (hand-typed earlier, or the
+        // backend just changed) can only be shown as Custom.
+        bool listed = false;
+        for (const char* m : models) listed |= (prefAiModel_ == std::string(m));
+        if (!listed) prefAiCustomModel_ = true;
+        if (ImGui::BeginCombo("Model", prefAiCustomModel_
+                                           ? "Custom..."
+                                           : modelLabel(prefAiModel_))) {
+            for (const char* m : models) {
+                const bool sel =
+                    !prefAiCustomModel_ && prefAiModel_ == std::string(m);
+                if (ImGui::Selectable(modelLabel(m), sel)) {
                     snprintf(prefAiModel_, sizeof(prefAiModel_), "%s", m);
-            ImGui::EndPopup();
+                    prefAiCustomModel_ = false;
+                }
+            }
+            if (ImGui::Selectable("Custom...", prefAiCustomModel_))
+                prefAiCustomModel_ = true;
+            ImGui::EndCombo();
         }
+        if (prefAiCustomModel_)
+            ImGui::InputTextWithHint("Model id", "as the backend expects it",
+                                     prefAiModel_, sizeof(prefAiModel_));
         ImGui::Checkbox("Thinking", &prefAiThinking_);
         ImGui::TextDisabled(
             "Backend used by Flow Graph > Generate with AI (and the --ai-graph\n"

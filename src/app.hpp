@@ -801,7 +801,10 @@ private:
     char prefPs2Ip_[64] = "";          // ps2link IP for Run on PS2
     char prefDefaultProjectsDir_[512] = "";  // default parent folder for new projects
     int prefAiBackend_ = 0;            // index into aigen::backendIds()
-    char prefAiModel_[128] = "";       // free text; presets fill it
+    char prefAiModel_[128] = "";       // "" = the backend's default model
+    // Model combo shows "Custom..." + a free-text field when the staged model
+    // is not one of the backend's listed models (or the user picked Custom).
+    bool prefAiCustomModel_ = false;
     bool prefAiThinking_ = false;
 
     // "Generate with AI" modal (Flow Graph window). The Generator runs on its

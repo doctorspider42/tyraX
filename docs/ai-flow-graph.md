@@ -12,10 +12,11 @@ graph: `Flow Graph` window → **Generate with AI...** (or headlessly,
    - **OpenAI API** — needs the `OPENAI_API_KEY` environment variable (calls
      the Chat Completions endpoint through `curl.exe`, which ships with
      Windows).
-   The **Model** field is free text (new models work the day they ship); the
-   *Presets* button fills in common choices, empty means the backend's
-   default. **Thinking** turns on extended reasoning where the backend
-   supports it (slower, better on tricky logic; ignored by the Copilot CLI).
+   The **Model** dropdown lists the backend's common models plus
+   **Custom...** — pick Custom to type any model id by hand (new models work
+   the day they ship); *Backend default* leaves the choice to the CLI/API.
+   **Thinking** turns on extended reasoning where the backend supports it
+   (slower, better on tricky logic; ignored by the Copilot CLI).
 2. In the Flow Graph window pick the object whose graph you're editing and
    press **Generate with AI...**. Describe the behavior ("when the player
    uses the lever, open the door and play a clank sound"), press
