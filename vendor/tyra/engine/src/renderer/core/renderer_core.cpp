@@ -163,6 +163,20 @@ void RendererCore::applyCustomPostFx(RendererCorePostFx::CustomFxBuild build,
   postFx.applyCustom(build, user);
 }
 
+// Modified by TyraX: portal through-view bracket. Mid-frame: drain PATH1
+// (scissor/z-mask are global GS state) but do NOT latch postFxDrained -
+// the frame submits more 3D after this.
+void RendererCore::portalViewBegin(int x0, int y0, int x1, int y1) {
+  if (path1.isVU1Configured()) sync.align3D();
+  postFx.portalMaskBegin(x0, y0, x1, y1);
+}
+
+void RendererCore::portalViewEnd(const float* xy, const u32* z, int count,
+                                 u8 clearR, u8 clearG, u8 clearB) {
+  if (path1.isVU1Configured()) sync.align3D();
+  postFx.portalMaskEnd(xy, z, count, clearR, clearG, clearB);
+}
+
 void RendererCore::endFrame() {
   Threading::switchThread();
   // The dynamic pipeline kicks the scene on PATH1/VU1 asynchronously (double

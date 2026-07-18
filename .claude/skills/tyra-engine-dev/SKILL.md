@@ -97,7 +97,18 @@ with a dedicated 128×128 z-buffer — "reflected" scene objects submitted
 inside the bracket occlude correctly — + `RendererCore3D::pushEnvView/
 popEnvView`; exposed as a VRAM-resident `Texture::vramResident` that
 `useTexture` binds without a PATH3 upload — see
-`docs/reflective-materials.md`), `physics/CollisionMesh` (XZ-grid
+`docs/reflective-materials.md`), the TyraX portal through-view machinery
+(`RendererCore3D::pushPortalView` — view-matrix-only swap, main projection
+kept, exact frustum planes at the virtual camera — plus
+`RendererCore::portalViewBegin/End` → `RendererCorePostFx::portalMask*`:
+the destination scene renders IN-PLACE into the real framebuffer right
+after the frame clear, scissored to the quad's screen bbox, and the shaped
+opening is carved with reversed-z ops since the GS has no stencil: re-far
+the bbox z, cap the quad interior with a z-only ALWAYS fan at the surface
+depth, repaint the still-far ring via a GEQUAL sprite at z=0 that hits
+exactly the reset pixels; both wrappers drain PATH1 unconditionally and do
+NOT latch the post-fx drain gate; maskEnd's NLOOP is 13 + fan verts; see
+`docs/portals.md`), `physics/CollisionMesh` (XZ-grid
 triangle collider) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
 TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot),
 `renderer/models/unique_id.hpp` (`generateUniqueId()`) replacing upstream's

@@ -82,6 +82,21 @@ void RendererCore3D::pushEnvView(const Vec4& position, const Vec4& lookAt,
   frustumPlanes.update(CameraInfo3D(&pos, &look), planesFov);
 }
 
+// Modified by TyraX: portal through-view camera. The projection is left
+// untouched (the destination renders in-place into the real framebuffer,
+// so the frustum SHAPE is the screen's own); only the view swaps and the
+// frustum planes follow the virtual camera - exact planes, no widening.
+void RendererCore3D::pushPortalView(const Vec4& position, const Vec4& lookAt) {
+  savedView = view;
+  savedProjection = projection;
+  savedViewProj = viewProj;
+  Vec4 pos = position;
+  Vec4 look = lookAt;
+  M4x4::lookAt(&view, pos, look);
+  viewProj = projection * view;
+  frustumPlanes.update(CameraInfo3D(&pos, &look), fov);
+}
+
 void RendererCore3D::popEnvView(const CameraInfo3D& cameraInfo) {
   view = savedView;
   projection = savedProjection;

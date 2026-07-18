@@ -1,0 +1,34 @@
+# portals — linked Portal surfaces with a live through-view and seamless teleport
+
+A minimal demo of the **Portal object** ([docs/portals.md](../../docs/portals.md)):
+two linked portals across the map, a live view through the surface, and a
+walk-through teleport that carries position, view angle and vertical velocity.
+
+What's in the scene:
+
+- **portal-a** (orange, upright) in front of the player spawn, two-way linked
+  with **portal-b** (cyan) 25 world units away. Looking at portal-a you see
+  portal-b's surroundings — the red tower — rendered live through the
+  opening at full resolution (in-place, z-carved: no render-to-texture, no
+  seam), with correct parallax as you move.
+- **box-red** — the landmark tower at the far end; listed as portal-a's
+  "object visible through" (the explicit view list is the render budget,
+  like a Mirror's reflected-object list).
+- **The infinite fall**: **portal-floor** (purple, lying flat on the ground)
+  linked up to **portal-ceiling** (green, hovering 7 units above, facing
+  down), with **Teleport physics objects** on — and **box-drop**, a physics
+  cube that spawns in the air between them. It falls into the floor portal,
+  pops out of the ceiling portal with its speed carried through, and falls
+  again — forever, in plain view to the right of the spawn. (Object physics
+  clamps falls at a 50 u/s terminal velocity, so the loop stays readable
+  instead of accelerating into a blur.)
+- **anchor-cross** — an Empty carrying a small flow graph
+  (On Start → Delay 6 s → Spawn Player At) that walks the player through
+  portal-a unattended ~6 s after the scene starts, so the whole loop —
+  see through → cross → arrive exactly where the view promised — plays out
+  with no pad input. Delete this object (or its graph) to explore manually.
+
+Open `portals.tyra` in the editor and Build & Run (or `run.ps1`). Walk into
+the orange surface: you arrive at the cyan portal facing the tower — the
+same image the surface was showing. Both portals link back at each other,
+so you can walk straight back.

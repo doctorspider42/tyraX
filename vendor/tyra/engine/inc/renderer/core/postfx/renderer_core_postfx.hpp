@@ -185,6 +185,26 @@ class RendererCorePostFx {
   qword_t* flatQuad(qword_t* q, int dstVram, int dstBufW, u32 fbmsk, u8 r,
                     u8 g, u8 b, u8 a, u64 alpha);
 
+  // TyraX portals: the in-place through-view mask. The destination scene
+  // renders FULL-RES into the real framebuffer right after the frame clear,
+  // scissored to the portal quad's screen bbox; the GS has no stencil, so
+  // the "shaped opening" is carved with reversed-z tricks afterwards:
+  //   portalMaskBegin - scissor the frame to the bbox (call before
+  //     submitting the destination view).
+  //   portalMaskEnd   - re-far the bbox z (the destination depths must not
+  //     confuse the main scene), cap the quad interior at the surface depth
+  //     (z-only triangle fan, ALWAYS - walls in front still win GEQUAL over
+  //     the view, the wall behind loses, and DoF/particles see a solid
+  //     surface), repaint the still-far ring around the opening with the
+  //     clear color (GEQUAL at z=0 hits exactly the pixels the reset left
+  //     at far - the spilled destination pixels outside the quad), then
+  //     restore scissor/tests.
+  // xy = screen pixels (pairs), z = 24-bit GS depths of the quad plane.
+  // Call through RendererCore::portalViewBegin/End, which drain PATH1.
+  void portalMaskBegin(int x0, int y0, int x1, int y1);
+  void portalMaskEnd(const float* xy, const u32* z, int count, u8 clearR,
+                     u8 clearG, u8 clearB);
+
  private:
   static constexpr int noiseSize = 64;  // texels, power of two
 

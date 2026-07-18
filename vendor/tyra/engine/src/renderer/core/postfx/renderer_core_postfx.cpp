@@ -168,6 +168,128 @@ qword_t* RendererCorePostFx::flatQuad(qword_t* q, int dstVram, int dstBufW,
   return q;
 }
 
+void RendererCorePostFx::portalMaskBegin(int x0, int y0, int x1, int y1) {
+  if (gs == nullptr) return;
+  if (x0 < 0) x0 = 0;
+  if (y0 < 0) y0 = 0;
+  if (x1 > fbW) x1 = fbW;
+  if (y1 > fbH) y1 = fbH;
+  if (x1 <= x0 || y1 <= y0) return;
+
+  packet2_reset(packet, false);
+  qword_t* q = packet->base;
+  PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  // Bound the destination view's fill to the portal's screen bbox. The
+  // raster offset stays window-centered (the VU1 pipeline renders through
+  // it), so the scissor is expressed in window coordinates directly.
+  PACK_GIFTAG(q, GS_SET_SCISSOR(x0, x1 - 1, y0, y1 - 1), GS_REG_SCISSOR_1);
+  q++;
+  packet2_update(packet, q);
+  packet2_update(packet, draw_finish(packet->next));
+  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
+  draw_wait_finish();
+}
+
+void RendererCorePostFx::portalMaskEnd(const float* xy, const u32* z,
+                                       int count, u8 clearR, u8 clearG,
+                                       u8 clearB) {
+  if (gs == nullptr || count < 3) return;
+  if (count > 12) count = 12;  // a frustum-clipped quad tops out at 9 verts
+
+  auto* fb = gs->getCurrentFrameBuffer();
+  const int fbVram = static_cast<int>(fb->address);
+  const int fbBufW = static_cast<int>(fb->width);
+
+  packet2_reset(packet, false);
+  // Screen-origin raster offset for the mask sprites/fan; restored to the
+  // window-centered offset the VU1 pipeline expects at the end. The scissor
+  // is still the bbox from portalMaskBegin - every op below is bounded.
+  packet2_update(packet,
+                 draw_primitive_xyoffset(packet->base, 0, 2048.0F, 2048.0F));
+
+  qword_t* q = packet->next;
+  // NLOOP = 13 fixed regs + one XYZ2 per fan vertex - an undercount stalls
+  // the GIF forever (the stray qword parses as a garbage giftag).
+  PACK_GIFTAG(q, GIF_SET_TAG(13 + count, 0, 0, 0, GIF_FLG_PACKED, 1),
+              GIF_REG_AD);
+  q++;
+  // --- 1) z-only: re-far the whole bbox (kill the destination depths) ---
+  PACK_GIFTAG(q,
+              GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, GS_PSM_32, 0xFFFFFFFFu),
+              GS_REG_FRAME_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_TEST(0, 0, 0, 0, 0, 0, 1, ZTEST_METHOD_ALLPASS),
+              GS_REG_TEST_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_RGBAQ(0x80, 0x80, 0x80, 0x80, 0x3F800000),
+              GS_REG_RGBAQ);
+  q++;
+  PACK_GIFTAG(q, GS_SET_PRIM(6 /* sprite */, 0, 0, 0, 0, 0, 0, 0, 0),
+              GS_REG_PRIM);
+  q++;
+  PACK_GIFTAG(q, GS_SET_XYZ(2048 << 4, 2048 << 4, 0), GS_REG_XYZ2);
+  q++;
+  PACK_GIFTAG(q, GS_SET_XYZ((2048 + fbW) << 4, (2048 + fbH) << 4, 0),
+              GS_REG_XYZ2);
+  q++;
+  // --- 2) z-only: cap the quad interior at the surface depth ------------
+  PACK_GIFTAG(q, GS_SET_PRIM(5 /* triangle fan */, 0, 0, 0, 0, 0, 0, 0, 0),
+              GS_REG_PRIM);
+  q++;
+  for (int i = 0; i < count; i++) {
+    // 12.4 fixed point; the caller clips to the frustum so raster coords
+    // stay far from the 4096 wrap, but clamp defensively anyway.
+    int xf = static_cast<int>((xy[i * 2] + 2048.0F) * 16.0F + 0.5F);
+    int yf = static_cast<int>((xy[i * 2 + 1] + 2048.0F) * 16.0F + 0.5F);
+    xf = xf < 0 ? 0 : (xf > 65535 ? 65535 : xf);
+    yf = yf < 0 ? 0 : (yf > 65535 ? 65535 : yf);
+    PACK_GIFTAG(q, GS_SET_XYZ(xf, yf, z[i]), GS_REG_XYZ2);
+    q++;
+  }
+  // --- 3) color: repaint the still-far ring with the clear color --------
+  // GEQUAL at z=0 passes exactly where step 1 left z at far and step 2 did
+  // NOT re-cap - i.e. the destination pixels that spilled outside the quad
+  // opening (writing z=0 over z=0 is a no-op, so no ZBUF toggle needed).
+  PACK_GIFTAG(q, GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, GS_PSM_32, 0),
+              GS_REG_FRAME_1);
+  q++;
+  PACK_GIFTAG(q,
+              GS_SET_TEST(0, 0, 0, 0, 0, 0, 1,
+                          static_cast<int>(gs->zBuffer.method)),
+              GS_REG_TEST_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_RGBAQ(clearR, clearG, clearB, 0x80, 0x3F800000),
+              GS_REG_RGBAQ);
+  q++;
+  PACK_GIFTAG(q, GS_SET_PRIM(6 /* sprite */, 0, 0, 0, 0, 0, 0, 0, 0),
+              GS_REG_PRIM);
+  q++;
+  PACK_GIFTAG(q, GS_SET_XYZ(2048 << 4, 2048 << 4, 0), GS_REG_XYZ2);
+  q++;
+  PACK_GIFTAG(q, GS_SET_XYZ((2048 + fbW) << 4, (2048 + fbH) << 4, 0),
+              GS_REG_XYZ2);
+  q++;
+  // Restore: full-screen scissor, the drawing environment's tests, and the
+  // window-centered raster offset (their own giftags - not in the NLOOP).
+  PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  PACK_GIFTAG(q, GS_SET_SCISSOR(0, fbW - 1, 0, fbH - 1), GS_REG_SCISSOR_1);
+  q++;
+  q = draw_enable_tests(q, 0, &gs->zBuffer);
+
+  packet2_update(packet, q);
+  packet2_update(packet,
+                 draw_primitive_xyoffset(packet->next, 0,
+                                         2048.0F - (fbW / 2.0F),
+                                         2048.0F - (fbH / 2.0F)));
+  packet2_update(packet, draw_finish(packet->next));
+  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
+  draw_wait_finish();
+}
+
 qword_t* RendererCorePostFx::gradingQuads(qword_t* q, int fbVram,
                                           int fbBufW) {
   // The alpha byte carries no scene data but the blits' TEXFLUSH/decal path

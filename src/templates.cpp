@@ -622,6 +622,24 @@ class TerrainGame : public Tyra::Game {
   void renderMirroredObject(int index);
   Tyra::M4x4 mirrorMat;
   Tyra::M4x4 mirrorAnimMat;
+  // Portal objects (type 16): a linked pair of surfaces. renderPortalView
+  // renders the through-view of the best on-screen portal into the engine's
+  // portal render target (the player camera mapped through the pair, so the
+  // second camera stays in lockstep with the player's); renderPortals blends
+  // every portal's tinted quad after the scene and projects the live view
+  // onto the winner's surface; updatePortals teleports the player / physics
+  // objects that cross a linked surface, carrying position, view angle and
+  // vertical velocity through the same mapping - the view and the arrival
+  // line up exactly, so stepping through is seamless. portalLive = PORTALS
+  // index whose view currently fills the render target (-1 = none).
+  void renderPortalView();
+  void renderPortals();
+  bool portalCamera(int pi, Tyra::Vec4* outEye, Tyra::Vec4* outAt);
+  bool updatePortals(float prevX, float prevY, float prevZ, float* px,
+                     float* py, float* pz, float* pyaw, float* ppitch,
+                     float* pvelY, float eyeH);
+  int portalLive = -1;
+  std::vector<float> portalPrevPos;  // 3 floats per runtime object (crossings)
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
   void buildHighlightProxy(int index);
@@ -1027,6 +1045,24 @@ class TerrainGame : public Tyra::Game {
   void renderMirroredObject(int index);
   Tyra::M4x4 mirrorMat;
   Tyra::M4x4 mirrorAnimMat;
+  // Portal objects (type 16): a linked pair of surfaces. renderPortalView
+  // renders the through-view of the best on-screen portal into the engine's
+  // portal render target (the player camera mapped through the pair, so the
+  // second camera stays in lockstep with the player's); renderPortals blends
+  // every portal's tinted quad after the scene and projects the live view
+  // onto the winner's surface; updatePortals teleports the player / physics
+  // objects that cross a linked surface, carrying position, view angle and
+  // vertical velocity through the same mapping - the view and the arrival
+  // line up exactly, so stepping through is seamless. portalLive = PORTALS
+  // index whose view currently fills the render target (-1 = none).
+  void renderPortalView();
+  void renderPortals();
+  bool portalCamera(int pi, Tyra::Vec4* outEye, Tyra::Vec4* outAt);
+  bool updatePortals(float prevX, float prevY, float prevZ, float* px,
+                     float* py, float* pz, float* pyaw, float* ppitch,
+                     float* pvelY, float eyeH);
+  int portalLive = -1;
+  std::vector<float> portalPrevPos;  // 3 floats per runtime object (crossings)
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
   void buildHighlightProxy(int index);
@@ -2168,6 +2204,8 @@ void TerrainGame::loop() {
   // setting keeps applying, and before applyVideoRequests so a display switch
   // it requests lands this frame.
   applyMenuBindings();
+  // Portal crossing test: the walker's position before this frame's movement
+  const float portalPrevX = entX, portalPrevY = entY, portalPrevZ = entZ;
   if (!menuOwnsPad) {
     if (!updatePlayerEntity()) updateCameraOrbit();
     updateUseTarget();
@@ -2233,6 +2271,15 @@ void TerrainGame::loop() {
   }
 
   if (!menuActive) updateObjectPhysics();
+  // Portal surfaces: carry the player / physics objects that crossed a
+  // linked portal through to its target. After the physics step so object
+  // crossings see this frame's motion; on a player hop the camera is
+  // rebuilt inside, so no frame renders from the departure side.
+  if (PORTAL_COUNT > 0 && !menuActive)
+    updatePortals(portalPrevX, portalPrevY, portalPrevZ,
+                  PLAYER_INDEX >= 0 ? &entX : nullptr, &entY, &entZ, &entYaw,
+                  &entPitch, &entVelY,
+                  PLAYER_MODE == 1 ? 0.0F : PLAYER_EYE_HEIGHT);
   updateParticles();
   updateSoundEmitters();
 
@@ -3510,6 +3557,8 @@ void TerrainGame::loadScene(int sceneIndex) {
   currentScene = sceneIndex;
   g_activeScene = sceneIndex;
   sceneGeneration++;  // scene scripts see this and reset their state
+  portalLive = -1;         // stale through-view must not survive the switch
+  portalPrevPos.clear();   // crossing history restarts with the new objects
   // Before any mesh baking: terrain chunks and object geometry shade with
   // this scene's point lights (see collectScenePointLights).
   collectScenePointLights();
@@ -5064,6 +5113,15 @@ void TerrainGame::rebuildObjectGeometry(int index) {
         for (Color& c : p0.colors) c.a = opacity * 128.0F;
         break;
       }
+      case 16: {
+        // portal: the tinted "energy surface" quad (decal quad, +Z face,
+        // same +Z nudge). The live through-view is projected over it by
+        // renderPortals; on unlinked/far portals - and on the pair member
+        // that lost this frame's single view slot - this tint is what shows.
+        addDecal(p0.vertices, p0.colors, p0.sts, o.data);
+        for (Color& c : p0.colors) c.a = 70.0F;  // ~55% energy-glass alpha
+        break;
+      }
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
     g_primKd = nullptr;
@@ -5203,6 +5261,11 @@ void TerrainGame::updateObjectPhysics() {
     if (o.velocityY == 0.0F && o.data.position[1] <= floorY) continue;  // resting
 
     o.velocityY -= gravityPerFrame;
+    // Terminal velocity (50 u/s): an object in a portal infinite-fall loop
+    // would otherwise accelerate until it clears the whole column in one
+    // frame and the smooth fall turns into blinking. Also era-authentic.
+    const float termV = 50.0F * g_frameDt;
+    if (o.velocityY < -termV) o.velocityY = -termV;
     o.data.position[1] += o.velocityY;
     if (o.data.position[1] <= floorY) {
       o.data.position[1] = floorY;
@@ -5312,6 +5375,13 @@ void TerrainGame::renderScene() {
     core.envMap.end();
   }
 
+  // Portal through-view: rendered IN-PLACE into the real framebuffer at
+  // full resolution, every frame (the view must stay in lockstep with the
+  // player camera or the surface visibly lags). Must run right after the
+  // frame clear, before any main-scene 3D - the z-carved opening survives
+  // the main scene drawing around it (see renderPortalView).
+  renderPortalView();
+
   if (skyDome.bag) {
     // Follow the camera: park the dome's centre on the eye so however big the
     // map is, the horizon and zenith always wrap around the player. Only the
@@ -5355,8 +5425,11 @@ void TerrainGame::renderScene() {
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
     // mirrors draw after the scene (copies first, then the blended glass -
     // see renderMirrors); drawing the quad here would z-write the plane and
-    // reject the reflected geometry behind it
-    if (runtimeObjects[i].data.type == 15) continue;
+    // reject the reflected geometry behind it. Portals blend their tinted
+    // surface after the scene too (renderPortals), with the live
+    // through-view projected over it.
+    if (runtimeObjects[i].data.type == 15 || runtimeObjects[i].data.type == 16)
+      continue;
     if (hlActive && hlCount < 8 && runtimeObjects[i].data.usable &&
         highlightInReach(i)) {
       const float ddx = runtimeObjects[i].data.position[0] - cameraPosition.x;
@@ -5378,6 +5451,10 @@ void TerrainGame::renderScene() {
   // Mirrors after the whole scene (including the skinned avatars their
   // copies re-use): reflected copies first, glass quads blended over them
   renderMirrors();
+  // Portals after the mirrors: tinted quads blended over the finished
+  // scene, then the live through-view projected onto the winner's surface
+  // (z-tested against the scene, so walls still occlude the portal).
+  renderPortals();
   if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - profScene0;
   // Highlight shells after the whole scene so they depth-test against the
   // finished z-buffer and can't be punched through by a later draw. Sorted
@@ -5507,6 +5584,426 @@ void TerrainGame::renderMirroredObject(int index) {
       if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
     g.animInfoBag->model = &g.animMat;
   }
+}
+
+// Portal objects (type 16): a PS2-honest take on the seamless portal. The
+// through-view is a real second render - the player camera mapped through
+// the pair (so it is always in sync with the player's), drawn into the
+// engine's 128x128 portal VRAM target through the normal VU1 static
+// pipeline (transform/clip on VU1, camera math on the VU0-macro Vec4/M4x4
+// ops). The surface then samples that target with SCREEN-LOCKED UVs: since
+// the virtual camera shares the main camera's fov/aspect, the destination
+// appears in the target exactly where the portal quad sits on screen, so
+// sampling at the fragment's own screen position yields correct
+// parallax - no reprojection per pixel, just one textured fan. Budget: ONE
+// portal view per frame (the nearest linked portal the camera faces);
+// every other portal shows its tinted quad. The teleport (updatePortals)
+// uses the same mapping, so what you see through the surface is exactly
+// where you arrive.
+
+// The player camera mapped through the portal pair: world -> source local
+// frame -> 180 deg flip about local Y (walk INTO the front, come OUT of the
+// target's front) -> target frame -> world.
+bool TerrainGame::portalCamera(int pi, Vec4* outEye, Vec4* outAt) {
+  const PortalData& p = PORTALS[pi];
+  if (p.target < 0 || p.target >= (int)runtimeObjects.size()) return false;
+  RuntimeObject& src = runtimeObjects[p.object];
+  RuntimeObject& dst = runtimeObjects[p.target];
+  if (!dst.active) return false;
+  const V3 sxA = rotated({1.0F, 0.0F, 0.0F}, src.data.rotation);
+  const V3 syA = rotated({0.0F, 1.0F, 0.0F}, src.data.rotation);
+  const V3 szA = rotated({0.0F, 0.0F, 1.0F}, src.data.rotation);
+  const V3 dxA = rotated({1.0F, 0.0F, 0.0F}, dst.data.rotation);
+  const V3 dyA = rotated({0.0F, 1.0F, 0.0F}, dst.data.rotation);
+  const V3 dzA = rotated({0.0F, 0.0F, 1.0F}, dst.data.rotation);
+  auto mapPoint = [&](const Vec4& wp, Vec4* out) {
+    const float rx = wp.x - src.data.position[0];
+    const float ry = wp.y - src.data.position[1];
+    const float rz = wp.z - src.data.position[2];
+    // R^T: project onto the source axes (they are orthonormal)
+    float lx = rx * sxA.x + ry * sxA.y + rz * sxA.z;
+    const float ly = rx * syA.x + ry * syA.y + rz * syA.z;
+    float lz = rx * szA.x + ry * szA.y + rz * szA.z;
+    lx = -lx;  // the 180 deg flip about local Y
+    lz = -lz;
+    out->set(dst.data.position[0] + dxA.x * lx + dyA.x * ly + dzA.x * lz,
+             dst.data.position[1] + dxA.y * lx + dyA.y * ly + dzA.y * lz,
+             dst.data.position[2] + dxA.z * lx + dyA.z * ly + dzA.z * lz,
+             1.0F);
+  };
+  mapPoint(cameraPosition, outEye);
+  mapPoint(cameraLookAt, outAt);
+  return true;
+}
+
+// Render the through-view of the best on-screen portal IN-PLACE: full-res
+// into the real framebuffer, right after the frame clear and before any
+// main-scene 3D. The GS has no stencil, so the shaped opening is carved
+// with the z-buffer instead (RendererCore::portalViewBegin/End): the
+// destination view renders scissored to the quad's screen bbox, then the
+// bbox depths are re-farred, the quad interior is capped at the surface
+// depth (walls in front still occlude the view, the wall behind loses) and
+// the spilled ring outside the opening is repainted with the clear color.
+// The main scene then draws around it and the opening survives - crisp,
+// no texture resample, no seam. Content = sky dome + terrain (portal's
+// showTerrain flag) plus the explicit view-object list - the Mirror
+// philosophy: the second-render cost is always visible to the author.
+// Animated targets re-use their last skinned pose (skinning runs later in
+// the frame).
+void TerrainGame::renderPortalView() {
+  portalLive = -1;
+  if (PORTAL_COUNT == 0) return;
+  int best = -1;
+  float bestD2 = 1e30F;
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+    if (p.object >= (int)runtimeObjects.size()) continue;
+    RuntimeObject& m = runtimeObjects[p.object];
+    if (!m.active || !m.visible) continue;
+    if (beyondDrawDistance(m.data, cameraPosition)) continue;
+    if (p.target >= (int)runtimeObjects.size() ||
+        !runtimeObjects[p.target].active)
+      continue;
+    // camera must be on the front (+Z) side - the back face never shows a view
+    const V3 n = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+    const float relX = cameraPosition.x - m.data.position[0];
+    const float relY = cameraPosition.y - m.data.position[1];
+    const float relZ = cameraPosition.z - m.data.position[2];
+    if (relX * n.x + relY * n.y + relZ * n.z <= 0.0F) continue;
+    const float d2 = relX * relX + relY * relY + relZ * relZ;
+    if (d2 < bestD2) {
+      bestD2 = d2;
+      best = pi;
+    }
+  }
+  if (best < 0) return;
+  Vec4 eye, at;
+  if (!portalCamera(best, &eye, &at)) return;
+  const PortalData& p = PORTALS[best];
+  RuntimeObject& m = runtimeObjects[p.object];
+
+  // The quad's screen footprint under the MAIN camera. Corners on the same
+  // +Z-nudged plane as the tint quad (addDecal's 0.02 local nudge), clipped
+  // in clip space against the near plane and the four screen edges
+  // (Sutherland-Hodgman, <=9 verts - a handful of flops on the EE), then
+  // projected to GS screen coordinates and reversed-z depths (the same
+  // mapping the VU1 path writes: near -> 0xFFFFFF).
+  const V3 ax = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+  const V3 ay = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+  const V3 az = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+  const float hx = 0.5F * m.data.scale[0];
+  const float hy = 0.5F * m.data.scale[1];
+  const float nz = 0.02F * m.data.scale[2];
+  const float cx = m.data.position[0] + az.x * nz;
+  const float cy = m.data.position[1] + az.y * nz;
+  const float cz = m.data.position[2] + az.z * nz;
+  const float sgnX[4] = {-1.0F, 1.0F, 1.0F, -1.0F};
+  const float sgnY[4] = {-1.0F, -1.0F, 1.0F, 1.0F};
+  const M4x4& vp = engine->renderer.core.renderer3D.getViewProj();
+  Vec4 poly[12], tmp[12];
+  int n = 4;
+  for (int i = 0; i < 4; ++i) {
+    const float wx = cx + ax.x * hx * sgnX[i] + ay.x * hy * sgnY[i];
+    const float wy = cy + ax.y * hx * sgnX[i] + ay.y * hy * sgnY[i];
+    const float wz = cz + ax.z * hx * sgnX[i] + ay.z * hy * sgnY[i];
+    poly[i] = vp * Vec4(wx, wy, wz, 1.0F);
+  }
+  // Frustum edges sit at |x| = w * screenW/4096 in this projection (the
+  // VU1 pipeline's fixed 2048 scale), NOT at |x| = w; small margin - the
+  // GS scissor finishes the job.
+  const float fbW = engine->renderer.core.getSettings().getWidth();
+  const float fbH = engine->renderer.core.getSettings().getHeight();
+  const float xl = fbW / 4096.0F * 1.06F;
+  const float yl = fbH / 4096.0F * 1.06F;
+  const float wMin = engine->renderer.core.getSettings().getNear() * 0.5F;
+  for (int plane = 0; plane < 5 && n >= 3; ++plane) {
+    auto dist = [&](const Vec4& v) -> float {
+      switch (plane) {
+        case 0: return v.w - wMin;
+        case 1: return xl * v.w - v.x;
+        case 2: return xl * v.w + v.x;
+        case 3: return yl * v.w - v.y;
+        default: return yl * v.w + v.y;
+      }
+    };
+    int outN = 0;
+    for (int i = 0; i < n; ++i) {
+      const Vec4& a = poly[i];
+      const Vec4& b = poly[(i + 1) % n];
+      const float da = dist(a);
+      const float db = dist(b);
+      if (da >= 0.0F) tmp[outN++] = a;
+      if ((da >= 0.0F) != (db >= 0.0F)) {
+        const float t = da / (da - db);
+        tmp[outN++] = Vec4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t,
+                           a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t);
+      }
+    }
+    n = outN;
+    for (int i = 0; i < n; ++i) poly[i] = tmp[i];
+  }
+  if (n < 3) return;
+
+  float xy[24];
+  u32 zz[12];
+  float minX = 1e30F, minY = 1e30F, maxX = -1e30F, maxY = -1e30F;
+  for (int i = 0; i < n; ++i) {
+    const float inv = 1.0F / poly[i].w;
+    const float sx = fbW * 0.5F + poly[i].x * inv * 2048.0F;
+    const float sy = fbH * 0.5F + poly[i].y * inv * 2048.0F;
+    xy[i * 2] = sx;
+    xy[i * 2 + 1] = sy;
+    if (sx < minX) minX = sx;
+    if (sx > maxX) maxX = sx;
+    if (sy < minY) minY = sy;
+    if (sy > maxY) maxY = sy;
+    float zf = (poly[i].z * inv + 1.0F) * 8388607.5F;
+    if (zf < 0.0F) zf = 0.0F;
+    if (zf > 16777215.0F) zf = 16777215.0F;
+    zz[i] = (u32)zf;
+  }
+  const int bx0 = (int)minX, by0 = (int)minY;
+  const int bx1 = (int)maxX + 1, by1 = (int)maxY + 1;
+  if (bx1 <= 0 || by1 <= 0 || bx0 >= (int)fbW || by0 >= (int)fbH) return;
+
+  auto& core = engine->renderer.core;
+  core.portalViewBegin(bx0, by0, bx1, by1);
+  // Same projection as the screen, only the view swaps to the virtual
+  // camera - the destination lands exactly where the opening is.
+  core.renderer3D.pushPortalView(eye, at);
+  if (p.showTerrain) {
+    if (skyDome.bag) {
+      // dome parked on the VIRTUAL eye; the main pass re-centers it after
+      skyMat.identity();
+      skyMat.data[12] = eye.x;
+      skyMat.data[13] = eye.y;
+      skyMat.data[14] = eye.z;
+      stapip.core.render(skyDome.bag.get());
+    }
+    // resident chunks only - the streaming ring follows the MAIN camera, so
+    // with terrain streaming on, keep the pair inside the streamed radius
+    renderTerrain();
+  }
+  for (int v = 0; v < p.viewCount; ++v) {
+    const int ti = PORTAL_VIEW_OBJECTS[p.firstView + v];
+    if (ti < 0 || ti >= (int)runtimeObjects.size()) continue;
+    RuntimeObject& ro = runtimeObjects[ti];
+    // no portal-in-portal: the recursion would re-carve the very opening
+    // being rendered (mirrors are fine - they re-submit real geometry)
+    if (!ro.active || !ro.visible || ro.data.type == 16) continue;
+    if (ro.dirty) rebuildObjectGeometry(ti);
+    ObjectGeometry& g = objectGeometry[ti];
+    for (GeoPart& part : g.parts)
+      if (part.bag) stapip.core.render(part.bag.get());
+    if (g.animInfoBag)
+      for (ObjectGeometry::AnimPart& ap : g.animParts)
+        if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+  }
+  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  core.portalViewEnd(xy, zz, n, (u8)scriptCtx.skyColor.r,
+                     (u8)scriptCtx.skyColor.g, (u8)scriptCtx.skyColor.b);
+  portalLive = best;
+}
+
+// Blend the tinted quads of every portal EXCEPT the live one over the
+// finished scene (the live portal's opening already shows the through-view
+// carved by renderPortalView - a tint over it would wash the image).
+void TerrainGame::renderPortals() {
+  if (PORTAL_COUNT == 0) return;
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    if (pi == portalLive) continue;
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 ||
+        p.object >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[p.object];
+    if (!m.active || !m.visible) continue;
+    if (beyondDrawDistance(m.data, cameraPosition)) continue;
+    for (GeoPart& part : objectGeometry[p.object].parts)
+      if (part.bag) stapip.core.render(part.bag.get());
+  }
+}
+
+// Portal crossings. The player probes with a "waist" point (feet + up to 1
+// unit, capped by eyeH - so door-sized surfaces trigger naturally and a
+// noclip camera probes its own position); physics objects test their
+// center. A crossing = the probe segment pierced the front (+Z) face inside
+// the rectangle this frame. Position, view direction and vertical velocity
+// map through the pair exactly like portalCamera - the walkers keep no
+// horizontal velocity state, so a tilted pair carries only the vertical
+// component (yaw-rotated pairs, the common teleporter, lose nothing).
+// Returns true when the player teleported (the frame camera is rebuilt here
+// so no frame ever renders from the departure side).
+bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
+                                float* px, float* py, float* pz, float* pyaw,
+                                float* ppitch, float* pvelY, float eyeH) {
+  if (PORTAL_COUNT == 0) return false;
+  const bool freshPrev =
+      (int)portalPrevPos.size() != (int)runtimeObjects.size() * 3;
+  if (freshPrev) portalPrevPos.resize(runtimeObjects.size() * 3);
+  bool playerTeleported = false;
+  const float probeLift = eyeH > 1.0F ? 1.0F : eyeH;
+
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+    if (p.object >= (int)runtimeObjects.size() ||
+        p.target >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[p.object];
+    RuntimeObject& t = runtimeObjects[p.target];
+    if (!m.active || !m.visible || !t.active) continue;
+
+    const V3 sxA = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+    const V3 syA = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+    const V3 szA = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+    const V3 dxA = rotated({1.0F, 0.0F, 0.0F}, t.data.rotation);
+    const V3 dyA = rotated({0.0F, 1.0F, 0.0F}, t.data.rotation);
+    const V3 dzA = rotated({0.0F, 0.0F, 1.0F}, t.data.rotation);
+    // a little slack around the authored rectangle - brushing the frame
+    // edge should not drop the player onto the wall the portal is built in
+    const float hx = 0.5F * m.data.scale[0] + 0.25F;
+    const float hy = 0.5F * m.data.scale[1] + 0.25F;
+    auto localOf = [&](float wxx, float wyy, float wzz, float* lx, float* ly,
+                       float* lz) {
+      const float rx = wxx - m.data.position[0];
+      const float ry = wyy - m.data.position[1];
+      const float rz = wzz - m.data.position[2];
+      *lx = rx * sxA.x + ry * sxA.y + rz * sxA.z;
+      *ly = rx * syA.x + ry * syA.y + rz * syA.z;
+      *lz = rx * szA.x + ry * szA.y + rz * szA.z;
+    };
+    // segment a->b pierced the front face inside the rectangle?
+    auto crossed = [&](float ax_, float ay_, float az_, float bx_, float by_,
+                       float bz_) -> bool {
+      float l0x, l0y, l0z, l1x, l1y, l1z;
+      localOf(ax_, ay_, az_, &l0x, &l0y, &l0z);
+      localOf(bx_, by_, bz_, &l1x, &l1y, &l1z);
+      if (!(l0z > 0.0F && l1z <= 0.0F)) return false;
+      const float tt = l0z / (l0z - l1z);
+      const float ix = l0x + (l1x - l0x) * tt;
+      const float iy = l0y + (l1y - l0y) * tt;
+      return ix > -hx && ix < hx && iy > -hy && iy < hy;
+    };
+    // world point / direction through the pair (flip about local Y)
+    auto mapPoint = [&](float wxx, float wyy, float wzz, float* ox, float* oy,
+                        float* oz) {
+      float lx, ly, lz;
+      localOf(wxx, wyy, wzz, &lx, &ly, &lz);
+      lx = -lx;
+      lz = -lz;
+      *ox = t.data.position[0] + dxA.x * lx + dyA.x * ly + dzA.x * lz;
+      *oy = t.data.position[1] + dxA.y * lx + dyA.y * ly + dzA.y * lz;
+      *oz = t.data.position[2] + dxA.z * lx + dyA.z * ly + dzA.z * lz;
+    };
+    auto mapDir = [&](float wxx, float wyy, float wzz, float* ox, float* oy,
+                      float* oz) {
+      float lx = wxx * sxA.x + wyy * sxA.y + wzz * sxA.z;
+      const float ly = wxx * syA.x + wyy * syA.y + wzz * syA.z;
+      float lz = wxx * szA.x + wyy * szA.y + wzz * szA.z;
+      lx = -lx;
+      lz = -lz;
+      *ox = dxA.x * lx + dyA.x * ly + dzA.x * lz;
+      *oy = dxA.y * lx + dyA.y * ly + dzA.y * lz;
+      *oz = dxA.z * lx + dyA.z * ly + dzA.z * lz;
+    };
+
+    // --- the player -------------------------------------------------------
+    if (px && !playerTeleported &&
+        crossed(prevX, prevY + probeLift, prevZ, *px, *py + probeLift, *pz)) {
+      float nx2, ny2, nz2;
+      mapPoint(*px, *py + probeLift, *pz, &nx2, &ny2, &nz2);
+      // exit offset along the target's front so the arrival can never
+      // immediately re-trigger the reverse link of a two-way pair
+      *px = nx2 + dzA.x * 0.2F;
+      *py = ny2 - probeLift;
+      *pz = nz2 + dzA.z * 0.2F;
+      // view direction through the same mapping (walker convention:
+      // forward = (sin yaw * cos pitch, sin pitch, cos yaw * cos pitch))
+      float ndx, ndy, ndz;
+      mapDir(sinf(*pyaw) * cosf(*ppitch), sinf(*ppitch),
+             cosf(*pyaw) * cosf(*ppitch), &ndx, &ndy, &ndz);
+      *pyaw = atan2f(ndx, ndz);
+      float sp = ndy;
+      if (sp > 1.0F) sp = 1.0F;
+      if (sp < -1.0F) sp = -1.0F;
+      *ppitch = asinf(sp);
+      // vertical velocity through the rotation - falling into a floor
+      // portal on a wall keeps the plunge as sideways-mapped speed only in
+      // its vertical component (no horizontal walker velocity exists)
+      float nvx, nvy, nvz;
+      mapDir(0.0F, *pvelY, 0.0F, &nvx, &nvy, &nvz);
+      *pvelY = nvy;
+      // rebuild this frame's camera from the arrival state
+      if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2) {
+        // third person: park the camera on the authored boom straight
+        // behind the avatar; the spring arm takes over next frame
+        const float bx = sinf(*pyaw), bz = cosf(*pyaw);
+        cameraPosition = Vec4(*px - bx * PLAYER_CAM_DIST,
+                              *py + PLAYER_CAM_HEIGHT + PLAYER_CAM_DIST * 0.25F,
+                              *pz - bz * PLAYER_CAM_DIST);
+        cameraLookAt = Vec4(*px, *py + PLAYER_CAM_HEIGHT, *pz);
+        camBoom = PLAYER_CAM_DIST;
+        entFaceYaw = *pyaw;
+      } else {
+        const float eyY = *py + eyeH;
+        cameraPosition = Vec4(*px, eyY, *pz);
+        cameraLookAt = Vec4(*px + sinf(*pyaw) * cosf(*ppitch),
+                            eyY + sinf(*ppitch),
+                            *pz + cosf(*pyaw) * cosf(*ppitch));
+      }
+      playerTeleported = true;
+    }
+
+    // --- physics objects (portal's "Teleport physics objects" flag) --------
+    if (p.teleportObjects && !freshPrev) {
+      for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+        RuntimeObject& ro = runtimeObjects[oi];
+        if (!ro.active || !ro.data.physics) continue;
+        if (oi == p.object || oi == p.target) continue;
+        if (PLAYER_INDEX >= 0 && oi == PLAYER_INDEX) continue;
+        const float* pp = &portalPrevPos[oi * 3];
+        if (pp[0] == ro.data.position[0] && pp[1] == ro.data.position[1] &&
+            pp[2] == ro.data.position[2])
+          continue;  // resting - cheap early out
+        if (!crossed(pp[0], pp[1], pp[2], ro.data.position[0],
+                     ro.data.position[1], ro.data.position[2]))
+          continue;
+        // Carry the object's ACTUAL motion this frame, not just velocityY:
+        // the physics ground clamp may have zeroed velocityY on this very
+        // frame (the step landed below the terrain snap height before this
+        // test ran), and an infinite-fall loop would hitch at the far end
+        // with v = 0 - the position delta still holds the real fall.
+        float vy = ro.velocityY;
+        const float stepY = ro.data.position[1] - pp[1];
+        if (fabsf(stepY) > fabsf(vy)) vy = stepY;
+        float nx2, ny2, nz2;
+        mapPoint(ro.data.position[0], ro.data.position[1],
+                 ro.data.position[2], &nx2, &ny2, &nz2);
+        ro.data.position[0] = nx2 + dzA.x * 0.2F;
+        ro.data.position[1] = ny2 + dzA.y * 0.2F;
+        ro.data.position[2] = nz2 + dzA.z * 0.2F;
+        float nvx, nvy, nvz;
+        mapDir(0.0F, vy, 0.0F, &nvx, &nvy, &nvz);
+        ro.velocityY = nvy;
+        ro.dirty = true;  // world-space bags rebuild at the arrival
+        // stamp the arrival as this object's new "previous" so the reverse
+        // link of a two-way pair can't see the same hop as a crossing
+        portalPrevPos[oi * 3] = ro.data.position[0];
+        portalPrevPos[oi * 3 + 1] = ro.data.position[1];
+        portalPrevPos[oi * 3 + 2] = ro.data.position[2];
+      }
+    }
+  }
+
+  // refresh the crossing history for the next frame
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    portalPrevPos[oi * 3] = runtimeObjects[oi].data.position[0];
+    portalPrevPos[oi * 3 + 1] = runtimeObjects[oi].data.position[1];
+    portalPrevPos[oi * 3 + 2] = runtimeObjects[oi].data.position[2];
+  }
+  return playerTeleported;
 }
 
 // True when the usable object sits inside the highlight distance (same
@@ -6261,6 +6758,12 @@ void TerrainGame::loop() {
   // setting keeps applying, and before applyVideoRequests so a display switch
   // it requests lands this frame.
   applyMenuBindings();
+  // Portal crossing test: the walker's position before this frame's movement
+  // (Player entity when the scene has one, the built-in FPP walker otherwise)
+  const bool portalEnt = PLAYER_INDEX >= 0;
+  const float portalPrevX = portalEnt ? entX : playerX;
+  const float portalPrevY = portalEnt ? entY : playerY;
+  const float portalPrevZ = portalEnt ? entZ : playerZ;
   if (!menuOwnsPad) {
     if (!updatePlayerEntity()) updatePlayer();
     updateUseTarget();
@@ -6353,6 +6856,20 @@ void TerrainGame::loop() {
   }
 
   if (!menuActive) updateObjectPhysics();
+  // Portal surfaces: carry the player / physics objects that crossed a
+  // linked portal through to its target. After the physics step so object
+  // crossings see this frame's motion; on a player hop the camera is
+  // rebuilt inside, so no frame renders from the departure side.
+  if (PORTAL_COUNT > 0 && !menuActive) {
+    if (portalEnt)
+      updatePortals(portalPrevX, portalPrevY, portalPrevZ, &entX, &entY,
+                    &entZ, &entYaw, &entPitch, &entVelY,
+                    PLAYER_MODE == 1 ? 0.0F : PLAYER_EYE_HEIGHT);
+    else
+      updatePortals(portalPrevX, portalPrevY, portalPrevZ, &playerX,
+                    &playerY, &playerZ, &yaw, &pitch, &playerVelY,
+                    EYE_HEIGHT);
+  }
   updateParticles();
   updateSoundEmitters();
 
@@ -7860,6 +8377,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "             // 11=empty (pure transform, no geometry/collision)\n"
            "             // 12=plane 13=decal 14=camera (cutscene shot marker)\n"
            "             // 15=mirror (glass quad; reflections via MIRRORS below)\n"
+           "             // 16=portal (linked surface; through-view + teleport\n"
+           "             //    via PORTALS below)\n"
            "  float position[3];\n"
            "  float rotation[3];  // degrees\n"
            "  float scale[3];\n"
@@ -8108,6 +8627,66 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << "constexpr int MIRROR_TARGETS["
             << (targetCount ? targetCount : 1) << "] = {"
             << (targetCount ? targets.str() : "-1") << "};\n\n";
+    }
+
+    // Portal objects (type 16): same flat side-table pattern as MIRRORS.
+    // The target (the linked portal) and the view-object list resolve from
+    // names to scene-table indices here; a dangling/empty target leaves the
+    // portal inactive (target -1: tinted surface, no view, no teleport).
+    {
+        std::ostringstream infos, views;
+        int portalCount = 0, viewCount = 0;
+        for (int si = 0; si < sceneCount; ++si) {
+            const auto& objs = p.scenes[si].objects;
+            for (size_t oi = 0; oi < objs.size(); ++oi) {
+                const SceneObject& o = objs[oi];
+                if (o.type != PrimitiveType::Portal) continue;
+                int target = -1;
+                if (!o.portalTarget.empty())
+                    for (size_t ti = 0; ti < objs.size(); ++ti)
+                        if (ti != oi && objs[ti].type == PrimitiveType::Portal &&
+                            objs[ti].name == o.portalTarget) {
+                            target = (int)ti;
+                            break;
+                        }
+                const int first = viewCount;
+                for (const std::string& name : o.portalObjects)
+                    for (size_t ti = 0; ti < objs.size(); ++ti) {
+                        if (ti == oi || objs[ti].name != name) continue;
+                        views << (viewCount ? ", " : "") << ti;
+                        ++viewCount;
+                        break;
+                    }
+                infos << (portalCount ? ",\n    " : "    ") << "{" << si << ", "
+                      << oi << ", " << target << ", "
+                      << (o.portalShowTerrain ? 1 : 0) << ", "
+                      << (o.portalTeleportObjects ? 1 : 0) << ", " << first
+                      << ", " << (viewCount - first) << "},  // " << o.name;
+                ++portalCount;
+            }
+        }
+        out << "// Portals (type 16): each entry links a surface to its target\n"
+               "// portal. The game renders the through-view of the nearest one\n"
+               "// into a VRAM target every frame and teleports whatever crosses\n"
+               "// the surface (renderPortalView/renderPortals/updatePortals in\n"
+               "// the game cpp). Indices index the portal's own scene table.\n"
+               "struct PortalData {\n"
+               "  int scene;            // scene index\n"
+               "  int object;           // the portal's index in its scene table\n"
+               "  int target;           // linked portal's index, -1 = inactive\n"
+               "  int showTerrain;      // 1 = sky dome + terrain in the view\n"
+               "  int teleportObjects;  // 1 = physics objects teleport too\n"
+               "  int firstView;        // first entry in PORTAL_VIEW_OBJECTS\n"
+               "  int viewCount;\n"
+               "};\n"
+            << "constexpr int PORTAL_COUNT = " << portalCount << ";\n"
+            << "constexpr PortalData PORTALS[" << (portalCount ? portalCount : 1)
+            << "] = {\n"
+            << (portalCount ? infos.str() : "    {0, -1, -1, 0, 0, 0, 0}")
+            << "\n};\n"
+            << "constexpr int PORTAL_VIEW_OBJECTS["
+            << (viewCount ? viewCount : 1) << "] = {"
+            << (viewCount ? views.str() : "-1") << "};\n\n";
     }
 
     // Sound effect samples referenced by sound emitters (SceneObjectData.snd
