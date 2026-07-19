@@ -9,6 +9,20 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (115) **examples/video-modes: a `480I FIELD RENDER` menu row.** The
+  display-mode test bed gains the fourth scan mode from (114): a new VIDEO
+  OPTIONS entry firing a `video-480i-field` flow event, consumed by the
+  aspect-ball graph's On Menu Event -> Set Display Mode(Mode 3, confirm
+  8 s) - same pattern as the other three rows. README updated (menu table,
+  intro, real-hardware notes: field rendering is the same 480i/576i signal,
+  so any cable works; judge the motion on a CRT, PCSX2's deinterlacing
+  hides most of it). Committed generated files regenerated with a Docker
+  build in the same commit (the example-drift rule). **Verified** (Layer
+  3): the example boots in PCSX2, the baked menu panel shows the new row
+  (F8 snapshot), regenerated `flow_graph.gen.cpp` carries
+  `ctx.requestDisplayMode = 3` under the `video-480i-field` event, exit 0.
+  Actually selecting the row with a pad (menu navigation + the confirm
+  prompt) stays a hands-on test, like the other rows.
 - (114) **True field rendering: the `interlaced-field` display mode.**
   Question from the owner: does the engine render once and scan the frame
   out over two fields, or does each field get a fresh image? Finding: the
