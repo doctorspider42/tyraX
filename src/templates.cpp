@@ -647,6 +647,11 @@ class TerrainGame : public Tyra::Game {
                      float* pvelY, float eyeH);
   std::vector<unsigned char> portalLiveFlags;  // per PORTALS entry: view drawn
   std::vector<float> portalPrevPos;  // 3 floats per runtime object (crossings)
+  // Exit-plane of the through-view being rendered (nx, ny, nz, d) - set
+  // around the destination render so renderTerrain can drop chunks in the
+  // dead zone between the virtual camera and the target portal's plane.
+  float portalExitPlane[4] = {0, 0, 0, 0};
+  bool portalExitPlaneOn = false;
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
   void buildHighlightProxy(int index);
@@ -1081,6 +1086,11 @@ class TerrainGame : public Tyra::Game {
                      float* pvelY, float eyeH);
   std::vector<unsigned char> portalLiveFlags;  // per PORTALS entry: view drawn
   std::vector<float> portalPrevPos;  // 3 floats per runtime object (crossings)
+  // Exit-plane of the through-view being rendered (nx, ny, nz, d) - set
+  // around the destination render so renderTerrain can drop chunks in the
+  // dead zone between the virtual camera and the target portal's plane.
+  float portalExitPlane[4] = {0, 0, 0, 0};
+  bool portalExitPlaneOn = false;
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
   void buildHighlightProxy(int index);
@@ -6000,6 +6010,22 @@ bool TerrainGame::renderOnePortalView(int pi) {
       return false;
   }
 
+  // Dead zone: the virtual camera sits BEHIND the exit plane (the
+  // isometry puts it there), and the PS2 has no oblique near plane to
+  // clip what lies between the two - through a real hole that region is
+  // invisible. Terrain chunks (renderTerrain) and view objects fully on
+  // the camera side of the target plane are skipped.
+  RuntimeObject& tgt = runtimeObjects[p.target];
+  const V3 exitN = rotated({0.0F, 0.0F, 1.0F}, tgt.data.rotation);
+  const float exitD = exitN.x * tgt.data.position[0] +
+                      exitN.y * tgt.data.position[1] +
+                      exitN.z * tgt.data.position[2];
+  portalExitPlane[0] = exitN.x;
+  portalExitPlane[1] = exitN.y;
+  portalExitPlane[2] = exitN.z;
+  portalExitPlane[3] = exitD;
+  portalExitPlaneOn = true;
+
   auto& core = engine->renderer.core;
   core.portalViewBegin(bx0, by0, bx1, by1);
   // Same projection as the screen, only the view swaps to the virtual
@@ -6018,20 +6044,6 @@ bool TerrainGame::renderOnePortalView(int pi) {
     // with terrain streaming on, keep the pair inside the streamed radius
     renderTerrain();
   }
-  // Dead zone: the virtual camera sits BEHIND the exit plane (the
-  // isometry puts it there), and the PS2 has no oblique near plane to
-  // clip what lies between the two - through a real hole that region is
-  // invisible, so objects fully on the camera side of the target plane
-  // are skipped (a floor->ceiling pair otherwise shows the world behind
-  // the exit mouth blocking the view). Terrain has no per-chunk test -
-  // when it would sit in the dead zone (e.g. the virtual eye ends up
-  // underground), turn the portal's "Terrain + sky in view" off.
-  RuntimeObject& tgt = runtimeObjects[p.target];
-  const V3 exitN = rotated({0.0F, 0.0F, 1.0F}, tgt.data.rotation);
-  const float exitD = exitN.x * tgt.data.position[0] +
-                      exitN.y * tgt.data.position[1] +
-                      exitN.z * tgt.data.position[2];
-
   // One view object: base bags + (animated) last skinned pose. No
   // portal-in-portal: the recursion would re-carve the very opening being
   // rendered (mirrors draw only their glass here - the reflected copies
@@ -6075,6 +6087,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
     for (int v = 0; v < p.viewCount; ++v)
       renderViewObject(PORTAL_VIEW_OBJECTS[p.firstView + v]);
   }
+  portalExitPlaneOn = false;
   core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
   core.portalViewEnd(xy, zz, n, (u8)scriptCtx.skyColor.r,
                      (u8)scriptCtx.skyColor.g, (u8)scriptCtx.skyColor.b);
@@ -6860,9 +6873,41 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ, int budget) {
 }
 
 void TerrainGame::renderTerrain() {
-  for (TerrainChunk& ch : terrainChunks)
-    if (ch.cx >= 0 && ch.bag && ch.bag->count > 0)
-      stapip.core.render(ch.bag.get());
+  for (TerrainChunk& ch : terrainChunks) {
+    if (ch.cx < 0 || !ch.bag || ch.bag->count == 0) continue;
+    if (portalExitPlaneOn) {
+      // Portal through-view dead zone: skip chunks fully on the virtual
+      // camera's side of the exit plane - through a real hole that region
+      // is invisible, and with no oblique near plane on the PS2 it would
+      // otherwise render its backside INTO the opening (a floor->ceiling
+      // pair puts the virtual eye underground). Sampled at the chunk
+      // rect's corners + center at their heightmap heights, with a slope
+      // margin; a chunk that straddles the plane still renders whole.
+      const int cellsX = HM_W - 1, cellsZ = HM_D - 1;
+      const float stepX = (float)TERRAIN_WIDTH / cellsX;
+      const float stepZ = (float)TERRAIN_DEPTH / cellsZ;
+      const int gx0 = ch.cx * TERRAIN_CHUNK_CELLS;
+      const int gz0 = ch.cz * TERRAIN_CHUNK_CELLS;
+      const int gx1 = gx0 + TERRAIN_CHUNK_CELLS > cellsX
+                          ? cellsX
+                          : gx0 + TERRAIN_CHUNK_CELLS;
+      const int gz1 = gz0 + TERRAIN_CHUNK_CELLS > cellsZ
+                          ? cellsZ
+                          : gz0 + TERRAIN_CHUNK_CELLS;
+      auto sd = [&](int gx, int gz) {
+        const float wx = -TERRAIN_WIDTH * 0.5F + gx * stepX;
+        const float wz = -TERRAIN_DEPTH * 0.5F + gz * stepZ;
+        const float wy = TERRAIN_HEIGHTS[gz * HM_W + gx];
+        return portalExitPlane[0] * wx + portalExitPlane[1] * wy +
+               portalExitPlane[2] * wz - portalExitPlane[3];
+      };
+      if (sd(gx0, gz0) < -1.0F && sd(gx1, gz0) < -1.0F &&
+          sd(gx0, gz1) < -1.0F && sd(gx1, gz1) < -1.0F &&
+          sd((gx0 + gx1) / 2, (gz0 + gz1) / 2) < -1.0F)
+        continue;
+    }
+    stapip.core.render(ch.bag.get());
+  }
 }
 )";
 

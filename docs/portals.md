@@ -79,13 +79,14 @@ render-to-texture pass).
   inside the rectangle, looking into the surface — the opening expands to
   the whole screen: the destination fills the view until you cross.
 - **Dead zone**: the virtual camera sits behind the exit plane, and the
-  PS2 has no oblique near plane to clip what lies in between. View
-  objects fully on the camera side of the target plane are skipped
-  automatically (through a real hole they'd be invisible). Terrain has no
-  per-chunk test — if the virtual eye ends up inside geometry (e.g.
-  underground for a floor→ceiling pair), turn that portal's **Terrain +
-  sky in view** off, or the view shows the geometry's backside instead of
-  the world beyond.
+  PS2 has no oblique near plane to clip what lies in between. Both view
+  objects and terrain chunks fully on the camera side of the target plane
+  are skipped automatically (through a real hole they'd be invisible) —
+  a floor→ceiling pair keeps **Terrain + sky in view** on and the opening
+  correctly shows the sky-dome gradient and whatever falls through, not
+  the terrain's backside. A chunk that straddles the plane still renders
+  whole, so on an extreme cliff-edge portal a backside sliver can peek
+  in — nudge the portal off the geometry if it does.
 
 ## Limits (era-honest by design)
 
