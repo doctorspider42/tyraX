@@ -3349,7 +3349,7 @@ void TerrainGame::applyMenuBindings() {
           g_stickExpL = g_stickExpR = 2.0F;
           break;
         }
-        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0/1/2)
+        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0..3)
           if (idx != g_menuDispOpt) {
             g_menuDispOpt = idx;
             scriptCtx.requestDisplayMode = idx;
