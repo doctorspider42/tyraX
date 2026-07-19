@@ -677,6 +677,8 @@ std::string save(const Project& p) {
          << "    \"dofRange\": " << fmtFloat(p.settings.dofRange) << ",\n"
          << "    \"flare\": " << fmtFloat(p.settings.flare) << ",\n"
          << "    \"godRays\": " << fmtFloat(p.settings.godRays) << ",\n"
+         << "    \"blobShadows\": " << (p.settings.blobShadows ? "true" : "false")
+         << ",\n"
          << "    \"fogEnabled\": " << (p.settings.fogEnabled ? "true" : "false")
          << ",\n"
          << "    \"fogColor\": " << fmtVec3(p.settings.fogColor) << ",\n"
@@ -1661,6 +1663,8 @@ std::string load(Project& out, const std::string& projectDir) {
             st.flare = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("godRays"))
             st.godRays = clamp01((float)v->numberOr(0.0));
+        if (const auto* v = s->find("blobShadows"))
+            st.blobShadows = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = s->find("fogEnabled"))
             st.fogEnabled = v->type == json::Value::Type::Bool && v->boolean;
         readVec3(s->find("fogColor"), st.fogColor);
@@ -2773,6 +2777,38 @@ std::string refreshGenerated(const Project& p) {
     // templates::projectUsesFlare).
     if (templates::projectUsesFlare(p)) {
         for (int kind = 0; kind < 2; ++kind) {
+            std::vector<unsigned char> png;
+            if (!menubake::bakeFlarePNG(kind, png))
+                return "Lens flare sprite bake failed";
+            const fs::path path =
+                fs::path(p.dir) / "res" / "hud" / menubake::flareFileName(kind);
+            std::error_code ec;
+            fs::create_directories(path.parent_path(), ec);
+            std::ofstream f(path, std::ios::binary);
+            if (!f) return "Cannot write flare sprite: " + path.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
+        }
+    }
+    // Blob shadows reuse the soft glow as their alpha mask - bake it even
+    // when the flare is off (kind 0 only; the flare block above already
+    // wrote it otherwise).
+    if (!templates::projectUsesFlare(p) && p.settings.blobShadows) {
+        std::vector<unsigned char> png;
+        if (!menubake::bakeFlarePNG(0, png))
+            return "Blob shadow sprite bake failed";
+        const fs::path path =
+            fs::path(p.dir) / "res" / "hud" / menubake::flareFileName(0);
+        std::error_code ec;
+        fs::create_directories(path.parent_path(), ec);
+        std::ofstream f(path, std::ios::binary);
+        if (!f) return "Cannot write blob shadow sprite: " + path.string();
+        f.write(reinterpret_cast<const char*>(png.data()),
+                (std::streamsize)png.size());
+    }
+    // Light-beam corona (Point Light > Beam): its own RGB-shaped sprite.
+    if (templates::projectUsesBeams(p)) {
+        for (int kind = 2; kind < 3; ++kind) {
             std::vector<unsigned char> png;
             if (!menubake::bakeFlarePNG(kind, png))
                 return "Lens flare sprite bake failed";

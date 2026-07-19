@@ -536,6 +536,13 @@ struct ProjectSettings {
     // moment (a generated placeholder is written when the file is missing).
     bool loadingScreen = true;
 
+    // Soft dark blob shadows under moving things (the third-person avatar,
+    // animated models, physics objects): a terrain-conforming alpha-blended
+    // quad through the same soft-glow sprite the flare uses, fading out as
+    // the object rises. Project-wide; grounds objects visually for almost
+    // nothing (one quad per object).
+    bool blobShadows = false;
+
     // In-game outline around usable objects while the player is within
     // highlightDistance (fading silhouette shells drawn after the scene).
     bool highlightUsable = false;
@@ -582,6 +589,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.grain == b.grain && a.dofAmount == b.dofAmount &&
            a.dofFocus == b.dofFocus && a.dofRange == b.dofRange &&
            a.flare == b.flare && a.godRays == b.godRays &&
+           a.blobShadows == b.blobShadows &&
            a.fogEnabled == b.fogEnabled &&
            eq3(a.fogColor, b.fogColor) && a.fogStart == b.fogStart &&
            a.fogEnd == b.fogEnd &&

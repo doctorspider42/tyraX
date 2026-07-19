@@ -4460,6 +4460,17 @@ void App::drawPropertiesWindow() {
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Torch-like brightness wobble. 0 = steady.");
         }
+        {
+            const char* beams[] = {"None", "Glow (corona)", "Glow + cone shaft"};
+            committed |= ImGui::Combo("Beam", &o.lightBeam, beams, 3);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Draws the light source itself: an additive camera-facing\n"
+                    "halo, optionally with a cone shaft pointing down (street\n"
+                    "lamp look). Follows flicker / Set Light on dynamic\n"
+                    "lights; steady on baked ones. Game-only (not previewed\n"
+                    "in the viewport).");
+        }
         if (!o.lightDynamic)
             ImGui::TextDisabled("Previewed live in the viewport; in the game it is\n"
                                 "baked into nearby terrain & object vertex colors\n"
@@ -14099,6 +14110,14 @@ void App::drawPreferencesModal() {
         showLoadingEditor_ = true;
         ImGui::CloseCurrentPopup();
     }
+
+    ImGui::SeparatorText("Shadows");
+    ImGui::Checkbox("Blob shadows under moving objects", &prefSettings_.blobShadows);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "A soft dark quad on the terrain under the third-person avatar,\n"
+            "animated models and physics objects, fading as they rise -\n"
+            "grounds them visually for one quad each. Project-wide.");
 
     ImGui::SeparatorText("Usable objects");
     ImGui::Checkbox("Highlight usable objects", &prefSettings_.highlightUsable);

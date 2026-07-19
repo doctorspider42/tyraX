@@ -10,6 +10,37 @@ Each finished feature lands as its own commit.
 
 ## Done in the lighting batch
 
+- (118) **Blob shadows under moving objects.** Project-wide preference
+  (`ProjectSettings::blobShadows`, Preferences > Shadows): every moving
+  caster (third-person avatar, animated models, physics objects; markers/
+  lights excluded, spawn-pool clones don't cast) gets a soft dark quad on
+  the terrain - 4 height samples conform it to slopes, opacity fades to 0
+  as the caster rises 3 units, the flare's soft-glow sprite is the alpha
+  mask (baked even with the flare off), alpha-over blend, z-tested with no
+  z writes (TestOnly) at the end of renderScene. Per-caster vertex arrays
+  on purpose - a shared buffer could still be in DMA flight from the
+  previous caster's submit. BLOB_SHADOWS in scene_data gates setup +
+  texture load.
+- (117) **Visible light beams (Point Light > Beam).** Per-light option
+  (`SceneObject::lightBeam`: none / glow corona / corona + cone shaft,
+  `light.beam` in JSON, combo in Properties): the game draws the light
+  SOURCE, not just its pool - an additive camera-billboarded corona quad
+  (new procedural res/hud/flare-corona.png, shape in RGB because additive
+  bags blend Cs*FIX + Cd and ignore texture alpha; `projectUsesBeams` <->
+  BEAMS_USED gates bake + load) and, for kind 2, an 8-segment cone fan
+  whose vertex colors fade to black at the bottom rim (street-lamp look).
+  Brightness rides `additiveBlendFix` per bag and follows the light's
+  runtime state - `DynLightRt::lastLevel` (intensity x flicker, 0 when
+  hidden/off) is written by updateDynLights and reused, so the corona
+  breathes with the pool of light; baked lights glow steadily. Drawn at
+  the end of renderScene with Precise frustum culling + TestOnly z (walls
+  occlude, no z writes). **Verified** (117, Layer 3): Docker build exit 0,
+  PCSX2 (D3D11) shows the corona + the cone shaft reaching the terrain on
+  a dynamic torch, breathing with the flicker, 50 FPS; corona size retuned
+  0.22 -> 0.14 x radius after the first shot. 118 ran in the same boot
+  with no asserts and a faint darkening at the physics box's base, but the
+  box sat at the frame edge - an eyes-on check in a real scene (avatar
+  walking, object jumping) is still wanted.
 - (116) **Dynamic lights reach animated models (cheap pickup).** The known
   gap from the flashlight feature (DynPip/anim meshes saw no dynamic light)
   closed the PS2-era way: `dynLightAt` samples every dynamic light's

@@ -765,6 +765,44 @@ class TerrainGame : public Tyra::Game {
   bool flarePreDrawn = false;  // main glow drew before the post-fx pass
   void updateSunFx();
   void renderFlare();
+  // Visible light beams (Point Light > Beam): additive corona billboards +
+  // optional cone shafts at the light source, following the light's runtime
+  // state (flicker / Set Light / visibility). Drawn at the end of
+  // renderScene so DoF and god rays treat them as scene light.
+  struct LightBeam {
+    int objIndex = -1;
+    int kind = 0;  // 1 glow, 2 glow + cone
+    std::vector<Tyra::Vec4> coronaVerts, coronaSts, coneVerts;
+    std::vector<Tyra::Color> coneColors;
+    Tyra::Color coronaColor;
+    Tyra::M4x4 mat;  // identity - geometry is world space
+    std::unique_ptr<Tyra::StaPipInfoBag> coronaInfo, coneInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> coronaColorBag, coneColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> coronaTexBag;
+    std::unique_ptr<Tyra::StaPipBag> coronaBag, coneBag;
+  };
+  std::vector<LightBeam> lightBeams;
+  Tyra::Texture* beamCoronaTex = nullptr;
+  void setupLightBeams();            // per scene load
+  void updateAndRenderLightBeams();  // per frame, end of renderScene
+  // Blob shadows (BLOB_SHADOWS): a soft dark terrain-conforming quad under
+  // each moving object (third-person avatar, animated models, physics
+  // objects), fading out as the object rises. Per-caster arrays - the DMA
+  // may still be reading a submitted quad, so casters never share buffers.
+  struct BlobShadow {
+    int objIndex = -1;
+    std::vector<Tyra::Vec4> verts, sts;
+    Tyra::Color color;
+    Tyra::M4x4 mat;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+  };
+  std::vector<BlobShadow> blobShadows;
+  Tyra::Texture* blobShadowTex = nullptr;
+  void setupBlobShadows();            // per scene load
+  void updateAndRenderBlobShadows();  // per frame, end of renderScene
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
@@ -1184,6 +1222,44 @@ class TerrainGame : public Tyra::Game {
   bool flarePreDrawn = false;  // main glow drew before the post-fx pass
   void updateSunFx();
   void renderFlare();
+  // Visible light beams (Point Light > Beam): additive corona billboards +
+  // optional cone shafts at the light source, following the light's runtime
+  // state (flicker / Set Light / visibility). Drawn at the end of
+  // renderScene so DoF and god rays treat them as scene light.
+  struct LightBeam {
+    int objIndex = -1;
+    int kind = 0;  // 1 glow, 2 glow + cone
+    std::vector<Tyra::Vec4> coronaVerts, coronaSts, coneVerts;
+    std::vector<Tyra::Color> coneColors;
+    Tyra::Color coronaColor;
+    Tyra::M4x4 mat;  // identity - geometry is world space
+    std::unique_ptr<Tyra::StaPipInfoBag> coronaInfo, coneInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> coronaColorBag, coneColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> coronaTexBag;
+    std::unique_ptr<Tyra::StaPipBag> coronaBag, coneBag;
+  };
+  std::vector<LightBeam> lightBeams;
+  Tyra::Texture* beamCoronaTex = nullptr;
+  void setupLightBeams();            // per scene load
+  void updateAndRenderLightBeams();  // per frame, end of renderScene
+  // Blob shadows (BLOB_SHADOWS): a soft dark terrain-conforming quad under
+  // each moving object (third-person avatar, animated models, physics
+  // objects), fading out as the object rises. Per-caster arrays - the DMA
+  // may still be reading a submitted quad, so casters never share buffers.
+  struct BlobShadow {
+    int objIndex = -1;
+    std::vector<Tyra::Vec4> verts, sts;
+    Tyra::Color color;
+    Tyra::M4x4 mat;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+  };
+  std::vector<BlobShadow> blobShadows;
+  Tyra::Texture* blobShadowTex = nullptr;
+  void setupBlobShadows();            // per scene load
+  void updateAndRenderBlobShadows();  // per frame, end of renderScene
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
@@ -1438,6 +1514,10 @@ struct DynLightRt {
   int objIndex;            // index into SCENE_OBJECTS / ctx.objects
   bool on = true;          // Set Light switch (persists until changed)
   float intensity = 1.0F;  // Set Light multiplier on the authored brightness
+  // This frame's effective multiplier (intensity * flicker; 0 = off/hidden),
+  // written by updateDynLights - the visible light beams reuse it so the
+  // corona breathes with the pool of light.
+  float lastLevel = 1.0F;
 };
 std::vector<DynLightRt> g_dynLights;
 float g_dynLightTime = 0.0F;
@@ -1486,19 +1566,22 @@ void updateDynLights(Tyra::Engine* engine, ScriptContext& ctx) {
       L.intensity = ctx.lightIntensity[L.objIndex];
       ctx.lightIntensity[L.objIndex] = -1.0F;
     }
+    L.lastLevel = 0.0F;
     if (!L.on || !ctx.objects || L.objIndex >= ctx.objectCount) continue;
     const RuntimeObject& ro = ctx.objects[L.objIndex];
     if (!ro.visible || !ro.active) continue;
     const SceneObjectData& d = ro.data;  // live copy - Move Object works
-    float k = d.lightBright * L.intensity;
+    float mult = L.intensity;
     if (d.lightFlicker > 0.0F) {
       const float p = (float)(L.objIndex % 7) * 1.9F;
       float w = 0.5F + 0.35F * sinf(g_dynLightTime * 11.7F + p) +
                 0.15F * sinf(g_dynLightTime * 23.3F + p * 2.1F);
       if (w < 0.0F) w = 0.0F;
       if (w > 1.0F) w = 1.0F;
-      k *= 1.0F - d.lightFlicker * (1.0F - w);
+      mult *= 1.0F - d.lightFlicker * (1.0F - w);
     }
+    L.lastLevel = mult;
+    const float k = d.lightBright * mult;
     if (k <= 0.0F) continue;
     auto ch = [&](float c) {
       float v = c * 128.0F * k;
@@ -2685,6 +2768,14 @@ void TerrainGame::buildScene() {
       }
       flareTexturesLoaded = true;
     }
+    // Light-beam corona texture (Point Light > Beam; shape in RGB).
+    if (BEAMS_USED)
+      beamCoronaTex = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd("hud/flare-corona.png"));
+    // Blob shadows: the glow sprite doubles as the shadow's alpha mask.
+    if (BLOB_SHADOWS)
+      blobShadowTex = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd("hud/flare-glow.png"));
     if (TITLE_MENU >= 0) {
       gameMenuIndex = TITLE_MENU;
       gameMenuCursor = 0;
@@ -3702,6 +3793,10 @@ void TerrainGame::loadScene(int sceneIndex) {
   // Before any mesh baking: terrain chunks and object geometry shade with
   // this scene's point lights (see collectScenePointLights).
   collectScenePointLights();
+  // Visible light beams follow the scene's Point Light objects.
+  setupLightBeams();
+  // Blob shadows follow the scene's moving objects.
+  setupBlobShadows();
 
   // Size the terrain chunk pool for this scene's grid up front (independent
   // of the streamed assets below) so the loading bar's denominator can count
@@ -4846,6 +4941,240 @@ void TerrainGame::renderFlare() {
     engine->renderer.renderer2D.render(flareSprites[i]);
 }
 
+// Visible light beams (Point Light > Beam): per-scene setup. One additive
+// corona billboard (textured, flare-corona.png - shape in RGB, additive
+// bags ignore texture alpha) and, for kind 2, an untextured cone shaft
+// whose vertex colors fade to black at the bottom rim.
+void TerrainGame::setupLightBeams() {
+  lightBeams.clear();
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+    const SceneObjectData& d = SCENE_OBJECTS[i];
+    if (d.type != 9 || d.lightBeam == 0) continue;
+    lightBeams.emplace_back();
+    LightBeam& b = lightBeams.back();
+    b.objIndex = i;
+    b.kind = d.lightBeam;
+    b.mat.identity();
+
+    b.coronaVerts.assign(6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    b.coronaSts.clear();
+    b.coronaSts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
+    b.coronaSts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
+    b.coronaSts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
+    b.coronaSts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
+    b.coronaSts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
+    b.coronaSts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    b.coronaColor = Color(128.0F, 128.0F, 128.0F, 128.0F);
+    b.coronaInfo = std::make_unique<StaPipInfoBag>();
+    b.coronaInfo->model = &b.mat;
+    b.coronaInfo->shadingType = TyraShadingFlat;
+    b.coronaInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    b.coronaInfo->zTestType = PipelineZTest_TestOnly;  // occluded, no z write
+    b.coronaColorBag = std::make_unique<StaPipColorBag>();
+    b.coronaColorBag->single = &b.coronaColor;
+    b.coronaTexBag = std::make_unique<StaPipTextureBag>();
+    b.coronaTexBag->texture = beamCoronaTex;
+    b.coronaTexBag->coordinates = b.coronaSts.data();
+    b.coronaBag = std::make_unique<StaPipBag>();
+    b.coronaBag->info = b.coronaInfo.get();
+    b.coronaBag->color = b.coronaColorBag.get();
+    b.coronaBag->texture = b.coronaTexBag.get();
+    b.coronaBag->vertices = b.coronaVerts.data();
+    b.coronaBag->count = 6;
+
+    if (b.kind == 2) {
+      // 8-segment cone fan: apex at the light, ring below. 24 verts.
+      b.coneVerts.assign(24, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+      b.coneColors.assign(24, Color(0.0F, 0.0F, 0.0F, 128.0F));
+      b.coneInfo = std::make_unique<StaPipInfoBag>();
+      b.coneInfo->model = &b.mat;
+      b.coneInfo->shadingType = TyraShadingGouraud;
+      b.coneInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+      b.coneInfo->zTestType = PipelineZTest_TestOnly;
+      b.coneColorBag = std::make_unique<StaPipColorBag>();
+      b.coneColorBag->many = b.coneColors.data();
+      b.coneBag = std::make_unique<StaPipBag>();
+      b.coneBag->info = b.coneInfo.get();
+      b.coneBag->color = b.coneColorBag.get();
+      b.coneBag->vertices = b.coneVerts.data();
+      b.coneBag->count = 24;
+    }
+  }
+}
+
+// Blob shadows: per-scene setup. A caster is anything that visibly moves -
+// the third-person avatar, animated models, physics objects. (Runtime
+// spawn-pool clones cast none - authored objects only.)
+void TerrainGame::setupBlobShadows() {
+  blobShadows.clear();
+  if (!BLOB_SHADOWS) return;
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+    const SceneObjectData& d = SCENE_OBJECTS[i];
+    const bool avatar = i == PLAYER_INDEX && PLAYER_MODE == 2;
+    if (!avatar && d.animModel < 0 && !d.physics) continue;
+    if (d.type == 9 || d.type == 4 || d.type == 8 || d.type == 11 ||
+        d.type == 13 || d.type == 14)
+      continue;  // lights/markers never cast
+    blobShadows.emplace_back();
+    BlobShadow& b = blobShadows.back();
+    b.objIndex = i;
+    b.mat.identity();
+    b.verts.assign(6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    b.sts.clear();
+    b.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    b.color = Color(0.0F, 0.0F, 0.0F, 60.0F);
+    b.info = std::make_unique<StaPipInfoBag>();
+    b.info->model = &b.mat;
+    b.info->shadingType = TyraShadingFlat;
+    b.info->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    b.info->zTestType = PipelineZTest_TestOnly;  // never writes z
+    b.colorBag = std::make_unique<StaPipColorBag>();
+    b.colorBag->single = &b.color;
+    b.texBag = std::make_unique<StaPipTextureBag>();
+    b.texBag->texture = blobShadowTex;
+    b.texBag->coordinates = b.sts.data();
+    b.bag = std::make_unique<StaPipBag>();
+    b.bag->info = b.info.get();
+    b.bag->color = b.colorBag.get();
+    b.bag->texture = b.texBag.get();
+    b.bag->vertices = b.verts.data();
+    b.bag->count = 6;
+  }
+}
+
+// Per frame: drop each caster's quad onto the terrain under it (4 height
+// samples conform it to slopes), fade with the caster's height above the
+// ground, alpha-blend (the glow texture's alpha is the soft edge).
+void TerrainGame::updateAndRenderBlobShadows() {
+  if (blobShadows.empty() || !blobShadowTex) return;
+  for (BlobShadow& b : blobShadows) {
+    if (b.objIndex >= (int)runtimeObjects.size()) continue;
+    const RuntimeObject& ro = runtimeObjects[b.objIndex];
+    if (!ro.active || !ro.visible) continue;
+    const SceneObjectData& d = ro.data;
+    const float cx = d.position[0], cz = d.position[2];
+    // Object base: the player entity sits at its feet, everything else is
+    // centered (base = center - halfY).
+    const float halfY =
+        b.objIndex == PLAYER_INDEX ? 0.0F : d.scale[1] * 0.5F;
+    const float ground = terrainHeightAt(cx, cz);
+    const float h = (d.position[1] - halfY) - ground;
+    float fade = 1.0F - h * (1.0F / 3.0F);
+    if (fade <= 0.02F) continue;
+    if (fade > 1.0F) fade = 1.0F;
+    float r = d.scale[0] > d.scale[2] ? d.scale[0] : d.scale[2];
+    r = r * 0.75F + 0.2F;
+    const float lift = 0.06F;
+    b.verts[0] = Vec4(cx - r, terrainHeightAt(cx - r, cz + r) + lift, cz + r, 1.0F);
+    b.verts[1] = Vec4(cx + r, terrainHeightAt(cx + r, cz + r) + lift, cz + r, 1.0F);
+    b.verts[2] = Vec4(cx + r, terrainHeightAt(cx + r, cz - r) + lift, cz - r, 1.0F);
+    b.verts[3] = b.verts[0];
+    b.verts[4] = b.verts[2];
+    b.verts[5] = Vec4(cx - r, terrainHeightAt(cx - r, cz - r) + lift, cz - r, 1.0F);
+    b.color.a = 60.0F * fade;
+    b.bag->bboxVersion = ++g_bboxStamp;
+    stapip.core.render(b.bag.get());
+  }
+}
+
+// Per frame: billboard the coronas at the lights' runtime positions,
+// follow each light's level (flicker / Set Light / hidden object) through
+// the additive FIX value, submit. Runs at the end of renderScene so the
+// finished z-buffer occludes the beams behind walls.
+void TerrainGame::updateAndRenderLightBeams() {
+  if (lightBeams.empty() || !beamCoronaTex) return;
+
+  // Camera basis for the billboards.
+  float fx = cameraLookAt.x - cameraPosition.x,
+        fy = cameraLookAt.y - cameraPosition.y,
+        fz = cameraLookAt.z - cameraPosition.z;
+  const float fl = sqrtf(fx * fx + fy * fy + fz * fz);
+  if (fl < 0.0001F) return;
+  fx /= fl, fy /= fl, fz /= fl;
+  float rx = -fz, ry = 0.0F, rz = fx;  // cross(fwd, worldUp)
+  const float rl = sqrtf(rx * rx + rz * rz);
+  if (rl < 0.0001F) return;
+  rx /= rl, rz /= rl;
+  const float ux = ry * fz - rz * fy, uy = rz * fx - rx * fz,
+              uz = rx * fy - ry * fx;  // cross(right, fwd)
+
+  for (LightBeam& b : lightBeams) {
+    if (b.objIndex >= (int)runtimeObjects.size()) continue;
+    const RuntimeObject& ro = runtimeObjects[b.objIndex];
+    if (!ro.active || !ro.visible) continue;
+    const SceneObjectData& d = ro.data;
+
+    float level = 1.0F;  // baked lights: steady
+    if (d.lightDynamic) {
+      level = 0.0F;
+      for (const DynLightRt& L : g_dynLights)
+        if (L.objIndex == b.objIndex) {
+          level = L.lastLevel;
+          break;
+        }
+    }
+    const float k = d.lightBright * level;
+    if (k <= 0.01F) continue;
+
+    const float cx = d.position[0], cy = d.position[1], cz = d.position[2];
+    const float half = d.lightRadius * 0.14F;
+    const Vec4 corners[4] = {
+        Vec4(cx + (-rx - ux) * half, cy + (-ry - uy) * half,
+             cz + (-rz - uz) * half, 1.0F),
+        Vec4(cx + (rx - ux) * half, cy + (ry - uy) * half,
+             cz + (rz - uz) * half, 1.0F),
+        Vec4(cx + (rx + ux) * half, cy + (ry + uy) * half,
+             cz + (rz + uz) * half, 1.0F),
+        Vec4(cx + (-rx + ux) * half, cy + (-ry + uy) * half,
+             cz + (-rz + uz) * half, 1.0F)};
+    b.coronaVerts[0] = corners[0];
+    b.coronaVerts[1] = corners[1];
+    b.coronaVerts[2] = corners[2];
+    b.coronaVerts[3] = corners[0];
+    b.coronaVerts[4] = corners[2];
+    b.coronaVerts[5] = corners[3];
+    // Tint by the light color; brightness rides the additive FIX.
+    b.coronaColor.set(128.0F * d.color[0], 128.0F * d.color[1],
+                      128.0F * d.color[2], 128.0F);
+    float fix = 128.0F * (k > 1.0F ? 1.0F : k);
+    b.coronaInfo->additiveBlendFix =
+        fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
+    b.coronaBag->bboxVersion = ++g_bboxStamp;
+    stapip.core.render(b.coronaBag.get());
+
+    if (b.kind == 2 && b.coneBag) {
+      const float len = d.lightRadius * 0.7F;
+      const float rad = d.lightRadius * 0.3F;
+      const Color apex(128.0F * d.color[0], 128.0F * d.color[1],
+                       128.0F * d.color[2], 128.0F);
+      const Color rim(0.0F, 0.0F, 0.0F, 128.0F);
+      for (int s = 0; s < 8; ++s) {
+        const float a0 = (float)s * (3.14159265F / 4.0F);
+        const float a1 = (float)(s + 1) * (3.14159265F / 4.0F);
+        b.coneVerts[s * 3 + 0] = Vec4(cx, cy, cz, 1.0F);
+        b.coneVerts[s * 3 + 1] =
+            Vec4(cx + cosf(a0) * rad, cy - len, cz + sinf(a0) * rad, 1.0F);
+        b.coneVerts[s * 3 + 2] =
+            Vec4(cx + cosf(a1) * rad, cy - len, cz + sinf(a1) * rad, 1.0F);
+        b.coneColors[s * 3 + 0] = apex;
+        b.coneColors[s * 3 + 1] = rim;
+        b.coneColors[s * 3 + 2] = rim;
+      }
+      // The shaft is dimmer than the corona (it covers far more pixels).
+      float cfix = 52.0F * (k > 1.0F ? 1.0F : k);
+      b.coneInfo->additiveBlendFix =
+          cfix > 255.0F ? 255 : (cfix < 1.0F ? 1 : (u8)cfix);
+      b.coneBag->bboxVersion = ++g_bboxStamp;
+      stapip.core.render(b.coneBag.get());
+    }
+  }
+}
+
 // Spring arm (third person only): how far the camera may sit down the boom
 // before it would end up inside geometry or under the terrain. Casts the boom
 // from the pivot (the avatar's head) toward the desired eye and returns the
@@ -5702,6 +6031,12 @@ void TerrainGame::renderScene() {
   // Mirrors after the whole scene (including the skinned avatars their
   // copies re-use): reflected copies first, glass quads blended over them
   renderMirrors();
+  // Blob shadows before the beams: dark quads on the terrain, z-tested
+  // against the finished scene (objects standing on them still cover them).
+  updateAndRenderBlobShadows();
+  // Visible light beams last: additive coronas/cones depth-test against the
+  // finished scene (no z writes), so walls occlude them correctly.
+  updateAndRenderLightBeams();
   if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - profScene0;
   // Highlight shells after the whole scene so they depth-test against the
   // finished z-buffer and can't be punched through by a later draw. Sorted
@@ -8246,6 +8581,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int lightDynamic;  // point lights: 1 = live (engine-lit each frame,\n"
            "                     // Set Light / flicker work) instead of baked\n"
            "  float lightFlicker; // dynamic lights: 0 steady .. 1 full wobble\n"
+           "  int lightBeam;     // point lights: 0 none, 1 glow corona,\n"
+           "                     // 2 corona + cone shaft (additive, at the source)\n"
            "  int saveState;  // 1 = position/color/visibility persisted in saves\n"
            "  int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none\n"
            "  float drawDistance;  // not drawn farther than this from the camera;\n"
@@ -8279,8 +8616,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             // animModel field), so empty scenes did not compile.
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
                    "0, 0, 0.0F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, "
-                   "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0.0F, 0, -1, "
-                   "\"\", 1, 1, 1.0F, 1, -1},\n";
+                   "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, "
+                   "-1, \"\", 1, 1, 1.0F, 1, -1},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
                 for (size_t i = 0; i < p.sounds.size(); ++i)
@@ -8319,7 +8656,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << ", " << floatLit(o.lightBright)
                     << ", " << floatLit(o.lightRadius)
                     << ", " << (o.lightDynamic ? 1 : 0)
-                    << ", " << floatLit(o.lightFlicker) << ", " << (o.saveState ? 1 : 0)
+                    << ", " << floatLit(o.lightFlicker)
+                    << ", " << o.lightBeam << ", " << (o.saveState ? 1 : 0)
                     << ", " << o.collisionMode << ", "
                     << floatLit(o.drawDistance) << ", " << (o.reflected ? 1 : 0)
                     << ", " << animModelIndexOf(p, o)
@@ -8638,6 +8976,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // Gates the flare-sprite texture load; MUST equal the refreshGenerated
     // predicate that bakes res/hud/flare-*.png (templates::projectUsesFlare).
     out << "constexpr int FLARE_USED = " << (projectUsesFlare(p) ? 1 : 0)
+        << ";\n";
+    // Same contract for the light-beam corona sprite (projectUsesBeams).
+    out << "constexpr int BEAMS_USED = " << (projectUsesBeams(p) ? 1 : 0)
+        << ";\n";
+    // Blob shadows under moving objects (project-wide preference; the glow
+    // sprite doubles as the shadow's alpha mask, baked when either is on).
+    out << "constexpr int BLOB_SHADOWS = " << (p.settings.blobShadows ? 1 : 0)
         << ";\n";
     sceneInts("POSTFX_DOFS", [&](int si) { return fx128(rs[si].dofAmount); });
     sceneFloats("POSTFX_DOF_FOCUSES",
@@ -9111,6 +9456,14 @@ bool projectUsesFlare(const Project& p) {
             for (const FlowNode& n : o.flowGraph.nodes)
                 if (n.type == "SetFlare") return true;
     }
+    return false;
+}
+
+bool projectUsesBeams(const Project& p) {
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (o.type == PrimitiveType::PointLight && o.lightBeam != 0)
+                return true;
     return false;
 }
 

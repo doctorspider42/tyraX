@@ -644,14 +644,25 @@ bool bakeFlarePNG(int kind, std::vector<unsigned char>& png) {
                 // Soft glow: quadratic falloff with a hot core.
                 const float t = r > 1.0f ? 0.0f : 1.0f - r;
                 a = t * t * (0.35f + 0.65f * t * t);
-            } else {
+            } else if (kind == 1) {
                 // Thin ring at ~70% radius (the classic lens ghost).
                 const float d = (r - 0.7f) / 0.09f;
                 a = std::exp(-d * d) * 0.5f;
+            } else {
+                // Corona for the 3D light beams: same soft glow, but the
+                // shape lives in RGB (additive bags use Cs*FIX + Cd, which
+                // ignores texture alpha - white RGB would draw a square).
+                const float t = r > 1.0f ? 0.0f : 1.0f - r;
+                a = t * t * (0.3f + 0.7f * t);
             }
             unsigned char* px = &rgba[(y * N + x) * 4];
-            px[0] = px[1] = px[2] = 255;
-            px[3] = (unsigned char)(a * 255.0f + 0.5f);
+            if (kind == 2) {
+                px[0] = px[1] = px[2] = (unsigned char)(a * 255.0f + 0.5f);
+                px[3] = 255;
+            } else {
+                px[0] = px[1] = px[2] = 255;
+                px[3] = (unsigned char)(a * 255.0f + 0.5f);
+            }
         }
     }
     png.clear();
@@ -660,7 +671,9 @@ bool bakeFlarePNG(int kind, std::vector<unsigned char>& png) {
 }
 
 std::string flareFileName(int kind) {
-    return kind == 0 ? "flare-glow.png" : "flare-ring.png";
+    return kind == 0   ? "flare-glow.png"
+           : kind == 1 ? "flare-ring.png"
+                       : "flare-corona.png";
 }
 
 }  // namespace menubake

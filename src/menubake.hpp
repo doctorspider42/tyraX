@@ -124,12 +124,13 @@ bool bakeTextPNG(const HudText& text, const std::string& projectDir,
 std::string textFileName(const std::string& textName);
 
 // --- Lens flare sprites ------------------------------------------------------
-// Procedural 64x64 RGBA sprites for the sun lens flare (no font involved):
-// kind 0 = soft radial glow, kind 1 = thin ring (the classic ghost). White
-// with an alpha falloff - the game tints them by the scene light color and
-// draws them additively. Written to res/hud/flare-{glow,ring}.png by
-// refreshGenerated when the project uses the flare.
+// Procedural 64x64 RGBA sprites for the sun lens flare and the light-beam
+// coronas (no font involved): kind 0 = soft radial glow (shape in alpha, for
+// 2D additive sprites), kind 1 = thin ring (ditto), kind 2 = corona (shape
+// in RGB - additive 3D bags blend Cs*FIX + Cd and ignore texture alpha).
+// Written to res/hud/flare-{glow,ring,corona}.png by refreshGenerated when
+// the project uses the flare / beams.
 bool bakeFlarePNG(int kind, std::vector<unsigned char>& png);
-std::string flareFileName(int kind);  // "flare-glow.png" / "flare-ring.png"
+std::string flareFileName(int kind);
 
 }  // namespace menubake
