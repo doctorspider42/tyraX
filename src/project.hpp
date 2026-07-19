@@ -642,18 +642,58 @@ inline HudImage defaultUsePrompt() {
     return h;
 }
 
+// A typeface the project can draw with (Tools > Font Manager). Everything that
+// references a font does so by `name`, so swapping a project's look is one
+// edit here rather than a hunt through every text and menu.
+//
+// Two very different costs hang off one entry:
+//  - Static text (HUD texts, menus, loading screens) is rasterized straight
+//    from the TTF into a sprite at BUILD time, so the font itself never
+//    reaches the PS2 - only the pixels of that one string.
+//  - A font referenced by a Display Text node also bakes a glyph atlas
+//    (res/fonts/atlas-<name>.png) the runtime samples glyph by glyph, because
+//    that node's string is only known while the game runs. That atlas is the
+//    only case where font pixels ship, and it is loaded lazily - see
+//    templates.cpp's drawFontText.
+struct GameFont {
+    std::string name = "Default";
+    // Source TTF: "" = the built-in default (the Consolas Bold fallback chain
+    // in menubake::resolveFontPath), "res/fonts/x.ttf" = a font imported into
+    // the project (travels with it), bare "impact.ttf" = a Windows font (that
+    // machine only). This is the one place the editor resolves a real file.
+    std::string fontPath;
+    // Glyph height the atlas is rasterized at. Display Text scales from this,
+    // so it trades atlas sharpness against VRAM, and is NOT the on-screen size.
+    // Only matters to fonts a Display Text node actually uses.
+    int atlasSize = 16;
+    // Applied to the glyphs at runtime (the atlas itself bakes white, so one
+    // atlas serves every color). Static baked text keeps its own per-text color.
+    float color[3] = {1.0f, 1.0f, 1.0f};
+    bool shadow = true;  // 1px dark offset behind the glyphs
+    // Atlas palette depth: "4bit" (16 colors - plenty for white glyphs the
+    // runtime tints, and ~8x cheaper in VRAM), "8bit", "none" = full color.
+    std::string quant = "4bit";
+};
+
+inline bool operator==(const GameFont& a, const GameFont& b) {
+    return a.name == b.name && a.fontPath == b.fontPath &&
+           a.atlasSize == b.atlasSize && a.color[0] == b.color[0] &&
+           a.color[1] == b.color[1] && a.color[2] == b.color[2] &&
+           a.shadow == b.shadow && a.quant == b.quant;
+}
+
 // An on-screen text (Tools > UI Editor > Texts): baked to a PNG sprite at
 // build (res/hud/text-<name>.png - the engine has no font), shown/hidden at
-// runtime by the Show Text / Hide Text flow nodes. Multi-line on '\n'.
+// runtime by the Set Text Visible flow node. Multi-line on '\n'. The string is
+// frozen at build; for a runtime-varying one use a Display Text node instead.
 struct HudText {
     std::string name = "text";
     std::string text = "New text";
     float pos[2] = {0.5f, 0.8f};   // normalized screen position (center anchor)
     int size = 16;                 // font pixel height
     float color[3] = {1.0f, 1.0f, 1.0f};
-    // Baked text font, GameMenu::fontPath semantics: "" = default (Consolas
-    // Bold chain), "res/fonts/x.ttf" = project font, bare name = Windows font.
-    std::string fontPath;
+    // Which Project::fonts entry to rasterize with ("" = the default entry).
+    std::string font;
     bool shadow = true;           // 1px dark offset behind the glyphs
     bool visibleAtStart = false;  // shown when the scene starts
 };
@@ -662,7 +702,7 @@ inline bool operator==(const HudText& a, const HudText& b) {
     return a.name == b.name && a.text == b.text && a.pos[0] == b.pos[0] &&
            a.pos[1] == b.pos[1] && a.size == b.size &&
            a.color[0] == b.color[0] && a.color[1] == b.color[1] &&
-           a.color[2] == b.color[2] && a.fontPath == b.fontPath &&
+           a.color[2] == b.color[2] && a.font == b.font &&
            a.shadow == b.shadow && a.visibleAtStart == b.visibleAtStart;
 }
 
@@ -943,9 +983,10 @@ struct GameMenu {
     int panelW = 256;  // 128 / 256 / 512
     float screenPos[2] = {0.5f, 0.45f};
     bool showTitle = true;  // off = logo-only menus (skips title + separator)
-    // Baked text: "" = default (Consolas Bold chain), "res/fonts/x.ttf" = a
-    // font imported into the project, bare "impact.ttf" = a Windows font.
-    std::string fontPath;
+    // Which Project::fonts entry the panel is baked with ("" = the default
+    // entry). Only the typeface is taken from it - the panel's colors come
+    // from `accent` and the bake itself.
+    std::string font;
     int titleSize = 18;  // px; entrySize also drives the row pitch (and the
     int entrySize = 15;  // cursor geometry) through menubake::panelLayout.
     std::vector<MenuEntry> entries;
@@ -958,7 +999,7 @@ inline bool operator==(const GameMenu& a, const GameMenu& b) {
            a.accent[1] == b.accent[1] && a.accent[2] == b.accent[2] &&
            a.images == b.images && a.panelW == b.panelW &&
            a.screenPos[0] == b.screenPos[0] && a.screenPos[1] == b.screenPos[1] &&
-           a.showTitle == b.showTitle && a.fontPath == b.fontPath &&
+           a.showTitle == b.showTitle && a.font == b.font &&
            a.titleSize == b.titleSize && a.entrySize == b.entrySize &&
            a.entries == b.entries;
 }
@@ -1005,6 +1046,29 @@ struct Project {
     }
     std::vector<SceneObject>& objects() { return active().objects; }
     const std::vector<SceneObject>& objects() const { return active().objects; }
+
+    // Name of the fallback font (what an empty `font` reference means).
+    std::string defaultFontName() const {
+        return fonts.empty() ? std::string() : fonts.front().name;
+    }
+    // Indices into `fonts` that some Display Text node draws with - the only
+    // fonts that need a glyph atlas baked and shipped (static text rasterizes
+    // straight from the TTF at build). Sorted, no duplicates.
+    std::vector<int> atlasFontIndices() const;
+    // Font by name; an empty or stale name resolves to the default entry, so
+    // deleting a font never breaks the texts still pointing at it.
+    const GameFont* findFont(const std::string& name) const {
+        if (fonts.empty()) return nullptr;
+        for (const GameFont& f : fonts)
+            if (f.name == name) return &f;
+        return &fonts.front();
+    }
+
+    // Typefaces the project draws with (Tools > Font Manager). Never empty:
+    // fonts[0] is the default every text falls back to, and the Font Manager
+    // refuses to delete the last entry - so an empty `font` reference always
+    // resolves. Replace fonts[0] to restyle the whole project at once.
+    std::vector<GameFont> fonts{GameFont{}};
 
     std::vector<HudImage> hud;
     // The USE prompt as an overridable HUD element (see defaultUsePrompt).

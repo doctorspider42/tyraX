@@ -1,0 +1,1 @@
+{ "id": "681db01302b4394f", "name": "a-wall-door-r", "type": "box", "position": [3.75, 1.5, -9], "rotation": [0, 0, 0], "scale": [4.5, 3, 0.5], "color": [0.7, 0.65, 0.55], "physics": false, "layer": "building-a" }

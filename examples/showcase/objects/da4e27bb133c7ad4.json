@@ -1,0 +1,1 @@
+{ "id": "da4e27bb133c7ad4", "name": "campfire-light", "type": "point-light", "position": [-6, 0.7788, 2], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 0.6, 0.25], "physics": false, "light": { "brightness": 1.4, "radius": 12 } }

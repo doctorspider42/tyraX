@@ -216,7 +216,7 @@ Tuning guidance:
 
 Three nodes (Add node > **Animation** / **Triggers**):
 
-- **Play Animation** (action) - starts a clip on the target object.
+- **Animation** (action), **play** pin - starts a clip on the target object.
   - *Clip* (text): the clip name; empty = the model's first clip. Unknown
     names are ignored at runtime (a TYRA_WARN lands in the game log).
   - *Loop*: 1 = loop, 0 = play once.
@@ -225,8 +225,8 @@ Three nodes (Add node > **Animation** / **Triggers**):
     is currently showing instead of snapping. 0 = instant switch.
   - Target: an incoming **object link**, otherwise **self** (the node's
     text field holds the clip, not an object name - wire the target in).
-- **Stop Animation** (action) - freezes the target on its current pose.
-  Play Animation resumes/restarts it.
+- **Animation** (action), **stop** pin - freezes the target on its current
+  pose (the params are ignored). The play pin resumes/restarts it.
 - **On Animation Finished** (trigger) - fires the frame the watched
   object's clip reaches its last frame: **once** for a non-looping clip,
   **every wrap** for a looping one. Also usable as a bool source for the
@@ -235,9 +235,9 @@ Three nodes (Add node > **Animation** / **Triggers**):
 Typical patterns:
 
 ```
-On Used ──▶ Play Animation ("open", loop 0)      a door that opens on USE
-On Animation Finished ──▶ Hide Object            despawn after a death clip
-Near Object ──▶ Play Animation ("wave")          greet the approaching player
+On Used ──▶ Animation ▸play ("open", loop 0)     a door that opens on USE
+On Animation Finished ──▶ Set Object Visible ▸hide   hide after a death clip
+Near Object ──▶ Animation ▸play ("wave")         greet the approaching player
 ```
 
 ## Triggering from scripts
@@ -287,7 +287,7 @@ need no special handling in version control (they regenerate on build).
 | Model invisible in-game, `TsklLoader: cannot read` in log | The `.tskl` was not written (check the build log's `[anim bake]` lines for the reason). |
 | Texture renders as flat color, `Model texture missing` warning | Extracted PNG missing next to the `.tskl`, or non-POT texture (see the import warning). |
 | Clip does not switch | Clip name typo - names are case-sensitive; check the Assets tooltip for the exact list. |
-| Clip switch pops | Give Play Animation a *Fade* (or `playAnimation(..., fade)`) - 0.2-0.4 s covers most transitions. |
+| Clip switch pops | Give the Animation node a *Fade* (or `playAnimation(..., fade)`) - 0.2-0.4 s covers most transitions. |
 | Animation too fast/slow on NTSC vs PAL | It isn't - playback is wall-clock normalized. Compare against a stopwatch, not frames. |
 | `matrix-palette slots` error on import/build | The file needs more than 256 bones + rigid mesh nodes - simplify the rig. |
 | Point lights don't light the model | By design: point lights are baked into static vertex colors. Animated models receive the scene's directional light + ambient. |
