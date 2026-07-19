@@ -21,7 +21,9 @@
 //  - editor-only assets never ship: res/brushes (Material Editor paint
 //    brushes) and `<texture>.layers/` paint-layer sidecars are skipped
 //    (and scrubbed from an older bake)
-//  - res/fonts is never touched (UI legibility)
+//  - res/fonts: the source TTFs never ship (the PS2 reads no fonts - text is
+//    baked to sprites/atlases at build). The glyph atlases baked into that
+//    folder do ship, quantized per Font Manager entry (GameFont::quant)
 //  - res/hud PNGs referenced by a Project::hud entry are resized to a
 //    PS2-valid power-of-two (HudImage::texW/texH; 0 = nearest) and optionally
 //    palette-quantized (HudImage::texQuant), so a mis-sized import can no

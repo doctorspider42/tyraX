@@ -56,7 +56,7 @@ Two sibling skills cover the rest of the system:
 | `app.cpp/.hpp` | 2751 | The whole ImGui shell: menus, all panels (Project, Scene, Scripts, HUD, Music, Sounds, Output, Disc Layout, Flow Graph), modals, gizmo + sculpt input, undo/redo, clipboard, wiring viewport ↔ project ↔ runner. |
 | `project.cpp/.hpp` | ~1050 | **Data model + JSON (de)serialization + generated-file refresh.** `Project`, `SceneData`, `SceneObject`, `TerrainConfig`, `ProjectSettings`. `save()`/`load()`: the `<name>.tyra` **manifest** (project-wide data + per-scene ordered object-id list + editor state + the named window layouts) plus one `objects/<id>.json` body per object — `save()` writes every live object then prunes orphaned files; `load()`→`readSceneObjects()` dispatches split (id strings) vs legacy inline (object bodies). `ensureObjectIds()` (stamps stable ids), `create()`, `seedBuiltinLayouts()` (the Default/Director/Material `WindowLayout` set, also used to migrate a legacy single `"layout"` dump), `saveHeights()/loadHeights()`, `saveHistory()/loadHistory()` (`<name>.history` undo stack — stays monolithic/inline, gitignored), `refreshGenerated()`. **Window layouts** are `std::vector<WindowLayout> windowLayouts` + `activeLayout`; a `WindowLayout` is `{name, ini, recipe, openWindows}` where an empty `ini` + a `LayoutRecipe` id is (re)built by `App::buildLayoutRecipe` (DockBuilder) the first time it's shown. The Layout menu / switching / capture logic lives in app.cpp (`switchLayout`/`applyActiveLayout`/`captureActiveLayout`/`buildLayoutRecipe`, applied at a frame boundary). Editor state, not undo. |
 | `templates.cpp/.hpp` | 3522 | **All code generation.** `templates::generate(Project)` returns `vector<File>` (relativePath + content). Scene tables, terrain game sources, flow-graph compilation, Dockerfile/Makefile/compose, VS Code IntelliSense config (`.vscode/c_cpp_properties.json` always-overwritten; `.vscode/extensions.json` written-if-missing — recommends the `tools/vscode-tyrax` extension). |
-| `flowgraph.hpp` | 216 | Flow-graph data model: `FlowNode`, `FlowLink` (exec / object-id / position / bool link kinds), `FlowGraph`, the built-in `flowNodeTypes()` registry, and the project-scoped custom-node registry (`CustomFlowNode`, `customFlowNodes()`). Per-object graphs, stored inside each object's `objects/<id>.json` body. |
+| `flowgraph.hpp` | 216 | Flow-graph data model: `FlowNode`, `FlowLink` (exec / object-id / position / bool / text link kinds, plus `toPin` — which exec input an exec link fires), `FlowGraph`, the built-in `flowNodeTypes()` registry, the retired-type migration table (`flowLegacyNodes`), and the project-scoped custom-node registry (`CustomFlowNode`, `customFlowNodes()`). Per-object graphs, stored inside each object's `objects/<id>.json` body. |
 | `flownode.cpp` | 230 | Loads project-defined **custom flow nodes** from `<project>/flow-nodes/*.flownode` text files into the global `customFlowNodes()` registry (`flownode::loadForProject`). Called by `project::load` *before* graphs are parsed. Parses the manifest (title/category/params, `in`/`out` pins, `exec_out`, `call`) into a `FlowNodeType`; the node's behavior is an inline C++ snippet or a `call = fn` into `inc/scripts/flow_nodes.hpp`. Also scaffolds the starter file (`writeExample`). See `docs/custom-flow-nodes.md`. **When you add/change a header key or `{placeholder}` here, mirror it in the VS Code extension's `SPEC` table (`tools/vscode-tyrax/extension.js`) and the grammar** — that is what colours/validates `.flownode` files (see `docs/vscode-extension.md`). |
 | `screenfx.cpp` / `.hpp` | ~230 | Loads project-defined **custom screen effects** from `<project>/screen-effects/*.screenfx` text files into the global `customScreenEffects()` registry (`screenfx::loadForProject`, called by `project::load` before placements are read). The full-screen-post-effect analogue of custom flow nodes: a manifest (title + up to four numeric params) plus a raw low-level GS-blit C++ body. A `Project` references one only by placement (`ScreenFxPlacement` in project.hpp: key + stack `layer` + `enabled` + params). Placed/reordered in the *UI Editor* screen stack (like bloom/grain), codegen'd to `src/scripts/screen_fx.gen.cpp` (`screenFxSource`/`screenFxHeader` in templates.cpp), run via `RendererCore::applyCustomPostFx` at the effect's slot in the frame loop. Unknown-key placements are dropped on load. See `docs/custom-screen-effects.md`. (Header keys/`{pN}` placeholders are also mirrored in the VS Code extension's `SPEC` — `tools/vscode-tyrax/extension.js`; keep them in sync.) |
 | `sequence.hpp` | ~230 | Cutscene Director data model + shared math: `Sequence` (object tracks + camera *shots* - free or bound to Camera entities - plus widescreen bars, fades, skippable), `seqEase`/`seqSample`/`seqBarsFractions`/`seqShakeOffset`/`seqCameraForward` (each mirrored in the generated PS2 player - keep in sync). Project-wide (like presets), persisted but not in undo. Compiled to `src/scripts/sequences.gen.cpp` (a runtime player Script + the bars/fade `renderOverlay`); the dopesheet UI + viewport scrub live in `app.cpp`. Object renames remap track/shot name references (`objRenameFrom_`). |
@@ -142,7 +142,23 @@ read it, so a node with a desc is documented everywhere at once) → node UI (pi
 in the flow-graph editor in app.cpp → codegen in `flowGraphScript()`
 (templates.cpp), which compiles graphs to `src/scripts/flow_graph.gen.cpp` — one
 script class per object graph; object references resolve to indices at codegen;
-bool logic folds into inline C++ expressions. (If the node is project-specific
+bool logic folds into inline C++ expressions.
+
+**Several triggers on one node** (show/hide/toggle): set `execInCount` +
+`execInLabels` on the `FlowNodeType` and switch on the `pin` argument in
+`actionCode(n, pad, pin)`. The pin a link fires is `FlowLink::toPin`
+(serialized `"pin": N`, omitted at 0); pin ids come from `flowExecInPin` (slot 2
+for the first, spare slots 10..15 for the rest — `kFlowMaxExecIn` = 7). Do NOT
+add a Show*/Hide* *pair* of node types: that was the old convention and the five
+surviving pairs were merged away (Set Object Visible / Set HUD Visible / Set
+Text Visible / Set Layer Loaded / Animation). **Retiring a node type means
+adding it to `flowLegacyNodes()`** — `readFlowGraph` drops unknown types
+silently, so without an entry every existing project loses those nodes. Note the
+merge only fits when both branches share the node's param: `Play/Stop Music` and
+`Play/Stop Sequence` stayed separate because their Stop is global and would make
+the field next to a "stop" pin a lie.
+
+(If the node is project-specific
 rather than a general editor feature, prefer a **custom node**: a
 `flow-nodes/*.flownode` file, no C++ change — see `flownode.cpp` and
 `docs/custom-flow-nodes.md`. Custom nodes plug into the same `flowNodeType()`
@@ -152,7 +168,8 @@ in `actionCode()`. A `call = fn` custom node runs a user function in
 its **object output is a runtime value**, which is why `resolveTarget()` returns
 a C++ int-*expression* (a literal index for built-in sources, `objOut<id>` for a
 custom node's runtime output) — built-in object actions fed such a ref are
-bounds-guarded via `isRuntimeIdx`. The built-in **Raycast** node uses the same
+bounds-guarded by the wrapper `actionCode()` emits around the body
+(`if (<dyn> >= 0 && <dyn> < ctx.objectCount) { ... }`). The built-in **Raycast** node uses the same
 runtime-latch machinery: every `flowCustomNode(...)` check on that path also
 accepts `type == "Raycast"` — a new built-in node with runtime outputs should
 extend those same spots. The **AI nodes** (Patrol Waypoints / Chase Player /
@@ -167,6 +184,38 @@ the game only reads the baked bitmap.)
 `ProjectSettings` → save/load in project.cpp → the *Project* Preferences dialog
 (`drawPreferencesModal`) in app.cpp → usually a constant baked into
 `inc/terrain_config.hpp` or `scene_data.hpp` by templates.cpp.
+
+**Anything that draws text.** `Project::fonts` (`GameFont`) is the single font
+registry — *Tools > Font Manager* (`drawFontManagerWindow`). Text carries a font
+**name**, never a path (`HudText::font`, `GameMenu::font`); only `GameFont::fontPath`
+names a real file, resolved in one place (`menubake::resolveFontPath`, with a
+Consolas Bold fallback chain). `fonts[0]` is the fallback for an empty/stale
+name (`Project::findFont`) and the Font Manager refuses to delete the last
+entry, so a reference always resolves. Pick a font with `App::fontCombo`;
+`fontSourceCombo` (the TTF picker) belongs to the Font Manager alone. Renames
+must follow into texts, menus AND `FontName` node params (`App::renameFont`).
+
+Two very different paths hang off one entry:
+- **Static text** (HUD texts, menus, loading screens) rasterizes from the TTF
+  into a sprite at build (`menubake::bakeText*`). The font never reaches the PS2.
+- **Runtime text** (the Display Text node) can't be pre-baked, so its font bakes
+  a **glyph atlas** (`atlasLayout`/`bakeAtlasPNG` → `res/fonts/atlas-<name>.png`,
+  metrics into `inc/font_data.gen.hpp` via `fontDataHeader`, both from the same
+  `atlasLayout()` call — change the layout math and BOTH move together or every
+  glyph misplaces). Only fonts `Project::atlasFontIndices()` returns get one.
+  Atlases bake white and are tinted at runtime, so never bake a color in.
+  One runtime slot per node: `dynTextSlots()` is walked identically by
+  `fontDataHeader` and `flowGraphScript` — keep them in sync or slots misalign.
+
+**VRAM rule for any new texture the game loads.** The engine uploads to GS VRAM
+on a texture's FIRST RENDER (`RendererCoreTexture::useTexture`) and then pins it
+forever — there is no LRU, only an all-or-nothing flush when the next texture
+doesn't fit, on a ~1.33 MB budget (+8 KB per allocation). So: add lazily, never
+call `useTexture()` eagerly unless you *want* it resident (the streamed model
+textures do), and prefer 4-bit for anything the runtime tints. Do NOT "fix"
+residency by freeing on hide: `RendererCoreGSVRam::free` is `pointer = address`
+(a bump-pointer stack pop), so freeing anything but the newest allocation
+rewinds past live textures.
 
 **Menus & option blocks** (`GameMenu`/`MenuEntry` in project.hpp; project-wide,
 not per scene). A menu is baked to a panel sprite at build (menubake.cpp — the
