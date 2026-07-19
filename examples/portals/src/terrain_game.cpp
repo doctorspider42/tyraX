@@ -4882,15 +4882,28 @@ bool TerrainGame::renderOnePortalView(int pi) {
     RuntimeObject& ro = runtimeObjects[ti];
     if (!ro.active || !ro.visible || ro.data.type == 16) return;
     {
-      // skip objects entirely behind the exit mouth (dead zone above);
-      // bounding radius approximated like the env-map self-skip does
-      float half = ro.data.scale[0];
-      if (ro.data.scale[1] > half) half = ro.data.scale[1];
-      if (ro.data.scale[2] > half) half = ro.data.scale[2];
+      // Skip objects entirely behind the exit mouth (dead zone above).
+      // The extent along the plane normal is the exact OBB projection -
+      // a crude max-axis radius made a WIDE thin wall count as "reaching
+      // through" its own thickness (a wall the target portal is mounted
+      // on filled the whole view with its backside; owner report). The
+      // 0.1 slack keeps a flush-mounted wall (portal quad nudged 0.02 in
+      // front of it) classified as behind; geometry genuinely poking
+      // through the plane still renders.
+      const V3 oax = rotated({1.0F, 0.0F, 0.0F}, ro.data.rotation);
+      const V3 oay = rotated({0.0F, 1.0F, 0.0F}, ro.data.rotation);
+      const V3 oaz = rotated({0.0F, 0.0F, 1.0F}, ro.data.rotation);
+      const float r =
+          fabsf(exitN.x * oax.x + exitN.y * oax.y + exitN.z * oax.z) * 0.5F *
+              ro.data.scale[0] +
+          fabsf(exitN.x * oay.x + exitN.y * oay.y + exitN.z * oay.z) * 0.5F *
+              ro.data.scale[1] +
+          fabsf(exitN.x * oaz.x + exitN.y * oaz.y + exitN.z * oaz.z) * 0.5F *
+              ro.data.scale[2];
       const float sd = exitN.x * ro.data.position[0] +
                        exitN.y * ro.data.position[1] +
                        exitN.z * ro.data.position[2] - exitD;
-      if (sd < -0.87F * half) return;
+      if (sd < -r + 0.1F) return;
     }
     if (ro.dirty) rebuildObjectGeometry(ti);
     ObjectGeometry& g = objectGeometry[ti];

@@ -7,10 +7,14 @@ walk-through teleport that carries position, view angle and vertical velocity.
 What's in the scene:
 
 - **portal-a** (orange, upright) in front of the player spawn, two-way linked
-  with **portal-b** (cyan) 25 world units away. Looking at portal-a you see
-  portal-b's surroundings — the red tower — rendered live through the
-  opening at full resolution (in-place, z-carved: no render-to-texture, no
-  seam), with correct parallax as you move.
+  with **portal-b** (cyan) 25 world units away — **both mounted flush on
+  dark wall boxes**, so each reads as a doorway in a wall. Looking at
+  portal-a you see portal-b's surroundings — the red tower — rendered live
+  through the opening at full resolution (in-place, z-carved: no
+  render-to-texture, no seam), with correct parallax as you move. The wall
+  behind the far portal never shows its backside in the opening: the
+  dead-zone test projects each object's exact OBB extent onto the exit
+  plane, so flush-mounted walls count as behind.
 - **box-red** — the landmark tower at the far end. portal-a runs the
   experimental **All objects in view** switch (its view list is empty —
   the tower shows up anyway because everything does); portal-b uses the
@@ -30,13 +34,8 @@ What's in the scene:
   strafe out to escape. (Object physics clamps falls at a 50 u/s terminal
   velocity, so the loop stays readable instead of accelerating into a
   blur.)
-- **anchor-cross** — an Empty carrying a small flow graph
-  (On Start → Delay 6 s → Spawn Player At) that walks the player through
-  portal-a unattended ~6 s after the scene starts, so the whole loop —
-  see through → cross → arrive exactly where the view promised — plays out
-  with no pad input. Delete this object (or its graph) to explore manually.
-
 Open `portals.tyra` in the editor and Build & Run (or `run.ps1`). Walk into
 the orange surface: you arrive at the cyan portal facing the tower — the
 same image the surface was showing. Both portals link back at each other,
-so you can walk straight back.
+so you can walk straight back. (The demo is pad-driven; in the editor
+viewport, the bright arrow out of each surface marks the entry side.)

@@ -68,14 +68,14 @@ constexpr SceneObjectData SCENE_0_OBJECTS[10] = {
     {16, {4.0F, 0.3F, -6.0F}, {-90.0F, 0.0F, 0.0F}, {2.5F, 2.5F, 1.0F}, {0.6F, 0.3F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, 16, -1},  // portal-floor
     {0, {4.0F, 5.0F, -6.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.85F, 0.2F, 0.85F}, 1, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, -1},  // box-drop
     {16, {4.0F, 8.0F, -6.0F}, {90.0F, 0.0F, 0.0F}, {2.5F, 2.5F, 1.0F}, {0.3F, 0.85F, 0.6F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, 16, -1},  // portal-ceiling
-    {0, {0.0F, 0.5F, -0.499317F}, {0.0F, -0.0F, 0.0F}, {1.98341F, 4.15589F, 1.0F}, {0.196078F, 0.196078F, 0.196078F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, -1},  // box-1
-    {0, {19.9781F, 0.5F, -15.5279F}, {0.0F, -0.0F, 0.0F}, {1.98341F, 4.15589F, 1.0F}, {0.196078F, 0.196078F, 0.196078F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, -1},  // box-1-copy
+    {0, {0.0F, 0.5F, -0.499317F}, {0.0F, 0.0F, 0.0F}, {1.98341F, 4.15589F, 1.0F}, {0.196078F, 0.196078F, 0.196078F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, -1},  // box-1
+    {0, {19.9781F, 0.5F, -15.5279F}, {0.0F, 0.0F, 0.0F}, {1.98341F, 4.15589F, 1.0F}, {0.196078F, 0.196078F, 0.196078F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, -1},  // box-1-copy
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {10};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
-constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[10] = {0x1027c09ee2b6099cULL, 0x23f00b58caf86d05ULL, 0x23fa0b58cb00c18aULL, 0x23f60b58cafcd8b3ULL, 0x24020b58cb089338ULL, 0x24080b58cb0cfee6ULL, 0x24040b58cb09160fULL, 0x23d80b58cae3db24ULL, 0xee7e622c86d01a5dULL, 0x4652aff0cf9ca3f6ULL};
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[10] = {0x1027c09ee2b6099cULL, 0x23f00b58caf86d05ULL, 0x23fa0b58cb00c18aULL, 0x23f60b58cafcd8b3ULL, 0x24020b58cb089338ULL, 0x24080b58cb0cfee6ULL, 0x24040b58cb09160fULL, 0x23d80b58cae3db24ULL, 0x25000b58cbdfa035ULL, 0x250a0b58cbe7f4baULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};

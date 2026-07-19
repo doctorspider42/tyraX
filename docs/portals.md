@@ -84,8 +84,11 @@ wall) and a link line to the target; the live view exists only in the game
   PS2 has no oblique near plane to clip what lies in between. Both view
   objects and terrain chunks fully on the camera side of the target plane
   are skipped automatically (through a real hole they'd be invisible;
-  chunks carry their exact height extent, so the test is a precise
-  AABB-vs-plane check) — a floor→ceiling pair keeps **Terrain + sky in
+  chunks carry their exact height extent and objects project their exact
+  OBB extent onto the plane normal, so a **wall the target portal is
+  mounted flush on counts as behind** and never fills the opening with
+  its backside — while geometry genuinely poking through the plane still
+  renders) — a floor→ceiling pair keeps **Terrain + sky in
   view** on and the opening correctly shows the sky-dome gradient and
   whatever falls through, not the terrain's backside. A chunk that
   straddles the plane still renders whole, so on an extreme cliff-edge
