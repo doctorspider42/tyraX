@@ -43,7 +43,7 @@ stubs, exactly like the other pay-for-what-you-use systems.
 
 ## The runtime (A* on the EE)
 
-`src/scripts/navigation.gen.cpp` (generated) owns one **AI agent state per
+`src/gen/navigation.gen.cpp` (generated) owns one **AI agent state per
 runtime object** — authored objects *and* spawn-pool clones — and a global
 script that ticks every active agent each frame:
 
@@ -119,5 +119,5 @@ guard patrols → sees you → chases → loses you for 3 s → resumes the patr
 |---|---|
 | Host bake | `src/navmesh.cpp` (shared by codegen and the viewport overlay) |
 | Baked grid | `inc/nav_data.gen.hpp` (per scene, bit-packed) |
-| A* + agent tick | `src/scripts/navigation.gen.cpp` + `inc/scripts/navigation.gen.hpp` |
+| A* + agent tick | `src/gen/navigation.gen.cpp` + `inc/scripts/navigation.gen.hpp` |
 | Node compilation | `flowGraphScript()` in `src/templates.cpp` |

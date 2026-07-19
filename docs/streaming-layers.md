@@ -110,7 +110,7 @@ Details worth knowing:
 - **The layer never shows up** — check its *start* flag or make sure some
   trigger actually fires the *load* pin; watch `Is Layer Loaded` with a *Log*
   node. Unknown layer names in flow nodes compile to a comment (check
-  `src/scripts/flow_graph.gen.cpp` if in doubt).
+  `src/gen/flow_graph.gen.cpp` if in doubt).
 - **Objects pop in too close** — move the *load* trigger earlier
   along the approach; the stream needs roughly one frame per asset plus a
   few frames of activation.

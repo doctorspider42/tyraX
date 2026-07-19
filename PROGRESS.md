@@ -9,6 +9,31 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (120) **Scripts panel cleanup: `src/scripts/` is exclusively the user's;
+  generated sources moved to `src/gen/`; subfolders supported.** The Scripts
+  list used to show the six engine-generated `*.gen.cpp` files (flow_graph,
+  sequences, screen_fx, live_link, navigation, object_scripts) next to the
+  user's own scripts — confusing ("what are these files I never wrote?").
+  Now: (1) codegen writes them to `src/gen/` (registrations in
+  `templates::generate` + the always-overwrite list in `refreshGenerated`;
+  the engine's `Makefile.base` finds sources recursively, so no Makefile
+  change), (2) `refreshGenerated` **deletes stale copies** from
+  `src/scripts/` on the first build of an older project — critical, a
+  leftover pair would be compiled twice into duplicate symbols, (3) the
+  Scripts panel and the `TYRA_OBJECT_SCRIPT` attach-scan walk `src/scripts`
+  **recursively** (subfolder scripts list as `ai\guard.cpp`, compile and
+  scan like any other; `*.gen.cpp` filtered out for good measure), and (4)
+  **New script...** accepts `ai/guard` to create `src/scripts/ai/guard.cpp`
+  (segment-validated, class name from the basename). All 11 example
+  projects regenerated (old copies pruned, new `src/gen/` committed); docs +
+  ai-support skills + editor-skill path references updated. Verified:
+  editor builds clean; `examples/script-demo` Docker build passes with the
+  new layout (link line shows `obj/gen/*.gen.o`); a scratch project with a
+  hand-made `src/scripts/ai/guard_brain.cpp` object script compiles and
+  links via the recursive Makefile find (=== Build OK ===). The panel's
+  visual list (nested rel-paths render, click opens VS Code) still wants a
+  quick GUI eyeball pass.
+
 - (116) **NavMesh + NPC AI — Patrol / Chase / Flee / On Player Seen.** NPCs
   can finally go somewhere on their own. Three layers, all
   pay-for-what-you-use (a project without AI nodes carries zero nav data or

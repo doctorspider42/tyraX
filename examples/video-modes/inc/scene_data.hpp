@@ -68,7 +68,7 @@ constexpr SceneObjectData SCENE_0_OBJECTS[5] = {
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {5};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
-constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[5] = {0x83c6f78677240220ULL, 0xf11918e638b17861ULL, 0x8ea1cecf7c0a486eULL, 0x803950b78e577687ULL, 0x2392e7fe88553d4cULL};
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[5] = {0x083bc66ff758dcafULL, 0xe164d273f576ebdeULL, 0x6d644bc73a66442eULL, 0xdb0dfa1c9f9bace7ULL, 0x4fa8ee444206d339ULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};

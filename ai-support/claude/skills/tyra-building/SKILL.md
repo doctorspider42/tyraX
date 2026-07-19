@@ -16,7 +16,7 @@ description: Building and running a TyraX PS2 game - the Docker build, launching
 Regenerates every editor-owned game source from the project data. Use it after
 changing `.tyra` / `objects/*.json` / graphs to inspect exactly what will
 compile (diff `src/` and `inc/`), and to catch dangling references (they show
-up as `// node N: unknown ...` comments in `src/scripts/flow_graph.gen.cpp`).
+up as `// node N: unknown ...` comments in `src/gen/flow_graph.gen.cpp`).
 
 ## Full build
 

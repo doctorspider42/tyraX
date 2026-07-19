@@ -2753,13 +2753,13 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\terrain_config.hpp" ||
             f.relativePath == "inc\\scene_data.hpp" ||
             f.relativePath == ".vscode\\c_cpp_properties.json" ||
-            f.relativePath == "src\\scripts\\flow_graph.gen.cpp" ||
-            f.relativePath == "src\\scripts\\live_link.gen.cpp" ||
-            f.relativePath == "src\\scripts\\object_scripts.gen.cpp" ||
-            f.relativePath == "src\\scripts\\screen_fx.gen.cpp" ||
+            f.relativePath == "src\\gen\\flow_graph.gen.cpp" ||
+            f.relativePath == "src\\gen\\live_link.gen.cpp" ||
+            f.relativePath == "src\\gen\\object_scripts.gen.cpp" ||
+            f.relativePath == "src\\gen\\screen_fx.gen.cpp" ||
             f.relativePath == "inc\\scripts\\screen_fx.gen.hpp" ||
             f.relativePath == "inc\\scripts\\sequences.gen.hpp" ||
-            f.relativePath == "src\\scripts\\sequences.gen.cpp" ||
+            f.relativePath == "src\\gen\\sequences.gen.cpp" ||
             f.relativePath == "inc\\model_data.gen.hpp" ||
             f.relativePath == "inc\\hud_data.gen.hpp" ||
             f.relativePath == "inc\\font_data.gen.hpp" ||
@@ -2767,7 +2767,7 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\terrain_heights.gen.hpp" ||
             f.relativePath == "inc\\nav_data.gen.hpp" ||
             f.relativePath == "inc\\scripts\\navigation.gen.hpp" ||
-            f.relativePath == "src\\scripts\\navigation.gen.cpp" ||
+            f.relativePath == "src\\gen\\navigation.gen.cpp" ||
             f.relativePath == "inc\\texture_data.gen.hpp" ||
             f.relativePath == "inc\\decal_data.gen.hpp" ||
             f.relativePath == "inc\\save_system.gen.hpp" ||
@@ -2807,6 +2807,17 @@ std::string refreshGenerated(const Project& p) {
         if (write) {
             if (auto err = writeFile(path, f.content); !err.empty()) return err;
         }
+    }
+
+    // Migration: generated script sources used to live in src/scripts/ next
+    // to the user's own scripts - confusing in the Scripts panel, and now
+    // that they are written to src/gen/ a leftover copy would be compiled
+    // twice (duplicate symbols). Always-regenerated files, safe to delete.
+    for (const char* stale :
+         {"flow_graph.gen.cpp", "live_link.gen.cpp", "object_scripts.gen.cpp",
+          "screen_fx.gen.cpp", "sequences.gen.cpp", "navigation.gen.cpp"}) {
+        std::error_code ec;
+        fs::remove(fs::path(p.dir) / "src" / "scripts" / stale, ec);
     }
 
     // Animated models: re-bake every referenced .glb into its .tanm (+

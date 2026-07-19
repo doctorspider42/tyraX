@@ -35,7 +35,7 @@ tyrax-editor.exe --add-ai-support <projectDir> [claude] [copilot]
 - **`--refresh-gen`** — regenerate every editor-owned game source from the
   project data without building (no Docker). The fast way to check what a
   data change does to the code; dangling references show up as
-  `// node N: unknown ...` comments in `src/scripts/flow_graph.gen.cpp`.
+  `// node N: unknown ...` comments in `src/gen/flow_graph.gen.cpp`.
 - **`--ai-graph`** — the whole [AI generation pipeline](ai-flow-graph.md)
   headlessly. The prompt argument is a file path if one exists, literal text
   otherwise. An existing graph goes into the prompt automatically and the

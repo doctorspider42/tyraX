@@ -13,7 +13,7 @@ costs nothing.
 Properties > Scripts (attach "Spinner" to box-1, box-2)
    │  stored per object in <name>.tyra ("scripts": ["Spinner"])
    ▼
-src/scripts/object_scripts.gen.cpp        ← regenerated on every build:
+src/gen/object_scripts.gen.cpp        ← regenerated on every build:
    (scene, object, class-name) table  +  a driver that owns the instances
    ▼
 scene load: driver looks each name up in the TYRA_OBJECT_SCRIPT registry,
@@ -21,9 +21,15 @@ news one instance per attachment, calls onStart; every frame it refreshes
 `self` and calls onUpdate (and onUsed when the player USEs the object)
 ```
 
-Your `.cpp` files in `src/scripts/` are **never regenerated or parsed for
-compilation** - the editor only scans them (read-only) for
-`TYRA_OBJECT_SCRIPT(...)` registrations to populate the attach list.
+`src/scripts/` is **exclusively yours** - all engine-generated sources live
+in `src/gen/`, so the editor's Scripts list shows only your files. Subfolders
+are fine (`src/scripts/ai/guard.cpp` compiles and scans like any other; the
+**New script...** dialog accepts `ai/guard` to create one). Your `.cpp` files
+are **never regenerated or parsed for compilation** - the editor only scans
+them (read-only) for `TYRA_OBJECT_SCRIPT(...)` registrations to populate the
+attach list. (Projects built with an older editor still carry generated
+copies inside `src/scripts/` - the first build with this version deletes
+them automatically.)
 
 ## Quick start
 

@@ -11,7 +11,8 @@ Three extension points, from most to least common:
 
 ## 1. Object scripts (C++ classes)
 
-Files in `src/scripts/*.cpp` (any name not ending in `.gen.cpp` is yours).
+Files in `src/scripts/*.cpp`, subfolders included - that directory is
+exclusively yours (generated sources live in `src/gen/`).
 Register a class with the `TYRA_OBJECT_SCRIPT(Name)` macro; the editor's
 Properties panel then offers it for attaching to scene objects, and the build
 runs it for every object it is attached to. `src/scripts/example_interaction.cpp`

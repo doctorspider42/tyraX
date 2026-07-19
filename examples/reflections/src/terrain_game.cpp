@@ -5,6 +5,7 @@
 #include "scene_data.hpp"
 #include "model_data.gen.hpp"
 #include "hud_data.gen.hpp"
+#include "font_data.gen.hpp"
 #include "loading_data.gen.hpp"
 #include "menu_data.gen.hpp"
 #include "terrain_heights.gen.hpp"
@@ -526,6 +527,78 @@ void drawHudText(Engine* engine, const char* s, float x, float y) {
 }
 
 float hudTextWidth(const char* s) { return (float)strlen(s) * 14.0F; }
+
+/** Runtime text drawn from a Font Manager glyph atlas (Display Text nodes).
+ *
+ * VRAM: the atlas Texture is only handed to the repository the first time this
+ * font actually draws, and the engine only DMAs a texture to GS VRAM on its
+ * first render - so a font nobody displays costs zero VRAM, and one that is
+ * hidden again keeps costing only its EE-side copy. We deliberately never call
+ * useTexture() eagerly here (unlike the streamed model textures), because that
+ * would pin the sheet before anything asked for it. */
+float fontTextWidth(int fontIdx, const char* s, float size) {
+  const FontData& f = FONTS[fontIdx];
+  if (!f.glyphs) return 0.0F;
+  const float k = size / (float)f.baseSize;
+  float w = 0.0F;
+  for (; *s; ++s) {
+    const int gi = (int)(unsigned char)*s - FONT_FIRST_CHAR;
+    if (gi < 0 || gi >= FONT_CHAR_COUNT) continue;
+    w += (float)f.glyphs[gi].adv * k;
+  }
+  return w;
+}
+
+void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
+                  float cy, float size) {
+  const FontData& f = FONTS[fontIdx];
+  if (!f.glyphs || !f.atlas[0]) return;
+
+  // One sprite per font, kept across frames: the texture link is by sprite id,
+  // so every glyph of a font reuses the same id and the same atlas binding.
+  static Sprite glyph[FONT_COUNT > 0 ? FONT_COUNT : 1];
+  static bool ready[FONT_COUNT > 0 ? FONT_COUNT : 1] = {};
+  if (!ready[fontIdx]) {
+    glyph[fontIdx].mode = SpriteMode::MODE_REPEAT;  // sample a sub-rect
+    auto* texture = engine->renderer.getTextureRepository().add(
+        FileUtils::fromCwd(f.atlas));
+    texture->addLink(glyph[fontIdx].id);
+    ready[fontIdx] = true;
+  }
+
+  Sprite& sp = glyph[fontIdx];
+  const float k = size / (float)f.baseSize;
+  sp.scale = k;
+
+  // Center anchor, like the baked HUD text sprites.
+  const float startX = cx - fontTextWidth(fontIdx, s, size) * 0.5F;
+  const float top = cy - (float)f.lineH * k * 0.5F;
+
+  // Shadow first, then the glyphs: two passes over the same cells, the dark
+  // one offset by a pixel (the baked texts get theirs at bake time instead).
+  for (int pass = f.shadow ? 0 : 1; pass < 2; ++pass) {
+    const float ox = pass == 0 ? 1.0F : 0.0F;
+    if (pass == 0)
+      sp.color = Color(10.0F, 12.0F, 16.0F, 100.0F);
+    else
+      sp.color = Color((float)f.r, (float)f.g, (float)f.b, 128.0F);
+
+    float pen = startX;
+    for (const char* c = s; *c; ++c) {
+      const int gi = (int)(unsigned char)*c - FONT_FIRST_CHAR;
+      if (gi < 0 || gi >= FONT_CHAR_COUNT) continue;
+      const FontGlyph& g = f.glyphs[gi];
+      if (g.w > 0 && g.h > 0) {
+        sp.size = Vec2((float)g.w, (float)g.h);
+        sp.offset = Vec2((float)g.u, (float)g.v);
+        sp.position = Vec2(pen + (float)g.xoff * k + ox,
+                           top + (float)g.yoff * k + ox);
+        engine->renderer.renderer2D.render(sp);
+      }
+      pen += (float)g.adv * k;
+    }
+  }
+}
 
 // Debug frame profiler (Project > Preferences > Build > Show frame profiler).
 // renderScene brackets its three heavy phases with EE COP0-timer reads and
@@ -1213,6 +1286,7 @@ void TerrainGame::loop() {
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
     updateAndRenderHudTexts();
+    updateAndRenderDynTexts();
     // Cutscene Director widescreen bars + fade-to-black: solid quads over the
     // scene and HUD (texts included), under the pause menus (no-op unless a
     // cutscene draws).
@@ -1381,6 +1455,22 @@ void TerrainGame::buildScene() {
     scriptCtx.textRequest = hudTextReq.data();
     scriptCtx.textDuration = hudTextDur.data();
     scriptCtx.textCount = HUD_TEXT_COUNT;
+
+    // Runtime texts (font_data.gen.hpp). Buffers only - no texture is touched
+    // here: a font atlas reaches the repository (and VRAM) on the first frame
+    // a Display Text using it is actually drawn. See drawFontText.
+    dynTextReq.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, -1);
+    dynTextDur.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0.0F);
+    dynTextOn.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0);
+    dynTextTimer.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0.0F);
+    dynTextBuf.assign((DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1) * DYN_TEXT_LEN,
+                      '\0');
+    scriptCtx.dynTextRequest = dynTextReq.data();
+    scriptCtx.dynTextDuration = dynTextDur.data();
+    scriptCtx.dynTextBuf = dynTextBuf.data();
+    scriptCtx.dynTextOn = dynTextOn.data();
+    scriptCtx.dynTextCount = DYN_TEXT_COUNT;
+    scriptCtx.dynTextLen = DYN_TEXT_LEN;
     if (TITLE_MENU >= 0) {
       gameMenuIndex = TITLE_MENU;
       gameMenuCursor = 0;
@@ -3312,7 +3402,7 @@ void TerrainGame::applyMenuBindings() {
           g_stickExpL = g_stickExpR = 2.0F;
           break;
         }
-        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0/1/2)
+        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0..3)
           if (idx != g_menuDispOpt) {
             g_menuDispOpt = idx;
             scriptCtx.requestDisplayMode = idx;
@@ -3382,6 +3472,33 @@ void TerrainGame::updateAndRenderHudTexts() {
       }
     }
     if (hudTextOn[i]) engine->renderer.renderer2D.render(hudTextSprites[i]);
+  }
+}
+
+// Runtime texts: same request/timer protocol as the baked ones, but the string
+// lives in dynTextBuf (refreshed every frame by the owning flow-graph script
+// while the slot is on) and is drawn glyph by glyph from the font's atlas.
+void TerrainGame::updateAndRenderDynTexts() {
+  for (int i = 0; i < DYN_TEXT_COUNT; ++i) {
+    if (scriptCtx.dynTextRequest[i] >= 0) {
+      dynTextOn[i] = scriptCtx.dynTextRequest[i] != 0 ? 1 : 0;
+      dynTextTimer[i] = dynTextOn[i] ? scriptCtx.dynTextDuration[i] : 0.0F;
+      scriptCtx.dynTextRequest[i] = -1;
+    }
+    if (dynTextOn[i] && dynTextTimer[i] > 0.0F) {
+      dynTextTimer[i] -= g_frameDt;
+      if (dynTextTimer[i] <= 0.0F) {
+        dynTextOn[i] = 0;
+        dynTextTimer[i] = 0.0F;
+      }
+    }
+    if (!dynTextOn[i]) continue;
+    const DynTextData& d = DYN_TEXTS[i];
+    const char* s = &dynTextBuf[(size_t)i * DYN_TEXT_LEN];
+    if (!s[0]) continue;
+    const auto& scr = engine->renderer.core.getSettings();
+    drawFontText(engine, d.font, s, d.x * scr.getWidth(), d.y * scr.getHeight(),
+                 d.size);
   }
 }
 
@@ -3911,6 +4028,22 @@ void TerrainGame::rebuildObjectGeometry(int index) {
         break;
       }
       case 14: break;  // camera - cutscene shot marker, no geometry
+      case 15: {
+        // mirror: only the glass quad is geometry (the reflected copies are
+        // re-submitted per frame by renderMirrors). Reuses the decal quad
+        // (+Z face, slight +Z nudge keeps it off a backing wall), then
+        // rewrites the vertex alpha with the authored glass opacity - the
+        // GS alpha-blends it over the copies drawn just before it.
+        addDecal(p0.vertices, p0.colors, p0.sts, o.data);
+        float opacity = 0.35F;
+        for (int mi = 0; mi < MIRROR_COUNT; ++mi)
+          if (MIRRORS[mi].scene == currentScene && MIRRORS[mi].object == index) {
+            opacity = MIRRORS[mi].opacity;
+            break;
+          }
+        for (Color& c : p0.colors) c.a = opacity * 128.0F;
+        break;
+      }
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
     g_primKd = nullptr;
@@ -4200,6 +4333,10 @@ void TerrainGame::renderScene() {
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
     if (!runtimeObjects[i].visible) continue;
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
+    // mirrors draw after the scene (copies first, then the blended glass -
+    // see renderMirrors); drawing the quad here would z-write the plane and
+    // reject the reflected geometry behind it
+    if (runtimeObjects[i].data.type == 15) continue;
     if (hlActive && hlCount < 8 && runtimeObjects[i].data.usable &&
         highlightInReach(i)) {
       const float ddx = runtimeObjects[i].data.position[0] - cameraPosition.x;
@@ -4218,6 +4355,9 @@ void TerrainGame::renderScene() {
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
   updateAndRenderAnimObjects();
+  // Mirrors after the whole scene (including the skinned avatars their
+  // copies re-use): reflected copies first, glass quads blended over them
+  renderMirrors();
   if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - profScene0;
   // Highlight shells after the whole scene so they depth-test against the
   // finished z-buffer and can't be punched through by a later draw. Sorted
@@ -4255,6 +4395,98 @@ void TerrainGame::renderScene() {
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
+}
+
+// Mirror objects (type 15): the PS2-era mirror. Every listed target is
+// submitted a SECOND time under a reflection matrix about the glass plane -
+// VU1 re-transforms the target's live vertex arrays (the same trick as the
+// highlight shells re-submitting under hullMat), so the EE never touches a
+// vertex and moving or animated targets reflect their current frame for
+// free. The copies are real geometry on the far side of the plane: build
+// the mirror into a wall (or give it a backing) so only the glass reveals
+// them. Winding flips under a reflection, but the GS draws both faces, so
+// no triangle reordering is needed. Draw order: copies first (plain
+// z-tested scene geometry), then the tinted glass quad alpha-blends over
+// them; highlight shells and particles still sort on top afterwards.
+void TerrainGame::renderMirrors() {
+  for (int mi = 0; mi < MIRROR_COUNT; ++mi) {
+    const MirrorData& mir = MIRRORS[mi];
+    if (mir.scene != currentScene || mir.object < 0 ||
+        mir.object >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[mir.object];
+    if (!m.active || !m.visible) continue;
+    if (beyondDrawDistance(m.data, cameraPosition)) continue;
+
+    // Householder reflection about the glass plane (normal = the mirror's
+    // rotated +Z, through its live position): x' = x - 2*((x . n) - d) * n
+    V3 n = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+    const float nl = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
+    if (nl > 0.0001F) n.x /= nl, n.y /= nl, n.z /= nl;
+    const float d = n.x * m.data.position[0] + n.y * m.data.position[1] +
+                    n.z * m.data.position[2];
+    mirrorMat.identity();
+    mirrorMat.data[0] = 1.0F - 2.0F * n.x * n.x;
+    mirrorMat.data[1] = -2.0F * n.x * n.y;
+    mirrorMat.data[2] = -2.0F * n.x * n.z;
+    mirrorMat.data[4] = -2.0F * n.x * n.y;
+    mirrorMat.data[5] = 1.0F - 2.0F * n.y * n.y;
+    mirrorMat.data[6] = -2.0F * n.y * n.z;
+    mirrorMat.data[8] = -2.0F * n.x * n.z;
+    mirrorMat.data[9] = -2.0F * n.y * n.z;
+    mirrorMat.data[10] = 1.0F - 2.0F * n.z * n.z;
+    mirrorMat.data[12] = 2.0F * d * n.x;
+    mirrorMat.data[13] = 2.0F * d * n.y;
+    mirrorMat.data[14] = 2.0F * d * n.z;
+
+    for (int t = 0; t < mir.targetCount; ++t)
+      renderMirroredObject(MIRROR_TARGETS[mir.firstTarget + t]);
+    if (mir.reflectPlayer) {
+      // only a visible body reflects: the third-person avatar is a normal
+      // runtime object (visible only in mode 2), so the FPP player - no
+      // body - is skipped by the visibility check inside
+      const int pi = PLAYER_INDEXES[currentScene];
+      if (pi >= 0) renderMirroredObject(pi);
+    }
+
+    // the glass quad itself, alpha-blended over the copies (its vertex
+    // alpha carries the opacity - see rebuildObjectGeometry case 15)
+    for (GeoPart& part : objectGeometry[mir.object].parts)
+      if (part.bag) stapip.core.render(part.bag.get());
+  }
+}
+
+// One reflected copy: re-submit the target's live bags under mirrorMat.
+// Static parts hold world-space vertices (the reflection maps world to
+// world); animated parts hold model-space vertices under animMat, so the
+// copy composes reflection * animMat. The swapped-in matrix pointer is
+// consumed during render() (packets are built synchronously - the highlight
+// shells rewrite hullMat between submits on the same fact), so restoring it
+// right after the call is safe.
+void TerrainGame::renderMirroredObject(int index) {
+  if (index < 0 || index >= (int)runtimeObjects.size()) return;
+  RuntimeObject& o = runtimeObjects[index];
+  // no mirror-in-mirror: a mirror listing another mirror would recurse the
+  // illusion with a matrix that is only valid for the outer plane
+  if (!o.active || !o.visible || o.data.type == 15) return;
+  if (beyondDrawDistance(o.data, cameraPosition)) return;
+  ObjectGeometry& g = objectGeometry[index];
+  for (GeoPart& part : g.parts) {
+    if (!part.bag) continue;
+    part.infoBag->model = &mirrorMat;
+    stapip.core.render(part.bag.get());
+    part.infoBag->model = &model;
+  }
+  if (g.animInfoBag && !g.animParts.empty()) {
+    // The anim bags point at whatever updateAndRenderAnimObjects last
+    // skinned - an on-screen target reflects its exact current pose; a
+    // target that skipped this frame's skinning reflects its held pose.
+    mirrorAnimMat = mirrorMat * g.animMat;
+    g.animInfoBag->model = &mirrorAnimMat;
+    for (ObjectGeometry::AnimPart& ap : g.animParts)
+      if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+    g.animInfoBag->model = &g.animMat;
+  }
 }
 
 // True when the usable object sits inside the highlight distance (same
