@@ -335,8 +335,10 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .category = "Scene", .numCount = 2,
          .numLabels = {"Mode", "Confirm s"},
          .desc = "Switches the scan mode. num[0] Mode: 0 interlaced, 1 "
-                 "progressive 480p, 2 1080i. num[1] Confirm seconds > 0 "
-                 "shows a keep-or-revert prompt with automatic rollback."},
+                 "progressive 480p, 2 1080i, 3 interlaced field rendering "
+                 "(a fresh half-height image every field). num[1] Confirm "
+                 "seconds > 0 shows a keep-or-revert prompt with automatic "
+                 "rollback."},
         {.key = "SetWidescreen", .title = "Set Widescreen", .category = "Scene",
          .numCount = 1, .numLabels = {"On"},
          .desc = "num[0] = 1 re-fits the projection for 16:9, 0 for 4:3."},

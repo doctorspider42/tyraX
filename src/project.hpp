@@ -373,10 +373,14 @@ struct ProjectSettings {
     std::string buildProfile = "release";  // "release" | "debug"
 
     // Output scan mode. "interlaced" is the stock 480i/576i signal (follows
-    // videoSystem). "progressive" outputs flicker-free 480p, "1080i" a
+    // videoSystem). "interlaced-field" is the same signal with true field
+    // rendering: half-height buffers, a fresh image every field (50/60
+    // distinct pictures per second at full speed) for about half the fill
+    // and VRAM cost. "progressive" outputs flicker-free 480p, "1080i" a
     // pillarboxed HD signal - both need component cables on a real console
     // (PCSX2 shows every mode) and always run at 60 Hz.
-    std::string displayMode = "interlaced";  // "interlaced" | "progressive" | "1080i"
+    std::string displayMode =
+        "interlaced";  // "interlaced" | "interlaced-field" | "progressive" | "1080i"
 
     // 16:9 anamorphic output: widens the projection so proportions are
     // correct on a widescreen TV (the framebuffer stays the same; in 1080i
@@ -921,7 +925,7 @@ struct MenuEntry {
         BindSfxVolume = 2,    // master sound-effect volume (0..100)
         BindDeadzone = 3,     // analog stick deadzone, both sticks (0..0.4)
         BindStickCurve = 4,   // stick response curve exponent (1..3)
-        BindDisplayMode = 5,  // scan mode: interlaced / 480p / 1080i
+        BindDisplayMode = 5,  // scan mode: interlaced / 480p / 1080i / field
         BindWidescreen = 6,   // aspect ratio: 4:3 / 16:9
     };
     int settingBind = BindNone;

@@ -88,6 +88,78 @@ Each finished feature lands as its own commit.
   compiles and links too. Not covered: pad-driven interaction and real PS2
   hardware — both still want a human.
 
+- (115) **examples/video-modes: a `480I FIELD RENDER` menu row.** The
+  display-mode test bed gains the fourth scan mode from (114): a new VIDEO
+  OPTIONS entry firing a `video-480i-field` flow event, consumed by the
+  aspect-ball graph's On Menu Event -> Set Display Mode(Mode 3, confirm
+  8 s) - same pattern as the other three rows. README updated (menu table,
+  intro, real-hardware notes: field rendering is the same 480i/576i signal,
+  so any cable works; judge the motion on a CRT, PCSX2's deinterlacing
+  hides most of it). Committed generated files regenerated with a Docker
+  build in the same commit (the example-drift rule). **Verified** (Layer
+  3): the example boots in PCSX2, the baked menu panel shows the new row
+  (F8 snapshot), regenerated `flow_graph.gen.cpp` carries
+  `ctx.requestDisplayMode = 3` under the `video-480i-field` event, exit 0.
+  Actually selecting the row with a pad (menu navigation + the confirm
+  prompt) stays a hands-on test, like the other rows.
+- (114) **True field rendering: the `interlaced-field` display mode.**
+  Question from the owner: does the engine render once and scan the frame
+  out over two fields, or does each field get a fresh image? Finding: the
+  stock interlaced mode renders full 512x448 frames into a FIELD-scanned
+  (FFMD=0) buffer and `endFrame` waits on `graph_wait_vsync()`, which fires
+  per FIELD - so at full speed each field already shows a new frame, but
+  every one of those images pays full-height fill/geometry cost and the GS
+  scans out only half its lines. The new **InterlacedField** mode
+  (`DisplayMode::InterlacedField`, project pref `"displayMode":
+  "interlaced-field"`) is the classic retail recipe: half-height 512x224
+  frame/z buffers scanned with SMODE2.FFMD=FRAME (every buffer line, every
+  field), so the same 50/60 distinct-images-per-second now cost half the
+  fill - and the three screen buffers shrink from ~2.6 MB to ~1.3 MB of
+  VRAM, roughly doubling what's left for textures. Engine details: the
+  DISPLAY window is IDENTICAL to the stock mode (ps2sdk's
+  `graph_set_screen` mis-programs DY/DH for the interlaced+FRAME case, so
+  the registers are written directly via `setDtvDisplay(652/50 NTSC,
+  680/72 PAL, 2560, 448, 5x MAGH, 1x MAGV)`); no flicker filter (nothing
+  to blend); the game-facing coordinate space stays 512x448 - the
+  projection is built at the render height (raster scale only; the
+  world-space frustum comes from fov+aspect, so culling and frustum planes
+  are untouched), 2D sprites squeeze y by half in `RendererCore2D`
+  (upstream's own commented-out "interlacing" scaffolding, finally lit
+  up), and clears/post-fx/env-map restores use the new
+  `RendererSettings::getRenderHeightF()`. Per-field half-line alignment:
+  `flipBuffers` reads CSR.FIELD after the vsync, flips it (the frame being
+  rendered shows one field LATER) and appends an XYOFFSET write (+8 = 0.5
+  px on odd fields) to the flip packet - without it static geometry bobs a
+  full scan line at 25/30 Hz. Editor chain: 4th value in the Preferences
+  combo + tooltip, `SetDisplayMode` flow node Mode 3, menu option block
+  `480i FIELD` (bind idx = enum value), codegen `{{DISPLAY_MODE}}` ->
+  `InterlacedField`; enum values are serialized, appended only.
+  **Verified** (Layer 3, PAL BIOS): fresh `--new` scaffold with
+  `interlaced-field` boots in PCSX2, terrain scene shows correct 4:3
+  proportions from the 512x224 buffer (F8 snapshot vs stock-interlaced
+  rebuild of the same project - same framing, slightly softer static
+  edges, as expected); debug HUD "FPS 49" text sprite renders at the right
+  position/aspect through the 2D squeeze at PAL field rate; no TYRA
+  asserts in `bin/log.txt`, ELF confirmed in emulog. Pending a human pass:
+  runtime switches into/out of field mode (same `setDisplayOutput` reinit
+  path the video-modes example exercises for 480p/1080i), NTSC region, the
+  field-phase sign on a real CRT/PS2, and real-hardware A/B like every
+  display change.
+- (113) **Build break: empty-scene placeholder row in `scene_data.hpp`
+  lost a field.** The reflective-models change added `reflected` to
+  `SceneObjectData` and to the per-object row emitter but missed the
+  placeholder row emitted for scenes with zero objects (it keeps the array
+  non-zero-sized) - so `--new` + `--build` of a FRESH project failed in
+  `scene_data.hpp` ("invalid conversion from 'const char*' to 'int'" at
+  the animClip column) while every populated example kept building, which
+  is why it slipped through. One `0` in the reflected slot restores
+  alignment; the row now carries a comment anchoring it to the struct.
+  Also removed the `<<<<<<<`/`=======`/`>>>>>>>` conflict markers that the
+  #89 merge had committed into this very file (both hunks were distinct
+  entry sets from parallel branches - the union is the correct log, so
+  only the marker lines went; the historical duplicate entry NUMBERS from
+  parallel branches stay as they are). **Verified**: Layer 3 - the fresh
+  scaffold compiles and boots in PCSX2 again.
 - (112) **Rounded reflection normals - flat surfaces stop reflecting "one
   pixel".** Owner's observation on the console: the mirror monolith showed
   a single uniform patch of the env map per face while the spheres "reflect
@@ -408,6 +480,138 @@ Each finished feature lands as its own commit.
   screenshot). The Material Editor preview shares the verified shader path;
   its interactive feel (picker, slider) still wants a hands-on pass. Docs:
   README, `docs/reflective-materials.md`, engine + editor skills.
+- (107) **Live Link v2 — per-project on/off + live add/delete of objects.**
+  Two follow-ups to (106). First, the on/off is now a **project setting**
+  (`ProjectSettings::liveLink`, default on; *Project > Preferences > Build*,
+  *Build > Live Link*, and the toolbar **LIVE chip itself is the switch** —
+  click to toggle): off = `live_link.gen.cpp` is an empty TU even in debug
+  builds and the Runner deletes `livelink.sig`, so the game carries no poller
+  at all for anyone who doesn't want debug builds patched from outside (the
+  short-lived editor.ini flag from (106) is gone — the setting travels with
+  the `.tyra`). The chip is always visible in the debug profile with four
+  states: gray "LIVE off", dim "LIVE (build)" (no poller-capable build yet),
+  green "LIVE", amber "LIVE (rebuild)". Second, the protocol moved from
+  index-addressed to **id-addressed records** (v2: 64 B per object = FNV-1a 64
+  of the editor object id + a spawn-template index + the 12 live floats;
+  `SCENE_*_OBJECT_ID_HASHES` tables baked into scene_data.hpp, binary-searched
+  on the EE), which buys: renames/reorders are non-events, **adding an object
+  live works** — the game clones an equal-recipe authored template through the
+  existing runtime spawn pool (`ctx.spawnObject`, ≤32 clones) and patches the
+  clone — and **deleting live hides** the object (undo restores; spawned
+  clones despawn). `bin/livelink.sig` became an as-built record (per-object
+  id + recipe hash in built order + a context hash) the editor evaluates
+  per tick: recipe drift on a built object, a new object with no template or
+  one that can't be faithfully spawned (point lights / projecting decals /
+  mirrors / objects carrying flow graphs or scripts), or layer-table changes
+  → amber chip, zero writes. Trap fixed along the way: the editor seeds its
+  snapshot sequence from the clock at project attach — a restarted editor
+  starting again at seq=1 collided with the previous session's seq=1 that the
+  still-running game remembered, and the (different) snapshot was deduped
+  away. **Verified in PCSX2 (SW renderer, 50 FPS steady):** live ADD — a
+  box added to the project files spawned in the running game via template
+  index 1 and took its own color/rotation; live DELETE — removing the pillar
+  from the manifest hid it in the running game while the spawned box
+  survived; all four chip states screenshotted (off/build/live/rebuild);
+  recipe change (box detail 1→4) flipped amber with `livelink.bin` untouched;
+  `liveLink: false` build emitted the stub TU and removed the sig. All nine
+  examples regenerated/rebuilt clean in Docker. Real-PS2 pass still pending
+  (as in (106)).
+
+- (106) **Live Link — edit the running game.** Scene edits (object position /
+  rotation / scale / color) stream into the running game with **no rebuild**:
+  drag a gizmo in the editor and the box slides across the PS2 screen. No
+  socket and no new protocol — the transport is the host filesystem the game
+  already loads assets from (PCSX2 Host Filesystem, or the ps2link/ps2client
+  file server on a real console), so one mechanism covers both targets. The
+  editor (`App::liveLinkTick`, ~10 Hz) writes `bin/livelink.bin` (little-endian
+  `TXLL` blob: seq + scene + 12 floats per authored object + a seq-echo footer,
+  written atomically tmp→rename) whenever the live-patchable state changed; a
+  generated global script (`templates::liveLinkScript` →
+  `src/scripts/live_link.gen.cpp`, **debug profile only** — release emits an
+  empty TU) polls it every 6 frames (25 under ps2link, where each fopen is a
+  network round-trip), rejects torn/stale reads (magic + exact size + footer,
+  seq dedupe), and patches `RuntimeObject.data` + `dirty` only for objects
+  whose values really changed — the same dirty-rebuild path the Move/Set Color
+  flow nodes use, so physics/collision/shading follow. Index-mapping safety:
+  `project::liveLinkSignature` (FNV-1a over scene/object order, ids, types,
+  model/material, prim detail, layers, and the build-baked cases — point
+  lights, projected-decal projectors) is stamped into `bin/livelink.sig` by the
+  Runner at build start (which also deletes any stale `livelink.bin`); the
+  editor streams only while the project still hashes identically, and the
+  toolbar shows **● LIVE** (green) / **● LIVE (rebuild)** (amber) accordingly —
+  a structural edit can pause, an Undo or a rebuild resumes automatically.
+  Master switch in *Build > Live Link* (`editor.ini`, default on). Docs:
+  `docs/live-link.md`. **Verified in PCSX2 (SW renderer, 50 FPS steady):**
+  (1) game-side poller — scratch debug FPP project booted, a hand-crafted
+  `livelink.bin` moved/rotated/stretched/recolored the box on the live game
+  (screenshots A/B); (2) full editor→game loop — object JSON edited, editor
+  GUI opened on the project, it auto-wrote seq=1 and the running game showed
+  the new pose/color with no rebuild (screenshot C); (3) structure guard —
+  adding a third object flipped the toolbar to amber and blocked writes (seq
+  unchanged), a headless rebuild refreshed `livelink.sig` and streaming
+  resumed on its own (fresh 3-object snapshot). Release codegen verified to
+  emit the stub. Real-PS2 pass (ps2link cadence) still wants a hands-on test.
+
+- (105) **examples/mirror-room — the Mirror object demo.** A committed example
+  for (104): a gray wall built in three pieces **around an opening**, a Mirror
+  filling the opening, crate/ball/pillar props, and a third-person wobbler
+  player with **Reflect player** on. The wall pieces are themselves on the
+  mirror's list, so the glass shows a furnished room, and the README spells
+  out the load-bearing detail (a solid wall behind the glass would z-occlude
+  the copies — the opening IS the mirror). The terrain needs no list entry:
+  it extends behind the wall and doubles as the mirror room's floor.
+  **Verified:** authored inline, `--resave`d to the split layout, built in
+  Docker and booted in PCSX2 (software renderer) from a short-path copy —
+  props, walls and **the live avatar** all reflect through the opening at a
+  locked 50 FPS, no asserts in `bin/log.txt`; the verified project was then
+  copied into `examples/` minus the gitignored build outputs. This is also
+  the first in-PCSX2 proof of the Reflect-player path (a real `.glb` avatar
+  reflecting its live pose).
+
+- (104) **Mirror objects — the PS2-era mirror as a scene object type.**
+  `PrimitiveType::Mirror` (15): a rectangle (the decal quad, +Z face) that
+  fakes a real mirror by **physically drawing its listed objects a second
+  time**, reflected across the glass plane — no render-to-texture, no
+  stencil. The parameters follow the "hard list beats a radius" call: an
+  explicit **Reflected objects** list (names; renames remap alongside the
+  sequence tracks, dangling names drop silently at codegen), **Reflect
+  player** (third-person avatar only — an FPP player has no body), **glass
+  opacity** (the shared color field is the tint) and the usual
+  collision/draw-distance controls. Codegen keeps `SceneObjectData` a fixed
+  POD by emitting a flat `MIRRORS`/`MIRROR_TARGETS` side table into
+  `scene_data.hpp` (the `OBJECT_SCRIPT_ATTACHES` pattern), names resolved to
+  scene-table indices at generation. The runtime trick is the highlight-hull
+  one, generalized: `renderMirrors()` builds a Householder reflection about
+  the live plane (normal = rotated +Z) and **re-submits each target's
+  existing bags with the info bag's model pointer swapped onto it** — static
+  parts are world-space-baked so the matrix reflects world coords; animated
+  targets (and the avatar) compose `reflection * animMat` — so VU1 does all
+  the per-vertex work, the EE never copies a vertex, and moving/animated
+  targets reflect their **live pose** for free. Winding flips under a
+  reflection but the GS draws both faces, so no reordering. Draw order is
+  the load-bearing part: mirrors skip the main static loop entirely (the
+  quad would z-write the plane and z-reject the copies behind it), then
+  after `updateAndRenderAnimObjects` the copies draw first and the tinted
+  quad alpha-blends over them (vertex alpha = opacity, patched after
+  `addDecal` in `rebuildObjectGeometry` case 15). The viewport previews the
+  same illusion (reflection matrix pass after the scene, constant-alpha
+  `uOpacity` uniform added to the shader — reset at frame start so the
+  sky/outline draws don't inherit it). The copies are real geometry on the
+  far side of the plane, so the docs/tooltips say it plainly: build the
+  mirror into a wall — the wall hides the mirror world outside the frame.
+  **Verified:** editor builds clean; scratch project (box + mirror listing
+  it, `reflectPlayer: true`, opacity 0.4) round-trips through `--resave`
+  (legacy inline → split objects keep the `mirror` block); generated
+  `scene_data.hpp` carries `MIRRORS[1] = {{0, 1, 0.4F, 1, 0, 1}}` +
+  `MIRROR_TARGETS[1] = {0}` and both header templates (orbit + FPP) the new
+  members; the game compiles in Docker and **boots in PCSX2 (software
+  renderer): original box, translucent glass and the mirrored copy on the
+  opposite side all render at a locked 50 FPS, no asserts in `bin/log.txt`**;
+  editor-viewport screenshot shows the same scene (copy + tinted glass).
+  Player reflection compiles through the shared anim-bag path but wants a
+  hands-on test with a .glb avatar; real-hardware A/B pending like every
+  perf-adjacent change.
+
 - (103) **Over-the-shoulder camera offset.** `SceneObject::playerCamShoulder`
   (Properties > Third-person camera > **Shoulder**, default 0 = unchanged
   behavior) slides the third-person rig sideways, completing the camera offset:
