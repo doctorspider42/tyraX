@@ -43,6 +43,7 @@ struct SceneObjectData {
   int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none
   float drawDistance;  // not drawn farther than this from the camera;
                        // 0 = unlimited (collision/logic always run)
+  int reflected;  // 1 = rendered into the dynamic ("@sky") env map
   int animModel;  // animated models: index into ANIM_MODEL_PATHS, -1 = none
   const char* animClip;  // animated models: starting clip ("" = first)
   int animAutoplay;      // animated models: 1 = play at scene start
@@ -57,17 +58,17 @@ constexpr int SCENE_COUNT = 1;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[5] = {
-    {1, {0.0F, 4.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {3.0F, 3.0F, 3.0F}, {1.0F, 1.0F, 1.0F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // aspect-ball
-    {0, {0.0F, 2.0F, -24.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 4.0F, 2.0F}, {0.9F, 0.25F, 0.25F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // north
-    {0, {0.0F, 2.0F, 24.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 4.0F, 2.0F}, {0.25F, 0.5F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // south
-    {0, {-24.0F, 2.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 4.0F, 2.0F}, {0.95F, 0.8F, 0.2F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // west
-    {0, {24.0F, 2.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 4.0F, 2.0F}, {0.3F, 0.8F, 0.35F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // east
+    {1, {0.0F, 4.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {3.0F, 3.0F, 3.0F}, {1.0F, 1.0F, 1.0F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 16, -1},  // aspect-ball
+    {0, {0.0F, 2.0F, -24.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 4.0F, 2.0F}, {0.9F, 0.25F, 0.25F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, -1},  // north
+    {0, {0.0F, 2.0F, 24.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 4.0F, 2.0F}, {0.25F, 0.5F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, -1},  // south
+    {0, {-24.0F, 2.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 4.0F, 2.0F}, {0.95F, 0.8F, 0.2F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, -1},  // west
+    {0, {24.0F, 2.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 4.0F, 2.0F}, {0.3F, 0.8F, 0.35F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, -1},  // east
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {5};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
-constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[5] = {0x47c1eea86014c10eULL, 0x3d1ea0f958f3cd32ULL, 0x4a91b254ee485011ULL, 0x290118609c17a1e7ULL, 0x972eca8ada1af5aeULL};
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[5] = {0x83c6f78677240220ULL, 0xf11918e638b17861ULL, 0x8ea1cecf7c0a486eULL, 0x803950b78e577687ULL, 0x2392e7fe88553d4cULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};

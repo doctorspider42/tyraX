@@ -94,16 +94,16 @@ enum class FlowParamKind {
 };
 
 struct FlowNodeType {
-    const char* key;
-    const char* title;
-    const char* category;  // add-menu submenu ("Triggers", "Object", ...)
-    bool trigger;  // true = has exec output, false = has exec input (action)
-    FlowParamKind strKind;   // meaning of FlowNode::str
-    int numCount;            // how many of num[] are used
-    const char* numLabels[4];
-    FlowParamKind numKind;   // Color = show a color picker for num[0..2]
-    bool idIn;   // accepts an object id from a data link (object-param nodes)
-    bool idOut;  // exposes its resolved object as an id output
+    const char* key = "";
+    const char* title = "";
+    const char* category = "";  // add-menu submenu ("Triggers", "Object", ...)
+    bool trigger = false;  // true = has exec output, false = has exec input (action)
+    FlowParamKind strKind = FlowParamKind::None;  // meaning of FlowNode::str
+    int numCount = 0;             // how many of num[] are used
+    const char* numLabels[4] = {};
+    FlowParamKind numKind = FlowParamKind::None;  // Color = picker for num[0..2]
+    bool idIn = false;    // accepts an object id from a data link (object-param nodes)
+    bool idOut = false;   // exposes its resolved object as an id output
     bool posIn = false;   // accepts XYZ coordinates from a position link
     bool posOut = false;  // exposes XYZ coordinates as a position output
     bool pure = false;    // data-only node: no exec pins, never "runs"
@@ -113,304 +113,362 @@ struct FlowNodeType {
     bool textOut = false; // exposes a text value as a text output
     // action that ALSO has an exec output fired later (Delay's "after >")
     bool execThrough = false;
+    // One-paragraph behavior description - THE documentation of the node.
+    // Shown in the editor (add-menu tooltips, hovering a node) and fed to
+    // the AI flow-graph generator's catalog, so a node added with a desc is
+    // automatically documented everywhere. Custom .flownode nodes fill it
+    // from their `desc =` header key.
+    const char* desc = "";
 };
 
+// The node registry. Designated initializers on purpose: omitted fields keep
+// their defaults, so each entry states only what the node HAS - and `.desc`
+// is required by convention (it is the node's documentation: add-menu
+// tooltips, node hover, and the AI generator's catalog all read it).
 inline const std::vector<FlowNodeType>& flowNodeTypes() {
     static const std::vector<FlowNodeType> types = {
         // Triggers. Some expose their watched object as an object output
         // (Near/Used/Anim Finished); the per-frame conditions for the logic
         // gates come from the pure bool sources (Value At Least, Get Bool,
         // Is Visible, ...) instead.
-        {"OnStart", "On Start", "Triggers", true, FlowParamKind::None, 0, {},
-         FlowParamKind::None, false, false},
-        {"OnButton", "On Button", "Triggers", true, FlowParamKind::Button, 0, {},
-         FlowParamKind::None, false, false},
-        {"NearObject", "Near Object", "Triggers", true, FlowParamKind::ObjectName, 1,
-         {"Radius"}, FlowParamKind::None, true, true},
-        // Fires when the player presses BTN_USE (controls.hpp) while looking
-        // at the target object up close. The object must be marked "usable".
-        {"OnUsed", "On Used", "Triggers", true, FlowParamKind::ObjectName, 0, {},
-         FlowParamKind::None, true, true},
-        {"EverySeconds", "Every N Seconds", "Triggers", true, FlowParamKind::None, 1,
-         {"Seconds"}, FlowParamKind::None, false, false},
-        // Fires the frame the watched object's animation clip reaches its
-        // last frame (one-shot clips: once; looping clips: every wrap).
-        // Only animated (.glb) model objects ever fire it.
-        {"OnAnimFinished", "On Animation Finished", "Triggers", true,
-         FlowParamKind::ObjectName, 0, {}, FlowParamKind::None, true, true},
-        // Time: exec passes through after N seconds (fractions fine). Armed
-        // by its exec input, fires its "after" exec output once the timer
-        // runs out; re-arming while counting restarts the timer.
-        {"Delay", "Delay", "Time", false, FlowParamKind::None, 1, {"Seconds"},
-         FlowParamKind::None, false, false, false, false, false, false, false,
-         false, false, true},
-        // Self: pure data node exposing the graph's owner as an object output
-        // (and its live position). Object params already default to self when
-        // empty; this makes the reference explicit and wireable into any pin.
-        {"Self", "Self", "Object", false, FlowParamKind::None, 0, {},
-         FlowParamKind::None, false, true, false, true, true},
+        {.key = "OnStart", .title = "On Start", .category = "Triggers",
+         .trigger = true,
+         .desc = "Fires once when the scene starts."},
+        {.key = "OnButton", .title = "On Button", .category = "Triggers",
+         .trigger = true, .strKind = FlowParamKind::Button,
+         .desc = "Fires the frame the pad button (str) is pressed."},
+        {.key = "NearObject", .title = "Near Object", .category = "Triggers",
+         .trigger = true, .strKind = FlowParamKind::ObjectName, .numCount = 1,
+         .numLabels = {"Radius"}, .idIn = true, .idOut = true,
+         .desc = "Fires every frame the player is within num[0] (Radius) "
+                 "units of the target object."},
+        // BTN_USE lives in controls.hpp.
+        {.key = "OnUsed", .title = "On Used", .category = "Triggers",
+         .trigger = true, .strKind = FlowParamKind::ObjectName, .idIn = true,
+         .idOut = true,
+         .desc = "Fires when the player presses the USE button while looking "
+                 "at the target up close. The target object must have its "
+                 "'usable' flag set."},
+        {.key = "EverySeconds", .title = "Every N Seconds", .category = "Triggers",
+         .trigger = true, .numCount = 1, .numLabels = {"Seconds"},
+         .desc = "Fires every num[0] seconds."},
+        // One-shot clips: once; looping clips: every wrap.
+        {.key = "OnAnimFinished", .title = "On Animation Finished",
+         .category = "Triggers", .trigger = true,
+         .strKind = FlowParamKind::ObjectName, .idIn = true, .idOut = true,
+         .desc = "Fires when the target's animation clip reaches its last "
+                 "frame (animated .glb model objects only)."},
+        {.key = "Delay", .title = "Delay", .category = "Time", .numCount = 1,
+         .numLabels = {"Seconds"}, .execThrough = true,
+         .desc = "Exec input arms a timer; the 'after' exec output fires once "
+                 "num[0] seconds elapse. Re-arming while counting restarts "
+                 "the timer."},
+        // Object params already default to self when empty; Self makes the
+        // reference explicit and wireable into any pin.
+        {.key = "Self", .title = "Self", .category = "Object", .idOut = true,
+         .posOut = true, .pure = true,
+         .desc = "Pure data node exposing the graph's owner object and its "
+                 "live position."},
         // Object actions (id in = target, id out = the same target)
-        {"ShowObject", "Show Object", "Object", false, FlowParamKind::ObjectName, 0, {},
-         FlowParamKind::None, true, true},
-        {"HideObject", "Hide Object", "Object", false, FlowParamKind::ObjectName, 0, {},
-         FlowParamKind::None, true, true},
-        {"ToggleObject", "Toggle Object", "Object", false, FlowParamKind::ObjectName, 0, {},
-         FlowParamKind::None, true, true},
-        {"MoveObjectBy", "Move Object By", "Object", false, FlowParamKind::ObjectName, 3,
-         {"dX", "dY", "dZ"}, FlowParamKind::None, true, true},
-        // Glides the target toward X/Y/Z (or a linked position, re-read every
-        // frame) at Speed units/s until it arrives. Re-triggering re-arms it.
-        {"MoveObjectTo", "Move Object To", "Object", false, FlowParamKind::ObjectName, 4,
-         {"X", "Y", "Z", "Speed"}, FlowParamKind::None, true, true, true, false},
-        {"SetObjectColor", "Set Object Color", "Object", false, FlowParamKind::ObjectName,
-         3, {}, FlowParamKind::Color, true, true},
-        // Position plumbing: Get Position is a pure data node (no exec pins);
-        // Set Object Position uses its X/Y/Z params unless a position link
-        // feeds it. Both pass the object through and expose the position.
-        {"GetPosition", "Get Position", "Object", false, FlowParamKind::ObjectName, 0, {},
-         FlowParamKind::None, true, true, false, true, true},
-        // Pure bool getter: is the target object visible this frame?
-        {"IsVisible", "Is Visible", "Object", false, FlowParamKind::ObjectName, 0, {},
-         FlowParamKind::None, true, true, false, false, true, false, true},
-        {"SetPosition", "Set Object Position", "Object", false, FlowParamKind::ObjectName,
-         3, {"X", "Y", "Z"}, FlowParamKind::None, true, true, true, true, false},
-        // Dynamic spawning: Spawn Object clones its target object (link >
-        // name > self) into a free runtime slot - the clone starts at the
-        // linked position (or the template's own) with the given yaw, and the
-        // node's object output is the CLONE, not the template (wire it into
-        // Despawn Object / Set Position / Play Animation / ...). The pool
-        // holds 32 live clones; spawning past that fails silently (-1).
-        // Despawn Object removes a clone immediately (frees its slot); on an
-        // authored object it only deactivates it (layer streaming can bring
-        // authored objects back).
-        {"SpawnObject", "Spawn Object", "Object", false, FlowParamKind::ObjectName, 1,
-         {"Yaw"}, FlowParamKind::None, true, true, true, false, false},
-        {"DespawnObject", "Despawn Object", "Object", false, FlowParamKind::ObjectName,
-         0, {}, FlowParamKind::None, true, false},
-        // Animation (animated .glb model objects; no-ops on anything else).
-        // Play Animation: str = clip name ("" = the model's first clip); the
-        // target object comes from an object link or defaults to self (the
-        // str slot holds the clip, not an object name). Loop: 1 = loop,
-        // 0 = play once. Speed: playback multiplier (0 = authored default).
-        // Fade: crossfade seconds from the current pose (0 = instant).
-        {"PlayAnimation", "Play Animation", "Animation", false, FlowParamKind::Text,
-         3, {"Loop", "Speed", "Fade"}, FlowParamKind::None, true, true},
-        // Freezes the target's animation on its current pose.
-        {"StopAnimation", "Stop Animation", "Animation", false, FlowParamKind::None,
-         0, {}, FlowParamKind::None, true, true},
-        // Player
-        // Teleports the player (entity or FPP template player) to the target
-        // object's position - e.g. respawn at a spawn point. A position link
-        // overrides the object's position.
-        {"TeleportPlayer", "Spawn Player At", "Player", false, FlowParamKind::ObjectName,
-         0, {}, FlowParamKind::None, true, true, true, false, false},
-        // Casts a ray from the player's eye along the view direction when its
-        // exec fires, and latches the results: the position output is the hit
-        // point (an object's bounding sphere or the terrain; the ray's end at
-        // Max Dist when nothing was hit) and the object output is the hit
-        // object (a runtime reference, -1 = none - actions fed it are guarded
-        // like Spawn Object clones). The "after" exec fires right after the
-        // cast, so downstream actions read fresh results.
-        {"Raycast", "Raycast", "Player", false, FlowParamKind::None, 1,
-         {"Max Dist"}, FlowParamKind::None, false, true, false, true, false,
-         false, false, false, false, true},
-        // Sets the player's flashlight master switch (the Player object's
-        // "Enabled"). On = 1 turns it on, 0 off. The optional toggle button on
-        // the player still gates the beam on/off, but only while enabled.
-        {"SetFlashlight", "Set Flashlight", "Player", false, FlowParamKind::None, 1,
-         {"On"}, FlowParamKind::None, false, false},
-        // Changes the analog stick response curve live (Preferences > Input
-        // sets the defaults). Stick: 0 = left/movement, 1 = right/camera,
-        // 2 = both. Curve: 0 = Linear, 1 = Exponential, 2 = S-Curve. Exponent
-        // (>=1) shapes curves 1/2 - e.g. a sniper mode dropping to a gentle
-        // low-sensitivity curve, or an options menu offering response presets.
-        {"SetStickCurve", "Set Stick Curve", "Player", false, FlowParamKind::None, 3,
-         {"Stick", "Curve", "Exponent"}, FlowParamKind::None, false, false},
+        {.key = "ShowObject", .title = "Show Object", .category = "Object",
+         .strKind = FlowParamKind::ObjectName, .idIn = true, .idOut = true,
+         .desc = "Makes the target visible."},
+        {.key = "HideObject", .title = "Hide Object", .category = "Object",
+         .strKind = FlowParamKind::ObjectName, .idIn = true, .idOut = true,
+         .desc = "Makes the target invisible."},
+        {.key = "ToggleObject", .title = "Toggle Object", .category = "Object",
+         .strKind = FlowParamKind::ObjectName, .idIn = true, .idOut = true,
+         .desc = "Toggles the target's visibility."},
+        {.key = "MoveObjectBy", .title = "Move Object By", .category = "Object",
+         .strKind = FlowParamKind::ObjectName, .numCount = 3,
+         .numLabels = {"dX", "dY", "dZ"}, .idIn = true, .idOut = true,
+         .desc = "Instantly shifts the target by (dX, dY, dZ)."},
+        {.key = "MoveObjectTo", .title = "Move Object To", .category = "Object",
+         .strKind = FlowParamKind::ObjectName, .numCount = 4,
+         .numLabels = {"X", "Y", "Z", "Speed"}, .idIn = true, .idOut = true,
+         .posIn = true,
+         .desc = "Glides the target toward X/Y/Z (or a linked position, "
+                 "re-read every frame) at num[3] (Speed) units/s until it "
+                 "arrives."},
+        {.key = "SetObjectColor", .title = "Set Object Color",
+         .category = "Object", .strKind = FlowParamKind::ObjectName,
+         .numCount = 3, .numKind = FlowParamKind::Color, .idIn = true,
+         .idOut = true,
+         .desc = "Tints the target; num[0..2] = RGB, each 0..1."},
+        // Codegen: an exec-wired Get Position latches into a posOut member
+        // (templates.cpp getPosLatched); unwired ones resolve live.
+        {.key = "GetPosition", .title = "Get Position", .category = "Object",
+         .strKind = FlowParamKind::ObjectName, .idIn = true, .idOut = true,
+         .posOut = true, .execThrough = true,
+         .desc = "Exposes the target object and its position. With its exec "
+                 "pins unwired it is a live data source: consumers read the "
+                 "target's CURRENT position whenever they run. Wire its exec "
+                 "input to SAMPLE instead: the position output freezes at "
+                 "the moment the exec fires and the 'after' exec chains on - "
+                 "use this to remember where something was when an event "
+                 "happened."},
+        {.key = "IsVisible", .title = "Is Visible", .category = "Object",
+         .strKind = FlowParamKind::ObjectName, .idIn = true, .idOut = true,
+         .pure = true, .boolOut = true,
+         .desc = "Pure bool: is the target visible this frame?"},
+        {.key = "SetPosition", .title = "Set Object Position",
+         .category = "Object", .strKind = FlowParamKind::ObjectName,
+         .numCount = 3, .numLabels = {"X", "Y", "Z"}, .idIn = true,
+         .idOut = true, .posIn = true, .posOut = true,
+         .desc = "Sets the target's position to X/Y/Z (a linked position "
+                 "overrides the params)."},
+        // Despawn on an authored object only deactivates it (layer streaming
+        // can bring authored objects back).
+        {.key = "SpawnObject", .title = "Spawn Object", .category = "Object",
+         .strKind = FlowParamKind::ObjectName, .numCount = 1,
+         .numLabels = {"Yaw"}, .idIn = true, .idOut = true, .posIn = true,
+         .desc = "Clones the target object into a runtime slot at the linked "
+                 "position (or the template's own), yaw = num[0] degrees. "
+                 "The object OUTPUT is the clone, not the template - wire it "
+                 "into further actions. Pool of 32 live clones."},
+        {.key = "DespawnObject", .title = "Despawn Object", .category = "Object",
+         .strKind = FlowParamKind::ObjectName, .idIn = true,
+         .desc = "Removes a spawned clone (frees its slot); deactivates an "
+                 "authored object."},
+        {.key = "PlayAnimation", .title = "Play Animation",
+         .category = "Animation", .strKind = FlowParamKind::Text, .numCount = 3,
+         .numLabels = {"Loop", "Speed", "Fade"}, .idIn = true, .idOut = true,
+         .desc = "Plays clip named str on the target (animated .glb objects; "
+                 "str \"\" = the model's first clip). num[0] Loop (1 = "
+                 "loop), num[1] Speed multiplier (0 = default), num[2] "
+                 "crossfade seconds. NOTE: str holds the CLIP name; the "
+                 "target comes from an object link or defaults to self."},
+        {.key = "StopAnimation", .title = "Stop Animation",
+         .category = "Animation", .idIn = true, .idOut = true,
+         .desc = "Freezes the target's animation on its current pose."},
+        {.key = "TeleportPlayer", .title = "Spawn Player At",
+         .category = "Player", .strKind = FlowParamKind::ObjectName,
+         .idIn = true, .idOut = true, .posIn = true,
+         .desc = "Teleports the player to the target object's position (or a "
+                 "linked position) - e.g. respawn points."},
+        // The hit object is a runtime reference (-1 = none) - actions fed it
+        // are guarded like Spawn Object clones.
+        {.key = "Raycast", .title = "Raycast", .category = "Player",
+         .numCount = 1, .numLabels = {"Max Dist"}, .idOut = true,
+         .posOut = true, .execThrough = true,
+         .desc = "On exec, casts a ray from the player's eye along the view "
+                 "direction up to num[0] (Max Dist) and latches the results: "
+                 "position output = hit point, object output = hit object "
+                 "(may be none). The 'after' exec fires right after the "
+                 "cast."},
+        // The optional toggle button on the player still gates the beam,
+        // but only while enabled.
+        {.key = "SetFlashlight", .title = "Set Flashlight", .category = "Player",
+         .numCount = 1, .numLabels = {"On"},
+         .desc = "num[0] = 1 turns the player's flashlight master switch on, "
+                 "0 off."},
+        {.key = "SetStickCurve", .title = "Set Stick Curve",
+         .category = "Player", .numCount = 3,
+         .numLabels = {"Stick", "Curve", "Exponent"},
+         .desc = "Changes the analog stick response curve live. num[0] "
+                 "Stick: 0 left, 1 right, 2 both. num[1] Curve: 0 Linear, 1 "
+                 "Exponential, 2 S-Curve. num[2] Exponent >= 1."},
         // Scene
-        {"SetSky", "Set Sky Color", "Scene", false, FlowParamKind::None, 3, {},
-         FlowParamKind::Color, false, false},
-        // Loads another scene (applied after the current frame's scripts):
-        // runtime objects are rebuilt from the target scene's data, script
-        // state resets; textures/models stay loaded (shared across scenes).
-        {"SwitchScene", "Switch Scene", "Scene", false, FlowParamKind::SceneName, 0, {},
-         FlowParamKind::None, false, false},
-        // Streaming layers (GTA3-style): Load Layer starts pulling the layer's
-        // assets into memory (spread over frames, no hitch) and activates its
-        // objects when everything is resident; Unload Layer deactivates the
-        // objects immediately and frees assets no other loaded layer uses.
-        // Is Layer Loaded is a pure bool: true once the layer is fully in.
-        {"LoadLayer", "Load Layer", "Scene", false, FlowParamKind::LayerName, 0, {},
-         FlowParamKind::None, false, false},
-        {"UnloadLayer", "Unload Layer", "Scene", false, FlowParamKind::LayerName, 0, {},
-         FlowParamKind::None, false, false},
-        {"IsLayerLoaded", "Is Layer Loaded", "Scene", false, FlowParamKind::LayerName,
-         0, {}, FlowParamKind::None, false, false, false, false, true, false, true},
-        // Applies a color grading preset (Tools > Color Grading) as the
-        // frame's GS post pass; "<none>" restores the ungraded image. The
-        // switch is global and persists across scene changes.
-        {"SetGrading", "Set Color Grading", "Scene", false, FlowParamKind::GradingName,
-         0, {}, FlowParamKind::None, false, false},
-        // Runtime graphics switches (options menus / perf tuning). Set Fog
-        // On=1 re-applies the scene's own fog, 0 disables it. Set Bloom / Set
-        // Grain take a 0..1 amount (0 = off). Set Particles is a global switch
-        // for every emitter's draw. Handy wired to On Menu Event entries so the
-        // player can toggle expensive effects on real hardware.
-        {"SetFog", "Set Fog", "Scene", false, FlowParamKind::None, 1, {"On"},
-         FlowParamKind::None, false, false},
-        {"SetBloom", "Set Bloom", "Scene", false, FlowParamKind::None, 1, {"Amount"},
-         FlowParamKind::None, false, false},
-        {"SetGrain", "Set Grain", "Scene", false, FlowParamKind::None, 1, {"Amount"},
-         FlowParamKind::None, false, false},
-        // Depth of field: the image blurs progressively past Focus (world
-        // units from the camera), reaching full blur at Focus + Range; Amount
-        // 0..1 scales the far blur. The authored baseline lives in Tools >
-        // UI Editor > Depth of field (per-scene overridable); this node's
-        // Mode switches it at runtime: 0 = set the custom Focus/Range/Amount
-        // params, 1 = off, 2 = restore the scene's authored setting. A
-        // position link replaces Focus with the distance from the player to
-        // that point (e.g. keep an object in focus via Get Position).
-        {"SetDof", "Set Depth Of Field", "Scene", false, FlowParamKind::None, 4,
-         {"Focus", "Range", "Amount", "Mode"}, FlowParamKind::None, false,
-         false, true, false, false},
-        {"SetParticles", "Set Particles", "Scene", false, FlowParamKind::None, 1, {"On"},
-         FlowParamKind::None, false, false},
-        // Runtime video output (options menus). Set Display Mode switches the
-        // scan mode (Mode: 0 = interlaced 480i/576i, 1 = progressive 480p,
-        // 2 = 1080i - shown as a combo in the node UI); with Confirm s > 0
-        // the game shows a keep-or-revert prompt and AUTOMATICALLY reverts
-        // to the previous mode unless the player confirms with X in time
-        // (a mode the TV can't show would otherwise strand them on a black
-        // screen). Set Widescreen re-fits the projection for a 16:9 display.
-        {"SetDisplayMode", "Set Display Mode", "Scene", false, FlowParamKind::None, 2,
-         {"Mode", "Confirm s"}, FlowParamKind::None, false, false},
-        {"SetWidescreen", "Set Widescreen", "Scene", false, FlowParamKind::None, 1,
-         {"On"}, FlowParamKind::None, false, false},
-        // Repaints the sky from an Ambience Editor preset at runtime. Lighting
-        // and fog are baked per scene at build, so only the sky changes live
-        // (assign presets per scene, or switch scenes, for the full mood).
-        {"SetAmbience", "Set Ambience", "Scene", false, FlowParamKind::AmbienceName,
-         0, {}, FlowParamKind::None, false, false},
-        // Cutscene Director (Tools > Cutscene Director). Play Sequence starts a
-        // named keyframe timeline: it poses the referenced objects (and, if the
-        // sequence has a camera track, drives the camera) until it ends or is
-        // stopped. Retriggering restarts it from t=0. Stop Sequence ends the
-        // active cutscene and hands the camera back to the game.
-        {"PlaySequence", "Play Sequence", "Scene", false, FlowParamKind::SequenceName,
-         0, {}, FlowParamKind::None, false, false},
-        {"StopSequence", "Stop Sequence", "Scene", false, FlowParamKind::None,
-         0, {}, FlowParamKind::None, false, false},
+        {.key = "SetSky", .title = "Set Sky Color", .category = "Scene",
+         .numCount = 3, .numKind = FlowParamKind::Color,
+         .desc = "Sets the sky color; num[0..2] = RGB, each 0..1."},
+        // Runtime objects rebuild from the target scene's data, script state
+        // resets; textures/models stay loaded (shared across scenes).
+        {.key = "SwitchScene", .title = "Switch Scene", .category = "Scene",
+         .strKind = FlowParamKind::SceneName,
+         .desc = "Loads the scene named str (applied after this frame's "
+                 "scripts)."},
+        {.key = "LoadLayer", .title = "Load Layer", .category = "Scene",
+         .strKind = FlowParamKind::LayerName,
+         .desc = "Starts streaming the layer's assets into memory; activates "
+                 "its objects when resident."},
+        {.key = "UnloadLayer", .title = "Unload Layer", .category = "Scene",
+         .strKind = FlowParamKind::LayerName,
+         .desc = "Deactivates the layer's objects and frees assets no other "
+                 "loaded layer uses."},
+        {.key = "IsLayerLoaded", .title = "Is Layer Loaded", .category = "Scene",
+         .strKind = FlowParamKind::LayerName, .pure = true, .boolOut = true,
+         .desc = "Pure bool: is the layer fully loaded?"},
+        {.key = "SetGrading", .title = "Set Color Grading", .category = "Scene",
+         .strKind = FlowParamKind::GradingName,
+         .desc = "Applies the color grading preset named str; \"\" restores "
+                 "the ungraded image. Persists across scene changes."},
+        {.key = "SetFog", .title = "Set Fog", .category = "Scene",
+         .numCount = 1, .numLabels = {"On"},
+         .desc = "num[0] = 1 re-applies the scene's fog, 0 disables it."},
+        {.key = "SetBloom", .title = "Set Bloom", .category = "Scene",
+         .numCount = 1, .numLabels = {"Amount"},
+         .desc = "Bloom amount num[0] 0..1 (0 = off)."},
+        {.key = "SetGrain", .title = "Set Grain", .category = "Scene",
+         .numCount = 1, .numLabels = {"Amount"},
+         .desc = "Film grain amount num[0] 0..1 (0 = off)."},
+        // Authored baseline: Tools > UI Editor > Depth of field.
+        {.key = "SetDof", .title = "Set Depth Of Field", .category = "Scene",
+         .numCount = 4, .numLabels = {"Focus", "Range", "Amount", "Mode"},
+         .posIn = true,
+         .desc = "Depth of field. num[3] Mode: 0 = set custom num[0] Focus / "
+                 "num[1] Range / num[2] Amount 0..1, 1 = off, 2 = restore "
+                 "the scene's authored setting. A linked position replaces "
+                 "Focus with the live player-to-point distance."},
+        {.key = "SetParticles", .title = "Set Particles", .category = "Scene",
+         .numCount = 1, .numLabels = {"On"},
+         .desc = "num[0] = 1/0: global switch for all particle emitters."},
+        // The confirm prompt auto-reverts - a mode the TV can't show would
+        // otherwise strand the player on a black screen.
+        {.key = "SetDisplayMode", .title = "Set Display Mode",
+         .category = "Scene", .numCount = 2,
+         .numLabels = {"Mode", "Confirm s"},
+         .desc = "Switches the scan mode. num[0] Mode: 0 interlaced, 1 "
+                 "progressive 480p, 2 1080i, 3 interlaced field rendering "
+                 "(a fresh half-height image every field). num[1] Confirm "
+                 "seconds > 0 shows a keep-or-revert prompt with automatic "
+                 "rollback."},
+        {.key = "SetWidescreen", .title = "Set Widescreen", .category = "Scene",
+         .numCount = 1, .numLabels = {"On"},
+         .desc = "num[0] = 1 re-fits the projection for 16:9, 0 for 4:3."},
+        {.key = "SetAmbience", .title = "Set Ambience", .category = "Scene",
+         .strKind = FlowParamKind::AmbienceName,
+         .desc = "Repaints the sky from the ambience preset named str "
+                 "(lighting/fog are baked per scene; only the sky changes "
+                 "live)."},
+        {.key = "PlaySequence", .title = "Play Sequence", .category = "Scene",
+         .strKind = FlowParamKind::SequenceName,
+         .desc = "Starts the cutscene sequence named str; retriggering "
+                 "restarts it."},
+        {.key = "StopSequence", .title = "Stop Sequence", .category = "Scene",
+         .desc = "Stops the active cutscene."},
         // HUD (all HUD images at once; the USE prompt is unaffected)
-        {"ShowHud", "Show HUD", "HUD", false, FlowParamKind::None, 0, {},
-         FlowParamKind::None, false, false},
-        {"HideHud", "Hide HUD", "HUD", false, FlowParamKind::None, 0, {},
-         FlowParamKind::None, false, false},
-        {"ToggleHud", "Toggle HUD", "HUD", false, FlowParamKind::None, 0, {},
-         FlowParamKind::None, false, false},
-        // On-screen texts (Tools > UI Editor > Texts; baked to sprites at
-        // build). Show Text: Seconds > 0 auto-hides after that long, 0 =
-        // stays until a Hide Text (subtitles, tutorial hints, pickup toasts).
-        {"ShowText", "Show Text", "HUD", false, FlowParamKind::HudTextName, 1,
-         {"Seconds"}, FlowParamKind::None, false, false},
-        {"HideText", "Hide Text", "HUD", false, FlowParamKind::HudTextName, 0, {},
-         FlowParamKind::None, false, false},
+        {.key = "ShowHud", .title = "Show HUD", .category = "HUD",
+         .desc = "Shows all HUD images."},
+        {.key = "HideHud", .title = "Hide HUD", .category = "HUD",
+         .desc = "Hides all HUD images."},
+        {.key = "ToggleHud", .title = "Toggle HUD", .category = "HUD",
+         .desc = "Toggles all HUD images."},
+        {.key = "ShowText", .title = "Show Text", .category = "HUD",
+         .strKind = FlowParamKind::HudTextName, .numCount = 1,
+         .numLabels = {"Seconds"},
+         .desc = "Shows the on-screen text named str. num[0] Seconds > 0 "
+                 "auto-hides after that long; 0 = stays until Hide Text."},
+        {.key = "HideText", .title = "Hide Text", .category = "HUD",
+         .strKind = FlowParamKind::HudTextName,
+         .desc = "Hides the on-screen text named str."},
         // Audio (music: 16-bit 22kHz stereo WAV; sounds: ADPCM one-shots)
-        {"PlayMusic", "Play Music", "Audio", false, FlowParamKind::MusicTrack, 2,
-         {"Volume", "Loop"}, FlowParamKind::None, false, false},
-        {"StopMusic", "Stop Music", "Audio", false, FlowParamKind::None, 0, {},
-         FlowParamKind::None, false, false},
-        {"SetMusicVolume", "Set Music Volume", "Audio", false, FlowParamKind::None, 1,
-         {"Volume"}, FlowParamKind::None, false, false},
-        {"PlaySound", "Play Sound", "Audio", false, FlowParamKind::SoundTrack, 2,
-         {"Volume", "Channel"}, FlowParamKind::None, false, false},
-        // Save data: named values persisted in memory card slots (defined in
-        // the Project panel, "Save data"). "Value At Least" is a pure bool
-        // source (value >= threshold, evaluated fresh every frame) for logic
-        // gates / On Condition. "Get Save Value" / "Get Save Text" are pure
-        // text sources (wire into Log Message / Set Save Text). "Open Save
-        // Menu" opens the in-game 3-slot save/load menu (the same one a Save
-        // point object opens on USE).
-        {"SetValue", "Set Save Value", "Save", false, FlowParamKind::SaveValue, 1,
-         {"Value"}, FlowParamKind::None, false, false},
-        {"AddValue", "Add To Save Value", "Save", false, FlowParamKind::SaveValue, 1,
-         {"Delta"}, FlowParamKind::None, false, false},
-        {"ValueAtLeast", "Value At Least", "Save", false, FlowParamKind::SaveValue, 1,
-         {"Threshold"}, FlowParamKind::None, false, false, false, false, true, false,
-         true},
-        {"GetSaveValue", "Get Save Value", "Save", false, FlowParamKind::SaveValue, 0,
-         {}, FlowParamKind::None, false, false, false, false, true, false, false,
-         false, true},
-        // Text save values: str = which entry, str2 = the text to store
-        // (a text link into Set Save Text overrides str2).
-        {"SetSaveText", "Set Save Text", "Save", false, FlowParamKind::SaveText, 0,
-         {}, FlowParamKind::None, false, false, false, false, false, false, false,
-         true, false},
-        {"GetSaveText", "Get Save Text", "Save", false, FlowParamKind::SaveText, 0,
-         {}, FlowParamKind::None, false, false, false, false, true, false, false,
-         false, true},
-        {"OpenSaveMenu", "Open Save Menu", "Save", false, FlowParamKind::None, 0, {},
-         FlowParamKind::None, false, false},
-        // Variables: named game-global values (one namespace per type - int,
-        // bool, position), zeroed at boot, kept across scene switches, NOT
-        // saved to the memory card (use Save data for persistence). Setters
-        // run on exec; Get Bool / Int At Least are pure bool sources for the
-        // logic gates, Get Position is a pure position source. A position
-        // link into Set Position overrides its X/Y/Z params (e.g. store an
-        // object's position via Get Position on it).
-        {"SetVarInt", "Set Int", "Variables", false, FlowParamKind::VarName, 1,
-         {"Value"}, FlowParamKind::None, false, false},
-        {"SetVarBool", "Set Bool", "Variables", false, FlowParamKind::VarName, 1,
-         {"Value"}, FlowParamKind::None, false, false},
-        {"SetVarPos", "Set Position", "Variables", false, FlowParamKind::VarName, 3,
-         {"X", "Y", "Z"}, FlowParamKind::None, false, false, true},
-        {"GetVarBool", "Get Bool", "Variables", false, FlowParamKind::VarName, 0, {},
-         FlowParamKind::None, false, false, false, false, true, false, true},
-        {"GetVarPos", "Get Position", "Variables", false, FlowParamKind::VarName, 0, {},
-         FlowParamKind::None, false, false, false, true, true},
-        {"VarAtLeast", "Int At Least", "Variables", false, FlowParamKind::VarName, 1,
-         {"Threshold"}, FlowParamKind::None, false, false, false, false, true, false,
-         true},
-        {"GetVarIntText", "Get Int As Text", "Variables", false, FlowParamKind::VarName,
-         0, {}, FlowParamKind::None, false, false, false, false, true, false, false,
-         false, true},
-        // Menus (Project panel, "Menus"): open a baked menu from logic, and
-        // react to menu entries with the "Flow event" action - On Menu Event
-        // fires the frame such an entry is selected (also a bool source).
-        {"OpenMenu", "Open Menu", "Menus", false, FlowParamKind::MenuName, 0, {},
-         FlowParamKind::None, false, false},
-        {"OnMenuEvent", "On Menu Event", "Menus", true, FlowParamKind::Text, 0, {},
-         FlowParamKind::None, false, false, false, false, false, false, true},
-        // Convert: pure data-to-text bridges, so variables and positions can
-        // be wired into Log Message / Set Save Text.
-        {"PosToText", "Position To Text", "Convert", false, FlowParamKind::None, 0, {},
-         FlowParamKind::None, false, false, true, false, true, false, false, false,
-         true},
-        {"BoolToText", "Bool To Text", "Convert", false, FlowParamKind::None, 0, {},
-         FlowParamKind::None, false, false, false, false, true, true, false, false,
-         true},
-        // Debug. Log Message prints its text followed by every wired text
-        // input (in link order, space-separated).
-        {"Log", "Log Message", "Debug", false, FlowParamKind::Text, 0, {},
-         FlowParamKind::None, false, false, false, false, false, false, false,
-         true, false},
-        // Logic gates: pure boolean-data nodes (no exec pins). They combine the
-        // bool outputs of triggers (and each other) into a new bool. The bool
-        // input pin accepts several links - AND/OR/XOR fold over all of them,
-        // NOT/NAND/XNOR negate the fold. "On Condition" bridges back to exec:
-        // it is a trigger that fires on the rising edge of its bool input.
-        {"And", "AND", "Logic", false, FlowParamKind::None, 0, {},
-         FlowParamKind::None, false, false, false, false, true, true, true},
-        {"Nand", "NAND", "Logic", false, FlowParamKind::None, 0, {},
-         FlowParamKind::None, false, false, false, false, true, true, true},
-        {"Or", "OR", "Logic", false, FlowParamKind::None, 0, {},
-         FlowParamKind::None, false, false, false, false, true, true, true},
-        {"Not", "NOT", "Logic", false, FlowParamKind::None, 0, {},
-         FlowParamKind::None, false, false, false, false, true, true, true},
-        {"Xor", "XOR", "Logic", false, FlowParamKind::None, 0, {},
-         FlowParamKind::None, false, false, false, false, true, true, true},
-        {"Xnor", "XNOR", "Logic", false, FlowParamKind::None, 0, {},
-         FlowParamKind::None, false, false, false, false, true, true, true},
-        {"OnCondition", "On Condition", "Logic", true, FlowParamKind::None, 0, {},
-         FlowParamKind::None, false, false, false, false, false, true, false},
+        {.key = "PlayMusic", .title = "Play Music", .category = "Audio",
+         .strKind = FlowParamKind::MusicTrack, .numCount = 2,
+         .numLabels = {"Volume", "Loop"},
+         .desc = "Plays the music track str (use the exact track path from "
+                 "the project context). num[0] Volume 0..100, num[1] Loop (1 "
+                 "= loop)."},
+        {.key = "StopMusic", .title = "Stop Music", .category = "Audio",
+         .desc = "Stops the music."},
+        {.key = "SetMusicVolume", .title = "Set Music Volume",
+         .category = "Audio", .numCount = 1, .numLabels = {"Volume"},
+         .desc = "num[0] Volume 0..100."},
+        {.key = "PlaySound", .title = "Play Sound", .category = "Audio",
+         .strKind = FlowParamKind::SoundTrack, .numCount = 2,
+         .numLabels = {"Volume", "Channel"},
+         .desc = "Plays the sound effect str (exact path from the project "
+                 "context). num[0] Volume 0..100, num[1] Channel 0..23 or -1 "
+                 "= auto-rotate."},
+        // Save data: named values persisted in memory card slots (Project
+        // panel, "Save data"); every save slot stores a snapshot.
+        {.key = "SetValue", .title = "Set Save Value", .category = "Save",
+         .strKind = FlowParamKind::SaveValue, .numCount = 1,
+         .numLabels = {"Value"},
+         .desc = "Sets the save value named str to num[0]."},
+        {.key = "AddValue", .title = "Add To Save Value", .category = "Save",
+         .strKind = FlowParamKind::SaveValue, .numCount = 1,
+         .numLabels = {"Delta"},
+         .desc = "Adds num[0] to the save value named str."},
+        {.key = "ValueAtLeast", .title = "Value At Least", .category = "Save",
+         .strKind = FlowParamKind::SaveValue, .numCount = 1,
+         .numLabels = {"Threshold"}, .pure = true, .boolOut = true,
+         .desc = "Pure bool: save value named str >= num[0], evaluated fresh "
+                 "every frame."},
+        {.key = "GetSaveValue", .title = "Get Save Value", .category = "Save",
+         .strKind = FlowParamKind::SaveValue, .pure = true, .textOut = true,
+         .desc = "Pure text output of the save value named str."},
+        {.key = "SetSaveText", .title = "Set Save Text", .category = "Save",
+         .strKind = FlowParamKind::SaveText, .textIn = true,
+         .desc = "Sets the save text named str to str2 (a linked text "
+                 "overrides str2)."},
+        {.key = "GetSaveText", .title = "Get Save Text", .category = "Save",
+         .strKind = FlowParamKind::SaveText, .pure = true, .textOut = true,
+         .desc = "Pure text output of the save text named str."},
+        // The same 3-slot menu a Save point object opens on USE.
+        {.key = "OpenSaveMenu", .title = "Open Save Menu", .category = "Save",
+         .desc = "Opens the in-game 3-slot save/load menu."},
+        // Variables: named game-global values (one namespace per type),
+        // zeroed at boot, kept across scene switches, NOT saved to the
+        // memory card (use Save data for persistence).
+        {.key = "SetVarInt", .title = "Set Int", .category = "Variables",
+         .strKind = FlowParamKind::VarName, .numCount = 1,
+         .numLabels = {"Value"},
+         .desc = "Sets the global int variable named str to num[0]."},
+        {.key = "SetVarBool", .title = "Set Bool", .category = "Variables",
+         .strKind = FlowParamKind::VarName, .numCount = 1,
+         .numLabels = {"Value"},
+         .desc = "Sets the global bool variable named str to num[0] != 0."},
+        {.key = "SetVarPos", .title = "Set Position", .category = "Variables",
+         .strKind = FlowParamKind::VarName, .numCount = 3,
+         .numLabels = {"X", "Y", "Z"}, .posIn = true,
+         .desc = "Sets the global position variable named str to X/Y/Z (a "
+                 "linked position overrides the params)."},
+        {.key = "GetVarBool", .title = "Get Bool", .category = "Variables",
+         .strKind = FlowParamKind::VarName, .pure = true, .boolOut = true,
+         .desc = "Pure bool: the global bool variable named str."},
+        {.key = "GetVarPos", .title = "Get Position", .category = "Variables",
+         .strKind = FlowParamKind::VarName, .posOut = true, .pure = true,
+         .desc = "Pure position: the global position variable named str."},
+        {.key = "VarAtLeast", .title = "Int At Least", .category = "Variables",
+         .strKind = FlowParamKind::VarName, .numCount = 1,
+         .numLabels = {"Threshold"}, .pure = true, .boolOut = true,
+         .desc = "Pure bool: global int variable named str >= num[0]."},
+        {.key = "GetVarIntText", .title = "Get Int As Text",
+         .category = "Variables", .strKind = FlowParamKind::VarName,
+         .pure = true, .textOut = true,
+         .desc = "Pure text of the global int variable named str."},
+        {.key = "OpenMenu", .title = "Open Menu", .category = "Menus",
+         .strKind = FlowParamKind::MenuName,
+         .desc = "Opens the menu named str."},
+        {.key = "OnMenuEvent", .title = "On Menu Event", .category = "Menus",
+         .trigger = true, .strKind = FlowParamKind::Text, .boolOut = true,
+         .desc = "Fires the frame a menu entry with Flow event name str is "
+                 "selected. Also usable as a bool source."},
+        {.key = "PosToText", .title = "Position To Text", .category = "Convert",
+         .posIn = true, .pure = true, .textOut = true,
+         .desc = "Pure converter: linked position -> text."},
+        {.key = "BoolToText", .title = "Bool To Text", .category = "Convert",
+         .pure = true, .boolIn = true, .textOut = true,
+         .desc = "Pure converter: linked bool -> text."},
+        {.key = "Log", .title = "Log Message", .category = "Debug",
+         .strKind = FlowParamKind::Text, .textIn = true,
+         .desc = "Prints str followed by every wired text input to the game "
+                 "log (debug builds)."},
+        // Logic gates: the bool input pin accepts several links - the gates
+        // fold over all of them.
+        {.key = "And", .title = "AND", .category = "Logic", .pure = true,
+         .boolIn = true, .boolOut = true,
+         .desc = "Pure bool gate: AND over all wired bool inputs."},
+        {.key = "Nand", .title = "NAND", .category = "Logic", .pure = true,
+         .boolIn = true, .boolOut = true,
+         .desc = "Pure bool gate: NOT AND over all wired bool inputs."},
+        {.key = "Or", .title = "OR", .category = "Logic", .pure = true,
+         .boolIn = true, .boolOut = true,
+         .desc = "Pure bool gate: OR over all wired bool inputs."},
+        {.key = "Not", .title = "NOT", .category = "Logic", .pure = true,
+         .boolIn = true, .boolOut = true,
+         .desc = "Pure bool gate: NOT of the folded bool inputs."},
+        {.key = "Xor", .title = "XOR", .category = "Logic", .pure = true,
+         .boolIn = true, .boolOut = true,
+         .desc = "Pure bool gate: XOR over all wired bool inputs."},
+        {.key = "Xnor", .title = "XNOR", .category = "Logic", .pure = true,
+         .boolIn = true, .boolOut = true,
+         .desc = "Pure bool gate: NOT XOR over all wired bool inputs."},
+        {.key = "OnCondition", .title = "On Condition", .category = "Logic",
+         .trigger = true, .boolIn = true,
+         .desc = "Trigger that fires on the RISING EDGE of its bool input - "
+                 "the bridge from logic gates back to exec flow."},
     };
     return types;
 }
@@ -432,6 +490,7 @@ struct CustomFlowNode {
     std::string key;         // "custom:<file-stem>" - the serialized FlowNode::type
     std::string title;
     std::string category;
+    std::string desc;        // `desc =` header key -> FlowNodeType::desc
     // Behavior: either an inline C++ snippet (`code`, emitted verbatim with
     // {placeholders} substituted) OR a call into a user function (`callFn`,
     // written in inc/scripts/flow_nodes.hpp, receiving a FlowNodeIO). `callFn`

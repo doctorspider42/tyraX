@@ -142,7 +142,9 @@ void RendererCoreEnvMap::end() {
   const int zbp = static_cast<int>(gs->zBuffer.address) >> 11;
   const int zsm = static_cast<int>(gs->zBuffer.zsm);
   const int w = static_cast<int>(settings->getWidth());
-  const int h = static_cast<int>(settings->getHeight());
+  // Physical buffer height (half the logical one in InterlacedField) - this
+  // restores the screen FRAME/SCISSOR/XYOFFSET after the env pass.
+  const int h = static_cast<int>(settings->getRenderHeightF());
 
   packet2_reset(endPacket, false);
   qword_t* q = endPacket->base;

@@ -37,6 +37,10 @@ everything under `src/` — warnings matter, the build is expected to be clean.
 build\tyrax-editor.exe --new <name> <parentDir> [width] [depth] [empty|fpp]
 build\tyrax-editor.exe --build <projectDir> [--run]   # exit code 0 = success
 build\tyrax-editor.exe --resave <projectDir>          # load + save, no Docker
+build\tyrax-editor.exe --refresh-gen <projectDir>     # regen sources, no Docker
+build\tyrax-editor.exe --dump <projectDir>            # JSON project summary
+build\tyrax-editor.exe --dump-graph <projectDir> <object> [scene]
+build\tyrax-editor.exe --apply-graph <projectDir> <object> <g.json> [scene] [--append]
 build\tyrax-editor.exe <projectDir|project.tyra>      # open GUI on a project
 ```
 
@@ -50,6 +54,15 @@ build\tyrax-editor.exe <projectDir|project.tyra>      # open GUI on a project
   this is the clean way to test/round-trip a `.tyra`-format change headlessly:
   strip/alter a field, `--resave`, and inspect the rewritten file. Also the
   one-shot batch-migration tool for existing projects.
+- `--refresh-gen` runs `project::refreshGenerated` directly — the clean way to
+  check codegen without Docker (supersedes the "run --build and let it fail"
+  trick below, which still works). `--dump` / `--dump-graph` / `--apply-graph`
+  are machine-readable project I/O (apply validates node types + link pin
+  rules and saves) — handy for scripted graph fixtures; `--ai-graph` runs the
+  whole AI generation (docs/ai-tools.md). To e2e-test the AI pipeline without
+  a real backend, put a stub `claude.cmd` on PATH that swallows stdin
+  (`findstr /r ".*" > nul`) and echoes a graph JSON — the Generator, parser,
+  append-merge and save all exercise for real (see PROGRESS 65).
 - Create scratch projects in a **short** path outside the repo — the
   convention is `%TEMP%\tyra-editor-test\<name>`. Do NOT use the session
   scratchpad for anything that will boot in PCSX2: its path is ~180+ chars

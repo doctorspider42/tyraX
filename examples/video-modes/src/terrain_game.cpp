@@ -270,6 +270,16 @@ V3 pointLightAt(const V3& wp, const V3& n) {
 const float* g_primKd = nullptr;
 bool g_primTextured = false;
 
+// Reflective materials: while non-null, pushVert also captures the rotated
+// (world-space) normal of every emitted vertex - the per-frame sphere-map ST
+// computation needs them (see renderScene). Staged per part like g_primKd.
+std::vector<Vec4>* g_envNormals = nullptr;
+
+// Loaded materials/model parts using the "@sky" dynamic env map. While > 0,
+// renderScene renders the sky dome into the engine's env-map target each
+// frame (the GT3 trick - reflections follow the live sky).
+int g_dynamicEnvUsers = 0;
+
 // Every rebuilt vertex buffer gets a process-unique bbox version. The
 // engine's frustum-bbox cache is keyed by (vertex pointer, version); layer
 // streaming frees and reallocates buffers, so with per-bag counters a
@@ -329,6 +339,7 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
                        c255(o.color[1] * scale * shade.y),
                        c255(o.color[2] * scale * shade.z), 128.0F));
   sts.push_back(Vec4(u, v, 1.0F, 0.0F));
+  if (g_envNormals) g_envNormals->push_back(Vec4(n.x, n.y, n.z, 0.0F));
 }
 
 void pushQuad(std::vector<Vec4>& verts, std::vector<Color>& cols,
@@ -1422,6 +1433,20 @@ void TerrainGame::loadModelAsset(int i) {
       part.texture = acquireTexture(path);
       gm.texPaths.push_back(path);
     }
+    if (mat.reflTextureName == "@sky") {
+      // Dynamic env map: the engine-owned VRAM target, re-rendered from the
+      // sky dome every frame (renderScene).
+      part.reflTexture = engine->renderer.core.envMap.getTexture();
+      part.reflStrength = mat.reflStrength;
+      part.reflDynamic = true;
+      ++g_dynamicEnvUsers;
+    } else if (!mat.reflTextureName.empty()) {
+      const std::string path = dir + mat.reflTextureName;
+      part.reflTexture = acquireTexture(path);
+      part.reflStrength = mat.reflStrength;
+      gm.texPaths.push_back(path);
+    }
+    part.reflRounded = mat.reflRounded;
     gm.parts.push_back(std::move(part));
   }
   if (MODEL_NEEDS_COLLIDER[i]) {
@@ -1439,6 +1464,8 @@ void TerrainGame::freeModelAsset(int i) {
   if (i < 0 || i >= MODEL_COUNT || !modelLoaded[i]) return;
   GameModel& gm = gameModels[i];
   for (const std::string& path : gm.texPaths) releaseTexture(path);
+  for (const GameModelPart& part : gm.parts)
+    if (part.reflDynamic) --g_dynamicEnvUsers;
   gm = GameModel();
   modelLoaded[i] = 0;
 }
@@ -1456,18 +1483,33 @@ void TerrainGame::loadMaterialAsset(int i) {
   gmat.kd[0] = mat.kd[0];
   gmat.kd[1] = mat.kd[1];
   gmat.kd[2] = mat.kd[2];
-  if (mat.textureName.empty()) return;
   std::string dir = MATERIAL_PATHS[i];
   const size_t slash = dir.find_last_of('/');
   dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
-  gmat.texPath = dir + mat.textureName;
-  gmat.texture = acquireTexture(gmat.texPath);
+  if (!mat.textureName.empty()) {
+    gmat.texPath = dir + mat.textureName;
+    gmat.texture = acquireTexture(gmat.texPath);
+  }
+  if (mat.reflTextureName == "@sky") {
+    // Dynamic env map (see loadModelAsset).
+    gmat.reflTexture = engine->renderer.core.envMap.getTexture();
+    gmat.reflStrength = mat.reflStrength;
+    gmat.reflDynamic = true;
+    ++g_dynamicEnvUsers;
+  } else if (!mat.reflTextureName.empty()) {
+    gmat.reflTexPath = dir + mat.reflTextureName;
+    gmat.reflTexture = acquireTexture(gmat.reflTexPath);
+    gmat.reflStrength = mat.reflStrength;
+  }
+  gmat.reflRounded = mat.reflRounded;
 }
 
 void TerrainGame::freeMaterialAsset(int i) {
   if (i < 0 || i >= MATERIAL_COUNT || !materialLoaded[i]) return;
   GameMaterial& gmat = gameMaterials[i];
   if (!gmat.texPath.empty()) releaseTexture(gmat.texPath);
+  if (!gmat.reflTexPath.empty()) releaseTexture(gmat.reflTexPath);
+  if (gmat.reflDynamic) --g_dynamicEnvUsers;
   gmat = GameMaterial();
   materialLoaded[i] = 0;
 }
@@ -3227,7 +3269,7 @@ void TerrainGame::applyMenuBindings() {
           g_stickExpL = g_stickExpR = 2.0F;
           break;
         }
-        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0/1/2)
+        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0..3)
           if (idx != g_menuDispOpt) {
             g_menuDispOpt = idx;
             scriptCtx.requestDisplayMode = idx;
@@ -3756,6 +3798,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     part.vertices.clear();
     part.colors.clear();
     part.sts.clear();
+    part.envNormals.clear();
   }
 
   // primitives: the assigned material (first entry of its .mtl) supplies
@@ -3770,6 +3813,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
       const GameModelPart& src = gm->parts[pi];
       GeoPart& part = g.parts[pi];
       const bool textured = src.texture != nullptr;
+      g_envNormals = src.reflTexture ? &part.envNormals : nullptr;
       for (size_t i = 0; i + 7 < src.verts.size(); i += 8) {
         const float* v = &src.verts[i];
         pushVert(part.vertices, part.colors, part.sts, o.data,
@@ -3777,9 +3821,12 @@ void TerrainGame::rebuildObjectGeometry(int index) {
                  textured);
       }
     }
+    g_envNormals = nullptr;
   } else {
     g_primKd = gmat ? gmat->kd : nullptr;
     g_primTextured = gmat && gmat->texture;
+    g_envNormals =
+        (gmat && gmat->reflTexture) ? &g.parts[0].envNormals : nullptr;
     GeoPart& p0 = g.parts[0];
     switch (o.data.type) {
       case 1: addSphere(p0.vertices, p0.colors, p0.sts, o.data); break;
@@ -3841,6 +3888,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     }
     g_primKd = nullptr;
     g_primTextured = false;
+    g_envNormals = nullptr;
   }
 
   for (int pi = 0; pi < partCount; ++pi) {
@@ -3882,6 +3930,85 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     } else {
       part.bag->texture = nullptr;
     }
+
+    // Reflective material (refl): the additive sphere-map second pass. The
+    // env bag reuses this part's vertex array and bboxVersion; all-white
+    // "many" colors keep its VU1 program shape identical to a textured base
+    // bag, so the frustum-bbox cache entry is shared, not recomputed.
+    Texture* envTex = o.data.type == 5 ? gm->parts[pi].reflTexture
+                                       : (gmat ? gmat->reflTexture : nullptr);
+    const float envStr = o.data.type == 5
+                             ? gm->parts[pi].reflStrength
+                             : (gmat ? gmat->reflStrength : 0.0F);
+    if (envTex && envStr > 0.004F &&
+        part.envNormals.size() == part.vertices.size()) {
+      part.envColors.assign(part.vertices.size(),
+                            Color(128.0F, 128.0F, 128.0F, 128.0F));
+      if (!part.envBag) {
+        part.envInfoBag = std::make_unique<StaPipInfoBag>();
+        part.envInfoBag->model = &model;
+        part.envInfoBag->shadingType = TyraShadingFlat;
+        part.envInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+        part.envInfoBag->fullClipChecks = true;
+        // Coplanar with the base pass: standard GEQUAL test. (TestOnly's
+        // alpha-fail FB_ONLY trick corrupted close-up frames - see below.)
+        part.envInfoBag->zTestType = PipelineZTest_Standard;
+        // GS fog would ADD the fog color through the additive equation
+        // (brightening fogged pixels) - the reflection just stays unfogged.
+        part.envInfoBag->fogDisabled = true;
+        part.envColorBag = std::make_unique<StaPipColorBag>();
+        part.envTexBag = std::make_unique<StaPipTextureBag>();
+        part.envBag = std::make_unique<StaPipBag>();
+        part.envBag->info = part.envInfoBag.get();
+        part.envBag->color = part.envColorBag.get();
+        part.envBag->texture = part.envTexBag.get();
+        part.envBag->lighting = nullptr;
+      }
+      // Additive equation Cv = Cs*FIX/128 + Cd; FIX 128 = full strength.
+      const float fix = envStr * 128.0F + 0.5F;
+      part.envInfoBag->additiveBlendFix =
+          fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
+      part.envColorBag->many = part.envColors.data();
+      part.envTexBag->texture = envTex;
+      // "-rounded" materials: overwrite the captured face normals with
+      // directions radiating from the part centroid - a flat face then
+      // sweeps a gradient of the sphere map instead of showing one uniform
+      // sample (the viewport shader mirrors this via uReflRounded).
+      const bool envRounded = o.data.type == 5
+                                  ? gm->parts[pi].reflRounded
+                                  : (gmat && gmat->reflRounded);
+      if (envRounded && !part.vertices.empty()) {
+        const u32 nv = static_cast<u32>(part.vertices.size());
+        float cx = 0.0F, cy = 0.0F, cz = 0.0F;
+        for (u32 vi = 0; vi < nv; ++vi) {
+          cx += part.vertices[vi].x;
+          cy += part.vertices[vi].y;
+          cz += part.vertices[vi].z;
+        }
+        cx /= (float)nv, cy /= (float)nv, cz /= (float)nv;
+        for (u32 vi = 0; vi < nv; ++vi) {
+          float dx = part.vertices[vi].x - cx;
+          float dy = part.vertices[vi].y - cy;
+          float dz = part.vertices[vi].z - cz;
+          const float l = sqrtf(dx * dx + dy * dy + dz * dz);
+          if (l > 0.0001F)
+            dx /= l, dy /= l, dz /= l;
+          else
+            dx = 0.0F, dy = 1.0F, dz = 0.0F;
+          part.envNormals[vi].set(dx, dy, dz, 0.0F);
+        }
+      }
+      // The normals ride in the ST slot and the TCE programs (cull/as_is/
+      // clip) compute the matcap ST from the per-mesh camera basis - zero
+      // EE per-vertex work, no pipeline barriers, in both clipping modes.
+      part.envTexBag->coordinates = part.envNormals.data();
+      part.envTexBag->coordinatesAreNormals = true;
+      part.envBag->vertices = part.vertices.data();
+      part.envBag->count = static_cast<u32>(part.vertices.size());
+      part.envBag->bboxVersion = part.bag->bboxVersion;
+    } else {
+      part.envBag.reset();
+    }
   }
 }
 
@@ -3919,6 +4046,92 @@ void TerrainGame::renderScene() {
     skyHorizonB = scriptCtx.skyColor.b;
     buildSkyDome();
   }
+  // Reflective materials: camera basis for the sphere-map STs. Matcap UVs
+  // from the camera-space normal - u along the camera's right, v (image
+  // space, 0 = top) against its up. The editor viewport shader and the VU1
+  // CalculateTyraEnvStq macro mirror this formula - keep them in sync.
+  V3 envFwd = {cameraLookAt.x - cameraPosition.x,
+               cameraLookAt.y - cameraPosition.y,
+               cameraLookAt.z - cameraPosition.z};
+  {
+    const float l =
+        sqrtf(envFwd.x * envFwd.x + envFwd.y * envFwd.y + envFwd.z * envFwd.z);
+    if (l > 0.0001F) envFwd.x /= l, envFwd.y /= l, envFwd.z /= l;
+  }
+  V3 envRight = {-envFwd.z, 0.0F, envFwd.x};  // cross(fwd, worldUp)
+  {
+    const float l = sqrtf(envRight.x * envRight.x + envRight.z * envRight.z);
+    if (l > 0.0001F)
+      envRight.x /= l, envRight.z /= l;
+    else
+      envRight = {1.0F, 0.0F, 0.0F};  // looking straight up/down
+  }
+  const V3 envUp = {envRight.y * envFwd.z - envRight.z * envFwd.y,
+                    envRight.z * envFwd.x - envRight.x * envFwd.z,
+                    envRight.x * envFwd.y - envRight.y * envFwd.x};
+
+  // Dynamic env map ("@sky" materials): render the sky dome into the
+  // engine's 128x128 VRAM target from a level wide-FOV view along the
+  // camera forward - the GT3 trick, reflections follow the live sky (script
+  // retints included). Runs before any main-frame 3D so the raster redirect
+  // brackets only the dome submission. Refreshed every SECOND frame (also
+  // the GT3 trick): the target persists in VRAM, and a 25/30 Hz update of
+  // a blurry 128px reflection is imperceptible while the pass costs a
+  // couple of ms per hit on real hardware.
+  static bool envMapTick = false;  // first frame MUST render (fresh VRAM)
+  envMapTick = !envMapTick;
+  if (g_dynamicEnvUsers > 0 && skyDome.bag && envMapTick) {
+    auto& core = engine->renderer.core;
+    skyMat.identity();
+    skyMat.data[12] = cameraPosition.x;
+    skyMat.data[13] = cameraPosition.y;
+    skyMat.data[14] = cameraPosition.z;
+    // Level forward: keeps the sphere map's horizon on its center line.
+    V3 lvl = {envFwd.x, 0.0F, envFwd.z};
+    const float ll = sqrtf(lvl.x * lvl.x + lvl.z * lvl.z);
+    if (ll > 0.0001F)
+      lvl.x /= ll, lvl.z /= ll;
+    else
+      lvl = {1.0F, 0.0F, 0.0F};
+    Vec4 envLook(cameraPosition.x + lvl.x, cameraPosition.y,
+                 cameraPosition.z + lvl.z, 1.0F);
+    core.envMap.begin(Color(scriptCtx.skyColor.r, scriptCtx.skyColor.g,
+                            scriptCtx.skyColor.b, 128.0F));
+    core.renderer3D.pushEnvView(cameraPosition, envLook, 110.0F,
+                                (float)Tyra::RendererCoreEnvMap::size);
+    const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
+    skyDome.infoBag->zTestType = PipelineZTest_AllPass;
+    stapip.core.render(skyDome.bag.get());
+    skyDome.infoBag->zTestType = prevZTest;
+    // "Show in reflections" objects render into the map too - base passes
+    // only (no env pass inside the env pass), depth-tested against the
+    // target's dedicated z-buffer so they occlude each other correctly.
+    for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
+      RuntimeObject& ro = runtimeObjects[ri];
+      if (!ro.active || !ro.visible || !ro.data.reflected) continue;
+      // Skip the object the camera is standing at: it would swamp the whole
+      // map - typically the very reflective surface being inspected, whose
+      // own dark self-reflection reads as ugly patches up close. (Bounding
+      // radius approximated from the scale; unit primitives fit a 1x1x1
+      // cube, so half-diagonal = 0.87 * max scale.)
+      {
+        float half = ro.data.scale[0];
+        if (ro.data.scale[1] > half) half = ro.data.scale[1];
+        if (ro.data.scale[2] > half) half = ro.data.scale[2];
+        const float skipR = 0.87F * half * 1.9F;
+        const float sdx = ro.data.position[0] - cameraPosition.x;
+        const float sdy = ro.data.position[1] - cameraPosition.y;
+        const float sdz = ro.data.position[2] - cameraPosition.z;
+        if (sdx * sdx + sdy * sdy + sdz * sdz < skipR * skipR) continue;
+      }
+      if (ro.dirty) rebuildObjectGeometry(ri);
+      for (GeoPart& part : objectGeometry[ri].parts)
+        if (part.bag) stapip.core.render(part.bag.get());
+    }
+    core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+    core.envMap.end();
+  }
+
   if (skyDome.bag) {
     // Follow the camera: park the dome's centre on the eye so however big the
     // map is, the horizon and zenith always wrap around the player. Only the
@@ -3942,6 +4155,14 @@ void TerrainGame::renderScene() {
   // repaint - two exact-clip passes per frame). OVERLAY mode: the body draws
   // normally in the main pass and the shells are painted ON it afterwards, so
   // it stays in this list only for the shell pass.
+  auto renderEnvPass = [&](GeoPart& part) {
+    if (!part.envBag) return;
+    // TCE programs compute the matcap ST on VU1 - the EE only refreshes the
+    // per-mesh camera basis here.
+    part.envTexBag->envRight.set(envRight.x, envRight.y, envRight.z, 0.0F);
+    part.envTexBag->envUp.set(envUp.x, envUp.y, envUp.z, 0.0F);
+    stapip.core.render(part.envBag.get());
+  };
   int hlList[8];
   float hlListD2[8];
   int hlCount = 0;
@@ -3966,7 +4187,10 @@ void TerrainGame::renderScene() {
       if (!hlOverlay) continue;  // rim: defer body; overlay: draw it now
     }
     for (GeoPart& part : objectGeometry[i].parts)
-      if (part.bag) stapip.core.render(part.bag.get());
+      if (part.bag) {
+        stapip.core.render(part.bag.get());
+        renderEnvPass(part);
+      }
   }
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
@@ -3999,7 +4223,10 @@ void TerrainGame::renderScene() {
       // scene, not highlight overhead.
       const u32 pb = DEBUG_SHOW_PROFILER ? profTicks() : 0;
       for (GeoPart& part : objectGeometry[i].parts)
-        if (part.bag) stapip.core.render(part.bag.get());
+        if (part.bag) {
+          stapip.core.render(part.bag.get());
+          renderEnvPass(part);
+        }
       if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - pb;
     }
   }

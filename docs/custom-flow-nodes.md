@@ -57,6 +57,7 @@ ctx.objects[{obj}].dirty = true;
 |-------------|-----------------------------------------------------------------|----------------|
 | `title`     | Display name in the add-menu and node title bar                 | the file name  |
 | `category`  | Add-menu submenu                                                 | `Custom`       |
+| `desc`      | One-line behavior description — shown as the node's tooltip in the editor and fed to the AI flow-graph generator's catalog, so the node documents itself | *(empty)*      |
 | `string`    | The string param: `none`, `text`, or `object`                   | `none`         |
 | `num0`…`num3` | Labels for up to four numeric params (define them in order)   | *(no params)*  |
 | `in`        | Extra input pins: any of `object position bool text`            | *(none)*       |

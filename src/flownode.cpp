@@ -79,6 +79,8 @@ std::string parseFile(const fs::path& path, CustomFlowNode& out) {
             if (!val.empty()) out.title = val;
         } else if (key == "category") {
             if (!val.empty()) out.category = val;
+        } else if (key == "desc") {
+            out.desc = val;
         } else if (key == "string") {
             if (val == "text")
                 strKind = FlowParamKind::Text;
@@ -114,6 +116,7 @@ std::string parseFile(const fs::path& path, CustomFlowNode& out) {
     ty.key = out.key.c_str();
     ty.title = out.title.c_str();
     ty.category = out.category.c_str();
+    ty.desc = out.desc.c_str();
     ty.trigger = false;
     ty.strKind = strKind;
     ty.numCount = numCount;
@@ -144,6 +147,9 @@ const char* kExampleTemplate =
     "# it will not resolve. Header keys (before the --- line):\n"
     "#   title     display name in the add-menu / node title bar\n"
     "#   category  add-menu submenu (default: Custom)\n"
+    "#   desc      one-line behavior description - shown as the node's tooltip\n"
+    "#             in the editor and fed to the AI flow-graph generator, so\n"
+    "#             the node documents itself. Write one!\n"
     "#   string    the string param: none | text | object (default: none)\n"
     "#   num0..3   labels for up to four numeric params (define them in order)\n"
     "#   in        input pins besides params: any of  object position bool text\n"
@@ -163,6 +169,7 @@ const char* kExampleTemplate =
     "# object input you wire from this node's object output.\n"
     "title = Nearest Object\n"
     "category = Custom\n"
+    "desc = Picks the scene object nearest to the player at exec time and exposes it as an object output; the after exec chains on.\n"
     "out = object\n"
     "exec_out = true\n"
     "call = flowExampleNearest\n"
