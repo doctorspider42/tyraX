@@ -1,0 +1,1 @@
+{ "id": "8e64067125a43e8c", "name": "point-light-5", "type": "point-light", "position": [6, 2.7451, -14], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.3, 0.8, 1], "physics": false, "layer": "crystals", "light": { "brightness": 1.5, "radius": 11 } }

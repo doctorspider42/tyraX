@@ -744,8 +744,8 @@ class TerrainGame : public Tyra::Game {
   // value strip (menu_data.gen.hpp; only menus with such entries have one).
   std::vector<Tyra::Sprite> menuValueSprites;
 
-  // On-screen texts (hud_data.gen.hpp): baked text sprites the Show Text /
-  // Hide Text flow nodes flip via ScriptContext; a positive timer auto-hides.
+  // On-screen texts (hud_data.gen.hpp): baked text sprites the Set Text
+  // Visible flow node flips via ScriptContext; a positive timer auto-hides.
   void updateAndRenderHudTexts();
   std::vector<Tyra::Sprite> hudTextSprites;
   std::vector<signed char> hudTextReq;   // ScriptContext::textRequest
@@ -820,6 +820,15 @@ class TerrainGame : public Tyra::Game {
   std::vector<int> projCasters;         // authored caster object indices
   void setupProjShadows();   // per scene load
   void renderProjShadows();  // per frame, end of renderScene
+
+  // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
+  // glyph by glyph from a font atlas because the string is only known now.
+  void updateAndRenderDynTexts();
+  std::vector<signed char> dynTextReq;   // ScriptContext::dynTextRequest
+  std::vector<float> dynTextDur;         // ScriptContext::dynTextDuration
+  std::vector<char> dynTextBuf;          // DYN_TEXT_COUNT * DYN_TEXT_LEN
+  std::vector<unsigned char> dynTextOn;  // visible this frame
+  std::vector<float> dynTextTimer;
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
@@ -1217,8 +1226,8 @@ class TerrainGame : public Tyra::Game {
   // value strip (menu_data.gen.hpp; only menus with such entries have one).
   std::vector<Tyra::Sprite> menuValueSprites;
 
-  // On-screen texts (hud_data.gen.hpp): baked text sprites the Show Text /
-  // Hide Text flow nodes flip via ScriptContext; a positive timer auto-hides.
+  // On-screen texts (hud_data.gen.hpp): baked text sprites the Set Text
+  // Visible flow node flips via ScriptContext; a positive timer auto-hides.
   void updateAndRenderHudTexts();
   std::vector<Tyra::Sprite> hudTextSprites;
   std::vector<signed char> hudTextReq;   // ScriptContext::textRequest
@@ -1293,6 +1302,15 @@ class TerrainGame : public Tyra::Game {
   std::vector<int> projCasters;         // authored caster object indices
   void setupProjShadows();   // per scene load
   void renderProjShadows();  // per frame, end of renderScene
+
+  // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
+  // glyph by glyph from a font atlas because the string is only known now.
+  void updateAndRenderDynTexts();
+  std::vector<signed char> dynTextReq;   // ScriptContext::dynTextRequest
+  std::vector<float> dynTextDur;         // ScriptContext::dynTextDuration
+  std::vector<char> dynTextBuf;          // DYN_TEXT_COUNT * DYN_TEXT_LEN
+  std::vector<unsigned char> dynTextOn;  // visible this frame
+  std::vector<float> dynTextTimer;
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
@@ -1316,6 +1334,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "scene_data.hpp"
 #include "model_data.gen.hpp"
 #include "hud_data.gen.hpp"
+#include "font_data.gen.hpp"
 #include "loading_data.gen.hpp"
 #include "menu_data.gen.hpp"
 #include "terrain_heights.gen.hpp"
@@ -1951,6 +1970,78 @@ void drawHudText(Engine* engine, const char* s, float x, float y) {
 }
 
 float hudTextWidth(const char* s) { return (float)strlen(s) * 14.0F; }
+
+/** Runtime text drawn from a Font Manager glyph atlas (Display Text nodes).
+ *
+ * VRAM: the atlas Texture is only handed to the repository the first time this
+ * font actually draws, and the engine only DMAs a texture to GS VRAM on its
+ * first render - so a font nobody displays costs zero VRAM, and one that is
+ * hidden again keeps costing only its EE-side copy. We deliberately never call
+ * useTexture() eagerly here (unlike the streamed model textures), because that
+ * would pin the sheet before anything asked for it. */
+float fontTextWidth(int fontIdx, const char* s, float size) {
+  const FontData& f = FONTS[fontIdx];
+  if (!f.glyphs) return 0.0F;
+  const float k = size / (float)f.baseSize;
+  float w = 0.0F;
+  for (; *s; ++s) {
+    const int gi = (int)(unsigned char)*s - FONT_FIRST_CHAR;
+    if (gi < 0 || gi >= FONT_CHAR_COUNT) continue;
+    w += (float)f.glyphs[gi].adv * k;
+  }
+  return w;
+}
+
+void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
+                  float cy, float size) {
+  const FontData& f = FONTS[fontIdx];
+  if (!f.glyphs || !f.atlas[0]) return;
+
+  // One sprite per font, kept across frames: the texture link is by sprite id,
+  // so every glyph of a font reuses the same id and the same atlas binding.
+  static Sprite glyph[FONT_COUNT > 0 ? FONT_COUNT : 1];
+  static bool ready[FONT_COUNT > 0 ? FONT_COUNT : 1] = {};
+  if (!ready[fontIdx]) {
+    glyph[fontIdx].mode = SpriteMode::MODE_REPEAT;  // sample a sub-rect
+    auto* texture = engine->renderer.getTextureRepository().add(
+        FileUtils::fromCwd(f.atlas));
+    texture->addLink(glyph[fontIdx].id);
+    ready[fontIdx] = true;
+  }
+
+  Sprite& sp = glyph[fontIdx];
+  const float k = size / (float)f.baseSize;
+  sp.scale = k;
+
+  // Center anchor, like the baked HUD text sprites.
+  const float startX = cx - fontTextWidth(fontIdx, s, size) * 0.5F;
+  const float top = cy - (float)f.lineH * k * 0.5F;
+
+  // Shadow first, then the glyphs: two passes over the same cells, the dark
+  // one offset by a pixel (the baked texts get theirs at bake time instead).
+  for (int pass = f.shadow ? 0 : 1; pass < 2; ++pass) {
+    const float ox = pass == 0 ? 1.0F : 0.0F;
+    if (pass == 0)
+      sp.color = Color(10.0F, 12.0F, 16.0F, 100.0F);
+    else
+      sp.color = Color((float)f.r, (float)f.g, (float)f.b, 128.0F);
+
+    float pen = startX;
+    for (const char* c = s; *c; ++c) {
+      const int gi = (int)(unsigned char)*c - FONT_FIRST_CHAR;
+      if (gi < 0 || gi >= FONT_CHAR_COUNT) continue;
+      const FontGlyph& g = f.glyphs[gi];
+      if (g.w > 0 && g.h > 0) {
+        sp.size = Vec2((float)g.w, (float)g.h);
+        sp.offset = Vec2((float)g.u, (float)g.v);
+        sp.position = Vec2(pen + (float)g.xoff * k + ox,
+                           top + (float)g.yoff * k + ox);
+        engine->renderer.renderer2D.render(sp);
+      }
+      pen += (float)g.adv * k;
+    }
+  }
+}
 
 // Debug frame profiler (Project > Preferences > Build > Show frame profiler).
 // renderScene brackets its three heavy phases with EE COP0-timer reads and
@@ -2616,6 +2707,7 @@ void TerrainGame::loop() {
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
 {{SCREEN_FX_TOP}}    if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
     updateAndRenderHudTexts();
+    updateAndRenderDynTexts();
     // Cutscene Director widescreen bars + fade-to-black: solid quads over the
     // scene and HUD (texts included), under the pause menus (no-op unless a
     // cutscene draws).
@@ -2812,6 +2904,22 @@ void TerrainGame::buildScene() {
     // Projected shadows: allocate the engine's shadow-map VRAM before any
     // texture upload can claim that region (lazy - only shadow projects pay).
     if (PROJ_SHADOWS_USED) engine->renderer.core.shadowMap.allocate();
+
+    // Runtime texts (font_data.gen.hpp). Buffers only - no texture is touched
+    // here: a font atlas reaches the repository (and VRAM) on the first frame
+    // a Display Text using it is actually drawn. See drawFontText.
+    dynTextReq.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, -1);
+    dynTextDur.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0.0F);
+    dynTextOn.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0);
+    dynTextTimer.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0.0F);
+    dynTextBuf.assign((DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1) * DYN_TEXT_LEN,
+                      '\0');
+    scriptCtx.dynTextRequest = dynTextReq.data();
+    scriptCtx.dynTextDuration = dynTextDur.data();
+    scriptCtx.dynTextBuf = dynTextBuf.data();
+    scriptCtx.dynTextOn = dynTextOn.data();
+    scriptCtx.dynTextCount = DYN_TEXT_COUNT;
+    scriptCtx.dynTextLen = DYN_TEXT_LEN;
     if (TITLE_MENU >= 0) {
       gameMenuIndex = TITLE_MENU;
       gameMenuCursor = 0;
@@ -5397,6 +5505,33 @@ void TerrainGame::updateAndRenderLightBeams() {
   }
 }
 
+// Runtime texts: same request/timer protocol as the baked ones, but the string
+// lives in dynTextBuf (refreshed every frame by the owning flow-graph script
+// while the slot is on) and is drawn glyph by glyph from the font's atlas.
+void TerrainGame::updateAndRenderDynTexts() {
+  for (int i = 0; i < DYN_TEXT_COUNT; ++i) {
+    if (scriptCtx.dynTextRequest[i] >= 0) {
+      dynTextOn[i] = scriptCtx.dynTextRequest[i] != 0 ? 1 : 0;
+      dynTextTimer[i] = dynTextOn[i] ? scriptCtx.dynTextDuration[i] : 0.0F;
+      scriptCtx.dynTextRequest[i] = -1;
+    }
+    if (dynTextOn[i] && dynTextTimer[i] > 0.0F) {
+      dynTextTimer[i] -= g_frameDt;
+      if (dynTextTimer[i] <= 0.0F) {
+        dynTextOn[i] = 0;
+        dynTextTimer[i] = 0.0F;
+      }
+    }
+    if (!dynTextOn[i]) continue;
+    const DynTextData& d = DYN_TEXTS[i];
+    const char* s = &dynTextBuf[(size_t)i * DYN_TEXT_LEN];
+    if (!s[0]) continue;
+    const auto& scr = engine->renderer.core.getSettings();
+    drawFontText(engine, d.font, s, d.x * scr.getWidth(), d.y * scr.getHeight(),
+                 d.size);
+  }
+}
+
 // Spring arm (third person only): how far the camera may sit down the boom
 // before it would end up inside geometry or under the terrain. Casts the boom
 // from the pivot (the avatar's head) toward the desired eye and returns the
@@ -7370,6 +7505,7 @@ void TerrainGame::loop() {
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
 {{SCREEN_FX_TOP}}    if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
     updateAndRenderHudTexts();
+    updateAndRenderDynTexts();
     // Cutscene Director widescreen bars + fade-to-black: solid quads over the
     // scene and HUD (texts included), under the pause menus (no-op unless a
     // cutscene draws).
@@ -8086,6 +8222,18 @@ struct ScriptContext {
   // 'Dynamic (live)' flag; the game applies and resets both every frame.
   signed char* lightRequest = nullptr;
   float* lightIntensity = nullptr;
+
+  // Runtime texts (DYN_TEXTS order, font_data.gen.hpp - one slot per Display
+  // Text node). Same request protocol as textRequest above, but the string is
+  // not baked: write it into dynTextBuf + i * DYN_TEXT_LEN. dynTextOn[i] tells
+  // a script whether its slot is currently on screen, so it only pays for the
+  // refresh while the text is actually visible.
+  signed char* dynTextRequest = nullptr;
+  float* dynTextDuration = nullptr;
+  char* dynTextBuf = nullptr;
+  const unsigned char* dynTextOn = nullptr;
+  int dynTextCount = 0;
+  int dynTextLen = 0;  // stride of dynTextBuf (DYN_TEXT_LEN)
 
   // Camera flashlight master switch (the Player object's "Enabled"). Write 1
   // to turn it on, 0 to turn it off, -1 to leave it unchanged; the game
@@ -10181,6 +10329,45 @@ void renderOverlay(Tyra::Engine* engine, const ScriptContext& ctx) {
     return out.str();
 }
 
+// One Display Text node's runtime slot. The slot index is the node's position
+// in a fixed (scene, object, node) walk - both fontDataHeader and
+// flowGraphScript derive it from dynTextSlots(), so the generated tables and
+// the generated script always agree on who owns which slot.
+struct DynTextSlot {
+    int scene = 0;
+    int ownerIdx = 0;
+    int nodeId = 0;
+    int fontSlot = 0;  // index into FONTS (not Project::fonts)
+    float x = 0.5f, y = 0.5f, size = 16.0f;
+};
+
+static std::vector<DynTextSlot> dynTextSlots(const Project& p) {
+    const std::vector<int> atlasFonts = p.atlasFontIndices();
+    std::vector<DynTextSlot> out;
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        const auto& objs = p.scenes[si].objects;
+        for (size_t oi = 0; oi < objs.size(); ++oi)
+            for (const FlowNode& n : objs[oi].flowGraph.nodes) {
+                if (n.type != "DisplayText") continue;
+                DynTextSlot s;
+                s.scene = (int)si;
+                s.ownerIdx = (int)oi;
+                s.nodeId = n.id;
+                // n.str names a Project::fonts entry; FONTS only holds the ones
+                // that actually got an atlas, so remap through atlasFonts.
+                const GameFont* gf = p.findFont(n.str);
+                const int projIdx = gf ? (int)(gf - p.fonts.data()) : 0;
+                for (size_t k = 0; k < atlasFonts.size(); ++k)
+                    if (atlasFonts[k] == projIdx) s.fontSlot = (int)k;
+                s.x = n.num[0];
+                s.y = n.num[1];
+                s.size = n.num[2] > 0.5f ? n.num[2] : 16.0f;
+                out.push_back(s);
+            }
+    }
+    return out;
+}
+
 // ---------------------------------------------------------------------------
 // Flow graph -> C++ script. Object names are resolved to indices at codegen
 // time; unknown names produce a comment instead of code.
@@ -10287,16 +10474,29 @@ std::string flowGraphScript(const Project& p) {
         return -1;
     };
 
+    // Display Text nodes: one runtime slot each, in the same order
+    // fontDataHeader lays out DYN_TEXTS.
+    const std::vector<DynTextSlot> dynSlots = dynTextSlots(p);
+    auto dynTextSlotOf = [&](size_t si, size_t oi, int nodeId) {
+        for (size_t i = 0; i < dynSlots.size(); ++i)
+            if (dynSlots[i].scene == (int)si && dynSlots[i].ownerIdx == (int)oi &&
+                dynSlots[i].nodeId == nodeId)
+                return (int)i;
+        return -1;
+    };
+
     // Text plane (Log inputs, Convert nodes, save texts) only when used -
     // keeps graphs without text nodes free of the string helpers.
     bool anyTextNode = false;
     bool anyRaycast = false;
+    bool anyDynText = false;
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects)
             for (const FlowNode& n : o.flowGraph.nodes) {
                 if (const FlowNodeType* t = flowNodeType(n.type))
                     anyTextNode |= (t->textIn || t->textOut);
                 anyRaycast |= (n.type == "Raycast");
+                anyDynText |= (n.type == "DisplayText");
             }
 
     std::ostringstream out;
@@ -10401,6 +10601,20 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                "  snprintf(b, sizeof(b), \"(%g, %g, %g)\", (double)x, (double)y, "
                "(double)z);\n"
                "  return std::string(b);\n"
+               "}\n";
+    }
+
+    if (anyDynText) {
+        out << "\n// Display Text: copy a runtime string into its slot's buffer\n"
+               "// (silently truncated - the slot is a fixed DYN_TEXT_LEN).\n"
+               "static inline void flowSetDynText(ScriptContext& ctx, int slot,\n"
+               "                                  const std::string& s) {\n"
+               "  if (!ctx.dynTextBuf || slot < 0 || slot >= ctx.dynTextCount) return;\n"
+               "  char* dst = ctx.dynTextBuf + slot * ctx.dynTextLen;\n"
+               "  int n = (int)s.size();\n"
+               "  if (n > ctx.dynTextLen - 1) n = ctx.dynTextLen - 1;\n"
+               "  for (int i = 0; i < n; ++i) dst[i] = s[i];\n"
+               "  dst[n] = '\\0';\n"
                "}\n";
     }
 
@@ -10782,6 +10996,18 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
             return es;
         };
 
+        // Display Text's string: the node's own prefix (str2) followed by every
+        // wired text input, concatenated. Same shape as Log Message, minus the
+        // spacing - "Score: " + a Get Save Value reads as one label.
+        auto dynTextExpr = [&](const FlowNode& n) -> std::string {
+            const auto es = textInputs(n);
+            std::string s;
+            if (!n.str2.empty() || es.empty())
+                s = "std::string(\"" + escapeCString(n.str2) + "\")";
+            for (const std::string& e : es) s += (s.empty() ? "" : " + ") + e;
+            return s;
+        };
+
         // Sounds referenced by this graph's Play Sound nodes become sfx<i>
         // members loaded once in init().
         std::vector<std::string> usedSounds;
@@ -10795,8 +11021,12 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
             return (int)usedSounds.size() - 1;
         };
 
-        // action node -> inline statements
-        auto actionCode = [&](const FlowNode& n, const std::string& pad) -> std::string {
+        // action node -> inline statements. `pin` is the exec input the link
+        // fired (FlowLink::toPin): a merged node (Set Object Visible's
+        // show/hide/toggle) switches its body on it, every other node ignores
+        // it because it only has pin 0.
+        auto actionCode = [&](const FlowNode& n, const std::string& pad,
+                              int pin) -> std::string {
             std::ostringstream c;
             // dyn: the target is a runtime handle (Spawn Object clone or a
             // custom node's object output); the whole action is then wrapped in
@@ -10825,7 +11055,7 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                     c << pad << "ctx.requestScene = " << target << ";  // \"" << n.str
                       << "\"\n";
                 }
-            } else if (n.type == "LoadLayer" || n.type == "UnloadLayer") {
+            } else if (n.type == "SetLayerLoaded") {
                 const int li = layerIndexOf(n.str);
                 if (li < 0) {
                     c << pad << "// node " << n.id << " (" << n.type
@@ -10833,7 +11063,7 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 } else {
                     c << pad << "if (ctx.layerRequest && " << li
                       << " < ctx.layerCount) ctx.layerRequest[" << li
-                      << "] = " << (n.type == "LoadLayer" ? 1 : 0) << ";  // \""
+                      << "] = " << (pin == 1 ? 0 : 1) << ";  // \""
                       << n.str << "\"\n";
                 }
             } else if (n.type == "SetGrading") {
@@ -10876,10 +11106,13 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 }
             } else if (n.type == "StopSequence") {
                 c << pad << "sequences::stop();\n";
-            } else if (n.type == "ShowObject") {
-                c << pad << obj << ".visible = true;\n";
-            } else if (n.type == "HideObject") {
-                c << pad << obj << ".visible = false;\n";
+            } else if (n.type == "SetObjectVisible") {
+                if (pin == 1)
+                    c << pad << obj << ".visible = false;\n";
+                else if (pin == 2)
+                    c << pad << obj << ".visible = !" << obj << ".visible;\n";
+                else
+                    c << pad << obj << ".visible = true;\n";
             } else if (n.type == "SetLight") {
                 // Request slots applied by updateDynLights before rendering.
                 // No-op on objects that are not dynamic point lights.
@@ -10891,8 +11124,6 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                   << "] = " << floatLit(n.num[1] < 0.0f ? 0.0f : n.num[1])
                   << ";\n";
                 c << pad << "}\n";
-            } else if (n.type == "ToggleObject") {
-                c << pad << obj << ".visible = !" << obj << ".visible;\n";
             } else if (n.type == "MoveObjectBy") {
                 for (int a = 0; a < 3; ++a)
                     if (n.num[a] != 0.0f)
@@ -11100,28 +11331,47 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
             } else if (n.type == "SetWidescreen") {
                 c << pad << "ctx.widescreen = " << (n.num[0] != 0.0f ? "1" : "0")
                   << ";\n";
-            } else if (n.type == "ShowHud") {
-                c << pad << "ctx.hudVisible = true;\n";
-            } else if (n.type == "HideHud") {
-                c << pad << "ctx.hudVisible = false;\n";
-            } else if (n.type == "ToggleHud") {
-                c << pad << "ctx.hudVisible = !ctx.hudVisible;\n";
-            } else if (n.type == "ShowText" || n.type == "HideText") {
+            } else if (n.type == "SetHudVisible") {
+                if (pin == 1)
+                    c << pad << "ctx.hudVisible = false;\n";
+                else if (pin == 2)
+                    c << pad << "ctx.hudVisible = !ctx.hudVisible;\n";
+                else
+                    c << pad << "ctx.hudVisible = true;\n";
+            } else if (n.type == "SetTextVisible") {
                 const int ti = hudTextIndex(n.str);
                 if (ti < 0) {
                     // Texts removed from the project just stop being shown.
                     c << pad << "// node " << n.id << " (" << n.type
                       << "): unknown text '" << n.str << "'\n";
-                } else if (n.type == "ShowText") {
+                } else if (pin == 1) {
+                    c << pad << "ctx.textRequest[" << ti << "] = 0;  // \"" << n.str
+                      << "\"\n";
+                } else {
                     float secs = n.num[0];
                     if (secs < 0.0f) secs = 0.0f;
                     c << pad << "ctx.textRequest[" << ti << "] = 1;  // \"" << n.str
                       << "\"\n"
                       << pad << "ctx.textDuration[" << ti << "] = " << floatLit(secs)
                       << ";\n";
+                }
+            } else if (n.type == "DisplayText") {
+                const int slot = dynTextSlotOf(si, ownerIdx, n.id);
+                if (slot < 0) {
+                    c << pad << "// node " << n.id << " (DisplayText): no slot\n";
+                } else if (pin == 1) {
+                    c << pad << "ctx.dynTextRequest[" << slot << "] = 0;\n";
                 } else {
-                    c << pad << "ctx.textRequest[" << ti << "] = 0;  // \"" << n.str
-                      << "\"\n";
+                    float secs = n.num[3];
+                    if (secs < 0.0f) secs = 0.0f;
+                    c << pad << "ctx.dynTextRequest[" << slot << "] = 1;\n"
+                      << pad << "ctx.dynTextDuration[" << slot << "] = "
+                      << floatLit(secs) << ";\n"
+                      // Fill the buffer now as well as in the per-frame refresh,
+                      // so the first frame shows the right string instead of a
+                      // stale one.
+                      << pad << "flowSetDynText(ctx, " << slot << ", "
+                      << dynTextExpr(n) << ");\n";
                 }
             } else if (n.type == "StopMusic") {
                 c << pad << "ctx.engine->audio.song.stop();\n";
@@ -11201,18 +11451,20 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                     c << pad << "ctx.openMenu = " << mi << ";  // \"" << n.str
                       << "\"\n";
                 }
-            } else if (n.type == "PlayAnimation") {
-                // str = clip name ("" = the model's first clip); Loop 1 = loop,
-                // Speed <= 0 = the authored default (1.0); Fade = crossfade
-                // seconds (0 = instant switch)
-                const float speed = n.num[1] > 0.001f ? n.num[1] : 1.0f;
-                const float fade = n.num[2] > 0.0f ? n.num[2] : 0.0f;
-                c << pad << "playAnimation(ctx, " << objIdx << ", \""
-                  << escapeCString(n.str) << "\", "
-                  << (n.num[0] != 0.0f ? "true" : "false") << ", "
-                  << floatLit(speed) << ", " << floatLit(fade) << ");\n";
-            } else if (n.type == "StopAnimation") {
-                c << pad << "stopAnimation(ctx, " << objIdx << ");\n";
+            } else if (n.type == "Animation") {
+                if (pin == 1) {
+                    c << pad << "stopAnimation(ctx, " << objIdx << ");\n";
+                } else {
+                    // str = clip name ("" = the model's first clip); Loop 1 =
+                    // loop, Speed <= 0 = the authored default (1.0); Fade =
+                    // crossfade seconds (0 = instant switch)
+                    const float speed = n.num[1] > 0.001f ? n.num[1] : 1.0f;
+                    const float fade = n.num[2] > 0.0f ? n.num[2] : 0.0f;
+                    c << pad << "playAnimation(ctx, " << objIdx << ", \""
+                      << escapeCString(n.str) << "\", "
+                      << (n.num[0] != 0.0f ? "true" : "false") << ", "
+                      << floatLit(speed) << ", " << floatLit(fade) << ");\n";
+                }
             } else if (n.type == "SpawnObject") {
                 // objIdx = the TEMPLATE (link > name > self); the clone lands
                 // in this node's handle slot. A linked position beats the
@@ -11317,14 +11569,18 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 if (!m) continue;
                 const FlowNodeType* t = flowNodeType(m->type);
                 if (!t || t->trigger || t->pure) continue;
+                // Keyed on node AND pin: one trigger may legitimately drive two
+                // different branches of the same merged node, which is not a
+                // cycle.
+                const int key = m->id * kFlowMaxExecIn + l.toPin;
                 bool seen = false;
-                for (int v : visited) seen |= (v == m->id);
+                for (int v : visited) seen |= (v == key);
                 if (seen) {
                     c << pad << "// exec cycle at node " << m->id << " skipped\n";
                     continue;
                 }
-                visited.push_back(m->id);
-                c << actionCode(*m, pad);
+                visited.push_back(key);
+                c << actionCode(*m, pad, l.toPin);
                 if (t->execThrough &&
                     (flowCustomNode(m->type) || m->type == "Raycast" ||
                      m->type == "GetPosition"))
@@ -11380,6 +11636,16 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 flagResets << "      " << var << " = 0;\n";
                 clsOut << "    if (" << var << " > 0 && --" << var << " == 0) {\n"
                        << linkedActions(n.id, "      ") << "    }\n";
+            } else if (n.type == "DisplayText") {
+                // The wired text is a live value (a save value, a counter), so
+                // re-read it every frame the slot is on - that is what makes
+                // this node different from the baked Set Text Visible. Skipped
+                // while hidden, so an off-screen text costs nothing.
+                const int slot = dynTextSlotOf(si, ownerIdx, n.id);
+                if (slot >= 0)
+                    clsOut << "    if (ctx.dynTextOn && ctx.dynTextOn[" << slot
+                           << "])\n      flowSetDynText(ctx, " << slot << ", "
+                           << dynTextExpr(n) << ");\n";
             } else if (n.type == "MoveObjectTo") {
                 if (!targetExpr(n).empty()) {
                     clsOut << "    // node " << n.id << " (MoveObjectTo): runtime "
@@ -12078,6 +12344,102 @@ static std::string textureDataHeader(const Project& p) {
     return out.str();
 }
 
+// inc/font_data.gen.hpp - glyph atlases for the fonts a Display Text node
+// draws with, plus one runtime slot per such node. Only fonts reachable from a
+// Display Text node appear here: static text is already pixels by build time,
+// so its font costs the game nothing.
+static std::string fontDataHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    const std::vector<int> atlasFonts = p.atlasFontIndices();
+    const std::vector<DynTextSlot> slots = dynTextSlots(p);
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\nnamespace "
+        << ns
+        << " {\n\n"
+           "// A glyph's cell in the atlas and how to lay it down. Mirrors\n"
+           "// menubake::AtlasGlyph - the metrics here and the baked pixels come\n"
+           "// from the same atlasLayout() call, so they cannot drift.\n"
+           "struct FontGlyph {\n"
+           "  short u, v;        // top-left texel in the atlas\n"
+           "  short w, h;        // glyph size (0 = nothing to draw)\n"
+           "  short xoff, yoff;  // pen/line-top -> glyph top-left, at baseSize\n"
+           "  short adv;         // pen step to the next glyph, at baseSize\n"
+           "};\n\n"
+           "struct FontData {\n"
+           "  const char* atlas;  // relative to the game binary\n"
+           "  short texW, texH;\n"
+           "  short lineH;        // baseline pitch at baseSize\n"
+           "  short baseSize;     // size the metrics were baked at\n"
+           "  unsigned char r, g, b;  // tint (glyphs bake white)\n"
+           "  unsigned char shadow;   // 1 = draw a dark 1px offset pass first\n"
+           "  const FontGlyph* glyphs;\n"
+           "};\n\n"
+        << "constexpr int FONT_FIRST_CHAR = " << menubake::kAtlasFirstChar << ";\n"
+        << "constexpr int FONT_CHAR_COUNT = " << menubake::kAtlasCharCount << ";\n"
+        << "constexpr int FONT_COUNT = " << atlasFonts.size() << ";\n\n";
+
+    auto byteLit = [](float v) {
+        int b = (int)(v * 255.0f + 0.5f);
+        return b < 0 ? 0 : b > 255 ? 255 : b;
+    };
+
+    for (size_t k = 0; k < atlasFonts.size(); ++k) {
+        const GameFont& gf = p.fonts[atlasFonts[k]];
+        menubake::AtlasLayout lay;
+        const bool ok = menubake::atlasLayout(gf, p, lay);
+        out << "inline const FontGlyph FONT_GLYPHS_" << k << "[FONT_CHAR_COUNT] = {\n";
+        for (int i = 0; i < menubake::kAtlasCharCount; ++i) {
+            const menubake::AtlasGlyph g =
+                ok ? lay.glyphs[i] : menubake::AtlasGlyph{};
+            out << "    {" << g.u << ", " << g.v << ", " << g.w << ", " << g.h
+                << ", " << g.xoff << ", " << g.yoff << ", " << g.advance << "},\n";
+        }
+        out << "};\n";
+    }
+    out << "\n";
+
+    out << "inline const FontData FONTS[FONT_COUNT > 0 ? FONT_COUNT : 1] = {\n";
+    if (atlasFonts.empty()) {
+        out << "    {\"\", 0, 0, 0, 0, 255, 255, 255, 0, nullptr},\n";
+    } else {
+        for (size_t k = 0; k < atlasFonts.size(); ++k) {
+            const GameFont& gf = p.fonts[atlasFonts[k]];
+            menubake::AtlasLayout lay;
+            const bool ok = menubake::atlasLayout(gf, p, lay);
+            out << "    {\"fonts/" << menubake::atlasFileName(gf.name) << "\", "
+                << (ok ? lay.texW : 8) << ", " << (ok ? lay.texH : 8) << ", "
+                << (ok ? lay.lineH : 8) << ", " << (ok ? lay.baseSize : 8) << ", "
+                << byteLit(gf.color[0]) << ", " << byteLit(gf.color[1]) << ", "
+                << byteLit(gf.color[2]) << ", " << (gf.shadow ? 1 : 0)
+                << ", FONT_GLYPHS_" << k << "},  // " << gf.name << "\n";
+        }
+    }
+    out << "};\n\n";
+
+    out << "// One slot per Display Text node (see DynTextSlot in templates.cpp).\n"
+           "struct DynTextData {\n"
+           "  short font;   // index into FONTS\n"
+           "  float x, y;   // normalized screen position, center anchor\n"
+           "  float size;   // glyph height in pixels\n"
+           "};\n\n"
+        << "constexpr int DYN_TEXT_COUNT = " << slots.size() << ";\n"
+        << "constexpr int DYN_TEXT_LEN = 64;  // per-slot string buffer\n"
+        << "inline const DynTextData DYN_TEXTS[DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT "
+           ": 1] = {\n";
+    if (slots.empty()) {
+        out << "    {0, 0, 0, 0},\n";
+    } else {
+        for (const DynTextSlot& s : slots)
+            out << "    {" << s.fontSlot << ", " << floatLit(s.x) << ", "
+                << floatLit(s.y) << ", " << floatLit(s.size)
+                << "},  // scene " << s.scene << ", object " << s.ownerIdx
+                << ", node " << s.nodeId << "\n";
+    }
+    out << "};\n\n}  // namespace " << ns << "\n";
+    return out.str();
+}
+
 // inc/hud_data.gen.hpp - HUD image sprites (PNG paths relative to bin/)
 static std::string hudDataHeader(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
@@ -12144,7 +12506,7 @@ static std::string hudDataHeader(const Project& p) {
     } else {
         for (const HudText& t : p.hudTexts) {
             int tw = 8, th = 8;  // fallback if no usable font (bake errors out)
-            menubake::textLayout(t, p.dir, tw, th);
+            menubake::textLayout(t, p, tw, th);
             out << "    {\"hud/" << menubake::textFileName(t.name) << "\", "
                 << floatLit(t.pos[0]) << ", " << floatLit(t.pos[1]) << ", " << tw
                 << ", " << th << ", " << (t.visibleAtStart ? 1 : 0) << "},  // "
@@ -12221,7 +12583,7 @@ static std::string loadingDataHeader(const Project& p) {
             HudText copy = t;
             copy.name = "ls-" + std::to_string(si) + "-" + t.name;
             int tw = 8, th = 8;  // fallback if no usable font
-            menubake::textLayout(copy, p.dir, tw, th);
+            menubake::textLayout(copy, p, tw, th);
             txts << "    {\"hud/" << menubake::textFileName(copy.name) << "\", "
                  << floatLit(t.pos[0]) << ", " << floatLit(t.pos[1]) << ", "
                  << tw << ", " << th << "},  // " << ls.name << ": " << t.name
@@ -12447,7 +12809,7 @@ static std::string menuDataHeader(const Project& p) {
                                     : (int)m.entries.size();
             // Layout depends on the custom images (flow blocks push the
             // cursor rows down) - the baker is the single source of truth.
-            const menubake::PanelLayout l = menubake::panelLayout(m, p.dir);
+            const menubake::PanelLayout l = menubake::panelLayout(m, p);
             const menubake::ValueStripLayout vl = menubake::valueStripLayout(m);
             const bool hasValues = menubake::menuHasValueEntries(m);
             out << "    {\"menus/" << menubake::panelFileName(m.name) << "\", "
@@ -12992,6 +13354,7 @@ std::vector<File> generate(const Project& p) {
         {"inc\\scene_data.hpp", sceneDataContent(p, ns)},
         {"inc\\model_data.gen.hpp", modelDataHeader(p)},
         {"inc\\hud_data.gen.hpp", hudDataHeader(p)},
+        {"inc\\font_data.gen.hpp", fontDataHeader(p)},
         {"inc\\loading_data.gen.hpp", loadingDataHeader(p)},
         {"inc\\terrain_heights.gen.hpp", terrainHeightsHeader(p)},
         {"inc\\texture_data.gen.hpp", textureDataHeader(p)},

@@ -79,8 +79,16 @@ Font* resolveFontPath(const std::string& fontPath, const std::string& projectDir
     return nullptr;
 }
 
-Font* resolveFont(const GameMenu& menu, const std::string& projectDir) {
-    return resolveFontPath(menu.fontPath, projectDir);
+// The TTF behind a Project::fonts entry. An empty or stale name resolves to
+// the default entry (Project::findFont), so deleting a font never breaks the
+// texts still naming it - they fall back instead of failing the bake.
+Font* resolveFontNamed(const Project& p, const std::string& fontName) {
+    const GameFont* gf = p.findFont(fontName);
+    return resolveFontPath(gf ? gf->fontPath : std::string(), p.dir);
+}
+
+Font* resolveFont(const GameMenu& menu, const Project& p) {
+    return resolveFontNamed(p, menu.font);
 }
 
 // Minimal UTF-8 decode (labels may hold Polish diacritics, hints use U+25B2).
@@ -231,14 +239,14 @@ int flowBlockHeight(const GameMenu& menu, const std::vector<FittedImage>& fit,
 
 }  // namespace
 
-PanelLayout panelLayout(const GameMenu& menu, const std::string& projectDir) {
+PanelLayout panelLayout(const GameMenu& menu, const Project& p) {
     PanelLayout l;
     l.panelW = (menu.panelW == 128 || menu.panelW == 512) ? menu.panelW : 256;
     int entries = (int)menu.entries.size();
     if (entries < 0) entries = 0;
     if (entries > kMaxEntries) entries = kMaxEntries;
 
-    const auto fit = fitImages(menu, projectDir);
+    const auto fit = fitImages(menu, p.dir);
     const int aboveTitle = flowBlockHeight(menu, fit, MenuImage::AboveTitle);
     const int aboveEntries = flowBlockHeight(menu, fit, MenuImage::AboveEntries);
     const int belowEntries = flowBlockHeight(menu, fit, MenuImage::BelowEntries);
@@ -315,16 +323,16 @@ static void drawImageScaled(Canvas& canvas, const unsigned char* src, int sw,
     }
 }
 
-bool bakePanelRGBA(const GameMenu& menu, const std::string& projectDir,
+bool bakePanelRGBA(const GameMenu& menu, const Project& p,
                    std::vector<unsigned char>& out, int& w, int& h) {
-    Font* font = resolveFont(menu, projectDir);
+    Font* font = resolveFont(menu, p);
     if (!font) return false;
 
     const int entries = (int)menu.entries.size() > kMaxEntries
                             ? kMaxEntries
                             : (int)menu.entries.size();
-    const PanelLayout l = panelLayout(menu, projectDir);
-    const auto fit = fitImages(menu, projectDir);
+    const PanelLayout l = panelLayout(menu, p);
+    const auto fit = fitImages(menu, p.dir);
     w = l.panelW;
     h = l.canvasH;
     const int content = l.contentH;
@@ -342,9 +350,9 @@ bool bakePanelRGBA(const GameMenu& menu, const std::string& projectDir,
     std::vector<unsigned char*> pixels(menu.images.size(), nullptr);
     std::vector<int> srcW(menu.images.size(), 0), srcH(menu.images.size(), 0);
     for (size_t i = 0; i < menu.images.size(); ++i) {
-        if (menu.images[i].path.empty() || projectDir.empty()) continue;
+        if (menu.images[i].path.empty() || p.dir.empty()) continue;
         int comp = 0;
-        const std::string full = projectDir + "\\" + menu.images[i].path;
+        const std::string full = p.dir + "\\" + menu.images[i].path;
         pixels[i] = stbi_load(full.c_str(), &srcW[i], &srcH[i], &comp, 4);
     }
 
@@ -417,11 +425,11 @@ bool bakePanelRGBA(const GameMenu& menu, const std::string& projectDir,
     return true;
 }
 
-bool bakePanelPNG(const GameMenu& menu, const std::string& projectDir,
+bool bakePanelPNG(const GameMenu& menu, const Project& p,
                   std::vector<unsigned char>& png) {
     std::vector<unsigned char> rgba;
     int w = 0, h = 0;
-    if (!bakePanelRGBA(menu, projectDir, rgba, w, h)) return false;
+    if (!bakePanelRGBA(menu, p, rgba, w, h)) return false;
     png.clear();
     return stbi_write_png_to_func(pngWriteCallback, &png, w, h, 4, rgba.data(),
                                   w * 4) != 0;
@@ -480,10 +488,10 @@ ValueStripLayout valueStripLayout(const GameMenu& menu) {
     return l;
 }
 
-bool bakeValueStripRGBA(const GameMenu& menu, const std::string& projectDir,
+bool bakeValueStripRGBA(const GameMenu& menu, const Project& p,
                         std::vector<unsigned char>& out, int& w, int& h) {
     if (!menuHasValueEntries(menu)) return false;
-    Font* font = resolveFont(menu, projectDir);
+    Font* font = resolveFont(menu, p);
     if (!font) return false;
 
     const ValueStripLayout l = valueStripLayout(menu);
@@ -508,22 +516,22 @@ bool bakeValueStripRGBA(const GameMenu& menu, const std::string& projectDir,
     return true;
 }
 
-bool bakeValueStripPNG(const GameMenu& menu, const std::string& projectDir,
+bool bakeValueStripPNG(const GameMenu& menu, const Project& p,
                        std::vector<unsigned char>& png) {
     std::vector<unsigned char> rgba;
     int w = 0, h = 0;
-    if (!bakeValueStripRGBA(menu, projectDir, rgba, w, h)) return false;
+    if (!bakeValueStripRGBA(menu, p, rgba, w, h)) return false;
     png.clear();
     return stbi_write_png_to_func(pngWriteCallback, &png, w, h, 4, rgba.data(),
                                   w * 4) != 0;
 }
 
-void overlayValuePreview(const GameMenu& menu, const std::string& projectDir,
+void overlayValuePreview(const GameMenu& menu, const Project& p,
                          const std::vector<int>& current,
                          std::vector<unsigned char>& rgba, int w, int h) {
-    Font* font = resolveFont(menu, projectDir);
+    Font* font = resolveFont(menu, p);
     if (!font) return;
-    const PanelLayout pl = panelLayout(menu, projectDir);
+    const PanelLayout pl = panelLayout(menu, p);
     const ValueStripLayout vl = valueStripLayout(menu);
     Canvas canvas{&rgba, w, h};
     const int entries = (int)vl.firstCell.size();
@@ -570,9 +578,8 @@ int pow2Dim(int v) {
 
 }  // namespace
 
-bool textLayout(const HudText& text, const std::string& projectDir, int& w,
-                int& h) {
-    Font* font = resolveFontPath(text.fontPath, projectDir);
+bool textLayout(const HudText& text, const Project& p, int& w, int& h) {
+    Font* font = resolveFontNamed(p, text.font);
     if (!font) return false;
     const auto lines = splitLines(text.text);
     const int lineH = text.size + 4;
@@ -587,11 +594,11 @@ bool textLayout(const HudText& text, const std::string& projectDir, int& w,
     return true;
 }
 
-bool bakeTextRGBA(const HudText& text, const std::string& projectDir,
+bool bakeTextRGBA(const HudText& text, const Project& p,
                   std::vector<unsigned char>& out, int& w, int& h) {
-    Font* font = resolveFontPath(text.fontPath, projectDir);
+    Font* font = resolveFontNamed(p, text.font);
     if (!font) return false;
-    if (!textLayout(text, projectDir, w, h)) return false;
+    if (!textLayout(text, p, w, h)) return false;
     out.assign((size_t)w * h * 4, 0);
     Canvas canvas{&out, w, h};
 
@@ -617,11 +624,11 @@ bool bakeTextRGBA(const HudText& text, const std::string& projectDir,
     return true;
 }
 
-bool bakeTextPNG(const HudText& text, const std::string& projectDir,
+bool bakeTextPNG(const HudText& text, const Project& p,
                  std::vector<unsigned char>& png) {
     std::vector<unsigned char> rgba;
     int w = 0, h = 0;
-    if (!bakeTextRGBA(text, projectDir, rgba, w, h)) return false;
+    if (!bakeTextRGBA(text, p, rgba, w, h)) return false;
     png.clear();
     return stbi_write_png_to_func(pngWriteCallback, &png, w, h, 4, rgba.data(),
                                   w * 4) != 0;
@@ -674,6 +681,134 @@ std::string flareFileName(int kind) {
     return kind == 0   ? "flare-glow.png"
            : kind == 1 ? "flare-ring.png"
                        : "flare-corona.png";
+}
+
+std::string atlasFileName(const std::string& fontName) {
+    return "atlas-" + sanitizeName(fontName, "font") + ".png";
+}
+
+bool atlasLayout(const GameFont& font, const Project& p, AtlasLayout& out) {
+    // The entry itself carries the source path - never look it up by name,
+    // so an unsaved Font Manager edit previews with its own font.
+    Font* f = resolveFontPath(font.fontPath, p.dir);
+    if (!f) return false;
+
+    const int size = font.atlasSize < 8 ? 8 : font.atlasSize > 48 ? 48
+                                                                  : font.atlasSize;
+    const float scale = stbtt_ScaleForPixelHeight(&f->info, (float)size);
+    int ascent = 0, descent = 0, lineGap = 0;
+    stbtt_GetFontVMetrics(&f->info, &ascent, &descent, &lineGap);
+    const int baseline = (int)(ascent * scale + 0.5f);
+
+    out.baseSize = size;
+    out.lineH = (int)((ascent - descent + lineGap) * scale + 0.5f);
+    out.glyphs.assign(kAtlasCharCount, AtlasGlyph{});
+
+    int maxW = 1, maxH = 1;
+    for (int i = 0; i < kAtlasCharCount; ++i) {
+        const int cp = kAtlasFirstChar + i;
+        AtlasGlyph& g = out.glyphs[i];
+        int adv = 0, lsb = 0;
+        stbtt_GetCodepointHMetrics(&f->info, cp, &adv, &lsb);
+        g.advance = (int)(adv * scale + 0.5f);
+        int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+        stbtt_GetCodepointBitmapBox(&f->info, cp, scale, scale, &x0, &y0, &x1,
+                                    &y1);
+        g.w = x1 - x0;
+        g.h = y1 - y0;
+        g.xoff = x0;
+        g.yoff = baseline + y0;
+        if (g.w > maxW) maxW = g.w;
+        if (g.h > maxH) maxH = g.h;
+    }
+    // Uniform grid with a 1px gutter, so bilinear sampling at the cell edge
+    // never drags in the neighboring glyph (the engine's debug strip pads its
+    // cells for the same reason).
+    out.cellW = maxW + 1;
+    out.cellH = maxH + 1;
+
+    // Power-of-two sheet holding all 95 cells, by smallest area - and, on a
+    // tie, the squarest. Pow2 rounding often makes several shapes cost the
+    // exact same pixels (64x512 and 128x128 can both be 32k), and an atlas
+    // stays resident in VRAM once shown, so ties are worth breaking well: the
+    // squarer sheet leaves headroom before the 512 cap starts dropping glyphs.
+    out.texW = 512;
+    out.texH = 512;
+    out.cols = out.texW / out.cellW;
+    out.clipped = true;
+    int bestArea = 0, bestSpan = 0;
+    for (int tw = 8; tw <= 512; tw *= 2) {
+        const int cols = tw / out.cellW;
+        if (cols < 1) continue;
+        const int rows = (kAtlasCharCount + cols - 1) / cols;
+        int th = 8;
+        while (th < rows * out.cellH) th *= 2;
+        if (th > 512) continue;
+        const int area = tw * th;
+        const int span = tw > th ? tw : th;
+        if (bestArea && (area > bestArea || (area == bestArea && span >= bestSpan)))
+            continue;
+        bestArea = area;
+        bestSpan = span;
+        out.texW = tw;
+        out.texH = th;
+        out.cols = cols;
+        out.clipped = false;
+    }
+    if (out.cols < 1) out.cols = 1;
+
+    for (int i = 0; i < kAtlasCharCount; ++i) {
+        AtlasGlyph& g = out.glyphs[i];
+        g.u = (i % out.cols) * out.cellW;
+        g.v = (i / out.cols) * out.cellH;
+        if (g.v + out.cellH > out.texH) {
+            g.w = g.h = 0;  // past the cap: draws as a blank
+            out.clipped = true;
+        }
+    }
+    return true;
+}
+
+bool bakeAtlasRGBA(const GameFont& font, const Project& p,
+                   std::vector<unsigned char>& out, AtlasLayout& layout) {
+    // The entry itself carries the source path - never look it up by name,
+    // so an unsaved Font Manager edit previews with its own font.
+    Font* f = resolveFontPath(font.fontPath, p.dir);
+    if (!f) return false;
+    if (!atlasLayout(font, p, layout)) return false;
+
+    out.assign((size_t)layout.texW * layout.texH * 4, 0);
+    Canvas canvas{&out, layout.texW, layout.texH};
+    const float scale = stbtt_ScaleForPixelHeight(&f->info, (float)layout.baseSize);
+    // White glyphs: the runtime tints the sprite, so one atlas serves every
+    // color a font is ever drawn in (and the drop shadow is a second, dark
+    // pass over the same pixels).
+    const RGBA white{255, 255, 255, 255};
+
+    for (int i = 0; i < kAtlasCharCount; ++i) {
+        const AtlasGlyph& g = layout.glyphs[i];
+        if (g.w <= 0 || g.h <= 0) continue;
+        int gw = 0, gh = 0, gx = 0, gy = 0;
+        unsigned char* bmp = stbtt_GetCodepointBitmap(
+            &f->info, scale, scale, kAtlasFirstChar + i, &gw, &gh, &gx, &gy);
+        if (!bmp) continue;
+        for (int by = 0; by < gh; ++by)
+            for (int bx = 0; bx < gw; ++bx)
+                canvas.blend(g.u + bx, g.v + by, white, bmp[by * gw + bx]);
+        stbtt_FreeBitmap(bmp, nullptr);
+    }
+    return true;
+}
+
+bool bakeAtlasPNG(const GameFont& font, const Project& p,
+                  std::vector<unsigned char>& png) {
+    std::vector<unsigned char> rgba;
+    AtlasLayout layout;
+    if (!bakeAtlasRGBA(font, p, rgba, layout)) return false;
+    png.clear();
+    return stbi_write_png_to_func(pngWriteCallback, &png, layout.texW,
+                                  layout.texH, 4, rgba.data(),
+                                  layout.texW * 4) != 0;
 }
 
 }  // namespace menubake

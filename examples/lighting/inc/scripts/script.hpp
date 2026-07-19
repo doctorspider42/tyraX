@@ -99,6 +99,18 @@ struct ScriptContext {
   signed char* lightRequest = nullptr;
   float* lightIntensity = nullptr;
 
+  // Runtime texts (DYN_TEXTS order, font_data.gen.hpp - one slot per Display
+  // Text node). Same request protocol as textRequest above, but the string is
+  // not baked: write it into dynTextBuf + i * DYN_TEXT_LEN. dynTextOn[i] tells
+  // a script whether its slot is currently on screen, so it only pays for the
+  // refresh while the text is actually visible.
+  signed char* dynTextRequest = nullptr;
+  float* dynTextDuration = nullptr;
+  char* dynTextBuf = nullptr;
+  const unsigned char* dynTextOn = nullptr;
+  int dynTextCount = 0;
+  int dynTextLen = 0;  // stride of dynTextBuf (DYN_TEXT_LEN)
+
   // Camera flashlight master switch (the Player object's "Enabled"). Write 1
   // to turn it on, 0 to turn it off, -1 to leave it unchanged; the game
   // applies and resets it. The optional toggle button still gates the beam.

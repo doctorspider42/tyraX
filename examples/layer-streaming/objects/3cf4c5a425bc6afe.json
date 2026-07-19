@@ -1,0 +1,1 @@
+{ "id": "3cf4c5a425bc6afe", "name": "a-wall-right", "type": "box", "position": [6, 1.5, -14], "rotation": [0, 0, 0], "scale": [0.5, 3, 10], "color": [0.75, 0.7, 0.6], "physics": false, "layer": "building-a" }
