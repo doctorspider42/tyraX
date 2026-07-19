@@ -4691,76 +4691,123 @@ bool TerrainGame::renderOnePortalView(int pi) {
   const float cz = m.data.position[2] + az.z * nz;
   const float sgnX[4] = {-1.0F, 1.0F, 1.0F, -1.0F};
   const float sgnY[4] = {-1.0F, -1.0F, 1.0F, 1.0F};
-  const M4x4& vp = engine->renderer.core.renderer3D.getViewProj();
-  Vec4 poly[12], tmp[12];
-  int n = 4;
-  for (int i = 0; i < 4; ++i) {
-    const float wx = cx + ax.x * hx * sgnX[i] + ay.x * hy * sgnY[i];
-    const float wy = cy + ax.y * hx * sgnX[i] + ay.y * hy * sgnY[i];
-    const float wz = cz + ax.z * hx * sgnX[i] + ay.z * hy * sgnY[i];
-    poly[i] = vp * Vec4(wx, wy, wz, 1.0F);
-  }
-  // Frustum edges sit at |x| = w * screenW/4096 in this projection (the
-  // VU1 pipeline's fixed 2048 scale), NOT at |x| = w; small margin - the
-  // GS scissor finishes the job. Heights are RASTER heights: with field
-  // rendering (InterlacedField) the buffer is half height and the
-  // projection's raster scale is built at getRenderHeightF - screen-space
-  // math here must match it (getHeight would land the mask a field off).
   const float fbW = engine->renderer.core.getSettings().getWidth();
   const float fbH = engine->renderer.core.getSettings().getRenderHeightF();
-  const float xl = fbW / 4096.0F * 1.06F;
-  const float yl = fbH / 4096.0F * 1.06F;
-  const float wMin = engine->renderer.core.getSettings().getNear() * 0.5F;
-  for (int plane = 0; plane < 5 && n >= 3; ++plane) {
-    auto dist = [&](const Vec4& v) -> float {
-      switch (plane) {
-        case 0: return v.w - wMin;
-        case 1: return xl * v.w - v.x;
-        case 2: return xl * v.w + v.x;
-        case 3: return yl * v.w - v.y;
-        default: return yl * v.w + v.y;
-      }
-    };
-    int outN = 0;
-    for (int i = 0; i < n; ++i) {
-      const Vec4& a = poly[i];
-      const Vec4& b = poly[(i + 1) % n];
-      const float da = dist(a);
-      const float db = dist(b);
-      if (da >= 0.0F) tmp[outN++] = a;
-      if ((da >= 0.0F) != (db >= 0.0F)) {
-        const float t = da / (da - db);
-        tmp[outN++] = Vec4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t,
-                           a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t);
-      }
-    }
-    n = outN;
-    for (int i = 0; i < n; ++i) poly[i] = tmp[i];
-  }
-  if (n < 3) return false;
+  // Heights above are RASTER heights: with field rendering
+  // (InterlacedField) the buffer is half height and the projection's
+  // raster scale is built at getRenderHeightF - screen-space math here
+  // must match it (getHeight would land the mask a field off).
 
   float xy[24];
   u32 zz[12];
-  float minX = 1e30F, minY = 1e30F, maxX = -1e30F, maxY = -1e30F;
-  for (int i = 0; i < n; ++i) {
-    const float inv = 1.0F / poly[i].w;
-    const float sx = fbW * 0.5F + poly[i].x * inv * 2048.0F;
-    const float sy = fbH * 0.5F + poly[i].y * inv * 2048.0F;
-    xy[i * 2] = sx;
-    xy[i * 2 + 1] = sy;
-    if (sx < minX) minX = sx;
-    if (sx > maxX) maxX = sx;
-    if (sy < minY) minY = sy;
-    if (sy > maxY) maxY = sy;
-    float zf = (poly[i].z * inv + 1.0F) * 8388607.5F;
-    if (zf < 0.0F) zf = 0.0F;
-    if (zf > 16777215.0F) zf = 16777215.0F;
-    zz[i] = (u32)zf;
+  int n = 0;
+  int bx0, by0, bx1, by1;
+
+  // Crossing zone: when the eye is a breath away from the plane, inside
+  // the rectangle and looking INTO the surface, parts of the quad fall
+  // behind the near plane, the clipped fan shrinks and the world behind
+  // the free-standing surface peeks around it for a frame or two - the
+  // "looking through two portals at once" pop right at the crossing
+  // moment. In that zone the opening simply becomes the WHOLE screen at
+  // the nearest depth: the destination fills the view, exactly what
+  // standing in the doorway should look like.
+  {
+    const float relX = cameraPosition.x - m.data.position[0];
+    const float relY = cameraPosition.y - m.data.position[1];
+    const float relZ = cameraPosition.z - m.data.position[2];
+    const float lz = relX * az.x + relY * az.y + relZ * az.z;
+    const float lx = relX * ax.x + relY * ax.y + relZ * ax.z;
+    const float ly = relX * ay.x + relY * ay.y + relZ * ay.z;
+    const float thresh =
+        engine->renderer.core.getSettings().getNear() * 2.0F + 0.45F;
+    Vec4 fwd = cameraLookAt - cameraPosition;
+    const float into = -(fwd.x * az.x + fwd.y * az.y + fwd.z * az.z);
+    if (lz > 0.0F && lz < thresh && lx > -hx - 0.3F && lx < hx + 0.3F &&
+        ly > -hy - 0.3F && ly < hy + 0.3F && into > 0.0F) {
+      n = 4;
+      xy[0] = 0.0F;
+      xy[1] = 0.0F;
+      xy[2] = fbW;
+      xy[3] = 0.0F;
+      xy[4] = fbW;
+      xy[5] = fbH;
+      xy[6] = 0.0F;
+      xy[7] = fbH;
+      for (int i = 0; i < 4; ++i) zz[i] = 0xFFFFFFu;
+      bx0 = 0;
+      by0 = 0;
+      bx1 = (int)fbW;
+      by1 = (int)fbH;
+    }
   }
-  const int bx0 = (int)minX, by0 = (int)minY;
-  const int bx1 = (int)maxX + 1, by1 = (int)maxY + 1;
-  if (bx1 <= 0 || by1 <= 0 || bx0 >= (int)fbW || by0 >= (int)fbH)
-    return false;
+
+  if (n == 0) {
+    const M4x4& vp = engine->renderer.core.renderer3D.getViewProj();
+    Vec4 poly[12], tmp[12];
+    n = 4;
+    for (int i = 0; i < 4; ++i) {
+      const float wx = cx + ax.x * hx * sgnX[i] + ay.x * hy * sgnY[i];
+      const float wy = cy + ax.y * hx * sgnX[i] + ay.y * hy * sgnY[i];
+      const float wz = cz + ax.z * hx * sgnX[i] + ay.z * hy * sgnY[i];
+      poly[i] = vp * Vec4(wx, wy, wz, 1.0F);
+    }
+    // Frustum edges sit at |x| = w * screenW/4096 in this projection (the
+    // VU1 pipeline's fixed 2048 scale), NOT at |x| = w; small margin - the
+    // GS scissor finishes the job.
+    const float xl = fbW / 4096.0F * 1.06F;
+    const float yl = fbH / 4096.0F * 1.06F;
+    const float wMin = engine->renderer.core.getSettings().getNear() * 0.5F;
+    for (int plane = 0; plane < 5 && n >= 3; ++plane) {
+      auto dist = [&](const Vec4& v) -> float {
+        switch (plane) {
+          case 0: return v.w - wMin;
+          case 1: return xl * v.w - v.x;
+          case 2: return xl * v.w + v.x;
+          case 3: return yl * v.w - v.y;
+          default: return yl * v.w + v.y;
+        }
+      };
+      int outN = 0;
+      for (int i = 0; i < n; ++i) {
+        const Vec4& a = poly[i];
+        const Vec4& b = poly[(i + 1) % n];
+        const float da = dist(a);
+        const float db = dist(b);
+        if (da >= 0.0F) tmp[outN++] = a;
+        if ((da >= 0.0F) != (db >= 0.0F)) {
+          const float t = da / (da - db);
+          tmp[outN++] = Vec4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t,
+                             a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t);
+        }
+      }
+      n = outN;
+      for (int i = 0; i < n; ++i) poly[i] = tmp[i];
+    }
+    if (n < 3) return false;
+
+    float minX = 1e30F, minY = 1e30F, maxX = -1e30F, maxY = -1e30F;
+    for (int i = 0; i < n; ++i) {
+      const float inv = 1.0F / poly[i].w;
+      const float sx = fbW * 0.5F + poly[i].x * inv * 2048.0F;
+      const float sy = fbH * 0.5F + poly[i].y * inv * 2048.0F;
+      xy[i * 2] = sx;
+      xy[i * 2 + 1] = sy;
+      if (sx < minX) minX = sx;
+      if (sx > maxX) maxX = sx;
+      if (sy < minY) minY = sy;
+      if (sy > maxY) maxY = sy;
+      float zf = (poly[i].z * inv + 1.0F) * 8388607.5F;
+      if (zf < 0.0F) zf = 0.0F;
+      if (zf > 16777215.0F) zf = 16777215.0F;
+      zz[i] = (u32)zf;
+    }
+    bx0 = (int)minX;
+    by0 = (int)minY;
+    bx1 = (int)maxX + 1;
+    by1 = (int)maxY + 1;
+    if (bx1 <= 0 || by1 <= 0 || bx0 >= (int)fbW || by0 >= (int)fbH)
+      return false;
+  }
 
   auto& core = engine->renderer.core;
   core.portalViewBegin(bx0, by0, bx1, by1);
@@ -4780,6 +4827,20 @@ bool TerrainGame::renderOnePortalView(int pi) {
     // with terrain streaming on, keep the pair inside the streamed radius
     renderTerrain();
   }
+  // Dead zone: the virtual camera sits BEHIND the exit plane (the
+  // isometry puts it there), and the PS2 has no oblique near plane to
+  // clip what lies between the two - through a real hole that region is
+  // invisible, so objects fully on the camera side of the target plane
+  // are skipped (a floor->ceiling pair otherwise shows the world behind
+  // the exit mouth blocking the view). Terrain has no per-chunk test -
+  // when it would sit in the dead zone (e.g. the virtual eye ends up
+  // underground), turn the portal's "Terrain + sky in view" off.
+  RuntimeObject& tgt = runtimeObjects[p.target];
+  const V3 exitN = rotated({0.0F, 0.0F, 1.0F}, tgt.data.rotation);
+  const float exitD = exitN.x * tgt.data.position[0] +
+                      exitN.y * tgt.data.position[1] +
+                      exitN.z * tgt.data.position[2];
+
   // One view object: base bags + (animated) last skinned pose. No
   // portal-in-portal: the recursion would re-carve the very opening being
   // rendered (mirrors draw only their glass here - the reflected copies
@@ -4788,6 +4849,17 @@ bool TerrainGame::renderOnePortalView(int pi) {
     if (ti < 0 || ti >= (int)runtimeObjects.size()) return;
     RuntimeObject& ro = runtimeObjects[ti];
     if (!ro.active || !ro.visible || ro.data.type == 16) return;
+    {
+      // skip objects entirely behind the exit mouth (dead zone above);
+      // bounding radius approximated like the env-map self-skip does
+      float half = ro.data.scale[0];
+      if (ro.data.scale[1] > half) half = ro.data.scale[1];
+      if (ro.data.scale[2] > half) half = ro.data.scale[2];
+      const float sd = exitN.x * ro.data.position[0] +
+                       exitN.y * ro.data.position[1] +
+                       exitN.z * ro.data.position[2] - exitD;
+      if (sd < -0.87F * half) return;
+    }
     if (ro.dirty) rebuildObjectGeometry(ti);
     ObjectGeometry& g = objectGeometry[ti];
     for (GeoPart& part : g.parts)

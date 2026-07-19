@@ -72,6 +72,20 @@ render-to-texture pass).
   frame renders from the departure side. The player probes with two
   segments — waist (door-sized wall portals) and **feet**, so jumping or
   dropping into a floor portal teleports too.
+- **The doorway moment**: with your eye a breath from the plane, parts of
+  the quad fall behind the near plane and a clipped opening would let the
+  world behind the free-standing surface peek around it for a frame
+  ("looking through two portals at once"). Inside that zone — close,
+  inside the rectangle, looking into the surface — the opening expands to
+  the whole screen: the destination fills the view until you cross.
+- **Dead zone**: the virtual camera sits behind the exit plane, and the
+  PS2 has no oblique near plane to clip what lies in between. View
+  objects fully on the camera side of the target plane are skipped
+  automatically (through a real hole they'd be invisible). Terrain has no
+  per-chunk test — if the virtual eye ends up inside geometry (e.g.
+  underground for a floor→ceiling pair), turn that portal's **Terrain +
+  sky in view** off, or the view shows the geometry's backside instead of
+  the world beyond.
 
 ## Limits (era-honest by design)
 

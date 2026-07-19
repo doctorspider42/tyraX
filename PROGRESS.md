@@ -9,6 +9,32 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (121) **Portals: hardware-feedback round 2 — the doorway moment + the
+  dead zone.** Two more owner reports from the pad. (1) "Skok widać, gdy
+  się jest ryjem dokładnie w centrum portalu, jakby się przez dwa naraz
+  patrzyło": with the eye closer to the plane than the near distance, the
+  quad's frustum-clipped fan shrinks and the world behind the
+  free-standing surface peeks around the opening for a frame or two. Fix:
+  a **crossing zone** — eye within ~near·2+0.45 of the plane, inside the
+  rectangle (+0.3 margin), looking INTO the surface → the carve becomes
+  the WHOLE screen at the nearest depth, so the destination fills the
+  view until the hop lands (renderOnePortalView short-circuits the clip
+  path). (2) "Górny portal ma teksturę ziemi i nie widać jak kostka
+  wpada": the floor↔ceiling pair's isometry puts the ceiling view's
+  virtual camera ~5 units UNDERGROUND looking up, and with no oblique
+  near plane the terrain between the camera and the exit plane renders
+  (double-sided) and occludes everything — the "ground texture". Fix: a
+  general **dead-zone test** — view objects entirely on the camera side
+  of the exit plane are skipped (through a real hole they are invisible;
+  bounding radius like the env-map self-skip) — plus the demo ceiling
+  portal's terrain toggle turned off (terrain has no per-chunk plane
+  test; documented in docs/portals.md). **Verified (Layer 3, PCSX2 D3D11
+  HW):** the ceiling surface no longer shows terrain backside and the
+  cube drops out of it cleanly; walk-through + infinite fall + four live
+  views intact at locked 50 FPS. The doorway-zone carve compiles into the
+  demo but only a pad walk-through exercises it — that check (and whether
+  the hardware pop is gone) stays with the owner.
+
 - (120) **Portals: owner-feedback round — multi-view, jump-in, seamless
   hop.** Three fixes from playing the demo on hardware: (1) **up to four
   portal views per frame** instead of one (nearest qualify; carved
