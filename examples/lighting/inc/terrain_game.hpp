@@ -422,6 +422,23 @@ class TerrainGame : public Tyra::Game {
   Tyra::Texture* beamCoronaTex = nullptr;
   void setupLightBeams();            // per scene load
   void updateAndRenderLightBeams();  // per frame, end of renderScene
+  // Ground pools of the DYNAMIC point lights: the terrain opts out of the
+  // per-chunk light pick (hard seams at chunk borders), so each dynamic
+  // light paints its pool as a smooth additive terrain-conforming patch
+  // instead - same corona sprite, same flicker breathing.
+  struct LightPool {
+    int objIndex = -1;
+    std::vector<Tyra::Vec4> verts, sts;
+    Tyra::Color color;
+    Tyra::M4x4 mat;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+  };
+  std::vector<LightPool> lightPools;
+  void setupLightPools();            // per scene load
+  void updateAndRenderLightPools();  // per frame, before the shadows
   // Blob shadows (BLOB_SHADOWS): a soft dark terrain-conforming quad under
   // each moving object (third-person avatar, animated models, physics
   // objects), fading out as the object rises. Per-caster arrays - the DMA

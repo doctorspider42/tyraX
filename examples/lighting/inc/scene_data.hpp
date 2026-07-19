@@ -127,8 +127,8 @@ constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_JUMP_CLIPS[SCENE_COUNT] = {""};
 
-constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {28.0F};
-constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {28.0F};
+constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {36.0F};
+constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {36.0F};
 constexpr float SCENE_LIGHT_XS[SCENE_COUNT] = {0.29994F};
 constexpr float SCENE_LIGHT_YS[SCENE_COUNT] = {0.519896F};
 constexpr float SCENE_LIGHT_ZS[SCENE_COUNT] = {0.79984F};

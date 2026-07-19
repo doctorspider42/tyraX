@@ -10,6 +10,27 @@ Each finished feature lands as its own commit.
 
 ## Done in the lighting batch
 
+- (121) **Pad-walk feedback fixes: rectangular light-pool seams + the
+  example's plaza past the map edge.** The owner walked examples/lighting
+  and found (a) a torch pool cut into a hard rectangle and (b) "a hole in
+  the floor". (a) is structural: terrain draws in CHUNKS, and the
+  per-bag dynamic-light pick chooses ONE light per chunk - neighboring
+  chunks picking different lights truncate a pool exactly at the chunk
+  border. Fix: `PipelineInfoBag::dynLightPick` (TyraX engine field,
+  default true) - terrain chunks and the sky dome (a nearby light would
+  tint the whole camera-centered dome) opt out and keep the global
+  flashlight state, while each DYNAMIC light now paints its ground pool
+  as a smooth additive terrain-conforming patch (`LightPool`, 4x4 cells,
+  corona sprite tinted by the light color, breathing with
+  `DynLightRt::lastLevel` through additiveBlendFix, TestOnly z, drawn
+  before the shadows). `projectUsesBeams` now also counts dynamic lights
+  (the pools share the corona sprite bake/load). Object bags keep the
+  real per-mesh VU1 pick - a whole object is one bag, no seams. (b) the
+  example's hero shapes stood at z 15..16 on a 28x28 terrain (edge at
+  +/-14) - the "hole" was honestly the end of the world; terrain is now
+  36x36. **Verified** (Layer 3): PCSX2 SW renderer - smooth round pools
+  under both torches and the crystal with no chunk seams, terrain
+  continuing past the plaza, silhouettes landing on real ground, 50 FPS.
 - (120) **examples/lighting - the whole batch in one dusk plaza.** A
   committed first-person example presenting every lighting-batch feature
   at once: two flickering dynamic torches with corona + cone beams, a

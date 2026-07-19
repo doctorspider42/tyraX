@@ -186,8 +186,12 @@ void StaPipCore::render(StaPipBag* bag) {
   // point lights - the color programs have ONE light slot per mesh). The
   // pick runs on the bag's world-space bounding sphere; without a bbox
   // (frustumCulling != Precise, e.g. the sky dome) the model translation
-  // stands in with radius 0.
-  if (!bag->lighting) {
+  // stands in with radius 0. Bags with dynLightPick = false (terrain
+  // chunks, the sky dome) keep the global flashlight state - a per-chunk
+  // pick shows a hard seam wherever neighbors pick different lights.
+  if (!bag->lighting && !bag->info->dynLightPick) {
+    qbufferRenderer.setBagLight(nullptr);
+  } else if (!bag->lighting) {
     const M4x4& m = *bag->info->model;
     Vec4 center(m.data[12], m.data[13], m.data[14], 1.0F);
     float radius = 0.0F;

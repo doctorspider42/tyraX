@@ -6,7 +6,7 @@
 namespace Lighting {
 
 // scene "main"
-constexpr float HM_0_HEIGHTS[841] = {
+constexpr float HM_0_HEIGHTS[1089] = {
     0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
     0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
     0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
@@ -77,15 +77,35 @@ constexpr float HM_0_HEIGHTS[841] = {
     0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
     0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
     0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
-    0.0F,
+    0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
+    0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
+    0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
+    0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
+    0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
+    0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
+    0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
+    0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
+    0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
+    0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
+    0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
+    0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
+    0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
+    0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
+    0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
+    0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
+    0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
+    0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
+    0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
+    0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
+    0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
 };
 
-constexpr int HM_WS[SCENE_COUNT] = {29};
-constexpr int HM_DS[SCENE_COUNT] = {29};
-constexpr float HM_ORIGIN_XS[SCENE_COUNT] = {-14.0F};
-constexpr float HM_ORIGIN_ZS[SCENE_COUNT] = {-14.0F};
-constexpr float HM_STEP_XS[SCENE_COUNT] = {1.0F};
-constexpr float HM_STEP_ZS[SCENE_COUNT] = {1.0F};
+constexpr int HM_WS[SCENE_COUNT] = {33};
+constexpr int HM_DS[SCENE_COUNT] = {33};
+constexpr float HM_ORIGIN_XS[SCENE_COUNT] = {-18.0F};
+constexpr float HM_ORIGIN_ZS[SCENE_COUNT] = {-18.0F};
+constexpr float HM_STEP_XS[SCENE_COUNT] = {1.125F};
+constexpr float HM_STEP_ZS[SCENE_COUNT] = {1.125F};
 inline const float* TERRAIN_HEIGHTS_TABLES[SCENE_COUNT] = {HM_0_HEIGHTS};
 
 /** Bilinear terrain height at world coordinates in a scene. The

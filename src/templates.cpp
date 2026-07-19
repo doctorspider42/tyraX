@@ -786,6 +786,23 @@ class TerrainGame : public Tyra::Game {
   Tyra::Texture* beamCoronaTex = nullptr;
   void setupLightBeams();            // per scene load
   void updateAndRenderLightBeams();  // per frame, end of renderScene
+  // Ground pools of the DYNAMIC point lights: the terrain opts out of the
+  // per-chunk light pick (hard seams at chunk borders), so each dynamic
+  // light paints its pool as a smooth additive terrain-conforming patch
+  // instead - same corona sprite, same flicker breathing.
+  struct LightPool {
+    int objIndex = -1;
+    std::vector<Tyra::Vec4> verts, sts;
+    Tyra::Color color;
+    Tyra::M4x4 mat;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+  };
+  std::vector<LightPool> lightPools;
+  void setupLightPools();            // per scene load
+  void updateAndRenderLightPools();  // per frame, before the shadows
   // Blob shadows (BLOB_SHADOWS): a soft dark terrain-conforming quad under
   // each moving object (third-person avatar, animated models, physics
   // objects), fading out as the object rises. Per-caster arrays - the DMA
@@ -1268,6 +1285,23 @@ class TerrainGame : public Tyra::Game {
   Tyra::Texture* beamCoronaTex = nullptr;
   void setupLightBeams();            // per scene load
   void updateAndRenderLightBeams();  // per frame, end of renderScene
+  // Ground pools of the DYNAMIC point lights: the terrain opts out of the
+  // per-chunk light pick (hard seams at chunk borders), so each dynamic
+  // light paints its pool as a smooth additive terrain-conforming patch
+  // instead - same corona sprite, same flicker breathing.
+  struct LightPool {
+    int objIndex = -1;
+    std::vector<Tyra::Vec4> verts, sts;
+    Tyra::Color color;
+    Tyra::M4x4 mat;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+  };
+  std::vector<LightPool> lightPools;
+  void setupLightPools();            // per scene load
+  void updateAndRenderLightPools();  // per frame, before the shadows
   // Blob shadows (BLOB_SHADOWS): a soft dark terrain-conforming quad under
   // each moving object (third-person avatar, animated models, physics
   // objects), fading out as the object rises. Per-caster arrays - the DMA
@@ -2747,6 +2781,12 @@ void TerrainGame::buildScene() {
   infoBag = std::make_unique<StaPipInfoBag>();
   infoBag->model = &model;
   infoBag->shadingType = TyraShadingFlat;
+  // Terrain draws in CHUNKS sharing this info bag: a per-chunk dynamic-light
+  // pick shows a hard rectangular seam wherever neighboring chunks pick
+  // different lights, so the terrain opts out (the flashlight still lights
+  // it globally) and the scene lights paint their ground pools as smooth
+  // additive patches instead (updateAndRenderLightPools).
+  infoBag->dynLightPick = false;
   // Always classify per package against the frustum: packages fully outside
   // are skipped, packages touching a plane get per-triangle clipping
   // (CLIP_PRECISE, Project > Preferences) or per-triangle culling (fast -
@@ -3937,8 +3977,9 @@ void TerrainGame::loadScene(int sceneIndex) {
   // Before any mesh baking: terrain chunks and object geometry shade with
   // this scene's point lights (see collectScenePointLights).
   collectScenePointLights();
-  // Visible light beams follow the scene's Point Light objects.
+  // Visible light beams + ground pools follow the scene's Point Lights.
   setupLightBeams();
+  setupLightPools();
   // Blob shadows follow the scene's moving objects.
   setupBlobShadows();
   // Projected silhouette shadows follow the scene's "Cast shadow" objects.
@@ -5148,6 +5189,105 @@ void TerrainGame::setupLightBeams() {
   }
 }
 
+// Ground pools of the dynamic lights: per-scene setup. One 4x4 additive
+// terrain patch per dynamic light, textured with the corona sprite (shape
+// in RGB - additive bags ignore texture alpha), tinted by the light color.
+void TerrainGame::setupLightPools() {
+  lightPools.clear();
+  if (!beamCoronaTex) return;
+  constexpr int kCells = 4;
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+    const SceneObjectData& d = SCENE_OBJECTS[i];
+    if (d.type != 9 || !d.lightDynamic) continue;
+    lightPools.emplace_back();
+    LightPool& b = lightPools.back();
+    b.objIndex = i;
+    b.mat.identity();
+    b.verts.assign(kCells * kCells * 6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    b.sts.assign(kCells * kCells * 6, Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    int v = 0;
+    for (int iz = 0; iz < kCells; ++iz) {
+      for (int ix = 0; ix < kCells; ++ix) {
+        const float u0 = (float)ix / kCells, u1 = (float)(ix + 1) / kCells;
+        const float t0 = (float)iz / kCells, t1 = (float)(iz + 1) / kCells;
+        b.sts[v + 0] = Vec4(u0, t0, 1.0F, 0.0F);
+        b.sts[v + 1] = Vec4(u1, t0, 1.0F, 0.0F);
+        b.sts[v + 2] = Vec4(u1, t1, 1.0F, 0.0F);
+        b.sts[v + 3] = Vec4(u0, t0, 1.0F, 0.0F);
+        b.sts[v + 4] = Vec4(u1, t1, 1.0F, 0.0F);
+        b.sts[v + 5] = Vec4(u0, t1, 1.0F, 0.0F);
+        v += 6;
+      }
+    }
+    b.color = Color(128.0F, 128.0F, 128.0F, 128.0F);
+    b.info = std::make_unique<StaPipInfoBag>();
+    b.info->model = &b.mat;
+    b.info->shadingType = TyraShadingFlat;
+    b.info->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    b.info->zTestType = PipelineZTest_TestOnly;  // never writes z
+    b.info->dynLightPick = false;  // it IS the light - never re-lit
+    b.colorBag = std::make_unique<StaPipColorBag>();
+    b.colorBag->single = &b.color;
+    b.texBag = std::make_unique<StaPipTextureBag>();
+    b.texBag->texture = beamCoronaTex;
+    b.texBag->coordinates = b.sts.data();
+    b.bag = std::make_unique<StaPipBag>();
+    b.bag->info = b.info.get();
+    b.bag->color = b.colorBag.get();
+    b.bag->texture = b.texBag.get();
+    b.bag->vertices = b.verts.data();
+    b.bag->count = (u32)b.verts.size();
+  }
+}
+
+// Per frame: drop each dynamic light's pool onto the terrain under it
+// (terrain-conforming corners), tint by the light color and breathe with
+// its level (flicker / Set Light / hidden) through the additive FIX.
+void TerrainGame::updateAndRenderLightPools() {
+  if (lightPools.empty()) return;
+  constexpr int kCells = 4;
+  for (LightPool& b : lightPools) {
+    if (b.objIndex >= (int)runtimeObjects.size()) continue;
+    const RuntimeObject& ro = runtimeObjects[b.objIndex];
+    if (!ro.active || !ro.visible) continue;
+    const SceneObjectData& d = ro.data;
+    float level = 0.0F;
+    for (const DynLightRt& L : g_dynLights)
+      if (L.objIndex == b.objIndex) {
+        level = L.lastLevel;
+        break;
+      }
+    const float k = d.lightBright * level;
+    if (k <= 0.01F) continue;
+    const float cx = d.position[0], cz = d.position[2];
+    const float r = d.lightRadius * 0.9F;
+    const float lift = 0.04F;  // under the shadows' 0.05/0.06
+    int v = 0;
+    for (int iz = 0; iz < kCells; ++iz) {
+      for (int ix = 0; ix < kCells; ++ix) {
+        const float x0 = cx + ((float)ix / kCells - 0.5F) * 2.0F * r;
+        const float x1 = cx + ((float)(ix + 1) / kCells - 0.5F) * 2.0F * r;
+        const float z0 = cz + ((float)iz / kCells - 0.5F) * 2.0F * r;
+        const float z1 = cz + ((float)(iz + 1) / kCells - 0.5F) * 2.0F * r;
+        b.verts[v + 0] = Vec4(x0, terrainHeightAt(x0, z0) + lift, z0, 1.0F);
+        b.verts[v + 1] = Vec4(x1, terrainHeightAt(x1, z0) + lift, z0, 1.0F);
+        b.verts[v + 2] = Vec4(x1, terrainHeightAt(x1, z1) + lift, z1, 1.0F);
+        b.verts[v + 3] = b.verts[v + 0];
+        b.verts[v + 4] = b.verts[v + 2];
+        b.verts[v + 5] = Vec4(x0, terrainHeightAt(x0, z1) + lift, z1, 1.0F);
+        v += 6;
+      }
+    }
+    b.color.set(128.0F * d.color[0], 128.0F * d.color[1], 128.0F * d.color[2],
+                128.0F);
+    float fix = 96.0F * (k > 1.4F ? 1.4F : k);
+    b.info->additiveBlendFix =
+        fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
+    b.bag->bboxVersion = ++g_bboxStamp;
+    stapip.core.render(b.bag.get());
+  }
+}
+
 // Blob shadows: per-scene setup. A caster is anything that visibly moves -
 // the third-person avatar, animated models, physics objects. (Runtime
 // spawn-pool clones cast none - authored objects only.)
@@ -5252,7 +5392,7 @@ void TerrainGame::setupProjShadows() {
     b.mat.identity();
     b.verts.assign(kCells * kCells * 6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
     b.sts.assign(kCells * kCells * 6, Vec4(0.0F, 0.0F, 1.0F, 0.0F));
-    b.color = Color(0.0F, 0.0F, 0.0F, 70.0F);
+    b.color = Color(0.0F, 0.0F, 0.0F, 55.0F);
     b.info = std::make_unique<StaPipInfoBag>();
     b.info->model = &b.mat;
     b.info->shadingType = TyraShadingFlat;
@@ -5406,7 +5546,7 @@ void TerrainGame::renderProjShadows() {
         v += 6;
       }
     }
-    b.color.a = 70.0F * sfade[s];
+    b.color.a = 55.0F * sfade[s];
     b.bag->bboxVersion = ++g_bboxStamp;
     stapip.core.render(b.bag.get());
   }
@@ -5956,6 +6096,9 @@ void TerrainGame::buildSkyDome() {
   // solid fog color, so it opts out (the horizon still fades into the fog
   // because the terrain and objects do get fogged).
   skyDome.infoBag->fogDisabled = true;
+  // The dome is centered on the camera - a nearby dynamic light would win
+  // its pick and tint the whole sky.
+  skyDome.infoBag->dynLightPick = false;
   skyDome.colorBag = std::make_unique<StaPipColorBag>();
   skyDome.colorBag->many = skyDome.colors.data();
   skyDome.bag = std::make_unique<StaPipBag>();
@@ -6388,9 +6531,11 @@ void TerrainGame::renderScene() {
   // Mirrors after the whole scene (including the skinned avatars their
   // copies re-use): reflected copies first, glass quads blended over them
   renderMirrors();
-  // Projected silhouette shadows first (they redirect the raster per caster
-  // and need the finished z-buffer for their receiver patches), then the
-  // cheap blob shadows, then the additive beams on top.
+  // Dynamic lights' ground pools first (they ARE the terrain lighting -
+  // the chunks opt out of the per-bag light pick), then the projected
+  // silhouette shadows (raster redirect per caster + finished z for the
+  // receiver patches), the cheap blob shadows, and the additive beams.
+  updateAndRenderLightPools();
   renderProjShadows();
   // Blob shadows before the beams: dark quads on the terrain, z-tested
   // against the finished scene (objects standing on them still cover them).
@@ -8091,6 +8236,12 @@ void TerrainGame::generateTerrainGrid() {
   infoBag = std::make_unique<StaPipInfoBag>();
   infoBag->model = &model;
   infoBag->shadingType = TyraShadingFlat;
+  // Terrain draws in CHUNKS sharing this info bag: a per-chunk dynamic-light
+  // pick shows a hard rectangular seam wherever neighboring chunks pick
+  // different lights, so the terrain opts out (the flashlight still lights
+  // it globally) and the scene lights paint their ground pools as smooth
+  // additive patches instead (updateAndRenderLightPools).
+  infoBag->dynLightPick = false;
   infoBag->fullClipChecks = false;
 
   colorBag = std::make_unique<StaPipColorBag>();
@@ -9848,9 +9999,13 @@ bool projectUsesFlare(const Project& p) {
 }
 
 bool projectUsesBeams(const Project& p) {
+    // Dynamic lights count too: their ground pools draw with the same corona
+    // sprite (the terrain opts out of the per-chunk light pick, so the pool
+    // is how a scene light reaches the ground smoothly).
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects)
-            if (o.type == PrimitiveType::PointLight && o.lightBeam != 0)
+            if (o.type == PrimitiveType::PointLight &&
+                (o.lightBeam != 0 || o.lightDynamic))
                 return true;
     return false;
 }

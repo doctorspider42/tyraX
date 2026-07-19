@@ -119,7 +119,12 @@ otherwise), the **scene dynamic lights** registry
 light - per bag on its world bounding sphere and routes it through
 `StaPipQBufferRenderer::setBagLight`; a *point* light is expressed through
 the SAME spot-cone constants - zero direction, `cosCut2 = -1`, saturated
-`invSoft` - so no VU1 program changed and no micro memory was spent),
+`invSoft` - so no VU1 program changed and no micro memory was spent;
+`PipelineInfoBag::dynLightPick = false` opts a bag out of the pick - the
+generated games set it on TERRAIN CHUNKS (neighboring chunks picking
+different lights truncate a pool in a hard rectangle at the chunk border;
+the lights' ground pools draw as smooth additive patches instead) and on
+the sky dome (camera-centered - a nearby light would tint the whole sky)),
 `physics/CollisionMesh` (XZ-grid
 triangle collider) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
 TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot),
