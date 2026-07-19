@@ -9,6 +9,26 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (114) **examples/two-players + oversized-glb-texture clamp.** The committed
+  demo for (113): Cesium Man (P1) vs a cat (P2) in a box arena, title menu
+  picks 1P/2P (Player-count option block), pause menu switches mid-game,
+  split-screen third-person cameras per player, Start-on-pad-2 hot-join.
+  Two authoring finds baked into the pipeline/docs: **(a)** Cesium Man's
+  1024x1024 embedded texture hit the engine's hard `TYRA_ASSERT` (512 max)
+  and quiet-halted the game on load - glbparser's image extraction now
+  box-downscales oversized embedded textures to <=512 (power-of-two factor,
+  POT sources stay POT) with a build warning, so any Blender-textured
+  avatar Just Works; **(b)** the owner's cat.glb (an FBX re-export) parsed
+  fine but was authored X-forward, which the avatar drive (faceYaw expects
+  Z-forward) would render as a crab-walk - fixed in the committed asset by
+  wrapping the glb scene root in a +90deg-Y rotation node (BIN untouched;
+  the AABB flip confirmed the axis swap headlessly before any boot).
+  Verified: Docker build clean; PCSX2 e2e drives the title menu from the
+  keyboard - 1P full screen, then 2 Players + START = live top/bottom split
+  with both avatars standing and animating (F8 screenshots; earlier
+  frames caught P1 visible in P2's half). PCSX2 launches were flaky
+  post-reboot (Vulkan swapchain / parallel-session clobbering) - the
+  driver script now relaunches and re-verifies per pass.
 - (113) **Two-player games: shared screen + split screen, runtime join/leave.**
   `ProjectSettings::multiplayer` ("off"/"shared"/"split", *Preferences >
   Multiplayer*) + `p2JoinOnStart`; player 2 is the scene's **second Player

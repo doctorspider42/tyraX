@@ -1,5 +1,8 @@
 # Two-player games (shared screen & split screen)
 
+> Working demo: [examples/two-players](../examples/two-players) — title-menu
+> 1P/2P choice, split-screen third-person avatars, pad-2 hot-join.
+
 TyraX games can host a second local player: both players on one screen with a
 camera that frames the pair (**shared screen**), or each player with their own
 view (**split screen**, P1 top / P2 bottom). Player 2 can join and leave while
