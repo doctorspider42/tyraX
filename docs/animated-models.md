@@ -127,8 +127,10 @@ in *Properties*:
 | **Run clip** | Optional (`<none>` = walk covers all speeds). |
 | **Jump clip** | Optional (`<none>` = holds walk/idle while airborne). |
 | **Run at** | Planar-speed fraction (of full walk speed) where the run clip takes over. |
+| **Face camera (strafe)** | The avatar keeps facing the camera instead of turning into the movement direction — sideways/backward movement then plays the directional clips below. |
+| **Back / Strafe left / Strafe right clip** | Optional directional locomotion (`<none>` = the walk clip covers that direction). Only shown — and only active — with *Face camera* on. |
 | **Distance / Height / Shoulder** | The camera rig offset in the camera's own frame: back, up, sideways. `Shoulder` 0 = centered behind, ~0.6 = over-the-shoulder, negative = the left shoulder. |
-| **Turn rate** | How fast the avatar turns to face its movement direction. |
+| **Turn rate** | How fast the avatar turns to face its movement direction (or the camera, with *Face camera* on). |
 
 **Over-the-shoulder:** `Shoulder` slides the *whole* rig — the eye and the
 look-at alike — along the camera's right vector, so the avatar sits off-center
@@ -149,7 +151,17 @@ needs no triangle precision, and the cost has to fit a per-frame EE budget.
 
 The runtime auto-selects idle/walk/run/jump from the player's **actual planar
 speed** each frame, cross-fades on change (0.18 s) and matches playback speed to
-the movement so the feet do not slide - **no state machine, no scripting**. The
+the movement so the feet do not slide - **no state machine, no scripting**.
+
+**Directional locomotion:** by default the avatar turns to face where it walks,
+so every step is a forward step and one walk clip covers everything. Turn on
+**Face camera (strafe)** and the avatar keeps facing the camera while the stick
+moves it in any direction - the runtime then splits the movement direction into
+four 90°-ish sectors relative to the facing (within 60° of straight ahead =
+walk/run, within 60° of straight back = **Back clip**, the side quadrants =
+**Strafe left/right clip**) and cross-fades between them as the direction
+changes. Any unmapped direction falls back to the walk clip, so you can adopt
+this incrementally - map only a back clip and sidesteps still walk. The
 override still works: a script or flow-graph **Play Animation** on the Player
 fires any one-shot (wave, attack) that plays to the end before locomotion
 resumes, and scripts attached to the Player see the avatar as `self`. A Cutscene

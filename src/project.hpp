@@ -200,6 +200,14 @@ struct SceneObject {
     std::string playerWalkClip;       // "" = the model's first clip
     std::string playerRunClip;        // "" = never runs (walk covers all speeds)
     std::string playerJumpClip;       // "" = no airborne clip (holds walk/idle)
+    // Directional locomotion (all optional; "" = the walk clip covers that
+    // direction). Only visible with playerFaceCamera on: facing then stays on
+    // the camera direction instead of turning into the movement, so sideways/
+    // backward movement keeps the avatar oriented and these clips play.
+    std::string playerBackClip;         // backpedaling
+    std::string playerStrafeLeftClip;   // sidestep toward the avatar's left
+    std::string playerStrafeRightClip;  // sidestep toward the avatar's right
+    bool playerFaceCamera = false;      // strafe locomotion (see above)
     float playerRunThreshold = 0.55f; // planar-speed fraction where run kicks in
     // The camera rig, expressed in the camera's own frame: Dist is the offset
     // back, Height the offset up, Shoulder the offset sideways - together a
@@ -325,6 +333,10 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.playerEyeHeight == b.playerEyeHeight &&
            a.playerJumpSpeed == b.playerJumpSpeed &&
            a.playerCanJump == b.playerCanJump &&
+           a.playerBackClip == b.playerBackClip &&
+           a.playerStrafeLeftClip == b.playerStrafeLeftClip &&
+           a.playerStrafeRightClip == b.playerStrafeRightClip &&
+           a.playerFaceCamera == b.playerFaceCamera &&
            a.playerIdleClip == b.playerIdleClip &&
            a.playerWalkClip == b.playerWalkClip &&
            a.playerRunClip == b.playerRunClip &&

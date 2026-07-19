@@ -324,7 +324,11 @@ static std::string objectJson(const SceneObject& o) {
                 "\", \"walkClip\": \"" + jsonEscape(o.playerWalkClip) +
                 "\", \"runClip\": \"" + jsonEscape(o.playerRunClip) +
                 "\", \"jumpClip\": \"" + jsonEscape(o.playerJumpClip) +
-                "\", \"runThreshold\": " + fmtFloat(o.playerRunThreshold) +
+                "\", \"backClip\": \"" + jsonEscape(o.playerBackClip) +
+                "\", \"strafeLeftClip\": \"" + jsonEscape(o.playerStrafeLeftClip) +
+                "\", \"strafeRightClip\": \"" + jsonEscape(o.playerStrafeRightClip) +
+                "\", \"faceCamera\": " + (o.playerFaceCamera ? "true" : "false") +
+                ", \"runThreshold\": " + fmtFloat(o.playerRunThreshold) +
                 ", \"camDist\": " + fmtFloat(o.playerCamDist) +
                 ", \"camHeight\": " + fmtFloat(o.playerCamHeight) +
                 ", \"camShoulder\": " + fmtFloat(o.playerCamShoulder) +
@@ -1428,6 +1432,13 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 if (const auto* v = tp->find("walkClip")) o.playerWalkClip = v->stringOr("");
                 if (const auto* v = tp->find("runClip")) o.playerRunClip = v->stringOr("");
                 if (const auto* v = tp->find("jumpClip")) o.playerJumpClip = v->stringOr("");
+                if (const auto* v = tp->find("backClip")) o.playerBackClip = v->stringOr("");
+                if (const auto* v = tp->find("strafeLeftClip"))
+                    o.playerStrafeLeftClip = v->stringOr("");
+                if (const auto* v = tp->find("strafeRightClip"))
+                    o.playerStrafeRightClip = v->stringOr("");
+                if (const auto* v = tp->find("faceCamera"))
+                    o.playerFaceCamera = v->boolOr(false);
                 if (const auto* v = tp->find("runThreshold"))
                     o.playerRunThreshold = (float)v->numberOr(0.55);
                 if (const auto* v = tp->find("camDist"))
@@ -2644,6 +2655,9 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, o.playerCanJump ? 1 : 0);
     fnvMixS(h, o.playerIdleClip), fnvMixS(h, o.playerWalkClip);
     fnvMixS(h, o.playerRunClip), fnvMixS(h, o.playerJumpClip);
+    fnvMixS(h, o.playerBackClip), fnvMixS(h, o.playerStrafeLeftClip);
+    fnvMixS(h, o.playerStrafeRightClip);
+    fnvMix(h, o.playerFaceCamera ? 1 : 0);
     fnvMixF(h, o.playerRunThreshold);
     fnvMixF(h, o.playerCamDist), fnvMixF(h, o.playerCamHeight);
     fnvMixF(h, o.playerCamShoulder), fnvMixF(h, o.playerTurnRate);

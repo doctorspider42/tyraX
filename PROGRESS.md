@@ -9,6 +9,33 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (118) **Directional third-person locomotion: face-camera (strafe) mode +
+  back/strafe-left/strafe-right clips.** Until now the avatar always turned
+  into its movement direction, so one walk clip covered every step. New Player
+  fields (`playerFaceCamera` + `playerBackClip`/`playerStrafeLeftClip`/
+  `playerStrafeRightClip`, all optional): with **Face camera (strafe)** on the
+  avatar keeps facing the camera yaw (same shortest-arc turn-rate lerp) while
+  the stick moves it in any direction, and `drivePlayerAnim` now takes the
+  movement direction in the avatar's frame (`moveLocal`, wrapped ±π) and picks
+  the clip by sector — within 60° of ahead = walk/run (speed split unchanged),
+  within 60° of straight back = back clip, side quadrants = strafe clips
+  (negative `moveLocal` = the avatar's right, matching the existing
+  shoulder/strafe convention). Unmapped directions fall back to walk, so a
+  model with only idle/walk behaves exactly as before; the playback-speed
+  scaling that stops foot-sliding now covers all moving clips. Directional
+  clip names are blanked at codegen when face-camera is off — with turn-to-face
+  they'd flicker in during the turn transient. Full property chain: fields +
+  `operator==`, thirdPerson JSON save/load (defaulted reads, backward
+  compatible), `liveLinkRecipeHash`, Properties UI (checkbox + three combos,
+  shown only in face-camera mode), per-scene codegen arrays
+  (`PLAYER_BACK_CLIPS`/`PLAYER_STRAFE_L/R_CLIPS`/`PLAYER_FACE_CAMERAS`) +
+  scene-load `resolveClipIndex` wiring. Verified: editor builds clean;
+  scratch project patched to third-person + all clips round-trips through
+  `--resave` (fields persist), `--refresh-gen` emits the arrays and the new
+  runtime code, and the Docker game build compiles (=== Build OK ===). The
+  visual pass (does a sidestep actually play StrafeL on a real rigged model)
+  needs a hands-on pad test with a model that has such clips.
+
 - (116) **NavMesh + NPC AI — Patrol / Chase / Flee / On Player Seen.** NPCs
   can finally go somewhere on their own. Three layers, all
   pay-for-what-you-use (a project without AI nodes carries zero nav data or

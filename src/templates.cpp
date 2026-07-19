@@ -655,9 +655,13 @@ class TerrainGame : public Tyra::Game {
   // resolved from the model's clip table at scene load; -1 = unmapped.
   float entFaceYaw = 0;
   int playerIdleClip = -1, playerWalkClip = -1, playerRunClip = -1, playerJumpClip = -1;
+  int playerBackClip = -1, playerStrafeLClip = -1, playerStrafeRClip = -1;
   // Picks the third-person avatar's locomotion clip from its planar speed
-  // (fraction of full walk speed) and grounded state, cross-fading on change.
-  void drivePlayerAnim(RuntimeObject& body, float speedFrac, bool grounded);
+  // (fraction of full walk speed), grounded state and - with face-camera
+  // (strafe) locomotion - the movement direction relative to the avatar's
+  // facing (moveLocal, radians, 0 = straight ahead), cross-fading on change.
+  void drivePlayerAnim(RuntimeObject& body, float speedFrac, bool grounded,
+                       float moveLocal);
   // Spring arm: the distance down the boom (from the head, along d) at which
   // the camera would enter geometry or the terrain. camBoom is the smoothed
   // boom length actually used - it snaps in on a hit and eases back out.
@@ -1069,9 +1073,13 @@ class TerrainGame : public Tyra::Game {
   // resolved from the model's clip table at scene load; -1 = unmapped.
   float entFaceYaw = 0;
   int playerIdleClip = -1, playerWalkClip = -1, playerRunClip = -1, playerJumpClip = -1;
+  int playerBackClip = -1, playerStrafeLClip = -1, playerStrafeRClip = -1;
   // Picks the third-person avatar's locomotion clip from its planar speed
-  // (fraction of full walk speed) and grounded state, cross-fading on change.
-  void drivePlayerAnim(RuntimeObject& body, float speedFrac, bool grounded);
+  // (fraction of full walk speed), grounded state and - with face-camera
+  // (strafe) locomotion - the movement direction relative to the avatar's
+  // facing (moveLocal, radians, 0 = straight ahead), cross-fading on change.
+  void drivePlayerAnim(RuntimeObject& body, float speedFrac, bool grounded,
+                       float moveLocal);
   // Spring arm: the distance down the boom (from the head, along d) at which
   // the camera would enter geometry or the terrain. camBoom is the smoothed
   // boom length actually used - it snaps in on a hit and eases back out.
@@ -3807,6 +3815,14 @@ void TerrainGame::loadScene(int sceneIndex) {
           PLAYER_RUN_CLIP[0] ? resolveClipIndex(PLAYER_INDEX, PLAYER_RUN_CLIP) : -1;
       playerJumpClip =
           PLAYER_JUMP_CLIP[0] ? resolveClipIndex(PLAYER_INDEX, PLAYER_JUMP_CLIP) : -1;
+      playerBackClip =
+          PLAYER_BACK_CLIP[0] ? resolveClipIndex(PLAYER_INDEX, PLAYER_BACK_CLIP) : -1;
+      playerStrafeLClip = PLAYER_STRAFE_L_CLIP[0]
+                              ? resolveClipIndex(PLAYER_INDEX, PLAYER_STRAFE_L_CLIP)
+                              : -1;
+      playerStrafeRClip = PLAYER_STRAFE_R_CLIP[0]
+                              ? resolveClipIndex(PLAYER_INDEX, PLAYER_STRAFE_R_CLIP)
+                              : -1;
       // Start ON the idle clip so drivePlayerAnim recognizes it as a locomotion
       // pose from frame one. Without this, setupAnimObject's default (clip 0)
       // would look like a scripted one-shot when idle isn't clip 0, and a
@@ -4868,16 +4884,29 @@ bool TerrainGame::updatePlayerEntity() {
         entVelY = PLAYER_JUMP_SPEED * g_frameDt;
     }
 
-    // Turn the avatar toward its movement direction (shortest-arc lerp).
+    // Turn the avatar (shortest-arc lerp): toward its movement direction, or
+    // with face-camera (strafe) locomotion toward the camera yaw - sideways
+    // and backward movement then keep the avatar oriented toward the camera
+    // and the directional clips play instead of the body swinging around.
     const float movedLen = sqrtf(movedX * movedX + movedZ * movedZ);
-    if (movedLen > 0.0005F) {
-      float desired = atan2f(movedX, movedZ);
+    const bool moving = movedLen > 0.0005F;
+    if (moving || PLAYER_FACE_CAMERA) {
+      const float desired = PLAYER_FACE_CAMERA ? entYaw : atan2f(movedX, movedZ);
       float d = desired - entFaceYaw;
       while (d > PI) d -= 2.0F * PI;
       while (d < -PI) d += 2.0F * PI;
       float k = PLAYER_TURN_RATE * g_frameScale;
       if (k > 1.0F) k = 1.0F;
       entFaceYaw += d * k;
+    }
+    // Movement direction in the avatar's own frame (0 = straight ahead,
+    // negative = toward the avatar's right - the strafe convention above);
+    // drivePlayerAnim picks the strafe/back clips from it.
+    float moveLocal = 0.0F;
+    if (moving) {
+      moveLocal = atan2f(movedX, movedZ) - entFaceYaw;
+      while (moveLocal > PI) moveLocal -= 2.0F * PI;
+      while (moveLocal < -PI) moveLocal += 2.0F * PI;
     }
 
     // Camera boom: the eye rides PLAYER_CAM_DIST behind/above the head along
@@ -4938,7 +4967,8 @@ bool TerrainGame::updatePlayerEntity() {
       body.data.position[2] = entZ;
       body.data.rotation[1] = entFaceYaw * 180.0F / PI;
       const float step = PLAYER_WALK_SPEED * g_frameScale;
-      drivePlayerAnim(body, step > 1e-4F ? movedLen / step : 0.0F, grounded);
+      drivePlayerAnim(body, step > 1e-4F ? movedLen / step : 0.0F, grounded,
+                      moveLocal);
     }
     return true;
   }
@@ -4992,7 +5022,7 @@ bool TerrainGame::updatePlayerEntity() {
 // one-shot), locomotion holds off until it finishes, then resumes. This is the
 // whole "third-person for free" story: no state machine, full override.
 void TerrainGame::drivePlayerAnim(RuntimeObject& body, float speedFrac,
-                                  bool grounded) {
+                                  bool grounded, float moveLocal) {
   if (PLAYER_INDEX < 0 || !objectGeometry[PLAYER_INDEX].animInst) return;
   body.animPlaying = true;
 
@@ -5001,16 +5031,33 @@ void TerrainGame::drivePlayerAnim(RuntimeObject& body, float speedFrac,
     want = playerJumpClip;
   else if (speedFrac < 0.12F)
     want = playerIdleClip;
-  else if (speedFrac < PLAYER_RUN_THRESHOLD || playerRunClip < 0)
-    want = playerWalkClip;
-  else
-    want = playerRunClip;
+  else {
+    // Moving: directional family first. Sectors around the facing - within
+    // 60 deg of straight ahead = walk/run, within 60 deg of straight back =
+    // backpedal, the two side quadrants = sidestep (negative moveLocal is
+    // toward the avatar's right). An unmapped direction falls back to walk,
+    // so a model with only idle/walk keeps today's behavior exactly.
+    const float a = moveLocal < 0.0F ? -moveLocal : moveLocal;
+    int dir = -1;
+    if (a > 2.0943951F)  // > 120 deg
+      dir = playerBackClip;
+    else if (a > 1.0471976F)  // 60..120 deg
+      dir = moveLocal < 0.0F ? playerStrafeRClip : playerStrafeLClip;
+    if (dir >= 0)
+      want = dir;
+    else if (speedFrac < PLAYER_RUN_THRESHOLD || playerRunClip < 0)
+      want = playerWalkClip;
+    else
+      want = playerRunClip;
+  }
   if (want < 0) want = playerIdleClip;
   if (want < 0) want = 0;  // no clips mapped: hold the model's first clip
 
   const bool locomotion =
       body.animClip == playerIdleClip || body.animClip == playerWalkClip ||
-      body.animClip == playerRunClip || body.animClip == playerJumpClip;
+      body.animClip == playerRunClip || body.animClip == playerJumpClip ||
+      body.animClip == playerBackClip || body.animClip == playerStrafeLClip ||
+      body.animClip == playerStrafeRClip;
   if (!locomotion && !body.animFinished) return;  // let a one-shot finish
 
   if (body.animClip != want) {
@@ -5022,7 +5069,7 @@ void TerrainGame::drivePlayerAnim(RuntimeObject& body, float speedFrac,
   // Match playback to foot speed on the moving clips (min 0.6x so a slow creep
   // still animates), otherwise the authored speed.
   const float base = body.data.animSpeed;
-  if (want == playerWalkClip || want == playerRunClip)
+  if (want != playerIdleClip && want != playerJumpClip && speedFrac >= 0.12F)
     body.animSpeed = base * (speedFrac < 0.6F ? 0.6F : speedFrac);
   else
     body.animSpeed = base;
@@ -8354,6 +8401,23 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     playerClip("PLAYER_WALK_CLIPS", [](const SceneObject& o) { return o.playerWalkClip; });
     playerClip("PLAYER_RUN_CLIPS", [](const SceneObject& o) { return o.playerRunClip; });
     playerClip("PLAYER_JUMP_CLIPS", [](const SceneObject& o) { return o.playerJumpClip; });
+    // Directional clips only reach the game with face-camera locomotion on:
+    // with turn-to-face they would flicker in during the turn transient
+    // (moveLocal is briefly sideways while the avatar swings around).
+    playerClip("PLAYER_BACK_CLIPS", [](const SceneObject& o) {
+        return o.playerFaceCamera ? o.playerBackClip : std::string();
+    });
+    playerClip("PLAYER_STRAFE_L_CLIPS", [](const SceneObject& o) {
+        return o.playerFaceCamera ? o.playerStrafeLeftClip : std::string();
+    });
+    playerClip("PLAYER_STRAFE_R_CLIPS", [](const SceneObject& o) {
+        return o.playerFaceCamera ? o.playerStrafeRightClip : std::string();
+    });
+    out << "constexpr bool PLAYER_FACE_CAMERAS[SCENE_COUNT] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "")
+            << (players[si] && players[si]->playerFaceCamera ? "true" : "false");
+    out << "};\n";
     out << "\n";
 
     // Per-scene settings: the project defaults with each scene's active
@@ -8650,6 +8714,10 @@ inline int everyFrames(float seconds) {
 #define PLAYER_WALK_CLIP PLAYER_WALK_CLIPS[g_activeScene]
 #define PLAYER_RUN_CLIP PLAYER_RUN_CLIPS[g_activeScene]
 #define PLAYER_JUMP_CLIP PLAYER_JUMP_CLIPS[g_activeScene]
+#define PLAYER_BACK_CLIP PLAYER_BACK_CLIPS[g_activeScene]
+#define PLAYER_STRAFE_L_CLIP PLAYER_STRAFE_L_CLIPS[g_activeScene]
+#define PLAYER_STRAFE_R_CLIP PLAYER_STRAFE_R_CLIPS[g_activeScene]
+#define PLAYER_FACE_CAMERA PLAYER_FACE_CAMERAS[g_activeScene]
 #define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
 #define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
 #define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]
