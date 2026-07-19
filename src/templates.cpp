@@ -660,7 +660,8 @@ class TerrainGame : public Tyra::Game {
   void drivePlayerAnim(RuntimeObject& body, float speedFrac, bool grounded);
   // Spring arm: the distance down the boom (from the head, along d) at which
   // the camera would enter geometry or the terrain. camBoom is the smoothed
-  // boom length actually used - it snaps in on a hit and eases back out.
+  // boom length actually used - whisker casts ease it in ahead of a hit, a
+  // hard clamp keeps it out of geometry, and it eases back out.
   float springArm(float px, float py, float pz, float dx, float dy, float dz,
                   float maxDist) const;
   float camBoom = 0;
@@ -1074,7 +1075,8 @@ class TerrainGame : public Tyra::Game {
   void drivePlayerAnim(RuntimeObject& body, float speedFrac, bool grounded);
   // Spring arm: the distance down the boom (from the head, along d) at which
   // the camera would enter geometry or the terrain. camBoom is the smoothed
-  // boom length actually used - it snaps in on a hit and eases back out.
+  // boom length actually used - whisker casts ease it in ahead of a hit, a
+  // hard clamp keeps it out of geometry, and it eases back out.
   float springArm(float px, float py, float pz, float dx, float dy, float dz,
                   float maxDist) const;
   float camBoom = 0;
@@ -4912,13 +4914,35 @@ bool TerrainGame::updatePlayerEntity() {
     float want =
         springArm(pivotX, headY, pivotZ, -boomX, -boomY, -boomZ, PLAYER_CAM_DIST);
     if (want < CAM_MIN_DIST) want = CAM_MIN_DIST;
-    if (want < camBoom) {
-      camBoom = want;  // blocked: snap in, never clip
-    } else {
-      float k = 0.06F * g_frameScale;  // ~2 s to close a full-length boom
-      if (k > 1.0F) k = 1.0F;
-      camBoom += (want - camBoom) * k;
+
+    // Whisker anticipation: two extra casts splayed ~20 deg to either side of
+    // the boom spot walls the camera is about to sweep behind and start easing
+    // the boom in before the straight ray is blocked. A whisker hit is
+    // off-axis - a hint, not the true obstruction - so it only pulls the
+    // target partway toward its own distance. The want-clamp below remains the
+    // never-clip guarantee; whiskers just mean it usually fires from a boom
+    // that is already most of the way in, so the residual jump is small.
+    float target = want;
+    const float wcos = 0.94F, wsin = 0.342F;
+    for (int s = -1; s <= 1; s += 2) {
+      const float wx = -boomX * wcos + (-boomZ) * (wsin * s);
+      const float wz = boomX * (wsin * s) - boomZ * wcos;
+      const float d =
+          springArm(pivotX, headY, pivotZ, wx, -boomY, wz, PLAYER_CAM_DIST);
+      const float soft = d + (want - d) * 0.4F;
+      if (soft < target) target = soft;
     }
+    if (target < CAM_MIN_DIST) target = CAM_MIN_DIST;
+
+    // Ease toward the anticipated length: briskly in (a few frames), gently
+    // back out (~2 s for a full boom), and never past the straight-ray hit -
+    // blocked mid-ease still clamps so the camera cannot enter geometry.
+    const float rate = target < camBoom ? 0.30F : 0.06F;
+    float k = rate * g_frameScale;
+    if (k > 1.0F) k = 1.0F;
+    camBoom += (target - camBoom) * k;
+    if (camBoom > want) camBoom = want;
+    if (camBoom < CAM_MIN_DIST) camBoom = CAM_MIN_DIST;
     float eyeX = pivotX - boomX * camBoom;
     float eyeY = headY - boomY * camBoom;
     float eyeZ = pivotZ - boomZ * camBoom;

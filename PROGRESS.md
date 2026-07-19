@@ -9,6 +9,27 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (117) **Third-person spring arm: whisker anticipation instead of a raw
+  snap-in.** The camera boom used to jump the instant the straight boom ray got
+  blocked (`camBoom = want` hard snap) — correct (never clips) but visually
+  violent when walking past a wall edge. Now two extra **whisker casts** splayed
+  ~20° to either side of the boom (same `springArm` query, same AABB broad
+  phase) detect walls the camera is about to sweep behind and pull a *target*
+  length partway toward the whisker's hit (60% weight — an off-axis hit is a
+  hint, not the true obstruction); the boom eases toward that target briskly
+  (0.30/frame) on the way in and gently (0.06/frame, as before) on the way out.
+  The old guarantee is intact as a hard clamp: `camBoom = min(camBoom, want)`
+  every frame, so a wall that appears between whiskers (fast camera spin) still
+  clamps instantly rather than ever showing a clipped frame — but it now
+  usually fires from a boom that anticipation already pulled most of the way
+  in, so the residual correction is small. Cost: +2 `springArm` casts per frame
+  in third-person mode only. Verified layer 0-3: editor builds clean, whisker
+  code lands in the generated `terrain_game.cpp` of a scratch `--new` project,
+  Docker build of that project compiles and links (=== Build OK ===). The
+  actual camera *feel* (wall graze, corner sweep) needs a hands-on pad test in
+  PCSX2 — the math guarantees no-clip, the tuning constants (20° splay, 0.4
+  retention, 0.30 in-rate) are first-guess values a human may want to nudge.
+
 - (116) **NavMesh + NPC AI — Patrol / Chase / Flee / On Player Seen.** NPCs
   can finally go somewhere on their own. Three layers, all
   pay-for-what-you-use (a project without AI nodes carries zero nav data or
