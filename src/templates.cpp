@@ -7918,9 +7918,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << "constexpr SceneObjectData SCENE_" << si << "_OBJECTS["
             << (objs.empty() ? (size_t)1 : objs.size()) << "] = {\n";
         if (objs.empty()) {
+            // Placeholder row so the array is never zero-sized. Field order
+            // must track SceneObjectData - the reflective-models change
+            // added `reflected` here but missed this row (build break for
+            // any project with an empty scene).
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
                    "0, 0, 0.0F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, "
-                   "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, \"\", 1, 1, "
+                   "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, \"\", 1, 1, "
                    "1.0F, 1, -1},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
