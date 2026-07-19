@@ -1,0 +1,1 @@
+{ "id": "a30b1e8cea37ff76", "name": "campfire-fire", "type": "emitter", "position": [-6, 0.1788, 2], "rotation": [0, 0, 0], "scale": [1.1, 1, 1.1], "color": [1, 0.55, 0.15], "physics": false, "emitter": { "kind": "fire", "count": 40, "size": 0.55, "enabled": true, "followPlayer": false } }

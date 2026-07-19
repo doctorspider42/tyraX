@@ -9,8 +9,8 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (114) **examples/portals — the Portal object demo.** A committed example
-  for (113): a two-way pair across the map (portal-a in front of the FPP
+- (118) **examples/portals — the Portal object demo.** A committed example
+  for (117): a two-way pair across the map (portal-a in front of the FPP
   spawn ↔ portal-b by a red landmark tower 25 units away), an Empty with a
   small flow graph (On Start → Delay 6 s → Spawn Player At) that walks the
   player through the surface unattended, and the classic **infinite fall**:
@@ -37,7 +37,7 @@ Each finished feature lands as its own commit.
   (the owner spotted the hitch); the position delta still holds the real
   fall, so the larger of the two maps through the pair.
 
-- (113) **Portal objects — a linked pair of surfaces with a live
+- (117) **Portal objects — a linked pair of surfaces with a live
   through-view and a seamless walk-through teleport.**
   `PrimitiveType::Portal` (16): a rectangle (decal quad, +Z = front) that
   names another Portal in the scene as its target (one-way by design; a
@@ -108,6 +108,214 @@ Each finished feature lands as its own commit.
   committed merge-conflict marker pair left in PROGRESS.md by an earlier
   merge.
 
+- (116) **NavMesh + NPC AI — Patrol / Chase / Flee / On Player Seen.** NPCs
+  can finally go somewhere on their own. Three layers, all
+  pay-for-what-you-use (a project without AI nodes carries zero nav data or
+  code): (1) a **host-side bake** (`src/navmesh.cpp`, shared by codegen and
+  the editor) rasterizes each scene into a walkable-cell bitmap — terrain
+  slope from the same bilinear heightmap the game samples, blockers
+  mirroring `collidePlayer`'s box mode (AABB, step-onto/walk-under rules,
+  mesh-collision objects never block — they're ramps) inflated by an agent
+  radius; grid capped at 128×128 so the PS2 arrays stay static. Tunables in
+  *Preferences > AI navigation* (`navCellSize`/`navMaxSlope`/
+  `navAgentRadius`), live preview via *View > Nav mesh overlay* (green
+  quads, signature-cached recompute like the projected decals). (2) A
+  **generated runtime** (`nav_data.gen.hpp` + `navigation.gen.cpp`): A* on
+  the EE (8-connected, no corner cutting, octile heuristic, expansion cap,
+  **one pathfind per frame round-robin**, unreachable goals path to the
+  closest reachable cell), string-pulled paths, one agent state per runtime
+  object (spawn-pool clones included), terrain snapping + shortest-arc
+  turn-to-face (the avatar's convention, so walk clips line up). (3) Five
+  **flow nodes** (category "AI"): Patrol Waypoints (waypoints = objects
+  named `<prefix>1..n`, resolved at codegen with natural sort), Chase
+  Player (stop distance, give-up), Flee From Player (sideways fan-out when
+  the straight-away is blocked), Stop AI Movement, and the On Player Seen
+  trigger (range + FOV cone around facing + optional terrain LOS;
+  edge-fired exec like Near Object, plus a bool output for the gates). Two
+  design traps hit and fixed during verification: the tick script's
+  scene-generation reset ran *after* an On Start command in the same frame
+  and wiped it (fix: lazy shared `navSyncGeneration` called from both the
+  commands and the tick), and the patrol arrival radius was tighter than
+  the grid raster (a path ends at a cell *center*, a waypoint can sit on a
+  cell *corner* — 0.75 cells deadlocked; now 1.1× cell). Verified on PCSX2
+  (layer 3) with position telemetry logged from the graph itself
+  (`Every N Seconds → Get Position → Position To Text → Log`): patrol
+  cycles wp1→wp2→wp3 with a clean **A\* detour around a wall** (passes at
+  the obstacle's inflated edge), On Player Seen → Chase closes in and holds
+  at exactly Stop Dist, Flee runs to exactly Safe Dist then idles; steady
+  50 FPS. Stop AI compile-verified only (trivial `mode = 0`); LOS terrain
+  march and the editor overlay rendering still want a hands-on eyeball
+  pass. New example `examples/nav-ai` (guard + rabbit, boots clean) and
+  `docs/navigation-ai.md`; `examples/script-demo` regenerated (picks up the
+  new gen-file stubs + stale id hashes from before this change).
+  Follow-up fix (owner repro on the example: "the guard patrols fine but
+  never chases me"): `navPlayerPos` read the Player OBJECT's position, which
+  the game syncs to the live player **only in third-person mode** — in FPP
+  walk/noclip the object keeps its authored spawn position forever, so every
+  NPC watched the spawn point while the real player walked free (the
+  original PCSX2 chase pass couldn't catch it: with no pad input the player
+  never left spawn, so stale == live). Now the object position is used only
+  when `PLAYER_MODES[scene] == 2`; otherwise the camera is the player (eye
+  minus a nominal 1.5 to approximate the feet). Re-verified padlessly with a
+  teleport repro: `On Start → Delay → Spawn Player At` a marker on the
+  patrol route — before the teleport the guard patrols past the (stale)
+  spawn without reacting under the old code; with the fix the post-teleport
+  live position enters the cone and Chase fires. Also narrowed the AI-node
+  hint lines in the graph UI (they were wider than the field rows and
+  stretched the nodes out of alignment).
+
+- (113) **Font Manager + the Display Text node (runtime text), on top of a new
+  multi-exec-pin primitive that merged six node types away.** Three layers, one
+  feature.
+
+  **(1) Multi-exec pins.** `FlowLink` grew a `toPin` (serialized as `"pin": N`,
+  omitted at 0) and `FlowNodeType` an `execInCount` + `execInLabels`, so one
+  action can expose several labeled exec inputs instead of the codebase's old
+  convention of a *pair of node types* per show/hide. Pin ids needed no
+  widening: slot 2 stays the primary exec-in and the spare slots 10..15 hold the
+  rest (`flowExecInPin`/`flowExecInIndex`). Codegen threads the pin into
+  `actionCode(n, pad, pin)`, and `emitExec`'s cycle guard is now keyed on
+  **(node, pin)** — one trigger legitimately driving two branches of the same
+  node is not a cycle. Six types retired into five merged ones:
+  `Show/Hide/Toggle Object` → **Set Object Visible** (show/hide/toggle),
+  `Show/Hide/Toggle HUD` → **Set HUD Visible**, `Show/Hide Text` → **Set Text
+  Visible**, `Load/Unload Layer` → **Set Layer Loaded**, `Play/Stop Animation` →
+  **Animation**. `Play/Stop Music` and `Play/Stop Sequence` were deliberately
+  *not* merged: their Stop is global (no param), so a "stop" pin would visually
+  imply it stops the track named in the field next to it, which it does not.
+  `readFlowGraph` migrates pre-merge graphs (`flowLegacyNodes`): it rewrites the
+  node type and retargets every exec link landing on it to the branch's pin, so
+  old projects keep their logic instead of silently losing the nodes (unknown
+  types are dropped on load).
+
+  **(2) Font Manager** (*Tools > Font Manager*, `Project::fonts`). Fonts are now
+  first-class named entries; `HudText`/`GameMenu` reference one **by name**
+  instead of each carrying a raw TTF path (`migrateFontRefs` folds each distinct
+  legacy path into an entry on load). `fonts[0]` is the fallback every unset
+  reference resolves to and cannot be deleted; a stale name falls back to it
+  rather than failing a bake. Also fixed a real leak found on the way: imported
+  `res/fonts/*.ttf` were being mirrored into `.res-baked/` and swept onto the
+  ISO, despite nothing on the PS2 ever reading a TTF (texbake's `editorOnly`
+  now excludes them — the tooltip claiming "nothing ships but pixels" was
+  aspirational).
+
+  **(3) Display Text** — the actual ask: a node whose string is a *runtime*
+  value, so it cannot be a pre-baked sprite like every other text here. Fonts
+  it uses bake a **glyph atlas** (`menubake::atlasLayout`/`bakeAtlasPNG` →
+  `res/fonts/atlas-<name>.png` + metrics in `inc/font_data.gen.hpp` from the
+  same layout call, so pixels and metrics cannot drift); the runtime blits cell
+  by cell (`drawFontText`), the trick the engine's debug font already used.
+  Glyphs bake **white** and are tinted per-font at runtime, so one atlas serves
+  any color and the drop shadow is just a second dark pass. One slot per node
+  (`dynTextSlots`, walked identically by the header and the script); the wired
+  text is re-read every frame *only while the slot is on*.
+
+  **VRAM.** The premise of the request ("fonts shouldn't sit in VRAM all the
+  time") turned out to be **already true, and the real risk is the opposite**:
+  `RendererCoreTexture::useTexture` DMAs a texture to GS on its *first render*,
+  so a font nobody displays costs 0 B of VRAM — but once drawn it is **pinned
+  forever** (no LRU; the only eviction is an all-or-nothing flush when the next
+  texture doesn't fit), and there is only ~1.33 MB of texture VRAM after the
+  frame/z buffers, with an 8 KB tax per allocation. So: the atlas is added to
+  the repository lazily on first draw and `useTexture()` is deliberately never
+  called eagerly (unlike the streamed model textures), and atlases default to
+  **4-bit** (white glyphs the runtime tints — 16 levels is plenty, ~8x cheaper).
+  Explicit unload-on-hide was considered and rejected: `RendererCoreGSVRam::free`
+  is `pointer = address`, a bump-pointer stack pop, so freeing anything that is
+  not the newest allocation rewinds past still-live textures. The Font Manager
+  shows each atlas's measured VRAM cost rather than hiding this.
+
+  Atlas sheet size picks the smallest area, tie-broken toward square: pow2
+  rounding makes 64x512 and 128x256 cost the identical 32k pixels for the
+  default font, and the squarer sheet leaves headroom before the 512px cap
+  starts dropping glyphs.
+
+  **Verified**: editor builds clean; scratch project → atlas baked (128x256,
+  4-bit, 13.6 KB → 4.5 KB in `.res-baked`) and `font_data.gen.hpp` tables match
+  the node; generated `flow_graph.gen.cpp` shows *On Start* → the show pin and
+  *Every 3 Seconds* → the **hide pin of the same node** (the whole point of the
+  primitive), with the refresh guarded by `dynTextOn`; Docker/PS2 compile +
+  link clean, and **PCSX2 (software renderer) shows "Score: 0"** centered with
+  its shadow at 50 FPS, `bin/log.txt` free of asserts. Migration verified by
+  `--resave` on a hand-written pre-merge graph (`HideText` → `SetTextVisible` +
+  `"pin": 1`, `ToggleObject` → pin 2, `StopAnimation` → pin 1) and on the three
+  affected examples; a project with **no** Display Text (`FONT_COUNT = 0`)
+  compiles and links too. Not covered: pad-driven interaction and real PS2
+  hardware — both still want a human. *(Numbering: this entry landed on its
+  branch as (113) while main was already at (115) — kept as committed.)*
+
+- (115) **examples/video-modes: a `480I FIELD RENDER` menu row.** The
+  display-mode test bed gains the fourth scan mode from (114): a new VIDEO
+  OPTIONS entry firing a `video-480i-field` flow event, consumed by the
+  aspect-ball graph's On Menu Event -> Set Display Mode(Mode 3, confirm
+  8 s) - same pattern as the other three rows. README updated (menu table,
+  intro, real-hardware notes: field rendering is the same 480i/576i signal,
+  so any cable works; judge the motion on a CRT, PCSX2's deinterlacing
+  hides most of it). Committed generated files regenerated with a Docker
+  build in the same commit (the example-drift rule). **Verified** (Layer
+  3): the example boots in PCSX2, the baked menu panel shows the new row
+  (F8 snapshot), regenerated `flow_graph.gen.cpp` carries
+  `ctx.requestDisplayMode = 3` under the `video-480i-field` event, exit 0.
+  Actually selecting the row with a pad (menu navigation + the confirm
+  prompt) stays a hands-on test, like the other rows.
+- (114) **True field rendering: the `interlaced-field` display mode.**
+  Question from the owner: does the engine render once and scan the frame
+  out over two fields, or does each field get a fresh image? Finding: the
+  stock interlaced mode renders full 512x448 frames into a FIELD-scanned
+  (FFMD=0) buffer and `endFrame` waits on `graph_wait_vsync()`, which fires
+  per FIELD - so at full speed each field already shows a new frame, but
+  every one of those images pays full-height fill/geometry cost and the GS
+  scans out only half its lines. The new **InterlacedField** mode
+  (`DisplayMode::InterlacedField`, project pref `"displayMode":
+  "interlaced-field"`) is the classic retail recipe: half-height 512x224
+  frame/z buffers scanned with SMODE2.FFMD=FRAME (every buffer line, every
+  field), so the same 50/60 distinct-images-per-second now cost half the
+  fill - and the three screen buffers shrink from ~2.6 MB to ~1.3 MB of
+  VRAM, roughly doubling what's left for textures. Engine details: the
+  DISPLAY window is IDENTICAL to the stock mode (ps2sdk's
+  `graph_set_screen` mis-programs DY/DH for the interlaced+FRAME case, so
+  the registers are written directly via `setDtvDisplay(652/50 NTSC,
+  680/72 PAL, 2560, 448, 5x MAGH, 1x MAGV)`); no flicker filter (nothing
+  to blend); the game-facing coordinate space stays 512x448 - the
+  projection is built at the render height (raster scale only; the
+  world-space frustum comes from fov+aspect, so culling and frustum planes
+  are untouched), 2D sprites squeeze y by half in `RendererCore2D`
+  (upstream's own commented-out "interlacing" scaffolding, finally lit
+  up), and clears/post-fx/env-map restores use the new
+  `RendererSettings::getRenderHeightF()`. Per-field half-line alignment:
+  `flipBuffers` reads CSR.FIELD after the vsync, flips it (the frame being
+  rendered shows one field LATER) and appends an XYOFFSET write (+8 = 0.5
+  px on odd fields) to the flip packet - without it static geometry bobs a
+  full scan line at 25/30 Hz. Editor chain: 4th value in the Preferences
+  combo + tooltip, `SetDisplayMode` flow node Mode 3, menu option block
+  `480i FIELD` (bind idx = enum value), codegen `{{DISPLAY_MODE}}` ->
+  `InterlacedField`; enum values are serialized, appended only.
+  **Verified** (Layer 3, PAL BIOS): fresh `--new` scaffold with
+  `interlaced-field` boots in PCSX2, terrain scene shows correct 4:3
+  proportions from the 512x224 buffer (F8 snapshot vs stock-interlaced
+  rebuild of the same project - same framing, slightly softer static
+  edges, as expected); debug HUD "FPS 49" text sprite renders at the right
+  position/aspect through the 2D squeeze at PAL field rate; no TYRA
+  asserts in `bin/log.txt`, ELF confirmed in emulog. Pending a human pass:
+  runtime switches into/out of field mode (same `setDisplayOutput` reinit
+  path the video-modes example exercises for 480p/1080i), NTSC region, the
+  field-phase sign on a real CRT/PS2, and real-hardware A/B like every
+  display change.
+- (113) **Build break: empty-scene placeholder row in `scene_data.hpp`
+  lost a field.** The reflective-models change added `reflected` to
+  `SceneObjectData` and to the per-object row emitter but missed the
+  placeholder row emitted for scenes with zero objects (it keeps the array
+  non-zero-sized) - so `--new` + `--build` of a FRESH project failed in
+  `scene_data.hpp` ("invalid conversion from 'const char*' to 'int'" at
+  the animClip column) while every populated example kept building, which
+  is why it slipped through. One `0` in the reflected slot restores
+  alignment; the row now carries a comment anchoring it to the struct.
+  Also removed the `<<<<<<<`/`=======`/`>>>>>>>` conflict markers that the
+  #89 merge had committed into this very file (both hunks were distinct
+  entry sets from parallel branches - the union is the correct log, so
+  only the marker lines went; the historical duplicate entry NUMBERS from
+  parallel branches stay as they are). **Verified**: Layer 3 - the fresh
+  scaffold compiles and boots in PCSX2 again.
 - (112) **Rounded reflection normals - flat surfaces stop reflecting "one
   pixel".** Owner's observation on the console: the mirror monolith showed
   a single uniform patch of the env map per face while the spheres "reflect
@@ -428,7 +636,11 @@ Each finished feature lands as its own commit.
   screenshot). The Material Editor preview shares the verified shader path;
   its interactive feel (picker, slider) still wants a hands-on pass. Docs:
   README, `docs/reflective-materials.md`, engine + editor skills.
-=======
+
+  *(Numbering note: the reflective-materials series above landed as its own
+  (99)-(112) while the Live-Link/mirror series below already used (99)-(107).
+  Old entries keep their numbers; the sequence continues from (113) up top.)*
+
 - (107) **Live Link v2 — per-project on/off + live add/delete of objects.**
   Two follow-ups to (106). First, the on/off is now a **project setting**
   (`ProjectSettings::liveLink`, default on; *Project > Preferences > Build*,
@@ -5582,3 +5794,100 @@ Each finished feature lands as its own commit.
   measure on hardware. Reusable instrumented scene:
   %TEMP%\tyra-editor-test\clipbench (terrain_game.cpp owns a perfTick() +
   auto-spin patch, codegen marker removed).
+
+- (65) **AI: flow-graph generation, agent CLI, and per-project AI support** -
+  three pieces. (a) *Generate with AI* in the Flow Graph window (src/aigen.cpp
+  + App::drawAiGenerateModal): the system prompt is built per request from the
+  live flowNodeTypes() registry (custom .flownode nodes included) plus the
+  project's referencable names, so it never drifts from the code; the backend
+  (claude CLI / copilot CLI / OpenAI-via-curl, picked with model + Thinking in
+  Edit > Preferences > AI assistant, persisted in editor.ini) runs on a worker
+  thread with the prompt passed via temp file + stdin (never the command line
+  - newlines/32k limit), stderr split to a file so it can't corrupt the reply,
+  and the child tree in a kill-on-close Job Object so Cancel actually stops a
+  token-burning node process; the reply parser tolerates fences/prose, rejects
+  unknown node types, drops pin-rule-violating links (same switch the editor
+  prunes with) and auto-lays-out unpositioned nodes; the graph lands as one
+  commitChange (undo-able), with an append mode that id/position-shifts.
+  (b) Agent CLI in main.cpp: --dump / --list-nodes (= the system prompt) /
+  --dump-graph / --apply-graph / --refresh-gen / --ai-graph /
+  --add-ai-support, so an assistant inside a generated project can inspect,
+  edit and regenerate without the GUI (docs/ai-tools.md). (c) "Add AI
+  support" (New Project checkbox + Project > Preferences + CLI): installs
+  Claude Code skills (tyra-project/-flowgraph/-scripting/-building) +
+  CLAUDE.md and/or .github/copilot-instructions.md into the project; content
+  lives in ai-support/ (markdown, single source of truth), embedded into the
+  exe by cmake/embed_ai_support.cmake, {TYRAX_EXE} replaced with the real exe
+  path at install, refresh gated by the delete-the-marker-to-own rule (the
+  marker sits below SKILL.md frontmatter, so the check scans the head, not
+  line 1). Caught during verification: the first system-prompt draft claimed
+  actions chain exec->exec - false, ordinary actions have no exec output
+  (only triggers + execThrough Delay/Raycast), which the link validator
+  correctly enforced against the prompt's own advice; prompt + skills fixed.
+  Verified: mock-reply --apply-graph e2e (fence stripping, unknown-type
+  rejection, invalid-link drop + auto-layout, save, codegen shows the nodes
+  in flow_graph.gen.cpp via --refresh-gen); full --ai-graph pipeline against
+  a stub claude.cmd on PATH (stdin prompt -> reply -> parse -> append-merge
+  -> save); real claude CLI reached the API (model-404 and usage-limit
+  errors surfaced verbatim in CLI and modal - the account's limit blocked a
+  successful real run today, plumbing itself proven); GUI pass via the
+  screenshot harness (Flow Graph shows the button + applied graph, modal
+  renders, spinner animates, Cancel present, error shown in red);
+  --add-ai-support installs 6 files, second run after deleting a marker
+  keeps the user-owned file.
+
+- (66) **AI graph generation is edit-aware (no mode switch)** - "Generate
+  with AI" (and --ai-graph) now sends the object's CURRENT graph along in
+  the prompt whenever it has one, serialized in the same schema the model
+  must reply in, with instructions to judge from the request whether to
+  change, extend or rebuild - and to always answer with the COMPLETE
+  resulting graph (unchanged nodes keep ids/positions/params; omissions
+  delete). So "change the timer to 5 seconds" edits in place and "also do X
+  on Circle" extends, with no Edit/Add/Replace UI - an earlier draft had a
+  3-way radio, dropped per feedback for the model deciding itself. The
+  reply always just replaces the stored graph; appendGraph() remains only
+  for --apply-graph --append. Verified with the stub-claude harness (see
+  65/ai-backend-testing): a demo project whose graph had a 3s timer +
+  Triangle-hide branch, request "change the timer from 3 to 5 seconds and
+  remove the Triangle hide logic" - the dumped prompt contains the CURRENT
+  GRAPH section with both, and the stub's edited reply (5s, no Triangle
+  nodes) landed as the saved graph with untouched ids preserved. Editor
+  builds clean; modal shows a hint that the AI sees the current graph.
+
+- (67) **Get Position gained exec pins (sample-and-latch)** - user-found gap:
+  Get Position was a pure node, so there was no way to trigger a read - you
+  could not capture "where was the object when X happened" and keep it after
+  the target moved on (a pos link always read live at the consumer's exec).
+  It is now execThrough (like Raycast) while REMAINING a live source when
+  its exec pins are unwired, so every existing graph compiles identically:
+  codegen keys off "has an incoming exec link" (getPosLatched in
+  templates.cpp) - unwired nodes never run and posExpr resolves them live
+  as before; wired ones get a posOut<id>[3] member (reset on scene reload),
+  an action branch latching the target's position at exec time, a posExpr
+  branch handing consumers the latched member, and emitExec chains their
+  "after" exec inline (the registry's execThrough sites all extended, per
+  the tyra-editor-dev note). Object output stays compile-time - only the
+  position latches. Verified via --apply-graph + --refresh-gen on a graph
+  with both forms: OnButton -> GetPosition -> (exec+pos) -> SetVarPos emits
+  the latch then flowPos[0][i] = posOut2[i], while an unwired GetPosition
+  feeding SetPosition still emits the live ctx.objects[i].data.position
+  read; full Docker PS2 build of the project compiles clean (Build OK).
+
+- (68) **Node descriptions live on the node (registry .desc + tooltips)** -
+  node docs used to exist only as a side table inside aigen.cpp, invisible
+  in the editor and easy to forget for new nodes. FlowNodeType gained a
+  `desc` field and the whole flowNodeTypes() registry was rewritten with
+  C++20 designated initializers (defaults on every field, entries state only
+  what a node HAS - kills the positional-bool footgun) carrying the
+  descriptions verbatim; aigen's nodeDoc() table is deleted and the AI
+  catalog reads t.desc. The same text now shows in the editor: hovering an
+  entry in the right-click add-menu, and resting the mouse ~0.6 s on a node
+  in the canvas (delayed + suppressed while any button is down, so wiring
+  never flickers). Custom .flownode nodes get a `desc =` header key
+  (flownode.cpp parse + starter template, VS Code extension SPEC + grammar
+  updated per the sync rule) - their descs flow into tooltips AND the AI
+  catalog, so a project's own nodes document themselves for the assistant
+  too. Verified: --list-nodes catalog before vs after the registry rewrite
+  is byte-IDENTICAL (the transfer introduced no pin/param/text drift); a
+  scratch shake.flownode with desc shows the text in its catalog line; GUI
+  screenshot shows the hover tooltip on a node (On Button + its desc).

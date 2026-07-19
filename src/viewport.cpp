@@ -776,6 +776,7 @@ void Viewport::shutdown() {
     terrainChunkMeshes_.clear();
     for (Mesh& m : terrainLineMeshes_) destroyMesh(m);
     terrainLineMeshes_.clear();
+    destroyMesh(navOverlayMesh_);
     destroyMesh(axes_);
     destroyMesh(box_);
     destroyMesh(sphere_);
@@ -1368,6 +1369,40 @@ void Viewport::setProjectedDecals(
         }
         projectedDecalMeshes_[id] = uploadMesh(interleaved);
     }
+}
+
+void Viewport::setNavOverlay(const navmesh::NavGrid* grid, uint64_t version) {
+    if (!grid) {
+        navOverlayOn_ = false;
+        return;
+    }
+    navOverlayOn_ = true;
+    if (navOverlayHasVersion_ && version == navOverlayVersion_) return;
+    navOverlayVersion_ = version;
+    navOverlayHasVersion_ = true;
+    destroyMesh(navOverlayMesh_);
+    // One inset quad per walkable cell (the gaps read as a grid), corners
+    // draped on the terrain surface and lifted a touch so slopes don't
+    // z-fight the overlay through the terrain triangles.
+    const float lift = 0.15f;
+    const float insetX = grid->cellW * 0.06f;
+    const float insetZ = grid->cellD * 0.06f;
+    std::vector<float> v;
+    for (int z = 0; z < grid->d; ++z)
+        for (int x = 0; x < grid->w; ++x) {
+            if (!grid->walkable[(size_t)z * grid->w + x]) continue;
+            const float x0 = grid->originX + x * grid->cellW + insetX;
+            const float x1 = grid->originX + (x + 1) * grid->cellW - insetX;
+            const float z0 = grid->originZ + z * grid->cellD + insetZ;
+            const float z1 = grid->originZ + (z + 1) * grid->cellD - insetZ;
+            auto put = [&](float wx, float wz) {
+                v.insert(v.end(), {wx, terrainHeight(wx, wz) + lift, wz, 0.25f,
+                                   0.85f, 0.4f, 0.0f, 0.0f});
+            };
+            put(x0, z0); put(x1, z0); put(x1, z1);
+            put(x0, z0); put(x1, z1); put(x0, z1);
+        }
+    navOverlayMesh_ = uploadMesh(v);
 }
 
 void Viewport::setTerrainMaterial(const std::string& texRelPath, const float kd[3],
@@ -2262,6 +2297,12 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     for (const Mesh& chunkLines : terrainLineMeshes_)
         draw(chunkLines, GL_LINES, viewProj, 1.0f, 1.0f, 1.0f);
     draw(axes_, GL_LINES, viewProj, 1.0f, 1.0f, 1.0f);
+
+    // Nav-mesh overlay: translucent green quads over the walkable cells
+    // (View > Nav Mesh Overlay; baked app-side, see setNavOverlay).
+    if (navOverlayOn_ && navOverlayMesh_.vertexCount)
+        draw(navOverlayMesh_, GL_TRIANGLES, viewProj, 1.0f, 1.0f, 1.0f, 0,
+             nullptr, false, 0.4f);
 
     // Point-light reach: a ring sphere at each light, scaled to its radius and
     // tinted with the light color (a rough preview of the lit volume).

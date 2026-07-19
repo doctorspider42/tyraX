@@ -54,7 +54,9 @@ void RendererCorePostFx::init(RendererSettings* t_settings,
   gs = t_gs;
 
   fbW = static_cast<int>(settings->getWidth());
-  fbH = static_cast<int>(settings->getHeight());
+  // Physical buffer height - half the logical one when field rendering
+  // (InterlacedField); every pass blits 1:1 over the real framebuffer.
+  fbH = static_cast<int>(settings->getRenderHeightF());
   // 1/8 res: an even softer glow, and VRAM stays cheap (~48KB total).
   // Texture VRAM is a scarce, thrash-prone resource - RendererCoreTexture
   // evicts everything whenever a texture no longer fits.

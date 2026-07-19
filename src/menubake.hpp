@@ -33,16 +33,17 @@ struct PanelLayout {
     bool clipped = false;  // content exceeded the 512px cap and was cut
 };
 
-// projectDir resolves image paths; pass "" to ignore images.
-PanelLayout panelLayout(const GameMenu& menu, const std::string& projectDir);
+// The project supplies both the font registry (GameMenu::font names a
+// Project::fonts entry) and, through Project::dir, the image paths.
+PanelLayout panelLayout(const GameMenu& menu, const Project& p);
 
 // Rasterizes the panel into out (layout.panelW x layout.canvasH RGBA,
 // row-major). Returns false when no usable font file is found.
-bool bakePanelRGBA(const GameMenu& menu, const std::string& projectDir,
+bool bakePanelRGBA(const GameMenu& menu, const Project& p,
                    std::vector<unsigned char>& out, int& w, int& h);
 
 // Same, PNG-encoded (for res/menus/<name>.png). Empty on failure.
-bool bakePanelPNG(const GameMenu& menu, const std::string& projectDir,
+bool bakePanelPNG(const GameMenu& menu, const Project& p,
                   std::vector<unsigned char>& png);
 
 // Menu name -> res/menus file name ("<sanitized>.png").
@@ -83,11 +84,11 @@ ValueStripLayout valueStripLayout(const GameMenu& menu);
 
 // Rasterizes the value strip (layout.cellW x layout.canvasH RGBA). Returns
 // false when the menu has no value entries or no usable font is found.
-bool bakeValueStripRGBA(const GameMenu& menu, const std::string& projectDir,
+bool bakeValueStripRGBA(const GameMenu& menu, const Project& p,
                         std::vector<unsigned char>& out, int& w, int& h);
 
 // Same, PNG-encoded (for res/menus/<name>-values.png). Empty on failure.
-bool bakeValueStripPNG(const GameMenu& menu, const std::string& projectDir,
+bool bakeValueStripPNG(const GameMenu& menu, const Project& p,
                        std::vector<unsigned char>& png);
 
 // Menu name -> value strip file name ("<sanitized>-values.png").
@@ -97,30 +98,85 @@ std::string valueStripFileName(const std::string& menuName);
 // onto an already-baked panel RGBA (right-aligned on its row), mirroring
 // where the game composites the strip cells. current is index-aligned with
 // menu.entries; out-of-range indices clamp.
-void overlayValuePreview(const GameMenu& menu, const std::string& projectDir,
+void overlayValuePreview(const GameMenu& menu, const Project& p,
                          const std::vector<int>& current,
                          std::vector<unsigned char>& rgba, int w, int h);
 
 // --- HUD texts ---------------------------------------------------------------
 // On-screen texts (Tools > UI Editor > Texts) baked to res/hud PNG sprites -
-// the engine has no font. Shown/hidden at runtime by the Show Text /
-// Hide Text flow nodes.
+// the engine has no font. Shown/hidden at runtime by the Set Text Visible
+// flow node.
 
 // Baked texture dimensions for a HUD text (pow2, capped at 512). The text is
 // drawn centered in the canvas, so the sprite's center anchor centers the
 // content. Returns false when no usable font is found.
-bool textLayout(const HudText& text, const std::string& projectDir, int& w,
-                int& h);
+bool textLayout(const HudText& text, const Project& p, int& w, int& h);
 
 // Rasterizes the text (multi-line on '\n', optional drop shadow).
-bool bakeTextRGBA(const HudText& text, const std::string& projectDir,
+bool bakeTextRGBA(const HudText& text, const Project& p,
                   std::vector<unsigned char>& out, int& w, int& h);
 
 // Same, PNG-encoded (for res/hud/text-<sanitized>.png). Empty on failure.
-bool bakeTextPNG(const HudText& text, const std::string& projectDir,
+bool bakeTextPNG(const HudText& text, const Project& p,
                  std::vector<unsigned char>& png);
 
 // Text name -> res/hud file name ("text-<sanitized>.png").
 std::string textFileName(const std::string& textName);
+
+// --- Font atlases ------------------------------------------------------------
+// A Display Text node draws a string only known at runtime, so it cannot use a
+// pre-baked sprite like the texts above. Instead its font ships as a glyph
+// atlas: every glyph rasterized once into a grid, which the game blits cell by
+// cell (the trick the engine's own debug font uses). Glyphs bake WHITE so a
+// single atlas serves any color - the runtime tints the sprite.
+//
+// Only fonts an actual Display Text node references are baked; a font used
+// solely by static text costs the game nothing.
+
+// Codepoint range baked into an atlas: printable ASCII. Anything outside it is
+// dropped at draw time rather than rendered as a blank.
+constexpr int kAtlasFirstChar = 32;   // space
+constexpr int kAtlasLastChar = 126;   // '~'
+constexpr int kAtlasCharCount = kAtlasLastChar - kAtlasFirstChar + 1;
+
+// One glyph's placement in the atlas and how to lay it down. The runtime draws
+// exactly the glyph's rect (not the whole cell), so blanks and side bearings
+// cost no fill rate. Mirrored by the generated FontGlyph struct in
+// font_data.gen.hpp - keep the two in sync.
+struct AtlasGlyph {
+    int u = 0, v = 0;        // top-left texel of the glyph in the atlas
+    int w = 0, h = 0;        // glyph size (0 = nothing to draw, e.g. space)
+    int xoff = 0, yoff = 0;  // pen/line-top -> glyph top-left, at baseSize
+    int advance = 0;         // pen step to the next glyph, at baseSize
+};
+
+// Geometry of a font's atlas. Cells sit on a fixed grid with a 1px gutter, so
+// bilinear sampling never bleeds a neighbor in (the same reason the engine's
+// debug strip pads its cells).
+struct AtlasLayout {
+    int texW = 64, texH = 64;  // pow2, <= 512 (the PS2 texture cap)
+    int cellW = 8, cellH = 8;
+    int cols = 8;
+    int lineH = 16;  // baseline pitch for multi-line text
+    int baseSize = 16;  // GameFont::atlasSize the metrics were baked at
+    bool clipped = false;  // glyphs did not fit under the 512px cap
+    std::vector<AtlasGlyph> glyphs;  // kAtlasCharCount entries
+};
+
+// Computes a font's atlas geometry. Returns false when no usable font file is
+// found. Codegen and the baker both call this, so the emitted metrics and the
+// baked pixels always agree.
+bool atlasLayout(const GameFont& font, const Project& p, AtlasLayout& out);
+
+// Rasterizes the atlas (layout.texW x layout.texH RGBA, white glyphs).
+bool bakeAtlasRGBA(const GameFont& font, const Project& p,
+                   std::vector<unsigned char>& out, AtlasLayout& layout);
+
+// Same, PNG-encoded (for res/fonts/atlas-<sanitized>.png). Empty on failure.
+bool bakeAtlasPNG(const GameFont& font, const Project& p,
+                  std::vector<unsigned char>& png);
+
+// Font name -> res/fonts file name ("atlas-<sanitized>.png").
+std::string atlasFileName(const std::string& fontName);
 
 }  // namespace menubake

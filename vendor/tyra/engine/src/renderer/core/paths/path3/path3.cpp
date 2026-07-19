@@ -48,13 +48,16 @@ void Path3::clearScreen(zbuffer_t* z, const Color& color) {
   packet2_chain_open_end(clearScreenPacket, 0, 0);
   packet2_update(clearScreenPacket,
                  draw_disable_tests(clearScreenPacket->next, 0, z));
+  // Modified by TyraX: clear the PHYSICAL buffer - half the logical height
+  // when field rendering (InterlacedField).
   packet2_update(
       clearScreenPacket,
       draw_clear(clearScreenPacket->next, 0,
                  2048.0F - (settings->getWidth() / 2),
-                 2048.0F - (settings->getHeight() / 2), settings->getWidth(),
-                 settings->getHeight(), static_cast<int>(color.r),
-                 static_cast<int>(color.g), static_cast<int>(color.b)));
+                 2048.0F - (settings->getRenderHeightF() / 2),
+                 settings->getWidth(), settings->getRenderHeightF(),
+                 static_cast<int>(color.r), static_cast<int>(color.g),
+                 static_cast<int>(color.b)));
   packet2_update(clearScreenPacket,
                  draw_enable_tests(clearScreenPacket->next, 0, z));
   // Terminate the PATH3 stream with a data-less EOP giftag instead of

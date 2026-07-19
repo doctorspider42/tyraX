@@ -1,0 +1,1 @@
+{ "id": "41217f349adae48c", "name": "cone-4", "type": "cone", "position": [-14, 1.1469, 20], "rotation": [0, 0, 0], "scale": [1.7, 2.1, 1.7], "color": [0.1926, 0.42, 0.16], "physics": false, "collision": "none", "layer": "forest", "detail": 10, "drawDistance": 84 }
