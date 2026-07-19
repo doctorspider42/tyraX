@@ -43,7 +43,9 @@ void RendererCoreGS::init(RendererSettings* t_settings) {
   settings = t_settings;
 
   initChannels();
-  flipPacket = packet2_create(4, P2_TYPE_UNCACHED_ACCL, P2_MODE_NORMAL, 0);
+  // Modified by TyraX: 8 qwords - the InterlacedField mode appends a
+  // per-field XYOFFSET write to the flip packet.
+  flipPacket = packet2_create(8, P2_TYPE_UNCACHED_ACCL, P2_MODE_NORMAL, 0);
   zTestPacket = packet2_create(8, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   alphaPacket = packet2_create(4, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   allocateBuffers();
@@ -57,8 +59,10 @@ void RendererCoreGS::initChannels() {
 }
 
 void RendererCoreGS::allocateBuffers() {
+  // Modified by TyraX: physical buffer height - half the logical height in
+  // the InterlacedField mode (true field rendering).
   frameBuffers[0].width = static_cast<unsigned int>(settings->getWidth());
-  frameBuffers[0].height = static_cast<unsigned int>(settings->getHeight());
+  frameBuffers[0].height = settings->getRenderHeightUI();
   frameBuffers[0].mask = 0;
   frameBuffers[0].psm = GS_PSM_32;
   frameBuffers[0].address = vram.allocateBuffer(
@@ -122,6 +126,25 @@ void RendererCoreGS::programDisplay() {
       setDtvDisplay(236, 38, 1920, 1080, settings->getWidescreen() ? 4 : 3, 2,
                     true);
       break;
+    case DisplayMode::InterlacedField: {
+      // True field rendering: half-height (512x224) buffers scanned with
+      // SMODE2.FFMD = FRAME, so each field reads EVERY buffer line - a
+      // fresh field image can be presented at 50/60 Hz for half the fill
+      // and VRAM of the stock mode. The DISPLAY window is IDENTICAL to the
+      // stock interlaced one (ps2sdk's graph_set_screen values: the full
+      // 448 frame-line window, 5x MAGH for the 512-wide buffer) - FFMD
+      // only changes how the buffer feeds it, and ps2sdk's own
+      // graph_set_screen mis-programs DY/DH for the FRAME case, so the
+      // registers are written directly via setDtvDisplay. No flicker
+      // filter: there is no full frame to blend, each field is its own
+      // picture (the standard retail-game recipe, e.g. OPL/gsKit).
+      const bool pal = settings->getVideoMode() == VideoMode::PAL;
+      graph_set_mode(GRAPH_MODE_INTERLACED,
+                     pal ? GRAPH_MODE_PAL : GRAPH_MODE_NTSC, GRAPH_MODE_FRAME,
+                     GRAPH_DISABLE);
+      setDtvDisplay(pal ? 680 : 652, pal ? 72 : 50, 2560, 448, 5, 1, true);
+      break;
+    }
     default: {
       // Same call sequence as ps2sdk's graph_initialize, with the mode
       // explicit (region-resolved Auto, or forced PAL/NTSC from
@@ -168,6 +191,12 @@ void RendererCoreGS::reprogramDisplay() {
       setDtvDisplay(236, 38, 1920, 1080, settings->getWidescreen() ? 4 : 3, 2,
                     true);
       break;
+    case DisplayMode::InterlacedField:
+      // SDTV widescreen is the TV's stretch - rewrite the same window.
+      setDtvDisplay(settings->getVideoMode() == VideoMode::PAL ? 680 : 652,
+                    settings->getVideoMode() == VideoMode::PAL ? 72 : 50,
+                    2560, 448, 5, 1, true);
+      break;
     default:
       graph_set_screen(0, 0, frameBuffers[0].width, frameBuffers[0].height);
       break;
@@ -201,9 +230,10 @@ void RendererCoreGS::setDtvDisplay(int modeX, int modeY, int modeDW,
 
 // Modified by TyraX: scan-out selection per display mode. The stock
 // interlaced mode keeps ps2sdk's flicker filter (both read circuits, the
-// second offset by one line). The DTV modes run with the filter off, where
-// graph_enable_output displays read circuit 2 alone - it must scan from
-// line 0, not the +1 line the _filtered variant programs.
+// second offset by one line). The DTV modes and InterlacedField run with
+// the filter off, where graph_enable_output displays read circuit 2 alone -
+// it must scan from line 0, not the +1 line the _filtered variant programs
+// (and in field rendering there is no full frame to blend anyway).
 void RendererCoreGS::presentFrameBuffer(u8 index) {
   auto& fb = frameBuffers[index];
   if (settings->getDisplayMode() == DisplayMode::Interlaced) {
@@ -266,7 +296,8 @@ void RendererCoreGS::initDrawingEnvironment() {
   packet2_update(packet2, draw_primitive_xyoffset(
                               packet2->next, 0,
                               screenCenter - (settings->getWidth() / 2.0F),
-                              screenCenter - (settings->getHeight() / 2.0F)));
+                              screenCenter -
+                                  (settings->getRenderHeightF() / 2.0F)));
   packet2_update(packet2, draw_finish(packet2->next));
   dma_channel_send_packet2(packet2, DMA_CHANNEL_GIF, true);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
@@ -297,20 +328,29 @@ void RendererCoreGS::flipBuffers() {
 
   packet2_update(flipPacket,
                  draw_framebuffer(flipPacket->base, 0, &frameBuffers[context]));
-  // Interlacing test
-  // packet2_update(
-  //     flipPacket,
-  //     setXYOffset(flipPacket->next, 0,
-  //                 screenCenter - (settings->getWidth() / 2.0F),
-  //                 screenCenter - (settings->getInterlacedHeightF() / 2.0F)));
+  // Modified by TyraX: true field rendering (InterlacedField). The frame we
+  // start rendering now is presented at the next vsync, i.e. scanned during
+  // the OPPOSITE field of the one running right now (CSR.FIELD, which shows
+  // the frame just presented above). The odd field's raster lines sit half a
+  // frame line below the even field's, so the image meant for it must be
+  // sampled half a buffer line lower - setXYOffset() shifts the drawing
+  // window up by 8 (0.5 px in 12.4 fixed point) on odd fields. Without this
+  // static geometry bobs by a full scan line at half the field rate.
+  if (settings->isFieldRendering()) {
+    updateCurrentField();
+    currentField =
+        currentField == GRAPH_FIELD_ODD ? GRAPH_FIELD_EVEN : GRAPH_FIELD_ODD;
+    packet2_update(
+        flipPacket,
+        setXYOffset(flipPacket->next, 0,
+                    screenCenter - (settings->getWidth() / 2.0F),
+                    screenCenter - (settings->getRenderHeightF() / 2.0F)));
+  }
 
   packet2_update(flipPacket, draw_finish(flipPacket->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   dma_channel_send_packet2(flipPacket, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
-
-  // Interlacing test
-  // updateCurrentField();
 }
 
 void RendererCoreGS::updateCurrentField() {

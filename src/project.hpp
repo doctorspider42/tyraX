@@ -373,10 +373,14 @@ struct ProjectSettings {
     std::string buildProfile = "release";  // "release" | "debug"
 
     // Output scan mode. "interlaced" is the stock 480i/576i signal (follows
-    // videoSystem). "progressive" outputs flicker-free 480p, "1080i" a
+    // videoSystem). "interlaced-field" is the same signal with true field
+    // rendering: half-height buffers, a fresh image every field (50/60
+    // distinct pictures per second at full speed) for about half the fill
+    // and VRAM cost. "progressive" outputs flicker-free 480p, "1080i" a
     // pillarboxed HD signal - both need component cables on a real console
     // (PCSX2 shows every mode) and always run at 60 Hz.
-    std::string displayMode = "interlaced";  // "interlaced" | "progressive" | "1080i"
+    std::string displayMode =
+        "interlaced";  // "interlaced" | "interlaced-field" | "progressive" | "1080i"
 
     // 16:9 anamorphic output: widens the projection so proportions are
     // correct on a widescreen TV (the framebuffer stays the same; in 1080i
@@ -891,7 +895,7 @@ struct MenuEntry {
         BindSfxVolume = 2,    // master sound-effect volume (0..100)
         BindDeadzone = 3,     // analog stick deadzone, both sticks (0..0.4)
         BindStickCurve = 4,   // stick response curve exponent (1..3)
-        BindDisplayMode = 5,  // scan mode: interlaced / 480p / 1080i
+        BindDisplayMode = 5,  // scan mode: interlaced / 480p / 1080i / field
         BindWidescreen = 6,   // aspect ratio: 4:3 / 16:9
     };
     int settingBind = BindNone;
@@ -1189,6 +1193,11 @@ std::string load(Project& out, const std::string& projectDir);
 // Writes the single <name>.tyra project file. Editor-side state (selection,
 // gizmo, view mode) and the window layout are taken from the Project fields.
 std::string save(const Project& p);
+
+// A flow graph as the project-file JSON ("nodes"/"links"/"nextId" - the same
+// shape stored inside objects/<id>.json). Used by the headless --dump-graph
+// CLI so AI agents can read a graph without parsing the whole object file.
+std::string flowGraphToJson(const FlowGraph& fg);
 
 // --- Terrain heightmap -------------------------------------------------------
 

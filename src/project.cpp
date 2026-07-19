@@ -151,6 +151,10 @@ static std::string flowGraphJson(const FlowGraph& fg) {
     return json + "] }";
 }
 
+// Public wrapper (project.hpp) - the whole file already sits in namespace
+// project, flowGraphJson above is the private serializer.
+std::string flowGraphToJson(const FlowGraph& fg) { return flowGraphJson(fg); }
+
 static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
     if (const auto* v = jg.find("nextId")) fg.nextId = (int)v->numberOr(1);
     if (const auto* nodes = jg.find("nodes");
@@ -1543,8 +1547,10 @@ std::string load(Project& out, const std::string& projectDir) {
         }
         if (const auto* v = s->find("displayMode")) {
             const std::string dm = v->stringOr("interlaced");
-            st.displayMode =
-                (dm == "progressive" || dm == "1080i") ? dm : "interlaced";
+            st.displayMode = (dm == "progressive" || dm == "1080i" ||
+                              dm == "interlaced-field")
+                                 ? dm
+                                 : "interlaced";
         }
         if (const auto* v = s->find("widescreen"))
             st.widescreen = v->boolOr(false);

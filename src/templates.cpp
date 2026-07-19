@@ -277,8 +277,9 @@ int main(int argc, char** argv) {
   // region, NTSC forces 60 Hz, PAL forces 50 Hz.
   options.videoMode = Tyra::VideoMode::{{VIDEO_MODE}};
   // Scan mode (Project > Preferences > Build > Display mode): interlaced
-  // 480i/576i, progressive 480p, or 1080i. The DTV modes need component
-  // cables on a real console and always run at 60 Hz.
+  // 480i/576i (whole frames or true field rendering), progressive 480p, or
+  // 1080i. The DTV modes need component cables on a real console and always
+  // run at 60 Hz.
   options.displayMode = Tyra::DisplayMode::{{DISPLAY_MODE}};
   // 16:9 anamorphic output (Preferences > Build > Widescreen).
   options.widescreen = {{WIDESCREEN}};
@@ -4453,7 +4454,7 @@ void TerrainGame::applyMenuBindings() {
           g_stickExpL = g_stickExpR = 2.0F;
           break;
         }
-        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0/1/2)
+        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0..3)
           if (idx != g_menuDispOpt) {
             g_menuDispOpt = idx;
             scriptCtx.requestDisplayMode = idx;
@@ -7213,7 +7214,8 @@ struct ScriptContext {
 
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes).
   // requestDisplayMode: -1 = leave, else a Tyra::DisplayMode value (0 =
-  // interlaced, 1 = progressive 480p, 2 = 1080i). displayConfirmSec > 0
+  // interlaced, 1 = progressive 480p, 2 = 1080i, 3 = interlaced field
+  // rendering). displayConfirmSec > 0
   // arms the keep-or-revert prompt: the game switches, asks the player to
   // confirm with X and reverts to the previous mode automatically when the
   // timer runs out (a mode the TV can't display would otherwise strand the
@@ -7922,9 +7924,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << "constexpr SceneObjectData SCENE_" << si << "_OBJECTS["
             << (objs.empty() ? (size_t)1 : objs.size()) << "] = {\n";
         if (objs.empty()) {
+            // Placeholder row so the array is never zero-sized. Field order
+            // must track SceneObjectData - the reflective-models change
+            // added `reflected` here but missed this row (build break for
+            // any project with an empty scene).
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
                    "0, 0, 0.0F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, "
-                   "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, \"\", 1, 1, "
+                   "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, \"\", 1, 1, "
                    "1.0F, 1, -1},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
@@ -8718,9 +8724,10 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                                         : st.videoSystem == "ntsc" ? "NTSC"
                                                                    : "Auto");
     s = replaceAll(s, "{{DISPLAY_MODE}}",
-                   st.displayMode == "1080i"         ? "HiDef1080i"
-                   : st.displayMode == "progressive" ? "Progressive480p"
-                                                     : "Interlaced");
+                   st.displayMode == "1080i"              ? "HiDef1080i"
+                   : st.displayMode == "progressive"      ? "Progressive480p"
+                   : st.displayMode == "interlaced-field" ? "InterlacedField"
+                                                          : "Interlaced");
     s = replaceAll(s, "{{WIDESCREEN}}", st.widescreen ? "true" : "false");
     const bool debugProfile = st.buildProfile == "debug";
     s = replaceAll(s, "{{DEBUG_SHOW_FPS}}",
@@ -9571,6 +9578,18 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
             return "";
         };
 
+        // A Get Position node with its exec input wired runs as a sampling
+        // action: it latches the target's position into its posOut member
+        // when the exec fires (see the registry comment in flowgraph.hpp).
+        // Unwired, it keeps the original pure behavior - consumers read the
+        // target's position live.
+        auto getPosLatched = [&](const FlowNode& n) {
+            if (n.type != "GetPosition") return false;
+            for (const FlowLink& l : fg.links)
+                if (l.kind == FlowLinkExec && l.toNode == n.id) return true;
+            return false;
+        };
+
         // XYZ expressions a node's position resolves to: an incoming position
         // link (Get Position reads the source object live; Set Object
         // Position forwards its own resolution) beats the node's own
@@ -9599,11 +9618,12 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                     }
                 }
             }
-            // A custom node's (or Raycast's) runtime position output
-            // (latched member).
+            // A custom node's (or Raycast's / an exec-wired Get Position's)
+            // runtime position output (latched member).
             if (const FlowNodeType* t = flowNodeType(n.type);
                 t && t->posOut &&
-                (flowCustomNode(n.type) || n.type == "Raycast")) {
+                (flowCustomNode(n.type) || n.type == "Raycast" ||
+                 getPosLatched(n))) {
                 const std::string base = "posOut" + std::to_string(n.id) + "[";
                 return {base + "0]", base + "1]", base + "2]"};
             }
@@ -10068,6 +10088,33 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 const float md = n.num[0] > 0.001f ? n.num[0] : 100.0f;
                 c << pad << "flowRaycast(ctx, " << floatLit(md) << ", &objOut"
                   << n.id << ", posOut" << n.id << ");\n";
+            } else if (n.type == "GetPosition") {
+                // Only reached when its exec input is wired (emitExec): latch
+                // the target's position now, so downstream consumers keep
+                // "where it was when the exec fired" even after the target
+                // moves. posExpr hands them the latched member; an unwired
+                // Get Position never runs and stays a live data source.
+                const std::string id = std::to_string(n.id);
+                const std::string dyn = targetExpr(n);
+                if (!dyn.empty()) {
+                    c << pad << "if (" << dyn << " >= 0) {\n";
+                    for (int a = 0; a < 3; ++a)
+                        c << pad << "  posOut" << id << "[" << a
+                          << "] = ctx.objects[" << dyn << "].data.position[" << a
+                          << "];\n";
+                    c << pad << "}\n";
+                } else {
+                    const int idx = resolveTarget(n);
+                    if (idx < 0) {
+                        c << pad << "// node " << id
+                          << " (GetPosition): unknown object '" << n.str << "'\n";
+                    } else {
+                        for (int a = 0; a < 3; ++a)
+                            c << pad << "posOut" << id << "[" << a
+                              << "] = ctx.objects[" << idx << "].data.position["
+                              << a << "];\n";
+                    }
+                }
             } else if (n.type == "SetStickCurve") {
                 // Stick: 0 left, 1 right, 2 both. Curve: 0 Linear / 1 Exp /
                 // 2 S-Curve. Exponent clamped to >= 1 (only shapes curves 1/2).
@@ -10086,7 +10133,7 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 }
             } else if (n.type == "SetDisplayMode") {
                 int mode = (int)n.num[0];
-                mode = mode < 0 ? 0 : mode > 2 ? 2 : mode;
+                mode = mode < 0 ? 0 : mode > 3 ? 3 : mode;
                 float confirm = n.num[1] < 0.0f ? 0.0f : n.num[1];
                 c << pad << "ctx.requestDisplayMode = " << mode << ";\n";
                 c << pad << "ctx.displayConfirmSec = " << floatLit(confirm)
@@ -10353,7 +10400,8 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 visited.push_back(m->id);
                 c << actionCode(*m, pad);
                 if (t->execThrough &&
-                    (flowCustomNode(m->type) || m->type == "Raycast"))
+                    (flowCustomNode(m->type) || m->type == "Raycast" ||
+                     m->type == "GetPosition"))
                     c << emitExec(m->id, pad, visited);
             }
             return c.str();
@@ -10449,16 +10497,21 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
             }
         }
 
-        // Runtime output latches for C++-backed custom nodes and the built-in
-        // Raycast: members hold the last value each output pin produced, so
-        // downstream nodes read them as plain variables (objOut<id>,
-        // boolOut<id>, posOut<id>[3], textOut<id>). Reset to defaults on
-        // scene (re)load like the other per-node state.
+        // Runtime output latches for C++-backed custom nodes, the built-in
+        // Raycast and exec-wired Get Position nodes: members hold the last
+        // value each output pin produced, so downstream nodes read them as
+        // plain variables (objOut<id>, boolOut<id>, posOut<id>[3],
+        // textOut<id>). Reset to defaults on scene (re)load like the other
+        // per-node state.
         for (const FlowNode& n : fg.nodes) {
             const FlowNodeType* t = flowNodeType(n.type);
-            if (!t || !(flowCustomNode(n.type) || n.type == "Raycast")) continue;
+            if (!t || !(flowCustomNode(n.type) || n.type == "Raycast" ||
+                        getPosLatched(n)))
+                continue;
             const std::string id = std::to_string(n.id);
-            if (t->idOut) {
+            // Get Position latches only its position - its object output
+            // stays the compile-time resolution.
+            if (t->idOut && n.type != "GetPosition") {
                 members << "  int objOut" << id << " = -1;\n";
                 flagResets << "      objOut" << id << " = -1;\n";
             }

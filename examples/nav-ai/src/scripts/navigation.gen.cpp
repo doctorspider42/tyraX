@@ -246,17 +246,20 @@ void navFindPath(NavAgent& a, const RuntimeObject& o) {
   }
 }
 
-// Where the chasers/fleers aim: the player entity's feet when the scene has
-// one, otherwise the camera (the FPP template player).
+// Where the chasers/fleers aim. The Player OBJECT tracks the live player
+// only in third-person mode (the avatar is driven every frame); in FPP
+// walk / noclip the object keeps its authored spawn position forever, so
+// reading it there would leave every NPC watching the spawn point while
+// the real player walks free. Everywhere else the camera IS the player.
 inline void navPlayerPos(ScriptContext& ctx, float* px, float* py, float* pz) {
   const int pi = PLAYER_INDEXES[ctx.scene];
-  if (pi >= 0 && pi < ctx.objectCount) {
+  if (pi >= 0 && pi < ctx.objectCount && PLAYER_MODES[ctx.scene] == 2) {
     const float* p = ctx.objects[pi].data.position;
     *px = p[0]; *py = p[1]; *pz = p[2];
     return;
   }
   *px = ctx.playerPosition.x;
-  *py = ctx.playerPosition.y;
+  *py = ctx.playerPosition.y - 1.5F;  // camera = the eye; approximate the feet
   *pz = ctx.playerPosition.z;
 }
 

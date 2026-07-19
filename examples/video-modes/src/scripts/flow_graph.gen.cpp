@@ -23,6 +23,10 @@ class FlowGraphScript_0_0 : public Script {
       started = false;
     }
     frame++;
+    if (ctx.menuEvent == 3) {  // "video-480i-field"
+      ctx.requestDisplayMode = 3;
+      ctx.displayConfirmSec = 8.0F;
+    }
     if (ctx.menuEvent == 0) {  // "video-480i"
       ctx.requestDisplayMode = 0;
       ctx.displayConfirmSec = 8.0F;
@@ -35,10 +39,10 @@ class FlowGraphScript_0_0 : public Script {
       ctx.requestDisplayMode = 2;
       ctx.displayConfirmSec = 8.0F;
     }
-    if (ctx.menuEvent == 3) {  // "video-ws-off"
+    if (ctx.menuEvent == 4) {  // "video-ws-off"
       ctx.widescreen = 0;
     }
-    if (ctx.menuEvent == 4) {  // "video-ws-on"
+    if (ctx.menuEvent == 5) {  // "video-ws-on"
       ctx.widescreen = 1;
     }
   }
