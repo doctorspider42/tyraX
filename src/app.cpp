@@ -5436,10 +5436,8 @@ void App::drawFlowGraphWindow() {
                 if (!n.str.empty())
                     for (const SceneObject& o : project_.objects())
                         if (o.name.rfind(n.str, 0) == 0) ++count;
-                ImGui::TextDisabled(
-                    "Route: objects named %s1, %s2, ...\n(%d match%s in this "
-                    "scene)",
-                    n.str.c_str(), n.str.c_str(), count, count == 1 ? "" : "es");
+                ImGui::TextDisabled("Route: %s1, %s2, ...\n%d found in this scene",
+                                    n.str.c_str(), n.str.c_str(), count);
             }
         } else if (t->strKind == FlowParamKind::MusicTrack) {
             const std::string current =
@@ -5748,12 +5746,12 @@ void App::drawFlowGraphWindow() {
         if (n.type == "ChasePlayer" || n.type == "FleePlayer" ||
             n.type == "PatrolWaypoints")
             ImGui::TextDisabled(
-                "Walks the baked nav grid (View >\nNav Mesh Overlay). One AI "
-                "state per\nobject - a new command replaces it.");
+                "Walks the baked nav grid.\nOne AI state per object -\na new "
+                "command replaces it.");
         if (n.type == "OnPlayerSeen")
             ImGui::TextDisabled(
-                "Vision cone around the NPC's facing.\nLOS: terrain blocks "
-                "sight (hills).\nBool output = seen right now.");
+                "Vision cone from the NPC's\nfacing; LOS: hills block\nsight. "
+                "Bool = seen now.");
         ImGui::PopItemWidth();
         ImGui::PopID();
 

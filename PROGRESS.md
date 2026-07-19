@@ -49,6 +49,21 @@ Each finished feature lands as its own commit.
   pass. New example `examples/nav-ai` (guard + rabbit, boots clean) and
   `docs/navigation-ai.md`; `examples/script-demo` regenerated (picks up the
   new gen-file stubs + stale id hashes from before this change).
+  Follow-up fix (owner repro on the example: "the guard patrols fine but
+  never chases me"): `navPlayerPos` read the Player OBJECT's position, which
+  the game syncs to the live player **only in third-person mode** — in FPP
+  walk/noclip the object keeps its authored spawn position forever, so every
+  NPC watched the spawn point while the real player walked free (the
+  original PCSX2 chase pass couldn't catch it: with no pad input the player
+  never left spawn, so stale == live). Now the object position is used only
+  when `PLAYER_MODES[scene] == 2`; otherwise the camera is the player (eye
+  minus a nominal 1.5 to approximate the feet). Re-verified padlessly with a
+  teleport repro: `On Start → Delay → Spawn Player At` a marker on the
+  patrol route — before the teleport the guard patrols past the (stale)
+  spawn without reacting under the old code; with the fix the post-teleport
+  live position enters the cone and Chase fires. Also narrowed the AI-node
+  hint lines in the graph UI (they were wider than the field rows and
+  stretched the nodes out of alignment).
 
 - (112) **Rounded reflection normals - flat surfaces stop reflecting "one
   pixel".** Owner's observation on the console: the mirror monolith showed
