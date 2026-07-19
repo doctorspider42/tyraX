@@ -64,7 +64,13 @@ selectable as "Precise clipping on EE (legacy)" and remains the load-time
 default for pre-M4 `.tyra` files without a `clipping` key — design + status
 in `docs/vu1-clipping-plan.md`), static pools in `stapip_clipper.cpp` /
 `stapip_qbuffer.cpp`,
-`RendererCorePostFx` (bloom + film grain + depth of field via GS blits — DoF
+`RendererCorePostFx` (bloom + film grain + depth of field + god rays via GS
+blits — god rays (`PassGodRays`, `setGodRays` strength + per-frame
+`setGodRaysSun` screen position/visibility fed by the game) bright-pass the
+frame on the quarter-res buffers (subtract flat threshold 150, double back
+up - 96 washed the whole frame white, the sky IS bright) and iteratively
+zoom it toward the sun (2 ping-pong passes, s=0.72) before compositing
+additively at half the requested strength; DoF
 (`PassDof`, authored in the UI Editor / overridden by the Set Depth Of Field
 flow node) reuses the bloom blur chain and composites the blur back through
 full-screen sprites drawn at real GS depths under the pass's GEQUAL z-test,
@@ -97,7 +103,9 @@ with a dedicated 128×128 z-buffer — "reflected" scene objects submitted
 inside the bracket occlude correctly — + `RendererCore3D::pushEnvView/
 popEnvView`; exposed as a VRAM-resident `Texture::vramResident` that
 `useTexture` binds without a PATH3 upload — see
-`docs/reflective-materials.md`), the **scene dynamic lights** registry
+`docs/reflective-materials.md`), `Sprite::additive` (2D sprites can opt into the additive blend equation
+Cs*As + Cd - lens-flare ghosts, glows; Renderer2D pins alpha-over per sprite
+otherwise), the **scene dynamic lights** registry
 (`RendererCore::dynLights[8]` + `clearDynLights`/`addDynPointLight`/
 `pickDynLight`; the color VU1 programs have ONE spot-light slot per mesh, so
 `StaPipCore::render` picks the strongest contributor - flashlight or point

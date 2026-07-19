@@ -6107,6 +6107,8 @@ void App::drawFlowGraphWindow() {
                         n.num[0] = 1.0f;  // on
                         n.num[1] = 1.0f;  // authored intensity
                     }
+                    if (std::string(t.key) == "SetFlare") n.num[0] = 0.5f;
+                    if (std::string(t.key) == "SetGodRays") n.num[0] = 0.5f;
                     if (std::string(t.key) == "Raycast") n.num[0] = 50.0f;  // max dist
                     if (std::string(t.key) == "SetDof") {
                         n.num[0] = 20.0f;  // focus distance

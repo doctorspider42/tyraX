@@ -291,7 +291,8 @@ static std::string objectJson(const SceneObject& o) {
         json += ", \"light\": { \"brightness\": " + fmtFloat(o.lightBright) +
                 ", \"radius\": " + fmtFloat(o.lightRadius) +
                 ", \"dynamic\": " + (o.lightDynamic ? "true" : "false") +
-                ", \"flicker\": " + fmtFloat(o.lightFlicker) + " }";
+                ", \"flicker\": " + fmtFloat(o.lightFlicker) +
+                ", \"beam\": " + std::to_string(o.lightBeam) + " }";
     }
     if (o.type == PrimitiveType::Camera) {
         json += ", \"camera\": { \"fov\": " + fmtFloat(o.cameraFov) + " }";
@@ -1442,6 +1443,9 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 o.lightFlicker = (float)v->numberOr(0.0);
             if (o.lightFlicker < 0.0f) o.lightFlicker = 0.0f;
             if (o.lightFlicker > 1.0f) o.lightFlicker = 1.0f;
+            if (const auto* v = lt->find("beam"))
+                o.lightBeam = (int)v->numberOr(0.0);
+            if (o.lightBeam < 0 || o.lightBeam > 2) o.lightBeam = 0;
         }
         if (const auto* cm = jo.find("camera")) {
             if (const auto* v = cm->find("fov")) o.cameraFov = (float)v->numberOr(60.0);
@@ -2576,6 +2580,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
         // Dynamic lights live in a baked side table (DYN_LIGHTS) - flipping
         // the flag or the flicker needs a rebuild like any baked change.
         fnvMixF(h, o.lightDynamic ? 1.0f : 0.0f), fnvMixF(h, o.lightFlicker);
+        fnvMixF(h, (float)o.lightBeam);
     }
     return h;
 }
@@ -2759,6 +2764,27 @@ std::string refreshGenerated(const Project& p) {
         fs::create_directories(png.parent_path(), ec);
         std::ofstream f(png, std::ios::binary);
         if (f) f.write(reinterpret_cast<const char*>(a.data), (std::streamsize)a.size);
+    }
+
+    // Lens flare sprites: procedural (no font), written whenever the project
+    // can show the flare - an authored per-scene amount OR a Set Flare node
+    // that could raise it at runtime. FLARE_USED in scene_data.hpp gates the
+    // game-side texture load, so it matches this exact predicate (see
+    // templates::projectUsesFlare).
+    if (templates::projectUsesFlare(p)) {
+        for (int kind = 0; kind < 2; ++kind) {
+            std::vector<unsigned char> png;
+            if (!menubake::bakeFlarePNG(kind, png))
+                return "Lens flare sprite bake failed";
+            const fs::path path =
+                fs::path(p.dir) / "res" / "hud" / menubake::flareFileName(kind);
+            std::error_code ec;
+            fs::create_directories(path.parent_path(), ec);
+            std::ofstream f(path, std::ios::binary);
+            if (!f) return "Cannot write flare sprite: " + path.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
+        }
     }
 
     // Game menu panels: derived from project data (labels, colors), so

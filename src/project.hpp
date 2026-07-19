@@ -267,6 +267,11 @@ struct SceneObject {
     // by the Set Light flow node. Max 8 dynamic lights per scene.
     bool lightDynamic = false;
     float lightFlicker = 0.0f;  // 0 = steady .. 1 = full torch-like flicker
+    // Visible beam drawn at the light source (additive, follows the light's
+    // runtime state incl. flicker/Set Light): 0 = none, 1 = glow corona
+    // (camera-facing halo), 2 = corona + a cone shaft pointing down (street
+    // lamp / stage light look). Works on baked lights too (steady glow).
+    int lightBeam = 0;
 
     // Camera entity parameter (used when type == Camera): vertical field of
     // view in degrees. A Cutscene Director shot bound to this camera applies
@@ -359,6 +364,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.soundOnPlayer == b.soundOnPlayer &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
            a.lightDynamic == b.lightDynamic && a.lightFlicker == b.lightFlicker &&
+           a.lightBeam == b.lightBeam &&
            a.cameraFov == b.cameraFov &&
            a.mirrorObjects == b.mirrorObjects &&
            a.mirrorReflectPlayer == b.mirrorReflectPlayer &&

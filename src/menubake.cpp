@@ -1,5 +1,6 @@
 #include "menubake.hpp"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -624,6 +625,42 @@ bool bakeTextPNG(const HudText& text, const std::string& projectDir,
     png.clear();
     return stbi_write_png_to_func(pngWriteCallback, &png, w, h, 4, rgba.data(),
                                   w * 4) != 0;
+}
+
+bool bakeFlarePNG(int kind, std::vector<unsigned char>& png) {
+    // 64x64 pow2 (PS2 texture rule), white RGB, shape in alpha. The game
+    // draws them additively (Sprite::additive) tinted by the light color,
+    // so alpha IS the brightness profile.
+    constexpr int N = 64;
+    std::vector<unsigned char> rgba(N * N * 4);
+    for (int y = 0; y < N; ++y) {
+        for (int x = 0; x < N; ++x) {
+            // Radius normalized to 1.0 at the sprite edge.
+            const float dx = (x + 0.5f) / N - 0.5f;
+            const float dy = (y + 0.5f) / N - 0.5f;
+            const float r = std::sqrt(dx * dx + dy * dy) * 2.0f;
+            float a = 0.0f;
+            if (kind == 0) {
+                // Soft glow: quadratic falloff with a hot core.
+                const float t = r > 1.0f ? 0.0f : 1.0f - r;
+                a = t * t * (0.35f + 0.65f * t * t);
+            } else {
+                // Thin ring at ~70% radius (the classic lens ghost).
+                const float d = (r - 0.7f) / 0.09f;
+                a = std::exp(-d * d) * 0.5f;
+            }
+            unsigned char* px = &rgba[(y * N + x) * 4];
+            px[0] = px[1] = px[2] = 255;
+            px[3] = (unsigned char)(a * 255.0f + 0.5f);
+        }
+    }
+    png.clear();
+    return stbi_write_png_to_func(pngWriteCallback, &png, N, N, 4, rgba.data(),
+                                  N * 4) != 0;
+}
+
+std::string flareFileName(int kind) {
+    return kind == 0 ? "flare-glow.png" : "flare-ring.png";
 }
 
 }  // namespace menubake

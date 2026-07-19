@@ -123,10 +123,14 @@ void RendererCore2D::render(const Sprite& sprite,
   // the GS ALPHA register holds whatever the last mesh set - after a
   // reflective env pass that is the ADDITIVE equation, and sprites
   // inheriting it lose their dark texels (on hardware the debug HUD
-  // font's black outline visibly vanished). Every sprite sets the
-  // standard source-alpha blend explicitly.
+  // font's black outline visibly vanished). Every sprite sets its blend
+  // explicitly: standard source-alpha, or additive (Cs*As + Cd) for
+  // light-like overlays (Sprite::additive - lens flares, glows).
   packet2_utils_gif_add_set(packet, 1);
-  packet2_add_2x_s64(packet, GS_SET_ALPHA(0, 1, 0, 1, 0), GS_REG_ALPHA_1);
+  packet2_add_2x_s64(packet,
+                     sprite.additive ? GS_SET_ALPHA(0, 2, 0, 1, 0)
+                                     : GS_SET_ALPHA(0, 1, 0, 1, 0),
+                     GS_REG_ALPHA_1);
   packet2_utils_gif_add_set(packet, 1);
   packet2_utils_gs_add_texbuff_clut(packet, texBuffers.core, clutBuffer);
   draw_enable_blending();

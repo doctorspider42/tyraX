@@ -754,6 +754,17 @@ class TerrainGame : public Tyra::Game {
   // Dynamic point lights (Set Light flow node), per scene-object index.
   std::vector<signed char> lightReq;     // ScriptContext::lightRequest
   std::vector<float> lightIntens;        // ScriptContext::lightIntensity
+  // Sun screen effects (POSTFX_FLARE / POSTFX_GODRAYS, Set Flare / Set God
+  // Rays): updateSunFx projects the sun + feeds the god-rays pass + eases
+  // the flare's occlusion fade; renderFlare draws the additive ghosts.
+  Tyra::Sprite flareSprites[4];
+  bool flareTexturesLoaded = false;
+  float flareVis = 0.0F;  // eased visibility 0..1
+  float flareSunX = 0.0F, flareSunY = 0.0F;  // sun screen position, px
+  float flareAmt = 0.0F;  // this frame's flare amount 0..1
+  bool flarePreDrawn = false;  // main glow drew before the post-fx pass
+  void updateSunFx();
+  void renderFlare();
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
@@ -1162,6 +1173,17 @@ class TerrainGame : public Tyra::Game {
   // Dynamic point lights (Set Light flow node), per scene-object index.
   std::vector<signed char> lightReq;     // ScriptContext::lightRequest
   std::vector<float> lightIntens;        // ScriptContext::lightIntensity
+  // Sun screen effects (POSTFX_FLARE / POSTFX_GODRAYS, Set Flare / Set God
+  // Rays): updateSunFx projects the sun + feeds the god-rays pass + eases
+  // the flare's occlusion fade; renderFlare draws the additive ghosts.
+  Tyra::Sprite flareSprites[4];
+  bool flareTexturesLoaded = false;
+  float flareVis = 0.0F;  // eased visibility 0..1
+  float flareSunX = 0.0F, flareSunY = 0.0F;  // sun screen position, px
+  float flareAmt = 0.0F;  // this frame's flare amount 0..1
+  bool flarePreDrawn = false;  // main glow drew before the post-fx pass
+  void updateSunFx();
+  void renderFlare();
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
@@ -1229,6 +1251,9 @@ bool g_flashOn = true;
 // Global emitter draw switch (Set Particles flow node). false = updateParticles
 // skips all simulation + drawing, so every emitter's fill cost disappears.
 bool g_particlesOn = true;
+// Sun lens flare amount, 0..128 (Set Flare flow node; seeded per scene from
+// POSTFX_FLARE). Consumed by updateAndRenderFlare.
+int g_flareAmount = 0;
 
 // Runtime analog stick deadzone (Preferences > Input; a menu "Deadzone" option
 // block changes it live via applyMenuBindings). Seeded from the baked
@@ -1483,6 +1508,43 @@ void updateDynLights(Tyra::Engine* engine, ScriptContext& ctx) {
         Tyra::Color(ch(d.color[0]), ch(d.color[1]), ch(d.color[2])),
         Tyra::Vec4(d.position[0], d.position[1], d.position[2], 1.0F),
         d.lightRadius > 0.01F ? d.lightRadius : 0.01F);
+  }
+}
+
+/** Samples the dynamic lights (scene point lights + flashlight) at a world
+ * point, 0..1 per channel - the animated models' cheap pickup: one sample
+ * per model per frame added to its ambient term, instead of per-vertex VU1
+ * work (the lit anim programs have no spot slot). The flashlight's cone is
+ * a rough cos test at model scale; the falloff mirrors the VU1 shape. */
+void dynLightAt(Tyra::Engine* engine, float wx, float wy, float wz,
+                float out[3]) {
+  out[0] = out[1] = out[2] = 0.0F;
+  auto& core = engine->renderer.core;
+  const Tyra::RendererCoreSpotLight* ls[Tyra::RendererCore::DYN_LIGHTS_MAX + 1];
+  u32 n = 0;
+  if (core.spot.enabled) ls[n++] = &core.spot;
+  for (u32 i = 0; i < core.dynLightCount; i++) ls[n++] = &core.dynLights[i];
+  for (u32 i = 0; i < n; i++) {
+    const auto* l = ls[i];
+    const float dx = wx - l->position.x;
+    const float dy = wy - l->position.y;
+    const float dz = wz - l->position.z;
+    const float d2 = dx * dx + dy * dy + dz * dz;
+    const float r2 = l->range * l->range;
+    if (d2 >= r2) continue;
+    float att = 1.0F - d2 / r2;
+    if (!l->point) {
+      const float d = sqrtf(d2);
+      if (d > 1e-4F) {
+        const float ca = (dx * l->direction.x + dy * l->direction.y +
+                          dz * l->direction.z) /
+                         d;
+        if (ca < l->cosCutoff) att *= 0.15F;  // soft outside the beam
+      }
+    }
+    out[0] += l->color.r * (1.0F / 128.0F) * att;
+    out[1] += l->color.g * (1.0F / 128.0F) * att;
+    out[2] += l->color.b * (1.0F / 128.0F) * att;
   }
 }
 
@@ -2126,6 +2188,8 @@ void TerrainGame::init() {
   stapip.core.setVU1Clipping(CLIP_VU1);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  engine->renderer.core.postFx.setGodRays(POSTFX_GODRAYS);
+  g_flareAmount = POSTFX_FLARE;
   engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
                                                POSTFX_DOF_RANGE, POSTFX_DOF);
   // GS hardware distance fog (Scene/Project > Preferences > Fog).
@@ -2333,6 +2397,14 @@ void TerrainGame::loop() {
     engine->renderer.core.postFx.setGrain(scriptCtx.grain);
     scriptCtx.grain = -1;
   }
+  if (scriptCtx.flare >= 0) {
+    g_flareAmount = scriptCtx.flare;
+    scriptCtx.flare = -1;
+  }
+  if (scriptCtx.godRays >= 0) {
+    engine->renderer.core.postFx.setGodRays(scriptCtx.godRays);
+    scriptCtx.godRays = -1;
+  }
   if (scriptCtx.dof == -2) {
     // Set Depth Of Field, "Scene setting" mode: back to the authored values
     engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
@@ -2404,7 +2476,12 @@ void TerrainGame::loop() {
     // sprites stamp z = max across their whole rect (transparent margins
     // included), which would punch sharp rectangles into a later z-tested
     // DoF pass (a crosshair HUD showed through the blur as a box).
-    engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassDof);
+    // Sun state first (god-rays zoom center + flare fade), then the depth
+    // of field + god-rays composite, then the flare sprites on top of both.
+    updateSunFx();
+    engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassDof |
+                                      Tyra::RendererCorePostFx::PassGodRays);
+    renderFlare();
     // Full-screen effects can sit inside the HUD stack (Tools > UI Editor):
     // bloom (with color grading) and film grain composite at independent
     // points, so sprites drawn afterwards stay crisp on top of them. -1 = the
@@ -2594,6 +2671,20 @@ void TerrainGame::buildScene() {
     scriptCtx.textRequest = hudTextReq.data();
     scriptCtx.textDuration = hudTextDur.data();
     scriptCtx.textCount = HUD_TEXT_COUNT;
+    // Sun lens flare ghost sprites. FLARE_USED gates the load - the PNGs are
+    // baked into res/hud only for flare-using projects (see refreshGenerated).
+    if (FLARE_USED) {
+      auto* glowTex = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd("hud/flare-glow.png"));
+      auto* ringTex = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd("hud/flare-ring.png"));
+      for (int i = 0; i < 4; ++i) {
+        flareSprites[i].mode = SpriteMode::MODE_STRETCH;
+        flareSprites[i].additive = true;
+        (i == 0 || i == 1 ? glowTex : ringTex)->addLink(flareSprites[i].id);
+      }
+      flareTexturesLoaded = true;
+    }
     if (TITLE_MENU >= 0) {
       gameMenuIndex = TITLE_MENU;
       gameMenuCursor = 0;
@@ -3237,8 +3328,11 @@ void TerrainGame::setupAnimObject(int index) {
 // In-view instances draw nearest-first: the front-to-back order lets the GS
 // z-reject overdraw and makes each pose group's mesh owner its closest
 // on-screen member (the LOD refresh rate follows the closest copy).
-// One directional light matches the baked static lighting (point lights are
-// baked into static vertex colors and cannot follow animated meshes).
+// One directional light matches the baked static lighting; baked point
+// lights cannot follow animated meshes, but DYNAMIC lights (+ the
+// flashlight) are sampled once per model per frame into the ambient term
+// (see the dynLightAt pickup below) - a character walking into a torch's
+// pool of light brightens with it.
 void TerrainGame::updateAndRenderAnimObjects() {
   if (gameAnimModels.empty()) return;
   bool any = false;
@@ -3388,6 +3482,25 @@ void TerrainGame::updateAndRenderAnimObjects() {
         meshOwner == i && (allowSkin || inst->currentLod() != meshLod)
             ? inst->ensurePose(meshLod)
             : false;
+    // Dynamic light pickup: one sample at the model's center added to each
+    // part's ambient term - a torch or the flashlight visibly lights the
+    // character, without per-vertex VU1 cost (litColors[3] mirrors
+    // setupAnimObject's albedo fold; alpha stays 128).
+    {
+      float dl[3];
+      dynLightAt(engine, o.data.position[0],
+                 o.data.position[1] + o.data.scale[1] * 0.5F,
+                 o.data.position[2], dl);
+      const float amb2 = 128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT;
+      const GameAnimModel& gam = gameAnimModels[o.data.animModel];
+      for (size_t p = 0; p < g.animParts.size(); ++p) {
+        if (!g.animParts[p].bag) continue;
+        const float* base = gam.src->parts[p].color;
+        g.animParts[p].litColors[3].set(
+            (amb2 + 128.0F * dl[0]) * base[0], (amb2 + 128.0F * dl[1]) * base[1],
+            (amb2 + 128.0F * dl[2]) * base[2], 128.0F);
+      }
+    }
     for (size_t p = 0; p < g.animParts.size(); ++p) {
       ObjectGeometry::AnimPart& ap = g.animParts[p];
       if (!ap.bag) continue;
@@ -3689,6 +3802,8 @@ void TerrainGame::loadScene(int sceneIndex) {
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  engine->renderer.core.postFx.setGodRays(POSTFX_GODRAYS);
+  g_flareAmount = POSTFX_FLARE;
   engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
                                                POSTFX_DOF_RANGE, POSTFX_DOF);
   // GS hardware distance fog (Scene/Project > Preferences > Fog).
@@ -4601,6 +4716,134 @@ void TerrainGame::updateAndRenderHudTexts() {
     }
     if (hudTextOn[i]) engine->renderer.renderer2D.render(hudTextSprites[i]);
   }
+}
+
+// Sun screen effects, part 1 (before the post-fx pass): projects the sun -
+// it sits infinitely far along the lighting direction, so only the DIRECTION
+// matters - feeds the god-rays pass its screen position + visibility factor,
+// and eases the lens flare's occlusion fade (one ray toward the sun: object
+// bounding spheres + a terrain march). Part 2 (renderFlare) draws the flare
+// sprites AFTER the post-fx pass so they sit on top of DoF and the rays.
+void TerrainGame::updateSunFx() {
+  auto& postFx = engine->renderer.core.postFx;
+  const float amount =
+      flareTexturesLoaded ? g_flareAmount * (1.0F / 128.0F) : 0.0F;
+  flareAmt = amount;
+  const bool wantRays = postFx.getGodRays() > 0;
+  if (amount <= 0.0F && !wantRays) {
+    flareVis = 0.0F;
+    return;
+  }
+
+  float sxd = SCENE_LIGHT_X, syd = SCENE_LIGHT_Y, szd = SCENE_LIGHT_Z;
+  const float sl = sqrtf(sxd * sxd + syd * syd + szd * szd);
+  if (sl < 0.0001F) {
+    postFx.setGodRaysSun(0.0F, 0.0F, 0.0F);
+    flareVis = 0.0F;
+    return;
+  }
+  sxd /= sl, syd /= sl, szd /= sl;
+
+  const auto& scr = engine->renderer.core.getSettings();
+  const float W = scr.getWidth(), H = scr.getHeight();
+
+  float target = 0.0F, px = 0.0F, py = 0.0F, raysVis = 0.0F;
+  float edge = 0.0F;
+  const Vec4 sunWorld(cameraPosition.x + sxd * 500.0F,
+                      cameraPosition.y + syd * 500.0F,
+                      cameraPosition.z + szd * 500.0F, 1.0F);
+  const Vec4 clip = engine->renderer.core.renderer3D.getViewProj() * sunWorld;
+  if (clip.w > 0.0F) {
+    px = (clip.x / clip.w * 0.5F + 0.5F) * W;
+    py = (0.5F - clip.y / clip.w * 0.5F) * H;
+    const float mx = px < 0.0F ? -px : (px > W ? px - W : 0.0F);
+    const float my = py < 0.0F ? -py : (py > H ? py - H : 0.0F);
+    const float m = mx > my ? mx : my;
+    // Flare fades over an 80px band past the edge; the rays keep working
+    // with the sun well off screen (streaks reach in from the border).
+    edge = 1.0F - m * (1.0F / 80.0F);
+    raysVis = 1.0F - m * (1.0F / 220.0F);
+  }
+  flareSunX = px, flareSunY = py;
+  postFx.setGodRaysSun(px, py, raysVis);
+
+  if (amount > 0.0F && edge > 0.0F) {
+    // Flare occlusion: one ray from the camera toward the sun. Objects as
+    // bounding spheres (marker types skipped), then a terrain march -
+    // cheap enough to run every frame.
+    bool clear = true;
+    for (int i = 0; i < (int)runtimeObjects.size() && clear; ++i) {
+      const RuntimeObject& o = runtimeObjects[i];
+      if (!o.active || !o.visible || i == PLAYER_INDEX) continue;
+      const int ty = o.data.type;
+      if (ty == 4 || ty == 6 || ty == 7 || ty == 8 || ty == 9 || ty == 11 ||
+          ty == 13 || ty == 14)
+        continue;
+      float half = o.data.scale[0];
+      if (o.data.scale[1] > half) half = o.data.scale[1];
+      if (o.data.scale[2] > half) half = o.data.scale[2];
+      const float cx = o.data.position[0] - cameraPosition.x;
+      const float cy = o.data.position[1] - cameraPosition.y;
+      const float cz = o.data.position[2] - cameraPosition.z;
+      const float tca = cx * sxd + cy * syd + cz * szd;
+      if (tca < 0.0F) continue;
+      const float d2 = cx * cx + cy * cy + cz * cz - tca * tca;
+      if (d2 < half * half) clear = false;
+    }
+    for (float t = 2.0F; t <= 80.0F && clear; t += 2.0F) {
+      if (cameraPosition.y + syd * t <=
+          terrainHeightAt(cameraPosition.x + sxd * t,
+                          cameraPosition.z + szd * t))
+        clear = false;
+    }
+    if (clear) target = edge > 1.0F ? 1.0F : edge;
+  }
+
+  // Ease toward the target so occlusion changes never pop.
+  const float k = g_frameDt * 6.0F;
+  flareVis += (target - flareVis) * (k > 1.0F ? 1.0F : k);
+
+  // Position + tint the ghost sprites now, then draw the MAIN sun glow
+  // (sprite 0) before the post-fx pass: the god rays bright-pass picks it
+  // up, so the shafts visibly emanate from the sun itself. The remaining
+  // ghosts draw after the pass (renderFlare) so they stay crisp.
+  if (flareAmt <= 0.0F || flareVis <= 0.01F) return;
+  const float axc = W * 0.5F - px, ayc = H * 0.5F - py;
+  // t = position on the sun -> screen-center axis (1 = at the sun,
+  // 0 = center, negative = mirrored past center).
+  struct Ghost { float t, size, alpha; };
+  static const Ghost ghosts[4] = {{1.0F, 160.0F, 1.0F},
+                                  {0.55F, 44.0F, 0.35F},
+                                  {0.25F, 90.0F, 0.45F},
+                                  {-0.35F, 56.0F, 0.30F}};
+  const float lr = SCENE_LIGHT_COL_R, lg = SCENE_LIGHT_COL_G,
+              lb = SCENE_LIGHT_COL_B;
+  for (int i = 0; i < 4; ++i) {
+    const Ghost& g = ghosts[i];
+    Sprite& s = flareSprites[i];
+    const float gx = px + axc * (1.0F - g.t), gy = py + ayc * (1.0F - g.t);
+    const float size = g.size * (0.6F + 0.4F * flareAmt);
+    s.size = Vec2(size, size);
+    s.position = Vec2(gx - size * 0.5F, gy - size * 0.5F);
+    const float a = 128.0F * flareAmt * flareVis * g.alpha;
+    // Tint by the scene light color (128 = unmodulated texel).
+    s.color = Tyra::Color(128.0F * lr, 128.0F * lg, 128.0F * lb, a);
+  }
+  // Sprites stamp z across their whole rect, and the DoF composite is
+  // z-tested - a pre-pass sprite would punch a blur rectangle into it. So
+  // the glow feeds the rays only while DoF is off; with DoF active it draws
+  // after the pass with the other ghosts (rays then streak scene light only).
+  flarePreDrawn = engine->renderer.core.postFx.getDepthOfField() == 0;
+  if (flarePreDrawn) engine->renderer.renderer2D.render(flareSprites[0]);
+}
+
+// Sun lens flare, part 2: the remaining ghost sprites (the main glow drew in
+// updateSunFx, pre-post-fx). Drawn right after the post-fx pass (DoF + god
+// rays), under the whole HUD stack.
+void TerrainGame::renderFlare() {
+  if (flareAmt <= 0.0F || flareVis <= 0.01F) return;
+  for (int i = flarePreDrawn ? 1 : 0; i < 4; ++i)
+    engine->renderer.renderer2D.render(flareSprites[i]);
 }
 
 // Spring arm (third person only): how far the camera may sit down the boom
@@ -6218,6 +6461,8 @@ void TerrainGame::init() {
   stapip.core.setVU1Clipping(CLIP_VU1);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  engine->renderer.core.postFx.setGodRays(POSTFX_GODRAYS);
+  g_flareAmount = POSTFX_FLARE;
   engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
                                                POSTFX_DOF_RANGE, POSTFX_DOF);
   // GS hardware distance fog (Scene/Project > Preferences > Fog).
@@ -6461,6 +6706,14 @@ void TerrainGame::loop() {
     engine->renderer.core.postFx.setGrain(scriptCtx.grain);
     scriptCtx.grain = -1;
   }
+  if (scriptCtx.flare >= 0) {
+    g_flareAmount = scriptCtx.flare;
+    scriptCtx.flare = -1;
+  }
+  if (scriptCtx.godRays >= 0) {
+    engine->renderer.core.postFx.setGodRays(scriptCtx.godRays);
+    scriptCtx.godRays = -1;
+  }
   if (scriptCtx.dof == -2) {
     // Set Depth Of Field, "Scene setting" mode: back to the authored values
     engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
@@ -6532,7 +6785,12 @@ void TerrainGame::loop() {
     // sprites stamp z = max across their whole rect (transparent margins
     // included), which would punch sharp rectangles into a later z-tested
     // DoF pass (a crosshair HUD showed through the blur as a box).
-    engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassDof);
+    // Sun state first (god-rays zoom center + flare fade), then the depth
+    // of field + god-rays composite, then the flare sprites on top of both.
+    updateSunFx();
+    engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassDof |
+                                      Tyra::RendererCorePostFx::PassGodRays);
+    renderFlare();
     // Full-screen effects can sit inside the HUD stack (Tools > UI Editor):
     // bloom (with color grading) and film grain composite at independent
     // points, so sprites drawn afterwards stay crisp on top of them. -1 = the
@@ -8375,6 +8633,12 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     sceneFloats("SKY_TOP_BS", [&](int si) { return floatLit(rs[si].skyTopColor[2] * 255.0f); });
     sceneInts("POSTFX_BLOOMS", [&](int si) { return fx128(rs[si].bloom); });
     sceneInts("POSTFX_GRAINS", [&](int si) { return fx128(rs[si].grain); });
+    sceneInts("POSTFX_FLARES", [&](int si) { return fx128(rs[si].flare); });
+    sceneInts("POSTFX_GODRAYS_ARR", [&](int si) { return fx128(rs[si].godRays); });
+    // Gates the flare-sprite texture load; MUST equal the refreshGenerated
+    // predicate that bakes res/hud/flare-*.png (templates::projectUsesFlare).
+    out << "constexpr int FLARE_USED = " << (projectUsesFlare(p) ? 1 : 0)
+        << ";\n";
     sceneInts("POSTFX_DOFS", [&](int si) { return fx128(rs[si].dofAmount); });
     sceneFloats("POSTFX_DOF_FOCUSES",
                 [&](int si) { return floatLit(rs[si].dofFocus); });
@@ -8628,6 +8892,8 @@ inline int everyFrames(float seconds) {
 #define SKY_TOP_G SKY_TOP_GS[g_activeScene]
 #define SKY_TOP_B SKY_TOP_BS[g_activeScene]
 #define POSTFX_BLOOM POSTFX_BLOOMS[g_activeScene]
+#define POSTFX_FLARE POSTFX_FLARES[g_activeScene]
+#define POSTFX_GODRAYS POSTFX_GODRAYS_ARR[g_activeScene]
 #define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
 #define POSTFX_DOF POSTFX_DOFS[g_activeScene]
 #define POSTFX_DOF_FOCUS POSTFX_DOF_FOCUSES[g_activeScene]
@@ -8836,6 +9102,16 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{SCREEN_FX_IN_LOOP}}", screenFxDispatch(p, true));
     s = replaceAll(s, "{{SCREEN_FX_TOP}}", screenFxDispatch(p, false));
     return s;
+}
+
+bool projectUsesFlare(const Project& p) {
+    for (const SceneData& sc : p.scenes) {
+        if (project::resolvedSettings(p, sc).flare > 0.0f) return true;
+        for (const SceneObject& o : sc.objects)
+            for (const FlowNode& n : o.flowGraph.nodes)
+                if (n.type == "SetFlare") return true;
+    }
+    return false;
 }
 
 bool matchesLegacy(const Project& p, const std::string& relativePath,

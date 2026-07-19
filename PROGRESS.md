@@ -10,6 +10,60 @@ Each finished feature lands as its own commit.
 
 ## Done in the lighting batch
 
+- (116) **Dynamic lights reach animated models (cheap pickup).** The known
+  gap from the flashlight feature (DynPip/anim meshes saw no dynamic light)
+  closed the PS2-era way: `dynLightAt` samples every dynamic light's
+  contribution (scene point lights + the flashlight, falloff mirroring the
+  VU1 shape, rough cone test for the beam) ONCE per animated model per
+  frame at its center, and the result is folded into each part's ambient
+  term (`litColors[3]` = albedo * (sceneAmbient + 128*sample), refreshed in
+  the anim render pass). A character walking into a torch's pool of light
+  brightens with it, at a few EE multiplies per model - no per-vertex work,
+  no VU1 change. Verified: editor + Docker builds clean (the pass compiles
+  and runs in the flare/god-rays boots); a hands-on visual check with a
+  .glb avatar next to a dynamic torch still wants a human eye.
+- (115) **God rays (sun light shafts) - a new GS post-fx pass.** Engine:
+  `PassGodRays` in `RendererCorePostFx` (PassAll now 31, packet 352 -> 512
+  qwords): downsample to the 1/8-res bloom buffers, bright-pass (subtract a
+  flat 150 threshold via the new `sizedQuad`, then double the result back
+  up - threshold 96 washed the whole frame white, the sky IS bright), two
+  ping-pong zoom-toward-the-sun iterations (dst = zoom_s(src) + src/2,
+  s = 0.72 - each zoom samples a window shrunk around the sun, stretching
+  bright pixels into radial streaks), additive composite at HALF the
+  requested strength. The game feeds `setGodRaysSun(px, py, visibility)`
+  every frame (sun projected via getViewProj; visibility eases over a
+  220px off-screen band, 0 behind the camera); strength = authored
+  `ProjectSettings::godRays` (UI Editor pinned "[ God rays ]" entry,
+  per-scene override in Post effects) or the **Set God Rays** flow node.
+  Applied with PassDof right after the scene in both loops, before the
+  flare sprites.
+- (114) **Sun lens flare with raycast occlusion.** The sun sits infinitely
+  far along the lighting direction; `updateSunFx` projects it through the
+  frame's view-proj, and ONE ray toward it per frame (object bounding
+  spheres + a 2-unit terrain march to 80 units - no GS readbacks, pure
+  PS2-era EE) eases the flare in/out (`flareVis`, 6/s). Four additive
+  ghost sprites ride the sun -> screen-center axis (big glow at the sun, a
+  small glow, two rings incl. one mirrored past center), tinted by the
+  scene light color, procedurally baked at build (`menubake::bakeFlarePNG`
+  -> res/hud/flare-{glow,ring}.png, written only when
+  `templates::projectUsesFlare` - authored amount > 0 or a Set Flare node -
+  which also gates the game's texture load via FLARE_USED; the paths load
+  as `hud/...` - `res/...` produced magenta placeholders, the game cwd
+  already maps into res). Engine: `Sprite::additive` (2D additive blend
+  Cs*As + Cd, per sprite, in RendererCore2D). The MAIN glow draws BEFORE
+  the post-fx pass so the god rays streak the sun itself - but only while
+  DoF is off (sprites stamp z across their rect and would punch a blur
+  rectangle into the z-tested DoF composite); with DoF on it joins the
+  other ghosts after the pass. Authored in the UI Editor ("[ Lens flare ]"
+  pinned entry) / Scene > Post effects; **Set Lens Flare** flow node at
+  runtime. **Verified** (114+115 together, Layer 3): Docker build exit 0;
+  PCSX2 boots; screenshots show the tuned pass - first attempt washed the
+  frame white (threshold 96), retuned to 150 + half strength: blue sky
+  intact, soft glow + rings at the sun, the sun's light bleeding below the
+  horizon through the rays, 50 FPS. PCSX2's Vulkan swap chain wedged
+  mid-session (parallel Claude sessions fighting over the emulator);
+  verified on the D3D11 renderer - a SW-renderer pixel pass on the final
+  batch still pending. Note: dyn-light e2e (113) WAS SW-verified.
 - (113) **Dynamic point lights — flickering torches with zero new VU1 code.**
   Point Light objects gain a **Dynamic (live)** flag (+ **Flicker** 0..1):
   instead of being baked into vertex colors at build, the light registers

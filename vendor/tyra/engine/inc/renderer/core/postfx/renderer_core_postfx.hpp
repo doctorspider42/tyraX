@@ -32,6 +32,11 @@ namespace Tyra {
  * - Film grain: a small noise texture is drawn over the frame twice
  *   (subtractive, then additive) with different random offsets every frame,
  *   which yields zero-mean grain out of unsigned GS math.
+ * - God rays: the frame is downsampled, bright-passed (subtract a flat
+ *   threshold, double back up) and iteratively zoomed toward the sun's
+ *   screen position on the quarter-res buffers - each pass adds a copy of
+ *   the buffer sampled from a window shrunk around the sun, which stretches
+ *   bright pixels into radial streaks - then composited back additively.
  * - Depth of field: the frame is downsampled/softened like bloom, then the
  *   blur is alpha-blended back through full-screen sprites drawn at GS depths
  *   derived from the focus distance, with the ordinary z-test (GEQUAL, z
@@ -72,6 +77,28 @@ class RendererCorePostFx {
   u8 getDepthOfField() const { return dof; }
 
   /**
+   * God rays / sun light shafts: bright parts of the frame streak toward the
+   * sun's screen position (a bright-pass + iterative zoom-toward-the-sun on
+   * the quarter-res bloom buffers) and composite back additively.
+   * strength: 0 = off, 128 = full. The game must also feed the sun's screen
+   * position every frame via setGodRaysSun - without it the pass is a no-op.
+   */
+  void setGodRays(const u8 strength) { rays = strength; }
+  u8 getGodRays() const { return rays; }
+
+  /**
+   * Per-frame sun state for the god rays: screen position in pixels
+   * (may sit off screen - the zoom center just moves out) and a 0..1
+   * visibility factor (0 = sun behind the camera, eases near the edge).
+   */
+  void setGodRaysSun(const float screenX, const float screenY,
+                     const float visibility) {
+    raysSunX = screenX;
+    raysSunY = screenY;
+    raysVis = visibility < 0.0F ? 0.0F : (visibility > 1.0F ? 1.0F : visibility);
+  }
+
+  /**
    * Color grading, applied between bloom and grain. Per channel:
    * out = mix(clamp(in * gain[c] / 128 + lift[c]), mixColor[c], mixAmt / 128)
    * gain: 128 = 1x (range 0..~2x). lift: -255..255 added. mixAmt: 0 = off,
@@ -109,7 +136,8 @@ class RendererCorePostFx {
     PassGrading = 2,
     PassGrain = 4,
     PassDof = 8,
-    PassAll = 15
+    PassGodRays = 16,
+    PassAll = 31
   };
 
   /** True when any of the selected effects is active (apply draws something). */
@@ -117,7 +145,8 @@ class RendererCorePostFx {
     return (((passes & PassBloom) && bloom != 0) ||
             ((passes & PassGrading) && hasGrading()) ||
             ((passes & PassGrain) && grain != 0) ||
-            ((passes & PassDof) && dof != 0 && dofFocus > 0.0F));
+            ((passes & PassDof) && dof != 0 && dofFocus > 0.0F) ||
+            ((passes & PassGodRays) && rays != 0 && raysVis > 0.0F));
   }
 
   /**
@@ -195,6 +224,9 @@ class RendererCorePostFx {
   u8 dof;         // depth-of-field strength, 0 = off
   float dofFocus; // sharp up to this camera distance (world units)
   float dofRange; // full blur reached at dofFocus + dofRange
+  u8 rays;           // god-rays strength, 0 = off
+  float raysSunX, raysSunY;  // sun screen position, pixels
+  float raysVis;             // 0..1 (0 = behind camera / faded out)
   u8 gGain[3];   // per-channel multiplier, 128 = 1x
   s16 gLift[3];  // per-channel offset, -255..255
   u8 gMix[3];    // mix target color
@@ -218,6 +250,10 @@ class RendererCorePostFx {
 
   /** The color grading sprites (gain -> lift -> mix), see setGrading(). */
   qword_t* gradingQuads(qword_t* q, int fbVram, int fbBufW);
+
+  /** flatQuad at an arbitrary size (the low-res work buffers). */
+  qword_t* sizedQuad(qword_t* q, int dstVram, int dstBufW, int w, int h, u8 r,
+                     u8 g, u8 b, u8 a, u64 alpha);
 };
 
 }  // namespace Tyra
