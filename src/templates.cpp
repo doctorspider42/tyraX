@@ -273,8 +273,9 @@ int main(int argc, char** argv) {
   // region, NTSC forces 60 Hz, PAL forces 50 Hz.
   options.videoMode = Tyra::VideoMode::{{VIDEO_MODE}};
   // Scan mode (Project > Preferences > Build > Display mode): interlaced
-  // 480i/576i, progressive 480p, or 1080i. The DTV modes need component
-  // cables on a real console and always run at 60 Hz.
+  // 480i/576i (whole frames or true field rendering), progressive 480p, or
+  // 1080i. The DTV modes need component cables on a real console and always
+  // run at 60 Hz.
   options.displayMode = Tyra::DisplayMode::{{DISPLAY_MODE}};
   // 16:9 anamorphic output (Preferences > Build > Widescreen).
   options.widescreen = {{WIDESCREEN}};
@@ -4449,7 +4450,7 @@ void TerrainGame::applyMenuBindings() {
           g_stickExpL = g_stickExpR = 2.0F;
           break;
         }
-        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0/1/2)
+        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0..3)
           if (idx != g_menuDispOpt) {
             g_menuDispOpt = idx;
             scriptCtx.requestDisplayMode = idx;
@@ -7209,7 +7210,8 @@ struct ScriptContext {
 
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes).
   // requestDisplayMode: -1 = leave, else a Tyra::DisplayMode value (0 =
-  // interlaced, 1 = progressive 480p, 2 = 1080i). displayConfirmSec > 0
+  // interlaced, 1 = progressive 480p, 2 = 1080i, 3 = interlaced field
+  // rendering). displayConfirmSec > 0
   // arms the keep-or-revert prompt: the game switches, asks the player to
   // confirm with X and reverts to the previous mode automatically when the
   // timer runs out (a mode the TV can't display would otherwise strand the
@@ -7918,9 +7920,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << "constexpr SceneObjectData SCENE_" << si << "_OBJECTS["
             << (objs.empty() ? (size_t)1 : objs.size()) << "] = {\n";
         if (objs.empty()) {
+            // Placeholder row so the array is never zero-sized. Field order
+            // must track SceneObjectData - the reflective-models change
+            // added `reflected` here but missed this row (build break for
+            // any project with an empty scene).
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
                    "0, 0, 0.0F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, "
-                   "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, \"\", 1, 1, "
+                   "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, \"\", 1, 1, "
                    "1.0F, 1, -1},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
@@ -8714,9 +8720,10 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                                         : st.videoSystem == "ntsc" ? "NTSC"
                                                                    : "Auto");
     s = replaceAll(s, "{{DISPLAY_MODE}}",
-                   st.displayMode == "1080i"         ? "HiDef1080i"
-                   : st.displayMode == "progressive" ? "Progressive480p"
-                                                     : "Interlaced");
+                   st.displayMode == "1080i"              ? "HiDef1080i"
+                   : st.displayMode == "progressive"      ? "Progressive480p"
+                   : st.displayMode == "interlaced-field" ? "InterlacedField"
+                                                          : "Interlaced");
     s = replaceAll(s, "{{WIDESCREEN}}", st.widescreen ? "true" : "false");
     const bool debugProfile = st.buildProfile == "debug";
     s = replaceAll(s, "{{DEBUG_SHOW_FPS}}",
@@ -10104,7 +10111,7 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 }
             } else if (n.type == "SetDisplayMode") {
                 int mode = (int)n.num[0];
-                mode = mode < 0 ? 0 : mode > 2 ? 2 : mode;
+                mode = mode < 0 ? 0 : mode > 3 ? 3 : mode;
                 float confirm = n.num[1] < 0.0f ? 0.0f : n.num[1];
                 c << pad << "ctx.requestDisplayMode = " << mode << ";\n";
                 c << pad << "ctx.displayConfirmSec = " << floatLit(confirm)

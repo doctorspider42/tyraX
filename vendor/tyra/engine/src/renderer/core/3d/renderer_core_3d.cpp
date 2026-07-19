@@ -55,8 +55,12 @@ void RendererCore3D::setFov(const float& t_fov) {
 }
 
 void RendererCore3D::setProjection() {
+  // Modified by TyraX: the height passed here only sets the RASTER scale of
+  // the projection (the world-space frustum comes from fov + aspectRatio),
+  // so field rendering (InterlacedField) squeezes the scene into the
+  // half-height buffer by building the projection at the render height.
   projection = M4x4::perspective(
-      fov, settings->getWidth(), settings->getHeight(),
+      fov, settings->getWidth(), settings->getRenderHeightF(),
       settings->getProjectionScale(), settings->getAspectRatio(),
       settings->getNear(), settings->getFar());
 }

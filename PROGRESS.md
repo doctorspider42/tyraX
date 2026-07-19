@@ -9,7 +9,78 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-<<<<<<< HEAD
+- (115) **examples/video-modes: a `480I FIELD RENDER` menu row.** The
+  display-mode test bed gains the fourth scan mode from (114): a new VIDEO
+  OPTIONS entry firing a `video-480i-field` flow event, consumed by the
+  aspect-ball graph's On Menu Event -> Set Display Mode(Mode 3, confirm
+  8 s) - same pattern as the other three rows. README updated (menu table,
+  intro, real-hardware notes: field rendering is the same 480i/576i signal,
+  so any cable works; judge the motion on a CRT, PCSX2's deinterlacing
+  hides most of it). Committed generated files regenerated with a Docker
+  build in the same commit (the example-drift rule). **Verified** (Layer
+  3): the example boots in PCSX2, the baked menu panel shows the new row
+  (F8 snapshot), regenerated `flow_graph.gen.cpp` carries
+  `ctx.requestDisplayMode = 3` under the `video-480i-field` event, exit 0.
+  Actually selecting the row with a pad (menu navigation + the confirm
+  prompt) stays a hands-on test, like the other rows.
+- (114) **True field rendering: the `interlaced-field` display mode.**
+  Question from the owner: does the engine render once and scan the frame
+  out over two fields, or does each field get a fresh image? Finding: the
+  stock interlaced mode renders full 512x448 frames into a FIELD-scanned
+  (FFMD=0) buffer and `endFrame` waits on `graph_wait_vsync()`, which fires
+  per FIELD - so at full speed each field already shows a new frame, but
+  every one of those images pays full-height fill/geometry cost and the GS
+  scans out only half its lines. The new **InterlacedField** mode
+  (`DisplayMode::InterlacedField`, project pref `"displayMode":
+  "interlaced-field"`) is the classic retail recipe: half-height 512x224
+  frame/z buffers scanned with SMODE2.FFMD=FRAME (every buffer line, every
+  field), so the same 50/60 distinct-images-per-second now cost half the
+  fill - and the three screen buffers shrink from ~2.6 MB to ~1.3 MB of
+  VRAM, roughly doubling what's left for textures. Engine details: the
+  DISPLAY window is IDENTICAL to the stock mode (ps2sdk's
+  `graph_set_screen` mis-programs DY/DH for the interlaced+FRAME case, so
+  the registers are written directly via `setDtvDisplay(652/50 NTSC,
+  680/72 PAL, 2560, 448, 5x MAGH, 1x MAGV)`); no flicker filter (nothing
+  to blend); the game-facing coordinate space stays 512x448 - the
+  projection is built at the render height (raster scale only; the
+  world-space frustum comes from fov+aspect, so culling and frustum planes
+  are untouched), 2D sprites squeeze y by half in `RendererCore2D`
+  (upstream's own commented-out "interlacing" scaffolding, finally lit
+  up), and clears/post-fx/env-map restores use the new
+  `RendererSettings::getRenderHeightF()`. Per-field half-line alignment:
+  `flipBuffers` reads CSR.FIELD after the vsync, flips it (the frame being
+  rendered shows one field LATER) and appends an XYOFFSET write (+8 = 0.5
+  px on odd fields) to the flip packet - without it static geometry bobs a
+  full scan line at 25/30 Hz. Editor chain: 4th value in the Preferences
+  combo + tooltip, `SetDisplayMode` flow node Mode 3, menu option block
+  `480i FIELD` (bind idx = enum value), codegen `{{DISPLAY_MODE}}` ->
+  `InterlacedField`; enum values are serialized, appended only.
+  **Verified** (Layer 3, PAL BIOS): fresh `--new` scaffold with
+  `interlaced-field` boots in PCSX2, terrain scene shows correct 4:3
+  proportions from the 512x224 buffer (F8 snapshot vs stock-interlaced
+  rebuild of the same project - same framing, slightly softer static
+  edges, as expected); debug HUD "FPS 49" text sprite renders at the right
+  position/aspect through the 2D squeeze at PAL field rate; no TYRA
+  asserts in `bin/log.txt`, ELF confirmed in emulog. Pending a human pass:
+  runtime switches into/out of field mode (same `setDisplayOutput` reinit
+  path the video-modes example exercises for 480p/1080i), NTSC region, the
+  field-phase sign on a real CRT/PS2, and real-hardware A/B like every
+  display change.
+- (113) **Build break: empty-scene placeholder row in `scene_data.hpp`
+  lost a field.** The reflective-models change added `reflected` to
+  `SceneObjectData` and to the per-object row emitter but missed the
+  placeholder row emitted for scenes with zero objects (it keeps the array
+  non-zero-sized) - so `--new` + `--build` of a FRESH project failed in
+  `scene_data.hpp` ("invalid conversion from 'const char*' to 'int'" at
+  the animClip column) while every populated example kept building, which
+  is why it slipped through. One `0` in the reflected slot restores
+  alignment; the row now carries a comment anchoring it to the struct.
+  Also removed the `<<<<<<<`/`=======`/`>>>>>>>` conflict markers that the
+  #89 merge had committed into this very file (both hunks were distinct
+  entry sets from parallel branches - the union is the correct log, so
+  only the marker lines went; the historical duplicate entry NUMBERS from
+  parallel branches stay as they are). **Verified**: Layer 3 - the fresh
+  scaffold compiles and boots in PCSX2 again.
 - (112) **Rounded reflection normals - flat surfaces stop reflecting "one
   pixel".** Owner's observation on the console: the mirror monolith showed
   a single uniform patch of the env map per face while the spheres "reflect
@@ -330,7 +401,6 @@ Each finished feature lands as its own commit.
   screenshot). The Material Editor preview shares the verified shader path;
   its interactive feel (picker, slider) still wants a hands-on pass. Docs:
   README, `docs/reflective-materials.md`, engine + editor skills.
-=======
 - (107) **Live Link v2 — per-project on/off + live add/delete of objects.**
   Two follow-ups to (106). First, the on/off is now a **project setting**
   (`ProjectSettings::liveLink`, default on; *Project > Preferences > Build*,
@@ -463,7 +533,6 @@ Each finished feature lands as its own commit.
   hands-on test with a .glb avatar; real-hardware A/B pending like every
   perf-adjacent change.
 
->>>>>>> origin/main
 - (103) **Over-the-shoulder camera offset.** `SceneObject::playerCamShoulder`
   (Properties > Third-person camera > **Shoulder**, default 0 = unchanged
   behavior) slides the third-person rig sideways, completing the camera offset:
