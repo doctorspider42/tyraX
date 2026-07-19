@@ -178,16 +178,59 @@ void RendererCorePostFx::portalMaskBegin(int x0, int y0, int x1, int y1) {
   if (y1 > fbH) y1 = fbH;
   if (x1 <= x0 || y1 <= y0) return;
 
+  auto* fb = gs->getCurrentFrameBuffer();
+  const int fbVram = static_cast<int>(fb->address);
+  const int fbBufW = static_cast<int>(fb->width);
+
   packet2_reset(packet, false);
-  qword_t* q = packet->base;
-  PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  // Screen-origin offset for the z-clear sprite; the window-centered offset
+  // the destination view's VU1 render expects is restored below.
+  packet2_update(packet,
+                 draw_primitive_xyoffset(packet->base, 0, 2048.0F, 2048.0F));
+  qword_t* q = packet->next;
+  // NLOOP = 7: SCISSOR, FRAME, TEST, RGBAQ, PRIM + two XYZ2 - a miscount
+  // here stalls the GIF forever (the stray qword parses as a new giftag).
+  PACK_GIFTAG(q, GIF_SET_TAG(7, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
   q++;
   // Bound the destination view's fill to the portal's screen bbox. The
-  // raster offset stays window-centered (the VU1 pipeline renders through
-  // it), so the scissor is expressed in window coordinates directly.
+  // scissor is expressed in window coordinates (unaffected by XYOFFSET).
   PACK_GIFTAG(q, GS_SET_SCISSOR(x0, x1 - 1, y0, y1 - 1), GS_REG_SCISSOR_1);
   q++;
+  // z-only clear of the bbox: with several portal views per frame, an
+  // earlier portal's z-cap must not reject this portal's destination
+  // geometry where their bboxes overlap (first portal: no-op, z is still
+  // at the frame clear's far).
+  PACK_GIFTAG(q,
+              GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, GS_PSM_32, 0xFFFFFFFFu),
+              GS_REG_FRAME_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_TEST(0, 0, 0, 0, 0, 0, 1, ZTEST_METHOD_ALLPASS),
+              GS_REG_TEST_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_RGBAQ(0x80, 0x80, 0x80, 0x80, 0x3F800000),
+              GS_REG_RGBAQ);
+  q++;
+  PACK_GIFTAG(q, GS_SET_PRIM(6 /* sprite */, 0, 0, 0, 0, 0, 0, 0, 0),
+              GS_REG_PRIM);
+  q++;
+  PACK_GIFTAG(q, GS_SET_XYZ(2048 << 4, 2048 << 4, 0), GS_REG_XYZ2);
+  q++;
+  PACK_GIFTAG(q, GS_SET_XYZ((2048 + fbW) << 4, (2048 + fbH) << 4, 0),
+              GS_REG_XYZ2);
+  q++;
+  // Color writes back on + the drawing environment's tests for the
+  // destination render (their own giftags - not in the NLOOP above).
+  PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  PACK_GIFTAG(q, GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, GS_PSM_32, 0),
+              GS_REG_FRAME_1);
+  q++;
+  q = draw_enable_tests(q, 0, &gs->zBuffer);
   packet2_update(packet, q);
+  packet2_update(packet,
+                 draw_primitive_xyoffset(packet->next, 0,
+                                         2048.0F - (fbW / 2.0F),
+                                         2048.0F - (fbH / 2.0F)));
   packet2_update(packet, draw_finish(packet->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);

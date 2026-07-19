@@ -267,15 +267,17 @@ class TerrainGame : public Tyra::Game {
   // onto the winner's surface; updatePortals teleports the player / physics
   // objects that cross a linked surface, carrying position, view angle and
   // vertical velocity through the same mapping - the view and the arrival
-  // line up exactly, so stepping through is seamless. portalLive = PORTALS
-  // index whose view currently fills the render target (-1 = none).
+  // line up exactly, so stepping through is seamless. Up to four portal
+  // views render per frame (nearest qualify, carved farthest-first);
+  // portalLiveFlags marks the PORTALS entries whose opening is live.
   void renderPortalView();
+  bool renderOnePortalView(int pi);
   void renderPortals();
   bool portalCamera(int pi, Tyra::Vec4* outEye, Tyra::Vec4* outAt);
   bool updatePortals(float prevX, float prevY, float prevZ, float* px,
                      float* py, float* pz, float* pyaw, float* ppitch,
                      float* pvelY, float eyeH);
-  int portalLive = -1;
+  std::vector<unsigned char> portalLiveFlags;  // per PORTALS entry: view drawn
   std::vector<float> portalPrevPos;  // 3 floats per runtime object (crossings)
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);

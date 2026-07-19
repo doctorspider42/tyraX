@@ -635,15 +635,17 @@ class TerrainGame : public Tyra::Game {
   // onto the winner's surface; updatePortals teleports the player / physics
   // objects that cross a linked surface, carrying position, view angle and
   // vertical velocity through the same mapping - the view and the arrival
-  // line up exactly, so stepping through is seamless. portalLive = PORTALS
-  // index whose view currently fills the render target (-1 = none).
+  // line up exactly, so stepping through is seamless. Up to four portal
+  // views render per frame (nearest qualify, carved farthest-first);
+  // portalLiveFlags marks the PORTALS entries whose opening is live.
   void renderPortalView();
+  bool renderOnePortalView(int pi);
   void renderPortals();
   bool portalCamera(int pi, Tyra::Vec4* outEye, Tyra::Vec4* outAt);
   bool updatePortals(float prevX, float prevY, float prevZ, float* px,
                      float* py, float* pz, float* pyaw, float* ppitch,
                      float* pvelY, float eyeH);
-  int portalLive = -1;
+  std::vector<unsigned char> portalLiveFlags;  // per PORTALS entry: view drawn
   std::vector<float> portalPrevPos;  // 3 floats per runtime object (crossings)
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
@@ -1067,15 +1069,17 @@ class TerrainGame : public Tyra::Game {
   // onto the winner's surface; updatePortals teleports the player / physics
   // objects that cross a linked surface, carrying position, view angle and
   // vertical velocity through the same mapping - the view and the arrival
-  // line up exactly, so stepping through is seamless. portalLive = PORTALS
-  // index whose view currently fills the render target (-1 = none).
+  // line up exactly, so stepping through is seamless. Up to four portal
+  // views render per frame (nearest qualify, carved farthest-first);
+  // portalLiveFlags marks the PORTALS entries whose opening is live.
   void renderPortalView();
+  bool renderOnePortalView(int pi);
   void renderPortals();
   bool portalCamera(int pi, Tyra::Vec4* outEye, Tyra::Vec4* outAt);
   bool updatePortals(float prevX, float prevY, float prevZ, float* px,
                      float* py, float* pz, float* pyaw, float* ppitch,
                      float* pvelY, float eyeH);
-  int portalLive = -1;
+  std::vector<unsigned char> portalLiveFlags;  // per PORTALS entry: view drawn
   std::vector<float> portalPrevPos;  // 3 floats per runtime object (crossings)
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
@@ -3670,7 +3674,7 @@ void TerrainGame::loadScene(int sceneIndex) {
   currentScene = sceneIndex;
   g_activeScene = sceneIndex;
   sceneGeneration++;  // scene scripts see this and reset their state
-  portalLive = -1;         // stale through-view must not survive the switch
+  portalLiveFlags.clear(); // stale through-views must not survive the switch
   portalPrevPos.clear();   // crossing history restarts with the new objects
   // Before any mesh baking: terrain chunks and object geometry shade with
   // this scene's point lights (see collectScenePointLights).
@@ -5791,10 +5795,19 @@ bool TerrainGame::portalCamera(int pi, Vec4* outEye, Vec4* outAt) {
 // Animated targets re-use their last skinned pose (skinning runs later in
 // the frame).
 void TerrainGame::renderPortalView() {
-  portalLive = -1;
+  if ((int)portalLiveFlags.size() != PORTAL_COUNT)
+    portalLiveFlags.assign(PORTAL_COUNT ? PORTAL_COUNT : 1, 0);
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) portalLiveFlags[pi] = 0;
   if (PORTAL_COUNT == 0) return;
-  int best = -1;
-  float bestD2 = 1e30F;
+  // Collect the qualifying portals (linked, alive, camera on the front
+  // side), nearest-first, and render up to four views. Carve order is
+  // FARTHEST first: where two openings overlap on screen, the nearer
+  // portal's bbox re-clears the farther's work and wins - the same rule
+  // real occlusion would give.
+  const int kMaxViews = 4;
+  int order[8];
+  float d2s[8];
+  int cnt = 0;
   for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
     const PortalData& p = PORTALS[pi];
     if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
@@ -5812,15 +5825,44 @@ void TerrainGame::renderPortalView() {
     const float relZ = cameraPosition.z - m.data.position[2];
     if (relX * n.x + relY * n.y + relZ * n.z <= 0.0F) continue;
     const float d2 = relX * relX + relY * relY + relZ * relZ;
-    if (d2 < bestD2) {
-      bestD2 = d2;
-      best = pi;
+    // bounded shortlist (no allocation): keep the 8 nearest candidates
+    if (cnt < 8) {
+      order[cnt] = pi;
+      d2s[cnt] = d2;
+      ++cnt;
+    } else {
+      int worst = 0;
+      for (int i = 1; i < 8; ++i)
+        if (d2s[i] > d2s[worst]) worst = i;
+      if (d2 < d2s[worst]) {
+        order[worst] = pi;
+        d2s[worst] = d2;
+      }
     }
   }
-  if (best < 0) return;
+  if (cnt == 0) return;
+  for (int a = 0; a < cnt; ++a)  // nearest-first
+    for (int b = a + 1; b < cnt; ++b)
+      if (d2s[b] < d2s[a]) {
+        const float td = d2s[a];
+        d2s[a] = d2s[b];
+        d2s[b] = td;
+        const int ti = order[a];
+        order[a] = order[b];
+        order[b] = ti;
+      }
+  const int views = cnt < kMaxViews ? cnt : kMaxViews;
+  for (int v = views - 1; v >= 0; --v) {  // farthest of the selected first
+    if (renderOnePortalView(order[v])) portalLiveFlags[order[v]] = 1;
+  }
+}
+
+// One in-place through-view. Returns true when the opening was actually
+// carved (the quad survived the frustum clip and its bbox is on screen).
+bool TerrainGame::renderOnePortalView(int pi) {
   Vec4 eye, at;
-  if (!portalCamera(best, &eye, &at)) return;
-  const PortalData& p = PORTALS[best];
+  if (!portalCamera(pi, &eye, &at)) return false;
+  const PortalData& p = PORTALS[pi];
   RuntimeObject& m = runtimeObjects[p.object];
 
   // The quad's screen footprint under the MAIN camera. Corners on the same
@@ -5886,7 +5928,7 @@ void TerrainGame::renderPortalView() {
     n = outN;
     for (int i = 0; i < n; ++i) poly[i] = tmp[i];
   }
-  if (n < 3) return;
+  if (n < 3) return false;
 
   float xy[24];
   u32 zz[12];
@@ -5908,7 +5950,8 @@ void TerrainGame::renderPortalView() {
   }
   const int bx0 = (int)minX, by0 = (int)minY;
   const int bx1 = (int)maxX + 1, by1 = (int)maxY + 1;
-  if (bx1 <= 0 || by1 <= 0 || bx0 >= (int)fbW || by0 >= (int)fbH) return;
+  if (bx1 <= 0 || by1 <= 0 || bx0 >= (int)fbW || by0 >= (int)fbH)
+    return false;
 
   auto& core = engine->renderer.core;
   core.portalViewBegin(bx0, by0, bx1, by1);
@@ -5963,16 +6006,16 @@ void TerrainGame::renderPortalView() {
   core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
   core.portalViewEnd(xy, zz, n, (u8)scriptCtx.skyColor.r,
                      (u8)scriptCtx.skyColor.g, (u8)scriptCtx.skyColor.b);
-  portalLive = best;
+  return true;
 }
 
-// Blend the tinted quads of every portal EXCEPT the live one over the
-// finished scene (the live portal's opening already shows the through-view
+// Blend the tinted quads of every portal EXCEPT the live ones over the
+// finished scene (a live portal's opening already shows the through-view
 // carved by renderPortalView - a tint over it would wash the image).
 void TerrainGame::renderPortals() {
   if (PORTAL_COUNT == 0) return;
   for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
-    if (pi == portalLive) continue;
+    if (pi < (int)portalLiveFlags.size() && portalLiveFlags[pi]) continue;
     const PortalData& p = PORTALS[pi];
     if (p.scene != currentScene || p.object < 0 ||
         p.object >= (int)runtimeObjects.size())
@@ -5985,13 +6028,17 @@ void TerrainGame::renderPortals() {
   }
 }
 
-// Portal crossings. The player probes with a "waist" point (feet + up to 1
-// unit, capped by eyeH - so door-sized surfaces trigger naturally and a
-// noclip camera probes its own position); physics objects test their
-// center. A crossing = the probe segment pierced the front (+Z) face inside
-// the rectangle this frame. Position, view direction and vertical velocity
-// map through the pair exactly like portalCamera - the walkers keep no
-// horizontal velocity state, so a tilted pair carries only the vertical
+// Portal crossings. The player probes with TWO segments: a "waist" point
+// (feet + up to 1 unit, capped by eyeH - door-sized wall surfaces trigger
+// naturally, a noclip camera probes its own position) and the FEET (so
+// jumping/dropping into a floor portal triggers even while the waist stays
+// above the plane); physics objects test their center. A crossing = the
+// probe segment pierced the front (+Z) face inside the rectangle this
+// frame. Position, view direction and vertical velocity map through the
+// pair exactly like portalCamera, with NO exit offset - the isometry
+// carries the overshoot past the target plane, so the hop is continuous
+// (an offset read as a one-frame camera pop on hardware). The walkers keep
+// no horizontal velocity state, so a tilted pair carries only the vertical
 // component (yaw-rotated pairs, the common teleporter, lose nothing).
 // Returns true when the player teleported (the frame camera is rebuilt here
 // so no frame ever renders from the departure side).
@@ -6070,15 +6117,32 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
     };
 
     // --- the player -------------------------------------------------------
-    if (px && !playerTeleported &&
-        crossed(prevX, prevY + probeLift, prevZ, *px, *py + probeLift, *pz)) {
+    // Two probe segments: the waist (feet + up to 1 unit - door-sized wall
+    // portals trigger naturally) and the FEET (dropping/jumping into a
+    // floor portal must trigger even while the waist stays above it).
+    const bool waistHit =
+        px && !playerTeleported &&
+        crossed(prevX, prevY + probeLift, prevZ, *px, *py + probeLift, *pz);
+    const bool feetHit = px && !playerTeleported && !waistHit &&
+                         crossed(prevX, prevY, prevZ, *px, *py, *pz);
+    if (waistHit || feetHit) {
+      // Map the feet position directly - the pair transform is an isometry,
+      // so the overshoot past the plane maps to the same overshoot past the
+      // target plane and the crossing is CONTINUOUS. No exit offset: it
+      // read as a one-frame camera pop on hardware, and the arrival already
+      // sits on the target's exit side moving away (a two-way pair can't
+      // re-trigger without genuinely walking back).
+      // vertical motion BEFORE the position is overwritten. Like the
+      // objects below, carry the ACTUAL motion this frame - the walker's
+      // ground clamp can zero velY on the very crossing frame.
+      float vy = *pvelY;
+      const float stepY = *py - prevY;
+      if (fabsf(stepY) > fabsf(vy)) vy = stepY;
       float nx2, ny2, nz2;
-      mapPoint(*px, *py + probeLift, *pz, &nx2, &ny2, &nz2);
-      // exit offset along the target's front so the arrival can never
-      // immediately re-trigger the reverse link of a two-way pair
-      *px = nx2 + dzA.x * 0.2F;
-      *py = ny2 - probeLift;
-      *pz = nz2 + dzA.z * 0.2F;
+      mapPoint(*px, *py, *pz, &nx2, &ny2, &nz2);
+      *px = nx2;
+      *py = ny2;
+      *pz = nz2;
       // view direction through the same mapping (walker convention:
       // forward = (sin yaw * cos pitch, sin pitch, cos yaw * cos pitch))
       float ndx, ndy, ndz;
@@ -6089,11 +6153,8 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
       if (sp > 1.0F) sp = 1.0F;
       if (sp < -1.0F) sp = -1.0F;
       *ppitch = asinf(sp);
-      // vertical velocity through the rotation - falling into a floor
-      // portal on a wall keeps the plunge as sideways-mapped speed only in
-      // its vertical component (no horizontal walker velocity exists)
       float nvx, nvy, nvz;
-      mapDir(0.0F, *pvelY, 0.0F, &nvx, &nvy, &nvz);
+      mapDir(0.0F, vy, 0.0F, &nvx, &nvy, &nvz);
       *pvelY = nvy;
       // rebuild this frame's camera from the arrival state
       if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2) {
@@ -6141,9 +6202,12 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
         float nx2, ny2, nz2;
         mapPoint(ro.data.position[0], ro.data.position[1],
                  ro.data.position[2], &nx2, &ny2, &nz2);
-        ro.data.position[0] = nx2 + dzA.x * 0.2F;
-        ro.data.position[1] = ny2 + dzA.y * 0.2F;
-        ro.data.position[2] = nz2 + dzA.z * 0.2F;
+        // no exit offset - the mapped overshoot already sits past the
+        // target plane (continuity); the prev-pos stamp below stops the
+        // reverse link from reading the hop as another crossing
+        ro.data.position[0] = nx2;
+        ro.data.position[1] = ny2;
+        ro.data.position[2] = nz2;
         float nvx, nvy, nvz;
         mapDir(0.0F, vy, 0.0F, &nvx, &nvy, &nvz);
         ro.velocityY = nvy;

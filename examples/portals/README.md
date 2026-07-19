@@ -21,9 +21,14 @@ What's in the scene:
   down), with **Teleport physics objects** on — and **box-drop**, a physics
   cube that spawns in the air between them. It falls into the floor portal,
   pops out of the ceiling portal with its speed carried through, and falls
-  again — forever, in plain view to the right of the spawn. (Object physics
-  clamps falls at a 50 u/s terminal velocity, so the loop stays readable
-  instead of accelerating into a blur.)
+  again — forever, in plain view to the right of the spawn. Both surfaces
+  run **All objects in view**, and up to four portal views are live per
+  frame — walk under the ceiling portal and look up to watch the cube
+  approaching *inside* it before it drops out. You can jump into the floor
+  portal yourself (the feet probe catches the drop) and join the loop —
+  strafe out to escape. (Object physics clamps falls at a 50 u/s terminal
+  velocity, so the loop stays readable instead of accelerating into a
+  blur.)
 - **anchor-cross** — an Empty carrying a small flow graph
   (On Start → Delay 6 s → Spawn Player At) that walks the player through
   portal-a unattended ~6 s after the scene starts, so the whole loop —

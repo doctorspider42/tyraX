@@ -189,8 +189,9 @@ class RendererCorePostFx {
   // renders FULL-RES into the real framebuffer right after the frame clear,
   // scissored to the portal quad's screen bbox; the GS has no stencil, so
   // the "shaped opening" is carved with reversed-z tricks afterwards:
-  //   portalMaskBegin - scissor the frame to the bbox (call before
-  //     submitting the destination view).
+  //   portalMaskBegin - scissor the frame to the bbox and z-clear it (an
+  //     earlier portal's z-cap must not reject this view's geometry where
+  //     bboxes overlap; call before submitting the destination view).
   //   portalMaskEnd   - re-far the bbox z (the destination depths must not
   //     confuse the main scene), cap the quad interior at the surface depth
   //     (z-only triangle fan, ALWAYS - walls in front still win GEQUAL over

@@ -40,9 +40,9 @@ render-to-texture pass).
 
 ## How the game renders it (and what it costs)
 
-- Each frame the game picks **one** portal — the nearest linked one the
-  camera is in front of — and renders its through-view **in-place, at full
-  resolution, straight into the framebuffer** (no render-to-texture, no
+- Each frame the game picks up to **four** portals — the nearest linked
+  ones the camera is in front of — and renders their through-views
+  **in-place, at full resolution, straight into the framebuffer** (no render-to-texture, no
   resampling — the opening is pixel-for-pixel as crisp as the scene around
   it). The GS has no stencil, so the shaped opening is carved with the
   z-buffer: the destination view renders right after the frame clear,
@@ -65,15 +65,21 @@ render-to-texture pass).
 - Every other portal (and a portal with no/dangling target) draws as a
   translucent quad tinted with the object color. Hiding a portal (layer or
   Show/Hide Object) disables its view *and* its teleport.
-- The teleport uses the same mapping as the camera, so the arrival matches
-  what the surface showed — crossing is seamless. The frame camera is
-  rebuilt on the hop; no frame renders from the departure side.
+- The teleport uses the same mapping as the camera, with **no exit
+  offset** — the isometry carries your overshoot past the target plane, so
+  crossing is mathematically continuous (the arrival matches what the
+  surface showed, frame to frame). The camera is rebuilt on the hop; no
+  frame renders from the departure side. The player probes with two
+  segments — waist (door-sized wall portals) and **feet**, so jumping or
+  dropping into a floor portal teleports too.
 
 ## Limits (era-honest by design)
 
-- **One live view per frame.** Facing two linked portals at once, the
-  farther one shows its tint. A pair member's own view activates as you
-  approach it.
+- **Up to four live views per frame** (nearest first; each is its own
+  destination render, so every extra visible portal costs its content).
+  Beyond the budget, a portal shows its tint. Where two openings overlap
+  on screen, the nearer one wins its bbox (views are carved
+  farthest-first).
 - **No portal-in-portal recursion**: a portal never appears inside another
   portal's view (it would sample the very target being rendered).
 - Walkers keep no horizontal velocity state, so a **tilted** pair (floor ->
