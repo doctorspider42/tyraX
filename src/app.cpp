@@ -725,6 +725,14 @@ void App::drawMenuBar() {
                 ImGui::SetTooltip("Preview the scene's distance fog in the editor. "
                                   "Turn off to see distant geometry - does not "
                                   "affect the generated game.");
+            if (ImGui::MenuItem("Nav mesh overlay", nullptr, showNavOverlay_,
+                                hasProject_))
+                showNavOverlay_ = !showNavOverlay_;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Show the baked navigation grid the AI flow nodes walk on "
+                    "(green = walkable). Tune it in Project > Preferences > "
+                    "AI navigation.");
 
             ImGui::Separator();
             ImGui::TextDisabled("TV safe frame");
@@ -1132,6 +1140,45 @@ void App::updateProjectedDecals() {
     viewport_.setProjectedDecals(projectedDecals_, projectedDecalsVersion_);
 }
 
+void App::updateNavOverlay() {
+    // Nav-mesh preview (View > Nav Mesh Overlay). Signature of everything the
+    // bake depends on - blocking objects, terrain, the nav preferences - so
+    // navmesh::bake only reruns on actual edits (same trick as the projected
+    // decals). Pure host work; the game bakes its own copy at build time.
+    if (!showNavOverlay_) {
+        viewport_.setNavOverlay(nullptr, 0);
+        return;
+    }
+    const SceneData& sc = project_.active();
+    uint64_t sig = 1469598103934665603ull;  // FNV-1a seed
+    auto mix = [&](uint64_t v) { sig = (sig ^ v) * 1099511628211ull; };
+    auto mixf = [&](float f) {
+        uint32_t b;
+        std::memcpy(&b, &f, sizeof(b));
+        mix(b);
+    };
+    mixf(project_.settings.navCellSize);
+    mixf(project_.settings.navMaxSlope);
+    mixf(project_.settings.navAgentRadius);
+    mix((uint64_t)sc.terrain.width);
+    mix((uint64_t)sc.terrain.depth);
+    mix(sc.objects.size());
+    for (const SceneObject& o : sc.objects) {
+        mix((uint64_t)o.type);
+        mix((uint64_t)o.collisionMode);
+        for (int k = 0; k < 3; ++k) { mixf(o.position[k]); mixf(o.scale[k]); }
+        for (char c : o.modelPath) mix((uint8_t)c);
+    }
+    for (float h : sc.heights) mixf(h);
+
+    if (sig != navOverlaySig_) {
+        navOverlaySig_ = sig;
+        navGrid_ = navmesh::bake(project_, sc);
+        ++navOverlayVersion_;
+    }
+    viewport_.setNavOverlay(&navGrid_, navOverlayVersion_);
+}
+
 void App::drawViewportWindow() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     // NoNav: keep ImGui keyboard navigation out of the viewport. Otherwise the
@@ -1232,6 +1279,7 @@ void App::drawViewportWindow() {
             viewport_.setHiddenCameras(std::move(hideCams));
         }
         updateProjectedDecals();
+        updateNavOverlay();
         uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
                                         selection_, selectedObject_);
         // Flip vertically: GL texture origin is bottom-left
@@ -5457,10 +5505,22 @@ void App::drawFlowGraphWindow() {
                 ImGui::TextDisabled("Target is not an animated\n.glb - type the clip name.");
             }
         } else if (t->strKind == FlowParamKind::Text) {
+            // Patrol Waypoints repurposes the text param as the waypoint
+            // name prefix (the target NPC comes from the object link / self).
+            const bool patrol = n.type == "PatrolWaypoints";
             char buf[128];
             std::snprintf(buf, sizeof(buf), "%s", n.str.c_str());
-            if (ImGui::InputText("Text", buf, sizeof(buf))) n.str = buf;
+            if (ImGui::InputText(patrol ? "Prefix" : "Text", buf, sizeof(buf)))
+                n.str = buf;
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (patrol) {
+                int count = 0;
+                if (!n.str.empty())
+                    for (const SceneObject& o : project_.objects())
+                        if (o.name.rfind(n.str, 0) == 0) ++count;
+                ImGui::TextDisabled("Route: %s1, %s2, ...\n%d found in this scene",
+                                    n.str.c_str(), n.str.c_str(), count);
+            }
         } else if (t->strKind == FlowParamKind::MusicTrack) {
             const std::string current =
                 n.str.empty() ? "<none>"
@@ -5781,7 +5841,9 @@ void App::drawFlowGraphWindow() {
             changed |= ImGui::IsItemDeactivatedAfterEdit();
         } else {
             for (int a = firstNum; a < t->numCount; ++a) {
-                const bool isLoop = std::strcmp(t->numLabels[a], "Loop") == 0;
+                const bool isLoop = std::strcmp(t->numLabels[a], "Loop") == 0 ||
+                                    std::strcmp(t->numLabels[a], "Once") == 0 ||
+                                    std::strcmp(t->numLabels[a], "LOS") == 0;
                 const bool isVolume = std::strcmp(t->numLabels[a], "Volume") == 0;
                 const bool isChannel = std::strcmp(t->numLabels[a], "Channel") == 0;
                 if (isChannel) {
@@ -5792,7 +5854,7 @@ void App::drawFlowGraphWindow() {
                     changed |= ImGui::IsItemDeactivatedAfterEdit();
                 } else if (isLoop) {
                     bool loop = n.num[a] != 0.0f;
-                    if (ImGui::Checkbox("Loop", &loop)) {
+                    if (ImGui::Checkbox(t->numLabels[a], &loop)) {
                         n.num[a] = loop ? 1.0f : 0.0f;
                         changed = true;
                     }
@@ -5810,6 +5872,15 @@ void App::drawFlowGraphWindow() {
             ImGui::TextDisabled("Checked every frame - wire the\nbool into On Condition or a gate.");
         if (n.type == "Raycast")
             ImGui::TextDisabled("Casts from the player's eye along\nthe view direction on exec.");
+        if (n.type == "ChasePlayer" || n.type == "FleePlayer" ||
+            n.type == "PatrolWaypoints")
+            ImGui::TextDisabled(
+                "Walks the baked nav grid.\nOne AI state per object -\na new "
+                "command replaces it.");
+        if (n.type == "OnPlayerSeen")
+            ImGui::TextDisabled(
+                "Vision cone from the NPC's\nfacing; LOS: hills block\nsight. "
+                "Bool = seen now.");
         ImGui::PopItemWidth();
         ImGui::PopID();
 
@@ -14431,6 +14502,27 @@ void App::drawPreferencesModal() {
     ImGui::TextDisabled("The material's color tints the terrain; its texture (map_Kd),\n"
                         "if any, tiles across it - set the tiling on the material's\n"
                         "texture in the Material Editor. Import .mtl in the Assets section.");
+
+    ImGui::SeparatorText("AI navigation");
+    ImGui::DragFloat("Nav cell size", &prefSettings_.navCellSize, 0.05f, 0.25f,
+                     16.0f, "%.2f units");
+    if (prefSettings_.navCellSize < 0.25f) prefSettings_.navCellSize = 0.25f;
+    ImGui::DragFloat("Max walkable slope", &prefSettings_.navMaxSlope, 0.5f,
+                     1.0f, 89.0f, "%.0f deg");
+    prefSettings_.navMaxSlope = prefSettings_.navMaxSlope < 1.0f ? 1.0f
+                                : prefSettings_.navMaxSlope > 89.0f
+                                    ? 89.0f
+                                    : prefSettings_.navMaxSlope;
+    ImGui::DragFloat("Agent radius", &prefSettings_.navAgentRadius, 0.05f, 0.0f,
+                     4.0f, "%.2f units");
+    if (prefSettings_.navAgentRadius < 0.0f) prefSettings_.navAgentRadius = 0.0f;
+    ImGui::TextDisabled(
+        "The NPC nav grid, baked at build time from the terrain slope and\n"
+        "blocking objects (grid capped at 128x128 cells - big maps get\n"
+        "bigger cells). Agent radius widens every obstacle so NPCs keep\n"
+        "their distance from walls. Used by the AI flow nodes (Patrol /\n"
+        "Chase / Flee); preview with View > Nav Mesh Overlay. Scenes whose\n"
+        "graphs use no AI nodes carry no nav data at all.");
 
     ImGui::SeparatorText("Post effects");
     ImGui::TextDisabled(
