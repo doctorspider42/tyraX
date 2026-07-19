@@ -228,6 +228,8 @@ static std::string objectJson(const SceneObject& o) {
              : "") +
         // rendered into the dynamic env map; default (false) stays implicit
         (o.reflected ? std::string(", \"reflected\": true") : "") +
+        // projected silhouette shadow; default (false) stays implicit
+        (o.castShadow ? std::string(", \"castShadow\": true") : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + o.modelPath + "\"") +
         (o.materialPath.empty() ? "" : ", \"material\": \"" + o.materialPath + "\"") +
         // decal projection: off (flat quad) stays implicit
@@ -1338,6 +1340,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (o.drawDistance < 0.0f) o.drawDistance = 0.0f;
         }
         if (const auto* v = jo.find("reflected")) o.reflected = v->boolOr(false);
+        if (const auto* v = jo.find("castShadow")) o.castShadow = v->boolOr(false);
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
         if (const auto* v = jo.find("decalProject")) o.decalProject = v->boolOr(false);
@@ -2530,7 +2533,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     uint64_t h = kFnvSeed;
     fnvMix(h, (uint64_t)o.type);
     fnvMix(h, (o.physics ? 1 : 0) | (o.usable ? 2 : 0) | (o.saveState ? 4 : 0) |
-                  (o.decalProject ? 8 : 0));
+                  (o.decalProject ? 8 : 0) | (o.castShadow ? 16 : 0));
     fnvMix(h, (uint64_t)o.collisionMode);
     fnvMixS(h, o.layer);
     fnvMix(h, (uint64_t)o.primDetail);

@@ -97,7 +97,14 @@ superseded by the in-band per-mesh ALPHA qword: `VU1_ALPHA_ADDR` +
 equation, no barriers; dynpip keeps the original 7/5-qword macros), the
 StaPip `TCE` env program family (matcap ST from normals in the ST slot +
 `StaPipTextureBag::coordinatesAreNormals` + the camera basis at
-`VU1_ENV_BASIS_ADDR`), `RendererCoreEnvMap` (128×128 VRAM render target for
+`VU1_ENV_BASIS_ADDR`), `RendererCoreShadowMap` (projected silhouette
+shadows: 4 lazy-allocated 64×64 VRAM slots + one shared cleared z, the env
+map's raster-redirect bracket per caster - begin(slot) per caster, ONE end();
+the game re-submits the caster's existing bags under a `pushEnvView` "light
+camera" and draws a terrain patch sampling the slot's VRAM-resident texture
+by light-space UVs; `allocate()` is called by generated games only when a
+project has "Cast shadow" objects, and init() re-places the buffers after a
+display-mode VRAM reset), `RendererCoreEnvMap` (128×128 VRAM render target for
 GT3-style dynamic reflections: FRAME/SCISSOR/XYOFFSET/ZBUF redirect bracket
 with a dedicated 128×128 z-buffer — "reflected" scene objects submitted
 inside the bracket occlude correctly — + `RendererCore3D::pushEnvView/

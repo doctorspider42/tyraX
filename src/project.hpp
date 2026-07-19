@@ -162,6 +162,12 @@ struct SceneObject {
     // trick's second half. Each marked object costs a second (128x128,
     // wide-FOV) render per frame; mark the few props that sell the effect.
     bool reflected = false;
+    // Projected silhouette shadow: the game renders this object's silhouette
+    // from the sun into a small VRAM target every frame and projects it onto
+    // the terrain under it - a real-shape shadow (vs the cheap blob).
+    // Manual opt-in per object; the 4 nearest casters are active at a time,
+    // each costing a 64x64 silhouette render + a small terrain patch.
+    bool castShadow = false;
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     // Material library (.mtl) assigned to the object, e.g.
     // "res/materials/walls.mtl". Primitives take the file's FIRST material
@@ -327,7 +333,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
            a.layer == b.layer &&
            a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
-           a.reflected == b.reflected &&
+           a.reflected == b.reflected && a.castShadow == b.castShadow &&
            a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
            a.playerMode == b.playerMode &&

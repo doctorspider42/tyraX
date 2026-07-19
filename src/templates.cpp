@@ -803,6 +803,22 @@ class TerrainGame : public Tyra::Game {
   Tyra::Texture* blobShadowTex = nullptr;
   void setupBlobShadows();            // per scene load
   void updateAndRenderBlobShadows();  // per frame, end of renderScene
+  // Projected silhouette shadows (per-object "Cast shadow"): the caster's
+  // existing bags re-render into a small VRAM target from a light camera,
+  // then a terrain patch under it samples the silhouette (renderProjShadows).
+  struct ProjShadow {
+    std::vector<Tyra::Vec4> verts, sts;  // receiver patch (terrain-conforming)
+    Tyra::Color color;
+    Tyra::M4x4 mat;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+  };
+  std::vector<ProjShadow> projShadows;  // one per engine slot in use
+  std::vector<int> projCasters;         // authored caster object indices
+  void setupProjShadows();   // per scene load
+  void renderProjShadows();  // per frame, end of renderScene
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
@@ -1260,6 +1276,22 @@ class TerrainGame : public Tyra::Game {
   Tyra::Texture* blobShadowTex = nullptr;
   void setupBlobShadows();            // per scene load
   void updateAndRenderBlobShadows();  // per frame, end of renderScene
+  // Projected silhouette shadows (per-object "Cast shadow"): the caster's
+  // existing bags re-render into a small VRAM target from a light camera,
+  // then a terrain patch under it samples the silhouette (renderProjShadows).
+  struct ProjShadow {
+    std::vector<Tyra::Vec4> verts, sts;  // receiver patch (terrain-conforming)
+    Tyra::Color color;
+    Tyra::M4x4 mat;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+  };
+  std::vector<ProjShadow> projShadows;  // one per engine slot in use
+  std::vector<int> projCasters;         // authored caster object indices
+  void setupProjShadows();   // per scene load
+  void renderProjShadows();  // per frame, end of renderScene
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
@@ -2776,6 +2808,9 @@ void TerrainGame::buildScene() {
     if (BLOB_SHADOWS)
       blobShadowTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/flare-glow.png"));
+    // Projected shadows: allocate the engine's shadow-map VRAM before any
+    // texture upload can claim that region (lazy - only shadow projects pay).
+    if (PROJ_SHADOWS_USED) engine->renderer.core.shadowMap.allocate();
     if (TITLE_MENU >= 0) {
       gameMenuIndex = TITLE_MENU;
       gameMenuCursor = 0;
@@ -3797,6 +3832,8 @@ void TerrainGame::loadScene(int sceneIndex) {
   setupLightBeams();
   // Blob shadows follow the scene's moving objects.
   setupBlobShadows();
+  // Projected silhouette shadows follow the scene's "Cast shadow" objects.
+  setupProjShadows();
 
   // Size the terrain chunk pool for this scene's grid up front (independent
   // of the streamed assets below) so the loading bar's denominator can count
@@ -5082,6 +5119,190 @@ void TerrainGame::updateAndRenderBlobShadows() {
   }
 }
 
+// Projected silhouette shadows: per-scene setup. The engine's shadow-map
+// slots were allocated at boot (PROJ_SHADOWS_USED); each in-use slot gets a
+// terrain-conforming receiver patch bound to that slot's VRAM-resident
+// silhouette texture. Casters are authored objects with "Cast shadow" - the
+// nearest `slots` of them render each frame.
+void TerrainGame::setupProjShadows() {
+  projShadows.clear();
+  projCasters.clear();
+  if (!PROJ_SHADOWS_USED) return;
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+    if (SCENE_OBJECTS[i].castShadow) projCasters.push_back(i);
+  if (projCasters.empty()) return;
+
+  const int slots = (int)projCasters.size() < Tyra::RendererCoreShadowMap::slots
+                        ? (int)projCasters.size()
+                        : Tyra::RendererCoreShadowMap::slots;
+  // 5x5 cells of 2 triangles = 150 vertices per receiver patch.
+  constexpr int kCells = 5;
+  for (int s = 0; s < slots; ++s) {
+    projShadows.emplace_back();
+    ProjShadow& b = projShadows.back();
+    b.mat.identity();
+    b.verts.assign(kCells * kCells * 6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    b.sts.assign(kCells * kCells * 6, Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    b.color = Color(0.0F, 0.0F, 0.0F, 70.0F);
+    b.info = std::make_unique<StaPipInfoBag>();
+    b.info->model = &b.mat;
+    b.info->shadingType = TyraShadingFlat;
+    b.info->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    b.info->zTestType = PipelineZTest_TestOnly;  // never writes z
+    b.colorBag = std::make_unique<StaPipColorBag>();
+    b.colorBag->single = &b.color;
+    b.texBag = std::make_unique<StaPipTextureBag>();
+    b.texBag->texture = engine->renderer.core.shadowMap.getTexture(s);
+    b.texBag->coordinates = b.sts.data();
+    b.bag = std::make_unique<StaPipBag>();
+    b.bag->info = b.info.get();
+    b.bag->color = b.colorBag.get();
+    b.bag->texture = b.texBag.get();
+    b.bag->vertices = b.verts.data();
+    b.bag->count = (u32)b.verts.size();
+  }
+}
+
+// Per frame, end of renderScene: for the nearest casters, render the
+// object's EXISTING bags into a shadow-map slot from a "light camera"
+// looking along the sun direction (one raster-redirect bracket per caster,
+// one end() drain total), then drop each slot's receiver patch onto the
+// terrain with per-vertex UVs computed through the captured light
+// view-proj. Real silhouette shape - follows animation and movement.
+void TerrainGame::renderProjShadows() {
+  if (projShadows.empty()) return;
+
+  float sxd = SCENE_LIGHT_X, syd = SCENE_LIGHT_Y, szd = SCENE_LIGHT_Z;
+  const float sl = sqrtf(sxd * sxd + syd * syd + szd * szd);
+  if (sl < 0.0001F) return;
+  sxd /= sl, syd /= sl, szd /= sl;
+  if (syd < 0.25F) return;  // sun too low - the projection degenerates
+
+  // Nearest visible casters win the slots; shadows fade out 35..50 units
+  // from the camera so a slot handoff never pops.
+  struct Cand {
+    int obj;
+    float d2;
+  };
+  static std::vector<Cand> cands;
+  cands.clear();
+  for (int i : projCasters) {
+    if (i >= (int)runtimeObjects.size()) continue;
+    const RuntimeObject& o = runtimeObjects[i];
+    if (!o.active || !o.visible) continue;
+    const float dx = o.data.position[0] - cameraPosition.x;
+    const float dy = o.data.position[1] - cameraPosition.y;
+    const float dz = o.data.position[2] - cameraPosition.z;
+    const float d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 > 50.0F * 50.0F) continue;
+    cands.push_back({i, d2});
+  }
+  if (cands.empty()) return;
+  std::sort(cands.begin(), cands.end(),
+            [](const Cand& a, const Cand& b) { return a.d2 < b.d2; });
+
+  auto& core = engine->renderer.core;
+  const CameraInfo3D mainCam(&cameraPosition, &cameraLookAt);
+  M4x4 lightVP[Tyra::RendererCoreShadowMap::slots];
+  float scx[Tyra::RendererCoreShadowMap::slots],
+      scy[Tyra::RendererCoreShadowMap::slots],
+      scz[Tyra::RendererCoreShadowMap::slots],
+      srad[Tyra::RendererCoreShadowMap::slots],
+      sfade[Tyra::RendererCoreShadowMap::slots];
+  int used = 0;
+
+  for (const Cand& c : cands) {
+    if (used >= (int)projShadows.size()) break;
+    const int i = c.obj;
+    RuntimeObject& o = runtimeObjects[i];
+    // Caster bounding sphere: half-diagonal of the scaled unit cube, and
+    // the center lifted for feet-anchored things (anim models, the player).
+    float ms = o.data.scale[0];
+    if (o.data.scale[1] > ms) ms = o.data.scale[1];
+    if (o.data.scale[2] > ms) ms = o.data.scale[2];
+    const float r = 0.87F * ms + 0.25F;
+    const float liftY =
+        (o.data.animModel >= 0 || i == PLAYER_INDEX) ? o.data.scale[1] * 0.5F
+                                                     : 0.0F;
+    const float cx = o.data.position[0], cy = o.data.position[1] + liftY,
+                cz = o.data.position[2];
+
+    if (o.dirty) rebuildObjectGeometry(i);
+    ObjectGeometry& g = objectGeometry[i];
+    const bool anim = g.animInst != nullptr;
+    if (!anim && g.parts.empty()) continue;
+
+    // Light camera: from the sun toward the caster, FOV sized so the
+    // silhouette keeps a ~25% transparent border (CLAMP smears edge texels
+    // outward - the border guarantees the edges stay empty).
+    const float D = r * 4.0F + 1.0F;
+    const float fovDeg = 2.0F * atanf(r * 1.3F / D) * (180.0F / 3.14159265F);
+    core.shadowMap.begin(used);
+    core.renderer3D.pushEnvView(
+        Vec4(cx + sxd * D, cy + syd * D, cz + szd * D, 1.0F),
+        Vec4(cx, cy, cz, 1.0F), fovDeg,
+        (float)Tyra::RendererCoreShadowMap::size);
+    lightVP[used] = core.renderer3D.getViewProj();
+    if (anim) {
+      for (auto& ap : g.animParts)
+        if (ap.bag) stapip.core.render(ap.bag.get());
+    } else {
+      for (GeoPart& part : g.parts)
+        if (part.bag) stapip.core.render(part.bag.get());
+    }
+    core.renderer3D.popEnvView(mainCam);
+
+    scx[used] = cx, scy[used] = cy, scz[used] = cz;
+    srad[used] = r;
+    const float dist = sqrtf(c.d2);
+    sfade[used] = dist < 35.0F ? 1.0F : 1.0F - (dist - 35.0F) / 15.0F;
+    ++used;
+  }
+  if (used == 0) return;
+  core.shadowMap.end();
+
+  // Receiver patches: centered where the sun ray through the caster center
+  // meets the ground, sized by the caster radius + the slant stretch.
+  constexpr int kCells = 5;
+  for (int s = 0; s < used; ++s) {
+    ProjShadow& b = projShadows[s];
+    const float gy = terrainHeightAt(scx[s], scz[s]);
+    const float t = (scy[s] - gy) / syd;
+    const float gx = scx[s] - sxd * t, gz = scz[s] - szd * t;
+    const float half = srad[s] * 1.9F + t * 0.35F;
+
+    int v = 0;
+    for (int iz = 0; iz < kCells; ++iz) {
+      for (int ix = 0; ix < kCells; ++ix) {
+        const float x0 = gx + ((float)ix / kCells - 0.5F) * 2.0F * half;
+        const float x1 = gx + ((float)(ix + 1) / kCells - 0.5F) * 2.0F * half;
+        const float z0 = gz + ((float)iz / kCells - 0.5F) * 2.0F * half;
+        const float z1 = gz + ((float)(iz + 1) / kCells - 0.5F) * 2.0F * half;
+        const Vec4 p00(x0, terrainHeightAt(x0, z0) + 0.05F, z0, 1.0F);
+        const Vec4 p10(x1, terrainHeightAt(x1, z0) + 0.05F, z0, 1.0F);
+        const Vec4 p11(x1, terrainHeightAt(x1, z1) + 0.05F, z1, 1.0F);
+        const Vec4 p01(x0, terrainHeightAt(x0, z1) + 0.05F, z1, 1.0F);
+        b.verts[v + 0] = p00, b.verts[v + 1] = p10, b.verts[v + 2] = p11;
+        b.verts[v + 3] = p00, b.verts[v + 4] = p11, b.verts[v + 5] = p01;
+        for (int k = 0; k < 6; ++k) {
+          const Vec4& w = b.verts[v + k];
+          const Vec4 clip = lightVP[s] * w;
+          float u = 0.0F, vv = 0.0F;
+          if (clip.w > 0.0001F) {
+            u = clip.x / clip.w * 0.5F + 0.5F;
+            vv = 0.5F - clip.y / clip.w * 0.5F;
+          }
+          b.sts[v + k] = Vec4(u, vv, 1.0F, 0.0F);
+        }
+        v += 6;
+      }
+    }
+    b.color.a = 70.0F * sfade[s];
+    b.bag->bboxVersion = ++g_bboxStamp;
+    stapip.core.render(b.bag.get());
+  }
+}
+
 // Per frame: billboard the coronas at the lights' runtime positions,
 // follow each light's level (flicker / Set Light / hidden object) through
 // the additive FIX value, submit. Runs at the end of renderScene so the
@@ -6031,6 +6252,10 @@ void TerrainGame::renderScene() {
   // Mirrors after the whole scene (including the skinned avatars their
   // copies re-use): reflected copies first, glass quads blended over them
   renderMirrors();
+  // Projected silhouette shadows first (they redirect the raster per caster
+  // and need the finished z-buffer for their receiver patches), then the
+  // cheap blob shadows, then the additive beams on top.
+  renderProjShadows();
   // Blob shadows before the beams: dark quads on the terrain, z-tested
   // against the finished scene (objects standing on them still cover them).
   updateAndRenderBlobShadows();
@@ -8588,6 +8813,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  float drawDistance;  // not drawn farther than this from the camera;\n"
            "                       // 0 = unlimited (collision/logic always run)\n"
            "  int reflected;  // 1 = rendered into the dynamic (\"@sky\") env map\n"
+           "  int castShadow; // 1 = projected silhouette shadow on the terrain\n"
            "  int animModel;  // animated models: index into ANIM_MODEL_PATHS, -1 = none\n"
            "  const char* animClip;  // animated models: starting clip (\"\" = first)\n"
            "  int animAutoplay;      // animated models: 1 = play at scene start\n"
@@ -8617,7 +8843,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
                    "0, 0, 0.0F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, "
                    "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, "
-                   "-1, \"\", 1, 1, 1.0F, 1, -1},\n";
+                   "0, -1, \"\", 1, 1, 1.0F, 1, -1},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
                 for (size_t i = 0; i < p.sounds.size(); ++i)
@@ -8660,6 +8886,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << ", " << o.lightBeam << ", " << (o.saveState ? 1 : 0)
                     << ", " << o.collisionMode << ", "
                     << floatLit(o.drawDistance) << ", " << (o.reflected ? 1 : 0)
+                    << ", " << (o.castShadow ? 1 : 0)
                     << ", " << animModelIndexOf(p, o)
                     << ", \"" << escapeCString(o.animClip) << "\", "
                     << (o.animAutoplay ? 1 : 0) << ", " << (o.animLoop ? 1 : 0)
@@ -8984,6 +9211,14 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // sprite doubles as the shadow's alpha mask, baked when either is on).
     out << "constexpr int BLOB_SHADOWS = " << (p.settings.blobShadows ? 1 : 0)
         << ";\n";
+    // Projected silhouette shadows: any caster anywhere -> the game
+    // allocates the engine's shadow-map VRAM at boot (lazy otherwise).
+    {
+        bool any = false;
+        for (const SceneData& sc : p.scenes)
+            for (const SceneObject& o : sc.objects) any |= o.castShadow;
+        out << "constexpr int PROJ_SHADOWS_USED = " << (any ? 1 : 0) << ";\n";
+    }
     sceneInts("POSTFX_DOFS", [&](int si) { return fx128(rs[si].dofAmount); });
     sceneFloats("POSTFX_DOF_FOCUSES",
                 [&](int si) { return floatLit(rs[si].dofFocus); });

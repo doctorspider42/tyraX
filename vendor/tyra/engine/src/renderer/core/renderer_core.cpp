@@ -32,6 +32,10 @@ void RendererCore::init(VideoMode videoMode, DisplayMode displayMode,
   postFx.init(&settings, &gs);
   // Same rule for the dynamic env map's render target (TyraX fork).
   envMap.init(&settings, &gs, &sync, &path1);
+  // Projected shadows: wiring only - VRAM is allocated lazily when the game
+  // calls shadowMap.allocate() (init() also re-places the buffers after a
+  // display-mode VRAM reset if they were on).
+  shadowMap.init(&settings, &gs, &sync, &path1);
   texture.init(&gs, &path3);
   renderer3D.init(&settings, &path1);
   renderer2D.init(&settings, &texture.clut);
@@ -59,6 +63,7 @@ void RendererCore::setDisplayOutput(const DisplayMode& mode,
     gs.reinit();
     postFx.init(&settings, &gs);
     envMap.init(&settings, &gs, &sync, &path1);
+    shadowMap.init(&settings, &gs, &sync, &path1);  // re-places if allocated
   } else {
     // Same buffers - only the display window shape changes (1080i widens;
     // the SDTV modes are stretched by the TV, their window stays as-is).

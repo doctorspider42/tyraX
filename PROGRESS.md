@@ -10,6 +10,35 @@ Each finished feature lands as its own commit.
 
 ## Done in the lighting batch
 
+- (119) **Projected silhouette shadows - the real thing, per-object
+  opt-in.** New `SceneObject::castShadow` ("Cast shadow (projected)" in
+  Properties, `castShadow` in JSON, recipe-hashed): the caster's EXISTING
+  render bags re-render each frame into a small VRAM target from a "light
+  camera" looking along the sun (`pushEnvView` with an FOV sized for a
+  ~25% transparent border - CLAMP smears edge texels), and a 5x5
+  terrain-conforming receiver patch under the caster samples the
+  silhouette by light-space UVs (clip = capturedVP * vertex) with a black
+  modulate + alpha-over draw, TestOnly z. Engine: `RendererCoreShadowMap`
+  (sibling of the env map bracket): FOUR 64x64 slots + one shared cleared
+  z-buffer, `begin(slot)` per caster / one `end()` (N+1 PATH1 drains
+  total), VRAM **allocated lazily** via `allocate()` - only projects with
+  casters pay the 80 KB (PROJ_SHADOWS_USED gates the game-side call;
+  init() re-places the buffers after a display-mode VRAM reset).
+  Runtime: the `slots` casters nearest the camera are active (sorted per
+  frame), shadows fade 35..50 units so slot handoffs never pop, the sun
+  ray through the caster center places the patch (slant stretch grows it),
+  skipped entirely when the sun is < ~15 deg above the horizon (degenerate
+  projection). Works for static objects AND animated models (anim bags
+  resubmit after the anim pass, so the silhouette follows the pose).
+  **Verified** (Layer 3): editor builds clean; Docker build (engine +
+  game) exit 0; PCSX2 **software renderer** boots with "Shadow map slots
+  initialized" in bin/log.txt, no TYRA banners, 50 FPS with one active
+  caster (silhouette bracket + patch every frame), and the screenshot
+  shows a darker square footprint under the caster box on the lit
+  terrain, displaced toward the camera as the sun direction dictates.
+  The caster sat in the torch's saturated pool - an eyes-on pass in a
+  neutral scene (and an animated caster) still wants a human look, as
+  does real hardware.
 - (118) **Blob shadows under moving objects.** Project-wide preference
   (`ProjectSettings::blobShadows`, Preferences > Shadows): every moving
   caster (third-person avatar, animated models, physics objects; markers/

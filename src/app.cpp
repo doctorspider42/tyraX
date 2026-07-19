@@ -4269,6 +4269,19 @@ void App::drawPropertiesWindow() {
                 "Mark the few props that sell the effect - each one costs a\n"
                 "second small render per frame. Editor preview shows the sky\n"
                 "only; check reflections in the game.");
+
+        // Real-shape projected shadow (vs the cheap blob): silhouette
+        // rendered from the sun into a small VRAM target, projected onto
+        // the terrain. Manual opt-in - the caster pays a second render.
+        if (ImGui::Checkbox("Cast shadow (projected)", &o.castShadow))
+            committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Real silhouette shadow on the terrain: the object renders a\n"
+                "second time each frame (64x64, from the sun) and the shape\n"
+                "is projected under it. The 4 casters nearest the camera are\n"
+                "active at a time - mark hero objects, not everything.\n"
+                "Follows animation and movement. Game-only (no preview).");
     }
 
     if (isMirror) {
@@ -4968,6 +4981,7 @@ void App::drawMultiProperties() {
         multiDragF("Draw distance", &SceneObject::drawDistance, 0.5f, 0.0f, 2000.0f,
                    "%.0f units");
         multiCheck("Show in reflections", &SceneObject::reflected);
+        multiCheck("Cast shadow (projected)", &SceneObject::castShadow);
         multiCheck("Physics (falls with gravity)", &SceneObject::physics);
         if (!anySavePoint)
             multiCheck("Usable (USE prompt + On Used)", &SceneObject::usable);

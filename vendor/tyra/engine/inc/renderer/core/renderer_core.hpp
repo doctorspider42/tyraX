@@ -23,6 +23,7 @@
 #include "./texture/renderer_core_texture.hpp"
 #include "./postfx/renderer_core_postfx.hpp"
 #include "./envmap/renderer_core_envmap.hpp"
+#include "./shadowmap/renderer_core_shadow_map.hpp"
 #include "./paths/path3/path3.hpp"
 #include "./paths/path1/path1.hpp"
 #include "./renderer_core_sync.hpp"
@@ -91,6 +92,10 @@ class RendererCore {
 
   /** Dynamic environment map for reflective materials (TyraX fork). */
   RendererCoreEnvMap envMap;
+
+  /** Projected silhouette shadows (TyraX fork; VRAM allocated lazily via
+   * shadowMap.allocate() - only shadow-using games pay for it). */
+  RendererCoreShadowMap shadowMap;
 
   /** EE <-> VU1 synchronization */
   RendererCoreSync sync;
