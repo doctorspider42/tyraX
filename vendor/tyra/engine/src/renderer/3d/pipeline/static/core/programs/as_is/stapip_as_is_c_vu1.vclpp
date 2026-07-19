@@ -33,6 +33,8 @@
     LoadTyraStaticData{ gifSetTag }
     LoadTyraSingleColor{ singleColor, singleColorEnabled, VU1_SINGLE_COLOR_ADDR, VU1_OPTIONS_ADDR }
     LoadTyraTags{ lodGifTag, testsTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR }
+    ; Modified by TyraX: per-mesh GS blend equation, in-band
+    LoadTyraAlphaTag{ alphaGifTag, VU1_ALPHA_ADDR }
     ; Modified by TyraX: GS hardware fog (packed XYZF2)
     LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
 
@@ -51,7 +53,7 @@ setDestAddrMultiColor:
 setDestAddr:
     iaddiu  destAddress,        kickAddress,    0
 
-    StoreTyraGifTags{ gifSetTag, lodGifTag, primTag, testsTag, destAddress }
+    StoreTyraGifTagsAlpha{ gifSetTag, lodGifTag, alphaGifTag, primTag, testsTag, destAddress }
 
     ;--- Loop
     iadd vertexCounter, buffer, vertexCount

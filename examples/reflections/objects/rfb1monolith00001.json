@@ -1,0 +1,1 @@
+{ "id": "rfb1monolith00001", "name": "mirror-monolith", "type": "box", "position": [0, 4, 26], "rotation": [0, 25, 0], "scale": [4.5, 8, 1.2], "color": [1, 1, 1], "physics": false, "material": "res/materials/chrome-dyn.mtl" }

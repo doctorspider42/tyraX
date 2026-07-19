@@ -428,6 +428,19 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    // Reflective material (refl in the .mtl): the additive sphere-map second
+    // pass. World-space normals are captured at rebuild and ride in the ST
+    // slot; the TCE VU1 programs compute the matcap ST from the per-mesh
+    // camera basis (refreshed every frame in renderScene). The env bag shares
+    // this part's vertex array and bboxVersion and mirrors the base bag's
+    // shape (texture + many colors), so both passes share one frustum-bbox
+    // cache entry.
+    std::vector<Tyra::Vec4> envNormals;
+    std::vector<Tyra::Color> envColors;  // all-white 128 = unmodulated texel
+    std::unique_ptr<Tyra::StaPipBag> envBag;
+    std::unique_ptr<Tyra::StaPipInfoBag> envInfoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> envColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> envTexBag;
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
@@ -479,6 +492,13 @@ class TerrainGame : public Tyra::Game {
     std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
+    // refl: spherical environment map (nullptr = not reflective).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
+    // reflRounded = "-rounded": env normals radiate from the part centroid.
+    Tyra::Texture* reflTexture = nullptr;
+    float reflStrength = 0.0F;
+    bool reflDynamic = false;
+    bool reflRounded = false;
   };
   struct GameModel {
     std::vector<GameModelPart> parts;  // empty = missing/unparseable model
@@ -530,6 +550,14 @@ class TerrainGame : public Tyra::Game {
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
     std::string texPath;  // texture-cache ref held ("" = untextured)
+    // refl: spherical environment map (nullptr = not reflective).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
+    // reflRounded = "-rounded": env normals radiate from the part centroid.
+    Tyra::Texture* reflTexture = nullptr;
+    float reflStrength = 0.0F;
+    bool reflDynamic = false;
+    bool reflRounded = false;
+    std::string reflTexPath;  // texture-cache ref held ("" = none)
   };
   std::vector<GameMaterial> gameMaterials;
   void loadMaterialAsset(int index);
@@ -586,6 +614,14 @@ class TerrainGame : public Tyra::Game {
                      float* ceiling);
   void updateObjectPhysics();
   void renderScene();
+  // Mirror objects (type 15): re-submit each listed target's live bags
+  // under a reflection matrix about the glass plane, then blend the quad
+  // over the copies. mirrorMat holds the reflection for the mirror being
+  // drawn; mirrorAnimMat composes it with an animated target's animMat.
+  void renderMirrors();
+  void renderMirroredObject(int index);
+  Tyra::M4x4 mirrorMat;
+  Tyra::M4x4 mirrorAnimMat;
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
   void buildHighlightProxy(int index);
@@ -806,6 +842,19 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    // Reflective material (refl in the .mtl): the additive sphere-map second
+    // pass. World-space normals are captured at rebuild and ride in the ST
+    // slot; the TCE VU1 programs compute the matcap ST from the per-mesh
+    // camera basis (refreshed every frame in renderScene). The env bag shares
+    // this part's vertex array and bboxVersion and mirrors the base bag's
+    // shape (texture + many colors), so both passes share one frustum-bbox
+    // cache entry.
+    std::vector<Tyra::Vec4> envNormals;
+    std::vector<Tyra::Color> envColors;  // all-white 128 = unmodulated texel
+    std::unique_ptr<Tyra::StaPipBag> envBag;
+    std::unique_ptr<Tyra::StaPipInfoBag> envInfoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> envColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> envTexBag;
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
@@ -857,6 +906,13 @@ class TerrainGame : public Tyra::Game {
     std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
+    // refl: spherical environment map (nullptr = not reflective).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
+    // reflRounded = "-rounded": env normals radiate from the part centroid.
+    Tyra::Texture* reflTexture = nullptr;
+    float reflStrength = 0.0F;
+    bool reflDynamic = false;
+    bool reflRounded = false;
   };
   struct GameModel {
     std::vector<GameModelPart> parts;  // empty = missing/unparseable model
@@ -908,6 +964,14 @@ class TerrainGame : public Tyra::Game {
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
     std::string texPath;  // texture-cache ref held ("" = untextured)
+    // refl: spherical environment map (nullptr = not reflective).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
+    // reflRounded = "-rounded": env normals radiate from the part centroid.
+    Tyra::Texture* reflTexture = nullptr;
+    float reflStrength = 0.0F;
+    bool reflDynamic = false;
+    bool reflRounded = false;
+    std::string reflTexPath;  // texture-cache ref held ("" = none)
   };
   std::vector<GameMaterial> gameMaterials;
   void loadMaterialAsset(int index);
@@ -964,6 +1028,14 @@ class TerrainGame : public Tyra::Game {
                      float* ceiling);
   void updateObjectPhysics();
   void renderScene();
+  // Mirror objects (type 15): re-submit each listed target's live bags
+  // under a reflection matrix about the glass plane, then blend the quad
+  // over the copies. mirrorMat holds the reflection for the mirror being
+  // drawn; mirrorAnimMat composes it with an animated target's animMat.
+  void renderMirrors();
+  void renderMirroredObject(int index);
+  Tyra::M4x4 mirrorMat;
+  Tyra::M4x4 mirrorAnimMat;
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
   void buildHighlightProxy(int index);
@@ -1391,6 +1463,16 @@ V3 pointLightAt(const V3& wp, const V3& n) {
 const float* g_primKd = nullptr;
 bool g_primTextured = false;
 
+// Reflective materials: while non-null, pushVert also captures the rotated
+// (world-space) normal of every emitted vertex - the per-frame sphere-map ST
+// computation needs them (see renderScene). Staged per part like g_primKd.
+std::vector<Vec4>* g_envNormals = nullptr;
+
+// Loaded materials/model parts using the "@sky" dynamic env map. While > 0,
+// renderScene renders the sky dome into the engine's env-map target each
+// frame (the GT3 trick - reflections follow the live sky).
+int g_dynamicEnvUsers = 0;
+
 // Every rebuilt vertex buffer gets a process-unique bbox version. The
 // engine's frustum-bbox cache is keyed by (vertex pointer, version); layer
 // streaming frees and reallocates buffers, so with per-bag counters a
@@ -1450,6 +1532,7 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
                        c255(o.color[1] * scale * shade.y),
                        c255(o.color[2] * scale * shade.z), 128.0F));
   sts.push_back(Vec4(u, v, 1.0F, 0.0F));
+  if (g_envNormals) g_envNormals->push_back(Vec4(n.x, n.y, n.z, 0.0F));
 }
 
 void pushQuad(std::vector<Vec4>& verts, std::vector<Color>& cols,
@@ -2638,6 +2721,20 @@ void TerrainGame::loadModelAsset(int i) {
       part.texture = acquireTexture(path);
       gm.texPaths.push_back(path);
     }
+    if (mat.reflTextureName == "@sky") {
+      // Dynamic env map: the engine-owned VRAM target, re-rendered from the
+      // sky dome every frame (renderScene).
+      part.reflTexture = engine->renderer.core.envMap.getTexture();
+      part.reflStrength = mat.reflStrength;
+      part.reflDynamic = true;
+      ++g_dynamicEnvUsers;
+    } else if (!mat.reflTextureName.empty()) {
+      const std::string path = dir + mat.reflTextureName;
+      part.reflTexture = acquireTexture(path);
+      part.reflStrength = mat.reflStrength;
+      gm.texPaths.push_back(path);
+    }
+    part.reflRounded = mat.reflRounded;
     gm.parts.push_back(std::move(part));
   }
   if (MODEL_NEEDS_COLLIDER[i]) {
@@ -2655,6 +2752,8 @@ void TerrainGame::freeModelAsset(int i) {
   if (i < 0 || i >= MODEL_COUNT || !modelLoaded[i]) return;
   GameModel& gm = gameModels[i];
   for (const std::string& path : gm.texPaths) releaseTexture(path);
+  for (const GameModelPart& part : gm.parts)
+    if (part.reflDynamic) --g_dynamicEnvUsers;
   gm = GameModel();
   modelLoaded[i] = 0;
 }
@@ -2672,18 +2771,33 @@ void TerrainGame::loadMaterialAsset(int i) {
   gmat.kd[0] = mat.kd[0];
   gmat.kd[1] = mat.kd[1];
   gmat.kd[2] = mat.kd[2];
-  if (mat.textureName.empty()) return;
   std::string dir = MATERIAL_PATHS[i];
   const size_t slash = dir.find_last_of('/');
   dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
-  gmat.texPath = dir + mat.textureName;
-  gmat.texture = acquireTexture(gmat.texPath);
+  if (!mat.textureName.empty()) {
+    gmat.texPath = dir + mat.textureName;
+    gmat.texture = acquireTexture(gmat.texPath);
+  }
+  if (mat.reflTextureName == "@sky") {
+    // Dynamic env map (see loadModelAsset).
+    gmat.reflTexture = engine->renderer.core.envMap.getTexture();
+    gmat.reflStrength = mat.reflStrength;
+    gmat.reflDynamic = true;
+    ++g_dynamicEnvUsers;
+  } else if (!mat.reflTextureName.empty()) {
+    gmat.reflTexPath = dir + mat.reflTextureName;
+    gmat.reflTexture = acquireTexture(gmat.reflTexPath);
+    gmat.reflStrength = mat.reflStrength;
+  }
+  gmat.reflRounded = mat.reflRounded;
 }
 
 void TerrainGame::freeMaterialAsset(int i) {
   if (i < 0 || i >= MATERIAL_COUNT || !materialLoaded[i]) return;
   GameMaterial& gmat = gameMaterials[i];
   if (!gmat.texPath.empty()) releaseTexture(gmat.texPath);
+  if (!gmat.reflTexPath.empty()) releaseTexture(gmat.reflTexPath);
+  if (gmat.reflDynamic) --g_dynamicEnvUsers;
   gmat = GameMaterial();
   materialLoaded[i] = 0;
 }
@@ -4999,6 +5113,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     part.vertices.clear();
     part.colors.clear();
     part.sts.clear();
+    part.envNormals.clear();
   }
 
   // primitives: the assigned material (first entry of its .mtl) supplies
@@ -5013,6 +5128,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
       const GameModelPart& src = gm->parts[pi];
       GeoPart& part = g.parts[pi];
       const bool textured = src.texture != nullptr;
+      g_envNormals = src.reflTexture ? &part.envNormals : nullptr;
       for (size_t i = 0; i + 7 < src.verts.size(); i += 8) {
         const float* v = &src.verts[i];
         pushVert(part.vertices, part.colors, part.sts, o.data,
@@ -5020,9 +5136,12 @@ void TerrainGame::rebuildObjectGeometry(int index) {
                  textured);
       }
     }
+    g_envNormals = nullptr;
   } else {
     g_primKd = gmat ? gmat->kd : nullptr;
     g_primTextured = gmat && gmat->texture;
+    g_envNormals =
+        (gmat && gmat->reflTexture) ? &g.parts[0].envNormals : nullptr;
     GeoPart& p0 = g.parts[0];
     switch (o.data.type) {
       case 1: addSphere(p0.vertices, p0.colors, p0.sts, o.data); break;
@@ -5064,10 +5183,27 @@ void TerrainGame::rebuildObjectGeometry(int index) {
         break;
       }
       case 14: break;  // camera - cutscene shot marker, no geometry
+      case 15: {
+        // mirror: only the glass quad is geometry (the reflected copies are
+        // re-submitted per frame by renderMirrors). Reuses the decal quad
+        // (+Z face, slight +Z nudge keeps it off a backing wall), then
+        // rewrites the vertex alpha with the authored glass opacity - the
+        // GS alpha-blends it over the copies drawn just before it.
+        addDecal(p0.vertices, p0.colors, p0.sts, o.data);
+        float opacity = 0.35F;
+        for (int mi = 0; mi < MIRROR_COUNT; ++mi)
+          if (MIRRORS[mi].scene == currentScene && MIRRORS[mi].object == index) {
+            opacity = MIRRORS[mi].opacity;
+            break;
+          }
+        for (Color& c : p0.colors) c.a = opacity * 128.0F;
+        break;
+      }
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
     g_primKd = nullptr;
     g_primTextured = false;
+    g_envNormals = nullptr;
   }
 
   for (int pi = 0; pi < partCount; ++pi) {
@@ -5109,6 +5245,85 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     } else {
       part.bag->texture = nullptr;
     }
+
+    // Reflective material (refl): the additive sphere-map second pass. The
+    // env bag reuses this part's vertex array and bboxVersion; all-white
+    // "many" colors keep its VU1 program shape identical to a textured base
+    // bag, so the frustum-bbox cache entry is shared, not recomputed.
+    Texture* envTex = o.data.type == 5 ? gm->parts[pi].reflTexture
+                                       : (gmat ? gmat->reflTexture : nullptr);
+    const float envStr = o.data.type == 5
+                             ? gm->parts[pi].reflStrength
+                             : (gmat ? gmat->reflStrength : 0.0F);
+    if (envTex && envStr > 0.004F &&
+        part.envNormals.size() == part.vertices.size()) {
+      part.envColors.assign(part.vertices.size(),
+                            Color(128.0F, 128.0F, 128.0F, 128.0F));
+      if (!part.envBag) {
+        part.envInfoBag = std::make_unique<StaPipInfoBag>();
+        part.envInfoBag->model = &model;
+        part.envInfoBag->shadingType = TyraShadingFlat;
+        part.envInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+        part.envInfoBag->fullClipChecks = true;
+        // Coplanar with the base pass: standard GEQUAL test. (TestOnly's
+        // alpha-fail FB_ONLY trick corrupted close-up frames - see below.)
+        part.envInfoBag->zTestType = PipelineZTest_Standard;
+        // GS fog would ADD the fog color through the additive equation
+        // (brightening fogged pixels) - the reflection just stays unfogged.
+        part.envInfoBag->fogDisabled = true;
+        part.envColorBag = std::make_unique<StaPipColorBag>();
+        part.envTexBag = std::make_unique<StaPipTextureBag>();
+        part.envBag = std::make_unique<StaPipBag>();
+        part.envBag->info = part.envInfoBag.get();
+        part.envBag->color = part.envColorBag.get();
+        part.envBag->texture = part.envTexBag.get();
+        part.envBag->lighting = nullptr;
+      }
+      // Additive equation Cv = Cs*FIX/128 + Cd; FIX 128 = full strength.
+      const float fix = envStr * 128.0F + 0.5F;
+      part.envInfoBag->additiveBlendFix =
+          fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
+      part.envColorBag->many = part.envColors.data();
+      part.envTexBag->texture = envTex;
+      // "-rounded" materials: overwrite the captured face normals with
+      // directions radiating from the part centroid - a flat face then
+      // sweeps a gradient of the sphere map instead of showing one uniform
+      // sample (the viewport shader mirrors this via uReflRounded).
+      const bool envRounded = o.data.type == 5
+                                  ? gm->parts[pi].reflRounded
+                                  : (gmat && gmat->reflRounded);
+      if (envRounded && !part.vertices.empty()) {
+        const u32 nv = static_cast<u32>(part.vertices.size());
+        float cx = 0.0F, cy = 0.0F, cz = 0.0F;
+        for (u32 vi = 0; vi < nv; ++vi) {
+          cx += part.vertices[vi].x;
+          cy += part.vertices[vi].y;
+          cz += part.vertices[vi].z;
+        }
+        cx /= (float)nv, cy /= (float)nv, cz /= (float)nv;
+        for (u32 vi = 0; vi < nv; ++vi) {
+          float dx = part.vertices[vi].x - cx;
+          float dy = part.vertices[vi].y - cy;
+          float dz = part.vertices[vi].z - cz;
+          const float l = sqrtf(dx * dx + dy * dy + dz * dz);
+          if (l > 0.0001F)
+            dx /= l, dy /= l, dz /= l;
+          else
+            dx = 0.0F, dy = 1.0F, dz = 0.0F;
+          part.envNormals[vi].set(dx, dy, dz, 0.0F);
+        }
+      }
+      // The normals ride in the ST slot and the TCE programs (cull/as_is/
+      // clip) compute the matcap ST from the per-mesh camera basis - zero
+      // EE per-vertex work, no pipeline barriers, in both clipping modes.
+      part.envTexBag->coordinates = part.envNormals.data();
+      part.envTexBag->coordinatesAreNormals = true;
+      part.envBag->vertices = part.vertices.data();
+      part.envBag->count = static_cast<u32>(part.vertices.size());
+      part.envBag->bboxVersion = part.bag->bboxVersion;
+    } else {
+      part.envBag.reset();
+    }
   }
 }
 
@@ -5146,6 +5361,92 @@ void TerrainGame::renderScene() {
     skyHorizonB = scriptCtx.skyColor.b;
     buildSkyDome();
   }
+  // Reflective materials: camera basis for the sphere-map STs. Matcap UVs
+  // from the camera-space normal - u along the camera's right, v (image
+  // space, 0 = top) against its up. The editor viewport shader and the VU1
+  // CalculateTyraEnvStq macro mirror this formula - keep them in sync.
+  V3 envFwd = {cameraLookAt.x - cameraPosition.x,
+               cameraLookAt.y - cameraPosition.y,
+               cameraLookAt.z - cameraPosition.z};
+  {
+    const float l =
+        sqrtf(envFwd.x * envFwd.x + envFwd.y * envFwd.y + envFwd.z * envFwd.z);
+    if (l > 0.0001F) envFwd.x /= l, envFwd.y /= l, envFwd.z /= l;
+  }
+  V3 envRight = {-envFwd.z, 0.0F, envFwd.x};  // cross(fwd, worldUp)
+  {
+    const float l = sqrtf(envRight.x * envRight.x + envRight.z * envRight.z);
+    if (l > 0.0001F)
+      envRight.x /= l, envRight.z /= l;
+    else
+      envRight = {1.0F, 0.0F, 0.0F};  // looking straight up/down
+  }
+  const V3 envUp = {envRight.y * envFwd.z - envRight.z * envFwd.y,
+                    envRight.z * envFwd.x - envRight.x * envFwd.z,
+                    envRight.x * envFwd.y - envRight.y * envFwd.x};
+
+  // Dynamic env map ("@sky" materials): render the sky dome into the
+  // engine's 128x128 VRAM target from a level wide-FOV view along the
+  // camera forward - the GT3 trick, reflections follow the live sky (script
+  // retints included). Runs before any main-frame 3D so the raster redirect
+  // brackets only the dome submission. Refreshed every SECOND frame (also
+  // the GT3 trick): the target persists in VRAM, and a 25/30 Hz update of
+  // a blurry 128px reflection is imperceptible while the pass costs a
+  // couple of ms per hit on real hardware.
+  static bool envMapTick = false;  // first frame MUST render (fresh VRAM)
+  envMapTick = !envMapTick;
+  if (g_dynamicEnvUsers > 0 && skyDome.bag && envMapTick) {
+    auto& core = engine->renderer.core;
+    skyMat.identity();
+    skyMat.data[12] = cameraPosition.x;
+    skyMat.data[13] = cameraPosition.y;
+    skyMat.data[14] = cameraPosition.z;
+    // Level forward: keeps the sphere map's horizon on its center line.
+    V3 lvl = {envFwd.x, 0.0F, envFwd.z};
+    const float ll = sqrtf(lvl.x * lvl.x + lvl.z * lvl.z);
+    if (ll > 0.0001F)
+      lvl.x /= ll, lvl.z /= ll;
+    else
+      lvl = {1.0F, 0.0F, 0.0F};
+    Vec4 envLook(cameraPosition.x + lvl.x, cameraPosition.y,
+                 cameraPosition.z + lvl.z, 1.0F);
+    core.envMap.begin(Color(scriptCtx.skyColor.r, scriptCtx.skyColor.g,
+                            scriptCtx.skyColor.b, 128.0F));
+    core.renderer3D.pushEnvView(cameraPosition, envLook, 110.0F,
+                                (float)Tyra::RendererCoreEnvMap::size);
+    const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
+    skyDome.infoBag->zTestType = PipelineZTest_AllPass;
+    stapip.core.render(skyDome.bag.get());
+    skyDome.infoBag->zTestType = prevZTest;
+    // "Show in reflections" objects render into the map too - base passes
+    // only (no env pass inside the env pass), depth-tested against the
+    // target's dedicated z-buffer so they occlude each other correctly.
+    for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
+      RuntimeObject& ro = runtimeObjects[ri];
+      if (!ro.active || !ro.visible || !ro.data.reflected) continue;
+      // Skip the object the camera is standing at: it would swamp the whole
+      // map - typically the very reflective surface being inspected, whose
+      // own dark self-reflection reads as ugly patches up close. (Bounding
+      // radius approximated from the scale; unit primitives fit a 1x1x1
+      // cube, so half-diagonal = 0.87 * max scale.)
+      {
+        float half = ro.data.scale[0];
+        if (ro.data.scale[1] > half) half = ro.data.scale[1];
+        if (ro.data.scale[2] > half) half = ro.data.scale[2];
+        const float skipR = 0.87F * half * 1.9F;
+        const float sdx = ro.data.position[0] - cameraPosition.x;
+        const float sdy = ro.data.position[1] - cameraPosition.y;
+        const float sdz = ro.data.position[2] - cameraPosition.z;
+        if (sdx * sdx + sdy * sdy + sdz * sdz < skipR * skipR) continue;
+      }
+      if (ro.dirty) rebuildObjectGeometry(ri);
+      for (GeoPart& part : objectGeometry[ri].parts)
+        if (part.bag) stapip.core.render(part.bag.get());
+    }
+    core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+    core.envMap.end();
+  }
+
   if (skyDome.bag) {
     // Follow the camera: park the dome's centre on the eye so however big the
     // map is, the horizon and zenith always wrap around the player. Only the
@@ -5169,6 +5470,14 @@ void TerrainGame::renderScene() {
   // repaint - two exact-clip passes per frame). OVERLAY mode: the body draws
   // normally in the main pass and the shells are painted ON it afterwards, so
   // it stays in this list only for the shell pass.
+  auto renderEnvPass = [&](GeoPart& part) {
+    if (!part.envBag) return;
+    // TCE programs compute the matcap ST on VU1 - the EE only refreshes the
+    // per-mesh camera basis here.
+    part.envTexBag->envRight.set(envRight.x, envRight.y, envRight.z, 0.0F);
+    part.envTexBag->envUp.set(envUp.x, envUp.y, envUp.z, 0.0F);
+    stapip.core.render(part.envBag.get());
+  };
   int hlList[8];
   float hlListD2[8];
   int hlCount = 0;
@@ -5179,6 +5488,10 @@ void TerrainGame::renderScene() {
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
     if (!runtimeObjects[i].visible) continue;
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
+    // mirrors draw after the scene (copies first, then the blended glass -
+    // see renderMirrors); drawing the quad here would z-write the plane and
+    // reject the reflected geometry behind it
+    if (runtimeObjects[i].data.type == 15) continue;
     if (hlActive && hlCount < 8 && runtimeObjects[i].data.usable &&
         highlightInReach(i)) {
       const float ddx = runtimeObjects[i].data.position[0] - cameraPosition.x;
@@ -5189,11 +5502,17 @@ void TerrainGame::renderScene() {
       if (!hlOverlay) continue;  // rim: defer body; overlay: draw it now
     }
     for (GeoPart& part : objectGeometry[i].parts)
-      if (part.bag) stapip.core.render(part.bag.get());
+      if (part.bag) {
+        stapip.core.render(part.bag.get());
+        renderEnvPass(part);
+      }
   }
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
   updateAndRenderAnimObjects();
+  // Mirrors after the whole scene (including the skinned avatars their
+  // copies re-use): reflected copies first, glass quads blended over them
+  renderMirrors();
   if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - profScene0;
   // Highlight shells after the whole scene so they depth-test against the
   // finished z-buffer and can't be punched through by a later draw. Sorted
@@ -5219,7 +5538,10 @@ void TerrainGame::renderScene() {
       // scene, not highlight overhead.
       const u32 pb = DEBUG_SHOW_PROFILER ? profTicks() : 0;
       for (GeoPart& part : objectGeometry[i].parts)
-        if (part.bag) stapip.core.render(part.bag.get());
+        if (part.bag) {
+          stapip.core.render(part.bag.get());
+          renderEnvPass(part);
+        }
       if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - pb;
     }
   }
@@ -5228,6 +5550,98 @@ void TerrainGame::renderScene() {
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
+}
+
+// Mirror objects (type 15): the PS2-era mirror. Every listed target is
+// submitted a SECOND time under a reflection matrix about the glass plane -
+// VU1 re-transforms the target's live vertex arrays (the same trick as the
+// highlight shells re-submitting under hullMat), so the EE never touches a
+// vertex and moving or animated targets reflect their current frame for
+// free. The copies are real geometry on the far side of the plane: build
+// the mirror into a wall (or give it a backing) so only the glass reveals
+// them. Winding flips under a reflection, but the GS draws both faces, so
+// no triangle reordering is needed. Draw order: copies first (plain
+// z-tested scene geometry), then the tinted glass quad alpha-blends over
+// them; highlight shells and particles still sort on top afterwards.
+void TerrainGame::renderMirrors() {
+  for (int mi = 0; mi < MIRROR_COUNT; ++mi) {
+    const MirrorData& mir = MIRRORS[mi];
+    if (mir.scene != currentScene || mir.object < 0 ||
+        mir.object >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[mir.object];
+    if (!m.active || !m.visible) continue;
+    if (beyondDrawDistance(m.data, cameraPosition)) continue;
+
+    // Householder reflection about the glass plane (normal = the mirror's
+    // rotated +Z, through its live position): x' = x - 2*((x . n) - d) * n
+    V3 n = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+    const float nl = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
+    if (nl > 0.0001F) n.x /= nl, n.y /= nl, n.z /= nl;
+    const float d = n.x * m.data.position[0] + n.y * m.data.position[1] +
+                    n.z * m.data.position[2];
+    mirrorMat.identity();
+    mirrorMat.data[0] = 1.0F - 2.0F * n.x * n.x;
+    mirrorMat.data[1] = -2.0F * n.x * n.y;
+    mirrorMat.data[2] = -2.0F * n.x * n.z;
+    mirrorMat.data[4] = -2.0F * n.x * n.y;
+    mirrorMat.data[5] = 1.0F - 2.0F * n.y * n.y;
+    mirrorMat.data[6] = -2.0F * n.y * n.z;
+    mirrorMat.data[8] = -2.0F * n.x * n.z;
+    mirrorMat.data[9] = -2.0F * n.y * n.z;
+    mirrorMat.data[10] = 1.0F - 2.0F * n.z * n.z;
+    mirrorMat.data[12] = 2.0F * d * n.x;
+    mirrorMat.data[13] = 2.0F * d * n.y;
+    mirrorMat.data[14] = 2.0F * d * n.z;
+
+    for (int t = 0; t < mir.targetCount; ++t)
+      renderMirroredObject(MIRROR_TARGETS[mir.firstTarget + t]);
+    if (mir.reflectPlayer) {
+      // only a visible body reflects: the third-person avatar is a normal
+      // runtime object (visible only in mode 2), so the FPP player - no
+      // body - is skipped by the visibility check inside
+      const int pi = PLAYER_INDEXES[currentScene];
+      if (pi >= 0) renderMirroredObject(pi);
+    }
+
+    // the glass quad itself, alpha-blended over the copies (its vertex
+    // alpha carries the opacity - see rebuildObjectGeometry case 15)
+    for (GeoPart& part : objectGeometry[mir.object].parts)
+      if (part.bag) stapip.core.render(part.bag.get());
+  }
+}
+
+// One reflected copy: re-submit the target's live bags under mirrorMat.
+// Static parts hold world-space vertices (the reflection maps world to
+// world); animated parts hold model-space vertices under animMat, so the
+// copy composes reflection * animMat. The swapped-in matrix pointer is
+// consumed during render() (packets are built synchronously - the highlight
+// shells rewrite hullMat between submits on the same fact), so restoring it
+// right after the call is safe.
+void TerrainGame::renderMirroredObject(int index) {
+  if (index < 0 || index >= (int)runtimeObjects.size()) return;
+  RuntimeObject& o = runtimeObjects[index];
+  // no mirror-in-mirror: a mirror listing another mirror would recurse the
+  // illusion with a matrix that is only valid for the outer plane
+  if (!o.active || !o.visible || o.data.type == 15) return;
+  if (beyondDrawDistance(o.data, cameraPosition)) return;
+  ObjectGeometry& g = objectGeometry[index];
+  for (GeoPart& part : g.parts) {
+    if (!part.bag) continue;
+    part.infoBag->model = &mirrorMat;
+    stapip.core.render(part.bag.get());
+    part.infoBag->model = &model;
+  }
+  if (g.animInfoBag && !g.animParts.empty()) {
+    // The anim bags point at whatever updateAndRenderAnimObjects last
+    // skinned - an on-screen target reflects its exact current pose; a
+    // target that skipped this frame's skinning reflects its held pose.
+    mirrorAnimMat = mirrorMat * g.animMat;
+    g.animInfoBag->model = &mirrorAnimMat;
+    for (ObjectGeometry::AnimPart& ap : g.animParts)
+      if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+    g.animInfoBag->model = &g.animMat;
+  }
 }
 
 // True when the usable object sits inside the highlight distance (same
@@ -7381,6 +7795,25 @@ docker-compose.yml
 
 static const char* TPL_DIR_KEEP = "*\n!.gitignore\n";
 
+// res/ holds AUTHORED assets - they must reach the repo (the split-object
+// format exists precisely so a team can share a map through git; a teammate
+// without your textures sees "material file missing" on every object). Only
+// build-regenerated bakes are ignored: menus/ is fully rebuilt from the
+// .tyra at build, and .tskl/.tanm are baked from their .glb source. hud/ is
+// NOT ignored - user-imported HUD images land there next to the baked text
+// sprites, and losing imports is worse than committing regenerable bakes.
+static const char* TPL_RES_GITIGNORE =
+    R"(# Authored assets (models, textures, materials, ui, audio, sfx) are
+# checked in - a pulled project must render without missing files. Only
+# build-regenerated output is ignored.
+/menus/
+
+# Baked animated-model output (.glb is the source; .tskl/.tanm are
+# regenerated from it on every build).
+/models/*.tskl
+/models/*.tanm
+)";
+
 // Multi-user collaboration hints, written once at project creation (a new game
 // map is its own repo, separate from the editor). Object bodies are split one
 // file per object so they merge cleanly; the files below cannot be auto-merged
@@ -7574,6 +8007,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "             // 6=player 7=emitter 8=sound 9=point-light 10=save-point\n"
            "             // 11=empty (pure transform, no geometry/collision)\n"
            "             // 12=plane 13=decal 14=camera (cutscene shot marker)\n"
+           "             // 15=mirror (glass quad; reflections via MIRRORS below)\n"
            "  float position[3];\n"
            "  float rotation[3];  // degrees\n"
            "  float scale[3];\n"
@@ -7608,6 +8042,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none\n"
            "  float drawDistance;  // not drawn farther than this from the camera;\n"
            "                       // 0 = unlimited (collision/logic always run)\n"
+           "  int reflected;  // 1 = rendered into the dynamic (\"@sky\") env map\n"
            "  int animModel;  // animated models: index into ANIM_MODEL_PATHS, -1 = none\n"
            "  const char* animClip;  // animated models: starting clip (\"\" = first)\n"
            "  int animAutoplay;      // animated models: 1 = play at scene start\n"
@@ -7673,7 +8108,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << ", " << floatLit(o.lightBright)
                     << ", " << floatLit(o.lightRadius) << ", " << (o.saveState ? 1 : 0)
                     << ", " << o.collisionMode << ", "
-                    << floatLit(o.drawDistance) << ", " << animModelIndexOf(p, o)
+                    << floatLit(o.drawDistance) << ", " << (o.reflected ? 1 : 0)
+                    << ", " << animModelIndexOf(p, o)
                     << ", \"" << escapeCString(o.animClip) << "\", "
                     << (o.animAutoplay ? 1 : 0) << ", " << (o.animLoop ? 1 : 0)
                     << ", " << floatLit(o.animSpeed) << ", "
@@ -7692,6 +8128,36 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     for (int si = 0; si < sceneCount; ++si)
         out << (si ? ", " : "") << "SCENE_" << si << "_OBJECTS";
     out << "};\n\n";
+
+    // Stable per-object identity for Live Link (docs/live-link.md): FNV-1a 64
+    // of the editor object id, in authored order. The live_link.gen.cpp poller
+    // maps snapshot records onto runtime objects through these, so renames /
+    // reorders in the editor keep addressing the right object. Unused (and
+    // dropped by the compiler) outside debug+Live-Link builds.
+    {
+        char hb[19];
+        for (int si = 0; si < sceneCount; ++si) {
+            const auto& objs = p.scenes[si].objects;
+            out << "constexpr unsigned long long SCENE_" << si
+                << "_OBJECT_ID_HASHES[" << (objs.empty() ? (size_t)1 : objs.size())
+                << "] = {";
+            if (objs.empty()) {
+                out << "0";
+            } else {
+                for (size_t i = 0; i < objs.size(); ++i) {
+                    std::snprintf(hb, sizeof(hb), "0x%016llx",
+                                  (unsigned long long)project::liveLinkIdHash(objs[i]));
+                    out << (i ? ", " : "") << hb << "ULL";
+                }
+            }
+            out << "};\n";
+        }
+        out << "inline const unsigned long long* SCENE_OBJECT_ID_TABLES"
+               "[SCENE_COUNT] = {";
+        for (int si = 0; si < sceneCount; ++si)
+            out << (si ? ", " : "") << "SCENE_" << si << "_OBJECT_ID_HASHES";
+        out << "};\n\n";
+    }
 
     // Streaming layers: per-scene layer count and which layers start resident
     // (rows padded to SCENE_MAX_LAYERS with true). SceneObjectData.layer
@@ -7743,6 +8209,54 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         return l.autoStream ? l.streamRadius : 0.0f;
     });
     out << "\n";
+
+    // Mirror objects (type 15): a flat side-table keyed by (scene, object)
+    // like OBJECT_SCRIPT_ATTACHES, so SceneObjectData stays a fixed POD.
+    // Target names resolve to scene-table indices here; a dangling name (the
+    // object was deleted) is silently dropped and the mirror just shows less.
+    {
+        std::ostringstream infos, targets;
+        int mirrorCount = 0, targetCount = 0;
+        for (int si = 0; si < sceneCount; ++si) {
+            const auto& objs = p.scenes[si].objects;
+            for (size_t oi = 0; oi < objs.size(); ++oi) {
+                const SceneObject& o = objs[oi];
+                if (o.type != PrimitiveType::Mirror) continue;
+                const int first = targetCount;
+                for (const std::string& name : o.mirrorObjects)
+                    for (size_t ti = 0; ti < objs.size(); ++ti) {
+                        if (ti == oi || objs[ti].name != name) continue;
+                        targets << (targetCount ? ", " : "") << ti;
+                        ++targetCount;
+                        break;
+                    }
+                infos << (mirrorCount ? ",\n    " : "    ") << "{" << si << ", "
+                      << oi << ", " << floatLit(o.mirrorOpacity) << ", "
+                      << (o.mirrorReflectPlayer ? 1 : 0) << ", " << first << ", "
+                      << (targetCount - first) << "},  // " << o.name;
+                ++mirrorCount;
+            }
+        }
+        out << "// Mirrors (type 15): each entry re-draws its target objects\n"
+               "// reflected across the mirror plane (renderMirrors in the game\n"
+               "// cpp). Targets index the mirror's own scene object table.\n"
+               "struct MirrorData {\n"
+               "  int scene;          // scene index\n"
+               "  int object;         // the mirror's index in its scene table\n"
+               "  float opacity;      // glass alpha 0..1 (tint = object color)\n"
+               "  int reflectPlayer;  // 1 = also reflect the third-person avatar\n"
+               "  int firstTarget;    // first entry in MIRROR_TARGETS\n"
+               "  int targetCount;\n"
+               "};\n"
+            << "constexpr int MIRROR_COUNT = " << mirrorCount << ";\n"
+            << "constexpr MirrorData MIRRORS[" << (mirrorCount ? mirrorCount : 1)
+            << "] = {\n"
+            << (mirrorCount ? infos.str() : "    {0, -1, 0.0F, 0, 0, 0}")
+            << "\n};\n"
+            << "constexpr int MIRROR_TARGETS["
+            << (targetCount ? targetCount : 1) << "] = {"
+            << (targetCount ? targets.str() : "-1") << "};\n\n";
+    }
 
     // Sound effect samples referenced by sound emitters (SceneObjectData.snd
     // indexes this list; res/sfx/x.wav -> sfx/x.adpcm next to the ELF)
@@ -9263,6 +9777,18 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
             return "";
         };
 
+        // A Get Position node with its exec input wired runs as a sampling
+        // action: it latches the target's position into its posOut member
+        // when the exec fires (see the registry comment in flowgraph.hpp).
+        // Unwired, it keeps the original pure behavior - consumers read the
+        // target's position live.
+        auto getPosLatched = [&](const FlowNode& n) {
+            if (n.type != "GetPosition") return false;
+            for (const FlowLink& l : fg.links)
+                if (l.kind == FlowLinkExec && l.toNode == n.id) return true;
+            return false;
+        };
+
         // XYZ expressions a node's position resolves to: an incoming position
         // link (Get Position reads the source object live; Set Object
         // Position forwards its own resolution) beats the node's own
@@ -9291,11 +9817,12 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                     }
                 }
             }
-            // A custom node's (or Raycast's) runtime position output
-            // (latched member).
+            // A custom node's (or Raycast's / an exec-wired Get Position's)
+            // runtime position output (latched member).
             if (const FlowNodeType* t = flowNodeType(n.type);
                 t && t->posOut &&
-                (flowCustomNode(n.type) || n.type == "Raycast")) {
+                (flowCustomNode(n.type) || n.type == "Raycast" ||
+                 getPosLatched(n))) {
                 const std::string base = "posOut" + std::to_string(n.id) + "[";
                 return {base + "0]", base + "1]", base + "2]"};
             }
@@ -9763,6 +10290,33 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 const float md = n.num[0] > 0.001f ? n.num[0] : 100.0f;
                 c << pad << "flowRaycast(ctx, " << floatLit(md) << ", &objOut"
                   << n.id << ", posOut" << n.id << ");\n";
+            } else if (n.type == "GetPosition") {
+                // Only reached when its exec input is wired (emitExec): latch
+                // the target's position now, so downstream consumers keep
+                // "where it was when the exec fired" even after the target
+                // moves. posExpr hands them the latched member; an unwired
+                // Get Position never runs and stays a live data source.
+                const std::string id = std::to_string(n.id);
+                const std::string dyn = targetExpr(n);
+                if (!dyn.empty()) {
+                    c << pad << "if (" << dyn << " >= 0) {\n";
+                    for (int a = 0; a < 3; ++a)
+                        c << pad << "  posOut" << id << "[" << a
+                          << "] = ctx.objects[" << dyn << "].data.position[" << a
+                          << "];\n";
+                    c << pad << "}\n";
+                } else {
+                    const int idx = resolveTarget(n);
+                    if (idx < 0) {
+                        c << pad << "// node " << id
+                          << " (GetPosition): unknown object '" << n.str << "'\n";
+                    } else {
+                        for (int a = 0; a < 3; ++a)
+                            c << pad << "posOut" << id << "[" << a
+                              << "] = ctx.objects[" << idx << "].data.position["
+                              << a << "];\n";
+                    }
+                }
             } else if (n.type == "SetStickCurve") {
                 // Stick: 0 left, 1 right, 2 both. Curve: 0 Linear / 1 Exp /
                 // 2 S-Curve. Exponent clamped to >= 1 (only shapes curves 1/2).
@@ -10040,7 +10594,8 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 visited.push_back(key);
                 c << actionCode(*m, pad, l.toPin);
                 if (t->execThrough &&
-                    (flowCustomNode(m->type) || m->type == "Raycast"))
+                    (flowCustomNode(m->type) || m->type == "Raycast" ||
+                     m->type == "GetPosition"))
                     c << emitExec(m->id, pad, visited);
             }
             return c.str();
@@ -10146,16 +10701,21 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
             }
         }
 
-        // Runtime output latches for C++-backed custom nodes and the built-in
-        // Raycast: members hold the last value each output pin produced, so
-        // downstream nodes read them as plain variables (objOut<id>,
-        // boolOut<id>, posOut<id>[3], textOut<id>). Reset to defaults on
-        // scene (re)load like the other per-node state.
+        // Runtime output latches for C++-backed custom nodes, the built-in
+        // Raycast and exec-wired Get Position nodes: members hold the last
+        // value each output pin produced, so downstream nodes read them as
+        // plain variables (objOut<id>, boolOut<id>, posOut<id>[3],
+        // textOut<id>). Reset to defaults on scene (re)load like the other
+        // per-node state.
         for (const FlowNode& n : fg.nodes) {
             const FlowNodeType* t = flowNodeType(n.type);
-            if (!t || !(flowCustomNode(n.type) || n.type == "Raycast")) continue;
+            if (!t || !(flowCustomNode(n.type) || n.type == "Raycast" ||
+                        getPosLatched(n)))
+                continue;
             const std::string id = std::to_string(n.id);
-            if (t->idOut) {
+            // Get Position latches only its position - its object output
+            // stays the compile-time resolution.
+            if (t->idOut && n.type != "GetPosition") {
                 members << "  int objOut" << id << " = -1;\n";
                 flagResets << "      objOut" << id << " = -1;\n";
             }
@@ -10308,6 +10868,270 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
     if (!anyGraph) out << "\n// No object has a flow graph yet.\n";
 
     out << "\n}  // namespace " << ns << "\n\n" << registrations.str();
+    return out.str();
+}
+
+// src/scripts/live_link.gen.cpp - the Live Link poller. Debug builds with the
+// "Live Link" project preference on: the editor mirrors scene edits into the
+// running game by writing livelink.bin next to the ELF, which the game
+// already reaches over host: (PCSX2 Host Filesystem or the ps2link file
+// server - the same mechanism on both, no extra transport). This generated
+// global Script polls that file every few frames; otherwise the file compiles
+// to an empty translation unit. Records address objects by the stable id
+// hash baked into scene_data.hpp (SCENE_*_OBJECT_ID_HASHES), so a session
+// survives renames/reorders, spawns NEWLY ADDED objects through the runtime
+// spawn pool (templateIdx names an equal-recipe authored object to clone) and
+// hides deleted ones (absence from the snapshot = deleted; restored on undo).
+// The editor only streams while bin/livelink.sig (as-built record, stamped by
+// the Runner) says the session is representable. Binary layout v2
+// (little-endian, both sides are LE):
+//   u32 magic 'TXLL', u32 version=2, u32 seq, i32 scene, i32 count, u32 rsvd
+//   count records of 64 bytes:
+//     u64 idHash, i32 templateIdx (-1 = existed at build), u32 pad,
+//     f32 position[3], rotation[3] (deg), scale[3], color[3] (0..1)
+//   u32 footer = seq ^ 0x5A5A5A5A   (guards torn/partial reads)
+static std::string liveLinkScript(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n";
+    if (p.settings.buildProfile != "debug" || !p.settings.liveLink) {
+        out << "// Live Link is compiled only into debug builds with the "
+               "\"Live Link\"\n// preference on (Project > Preferences > "
+               "Build); this build carries no poller.\n";
+        return out.str();
+    }
+
+    size_t maxObjects = 1;
+    for (const SceneData& sc : p.scenes)
+        if (sc.objects.size() > maxObjects) maxObjects = sc.objects.size();
+
+    out << "// Live Link (debug builds): applies editor edits to the running "
+           "game with no\n"
+           "// rebuild. The editor writes livelink.bin next to the ELF; this "
+           "script polls\n"
+           "// it over host:, patches transforms/colors in place, spawns "
+           "newly added\n"
+           "// objects from equal-recipe templates and hides deleted ones.\n"
+           "#include <tyra>\n"
+           "#include <algorithm>\n"
+           "#include <cstdio>\n"
+           "#include <cstring>\n"
+           "#include \"scripts/script.hpp\"\n"
+           "\n"
+           "namespace " << ns << " {\n"
+           "namespace {\n"
+           "\n"
+           "typedef unsigned long long llu64;\n"
+           "constexpr u32 LL_MAGIC = 0x4C4C5854;  // \"TXLL\"\n"
+           "constexpr u32 LL_VERSION = 2;\n"
+           "constexpr int LL_HEADER = 24;\n"
+           "constexpr int LL_STRIDE = 64;  // one record (id + template + 12 "
+           "floats)\n"
+           "// Largest authored object table across scenes - table bounds.\n"
+           "constexpr int LL_MAX_OBJECTS = " << maxObjects << ";\n"
+           "// Live-spawned clones tracked at once; matches the game's\n"
+           "// MAX_SPAWNED_OBJECTS pool (spawnObject fails past it anyway).\n"
+           "constexpr int LL_MAX_SPAWNED = 32;\n"
+           "\n"
+           "class LiveLink : public Script {\n"
+           " public:\n"
+           "  void update(ScriptContext& ctx) override {\n"
+           "    // Scene (re)load resets runtime objects to their baked state: "
+           "rebuild the\n"
+           "    // id lookup and re-apply the latest snapshot (lastSeq_ = 0).\n"
+           "    if (ctx.sceneGeneration != gen_) rebuildTables(ctx);\n"
+           "\n"
+           "    // Over ps2link every fopen is a network round-trip - poll "
+           "sparsely there;\n"
+           "    // PCSX2's Host Filesystem is plain local IO, poll ~10x/s.\n"
+           "    if (--cooldown_ > 0) return;\n"
+           "    cooldown_ = Tyra::IrxLoader::keepIopResident ? 25 : 6;\n"
+           "\n"
+           "    static unsigned char buf[LL_HEADER +\n"
+           "                             (LL_MAX_OBJECTS + LL_MAX_SPAWNED) * "
+           "LL_STRIDE + 4];\n"
+           "    FILE* f = fopen(Tyra::FileUtils::fromCwd(\"livelink.bin\")"
+           ".c_str(), \"rb\");\n"
+           "    if (!f) return;  // no snapshot yet (or shipped without the "
+           "editor)\n"
+           "    const size_t got = fread(buf, 1, sizeof(buf), f);\n"
+           "    fclose(f);\n"
+           "    if (got < LL_HEADER + 4) return;\n"
+           "\n"
+           "    u32 magic, version, seq;\n"
+           "    s32 scene, count;\n"
+           "    memcpy(&magic, buf + 0, 4);\n"
+           "    memcpy(&version, buf + 4, 4);\n"
+           "    memcpy(&seq, buf + 8, 4);\n"
+           "    memcpy(&scene, buf + 12, 4);\n"
+           "    memcpy(&count, buf + 16, 4);\n"
+           "    if (magic != LL_MAGIC || version != LL_VERSION) return;\n"
+           "    if (seq == lastSeq_) return;  // already applied\n"
+           "    if (scene != ctx.scene || count < 0 ||\n"
+           "        count > LL_MAX_OBJECTS + LL_MAX_SPAWNED)\n"
+           "      return;\n"
+           "    // Exact size + footer echo of seq: a torn write fails both.\n"
+           "    if (got != (size_t)(LL_HEADER + count * LL_STRIDE + 4)) return;\n"
+           "    u32 foot;\n"
+           "    memcpy(&foot, buf + LL_HEADER + count * LL_STRIDE, 4);\n"
+           "    if (foot != (seq ^ 0x5A5A5A5AU)) return;\n"
+           "\n"
+           "    bool present[LL_MAX_OBJECTS] = {};\n"
+           "    bool presentSpawn[LL_MAX_SPAWNED] = {};\n"
+           "    for (int i = 0; i < count; ++i) {\n"
+           "      const unsigned char* r = buf + LL_HEADER + i * LL_STRIDE;\n"
+           "      llu64 id;\n"
+           "      s32 tmpl;\n"
+           "      float v[12];\n"
+           "      memcpy(&id, r + 0, 8);\n"
+           "      memcpy(&tmpl, r + 8, 4);\n"
+           "      memcpy(v, r + 16, 48);\n"
+           "\n"
+           "      const int idx = findAuthored(id);\n"
+           "      if (idx >= 0) {\n"
+           "        if (idx < LL_MAX_OBJECTS) present[idx] = true;\n"
+           "        if (idx >= ctx.objectCount) continue;\n"
+           "        RuntimeObject& o = ctx.objects[idx];\n"
+           "        bool changed = patch(o, v);\n"
+           "        if (hiddenByLL_[idx]) {  // deleted then undone: restore\n"
+           "          o.visible = prevVisible_[idx];\n"
+           "          hiddenByLL_[idx] = false;\n"
+           "          changed = true;\n"
+           "        }\n"
+           "        if (changed) o.dirty = true;\n"
+           "        continue;\n"
+           "      }\n"
+           "\n"
+           "      const int s = findSpawned(id);\n"
+           "      if (s >= 0) {\n"
+           "        presentSpawn[s] = true;\n"
+           "        const int slot = spawnedSlot_[s];\n"
+           "        if (slot < ctx.objectCount && ctx.objects[slot].active) {\n"
+           "          RuntimeObject& o = ctx.objects[slot];\n"
+           "          if (patch(o, v)) o.dirty = true;\n"
+           "        }\n"
+           "        continue;\n"
+           "      }\n"
+           "\n"
+           "      // Unknown id = an object added in the editor after the "
+           "build: clone\n"
+           "      // the equal-recipe template the editor picked, then patch "
+           "the clone.\n"
+           "      if (tmpl >= 0 && ctx.spawnObject && spawnedCount_ < "
+           "LL_MAX_SPAWNED) {\n"
+           "        const int slot = ctx.spawnObject(tmpl, v[0], v[1], v[2], "
+           "v[4]);\n"
+           "        if (slot >= 0) {\n"
+           "          spawnedId_[spawnedCount_] = id;\n"
+           "          spawnedSlot_[spawnedCount_] = slot;\n"
+           "          presentSpawn[spawnedCount_] = true;\n"
+           "          ++spawnedCount_;\n"
+           "          if (slot < ctx.objectCount) {\n"
+           "            RuntimeObject& o = ctx.objects[slot];\n"
+           "            patch(o, v);\n"
+           "            o.dirty = true;\n"
+           "          }\n"
+           "        }\n"
+           "      }\n"
+           "    }\n"
+           "\n"
+           "    // Authored objects missing from the snapshot were deleted in "
+           "the editor:\n"
+           "    // hide them (geometry stays baked until a rebuild; collision "
+           "remains -\n"
+           "    // an approximation, exactly like the Hide Object flow node).\n"
+           "    const int authored =\n"
+           "        SCENE_OBJECT_COUNTS[ctx.scene] < LL_MAX_OBJECTS\n"
+           "            ? SCENE_OBJECT_COUNTS[ctx.scene]\n"
+           "            : LL_MAX_OBJECTS;\n"
+           "    for (int i = 0; i < authored && i < ctx.objectCount; ++i) {\n"
+           "      if (present[i] || hiddenByLL_[i]) continue;\n"
+           "      prevVisible_[i] = ctx.objects[i].visible;\n"
+           "      ctx.objects[i].visible = false;\n"
+           "      hiddenByLL_[i] = true;\n"
+           "    }\n"
+           "    // Live-spawned clones missing from the snapshot: despawn "
+           "(frees the slot).\n"
+           "    for (int s = spawnedCount_ - 1; s >= 0; --s) {\n"
+           "      if (presentSpawn[s]) continue;\n"
+           "      if (ctx.despawnObject) ctx.despawnObject(spawnedSlot_[s]);\n"
+           "      --spawnedCount_;\n"
+           "      spawnedId_[s] = spawnedId_[spawnedCount_];\n"
+           "      spawnedSlot_[s] = spawnedSlot_[spawnedCount_];\n"
+           "      presentSpawn[s] = presentSpawn[spawnedCount_];\n"
+           "    }\n"
+           "    lastSeq_ = seq;\n"
+           "  }\n"
+           "\n"
+           " private:\n"
+           "  static bool apply3(float* dst, const float* src) {\n"
+           "    if (dst[0] == src[0] && dst[1] == src[1] && dst[2] == src[2])\n"
+           "      return false;\n"
+           "    dst[0] = src[0], dst[1] = src[1], dst[2] = src[2];\n"
+           "    return true;\n"
+           "  }\n"
+           "  // dirty only on a real change - it costs a geometry rebuild.\n"
+           "  static bool patch(RuntimeObject& o, const float* v) {\n"
+           "    bool changed = false;\n"
+           "    changed |= apply3(o.data.position, v + 0);\n"
+           "    changed |= apply3(o.data.rotation, v + 3);\n"
+           "    changed |= apply3(o.data.scale, v + 6);\n"
+           "    changed |= apply3(o.data.color, v + 9);\n"
+           "    return changed;\n"
+           "  }\n"
+           "\n"
+           "  // Sorted (hash -> authored index) lookup over the baked id "
+           "table.\n"
+           "  void rebuildTables(const ScriptContext& ctx) {\n"
+           "    gen_ = ctx.sceneGeneration;\n"
+           "    lastSeq_ = 0;  // re-apply the latest snapshot after a reload\n"
+           "    spawnedCount_ = 0;  // scene reload despawned every clone\n"
+           "    memset(hiddenByLL_, 0, sizeof(hiddenByLL_));\n"
+           "    n_ = SCENE_OBJECT_COUNTS[ctx.scene] < LL_MAX_OBJECTS\n"
+           "             ? SCENE_OBJECT_COUNTS[ctx.scene]\n"
+           "             : LL_MAX_OBJECTS;\n"
+           "    const llu64* ids = SCENE_OBJECT_ID_TABLES[ctx.scene];\n"
+           "    for (int i = 0; i < n_; ++i) order_[i] = (short)i;\n"
+           "    std::sort(order_, order_ + n_,\n"
+           "              [&](short a, short b) { return ids[a] < ids[b]; });\n"
+           "    for (int i = 0; i < n_; ++i) sorted_[i] = ids[order_[i]];\n"
+           "  }\n"
+           "  int findAuthored(llu64 id) const {\n"
+           "    int lo = 0, hi = n_;\n"
+           "    while (lo < hi) {\n"
+           "      const int mid = (lo + hi) / 2;\n"
+           "      if (sorted_[mid] < id) lo = mid + 1;\n"
+           "      else hi = mid;\n"
+           "    }\n"
+           "    return (lo < n_ && sorted_[lo] == id) ? order_[lo] : -1;\n"
+           "  }\n"
+           "  int findSpawned(llu64 id) const {\n"
+           "    for (int s = 0; s < spawnedCount_; ++s)\n"
+           "      if (spawnedId_[s] == id) return s;\n"
+           "    return -1;\n"
+           "  }\n"
+           "\n"
+           "  int cooldown_ = 1;\n"
+           "  u32 lastSeq_ = 0;\n"
+           "  unsigned int gen_ = 0xFFFFFFFFU;  // forces the first rebuild\n"
+           "  int n_ = 0;\n"
+           "  llu64 sorted_[LL_MAX_OBJECTS];\n"
+           "  short order_[LL_MAX_OBJECTS];\n"
+           "  bool hiddenByLL_[LL_MAX_OBJECTS] = {};\n"
+           "  bool prevVisible_[LL_MAX_OBJECTS] = {};\n"
+           "  llu64 spawnedId_[LL_MAX_SPAWNED];\n"
+           "  int spawnedSlot_[LL_MAX_SPAWNED];\n"
+           "  int spawnedCount_ = 0;\n"
+           "};\n"
+           "\n"
+           "LiveLink g_liveLink;\n"
+           "static const bool g_liveLinkRegistered = []() {\n"
+           "  getScripts().push_back(&g_liveLink);\n"
+           "  return true;\n"
+           "}();\n"
+           "\n"
+           "}  // namespace\n"
+           "}  // namespace " << ns << "\n";
     return out.str();
 }
 
@@ -11555,6 +12379,7 @@ std::vector<File> generate(const Project& p) {
         {"src\\scripts\\sequences.gen.cpp", sequencesScript(p)},
         {"inc\\scripts\\flow_nodes.hpp", fill(TPL_FLOW_NODES_HPP)},
         {"src\\scripts\\flow_graph.gen.cpp", flowGraphScript(p)},
+        {"src\\scripts\\live_link.gen.cpp", liveLinkScript(p)},
         {"inc\\scripts\\screen_fx.gen.hpp", screenFxHeader(p)},
         {"src\\scripts\\screen_fx.gen.cpp", screenFxSource(p)},
         {"src\\scripts\\object_scripts.gen.cpp", objectScriptsSource(p)},
@@ -11567,7 +12392,7 @@ std::vector<File> generate(const Project& p) {
         {".gitignore", fill(TPL_GITIGNORE)},
         {".gitattributes", TPL_GITATTRIBUTES},
         {"COLLABORATION.md", TPL_COLLABORATION},
-        {"res\\.gitignore", TPL_DIR_KEEP},
+        {"res\\.gitignore", TPL_RES_GITIGNORE},
         {"bin\\.gitignore", TPL_DIR_KEEP},
         {"obj\\.gitignore", TPL_DIR_KEEP},
     };

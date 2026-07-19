@@ -12,6 +12,7 @@
 #include <tamtypes.h>
 #include <draw.h>
 #include <graph.h>
+#include <gs_gp.h>
 #include <gs_privileged.h>
 #include <gs_psm.h>
 #include <packet2_utils.h>
@@ -23,6 +24,7 @@ namespace Tyra {
 RendererCoreGS::RendererCoreGS() {
   context = 0;
   currentField = 0;
+  alphaPacket = nullptr;
 }
 
 RendererCoreGS::~RendererCoreGS() {
@@ -32,6 +34,9 @@ RendererCoreGS::~RendererCoreGS() {
   if (zTestPacket) {
     packet2_free(zTestPacket);
   }
+  if (alphaPacket) {
+    packet2_free(alphaPacket);
+  }
 }
 
 void RendererCoreGS::init(RendererSettings* t_settings) {
@@ -40,6 +45,7 @@ void RendererCoreGS::init(RendererSettings* t_settings) {
   initChannels();
   flipPacket = packet2_create(4, P2_TYPE_UNCACHED_ACCL, P2_MODE_NORMAL, 0);
   zTestPacket = packet2_create(8, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
+  alphaPacket = packet2_create(4, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   allocateBuffers();
   initDrawingEnvironment();
 
@@ -229,6 +235,19 @@ void RendererCoreGS::setFogColor(const u8& r, const u8& g, const u8& b) {
   dma_channel_send_packet2(packet2, DMA_CHANNEL_GIF, true);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   packet2_free(packet2);
+}
+
+void RendererCoreGS::setAlpha(const u64& alpha) {
+  packet2_reset(alphaPacket, false);
+  qword_t* q = alphaPacket->base;
+  PACK_GIFTAG(q, GIF_SET_TAG(1, 1, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  PACK_GIFTAG(q, alpha, GS_REG_ALPHA_1);
+  q++;
+  packet2_update(alphaPacket, q);
+  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  dma_channel_send_packet2(alphaPacket, DMA_CHANNEL_GIF, true);
+  dma_channel_wait(DMA_CHANNEL_GIF, 0);
 }
 
 void RendererCoreGS::enableZTests() {

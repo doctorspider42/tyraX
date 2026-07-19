@@ -3,8 +3,11 @@
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <ctime>
 
 #include <filesystem>
 #include <fstream>
@@ -12,6 +15,7 @@
 #include <set>
 #include <sstream>
 
+#include "aisupport.hpp"
 #include "decalproj.hpp"
 #include "gl_loader.h"
 #include "glbparser.hpp"
@@ -79,6 +83,10 @@ struct EditorConfig {
     // Parent folder proposed as the location for new projects. Empty = fall
     // back to ~/TyraProjects.
     std::string defaultProjectsDir;
+    // AI assistant backend for flow-graph generation (aigen.hpp). Machine
+    // config, not project data: which CLIs/keys exist is a property of this
+    // PC. The --ai-graph CLI reads the same keys (main.cpp).
+    aigen::Config ai;
 };
 
 static std::filesystem::path editorConfigPath() {
@@ -118,7 +126,11 @@ static EditorConfig loadEditorConfig() {
         else if (match("ps2LinkIp", v)) cfg.ps2LinkIp = v;
         else if (match("errorPopup", v)) cfg.errorPopup = toI(v, 1) != 0;
         else if (match("defaultProjectsDir", v)) cfg.defaultProjectsDir = v;
+        else if (match("aiBackend", v)) cfg.ai.backend = v;
+        else if (match("aiModel", v)) cfg.ai.model = v;
+        else if (match("aiThinking", v)) cfg.ai.thinking = toI(v, 0) != 0;
     }
+    if (cfg.ai.backend.empty()) cfg.ai.backend = "claude";
     return cfg;
 }
 
@@ -142,7 +154,10 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "emulatorPath=" << cfg.emulatorPath << "\n"
       << "ps2LinkIp=" << cfg.ps2LinkIp << "\n"
       << "errorPopup=" << (cfg.errorPopup ? 1 : 0) << "\n"
-      << "defaultProjectsDir=" << cfg.defaultProjectsDir << "\n";
+      << "defaultProjectsDir=" << cfg.defaultProjectsDir << "\n"
+      << "aiBackend=" << cfg.ai.backend << "\n"
+      << "aiModel=" << cfg.ai.model << "\n"
+      << "aiThinking=" << (cfg.ai.thinking ? 1 : 0) << "\n";
 }
 
 // Default parent directory proposed for new projects: the configured global
@@ -350,6 +365,7 @@ int App::run(const std::string& initialProjectDir) {
         globalPs2Ip_ = cfg.ps2LinkIp;
         errorPopupEnabled_ = cfg.errorPopup;
         globalDefaultProjectsDir_ = cfg.defaultProjectsDir;
+        globalAi_ = cfg.ai;
     }
     applyUiScale();
 
@@ -486,6 +502,10 @@ void App::drawUI() {
     // Watch the running game's log for a fresh assertion dump (throttled).
     pollGameError();
 
+    // Stream scene edits to the running debug game (throttled; no-op unless
+    // the live-patchable state changed since the last write).
+    liveLinkTick();
+
     drawMenuBar();
     drawViewportWindow();
     drawProjectWindow();
@@ -505,6 +525,7 @@ void App::drawUI() {
     drawNewProjectModal();
     drawPreferencesModal();
     drawEditorPreferencesModal();
+    drawAiGenerateModal();
     drawErrorModal();
     drawNavigationModal();
     drawScenePreferencesModal();
@@ -601,7 +622,7 @@ void App::applyUiScale() {
 // UI-scale or navigation change.
 void App::saveGlobalConfig() {
     saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_,
-                      errorPopupEnabled_, globalDefaultProjectsDir_});
+                      errorPopupEnabled_, globalDefaultProjectsDir_, globalAi_});
 }
 
 void App::setUiScale(float userScale) {
@@ -645,6 +666,18 @@ void App::drawMenuBar() {
                 snprintf(prefPs2Ip_, sizeof(prefPs2Ip_), "%s", globalPs2Ip_.c_str());
                 snprintf(prefDefaultProjectsDir_, sizeof(prefDefaultProjectsDir_), "%s",
                          globalDefaultProjectsDir_.c_str());
+                prefAiBackend_ = 0;
+                {
+                    const auto ids = aigen::backendIds();
+                    for (int i = 0; i < (int)ids.size(); ++i)
+                        if (globalAi_.backend == ids[i]) prefAiBackend_ = i;
+                }
+                snprintf(prefAiModel_, sizeof(prefAiModel_), "%s",
+                         globalAi_.model.c_str());
+                prefAiCustomModel_ = true;
+                for (const char* m : aigen::modelPresets(globalAi_.backend))
+                    if (globalAi_.model == m) prefAiCustomModel_ = false;
+                prefAiThinking_ = globalAi_.thinking;
                 openEditorPrefsPopup_ = true;
             }
             ImGui::EndMenu();
@@ -752,6 +785,21 @@ void App::drawMenuBar() {
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Kills the file server and resets ps2link - the "
                                   "console reboots back to its listening state.");
+            ImGui::Separator();
+            if (ImGui::MenuItem("Live Link", nullptr,
+                                project_.settings.liveLink)) {
+                project_.settings.liveLink = !project_.settings.liveLink;
+                commitChange();
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Mirror scene edits (move/rotate/scale/recolor objects, "
+                    "add/delete them)\ninto the running game without a rebuild "
+                    "- PCSX2 and real-PS2 deploys alike.\nA project setting: "
+                    "off = the game is built without the poller and the "
+                    "editor\nnever writes snapshots. Needs the \"debug\" build "
+                    "profile (Project >\nPreferences > Build). Also toggled by "
+                    "clicking the LIVE chip in the toolbar.");
             ImGui::Separator();
             if (ImGui::MenuItem("Cancel Build", nullptr, false, busy)) runner_.cancel();
             if (ImGui::MenuItem("Clean", nullptr, false, !busy))
@@ -946,6 +994,70 @@ void App::drawToolbar() {
                    paintStop(stopPs2Enabled ? colStop : colDim))) {
         if (busy) runner_.cancel();
         else runner_.stopPs2(project_);
+    }
+
+    // Live Link chip: a dot + label after the run groups, ALSO the on/off
+    // switch (clicking toggles the project's Live Link preference, same as
+    // Build > Live Link). Shown whenever the project builds in the debug
+    // profile: gray "LIVE off" = disabled, dim "LIVE (build)" = enabled but
+    // no Live-Link-capable build yet (F5), green "LIVE" = edits stream into
+    // the running game, amber "LIVE (rebuild)" = an edit the session can't
+    // absorb - rebuild to resync. Hidden in the release profile (the poller
+    // only exists in debug builds).
+    if (project_.settings.buildProfile == "debug") {
+        const bool on = project_.settings.liveLink;
+        ImU32 c = colDim;
+        const char* label = "LIVE off";
+        const char* tip =
+            "Live Link is off (project setting) - the game is built without "
+            "the poller\nand the editor writes no snapshots. Click to enable "
+            "(then Build & Run).";
+        if (on) {
+            switch (liveLinkState_) {
+                case LiveLinkState::Live:
+                    c = IM_COL32(95, 200, 115, 255);
+                    label = "LIVE";
+                    tip = "Live Link: object edits (move/rotate/scale/recolor,"
+                          " add/delete) stream\ninto the running game. Click "
+                          "to turn off (project setting).";
+                    break;
+                case LiveLinkState::RebuildNeeded:
+                    c = IM_COL32(240, 175, 70, 255);
+                    label = "LIVE (rebuild)";
+                    tip = "Live Link: the scene changed in a way the session "
+                          "can't absorb (model/\nmaterial swaps, lights, "
+                          "projected decals, mirrors, layers, objects with\n"
+                          "logic...) - Build & Run (F5) to resync. Click to "
+                          "turn off.";
+                    break;
+                default:  // Off (transient) / NoBuild
+                    label = "LIVE (build)";
+                    tip = "Live Link is on, but the last build has no poller "
+                          "yet - Build & Run\n(F5) once and edits start "
+                          "streaming. Click to turn off.";
+                    break;
+            }
+        }
+        ImGui::SameLine(0.0f, gapGroup);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float dotR = h * 0.14f;
+        const float textW = ImGui::CalcTextSize(label).x;
+        if (ImGui::InvisibleButton("##tb_livelink",
+                                   ImVec2(dotR * 2.0f + 4.0f + textW, h))) {
+            project_.settings.liveLink = !on;
+            commitChange();
+        }
+        if (ImGui::IsItemHovered())
+            dl->AddRectFilled(p, ImVec2(p.x + dotR * 2.0f + 4.0f + textW,
+                                        p.y + h),
+                              ImGui::GetColorU32(ImGuiCol_ButtonHovered),
+                              round);
+        dl->AddCircleFilled(ImVec2(p.x + dotR, p.y + h * 0.5f), dotR, c);
+        dl->AddText(ImVec2(p.x + dotR * 2.0f + 4.0f,
+                           p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
+                    c, label);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
     }
 
     // Dropdown menus for the two Play carets (anchored just under each caret).
@@ -2461,6 +2573,18 @@ void App::attachProject() {
     flowGraphObject_ = -1;
     flowPositionsApplied_ = false;
     layerRamCache_.clear();
+    // Live Link is per project: forget the previous project's cached as-built
+    // record and written payload, re-read/re-write for this one. The sequence
+    // counter is seeded from the clock: a game left running remembers the last
+    // seq it applied, so a restarted editor beginning again at 1 would collide
+    // with its predecessor's first write and the (different) snapshot would be
+    // deduped away - time makes consecutive sessions never reuse a seq.
+    liveLinkState_ = LiveLinkState::Off;
+    liveLinkBuilt_ = LiveLinkBuilt();
+    liveLinkLastPayload_.clear();
+    liveLinkSeq_ = (uint32_t)std::time(nullptr);
+    liveLinkSigNextRead_ = 0.0;
+    liveLinkNextTick_ = 0.0;
     history_.reset({project_.scenes});
     // The history file restores the undo stack when it is in sync with the
     // project file; otherwise we start fresh (and write a new one).
@@ -2577,6 +2701,15 @@ void App::addDecal() {
     o.collisionMode = 2;  // visual overlay - never blocks the player
     saveAll("Saved");
 }
+void App::addMirror() {
+    addObject(PrimitiveType::Mirror);
+    SceneObject& o = project_.objects().back();
+    // an upright dressing-mirror rectangle at standing height, cool glass tint
+    o.position[1] = 1.2f;
+    o.scale[0] = 1.4f, o.scale[1] = 2.2f, o.scale[2] = 1.0f;
+    o.color[0] = 0.62f, o.color[1] = 0.78f, o.color[2] = 0.88f;
+    saveAll("Saved");
+}
 void App::addSavePoint() {
     addObject(PrimitiveType::SavePoint);
     SceneObject& o = project_.objects().back();
@@ -2682,10 +2815,11 @@ std::string App::importModelAsset() {
     // texture file (relative to the .obj) -> sanitized basename in res/models
     std::map<std::string, std::string> textureNames;
     for (const objparser::Submesh& s : parsed.submeshes)
-        if (!s.texture.empty())
-            textureNames.emplace(
-                s.texture,
-                sanitizeAssetName(std::filesystem::path(s.texture).filename().string()));
+        for (const std::string& tex : {s.texture, s.refl})
+            if (!tex.empty() && tex != "@sky")  // @sky = dynamic env map, no file
+                textureNames.emplace(
+                    tex,
+                    sanitizeAssetName(std::filesystem::path(tex).filename().string()));
     std::map<std::string, std::string> mtlNames;
     for (const std::string& m : parsed.mtlLibs)
         mtlNames.emplace(
@@ -2731,13 +2865,20 @@ std::string App::importModelAsset() {
             std::istringstream ss(line);
             std::string tag;
             ss >> tag;
-            if (tag == "map_Kd") {
-                std::string tok, last;
-                while (ss >> tok) last = tok;
+            if (tag == "map_Kd" || tag == "refl") {
+                // last token = filename, remapped to its flattened name; the
+                // refl options (-type/-mm, the strength) are preserved.
+                std::vector<std::string> toks;
+                for (std::string t; ss >> t;) toks.push_back(t);
+                std::string last = toks.empty() ? "" : toks.back();
                 for (char& c : last)
                     if (c == '\\') c = '/';
                 auto it = textureNames.find(last);
-                out << "map_Kd " << (it != textureNames.end() ? it->second : last)
+                out << tag;
+                if (tag == "refl")
+                    for (size_t ti = 0; ti + 1 < toks.size(); ++ti)
+                        out << " " << toks[ti];
+                out << " " << (it != textureNames.end() ? it->second : last)
                     << "\n";
             } else {
                 out << line << "\n";
@@ -2806,10 +2947,11 @@ std::string App::importMaterialAsset() {
     objparser::loadMtl(src, parsed);
     std::map<std::string, std::string> textureNames;
     for (const objparser::MtlMaterial& m : parsed)
-        if (!m.texture.empty())
-            textureNames.emplace(
-                m.texture,
-                sanitizeAssetName(std::filesystem::path(m.texture).filename().string()));
+        for (const std::string& tex : {m.texture, m.refl})
+            if (!tex.empty() && tex != "@sky")  // @sky = dynamic env map, no file
+                textureNames.emplace(
+                    tex,
+                    sanitizeAssetName(std::filesystem::path(tex).filename().string()));
 
     int missing = 0;
     {
@@ -2824,13 +2966,20 @@ std::string App::importMaterialAsset() {
             std::istringstream ss(line);
             std::string tag;
             ss >> tag;
-            if (tag == "map_Kd") {
-                std::string tok, last;
-                while (ss >> tok) last = tok;
+            if (tag == "map_Kd" || tag == "refl") {
+                // last token = filename, remapped to its flattened name; the
+                // refl options (-type/-mm, the strength) are preserved.
+                std::vector<std::string> toks;
+                for (std::string t; ss >> t;) toks.push_back(t);
+                std::string last = toks.empty() ? "" : toks.back();
                 for (char& c : last)
                     if (c == '\\') c = '/';
                 auto it = textureNames.find(last);
-                out << "map_Kd " << (it != textureNames.end() ? it->second : last)
+                out << tag;
+                if (tag == "refl")
+                    for (size_t ti = 0; ti + 1 < toks.size(); ++ti)
+                        out << " " << toks[ti];
+                out << " " << (it != textureNames.end() ? it->second : last)
                     << "\n";
             } else {
                 out << line << "\n";
@@ -3269,6 +3418,9 @@ void App::drawAddObjectMenu() {
         // Textured quad with transparency (sign/poster/text on a wall). Assign
         // a material whose map_Kd PNG has an alpha channel in the Properties.
         if (ImGui::MenuItem("Decal")) addDecal();
+        // Rectangle that re-draws its listed objects mirrored across its
+        // plane (real geometry behind the glass - build it into a wall).
+        if (ImGui::MenuItem("Mirror")) addMirror();
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Gameplay")) {
@@ -3728,6 +3880,7 @@ static const char* typeLabel(PrimitiveType t) {
         case PrimitiveType::SavePoint: return "Save point";
         case PrimitiveType::Empty: return "Empty";
         case PrimitiveType::Camera: return "Camera";
+        case PrimitiveType::Mirror: return "Mirror";
     }
     return "Object";
 }
@@ -3790,6 +3943,11 @@ void App::drawPropertiesWindow() {
                     if (k.camera == from) k.camera = o.name;
             }
             if (lookThroughCam_ == from) lookThroughCam_ = o.name;
+            // Mirror target lists reference objects by name too.
+            for (SceneObject& m : project_.objects())
+                if (m.type == PrimitiveType::Mirror)
+                    for (std::string& t : m.mirrorObjects)
+                        if (t == from) t = o.name;
         }
     }
 
@@ -3977,24 +4135,28 @@ void App::drawPropertiesWindow() {
     const bool isDecal = o.type == PrimitiveType::Decal;
     // Camera entity: position + rotation aim the shot, color tints the marker.
     const bool isCamera = o.type == PrimitiveType::Camera;
+    // Mirror: transform places the glass rectangle (+Z = the reflective
+    // face), color tints it; the mirror-specific block sits further down.
+    const bool isMirror = o.type == PrimitiveType::Mirror;
 
     ImGui::DragFloat3("Position", o.position, 0.1f);
     committed |= ImGui::IsItemDeactivatedAfterEdit();
     // custom emitters rotate too - the rotation aims the emission direction
-    if (isSolid || isEmpty || isDecal || isCamera ||
+    if (isSolid || isEmpty || isDecal || isCamera || isMirror ||
         (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
         ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
-    if (isSolid || isEmpty || isDecal || o.type == PrimitiveType::Emitter) {
+    if (isSolid || isEmpty || isDecal || isMirror ||
+        o.type == PrimitiveType::Emitter) {
         ImGui::DragFloat3("Scale", o.scale, 0.05f, 0.01f, 1000.0f);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
     // Color: mesh tint for solids, particle tint for emitters, light color
-    // for point lights, marker tint + free script parameter for empties,
-    // texture tint for decals, marker/frustum tint for camera entities. The
-    // remaining markers draw in fixed colors.
-    if (isSolid || isEmpty || isDecal || isCamera ||
+    // for point lights, marker tint + free per-object parameter for empties,
+    // texture tint for decals, marker/frustum tint for camera entities, glass
+    // tint for mirrors. The remaining markers draw in fixed colors.
+    if (isSolid || isEmpty || isDecal || isCamera || isMirror ||
         o.type == PrimitiveType::Emitter || o.type == PrimitiveType::PointLight) {
         ImGui::ColorEdit3("Color", o.color);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -4090,8 +4252,9 @@ void App::drawPropertiesWindow() {
     }
 
     // Rendering cut-off - the cheapest LOD. Only drawing stops beyond the
-    // distance; collision, sounds and scripts keep running.
-    if (isSolid) {
+    // distance; collision, sounds and scripts keep running. For a mirror it
+    // gates the glass AND every reflected copy - the whole illusion.
+    if (isSolid || isMirror) {
         ImGui::DragFloat("Draw distance", &o.drawDistance, 0.5f, 0.0f, 2000.0f,
                          o.drawDistance > 0.0f ? "%.0f units" : "unlimited");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -4099,6 +4262,81 @@ void App::drawPropertiesWindow() {
             ImGui::TextDisabled(
                 "Skipped at draw time when the camera is farther than this;\n"
                 "collision and logic still run. 0 = always drawn.");
+
+        // Rendered into the dynamic ("@sky") environment map, so reflective
+        // materials mirror this object - costs a second small render per frame.
+        if (ImGui::Checkbox("Show in reflections", &o.reflected)) committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Materials with a <dynamic - live sky> sphere map will mirror\n"
+                "this object (rendered into the reflection map every frame).\n"
+                "Mark the few props that sell the effect - each one costs a\n"
+                "second small render per frame. Editor preview shows the sky\n"
+                "only; check reflections in the game.");
+    }
+
+    if (isMirror) {
+        ImGui::SeparatorText("Mirror");
+        ImGui::TextDisabled(
+            "Re-draws the listed objects mirrored across this rectangle\n"
+            "(+Z face). The copies are real geometry behind the plane -\n"
+            "build the mirror into a wall so only the glass shows them.");
+        ImGui::SliderFloat("Glass opacity", &o.mirrorOpacity, 0.0f, 1.0f, "%.2f");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::Checkbox("Reflect player", &o.mirrorReflectPlayer)) committed = true;
+        if (o.mirrorReflectPlayer)
+            ImGui::TextDisabled(
+                "Reflects the third-person avatar. An FPP player has no\n"
+                "body to reflect (vampire rules).");
+        bool solid = o.collisionMode != 2;
+        if (ImGui::Checkbox("Collision (blocks the player)", &solid)) {
+            o.collisionMode = solid ? 0 : 2;
+            committed = true;
+        }
+        ImGui::TextUnformatted("Reflected objects:");
+        int removeAt = -1;
+        for (size_t i = 0; i < o.mirrorObjects.size(); ++i) {
+            ImGui::PushID((int)i);
+            if (ImGui::SmallButton("x")) removeAt = (int)i;
+            ImGui::SameLine();
+            bool exists = false;
+            for (const SceneObject& t : project_.objects())
+                if (t.name == o.mirrorObjects[i]) { exists = true; break; }
+            if (exists)
+                ImGui::TextUnformatted(o.mirrorObjects[i].c_str());
+            else
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                   "%s (missing)", o.mirrorObjects[i].c_str());
+            ImGui::PopID();
+        }
+        if (removeAt >= 0) {
+            o.mirrorObjects.erase(o.mirrorObjects.begin() + removeAt);
+            committed = true;
+        }
+        if (ImGui::BeginCombo("##mirrorAdd", "+ Add object...")) {
+            for (const SceneObject& t : project_.objects()) {
+                // only types the game draws as static/animated geometry can
+                // show up in the glass; the player has its own checkbox
+                const bool reflectable =
+                    t.type == PrimitiveType::Box || t.type == PrimitiveType::Sphere ||
+                    t.type == PrimitiveType::Cylinder ||
+                    t.type == PrimitiveType::Cone || t.type == PrimitiveType::Plane ||
+                    t.type == PrimitiveType::SavePoint ||
+                    t.type == PrimitiveType::Model || t.type == PrimitiveType::Decal;
+                if (!reflectable || t.name == o.name) continue;
+                bool listed = false;
+                for (const std::string& n : o.mirrorObjects)
+                    if (n == t.name) { listed = true; break; }
+                if (listed) continue;
+                if (ImGui::Selectable(t.name.c_str())) {
+                    o.mirrorObjects.push_back(t.name);
+                    committed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (o.mirrorObjects.empty() && !o.mirrorReflectPlayer)
+            ImGui::TextDisabled("Nothing listed - the mirror shows only glass.");
     }
 
     if (o.type == PrimitiveType::Emitter) {
@@ -4544,6 +4782,7 @@ void App::drawMultiProperties() {
             shape || o.type == PrimitiveType::Model || o.type == PrimitiveType::SavePoint;
         const bool empty = o.type == PrimitiveType::Empty;
         const bool decal = o.type == PrimitiveType::Decal;
+        const bool mirror = o.type == PrimitiveType::Mirror;
         // Detail (segments/subdivisions) exists for the curved/box-like
         // primitives (SavePoint tessellates as a Box), not for the flat Plane.
         const bool hasDetail = o.type == PrimitiveType::Box ||
@@ -4560,10 +4799,13 @@ void App::drawMultiProperties() {
         allLight = allLight && (o.type == PrimitiveType::PointLight);
         anyModel = anyModel || (o.type == PrimitiveType::Model);
         anySavePoint = anySavePoint || (o.type == PrimitiveType::SavePoint);
-        allRot = allRot && (solid || empty || decal || o.type == PrimitiveType::Camera ||
+        allRot = allRot && (solid || empty || decal || mirror ||
+                            o.type == PrimitiveType::Camera ||
                             (o.type == PrimitiveType::Emitter && o.emitterKind == 5));
-        allScale = allScale && (solid || empty || decal || o.type == PrimitiveType::Emitter);
-        allColor = allColor && (solid || empty || decal || o.type == PrimitiveType::Emitter ||
+        allScale = allScale && (solid || empty || decal || mirror ||
+                                o.type == PrimitiveType::Emitter);
+        allColor = allColor && (solid || empty || decal || mirror ||
+                                o.type == PrimitiveType::Emitter ||
                                 o.type == PrimitiveType::PointLight ||
                                 o.type == PrimitiveType::Camera);
         allSaveable = allSaveable && (solid || empty || o.type == PrimitiveType::Emitter ||
@@ -4702,6 +4944,7 @@ void App::drawMultiProperties() {
     if (allSolid) {
         multiDragF("Draw distance", &SceneObject::drawDistance, 0.5f, 0.0f, 2000.0f,
                    "%.0f units");
+        multiCheck("Show in reflections", &SceneObject::reflected);
         multiCheck("Physics (falls with gravity)", &SceneObject::physics);
         if (!anySavePoint)
             multiCheck("Usable (USE prompt + On Used)", &SceneObject::usable);
@@ -4916,6 +5159,17 @@ void App::drawFlowGraphWindow() {
                 "Install the Tyra extension (.flownode/.screenfx highlighting)\n"
                 "into VS Code. Reload the VS Code window afterwards.");
         ImGui::EndPopup();
+    }
+
+    // AI generation: describe the logic, get a graph (aigen.hpp). The modal
+    // pins the target object now - selection changes must not retarget an
+    // in-flight request.
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Generate with AI...")) {
+        aiGenTargetObject_ = flowGraphObject_;
+        aiGenError_.clear();
+        aiGenWarnings_.clear();
+        openAiGeneratePopup_ = true;
     }
 
     SceneObject& owner = project_.objects()[flowGraphObject_];
@@ -5631,6 +5885,33 @@ void App::drawFlowGraphWindow() {
     const bool editorHovered = ImNodes::IsEditorHovered();
     ImNodes::EndNodeEditor();
 
+    // Rest the mouse on a node to get its description (FlowNodeType::desc -
+    // the same text the add-menu tooltips and the AI catalog use). Delayed so
+    // it never flickers while wiring/dragging; any mouse button suppresses it.
+    {
+        int hovered = -1;
+        if (ImNodes::IsNodeHovered(&hovered) && !ImGui::IsAnyMouseDown()) {
+            if (hovered != flowDescNode_) {
+                flowDescNode_ = hovered;
+                flowDescSince_ = ImGui::GetTime();
+            } else if (ImGui::GetTime() - flowDescSince_ > 0.6) {
+                const FlowNodeType* ht = nullptr;
+                for (const FlowNode& n : fg.nodes)
+                    if (n.id == hovered) ht = flowNodeType(n.type);
+                if (ht && ht->desc && *ht->desc) {
+                    ImGui::BeginTooltip();
+                    ImGui::PushTextWrapPos(scaled(340.0f));
+                    ImGui::TextUnformatted(ht->title);
+                    ImGui::TextDisabled("%s", ht->desc);
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndTooltip();
+                }
+            }
+        } else {
+            flowDescNode_ = -1;
+        }
+    }
+
     nstyle = savedStyle;
     ImGui::PopStyleVar(3);
     ImGui::SetWindowFontScale(1.0f);
@@ -5871,6 +6152,17 @@ void App::drawFlowGraphWindow() {
                     fg.nodes.push_back(n);
                     ImNodes::SetNodeScreenSpacePos(n.id, clickPos);
                     changed = true;
+                }
+                // The node's registry description doubles as its add-menu
+                // tooltip (FlowNodeType::desc - custom nodes fill it from
+                // their `desc =` header key).
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) &&
+                    t.desc && *t.desc) {
+                    ImGui::BeginTooltip();
+                    ImGui::PushTextWrapPos(scaled(340.0f));
+                    ImGui::TextUnformatted(t.desc);
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndTooltip();
                 }
             }
             ImGui::EndMenu();
@@ -10178,9 +10470,9 @@ void App::drawCutsceneWindow() {
 // Materials are the project's plain Wavefront .mtl asset files - the same
 // files objects reference via materialPath and the PS2 runtime parses with
 // LeanObjLoader. The editor reads/writes the subset the whole pipeline
-// understands (newmtl / Kd / map_Kd) plus a "# tyra-brightness" hint line so
-// the color x brightness split survives a round trip (both multiply into the
-// written Kd; every parser ignores comments). Unrecognized lines of
+// understands (newmtl / Kd / map_Kd / refl) plus a "# tyra-brightness" hint
+// line so the color x brightness split survives a round trip (both multiply
+// into the written Kd; every parser ignores comments). Unrecognized lines of
 // hand-imported files are preserved verbatim. Edits are saved straight to
 // disk on commit - assets are not project data, so no undo (same as imports).
 
@@ -10221,6 +10513,25 @@ bool App::loadMaterialFile(const std::string& relPath) {
                         std::istringstream(toks[i + 1]) >> e.tile;
                         break;
                     }
+            }
+        } else if (tag == "refl") {
+            // Spherical environment map: refl -type sphere -mm 0 <strength>
+            // <file>. Filename = last token; -mm's gain is the strength.
+            std::vector<std::string> toks;
+            for (std::string t; ss >> t;) toks.push_back(t);
+            if (!toks.empty()) {
+                e.refl = toks.back();
+                for (char& c : e.refl)
+                    if (c == '\\') c = '/';
+                e.reflStrength = 0.0f;
+                for (size_t i = 0; i + 2 < toks.size(); ++i)
+                    if (toks[i] == "-mm") {
+                        std::istringstream(toks[i + 2]) >> e.reflStrength;
+                        break;
+                    }
+                for (size_t i = 0; i + 1 < toks.size(); ++i)
+                    if (toks[i] == "-rounded") e.reflRounded = true;
+                if (e.reflStrength <= 0.0f) e.reflStrength = 0.5f;
             }
         } else if (tag == "#") {
             std::string what;
@@ -10295,6 +10606,17 @@ void App::saveMaterialFile() {
                 out << buf;
             }
             out << " " << e.texture << "\n";
+        }
+        if (!e.refl.empty()) {
+            // Spherical environment map; the standard -mm option's gain
+            // operand carries the reflection strength (see the PS2 loader);
+            // the TyraX -rounded flag rides before the filename so parsers
+            // that take the last token as the file stay compatible.
+            std::snprintf(buf, sizeof(buf), "refl -type sphere -mm 0 %.4g ",
+                          e.reflStrength);
+            out << buf;
+            if (e.reflRounded) out << "-rounded ";
+            out << e.refl << "\n";
         }
         for (const std::string& x : e.extra) out << x << "\n";
         out << "\n";
@@ -11180,6 +11502,99 @@ void App::drawMaterialEditorWindow() {
                               "mesh UVs and ignore this.");
     }
 
+    // --- Reflection (refl): spherical environment map, drawn as a second
+    // additive pass on the PS2 - the NFS/GT-style "chrome/lacquer" look. The
+    // sphere map is a small PNG of the surroundings; UVs come from the
+    // camera-space normals, so the highlight slides over the surface as the
+    // camera moves.
+    ImGui::SeparatorText("Reflection");
+    {
+        const char* noneLabel = "<none - matte>";
+        ImGui::SetNextItemWidth(scaled(240.0f));
+        const char* dynLabel = "<dynamic - live sky>";
+        if (ImGui::BeginCombo("Sphere map",
+                              e.refl.empty()  ? noneLabel
+                              : e.refl == "@sky" ? dynLabel
+                                                 : e.refl.c_str())) {
+            if (ImGui::Selectable(noneLabel, e.refl.empty()) && !e.refl.empty()) {
+                e.refl.clear();
+                committed = true;
+            }
+            // GT3-style dynamic env map: the game re-renders the scene's sky
+            // dome into a small VRAM texture every frame - reflections track
+            // the live sky (script retints included). Stored as "@sky".
+            if (ImGui::Selectable(dynLabel, e.refl == "@sky") &&
+                e.refl != "@sky") {
+                e.refl = "@sky";
+                committed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The game renders the scene's sky into the\n"
+                                  "sphere map every frame - reflections follow\n"
+                                  "the live sky, including script retints.");
+            std::error_code ec;
+            for (const auto& f :
+                 std::filesystem::recursive_directory_iterator(mtlDirAbs, ec)) {
+                if (!f.is_regular_file()) continue;
+                std::string ext = f.path().extension().string();
+                for (char& c : ext) c = (char)tolower((unsigned char)c);
+                if (ext != ".png") continue;
+                const std::string rel =
+                    std::filesystem::relative(f.path(), mtlDirAbs, ec).generic_string();
+                if (ImGui::Selectable(rel.c_str(), rel == e.refl) &&
+                    rel != e.refl) {
+                    e.refl = rel;
+                    committed = true;
+                }
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Import PNG...")) {
+                const std::string src = pickPngFile();
+                if (!src.empty()) {
+                    const std::string fileName = sanitizeAssetName(
+                        std::filesystem::path(src).filename().string());
+                    std::error_code cec;
+                    std::filesystem::copy_file(
+                        src, mtlDirAbs / fileName,
+                        std::filesystem::copy_options::overwrite_existing, cec);
+                    if (cec) {
+                        statusMessage_ = "Sphere map import failed: " + cec.message();
+                    } else {
+                        e.refl = fileName;
+                        committed = true;
+                    }
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("A small texture of the environment (sky gradient\n"
+                              "with a bright horizon works great). Drawn additively\n"
+                              "over the material using camera-space normals -\n"
+                              "the PS2-era chrome/car-paint trick.");
+        if (!e.refl.empty()) {
+            std::error_code ec;
+            if (e.refl != "@sky" &&
+                !std::filesystem::exists(mtlDirAbs / e.refl, ec))
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                   "Sphere map missing - reflection is skipped.");
+            ImGui::SetNextItemWidth(scaled(180.0f));
+            ImGui::SliderFloat("Strength", &e.reflStrength, 0.05f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("How much of the sphere map is added on top.\n"
+                                  "1.0 = full chrome.");
+            committed |= ImGui::Checkbox("Rounded normals", &e.reflRounded);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Reflection UVs from normals radiating out of the object's\n"
+                    "center instead of the real face normals. A flat face shows\n"
+                    "a gradient of the map (curved-lacquer look) instead of one\n"
+                    "uniform sample - flat walls of boxes/monoliths reflect like\n"
+                    "the spheres do. Curved shapes barely change.");
+        }
+    }
+
     ImGui::Spacing();
     ImGui::TextDisabled("Saved to the file on every change. The object's own\n"
                         "Color multiplies on top per object.");
@@ -11234,6 +11649,12 @@ void App::drawMaterialEditorWindow() {
             sel.texture.empty()
                 ? ""
                 : (std::filesystem::path(matEdPath_).parent_path() / sel.texture)
+                      .generic_string();
+        const bool reflSky = sel.refl == "@sky";
+        const std::string reflRel =
+            (sel.refl.empty() || reflSky)
+                ? ""
+                : (std::filesystem::path(matEdPath_).parent_path() / sel.refl)
                       .generic_string();
 
         // --- paint tool ------------------------------------------------------
@@ -11489,6 +11910,10 @@ void App::drawMaterialEditorWindow() {
         Viewport::MatPreviewDesc desc;
         desc.kd[0] = kd[0], desc.kd[1] = kd[1], desc.kd[2] = kd[2];
         desc.texRel = texRel;
+        desc.reflRel = reflRel;
+        desc.reflStrength = sel.refl.empty() ? 0.0f : sel.reflStrength;
+        desc.reflSky = reflSky;
+        desc.reflRounded = sel.reflRounded;
         desc.shape = matEdShape_;
         desc.modelRel = matEdModel_;
         desc.mtlRel = matEdPath_;
@@ -12975,6 +13400,180 @@ std::string App::latestGameAssert() const {
     return extractLastTyraAssert(text);
 }
 
+// Streams scene edits to the running (debug-profile) game - see the member
+// block in app.hpp for the design. Self-throttled; the actual file write only
+// happens when the live-representable state really changed.
+void App::liveLinkTick() {
+    namespace fs = std::filesystem;
+    if (!hasProject_ || !project_.settings.liveLink ||
+        project_.settings.buildProfile != "debug") {
+        liveLinkState_ = LiveLinkState::Off;
+        return;
+    }
+
+    const double now = ImGui::GetTime();
+    if (now < liveLinkNextTick_) return;  // keep the last state between ticks
+    liveLinkNextTick_ = now + 0.1;  // ~10 Hz matches the game's poll cadence
+
+    // The as-built record the running build was made from. Re-read at most
+    // every 1.5 s - a finished build (or Clean) must be picked up, but the
+    // file is not worth hitting the disk for at tick rate.
+    const fs::path binDir = fs::path(project_.dir) / "bin";
+    if (now >= liveLinkSigNextRead_) {
+        liveLinkSigNextRead_ = now + 1.5;
+        liveLinkBuilt_ = LiveLinkBuilt();
+        std::ifstream f(binDir / "livelink.sig");
+        std::string line;
+        if (f && std::getline(f, line) && line == "2") {
+            LiveLinkBuilt b;
+            bool ok = true;
+            while (std::getline(f, line)) {
+                if (line.rfind("ctx ", 0) == 0) {
+                    b.ctxHash = std::strtoull(line.c_str() + 4, nullptr, 16);
+                } else if (line.rfind("scene ", 0) == 0) {
+                    b.scenes.emplace_back();
+                } else if (line.size() >= 33 && !b.scenes.empty()) {
+                    char* end = nullptr;
+                    const uint64_t id = std::strtoull(line.c_str(), &end, 16);
+                    const uint64_t recipe = std::strtoull(end, nullptr, 16);
+                    b.scenes.back().emplace_back(id, recipe);
+                } else {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) {
+                b.loaded = true;
+                liveLinkBuilt_ = std::move(b);
+            }
+        }
+    }
+    if (!liveLinkBuilt_.loaded) {
+        liveLinkState_ = LiveLinkState::NoBuild;
+        return;
+    }
+
+    // Is the live project representable against the as-built record? Built
+    // objects must keep their recipe (a live patch can't change it); new
+    // objects need an equal-recipe as-built template to clone (and must be
+    // spawnable at all); the cross-object context must be untouched.
+    const int scene = project_.activeScene;
+    if (liveLinkBuilt_.ctxHash != project::liveLinkContextHash(project_) ||
+        scene >= (int)liveLinkBuilt_.scenes.size()) {
+        liveLinkState_ = LiveLinkState::RebuildNeeded;
+        return;
+    }
+    const auto& built = liveLinkBuilt_.scenes[scene];
+    const SceneData& sc = project_.active();
+
+    // Per-record resolution: templateIdx = -1 for as-built ids, else the
+    // as-built index of an equal-recipe object to clone. The spawn pool holds
+    // 32 clones - past that the session stops being representable.
+    struct Rec {
+        uint64_t id;
+        int32_t tmpl;
+        const SceneObject* o;
+    };
+    std::vector<Rec> recs;
+    recs.reserve(sc.objects.size());
+    int spawned = 0;
+    for (const SceneObject& o : sc.objects) {
+        const uint64_t id = project::liveLinkIdHash(o);
+        const uint64_t recipe = project::liveLinkRecipeHash(o);
+        int32_t tmpl = -1;
+        bool foundId = false;
+        for (size_t i = 0; i < built.size(); ++i) {
+            if (built[i].first == id) {
+                foundId = true;
+                if (built[i].second != recipe) {
+                    liveLinkState_ = LiveLinkState::RebuildNeeded;
+                    return;
+                }
+                break;
+            }
+        }
+        if (!foundId) {
+            if (!project::liveLinkCanSpawnLive(o) ||
+                ++spawned > 32 /* MAX_SPAWNED_OBJECTS */) {
+                liveLinkState_ = LiveLinkState::RebuildNeeded;
+                return;
+            }
+            tmpl = -1;
+            for (size_t i = 0; i < built.size(); ++i)
+                if (built[i].second == recipe) {
+                    tmpl = (int32_t)i;
+                    break;
+                }
+            if (tmpl < 0) {
+                liveLinkState_ = LiveLinkState::RebuildNeeded;
+                return;
+            }
+        }
+        recs.push_back({id, tmpl, &o});
+    }
+    liveLinkState_ = LiveLinkState::Live;
+
+    // Snapshot body: scene + count + one 64-byte record per object (id +
+    // template + 12 floats). Deletions are implicit - the game hides whatever
+    // is absent.
+    std::vector<unsigned char> body;
+    body.reserve(8 + recs.size() * 64);
+    auto put = [&](const void* v, size_t n) {
+        const unsigned char* b = static_cast<const unsigned char*>(v);
+        body.insert(body.end(), b, b + n);
+    };
+    const int32_t scene32 = scene;
+    const int32_t count = (int32_t)recs.size();
+    put(&scene32, 4);
+    put(&count, 4);
+    const uint32_t pad = 0;
+    for (const Rec& r : recs) {
+        put(&r.id, 8);
+        put(&r.tmpl, 4);
+        put(&pad, 4);
+        put(r.o->position, 12);
+        put(r.o->rotation, 12);
+        put(r.o->scale, 12);
+        put(r.o->color, 12);
+    }
+    if (body == liveLinkLastPayload_) return;  // nothing to stream
+
+    // Full file: header (magic/version/seq + body's scene/count/reserved),
+    // records, footer echoing seq - the game rejects torn writes. Written to
+    // a sibling tmp and renamed so the game never sees a half file; if the
+    // rename loses a race with the game's fread, retry on the next tick.
+    const uint32_t seq = liveLinkSeq_ + 1;
+    std::vector<unsigned char> file;
+    file.reserve(24 + body.size() - 8 + 4);
+    const uint32_t magic = 0x4C4C5854, version = 2, reserved = 0;
+    const uint32_t footer = seq ^ 0x5A5A5A5AU;
+    auto app32 = [&](const void* v) {
+        const unsigned char* b = static_cast<const unsigned char*>(v);
+        file.insert(file.end(), b, b + 4);
+    };
+    app32(&magic), app32(&version), app32(&seq);
+    file.insert(file.end(), body.begin(), body.begin() + 8);  // scene, count
+    app32(&reserved);
+    file.insert(file.end(), body.begin() + 8, body.end());
+    app32(&footer);
+
+    const fs::path tmp = binDir / "livelink.tmp";
+    const fs::path dst = binDir / "livelink.bin";
+    {
+        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+        if (!out) return;
+        out.write(reinterpret_cast<const char*>(file.data()),
+                  (std::streamsize)file.size());
+        if (!out) return;
+    }
+    std::error_code ec;
+    fs::rename(tmp, dst, ec);
+    if (ec) return;  // game holds the file open right now - next tick retries
+
+    liveLinkSeq_ = seq;
+    liveLinkLastPayload_ = std::move(body);
+}
+
 void App::pollGameError() {
     if (!hasProject_) return;
     const double now = ImGui::GetTime();
@@ -13458,6 +14057,17 @@ void App::drawNewProjectModal() {
             "FPP (a single player entity)"};
         ImGui::Combo("Preset", &newTemplate_, presetNames, 2);
 
+        ImGui::SeparatorText("AI support");
+        ImGui::Checkbox("Claude Code", &newAiClaude_);
+        ImGui::SameLine();
+        ImGui::Checkbox("GitHub Copilot", &newAiCopilot_);
+        ImGui::TextDisabled(
+            "Copies assistant guides into the project (.claude/skills/ +\n"
+            "CLAUDE.md, .github/copilot-instructions.md): how the project is\n"
+            "structured, flow graphs, custom scripts and the editor's CLI -\n"
+            "so an AI assistant opened in the project knows what it is doing.\n"
+            "Can also be added later in Project > Preferences.");
+
         ImGui::TextDisabled("Creates: %s\\%s", newLocation_, newName_);
         ImGui::TextDisabled("Default scene \"main\" with a flat %d x %d terrain.%s", newWidth_,
                             newDepth_,
@@ -13473,6 +14083,9 @@ void App::drawNewProjectModal() {
             const char* preset = newTemplate_ == 1 ? "fpp" : "empty";
             std::string err = project::create(p, newName_, newLocation_, t, preset);
             if (err.empty()) {
+                if (newAiClaude_ || newAiCopilot_)
+                    statusMessage_ =
+                        aisupport::install(p.dir, newAiClaude_, newAiCopilot_);
                 project_ = p;
                 hasProject_ = true;
                 applyProjectToViewport();
@@ -13592,6 +14205,15 @@ void App::drawPreferencesModal() {
         "frames per second, free EE RAM, and a per-phase EE-time breakdown\n"
         "(whole frame / scene / usable-highlight / particles, avg ms over\n"
         "~1s). Stripped from release builds.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Live Link", &prefSettings_.liveLink);
+    ImGui::EndDisabled();
+    ImGui::TextDisabled(
+        "Debug builds poll livelink.bin next to the ELF so the editor can\n"
+        "stream scene edits into the running game (docs/live-link.md). Turn\n"
+        "off if you don't want your game patched from outside; release\n"
+        "builds never carry the poller. Also toggled by the LIVE chip in\n"
+        "the toolbar and Build > Live Link.");
 
     ImGui::SeparatorText("Terrain");
     ImGui::InputInt("Width (units)", &prefTerrain_.width);
@@ -13650,12 +14272,16 @@ void App::drawPreferencesModal() {
     }
 
     ImGui::SeparatorText("Rendering");
-    int clipMode = prefSettings_.clipping == "fast" ? 1 : 0;
+    int clipMode = prefSettings_.clipping == "fast"      ? 2
+                   : prefSettings_.clipping == "precise" ? 1
+                                                         : 0;
     const char* clipNames[] = {
-        "Precise clipping (no holes at screen edges, costs EE time)",
+        "Precise clipping on VU1 (no holes, no EE cost - default)",
+        "Precise clipping on EE (legacy; costs EE time)",
         "Fast culling (fastest; big near triangles may vanish)"};
-    if (ImGui::Combo("Triangles", &clipMode, clipNames, 2))
-        prefSettings_.clipping = clipMode == 1 ? "fast" : "precise";
+    if (ImGui::Combo("Triangles", &clipMode, clipNames, 3))
+        prefSettings_.clipping =
+            clipMode == 2 ? "fast" : clipMode == 1 ? "precise" : "vu1";
 
     ImGui::DragFloat("Animation LOD distance", &prefSettings_.animLodDistance,
                      0.5f, 0.0f, 2000.0f,
@@ -13809,6 +14435,29 @@ void App::drawPreferencesModal() {
                          "%.1f");
     ImGui::TextDisabled("Objects with the 'Physics' flag fall; the FPP player jumps with X.");
 
+    ImGui::SeparatorText("AI support");
+    ImGui::TextDisabled(
+        "Copies assistant guides into the project (.claude/skills/ + CLAUDE.md\n"
+        "for Claude Code, .github/copilot-instructions.md for Copilot): the\n"
+        "project structure, flow-graph format, custom scripting and the\n"
+        "editor's headless CLI. Installing again refreshes the files unless\n"
+        "you took ownership (deleted their marker line). Applied immediately\n"
+        "- these are files on disk, not project settings.");
+    {
+        const bool haveClaude = aisupport::installed(project_.dir, "claude");
+        const bool haveCopilot = aisupport::installed(project_.dir, "copilot");
+        if (ImGui::Button(haveClaude ? "Refresh Claude Code files"
+                                     : "Add Claude Code support"))
+            statusMessage_ = aisupport::install(project_.dir, true, false);
+        ImGui::SameLine();
+        if (ImGui::Button(haveCopilot ? "Refresh Copilot files"
+                                      : "Add Copilot support"))
+            statusMessage_ = aisupport::install(project_.dir, false, true);
+        if (haveClaude || haveCopilot)
+            ImGui::TextDisabled("Installed:%s%s", haveClaude ? " Claude Code" : "",
+                                haveCopilot ? " Copilot" : "");
+    }
+
     ImGui::Separator();
     ImGui::TextDisabled(
         "These are project-wide defaults. Scenes inherit them unless a\n"
@@ -13890,11 +14539,65 @@ void App::drawEditorPreferencesModal() {
         "Run on PS2 (F6): the game boots on the console over ethernet with its\n"
         "assets served from this PC - no ISO, no SMB. Leave empty to disable.");
 
+    ImGui::SeparatorText("AI assistant");
+    {
+        const auto ids = aigen::backendIds();
+        if (prefAiBackend_ < 0 || prefAiBackend_ >= (int)ids.size())
+            prefAiBackend_ = 0;
+        if (ImGui::BeginCombo("Backend", aigen::backendLabel(ids[prefAiBackend_]))) {
+            for (int i = 0; i < (int)ids.size(); ++i)
+                if (ImGui::Selectable(aigen::backendLabel(ids[i]),
+                                      prefAiBackend_ == i))
+                    prefAiBackend_ = i;
+            ImGui::EndCombo();
+        }
+        // Model: a dropdown of the backend's known models plus "Custom..." -
+        // picking Custom opens a free-text field, so brand-new models work
+        // the day they ship. "" = the backend's default model.
+        const auto models = aigen::modelPresets(ids[prefAiBackend_]);
+        auto modelLabel = [](const char* m) {
+            return *m ? m : "Backend default";
+        };
+        // A staged model the list doesn't know (hand-typed earlier, or the
+        // backend just changed) can only be shown as Custom.
+        bool listed = false;
+        for (const char* m : models) listed |= (prefAiModel_ == std::string(m));
+        if (!listed) prefAiCustomModel_ = true;
+        if (ImGui::BeginCombo("Model", prefAiCustomModel_
+                                           ? "Custom..."
+                                           : modelLabel(prefAiModel_))) {
+            for (const char* m : models) {
+                const bool sel =
+                    !prefAiCustomModel_ && prefAiModel_ == std::string(m);
+                if (ImGui::Selectable(modelLabel(m), sel)) {
+                    snprintf(prefAiModel_, sizeof(prefAiModel_), "%s", m);
+                    prefAiCustomModel_ = false;
+                }
+            }
+            if (ImGui::Selectable("Custom...", prefAiCustomModel_))
+                prefAiCustomModel_ = true;
+            ImGui::EndCombo();
+        }
+        if (prefAiCustomModel_)
+            ImGui::InputTextWithHint("Model id", "as the backend expects it",
+                                     prefAiModel_, sizeof(prefAiModel_));
+        ImGui::Checkbox("Thinking", &prefAiThinking_);
+        ImGui::TextDisabled(
+            "Backend used by Flow Graph > Generate with AI (and the --ai-graph\n"
+            "CLI). Claude CLI needs 'claude' on PATH, Copilot CLI 'copilot';\n"
+            "the OpenAI API needs the OPENAI_API_KEY environment variable and\n"
+            "uses curl. Thinking = extended reasoning where the backend\n"
+            "supports it (slower, better on tricky logic).");
+    }
+
     ImGui::Separator();
     if (ImGui::Button("Save", ImVec2(scaled(120), 0))) {
         globalEmulatorPath_ = prefEmulatorPath_;
         globalPs2Ip_ = prefPs2Ip_;
         globalDefaultProjectsDir_ = prefDefaultProjectsDir_;
+        globalAi_.backend = aigen::backendIds()[prefAiBackend_];
+        globalAi_.model = prefAiModel_;
+        globalAi_.thinking = prefAiThinking_;
         saveGlobalConfig();
         // Feed the new values into the open project (the Runner's transport).
         if (hasProject_) {
@@ -13905,6 +14608,134 @@ void App::drawEditorPreferencesModal() {
     }
     ImGui::SameLine();
     if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+}
+
+// "Generate with AI" (Flow Graph window). The Generator runs the backend on a
+// worker thread; this modal polls it each frame - spinner + Cancel while busy,
+// then the parsed graph is applied through commitChange (one undo step, so a
+// bad generation is a Ctrl+Z away).
+void App::drawAiGenerateModal() {
+    if (openAiGeneratePopup_) {
+        ImGui::OpenPopup("Generate Flow Graph with AI");
+        openAiGeneratePopup_ = false;
+    }
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(scaled(620), 0), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal("Generate Flow Graph with AI", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+
+    // The target can vanish mid-request (undo, scene switch, delete).
+    const bool targetOk = hasProject_ && aiGenTargetObject_ >= 0 &&
+                          aiGenTargetObject_ < (int)project_.objects().size();
+    if (!targetOk) {
+        if (aiGen_.busy()) aiGen_.cancel();
+        aiGenInFlight_ = false;
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+    SceneObject& owner = project_.objects()[aiGenTargetObject_];
+
+    // Consume a finished request exactly once.
+    if (aiGenInFlight_ && !aiGen_.busy()) {
+        aiGenInFlight_ = false;
+        if (aiGen_.state() == aigen::Generator::State::Success) {
+            FlowGraph fg;
+            aiGenWarnings_.clear();
+            const std::string err =
+                aigen::parseGraph(aiGen_.reply(), fg, &aiGenWarnings_);
+            if (!err.empty()) {
+                aiGenError_ = err;
+            } else {
+                // The reply is always the complete resulting graph - with an
+                // existing graph the model saw it in the prompt and returned
+                // the updated whole (edits, additions and fresh starts all
+                // land the same way).
+                owner.flowGraph = fg;
+                commitChange();
+                // Show the result: focus this object's graph and push the new
+                // node positions into imnodes.
+                flowGraphObject_ = aiGenTargetObject_;
+                flowPositionsApplied_ = false;
+                statusMessage_ = "AI graph: " + std::to_string(fg.nodes.size()) +
+                                 " nodes, " + std::to_string(fg.links.size()) +
+                                 " links -> " + owner.name +
+                                 (aiGenWarnings_.empty()
+                                      ? ""
+                                      : "  [" + aiGenWarnings_ + "]");
+                ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+                return;
+            }
+        } else {
+            aiGenError_ = aiGen_.error();
+        }
+    }
+
+    const bool busy = aiGen_.busy();
+    const bool hasGraph = !owner.flowGraph.empty();
+    ImGui::Text("Graph of: %s", owner.name.c_str());
+    ImGui::TextDisabled(
+        "%s%s%s%s - change in Edit > Preferences > AI assistant.",
+        aigen::backendLabel(globalAi_.backend),
+        globalAi_.model.empty() ? "" : ", model ",
+        globalAi_.model.c_str(), globalAi_.thinking ? ", thinking" : "");
+
+    ImGui::BeginDisabled(busy);
+    ImGui::TextUnformatted(hasGraph ? "Describe new logic or a change:"
+                                    : "Describe the logic you want:");
+    ImGui::InputTextMultiline("##aiprompt", aiPromptBuf_, sizeof(aiPromptBuf_),
+                              ImVec2(-FLT_MIN, scaled(110)));
+    if (hasGraph)
+        ImGui::TextDisabled(
+            "The AI sees the current graph and decides from your request\n"
+            "whether to change it, extend it, or rebuild it.");
+    ImGui::EndDisabled();
+
+    if (!aiGenError_.empty() && !busy) {
+        ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + scaled(590));
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s",
+                           aiGenError_.c_str());
+        ImGui::PopTextWrapPos();
+    }
+
+    ImGui::Separator();
+    if (busy) {
+        // Spinner: an arc revolving with time, next to the status text.
+        const float r = scaled(8.0f), thick = scaled(3.0f);
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float t = (float)ImGui::GetTime() * 6.0f;
+        dl->PathArcTo(ImVec2(pos.x + r + thick, pos.y + r + thick), r, t,
+                      t + 4.4f, 24);
+        dl->PathStroke(ImGui::GetColorU32(ImGuiCol_ButtonHovered), 0, thick);
+        ImGui::Dummy(ImVec2((r + thick) * 2.0f, (r + thick) * 2.0f));
+        ImGui::SameLine();
+        ImGui::Text("Generating...");
+        ImGui::SameLine(0.0f, scaled(20.0f));
+        if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) aiGen_.cancel();
+    } else {
+        const bool emptyPrompt = aiPromptBuf_[0] == '\0';
+        ImGui::BeginDisabled(emptyPrompt);
+        if (ImGui::Button("Generate", ImVec2(scaled(120), 0))) {
+            aiGenError_.clear();
+            aiGenWarnings_.clear();
+            aiGen_.start(globalAi_,
+                         aigen::systemPrompt(project_, aiGenTargetObject_,
+                                             hasGraph ? &owner.flowGraph
+                                                      : nullptr),
+                         aiPromptBuf_);
+            aiGenInFlight_ = true;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Close", ImVec2(scaled(120), 0)))
+            ImGui::CloseCurrentPopup();
+    }
     ImGui::EndPopup();
 }
 
@@ -14091,12 +14922,16 @@ void App::drawScenePreferencesModal() {
     }
 
     category("Clipping", ov.clipping, [&] {
-        int clipMode = s.clipping == "fast" ? 1 : 0;
+        int clipMode = s.clipping == "fast"      ? 2
+                       : s.clipping == "precise" ? 1
+                                                 : 0;
         const char* clipNames[] = {
-            "Precise clipping (no holes at screen edges, costs EE time)",
+            "Precise clipping on VU1 (no holes, no EE cost - default)",
+            "Precise clipping on EE (legacy; costs EE time)",
             "Fast culling (fastest; big near triangles may vanish)"};
-        if (ImGui::Combo("Triangles", &clipMode, clipNames, 2))
-            s.clipping = clipMode == 1 ? "fast" : "precise";
+        if (ImGui::Combo("Triangles", &clipMode, clipNames, 3))
+            s.clipping =
+                clipMode == 2 ? "fast" : clipMode == 1 ? "precise" : "vu1";
     });
 
     category("Terrain material", ov.terrainMat, [&] {

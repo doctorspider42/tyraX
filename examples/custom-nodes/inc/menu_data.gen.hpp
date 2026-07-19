@@ -14,6 +14,9 @@ struct MenuEntryData {
   float amount;
   int optionCount;  // toggle/choice: how many options cycle
   int cell;         // first cell in the value strip (-1 = none)
+  int bind;         // option-block binding (applyMenuBindings):
+                    // 0 none, 1 music vol, 2 sfx vol, 3 deadzone,
+                    // 4 stick curve, 5 display mode, 6 widescreen
 };
 
 struct MenuData {
@@ -35,7 +38,7 @@ struct MenuData {
 
 constexpr int MENU_COUNT = 0;
 
-constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F, 0, -1}};
+constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F, 0, -1, 0}};
 
 inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
     {"", 0, 0, 0, 0, 0, 0, MENU_0_ENTRIES, 0, 0, 0.5F, 0.45F, "", 0, 0, 0, 0},

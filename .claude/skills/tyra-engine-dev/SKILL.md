@@ -58,9 +58,11 @@ static/dynamic pipelines, core GS/VU1 code), `thread`, `time`; plus
 (`*.i`, `*.vcl` — preprocessed by vclpp inside the container).
 
 Editor-specific engine additions so far: Cohen–Sutherland outcodes in the EE
-clipper, the StaPip `clip` VU1 program family (on-VU1 Sutherland–Hodgman
-behind the hidden `"clipping": "vu1"` project mode — design + status in
-`docs/vu1-clipping-plan.md`), static pools in `stapip_clipper.cpp` /
+clipper, the StaPip `clip` VU1 program family (on-VU1 Sutherland–Hodgman,
+**the default** clipping mode for new projects since M4; the EE clipper stays
+selectable as "Precise clipping on EE (legacy)" and remains the load-time
+default for pre-M4 `.tyra` files without a `clipping` key — design + status
+in `docs/vu1-clipping-plan.md`), static pools in `stapip_clipper.cpp` /
 `stapip_qbuffer.cpp`,
 `RendererCorePostFx` (bloom + film grain + depth of field via GS blits — DoF
 (`PassDof`, authored in the UI Editor / overridden by the Set Depth Of Field
@@ -77,7 +79,25 @@ framebuffer/noise/scratch-buffer accessors, and the engine wraps the state
 setup/teardown + DMA kick), WAV-header-aware song
 player, `bboxVersion` on `StaPipBag` for moving geometry, `LeanObjLoader`
 (OBJ+MTL, host:/cdrom0:-safe; parsing semantics mirror the editor's
-`src/objparser.cpp` — keep the two in sync), `physics/CollisionMesh` (XZ-grid
+`src/objparser.cpp` — keep the two in sync; parses the `refl` sphere-map
+statement for reflective materials incl. the TyraX `-rounded` flag:
+centroid-radial env normals for flat surfaces), per-bag additive blending for the
+reflective-material env pass (`PipelineInfoBag::additiveBlendFix` — non-zero
+makes `StaPipCore::render` drain PATH1 via `sync.align3D()` and switch the
+global GS `ALPHA` register to `Cs*FIX/128 + Cd` through
+`RendererCoreGS::setAlpha`, restoring alpha-over after the bag's own drain;
+superseded by the in-band per-mesh ALPHA qword: `VU1_ALPHA_ADDR` +
+`StoreTyraGifTags*Alpha` — every StaPip mesh's tag block carries its blend
+equation, no barriers; dynpip keeps the original 7/5-qword macros), the
+StaPip `TCE` env program family (matcap ST from normals in the ST slot +
+`StaPipTextureBag::coordinatesAreNormals` + the camera basis at
+`VU1_ENV_BASIS_ADDR`), `RendererCoreEnvMap` (128×128 VRAM render target for
+GT3-style dynamic reflections: FRAME/SCISSOR/XYOFFSET/ZBUF redirect bracket
+with a dedicated 128×128 z-buffer — "reflected" scene objects submitted
+inside the bracket occlude correctly — + `RendererCore3D::pushEnvView/
+popEnvView`; exposed as a VRAM-resident `Texture::vramResident` that
+`useTexture` binds without a PATH3 upload — see
+`docs/reflective-materials.md`), `physics/CollisionMesh` (XZ-grid
 triangle collider) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
 TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot),
 `renderer/models/unique_id.hpp` (`generateUniqueId()`) replacing upstream's
@@ -116,15 +136,32 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
 - **Widening the cull programs' ADC test is retired; real VU1 clipping is a
   separate program family.** Three attempts at a guard band inside
   `PerformClipCheck` all corrupted ADC bits (documented in `vcl_sml.i`); the
-  working approach is the StaPip `clip` programs (hidden `"clipping": "vu1"`
-  mode), which never derive ADC from clip flags. VU1 microcode traps already
+  working approach is the StaPip `clip` programs (the default `"clipping":
+  "vu1"` mode), which never derive ADC from clip flags. VU1 microcode traps already
   paid for there: `fcand` sets VI01 to 0/1 (any-bit), NOT the masked bit
   pattern; a vertex clipped to exactly |x| = w scales to GS coordinate 4096.0
   and wraps the 12.4 XYZ2 field (clip the sides at 0.9w, let the scissor
   finish); every VU1 vertex-loop count must be a multiple of 3 or the loop
   runs off into memory; overflowing the 2048-instruction micro memory is
   SILENT in release builds (the assert is compiled out) - check program sizes
-  with nm on the .o files when adding VU1 code.
+  with nm on the .o files when adding VU1 code. Two vclpp preprocessor traps
+  (each cost a debugging session): a `;` comment line INSIDE a `#macro` body
+  makes vclpp SILENTLY swallow the whole macro — every call site expands to
+  nothing, the program builds fine and just misses your code (document above
+  the `#macro` line instead); and vclpp does not expand nested macro calls —
+  a macro invoking another macro leaves mangled text that `vcl` rejects with
+  "can't find instruction" (inline the callee by hand); and vclpp expands
+  `#define`s only ONE level — an alias define (`#define A B` where B is
+  another define) reaches dvp-as unresolved ("unresolved expression"), so
+  VU1-side defines must be literals. When VU1 output looks
+  wrong, `docker exec <proj>-compiler-1 cat /tyra/engine/obj/.../<prog>.o.vcl`
+  shows exactly what vclpp produced — check the expansion before suspecting
+  your math.
+- **A GIF A+D giftag whose NLOOP undercounts its register writes stalls the
+  GIF forever** — the stray qword parses as a new giftag with a garbage
+  NLOOP. Symptom: the game hangs on the loading screen (spinning in
+  `draw_wait_finish()` / a FINISH handshake that never arrives), no assert,
+  clean log. Count the qwords after every PACK_GIFTAG edit.
 - The engine bbox cache is keyed by bag pointer — geometry that changes at
   runtime must bump `bboxVersion` on its `StaPipBag`, or culling uses stale
   boxes.

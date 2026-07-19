@@ -131,7 +131,12 @@ packet2_t* Path1::createProgramsCache(VU1Program** programs, const u32& count,
     programs[i]->setDestinationAddress(currentAddr);
     packet2_vif_add_micro_program(packet2, currentAddr, programs[i]->getStart(),
                                   programs[i]->getEnd());
-    currentAddr += programs[i]->getProgramSize() + 1;
+    // Modified by TyraX: pack programs back to back. getProgramSize() is
+    // already rounded up to an even instruction count (MPG uploads in
+    // 64-bit pairs - see VU1Program::calculateProgramSize), so upstream's
+    // extra "+ 1" pad per program only wasted micro memory - with the
+    // full 10-program VU1-clipping set those 10 words were the overflow.
+    currentAddr += programs[i]->getProgramSize();
   }
 
   // The programs must stay below the draw-finish helper parked at the top of

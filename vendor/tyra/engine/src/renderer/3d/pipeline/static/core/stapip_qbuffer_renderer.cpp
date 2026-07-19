@@ -64,7 +64,9 @@ void StaPipQBufferRenderer::allocateOnUse() {
   staticDataPacket = packet2_create(3, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
   // Modified by TyraX: +6 qwords for the spot light unpack, +16 for the
   // VU1 clipping constants + plane table.
-  objectDataPacket = packet2_create(42, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
+  // Modified by TyraX: 42 -> 48 - the per-mesh ALPHA qword and the env
+  // (matcap) camera basis added two unpack blocks to sendObjectData.
+  objectDataPacket = packet2_create(48, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
 
   packets = new packet2_t*[2];
   for (u16 i = 0; i < 2; i++)
@@ -338,6 +340,46 @@ void StaPipQBufferRenderer::sendObjectData(
   }
   packet2_utils_vu_close_unpack(objectDataPacket);
 
+  // Modified by TyraX: env (matcap) camera basis for the TCE programs -
+  // right, up and the ST constants (see CalculateTyraEnvStq in
+  // tyra_macros.i). Reuses the lights-matrix area; env bags never carry
+  // lighting (asserted in StaPipCore::render).
+  if (bag->texture != nullptr && bag->texture->coordinatesAreNormals) {
+    const Vec4& r = bag->texture->envRight;
+    const Vec4& u = bag->texture->envUp;
+    packet2_utils_vu_open_unpack(objectDataPacket, VU1_ENV_BASIS_ADDR, false);
+    {
+      packet2_add_float(objectDataPacket, r.x);
+      packet2_add_float(objectDataPacket, r.y);
+      packet2_add_float(objectDataPacket, r.z);
+      packet2_add_float(objectDataPacket, 0.0F);
+      packet2_add_float(objectDataPacket, u.x);
+      packet2_add_float(objectDataPacket, u.y);
+      packet2_add_float(objectDataPacket, u.z);
+      packet2_add_float(objectDataPacket, 0.0F);
+      // constants: (0.5, -0.5, 1.0, 0.5) - scale.x, scale.y, q, bias
+      packet2_add_float(objectDataPacket, 0.5F);
+      packet2_add_float(objectDataPacket, -0.5F);
+      packet2_add_float(objectDataPacket, 1.0F);
+      packet2_add_float(objectDataPacket, 0.5F);
+    }
+    packet2_utils_vu_close_unpack(objectDataPacket);
+  }
+
+  // Modified by TyraX: per-mesh GS blend equation, emitted in-band with the
+  // other tags by every program (StoreTyraGifTags*Alpha) - no FINISH barrier
+  // to switch it. Default alpha-over; the reflective-material env pass sets
+  // additiveBlendFix for Cv = Cs*FIX/128 + Cd.
+  {
+    const u8 fix = bag->info->additiveBlendFix;
+    packet2_utils_vu_open_unpack(objectDataPacket, VU1_ALPHA_ADDR, false);
+    packet2_add_2x_s64(objectDataPacket,
+                       fix != 0 ? GS_SET_ALPHA(0, 2, 2, 1, fix)
+                                : GS_SET_ALPHA(0, 1, 0, 1, 0),
+                       GS_REG_ALPHA);
+    packet2_utils_vu_close_unpack(objectDataPacket);
+  }
+
   packet2_utils_vu_add_end_tag(objectDataPacket);
   dma_channel_wait(DMA_CHANNEL_VIF1, 0);
   dma_channel_send_packet2(objectDataPacket, DMA_CHANNEL_VIF1, true);
@@ -372,7 +414,16 @@ void StaPipQBufferRenderer::setProgramsCache() {
   // Modified by TyraX: in VU1 clipping mode the clip programs replace
   // the as_is family (both plus cull would overflow VU1 micro memory, and
   // as_is is only ever fed by the retired EE clipper path).
-  VU1Program** programs = new VU1Program*[8];
+  // The env (matcap) variants ride along in both sets: cull_tce +
+  // as_is_tce with the EE clipper, cull_tce + clip_tce in VU1-clipping
+  // mode. The vu1 set only fits because the five clip programs share one
+  // rotating fan emitter (see fanEmitLoop in the .vclpp files) - three
+  // inlined emit copies per program measured 2162 instructions against
+  // the 2042 ceiling. Check the micro-memory budget with nm after
+  // touching any program - the createProgramsCache overflow assert is
+  // compiled out in release.
+  const u32 count = 10;
+  VU1Program** programs = new VU1Program*[count];
   programs[0] = repository.getProgram(StaPipCullColor);
   programs[1] =
       repository.getProgram(vu1Clipping ? StaPipClipColor : StaPipAsIsColor);
@@ -385,7 +436,10 @@ void StaPipQBufferRenderer::setProgramsCache() {
   programs[6] = repository.getProgram(StaPipCullTextureColor);
   programs[7] = repository.getProgram(vu1Clipping ? StaPipClipTextureColor
                                                   : StaPipAsIsTextureColor);
-  programsPacket = path1->createProgramsCache(programs, 8, 0);
+  programs[8] = repository.getProgram(StaPipCullTextureEnv);
+  programs[9] = repository.getProgram(vu1Clipping ? StaPipClipTextureEnv
+                                                  : StaPipAsIsTextureEnv);
+  programsPacket = path1->createProgramsCache(programs, count, 0);
   delete[] programs;
 }
 
@@ -625,6 +679,8 @@ StaPipVU1Program* StaPipQBufferRenderer::getAsIsProgramByBag(
     return getProgramByName(StaPipAsIsTextureDirLights);
   else if (programType == StaPipVU1DirLights)
     return getProgramByName(StaPipAsIsDirLights);
+  else if (programType == StaPipVU1TextureEnvColor)  // TyraX: env (matcap)
+    return getProgramByName(StaPipAsIsTextureEnv);
   else if (programType == StaPipVU1TextureColor)
     return getProgramByName(StaPipAsIsTextureColor);
   else
@@ -640,6 +696,8 @@ StaPipVU1Program* StaPipQBufferRenderer::getClipProgramByBag(
     return getProgramByName(StaPipClipTextureDirLights);
   else if (programType == StaPipVU1DirLights)
     return getProgramByName(StaPipClipDirLights);
+  else if (programType == StaPipVU1TextureEnvColor)  // TyraX: env (matcap)
+    return getProgramByName(StaPipClipTextureEnv);
   else if (programType == StaPipVU1TextureColor)
     return getProgramByName(StaPipClipTextureColor);
   else
@@ -669,6 +727,8 @@ StaPipVU1Program* StaPipQBufferRenderer::getCullProgramByType(
     return getProgramByName(StaPipCullTextureDirLights);
   else if (programType == StaPipVU1DirLights)
     return getProgramByName(StaPipCullDirLights);
+  else if (programType == StaPipVU1TextureEnvColor)  // TyraX: env (matcap)
+    return getProgramByName(StaPipCullTextureEnv);
   else if (programType == StaPipVU1TextureColor)
     return getProgramByName(StaPipCullTextureColor);
   else
@@ -677,6 +737,10 @@ StaPipVU1Program* StaPipQBufferRenderer::getCullProgramByType(
 
 StaPipProgramType StaPipQBufferRenderer::getDrawProgramTypeByBag(
     const StaPipBag* bag) const {
+  // Modified by TyraX: env (matcap) - the ST slot carries normals, the
+  // texture ST is computed on VU1. Lighting is unsupported with env.
+  if (bag->texture != nullptr && bag->texture->coordinatesAreNormals)
+    return StaPipVU1TextureEnvColor;
   auto isLightingEnabled = bag->lighting != nullptr;
   auto isTextureEnabled = bag->texture != nullptr;
   return getDrawProgramTypeByParams(isLightingEnabled, isTextureEnabled);

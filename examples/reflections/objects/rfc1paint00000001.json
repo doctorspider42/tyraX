@@ -1,0 +1,1 @@
+{ "id": "rfc1paint00000001", "name": "paint-red", "type": "sphere", "position": [-7, 1.6, 24], "rotation": [0, 0, 0], "scale": [3.2, 3.2, 3.2], "color": [1, 1, 1], "physics": false, "detail": 24, "reflected": true, "material": "res/materials/paint-red.mtl" }

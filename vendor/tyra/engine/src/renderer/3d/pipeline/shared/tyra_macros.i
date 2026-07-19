@@ -120,6 +120,98 @@
 #endmacro
 
 ;//---------------------------------------------------------
+;// Modified by TyraX: StoreTyraGifTags*Alpha - the StaPip variants of the
+;// store macros above with one more (set, A+D) pair: the GS ALPHA register
+;// (blend equation), uploaded per mesh to VU1_ALPHA_ADDR. Every StaPip
+;// program emits it, so the equation is part of the ordered GIF stream
+;// (default alpha-over; additive for the reflective-material env pass) and
+;// no CPU-side FINISH barrier is needed to switch it. The dynamic pipeline
+;// keeps the original 7/5-qword macros - its C++ side neither uploads the
+;// ALPHA qword nor accounts for the bigger tag block in maxVertCount.
+;// stapip_vu1_program.cpp getMaxVertCount reserves 9 qwords for this block;
+;// the clip programs patch the prim NLOOP at offset 8 (texture) / 6 (plain).
+;//---------------------------------------------------------
+#macro StoreTyraGifTagsTextureAlpha: t_gifSetTag, t_lodGifTag, t_texBufferClutGifTag, t_alphaGifTag, t_primTag, t_testsTag, t_destAddress
+   sq t_gifSetTag,            0(t_destAddress)
+   sq t_testsTag,             1(t_destAddress)
+   sq t_gifSetTag,            2(t_destAddress)
+   sq t_lodGifTag,            3(t_destAddress)
+   sq t_gifSetTag,            4(t_destAddress)
+   sq t_texBufferClutGifTag,  5(t_destAddress)
+   sq t_gifSetTag,            6(t_destAddress)
+   sq t_alphaGifTag,          7(t_destAddress)
+   sq t_primTag,              8(t_destAddress)
+   iaddiu                     t_destAddress,    t_destAddress,    9
+#endmacro
+
+#macro StoreTyraGifTagsAlpha: t_gifSetTag, t_lodGifTag, t_alphaGifTag, t_primTag, t_testsTag, t_destAddress
+   sq t_gifSetTag,            0(t_destAddress)
+   sq t_testsTag,             1(t_destAddress)
+   sq t_gifSetTag,            2(t_destAddress)
+   sq t_lodGifTag,            3(t_destAddress)
+   sq t_gifSetTag,            4(t_destAddress)
+   sq t_alphaGifTag,          5(t_destAddress)
+   sq t_primTag,              6(t_destAddress)
+   iaddiu                     t_destAddress,    t_destAddress,    7
+#endmacro
+
+;// Modified by TyraX: loads the per-mesh ALPHA A+D qword (see above).
+#macro LoadTyraAlphaTag: t_alphaGifTag, t_alphaAddr
+   lq      t_alphaGifTag,           t_alphaAddr(vi00)
+#endmacro
+
+;//---------------------------------------------------------
+;// Modified by TyraX: env (matcap) programs - sphere-mapped reflective
+;// materials. The vertex stream's ST slot carries the OBJECT-SPACE NORMAL;
+;// the ST is computed on VU1 from the per-mesh camera basis uploaded at
+;// VU1_ENV_BASIS_ADDR (3 qwords, reusing the lights matrix area - env bags
+;// never carry lighting):
+;//   qw+0  camera right (xyz)
+;//   qw+1  camera up    (xyz)
+;//   qw+2  constants (0.5, -0.5, 1.0, 0.5)
+;//---------------------------------------------------------
+#macro LoadTyraEnvBasis: t_envRight, t_envUp, t_envConsts
+   lq      t_envRight,     VU1_ENV_BASIS_ADDR(vi00)
+   lq      t_envUp,        VU1_ENV_BASIS_ADDR+1(vi00)
+   lq      t_envConsts,    VU1_ENV_BASIS_ADDR+2(vi00)
+#endmacro
+
+;// Turns the normal in t_stq into a matcap STQ, in place:
+;//   s = 0.5 + 0.5 * dot(normalize(n), right)
+;//   t = 0.5 - 0.5 * dot(normalize(n), up)   (image space, v = 0 at the top)
+;//   q = 1.0                                 (the standard mulq-by-1/w follows)
+;// The editor viewport shader and the generated game's EE fallback mirror
+;// this formula - keep the three in sync.
+;// The normal is RE-NORMALIZED first: the EE clipper lerps it across clip
+;// cuts, and a lerped normal is SHORT - without this, every clipped chunk's
+;// ST collapsed toward the sphere-map center (dark smudges on screen-edge
+;// geometry). Costs an rsqrt; also covers scaled models' normals.
+;// USES THE Q REGISTER (rsqrt): call this BEFORE the position's div q /
+;// VertexPersCorr, or the later mulq picks up the wrong Q.
+;// Structure: inlined normalize + two dot products (vclpp does not expand
+;// nested macros), then the bias+scale assembled through the accumulator.
+;// WARNING: no ";" comment lines inside a #macro body - vclpp silently
+;// swallows the whole expansion of such a macro (drops every call site).
+#macro CalculateTyraEnvStq: t_stq, t_envRight, t_envUp, t_envConsts
+   mul.xyz  tyraEnvLen,  t_stq,       t_stq
+   add.x    tyraEnvLen,  tyraEnvLen,  tyraEnvLen[y]
+   add.x    tyraEnvLen,  tyraEnvLen,  tyraEnvLen[z]
+   rsqrt    q,           vf00[w],     tyraEnvLen[x]
+   mul.xyz  tyraEnvNrm,  t_stq,       q
+   mul.xyz  tyraEnvDotR, tyraEnvNrm,  t_envRight
+   add.x    tyraEnvDotR, tyraEnvDotR, tyraEnvDotR[y]
+   add.x    tyraEnvDotR, tyraEnvDotR, tyraEnvDotR[z]
+   mul.xyz  tyraEnvDotU, tyraEnvNrm,  t_envUp
+   add.x    tyraEnvDotU, tyraEnvDotU, tyraEnvDotU[y]
+   add.x    tyraEnvDotU, tyraEnvDotU, tyraEnvDotU[z]
+   add.xy   acc,     vf00,          t_envConsts[w]
+   add.z    acc,     vf00,          t_envConsts[z]
+   madd.x   t_stq,   t_envConsts,   tyraEnvDotR[x]
+   madd.y   t_stq,   t_envConsts,   tyraEnvDotU[x]
+   madd.z   t_stq,   vf00,          vf00[x]
+#endmacro
+
+;//---------------------------------------------------------
 ;// CalculateLights - Based on Dr Fortuna's work
 ;//
 ;// 1. Transform by the rotation part of the world matrix

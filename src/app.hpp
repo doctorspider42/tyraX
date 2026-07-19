@@ -8,6 +8,7 @@
 
 #include <imgui.h>  // ImGuiStyle baseStyle_ member (UI scaling)
 
+#include "aigen.hpp"
 #include "camtake.hpp"
 #include "history.hpp"
 #include "isoexport.hpp"
@@ -135,6 +136,7 @@ private:
     void addSavePoint();
     void addEmpty();
     void addDecal();
+    void addMirror();
     void drawAddObjectMenu();
     // Copies a picked .obj (with its .mtl + textures, references rewritten to
     // the sanitized names) into res/models. Returns the project-relative path
@@ -372,6 +374,9 @@ private:
     // Parent folder proposed as the location for new projects (Edit >
     // Preferences). Empty = fall back to ~/TyraProjects.
     std::string globalDefaultProjectsDir_;
+    // AI assistant backend for flow-graph generation (editor.ini; Edit >
+    // Preferences > AI assistant). Model "" = the backend's default.
+    aigen::Config globalAi_;
     // Selection index the orbit pivot was last snapped to; -1 = none. Lets
     // "orbit around selection" re-center only when the selection changes.
     int navFocusedIndex_ = -1;
@@ -449,6 +454,10 @@ private:
     // Clipboard for flow-graph copy/paste: the copied nodes plus the links that
     // connect two of them (dangling links are dropped). nextId is unused.
     FlowGraph flowClipboard_;
+    // Node-description tooltip (FlowNodeType::desc): node the mouse rests on
+    // and since when - shown after a short delay, reset on hover change.
+    int flowDescNode_ = -1;
+    double flowDescSince_ = 0.0;
 
     // Viewport overlays: TV frames (PAL 4:3 and NTSC, which shows a
     // slightly wider slice of the same 512x448 buffer)
@@ -597,6 +606,11 @@ private:
         std::string texture;      // map_Kd, relative to the .mtl dir ("" = none)
         float tile = 1.0f;        // map_Kd -s: texture repeats per world unit
                                   // (terrain only; objects have baked UVs)
+        std::string refl;           // refl sphere map, relative to the .mtl dir
+                                    // ("" = not reflective)
+        float reflStrength = 0.5f;  // refl -mm gain operand, 0..1
+        bool reflRounded = false;   // refl -rounded: centroid-radial env
+                                    // normals (flat faces get a gradient)
         std::vector<std::string> extra;  // unrecognized lines, preserved verbatim
     };
     std::vector<MatEdEntry> matEdMats_;
@@ -738,6 +752,10 @@ private:
     int newWidth_ = 64;
     int newDepth_ = 64;
     int newTemplate_ = 0;  // 0 = empty, 1 = fpp
+    // "Add AI support": install the assistant skill files (aisupport.hpp)
+    // into the fresh project. Also available later in Project Preferences.
+    bool newAiClaude_ = false;
+    bool newAiCopilot_ = false;
     std::string newProjectError_;
 
     // "New script" modal state. newScriptAttachTo_ >= 0 = attach the created
@@ -806,6 +824,26 @@ private:
     char prefEmulatorPath_[512] = "";  // PCSX2 exe path (auto-detect if empty)
     char prefPs2Ip_[64] = "";          // ps2link IP for Run on PS2
     char prefDefaultProjectsDir_[512] = "";  // default parent folder for new projects
+    int prefAiBackend_ = 0;            // index into aigen::backendIds()
+    char prefAiModel_[128] = "";       // "" = the backend's default model
+    // Model combo shows "Custom..." + a free-text field when the staged model
+    // is not one of the backend's listed models (or the user picked Custom).
+    bool prefAiCustomModel_ = false;
+    bool prefAiThinking_ = false;
+
+    // "Generate with AI" modal (Flow Graph window). The Generator runs on its
+    // own worker thread; the modal polls it every frame, shows a spinner and a
+    // Cancel button while busy, and applies the parsed graph via commitChange
+    // on success. aiGenTargetObject_ pins the graph owner at request time so a
+    // changed selection can't retarget an in-flight reply.
+    bool openAiGeneratePopup_ = false;
+    char aiPromptBuf_[2048] = "";
+    int aiGenTargetObject_ = -1;
+    bool aiGenInFlight_ = false;    // a started request's result is unconsumed
+    aigen::Generator aiGen_;
+    std::string aiGenError_;        // backend/parse failure shown in the modal
+    std::string aiGenWarnings_;     // non-fatal parse notes (dropped links...)
+    void drawAiGenerateModal();
 
     // "Debug" window: tails a log from disk (reloaded, throttled). Source 0 is
     // the game's own log (bin/log.txt, written by TYRA_LOG); source 1 is the
@@ -842,6 +880,48 @@ private:
     // log). "" when there is none.
     std::string latestGameAssert() const;
     void drawErrorModal();
+
+    // Live Link: mirrors scene edits into the running game without a rebuild.
+    // Debug-profile builds with the project's "Live Link" preference on
+    // compile a poller (live_link.gen.cpp) that re-reads bin/livelink.bin over
+    // host: - the same file channel PCSX2's Host Filesystem and the ps2link
+    // file server already serve assets through, so one mechanism covers the
+    // emulator AND a real console. liveLinkTick() (each frame from drawUI,
+    // self-throttled to ~10 Hz) snapshots the active scene - one 64-byte
+    // record per object, addressed by project::liveLinkIdHash - and writes it
+    // atomically (tmp + rename) with a bumped sequence number whenever it
+    // changed; a gizmo drag streams to the console as it happens. The game
+    // patches matching objects, SPAWNS newly added ones (each record carries
+    // the as-built index of an equal-recipe template to clone) and hides ones
+    // missing from the snapshot (deleted; undo restores). Streaming happens
+    // only while the live project is representable against bin/livelink.sig
+    // (the as-built record the Runner stamps at build start, parsed into
+    // liveLinkBuilt_): a changed recipe on a built object, a new object with
+    // no template (or carrying logic / baked lights / projected decals /
+    // mirrors), or layer-table drift flips the toolbar chip to "rebuild"
+    // instead of mis-patching. The chip doubles as the on/off switch for the
+    // project preference (also in Build > Live Link and Preferences > Build).
+    enum class LiveLinkState {
+        Off,           // preference off, no project, or release build profile
+        NoBuild,       // no bin/livelink.sig yet - run a debug build first
+        Live,          // streaming; toolbar shows the green LIVE dot
+        RebuildNeeded  // the session can't represent the edit - F5 to resync
+    };
+    // bin/livelink.sig parsed: per scene the as-built (idHash, recipeHash)
+    // list in authored order (line position = the spawn-template index the
+    // records reference), plus the cross-object context hash.
+    struct LiveLinkBuilt {
+        bool loaded = false;
+        uint64_t ctxHash = 0;
+        std::vector<std::vector<std::pair<uint64_t, uint64_t>>> scenes;
+    };
+    LiveLinkState liveLinkState_ = LiveLinkState::Off;
+    LiveLinkBuilt liveLinkBuilt_;
+    uint32_t liveLinkSeq_ = 0;         // last written sequence number
+    std::vector<unsigned char> liveLinkLastPayload_;  // last written body
+    double liveLinkSigNextRead_ = 0.0; // ImGui::GetTime() gate for sig re-read
+    double liveLinkNextTick_ = 0.0;    // ImGui::GetTime() gate for the ticker
+    void liveLinkTick();
 
     // "Scene Preferences" modal staging (applied on OK): the active scene's
     // per-category overrides of the project defaults.

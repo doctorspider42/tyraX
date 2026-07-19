@@ -56,6 +56,12 @@ RendererCoreTextureBuffers RendererCoreTexture::useTexture(
     const Texture* t_tex) {
   TYRA_ASSERT(t_tex != nullptr, "Provided nullptr texture!");
 
+  // Modified by TyraX: VRAM-resident textures (dynamic env map) bind their
+  // own texbuffer - the pixels are rendered into GS memory, there is nothing
+  // to upload and the allocation never enters the eviction lists.
+  if (t_tex->vramResident != nullptr)
+    return RendererCoreTextureBuffers{t_tex->id, t_tex->vramResident, nullptr};
+
   auto allocated = getAllocatedBuffersByTextureId(t_tex->id);
   if (allocated.id != 0) return allocated;
 
