@@ -10,6 +10,25 @@ Each finished feature lands as its own commit.
 
 ## Done in the lighting batch
 
+- (120) **examples/lighting - the whole batch in one dusk plaza.** A
+  committed first-person example presenting every lighting-batch feature
+  at once: two flickering dynamic torches with corona + cone beams, a
+  flow-graph-pulsed crystal light (Every 6 s -> Set Light x1.8 -> Delay 3
+  -> Set Light x0.7 - the only logic in the scene), a baked blue lamp for
+  contrast, three "Cast shadow" hero shapes (rotated monolith slab, orb,
+  obelisk) throwing long projected silhouettes under a warm low sun,
+  physics crates with blob shadows, the sun's lens flare (occlusion demo:
+  a tall pillar to hide it behind) + god rays, and the Circle-toggled
+  flashlight competing in the per-mesh light pick. Authored headlessly
+  (scaffold + hand-written manifest/objects, validated by --resave /
+  --dump), generated files regenerated with a Docker build in the same
+  commit (the example-drift rule), root README examples list + example
+  README added. **Verified** (Layer 3): builds exit 0; PCSX2 **software
+  renderer** boots at 50 FPS - dusk sky, sun glow + flare ghosts, blue
+  crystal corona, long dark silhouette shadows stretching from the hero
+  shapes, landed crates; composition tuned across three boots (sun off
+  the monolith's axis, crystal radius/brightness halved, spawn pulled
+  back). Walking the scene with a pad stays the human pass.
 - (119) **Projected silhouette shadows - the real thing, per-object
   opt-in.** New `SceneObject::castShadow` ("Cast shadow (projected)" in
   Properties, `castShadow` in JSON, recipe-hashed): the caster's EXISTING

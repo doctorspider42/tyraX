@@ -1,0 +1,1 @@
+{ "id": "lgb2sphere000001", "name": "orb", "type": "sphere", "position": [-6, 1.1, 13], "rotation": [0, 0, 0], "scale": [1.4, 1.4, 1.4], "color": [0.85, 0.8, 0.7], "physics": false, "castShadow": true }

@@ -1,0 +1,1 @@
+{ "id": "lgb1monolith0001", "name": "monolith", "type": "box", "position": [0, 1.6, 16], "rotation": [0, 18, 0], "scale": [1.6, 3.2, 0.9], "color": [0.55, 0.5, 0.6], "physics": false, "castShadow": true }
