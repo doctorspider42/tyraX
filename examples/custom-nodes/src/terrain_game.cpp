@@ -5,6 +5,7 @@
 #include "scene_data.hpp"
 #include "model_data.gen.hpp"
 #include "hud_data.gen.hpp"
+#include "font_data.gen.hpp"
 #include "loading_data.gen.hpp"
 #include "menu_data.gen.hpp"
 #include "terrain_heights.gen.hpp"
@@ -270,6 +271,16 @@ V3 pointLightAt(const V3& wp, const V3& n) {
 const float* g_primKd = nullptr;
 bool g_primTextured = false;
 
+// Reflective materials: while non-null, pushVert also captures the rotated
+// (world-space) normal of every emitted vertex - the per-frame sphere-map ST
+// computation needs them (see renderScene). Staged per part like g_primKd.
+std::vector<Vec4>* g_envNormals = nullptr;
+
+// Loaded materials/model parts using the "@sky" dynamic env map. While > 0,
+// renderScene renders the sky dome into the engine's env-map target each
+// frame (the GT3 trick - reflections follow the live sky).
+int g_dynamicEnvUsers = 0;
+
 // Every rebuilt vertex buffer gets a process-unique bbox version. The
 // engine's frustum-bbox cache is keyed by (vertex pointer, version); layer
 // streaming frees and reallocates buffers, so with per-bag counters a
@@ -329,6 +340,7 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
                        c255(o.color[1] * scale * shade.y),
                        c255(o.color[2] * scale * shade.z), 128.0F));
   sts.push_back(Vec4(u, v, 1.0F, 0.0F));
+  if (g_envNormals) g_envNormals->push_back(Vec4(n.x, n.y, n.z, 0.0F));
 }
 
 void pushQuad(std::vector<Vec4>& verts, std::vector<Color>& cols,
@@ -515,6 +527,78 @@ void drawHudText(Engine* engine, const char* s, float x, float y) {
 }
 
 float hudTextWidth(const char* s) { return (float)strlen(s) * 14.0F; }
+
+/** Runtime text drawn from a Font Manager glyph atlas (Display Text nodes).
+ *
+ * VRAM: the atlas Texture is only handed to the repository the first time this
+ * font actually draws, and the engine only DMAs a texture to GS VRAM on its
+ * first render - so a font nobody displays costs zero VRAM, and one that is
+ * hidden again keeps costing only its EE-side copy. We deliberately never call
+ * useTexture() eagerly here (unlike the streamed model textures), because that
+ * would pin the sheet before anything asked for it. */
+float fontTextWidth(int fontIdx, const char* s, float size) {
+  const FontData& f = FONTS[fontIdx];
+  if (!f.glyphs) return 0.0F;
+  const float k = size / (float)f.baseSize;
+  float w = 0.0F;
+  for (; *s; ++s) {
+    const int gi = (int)(unsigned char)*s - FONT_FIRST_CHAR;
+    if (gi < 0 || gi >= FONT_CHAR_COUNT) continue;
+    w += (float)f.glyphs[gi].adv * k;
+  }
+  return w;
+}
+
+void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
+                  float cy, float size) {
+  const FontData& f = FONTS[fontIdx];
+  if (!f.glyphs || !f.atlas[0]) return;
+
+  // One sprite per font, kept across frames: the texture link is by sprite id,
+  // so every glyph of a font reuses the same id and the same atlas binding.
+  static Sprite glyph[FONT_COUNT > 0 ? FONT_COUNT : 1];
+  static bool ready[FONT_COUNT > 0 ? FONT_COUNT : 1] = {};
+  if (!ready[fontIdx]) {
+    glyph[fontIdx].mode = SpriteMode::MODE_REPEAT;  // sample a sub-rect
+    auto* texture = engine->renderer.getTextureRepository().add(
+        FileUtils::fromCwd(f.atlas));
+    texture->addLink(glyph[fontIdx].id);
+    ready[fontIdx] = true;
+  }
+
+  Sprite& sp = glyph[fontIdx];
+  const float k = size / (float)f.baseSize;
+  sp.scale = k;
+
+  // Center anchor, like the baked HUD text sprites.
+  const float startX = cx - fontTextWidth(fontIdx, s, size) * 0.5F;
+  const float top = cy - (float)f.lineH * k * 0.5F;
+
+  // Shadow first, then the glyphs: two passes over the same cells, the dark
+  // one offset by a pixel (the baked texts get theirs at bake time instead).
+  for (int pass = f.shadow ? 0 : 1; pass < 2; ++pass) {
+    const float ox = pass == 0 ? 1.0F : 0.0F;
+    if (pass == 0)
+      sp.color = Color(10.0F, 12.0F, 16.0F, 100.0F);
+    else
+      sp.color = Color((float)f.r, (float)f.g, (float)f.b, 128.0F);
+
+    float pen = startX;
+    for (const char* c = s; *c; ++c) {
+      const int gi = (int)(unsigned char)*c - FONT_FIRST_CHAR;
+      if (gi < 0 || gi >= FONT_CHAR_COUNT) continue;
+      const FontGlyph& g = f.glyphs[gi];
+      if (g.w > 0 && g.h > 0) {
+        sp.size = Vec2((float)g.w, (float)g.h);
+        sp.offset = Vec2((float)g.u, (float)g.v);
+        sp.position = Vec2(pen + (float)g.xoff * k + ox,
+                           top + (float)g.yoff * k + ox);
+        engine->renderer.renderer2D.render(sp);
+      }
+      pen += (float)g.adv * k;
+    }
+  }
+}
 
 // Debug frame profiler (Project > Preferences > Build > Show frame profiler).
 // renderScene brackets its three heavy phases with EE COP0-timer reads and
@@ -1202,6 +1286,7 @@ void TerrainGame::loop() {
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
     updateAndRenderHudTexts();
+    updateAndRenderDynTexts();
     // Cutscene Director widescreen bars + fade-to-black: solid quads over the
     // scene and HUD (texts included), under the pause menus (no-op unless a
     // cutscene draws).
@@ -1370,6 +1455,22 @@ void TerrainGame::buildScene() {
     scriptCtx.textRequest = hudTextReq.data();
     scriptCtx.textDuration = hudTextDur.data();
     scriptCtx.textCount = HUD_TEXT_COUNT;
+
+    // Runtime texts (font_data.gen.hpp). Buffers only - no texture is touched
+    // here: a font atlas reaches the repository (and VRAM) on the first frame
+    // a Display Text using it is actually drawn. See drawFontText.
+    dynTextReq.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, -1);
+    dynTextDur.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0.0F);
+    dynTextOn.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0);
+    dynTextTimer.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0.0F);
+    dynTextBuf.assign((DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1) * DYN_TEXT_LEN,
+                      '\0');
+    scriptCtx.dynTextRequest = dynTextReq.data();
+    scriptCtx.dynTextDuration = dynTextDur.data();
+    scriptCtx.dynTextBuf = dynTextBuf.data();
+    scriptCtx.dynTextOn = dynTextOn.data();
+    scriptCtx.dynTextCount = DYN_TEXT_COUNT;
+    scriptCtx.dynTextLen = DYN_TEXT_LEN;
     if (TITLE_MENU >= 0) {
       gameMenuIndex = TITLE_MENU;
       gameMenuCursor = 0;
@@ -1465,6 +1566,20 @@ void TerrainGame::loadModelAsset(int i) {
       part.texture = acquireTexture(path);
       gm.texPaths.push_back(path);
     }
+    if (mat.reflTextureName == "@sky") {
+      // Dynamic env map: the engine-owned VRAM target, re-rendered from the
+      // sky dome every frame (renderScene).
+      part.reflTexture = engine->renderer.core.envMap.getTexture();
+      part.reflStrength = mat.reflStrength;
+      part.reflDynamic = true;
+      ++g_dynamicEnvUsers;
+    } else if (!mat.reflTextureName.empty()) {
+      const std::string path = dir + mat.reflTextureName;
+      part.reflTexture = acquireTexture(path);
+      part.reflStrength = mat.reflStrength;
+      gm.texPaths.push_back(path);
+    }
+    part.reflRounded = mat.reflRounded;
     gm.parts.push_back(std::move(part));
   }
   if (MODEL_NEEDS_COLLIDER[i]) {
@@ -1482,6 +1597,8 @@ void TerrainGame::freeModelAsset(int i) {
   if (i < 0 || i >= MODEL_COUNT || !modelLoaded[i]) return;
   GameModel& gm = gameModels[i];
   for (const std::string& path : gm.texPaths) releaseTexture(path);
+  for (const GameModelPart& part : gm.parts)
+    if (part.reflDynamic) --g_dynamicEnvUsers;
   gm = GameModel();
   modelLoaded[i] = 0;
 }
@@ -1499,18 +1616,33 @@ void TerrainGame::loadMaterialAsset(int i) {
   gmat.kd[0] = mat.kd[0];
   gmat.kd[1] = mat.kd[1];
   gmat.kd[2] = mat.kd[2];
-  if (mat.textureName.empty()) return;
   std::string dir = MATERIAL_PATHS[i];
   const size_t slash = dir.find_last_of('/');
   dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
-  gmat.texPath = dir + mat.textureName;
-  gmat.texture = acquireTexture(gmat.texPath);
+  if (!mat.textureName.empty()) {
+    gmat.texPath = dir + mat.textureName;
+    gmat.texture = acquireTexture(gmat.texPath);
+  }
+  if (mat.reflTextureName == "@sky") {
+    // Dynamic env map (see loadModelAsset).
+    gmat.reflTexture = engine->renderer.core.envMap.getTexture();
+    gmat.reflStrength = mat.reflStrength;
+    gmat.reflDynamic = true;
+    ++g_dynamicEnvUsers;
+  } else if (!mat.reflTextureName.empty()) {
+    gmat.reflTexPath = dir + mat.reflTextureName;
+    gmat.reflTexture = acquireTexture(gmat.reflTexPath);
+    gmat.reflStrength = mat.reflStrength;
+  }
+  gmat.reflRounded = mat.reflRounded;
 }
 
 void TerrainGame::freeMaterialAsset(int i) {
   if (i < 0 || i >= MATERIAL_COUNT || !materialLoaded[i]) return;
   GameMaterial& gmat = gameMaterials[i];
   if (!gmat.texPath.empty()) releaseTexture(gmat.texPath);
+  if (!gmat.reflTexPath.empty()) releaseTexture(gmat.reflTexPath);
+  if (gmat.reflDynamic) --g_dynamicEnvUsers;
   gmat = GameMaterial();
   materialLoaded[i] = 0;
 }
@@ -2643,9 +2775,13 @@ void TerrainGame::updateSoundEmitters() {
 
 // --- Particle emitters ------------------------------------------------
 // 2002-style particles: fixed pools sized at scene load, one cheap LCG,
-// no trig and no allocations in the per-frame path. Camera-facing quads
-// colored per vertex; an emitter with a material carrying a map_Kd draws
-// its quads with that texture (the color then modulates it).
+// no trig and no allocations in the per-frame path. The EE simulates and
+// writes one center + one qword of 2x2 basis weights + one color per
+// particle; the VU1 billboard program (engine StaPipBillboardBag) expands
+// each center into a camera-facing quad in clip space, so the quad
+// building cost never touches the EE. An emitter with a material carrying
+// a map_Kd draws its quads with that texture (the color then modulates
+// it; corner UVs are fixed on VU1).
 // The editor viewport mirrors this simulation (viewport.cpp,
 // simulateEmitter) - keep the per-kind formulas in sync.
 static float prand(unsigned int& s) {  // 0..1
@@ -2668,39 +2804,38 @@ void TerrainGame::buildParticles() {
     ps.vel.assign(n, Vec4(0.0F, 0.0F, 0.0F, 0.0F));
     ps.life.assign(n, 0.0F);  // dead -> staggered respawn over the first frames
     ps.maxLife.assign(n, 1.0F);
-    ps.verts.assign((size_t)n * 6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
-    ps.cols.assign((size_t)n * 6, Color(0.0F, 0.0F, 0.0F, 0.0F));
+    ps.params.assign(n, Vec4(0.0F, 0.0F, 0.0F, 0.0F));
+    ps.cols.assign(n, Color(0.0F, 0.0F, 0.0F, 0.0F));
     ps.infoBag = std::make_unique<StaPipInfoBag>();
     ps.infoBag->model = &model;
     ps.infoBag->shadingType = TyraShadingGouraud;
-    ps.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
-    ps.infoBag->fullClipChecks = true;
+    // VU1 billboard bags cull per quad on VU1 - no EE frustum/clip work.
+    // None is safe for billboard bags only: the VU1 program ADCs any quad
+    // whose corner leaves the GS raster window (ordinary bags must never
+    // use None - see the engine skill's wrap pitfall).
+    ps.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_None;
+    ps.infoBag->fullClipChecks = false;
     ps.colorBag = std::make_unique<StaPipColorBag>();
+    ps.colorBag->many = ps.cols.data();
+    ps.billboardBag = std::make_unique<StaPipBillboardBag>();
     ps.bag = std::make_unique<StaPipBag>();
     ps.bag->info = ps.infoBag.get();
     ps.bag->color = ps.colorBag.get();
-    ps.bag->texture = nullptr;
     ps.bag->lighting = nullptr;
+    ps.bag->billboard = ps.billboardBag.get();
+    ps.bag->vertices = ps.pos.data();
     ps.bag->count = 0;
-    // Textured particles: the emitter's material supplies the map (its Kd is
-    // ignored - the emitter color is the tint). UVs are fixed per quad in the
-    // v0,v1,v2 / v0,v2,v3 vertex order used by updateParticles().
+    // The texture bag is mandatory for billboard bags - its coordinates
+    // channel carries the per-particle basis weights. Textured particles:
+    // the emitter's material supplies the map (its Kd is ignored - the
+    // emitter color is the tint); corner UVs are fixed in the VU1 program.
+    ps.texBag = std::make_unique<StaPipTextureBag>();
+    ps.texBag->texture = nullptr;
+    ps.texBag->coordinates = ps.params.data();
     const int mi = runtimeObjects[i].data.material;  // data copy: spawn slots too
-    if (mi >= 0 && mi < (int)gameMaterials.size() && gameMaterials[mi].texture) {
-      ps.sts.reserve((size_t)n * 6);
-      for (int q = 0; q < n; ++q) {
-        ps.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
-      }
-      ps.texBag = std::make_unique<StaPipTextureBag>();
+    if (mi >= 0 && mi < (int)gameMaterials.size() && gameMaterials[mi].texture)
       ps.texBag->texture = gameMaterials[mi].texture;
-      ps.texBag->coordinates = ps.sts.data();
-      ps.bag->texture = ps.texBag.get();
-    }
+    ps.bag->texture = ps.texBag.get();
     particles.push_back(std::move(ps));
   }
 }
@@ -2733,6 +2868,14 @@ void TerrainGame::updateParticles() {
     const SceneObjectData& d = o.data;
     const int kind = d.emitKind;
     const int n = (int)ps.life.size();
+
+    // Per-emitter billboard basis for the VU1 expansion. Rain streaks hang
+    // from world-up (vertical quads); everything else faces the camera
+    // plane. A portal pass re-renders these bags with the VIRTUAL camera's
+    // basis swapped in - the centers below are view-independent.
+    ps.billboardBag->right = Vec4(rx, 0.0F, rz, 0.0F);
+    ps.billboardBag->up = kind == 4 ? Vec4(0.0F, 1.0F, 0.0F, 0.0F)
+                                    : Vec4(ux, uy, uz, 0.0F);
 
     // Follow player: the emitter position becomes an offset from the camera
     // (place it at X=0/Z=0 and the height above the player's head) - rain
@@ -2854,47 +2997,28 @@ void TerrainGame::updateParticles() {
         alpha = 110.0F * t;
       }
 
-      // rain streaks stay vertical (world-up quads); everything else is a
-      // full camera-facing billboard. Fog puffs additionally swirl: the
-      // billboard slowly rotates in the camera plane, alternating direction
-      // per puff (the swirling fog roll) - keep in sync with the viewport
-      // preview (drawEmitterPreviews).
-      float brx = rx, bry = 0.0F, brz = rz;
-      float bux = ux, buy = uy, buz = uz;
+      // The quad itself is built on VU1: corner = center +/- (right*m00 +
+      // up*m01) +/- (right*m10 + up*m11). Rain streaks hang from world-up
+      // (the emitter basis above) with an independent half-height; fog
+      // puffs additionally swirl - the billboard slowly rotates in the
+      // camera plane, alternating direction per puff (the swirling fog
+      // roll) - keep in sync with the viewport preview
+      // (drawEmitterPreviews).
+      float m00 = size, m01 = 0.0F, m10 = 0.0F, m11 = size;
       if (kind == 2) {
         const float age = ps.maxLife[i] - ps.life[i];
         const float ang = (float)i * 2.4F + (i & 1 ? 0.3F : -0.3F) * age;
         const float ca = cosf(ang), sa = sinf(ang);
-        brx = rx * ca + ux * sa;
-        bry = uy * sa;
-        brz = rz * ca + uz * sa;
-        bux = ux * ca - rx * sa;
-        buy = uy * ca;
-        buz = uz * ca - rz * sa;
+        m00 = ca * size;
+        m01 = sa * size;
+        m10 = -sa * size;
+        m11 = ca * size;
       }
-      const float Rx = brx * size, Ry = bry * size, Rz = brz * size;
-      const float Ux = sizeUp > 0.0F ? 0.0F : bux * size;
-      const float Uy = sizeUp > 0.0F ? sizeUp : buy * size;
-      const float Uz = sizeUp > 0.0F ? 0.0F : buz * size;
-      const Vec4& P = ps.pos[i];
-      const Vec4 v0(P.x - Rx - Ux, P.y - Ry - Uy, P.z - Rz - Uz, 1.0F);
-      const Vec4 v1(P.x + Rx - Ux, P.y + Ry - Uy, P.z + Rz - Uz, 1.0F);
-      const Vec4 v2(P.x + Rx + Ux, P.y + Ry + Uy, P.z + Rz + Uz, 1.0F);
-      const Vec4 v3(P.x - Rx + Ux, P.y - Ry + Uy, P.z - Rz + Uz, 1.0F);
-      const int b = i * 6;
-      ps.verts[b] = v0;
-      ps.verts[b + 1] = v1;
-      ps.verts[b + 2] = v2;
-      ps.verts[b + 3] = v0;
-      ps.verts[b + 4] = v2;
-      ps.verts[b + 5] = v3;
-      const Color c(cr, cg, cb, alpha);
-      for (int k = 0; k < 6; ++k) ps.cols[b + k] = c;
+      if (sizeUp > 0.0F) m11 = sizeUp;  // rain: thin width, streak height
+      ps.params[i] = Vec4(m00, m01, m10, m11);
+      ps.cols[i] = Color(cr, cg, cb, alpha);
     }
-    ps.colorBag->many = ps.cols.data();
-    ps.bag->vertices = ps.verts.data();
-    ps.bag->count = (u32)ps.verts.size();
-    ps.bag->bboxVersion = ++g_bboxStamp;  // moving cloud - refresh the bbox
+    ps.bag->count = (u32)n;
   }
 }
 // Picks the nearest usable object the camera is close to and looking at
@@ -3270,7 +3394,7 @@ void TerrainGame::applyMenuBindings() {
           g_stickExpL = g_stickExpR = 2.0F;
           break;
         }
-        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0/1/2)
+        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0..3)
           if (idx != g_menuDispOpt) {
             g_menuDispOpt = idx;
             scriptCtx.requestDisplayMode = idx;
@@ -3340,6 +3464,33 @@ void TerrainGame::updateAndRenderHudTexts() {
       }
     }
     if (hudTextOn[i]) engine->renderer.renderer2D.render(hudTextSprites[i]);
+  }
+}
+
+// Runtime texts: same request/timer protocol as the baked ones, but the string
+// lives in dynTextBuf (refreshed every frame by the owning flow-graph script
+// while the slot is on) and is drawn glyph by glyph from the font's atlas.
+void TerrainGame::updateAndRenderDynTexts() {
+  for (int i = 0; i < DYN_TEXT_COUNT; ++i) {
+    if (scriptCtx.dynTextRequest[i] >= 0) {
+      dynTextOn[i] = scriptCtx.dynTextRequest[i] != 0 ? 1 : 0;
+      dynTextTimer[i] = dynTextOn[i] ? scriptCtx.dynTextDuration[i] : 0.0F;
+      scriptCtx.dynTextRequest[i] = -1;
+    }
+    if (dynTextOn[i] && dynTextTimer[i] > 0.0F) {
+      dynTextTimer[i] -= g_frameDt;
+      if (dynTextTimer[i] <= 0.0F) {
+        dynTextOn[i] = 0;
+        dynTextTimer[i] = 0.0F;
+      }
+    }
+    if (!dynTextOn[i]) continue;
+    const DynTextData& d = DYN_TEXTS[i];
+    const char* s = &dynTextBuf[(size_t)i * DYN_TEXT_LEN];
+    if (!s[0]) continue;
+    const auto& scr = engine->renderer.core.getSettings();
+    drawFontText(engine, d.font, s, d.x * scr.getWidth(), d.y * scr.getHeight(),
+                 d.size);
   }
 }
 
@@ -3799,6 +3950,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     part.vertices.clear();
     part.colors.clear();
     part.sts.clear();
+    part.envNormals.clear();
   }
 
   // primitives: the assigned material (first entry of its .mtl) supplies
@@ -3813,6 +3965,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
       const GameModelPart& src = gm->parts[pi];
       GeoPart& part = g.parts[pi];
       const bool textured = src.texture != nullptr;
+      g_envNormals = src.reflTexture ? &part.envNormals : nullptr;
       for (size_t i = 0; i + 7 < src.verts.size(); i += 8) {
         const float* v = &src.verts[i];
         pushVert(part.vertices, part.colors, part.sts, o.data,
@@ -3820,9 +3973,12 @@ void TerrainGame::rebuildObjectGeometry(int index) {
                  textured);
       }
     }
+    g_envNormals = nullptr;
   } else {
     g_primKd = gmat ? gmat->kd : nullptr;
     g_primTextured = gmat && gmat->texture;
+    g_envNormals =
+        (gmat && gmat->reflTexture) ? &g.parts[0].envNormals : nullptr;
     GeoPart& p0 = g.parts[0];
     switch (o.data.type) {
       case 1: addSphere(p0.vertices, p0.colors, p0.sts, o.data); break;
@@ -3884,6 +4040,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     }
     g_primKd = nullptr;
     g_primTextured = false;
+    g_envNormals = nullptr;
   }
 
   for (int pi = 0; pi < partCount; ++pi) {
@@ -3925,6 +4082,85 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     } else {
       part.bag->texture = nullptr;
     }
+
+    // Reflective material (refl): the additive sphere-map second pass. The
+    // env bag reuses this part's vertex array and bboxVersion; all-white
+    // "many" colors keep its VU1 program shape identical to a textured base
+    // bag, so the frustum-bbox cache entry is shared, not recomputed.
+    Texture* envTex = o.data.type == 5 ? gm->parts[pi].reflTexture
+                                       : (gmat ? gmat->reflTexture : nullptr);
+    const float envStr = o.data.type == 5
+                             ? gm->parts[pi].reflStrength
+                             : (gmat ? gmat->reflStrength : 0.0F);
+    if (envTex && envStr > 0.004F &&
+        part.envNormals.size() == part.vertices.size()) {
+      part.envColors.assign(part.vertices.size(),
+                            Color(128.0F, 128.0F, 128.0F, 128.0F));
+      if (!part.envBag) {
+        part.envInfoBag = std::make_unique<StaPipInfoBag>();
+        part.envInfoBag->model = &model;
+        part.envInfoBag->shadingType = TyraShadingFlat;
+        part.envInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+        part.envInfoBag->fullClipChecks = true;
+        // Coplanar with the base pass: standard GEQUAL test. (TestOnly's
+        // alpha-fail FB_ONLY trick corrupted close-up frames - see below.)
+        part.envInfoBag->zTestType = PipelineZTest_Standard;
+        // GS fog would ADD the fog color through the additive equation
+        // (brightening fogged pixels) - the reflection just stays unfogged.
+        part.envInfoBag->fogDisabled = true;
+        part.envColorBag = std::make_unique<StaPipColorBag>();
+        part.envTexBag = std::make_unique<StaPipTextureBag>();
+        part.envBag = std::make_unique<StaPipBag>();
+        part.envBag->info = part.envInfoBag.get();
+        part.envBag->color = part.envColorBag.get();
+        part.envBag->texture = part.envTexBag.get();
+        part.envBag->lighting = nullptr;
+      }
+      // Additive equation Cv = Cs*FIX/128 + Cd; FIX 128 = full strength.
+      const float fix = envStr * 128.0F + 0.5F;
+      part.envInfoBag->additiveBlendFix =
+          fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
+      part.envColorBag->many = part.envColors.data();
+      part.envTexBag->texture = envTex;
+      // "-rounded" materials: overwrite the captured face normals with
+      // directions radiating from the part centroid - a flat face then
+      // sweeps a gradient of the sphere map instead of showing one uniform
+      // sample (the viewport shader mirrors this via uReflRounded).
+      const bool envRounded = o.data.type == 5
+                                  ? gm->parts[pi].reflRounded
+                                  : (gmat && gmat->reflRounded);
+      if (envRounded && !part.vertices.empty()) {
+        const u32 nv = static_cast<u32>(part.vertices.size());
+        float cx = 0.0F, cy = 0.0F, cz = 0.0F;
+        for (u32 vi = 0; vi < nv; ++vi) {
+          cx += part.vertices[vi].x;
+          cy += part.vertices[vi].y;
+          cz += part.vertices[vi].z;
+        }
+        cx /= (float)nv, cy /= (float)nv, cz /= (float)nv;
+        for (u32 vi = 0; vi < nv; ++vi) {
+          float dx = part.vertices[vi].x - cx;
+          float dy = part.vertices[vi].y - cy;
+          float dz = part.vertices[vi].z - cz;
+          const float l = sqrtf(dx * dx + dy * dy + dz * dz);
+          if (l > 0.0001F)
+            dx /= l, dy /= l, dz /= l;
+          else
+            dx = 0.0F, dy = 1.0F, dz = 0.0F;
+          part.envNormals[vi].set(dx, dy, dz, 0.0F);
+        }
+      }
+      // The normals ride in the ST slot and the TCE programs (cull/as_is/
+      // clip) compute the matcap ST from the per-mesh camera basis - zero
+      // EE per-vertex work, no pipeline barriers, in both clipping modes.
+      part.envTexBag->coordinates = part.envNormals.data();
+      part.envTexBag->coordinatesAreNormals = true;
+      part.envBag->vertices = part.vertices.data();
+      part.envBag->count = static_cast<u32>(part.vertices.size());
+      part.envBag->bboxVersion = part.bag->bboxVersion;
+    } else {
+      part.envBag.reset();
+    }
   }
 }
 
@@ -3962,6 +4198,92 @@ void TerrainGame::renderScene() {
     skyHorizonB = scriptCtx.skyColor.b;
     buildSkyDome();
   }
+  // Reflective materials: camera basis for the sphere-map STs. Matcap UVs
+  // from the camera-space normal - u along the camera's right, v (image
+  // space, 0 = top) against its up. The editor viewport shader and the VU1
+  // CalculateTyraEnvStq macro mirror this formula - keep them in sync.
+  V3 envFwd = {cameraLookAt.x - cameraPosition.x,
+               cameraLookAt.y - cameraPosition.y,
+               cameraLookAt.z - cameraPosition.z};
+  {
+    const float l =
+        sqrtf(envFwd.x * envFwd.x + envFwd.y * envFwd.y + envFwd.z * envFwd.z);
+    if (l > 0.0001F) envFwd.x /= l, envFwd.y /= l, envFwd.z /= l;
+  }
+  V3 envRight = {-envFwd.z, 0.0F, envFwd.x};  // cross(fwd, worldUp)
+  {
+    const float l = sqrtf(envRight.x * envRight.x + envRight.z * envRight.z);
+    if (l > 0.0001F)
+      envRight.x /= l, envRight.z /= l;
+    else
+      envRight = {1.0F, 0.0F, 0.0F};  // looking straight up/down
+  }
+  const V3 envUp = {envRight.y * envFwd.z - envRight.z * envFwd.y,
+                    envRight.z * envFwd.x - envRight.x * envFwd.z,
+                    envRight.x * envFwd.y - envRight.y * envFwd.x};
+
+  // Dynamic env map ("@sky" materials): render the sky dome into the
+  // engine's 128x128 VRAM target from a level wide-FOV view along the
+  // camera forward - the GT3 trick, reflections follow the live sky (script
+  // retints included). Runs before any main-frame 3D so the raster redirect
+  // brackets only the dome submission. Refreshed every SECOND frame (also
+  // the GT3 trick): the target persists in VRAM, and a 25/30 Hz update of
+  // a blurry 128px reflection is imperceptible while the pass costs a
+  // couple of ms per hit on real hardware.
+  static bool envMapTick = false;  // first frame MUST render (fresh VRAM)
+  envMapTick = !envMapTick;
+  if (g_dynamicEnvUsers > 0 && skyDome.bag && envMapTick) {
+    auto& core = engine->renderer.core;
+    skyMat.identity();
+    skyMat.data[12] = cameraPosition.x;
+    skyMat.data[13] = cameraPosition.y;
+    skyMat.data[14] = cameraPosition.z;
+    // Level forward: keeps the sphere map's horizon on its center line.
+    V3 lvl = {envFwd.x, 0.0F, envFwd.z};
+    const float ll = sqrtf(lvl.x * lvl.x + lvl.z * lvl.z);
+    if (ll > 0.0001F)
+      lvl.x /= ll, lvl.z /= ll;
+    else
+      lvl = {1.0F, 0.0F, 0.0F};
+    Vec4 envLook(cameraPosition.x + lvl.x, cameraPosition.y,
+                 cameraPosition.z + lvl.z, 1.0F);
+    core.envMap.begin(Color(scriptCtx.skyColor.r, scriptCtx.skyColor.g,
+                            scriptCtx.skyColor.b, 128.0F));
+    core.renderer3D.pushEnvView(cameraPosition, envLook, 110.0F,
+                                (float)Tyra::RendererCoreEnvMap::size);
+    const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
+    skyDome.infoBag->zTestType = PipelineZTest_AllPass;
+    stapip.core.render(skyDome.bag.get());
+    skyDome.infoBag->zTestType = prevZTest;
+    // "Show in reflections" objects render into the map too - base passes
+    // only (no env pass inside the env pass), depth-tested against the
+    // target's dedicated z-buffer so they occlude each other correctly.
+    for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
+      RuntimeObject& ro = runtimeObjects[ri];
+      if (!ro.active || !ro.visible || !ro.data.reflected) continue;
+      // Skip the object the camera is standing at: it would swamp the whole
+      // map - typically the very reflective surface being inspected, whose
+      // own dark self-reflection reads as ugly patches up close. (Bounding
+      // radius approximated from the scale; unit primitives fit a 1x1x1
+      // cube, so half-diagonal = 0.87 * max scale.)
+      {
+        float half = ro.data.scale[0];
+        if (ro.data.scale[1] > half) half = ro.data.scale[1];
+        if (ro.data.scale[2] > half) half = ro.data.scale[2];
+        const float skipR = 0.87F * half * 1.9F;
+        const float sdx = ro.data.position[0] - cameraPosition.x;
+        const float sdy = ro.data.position[1] - cameraPosition.y;
+        const float sdz = ro.data.position[2] - cameraPosition.z;
+        if (sdx * sdx + sdy * sdy + sdz * sdz < skipR * skipR) continue;
+      }
+      if (ro.dirty) rebuildObjectGeometry(ri);
+      for (GeoPart& part : objectGeometry[ri].parts)
+        if (part.bag) stapip.core.render(part.bag.get());
+    }
+    core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+    core.envMap.end();
+  }
+
   if (skyDome.bag) {
     // Follow the camera: park the dome's centre on the eye so however big the
     // map is, the horizon and zenith always wrap around the player. Only the
@@ -3985,6 +4307,14 @@ void TerrainGame::renderScene() {
   // repaint - two exact-clip passes per frame). OVERLAY mode: the body draws
   // normally in the main pass and the shells are painted ON it afterwards, so
   // it stays in this list only for the shell pass.
+  auto renderEnvPass = [&](GeoPart& part) {
+    if (!part.envBag) return;
+    // TCE programs compute the matcap ST on VU1 - the EE only refreshes the
+    // per-mesh camera basis here.
+    part.envTexBag->envRight.set(envRight.x, envRight.y, envRight.z, 0.0F);
+    part.envTexBag->envUp.set(envUp.x, envUp.y, envUp.z, 0.0F);
+    stapip.core.render(part.envBag.get());
+  };
   int hlList[8];
   float hlListD2[8];
   int hlCount = 0;
@@ -4009,7 +4339,10 @@ void TerrainGame::renderScene() {
       if (!hlOverlay) continue;  // rim: defer body; overlay: draw it now
     }
     for (GeoPart& part : objectGeometry[i].parts)
-      if (part.bag) stapip.core.render(part.bag.get());
+      if (part.bag) {
+        stapip.core.render(part.bag.get());
+        renderEnvPass(part);
+      }
   }
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
@@ -4042,7 +4375,10 @@ void TerrainGame::renderScene() {
       // scene, not highlight overhead.
       const u32 pb = DEBUG_SHOW_PROFILER ? profTicks() : 0;
       for (GeoPart& part : objectGeometry[i].parts)
-        if (part.bag) stapip.core.render(part.bag.get());
+        if (part.bag) {
+          stapip.core.render(part.bag.get());
+          renderEnvPass(part);
+        }
       if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - pb;
     }
   }

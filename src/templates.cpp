@@ -3980,7 +3980,10 @@ void TerrainGame::buildParticles() {
     ps.infoBag->model = &model;
     ps.infoBag->shadingType = TyraShadingGouraud;
     // VU1 billboard bags cull per quad on VU1 - no EE frustum/clip work.
-    ps.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Simple;
+    // None is safe for billboard bags only: the VU1 program ADCs any quad
+    // whose corner leaves the GS raster window (ordinary bags must never
+    // use None - see the engine skill's wrap pitfall).
+    ps.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_None;
     ps.infoBag->fullClipChecks = false;
     ps.colorBag = std::make_unique<StaPipColorBag>();
     ps.colorBag->many = ps.cols.data();

@@ -111,14 +111,18 @@ void StaPipCore::render(StaPipBag* bag) {
                                 bag->texture->coordinates),
               "If you want texture, please provide texture and coordinates!");
   // Modified by TyraX: particle billboards (centers expanded on VU1).
+  // frustumCulling None is SAFE here (unlike ordinary bags - see the
+  // "never submit with None" pitfall): the billboard programs cull every
+  // quad whose corner leaves the GS raster window / depth range, so
+  // off-screen centers never wrap the 4096-px window.
   TYRA_ASSERT(!bag->billboard ||
                   (bag->texture && bag->texture->coordinates &&
                    bag->color->many && !bag->lighting &&
                    !bag->info->fullClipChecks &&
                    bag->info->frustumCulling ==
-                       PipelineInfoBagFrustumCulling_Simple),
+                       PipelineInfoBagFrustumCulling_None),
               "Billboard bags need per-particle params in the texture "
-              "coordinates slot, per-particle colors, no lighting, simple "
+              "coordinates slot, per-particle colors, no lighting, no "
               "frustum culling and no clip checks (VU1 culls per quad)!");
   // Modified by TyraX: env (matcap) bags - normals in the ST slot, ST
   // computed on VU1 (cull_tce + as_is_tce / clip_tce). No lighting - the
