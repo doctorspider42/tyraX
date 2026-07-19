@@ -1570,8 +1570,10 @@ std::string load(Project& out, const std::string& projectDir) {
         }
         if (const auto* v = s->find("displayMode")) {
             const std::string dm = v->stringOr("interlaced");
-            st.displayMode =
-                (dm == "progressive" || dm == "1080i") ? dm : "interlaced";
+            st.displayMode = (dm == "progressive" || dm == "1080i" ||
+                              dm == "interlaced-field")
+                                 ? dm
+                                 : "interlaced";
         }
         if (const auto* v = s->find("widescreen"))
             st.widescreen = v->boolOr(false);

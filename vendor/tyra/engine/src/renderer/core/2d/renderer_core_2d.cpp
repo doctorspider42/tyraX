@@ -6,7 +6,8 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
-# Modified by TyraX: render() no longer emits a FINISH giftag.
+# Modified by TyraX: render() no longer emits a FINISH giftag; sprites
+# squeeze into the half-height buffer in the InterlacedField mode.
 */
 
 #include "renderer/core/2d/renderer_core_2d.hpp"
@@ -102,13 +103,19 @@ void RendererCore2D::render(const Sprite& sprite,
 
   rect->v0.x = sprite.position.x;
   rect->v0.y = sprite.position.y;
-  // rect->v0.y /= 2.0F;  // interlacing
   rect->v0.z = (u32)-1;
 
   rect->v1.x = (sprite.size.x * sprite.scale) + sprite.position.x;
   rect->v1.y = (sprite.size.y * sprite.scale) + sprite.position.y;
-  // rect->v1.y /= 2.0F;  // interlacing
   rect->v1.z = (u32)-1;
+
+  // Modified by TyraX: true field rendering (InterlacedField) - sprites are
+  // authored in the logical 512x448 space; squeeze them into the half-height
+  // buffer (scan-out stretches each field back to full height).
+  if (settings->isFieldRendering()) {
+    rect->v0.y *= 0.5F;
+    rect->v1.y *= 0.5F;
+  }
 
   auto* packet = packets[context];
 
@@ -136,10 +143,11 @@ void RendererCore2D::render(const Sprite& sprite,
   draw_enable_blending();
   packet2_update(packet, draw_rect_textured(packet->next, 0, rect));
 
-  packet2_update(packet, draw_primitive_xyoffset(
-                             packet->next, 0,
-                             SCREEN_CENTER - (settings->getWidth() / 2.0F),
-                             SCREEN_CENTER - (settings->getHeight() / 2.0F)));
+  packet2_update(packet,
+                 draw_primitive_xyoffset(
+                     packet->next, 0,
+                     SCREEN_CENTER - (settings->getWidth() / 2.0F),
+                     SCREEN_CENTER - (settings->getRenderHeightF() / 2.0F)));
   draw_disable_blending();
   // Upstream ended this packet with draw_finish(), which does two distinct
   // jobs: its giftag carries EOP=1 (terminates the PATH3 stream at the GIF -

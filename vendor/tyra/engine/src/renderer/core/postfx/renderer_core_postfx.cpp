@@ -57,7 +57,9 @@ void RendererCorePostFx::init(RendererSettings* t_settings,
   gs = t_gs;
 
   fbW = static_cast<int>(settings->getWidth());
-  fbH = static_cast<int>(settings->getHeight());
+  // Physical buffer height - half the logical one when field rendering
+  // (InterlacedField); every pass blits 1:1 over the real framebuffer.
+  fbH = static_cast<int>(settings->getRenderHeightF());
   // 1/8 res: an even softer glow, and VRAM stays cheap (~48KB total).
   // Texture VRAM is a scarce, thrash-prone resource - RendererCoreTexture
   // evicts everything whenever a texture no longer fits.
@@ -354,9 +356,12 @@ void RendererCorePostFx::apply(int passes) {
              GS_SET_ALPHA(0, 2, 2, 1, 128));  // low1 = 2 * low0
 
     // Sun position in low-res texels, clamped so a far-off-screen sun still
-    // gives a sane zoom center.
+    // gives a sane zoom center. The game passes LOGICAL screen pixels -
+    // divide by the logical height (getHeight), not the physical buffer
+    // height: under field rendering (InterlacedField) the buffer is half
+    // the logical height and fbH tracks the buffer.
     float sunLx = raysSunX * ((float)lowW / (float)fbW);
-    float sunLy = raysSunY * ((float)lowH / (float)fbH);
+    float sunLy = raysSunY * ((float)lowH / settings->getHeight());
     if (sunLx < -2.0F * lowW) sunLx = -2.0F * lowW;
     if (sunLx > 3.0F * lowW) sunLx = 3.0F * lowW;
     if (sunLy < -2.0F * lowH) sunLy = -2.0F * lowH;

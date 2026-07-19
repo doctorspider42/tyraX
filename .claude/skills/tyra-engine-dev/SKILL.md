@@ -211,7 +211,25 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
   (interlaced FRAME mode + MagV--) **hard-crashes PCSX2 v2.3.205** (the
   process dies seconds after SetGsCrt, no crash dialog); 1080i in FIELD
   mode with MAGV=2x is visually equivalent (both fields step through every
-  buffer line) and works.
+  buffer line) and works. That crash is 1080i-specific: SDTV interlaced
+  FRAME (the `InterlacedField` half-height mode below) is fine.
+- **True field rendering (`DisplayMode::InterlacedField`)**: 480i/576i with
+  half-height 512x224 frame/z buffers scanned at SMODE2.FFMD=FRAME — a
+  fresh image per field, half the fill/VRAM of stock interlaced. The
+  DISPLAY window must stay IDENTICAL to the stock FIELD mode (full 448
+  frame-line window; ps2sdk's `graph_set_screen` mis-programs DY/DH for
+  the interlaced+FRAME case — `programDisplay` writes the registers via
+  `setDtvDisplay` instead), no flicker filter. The game-facing coordinate
+  space stays 512x448: the projection is built at
+  `RendererSettings::getRenderHeightF()` (raster scale only — frustum
+  planes come from fov+aspect and are untouched), `RendererCore2D` halves
+  sprite y, and clears / post-fx / env-map restores all use the render
+  height. Anything that sizes or addresses the PHYSICAL framebuffer must
+  use `getRenderHeightF()`, game-facing layout keeps `getHeight()` — miss
+  that split and one mode or the other draws half-off-screen. Per-field
+  half-line alignment lives in `flipBuffers` (CSR.FIELD read after vsync,
+  inverted — the frame being rendered displays one field later — then an
+  XYOFFSET +8 on odd fields appended to the flip packet).
 - **Runtime display switching**: `RendererCore::setDisplayOutput(mode, ws)`
   (TyraX fork) switches the scan mode / widescreen between frames.
   A mode change resets the whole VRAM bump allocator (`vram.reset()`),
