@@ -4741,13 +4741,14 @@ void TerrainGame::renderPortalView() {
     // with terrain streaming on, keep the pair inside the streamed radius
     renderTerrain();
   }
-  for (int v = 0; v < p.viewCount; ++v) {
-    const int ti = PORTAL_VIEW_OBJECTS[p.firstView + v];
-    if (ti < 0 || ti >= (int)runtimeObjects.size()) continue;
+  // One view object: base bags + (animated) last skinned pose. No
+  // portal-in-portal: the recursion would re-carve the very opening being
+  // rendered (mirrors draw only their glass here - the reflected copies
+  // are a main-pass trick that would need its own bracket).
+  auto renderViewObject = [&](int ti) {
+    if (ti < 0 || ti >= (int)runtimeObjects.size()) return;
     RuntimeObject& ro = runtimeObjects[ti];
-    // no portal-in-portal: the recursion would re-carve the very opening
-    // being rendered (mirrors are fine - they re-submit real geometry)
-    if (!ro.active || !ro.visible || ro.data.type == 16) continue;
+    if (!ro.active || !ro.visible || ro.data.type == 16) return;
     if (ro.dirty) rebuildObjectGeometry(ti);
     ObjectGeometry& g = objectGeometry[ti];
     for (GeoPart& part : g.parts)
@@ -4755,6 +4756,22 @@ void TerrainGame::renderPortalView() {
     if (g.animInfoBag)
       for (ObjectGeometry::AnimPart& ap : g.animParts)
         if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+  };
+  if (p.viewAll) {
+    // Experimental "all objects in view": submit the whole scene a second
+    // time. The pushed frustum planes classify every bag against the
+    // VIRTUAL camera (off-view geometry drops EE-side before packaging)
+    // and draw distances are measured from the virtual eye, so the real
+    // cost is what the destination actually sees - still, big scenes pay
+    // for this; the authored list stays the shipping-quality default.
+    for (int ti = 0; ti < (int)runtimeObjects.size(); ++ti) {
+      if (runtimeObjects[ti].data.type == 15) continue;  // glass-only anyway
+      if (beyondDrawDistance(runtimeObjects[ti].data, eye)) continue;
+      renderViewObject(ti);
+    }
+  } else {
+    for (int v = 0; v < p.viewCount; ++v)
+      renderViewObject(PORTAL_VIEW_OBJECTS[p.firstView + v]);
   }
   core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
   core.portalViewEnd(xy, zz, n, (u8)scriptCtx.skyColor.r,

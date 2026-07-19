@@ -385,7 +385,9 @@ static std::string objectJson(const SceneObject& o) {
         json += ", \"portal\": { \"target\": \"" + o.portalTarget +
                 "\", \"showTerrain\": " + (o.portalShowTerrain ? "true" : "false") +
                 ", \"teleportObjects\": " +
-                (o.portalTeleportObjects ? "true" : "false") + ", \"objects\": [";
+                (o.portalTeleportObjects ? "true" : "false") +
+                ", \"viewAll\": " + (o.portalViewAll ? "true" : "false") +
+                ", \"objects\": [";
         for (size_t i = 0; i < o.portalObjects.size(); ++i)
             json += (i ? ", \"" : "\"") + o.portalObjects[i] + "\"";
         json += "] }";
@@ -1553,6 +1555,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 o.portalShowTerrain = !(v->type == json::Value::Type::Bool && !v->boolean);
             if (const auto* v = pt->find("teleportObjects"))
                 o.portalTeleportObjects = v->boolOr(false);
+            if (const auto* v = pt->find("viewAll"))
+                o.portalViewAll = v->boolOr(false);
             if (const auto* v = pt->find("objects");
                 v && v->type == json::Value::Type::Array) {
                 for (const auto& s : v->arr)
@@ -2698,7 +2702,8 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     // Portal parameters live in a baked side table (PORTALS/PORTAL_VIEW_OBJECTS).
     fnvMixS(h, o.portalTarget);
     for (const auto& n : o.portalObjects) fnvMixS(h, n);
-    fnvMix(h, (o.portalShowTerrain ? 1 : 0) | (o.portalTeleportObjects ? 2 : 0));
+    fnvMix(h, (o.portalShowTerrain ? 1 : 0) | (o.portalTeleportObjects ? 2 : 0) |
+                  (o.portalViewAll ? 4 : 0));
     // Build-time-baked transforms: a projected decal's transform IS the
     // projector, a point light's pose/color/falloff is baked into nearby
     // vertex colors. Folding them into the recipe makes any live edit of

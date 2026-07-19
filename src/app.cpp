@@ -4463,6 +4463,16 @@ void App::drawPropertiesWindow() {
             committed = true;
         if (ImGui::Checkbox("Teleport physics objects", &o.portalTeleportObjects))
             committed = true;
+        if (ImGui::Checkbox("All objects in view (experimental)",
+                            &o.portalViewAll))
+            committed = true;
+        if (o.portalViewAll) {
+            ImGui::TextDisabled(
+                "Every scene object renders in the through-view (the list\n"
+                "below is ignored). The virtual camera's frustum culling and\n"
+                "draw distances trim the cost, but big scenes pay a second\n"
+                "submission pass - watch the FPS/profiler before shipping.");
+        } else {
         ImGui::TextUnformatted("Objects visible through:");
         int removePortalAt = -1;
         for (size_t i = 0; i < o.portalObjects.size(); ++i) {
@@ -4510,6 +4520,7 @@ void App::drawPropertiesWindow() {
             "The view renders listed objects (+ terrain/sky above) from the\n"
             "target's side every frame - keep the list short. One portal\n"
             "view renders per frame; the other surfaces show the tint.");
+        }  // !portalViewAll
     }
 
     if (o.type == PrimitiveType::Emitter) {

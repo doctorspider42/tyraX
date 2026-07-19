@@ -11,9 +11,11 @@ What's in the scene:
   portal-b's surroundings — the red tower — rendered live through the
   opening at full resolution (in-place, z-carved: no render-to-texture, no
   seam), with correct parallax as you move.
-- **box-red** — the landmark tower at the far end; listed as portal-a's
-  "object visible through" (the explicit view list is the render budget,
-  like a Mirror's reflected-object list).
+- **box-red** — the landmark tower at the far end. portal-a runs the
+  experimental **All objects in view** switch (its view list is empty —
+  the tower shows up anyway because everything does); portal-b uses the
+  classic explicit list (the render budget, like a Mirror's
+  reflected-object list) so the demo shows both modes.
 - **The infinite fall**: **portal-floor** (purple, lying flat on the ground)
   linked up to **portal-ceiling** (green, hovering 7 units above, facing
   down), with **Teleport physics objects** on — and **box-drop**, a physics

@@ -306,6 +306,13 @@ struct SceneObject {
     std::vector<std::string> portalObjects;
     bool portalShowTerrain = true;
     bool portalTeleportObjects = false;
+    // Experimental: render EVERY scene object in the through-view instead
+    // of the explicit portalObjects list (which is ignored while this is
+    // on). The virtual camera's frustum culling and each object's draw
+    // distance still trim the cost, but the whole scene is submitted a
+    // second time when this portal's view is live - measure before
+    // shipping. Mirrors' reflections and particles still don't show.
+    bool portalViewAll = false;
 
     // Animated model parameters (Model objects whose modelPath ends in .glb;
     // the editor bakes the file's clips to morph frames - see glbparser.hpp).
@@ -387,6 +394,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.portalObjects == b.portalObjects &&
            a.portalShowTerrain == b.portalShowTerrain &&
            a.portalTeleportObjects == b.portalTeleportObjects &&
+           a.portalViewAll == b.portalViewAll &&
            a.animClip == b.animClip && a.animAutoplay == b.animAutoplay &&
            a.animLoop == b.animLoop && a.animSpeed == b.animSpeed &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts;

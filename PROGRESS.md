@@ -9,6 +9,27 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (119) **Portals: experimental "All objects in view".** Owner request: a
+  per-portal switch (`portalViewAll`, Properties > Portal) that renders
+  EVERY scene object in the through-view instead of the explicit list
+  (ignored while on). Runtime: the viewAll branch walks all runtime
+  objects — the pushed frustum planes classify each bag against the
+  VIRTUAL camera (off-view geometry drops EE-side before packaging) and
+  `beyondDrawDistance` measures from the virtual eye, so the practical
+  cost is what the destination actually sees; mirrors are skipped (glass
+  only — their copies are a main-pass trick) and portals stay excluded
+  (no recursion). Documented squarely as experimental: big scenes pay a
+  second submission pass while the portal's view is live, particles still
+  don't show through, the authored list stays the shipping default. Full
+  chain: field + serialization (`viewAll` in the portal block) + recipe
+  hash, UI checkbox that gates the list UI with a cost warning, a
+  `viewAll` column in PortalData. examples/portals flipped portal-a to
+  viewAll with an EMPTY list (portal-b keeps the classic list) — the demo
+  proves both modes. **Verified (Layer 3, PCSX2 D3D11 HW — Vulkan
+  presentation still wedged):** the tower shows through portal-a with
+  nothing listed, the walk-through and infinite-fall demos unchanged,
+  locked 50 FPS / 100% speed.
+
 - (118) **examples/portals — the Portal object demo.** A committed example
   for (117): a two-way pair across the map (portal-a in front of the FPP
   spawn ↔ portal-b by a red landmark tower 25 units away), an Empty with a

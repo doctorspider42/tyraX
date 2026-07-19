@@ -5928,13 +5928,14 @@ void TerrainGame::renderPortalView() {
     // with terrain streaming on, keep the pair inside the streamed radius
     renderTerrain();
   }
-  for (int v = 0; v < p.viewCount; ++v) {
-    const int ti = PORTAL_VIEW_OBJECTS[p.firstView + v];
-    if (ti < 0 || ti >= (int)runtimeObjects.size()) continue;
+  // One view object: base bags + (animated) last skinned pose. No
+  // portal-in-portal: the recursion would re-carve the very opening being
+  // rendered (mirrors draw only their glass here - the reflected copies
+  // are a main-pass trick that would need its own bracket).
+  auto renderViewObject = [&](int ti) {
+    if (ti < 0 || ti >= (int)runtimeObjects.size()) return;
     RuntimeObject& ro = runtimeObjects[ti];
-    // no portal-in-portal: the recursion would re-carve the very opening
-    // being rendered (mirrors are fine - they re-submit real geometry)
-    if (!ro.active || !ro.visible || ro.data.type == 16) continue;
+    if (!ro.active || !ro.visible || ro.data.type == 16) return;
     if (ro.dirty) rebuildObjectGeometry(ti);
     ObjectGeometry& g = objectGeometry[ti];
     for (GeoPart& part : g.parts)
@@ -5942,6 +5943,22 @@ void TerrainGame::renderPortalView() {
     if (g.animInfoBag)
       for (ObjectGeometry::AnimPart& ap : g.animParts)
         if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+  };
+  if (p.viewAll) {
+    // Experimental "all objects in view": submit the whole scene a second
+    // time. The pushed frustum planes classify every bag against the
+    // VIRTUAL camera (off-view geometry drops EE-side before packaging)
+    // and draw distances are measured from the virtual eye, so the real
+    // cost is what the destination actually sees - still, big scenes pay
+    // for this; the authored list stays the shipping-quality default.
+    for (int ti = 0; ti < (int)runtimeObjects.size(); ++ti) {
+      if (runtimeObjects[ti].data.type == 15) continue;  // glass-only anyway
+      if (beyondDrawDistance(runtimeObjects[ti].data, eye)) continue;
+      renderViewObject(ti);
+    }
+  } else {
+    for (int v = 0; v < p.viewCount; ++v)
+      renderViewObject(PORTAL_VIEW_OBJECTS[p.firstView + v]);
   }
   core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
   core.portalViewEnd(xy, zz, n, (u8)scriptCtx.skyColor.r,
@@ -8821,8 +8838,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 infos << (portalCount ? ",\n    " : "    ") << "{" << si << ", "
                       << oi << ", " << target << ", "
                       << (o.portalShowTerrain ? 1 : 0) << ", "
-                      << (o.portalTeleportObjects ? 1 : 0) << ", " << first
-                      << ", " << (viewCount - first) << "},  // " << o.name;
+                      << (o.portalTeleportObjects ? 1 : 0) << ", "
+                      << (o.portalViewAll ? 1 : 0) << ", " << first << ", "
+                      << (viewCount - first) << "},  // " << o.name;
                 ++portalCount;
             }
         }
@@ -8837,13 +8855,15 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                "  int target;           // linked portal's index, -1 = inactive\n"
                "  int showTerrain;      // 1 = sky dome + terrain in the view\n"
                "  int teleportObjects;  // 1 = physics objects teleport too\n"
+               "  int viewAll;          // 1 = EVERY object in the view\n"
+               "                        //     (experimental; list ignored)\n"
                "  int firstView;        // first entry in PORTAL_VIEW_OBJECTS\n"
                "  int viewCount;\n"
                "};\n"
             << "constexpr int PORTAL_COUNT = " << portalCount << ";\n"
             << "constexpr PortalData PORTALS[" << (portalCount ? portalCount : 1)
             << "] = {\n"
-            << (portalCount ? infos.str() : "    {0, -1, -1, 0, 0, 0, 0}")
+            << (portalCount ? infos.str() : "    {0, -1, -1, 0, 0, 0, 0, 0}")
             << "\n};\n"
             << "constexpr int PORTAL_VIEW_OBJECTS["
             << (viewCount ? viewCount : 1) << "] = {"

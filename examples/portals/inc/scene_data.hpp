@@ -112,17 +112,19 @@ struct PortalData {
   int target;           // linked portal's index, -1 = inactive
   int showTerrain;      // 1 = sky dome + terrain in the view
   int teleportObjects;  // 1 = physics objects teleport too
+  int viewAll;          // 1 = EVERY object in the view
+                        //     (experimental; list ignored)
   int firstView;        // first entry in PORTAL_VIEW_OBJECTS
   int viewCount;
 };
 constexpr int PORTAL_COUNT = 4;
 constexpr PortalData PORTALS[4] = {
-    {0, 1, 2, 1, 0, 0, 1},  // portal-a,
-    {0, 2, 1, 1, 0, 1, 1},  // portal-b,
-    {0, 6, 8, 0, 1, 2, 0},  // portal-floor,
-    {0, 8, 6, 0, 0, 2, 0},  // portal-ceiling
+    {0, 1, 2, 1, 0, 1, 0, 0},  // portal-a,
+    {0, 2, 1, 1, 0, 0, 0, 1},  // portal-b,
+    {0, 6, 8, 0, 1, 0, 1, 0},  // portal-floor,
+    {0, 8, 6, 0, 0, 0, 1, 0},  // portal-ceiling
 };
-constexpr int PORTAL_VIEW_OBJECTS[2] = {3, 4};
+constexpr int PORTAL_VIEW_OBJECTS[1] = {4};
 
 constexpr int SND_COUNT = 0;
 inline const char* SND_PATHS[1] = {""};

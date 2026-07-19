@@ -20,6 +20,13 @@ between distant parts of the map.
    render budget, exactly like a Mirror's reflected-object list. Terrain and
    the sky dome have their own toggle (**Terrain + sky in view**, on by
    default). Keep the list to the landmarks that sell the destination.
+   Or tick **All objects in view (experimental)**: every scene object
+   renders in the through-view and the list is ignored. The virtual
+   camera's frustum culling drops off-view geometry EE-side and draw
+   distances are measured from the virtual eye, so the practical cost is
+   what the destination actually sees — but a big scene pays a second
+   submission pass whenever that portal's view is live; watch the
+   FPS/profiler before shipping, and prefer the list for release builds.
 4. Optional: **Teleport physics objects** carries physics-enabled objects
    that cross the surface too (the player always teleports). Vertical
    velocity maps through the pair, so a floor portal linked to a
@@ -72,8 +79,11 @@ render-to-texture pass).
 - Walkers keep no horizontal velocity state, so a **tilted** pair (floor ->
   wall) carries only the vertical component of the crossing speed. Yaw-only
   pairs — the common teleporter — preserve movement perfectly.
-- Animated models in a view-object list render their last skinned pose
+- Animated models in the through-view render their last skinned pose
   (one frame stale).
+- Even with **All objects in view**: particles don't show through (they
+  are camera-facing quads simulated for the main view) and mirrors show
+  only their glass (the reflected copies are a main-pass trick).
 - With **terrain streaming** on, the view renders only resident chunks —
   keep both portals inside the streamed radius or turn the portal's terrain
   toggle off and list objects instead.
