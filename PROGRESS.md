@@ -9,6 +9,44 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (119) **Pickable objects — pick up, carry in front of the face, drop,
+  experimental throw.** New per-object flags `pickable` + `pickThrow` (solid
+  geometry only, save points excluded). Pressing USE on a pickable object
+  grabs it; each frame it rides `PICK_CARRY_DIST` in front of the eye (in
+  third person: in front of the *avatar's head*, the camera pivot — not the
+  camera floating meters behind), positioned by a **sweep** of its own
+  bounding radius against the world, so the carried object keeps colliding
+  with walls/props and can neither be pushed through geometry nor parked
+  behind it — a blocked reach just brings it closer to the face. The sweep is
+  the old camera `springArm` generalized into `sweepSphere(pos, dir, maxDist,
+  radius, skipIndex)` (AABB slab tests + terrain march, unchanged math);
+  `springArm` is now a thin wrapper passing `CAM_RADIUS` + the carried index,
+  so the boom ignores the box hovering at the face. The carrier stops
+  colliding with its cargo both ways (`collidePlayer` skips `carryIndex` —
+  otherwise the player wedges against their own crate) and `updateObjectPhysics`
+  leaves carried/thrown objects alone. USE drops it in place (already a swept,
+  legal spot; with Physics on it falls and rests via the normal path);
+  `BTN_THROW` (Circle) launches it if **Can throw** — integrated under gravity
+  with a per-frame sweep, stopping on the first hit and handing `velocityY`
+  off to regular physics. Picking eats its own USE press (`carryGrabbed`
+  latch — otherwise the same click reads as an instant drop), use-targeting
+  is disabled while hands are full, a pickable+usable object still fires On
+  Used on the grab press, scene switches open the hands, and a
+  despawned/hidden carried object just releases. Tunables as **#defines** in
+  `controls.hpp` (`PICK_CARRY_DIST`/`PICK_THROW_SPEED`/`BTN_THROW`) with
+  `#ifndef` fallbacks in the game cpp so user-owned `controls.hpp` copies
+  from before this feature still build — and their tuning wins when present
+  (that's why defines, not constexpr: `#ifndef` can't see a constexpr).
+  Full chain: fields + `operator==` + JSON save/load + `liveLinkRecipeHash`
+  bits, Properties + multi-select UI, `SceneObjectData` columns (struct doc,
+  row emission AND the empty-scene placeholder row — the documented (113)
+  trap), both loop call sites. Verified: editor builds clean; scratch project
+  with a pickable+throwable crate round-trips `--resave`, row emits
+  `usable=0, pickable=1, pickThrow=1`, Docker build compiles (=== Build OK
+  ===). The grab/carry/throw *feel* needs a hands-on pad test in PCSX2 (not
+  run this session — a PCSX2 instance from a parallel session was live and
+  the Runner would have killed it).
+
 - (116) **NavMesh + NPC AI — Patrol / Chase / Flee / On Player Seen.** NPCs
   can finally go somewhere on their own. Three layers, all
   pay-for-what-you-use (a project without AI nodes carries zero nav data or

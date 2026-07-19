@@ -663,6 +663,11 @@ class TerrainGame : public Tyra::Game {
   // boom length actually used - it snaps in on a hit and eases back out.
   float springArm(float px, float py, float pz, float dx, float dy, float dz,
                   float maxDist) const;
+  // The general sweep behind springArm: first blocked distance along d for a
+  // sphere of `radius`, vs object AABBs + the terrain; skipIndex is excluded
+  // (the swept object itself). Also carries/throws pickable objects.
+  float sweepSphere(float px, float py, float pz, float dx, float dy, float dz,
+                    float maxDist, float radius, int skipIndex) const;
   float camBoom = 0;
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
@@ -712,6 +717,15 @@ class TerrainGame : public Tyra::Game {
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
   void updateUseTarget();
   int useTargetIndex = -1;
+  // Pickable objects: at most one carried + one in flight. The carried object
+  // rides a fixed reach in front of the camera, swept against the world
+  // (sweepSphere) so it cannot be pushed through or parked behind geometry.
+  void updateCarriedObject();
+  float objectHalfExtent(const RuntimeObject& o) const;
+  int carryIndex = -1;        // runtimeObjects index being carried, -1 = none
+  bool carryGrabbed = false;  // eats the BTN_USE press that picked it up
+  int thrownIndex = -1;       // launched object still in flight, -1 = none
+  float thrownVel[3] = {0, 0, 0};  // units/frame
   Tyra::Sprite usePromptSprite;
 
   // Memory card save menu (save_system.gen.hpp): opened by using a Save
@@ -1077,6 +1091,11 @@ class TerrainGame : public Tyra::Game {
   // boom length actually used - it snaps in on a hit and eases back out.
   float springArm(float px, float py, float pz, float dx, float dy, float dz,
                   float maxDist) const;
+  // The general sweep behind springArm: first blocked distance along d for a
+  // sphere of `radius`, vs object AABBs + the terrain; skipIndex is excluded
+  // (the swept object itself). Also carries/throws pickable objects.
+  float sweepSphere(float px, float py, float pz, float dx, float dy, float dz,
+                    float maxDist, float radius, int skipIndex) const;
   float camBoom = 0;
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
@@ -1126,6 +1145,15 @@ class TerrainGame : public Tyra::Game {
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
   void updateUseTarget();
   int useTargetIndex = -1;
+  // Pickable objects: at most one carried + one in flight. The carried object
+  // rides a fixed reach in front of the camera, swept against the world
+  // (sweepSphere) so it cannot be pushed through or parked behind geometry.
+  void updateCarriedObject();
+  float objectHalfExtent(const RuntimeObject& o) const;
+  int carryIndex = -1;        // runtimeObjects index being carried, -1 = none
+  bool carryGrabbed = false;  // eats the BTN_USE press that picked it up
+  int thrownIndex = -1;       // launched object still in flight, -1 = none
+  float thrownVel[3] = {0, 0, 0};  // units/frame
   Tyra::Sprite usePromptSprite;
 
   // Memory card save menu (save_system.gen.hpp): opened by using a Save
@@ -1199,6 +1227,17 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "terrain_game.hpp"
 #include "terrain_config.hpp"
 #include "controls.hpp"
+// Fallbacks for user-owned controls.hpp files written before these knobs
+// existed - the game must still build when that header never regenerates.
+#ifndef BTN_THROW
+#define BTN_THROW Circle
+#endif
+#ifndef PICK_CARRY_DIST
+#define PICK_CARRY_DIST 2.2F
+#endif
+#ifndef PICK_THROW_SPEED
+#define PICK_THROW_SPEED 14.0F
+#endif
 #include "scene_data.hpp"
 #include "model_data.gen.hpp"
 #include "hud_data.gen.hpp"
@@ -2267,6 +2306,7 @@ void TerrainGame::loop() {
   if (!menuOwnsPad) {
     if (!updatePlayerEntity()) updateCameraOrbit();
     updateUseTarget();
+    updateCarriedObject();
   }
 
   scriptCtx.playerPosition = cameraPosition;
@@ -3464,7 +3504,11 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
                                 float* nextZ, float feetY, float eyeHeight,
                                 float* ground, float* ceiling) {
   const float playerRadius = 0.35F;
-  for (const RuntimeObject& o : runtimeObjects) {
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    const RuntimeObject& o = runtimeObjects[oi];
+    // The carried object rides in front of the face - letting it block its
+    // own carrier would wedge the player against thin air.
+    if (oi == carryIndex) continue;
     if (!o.active || !o.visible || o.data.type == 4 || o.data.type == 6 ||
         o.data.type == 7 || o.data.type == 8 || o.data.type == 9 ||
         o.data.type == 11 || o.data.type == 13 ||  // 13 = decal (visual only)
@@ -3623,6 +3667,7 @@ void TerrainGame::loadScene(int sceneIndex) {
   currentScene = sceneIndex;
   g_activeScene = sceneIndex;
   sceneGeneration++;  // scene scripts see this and reset their state
+  carryIndex = thrownIndex = -1;  // carried objects stay in their old scene
   // Before any mesh baking: terrain chunks and object geometry shade with
   // this scene's point lights (see collectScenePointLights).
   collectScenePointLights();
@@ -4195,6 +4240,9 @@ void TerrainGame::updateParticles() {
 void TerrainGame::updateUseTarget() {
   useTargetIndex = -1;
   scriptCtx.usedObject = -1;
+  // Hands full: BTN_USE means "drop" (updateCarriedObject), so no use
+  // targeting - and no prompt - while carrying.
+  if (carryIndex >= 0) return;
 
   Vec4 dir = cameraLookAt - cameraPosition;
   const float dirLen = sqrtf(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
@@ -4204,7 +4252,7 @@ void TerrainGame::updateUseTarget() {
   float bestDist = 0.0F;
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     const RuntimeObject& o = runtimeObjects[i];
-    if (!o.active || !o.data.usable || !o.visible) continue;
+    if (!o.active || !(o.data.usable || o.data.pickable) || !o.visible) continue;
     if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
         o.data.type == 8 || o.data.type == 9 || o.data.type == 11 ||
         o.data.type == 14)
@@ -4229,14 +4277,144 @@ void TerrainGame::updateUseTarget() {
     }
   }
 
-  if (useTargetIndex >= 0 && engine->pad.getClicked().BTN_USE)
-    scriptCtx.usedObject = useTargetIndex;
+  if (useTargetIndex >= 0 && engine->pad.getClicked().BTN_USE) {
+    // A pickable object can also be usable: it fires On Used AND gets picked
+    // up on the same press (a grab sound wired in the graph, for instance).
+    if (runtimeObjects[useTargetIndex].data.usable)
+      scriptCtx.usedObject = useTargetIndex;
+    if (runtimeObjects[useTargetIndex].data.pickable) {
+      carryIndex = useTargetIndex;
+      carryGrabbed = true;  // don't read this same press as "drop"
+      if (thrownIndex == carryIndex) thrownIndex = -1;  // caught mid-flight
+      runtimeObjects[carryIndex].velocityY = 0.0F;
+    }
+  }
 
   // Using a save point (type 10) opens the save menu next frame; the
   // "On Used" trigger still fires for its flow graph this frame.
   if (scriptCtx.usedObject >= 0 &&
       SCENE_OBJECTS[scriptCtx.usedObject].type == 10)
     scriptCtx.openSaveMenu = true;
+}
+
+// Largest half extent of an object's collision box (mesh/anim AABB when the
+// object has one, else the unit scale box) - the sweep radius that keeps the
+// whole object clear of walls while carried or in flight.
+float TerrainGame::objectHalfExtent(const RuntimeObject& o) const {
+  float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
+        ez = 0.5F * o.data.scale[2];
+  const GameModel* gm = nullptr;
+  if (o.data.type == 5 && o.data.model >= 0 &&
+      o.data.model < (int)gameModels.size())
+    gm = &gameModels[o.data.model];
+  const SkelModel* anim = nullptr;
+  if (o.data.type == 5 && o.data.animModel >= 0 &&
+      o.data.animModel < (int)gameAnimModels.size())
+    anim = gameAnimModels[o.data.animModel].src.get();
+  const float* mn = gm ? gm->mn : (anim ? anim->min : nullptr);
+  const float* mx = gm ? gm->mx : (anim ? anim->max : nullptr);
+  if (mn && mx) {
+    ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
+    ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
+    ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
+  }
+  float r = ex > ey ? ex : ey;
+  if (ez > r) r = ez;
+  if (r < 0.05F) r = 0.05F;
+  return r;
+}
+
+// Carried + thrown pickable objects. The carried one rides PICK_CARRY_DIST in
+// front of the face, swept against the world each frame so it can neither be
+// pushed through a wall nor parked behind one - blocked reach just brings it
+// closer. It keeps colliding with the world (the sweep) but not with its
+// carrier (collidePlayer/springArm skip it), so it cannot wedge the player.
+// BTN_USE drops it in place - already a swept, legal spot - and BTN_THROW
+// launches it when the object allows that.
+void TerrainGame::updateCarriedObject() {
+  // In-flight object: integrate under gravity, sweep each step, stop on hit.
+  if (thrownIndex >= 0) {
+    RuntimeObject& o = runtimeObjects[thrownIndex];
+    if (!o.active || !o.visible) {
+      thrownIndex = -1;
+    } else {
+      const float r = objectHalfExtent(o);
+      thrownVel[1] -= GRAVITY * g_frameDt * g_frameDt;
+      const float stepLen =
+          sqrtf(thrownVel[0] * thrownVel[0] + thrownVel[1] * thrownVel[1] +
+                thrownVel[2] * thrownVel[2]);
+      bool stop = stepLen < 0.0005F;
+      if (!stop) {
+        const float ix = 1.0F / stepLen;
+        const float d = sweepSphere(
+            o.data.position[0], o.data.position[1], o.data.position[2],
+            thrownVel[0] * ix, thrownVel[1] * ix, thrownVel[2] * ix, stepLen,
+            r, thrownIndex);
+        o.data.position[0] += thrownVel[0] * ix * d;
+        o.data.position[1] += thrownVel[1] * ix * d;
+        o.data.position[2] += thrownVel[2] * ix * d;
+        stop = d < stepLen;  // hit something on the way
+      }
+      // Ground rest matches updateObjectPhysics, so the handoff is seamless.
+      const float floorY =
+          terrainHeightAt(o.data.position[0], o.data.position[2]) +
+          0.5F * o.data.scale[1];
+      if (o.data.position[1] <= floorY) {
+        o.data.position[1] = floorY;
+        stop = true;
+      }
+      o.dirty = true;
+      if (stop) {
+        o.velocityY = 0.0F;  // physics objects settle from here
+        thrownIndex = -1;
+      }
+    }
+  }
+
+  if (carryIndex < 0) return;
+  RuntimeObject& o = runtimeObjects[carryIndex];
+  // Despawned or hidden mid-carry (flow graph): the hands just open.
+  if (!o.active || !o.visible) {
+    carryIndex = -1;
+    return;
+  }
+
+  Vec4 dir = cameraLookAt - cameraPosition;
+  const float dirLen = sqrtf(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+  if (dirLen < 0.0001F) return;
+  dir.x /= dirLen, dir.y /= dirLen, dir.z /= dirLen;
+
+  // Carry origin: the eye in first person; the avatar's head (the camera
+  // pivot) in third person - "in front of the face" means the avatar's face,
+  // not a camera floating meters behind it.
+  float ox = cameraPosition.x, oy = cameraPosition.y, oz = cameraPosition.z;
+  if (PLAYER_MODE == 2) {
+    ox = cameraLookAt.x, oy = cameraLookAt.y, oz = cameraLookAt.z;
+  }
+
+  const float r = objectHalfExtent(o);
+  float d = sweepSphere(ox, oy, oz, dir.x, dir.y, dir.z, PICK_CARRY_DIST + r,
+                        r, carryIndex);
+  const float minReach = 0.55F + r;  // never inside the carrier
+  if (d < minReach) d = minReach;
+  o.data.position[0] = ox + dir.x * d;
+  o.data.position[1] = oy + dir.y * d;
+  o.data.position[2] = oz + dir.z * d;
+  o.velocityY = 0.0F;
+  o.dirty = true;
+
+  const auto& clicked = engine->pad.getClicked();
+  if (carryGrabbed) {
+    carryGrabbed = false;  // the press that grabbed it is not a drop
+  } else if (clicked.BTN_USE) {
+    carryIndex = -1;
+  } else if (o.data.pickThrow && clicked.BTN_THROW) {
+    thrownIndex = carryIndex;
+    carryIndex = -1;
+    thrownVel[0] = dir.x * PICK_THROW_SPEED * g_frameDt;
+    thrownVel[1] = dir.y * PICK_THROW_SPEED * g_frameDt;
+    thrownVel[2] = dir.z * PICK_THROW_SPEED * g_frameDt;
+  }
 }
 
 // --- Memory card save menu ----------------------------------------------
@@ -4686,7 +4864,15 @@ constexpr float CAM_RADIUS = 0.3F;    // eye clearance kept off surfaces; must
 constexpr float CAM_MIN_DIST = 0.6F;  // never pull closer than this to the head
 float TerrainGame::springArm(float px, float py, float pz, float dx, float dy,
                              float dz, float maxDist) const {
-  const float r = CAM_RADIUS;
+  // Camera boom: the camera's own radius, ignoring the carried object (it
+  // rides right in front of the face and must never shove the camera).
+  return sweepSphere(px, py, pz, dx, dy, dz, maxDist, CAM_RADIUS, carryIndex);
+}
+
+float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
+                               float dy, float dz, float maxDist, float radius,
+                               int skipIndex) const {
+  const float r = radius;
   float best = maxDist;
 
   // Broad-phase key: the boom segment's AABB, expanded by the camera radius.
@@ -4696,13 +4882,15 @@ float TerrainGame::springArm(float px, float py, float pz, float dx, float dy,
   const float sminY = (py < qy ? py : qy) - r, smaxY = (py > qy ? py : qy) + r;
   const float sminZ = (pz < qz ? pz : qz) - r, smaxZ = (pz > qz ? pz : qz) + r;
 
-  for (const RuntimeObject& o : runtimeObjects) {
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    const RuntimeObject& o = runtimeObjects[oi];
+    if (oi == skipIndex) continue;  // the swept object itself
     if (!o.active || !o.visible) continue;
     const int ty = o.data.type;
     if (ty == 4 || ty == 6 || ty == 7 || ty == 8 || ty == 9 || ty == 11 ||
         ty == 13 || ty == 14)
       continue;  // markers / emitters / decals / the avatar - not blockers
-    if (o.data.collision == 2) continue;  // "none": the camera passes through
+    if (o.data.collision == 2) continue;  // "none": the sweep passes through
 
     // World AABB, sized exactly like box-mode player collision (the real mesh
     // or baked anim AABB when the object has one, else the unit scale box).
@@ -5335,7 +5523,10 @@ void TerrainGame::rebuildObjectGeometry(int index) {
 void TerrainGame::updateObjectPhysics() {
   // GRAVITY is units/s^2
   const float gravityPerFrame = GRAVITY * g_frameDt * g_frameDt;
-  for (RuntimeObject& o : runtimeObjects) {
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    RuntimeObject& o = runtimeObjects[oi];
+    // Carried/thrown objects are driven by updateCarriedObject this frame.
+    if (oi == carryIndex || oi == thrownIndex) continue;
     if (!o.active || !o.data.physics) continue;
     const float half = 0.5F * o.data.scale[1];
     const float floorY =
@@ -6404,6 +6595,7 @@ void TerrainGame::loop() {
   if (!menuOwnsPad) {
     if (!updatePlayerEntity()) updatePlayer();
     updateUseTarget();
+    updateCarriedObject();
   }
 
   scriptCtx.playerPosition = cameraPosition;
@@ -6763,10 +6955,17 @@ static const char* TPL_CONTROLS_HPP =
 #define BTN_JUMP Cross
 #define BTN_FLY_UP Cross     // noclip: ascend
 #define BTN_FLY_DOWN Square  // noclip: descend
+#define BTN_THROW Circle     // throw a carried pickable object ("Can throw")
 
 // "Use" interaction (objects marked usable in the editor)
 constexpr float USE_DISTANCE = 4.0F;   // max distance to the object surface
 constexpr float USE_LOOK_DOT = 0.92F;  // how directly you must look (cos angle)
+
+// Pickable objects (marked pickable in the editor). Defines, not constexpr:
+// the game cpp falls back with #ifndef when an owned copy of this file
+// predates them.
+#define PICK_CARRY_DIST 2.2F    // carry reach in front of the face
+#define PICK_THROW_SPEED 14.0F  // launch speed, units/s
 )";
 
 // 64x64 white crosshair, PNG (372 bytes)
@@ -8022,6 +8221,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int model;    // index into MODEL_PATHS / gameModels, -1 = none\n"
            "  int material; // primitives: index into MATERIAL_PATHS, -1 = plain color\n"
            "  int usable;   // 1 = shows the USE prompt up close (see controls.hpp)\n"
+           "  int pickable; // 1 = BTN_USE picks it up and carries it in front of\n"
+           "                // the camera; BTN_USE again drops it\n"
+           "  int pickThrow; // 1 = a carried object launches with BTN_THROW\n"
            "  int emitKind;   // emitters: 0 fire, 1 smoke, 2 fog, 3 sparks, 4 rain,\n"
            "                  // 5 custom (physics below)\n"
            "  int emitCount;  // emitters: particle pool size (density)\n"
@@ -8077,6 +8279,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             // added `reflected` here but missed this row (build break for
             // any project with an empty scene).
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
+                   "0, 0, "
                    "0, 0, 0.0F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, "
                    "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, \"\", 1, 1, "
                    "1.0F, 1, -1},\n";
@@ -8101,6 +8304,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << ", "
                     // save points are always usable - USE is how they open
                     << ((o.usable || o.type == PrimitiveType::SavePoint) ? 1 : 0)
+                    << ", " << (o.pickable ? 1 : 0) << ", "
+                    << (o.pickThrow ? 1 : 0)
                     << ", " << o.emitterKind << ", "
                     << o.emitterCount << ", " << floatLit(o.emitterSize) << ", "
                     << (o.emitterEnabled ? 1 : 0) << ", "

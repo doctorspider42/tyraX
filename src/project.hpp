@@ -140,6 +140,10 @@ struct SceneObject {
     float color[3] = {0.6f, 0.6f, 0.6f};  // neutral gray (specialized types override)
     bool physics = false;     // falls with gravity in the game
     bool usable = false;      // shows the USE prompt up close; BTN_USE fires On Used
+    bool pickable = false;    // BTN_USE picks it up: carried in front of the
+                              // camera (swept against the world so it cannot
+                              // be pushed through walls), BTN_USE again drops
+    bool pickThrow = false;   // carried object can be thrown with BTN_THROW
     bool saveState = false;   // position/color/visibility persisted in save slots
     // Player collision: 0 = box (models use their real mesh AABB), 1 = mesh
     // (models only: per-triangle - ramps/stairs are walkable), 2 = none
@@ -313,6 +317,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
     return a.id == b.id && a.name == b.name && a.type == b.type && eq3(a.position, b.position) &&
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
            a.physics == b.physics && a.usable == b.usable &&
+           a.pickable == b.pickable && a.pickThrow == b.pickThrow &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
            a.layer == b.layer &&
            a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
