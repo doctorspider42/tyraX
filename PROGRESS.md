@@ -10,6 +10,25 @@ Each finished feature lands as its own commit.
 
 ## Done in the lighting batch
 
+- (122) **Pad-walk feedback #2: shadows/pools vanishing with a step
+  sideways - the missing fullClipChecks.** Owner repro: the monolith's
+  projected shadow visible from one spot, gone one step left. Root cause
+  found with a debug boot (patch drawn untextured solid red): the red
+  quad CUT OFF at a hard vertical line mid-screen - the classic
+  fast-culling artifact. Every other runtime bag in the game sets
+  `fullClipChecks = true`; the five NEW bag types from this batch (proj-
+  shadow receiver patches, light pools, blob shadows, beam coronas and
+  cones) left it at the default false, so their PARTIALLY_IN_FRUSTUM
+  packages went through per-triangle ADC culling - and these are BIG
+  near-camera triangles (2-3 world units per cell), so a triangle
+  crossing a screen edge dropped WHOLE, punching giant holes that came
+  and went with the camera (far away the bag is fully in frustum, hence
+  every earlier distant screenshot looked fine). Fix: fullClipChecks on
+  on all five; crossing triangles now clip. **Verified** (Layer 3):
+  reproducing close-spawn boot (-2,0,4) - before: the red debug patch
+  cut at a vertical line + shadows absent; after: the monolith's shadow
+  renders continuously to the screen edge, pools/blob/beams intact,
+  50 FPS on the SW renderer.
 - (121) **Pad-walk feedback fixes: rectangular light-pool seams + the
   example's plaza past the map edge.** The owner walked examples/lighting
   and found (a) a torch pool cut into a hard rectangle and (b) "a hole in

@@ -5161,6 +5161,7 @@ void TerrainGame::setupLightBeams() {
     b.coronaInfo->shadingType = TyraShadingFlat;
     b.coronaInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     b.coronaInfo->zTestType = PipelineZTest_TestOnly;  // occluded, no z write
+    b.coronaInfo->fullClipChecks = true;  // near-camera quad: clip, not drop
     b.coronaColorBag = std::make_unique<StaPipColorBag>();
     b.coronaColorBag->single = &b.coronaColor;
     b.coronaTexBag = std::make_unique<StaPipTextureBag>();
@@ -5182,6 +5183,7 @@ void TerrainGame::setupLightBeams() {
       b.coneInfo->shadingType = TyraShadingGouraud;
       b.coneInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
       b.coneInfo->zTestType = PipelineZTest_TestOnly;
+      b.coneInfo->fullClipChecks = true;  // walk-through shafts: clip, not drop
       b.coneColorBag = std::make_unique<StaPipColorBag>();
       b.coneColorBag->many = b.coneColors.data();
       b.coneBag = std::make_unique<StaPipBag>();
@@ -5230,6 +5232,7 @@ void TerrainGame::setupLightPools() {
     b.info->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     b.info->zTestType = PipelineZTest_TestOnly;  // never writes z
     b.info->dynLightPick = false;  // it IS the light - never re-lit
+    b.info->fullClipChecks = true;  // big near-camera quads: clip, not drop
     b.colorBag = std::make_unique<StaPipColorBag>();
     b.colorBag->single = &b.color;
     b.texBag = std::make_unique<StaPipTextureBag>();
@@ -5323,6 +5326,7 @@ void TerrainGame::setupBlobShadows() {
     b.info->shadingType = TyraShadingFlat;
     b.info->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     b.info->zTestType = PipelineZTest_TestOnly;  // never writes z
+    b.info->fullClipChecks = true;  // near-camera quad: clip, not drop
     b.colorBag = std::make_unique<StaPipColorBag>();
     b.colorBag->single = &b.color;
     b.texBag = std::make_unique<StaPipTextureBag>();
@@ -5402,6 +5406,9 @@ void TerrainGame::setupProjShadows() {
     b.info->shadingType = TyraShadingFlat;
     b.info->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     b.info->zTestType = PipelineZTest_TestOnly;  // never writes z
+    b.info->fullClipChecks = true;  // big near-camera triangles: crossing
+                                    // ones must CLIP, not drop whole (a
+                                    // dropped 3-unit ground quad is a hole)
     b.colorBag = std::make_unique<StaPipColorBag>();
     b.colorBag->single = &b.color;
     b.texBag = std::make_unique<StaPipTextureBag>();
