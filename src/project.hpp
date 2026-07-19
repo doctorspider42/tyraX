@@ -1180,6 +1180,11 @@ std::string load(Project& out, const std::string& projectDir);
 // gizmo, view mode) and the window layout are taken from the Project fields.
 std::string save(const Project& p);
 
+// A flow graph as the project-file JSON ("nodes"/"links"/"nextId" - the same
+// shape stored inside objects/<id>.json). Used by the headless --dump-graph
+// CLI so AI agents can read a graph without parsing the whole object file.
+std::string flowGraphToJson(const FlowGraph& fg);
+
 // --- Terrain heightmap -------------------------------------------------------
 
 // Vertex grid dimensions for the ACTIVE scene terrain size + detail cap.

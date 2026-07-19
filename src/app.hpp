@@ -8,6 +8,7 @@
 
 #include <imgui.h>  // ImGuiStyle baseStyle_ member (UI scaling)
 
+#include "aigen.hpp"
 #include "camtake.hpp"
 #include "history.hpp"
 #include "isoexport.hpp"
@@ -361,6 +362,9 @@ private:
     // Parent folder proposed as the location for new projects (Edit >
     // Preferences). Empty = fall back to ~/TyraProjects.
     std::string globalDefaultProjectsDir_;
+    // AI assistant backend for flow-graph generation (editor.ini; Edit >
+    // Preferences > AI assistant). Model "" = the backend's default.
+    aigen::Config globalAi_;
     // Selection index the orbit pivot was last snapped to; -1 = none. Lets
     // "orbit around selection" re-center only when the selection changes.
     int navFocusedIndex_ = -1;
@@ -438,6 +442,10 @@ private:
     // Clipboard for flow-graph copy/paste: the copied nodes plus the links that
     // connect two of them (dangling links are dropped). nextId is unused.
     FlowGraph flowClipboard_;
+    // Node-description tooltip (FlowNodeType::desc): node the mouse rests on
+    // and since when - shown after a short delay, reset on hover change.
+    int flowDescNode_ = -1;
+    double flowDescSince_ = 0.0;
 
     // Viewport overlays: TV frames (PAL 4:3 and NTSC, which shows a
     // slightly wider slice of the same 512x448 buffer)
@@ -724,6 +732,10 @@ private:
     int newWidth_ = 64;
     int newDepth_ = 64;
     int newTemplate_ = 0;  // 0 = empty, 1 = fpp
+    // "Add AI support": install the assistant skill files (aisupport.hpp)
+    // into the fresh project. Also available later in Project Preferences.
+    bool newAiClaude_ = false;
+    bool newAiCopilot_ = false;
     std::string newProjectError_;
 
     // "New script" modal state. newScriptAttachTo_ >= 0 = attach the created
@@ -792,6 +804,26 @@ private:
     char prefEmulatorPath_[512] = "";  // PCSX2 exe path (auto-detect if empty)
     char prefPs2Ip_[64] = "";          // ps2link IP for Run on PS2
     char prefDefaultProjectsDir_[512] = "";  // default parent folder for new projects
+    int prefAiBackend_ = 0;            // index into aigen::backendIds()
+    char prefAiModel_[128] = "";       // "" = the backend's default model
+    // Model combo shows "Custom..." + a free-text field when the staged model
+    // is not one of the backend's listed models (or the user picked Custom).
+    bool prefAiCustomModel_ = false;
+    bool prefAiThinking_ = false;
+
+    // "Generate with AI" modal (Flow Graph window). The Generator runs on its
+    // own worker thread; the modal polls it every frame, shows a spinner and a
+    // Cancel button while busy, and applies the parsed graph via commitChange
+    // on success. aiGenTargetObject_ pins the graph owner at request time so a
+    // changed selection can't retarget an in-flight reply.
+    bool openAiGeneratePopup_ = false;
+    char aiPromptBuf_[2048] = "";
+    int aiGenTargetObject_ = -1;
+    bool aiGenInFlight_ = false;    // a started request's result is unconsumed
+    aigen::Generator aiGen_;
+    std::string aiGenError_;        // backend/parse failure shown in the modal
+    std::string aiGenWarnings_;     // non-fatal parse notes (dropped links...)
+    void drawAiGenerateModal();
 
     // "Debug" window: tails a log from disk (reloaded, throttled). Source 0 is
     // the game's own log (bin/log.txt, written by TYRA_LOG); source 1 is the
