@@ -97,7 +97,15 @@ with a dedicated 128×128 z-buffer — "reflected" scene objects submitted
 inside the bracket occlude correctly — + `RendererCore3D::pushEnvView/
 popEnvView`; exposed as a VRAM-resident `Texture::vramResident` that
 `useTexture` binds without a PATH3 upload — see
-`docs/reflective-materials.md`), `physics/CollisionMesh` (XZ-grid
+`docs/reflective-materials.md`), the **scene dynamic lights** registry
+(`RendererCore::dynLights[8]` + `clearDynLights`/`addDynPointLight`/
+`pickDynLight`; the color VU1 programs have ONE spot-light slot per mesh, so
+`StaPipCore::render` picks the strongest contributor - flashlight or point
+light - per bag on its world bounding sphere and routes it through
+`StaPipQBufferRenderer::setBagLight`; a *point* light is expressed through
+the SAME spot-cone constants - zero direction, `cosCut2 = -1`, saturated
+`invSoft` - so no VU1 program changed and no micro memory was spent),
+`physics/CollisionMesh` (XZ-grid
 triangle collider) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
 TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot),
 `renderer/models/unique_id.hpp` (`generateUniqueId()`) replacing upstream's

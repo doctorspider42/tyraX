@@ -261,6 +261,12 @@ struct SceneObject {
     // is the shared `color` field above.
     float lightBright = 1.0f;   // intensity added on top of the scene ambient
     float lightRadius = 8.0f;   // world units; contribution fades linearly to 0
+    // Dynamic (live) point light: instead of baking into vertex colors at
+    // build, the game registers it every frame and the engine lights nearby
+    // meshes through the VU1 spot-light slot - it can flicker and be driven
+    // by the Set Light flow node. Max 8 dynamic lights per scene.
+    bool lightDynamic = false;
+    float lightFlicker = 0.0f;  // 0 = steady .. 1 = full torch-like flicker
 
     // Camera entity parameter (used when type == Camera): vertical field of
     // view in degrees. A Cutscene Director shot bound to this camera applies
@@ -352,6 +358,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.soundRange == b.soundRange && a.soundInterval == b.soundInterval &&
            a.soundOnPlayer == b.soundOnPlayer &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
+           a.lightDynamic == b.lightDynamic && a.lightFlicker == b.lightFlicker &&
            a.cameraFov == b.cameraFov &&
            a.mirrorObjects == b.mirrorObjects &&
            a.mirrorReflectPlayer == b.mirrorReflectPlayer &&
@@ -481,6 +488,16 @@ struct ProjectSettings {
     float lightColor[3] = {1.0f, 1.0f, 1.0f};    // tints the diffuse term
     float brightness = 1.0f;                     // global multiplier (0..2)
 
+    // Sun lens flare (0 = off, else brightness 0..1): additive sprites along
+    // the sun->screen-center axis, drawn after the 3D scene under the HUD,
+    // occluded by geometry/terrain via one ray cast per frame. The sun sits
+    // infinitely far along lightDir; its tint follows lightColor.
+    float flare = 0.0f;
+    // God rays / light shafts from the sun (0 = off, else strength 0..1):
+    // a bright-pass + radial blur toward the sun's screen position on the GS
+    // (reuses the bloom blur chain), composited additively after the scene.
+    float godRays = 0.0f;
+
     // Terrain material (.mtl asset; empty = checker greens). The first
     // material's Kd tints the terrain; its map_Kd (when present) textures it,
     // tiled by the map's "-s" scale (repeats per world unit), otherwise the
@@ -558,6 +575,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
            a.grain == b.grain && a.dofAmount == b.dofAmount &&
            a.dofFocus == b.dofFocus && a.dofRange == b.dofRange &&
+           a.flare == b.flare && a.godRays == b.godRays &&
            a.fogEnabled == b.fogEnabled &&
            eq3(a.fogColor, b.fogColor) && a.fogStart == b.fogStart &&
            a.fogEnd == b.fogEnd &&
@@ -580,7 +598,7 @@ struct SceneOverrides {
     bool sky = false;         // skyColor, skyTopColor, skyDome
     bool clipping = false;    // clipping mode
     bool terrainMat = false;  // terrainMaterial
-    bool postFx = false;      // bloom, grain, depth of field
+    bool postFx = false;      // bloom, grain, depth of field, flare, god rays
     bool fog = false;         // fogEnabled, fogColor, fogStart, fogEnd
     bool highlight = false;   // highlightUsable + distance/color/width/steps
 };

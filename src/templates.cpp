@@ -751,6 +751,9 @@ class TerrainGame : public Tyra::Game {
   std::vector<float> hudTextDur;         // ScriptContext::textDuration
   std::vector<unsigned char> hudTextOn;  // visible this frame
   std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
+  // Dynamic point lights (Set Light flow node), per scene-object index.
+  std::vector<signed char> lightReq;     // ScriptContext::lightRequest
+  std::vector<float> lightIntens;        // ScriptContext::lightIntensity
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
@@ -1156,6 +1159,9 @@ class TerrainGame : public Tyra::Game {
   std::vector<float> hudTextDur;         // ScriptContext::textDuration
   std::vector<unsigned char> hudTextOn;  // visible this frame
   std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
+  // Dynamic point lights (Set Light flow node), per scene-object index.
+  std::vector<signed char> lightReq;     // ScriptContext::lightRequest
+  std::vector<float> lightIntens;        // ScriptContext::lightIntensity
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
@@ -1397,11 +1403,34 @@ struct BakedPointLight {
   float radius, bright;
 };
 std::vector<BakedPointLight> g_scenePointLights;
+
+/** Dynamic point lights (type 9 + lightDynamic): NOT baked - registered with
+ * the engine every frame (updateDynLights), so they can flicker, move with
+ * their runtime object and be switched by the Set Light flow node. The
+ * engine lights each mesh with its strongest dynamic light (one VU1 light
+ * slot per mesh; the camera flashlight competes in the same pick). */
+struct DynLightRt {
+  int objIndex;            // index into SCENE_OBJECTS / ctx.objects
+  bool on = true;          // Set Light switch (persists until changed)
+  float intensity = 1.0F;  // Set Light multiplier on the authored brightness
+};
+std::vector<DynLightRt> g_dynLights;
+float g_dynLightTime = 0.0F;
+
 void collectScenePointLights() {
   g_scenePointLights.clear();
+  g_dynLights.clear();
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     const SceneObjectData& L = SCENE_OBJECTS[i];
     if (L.type != 9) continue;
+    if (L.lightDynamic) {
+      if ((int)g_dynLights.size() < (int)Tyra::RendererCore::DYN_LIGHTS_MAX) {
+        DynLightRt d;
+        d.objIndex = i;
+        g_dynLights.push_back(d);
+      }
+      continue;  // never baked - the engine lights it live
+    }
     BakedPointLight b;
     b.pos = {L.position[0], L.position[1], L.position[2]};
     b.color[0] = L.color[0];
@@ -1410,6 +1439,50 @@ void collectScenePointLights() {
     b.radius = L.lightRadius > 0.01F ? L.lightRadius : 0.01F;
     b.bright = L.lightBright;
     g_scenePointLights.push_back(b);
+  }
+}
+
+/** Applies Set Light requests and registers this frame's dynamic point
+ * lights with the engine (additive VU1 lighting, 128 = +1.0 - roughly the
+ * baked lights' scale). Runs every frame before beginFrame in both loops.
+ * Hidden / streamed-out light objects go dark; flicker is a two-sine wobble
+ * phase-offset per light, frozen while a pausing menu owns the frame. */
+void updateDynLights(Tyra::Engine* engine, ScriptContext& ctx) {
+  auto& core = engine->renderer.core;
+  core.clearDynLights();
+  if (g_dynLights.empty()) return;
+  if (!g_gameplayPaused) g_dynLightTime += g_frameDt;
+  for (DynLightRt& L : g_dynLights) {
+    if (ctx.lightRequest && ctx.lightRequest[L.objIndex] >= 0) {
+      L.on = ctx.lightRequest[L.objIndex] != 0;
+      ctx.lightRequest[L.objIndex] = -1;
+    }
+    if (ctx.lightIntensity && ctx.lightIntensity[L.objIndex] >= 0.0F) {
+      L.intensity = ctx.lightIntensity[L.objIndex];
+      ctx.lightIntensity[L.objIndex] = -1.0F;
+    }
+    if (!L.on || !ctx.objects || L.objIndex >= ctx.objectCount) continue;
+    const RuntimeObject& ro = ctx.objects[L.objIndex];
+    if (!ro.visible || !ro.active) continue;
+    const SceneObjectData& d = ro.data;  // live copy - Move Object works
+    float k = d.lightBright * L.intensity;
+    if (d.lightFlicker > 0.0F) {
+      const float p = (float)(L.objIndex % 7) * 1.9F;
+      float w = 0.5F + 0.35F * sinf(g_dynLightTime * 11.7F + p) +
+                0.15F * sinf(g_dynLightTime * 23.3F + p * 2.1F);
+      if (w < 0.0F) w = 0.0F;
+      if (w > 1.0F) w = 1.0F;
+      k *= 1.0F - d.lightFlicker * (1.0F - w);
+    }
+    if (k <= 0.0F) continue;
+    auto ch = [&](float c) {
+      float v = c * 128.0F * k;
+      return v > 255.0F ? 255.0F : v;
+    };
+    core.addDynPointLight(
+        Tyra::Color(ch(d.color[0]), ch(d.color[1]), ch(d.color[2])),
+        Tyra::Vec4(d.position[0], d.position[1], d.position[2], 1.0F),
+        d.lightRadius > 0.01F ? d.lightRadius : 0.01F);
   }
 }
 
@@ -2320,6 +2393,9 @@ void TerrainGame::loop() {
   } else {
     engine->renderer.core.disableSpotLight();
   }
+  // Dynamic point lights: apply Set Light requests + register this frame's
+  // lights (the engine picks the strongest per mesh, flashlight included).
+  updateDynLights(engine, scriptCtx);
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -3661,6 +3737,11 @@ void TerrainGame::loadScene(int sceneIndex) {
 
   scriptCtx.objects = runtimeObjects.data();
   scriptCtx.objectCount = (int)runtimeObjects.size();
+  // Dynamic point lights: request slots per object index (Set Light node).
+  lightReq.assign(runtimeObjects.empty() ? 1 : runtimeObjects.size(), -1);
+  lightIntens.assign(runtimeObjects.empty() ? 1 : runtimeObjects.size(), -1.0F);
+  scriptCtx.lightRequest = lightReq.data();
+  scriptCtx.lightIntensity = lightIntens.data();
   scriptCtx.scene = currentScene;
   scriptCtx.sceneGeneration = sceneGeneration;
   scriptCtx.layerState = layerState.data();
@@ -6440,6 +6521,9 @@ void TerrainGame::loop() {
   } else {
     engine->renderer.core.disableSpotLight();
   }
+  // Dynamic point lights: apply Set Light requests + register this frame's
+  // lights (the engine picks the strongest per mesh, flashlight included).
+  updateDynLights(engine, scriptCtx);
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -7176,18 +7260,29 @@ struct ScriptContext {
   float* textDuration = nullptr;
   int textCount = 0;
 
+  // Dynamic point lights (Set Light flow node), indexed by scene-object
+  // index like `objects`. lightRequest[i]: -1 = leave, 0 = off, 1 = on.
+  // lightIntensity[i]: < 0 = leave, else a multiplier on the light's
+  // authored brightness. Only meaningful on Point Light objects with the
+  // 'Dynamic (live)' flag; the game applies and resets both every frame.
+  signed char* lightRequest = nullptr;
+  float* lightIntensity = nullptr;
+
   // Camera flashlight master switch (the Player object's "Enabled"). Write 1
   // to turn it on, 0 to turn it off, -1 to leave it unchanged; the game
   // applies and resets it. The optional toggle button still gates the beam.
   int flashlight = -1;
 
   // Runtime graphics switches (Set Fog / Set Bloom / Set Grain / Set Particles
-  // flow nodes). fog / particles: -1 = leave, 0 = off, 1 = on. bloom / grain:
-  // -1 = leave, else a 0..128 fixed-point amount. The game applies and resets.
+  // / Set Lens Flare / Set God Rays flow nodes). fog / particles: -1 = leave,
+  // 0 = off, 1 = on. bloom / grain / flare / godRays: -1 = leave, else a
+  // 0..128 fixed-point amount. The game applies and resets.
   int fog = -1;
   int bloom = -1;
   int grain = -1;
   int particles = -1;
+  int flare = -1;
+  int godRays = -1;
 
   // Depth of field (Set Depth Of Field flow node). dof: -1 = leave, -2 =
   // restore the scene's authored setting (Tools > UI Editor), else a 0..128
@@ -7890,6 +7985,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "                     // (plain stereo, full volume, no distance/pan)\n"
            "  float lightBright; // point lights (type 9): baked intensity\n"
            "  float lightRadius; // point lights (type 9): falloff radius\n"
+           "  int lightDynamic;  // point lights: 1 = live (engine-lit each frame,\n"
+           "                     // Set Light / flicker work) instead of baked\n"
+           "  float lightFlicker; // dynamic lights: 0 steady .. 1 full wobble\n"
            "  int saveState;  // 1 = position/color/visibility persisted in saves\n"
            "  int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none\n"
            "  float drawDistance;  // not drawn farther than this from the camera;\n"
@@ -7918,10 +8016,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << "constexpr SceneObjectData SCENE_" << si << "_OBJECTS["
             << (objs.empty() ? (size_t)1 : objs.size()) << "] = {\n";
         if (objs.empty()) {
+            // NOTE: field-by-field aligned with SceneObjectData above - the
+            // pre-lightDynamic version was one short (a "" landed on the int
+            // animModel field), so empty scenes did not compile.
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
                    "0, 0, 0.0F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, "
-                   "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, \"\", 1, 1, "
-                   "1.0F, 1, -1},\n";
+                   "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0.0F, 0, -1, "
+                   "\"\", 1, 1, 1.0F, 1, -1},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
                 for (size_t i = 0; i < p.sounds.size(); ++i)
@@ -7958,7 +8059,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << ", " << floatLit(o.soundRange) << ", "
                     << floatLit(o.soundInterval) << ", " << (o.soundOnPlayer ? 1 : 0)
                     << ", " << floatLit(o.lightBright)
-                    << ", " << floatLit(o.lightRadius) << ", " << (o.saveState ? 1 : 0)
+                    << ", " << floatLit(o.lightRadius)
+                    << ", " << (o.lightDynamic ? 1 : 0)
+                    << ", " << floatLit(o.lightFlicker) << ", " << (o.saveState ? 1 : 0)
                     << ", " << o.collisionMode << ", "
                     << floatLit(o.drawDistance) << ", " << (o.reflected ? 1 : 0)
                     << ", " << animModelIndexOf(p, o)
@@ -9908,6 +10011,17 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 c << pad << obj << ".visible = true;\n";
             } else if (n.type == "HideObject") {
                 c << pad << obj << ".visible = false;\n";
+            } else if (n.type == "SetLight") {
+                // Request slots applied by updateDynLights before rendering.
+                // No-op on objects that are not dynamic point lights.
+                c << pad << "if (ctx.lightRequest && " << objIdx
+                  << " >= 0 && " << objIdx << " < ctx.objectCount) {\n";
+                c << pad << "  ctx.lightRequest[" << objIdx
+                  << "] = " << (n.num[0] != 0.0f ? 1 : 0) << ";\n";
+                c << pad << "  ctx.lightIntensity[" << objIdx
+                  << "] = " << floatLit(n.num[1] < 0.0f ? 0.0f : n.num[1])
+                  << ";\n";
+                c << pad << "}\n";
             } else if (n.type == "ToggleObject") {
                 c << pad << obj << ".visible = !" << obj << ".visible;\n";
             } else if (n.type == "MoveObjectBy") {
@@ -10007,11 +10121,16 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
             } else if (n.type == "SetParticles") {
                 c << pad << "ctx.particles = " << (n.num[0] != 0.0f ? "1" : "0")
                   << ";\n";
-            } else if (n.type == "SetBloom" || n.type == "SetGrain") {
+            } else if (n.type == "SetBloom" || n.type == "SetGrain" ||
+                       n.type == "SetFlare" || n.type == "SetGodRays") {
                 int v = (int)(n.num[0] * 128.0f + 0.5f);
                 if (v < 0) v = 0;
                 if (v > 128) v = 128;
-                c << pad << "ctx." << (n.type == "SetBloom" ? "bloom" : "grain")
+                c << pad << "ctx."
+                  << (n.type == "SetBloom"    ? "bloom"
+                      : n.type == "SetGrain"  ? "grain"
+                      : n.type == "SetFlare"  ? "flare"
+                                              : "godRays")
                   << " = " << v << ";\n";
             } else if (n.type == "SetDof") {
                 // Mode (num[3]): 0 = set the custom params, 1 = off,

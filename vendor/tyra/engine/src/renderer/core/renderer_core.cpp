@@ -114,6 +114,67 @@ void RendererCore::setSpotLight(const Color& color, const Vec4& position,
   const float halfAngle = cutoffDegrees * 3.14159265F / 180.0F;
   spot.cosCutoff = cosf(halfAngle);
   spot.softness = softness < 1.0F ? 1.0F : softness;
+  spot.point = false;
+}
+
+// Modified by TyraX: scene dynamic lights - a per-frame registry the StaPip
+// picks ONE light per mesh from (the color programs have a single light slot).
+int RendererCore::addDynPointLight(const Color& color, const Vec4& position,
+                                   const float& range) {
+  TYRA_ASSERT(range > 0.0F, "Dynamic point light range must be positive!");
+  if (dynLightCount >= DYN_LIGHTS_MAX) return -1;
+  auto& l = dynLights[dynLightCount];
+  l.enabled = true;
+  l.point = true;
+  l.position = position;
+  l.position.w = 1.0F;
+  l.color = color;
+  l.range = range;
+  return static_cast<int>(dynLightCount++);
+}
+
+const RendererCoreSpotLight* RendererCore::pickDynLight(
+    const Vec4& worldCenter, const float& worldRadius) const {
+  // Score = luminance * quadratic falloff at the sphere's NEAREST point, so
+  // a big mesh near a torch competes fairly with the camera flashlight.
+  const RendererCoreSpotLight* best = &spot;
+  float bestScore = -1.0F;
+
+  const RendererCoreSpotLight* candidates[DYN_LIGHTS_MAX + 1];
+  u32 count = 0;
+  if (spot.enabled) candidates[count++] = &spot;
+  for (u32 i = 0; i < dynLightCount; i++) candidates[count++] = &dynLights[i];
+
+  for (u32 i = 0; i < count; i++) {
+    const auto* l = candidates[i];
+    const float dx = l->position.x - worldCenter.x;
+    const float dy = l->position.y - worldCenter.y;
+    const float dz = l->position.z - worldCenter.z;
+    float d = sqrtf(dx * dx + dy * dy + dz * dz) - worldRadius;
+    if (d < 0.0F) d = 0.0F;
+    if (d >= l->range) continue;
+    const float att = 1.0F - d / l->range;
+    float score =
+        (l->color.r + l->color.g + l->color.b) * (1.0F / 3.0F) * att * att;
+    if (!l->point) {
+      // Spot cone: down-rank when the whole sphere sits outside the cone
+      // (approximate - sin(angle) ~ radius/distance). Never zero: an aimed
+      // flashlight sweeping onto a mesh must not pop a torch off mid-swing
+      // when both scores are close.
+      const float dist = d + worldRadius;
+      if (dist > 1e-4F) {
+        const float cosAng = -(dx * l->direction.x + dy * l->direction.y +
+                               dz * l->direction.z) /
+                             dist;
+        if (cosAng + worldRadius / dist < l->cosCutoff) score *= 0.05F;
+      }
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = l;
+    }
+  }
+  return best;
 }
 
 void RendererCore::beginFrame() {

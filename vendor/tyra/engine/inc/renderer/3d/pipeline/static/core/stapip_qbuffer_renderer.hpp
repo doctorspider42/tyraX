@@ -46,6 +46,11 @@ class StaPipQBufferRenderer {
   void sendObjectData(StaPipBag* bag, M4x4* mvp,
                       RendererCoreTextureBuffers* texBuffers);
 
+  // Modified by TyraX: the dynamic light this bag renders with (picked per
+  // bag by StaPipCore::render from the flashlight + scene lights). Null =
+  // fall back to the global flashlight state.
+  void setBagLight(const RendererCoreSpotLight* light) { bagLight = light; }
+
   void setMaxVertCount(const u32& count);
 
   void setInfo(PipelineInfoBag* bag);
@@ -129,6 +134,8 @@ class StaPipQBufferRenderer {
   // clip programs consume (see VU1_CLIP_CONSTS_ADDR / VU1_CLIP_PLANES_ADDR).
   bool vu1Clipping = false;
   float clipNearZ = 0.0F, clipFarZ = 0.0F;
+  // Modified by TyraX: per-bag dynamic light (see setBagLight).
+  const RendererCoreSpotLight* bagLight = nullptr;
 };
 
 }  // namespace Tyra

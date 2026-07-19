@@ -5,11 +5,52 @@ Each finished feature lands as its own commit.
 
 ## In progress
 
-- (nothing - the feature marathon batch is complete; see Backlog for next steps)
+- Lighting-effects batch: dynamic point lights (done, 113), sun lens flare,
+  god rays, dynamic light on animated models, visible beams, blob shadows.
+
+## Done in the lighting batch
+
+- (113) **Dynamic point lights — flickering torches with zero new VU1 code.**
+  Point Light objects gain a **Dynamic (live)** flag (+ **Flicker** 0..1):
+  instead of being baked into vertex colors at build, the light registers
+  with the engine every frame and lights nearby meshes through the SAME VU1
+  spot-light slot the camera flashlight uses. Two tricks make it ~free:
+  (1) a point light is expressed through the existing spot-cone constants
+  (zero direction + `cosCut2 = -1` + `invSoft = 1e4/objRange2` saturates the
+  cone term within ~1% of the range - the radial falloff alone shapes it),
+  so the VU1 programs are byte-identical, no micro-memory pressure; (2) the
+  color programs have ONE light slot per mesh, so `StaPipCore::render` now
+  **picks the strongest contributor per bag** (`RendererCore::pickDynLight`
+  on the bag's world bounding sphere from the frustum-bbox cache; flashlight
+  competes, spot candidates are down-ranked 20x when the sphere sits outside
+  their cone) and `sendObjectData`/the EE clipper consume the pick via
+  `setBagLight`. Engine: `RendererCoreSpotLight::point`, a per-frame
+  `dynLights[8]` registry (`clearDynLights`/`addDynPointLight`), the pick;
+  editor: the flag + flicker in Properties/JSON (`light.dynamic/flicker`),
+  `SceneObjectData.lightDynamic/lightFlicker`, bake skips dynamic lights,
+  `updateDynLights` in both game loops (two-sine wobble, frozen under pause;
+  hidden/streamed-out lights go dark; positions read from the live runtime
+  object so Move Object moves the pool of light), **Set Light flow node**
+  (On + Intensity via `ScriptContext::lightRequest/lightIntensity` request
+  slots), Live Link recipe hash covers the new fields. Also fixed in
+  passing: the empty-scene `SCENE_*_OBJECTS` placeholder row was one value
+  short since the `reflected` field landed (a `""` fell on the int
+  `animModel` - empty scenes did not compile). **Verified** (Layer 3):
+  editor builds clean; scratch fpp project (dynamic torch flicker 0.6 +
+  baked lamp + box + On Start -> Set Light(on, x2)) round-trips, codegen
+  shows the flag/flicker in the table + the request writes in
+  `flow_graph.gen.cpp`; Docker build (engine relink) exit 0; PCSX2
+  **software renderer** at 50 FPS shows the warm pool of light on the
+  terrain + the lit box face, and two screenshots ~0.7 s apart show clearly
+  different brightness (the flicker + x2 intensity working live). Docs:
+  README lighting bullet, tyra-engine-dev + tyra-editor-dev untouched
+  rules-wise (registry pattern documented in the engine skill).
 
 ## Also done after the marathon
 
-<<<<<<< HEAD
+<!-- NOTE: a past merge committed its conflict markers here; both sides were
+     real, parallel feature batches (reflections vs live-link/mirrors), which
+     is why 104-107 appear twice below. Markers removed, both kept. -->
 - (112) **Rounded reflection normals - flat surfaces stop reflecting "one
   pixel".** Owner's observation on the console: the mirror monolith showed
   a single uniform patch of the env map per face while the spheres "reflect
@@ -330,7 +371,6 @@ Each finished feature lands as its own commit.
   screenshot). The Material Editor preview shares the verified shader path;
   its interactive feel (picker, slider) still wants a hands-on pass. Docs:
   README, `docs/reflective-materials.md`, engine + editor skills.
-=======
 - (107) **Live Link v2 — per-project on/off + live add/delete of objects.**
   Two follow-ups to (106). First, the on/off is now a **project setting**
   (`ProjectSettings::liveLink`, default on; *Project > Preferences > Build*,
@@ -463,7 +503,6 @@ Each finished feature lands as its own commit.
   hands-on test with a .glb avatar; real-hardware A/B pending like every
   perf-adjacent change.
 
->>>>>>> origin/main
 - (103) **Over-the-shoulder camera offset.** `SceneObject::playerCamShoulder`
   (Properties > Third-person camera > **Shoulder**, default 0 = unchanged
   behavior) slides the third-person rig sideways, completing the camera offset:

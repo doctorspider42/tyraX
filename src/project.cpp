@@ -289,7 +289,9 @@ static std::string objectJson(const SceneObject& o) {
     }
     if (o.type == PrimitiveType::PointLight) {
         json += ", \"light\": { \"brightness\": " + fmtFloat(o.lightBright) +
-                ", \"radius\": " + fmtFloat(o.lightRadius) + " }";
+                ", \"radius\": " + fmtFloat(o.lightRadius) +
+                ", \"dynamic\": " + (o.lightDynamic ? "true" : "false") +
+                ", \"flicker\": " + fmtFloat(o.lightFlicker) + " }";
     }
     if (o.type == PrimitiveType::Camera) {
         json += ", \"camera\": { \"fov\": " + fmtFloat(o.cameraFov) + " }";
@@ -382,7 +384,9 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << ", \"grain\": " << fmtFloat(s.grain)
       << ", \"dofAmount\": " << fmtFloat(s.dofAmount)
       << ", \"dofFocus\": " << fmtFloat(s.dofFocus)
-      << ", \"dofRange\": " << fmtFloat(s.dofRange) << " }, \"fog\": { \"enabled\": "
+      << ", \"dofRange\": " << fmtFloat(s.dofRange)
+      << ", \"flare\": " << fmtFloat(s.flare)
+      << ", \"godRays\": " << fmtFloat(s.godRays) << " }, \"fog\": { \"enabled\": "
       << (s.fogEnabled ? "true" : "false") << ", \"color\": " << fmtVec3(s.fogColor)
       << ", \"start\": " << fmtFloat(s.fogStart) << ", \"end\": " << fmtFloat(s.fogEnd)
       << " }, \"highlight\": { \"usable\": "
@@ -448,6 +452,10 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
                     s.dofFocus = (float)v->numberOr(s.dofFocus);
                 if (const auto* v = pf->find("dofRange"))
                     s.dofRange = (float)v->numberOr(s.dofRange);
+                if (const auto* v = pf->find("flare"))
+                    s.flare = clamp01((float)v->numberOr(0.0));
+                if (const auto* v = pf->find("godRays"))
+                    s.godRays = clamp01((float)v->numberOr(0.0));
             }
             if (const auto* fg = st->find("fog")) {
                 if (const auto* v = fg->find("enabled")) s.fogEnabled = v->boolOr(false);
@@ -528,6 +536,8 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         r.dofAmount = o.dofAmount;
         r.dofFocus = o.dofFocus;
         r.dofRange = o.dofRange;
+        r.flare = o.flare;
+        r.godRays = o.godRays;
     }
     if (s.overrides.fog) {
         r.fogEnabled = o.fogEnabled;
@@ -664,6 +674,8 @@ std::string save(const Project& p) {
          << "    \"dofAmount\": " << fmtFloat(p.settings.dofAmount) << ",\n"
          << "    \"dofFocus\": " << fmtFloat(p.settings.dofFocus) << ",\n"
          << "    \"dofRange\": " << fmtFloat(p.settings.dofRange) << ",\n"
+         << "    \"flare\": " << fmtFloat(p.settings.flare) << ",\n"
+         << "    \"godRays\": " << fmtFloat(p.settings.godRays) << ",\n"
          << "    \"fogEnabled\": " << (p.settings.fogEnabled ? "true" : "false")
          << ",\n"
          << "    \"fogColor\": " << fmtVec3(p.settings.fogColor) << ",\n"
@@ -1424,6 +1436,12 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (const auto* v = lt->find("radius"))
                 o.lightRadius = (float)v->numberOr(8.0);
             if (o.lightRadius < 0.1f) o.lightRadius = 0.1f;
+            if (const auto* v = lt->find("dynamic"))
+                o.lightDynamic = v->type == json::Value::Type::Bool && v->boolean;
+            if (const auto* v = lt->find("flicker"))
+                o.lightFlicker = (float)v->numberOr(0.0);
+            if (o.lightFlicker < 0.0f) o.lightFlicker = 0.0f;
+            if (o.lightFlicker > 1.0f) o.lightFlicker = 1.0f;
         }
         if (const auto* cm = jo.find("camera")) {
             if (const auto* v = cm->find("fov")) o.cameraFov = (float)v->numberOr(60.0);
@@ -1635,6 +1653,10 @@ std::string load(Project& out, const std::string& projectDir) {
             st.dofFocus = (float)v->numberOr(st.dofFocus);
         if (const auto* v = s->find("dofRange"))
             st.dofRange = (float)v->numberOr(st.dofRange);
+        if (const auto* v = s->find("flare"))
+            st.flare = clamp01((float)v->numberOr(0.0));
+        if (const auto* v = s->find("godRays"))
+            st.godRays = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("fogEnabled"))
             st.fogEnabled = v->type == json::Value::Type::Bool && v->boolean;
         readVec3(s->find("fogColor"), st.fogColor);
@@ -2551,6 +2573,9 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     if (o.type == PrimitiveType::PointLight) {
         fnvMix3(h, o.position), fnvMix3(h, o.color);
         fnvMixF(h, o.lightBright), fnvMixF(h, o.lightRadius);
+        // Dynamic lights live in a baked side table (DYN_LIGHTS) - flipping
+        // the flag or the flicker needs a rebuild like any baked change.
+        fnvMixF(h, o.lightDynamic ? 1.0f : 0.0f), fnvMixF(h, o.lightFlicker);
     }
     return h;
 }
