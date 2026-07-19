@@ -16,6 +16,7 @@
 #include <stb_image_write.h>  // implementation lives in menubake.cpp
 
 #include "decalproj.hpp"
+#include "fbxparser.hpp"
 #include "glbparser.hpp"
 #include "menubake.hpp"
 #include "navmesh.hpp"
@@ -13024,7 +13025,7 @@ std::vector<File> bakeAnimAssets(const Project& p,
 
         glbparser::Skel skel;
         std::string error;
-        if (!glbparser::parseSkel(full, skel, error)) {
+        if (!animimport::parseSkel(full, skel, error)) {
             warn(relPath + ": " + error);
             continue;
         }

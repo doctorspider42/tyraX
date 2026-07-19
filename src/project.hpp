@@ -300,10 +300,13 @@ struct SceneObject {
 
 const char* primitiveTypeName(PrimitiveType t);
 
-// Animated models are .glb files (baked to morph frames at build); static
-// models are .obj. Decides which import/render/codegen path an object takes.
+// Animated models are .glb or .fbx files (serialized to .tskl at build);
+// static models are .obj. Decides which import/render/codegen path an object
+// takes.
 inline bool isAnimatedModelPath(const std::string& path) {
-    return path.size() > 4 && path.compare(path.size() - 4, 4, ".glb") == 0;
+    if (path.size() <= 4) return false;
+    const std::string ext = path.substr(path.size() - 4);
+    return ext == ".glb" || ext == ".fbx";
 }
 
 inline bool operator==(const SceneObject& a, const SceneObject& b) {

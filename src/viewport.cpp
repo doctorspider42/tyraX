@@ -1,5 +1,7 @@
 #include "viewport.hpp"
 
+#include "fbxparser.hpp"
+
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -1665,7 +1667,7 @@ Viewport::AnimModelDraw* Viewport::animModelDraw(const std::string& relPath) {
     AnimModelDraw draw;
     std::string error;
     const std::string full = (std::filesystem::path(projectDir_) / relPath).string();
-    if (glbparser::bake(full, 12.0f, draw.baked, error)) {
+    if (animimport::bake(full, 12.0f, draw.baked, error)) {
         draw.ok = true;
         std::vector<uint32_t> imageTex(draw.baked.images.size(), 0);
         for (size_t i = 0; i < draw.baked.images.size(); ++i) {
