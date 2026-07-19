@@ -5614,11 +5614,13 @@ void App::drawFlowGraphWindow() {
                     "(Tools > UI Editor > Depth of field).");
             }
         } else if (n.type == "SetDisplayMode") {
+            // Order = Tyra::DisplayMode enum values (serialized in num[0]).
             const char* modes[] = {"Interlaced (480i/576i)",
-                                   "Progressive (480p)", "1080i"};
+                                   "Progressive (480p)", "1080i",
+                                   "Field rendering (480i/576i)"};
             int mode = (int)n.num[0];
-            mode = mode < 0 ? 0 : mode > 2 ? 2 : mode;
-            if (ImGui::Combo("Mode", &mode, modes, 3)) {
+            mode = mode < 0 ? 0 : mode > 3 ? 3 : mode;
+            if (ImGui::Combo("Mode", &mode, modes, 4)) {
                 n.num[0] = (float)mode;
                 changed = true;
             }
@@ -11662,7 +11664,7 @@ const OptionBlockSpec kOptionBlocks[] = {
     {"AIM CURVE", MenuEntry::Choice, "opt_stick_curve", 0.0f, MenuEntry::BindStickCurve,
      {"Linear", "Smooth", "Precise"}},
     {"DISPLAY", MenuEntry::Choice, "opt_display", 0.0f, MenuEntry::BindDisplayMode,
-     {"480i", "480p", "1080i"}},
+     {"480i", "480p", "1080i", "480i FIELD"}},
     {"ASPECT", MenuEntry::Toggle, "opt_widescreen", 0.0f, MenuEntry::BindWidescreen,
      {"4:3", "16:9"}},
 };
@@ -12214,8 +12216,9 @@ void App::drawMenusWindow() {
                 ImGui::SetTooltip(
                     "Drives a built-in setting from this row's option index,\n"
                     "spread evenly across the options: volume 0-100%%, deadzone\n"
-                    "0-0.4, aim curve 1-3, display 480i/480p/1080i, aspect\n"
-                    "4:3/16:9. None = a plain save-value row (flow graphs react).");
+                    "0-0.4, aim curve 1-3, display 480i/480p/1080i/480i FIELD,\n"
+                    "aspect 4:3/16:9. None = a plain save-value row (flow\n"
+                    "graphs react).");
             ImGui::Unindent(scaled(46.0f));
         }
         ImGui::PopID();
@@ -13756,22 +13759,32 @@ void App::drawPreferencesModal() {
         "Video signal of the built game (also on exported ISOs). Auto follows\n"
         "the console region. Game speed is normalized - PAL (50 Hz) and NTSC\n"
         "(60 Hz) play at the same wall-clock speed.");
-    int dispMode = prefSettings_.displayMode == "1080i"         ? 2
-                   : prefSettings_.displayMode == "progressive" ? 1
-                                                                : 0;
+    int dispMode = prefSettings_.displayMode == "1080i"              ? 3
+                   : prefSettings_.displayMode == "progressive"      ? 2
+                   : prefSettings_.displayMode == "interlaced-field" ? 1
+                                                                     : 0;
     const char* dispModeNames[] = {"Interlaced (480i/576i)",
+                                   "Interlaced, field rendering (480i/576i)",
                                    "Progressive scan (480p)", "1080i (HD)"};
-    if (ImGui::Combo("Display mode", &dispMode, dispModeNames, 3))
-        prefSettings_.displayMode =
-            dispMode == 2 ? "1080i" : dispMode == 1 ? "progressive" : "interlaced";
+    if (ImGui::Combo("Display mode", &dispMode, dispModeNames, 4))
+        prefSettings_.displayMode = dispMode == 3   ? "1080i"
+                                    : dispMode == 2 ? "progressive"
+                                    : dispMode == 1 ? "interlaced-field"
+                                                    : "interlaced";
     ImGui::TextDisabled(
         "Scan mode of the built game. Interlaced is the stock TV signal and\n"
-        "follows Target system. Progressive (flicker-free 480p) and 1080i\n"
-        "always run at 60 Hz and need component (YPbPr) cables on a real\n"
-        "console - PCSX2 displays every mode. 1080i renders a 448x540 frame\n"
-        "(sharper vertically) and leaves less VRAM for textures. Both can\n"
-        "also be switched at runtime with the Set Display Mode flow node,\n"
-        "which shows a keep-or-revert prompt with an automatic rollback.");
+        "follows Target system; it renders full 512x448 frames and each TV\n"
+        "field shows half the lines of the newest one. Field rendering\n"
+        "sends the same 480i/576i signal but renders a fresh half-height\n"
+        "(512x224) image for EVERY field - 50/60 distinct pictures per\n"
+        "second at full speed, for about half the fill and VRAM cost\n"
+        "(slightly softer static picture). Progressive (flicker-free 480p)\n"
+        "and 1080i always run at 60 Hz and need component (YPbPr) cables on\n"
+        "a real console - PCSX2 displays every mode. 1080i renders a\n"
+        "448x540 frame (sharper vertically) and leaves less VRAM for\n"
+        "textures. All can also be switched at runtime with the Set Display\n"
+        "Mode flow node, which shows a keep-or-revert prompt with an\n"
+        "automatic rollback.");
     ImGui::Checkbox("Widescreen (16:9)", &prefSettings_.widescreen);
     ImGui::TextDisabled(
         "Widens the projection so proportions are correct on a 16:9 TV\n"

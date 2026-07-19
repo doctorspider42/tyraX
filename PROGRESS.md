@@ -9,6 +9,49 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (114) **True field rendering: the `interlaced-field` display mode.**
+  Question from the owner: does the engine render once and scan the frame
+  out over two fields, or does each field get a fresh image? Finding: the
+  stock interlaced mode renders full 512x448 frames into a FIELD-scanned
+  (FFMD=0) buffer and `endFrame` waits on `graph_wait_vsync()`, which fires
+  per FIELD - so at full speed each field already shows a new frame, but
+  every one of those images pays full-height fill/geometry cost and the GS
+  scans out only half its lines. The new **InterlacedField** mode
+  (`DisplayMode::InterlacedField`, project pref `"displayMode":
+  "interlaced-field"`) is the classic retail recipe: half-height 512x224
+  frame/z buffers scanned with SMODE2.FFMD=FRAME (every buffer line, every
+  field), so the same 50/60 distinct-images-per-second now cost half the
+  fill - and the three screen buffers shrink from ~2.6 MB to ~1.3 MB of
+  VRAM, roughly doubling what's left for textures. Engine details: the
+  DISPLAY window is IDENTICAL to the stock mode (ps2sdk's
+  `graph_set_screen` mis-programs DY/DH for the interlaced+FRAME case, so
+  the registers are written directly via `setDtvDisplay(652/50 NTSC,
+  680/72 PAL, 2560, 448, 5x MAGH, 1x MAGV)`); no flicker filter (nothing
+  to blend); the game-facing coordinate space stays 512x448 - the
+  projection is built at the render height (raster scale only; the
+  world-space frustum comes from fov+aspect, so culling and frustum planes
+  are untouched), 2D sprites squeeze y by half in `RendererCore2D`
+  (upstream's own commented-out "interlacing" scaffolding, finally lit
+  up), and clears/post-fx/env-map restores use the new
+  `RendererSettings::getRenderHeightF()`. Per-field half-line alignment:
+  `flipBuffers` reads CSR.FIELD after the vsync, flips it (the frame being
+  rendered shows one field LATER) and appends an XYOFFSET write (+8 = 0.5
+  px on odd fields) to the flip packet - without it static geometry bobs a
+  full scan line at 25/30 Hz. Editor chain: 4th value in the Preferences
+  combo + tooltip, `SetDisplayMode` flow node Mode 3, menu option block
+  `480i FIELD` (bind idx = enum value), codegen `{{DISPLAY_MODE}}` ->
+  `InterlacedField`; enum values are serialized, appended only.
+  **Verified** (Layer 3, PAL BIOS): fresh `--new` scaffold with
+  `interlaced-field` boots in PCSX2, terrain scene shows correct 4:3
+  proportions from the 512x224 buffer (F8 snapshot vs stock-interlaced
+  rebuild of the same project - same framing, slightly softer static
+  edges, as expected); debug HUD "FPS 49" text sprite renders at the right
+  position/aspect through the 2D squeeze at PAL field rate; no TYRA
+  asserts in `bin/log.txt`, ELF confirmed in emulog. Pending a human pass:
+  runtime switches into/out of field mode (same `setDisplayOutput` reinit
+  path the video-modes example exercises for 480p/1080i), NTSC region, the
+  field-phase sign on a real CRT/PS2, and real-hardware A/B like every
+  display change.
 - (113) **Build break: empty-scene placeholder row in `scene_data.hpp`
   lost a field.** The reflective-models change added `reflected` to
   `SceneObjectData` and to the per-object row emitter but missed the

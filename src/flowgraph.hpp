@@ -276,7 +276,8 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          FlowParamKind::None, false, false},
         // Runtime video output (options menus). Set Display Mode switches the
         // scan mode (Mode: 0 = interlaced 480i/576i, 1 = progressive 480p,
-        // 2 = 1080i - shown as a combo in the node UI); with Confirm s > 0
+        // 2 = 1080i, 3 = interlaced field rendering - shown as a combo in
+        // the node UI); with Confirm s > 0
         // the game shows a keep-or-revert prompt and AUTOMATICALLY reverts
         // to the previous mode unless the player confirms with X in time
         // (a mode the TV can't show would otherwise strand them on a black
