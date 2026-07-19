@@ -34,9 +34,11 @@ between distant parts of the map.
    `examples/portals`. (Object physics clamps falls at a 50 u/s terminal
    velocity, so the loop stays smooth instead of accelerating forever.)
 
-The editor viewport draws the surface as a translucent tinted quad plus a
-link line to the target; the live view exists only in the game (it is a PS2
-render-to-texture pass).
+The editor viewport draws the surface as a translucent tinted quad, a
+**bright arrow out of the entry face** (the +Z front — the side that shows
+the view and teleports; flip the portal 180° if the arrow points into your
+wall) and a link line to the target; the live view exists only in the game
+(it is the PS2 in-place render).
 
 ## How the game renders it (and what it costs)
 

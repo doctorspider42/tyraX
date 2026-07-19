@@ -9,6 +9,17 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (124) **Portals: entry-side arrow in the editor viewport.** Owner
+  request: the tinted quad alone didn't say which face is the entrance.
+  A new `portalArrow_` line mesh (shaft + 4 head barbs along +Z) draws at
+  every portal, rotated with the object but at a fixed 1.2-unit length
+  (quad-scale-free, like the camera frustum wedge), tinted the portal
+  color brightened toward white. It marks the +Z front - the side that
+  shows the through-view and accepts the crossing. **Verified:** editor
+  builds clean; GUI opened on examples/portals and zoomed in via
+  synthetic wheel input - the arrow reads clearly against the tinted
+  surface (screenshot).
+
 - (123) **Portals: exact chunk extents kill the last "gleba", floor
   portals swallow.** Round 3 of hardware feedback. (1) (122)'s dead-zone
   test still let the terrain backside into the ceiling view ("dalej
