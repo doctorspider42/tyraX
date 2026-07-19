@@ -656,6 +656,14 @@ class TerrainGame : public Tyra::Game {
   bool portalSwallowsPlayer(float x, float feetY, float z);
   bool portalSwallowZone(const RuntimeObject& m, float hx, float hy, float x,
                          float y, float z);
+  // Portal pass-through for the walkers: when the body column sits inside
+  // a linked portal's opening near its plane, updatePortalPass publishes
+  // that portal's plane and collidePlayer stops colliding with objects
+  // fully BEHIND it (exact OBB extent) - the wall a portal is mounted on
+  // opens up like a doorway while everything else keeps blocking.
+  void updatePortalPass(float x, float feetY, float z);
+  float portalPassPlane[4] = {0, 0, 0, 0};
+  bool portalPassOn = false;
   std::vector<unsigned char> portalLiveFlags;  // per PORTALS entry: view drawn
   std::vector<float> portalPrevPos;  // 3 floats per runtime object (crossings)
   // Exit-plane of the through-view being rendered (nx, ny, nz, d) - set
@@ -1106,6 +1114,14 @@ class TerrainGame : public Tyra::Game {
   bool portalSwallowsPlayer(float x, float feetY, float z);
   bool portalSwallowZone(const RuntimeObject& m, float hx, float hy, float x,
                          float y, float z);
+  // Portal pass-through for the walkers: when the body column sits inside
+  // a linked portal's opening near its plane, updatePortalPass publishes
+  // that portal's plane and collidePlayer stops colliding with objects
+  // fully BEHIND it (exact OBB extent) - the wall a portal is mounted on
+  // opens up like a doorway while everything else keeps blocking.
+  void updatePortalPass(float x, float feetY, float z);
+  float portalPassPlane[4] = {0, 0, 0, 0};
+  bool portalPassOn = false;
   std::vector<unsigned char> portalLiveFlags;  // per PORTALS entry: view drawn
   std::vector<float> portalPrevPos;  // 3 floats per runtime object (crossings)
   // Exit-plane of the through-view being rendered (nx, ny, nz, d) - set
@@ -3554,6 +3570,30 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
         o.data.type == 14)                         // 14 = camera marker
       continue;
     if (o.data.collision == 2) continue;  // none
+    // Portal pass-through (updatePortalPass): while the walker stands in a
+    // linked portal's opening, objects fully behind that portal's plane
+    // stop colliding - the mounting wall becomes a doorway. Exact OBB
+    // extent along the plane normal, same math as the view dead zone.
+    if (portalPassOn) {
+      const V3 pax = rotated({1.0F, 0.0F, 0.0F}, o.data.rotation);
+      const V3 pay = rotated({0.0F, 1.0F, 0.0F}, o.data.rotation);
+      const V3 paz = rotated({0.0F, 0.0F, 1.0F}, o.data.rotation);
+      const float r =
+          fabsf(portalPassPlane[0] * pax.x + portalPassPlane[1] * pax.y +
+                portalPassPlane[2] * pax.z) *
+              0.5F * o.data.scale[0] +
+          fabsf(portalPassPlane[0] * pay.x + portalPassPlane[1] * pay.y +
+                portalPassPlane[2] * pay.z) *
+              0.5F * o.data.scale[1] +
+          fabsf(portalPassPlane[0] * paz.x + portalPassPlane[1] * paz.y +
+                portalPassPlane[2] * paz.z) *
+              0.5F * o.data.scale[2];
+      const float sd = portalPassPlane[0] * o.data.position[0] +
+                       portalPassPlane[1] * o.data.position[1] +
+                       portalPassPlane[2] * o.data.position[2] -
+                       portalPassPlane[3];
+      if (sd < -r + 0.1F) continue;
+    }
 
     const GameModel* gm = nullptr;
     if (o.data.type == 5 && o.data.model >= 0 &&
@@ -4934,8 +4974,10 @@ bool TerrainGame::updatePlayerEntity() {
     if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, entY, nextZ))
       ground = -1e30F;
     float ceiling = 1e30F;
+    updatePortalPass(nextX, entY, nextZ);  // wall doorways open in collision
     collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground,
                   &ceiling);
+    portalPassOn = false;
     const float movedX = nextX - entX, movedZ = nextZ - entZ;
     entX = nextX;
     entZ = nextZ;
@@ -5048,8 +5090,10 @@ bool TerrainGame::updatePlayerEntity() {
   if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, entY, nextZ))
     ground = -1e30F;
   float ceiling = 1e30F;
+  updatePortalPass(nextX, entY, nextZ);  // wall doorways open in collision
   collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground,
                 &ceiling);
+  portalPassOn = false;
   entX = nextX;
   entZ = nextZ;
 
@@ -6222,6 +6266,52 @@ bool TerrainGame::portalSwallowsPlayer(float x, float feetY, float z) {
       return true;
   }
   return false;
+}
+
+// Publishes the plane of the linked portal whose opening the walker's body
+// column currently sits in (any orientation - wall doorways included; feet
+// and waist probed like the crossing test). collidePlayer then ignores
+// objects fully behind that plane: the mounting wall opens up, geometry in
+// front of or poking through the surface still collides. Off when the
+// column is outside every opening - the same wall blocks normally beside
+// its portal.
+void TerrainGame::updatePortalPass(float x, float feetY, float z) {
+  portalPassOn = false;
+  if (PORTAL_COUNT == 0) return;
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+    if (p.object >= (int)runtimeObjects.size() ||
+        p.target >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[p.object];
+    if (!m.active || !m.visible || !runtimeObjects[p.target].active) continue;
+    const V3 axS = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+    const V3 ayS = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+    const V3 azS = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+    const float hx = 0.5F * m.data.scale[0] + 0.25F;
+    const float hy = 0.5F * m.data.scale[1] + 0.25F;
+    auto inZone = [&](float wy) {
+      const float rx = x - m.data.position[0];
+      const float ry = wy - m.data.position[1];
+      const float rz = z - m.data.position[2];
+      const float lx = rx * axS.x + ry * axS.y + rz * axS.z;
+      const float ly = rx * ayS.x + ry * ayS.y + rz * ayS.z;
+      const float lz = rx * azS.x + ry * azS.y + rz * azS.z;
+      return lz > -0.6F && lz < 1.2F && lx > -hx && lx < hx && ly > -hy &&
+             ly < hy;
+    };
+    if (inZone(feetY) || inZone(feetY + 1.0F)) {
+      portalPassPlane[0] = azS.x;
+      portalPassPlane[1] = azS.y;
+      portalPassPlane[2] = azS.z;
+      portalPassPlane[3] = azS.x * m.data.position[0] +
+                           azS.y * m.data.position[1] +
+                           azS.z * m.data.position[2];
+      portalPassOn = true;
+      return;
+    }
+  }
 }
 
 // Portal crossings. The player probes with TWO segments: a "waist" point
@@ -7513,8 +7603,10 @@ void TerrainGame::updatePlayer() {
   if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, playerY, nextZ))
     ground = -1e30F;
   float ceiling = 1e30F;
+  updatePortalPass(nextX, playerY, nextZ);  // wall doorways open in collision
   collidePlayer(playerX, playerZ, &nextX, &nextZ, playerY, EYE_HEIGHT, &ground,
                 &ceiling);
+  portalPassOn = false;
   playerX = nextX;
   playerZ = nextZ;
 

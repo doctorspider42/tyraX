@@ -288,6 +288,14 @@ class TerrainGame : public Tyra::Game {
   bool portalSwallowsPlayer(float x, float feetY, float z);
   bool portalSwallowZone(const RuntimeObject& m, float hx, float hy, float x,
                          float y, float z);
+  // Portal pass-through for the walkers: when the body column sits inside
+  // a linked portal's opening near its plane, updatePortalPass publishes
+  // that portal's plane and collidePlayer stops colliding with objects
+  // fully BEHIND it (exact OBB extent) - the wall a portal is mounted on
+  // opens up like a doorway while everything else keeps blocking.
+  void updatePortalPass(float x, float feetY, float z);
+  float portalPassPlane[4] = {0, 0, 0, 0};
+  bool portalPassOn = false;
   std::vector<unsigned char> portalLiveFlags;  // per PORTALS entry: view drawn
   std::vector<float> portalPrevPos;  // 3 floats per runtime object (crossings)
   // Exit-plane of the through-view being rendered (nx, ny, nz, d) - set

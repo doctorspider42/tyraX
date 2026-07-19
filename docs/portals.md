@@ -100,6 +100,14 @@ wall) and a link line to the target; the live view exists only in the game
   the crossing plane, and a portal lying ON the ground could never eat
   anything. Works for the player (walk into one and you drop in like a
   pit) and for physics objects; wall and ceiling portals are unaffected.
+- **Doorways open in collision**: while the player's body column sits
+  inside a linked portal's opening (any orientation), object collision
+  ignores everything fully BEHIND that portal's plane (the same exact-OBB
+  rule as the through-view) — so the wall a portal is mounted flush on
+  lets you walk through the opening, while the same wall still blocks
+  right beside it, and a crate standing in front of the surface still
+  blocks too. Physics objects never collide with objects, so they need no
+  equivalent.
 
 ## Limits (era-honest by design)
 

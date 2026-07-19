@@ -9,6 +9,26 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (126) **Portals: doorways open in collision — walk through the mounting
+  wall.** The (125) wall-mounted pair looked right but could not be
+  entered: the wall's box collision blocked the walker before the
+  crossing plane. General rule, per the owner's "epic collisions" ask:
+  `updatePortalPass` (called by all three walkers right before
+  collidePlayer, cleared right after) publishes the plane of the linked
+  portal whose opening the body column currently sits in (feet + waist
+  probes, rect +0.25 margin, -0.6..+1.2 around the plane, any
+  orientation); collidePlayer then skips objects fully BEHIND that plane
+  - the exact same OBB-projection extent as the through-view dead zone.
+  Net effect: the mounting wall opens up like a doorway exactly where the
+  portal is (it still blocks beside the opening - the zone requires the
+  column inside the rectangle), geometry in front of or poking through
+  the surface still collides, and an unlinked portal's wall stays solid
+  (the zone requires a live target). Physics objects never collide with
+  objects, so they need no equivalent. **Verified (Layer 3, PCSX2 D3D11
+  HW):** compiles + boots clean on the wall-mounted map, doorway view and
+  infinite fall intact at locked 50 FPS; the actual walk-through is
+  pad-only - that check stays with the owner.
+
 - (125) **Portals: wall-mounted portals — exact OBB extent in the
   dead-zone test.** Owner mounted both walk-through portals flush on gray
   wall boxes (their "update portal map" commit) and the opening filled
