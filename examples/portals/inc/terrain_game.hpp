@@ -47,6 +47,9 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     Tyra::StaPipTextureBag texBag;
     int cx = -1, cz = -1;  // chunk coords; -1 = free pool slot
+    // Height extent of this chunk's cells, filled at build - the portal
+    // through-view's exact AABB-vs-exit-plane dead-zone test reads it.
+    float minY = 0.0F, maxY = 0.0F;
   };
   std::vector<TerrainChunk> terrainChunks;  // slot pool
   std::vector<short> terrainChunkSlot;      // chunk index -> slot, -1 = unbuilt
@@ -277,6 +280,14 @@ class TerrainGame : public Tyra::Game {
   bool updatePortals(float prevX, float prevY, float prevZ, float* px,
                      float* py, float* pz, float* pyaw, float* ppitch,
                      float* pvelY, float eyeH);
+  // True when the walker's body column at (x, z) sits inside a linked
+  // FLOOR portal's rectangle near its plane - the walkers suppress the
+  // terrain ground clamp there, so a portal lying on the ground swallows
+  // them (the clamp would otherwise rest the feet on the terrain before
+  // the crossing plane is ever reached).
+  bool portalSwallowsPlayer(float x, float feetY, float z);
+  bool portalSwallowZone(const RuntimeObject& m, float hx, float hy, float x,
+                         float y, float z);
   std::vector<unsigned char> portalLiveFlags;  // per PORTALS entry: view drawn
   std::vector<float> portalPrevPos;  // 3 floats per runtime object (crossings)
   // Exit-plane of the through-view being rendered (nx, ny, nz, d) - set

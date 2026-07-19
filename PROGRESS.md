@@ -9,6 +9,32 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (123) **Portals: exact chunk extents kill the last "gleba", floor
+  portals swallow.** Round 3 of hardware feedback. (1) (122)'s dead-zone
+  test still let the terrain backside into the ceiling view ("dalej
+  pizdeczka... gleba w górnym"): the corner-sampling used a 1-unit slope
+  margin, and the demo's flat terrain sits only 0.8 under the exit plane
+  — sd = -0.8 never beat the -1.0 cutoff. Lesson recorded: compute, don't
+  guess margins. TerrainChunk now carries its exact minY/maxY (filled in
+  buildTerrainChunk from the heightmap) and renderTerrain does a precise
+  AABB-vs-plane p-vertex test with a 0.05 epsilon - the flat-map chunks
+  drop at any portal height. (2) Owner's own suggestion implemented: a
+  body touching a linked FLOOR portal stops colliding with the terrain
+  ("może w momencie, jak obiekt dotyka portalu, na ten czas nie koliduje
+  z terenem?") - `portalSwallowZone` (floor portals only, front normal
+  up, rectangle footprint, -0.6..+2.0 around the plane) suppresses the
+  ground clamp in updateObjectPhysics (floorY = -inf) and in all three
+  walkers (ground = -inf; feet AND waist probed so the clamp cannot snap
+  the body back mid-straddle). A portal lying ON the ground now swallows
+  the cube (and the player - you drop in like a pit); the demo's floor
+  portal moved from 0.8 down to 0.3 to prove it. **Verified (Layer 3,
+  PCSX2 D3D11 HW):** screenshots catch the cube mid-sink INTO the
+  ground-level portal (center below its old rest height - the clamp is
+  off) and back at the ceiling next shot - the loop closes through a
+  ground portal; both column portals run terrain+sky ON with no backside
+  anywhere; 50 FPS / 100% locked. Pad checks (walking into a ground
+  portal, hardware feel) stay with the owner.
+
 - (122) **Portals: terrain joins the dead-zone test — floor/ceiling pairs
   keep their sky.** Follow-up to (121)'s "turn the terrain off" caveat,
   which the owner rightly disliked ("fajnie, jakby w portalach było widać

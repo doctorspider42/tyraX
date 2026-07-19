@@ -415,6 +415,9 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     Tyra::StaPipTextureBag texBag;
     int cx = -1, cz = -1;  // chunk coords; -1 = free pool slot
+    // Height extent of this chunk's cells, filled at build - the portal
+    // through-view's exact AABB-vs-exit-plane dead-zone test reads it.
+    float minY = 0.0F, maxY = 0.0F;
   };
   std::vector<TerrainChunk> terrainChunks;  // slot pool
   std::vector<short> terrainChunkSlot;      // chunk index -> slot, -1 = unbuilt
@@ -645,6 +648,14 @@ class TerrainGame : public Tyra::Game {
   bool updatePortals(float prevX, float prevY, float prevZ, float* px,
                      float* py, float* pz, float* pyaw, float* ppitch,
                      float* pvelY, float eyeH);
+  // True when the walker's body column at (x, z) sits inside a linked
+  // FLOOR portal's rectangle near its plane - the walkers suppress the
+  // terrain ground clamp there, so a portal lying on the ground swallows
+  // them (the clamp would otherwise rest the feet on the terrain before
+  // the crossing plane is ever reached).
+  bool portalSwallowsPlayer(float x, float feetY, float z);
+  bool portalSwallowZone(const RuntimeObject& m, float hx, float hy, float x,
+                         float y, float z);
   std::vector<unsigned char> portalLiveFlags;  // per PORTALS entry: view drawn
   std::vector<float> portalPrevPos;  // 3 floats per runtime object (crossings)
   // Exit-plane of the through-view being rendered (nx, ny, nz, d) - set
@@ -854,6 +865,9 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     Tyra::StaPipTextureBag texBag;
     int cx = -1, cz = -1;  // chunk coords; -1 = free pool slot
+    // Height extent of this chunk's cells, filled at build - the portal
+    // through-view's exact AABB-vs-exit-plane dead-zone test reads it.
+    float minY = 0.0F, maxY = 0.0F;
   };
   std::vector<TerrainChunk> terrainChunks;  // slot pool
   std::vector<short> terrainChunkSlot;      // chunk index -> slot, -1 = unbuilt
@@ -1084,6 +1098,14 @@ class TerrainGame : public Tyra::Game {
   bool updatePortals(float prevX, float prevY, float prevZ, float* px,
                      float* py, float* pz, float* pyaw, float* ppitch,
                      float* pvelY, float eyeH);
+  // True when the walker's body column at (x, z) sits inside a linked
+  // FLOOR portal's rectangle near its plane - the walkers suppress the
+  // terrain ground clamp there, so a portal lying on the ground swallows
+  // them (the clamp would otherwise rest the feet on the terrain before
+  // the crossing plane is ever reached).
+  bool portalSwallowsPlayer(float x, float feetY, float z);
+  bool portalSwallowZone(const RuntimeObject& m, float hx, float hy, float x,
+                         float y, float z);
   std::vector<unsigned char> portalLiveFlags;  // per PORTALS entry: view drawn
   std::vector<float> portalPrevPos;  // 3 floats per runtime object (crossings)
   // Exit-plane of the through-view being rendered (nx, ny, nz, d) - set
@@ -4908,6 +4930,9 @@ bool TerrainGame::updatePlayerEntity() {
     if (nextZ < -limZ) nextZ = -limZ;
 
     float ground = terrainHeightAt(nextX, nextZ);
+    // a linked floor portal underfoot swallows the avatar too
+    if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, entY, nextZ))
+      ground = -1e30F;
     float ceiling = 1e30F;
     collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground,
                   &ceiling);
@@ -5018,6 +5043,10 @@ bool TerrainGame::updatePlayerEntity() {
   if (nextZ < -limZ) nextZ = -limZ;
 
   float ground = terrainHeightAt(nextX, nextZ);
+  // a linked floor portal underfoot swallows the walker (see
+  // portalSwallowsPlayer) - the terrain stops being the floor there
+  if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, entY, nextZ))
+    ground = -1e30F;
   float ceiling = 1e30F;
   collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground,
                 &ceiling);
@@ -5410,8 +5439,31 @@ void TerrainGame::updateObjectPhysics() {
   for (RuntimeObject& o : runtimeObjects) {
     if (!o.active || !o.data.physics) continue;
     const float half = 0.5F * o.data.scale[1];
-    const float floorY =
+    float floorY =
         terrainHeightAt(o.data.position[0], o.data.position[2]) + half;
+    // Floor-portal swallowing: an object over a linked, object-teleporting
+    // floor portal ignores the terrain (see portalSwallowZone) - otherwise
+    // it rests on the ground before its center can reach the plane of a
+    // portal lying on (or near) the terrain, and never falls in.
+    for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+      const PortalData& p = PORTALS[pi];
+      if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+      if (!p.teleportObjects) continue;
+      if (p.object >= (int)runtimeObjects.size() ||
+          p.target >= (int)runtimeObjects.size())
+        continue;
+      RuntimeObject& m = runtimeObjects[p.object];
+      if (!m.active || !m.visible || !runtimeObjects[p.target].active)
+        continue;
+      if (&o == &m || &o == &runtimeObjects[p.target]) continue;
+      if (portalSwallowZone(m, 0.5F * m.data.scale[0] + 0.25F,
+                            0.5F * m.data.scale[1] + 0.25F,
+                            o.data.position[0], o.data.position[1],
+                            o.data.position[2])) {
+        floorY = -1e30F;
+        break;
+      }
+    }
     if (o.velocityY == 0.0F && o.data.position[1] <= floorY) continue;  // resting
 
     o.velocityY -= gravityPerFrame;
@@ -6113,6 +6165,52 @@ void TerrainGame::renderPortals() {
   }
 }
 
+// Floor-portal swallowing (owner's suggestion): while a body touches a
+// linked floor portal (front normal pointing up), it stops colliding with
+// the TERRAIN - the ground clamp would otherwise rest it on the terrain
+// before it can reach the crossing plane, so a portal lying on the ground
+// could never swallow anything. Restricted to floor portals (wall/ceiling
+// surfaces never need it) and to the portal's rectangle footprint; the
+// zone spans a little above the plane (the approach) and below it (the
+// straddle while the crossing probe travels) - the teleport fires long
+// before the body leaves the zone downward.
+bool TerrainGame::portalSwallowZone(const RuntimeObject& m, float hx, float hy,
+                                    float x, float y, float z) {
+  const V3 azS = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+  if (azS.y < 0.5F) return false;  // floor portals only
+  const V3 axS = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+  const V3 ayS = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+  const float rx = x - m.data.position[0];
+  const float ry = y - m.data.position[1];
+  const float rz = z - m.data.position[2];
+  const float lx = rx * axS.x + ry * axS.y + rz * axS.z;
+  const float ly = rx * ayS.x + ry * ayS.y + rz * ayS.z;
+  const float lz = rx * azS.x + ry * azS.y + rz * azS.z;
+  return lz > -0.6F && lz < 2.0F && lx > -hx && lx < hx && ly > -hy &&
+         ly < hy;
+}
+
+bool TerrainGame::portalSwallowsPlayer(float x, float feetY, float z) {
+  if (PORTAL_COUNT == 0) return false;
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+    if (p.object >= (int)runtimeObjects.size() ||
+        p.target >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[p.object];
+    if (!m.active || !m.visible || !runtimeObjects[p.target].active) continue;
+    const float hx = 0.5F * m.data.scale[0] + 0.25F;
+    const float hy = 0.5F * m.data.scale[1] + 0.25F;
+    // feet AND waist: the zone must hold while the body straddles the
+    // plane, or the ground clamp snaps the walker back mid-crossing
+    if (portalSwallowZone(m, hx, hy, x, feetY, z) ||
+        portalSwallowZone(m, hx, hy, x, feetY + 1.0F, z))
+      return true;
+  }
+  return false;
+}
+
 // Portal crossings. The player probes with TWO segments: a "waist" point
 // (feet + up to 1 unit, capped by eyeH - door-sized wall surfaces trigger
 // naturally, a noclip camera probes its own position) and the FEET (so
@@ -6661,6 +6759,23 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     if (iz > HM_D - 1) iz = HM_D - 1;
     return TERRAIN_HEIGHTS[iz * HM_W + ix];
   };
+  {
+    // Height extent over this chunk's vertex grid - the portal dead-zone
+    // test in renderTerrain does an exact AABB-vs-plane check with it.
+    const int mgx0 = cx * TERRAIN_CHUNK_CELLS;
+    const int mgz0 = cz * TERRAIN_CHUNK_CELLS;
+    const int mgx1 = mgx0 + TERRAIN_CHUNK_CELLS > cellsX ? cellsX
+                                                         : mgx0 + TERRAIN_CHUNK_CELLS;
+    const int mgz1 = mgz0 + TERRAIN_CHUNK_CELLS > cellsZ ? cellsZ
+                                                         : mgz0 + TERRAIN_CHUNK_CELLS;
+    ch.minY = ch.maxY = hAt(mgx0, mgz0);
+    for (int iz = mgz0; iz <= mgz1; ++iz)
+      for (int ix = mgx0; ix <= mgx1; ++ix) {
+        const float h = hAt(ix, iz);
+        if (h < ch.minY) ch.minY = h;
+        if (h > ch.maxY) ch.maxY = h;
+      }
+  }
   auto shadeAt = [&](int ix, int iz) -> V3 {
     V3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0F * (stepX < stepZ ? stepX : stepZ),
             hAt(ix, iz - 1) - hAt(ix, iz + 1)};
@@ -6880,9 +6995,10 @@ void TerrainGame::renderTerrain() {
       // camera's side of the exit plane - through a real hole that region
       // is invisible, and with no oblique near plane on the PS2 it would
       // otherwise render its backside INTO the opening (a floor->ceiling
-      // pair puts the virtual eye underground). Sampled at the chunk
-      // rect's corners + center at their heightmap heights, with a slope
-      // margin; a chunk that straddles the plane still renders whole.
+      // pair puts the virtual eye underground). Exact AABB-vs-plane check:
+      // the chunk's rect + its built minY/maxY, tested at the p-vertex
+      // (the box corner farthest along the plane normal) - no slope
+      // margin to mis-tune. A straddling chunk still renders whole.
       const int cellsX = HM_W - 1, cellsZ = HM_D - 1;
       const float stepX = (float)TERRAIN_WIDTH / cellsX;
       const float stepZ = (float)TERRAIN_DEPTH / cellsZ;
@@ -6894,16 +7010,16 @@ void TerrainGame::renderTerrain() {
       const int gz1 = gz0 + TERRAIN_CHUNK_CELLS > cellsZ
                           ? cellsZ
                           : gz0 + TERRAIN_CHUNK_CELLS;
-      auto sd = [&](int gx, int gz) {
-        const float wx = -TERRAIN_WIDTH * 0.5F + gx * stepX;
-        const float wz = -TERRAIN_DEPTH * 0.5F + gz * stepZ;
-        const float wy = TERRAIN_HEIGHTS[gz * HM_W + gx];
-        return portalExitPlane[0] * wx + portalExitPlane[1] * wy +
-               portalExitPlane[2] * wz - portalExitPlane[3];
-      };
-      if (sd(gx0, gz0) < -1.0F && sd(gx1, gz0) < -1.0F &&
-          sd(gx0, gz1) < -1.0F && sd(gx1, gz1) < -1.0F &&
-          sd((gx0 + gx1) / 2, (gz0 + gz1) / 2) < -1.0F)
+      const float x0w = -TERRAIN_WIDTH * 0.5F + gx0 * stepX;
+      const float x1w = -TERRAIN_WIDTH * 0.5F + gx1 * stepX;
+      const float z0w = -TERRAIN_DEPTH * 0.5F + gz0 * stepZ;
+      const float z1w = -TERRAIN_DEPTH * 0.5F + gz1 * stepZ;
+      const float pvx = portalExitPlane[0] > 0.0F ? x1w : x0w;
+      const float pvy = portalExitPlane[1] > 0.0F ? ch.maxY : ch.minY;
+      const float pvz = portalExitPlane[2] > 0.0F ? z1w : z0w;
+      if (portalExitPlane[0] * pvx + portalExitPlane[1] * pvy +
+              portalExitPlane[2] * pvz - portalExitPlane[3] <
+          -0.05F)
         continue;
     }
     stapip.core.render(ch.bag.get());
@@ -7379,6 +7495,10 @@ void TerrainGame::updatePlayer() {
   // + standing on top of them. Player can step ~0.5 units up.
   // The floor is the sculpted terrain.
   float ground = terrainHeightAt(nextX, nextZ);
+  // a linked floor portal underfoot swallows the walker (see
+  // portalSwallowsPlayer) - the terrain stops being the floor there
+  if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, playerY, nextZ))
+    ground = -1e30F;
   float ceiling = 1e30F;
   collidePlayer(playerX, playerZ, &nextX, &nextZ, playerY, EYE_HEIGHT, &ground,
                 &ceiling);

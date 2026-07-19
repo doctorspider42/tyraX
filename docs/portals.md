@@ -81,12 +81,20 @@ render-to-texture pass).
 - **Dead zone**: the virtual camera sits behind the exit plane, and the
   PS2 has no oblique near plane to clip what lies in between. Both view
   objects and terrain chunks fully on the camera side of the target plane
-  are skipped automatically (through a real hole they'd be invisible) —
-  a floor→ceiling pair keeps **Terrain + sky in view** on and the opening
-  correctly shows the sky-dome gradient and whatever falls through, not
-  the terrain's backside. A chunk that straddles the plane still renders
-  whole, so on an extreme cliff-edge portal a backside sliver can peek
-  in — nudge the portal off the geometry if it does.
+  are skipped automatically (through a real hole they'd be invisible;
+  chunks carry their exact height extent, so the test is a precise
+  AABB-vs-plane check) — a floor→ceiling pair keeps **Terrain + sky in
+  view** on and the opening correctly shows the sky-dome gradient and
+  whatever falls through, not the terrain's backside. A chunk that
+  straddles the plane still renders whole, so on an extreme cliff-edge
+  portal a backside sliver can peek in — nudge the portal off the
+  geometry if it does.
+- **Floor portals swallow**: while a body stands over a linked floor
+  portal's rectangle (front normal pointing up), it stops colliding with
+  the terrain — otherwise the ground would rest it before it could reach
+  the crossing plane, and a portal lying ON the ground could never eat
+  anything. Works for the player (walk into one and you drop in like a
+  pit) and for physics objects; wall and ceiling portals are unaffected.
 
 ## Limits (era-honest by design)
 

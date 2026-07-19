@@ -16,9 +16,10 @@ What's in the scene:
   the tower shows up anyway because everything does); portal-b uses the
   classic explicit list (the render budget, like a Mirror's
   reflected-object list) so the demo shows both modes.
-- **The infinite fall**: **portal-floor** (purple, lying flat on the ground)
-  linked up to **portal-ceiling** (green, hovering 7 units above, facing
-  down), with **Teleport physics objects** on — and **box-drop**, a physics
+- **The infinite fall**: **portal-floor** (purple, lying flat ON the ground
+  — the floor-portal swallow rule lets bodies sink into it instead of
+  resting on the terrain) linked up to **portal-ceiling** (green, hovering
+  ~8 units above, facing down), with **Teleport physics objects** on — and **box-drop**, a physics
   cube that spawns in the air between them. It falls into the floor portal,
   pops out of the ceiling portal with its speed carried through, and falls
   again — forever, in plain view to the right of the spawn. Both surfaces
