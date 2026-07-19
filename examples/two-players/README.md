@@ -46,3 +46,9 @@ Port 2) to try both halves alone at one desk.
 - Neither avatar maps explicit idle/walk clips — each model's first clip
   plays as the all-purpose locomotion loop (Cesium Man's walk cycle, the
   cat's armature action), the usual shortcut for single-clip models.
+- **Performance**: split screen renders the scene twice, and Cesium Man is a
+  PC-grade 14k-vertex mesh — the project compensates with *Mesh LOD
+  distance 4* (the third-person cameras sit ~5 units out, so both avatars
+  render their 50%-vertex baked variant nearly always) and terrain detail
+  16. Result: a locked 50 FPS in split mode (PCSX2, PAL). See
+  docs/multiplayer.md > Performance.

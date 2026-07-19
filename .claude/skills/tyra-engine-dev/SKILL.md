@@ -108,13 +108,18 @@ upstream `update()` busy-waited forever on DISCONN — and keeps polling for a
 hot-join; sticks are centered while disconnected) plus
 `RendererCoreSplitView` (`renderer/core/splitview/`, public
 `RendererCore::splitView`): the split-screen raster bracket modeled on the
-env-map redirect — per half it drains PATH1, shifts XYOFFSET so the CENTRAL
-h/2 rows of the *unchanged* full-screen projection land on that half (a
-vertical crop; no projection change, proportions stay exact), scissors the
-half and clears its color + z region; the game swaps cameras between halves
-with `renderer3D.update(cam2)` (the pipelines read view/frustum lazily per
-mesh). Mind the interplay: any bracket that restores a full-screen raster
-(env map!) must not run inside a split half. And a **quiet-halt
+env-map redirect — per half it drains PATH1 and shifts XYOFFSET so the
+CENTRAL h/2 rows of the *unchanged* full-screen projection land on that half
+(a vertical crop; no projection change, proportions stay exact), scissored to
+the half. Deliberately NO per-half clear: beginFrame's full-screen clear
+covers both halves and the scissor clips every raster write (z included) —
+the first version copied the env map's clear sprite and paid two half-screen
+GS fills + FINISH stalls per frame for nothing. The game swaps cameras
+between halves with `renderer3D.update(cam2)` (the pipelines read
+view/frustum lazily per mesh) and must run animation advance/skinning only
+in the FIRST half (see the generated game's `splitSecondPass`). Mind the
+interplay: any bracket that restores a full-screen raster (env map!) must
+not run inside a split half. And a **quiet-halt
 assert** (`debug/debug.hpp` `TyraDebug::trap`): a failed `TYRA_ASSERT` /
 `TYRA_TRAP` no longer runs upstream's `init_scr()` + infinite `scr_printf` loop
 that seized the whole screen; it still prints the dump to the console / host

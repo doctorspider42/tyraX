@@ -77,6 +77,29 @@ the game is running.
   (and the menu row follows). Teleports move P1 and bring an active P2 along
   a step to the side.
 
+## Performance
+
+Split screen renders the 3D scene **twice per frame**, so budget for roughly
+2x the scene's EE cost (HUD/menus/post-fx stay single). What the runtime
+already does for you:
+
+- Animation playback and skinning run **once per frame**, not once per half —
+  the second half re-submits the frame's skinned buffers under its own
+  camera/frustum (`splitSecondPass` in the generated game). Without this,
+  animations played at 2x speed in split mode and every avatar paid double
+  skinning.
+- The split brackets don't clear anything: beginFrame's full-screen clear
+  covers both halves and the scissor clips z-writes, so no per-half GS fills.
+
+What's on you: vertex counts. A PC-grade avatar (the demo's Cesium Man is
+14k vertices) skinned and submitted per half eats the 20 ms PAL budget fast.
+The demo gets from 25 to a locked 50 FPS with two knobs — **mesh LOD**
+(*Preferences > Rendering > Mesh LOD distance* ~4: third-person cameras sit
+~5 units out, so avatars render their 50%-vertex variant nearly always) and
+terrain detail 16. Measured in PCSX2 (software renderer, PAL): 1P scene
+5.3 ms; split scene 19.2 ms -> 13.2 ms after the skin-reuse + LOD, whole
+frame 18.4 ms = locked 50 FPS with vsync.
+
 ## Limitations (v1)
 
 - Two players maximum (the two console pad ports; no multitap).

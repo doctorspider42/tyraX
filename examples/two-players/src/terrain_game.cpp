@@ -1186,7 +1186,7 @@ void TerrainGame::loop() {
     if (splitFrame) {
       auto& core = engine->renderer.core;
       splitPassActive = true;
-      core.splitView.begin(0, scriptCtx.skyColor);
+      core.splitView.begin(0);
       renderScene();
       // Swap the whole camera state to P2: renderScene reads cameraPosition
       // (sky dome centering, LOD, streaming focus), and the renderer needs
@@ -1195,8 +1195,10 @@ void TerrainGame::loop() {
       cameraPosition = players[1].camPos;
       cameraLookAt = players[1].camLook;
       core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
-      core.splitView.begin(1, scriptCtx.skyColor);
+      core.splitView.begin(1);
+      splitSecondPass = true;  // reuse this frame's anim poses/skins
       renderScene();
+      splitSecondPass = false;
       core.splitView.end();
       cameraPosition = savedPos;
       cameraLookAt = savedLook;
@@ -2079,19 +2081,23 @@ void TerrainGame::updateAndRenderAnimObjects() {
 
     if (o.animClip < 0 || o.animClip >= (int)gam.src->clips.size())
       o.animClip = 0;
-    if (o.animRestart) {
-      o.animRestart = false;
-      o.animFinished = false;
-      // animFade > 0 crossfades from the pose currently showing
-      inst->play((u32)o.animClip, o.animLoop, o.animFade);
-      o.animFade = 0.0F;  // consumed by this restart
+    // Playback bookkeeping runs once per FRAME, not once per render pass -
+    // the split screen's second half re-renders the same instant.
+    if (!splitSecondPass) {
+      if (o.animRestart) {
+        o.animRestart = false;
+        o.animFinished = false;
+        // animFade > 0 crossfades from the pose currently showing
+        inst->play((u32)o.animClip, o.animLoop, o.animFade);
+        o.animFade = 0.0F;  // consumed by this restart
+      }
+      inst->setLoop(o.animLoop);
+      // time always advances by wall-clock seconds (speed scales the step),
+      // visible or not - animFinished stays honest for offscreen instances
+      const float step =
+          (o.animPlaying && !g_gameplayPaused) ? g_frameDt * o.animSpeed : 0.0F;
+      o.animFinished = inst->advance(step);
     }
-    inst->setLoop(o.animLoop);
-    // time always advances by wall-clock seconds (speed scales the step),
-    // visible or not - animFinished stays honest for offscreen instances
-    const float step =
-        (o.animPlaying && !g_gameplayPaused) ? g_frameDt * o.animSpeed : 0.0F;
-    o.animFinished = inst->advance(step);
 
     // draw-distance cut-off (same rule as the static path in renderScene);
     // the distance doubles as the LOD tier and the draw-order key below
@@ -2130,7 +2136,7 @@ void TerrainGame::updateAndRenderAnimObjects() {
             [](const VisibleAnim& a, const VisibleAnim& b) {
               return a.dist2 < b.dist2;
             });
-  ++animLodTick;
+  if (!splitSecondPass) ++animLodTick;  // frame counter, not pass counter
 
   // pass 2, nearest first: group equal poses per mesh-LOD tier, gate far
   // skins, submit
@@ -2170,9 +2176,12 @@ void TerrainGame::updateAndRenderAnimObjects() {
     // animation LOD: a far mesh owner refreshes its pose every 2nd frame
     // (every 4th beyond twice the distance), staggered by object index. An
     // instance that just (re)entered the view skins immediately - its held
-    // pose could be arbitrarily stale.
-    bool allowSkin = true;
-    if (ANIM_LOD_DISTANCE > 0.0F && meshOwner == i &&
+    // pose could be arbitrarily stale. The split screen's second half never
+    // re-skins (same instant, already skinned) - unless this half's camera
+    // distance lands the instance in a different mesh-LOD tier, which the
+    // tier-switch check below still forces into that tier's buffers.
+    bool allowSkin = !splitSecondPass;
+    if (allowSkin && ANIM_LOD_DISTANCE > 0.0F && meshOwner == i &&
         g.animLastTick != 0 && animLodTick - g.animLastTick <= 4) {
       const float lod2 = ANIM_LOD_DISTANCE * ANIM_LOD_DISTANCE;
       if (va.dist2 > lod2 * 4.0F)

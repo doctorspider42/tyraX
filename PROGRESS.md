@@ -9,6 +9,31 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (115) **Split-screen perf + correctness: 25 -> locked 50 FPS, cat faces
+  forward.** Owner playtest findings on (114). The real BUG: renderScene
+  runs twice per split frame and the animated path advanced playback AND
+  re-skinned every avatar in BOTH halves - animations played at 2x speed
+  and Cesium Man's 14k verts were skinned twice. Fixed with
+  `splitSecondPass` (generated game): the second half re-submits the
+  frame's skinned buffers under its own camera/frustum, no advance, no
+  re-skin (a mesh-LOD tier switch still forces the other tier's buffers).
+  Also dropped the split brackets' per-half clear sprite - beginFrame's
+  full-screen clear covers both halves and the scissor clips z-writes, so
+  the copied-from-env-map clear was two half-screen GS fills + FINISH
+  stalls per frame for nothing (engine splitView.begin loses the clearColor
+  param). Profiler-driven (debug Show frame profiler + vsync off, PCSX2 SW,
+  PAL): 1P scene 5.3 ms / frame ~10 ms; split scene was 19.2 ms and the
+  whole frame ~21.5 ms - 1.5 ms over the 20 ms vsync budget = halved to 25.
+  After skin-reuse: scene 16.4. The rest is content: demo tuned with mesh
+  LOD distance 4 (third-person cameras sit ~5 units out -> both avatars
+  render the 50% baked variant nearly always; Cesium Man is a PC-grade
+  mesh) + terrain detail 16 -> scene 13.2 ms, frame 18.4 ms, **FPS 50
+  locked with vsync** (F8-verified counter). The cat: the committed
+  cat.glb's root wrap flipped to -90 deg Y (the +90 guess in (114) made it
+  run backwards - owner caught it with two pads); AABB z-range flip
+  verified headlessly, in-game the camera now sees its back. Docs:
+  multiplayer.md Performance section, example README, engine skill
+  (no-clear contract + splitSecondPass).
 - (114) **examples/two-players + oversized-glb-texture clamp.** The committed
   demo for (113): Cesium Man (P1) vs a cat (P2) in a box arena, title menu
   picks 1P/2P (Player-count option block), pause menu switches mid-game,

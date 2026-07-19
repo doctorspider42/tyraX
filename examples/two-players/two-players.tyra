@@ -14,8 +14,8 @@
     "disableVsync": false,
     "clipping": "vu1",
     "animLodDistance": 0,
-    "meshLodDistance": 0,
-    "terrainDetail": 32,
+    "meshLodDistance": 4,
+    "terrainDetail": 16,
     "terrainViewDistance": 0,
     "skyColor": [0.25, 0.55, 0.78],
     "skyTopColor": [0.08, 0.3, 0.65],
@@ -101,7 +101,7 @@
   "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0 },
   "activeLayout": 0,
   "layouts": [
-    { "name": "Default", "recipe": 0, "open": [], "ini": "" },
+    { "name": "Default", "recipe": 0, "open": [], "ini": "[Window][Project]\nPos=0,47\nSize=920,1902\nCollapsed=0\nDockId=0x00000001,0\nLastUsed=20260719\n\n[Window][Properties]\nPos=3083,47\nSize=757,1902\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260719\n\n[Window][Output]\nPos=925,1443\nSize=2153,506\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260719\n\n[Window][Debug]\nPos=925,1443\nSize=2153,506\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260719\n\n[Window][Flow Graph]\nPos=925,47\nSize=2153,1391\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260719\n\n[Window][Viewport]\nPos=925,47\nSize=2153,1391\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260719\n\n[Window][WindowOverViewport_11111111]\nPos=0,47\nSize=3840,1902\nCollapsed=0\nLastUsed=20260719\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260719\n\n[Docking][Data]\nDockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,47 Size=3840,1902 Split=X\n  DockNode      ID=0x00000001 Parent=0x08BD597D SizeRef=920,1949 Selected=0x9C21DE82\n  DockNode      ID=0x00000002 Parent=0x08BD597D SizeRef=2915,1949 Split=X\n    DockNode    ID=0x00000003 Parent=0x00000002 SizeRef=2153,1949 Split=Y\n      DockNode  ID=0x00000005 Parent=0x00000003 SizeRef=2153,1438 CentralNode=1 Selected=0xC450F867\n      DockNode  ID=0x00000006 Parent=0x00000003 SizeRef=2153,506 Selected=0x6BCC3585\n    DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=757,1949 Selected=0x8C72BEA8\n\n" },
     { "name": "Director", "recipe": 1, "open": ["cutscene"], "ini": "" },
     { "name": "Material Designer", "recipe": 2, "open": ["material"], "ini": "" }
   ]

@@ -317,6 +317,12 @@ class TerrainGame : public Tyra::Game {
   // break the active half, so the env pass pauses during split rendering
   // (the VRAM target keeps its last content).
   bool splitPassActive = false;
+  // True during the SECOND split half's renderScene: animation playback and
+  // skinning already ran this frame (first half), so the animated pass
+  // must not advance time again (2x playback speed) nor re-skin the same
+  // pose (Cesium-Man-sized avatars cost real EE ms) - it re-submits the
+  // frame's skinned buffers under the second camera instead.
+  bool splitSecondPass = false;
   // Picks the third-person avatar's locomotion clip from its planar speed
   // (fraction of full walk speed) and grounded state, cross-fading on change.
   void drivePlayerAnim(PlayerCtl& P, RuntimeObject& body, float speedFrac,

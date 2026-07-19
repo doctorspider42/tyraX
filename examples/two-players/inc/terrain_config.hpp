@@ -10,7 +10,7 @@ namespace Two_players {
 // project-wide; sky, clipping, post-FX and the usable-highlight can be
 // overridden per scene and live as SCENE_COUNT arrays in scene_data.hpp
 // (reached through the accessor macros defined in scene_data.hpp).
-constexpr int TERRAIN_MAX_CELLS = 32;
+constexpr int TERRAIN_MAX_CELLS = 16;
 
 // Terrain streaming (Preferences > Terrain). The terrain mesh is built in
 // TERRAIN_CHUNK_CELLS x TERRAIN_CHUNK_CELLS tiles; with a view distance > 0
@@ -65,7 +65,7 @@ constexpr float ANIM_LOD_DISTANCE = 0.0F;
 // Mesh LOD (Preferences > Rendering): instances farther than this render
 // the ~50%-vertex variant baked into the .tskl, beyond twice the distance
 // the ~25% one. 0 = off (the build then bakes no LOD chains at all).
-constexpr float MESH_LOD_DISTANCE = 0.0F;
+constexpr float MESH_LOD_DISTANCE = 4.0F;
 
 // Debug-profile HUD (Project > Preferences > Build). All forced false in a
 // release-profile build, which folds the overlay + instrumentation away.
