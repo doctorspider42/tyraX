@@ -431,6 +431,14 @@ struct ProjectSettings {
     // distance the 25% one. 0 = off (no LODs baked or kept in RAM).
     float meshLodDistance = 0.0f;
 
+    // AI navigation (docs/navigation-ai.md). The nav grid is baked on the
+    // host at build time (navmesh.cpp) from the terrain slope + blocking
+    // objects; the game runs A* over the baked bitmap on the EE, only in
+    // scenes whose flow graphs use the AI nodes - other scenes cost nothing.
+    float navCellSize = 1.0f;     // world units per nav cell (grid capped 128x128)
+    float navMaxSlope = 40.0f;    // degrees; steeper terrain is unwalkable
+    float navAgentRadius = 0.4f;  // obstacle inflation around blockers, world units
+
     int terrainDetail = 32;  // max terrain grid cells per axis (quality vs perf)
 
     // Terrain streaming: the generated game builds the terrain in 16x16-cell
@@ -545,6 +553,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.disableVsync == b.disableVsync &&
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
            a.meshLodDistance == b.meshLodDistance &&
+           a.navCellSize == b.navCellSize && a.navMaxSlope == b.navMaxSlope &&
+           a.navAgentRadius == b.navAgentRadius &&
            a.terrainDetail == b.terrainDetail &&
            a.terrainViewDistance == b.terrainViewDistance &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&

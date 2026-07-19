@@ -69,6 +69,7 @@ Two sibling skills cover the rest of the system:
 | `objparser.cpp` | 109 | Wavefront .obj importer for custom models. |
 | `primmesh.cpp/.hpp` | ~180 | Shared, GL-agnostic **unit-primitive tessellation** (box/sphere/cylinder/cone/plane → raw `pos+normal+uv`). The single host source: the viewport bakes shade on top of it, and `decalproj` uses it as receiver geometry, so a projected decal conforms to exactly the geometry the viewport draws. (templates.cpp keeps its own generated-string builders for the PS2 runtime — the pre-existing twin.) |
 | `decalproj.cpp/.hpp` | ~230 | **Projected-decal geometry** (host-only, no GL). `project(Project, SceneData, decal)` clips the receiver triangles (terrain + overlapping objects, auto) against the decal's oriented unit-cube projector, computes projected UVs and a surface-normal offset, and returns a world-space triangle list. Used by the viewport (live preview) AND codegen (`decalDataHeader` bakes it into `inc/decal_data.gen.hpp`); the game just draws it — **no projection/clipping on the PS2 EE**. See PROGRESS (99). |
+| `navmesh.cpp/.hpp` | ~160 | **NavMesh bake** (host-only, no GL — the decalproj pattern). `bake(Project, SceneData)` rasterizes a scene into a walkable-cell grid (terrain slope on the game's own bilinear heightmap + `collidePlayer`-box-mode blockers inflated by the agent radius; capped 128×128). Used by codegen (`navDataHeader` → `inc/nav_data.gen.hpp`, gated on AI nodes existing) AND the viewport nav overlay (`App::updateNavOverlay`, signature-cached). The generated `src/scripts/navigation.gen.cpp` runs A* over the bitmap on the EE and ticks all AI agents (Patrol/Chase/Flee flow nodes set agent state; one state per object). See `docs/navigation-ai.md` + PROGRESS (108). |
 | `history.hpp` | 59 | Undo/redo snapshot stack. |
 | `gl_loader.h/.cpp` | 137 | Minimal hand-rolled GL 3.3 loader (only what the viewport needs). |
 
@@ -171,7 +172,13 @@ bounds-guarded by the wrapper `actionCode()` emits around the body
 (`if (<dyn> >= 0 && <dyn> < ctx.objectCount) { ... }`). The built-in **Raycast** node uses the same
 runtime-latch machinery: every `flowCustomNode(...)` check on that path also
 accepts `type == "Raycast"` — a new built-in node with runtime outputs should
-extend those same spots.)
+extend those same spots. The **AI nodes** (Patrol Waypoints / Chase Player /
+Flee / Stop AI / On Player Seen) compile to calls into the generated
+`navigation.gen.cpp` runtime — a new AI-family node usually only needs a new
+`nav*` entry point there plus an `actionCode` branch; the shared per-object
+agent state, movement and A* already exist. Anything that changes what blocks
+walkability must update `navmesh::bake` (host) — there is no game-side twin,
+the game only reads the baked bitmap.)
 
 **New project preference** (travels with the `.tyra`, part of the game) →
 `ProjectSettings` → save/load in project.cpp → the *Project* Preferences dialog

@@ -711,6 +711,10 @@ std::string save(const Project& p) {
          << ",\n"
          << "    \"meshLodDistance\": " << fmtFloat(p.settings.meshLodDistance)
          << ",\n"
+         << "    \"navCellSize\": " << fmtFloat(p.settings.navCellSize) << ",\n"
+         << "    \"navMaxSlope\": " << fmtFloat(p.settings.navMaxSlope) << ",\n"
+         << "    \"navAgentRadius\": " << fmtFloat(p.settings.navAgentRadius)
+         << ",\n"
          << "    \"terrainDetail\": " << p.settings.terrainDetail << ",\n"
          << "    \"terrainViewDistance\": " << fmtFloat(p.settings.terrainViewDistance)
          << ",\n"
@@ -1669,6 +1673,19 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = s->find("meshLodDistance")) {
             st.meshLodDistance = (float)v->numberOr(0.0);
             if (st.meshLodDistance < 0.0f) st.meshLodDistance = 0.0f;
+        }
+        if (const auto* v = s->find("navCellSize")) {
+            st.navCellSize = (float)v->numberOr(1.0);
+            if (st.navCellSize < 0.25f) st.navCellSize = 0.25f;
+        }
+        if (const auto* v = s->find("navMaxSlope")) {
+            st.navMaxSlope = (float)v->numberOr(40.0);
+            if (st.navMaxSlope < 1.0f) st.navMaxSlope = 1.0f;
+            if (st.navMaxSlope > 89.0f) st.navMaxSlope = 89.0f;
+        }
+        if (const auto* v = s->find("navAgentRadius")) {
+            st.navAgentRadius = (float)v->numberOr(0.4);
+            if (st.navAgentRadius < 0.0f) st.navAgentRadius = 0.0f;
         }
         if (const auto* v = s->find("terrainDetail"))
             st.terrainDetail = (int)v->numberOr(32);
@@ -2748,6 +2765,9 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\font_data.gen.hpp" ||
             f.relativePath == "inc\\loading_data.gen.hpp" ||
             f.relativePath == "inc\\terrain_heights.gen.hpp" ||
+            f.relativePath == "inc\\nav_data.gen.hpp" ||
+            f.relativePath == "inc\\scripts\\navigation.gen.hpp" ||
+            f.relativePath == "src\\scripts\\navigation.gen.cpp" ||
             f.relativePath == "inc\\texture_data.gen.hpp" ||
             f.relativePath == "inc\\decal_data.gen.hpp" ||
             f.relativePath == "inc\\save_system.gen.hpp" ||

@@ -9,6 +9,62 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (116) **NavMesh + NPC AI — Patrol / Chase / Flee / On Player Seen.** NPCs
+  can finally go somewhere on their own. Three layers, all
+  pay-for-what-you-use (a project without AI nodes carries zero nav data or
+  code): (1) a **host-side bake** (`src/navmesh.cpp`, shared by codegen and
+  the editor) rasterizes each scene into a walkable-cell bitmap — terrain
+  slope from the same bilinear heightmap the game samples, blockers
+  mirroring `collidePlayer`'s box mode (AABB, step-onto/walk-under rules,
+  mesh-collision objects never block — they're ramps) inflated by an agent
+  radius; grid capped at 128×128 so the PS2 arrays stay static. Tunables in
+  *Preferences > AI navigation* (`navCellSize`/`navMaxSlope`/
+  `navAgentRadius`), live preview via *View > Nav mesh overlay* (green
+  quads, signature-cached recompute like the projected decals). (2) A
+  **generated runtime** (`nav_data.gen.hpp` + `navigation.gen.cpp`): A* on
+  the EE (8-connected, no corner cutting, octile heuristic, expansion cap,
+  **one pathfind per frame round-robin**, unreachable goals path to the
+  closest reachable cell), string-pulled paths, one agent state per runtime
+  object (spawn-pool clones included), terrain snapping + shortest-arc
+  turn-to-face (the avatar's convention, so walk clips line up). (3) Five
+  **flow nodes** (category "AI"): Patrol Waypoints (waypoints = objects
+  named `<prefix>1..n`, resolved at codegen with natural sort), Chase
+  Player (stop distance, give-up), Flee From Player (sideways fan-out when
+  the straight-away is blocked), Stop AI Movement, and the On Player Seen
+  trigger (range + FOV cone around facing + optional terrain LOS;
+  edge-fired exec like Near Object, plus a bool output for the gates). Two
+  design traps hit and fixed during verification: the tick script's
+  scene-generation reset ran *after* an On Start command in the same frame
+  and wiped it (fix: lazy shared `navSyncGeneration` called from both the
+  commands and the tick), and the patrol arrival radius was tighter than
+  the grid raster (a path ends at a cell *center*, a waypoint can sit on a
+  cell *corner* — 0.75 cells deadlocked; now 1.1× cell). Verified on PCSX2
+  (layer 3) with position telemetry logged from the graph itself
+  (`Every N Seconds → Get Position → Position To Text → Log`): patrol
+  cycles wp1→wp2→wp3 with a clean **A\* detour around a wall** (passes at
+  the obstacle's inflated edge), On Player Seen → Chase closes in and holds
+  at exactly Stop Dist, Flee runs to exactly Safe Dist then idles; steady
+  50 FPS. Stop AI compile-verified only (trivial `mode = 0`); LOS terrain
+  march and the editor overlay rendering still want a hands-on eyeball
+  pass. New example `examples/nav-ai` (guard + rabbit, boots clean) and
+  `docs/navigation-ai.md`; `examples/script-demo` regenerated (picks up the
+  new gen-file stubs + stale id hashes from before this change).
+  Follow-up fix (owner repro on the example: "the guard patrols fine but
+  never chases me"): `navPlayerPos` read the Player OBJECT's position, which
+  the game syncs to the live player **only in third-person mode** — in FPP
+  walk/noclip the object keeps its authored spawn position forever, so every
+  NPC watched the spawn point while the real player walked free (the
+  original PCSX2 chase pass couldn't catch it: with no pad input the player
+  never left spawn, so stale == live). Now the object position is used only
+  when `PLAYER_MODES[scene] == 2`; otherwise the camera is the player (eye
+  minus a nominal 1.5 to approximate the feet). Re-verified padlessly with a
+  teleport repro: `On Start → Delay → Spawn Player At` a marker on the
+  patrol route — before the teleport the guard patrols past the (stale)
+  spawn without reacting under the old code; with the fix the post-teleport
+  live position enters the cone and Chase fires. Also narrowed the AI-node
+  hint lines in the graph UI (they were wider than the field rows and
+  stretched the nodes out of alignment).
+
 - (113) **Font Manager + the Display Text node (runtime text), on top of a new
   multi-exec-pin primitive that merged six node types away.** Three layers, one
   feature.
@@ -86,7 +142,8 @@ Each finished feature lands as its own commit.
   `"pin": 1`, `ToggleObject` → pin 2, `StopAnimation` → pin 1) and on the three
   affected examples; a project with **no** Display Text (`FONT_COUNT = 0`)
   compiles and links too. Not covered: pad-driven interaction and real PS2
-  hardware — both still want a human.
+  hardware — both still want a human. *(Numbering: this entry landed on its
+  branch as (113) while main was already at (115) — kept as committed.)*
 
 - (115) **examples/video-modes: a `480I FIELD RENDER` menu row.** The
   display-mode test bed gains the fourth scan mode from (114): a new VIDEO
@@ -480,6 +537,11 @@ Each finished feature lands as its own commit.
   screenshot). The Material Editor preview shares the verified shader path;
   its interactive feel (picker, slider) still wants a hands-on pass. Docs:
   README, `docs/reflective-materials.md`, engine + editor skills.
+
+  *(Numbering note: the reflective-materials series above landed as its own
+  (99)-(112) while the Live-Link/mirror series below already used (99)-(107).
+  Old entries keep their numbers; the sequence continues from (113) up top.)*
+
 - (107) **Live Link v2 — per-project on/off + live add/delete of objects.**
   Two follow-ups to (106). First, the on/off is now a **project setting**
   (`ProjectSettings::liveLink`, default on; *Project > Preferences > Build*,

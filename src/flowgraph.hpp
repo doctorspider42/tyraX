@@ -258,6 +258,49 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                  "default), num[2] crossfade seconds. 'stop' freezes the "
                  "current pose and ignores the params. NOTE: str holds the "
                  "CLIP name; the target comes from an object link or self."},
+        // AI (docs/navigation-ai.md). NPCs walk the nav grid baked at build
+        // time (navmesh.cpp -> nav_data.gen.hpp); paths come from A* on the
+        // EE (navigation.gen.cpp), agents snap to the terrain and turn to
+        // face their motion. The movement actions drive ONE shared AI state
+        // per object - starting a new one replaces the previous (a Chase
+        // interrupts a Patrol; Stop AI returns the NPC to idle).
+        {.key = "PatrolWaypoints", .title = "Patrol Waypoints", .category = "AI",
+         .strKind = FlowParamKind::Text, .numCount = 3,
+         .numLabels = {"Speed", "Pause s", "Once"}, .idIn = true, .idOut = true,
+         .desc = "The target walks the scene objects whose names start with "
+                 "prefix str, in natural order (str \"wp\" -> wp1, wp2, ...; "
+                 "use Empty objects as waypoints), pathfinding over the baked "
+                 "nav grid. num[0] Speed units/s, num[1] pause seconds at "
+                 "each waypoint, num[2] Once (1 = one pass then idle, 0 = "
+                 "cycle forever). NOTE: str holds the waypoint PREFIX; the "
+                 "target comes from an object link or defaults to self."},
+        {.key = "ChasePlayer", .title = "Chase Player", .category = "AI",
+         .strKind = FlowParamKind::ObjectName, .numCount = 3,
+         .numLabels = {"Speed", "Stop Dist", "Give Up"}, .idIn = true,
+         .idOut = true,
+         .desc = "The target pursues the player over the nav grid, repathing "
+                 "as they move. Within num[1] (Stop Dist) it stands and keeps "
+                 "facing the player; num[2] (Give Up) > 0 drops to idle once "
+                 "the player escapes farther than that (0 = never gives up)."},
+        {.key = "FleePlayer", .title = "Flee From Player", .category = "AI",
+         .strKind = FlowParamKind::ObjectName, .numCount = 2,
+         .numLabels = {"Speed", "Safe Dist"}, .idIn = true, .idOut = true,
+         .desc = "The target runs away from the player over the nav grid "
+                 "until num[1] (Safe Dist) away, then idles."},
+        {.key = "StopAi", .title = "Stop AI Movement", .category = "AI",
+         .strKind = FlowParamKind::ObjectName, .idIn = true, .idOut = true,
+         .desc = "Stops the target's Patrol/Chase/Flee and returns it to "
+                 "idle."},
+        {.key = "OnPlayerSeen", .title = "On Player Seen", .category = "AI",
+         .trigger = true, .strKind = FlowParamKind::ObjectName, .numCount = 3,
+         .numLabels = {"Range", "FOV deg", "LOS"}, .idIn = true, .idOut = true,
+         .boolOut = true,
+         .desc = "Fires (rising edge) when the watched object sees the "
+                 "player: within num[0] (Range), inside a vision cone of "
+                 "num[1] (FOV) degrees around the object's facing, and with "
+                 "num[2] (LOS) = 1 also terrain line-of-sight (hills hide "
+                 "the player; objects do not block). Its bool output is the "
+                 "live 'seen right now' condition for the logic gates."},
         {.key = "TeleportPlayer", .title = "Spawn Player At",
          .category = "Player", .strKind = FlowParamKind::ObjectName,
          .idIn = true, .idOut = true, .posIn = true,
