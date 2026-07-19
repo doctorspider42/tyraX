@@ -11,37 +11,7 @@
 
 namespace Portals {
 
-// Scene "main": graph of "anchor-cross" (object 5)
-class FlowGraphScript_0_5 : public Script {
- public:
-  void update(ScriptContext& ctx) override {
-    if (ctx.scene != 0) return;
-    if (ctx.sceneGeneration != generation) {
-      // scene was (re)loaded - back to the initial state
-      generation = ctx.sceneGeneration;
-      frame = 0;
-      started = false;
-      delay2 = 0;
-    }
-    frame++;
-    if (delay2 > 0 && --delay2 == 0) {
-      ctx.teleport = true;
-      ctx.teleportPos = Tyra::Vec4(ctx.objects[5].data.position[0], ctx.objects[5].data.position[1], ctx.objects[5].data.position[2]);
-      ctx.teleportYaw = ctx.objects[5].data.rotation[1];
-    }
-    if (!started) {
-      started = true;
-      delay2 = everyFrames(6.0F);
-    }
-  }
-
- private:
-  unsigned int generation = 0;
-  int frame = 0;
-  bool started = false;
-  int delay2 = 0;
-};
+// No object has a flow graph yet.
 
 }  // namespace Portals
 
-TYRA_SCRIPT(Portals::FlowGraphScript_0_5);
