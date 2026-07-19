@@ -39,6 +39,12 @@ enum StaPipProgramName {
   StaPipCullTextureEnv,
   StaPipAsIsTextureEnv,
   StaPipClipTextureEnv,
+
+  // Modified by TyraX: particle billboard expansion (centers -> quads on
+  // VU1). Not part of the resident program set - uploaded on demand, see
+  // StaPipQBufferRenderer::ensureProgramSet.
+  StaPipBillboardColor,
+  StaPipBillboardTexture,
 };
 
 }  // namespace Tyra

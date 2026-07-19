@@ -105,9 +105,21 @@ void StaPipCore::render(StaPipBag* bag) {
                          bag->lighting->dirLights),
       "If you want lighting, please provide light matrix normals and dir "
       "lights!");
-  TYRA_ASSERT(
-      !bag->texture || (bag->texture->texture && bag->texture->coordinates),
-      "If you want texture, please provide texture and coordinates!");
+  // Modified by TyraX: a billboard bag carries a texture bag purely for the
+  // per-particle params channel - the image itself is optional there.
+  TYRA_ASSERT(!bag->texture || ((bag->texture->texture || bag->billboard) &&
+                                bag->texture->coordinates),
+              "If you want texture, please provide texture and coordinates!");
+  // Modified by TyraX: particle billboards (centers expanded on VU1).
+  TYRA_ASSERT(!bag->billboard ||
+                  (bag->texture && bag->texture->coordinates &&
+                   bag->color->many && !bag->lighting &&
+                   !bag->info->fullClipChecks &&
+                   bag->info->frustumCulling ==
+                       PipelineInfoBagFrustumCulling_Simple),
+              "Billboard bags need per-particle params in the texture "
+              "coordinates slot, per-particle colors, no lighting, simple "
+              "frustum culling and no clip checks (VU1 culls per quad)!");
   // Modified by TyraX: env (matcap) bags - normals in the ST slot, ST
   // computed on VU1 (cull_tce + as_is_tce / clip_tce). No lighting - the
   // env programs derive no dir-light color.
@@ -173,11 +185,18 @@ void StaPipCore::render(StaPipBag* bag) {
   // struct immediately, the old per-bag new/delete was pure heap churn.
   RendererCoreTextureBuffers texBuffersStorage;
   RendererCoreTextureBuffers* texBuffers = nullptr;
-  if (bag->texture) {
+  // Modified by TyraX: billboard bags may carry a texture bag with no image
+  // (params channel only) - nothing to bind then.
+  if (bag->texture && bag->texture->texture) {
     auto temp = rendererCore->texture.useTexture(bag->texture->texture);
     texBuffersStorage = {temp.id, temp.core, temp.clut};
     texBuffers = &texBuffersStorage;
   }
+
+  // Modified by TyraX: billboard bags run from their own on-demand program
+  // set (micro memory is full - see ensureProgramSet); non-billboard bags
+  // lazily restore the resident set.
+  qbufferRenderer.ensureProgramSet(bag->billboard != nullptr);
 
   qbufferRenderer.clearLastProgramName();
 
