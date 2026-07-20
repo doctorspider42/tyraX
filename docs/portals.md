@@ -29,9 +29,13 @@ between distant parts of the map.
    FPS/profiler before shipping, and prefer the list for release builds.
    Static batching interplay: objects on a portal's view list are
    **excluded from static batching** at build (like a Mirror's list — the
-   through-view re-submits them as solo bags), and the **All objects**
-   mode additionally re-submits the merged static-batch bags themselves,
-   so batched decor shows through the portal either way.
+   through-view re-submits them as solo bags), and in the **All objects**
+   mode a batched object gets a one-time solo bake the first time a live
+   view needs it, so batched decor shows through the portal either way.
+   (The merged batch bags themselves are never submitted into a
+   through-view: a merged bag can't drop just the members behind the
+   destination's exit plane, and the wall the target portal is mounted on
+   would fill the view with its backside.)
 4. Optional: **Teleport physics objects** carries physics-enabled objects
    that cross the surface too (the player always teleports). Vertical
    velocity maps through the pair, so a floor portal linked to a

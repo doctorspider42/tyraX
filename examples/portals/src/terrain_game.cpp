@@ -6199,7 +6199,24 @@ bool TerrainGame::renderOnePortalView(int pi) {
       }
       return;  // emitters have no geometry/anim parts
     }
-    if (ro.dirty) rebuildObjectGeometry(ti);
+    const bool batched =
+        ti < (int)objectBatchOf.size() && objectBatchOf[ti] >= 0;
+    if (batched) {
+      // Batched member: its geometry lives only in the merged batch bag,
+      // and a merged bag cannot skip the members behind the exit plane -
+      // submitting whole batches here painted the mounting wall's backside
+      // across the through-view (owner report; the batch AABB spans a
+      // whole grouping cell, so the plane test never rejected it). Solo
+      // bake on first use instead and let the per-object dead zone above
+      // do its work. A DIRTY member is left alone: rebuildObjectGeometry
+      // consumes the flag renderStaticBatches keys its demotion on (the
+      // portal pass runs before it in the frame); demotion rebuilds the
+      // solo bag this same frame and the next live view picks it up.
+      if (objectGeometry[ti].parts.empty() && !ro.dirty)
+        rebuildObjectGeometry(ti);
+    } else if (ro.dirty) {
+      rebuildObjectGeometry(ti);
+    }
     ObjectGeometry& g = objectGeometry[ti];
     for (GeoPart& part : g.parts)
       if (part.bag) stapip.core.render(part.bag.get());
@@ -6214,23 +6231,12 @@ bool TerrainGame::renderOnePortalView(int pi) {
     // and draw distances are measured from the virtual eye, so the real
     // cost is what the destination actually sees - still, big scenes pay
     // for this; the authored list stays the shipping-quality default.
-    // Static batches first: batched members have no solo bags (their
-    // geometry lives only in the merged world-space bags), so without this
-    // submit every batchStatic primitive is missing from the through-view.
-    // Same exit-plane dead zone as the solo objects, per batch AABB.
-    for (StaticBatch& b : staticBatches) {
-      if (!b.bag || b.bag->count == 0) continue;
-      const float sd =
-          exitN.x * 0.5F * (b.aabbMin[0] + b.aabbMax[0]) +
-          exitN.y * 0.5F * (b.aabbMin[1] + b.aabbMax[1]) +
-          exitN.z * 0.5F * (b.aabbMin[2] + b.aabbMax[2]) - exitD;
-      const float rr =
-          fabsf(exitN.x) * 0.5F * (b.aabbMax[0] - b.aabbMin[0]) +
-          fabsf(exitN.y) * 0.5F * (b.aabbMax[1] - b.aabbMin[1]) +
-          fabsf(exitN.z) * 0.5F * (b.aabbMax[2] - b.aabbMin[2]);
-      if (sd < -rr + 0.1F) continue;
-      stapip.core.render(b.bag.get());
-    }
+    // Batched members are handled inside renderViewObject (solo bake on
+    // first use) - NOT by submitting the merged batch bags: a merged bag
+    // cannot drop just the members behind the exit plane, and the batch
+    // AABB spans its whole grouping cell, so a whole-bag plane test never
+    // fires - the wall the target portal is mounted on filled the view
+    // with its backside.
     for (int ti = 0; ti < (int)runtimeObjects.size(); ++ti) {
       if (runtimeObjects[ti].data.type == 15) continue;  // glass-only anyway
       if (beyondDrawDistance(runtimeObjects[ti].data, eye)) continue;

@@ -9,6 +9,30 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (132) **Portal viewAll: the mounting wall's backside filled the
+  through-view (hotfix on main).** Owner report right after (131) merged:
+  a portal mounted on a wall showed that wall through itself. (131)'s
+  viewAll path submitted the **merged static-batch bags** with an
+  exit-plane test per batch AABB - but a batch AABB spans its whole
+  grouping cell (min 48 units), so the test never rejected anything and
+  the wall behind the target portal - batched together with half the map -
+  painted its backside across the view. The per-object dead zone in
+  `renderViewObject` was the already-solved twin ((113)'s "wide thin wall"
+  fix); batches bypassed it. Fix: never submit batch bags into a
+  through-view - a batched member instead gets a **one-time solo bake**
+  inside `renderViewObject` (`objectGeometry` parts empty + not dirty →
+  `rebuildObjectGeometry`), after the dead-zone check so a wall behind the
+  plane costs nothing. A DIRTY batched member is deliberately left alone:
+  `rebuildObjectGeometry` clears the flag `renderStaticBatches` keys its
+  demotion on and the portal pass runs first in the frame - the demotion
+  rebuilds the solo bag the same frame, the next live view picks it up.
+  Cost honesty: a live viewAll view pays pre-(122)-style solo submits for
+  batched decor it can see (bake is once, then cached); the main pass
+  keeps full batching. Verified: editor builds clean; regenerated portals
+  example compiles in Docker (exit 0); generated code shows the solo-bake
+  branch and no batch submit in `renderOnePortalView`. Eyes-on PCSX2 pass
+  on the example map pending (owner has a live session).
+
 - (131) **Portals vs the merge wave: empty through-views + the infinite-fall
   hitch.** Owner report after #110/#118/#120 landed: through a portal only
   particle effects were visible, standing in the opening briefly read as
