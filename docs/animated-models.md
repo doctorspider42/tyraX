@@ -1,7 +1,10 @@
-# Animated models (.glb)
+# Animated models (.glb, .fbx)
 
 The editor plays skeletal animations authored in Blender (or any glTF
-exporter) on the PS2 - with a real skeletal runtime. At build time the
+exporter) on the PS2 - with a real skeletal runtime. **FBX files import
+too** - see [Importing FBX](#importing-fbx) below; everything in this
+document applies to them identically, because an imported .fbx is parsed
+into the exact same data the .glb path produces. At build time the
 model's node hierarchy, skin (inverse bind matrices, per-vertex joints and
 weights), bind-pose mesh and raw keyframe tracks are serialized to a compact
 `.tskl` file. The game evaluates the pose on the EE every frame (keyframe
@@ -108,9 +111,35 @@ what ships.
 | **Speed** | Playback multiplier (1.00x = authored speed). |
 | **Color** | Multiplies the model's material colors (tint), like on primitives. |
 | **Collision** | Box from the model's all-clips pose AABB, or none. Per-triangle mesh collision is a static-model (.obj) feature. |
+| **Model yaw offset** | Content-forward correction in degrees around the model's own Y, applied between scale and rotation (viewport preview matches). A model authored facing **±X** (a common Blender habit — facing the red axis; both the glTF and FBX exporters treat Blender's **-Y** as front) walks sideways as an avatar or AI agent; set **±90** here and the mesh renders turned while the authored rotation, the avatar's turn-to-face and AI facing stay convention-pure. |
 
 Material (.mtl) overrides do not apply to .glb models - their materials come
 from the file itself.
+
+## Importing FBX
+
+**Project > Assets > Import model...** accepts `.fbx` next to `.glb` - both
+land in `res/models/` and flow through the same pipeline (`.tskl`
+serialization, viewport preview, LODs, locomotion mapping). The reader is the
+vendored [ufbx](https://github.com/ufbx/ufbx) library, so binary and ASCII
+FBX from Blender, Maya and 3ds Max all load. Differences from `.glb` worth
+knowing:
+
+- **Axes and units are auto-normalized** to the glTF convention
+  (right-handed Y-up, meters): a Maya/Max rig authored in centimeters
+  imports at the same size as its .glb twin. Geometry transforms (Maya
+  pivots) are baked into the vertices.
+- **Animation curves are resampled**, not translated: each FBX take is
+  sampled at 24 Hz and keyframe-reduced per channel (RDP), which sidesteps
+  the FBX curve soup (rotation orders, pre/post rotations, pivots) while
+  keeping any authored pose within half a frame. Takes named
+  `Armature|Walk` shorten to `Walk` (the full name is kept on a collision).
+- **External textures are copied in**: a .glb embeds its textures, an .fbx
+  often references image files - import copies the referenced files next to
+  the copied .fbx so the project stays self-contained (non-PNG images are
+  transcoded; power-of-two still required, like every PS2 texture).
+- **Not supported** (imports with a warning, piece skipped): blend
+  shapes/morph targets, procedural textures.
 
 ## Third-person player avatars
 

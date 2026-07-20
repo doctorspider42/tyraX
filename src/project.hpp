@@ -16,6 +16,32 @@ struct TerrainConfig {
     int depth = 64;   // world units, Z axis
 };
 
+// One paintable terrain layer above the base (the scene's terrain material).
+// `material` is a res-relative .mtl, resolved through project::resolveTerrainMaterial
+// so a layer inherits the same texture / Kd tint / tiling as the base terrain.
+// The painted per-texel weight of each layer lives in SceneData::splat; the base
+// (index -1) gets the remaining weight. See docs/terrain-painting.md.
+struct TerrainLayer {
+    std::string name = "Layer";
+    std::string material;  // res-relative .mtl ("" = flat, uses its own name only)
+    // Texture "size": how large the layer's tiled pattern appears on the ground.
+    // Multiplies the pattern size on top of the material's own tiling (2 = twice
+    // as big / half the repeats), so you can tune it without editing the .mtl.
+    // No effect on a flat (textureless) layer.
+    float scale = 1.0f;
+    // Stochastic tiling ("texture bombing", docs/terrain-painting.md): bake a
+    // larger non-repeating supertile from this layer's texture at build so the
+    // grid repetition leaves the visible range. Zero runtime cost. Best on
+    // organic textures (grass/sand/rock); leave off for anything with fixed
+    // seams (bricks, tiles). No effect on a flat layer.
+    bool stochastic = false;
+};
+
+inline bool operator==(const TerrainLayer& a, const TerrainLayer& b) {
+    return a.name == b.name && a.material == b.material && a.scale == b.scale &&
+           a.stochastic == b.stochastic;
+}
+
 enum class PrimitiveType {
     Box = 0,
     Sphere = 1,
@@ -148,7 +174,15 @@ struct SceneObject {
     float rotation[3] = {0.0f, 0.0f, 0.0f};  // degrees
     float scale[3] = {1.0f, 1.0f, 1.0f};
     float color[3] = {0.6f, 0.6f, 0.6f};  // neutral gray (specialized types override)
-    bool physics = false;     // falls with gravity in the game
+    bool physics = false;     // simulated as a rigid body in the game: gravity,
+                              // bounces off slopes/objects, tumbles, can be
+                              // pushed by the player and Apply Impulse nodes
+    // Physics material (read when physics == true). Mass is relative - it only
+    // matters where bodies trade momentum (collisions, player pushes).
+    float physMass = 1.0f;      // relative mass; heavier = harder to push
+    float physBounce = 0.35f;   // restitution 0..1: 0 = thud, 1 = superball
+    float physFriction = 0.5f;  // ground drag 0..1: 0 = ice, 1 = sticky
+    bool physTumble = true;     // ground contact converts slide into roll/spin
     bool usable = false;      // shows the USE prompt up close; BTN_USE fires On Used
     bool pickable = false;    // BTN_USE picks it up: carried in front of the
                               // camera (swept against the world so it cannot
@@ -330,6 +364,12 @@ struct SceneObject {
     // for this object, > 0 = custom distance in world units.
     float animLodOverride = -1.0f;  // pose-refresh (animation) LOD distance
     float meshLodOverride = -1.0f;  // decimated-mesh LOD distance
+    // Content-forward correction, degrees around the model's own Y, applied
+    // between scale and the (authored or runtime) rotation. For models
+    // authored facing +-X instead of the avatar/AI convention's +Z: set
+    // +-90 and the runtime facing (walker faceYaw, NPC turn-to-face) stays
+    // pure logic while the mesh renders turned. Applies to animated models.
+    float modelYawOffset = 0.0f;
 
     // Per-object logic. Object-referencing nodes default to this object
     // ("self"), so a copied object brings a working copy of its behavior.
@@ -344,10 +384,13 @@ struct SceneObject {
 
 const char* primitiveTypeName(PrimitiveType t);
 
-// Animated models are .glb files (baked to morph frames at build); static
-// models are .obj. Decides which import/render/codegen path an object takes.
+// Animated models are .glb or .fbx files (serialized to .tskl at build);
+// static models are .obj. Decides which import/render/codegen path an object
+// takes.
 inline bool isAnimatedModelPath(const std::string& path) {
-    return path.size() > 4 && path.compare(path.size() - 4, 4, ".glb") == 0;
+    if (path.size() <= 4) return false;
+    const std::string ext = path.substr(path.size() - 4);
+    return ext == ".glb" || ext == ".fbx";
 }
 
 inline bool operator==(const SceneObject& a, const SceneObject& b) {
@@ -356,7 +399,9 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
     };
     return a.id == b.id && a.name == b.name && a.type == b.type && eq3(a.position, b.position) &&
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
-           a.physics == b.physics && a.usable == b.usable &&
+           a.physics == b.physics && a.physMass == b.physMass &&
+           a.physBounce == b.physBounce && a.physFriction == b.physFriction &&
+           a.physTumble == b.physTumble && a.usable == b.usable &&
            a.pickable == b.pickable && a.pickThrow == b.pickThrow &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
            a.layer == b.layer &&
@@ -410,6 +455,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.animLoop == b.animLoop && a.animSpeed == b.animSpeed &&
            a.animLodOverride == b.animLodOverride &&
            a.meshLodOverride == b.meshLodOverride &&
+           a.modelYawOffset == b.modelYawOffset &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts;
 }
 
@@ -939,6 +985,30 @@ struct SceneData {
     std::vector<float> heights;
     int hmW = 0, hmD = 0;
 
+    // Terrain layer painting (docs/terrain-painting.md). `terrainLayers` are the
+    // paintable layers ABOVE the base terrain material (index 0 = first extra
+    // layer). `splat` holds their per-VERTEX weight on the terrain render grid
+    // (splatW x splatD == hmW x hmD - the blend is drawn as Gouraud vertex
+    // alpha, so vertex resolution IS the blend resolution),
+    // terrainLayers.size() bytes per vertex (row-major:
+    // [z*splatW + x]*N + layer), 0..255; the base gets the remaining weight.
+    // Empty layers => all base = the single-material terrain. Persisted in
+    // <project>/terrain-<scene>.splat.
+    std::vector<TerrainLayer> terrainLayers;
+    std::vector<uint8_t> splat;
+    int splatW = 0, splatD = 0;
+    // Stochastic tiling for the BASE terrain material (the layers carry their
+    // own flag). See TerrainLayer::stochastic.
+    bool terrainBaseStochastic = false;
+    // Macro ground variation (docs/terrain-painting.md): large soft patches of
+    // lighter/darker ground, world-position value noise multiplied into the
+    // terrain vertex shade while chunks bake - base AND layer passes together,
+    // so it reads as ground lighting, not an overlay. Zero runtime cost;
+    // infinite period (breaks even the supertile's second-order repetition).
+    // variation = amplitude 0..1 (0 = off), scale = patch size in world units.
+    float terrainTintVariation = 0.0f;
+    float terrainTintScale = 24.0f;
+
     // Per-scene overrides of the project's scene-visual settings. `settings`
     // holds this scene's values; `overrides` says which categories are active.
     // Inactive categories inherit Project::settings - resolve with
@@ -963,6 +1033,11 @@ inline bool operator==(const SceneData& a, const SceneData& b) {
     return a.name == b.name && a.objects == b.objects && a.layers == b.layers &&
            a.terrain.width == b.terrain.width && a.terrain.depth == b.terrain.depth &&
            a.heights == b.heights && a.hmW == b.hmW && a.hmD == b.hmD &&
+           a.terrainLayers == b.terrainLayers && a.splat == b.splat &&
+           a.splatW == b.splatW && a.splatD == b.splatD &&
+           a.terrainBaseStochastic == b.terrainBaseStochastic &&
+           a.terrainTintVariation == b.terrainTintVariation &&
+           a.terrainTintScale == b.terrainTintScale &&
            a.overrides == b.overrides && a.settings == b.settings &&
            a.ambiencePreset == b.ambiencePreset &&
            a.loadingScreen == b.loadingScreen;
@@ -1360,6 +1435,29 @@ void flattenHeightmap(Project& p, float worldX, float worldZ, float radius, floa
 
 std::string saveHeights(const Project& p);
 void loadHeights(Project& p);  // silent no-op when the file is absent
+
+// --- Terrain splatmap --------------------------------------------------------
+
+// Makes every scene splatmap match its layer count and the terrain render grid
+// (the splat stores per-VERTEX weights - splatW/splatD track hmW/hmD):
+// zero-fills a fresh map, resamples an existing one when the grid changed, and
+// grows/shrinks the per-vertex layer stride when layers are added/removed.
+// A scene with no terrainLayers keeps an empty splat.
+void ensureSplatmap(Project& p);
+
+// Paints the active layer under a world-space brush (cosine falloff). `delta`
+// > 0 adds the layer's weight, < 0 erases it (toward the base). Clamped 0..255.
+void paintSplat(Project& p, int layer, float worldX, float worldZ, float radius,
+                float delta);
+
+// Active-scene terrain layer edits that keep the interleaved splat columns in
+// sync (the splat stores terrainLayers.size() bytes per texel, in layer order).
+void addTerrainLayer(Project& p, const std::string& name, const std::string& material);
+void removeTerrainLayer(Project& p, int idx);       // drops its splat column
+void moveTerrainLayer(Project& p, int idx, int dir);  // dir = -1 up / +1 down; swaps columns
+
+std::string saveSplat(const Project& p);
+void loadSplat(Project& p);  // silent no-op when the file is absent
 
 // --- History file (<name>.history) ------------------------------------------
 // The undo history (up to History::kMaxEntries scene snapshots), kept next to

@@ -7,13 +7,24 @@
 
 namespace Showcase {
 
+/** Frames of near-rest ground contact after which a physics body falls
+ * asleep (a sleeping body costs one branch per frame until woken). */
+constexpr int PHYS_SLEEP_FRAMES = 24;
+
 /** A scene object at runtime. Mutate `data` (position/rotation/scale/color),
- * `visible` or `velocityY`, then set `dirty = true` so the geometry gets
- * rebuilt on the next frame. */
+ * `visible` or the velocity fields, then set `dirty = true` so the geometry
+ * gets rebuilt on the next frame. */
 struct RuntimeObject {
   SceneObjectData data;
   bool visible = true;
-  float velocityY = 0.0F;  // vertical velocity (object physics)
+  // Object physics state (data.physics). Velocities are per-frame
+  // displacements (like the player's), spin is degrees/frame. After writing
+  // them from a script set restFrames = 0 too - a body with restFrames >=
+  // PHYS_SLEEP_FRAMES is asleep and skips simulation entirely.
+  float velocityY = 0.0F;  // vertical velocity (kept first: legacy scripts)
+  float velocityX = 0.0F, velocityZ = 0.0F;
+  float spin[3] = {0.0F, 0.0F, 0.0F};  // angular velocity, degrees/frame
+  signed char restFrames = 0;          // sleep counter; write 0 to wake
   bool dirty = true;
   // False while the object's streaming layer is not resident: the object is
   // fully out of the game (no render, collision, sound, USE, physics) and
@@ -315,7 +326,8 @@ class ObjectScript {
   virtual ~ObjectScript() {}
 
   /** The object this instance is attached to - mutate self->data (position/
-   * rotation/scale/color), self->visible or self->velocityY, then set
+   * rotation/scale/color), self->visible or the velocity/spin fields (write
+   * self->restFrames = 0 to wake a sleeping body), then set
    * self->dirty = true. Equals &ctx.objects[selfIndex]; refreshed by the
    * game every frame before onUpdate. */
   RuntimeObject* self = nullptr;

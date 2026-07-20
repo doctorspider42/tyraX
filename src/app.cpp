@@ -18,10 +18,12 @@
 #include "aisupport.hpp"
 #include "decalproj.hpp"
 #include "gl_loader.h"
+#include "fbxparser.hpp"
 #include "glbparser.hpp"
 #include "json.hpp"
 #include "menubake.hpp"
 #include "objparser.hpp"
+#include "stochtile.hpp"
 #include "templates.hpp"
 #include "wavconvert.hpp"
 
@@ -206,10 +208,11 @@ static std::string pickPath(PickKind kind) {
                 L"Open Tyra project");
         case PickKind::ObjModel:
             return pickFileLegacy(
-                L"3D model (*.obj, *.glb)\0*.obj;*.glb\0"
+                L"3D model (*.obj, *.glb, *.fbx)\0*.obj;*.glb;*.fbx\0"
                 L"Wavefront model (*.obj)\0*.obj\0"
-                L"Animated glTF binary (*.glb)\0*.glb\0All files (*.*)\0*.*\0",
-                L"Import 3D model (.glb = animated)");
+                L"Animated glTF binary (*.glb)\0*.glb\0"
+                L"Animated FBX (*.fbx)\0*.fbx\0All files (*.*)\0*.*\0",
+                L"Import 3D model (.glb/.fbx = animated)");
         case PickKind::Mtl:
             return pickFileLegacy(
                 L"Material library (*.mtl)\0*.mtl\0All files (*.*)\0*.*\0",
@@ -463,6 +466,14 @@ void App::drawUI() {
     ImGuizmo::BeginFrame();
     ImGuiID dockspace = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
 
+    // Terrain-layer edits (material/tint/Size/add/remove) rebuild the layer
+    // passes once per frame, before the viewport renders below. Brush strokes
+    // don't come through here - they rebuild only the chunks under the brush.
+    if (splatPreviewDirty_ && hasProject_) {
+        splatPreviewDirty_ = false;
+        rebakeSplatPreview();
+    }
+
     // Apply a pending layout rebuild now: the dockspace id exists, but no panel
     // window has been submitted yet this frame (DockBuilder must run before the
     // windows it docks are drawn). Saved-ini loads take the frame-boundary path
@@ -519,6 +530,7 @@ void App::drawUI() {
     drawAmbienceWindow();
     drawCutsceneWindow();
     drawMaterialEditorWindow();
+    drawTerrainWindow();
     drawUiEditorWindow();
     drawFontManagerWindow();
     drawLoadingScreenWindow();
@@ -820,6 +832,7 @@ void App::drawMenuBar() {
 
         if (hasProject_ && ImGui::BeginMenu("Tools")) {
             if (ImGui::MenuItem("Material Editor...")) showMaterialEditor_ = true;
+            if (ImGui::MenuItem("Terrain Editor...")) showTerrainEditor_ = true;
             if (ImGui::MenuItem("Menu Editor...")) showMenusEditor_ = true;
             if (ImGui::MenuItem("Color Grading...")) showGradingEditor_ = true;
             if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
@@ -1140,6 +1153,23 @@ void App::updateProjectedDecals() {
     viewport_.setProjectedDecals(projectedDecals_, projectedDecalsVersion_);
 }
 
+// Terrain brush ranges scale with the map: a 64-unit garden and a 2000-unit
+// world need very different maximums (fixed 30/0.5 caps made the brush useless
+// on large maps). Sliders over these ranges are logarithmic, so small values
+// keep their precision on any map size.
+static float terrainDimOf(const Project& p) {
+    const TerrainConfig& t = p.active().terrain;
+    return (float)(t.width > t.depth ? t.width : t.depth);
+}
+static float brushMaxRadius(const Project& p) {
+    const float r = terrainDimOf(p) * 0.5f;  // up to half the map per stroke
+    return r > 30.0f ? r : 30.0f;
+}
+static float sculptMaxStrength(const Project& p) {
+    const float s = terrainDimOf(p) / 100.0f;  // big maps = big landforms
+    return s > 0.5f ? s : 0.5f;
+}
+
 void App::updateNavOverlay() {
     // Nav-mesh preview (View > Nav Mesh Overlay). Signature of everything the
     // bake depends on - blocking objects, terrain, the nav preferences - so
@@ -1312,29 +1342,43 @@ void App::drawViewportWindow() {
                                   IM_COL32(0, 0, 0, (int)(seqFadeNow_ * 255.0f)));
         }
 
-        // --- Terrain sculpting brush ---
+        // --- Terrain sculpting / painting brush (shared raycast + ring) ---
+        const bool brushMode = sculptMode_ || paintMode_;
         bool brushHit = false;
         float brushX = 0.0f, brushZ = 0.0f;
-        if (sculptMode_ && imageHovered) {
+        if (brushMode && imageHovered) {
             const float u = (io.MousePos.x - imgPos.x) / avail.x;
             const float v = (io.MousePos.y - imgPos.y) / avail.y;
             brushHit = viewport_.terrainRaycast(u, v, brushX, brushZ);
 
             if (brushHit && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-                if (sculptFlatten_) {
-                    // level toward the target height; strength = lerp rate
-                    project::flattenHeightmap(project_, brushX, brushZ, brushRadius_,
-                                              flattenHeight_, brushStrength_);
-                } else {
-                    const float delta = io.KeyShift ? -brushStrength_ : brushStrength_;
-                    project::sculptHeightmap(project_, brushX, brushZ, brushRadius_,
-                                             delta);
+                if (sculptMode_) {
+                    if (sculptFlatten_) {
+                        // level toward the target height; strength = lerp rate
+                        project::flattenHeightmap(project_, brushX, brushZ, brushRadius_,
+                                                  flattenHeight_, brushStrength_);
+                    } else {
+                        const float delta =
+                            io.KeyShift ? -brushStrength_ : brushStrength_;
+                        project::sculptHeightmap(project_, brushX, brushZ, brushRadius_,
+                                                 delta);
+                    }
+                    // Live rebuild of just the chunks under the brush - a full
+                    // applyProjectToViewport would rebuild the whole map per frame.
+                    viewport_.updateTerrainRegion(project_.active().heights, brushX,
+                                                  brushZ, brushRadius_);
+                    sculptStroke_ = true;
+                } else {  // paintMode_
+                    const float delta = (io.KeyShift || paintErase_) ? -paintStrength_
+                                                                     : paintStrength_;
+                    project::paintSplat(project_, paintLayer_, brushX, brushZ,
+                                        brushRadius_, delta);
+                    // Live rebuild of just the layer passes under the brush -
+                    // the paint twin of the sculpt region update above.
+                    viewport_.updateSplatRegion(project_.active().splat, brushX,
+                                                brushZ, brushRadius_);
+                    paintStroke_ = true;
                 }
-                // Live rebuild of just the chunks under the brush - a full
-                // applyProjectToViewport would rebuild the whole map per frame.
-                viewport_.updateTerrainRegion(project_.active().heights, brushX, brushZ,
-                                              brushRadius_);
-                sculptStroke_ = true;
             }
         }
         if (sculptStroke_ && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
@@ -1342,9 +1386,14 @@ void App::drawViewportWindow() {
             commitChange();  // one undo step per finished brush stroke
             statusMessage_ = "Terrain sculpted";
         }
+        if (paintStroke_ && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            paintStroke_ = false;
+            commitChange();  // one undo step per finished paint stroke
+            statusMessage_ = "Terrain painted";
+        }
 
         // brush ring projected onto the terrain
-        if (sculptMode_ && brushHit) {
+        if (brushMode && brushHit) {
             auto worldToImage = [&](float wx, float wy, float wz, ImVec2& out) {
                 const float* V = viewport_.viewMatrix();
                 const float* P = viewport_.projMatrix();
@@ -1370,7 +1419,11 @@ void App::drawViewportWindow() {
                 const bool ok =
                     worldToImage(px, viewport_.terrainHeight(px, pz) + 0.1f, pz, pt);
                 if (ok && prevOk)
-                    dl->AddLine(prev, pt, IM_COL32(255, 200, 40, 220), 2.0f);
+                    dl->AddLine(prev, pt,
+                                paintMode_ ? (paintErase_ ? IM_COL32(255, 90, 90, 220)
+                                                          : IM_COL32(80, 220, 120, 220))
+                                           : IM_COL32(255, 200, 40, 220),
+                                2.0f);
                 prev = pt;
                 prevOk = ok;
             }
@@ -1378,7 +1431,7 @@ void App::drawViewportWindow() {
 
         // --- Transform gizmo on the selection (disabled while sculpting;
         // objects on a hidden layer can't be grabbed either) ---
-        bool objectSelected = !sculptMode_ && selectedObject_ >= 0 &&
+        bool objectSelected = !sculptMode_ && !paintMode_ && selectedObject_ >= 0 &&
                               selectedObject_ < (int)project_.objects().size() &&
                               !isObjectHiddenInEditor(project_.objects()[selectedObject_]);
         if (objectSelected) {
@@ -1588,7 +1641,7 @@ void App::drawViewportWindow() {
             // button is not driving the camera in this scheme (only Maya's
             // Alt+LMB does) and we're not sculpting.
             const bool lmbCamera = (nav_.scheme == NavScheme::Maya) && alt;
-            if (!sculptMode_ && !lmbCamera &&
+            if (!sculptMode_ && !paintMode_ && !lmbCamera &&
                 ImGui::IsMouseClicked(ImGuiMouseButton_Left))
                 boxSelecting_ = true;
         }
@@ -1618,7 +1671,7 @@ void App::drawViewportWindow() {
 
         // Click (no drag) = pick object under cursor. Ctrl toggles it in the
         // current selection; a plain click replaces (empty click clears).
-        if (imageHovered && !gizmoBusy && !sculptMode_ &&
+        if (imageHovered && !gizmoBusy && !sculptMode_ && !paintMode_ &&
             ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
             io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
             const float u = (io.MousePos.x - imgPos.x) / avail.x;
@@ -1777,13 +1830,32 @@ void App::drawViewportWindow() {
             if (active) ImGui::PopStyleColor();
         }
 
-        // Terrain sculpting toggle stays with the tools (shortcut 4).
+        // Terrain brushes stay with the tools (shortcuts 4/6). Grabbing either
+        // one opens the Terrain Editor window - the tool's options live there.
         ImGui::SameLine(0.0f, 24.0f);
         if (sculptMode_)
             ImGui::PushStyleColor(ImGuiCol_Button,
                                   ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::SmallButton("Sculpt (4)")) sculptMode_ = !sculptMode_;
+        if (ImGui::SmallButton("Sculpt (4)")) {
+            sculptMode_ = !sculptMode_;
+            if (sculptMode_) {
+                paintMode_ = false;  // one terrain brush at a time
+                showTerrainEditor_ = true;
+            }
+        }
         if (sculptMode_) ImGui::PopStyleColor();
+        ImGui::SameLine();
+        if (paintMode_)
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        if (ImGui::SmallButton("Paint (6)")) {
+            paintMode_ = !paintMode_;
+            if (paintMode_) {
+                sculptMode_ = false;
+                showTerrainEditor_ = true;  // add layers there if none exist yet
+            }
+        }
+        if (paintMode_) ImGui::PopStyleColor();
 
         // Geometry for the bottom-corner overlays. SmallButton keeps
         // FramePadding.x, so its width is the label plus twice that padding.
@@ -1871,25 +1943,51 @@ void App::drawViewportWindow() {
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", spaceTips[i]);
         }
 
-        if (sculptMode_) {
+        // Quick brush controls for both terrain modes - the same variables the
+        // Terrain Editor window edits, so they never disagree. Ranges scale
+        // with the map (see brushMaxRadius/sculptMaxStrength); logarithmic so
+        // small maps keep fine control. [ and ] resize the brush from the keys.
+        if (sculptMode_ || paintMode_) {
             ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, imgPos.y + 32));
-            ImGui::SetNextItemWidth(140.0f);
-            ImGui::SliderFloat("Radius", &brushRadius_, 1.0f, 30.0f, "%.1f");
+            ImGui::SetNextItemWidth(scaled(140));
+            ImGui::SliderFloat("Radius", &brushRadius_, 1.0f,
+                               brushMaxRadius(project_), "%.1f",
+                               ImGuiSliderFlags_Logarithmic);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Brush radius ([ / ] to resize)");
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(140.0f);
-            ImGui::SliderFloat("Strength", &brushStrength_, 0.01f, 0.5f, "%.2f");
-            ImGui::SameLine();
-            ImGui::Checkbox("Flatten", &sculptFlatten_);
-            if (sculptFlatten_) {
+            ImGui::SetNextItemWidth(scaled(140));
+            if (sculptMode_) {
+                ImGui::SliderFloat("Strength", &brushStrength_, 0.01f,
+                                   sculptMaxStrength(project_), "%.2f",
+                                   ImGuiSliderFlags_Logarithmic);
                 ImGui::SameLine();
-                ImGui::SetNextItemWidth(90.0f);
-                ImGui::DragFloat("Level", &flattenHeight_, 0.1f, -100.0f, 100.0f,
-                                 "%.1f");
-                ImGui::SameLine();
-                ImGui::TextDisabled("LMB level to height, RMB orbit");
+                ImGui::Checkbox("Flatten", &sculptFlatten_);
+                const float lvl = terrainDimOf(project_);
+                if (sculptFlatten_) {
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(scaled(90));
+                    ImGui::DragFloat("Level", &flattenHeight_, 0.1f, -lvl, lvl,
+                                     "%.1f");
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("LMB level to height, RMB orbit");
+                } else {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("LMB raise, Shift+LMB lower, RMB orbit");
+                }
             } else {
+                ImGui::SliderFloat("Strength", &paintStrength_, 0.05f, 1.0f,
+                                   "%.2f");
                 ImGui::SameLine();
-                ImGui::TextDisabled("LMB raise, Shift+LMB lower, RMB orbit");
+                ImGui::Checkbox("Erase", &paintErase_);
+                ImGui::SameLine();
+                const SceneData& psc = project_.active();
+                const bool okLayer = paintLayer_ >= 0 &&
+                                     paintLayer_ < (int)psc.terrainLayers.size();
+                ImGui::TextDisabled(
+                    okLayer ? "painting '%s' - LMB paint, Shift erase, RMB orbit"
+                            : "no layer - add one in the Terrain Editor",
+                    okLayer ? psc.terrainLayers[paintLayer_].name.c_str() : "");
             }
         }
 
@@ -1898,8 +1996,29 @@ void App::drawViewportWindow() {
             if (ImGui::IsKeyPressed(ImGuiKey_1)) gizmoOp_ = 0;
             if (ImGui::IsKeyPressed(ImGuiKey_2)) gizmoOp_ = 1;
             if (ImGui::IsKeyPressed(ImGuiKey_3)) gizmoOp_ = 2;
-            if (ImGui::IsKeyPressed(ImGuiKey_4)) sculptMode_ = !sculptMode_;
+            if (ImGui::IsKeyPressed(ImGuiKey_4)) {
+                sculptMode_ = !sculptMode_;
+                if (sculptMode_) {
+                    paintMode_ = false;
+                    showTerrainEditor_ = true;
+                }
+            }
             if (ImGui::IsKeyPressed(ImGuiKey_5)) gizmoSpace_ = 1 - gizmoSpace_;
+            if (ImGui::IsKeyPressed(ImGuiKey_6)) {
+                paintMode_ = !paintMode_;
+                if (paintMode_) {
+                    sculptMode_ = false;
+                    showTerrainEditor_ = true;
+                }
+            }
+            // Resize the brush without leaving the stroke ([ / ], 15% steps).
+            if (sculptMode_ || paintMode_) {
+                if (ImGui::IsKeyPressed(ImGuiKey_LeftBracket))
+                    brushRadius_ = std::max(1.0f, brushRadius_ / 1.15f);
+                if (ImGui::IsKeyPressed(ImGuiKey_RightBracket))
+                    brushRadius_ =
+                        std::min(brushMaxRadius(project_), brushRadius_ * 1.15f);
+            }
 
             // Fly the camera over the terrain. WASD or the arrow keys per the
             // navigation preference (tools live on 1-5, so WASD stays free).
@@ -2023,6 +2142,10 @@ void App::saveProject() {
     // kept in memory (and in undo snapshots) during editing.
     if (auto err = project::saveHeights(project_); !err.empty())
         MessageBoxA(nullptr, err.c_str(), "Save Terrain", MB_ICONERROR | MB_OK);
+    // Terrain splatmaps (paint weights) live in <scene>.splat sidecars, same
+    // deal as the heightmaps.
+    if (auto err = project::saveSplat(project_); !err.empty())
+        MessageBoxA(nullptr, err.c_str(), "Save Terrain", MB_ICONERROR | MB_OK);
 }
 
 void App::saveAll(const char* status) {
@@ -2041,6 +2164,7 @@ void App::saveAll(const char* status) {
 bool* App::showFlagForKey(const std::string& key) {
     if (key == "cutscene") return &showCutsceneEditor_;
     if (key == "material") return &showMaterialEditor_;
+    if (key == "terrain") return &showTerrainEditor_;
     if (key == "ui") return &showUiEditor_;
     if (key == "fonts") return &showFontManager_;
     if (key == "menus") return &showMenusEditor_;
@@ -2054,9 +2178,9 @@ bool* App::showFlagForKey(const std::string& key) {
 // The optional windows a layout can carry, in a stable order (also the capture
 // order). Core windows (Viewport/Project/Properties/Flow Graph/Output/Debug)
 // are always drawn and never listed here.
-static const char* const kLayoutWindowKeys[] = {"cutscene", "material", "ui",      "fonts",
-                                              "menus",    "grading",  "ambience", "loading",
-                                              "disc"};
+static const char* const kLayoutWindowKeys[] = {
+    "cutscene", "material", "terrain", "ui",      "fonts",
+    "menus",    "grading",  "ambience", "loading", "disc"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -2821,9 +2945,10 @@ std::string App::importModelAsset() {
     std::error_code ec;
     std::filesystem::create_directories(destDir, ec);
 
-    // Animated models (.glb) are self-contained (geometry, clips, textures in
-    // one file): plain copy, then a validation bake for early feedback. The
-    // .tanm the game loads is baked from it on every build.
+    // Animated models (.glb/.fbx): copy, then a validation bake for early
+    // feedback. The .tskl the game loads is serialized from the copy on
+    // every build. A .glb is self-contained; an .fbx may reference textures
+    // as separate files, so those are copied next to it.
     if (isAnimatedModelPath(fileName)) {
         std::filesystem::copy_file(srcPath, destDir / fileName,
                                    std::filesystem::copy_options::overwrite_existing, ec);
@@ -2831,9 +2956,11 @@ std::string App::importModelAsset() {
             statusMessage_ = "Model import failed: " + ec.message();
             return "";
         }
+        if (fileName.size() > 4 && fileName.compare(fileName.size() - 4, 4, ".fbx") == 0)
+            fbxparser::copyExternalTextures(srcPath.string(), destDir.string());
         glbparser::Baked baked;
         std::string error;
-        if (!glbparser::bake((destDir / fileName).string(), 12.0f, baked, error)) {
+        if (!animimport::bake((destDir / fileName).string(), 12.0f, baked, error)) {
             statusMessage_ = "Imported " + fileName + " - UNUSABLE: " + error;
             return "res/models/" + fileName;
         }
@@ -2846,8 +2973,8 @@ std::string App::importModelAsset() {
         // frames - parseSkel knows the actual footprint.
         glbparser::Skel skel;
         std::string skelError;
-        const size_t bytes = glbparser::parseSkel((destDir / fileName).string(),
-                                                  skel, skelError)
+        const size_t bytes = animimport::parseSkel((destDir / fileName).string(),
+                                                   skel, skelError)
                                  ? skel.ps2Bytes()
                                  : 0;
         if (bytes > 8u * 1024 * 1024)
@@ -3063,6 +3190,16 @@ std::string App::importMaterialAsset() {
     return "res/materials/" + fileName;
 }
 
+// Every animated-model asset regardless of container (.glb + .fbx), sorted -
+// the combos that offer "animated" models all go through this.
+std::vector<std::string> App::listAnimatedModelFiles() {
+    std::vector<std::string> files = listAssetFiles("models", ".glb");
+    const std::vector<std::string> fbx = listAssetFiles("models", ".fbx");
+    files.insert(files.end(), fbx.begin(), fbx.end());
+    std::sort(files.begin(), files.end());
+    return files;
+}
+
 std::vector<std::string> App::listAssetFiles(const char* subdir, const char* ext) {
     std::vector<std::string> files;
     std::error_code ec;
@@ -3156,7 +3293,7 @@ const App::GlbInfo& App::glbInfo(const std::string& relPath) {
     GlbInfo info;
     glbparser::Baked baked;
     const std::filesystem::path full = std::filesystem::path(project_.dir) / relPath;
-    if (glbparser::bake(full.string(), 12.0f, baked, info.error)) {
+    if (animimport::bake(full.string(), 12.0f, baked, info.error)) {
         info.ok = true;
         for (const auto& c : baked.clips) info.clips.push_back(c.name);
         info.vertexCount = baked.totalVertexCount();
@@ -3302,8 +3439,8 @@ void App::drawAssetsSection() {
     if (ImGui::SmallButton("Import model...")) importModelAsset();
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(".obj = static geometry (+ .mtl/textures)\n"
-                          ".glb = animated model (Blender glTF Binary export;\n"
-                          "clips are baked to PS2 morph frames at build)");
+                          ".glb/.fbx = animated model (Blender/Maya/Max export;\n"
+                          "clips play on the PS2 skeletal runtime)");
     const std::vector<std::string> models = listAssetFiles("models", ".obj");
     for (const std::string& m : models) {
         ImGui::Bullet();
@@ -3332,7 +3469,7 @@ void App::drawAssetsSection() {
             }
         }
     }
-    const std::vector<std::string> animModels = listAssetFiles("models", ".glb");
+    const std::vector<std::string> animModels = listAnimatedModelFiles();
     for (const std::string& m : animModels) {
         ImGui::Bullet();
         ImGui::SameLine();
@@ -3365,7 +3502,7 @@ void App::drawAssetsSection() {
         }
     }
     if (models.empty() && animModels.empty())
-        ImGui::TextDisabled("  none - Import or drop .obj/.glb files there.");
+        ImGui::TextDisabled("  none - Import or drop .obj/.glb/.fbx files there.");
 
     ImGui::TextDisabled("Materials (res/materials)");
     ImGui::SameLine();
@@ -3465,7 +3602,7 @@ void App::drawAddObjectMenu() {
             const std::vector<std::string> models = listAssetFiles("models", ".obj");
             for (const std::string& m : models)
                 if (ImGui::MenuItem(m.c_str())) addModelObject("res/models/" + m);
-            const std::vector<std::string> anim = listAssetFiles("models", ".glb");
+            const std::vector<std::string> anim = listAnimatedModelFiles();
             for (const std::string& m : anim)
                 if (ImGui::MenuItem((m + " (animated)").c_str()))
                     addModelObject("res/models/" + m);
@@ -4094,7 +4231,7 @@ void App::drawPropertiesWindow() {
                     committed = true;
                 }
             }
-            const std::vector<std::string> anim = listAssetFiles("models", ".glb");
+            const std::vector<std::string> anim = listAnimatedModelFiles();
             for (const std::string& m : anim) {
                 const std::string rel = "res/models/" + m;
                 if (ImGui::Selectable((m + " (animated)").c_str(),
@@ -4172,7 +4309,7 @@ void App::drawPropertiesWindow() {
                     "On Animation Finished.");
             } else if (!o.modelPath.empty()) {
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                                   "Unusable .glb: %s", info.error.c_str());
+                                   "Unusable model: %s", info.error.c_str());
             }
         } else {
         // materials come from the .obj's MTL file (or the assigned override)
@@ -4281,7 +4418,23 @@ void App::drawPropertiesWindow() {
         }
     }
     if (isSolid) {
-        if (ImGui::Checkbox("Physics (falls with gravity)", &o.physics)) committed = true;
+        if (ImGui::Checkbox("Physics (rigid body)", &o.physics)) committed = true;
+        if (o.physics) {
+            ImGui::Indent();
+            ImGui::DragFloat("Mass", &o.physMass, 0.05f, 0.05f, 100.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Bounciness", &o.physBounce, 0.01f, 0.0f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Friction", &o.physFriction, 0.01f, 0.0f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::Checkbox("Tumble (impacts add spin)", &o.physTumble))
+                committed = true;
+            ImGui::TextDisabled(
+                "Falls, bounces off slopes and objects, slides with friction\n"
+                "and can be shoved by the player / Apply Impulse nodes.\n"
+                "Mass is relative - it matters only against other bodies.");
+            ImGui::Unindent();
+        }
         if (o.type == PrimitiveType::SavePoint) {
             ImGui::TextDisabled("Always usable - USE opens the save menu.");
         } else if (ImGui::Checkbox("Usable (USE prompt + On Used trigger)", &o.usable)) {
@@ -4752,7 +4905,7 @@ void App::drawPropertiesWindow() {
                     ? "<none>"
                     : std::filesystem::path(o.modelPath).filename().string();
             if (ImGui::BeginCombo("Model", current.c_str())) {
-                const std::vector<std::string> anim = listAssetFiles("models", ".glb");
+                const std::vector<std::string> anim = listAnimatedModelFiles();
                 for (const std::string& m : anim) {
                     const std::string rel = "res/models/" + m;
                     if (ImGui::Selectable((m + " (animated)").c_str(),
@@ -4768,21 +4921,21 @@ void App::drawPropertiesWindow() {
                 }
                 if (anim.empty())
                     ImGui::TextDisabled(
-                        "No animated .glb models - Import one in Project > Assets.");
+                        "No animated models (.glb/.fbx) - Import one in Project > Assets.");
                 ImGui::EndCombo();
             }
             if (o.modelPath.empty()) {
                 ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
-                                   "Pick an animated .glb - the avatar is invisible\n"
+                                   "Pick an animated .glb/.fbx - the avatar is invisible\n"
                                    "without one (only the camera moves).");
             } else if (!isAnimatedModelPath(o.modelPath)) {
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                                   "Third-person bodies must be an animated .glb.");
+                                   "Third-person bodies must be an animated model (.glb/.fbx).");
             } else {
                 const GlbInfo& info = glbInfo(o.modelPath);
                 if (!info.ok) {
                     ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                                       "Unusable .glb: %s", info.error.c_str());
+                                       "Unusable model: %s", info.error.c_str());
                 } else {
                     ImGui::TextDisabled("%d verts, %d clip(s)", info.vertexCount,
                                         (int)info.clips.size());
@@ -5176,7 +5329,7 @@ void App::drawMultiProperties() {
         multiDragF("Draw distance", &SceneObject::drawDistance, 0.5f, 0.0f, 2000.0f,
                    "%.0f units");
         multiCheck("Show in reflections", &SceneObject::reflected);
-        multiCheck("Physics (falls with gravity)", &SceneObject::physics);
+        multiCheck("Physics (rigid body)", &SceneObject::physics);
         if (!anySavePoint) {
             multiCheck("Usable (USE prompt + On Used)", &SceneObject::usable);
             multiCheck("Pickable (USE picks it up)", &SceneObject::pickable);
@@ -5266,6 +5419,20 @@ bool App::drawLodOverrides(SceneObject& o) {
     };
     row("animation LOD", o.animLodOverride, project_.settings.animLodDistance);
     row("mesh LOD", o.meshLodOverride, project_.settings.meshLodDistance);
+
+    // Content-forward correction: a model authored facing +-X (instead of
+    // the +Z the avatar drive / AI turn-to-face expect) renders turned by
+    // this many degrees while every logic yaw stays pure. Applied between
+    // scale and rotation, mirrored in the viewport preview.
+    ImGui::SetNextItemWidth(scaled(110));
+    ImGui::DragFloat("Model yaw offset", &o.modelYawOffset, 1.0f, -180.0f,
+                     180.0f, "%.0f deg");
+    committed |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Model faces sideways in game? The content was authored\n"
+            "X-forward (common Blender habit: facing the red axis).\n"
+            "Set +90 or -90 - the mesh turns, facing logic stays intact.");
     return committed;
 }
 
@@ -14421,15 +14588,32 @@ void App::drawNewProjectModal() {
 
 void App::applyProjectToViewport() {
     project::ensureHeightmap(project_);
+    project::ensureSplatmap(project_);  // weights track the same render grid
     const SceneData& sc = project_.active();
     // Scene-visual settings resolve project defaults + this scene's overrides.
     const ProjectSettings rs = project::resolvedSettings(project_, sc);
     viewport_.setProjectDir(project_.dir);
     const project::TerrainMaterial tm =
         project::resolveTerrainMaterial(project_, rs.terrainMaterial);
-    viewport_.setTerrainMaterial(tm.texture, tm.kd, tm.present, tm.tile);
+    // Stochastic base: preview the baked supertile (same pixels the build
+    // bakes), tiled at 1/factor so the source keeps its world size.
+    if (sc.terrainBaseStochastic && !tm.texture.empty()) {
+        float sf = 1.0f;
+        const std::string key = uploadStochPreview(tm.texture, sf);
+        const float tile[2] = {tm.tile[0] / sf, tm.tile[1] / sf};
+        viewport_.setTerrainMaterial(key.empty() ? tm.texture : key, tm.kd,
+                                     tm.present, tile);
+    } else {
+        viewport_.setTerrainMaterial(tm.texture, tm.kd, tm.present, tm.tile);
+    }
     viewport_.setTerrain(sc.terrain, project_.settings.terrainDetail, sc.heights, sc.hmW,
                          sc.hmD);
+    // Macro ground variation rides the vertex shade - set it before the layer
+    // meshes build so one rebuild covers both.
+    viewport_.setTerrainTint(sc.terrainTintVariation, sc.terrainTintScale);
+    // Painted terrain layers: push the resolved layer set + weights (empty
+    // layers = the plain single-material terrain above).
+    rebakeSplatPreview();
     viewport_.setSky(rs.skyColor, rs.skyTopColor, rs.skyDome, rs.zenithSize);
     viewport_.setUsableHighlight(rs.highlightUsable, rs.highlightColor);
     viewport_.setLighting(rs.lightDir, rs.ambient, rs.diffuse, rs.lightColor, rs.brightness);
@@ -14449,6 +14633,329 @@ void App::applyProjectToViewport() {
                                 player->flashlightAngle);
     else
         viewport_.setFlashlight(false, offColor, 30.0f, 20.0f);
+}
+
+void App::drawTerrainWindow() {
+    if (!showTerrainEditor_) return;
+    if (!hasProject_) {
+        showTerrainEditor_ = false;
+        return;
+    }
+    ImGui::SetNextWindowSize(ImVec2(scaled(380), scaled(540)), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Terrain Editor", &showTerrainEditor_)) {
+        ImGui::End();
+        return;
+    }
+
+    SceneData& sc = project_.active();
+    const bool canPaint = !sc.terrainLayers.empty();
+    if (!canPaint) paintMode_ = false;
+
+    // --- Tool row: Sculpt / Paint, one brush in hand at a time. The same
+    // toggles as the viewport toolbar (4 / 6) - shared state, never disagree.
+    {
+        const float bw =
+            (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) *
+            0.5f;
+        auto toolButton = [&](const char* label, bool& mode, bool& other,
+                              bool enabled) {
+            ImGui::BeginDisabled(!enabled);
+            if (mode)
+                ImGui::PushStyleColor(
+                    ImGuiCol_Button,
+                    ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+            if (ImGui::Button(label, ImVec2(bw, scaled(28)))) {
+                mode = !mode;
+                if (mode) other = false;
+            }
+            if (mode) ImGui::PopStyleColor();
+            ImGui::EndDisabled();
+        };
+        toolButton("Sculpt (4)", sculptMode_, paintMode_, true);
+        ImGui::SameLine();
+        toolButton("Paint (6)", paintMode_, sculptMode_, canPaint);
+        if (!canPaint && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Add a terrain layer below first");
+
+        if (sculptMode_)
+            ImGui::TextDisabled(
+                "Drag on the terrain: LMB raise, Shift+LMB lower. [ ] resize.");
+        else if (paintMode_)
+            ImGui::TextDisabled(
+                "Drag on the terrain: LMB paint, Shift+LMB erase. [ ] resize.");
+        else
+            ImGui::TextDisabled(
+                "Pick a tool - or manage the layers and bake below.");
+    }
+
+    // --- Brush (the active tool's settings; radius is shared) ---
+    ImGui::SeparatorText("Brush");
+    if (sculptMode_ || paintMode_) {
+        ImGui::SetNextItemWidth(scaled(200));
+        ImGui::SliderFloat("Radius", &brushRadius_, 1.0f,
+                           brushMaxRadius(project_), "%.1f",
+                           ImGuiSliderFlags_Logarithmic);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Brush radius in world units, up to half the map."
+                              "\n[ and ] resize it over the viewport.");
+        if (sculptMode_) {
+            ImGui::SetNextItemWidth(scaled(200));
+            ImGui::SliderFloat("Strength", &brushStrength_, 0.01f,
+                               sculptMaxStrength(project_), "%.2f",
+                               ImGuiSliderFlags_Logarithmic);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Units raised per frame at the brush center - the range\n"
+                    "grows with the map, so large worlds sculpt fast too.\n"
+                    "Flatten mode: level rate (values above 1 act as 1).");
+            ImGui::Checkbox("Flatten to level", &sculptFlatten_);
+            if (sculptFlatten_) {
+                ImGui::SameLine();
+                const float lvl = terrainDimOf(project_);
+                ImGui::SetNextItemWidth(scaled(90));
+                ImGui::DragFloat("##level", &flattenHeight_, 0.1f, -lvl, lvl,
+                                 "%.1f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Target height (world units)");
+            }
+        } else {
+            ImGui::SetNextItemWidth(scaled(200));
+            ImGui::SliderFloat("Strength", &paintStrength_, 0.05f, 1.0f, "%.2f");
+            ImGui::Checkbox("Erase (reveal layers below)", &paintErase_);
+        }
+    } else {
+        ImGui::TextDisabled("Grab Sculpt or Paint to brush the terrain.");
+    }
+
+    // --- Layers ---
+    // Shown as a Photoshop-style stack: the TOP row draws over everything
+    // below it, new layers land on top, and the base sits at the bottom.
+    // Storage order is unchanged (higher index = drawn later = higher in the
+    // stack); only the presentation is reversed.
+    ImGui::SeparatorText("Layers");
+
+    int removeIdx = -1, moveIdx = -1, moveDir = 0;
+    bool layersChanged = false;
+
+    if (ImGui::SmallButton("+ Add layer")) {
+        project::addTerrainLayer(project_, "Layer", "");
+        paintLayer_ = (int)sc.terrainLayers.size() - 1;  // new = top of the stack
+        // Adding a layer means you're about to paint it - put the brush in
+        // hand (unless the sculpt tool is deliberately held).
+        if (!sculptMode_) paintMode_ = true;
+        layersChanged = true;
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("top layer paints over the ones below");
+
+    for (int i = (int)sc.terrainLayers.size() - 1; i >= 0; --i) {
+        ImGui::PushID(i);
+        TerrainLayer& L = sc.terrainLayers[i];
+
+        if (ImGui::RadioButton("##active", paintLayer_ == i)) paintLayer_ = i;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Paint this layer");
+        ImGui::SameLine();
+
+        char nameBuf[64];
+        std::snprintf(nameBuf, sizeof(nameBuf), "%s", L.name.c_str());
+        ImGui::SetNextItemWidth(scaled(90));
+        if (ImGui::InputText("##name", nameBuf, sizeof(nameBuf)))
+            L.name = nameBuf;
+        if (ImGui::IsItemDeactivatedAfterEdit()) layersChanged = true;
+
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(120));
+        if (drawTerrainMaterialCombo("##mat", L.material)) layersChanged = true;
+
+        // Up = raise in the stack = drawn later = HIGHER storage index.
+        ImGui::SameLine();
+        ImGui::BeginDisabled(i == (int)sc.terrainLayers.size() - 1);
+        if (ImGui::ArrowButton("##up", ImGuiDir_Up)) {
+            moveIdx = i;
+            moveDir = 1;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine(0.0f, scaled(2));
+        ImGui::BeginDisabled(i == 0);
+        if (ImGui::ArrowButton("##down", ImGuiDir_Down)) {
+            moveIdx = i;
+            moveDir = -1;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine(0.0f, scaled(6));
+        if (ImGui::SmallButton("X")) removeIdx = i;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Remove layer");
+
+        // Texture size: how large this layer's pattern appears on the ground
+        // (bigger = fewer repeats). Only meaningful for a textured layer.
+        ImGui::Indent(scaled(22));
+        ImGui::SetNextItemWidth(scaled(110));
+        if (ImGui::DragFloat("Size", &L.scale, 0.02f, 0.1f, 20.0f, "%.2fx"))
+            splatPreviewDirty_ = true;  // live preview follows the drag
+        if (ImGui::IsItemDeactivatedAfterEdit()) layersChanged = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "How large this layer's texture looks on the ground\n"
+                "(bigger = larger pattern). No effect on a flat layer.");
+        ImGui::SameLine(0.0f, scaled(12));
+        const bool layerHasTex =
+            !project::resolveTerrainMaterial(project_, L.material).texture.empty();
+        ImGui::BeginDisabled(!layerHasTex);
+        if (ImGui::Checkbox("Stochastic", &L.stochastic)) layersChanged = true;
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                layerHasTex
+                    ? "Break the tiled-grid repetition by baking a larger\n"
+                      "non-repeating supertile at build (zero runtime cost).\n"
+                      "Best on organic textures; leave off for bricks/tiles."
+                    : "Pick a material with a texture first -\nstochastic tiling "
+                      "scrambles the texture, so a\nflat color has nothing to work "
+                      "on.");
+        ImGui::Unindent(scaled(22));
+
+        ImGui::PopID();
+    }
+
+    // The base is the bottom of the stack - everything above blends over it.
+    // Edit its material right here: the scene's own when it overrides the
+    // project default, otherwise the project default (so a single-scene
+    // project just sets its terrain material without leaving this window).
+    {
+        std::string& baseMat = sc.overrides.terrainMat
+                                   ? sc.settings.terrainMaterial
+                                   : project_.settings.terrainMaterial;
+        ImGui::BulletText("Base");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(150));
+        if (drawTerrainMaterialCombo("##basemat", baseMat)) {
+            commitChange();
+            applyProjectToViewport();
+        }
+        const bool baseHasTex =
+            !project::resolveTerrainMaterial(project_, baseMat).texture.empty();
+        ImGui::Indent(scaled(22));
+        ImGui::BeginDisabled(!baseHasTex);
+        if (ImGui::Checkbox("Stochastic tiling##base", &sc.terrainBaseStochastic)) {
+            commitChange();
+            applyProjectToViewport();  // base texture path lives on setTerrainMaterial
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                baseHasTex
+                    ? "Break the tiled-grid repetition of the base texture by "
+                      "baking\na larger non-repeating supertile at build (zero "
+                      "runtime cost).\nBest on organic textures; leave off for "
+                      "bricks/tiles."
+                    : "Assign a base material with a texture first -\nstochastic "
+                      "tiling scrambles the texture, so a flat\ncolor has nothing "
+                      "to work on.");
+        ImGui::Unindent(scaled(22));
+    }
+
+    // Apply deferred structural edits (one at a time), then commit + refresh.
+    if (removeIdx >= 0) {
+        project::removeTerrainLayer(project_, removeIdx);
+        if (paintLayer_ >= (int)sc.terrainLayers.size())
+            paintLayer_ = (int)sc.terrainLayers.size() - 1;
+        if (paintLayer_ < 0) paintLayer_ = 0;
+        layersChanged = true;
+    } else if (moveIdx >= 0) {
+        project::moveTerrainLayer(project_, moveIdx, moveDir);
+        if (paintLayer_ == moveIdx) paintLayer_ = moveIdx + moveDir;
+        else if (paintLayer_ == moveIdx + moveDir) paintLayer_ = moveIdx;
+        layersChanged = true;
+    }
+
+    // --- Macro ground variation ---
+    ImGui::SeparatorText("Variation");
+    {
+        ImGui::SetNextItemWidth(scaled(200));
+        if (ImGui::SliderFloat("Amount", &sc.terrainTintVariation, 0.0f, 1.0f,
+                               "%.2f"))
+            viewport_.setTerrainTint(sc.terrainTintVariation, sc.terrainTintScale);
+        if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Large soft patches of lighter/darker ground - breaks the\n"
+                "uniform 'carpet' look at zero runtime cost. Tints the base\n"
+                "and the painted layers together, like real ground lighting.");
+        ImGui::SetNextItemWidth(scaled(200));
+        if (ImGui::SliderFloat("Patch size", &sc.terrainTintScale, 4.0f, 200.0f,
+                               "%.0f units", ImGuiSliderFlags_Logarithmic))
+            viewport_.setTerrainTint(sc.terrainTintVariation, sc.terrainTintScale);
+        if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
+    }
+
+    // --- How it ships ---
+    ImGui::SeparatorText("Quality");
+    {
+        int vw = 0, vd = 0;
+        project::terrainGridDims(project_, vw, vd);
+        ImGui::TextWrapped(
+            "Layer textures stay tiled at full resolution; the blend follows "
+            "the terrain grid (%dx%d vertices - raise Terrain detail in "
+            "Preferences for finer blend edges). Painted chunks draw one extra "
+            "pass per layer on the PS2.",
+            vw, vd);
+    }
+
+    if (layersChanged) {
+        commitChange();
+        if (sc.terrainLayers.empty())
+            applyProjectToViewport();  // revert the preview to the terrain material
+        else
+            splatPreviewDirty_ = true;
+    }
+
+    ImGui::End();
+}
+
+// Generates a stochastic supertile for a terrain texture and uploads it into
+// the viewport's texture cache under a synthetic key, returning that key (and
+// the tiling factor). Same pixels the build bakes (stochtile is the shared
+// source of truth), so the preview matches the game. "" on failure.
+std::string App::uploadStochPreview(const std::string& srcRel, float& factor) {
+    factor = 1.0f;
+    if (srcRel.empty()) return "";
+    const std::string full =
+        (std::filesystem::path(project_.dir) / srcRel).string();
+    int w = 0, h = 0, f = 1;
+    std::vector<uint8_t> px = stochtile::generate(full, srcRel, w, h, f);
+    if (px.empty()) return "";
+    factor = (float)f;
+    const std::string key = "@stoch:" + srcRel;
+    viewport_.updateTexturePixels(key, w, h, px.data());
+    return key;
+}
+
+void App::rebakeSplatPreview() {
+    // Two-pass splatting preview: hand the viewport each layer resolved to
+    // what it draws (texture / tint / tiling incl. the layer Size and any
+    // stochastic supertile) plus the per-vertex weights - the same inputs the
+    // PS2 runtime gets from codegen.
+    const SceneData& sc = project_.active();
+    std::vector<Viewport::TerrainLayerDraw> draws;
+    draws.reserve(sc.terrainLayers.size());
+    for (const TerrainLayer& tl : sc.terrainLayers) {
+        Viewport::TerrainLayerDraw d;
+        const project::TerrainMaterial m =
+            project::resolveTerrainMaterial(project_, tl.material);
+        const float s = tl.scale > 0.0f ? tl.scale : 1.0f;
+        if (m.present) {
+            for (int i = 0; i < 3; ++i) d.kd[i] = m.kd[i];
+            float sf = 1.0f;
+            std::string key;
+            if (tl.stochastic && !m.texture.empty())
+                key = uploadStochPreview(m.texture, sf);
+            d.texture = key.empty() ? m.texture : key;
+            d.tile[0] = m.tile[0] / (s * sf);
+            d.tile[1] = m.tile[1] / (s * sf);
+        }  // else: the neutral-gray defaults (codegen emits the same)
+        draws.push_back(std::move(d));
+    }
+    viewport_.setTerrainLayers(draws, sc.splat);
 }
 
 void App::drawPreferencesModal() {

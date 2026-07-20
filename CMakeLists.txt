@@ -60,6 +60,7 @@ add_executable(tyrax-editor
     src/app.cpp
     src/camtake.cpp
     src/flownode.cpp
+    src/fbxparser.cpp
     src/gl_loader.cpp
     src/glbparser.cpp
     src/json.cpp
@@ -74,6 +75,7 @@ add_executable(tyrax-editor
     src/navmesh.cpp
     src/project.cpp
     src/screenfx.cpp
+    src/stochtile.cpp
     src/texbake.cpp
     src/save_assets.cpp
     src/templates.cpp
@@ -82,9 +84,11 @@ add_executable(tyrax-editor
     src/runner.cpp
     vendor/imguizmo/src/ImGuizmo.cpp
     vendor/imnodes/imnodes.cpp
+    vendor/ufbx/ufbx.c
+
     ${TYRAX_EDITOR_RC}
 )
-target_include_directories(tyrax-editor PRIVATE src vendor/imguizmo/src vendor/imnodes vendor/stb ${CMAKE_BINARY_DIR}/generated)
+target_include_directories(tyrax-editor PRIVATE src vendor/imguizmo/src vendor/imnodes vendor/stb vendor/ufbx ${CMAKE_BINARY_DIR}/generated)
 target_compile_definitions(tyrax-editor PRIVATE GLFW_INCLUDE_NONE)
 target_link_libraries(tyrax-editor PRIVATE imgui glfw opengl32 shell32 ole32 uuid)
 

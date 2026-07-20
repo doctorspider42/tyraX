@@ -38,6 +38,18 @@ Each finished feature lands as its own commit.
   lever emits the right rows (`pickable=1` vs `usable=1`), pickup.png lands
   in res/hud, whisker call sites in all three walkers, Docker game build
   compiles. The wall-press feel still wants a hands-on PCSX2 pad test.
+  Second merge of origin/main afterwards brought **rigid-body physics
+  (#97)**, which rewrote `updateObjectPhysics` into a two-pass sim — the
+  carried/thrown skip was re-applied to BOTH passes (pass 1 world
+  integration and pass 2 body-vs-body impulse exchange; the carry owns
+  those positions, so a crate in your hands must not be shoved by a
+  falling one), and the empty-scene placeholder row was reconciled against
+  the merged struct: physics params after `physics`, pickable/pickThrow
+  after `usable` — the documented (113) trap, checked this time by
+  counting columns against the struct (50 = 50 for both real rows and the
+  placeholder). Also from that merge: `vendor/ufbx` is a new dependency
+  (`setup.ps1` re-run needed after pulling #119) and the Properties
+  physics checkbox is now main's "Physics (rigid body)" label.
 
 - (128) **Pickable objects — pick up, carry in front of the face, drop,
   experimental throw.** New per-object flags `pickable` + `pickThrow` (solid
@@ -76,6 +88,278 @@ Each finished feature lands as its own commit.
   ===). The grab/carry/throw *feel* needs a hands-on pad test in PCSX2 (not
   run this session — a PCSX2 instance from a parallel session was live and
   the Runner would have killed it).
+
+- (113) **Terrain splat painting - paint a blend of terrain layers, drawn as
+  two-pass GS splatting.** Terrain used to wear a single tiled material; now a
+  scene can carry extra **terrain layers** (each an existing `.mtl`, so they
+  inherit texture + Kd tint + tiling) and you **paint their blend straight onto
+  the terrain in the 3D viewport** with a brush (a paint mode alongside sculpt,
+  sharing the same raycast + ring; Shift or the Erase toggle removes). A
+  unified **Terrain Editor** window (Tools > Terrain Editor) hosts BOTH terrain
+  brushes - Sculpt and Paint as switchable tools (viewport toolbar + keys 4/6;
+  grabbing a tool opens the window; one brush in hand at a time) - plus the
+  layer stack (Photoshop-style: top row paints over those below, "+ Add layer"
+  at the top drops the new layer on top, base at the bottom;
+  add/rename/pick material/reorder/remove, active-layer radio, and
+  a per-layer **Size** = how big that layer's texture pattern looks on the
+  ground, a multiplier on its material tiling) and the per-tool brush settings;
+  compact brush sliders float in the viewport while a tool is active (same
+  variables, never disagree) and `[`/`]` resize the brush from the keys.
+  **Brush ranges scale with the map** (radius up to half the map, sculpt
+  strength up to dim/100, logarithmic sliders): the old fixed 30/0.5 caps made
+  the brush useless on a 2000x2000 world (verified by GUI script - radius
+  reaches ~1000 on a 2000-map, overlay and window stay in sync).
+  **Runtime = era-correct two-pass vertex-alpha splatting** (the first cut
+  baked the blend into ONE whole-terrain composite - zero runtime cost, but the
+  GS's 512-texel texture cap made it embarrassingly blurry up close, dead end
+  documented in docs/terrain-painting.md): weights live per VERTEX on the
+  heightmap grid (`SceneData::splat`, sidecar `terrain-<scene>.splat`, resample
+  policy identical to heights), codegen bakes them into
+  `terrain_heights.gen.hpp` + layer descriptors into `texture_data.gen.hpp`,
+  and `buildTerrainChunk` adds one StaPip bag per layer present in a chunk
+  (shared vertices, tiled layer STs, shade-lit colors with alpha = weight)
+  under a blending-enabled info bag - the in-band per-mesh ALPHA qword (105)
+  already defaults to alpha-over, so no engine change was needed. The editor
+  viewport draws the same two passes (particle shader, 9-float mesh, LEQUAL
+  no-depth-write blend after the base chunks) - editor and PS2 agree by
+  construction. **Verified end-to-end**: headless harness (30 checks: grid
+  coupling, round-trip, undo equality, layer column ops, detail-change
+  resample, codegen tables incl. the no-layers null case); generated game
+  compiles clean in Docker; PCSX2 SW-renderer boot shows the tiled dirt path +
+  rock zone crisply blended over textured grass with soft Gouraud edges, no
+  TYRA asserts; **A/B benchmark** (same scene, layers stripped): 50 FPS / EE
+  36% / VU 2% unpainted vs 50 FPS / EE 36% / VU 3% with two painted layers -
+  the extra passes only exist where painted. Editor GUI screenshot confirms
+  the viewport twin matches the PS2 output. **Follow-up fix caught by the
+  owner's first real map**: layer textures ship to the game directly now, so a
+  1024x1024 material texture hit the engine's "512x512 max" assert at load
+  (v1's composite had masked oversize imports; a 1280x720 fog texture in the
+  same project was a pre-existing landmine on ANY object). texbake now resizes
+  every res/models|materials|textures PNG with non-PS2-valid dimensions
+  (power-of-two, max 512) into the bake, exactly like HUD sprites - sources
+  stay full-res for the viewport. Verified on the owner's project: three
+  textures auto-resized (2x 1024x1024, 1x 1280x720), game boots with zero
+  asserts.
+- (114) **Stochastic tiling (texture bombing) for terrain - kill the
+  tiled-grid "checkerboard".** A tiled terrain texture repeats on a visible
+  grid the moment the camera pulls back; PS2 has no pixel shaders to randomize
+  it per-fragment, so the randomization happens **at build time, in pixels**.
+  New per-base / per-layer **Stochastic** toggle in the Terrain Editor: the
+  build bakes that texture into one larger, still-perfectly-tileable
+  "supertile" (up to 512x512) whose interior scatters randomly rotated /
+  flipped / offset, feathered patches of the source, wrapped on the torus so
+  it tiles seamlessly. The game tiles the supertile like any texture - **same
+  single pass, zero runtime cost** - but the repetition period is 2-8x longer
+  (by source size), so the grid leaves the visible range. New host module
+  `src/stochtile.{hpp,cpp}` is the single source of truth (`generate` +
+  `factorFor` + `bakedBinPath`), deterministic from the source path: texbake
+  generates the supertiles into `.res-baked/stoch` (never mirrored from res/,
+  regenerated wholesale, exempt from the vanished-source sweep) quantized like
+  the source, and the editor viewport uploads the same pixels - so preview ==
+  build. Codegen points the terrain texture table + tiling at the supertile
+  (repeats-per-unit divided by the factor so the on-ground size is unchanged).
+  Best on organic textures; off by default; a scene without it is byte-for-byte
+  unchanged. **Verified**: headless harness (13 checks: factor math, 512²
+  output, torus wrap-seam not a hard discontinuity, bombing actually perturbs
+  the tiled base, determinism, bakedBinPath sanitize, codegen path + divided
+  tiling); PCSX2 SW-renderer A/B on a 256x256 map with a deliberately
+  grid-heavy 128px source - OFF shows identical blobs locked to a perfect grid,
+  ON scatters them at varied positions/sizes; both 50 FPS / EE 37% / GS 7%
+  (zero runtime cost confirmed). texbake logs "baked N supertile(s)".
+  New files `src/stochtile.{hpp,cpp}`.
+- (115) **Macro ground variation - light/dark patches at the group-of-tiles
+  scale.** The stochastic supertile (114) still repeats every 2-8 tiles (the
+  GS 512 texture cap is hard); this adds an *unbounded* third scale: a
+  per-scene **Variation** (Amount + Patch size, Terrain Editor) multiplies
+  deterministic world-position value noise (two smoothstepped octaves,
+  integer-hash lattice, no trig) into the terrain vertex shade while chunks
+  bake. Zero runtime cost (vertex colors are computed at build anyway),
+  infinite period, and it tints base + painted layers TOGETHER (all shading
+  flows through shadeAt), so patches read as ground lighting, not an overlay;
+  Gouraud keeps edges smooth. Twin formula in the generated game
+  (templates.cpp `tintNoise2` above buildTerrainChunk) and the viewport
+  (viewport.cpp) - identical inputs, kept in sync. The supertile generator
+  also gained a few large low-amplitude brightness blotches (mid scale), so
+  micro/mid/macro compose. Fields on SceneData (in undo, manifest + history
+  JSON, emitted as TERRAIN_TINT_VARIATIONS/SCALES). **Verified**: harness
+  round-trip + codegen checks (34 total now); PCSX2 SW renderer shows soft
+  multi-tile light/dark patches over the stochastic scatter at 50 FPS / EE
+  35% (same as without - zero cost); editor GUI shows the Variation section
+  and the viewport crop shows the same patches over the checker (twin
+  confirmed both sides).
+- (116) **Terrain Editor polish: base material combo + stochastic no-op hint.**
+  Two friction points from real use. (1) The base terrain material could only
+  be set in Scene Preferences, away from where you paint - now there's a
+  material combo on the base row of the Terrain Editor's layer stack; it edits
+  the scene's own material when the scene overrides the project default,
+  otherwise the project default (so a single-scene project just sets it in
+  place). (2) "Stochastic tiling did nothing" - because it scrambles a texture,
+  and the base (or a layer) with no texture assigned had nothing to work on,
+  silently. The Stochastic toggles are now disabled (greyed) whenever the
+  base/layer has no texture, with a tooltip saying to assign one first;
+  codegen was already a no-op there, so this is purely communicative. Verified
+  by GUI: assigned a base material from the Terrain Editor combo (flat green ->
+  tiled ground), the checkbox re-enabled, and ticking it visibly broke the
+  tiled grid in the viewport preview.
+
+- (122) **Model yaw offset (content-forward correction) + FBX orientation
+  investigation on real user content.** Owner's imported cat
+  (`character.fbx`) faced 90 deg sideways as a third-person avatar.
+  Diagnosis chain, each step measured: (1) the RAW file (before any
+  importer conversion) already has its content long along +-X while
+  declaring front=+Z - the import preserves orientation byte-faithfully;
+  (2) the repo's working `cat.glb` is the same rig whose root was
+  hand-wrapped into Z-forward back in the two-player work - same disease,
+  same source convention (models authored facing Blender's red +X axis;
+  both exporters map Blender's -Y to the engine's forward); (3) a host
+  replica of TsklLoader's full validation passes the fbx-baked .tskl, and
+  in-game instrumentation showed the model loading, skinning and animating
+  correctly - the "invisible avatar" red herring during verification was
+  the idle clip resolving to the fbx's `EmptyAction` (a REAL animated take
+  on the Armature that flings the cat off-camera; the rest pose is
+  `reference|EmptyAction`, matching how the .glb rig is authored).
+  Fix shipped: **`modelYawOffset`** on SceneObject (degrees around the
+  model's own Y, applied between scale and rotation in the generated
+  game's anim-matrix build AND the viewport's `modelMatrix` - the two are
+  documented twins), so an X-forward model renders turned while the
+  walker's faceYaw, AI turn-to-face and authored rotation stay
+  convention-pure. Full chain: field + `==`, JSON (`modelYaw`, omitted at
+  0), `liveLinkRecipeHash`, `SceneObjectData` column + placeholder row,
+  band-cull rotated-object check includes the offset, Properties UI row
+  (with the Blender-habit tooltip) on animated models and avatars.
+  Also switched the ufbx load to `SPACE_CONVERSION_ADJUST_TRANSFORMS` +
+  `GEOMETRY_TRANSFORM_HANDLING_HELPER_NODES` (the geometry-modifying
+  variants are documented as animation-lossy; sausage-rig regression
+  identical). Verified in PCSX2: the fbx cat renders sideways at offset 0
+  and tail-to-camera at +90 (screenshots), sausage harness byte-identical,
+  scratch project codegen + Docker build clean. Root-motion note for
+  authoring: the fbx walk take carries ~1.3 m of real root travel - as an
+  avatar clip that reads as sliding; export locomotion in place.
+
+
+
+- (121) **FBX import for animated models (.fbx next to .glb).** Feasibility
+  answered with a yes: the vendored [ufbx](https://github.com/ufbx/ufbx)
+  single-source reader (MIT; `vendor/ufbx`, cloned by setup.ps1 like the
+  other deps, compiled into the editor) reads binary+ASCII FBX from
+  Blender/Maya/Max. New `src/fbxparser.cpp/.hpp` fills the SAME
+  `glbparser::Baked`/`Skel` structures the .glb path produces, so
+  everything downstream — `.tskl` serialization, LODs, viewport preview,
+  import validation, codegen, the third-person locomotion mapping — is
+  untouched and format-agnostic; call sites now go through a tiny
+  `animimport::bake/parseSkel` extension dispatch. Design choices: axes/
+  units normalized to the glTF convention (right-handed Y-up, meters -
+  Maya centimeter rigs import at the right size), geometry transforms
+  (pivots) baked into vertices, FBX animation curves NOT translated but
+  **resampled at 24 Hz and RDP keyframe-reduced per channel** (sidesteps
+  rotation orders/pre-post rotations/pivot curves entirely; quaternion
+  hemisphere continuity enforced for the runtime's lerp), take names
+  `Armature|Walk` shortened to `Walk` (full name kept on collision),
+  weights capped to the 4 strongest and renormalized to 255, external
+  texture files copied next to the imported .fbx (a .glb embeds them, an
+  .fbx usually does not; non-PNG transcoded). `isAnimatedModelPath` now
+  accepts .fbx; import dialog, model combos (via a merged
+  `listAnimatedModelFiles`) and UI texts updated. Verified: editor builds
+  clean; a scratchpad harness on ufbx's skinned test rig
+  (`blender_279_sausage_7400_binary.fbx`) shows 3 named clips, 1728 verts,
+  3-bone palette, all weight sums == 255, real vertex motion across baked
+  frames, 126 keys after reduction, 58 KB .tskl; composing the exported
+  node TRS hierarchy reproduces ufbx's own `node_to_world` to 2.4e-7;
+  full e2e: scratch project with the .fbx as a Model object `--refresh-gen`
+  bakes `res/models/sausage.tskl` and the Docker game build compiles
+  (=== Build OK ===). Pending: an in-PCSX2 visual pass of an .fbx model
+  animating (blocked this session by a parallel PCSX2 instance) and a
+  GUI import-dialog walkthrough.
+- (114) **Physics perf: moving bodies render through a VU1 model matrix
+  (28-body bench 14 → 156 FPS) + frame-counter timers made wall-clock true
+  under disableVsync.** Profiling the (113) physics with bodies scattered
+  showed the frame dying not in the solver (VU0, trivial) but in
+  `rebuildObjectGeometry`: every awake body re-tessellated and re-shaded its
+  whole mesh on the EE every frame it moved. Now an awake body takes a
+  **matrix fast path**: one local-space bake on wake (scale baked into the
+  vertices, shading frozen at the wake pose - the light rides along while it
+  tumbles, corrected by a world re-bake on sleep) and from then on only
+  `ObjectGeometry::objMat` (rotation basis via the same `rotated()` the bake
+  uses + translation) is refreshed per frame; every `part.infoBag->model`
+  points at it, so **VU1 applies the motion** inside the transform it already
+  does, frustum classification uses the engine's object-space-planes path
+  (proven by animated models, which have always rendered model-space vertices
+  under `animMat`), and the bbox cache stays valid (no per-frame bboxVersion
+  bump). Mirrors compose `reflection * objMat` exactly like the animated
+  path; the dynamic-env-map base pass needs nothing (bags carry their
+  matrix). **Exclusions** (legacy re-bake path): usable objects (the
+  highlight hull/apron reads world-space vertex arrays), reflective-material
+  objects (matcap env normals bake in world space), animated models (already
+  matrix-driven). Impulse-pass separations and player shoves stopped setting
+  `dirty` (the matrix refresh in renderScene picks the moved positions up);
+  the Apply Impulse node emits no `dirty` at all now (velocity-only).
+  **Bench** (tyra-testing layer 3, PCSX2 software renderer, debug + FPS
+  overlay + vsync off + vu1 clipping, 28 high-bounce bodies dropped from
+  8-20 units): before 14-16 FPS all-airborne / 33 part-settled; after **156
+  FPS all-airborne / 137 FPS**, VU 4% → 41-45% - the work measurably moved
+  to the VUs; no asserts, tumbled boxes render visibly rotated. Bonus bug
+  found by the unlocked frame rate: `everyFrames()` counted frames at the
+  NOMINAL vsync rate, so with disableVsync every frame-counter timer (Every N
+  Seconds, Delay, splash holds, sound retriggers) ran as much too fast as the
+  FPS exceeded 50 - the physics-playground kicked ball got re-kicked every
+  ~1.1 s real and climbed into the sky. `everyFrames` now divides by the
+  measured `g_frameDt` (bit-identical at vsync - the clock snaps to nominal),
+  **Every N Seconds** compiles to a per-node countdown instead of
+  `frame % everyFrames(s)` (a modulo against a divisor that tracks measured
+  dt can skip its ==0 frame), and the loading-screen holds compare against a
+  `loadingTotal` snapshot instead of re-evaluating `everyFrames(0.7F)` in a
+  `==` (which could now miss and never load the scene). Verified: example
+  telemetry back to sane pacing (ball lands between kicks, rests at
+  terrain + radius, descends the terraces, wall-bounces at ±23.5) with the
+  scene still uncapped >130 FPS.
+
+- (113) **Object physics upgraded from "falls straight down" to a
+  rigid-body-lite simulation (bounce, slide, tumble, stacks, shoves,
+  impulses).** The old `updateObjectPhysics` was Y-only gravity that stopped
+  dead at the terrain height. The new one gives every `physics` body: full 3D
+  per-frame velocity; restitution bounces off the terrain using the **real
+  slope normal** (central differences on the heightfield), so bodies kick
+  sideways off hills and slide/roll downhill; per-contact friction; **tumble**
+  (ground contact converts slide into roll-without-slipping spin, integrated
+  into the Euler rotation - visually right, era-appropriate); reflecting
+  world-edge walls; AABB contacts against static solids resolved along the
+  least-penetration axis (crates rest on platforms, land on each other's
+  tops with ground friction); an **impulse pass** between bodies
+  (upright-cylinder contacts, momentum split by relative mass, restitution =
+  max of the pair); and **player shoves** (`pushPhysicsBodies`, called from
+  both walkers before `collidePlayer` with the attempted step - push scales
+  with 1/mass). Perf: near-rest grounded bodies **sleep** after 24 frames
+  (`RuntimeObject::restFrames`) and cost one branch per frame until an
+  impulse/shove/collision/support-loss wakes them - a support-loss check wakes
+  riders when the body under them slides away; the vector work (integrate,
+  normal decompose, reflect, dot/normalize) runs on **VU0** via `Tyra::Vec4`'s
+  macro-mode ops; geometry rebuilds only on frames the transform actually
+  changed. Authoring: per-object physics material - **Mass / Bounciness /
+  Friction / Tumble** (`physMass/physBounce/physFriction/physTumble`,
+  serialized only while `physics` is true, defaults keep old projects loading
+  clean), edited under the Properties *Physics (rigid body)* checkbox. Scripts
+  see `velocityX/Z` + `spin[3]` + `restFrames` next to the kept `velocityY`
+  (legacy scripts compile unchanged); save-restore and Set Position / Move
+  Object By wake the body so it re-settles. New **Apply Impulse** flow node
+  (`PushObject`: X/Y/Z in units/s, converted to per-frame velocity at codegen,
+  wakes the body); Spawn Object clones start with fresh physics state. New
+  `examples/physics-playground` (README-documented): superball vs dead-thud
+  vs medium materials dropped on a terraced slope, a sleeping crate stack the
+  player can topple, and a flow graph that kicks a ball every 3 s while
+  logging its position. Verified per tyra-testing layer 3: scratch FPP
+  project, Docker build, PCSX2 **software renderer** - `bin/log.txt`
+  telemetry shows the kicked ball resting at exactly terrain + radius
+  (y = 3.1 = 2.5 plateau + 0.6), flying on each impulse, descending the
+  terraces to the low plain (y = 0.6) and ping-ponging off the ±23.5 walls;
+  screenshots show both balls mid-air then settled and the crate stack
+  upright; steady state (all bodies asleep) holds **50 FPS, EE ~35%** - same
+  as before the feature; a transient 24 FPS dip appears only while several
+  bodies rebuild geometry mid-flight (the pre-existing moving-object rebuild
+  cost, not the sim). The walk-into-shove path needs a hands-on pad test by a
+  human (no pad in the harness). Dead end for the record: the physics helpers
+  were first emitted as file-`static` functions - `GameModel` is a nested
+  type of `TerrainGame`, so they must be static members (the PS2 gcc error
+  cascade "cannot convert GameModel* to const int*" means exactly this).
 
 - (122) **examples/two-players: two cats, the sample-man avatar removed, sky-toggle
   defused; static batching (#120) merged into the branch.** Owner request

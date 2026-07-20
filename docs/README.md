@@ -34,6 +34,12 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the Material Editor's live preview on your own .obj models, duplicating a
   material together with its textures, and painting color or tiled-pattern
   strokes straight onto the mesh through its UVs (the flat PNG is the bake).
+- [Terrain painting](terrain-painting.md) - blending several terrain layers
+  (grass/rock/path, each an `.mtl`) by painting their weights with a brush on
+  the terrain in the Terrain Editor; two-pass GS splatting (vertex-alpha, full
+  tiled texture detail, cost only on painted chunks), stochastic tiling
+  (build-time texture bombing that breaks the tiled-grid repetition), the
+  storage/undo model, and why the baked-composite approach was abandoned.
 - [The VS Code extension](vscode-extension.md) - syntax highlighting, snippets
   and validation for the `.flownode` and `.screenfx` text files: what it does,
   how the editor installs it automatically (and how to package a `.vsix` by
