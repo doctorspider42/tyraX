@@ -42,7 +42,9 @@ void StaPipVU1Program::addBufferDataToPacket(packet2_t* packet,
 void StaPipVU1Program::addStandardBufferDataToPacket(packet2_t* packet,
                                                      StaPipQBuffer* buffer,
                                                      prim_t* prim) {
-  if (buffer->bag->texture)
+  // Modified by TyraX: a billboard bag carries a texture bag purely for the
+  // per-particle params channel - only a real image enables mapping.
+  if (buffer->bag->texture && buffer->bag->texture->texture)
     prim->mapping = 1;
   else
     prim->mapping = 0;
@@ -58,15 +60,19 @@ void StaPipVU1Program::addStandardBufferDataToPacket(packet2_t* packet,
     packet2_add_float(packet, static_cast<float>(0xFFFFFF) / 2.0F);  // scale
     packet2_add_u32(packet, buffer->size);  // vertex count
 
-    packet2_utils_gs_add_prim_giftag(packet, prim, buffer->size, reglist,
-                                     reglistCount, 0);
+    // Modified by TyraX: NLOOP counts the GS vertices the program EMITS -
+    // 6x the input count for the billboard family (gsVertexCount).
+    packet2_utils_gs_add_prim_giftag(packet, prim, gsVertexCount(buffer->size),
+                                     reglist, reglistCount, 0);
   }
   packet2_utils_vu_close_unpack(packet);
 }
 
 u16 StaPipVU1Program::getMaxVertCount(const bool& singleColorEnabled,
                                       const u16& bufferSize) const {
-  u16 res = bufferSize - 7;  // 7 because of -> StoreTyraGifTags{}
+  // Modified by TyraX: 9 because of -> StoreTyraGifTags*Alpha{} (the tag
+  // block grew by a (set, ALPHA) pair - the in-band per-mesh blend equation)
+  u16 res = bufferSize - 9;
   u8 colorElementsPerVertex =
       singleColorEnabled ? elementsPerVertex - 1 : elementsPerVertex;
   res /= (colorElementsPerVertex + reglistCount);

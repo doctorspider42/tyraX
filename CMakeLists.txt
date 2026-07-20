@@ -35,9 +35,28 @@ add_library(imgui STATIC
 target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends)
 target_link_libraries(imgui PUBLIC glfw)
 
+# --- Embedded AI-support skills (ai-support/ -> generated header) ---
+# The markdown under ai-support/ is the source of truth for the assistant
+# guidance the editor installs into projects ("Add AI support"); it is baked
+# into the exe so nothing has to ship next to it. CONFIGURE_DEPENDS re-globs
+# on build, so adding a skill file only needs a rebuild, not a reconfigure.
+file(GLOB_RECURSE AI_SUPPORT_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/ai-support/*)
+set(AI_SUPPORT_GEN ${CMAKE_BINARY_DIR}/generated/ai_support_gen.hpp)
+add_custom_command(
+    OUTPUT ${AI_SUPPORT_GEN}
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC_DIR=${CMAKE_SOURCE_DIR}/ai-support
+            -DOUT_FILE=${AI_SUPPORT_GEN}
+            -P ${CMAKE_SOURCE_DIR}/cmake/embed_ai_support.cmake
+    DEPENDS ${AI_SUPPORT_SOURCES} ${CMAKE_SOURCE_DIR}/cmake/embed_ai_support.cmake
+    COMMENT "Embedding ai-support/ skills")
+
 # --- Editor ---
 add_executable(tyrax-editor
+    ${AI_SUPPORT_GEN}
     src/main.cpp
+    src/aigen.cpp
+    src/aisupport.cpp
     src/app.cpp
     src/camtake.cpp
     src/flownode.cpp
@@ -52,6 +71,7 @@ add_executable(tyrax-editor
     src/pngquant.cpp
     src/primmesh.cpp
     src/decalproj.cpp
+    src/navmesh.cpp
     src/project.cpp
     src/screenfx.cpp
     src/texbake.cpp

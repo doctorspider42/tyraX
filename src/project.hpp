@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
@@ -60,6 +61,13 @@ enum class PrimitiveType {
     // game). A camera-track keyframe bound to it takes eye/look-at/FOV from
     // the entity - animate the entity itself for dolly/crane shots.
     Camera = 14,
+    // Mirror: a rectangle (unit XY quad facing +Z, like a decal) that fakes a
+    // real mirror the PS2 way: the game re-draws each listed object a second
+    // time, reflected across the mirror plane, then blends the tinted glass
+    // quad over the copies. No render-to-texture, no stencil - the "mirror
+    // world" is real geometry behind the plane, so build it into a wall (the
+    // wall hides the copies outside the frame). See mirrorObjects below.
+    Mirror = 15,
 };
 
 // Tessellation detail for the geometry primitives, stored per object in
@@ -149,6 +157,11 @@ struct SceneObject {
     // drawn at all (collision, sounds and scripts still run). 0 = unlimited.
     // The cheapest LOD there is - era-correct for dense scenes.
     float drawDistance = 0.0f;
+    // Show in reflections: this object is also rendered into the dynamic
+    // ("@sky") environment map, so reflective materials mirror it - the GT3
+    // trick's second half. Each marked object costs a second (128x128,
+    // wide-FOV) render per frame; mark the few props that sell the effect.
+    bool reflected = false;
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     // Material library (.mtl) assigned to the object, e.g.
     // "res/materials/walls.mtl". Primitives take the file's FIRST material
@@ -254,6 +267,19 @@ struct SceneObject {
     // it to the real PS2 projection for the duration of the shot.
     float cameraFov = 60.0f;
 
+    // Mirror parameters (used when type == Mirror). An explicit list of scene
+    // object names this mirror reflects (renames remap; a dangling name is
+    // skipped) - a hard list instead of a radius, so the geometry cost is
+    // always visible to the author. Reflected copies follow the live object
+    // (movement, visibility, layer streaming). mirrorReflectPlayer also
+    // reflects the player avatar (visible flesh only - a third-person model;
+    // FPP players have no body to reflect). The shared `color` field tints
+    // the glass quad; mirrorOpacity is its alpha (0 = invisible glass,
+    // 1 = opaque - the reflection shows through low values).
+    std::vector<std::string> mirrorObjects;
+    bool mirrorReflectPlayer = false;
+    float mirrorOpacity = 0.35f;
+
     // Animated model parameters (Model objects whose modelPath ends in .glb;
     // the editor bakes the file's clips to morph frames - see glbparser.hpp).
     std::string animClip;       // starting clip name ("" = the file's first)
@@ -290,6 +316,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
            a.layer == b.layer &&
            a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
+           a.reflected == b.reflected &&
            a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
            a.playerMode == b.playerMode &&
@@ -326,6 +353,9 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.soundOnPlayer == b.soundOnPlayer &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
            a.cameraFov == b.cameraFov &&
+           a.mirrorObjects == b.mirrorObjects &&
+           a.mirrorReflectPlayer == b.mirrorReflectPlayer &&
+           a.mirrorOpacity == b.mirrorOpacity &&
            a.animClip == b.animClip && a.animAutoplay == b.animAutoplay &&
            a.animLoop == b.animLoop && a.animSpeed == b.animSpeed &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts;
@@ -343,10 +373,14 @@ struct ProjectSettings {
     std::string buildProfile = "release";  // "release" | "debug"
 
     // Output scan mode. "interlaced" is the stock 480i/576i signal (follows
-    // videoSystem). "progressive" outputs flicker-free 480p, "1080i" a
+    // videoSystem). "interlaced-field" is the same signal with true field
+    // rendering: half-height buffers, a fresh image every field (50/60
+    // distinct pictures per second at full speed) for about half the fill
+    // and VRAM cost. "progressive" outputs flicker-free 480p, "1080i" a
     // pillarboxed HD signal - both need component cables on a real console
     // (PCSX2 shows every mode) and always run at 60 Hz.
-    std::string displayMode = "interlaced";  // "interlaced" | "progressive" | "1080i"
+    std::string displayMode =
+        "interlaced";  // "interlaced" | "interlaced-field" | "progressive" | "1080i"
 
     // 16:9 anamorphic output: widens the projection so proportions are
     // correct on a widescreen TV (the framebuffer stays the same; in 1080i
@@ -364,6 +398,11 @@ struct ProjectSettings {
     bool showMemory = false;  // debug profile only: on-screen free-RAM readout
     bool showProfiler = false;  // debug profile only: per-phase EE-time HUD
                                 // (scene / highlight / particles / whole frame)
+    // Debug profile only: compile the Live Link poller into the game, so the
+    // editor can stream scene edits into the running game (docs/live-link.md).
+    // Off = the game never reads livelink.bin and the editor never writes it -
+    // for anyone who does not want their debug builds patched from outside.
+    bool liveLink = true;
 
     // Experimental: skip the vsync wait before the buffer flip. Frame rate
     // becomes continuous instead of quantized to 50/25 (PAL), at the cost
@@ -374,7 +413,10 @@ struct ProjectSettings {
     // "precise": real per-triangle clipping - no holes at screen edges, but
     // costs EE time. "fast": VU1 cull only - fastest, may drop triangles
     // that extend far beyond the screen.
-    std::string clipping = "precise";
+    // Triangle handling: "vu1" (default - precise clipping in the VU1 clip
+    // programs, no EE cost), "precise" (the legacy EE clipper) or "fast"
+    // (cull-only). Projects saved before the vu1 default keep their value.
+    std::string clipping = "vu1";
 
     // Animation LOD: animated-model instances farther than this from the
     // camera refresh their pose/skinning every 2nd frame (every 4th beyond
@@ -388,6 +430,14 @@ struct ProjectSettings {
     // instances farther than this render the 50% mesh, beyond twice the
     // distance the 25% one. 0 = off (no LODs baked or kept in RAM).
     float meshLodDistance = 0.0f;
+
+    // AI navigation (docs/navigation-ai.md). The nav grid is baked on the
+    // host at build time (navmesh.cpp) from the terrain slope + blocking
+    // objects; the game runs A* over the baked bitmap on the EE, only in
+    // scenes whose flow graphs use the AI nodes - other scenes cost nothing.
+    float navCellSize = 1.0f;     // world units per nav cell (grid capped 128x128)
+    float navMaxSlope = 40.0f;    // degrees; steeper terrain is unwalkable
+    float navAgentRadius = 0.4f;  // obstacle inflation around blockers, world units
 
     int terrainDetail = 32;  // max terrain grid cells per axis (quality vs perf)
 
@@ -499,9 +549,12 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.displayMode == b.displayMode && a.widescreen == b.widescreen &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler &&
+           a.liveLink == b.liveLink &&
            a.disableVsync == b.disableVsync &&
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
            a.meshLodDistance == b.meshLodDistance &&
+           a.navCellSize == b.navCellSize && a.navMaxSlope == b.navMaxSlope &&
+           a.navAgentRadius == b.navAgentRadius &&
            a.terrainDetail == b.terrainDetail &&
            a.terrainViewDistance == b.terrainViewDistance &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
@@ -599,18 +652,58 @@ inline HudImage defaultUsePrompt() {
     return h;
 }
 
+// A typeface the project can draw with (Tools > Font Manager). Everything that
+// references a font does so by `name`, so swapping a project's look is one
+// edit here rather than a hunt through every text and menu.
+//
+// Two very different costs hang off one entry:
+//  - Static text (HUD texts, menus, loading screens) is rasterized straight
+//    from the TTF into a sprite at BUILD time, so the font itself never
+//    reaches the PS2 - only the pixels of that one string.
+//  - A font referenced by a Display Text node also bakes a glyph atlas
+//    (res/fonts/atlas-<name>.png) the runtime samples glyph by glyph, because
+//    that node's string is only known while the game runs. That atlas is the
+//    only case where font pixels ship, and it is loaded lazily - see
+//    templates.cpp's drawFontText.
+struct GameFont {
+    std::string name = "Default";
+    // Source TTF: "" = the built-in default (the Consolas Bold fallback chain
+    // in menubake::resolveFontPath), "res/fonts/x.ttf" = a font imported into
+    // the project (travels with it), bare "impact.ttf" = a Windows font (that
+    // machine only). This is the one place the editor resolves a real file.
+    std::string fontPath;
+    // Glyph height the atlas is rasterized at. Display Text scales from this,
+    // so it trades atlas sharpness against VRAM, and is NOT the on-screen size.
+    // Only matters to fonts a Display Text node actually uses.
+    int atlasSize = 16;
+    // Applied to the glyphs at runtime (the atlas itself bakes white, so one
+    // atlas serves every color). Static baked text keeps its own per-text color.
+    float color[3] = {1.0f, 1.0f, 1.0f};
+    bool shadow = true;  // 1px dark offset behind the glyphs
+    // Atlas palette depth: "4bit" (16 colors - plenty for white glyphs the
+    // runtime tints, and ~8x cheaper in VRAM), "8bit", "none" = full color.
+    std::string quant = "4bit";
+};
+
+inline bool operator==(const GameFont& a, const GameFont& b) {
+    return a.name == b.name && a.fontPath == b.fontPath &&
+           a.atlasSize == b.atlasSize && a.color[0] == b.color[0] &&
+           a.color[1] == b.color[1] && a.color[2] == b.color[2] &&
+           a.shadow == b.shadow && a.quant == b.quant;
+}
+
 // An on-screen text (Tools > UI Editor > Texts): baked to a PNG sprite at
 // build (res/hud/text-<name>.png - the engine has no font), shown/hidden at
-// runtime by the Show Text / Hide Text flow nodes. Multi-line on '\n'.
+// runtime by the Set Text Visible flow node. Multi-line on '\n'. The string is
+// frozen at build; for a runtime-varying one use a Display Text node instead.
 struct HudText {
     std::string name = "text";
     std::string text = "New text";
     float pos[2] = {0.5f, 0.8f};   // normalized screen position (center anchor)
     int size = 16;                 // font pixel height
     float color[3] = {1.0f, 1.0f, 1.0f};
-    // Baked text font, GameMenu::fontPath semantics: "" = default (Consolas
-    // Bold chain), "res/fonts/x.ttf" = project font, bare name = Windows font.
-    std::string fontPath;
+    // Which Project::fonts entry to rasterize with ("" = the default entry).
+    std::string font;
     bool shadow = true;           // 1px dark offset behind the glyphs
     bool visibleAtStart = false;  // shown when the scene starts
 };
@@ -619,7 +712,7 @@ inline bool operator==(const HudText& a, const HudText& b) {
     return a.name == b.name && a.text == b.text && a.pos[0] == b.pos[0] &&
            a.pos[1] == b.pos[1] && a.size == b.size &&
            a.color[0] == b.color[0] && a.color[1] == b.color[1] &&
-           a.color[2] == b.color[2] && a.fontPath == b.fontPath &&
+           a.color[2] == b.color[2] && a.font == b.font &&
            a.shadow == b.shadow && a.visibleAtStart == b.visibleAtStart;
 }
 
@@ -842,7 +935,7 @@ struct MenuEntry {
         BindSfxVolume = 2,    // master sound-effect volume (0..100)
         BindDeadzone = 3,     // analog stick deadzone, both sticks (0..0.4)
         BindStickCurve = 4,   // stick response curve exponent (1..3)
-        BindDisplayMode = 5,  // scan mode: interlaced / 480p / 1080i
+        BindDisplayMode = 5,  // scan mode: interlaced / 480p / 1080i / field
         BindWidescreen = 6,   // aspect ratio: 4:3 / 16:9
     };
     int settingBind = BindNone;
@@ -900,9 +993,10 @@ struct GameMenu {
     int panelW = 256;  // 128 / 256 / 512
     float screenPos[2] = {0.5f, 0.45f};
     bool showTitle = true;  // off = logo-only menus (skips title + separator)
-    // Baked text: "" = default (Consolas Bold chain), "res/fonts/x.ttf" = a
-    // font imported into the project, bare "impact.ttf" = a Windows font.
-    std::string fontPath;
+    // Which Project::fonts entry the panel is baked with ("" = the default
+    // entry). Only the typeface is taken from it - the panel's colors come
+    // from `accent` and the bake itself.
+    std::string font;
     int titleSize = 18;  // px; entrySize also drives the row pitch (and the
     int entrySize = 15;  // cursor geometry) through menubake::panelLayout.
     std::vector<MenuEntry> entries;
@@ -915,7 +1009,7 @@ inline bool operator==(const GameMenu& a, const GameMenu& b) {
            a.accent[1] == b.accent[1] && a.accent[2] == b.accent[2] &&
            a.images == b.images && a.panelW == b.panelW &&
            a.screenPos[0] == b.screenPos[0] && a.screenPos[1] == b.screenPos[1] &&
-           a.showTitle == b.showTitle && a.fontPath == b.fontPath &&
+           a.showTitle == b.showTitle && a.font == b.font &&
            a.titleSize == b.titleSize && a.entrySize == b.entrySize &&
            a.entries == b.entries;
 }
@@ -962,6 +1056,29 @@ struct Project {
     }
     std::vector<SceneObject>& objects() { return active().objects; }
     const std::vector<SceneObject>& objects() const { return active().objects; }
+
+    // Name of the fallback font (what an empty `font` reference means).
+    std::string defaultFontName() const {
+        return fonts.empty() ? std::string() : fonts.front().name;
+    }
+    // Indices into `fonts` that some Display Text node draws with - the only
+    // fonts that need a glyph atlas baked and shipped (static text rasterizes
+    // straight from the TTF at build). Sorted, no duplicates.
+    std::vector<int> atlasFontIndices() const;
+    // Font by name; an empty or stale name resolves to the default entry, so
+    // deleting a font never breaks the texts still pointing at it.
+    const GameFont* findFont(const std::string& name) const {
+        if (fonts.empty()) return nullptr;
+        for (const GameFont& f : fonts)
+            if (f.name == name) return &f;
+        return &fonts.front();
+    }
+
+    // Typefaces the project draws with (Tools > Font Manager). Never empty:
+    // fonts[0] is the default every text falls back to, and the Font Manager
+    // refuses to delete the last entry - so an empty `font` reference always
+    // resolves. Replace fonts[0] to restyle the whole project at once.
+    std::vector<GameFont> fonts{GameFont{}};
 
     std::vector<HudImage> hud;
     // The USE prompt as an overridable HUD element (see defaultUsePrompt).
@@ -1141,6 +1258,11 @@ std::string load(Project& out, const std::string& projectDir);
 // gizmo, view mode) and the window layout are taken from the Project fields.
 std::string save(const Project& p);
 
+// A flow graph as the project-file JSON ("nodes"/"links"/"nextId" - the same
+// shape stored inside objects/<id>.json). Used by the headless --dump-graph
+// CLI so AI agents can read a graph without parsing the whole object file.
+std::string flowGraphToJson(const FlowGraph& fg);
+
 // --- Terrain heightmap -------------------------------------------------------
 
 // Vertex grid dimensions for the ACTIVE scene terrain size + detail cap.
@@ -1181,5 +1303,30 @@ std::string loadHistory(const Project& p, History& h);
 // marker in the first line (delete it to take ownership of a file).
 // Called before every build.
 std::string refreshGenerated(const Project& p);
+
+// --- Live Link structure hashing (docs/live-link.md) ------------------------
+// Objects are addressed by a stable 64-bit id hash, so a live session
+// survives renames/reorders and can even spawn NEWLY ADDED objects through
+// the game's runtime spawn pool (cloning an authored template with an equal
+// "recipe"). The Runner writes liveLinkSigFile() to bin/livelink.sig at build
+// start; the editor compares the live project against it every tick and
+// streams livelink.bin only while the session is representable - anything
+// else flips the toolbar to "LIVE (rebuild)". See templates::liveLinkScript.
+
+// Stable per-object identity: FNV-1a 64 of SceneObject::id (name fallback).
+// Also baked into scene_data.hpp (SCENE_*_OBJECT_ID_HASHES) for the game.
+uint64_t liveLinkIdHash(const SceneObject& o);
+// Everything a live patch can't change and a spawn clone copies from its
+// template - equal recipes = interchangeable as templates. Transform + color
+// (the live-patched fields) are excluded, except for objects whose transform
+// is baked at build (point lights, projecting decals).
+uint64_t liveLinkRecipeHash(const SceneObject& o);
+// False for objects the spawn pool can't faithfully instantiate (baked
+// lights/decals/mirrors, objects carrying flow graphs or attached scripts).
+bool liveLinkCanSpawnLive(const SceneObject& o);
+// Cross-object structure (scene count, streaming-layer tables).
+uint64_t liveLinkContextHash(const Project& p);
+// The whole as-built record written to bin/livelink.sig.
+std::string liveLinkSigFile(const Project& p);
 
 }  // namespace project

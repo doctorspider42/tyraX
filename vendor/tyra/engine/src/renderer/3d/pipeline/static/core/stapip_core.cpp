@@ -8,6 +8,7 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
+#include <gs_gp.h>
 #include "renderer/3d/pipeline/static/core/stapip_core.hpp"
 #include "renderer/core/renderer_core.hpp"
 #include "thread/threading.hpp"
@@ -104,9 +105,31 @@ void StaPipCore::render(StaPipBag* bag) {
                          bag->lighting->dirLights),
       "If you want lighting, please provide light matrix normals and dir "
       "lights!");
-  TYRA_ASSERT(
-      !bag->texture || (bag->texture->texture && bag->texture->coordinates),
-      "If you want texture, please provide texture and coordinates!");
+  // Modified by TyraX: a billboard bag carries a texture bag purely for the
+  // per-particle params channel - the image itself is optional there.
+  TYRA_ASSERT(!bag->texture || ((bag->texture->texture || bag->billboard) &&
+                                bag->texture->coordinates),
+              "If you want texture, please provide texture and coordinates!");
+  // Modified by TyraX: particle billboards (centers expanded on VU1).
+  // frustumCulling None is SAFE here (unlike ordinary bags - see the
+  // "never submit with None" pitfall): the billboard programs cull every
+  // quad whose corner leaves the GS raster window / depth range, so
+  // off-screen centers never wrap the 4096-px window.
+  TYRA_ASSERT(!bag->billboard ||
+                  (bag->texture && bag->texture->coordinates &&
+                   bag->color->many && !bag->lighting &&
+                   !bag->info->fullClipChecks &&
+                   bag->info->frustumCulling ==
+                       PipelineInfoBagFrustumCulling_None),
+              "Billboard bags need per-particle params in the texture "
+              "coordinates slot, per-particle colors, no lighting, no "
+              "frustum culling and no clip checks (VU1 culls per quad)!");
+  // Modified by TyraX: env (matcap) bags - normals in the ST slot, ST
+  // computed on VU1 (cull_tce + as_is_tce / clip_tce). No lighting - the
+  // env programs derive no dir-light color.
+  TYRA_ASSERT(!bag->texture || !bag->texture->coordinatesAreNormals ||
+                  bag->lighting == nullptr,
+              "Env (matcap) bags do not support lighting!");
   TYRA_ASSERT(bag->info->transformationType == TyraMVP ||
                   (!bag->info->fullClipChecks && !frustumCull),
               "Please disable clip checks and frustum culling if not using MVP "
@@ -146,6 +169,11 @@ void StaPipCore::render(StaPipBag* bag) {
     }
   }
 
+  // Modified by TyraX: the per-bag blend equation (additiveBlendFix - the
+  // reflective materials' env pass) travels IN-BAND with the mesh's tags
+  // (sendObjectData uploads the ALPHA A+D qword, every program emits it),
+  // so no FINISH barriers are needed here anymore.
+
   packager.setRenderBBox(bbox);
   packager.setObjectSpacePlanes(frustumCull ? objectSpacePlanes : nullptr);
 
@@ -161,11 +189,18 @@ void StaPipCore::render(StaPipBag* bag) {
   // struct immediately, the old per-bag new/delete was pure heap churn.
   RendererCoreTextureBuffers texBuffersStorage;
   RendererCoreTextureBuffers* texBuffers = nullptr;
-  if (bag->texture) {
+  // Modified by TyraX: billboard bags may carry a texture bag with no image
+  // (params channel only) - nothing to bind then.
+  if (bag->texture && bag->texture->texture) {
     auto temp = rendererCore->texture.useTexture(bag->texture->texture);
     texBuffersStorage = {temp.id, temp.core, temp.clut};
     texBuffers = &texBuffersStorage;
   }
+
+  // Modified by TyraX: billboard bags run from their own on-demand program
+  // set (micro memory is full - see ensureProgramSet); non-billboard bags
+  // lazily restore the resident set.
+  qbufferRenderer.ensureProgramSet(bag->billboard != nullptr);
 
   qbufferRenderer.clearLastProgramName();
 

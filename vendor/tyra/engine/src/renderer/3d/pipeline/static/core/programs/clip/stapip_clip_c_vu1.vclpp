@@ -86,6 +86,8 @@
     LoadTyraStaticData{ gifSetTag }
     MatrixLoad{ mvp, VU1_MVP_MATRIX_ADDR, vi00 }
     LoadTyraTags{ lodGifTag, testsTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR }
+    ; Modified by TyraX: per-mesh GS blend equation, in-band
+    LoadTyraAlphaTag{ alphaGifTag, VU1_ALPHA_ADDR }
     ; Modified by TyraX: GS hardware fog (packed XYZF2)
     LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
     ; Modified by TyraX: spot light (flashlight)
@@ -112,7 +114,7 @@ setDestAddrMultiColor:
     iadd    destAddress,        colorData,      vertexCount
 setDestAddr:
 
-    StoreTyraGifTags{ gifSetTag, lodGifTag, primTag, testsTag, destAddress }
+    StoreTyraGifTagsAlpha{ gifSetTag, lodGifTag, alphaGifTag, primTag, testsTag, destAddress }
 
     iaddiu  outCount,       vi00,           0
     iadd    vertexCounter,  vi00,           vertexCount
@@ -286,9 +288,19 @@ fanLoop:
         iaddiu  fanNext,    fanPtr,     2
         ibeq    fanNext,    srcEnd,     triNext
 
-        EmitClipVertexC{ srcBase, destAddress, scale, fogParams }
-        EmitClipVertexC{ fanPtr,  destAddress, scale, fogParams }
-        EmitClipVertexC{ fanNext, destAddress, scale, fogParams }
+        ; one shared emitter instance - the corner pointer rotates
+        ; srcBase -> fanPtr -> fanNext across three iterations. Saves ~2/3
+        ; of the emit code vs three inlined copies: the freed micro memory
+        ; is what lets cull_tce join the VU1-clipping program set.
+        iadd    emitPtr,    srcBase,    vi00
+        iadd    emitNxt,    fanPtr,     vi00
+        iaddiu  emitCnt,    vi00,       3
+fanEmitLoop:
+        EmitClipVertexC{ emitPtr, destAddress, scale, fogParams }
+        iadd    emitPtr,    emitNxt,    vi00
+        iadd    emitNxt,    fanNext,    vi00
+        iaddi   emitCnt,    emitCnt,    -1
+        ibgtz   emitCnt,    fanEmitLoop
         iaddiu  outCount,   outCount,   3
 
         iadd    fanPtr,     fanNext,    vi00
@@ -314,7 +326,7 @@ kickMulti:
 kickPatch:
     iaddiu  vertMask,   outCount,   0x4000
     iaddiu  vertMask,   vertMask,   0x4000
-    isw.x   vertMask,   4(vertexData)
+    isw.x   vertMask,   6(vertexData)
 
     xgkick vertexData ; dispatch to the GS rasterizer.
 

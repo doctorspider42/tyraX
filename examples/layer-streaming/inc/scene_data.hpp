@@ -8,6 +8,7 @@ struct SceneObjectData {
              // 6=player 7=emitter 8=sound 9=point-light 10=save-point
              // 11=empty (pure transform, no geometry/collision)
              // 12=plane 13=decal 14=camera (cutscene shot marker)
+             // 15=mirror (glass quad; reflections via MIRRORS below)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -42,6 +43,7 @@ struct SceneObjectData {
   int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none
   float drawDistance;  // not drawn farther than this from the camera;
                        // 0 = unlimited (collision/logic always run)
+  int reflected;  // 1 = rendered into the dynamic ("@sky") env map
   int animModel;  // animated models: index into ANIM_MODEL_PATHS, -1 = none
   const char* animClip;  // animated models: starting clip ("" = first)
   int animAutoplay;      // animated models: 1 = play at scene start
@@ -56,35 +58,38 @@ constexpr int SCENE_COUNT = 1;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[25] = {
-    {6, {0.0F, 0.0F, -14.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // player-1
-    {0, {0.0F, 1.5F, -19.0F}, {0.0F, 0.0F, 0.0F}, {12.5F, 3.0F, 0.5F}, {0.75F, 0.7F, 0.6F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, 0},  // a-wall-back
-    {0, {-6.0F, 1.5F, -14.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 10.0F}, {0.75F, 0.7F, 0.6F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, 0},  // a-wall-left
-    {0, {6.0F, 1.5F, -14.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 10.0F}, {0.75F, 0.7F, 0.6F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, 0},  // a-wall-right
-    {0, {-3.75F, 1.5F, -9.0F}, {0.0F, 0.0F, 0.0F}, {4.5F, 3.0F, 0.5F}, {0.7F, 0.65F, 0.55F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, 0},  // a-wall-door-l
-    {0, {3.75F, 1.5F, -9.0F}, {0.0F, 0.0F, 0.0F}, {4.5F, 3.0F, 0.5F}, {0.7F, 0.65F, 0.55F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, 0},  // a-wall-door-r
-    {0, {-3.5F, 0.75F, -16.5F}, {0.0F, 15.0F, 0.0F}, {1.5F, 1.5F, 1.5F}, {0.85F, 0.55F, 0.25F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, 0},  // a-crate-1
-    {0, {-2.0F, 0.5F, -17.5F}, {0.0F, 40.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.8F, 0.45F, 0.2F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, 0},  // a-crate-2
-    {1, {3.5F, 1.0F, -16.5F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.9F, 0.3F, 0.25F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, 0},  // a-orb
-    {9, {0.0F, 2.6F, -14.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 0.85F, 0.6F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.2F, 11.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, 0},  // a-light
-    {0, {-2.5F, 1.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 17.5F}, {0.55F, 0.55F, 0.58F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // c-wall-left
-    {0, {2.5F, 1.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 17.5F}, {0.55F, 0.55F, 0.58F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // c-wall-right
-    {0, {0.0F, 1.5F, 19.0F}, {0.0F, 0.0F, 0.0F}, {12.5F, 3.0F, 0.5F}, {0.6F, 0.68F, 0.78F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, 1},  // b-wall-back
-    {0, {-6.0F, 1.5F, 14.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 10.0F}, {0.6F, 0.68F, 0.78F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, 1},  // b-wall-left
-    {0, {6.0F, 1.5F, 14.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 10.0F}, {0.6F, 0.68F, 0.78F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, 1},  // b-wall-right
-    {0, {-3.75F, 1.5F, 9.0F}, {0.0F, 0.0F, 0.0F}, {4.5F, 3.0F, 0.5F}, {0.55F, 0.63F, 0.73F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, 1},  // b-wall-door-l
-    {0, {3.75F, 1.5F, 9.0F}, {0.0F, 0.0F, 0.0F}, {4.5F, 3.0F, 0.5F}, {0.55F, 0.63F, 0.73F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, 1},  // b-wall-door-r
-    {2, {3.5F, 1.5F, 16.5F}, {0.0F, 0.0F, 0.0F}, {1.5F, 3.0F, 1.5F}, {0.3F, 0.6F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, 1},  // b-pillar
-    {1, {-3.5F, 1.0F, 16.5F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.25F, 0.8F, 0.5F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, 1},  // b-orb
-    {3, {0.0F, 1.0F, 17.0F}, {0.0F, 0.0F, 0.0F}, {1.5F, 2.0F, 1.5F}, {0.4F, 0.5F, 0.95F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, 1},  // b-cone
-    {9, {0.0F, 2.6F, 14.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.8F, 1.0F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.2F, 11.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, 1},  // b-light
-    {11, {0.0F, 1.0F, -6.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // trig-unload-b
-    {11, {0.0F, 1.0F, -3.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // trig-load-b
-    {11, {0.0F, 1.0F, 3.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // trig-load-a
-    {11, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // trig-unload-a
+    {6, {0.0F, 0.0F, -14.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 16, -1},  // player-1
+    {0, {0.0F, 1.5F, -19.0F}, {0.0F, 0.0F, 0.0F}, {12.5F, 3.0F, 0.5F}, {0.75F, 0.7F, 0.6F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, 0},  // a-wall-back
+    {0, {-6.0F, 1.5F, -14.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 10.0F}, {0.75F, 0.7F, 0.6F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, 0},  // a-wall-left
+    {0, {6.0F, 1.5F, -14.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 10.0F}, {0.75F, 0.7F, 0.6F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, 0},  // a-wall-right
+    {0, {-3.75F, 1.5F, -9.0F}, {0.0F, 0.0F, 0.0F}, {4.5F, 3.0F, 0.5F}, {0.7F, 0.65F, 0.55F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, 0},  // a-wall-door-l
+    {0, {3.75F, 1.5F, -9.0F}, {0.0F, 0.0F, 0.0F}, {4.5F, 3.0F, 0.5F}, {0.7F, 0.65F, 0.55F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, 0},  // a-wall-door-r
+    {0, {-3.5F, 0.75F, -16.5F}, {0.0F, 15.0F, 0.0F}, {1.5F, 1.5F, 1.5F}, {0.85F, 0.55F, 0.25F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, 0},  // a-crate-1
+    {0, {-2.0F, 0.5F, -17.5F}, {0.0F, 40.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.8F, 0.45F, 0.2F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, 0},  // a-crate-2
+    {1, {3.5F, 1.0F, -16.5F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.9F, 0.3F, 0.25F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 16, 0},  // a-orb
+    {9, {0.0F, 2.6F, -14.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 0.85F, 0.6F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.2F, 11.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 16, 0},  // a-light
+    {0, {-2.5F, 1.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 17.5F}, {0.55F, 0.55F, 0.58F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, -1},  // c-wall-left
+    {0, {2.5F, 1.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 17.5F}, {0.55F, 0.55F, 0.58F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, -1},  // c-wall-right
+    {0, {0.0F, 1.5F, 19.0F}, {0.0F, 0.0F, 0.0F}, {12.5F, 3.0F, 0.5F}, {0.6F, 0.68F, 0.78F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, 1},  // b-wall-back
+    {0, {-6.0F, 1.5F, 14.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 10.0F}, {0.6F, 0.68F, 0.78F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, 1},  // b-wall-left
+    {0, {6.0F, 1.5F, 14.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 10.0F}, {0.6F, 0.68F, 0.78F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, 1},  // b-wall-right
+    {0, {-3.75F, 1.5F, 9.0F}, {0.0F, 0.0F, 0.0F}, {4.5F, 3.0F, 0.5F}, {0.55F, 0.63F, 0.73F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, 1},  // b-wall-door-l
+    {0, {3.75F, 1.5F, 9.0F}, {0.0F, 0.0F, 0.0F}, {4.5F, 3.0F, 0.5F}, {0.55F, 0.63F, 0.73F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 1, 1},  // b-wall-door-r
+    {2, {3.5F, 1.5F, 16.5F}, {0.0F, 0.0F, 0.0F}, {1.5F, 3.0F, 1.5F}, {0.3F, 0.6F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 16, 1},  // b-pillar
+    {1, {-3.5F, 1.0F, 16.5F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.25F, 0.8F, 0.5F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 16, 1},  // b-orb
+    {3, {0.0F, 1.0F, 17.0F}, {0.0F, 0.0F, 0.0F}, {1.5F, 2.0F, 1.5F}, {0.4F, 0.5F, 0.95F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 16, 1},  // b-cone
+    {9, {0.0F, 2.6F, 14.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.8F, 1.0F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.2F, 11.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 16, 1},  // b-light
+    {11, {0.0F, 1.0F, -6.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 16, -1},  // trig-unload-b
+    {11, {0.0F, 1.0F, -3.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 16, -1},  // trig-load-b
+    {11, {0.0F, 1.0F, 3.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 16, -1},  // trig-load-a
+    {11, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, 16, -1},  // trig-unload-a
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {25};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
+
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[25] = {0x941d4764740fa04dULL, 0xf4b21d60cddf5923ULL, 0x42775694c4b6f436ULL, 0x6d8659048ccba289ULL, 0x5348f6f8547a7901ULL, 0xd34d31b7a4a8b3c9ULL, 0x571c3762dbbfa85fULL, 0xf4e1efbff4096e2fULL, 0x696c135be88a9347ULL, 0x12a149ff2de51530ULL, 0x69e2b683d8a2746eULL, 0x829a2a86e25eaa8cULL, 0x683b11e7faaee205ULL, 0x50ecf6da621d493fULL, 0xbab674395b079ffbULL, 0xf0f884419e35d901ULL, 0x60a61a894b7914e9ULL, 0x1e3d4b4a4b2d15eaULL, 0x0a59a1367928827cULL, 0xc421fab4ac384b9eULL, 0x6dcded66c161dedbULL, 0x5d586d19c383aa27ULL, 0xc09cca510772440cULL, 0xc27c0c24d918de35ULL, 0x1e60bf6a25cb0a38ULL};
+inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {2};
 constexpr int SCENE_MAX_LAYERS = 2;
@@ -92,6 +97,23 @@ constexpr bool SCENE_LAYER_STARTS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{true, false
 constexpr float SCENE_LAYER_STREAM_XS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F, 0.0F}};
 constexpr float SCENE_LAYER_STREAM_ZS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F, 0.0F}};
 constexpr float SCENE_LAYER_STREAM_RADII[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F, 0.0F}};
+
+// Mirrors (type 15): each entry re-draws its target objects
+// reflected across the mirror plane (renderMirrors in the game
+// cpp). Targets index the mirror's own scene object table.
+struct MirrorData {
+  int scene;          // scene index
+  int object;         // the mirror's index in its scene table
+  float opacity;      // glass alpha 0..1 (tint = object color)
+  int reflectPlayer;  // 1 = also reflect the third-person avatar
+  int firstTarget;    // first entry in MIRROR_TARGETS
+  int targetCount;
+};
+constexpr int MIRROR_COUNT = 0;
+constexpr MirrorData MIRRORS[1] = {
+    {0, -1, 0.0F, 0, 0, 0}
+};
+constexpr int MIRROR_TARGETS[1] = {-1};
 
 constexpr int SND_COUNT = 0;
 inline const char* SND_PATHS[1] = {""};
@@ -103,6 +125,15 @@ constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
 constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {1.8F};
 constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};
 constexpr bool PLAYER_CAN_JUMPS[SCENE_COUNT] = {true};
+constexpr float PLAYER_RUN_THRESHOLDS[SCENE_COUNT] = {0.55F};
+constexpr float PLAYER_CAM_DISTS[SCENE_COUNT] = {6.0F};
+constexpr float PLAYER_CAM_HEIGHTS[SCENE_COUNT] = {1.6F};
+constexpr float PLAYER_CAM_SHOULDERS[SCENE_COUNT] = {0.0F};
+constexpr float PLAYER_TURN_RATES[SCENE_COUNT] = {0.25F};
+constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_JUMP_CLIPS[SCENE_COUNT] = {""};
 
 constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {64.0F};
 constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {64.0F};
@@ -127,6 +158,9 @@ constexpr float SKY_TOP_GS[SCENE_COUNT] = {76.5F};
 constexpr float SKY_TOP_BS[SCENE_COUNT] = {165.75F};
 constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {0};
 constexpr int POSTFX_GRAINS[SCENE_COUNT] = {0};
+constexpr int POSTFX_DOFS[SCENE_COUNT] = {0};
+constexpr float POSTFX_DOF_FOCUSES[SCENE_COUNT] = {20.0F};
+constexpr float POSTFX_DOF_RANGES[SCENE_COUNT] = {15.0F};
 constexpr bool FOG_ENABLEDS[SCENE_COUNT] = {false};
 constexpr float FOG_RS[SCENE_COUNT] = {127.5F};
 constexpr float FOG_GS[SCENE_COUNT] = {127.5F};
@@ -224,6 +258,15 @@ inline int everyFrames(float seconds) {
 #define PLAYER_EYE_HEIGHT PLAYER_EYE_HEIGHTS[g_activeScene]
 #define PLAYER_JUMP_SPEED PLAYER_JUMP_SPEEDS[g_activeScene]
 #define PLAYER_CAN_JUMP PLAYER_CAN_JUMPS[g_activeScene]
+#define PLAYER_RUN_THRESHOLD PLAYER_RUN_THRESHOLDS[g_activeScene]
+#define PLAYER_CAM_DIST PLAYER_CAM_DISTS[g_activeScene]
+#define PLAYER_CAM_HEIGHT PLAYER_CAM_HEIGHTS[g_activeScene]
+#define PLAYER_CAM_SHOULDER PLAYER_CAM_SHOULDERS[g_activeScene]
+#define PLAYER_TURN_RATE PLAYER_TURN_RATES[g_activeScene]
+#define PLAYER_IDLE_CLIP PLAYER_IDLE_CLIPS[g_activeScene]
+#define PLAYER_WALK_CLIP PLAYER_WALK_CLIPS[g_activeScene]
+#define PLAYER_RUN_CLIP PLAYER_RUN_CLIPS[g_activeScene]
+#define PLAYER_JUMP_CLIP PLAYER_JUMP_CLIPS[g_activeScene]
 #define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
 #define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
 #define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]
@@ -258,6 +301,9 @@ inline int everyFrames(float seconds) {
 #define SKY_TOP_B SKY_TOP_BS[g_activeScene]
 #define POSTFX_BLOOM POSTFX_BLOOMS[g_activeScene]
 #define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
+#define POSTFX_DOF POSTFX_DOFS[g_activeScene]
+#define POSTFX_DOF_FOCUS POSTFX_DOF_FOCUSES[g_activeScene]
+#define POSTFX_DOF_RANGE POSTFX_DOF_RANGES[g_activeScene]
 #define FOG_ENABLED FOG_ENABLEDS[g_activeScene]
 #define FOG_R FOG_RS[g_activeScene]
 #define FOG_G FOG_GS[g_activeScene]

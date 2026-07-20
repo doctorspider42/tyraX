@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "glbparser.hpp"
+#include "navmesh.hpp"
 #include "project.hpp"
 
 // 3D preview of the project terrain and scene objects, rendered into an
@@ -85,6 +86,12 @@ public:
     // rebuilds the mask each frame from the scene's layer eye toggles.
     void setHiddenMask(std::vector<char> mask) { hiddenMask_ = std::move(mask); }
 
+    // Nav-mesh overlay (View > Nav Mesh Overlay): translucent green quads
+    // over the walkable cells of the app-baked grid (navmesh::bake - the app
+    // owns the Project). The GL mesh is rebuilt only when `version` changes,
+    // so this can be called every frame cheaply; pass nullptr to hide.
+    void setNavOverlay(const navmesh::NavGrid* grid, uint64_t version);
+
     // Projected-decal preview meshes, computed app-side (decalproj) because the
     // app owns the Project. Keyed by object id; each value is a world-space
     // triangle list, 5 floats/vertex (pos3 + uv2). The GL meshes are rebuilt
@@ -107,6 +114,10 @@ public:
         float kd[3] = {1.0f, 1.0f, 1.0f};  // staged tint of the selected entry
                                            // (channels may exceed 1 - brightness)
         std::string texRel;   // staged map_Kd, project-relative ("" = none)
+        std::string reflRel;  // staged refl sphere map, project-relative
+        float reflStrength = 0.0f;  // staged reflection strength (0 = matte)
+        bool reflSky = false;       // staged "@sky" dynamic mode
+        bool reflRounded = false;   // staged "-rounded" env normals
         int shape = 1;        // 0 box, 1 sphere, 2 cylinder, 3 cone, 4 model
         std::string modelRel; // .obj shown when shape == 4 (project-relative)
         std::string mtlRel;   // the open .mtl: override library for the model
@@ -212,6 +223,12 @@ private:
     std::vector<float> heights_;
     int hmW_ = 0, hmD_ = 0;
 
+    // Nav-mesh overlay mesh (see setNavOverlay)
+    bool navOverlayOn_ = false;
+    uint64_t navOverlayVersion_ = 0;
+    bool navOverlayHasVersion_ = false;
+    Mesh navOverlayMesh_;
+
     // Projected-decal GL meshes (see setProjectedDecals), keyed by object id;
     // rebuilt only when projectedDecalVersion_ changes.
     std::map<std::string, Mesh> projectedDecalMeshes_;
@@ -248,6 +265,7 @@ private:
     int uTint_ = -1;
     int uUseTex_ = -1;
     int uAlpha_ = -1;  // decal cutout/blend toggle
+    int uOpacity_ = -1;  // constant alpha multiplier (mirror glass)
     // Live point-light preview (fragment shader, world-space)
     int uModel_ = -1;
     int uLit_ = -1;
@@ -266,6 +284,11 @@ private:
     bool flashOn_ = false;
     float flashColor_[3] = {0.75f, 0.75f, 0.62f};
     float flashRange_ = 30.0f, flashAngle_ = 20.0f;
+    // Spherical environment map (refl) preview - matcap on texture unit 1;
+    // "@sky" dynamic mode approximated by the analytic sky gradient
+    int uReflOn_ = -1, uRefl_ = -1, uReflStrength_ = -1;
+    int uReflSkyHorizon_ = -1, uReflSkyTop_ = -1;
+    int uReflRounded_ = -1, uReflCenter_ = -1;
 
     // Terrain in chunks of kTerrainChunkCells^2 cells (mesh + grid lines per
     // chunk) so sculpting rebuilds only the chunks under the brush. Grid
@@ -297,6 +320,11 @@ private:
     struct ModelPart {
         Mesh mesh;
         uint32_t tex = 0;  // GL texture from map_Kd (0 = untextured)
+        uint32_t reflTex = 0;      // refl sphere map (0 = not reflective)
+        float reflStrength = 0.0f;
+        bool reflSky = false;      // refl "@sky" - live sky gradient
+        bool reflRounded = false;  // refl "-rounded" env normals
+        float centroid[3] = {0, 0, 0};  // model-space, for the rounded mode
     };
     struct ModelDraw {
         std::vector<ModelPart> parts;  // empty = missing/unparseable model
@@ -329,6 +357,10 @@ private:
     struct MaterialDraw {
         uint32_t tex = 0;
         float kd[3] = {1.0f, 1.0f, 1.0f};
+        uint32_t reflTex = 0;      // refl sphere map (0 = not reflective)
+        float reflStrength = 0.0f;
+        bool reflSky = false;      // refl "@sky" - live sky gradient
+        bool reflRounded = false;  // refl "-rounded" env normals
     };
     std::map<std::string, MaterialDraw> materialCache_;  // by relative path
     const MaterialDraw* materialDraw(const std::string& relPath);
@@ -388,6 +420,11 @@ private:
         std::string material;  // usemtl name
         float kd[3] = {1.0f, 1.0f, 1.0f};
         std::string texRel;    // project-relative map_Kd ("" = none)
+        std::string reflRel;   // project-relative refl sphere map ("" = none)
+        float reflStrength = 0.0f;
+        bool reflSky = false;  // refl "@sky" - live sky gradient
+        bool reflRounded = false;   // refl "-rounded" env normals
+        float centroid[3] = {0, 0, 0};  // model-space, for the rounded mode
         std::vector<float> tris;  // pos3 + uv2, flat triangle list
     };
     struct MatPrevModel {

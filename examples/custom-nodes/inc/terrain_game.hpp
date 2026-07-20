@@ -24,6 +24,7 @@ class TerrainGame : public Tyra::Game {
   void resetTerrainChunks();
   void buildTerrainChunk(int slot, int cx, int cz);
   void updateTerrainChunks(float focusX, float focusZ, int budget);
+  int countPendingChunks(float focusX, float focusZ);
   void renderTerrain();
   void updatePlayer();
 
@@ -64,6 +65,19 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    // Reflective material (refl in the .mtl): the additive sphere-map second
+    // pass. World-space normals are captured at rebuild and ride in the ST
+    // slot; the TCE VU1 programs compute the matcap ST from the per-mesh
+    // camera basis (refreshed every frame in renderScene). The env bag shares
+    // this part's vertex array and bboxVersion and mirrors the base bag's
+    // shape (texture + many colors), so both passes share one frustum-bbox
+    // cache entry.
+    std::vector<Tyra::Vec4> envNormals;
+    std::vector<Tyra::Color> envColors;  // all-white 128 = unmodulated texel
+    std::unique_ptr<Tyra::StaPipBag> envBag;
+    std::unique_ptr<Tyra::StaPipInfoBag> envInfoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> envColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> envTexBag;
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
@@ -115,6 +129,13 @@ class TerrainGame : public Tyra::Game {
     std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
+    // refl: spherical environment map (nullptr = not reflective).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
+    // reflRounded = "-rounded": env normals radiate from the part centroid.
+    Tyra::Texture* reflTexture = nullptr;
+    float reflStrength = 0.0F;
+    bool reflDynamic = false;
+    bool reflRounded = false;
   };
   struct GameModel {
     std::vector<GameModelPart> parts;  // empty = missing/unparseable model
@@ -166,6 +187,14 @@ class TerrainGame : public Tyra::Game {
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
     std::string texPath;  // texture-cache ref held ("" = untextured)
+    // refl: spherical environment map (nullptr = not reflective).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
+    // reflRounded = "-rounded": env normals radiate from the part centroid.
+    Tyra::Texture* reflTexture = nullptr;
+    float reflStrength = 0.0F;
+    bool reflDynamic = false;
+    bool reflRounded = false;
+    std::string reflTexPath;  // texture-cache ref held ("" = none)
   };
   std::vector<GameMaterial> gameMaterials;
   void loadMaterialAsset(int index);
@@ -222,6 +251,14 @@ class TerrainGame : public Tyra::Game {
                      float* ceiling);
   void updateObjectPhysics();
   void renderScene();
+  // Mirror objects (type 15): re-submit each listed target's live bags
+  // under a reflection matrix about the glass plane, then blend the quad
+  // over the copies. mirrorMat holds the reflection for the mirror being
+  // drawn; mirrorAnimMat composes it with an animated target's animMat.
+  void renderMirrors();
+  void renderMirroredObject(int index);
+  Tyra::M4x4 mirrorMat;
+  Tyra::M4x4 mirrorAnimMat;
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
   void buildHighlightProxy(int index);
@@ -245,28 +282,56 @@ class TerrainGame : public Tyra::Game {
   // camera when present. Returns false when the scene has no player.
   bool updatePlayerEntity();
   float entX = 0, entY = 0, entZ = 0, entVelY = 0, entYaw = 0, entPitch = 0;
+  // Third-person only: entYaw/entPitch orbit the camera, entFaceYaw is the
+  // avatar's own facing (turns toward the walk direction). Clip indices are
+  // resolved from the model's clip table at scene load; -1 = unmapped.
+  float entFaceYaw = 0;
+  int playerIdleClip = -1, playerWalkClip = -1, playerRunClip = -1, playerJumpClip = -1;
+  // Picks the third-person avatar's locomotion clip from its planar speed
+  // (fraction of full walk speed) and grounded state, cross-fading on change.
+  void drivePlayerAnim(RuntimeObject& body, float speedFrac, bool grounded);
+  // Spring arm: the distance down the boom (from the head, along d) at which
+  // the camera would enter geometry or the terrain. camBoom is the smoothed
+  // boom length actually used - it snaps in on a hit and eases back out.
+  float springArm(float px, float py, float pz, float dx, float dy, float dz,
+                  float maxDist) const;
+  float camBoom = 0;
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
   void loadScene(int sceneIndex);
+  // Loads scene 0 + runs scripts' init(); called once from the loop's boot
+  // sequence (see bootPhase) so the initial load is vsync-paced.
+  void bootFirstScene();
+  // Boot state: 0 = boot splash images, 1 = loading-screen hold for the first
+  // scene, 2 = gameplay running (the Tyra logo hold lives in the engine's
+  // banner). splashIndex/splashFrames step through the splash sequence.
+  int bootPhase = 0;
+  int splashIndex = 0;
+  int splashFrames = 0;
   int currentScene = 0;
   unsigned int sceneGeneration = 0;
 
   // Particle emitters (type 7): fixed pools sized at scene load, zero
-  // per-frame allocations; camera-facing quads (textured when the emitter
-  // has a material with a map_Kd), one bag per emitter.
+  // per-frame allocations. The EE only SIMULATES; each particle is
+  // submitted as a single center vertex plus one qword of 2x2 basis
+  // weights and one color, and the VU1 billboard program expands it into
+  // a camera-facing quad (textured when the emitter has a material with a
+  // map_Kd). One bag per emitter; the camera basis rides on the billboard
+  // bag, so another view (a portal pass) can re-render the same centers
+  // after swapping billboardBag->right/up.
   struct ParticleSystem {
     int objectIndex = -1;
     unsigned int rng = 1;
     std::vector<Tyra::Vec4> pos, vel;
     std::vector<float> life, maxLife;
-    std::vector<Tyra::Vec4> verts;
-    std::vector<Tyra::Color> cols;
-    std::vector<Tyra::Vec4> sts;  // fixed per-quad UVs (textured emitters)
+    std::vector<Tyra::Vec4> params;  // per-particle (m00, m01, m10, m11)
+    std::vector<Tyra::Color> cols;   // one RGBA per particle
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBillboardBag> billboardBag;
   };
   std::vector<ParticleSystem> particles;
   void buildParticles();
@@ -277,8 +342,8 @@ class TerrainGame : public Tyra::Game {
   std::vector<int> sndTimers;               // per-object retrigger countdown
   void updateSoundEmitters();
 
-  // Scene switches show res/hud/loading.png on black for a moment
-  Tyra::Sprite loadingSprite;
+  // Scene switch target held across the loading-screen frames (the screen
+  // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
   int loadingFrames = 0, loadingTarget = -1;
 
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
@@ -312,19 +377,31 @@ class TerrainGame : public Tyra::Game {
   // Gameplay pauses while one is open; Triangle walks the submenu stack.
   bool updateGameMenu();
   void renderGameMenu();
+  // Ready-made option-block rows (Menu Editor): map each bound Toggle/Choice
+  // row's option index onto its engine setting (volume/deadzone/curve/display).
+  void applyMenuBindings();
   std::vector<Tyra::Sprite> menuSprites;
   // Toggle/Choice entry values: one sub-rect sprite per menu into its baked
   // value strip (menu_data.gen.hpp; only menus with such entries have one).
   std::vector<Tyra::Sprite> menuValueSprites;
 
-  // On-screen texts (hud_data.gen.hpp): baked text sprites the Show Text /
-  // Hide Text flow nodes flip via ScriptContext; a positive timer auto-hides.
+  // On-screen texts (hud_data.gen.hpp): baked text sprites the Set Text
+  // Visible flow node flips via ScriptContext; a positive timer auto-hides.
   void updateAndRenderHudTexts();
   std::vector<Tyra::Sprite> hudTextSprites;
   std::vector<signed char> hudTextReq;   // ScriptContext::textRequest
   std::vector<float> hudTextDur;         // ScriptContext::textDuration
   std::vector<unsigned char> hudTextOn;  // visible this frame
   std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
+
+  // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
+  // glyph by glyph from a font atlas because the string is only known now.
+  void updateAndRenderDynTexts();
+  std::vector<signed char> dynTextReq;   // ScriptContext::dynTextRequest
+  std::vector<float> dynTextDur;         // ScriptContext::dynTextDuration
+  std::vector<char> dynTextBuf;          // DYN_TEXT_COUNT * DYN_TEXT_LEN
+  std::vector<unsigned char> dynTextOn;  // visible this frame
+  std::vector<float> dynTextTimer;
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;

@@ -1,0 +1,1 @@
+{ "id": "rfc3paint00000003", "name": "paint-black", "type": "sphere", "position": [0, 1.6, 33], "rotation": [0, 0, 0], "scale": [3.2, 3.2, 3.2], "color": [1, 1, 1], "physics": false, "detail": 24, "material": "res/materials/paint-black.mtl" }

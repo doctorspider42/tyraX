@@ -6,13 +6,15 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
-# Modified by TyraX: render() no longer emits a FINISH giftag.
+# Modified by TyraX: render() no longer emits a FINISH giftag; sprites
+# squeeze into the half-height buffer in the InterlacedField mode.
 */
 
 #include "renderer/core/2d/renderer_core_2d.hpp"
 #include <dma.h>
 #include <draw.h>
 #include <gif_tags.h>
+#include <gs_gp.h>
 
 namespace Tyra {
 
@@ -101,13 +103,19 @@ void RendererCore2D::render(const Sprite& sprite,
 
   rect->v0.x = sprite.position.x;
   rect->v0.y = sprite.position.y;
-  // rect->v0.y /= 2.0F;  // interlacing
   rect->v0.z = (u32)-1;
 
   rect->v1.x = (sprite.size.x * sprite.scale) + sprite.position.x;
   rect->v1.y = (sprite.size.y * sprite.scale) + sprite.position.y;
-  // rect->v1.y /= 2.0F;  // interlacing
   rect->v1.z = (u32)-1;
+
+  // Modified by TyraX: true field rendering (InterlacedField) - sprites are
+  // authored in the logical 512x448 space; squeeze them into the half-height
+  // buffer (scan-out stretches each field back to full height).
+  if (settings->isFieldRendering()) {
+    rect->v0.y *= 0.5F;
+    rect->v1.y *= 0.5F;
+  }
 
   auto* packet = packets[context];
 
@@ -117,15 +125,25 @@ void RendererCore2D::render(const Sprite& sprite,
 
   packet2_utils_gif_add_set(packet, 1);
   packet2_utils_gs_add_lod(packet, &lod);
+  // Modified by TyraX: pin the 2D blend equation. StaPip meshes carry
+  // their blend equation IN-BAND (VU1_ALPHA_ADDR), so after the 3D scene
+  // the GS ALPHA register holds whatever the last mesh set - after a
+  // reflective env pass that is the ADDITIVE equation, and sprites
+  // inheriting it lose their dark texels (on hardware the debug HUD
+  // font's black outline visibly vanished). Every sprite sets the
+  // standard source-alpha blend explicitly.
+  packet2_utils_gif_add_set(packet, 1);
+  packet2_add_2x_s64(packet, GS_SET_ALPHA(0, 1, 0, 1, 0), GS_REG_ALPHA_1);
   packet2_utils_gif_add_set(packet, 1);
   packet2_utils_gs_add_texbuff_clut(packet, texBuffers.core, clutBuffer);
   draw_enable_blending();
   packet2_update(packet, draw_rect_textured(packet->next, 0, rect));
 
-  packet2_update(packet, draw_primitive_xyoffset(
-                             packet->next, 0,
-                             SCREEN_CENTER - (settings->getWidth() / 2.0F),
-                             SCREEN_CENTER - (settings->getHeight() / 2.0F)));
+  packet2_update(packet,
+                 draw_primitive_xyoffset(
+                     packet->next, 0,
+                     SCREEN_CENTER - (settings->getWidth() / 2.0F),
+                     SCREEN_CENTER - (settings->getRenderHeightF() / 2.0F)));
   draw_disable_blending();
   // Upstream ended this packet with draw_finish(), which does two distinct
   // jobs: its giftag carries EOP=1 (terminates the PATH3 stream at the GIF -

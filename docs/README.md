@@ -38,11 +38,34 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   and validation for the `.flownode` and `.screenfx` text files: what it does,
   how the editor installs it automatically (and how to package a `.vsix` by
   hand), and how to keep it in sync when you add header keys or placeholders.
+- [Live Link (edit the running game)](live-link.md) - streaming object
+  moves/rotations/scales/recolors AND object adds/deletes into the game
+  running in PCSX2 or on a real PS2, with no rebuild: the debug-profile
+  requirement, the clickable LIVE toolbar chip (per-project on/off), what
+  updates live vs what needs a build, and how the host-filesystem transport
+  and the spawn-pool cloning work.
+- [NavMesh + NPC AI](navigation-ai.md) - the build-time navigation-grid bake
+  (walkability rules, the AI navigation preferences, the viewport overlay),
+  the A*-on-EE runtime, and the AI flow nodes (Patrol Waypoints / Chase
+  Player / Flee From Player / Stop AI / On Player Seen) with the classic
+  guard wiring, plus the deliberate era-appropriate limitations.
 - [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) - importing a
   real ARKit camera move (CamTrackAR `.hfcs` or the app-agnostic CSV) into a
   Cutscene Director camera track: the canonical take space, the mapping and
   decimation controls in the import modal, and the acquisition/bake split that
   keeps the door open for live phone streaming.
+- [AI flow-graph generation](ai-flow-graph.md) - describing game logic in
+  plain language and letting an AI backend (Claude CLI, Copilot CLI or the
+  OpenAI API) build the graph: backend/model/thinking preferences, what the
+  model is told, validation, and the cancelable in-editor flow.
+- [AI-agent CLI tools](ai-tools.md) - the headless commands
+  (`--dump`, `--list-nodes`, `--dump-graph`, `--apply-graph`,
+  `--refresh-gen`, `--ai-graph`) that let an AI assistant or script inspect
+  and modify a project without the GUI.
+- [AI support in projects](ai-support.md) - the "Add AI support" option
+  (New Project / Project Preferences): assistant guidance files (Claude Code
+  skills + `CLAUDE.md`, Copilot instructions) installed into a project, and
+  the marker-based ownership rule for refreshing them.
 
 Developer design docs (internals, not user guides):
 

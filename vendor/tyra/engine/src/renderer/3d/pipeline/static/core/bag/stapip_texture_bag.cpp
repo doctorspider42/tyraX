@@ -15,6 +15,7 @@ namespace Tyra {
 StaPipTextureBag::StaPipTextureBag() {
   coordinates = nullptr;
   texture = nullptr;
+  coordinatesAreNormals = false;  // Modified by TyraX: env (matcap) mode
 }
 
 StaPipTextureBag::~StaPipTextureBag() {}

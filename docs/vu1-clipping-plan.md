@@ -1,13 +1,21 @@
 # Moving StaPip clipping from the EE to VU1 — design & plan
 
-Developer design doc (not a user guide). Status: **M0–M3 done** (hidden
-`"clipping": "vu1"` mode, all four clip program variants live, verified
-pixel-identical to the EE precise clipper in PCSX2 SW renderer). M4 (flip
-the preference / retire the EE clipper) intentionally waits for a real-PS2
-pass: PERF numbers on hardware + the SW-renderer-vs-hardware ADC check.
-Owner of the idea: upstream's own TODO in `stapip_clipper.hpp` ("clipping
-algorithm should be moved to VU1 and 'AsIs' VU1 program should be renamed to
-'Clip' - I don't want to do it now, too much time").
+Developer design doc (not a user guide). Status: **M0–M4 done** — VU1
+clipping is the **default** for new projects and the first choice in the
+Preferences combo; all five clip program variants live (c / d / tc / td +
+tce for reflective materials), verified pixel-identical to the EE precise
+clipper in PCSX2 SW renderer. M4 was originally gated on a real-PS2 perf
+pass, but the owner flipped it early (2026-07-14) after in-situ testing:
+the EE clipper showed a close-up/screen-edge corruption on reflective
+geometry that the VU1 path does not have, plus the known EE cost. The EE
+clipper is NOT deleted — it stays selectable in Preferences ("Precise
+clipping on EE (legacy)") and pre-M4 projects keep it on load (a missing
+`clipping` key still reads as `precise`). The hardware perf pass (clipbench
+PERF + ADC check on a real console) is still outstanding — do it before
+deleting the EE path. Owner of the idea: upstream's own TODO in
+`stapip_clipper.hpp` ("clipping algorithm should be moved to VU1 and 'AsIs'
+VU1 program should be renamed to 'Clip' - I don't want to do it now, too
+much time").
 
 ## Why — measured numbers (real PS2, 2026-07-11)
 
@@ -153,13 +161,35 @@ Retired / simplified:
   scene (dome, terrain, textured boxes, models) 0 diff vs precise; a
   textured box straddling the camera 0.065% (LSB texel shifts on cut
   edges); skeletal-animation scene (d/td) renders correctly at 50 FPS.
-- **M4 — flip the preference.** "Precise clipping" routes to the VU1 path;
-  EE clipper stays available behind an env/config escape hatch for one
-  release, then `StaPipClipper`/`PlanesClipAlgorithm` are deleted. Update
-  the preferences tooltip (no more "costs EE time") and the terrain-detail
-  hint (big triangles near the camera become cheap — coarser grids are
-  viable). Gate: showcase + clipbench + one textured/fogged/flashlit scene
-  all pixel-match and hold ≥ the old FPS on hardware.
+- **M4 — flip the preference. DONE 2026-07-14** (flipped by owner decision
+  ahead of the original hardware gate — the EE clipper corrupts close-up /
+  screen-edge frames on reflective geometry, the VU1 path does not).
+  Default clipping for new projects is `vu1`; the Preferences combo offers
+  "Precise clipping on VU1 (default)" / "Precise clipping on EE (legacy)" /
+  "Fast culling". Backward compatibility: a `.tyra` without a `clipping`
+  key loads as `precise` (EE), so existing projects keep their behavior
+  until the user opts in. Shipped together with the fifth clip variant
+  **clip_tce** (`stapip_clip_tce_vu1.vclpp`): the env/matcap program that
+  computes the sphere-map ST from the object-space normal *before* the
+  Sutherland–Hodgman pass (so ST lerps through cuts like a regular texture
+  coordinate), letting reflective materials run in VU1-clipping mode — the
+  EE-computed-ST fallback in codegen is deleted. Micro-memory: cull_tce +
+  clip_tce on top of the 8-program vu1 set measured 2162 instructions
+  against the 2042 ceiling (2048 − the 6-instruction draw-finish helper).
+  First attempt shipped a 9-program set (no cull_tce) with every env-bag
+  package force-routed through clip_tce at clip occupancy — correct but
+  ~5× slower on the env pass (14.2 ms vs 2.7 ms on the reflections
+  showcase: 1/5-occupancy subpackages, copies, and the clip program's
+  per-triangle work on VU1 that the EE then waits on). The shipped fix
+  instead shrinks all five clip programs: the fan-triangulation emitter is
+  ONE macro instance in a rotating 3-iteration loop (`fanEmitLoop`,
+  corner pointer rotates srcBase → fanPtr → fanNext) instead of three
+  inlined copies, freeing enough micro memory for the full 10-program vu1
+  set (cull ×4 + clip ×4 + cull_tce + clip_tce) — env bags route exactly
+  like any textured bag (in-frustum → cull_tce, crossing → clip_tce). The
+  EE `StaPipClipper`/`PlanesClipAlgorithm` are NOT deleted yet — that
+  waits for the still-outstanding hardware pass (clipbench PERF + the
+  SW-renderer-vs-hardware ADC check on a real console).
 - **M5 — companion work (independent, do in parallel). DONE 2026-07-15**
   (in PCSX2 terms). Package array pooling landed earlier (PROGRESS 79,
   worth ~2%); the real companion win was rebuilding the per-package frustum
@@ -168,8 +198,9 @@ Retired / simplified:
   re-check deleted, VU0 min/max bbox scan, memcpy qbuffer fills. On the 98k
   benchmark (PCSX2 SW renderer, vsync off, debug profile): precise mode
   47 → 73 FPS pixel-identical, and **this VU1-clipping mode 120 FPS** —
-  2.55× the old precise baseline. The M4 flip remains gated on the
-  real-PS2 clipbench re-run + SW-vs-hardware ADC check.
+  2.55× the old precise baseline. The hardware half of the original M4
+  gate (real-PS2 clipbench re-run + SW-vs-hardware ADC check) is still
+  owed before the EE clipper can be deleted.
 
 ## Verification protocol (every milestone)
 

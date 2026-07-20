@@ -18,11 +18,15 @@
 #include "decalproj.hpp"
 #include "glbparser.hpp"
 #include "menubake.hpp"
+#include "navmesh.hpp"
 #include "project.hpp"
 
 namespace templates {
 
 static std::vector<std::string> collectMenuEvents(const Project& p);
+static bool anyNavAiNode(const Project& p);
+static std::vector<int> waypointIndices(const std::vector<SceneObject>& objs,
+                                        const std::string& prefix);
 
 // Unique (modelPath, material override) pairs referenced by static .obj
 // model objects, in first-use order. A material override changes what gets
@@ -273,8 +277,9 @@ int main(int argc, char** argv) {
   // region, NTSC forces 60 Hz, PAL forces 50 Hz.
   options.videoMode = Tyra::VideoMode::{{VIDEO_MODE}};
   // Scan mode (Project > Preferences > Build > Display mode): interlaced
-  // 480i/576i, progressive 480p, or 1080i. The DTV modes need component
-  // cables on a real console and always run at 60 Hz.
+  // 480i/576i (whole frames or true field rendering), progressive 480p, or
+  // 1080i. The DTV modes need component cables on a real console and always
+  // run at 60 Hz.
   options.displayMode = Tyra::DisplayMode::{{DISPLAY_MODE}};
   // 16:9 anamorphic output (Preferences > Build > Widescreen).
   options.widescreen = {{WIDESCREEN}};
@@ -428,6 +433,19 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    // Reflective material (refl in the .mtl): the additive sphere-map second
+    // pass. World-space normals are captured at rebuild and ride in the ST
+    // slot; the TCE VU1 programs compute the matcap ST from the per-mesh
+    // camera basis (refreshed every frame in renderScene). The env bag shares
+    // this part's vertex array and bboxVersion and mirrors the base bag's
+    // shape (texture + many colors), so both passes share one frustum-bbox
+    // cache entry.
+    std::vector<Tyra::Vec4> envNormals;
+    std::vector<Tyra::Color> envColors;  // all-white 128 = unmodulated texel
+    std::unique_ptr<Tyra::StaPipBag> envBag;
+    std::unique_ptr<Tyra::StaPipInfoBag> envInfoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> envColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> envTexBag;
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
@@ -479,6 +497,13 @@ class TerrainGame : public Tyra::Game {
     std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
+    // refl: spherical environment map (nullptr = not reflective).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
+    // reflRounded = "-rounded": env normals radiate from the part centroid.
+    Tyra::Texture* reflTexture = nullptr;
+    float reflStrength = 0.0F;
+    bool reflDynamic = false;
+    bool reflRounded = false;
   };
   struct GameModel {
     std::vector<GameModelPart> parts;  // empty = missing/unparseable model
@@ -530,6 +555,14 @@ class TerrainGame : public Tyra::Game {
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
     std::string texPath;  // texture-cache ref held ("" = untextured)
+    // refl: spherical environment map (nullptr = not reflective).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
+    // reflRounded = "-rounded": env normals radiate from the part centroid.
+    Tyra::Texture* reflTexture = nullptr;
+    float reflStrength = 0.0F;
+    bool reflDynamic = false;
+    bool reflRounded = false;
+    std::string reflTexPath;  // texture-cache ref held ("" = none)
   };
   std::vector<GameMaterial> gameMaterials;
   void loadMaterialAsset(int index);
@@ -586,6 +619,14 @@ class TerrainGame : public Tyra::Game {
                      float* ceiling);
   void updateObjectPhysics();
   void renderScene();
+  // Mirror objects (type 15): re-submit each listed target's live bags
+  // under a reflection matrix about the glass plane, then blend the quad
+  // over the copies. mirrorMat holds the reflection for the mirror being
+  // drawn; mirrorAnimMat composes it with an animated target's animMat.
+  void renderMirrors();
+  void renderMirroredObject(int index);
+  Tyra::M4x4 mirrorMat;
+  Tyra::M4x4 mirrorAnimMat;
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
   void buildHighlightProxy(int index);
@@ -640,20 +681,25 @@ class TerrainGame : public Tyra::Game {
   unsigned int sceneGeneration = 0;
 
   // Particle emitters (type 7): fixed pools sized at scene load, zero
-  // per-frame allocations; camera-facing quads (textured when the emitter
-  // has a material with a map_Kd), one bag per emitter.
+  // per-frame allocations. The EE only SIMULATES; each particle is
+  // submitted as a single center vertex plus one qword of 2x2 basis
+  // weights and one color, and the VU1 billboard program expands it into
+  // a camera-facing quad (textured when the emitter has a material with a
+  // map_Kd). One bag per emitter; the camera basis rides on the billboard
+  // bag, so another view (a portal pass) can re-render the same centers
+  // after swapping billboardBag->right/up.
   struct ParticleSystem {
     int objectIndex = -1;
     unsigned int rng = 1;
     std::vector<Tyra::Vec4> pos, vel;
     std::vector<float> life, maxLife;
-    std::vector<Tyra::Vec4> verts;
-    std::vector<Tyra::Color> cols;
-    std::vector<Tyra::Vec4> sts;  // fixed per-quad UVs (textured emitters)
+    std::vector<Tyra::Vec4> params;  // per-particle (m00, m01, m10, m11)
+    std::vector<Tyra::Color> cols;   // one RGBA per particle
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBillboardBag> billboardBag;
   };
   std::vector<ParticleSystem> particles;
   void buildParticles();
@@ -707,14 +753,23 @@ class TerrainGame : public Tyra::Game {
   // value strip (menu_data.gen.hpp; only menus with such entries have one).
   std::vector<Tyra::Sprite> menuValueSprites;
 
-  // On-screen texts (hud_data.gen.hpp): baked text sprites the Show Text /
-  // Hide Text flow nodes flip via ScriptContext; a positive timer auto-hides.
+  // On-screen texts (hud_data.gen.hpp): baked text sprites the Set Text
+  // Visible flow node flips via ScriptContext; a positive timer auto-hides.
   void updateAndRenderHudTexts();
   std::vector<Tyra::Sprite> hudTextSprites;
   std::vector<signed char> hudTextReq;   // ScriptContext::textRequest
   std::vector<float> hudTextDur;         // ScriptContext::textDuration
   std::vector<unsigned char> hudTextOn;  // visible this frame
   std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
+
+  // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
+  // glyph by glyph from a font atlas because the string is only known now.
+  void updateAndRenderDynTexts();
+  std::vector<signed char> dynTextReq;   // ScriptContext::dynTextRequest
+  std::vector<float> dynTextDur;         // ScriptContext::dynTextDuration
+  std::vector<char> dynTextBuf;          // DYN_TEXT_COUNT * DYN_TEXT_LEN
+  std::vector<unsigned char> dynTextOn;  // visible this frame
+  std::vector<float> dynTextTimer;
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
@@ -797,6 +852,19 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    // Reflective material (refl in the .mtl): the additive sphere-map second
+    // pass. World-space normals are captured at rebuild and ride in the ST
+    // slot; the TCE VU1 programs compute the matcap ST from the per-mesh
+    // camera basis (refreshed every frame in renderScene). The env bag shares
+    // this part's vertex array and bboxVersion and mirrors the base bag's
+    // shape (texture + many colors), so both passes share one frustum-bbox
+    // cache entry.
+    std::vector<Tyra::Vec4> envNormals;
+    std::vector<Tyra::Color> envColors;  // all-white 128 = unmodulated texel
+    std::unique_ptr<Tyra::StaPipBag> envBag;
+    std::unique_ptr<Tyra::StaPipInfoBag> envInfoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> envColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> envTexBag;
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
@@ -848,6 +916,13 @@ class TerrainGame : public Tyra::Game {
     std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
+    // refl: spherical environment map (nullptr = not reflective).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
+    // reflRounded = "-rounded": env normals radiate from the part centroid.
+    Tyra::Texture* reflTexture = nullptr;
+    float reflStrength = 0.0F;
+    bool reflDynamic = false;
+    bool reflRounded = false;
   };
   struct GameModel {
     std::vector<GameModelPart> parts;  // empty = missing/unparseable model
@@ -899,6 +974,14 @@ class TerrainGame : public Tyra::Game {
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
     std::string texPath;  // texture-cache ref held ("" = untextured)
+    // refl: spherical environment map (nullptr = not reflective).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
+    // reflRounded = "-rounded": env normals radiate from the part centroid.
+    Tyra::Texture* reflTexture = nullptr;
+    float reflStrength = 0.0F;
+    bool reflDynamic = false;
+    bool reflRounded = false;
+    std::string reflTexPath;  // texture-cache ref held ("" = none)
   };
   std::vector<GameMaterial> gameMaterials;
   void loadMaterialAsset(int index);
@@ -955,6 +1038,14 @@ class TerrainGame : public Tyra::Game {
                      float* ceiling);
   void updateObjectPhysics();
   void renderScene();
+  // Mirror objects (type 15): re-submit each listed target's live bags
+  // under a reflection matrix about the glass plane, then blend the quad
+  // over the copies. mirrorMat holds the reflection for the mirror being
+  // drawn; mirrorAnimMat composes it with an animated target's animMat.
+  void renderMirrors();
+  void renderMirroredObject(int index);
+  Tyra::M4x4 mirrorMat;
+  Tyra::M4x4 mirrorAnimMat;
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
   void buildHighlightProxy(int index);
@@ -1009,20 +1100,25 @@ class TerrainGame : public Tyra::Game {
   unsigned int sceneGeneration = 0;
 
   // Particle emitters (type 7): fixed pools sized at scene load, zero
-  // per-frame allocations; camera-facing quads (textured when the emitter
-  // has a material with a map_Kd), one bag per emitter.
+  // per-frame allocations. The EE only SIMULATES; each particle is
+  // submitted as a single center vertex plus one qword of 2x2 basis
+  // weights and one color, and the VU1 billboard program expands it into
+  // a camera-facing quad (textured when the emitter has a material with a
+  // map_Kd). One bag per emitter; the camera basis rides on the billboard
+  // bag, so another view (a portal pass) can re-render the same centers
+  // after swapping billboardBag->right/up.
   struct ParticleSystem {
     int objectIndex = -1;
     unsigned int rng = 1;
     std::vector<Tyra::Vec4> pos, vel;
     std::vector<float> life, maxLife;
-    std::vector<Tyra::Vec4> verts;
-    std::vector<Tyra::Color> cols;
-    std::vector<Tyra::Vec4> sts;  // fixed per-quad UVs (textured emitters)
+    std::vector<Tyra::Vec4> params;  // per-particle (m00, m01, m10, m11)
+    std::vector<Tyra::Color> cols;   // one RGBA per particle
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBillboardBag> billboardBag;
   };
   std::vector<ParticleSystem> particles;
   void buildParticles();
@@ -1076,14 +1172,23 @@ class TerrainGame : public Tyra::Game {
   // value strip (menu_data.gen.hpp; only menus with such entries have one).
   std::vector<Tyra::Sprite> menuValueSprites;
 
-  // On-screen texts (hud_data.gen.hpp): baked text sprites the Show Text /
-  // Hide Text flow nodes flip via ScriptContext; a positive timer auto-hides.
+  // On-screen texts (hud_data.gen.hpp): baked text sprites the Set Text
+  // Visible flow node flips via ScriptContext; a positive timer auto-hides.
   void updateAndRenderHudTexts();
   std::vector<Tyra::Sprite> hudTextSprites;
   std::vector<signed char> hudTextReq;   // ScriptContext::textRequest
   std::vector<float> hudTextDur;         // ScriptContext::textDuration
   std::vector<unsigned char> hudTextOn;  // visible this frame
   std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
+
+  // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
+  // glyph by glyph from a font atlas because the string is only known now.
+  void updateAndRenderDynTexts();
+  std::vector<signed char> dynTextReq;   // ScriptContext::dynTextRequest
+  std::vector<float> dynTextDur;         // ScriptContext::dynTextDuration
+  std::vector<char> dynTextBuf;          // DYN_TEXT_COUNT * DYN_TEXT_LEN
+  std::vector<unsigned char> dynTextOn;  // visible this frame
+  std::vector<float> dynTextTimer;
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
@@ -1107,6 +1212,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "scene_data.hpp"
 #include "model_data.gen.hpp"
 #include "hud_data.gen.hpp"
+#include "font_data.gen.hpp"
 #include "loading_data.gen.hpp"
 #include "menu_data.gen.hpp"
 #include "terrain_heights.gen.hpp"
@@ -1377,6 +1483,16 @@ V3 pointLightAt(const V3& wp, const V3& n) {
 const float* g_primKd = nullptr;
 bool g_primTextured = false;
 
+// Reflective materials: while non-null, pushVert also captures the rotated
+// (world-space) normal of every emitted vertex - the per-frame sphere-map ST
+// computation needs them (see renderScene). Staged per part like g_primKd.
+std::vector<Vec4>* g_envNormals = nullptr;
+
+// Loaded materials/model parts using the "@sky" dynamic env map. While > 0,
+// renderScene renders the sky dome into the engine's env-map target each
+// frame (the GT3 trick - reflections follow the live sky).
+int g_dynamicEnvUsers = 0;
+
 // Every rebuilt vertex buffer gets a process-unique bbox version. The
 // engine's frustum-bbox cache is keyed by (vertex pointer, version); layer
 // streaming frees and reallocates buffers, so with per-bag counters a
@@ -1436,6 +1552,7 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
                        c255(o.color[1] * scale * shade.y),
                        c255(o.color[2] * scale * shade.z), 128.0F));
   sts.push_back(Vec4(u, v, 1.0F, 0.0F));
+  if (g_envNormals) g_envNormals->push_back(Vec4(n.x, n.y, n.z, 0.0F));
 }
 
 void pushQuad(std::vector<Vec4>& verts, std::vector<Color>& cols,
@@ -1622,6 +1739,78 @@ void drawHudText(Engine* engine, const char* s, float x, float y) {
 }
 
 float hudTextWidth(const char* s) { return (float)strlen(s) * 14.0F; }
+
+/** Runtime text drawn from a Font Manager glyph atlas (Display Text nodes).
+ *
+ * VRAM: the atlas Texture is only handed to the repository the first time this
+ * font actually draws, and the engine only DMAs a texture to GS VRAM on its
+ * first render - so a font nobody displays costs zero VRAM, and one that is
+ * hidden again keeps costing only its EE-side copy. We deliberately never call
+ * useTexture() eagerly here (unlike the streamed model textures), because that
+ * would pin the sheet before anything asked for it. */
+float fontTextWidth(int fontIdx, const char* s, float size) {
+  const FontData& f = FONTS[fontIdx];
+  if (!f.glyphs) return 0.0F;
+  const float k = size / (float)f.baseSize;
+  float w = 0.0F;
+  for (; *s; ++s) {
+    const int gi = (int)(unsigned char)*s - FONT_FIRST_CHAR;
+    if (gi < 0 || gi >= FONT_CHAR_COUNT) continue;
+    w += (float)f.glyphs[gi].adv * k;
+  }
+  return w;
+}
+
+void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
+                  float cy, float size) {
+  const FontData& f = FONTS[fontIdx];
+  if (!f.glyphs || !f.atlas[0]) return;
+
+  // One sprite per font, kept across frames: the texture link is by sprite id,
+  // so every glyph of a font reuses the same id and the same atlas binding.
+  static Sprite glyph[FONT_COUNT > 0 ? FONT_COUNT : 1];
+  static bool ready[FONT_COUNT > 0 ? FONT_COUNT : 1] = {};
+  if (!ready[fontIdx]) {
+    glyph[fontIdx].mode = SpriteMode::MODE_REPEAT;  // sample a sub-rect
+    auto* texture = engine->renderer.getTextureRepository().add(
+        FileUtils::fromCwd(f.atlas));
+    texture->addLink(glyph[fontIdx].id);
+    ready[fontIdx] = true;
+  }
+
+  Sprite& sp = glyph[fontIdx];
+  const float k = size / (float)f.baseSize;
+  sp.scale = k;
+
+  // Center anchor, like the baked HUD text sprites.
+  const float startX = cx - fontTextWidth(fontIdx, s, size) * 0.5F;
+  const float top = cy - (float)f.lineH * k * 0.5F;
+
+  // Shadow first, then the glyphs: two passes over the same cells, the dark
+  // one offset by a pixel (the baked texts get theirs at bake time instead).
+  for (int pass = f.shadow ? 0 : 1; pass < 2; ++pass) {
+    const float ox = pass == 0 ? 1.0F : 0.0F;
+    if (pass == 0)
+      sp.color = Color(10.0F, 12.0F, 16.0F, 100.0F);
+    else
+      sp.color = Color((float)f.r, (float)f.g, (float)f.b, 128.0F);
+
+    float pen = startX;
+    for (const char* c = s; *c; ++c) {
+      const int gi = (int)(unsigned char)*c - FONT_FIRST_CHAR;
+      if (gi < 0 || gi >= FONT_CHAR_COUNT) continue;
+      const FontGlyph& g = f.glyphs[gi];
+      if (g.w > 0 && g.h > 0) {
+        sp.size = Vec2((float)g.w, (float)g.h);
+        sp.offset = Vec2((float)g.u, (float)g.v);
+        sp.position = Vec2(pen + (float)g.xoff * k + ox,
+                           top + (float)g.yoff * k + ox);
+        engine->renderer.renderer2D.render(sp);
+      }
+      pen += (float)g.adv * k;
+    }
+  }
+}
 
 // Debug frame profiler (Project > Preferences > Build > Show frame profiler).
 // renderScene brackets its three heavy phases with EE COP0-timer reads and
@@ -2287,6 +2476,7 @@ void TerrainGame::loop() {
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
 {{SCREEN_FX_TOP}}    if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
     updateAndRenderHudTexts();
+    updateAndRenderDynTexts();
     // Cutscene Director widescreen bars + fade-to-black: solid quads over the
     // scene and HUD (texts included), under the pause menus (no-op unless a
     // cutscene draws).
@@ -2458,6 +2648,22 @@ void TerrainGame::buildScene() {
     scriptCtx.textRequest = hudTextReq.data();
     scriptCtx.textDuration = hudTextDur.data();
     scriptCtx.textCount = HUD_TEXT_COUNT;
+
+    // Runtime texts (font_data.gen.hpp). Buffers only - no texture is touched
+    // here: a font atlas reaches the repository (and VRAM) on the first frame
+    // a Display Text using it is actually drawn. See drawFontText.
+    dynTextReq.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, -1);
+    dynTextDur.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0.0F);
+    dynTextOn.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0);
+    dynTextTimer.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0.0F);
+    dynTextBuf.assign((DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1) * DYN_TEXT_LEN,
+                      '\0');
+    scriptCtx.dynTextRequest = dynTextReq.data();
+    scriptCtx.dynTextDuration = dynTextDur.data();
+    scriptCtx.dynTextBuf = dynTextBuf.data();
+    scriptCtx.dynTextOn = dynTextOn.data();
+    scriptCtx.dynTextCount = DYN_TEXT_COUNT;
+    scriptCtx.dynTextLen = DYN_TEXT_LEN;
     if (TITLE_MENU >= 0) {
       gameMenuIndex = TITLE_MENU;
       gameMenuCursor = 0;
@@ -2553,6 +2759,20 @@ void TerrainGame::loadModelAsset(int i) {
       part.texture = acquireTexture(path);
       gm.texPaths.push_back(path);
     }
+    if (mat.reflTextureName == "@sky") {
+      // Dynamic env map: the engine-owned VRAM target, re-rendered from the
+      // sky dome every frame (renderScene).
+      part.reflTexture = engine->renderer.core.envMap.getTexture();
+      part.reflStrength = mat.reflStrength;
+      part.reflDynamic = true;
+      ++g_dynamicEnvUsers;
+    } else if (!mat.reflTextureName.empty()) {
+      const std::string path = dir + mat.reflTextureName;
+      part.reflTexture = acquireTexture(path);
+      part.reflStrength = mat.reflStrength;
+      gm.texPaths.push_back(path);
+    }
+    part.reflRounded = mat.reflRounded;
     gm.parts.push_back(std::move(part));
   }
   if (MODEL_NEEDS_COLLIDER[i]) {
@@ -2570,6 +2790,8 @@ void TerrainGame::freeModelAsset(int i) {
   if (i < 0 || i >= MODEL_COUNT || !modelLoaded[i]) return;
   GameModel& gm = gameModels[i];
   for (const std::string& path : gm.texPaths) releaseTexture(path);
+  for (const GameModelPart& part : gm.parts)
+    if (part.reflDynamic) --g_dynamicEnvUsers;
   gm = GameModel();
   modelLoaded[i] = 0;
 }
@@ -2587,18 +2809,33 @@ void TerrainGame::loadMaterialAsset(int i) {
   gmat.kd[0] = mat.kd[0];
   gmat.kd[1] = mat.kd[1];
   gmat.kd[2] = mat.kd[2];
-  if (mat.textureName.empty()) return;
   std::string dir = MATERIAL_PATHS[i];
   const size_t slash = dir.find_last_of('/');
   dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
-  gmat.texPath = dir + mat.textureName;
-  gmat.texture = acquireTexture(gmat.texPath);
+  if (!mat.textureName.empty()) {
+    gmat.texPath = dir + mat.textureName;
+    gmat.texture = acquireTexture(gmat.texPath);
+  }
+  if (mat.reflTextureName == "@sky") {
+    // Dynamic env map (see loadModelAsset).
+    gmat.reflTexture = engine->renderer.core.envMap.getTexture();
+    gmat.reflStrength = mat.reflStrength;
+    gmat.reflDynamic = true;
+    ++g_dynamicEnvUsers;
+  } else if (!mat.reflTextureName.empty()) {
+    gmat.reflTexPath = dir + mat.reflTextureName;
+    gmat.reflTexture = acquireTexture(gmat.reflTexPath);
+    gmat.reflStrength = mat.reflStrength;
+  }
+  gmat.reflRounded = mat.reflRounded;
 }
 
 void TerrainGame::freeMaterialAsset(int i) {
   if (i < 0 || i >= MATERIAL_COUNT || !materialLoaded[i]) return;
   GameMaterial& gmat = gameMaterials[i];
   if (!gmat.texPath.empty()) releaseTexture(gmat.texPath);
+  if (!gmat.reflTexPath.empty()) releaseTexture(gmat.reflTexPath);
+  if (gmat.reflDynamic) --g_dynamicEnvUsers;
   gmat = GameMaterial();
   materialLoaded[i] = 0;
 }
@@ -3731,9 +3968,13 @@ void TerrainGame::updateSoundEmitters() {
 
 // --- Particle emitters ------------------------------------------------
 // 2002-style particles: fixed pools sized at scene load, one cheap LCG,
-// no trig and no allocations in the per-frame path. Camera-facing quads
-// colored per vertex; an emitter with a material carrying a map_Kd draws
-// its quads with that texture (the color then modulates it).
+// no trig and no allocations in the per-frame path. The EE simulates and
+// writes one center + one qword of 2x2 basis weights + one color per
+// particle; the VU1 billboard program (engine StaPipBillboardBag) expands
+// each center into a camera-facing quad in clip space, so the quad
+// building cost never touches the EE. An emitter with a material carrying
+// a map_Kd draws its quads with that texture (the color then modulates
+// it; corner UVs are fixed on VU1).
 // The editor viewport mirrors this simulation (viewport.cpp,
 // simulateEmitter) - keep the per-kind formulas in sync.
 static float prand(unsigned int& s) {  // 0..1
@@ -3756,39 +3997,38 @@ void TerrainGame::buildParticles() {
     ps.vel.assign(n, Vec4(0.0F, 0.0F, 0.0F, 0.0F));
     ps.life.assign(n, 0.0F);  // dead -> staggered respawn over the first frames
     ps.maxLife.assign(n, 1.0F);
-    ps.verts.assign((size_t)n * 6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
-    ps.cols.assign((size_t)n * 6, Color(0.0F, 0.0F, 0.0F, 0.0F));
+    ps.params.assign(n, Vec4(0.0F, 0.0F, 0.0F, 0.0F));
+    ps.cols.assign(n, Color(0.0F, 0.0F, 0.0F, 0.0F));
     ps.infoBag = std::make_unique<StaPipInfoBag>();
     ps.infoBag->model = &model;
     ps.infoBag->shadingType = TyraShadingGouraud;
-    ps.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
-    ps.infoBag->fullClipChecks = true;
+    // VU1 billboard bags cull per quad on VU1 - no EE frustum/clip work.
+    // None is safe for billboard bags only: the VU1 program ADCs any quad
+    // whose corner leaves the GS raster window (ordinary bags must never
+    // use None - see the engine skill's wrap pitfall).
+    ps.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_None;
+    ps.infoBag->fullClipChecks = false;
     ps.colorBag = std::make_unique<StaPipColorBag>();
+    ps.colorBag->many = ps.cols.data();
+    ps.billboardBag = std::make_unique<StaPipBillboardBag>();
     ps.bag = std::make_unique<StaPipBag>();
     ps.bag->info = ps.infoBag.get();
     ps.bag->color = ps.colorBag.get();
-    ps.bag->texture = nullptr;
     ps.bag->lighting = nullptr;
+    ps.bag->billboard = ps.billboardBag.get();
+    ps.bag->vertices = ps.pos.data();
     ps.bag->count = 0;
-    // Textured particles: the emitter's material supplies the map (its Kd is
-    // ignored - the emitter color is the tint). UVs are fixed per quad in the
-    // v0,v1,v2 / v0,v2,v3 vertex order used by updateParticles().
+    // The texture bag is mandatory for billboard bags - its coordinates
+    // channel carries the per-particle basis weights. Textured particles:
+    // the emitter's material supplies the map (its Kd is ignored - the
+    // emitter color is the tint); corner UVs are fixed in the VU1 program.
+    ps.texBag = std::make_unique<StaPipTextureBag>();
+    ps.texBag->texture = nullptr;
+    ps.texBag->coordinates = ps.params.data();
     const int mi = runtimeObjects[i].data.material;  // data copy: spawn slots too
-    if (mi >= 0 && mi < (int)gameMaterials.size() && gameMaterials[mi].texture) {
-      ps.sts.reserve((size_t)n * 6);
-      for (int q = 0; q < n; ++q) {
-        ps.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
-      }
-      ps.texBag = std::make_unique<StaPipTextureBag>();
+    if (mi >= 0 && mi < (int)gameMaterials.size() && gameMaterials[mi].texture)
       ps.texBag->texture = gameMaterials[mi].texture;
-      ps.texBag->coordinates = ps.sts.data();
-      ps.bag->texture = ps.texBag.get();
-    }
+    ps.bag->texture = ps.texBag.get();
     particles.push_back(std::move(ps));
   }
 }
@@ -3821,6 +4061,14 @@ void TerrainGame::updateParticles() {
     const SceneObjectData& d = o.data;
     const int kind = d.emitKind;
     const int n = (int)ps.life.size();
+
+    // Per-emitter billboard basis for the VU1 expansion. Rain streaks hang
+    // from world-up (vertical quads); everything else faces the camera
+    // plane. A portal pass re-renders these bags with the VIRTUAL camera's
+    // basis swapped in - the centers below are view-independent.
+    ps.billboardBag->right = Vec4(rx, 0.0F, rz, 0.0F);
+    ps.billboardBag->up = kind == 4 ? Vec4(0.0F, 1.0F, 0.0F, 0.0F)
+                                    : Vec4(ux, uy, uz, 0.0F);
 
     // Follow player: the emitter position becomes an offset from the camera
     // (place it at X=0/Z=0 and the height above the player's head) - rain
@@ -3942,47 +4190,28 @@ void TerrainGame::updateParticles() {
         alpha = 110.0F * t;
       }
 
-      // rain streaks stay vertical (world-up quads); everything else is a
-      // full camera-facing billboard. Fog puffs additionally swirl: the
-      // billboard slowly rotates in the camera plane, alternating direction
-      // per puff (the swirling fog roll) - keep in sync with the viewport
-      // preview (drawEmitterPreviews).
-      float brx = rx, bry = 0.0F, brz = rz;
-      float bux = ux, buy = uy, buz = uz;
+      // The quad itself is built on VU1: corner = center +/- (right*m00 +
+      // up*m01) +/- (right*m10 + up*m11). Rain streaks hang from world-up
+      // (the emitter basis above) with an independent half-height; fog
+      // puffs additionally swirl - the billboard slowly rotates in the
+      // camera plane, alternating direction per puff (the swirling fog
+      // roll) - keep in sync with the viewport preview
+      // (drawEmitterPreviews).
+      float m00 = size, m01 = 0.0F, m10 = 0.0F, m11 = size;
       if (kind == 2) {
         const float age = ps.maxLife[i] - ps.life[i];
         const float ang = (float)i * 2.4F + (i & 1 ? 0.3F : -0.3F) * age;
         const float ca = cosf(ang), sa = sinf(ang);
-        brx = rx * ca + ux * sa;
-        bry = uy * sa;
-        brz = rz * ca + uz * sa;
-        bux = ux * ca - rx * sa;
-        buy = uy * ca;
-        buz = uz * ca - rz * sa;
+        m00 = ca * size;
+        m01 = sa * size;
+        m10 = -sa * size;
+        m11 = ca * size;
       }
-      const float Rx = brx * size, Ry = bry * size, Rz = brz * size;
-      const float Ux = sizeUp > 0.0F ? 0.0F : bux * size;
-      const float Uy = sizeUp > 0.0F ? sizeUp : buy * size;
-      const float Uz = sizeUp > 0.0F ? 0.0F : buz * size;
-      const Vec4& P = ps.pos[i];
-      const Vec4 v0(P.x - Rx - Ux, P.y - Ry - Uy, P.z - Rz - Uz, 1.0F);
-      const Vec4 v1(P.x + Rx - Ux, P.y + Ry - Uy, P.z + Rz - Uz, 1.0F);
-      const Vec4 v2(P.x + Rx + Ux, P.y + Ry + Uy, P.z + Rz + Uz, 1.0F);
-      const Vec4 v3(P.x - Rx + Ux, P.y - Ry + Uy, P.z - Rz + Uz, 1.0F);
-      const int b = i * 6;
-      ps.verts[b] = v0;
-      ps.verts[b + 1] = v1;
-      ps.verts[b + 2] = v2;
-      ps.verts[b + 3] = v0;
-      ps.verts[b + 4] = v2;
-      ps.verts[b + 5] = v3;
-      const Color c(cr, cg, cb, alpha);
-      for (int k = 0; k < 6; ++k) ps.cols[b + k] = c;
+      if (sizeUp > 0.0F) m11 = sizeUp;  // rain: thin width, streak height
+      ps.params[i] = Vec4(m00, m01, m10, m11);
+      ps.cols[i] = Color(cr, cg, cb, alpha);
     }
-    ps.colorBag->many = ps.cols.data();
-    ps.bag->vertices = ps.verts.data();
-    ps.bag->count = (u32)ps.verts.size();
-    ps.bag->bboxVersion = ++g_bboxStamp;  // moving cloud - refresh the bbox
+    ps.bag->count = (u32)n;
   }
 }
 // Picks the nearest usable object the camera is close to and looking at
@@ -4358,7 +4587,7 @@ void TerrainGame::applyMenuBindings() {
           g_stickExpL = g_stickExpR = 2.0F;
           break;
         }
-        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0/1/2)
+        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0..3)
           if (idx != g_menuDispOpt) {
             g_menuDispOpt = idx;
             scriptCtx.requestDisplayMode = idx;
@@ -4428,6 +4657,33 @@ void TerrainGame::updateAndRenderHudTexts() {
       }
     }
     if (hudTextOn[i]) engine->renderer.renderer2D.render(hudTextSprites[i]);
+  }
+}
+
+// Runtime texts: same request/timer protocol as the baked ones, but the string
+// lives in dynTextBuf (refreshed every frame by the owning flow-graph script
+// while the slot is on) and is drawn glyph by glyph from the font's atlas.
+void TerrainGame::updateAndRenderDynTexts() {
+  for (int i = 0; i < DYN_TEXT_COUNT; ++i) {
+    if (scriptCtx.dynTextRequest[i] >= 0) {
+      dynTextOn[i] = scriptCtx.dynTextRequest[i] != 0 ? 1 : 0;
+      dynTextTimer[i] = dynTextOn[i] ? scriptCtx.dynTextDuration[i] : 0.0F;
+      scriptCtx.dynTextRequest[i] = -1;
+    }
+    if (dynTextOn[i] && dynTextTimer[i] > 0.0F) {
+      dynTextTimer[i] -= g_frameDt;
+      if (dynTextTimer[i] <= 0.0F) {
+        dynTextOn[i] = 0;
+        dynTextTimer[i] = 0.0F;
+      }
+    }
+    if (!dynTextOn[i]) continue;
+    const DynTextData& d = DYN_TEXTS[i];
+    const char* s = &dynTextBuf[(size_t)i * DYN_TEXT_LEN];
+    if (!s[0]) continue;
+    const auto& scr = engine->renderer.core.getSettings();
+    drawFontText(engine, d.font, s, d.x * scr.getWidth(), d.y * scr.getHeight(),
+                 d.size);
   }
 }
 
@@ -4887,6 +5143,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     part.vertices.clear();
     part.colors.clear();
     part.sts.clear();
+    part.envNormals.clear();
   }
 
   // primitives: the assigned material (first entry of its .mtl) supplies
@@ -4901,6 +5158,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
       const GameModelPart& src = gm->parts[pi];
       GeoPart& part = g.parts[pi];
       const bool textured = src.texture != nullptr;
+      g_envNormals = src.reflTexture ? &part.envNormals : nullptr;
       for (size_t i = 0; i + 7 < src.verts.size(); i += 8) {
         const float* v = &src.verts[i];
         pushVert(part.vertices, part.colors, part.sts, o.data,
@@ -4908,9 +5166,12 @@ void TerrainGame::rebuildObjectGeometry(int index) {
                  textured);
       }
     }
+    g_envNormals = nullptr;
   } else {
     g_primKd = gmat ? gmat->kd : nullptr;
     g_primTextured = gmat && gmat->texture;
+    g_envNormals =
+        (gmat && gmat->reflTexture) ? &g.parts[0].envNormals : nullptr;
     GeoPart& p0 = g.parts[0];
     switch (o.data.type) {
       case 1: addSphere(p0.vertices, p0.colors, p0.sts, o.data); break;
@@ -4952,10 +5213,27 @@ void TerrainGame::rebuildObjectGeometry(int index) {
         break;
       }
       case 14: break;  // camera - cutscene shot marker, no geometry
+      case 15: {
+        // mirror: only the glass quad is geometry (the reflected copies are
+        // re-submitted per frame by renderMirrors). Reuses the decal quad
+        // (+Z face, slight +Z nudge keeps it off a backing wall), then
+        // rewrites the vertex alpha with the authored glass opacity - the
+        // GS alpha-blends it over the copies drawn just before it.
+        addDecal(p0.vertices, p0.colors, p0.sts, o.data);
+        float opacity = 0.35F;
+        for (int mi = 0; mi < MIRROR_COUNT; ++mi)
+          if (MIRRORS[mi].scene == currentScene && MIRRORS[mi].object == index) {
+            opacity = MIRRORS[mi].opacity;
+            break;
+          }
+        for (Color& c : p0.colors) c.a = opacity * 128.0F;
+        break;
+      }
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
     g_primKd = nullptr;
     g_primTextured = false;
+    g_envNormals = nullptr;
   }
 
   for (int pi = 0; pi < partCount; ++pi) {
@@ -4997,6 +5275,85 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     } else {
       part.bag->texture = nullptr;
     }
+
+    // Reflective material (refl): the additive sphere-map second pass. The
+    // env bag reuses this part's vertex array and bboxVersion; all-white
+    // "many" colors keep its VU1 program shape identical to a textured base
+    // bag, so the frustum-bbox cache entry is shared, not recomputed.
+    Texture* envTex = o.data.type == 5 ? gm->parts[pi].reflTexture
+                                       : (gmat ? gmat->reflTexture : nullptr);
+    const float envStr = o.data.type == 5
+                             ? gm->parts[pi].reflStrength
+                             : (gmat ? gmat->reflStrength : 0.0F);
+    if (envTex && envStr > 0.004F &&
+        part.envNormals.size() == part.vertices.size()) {
+      part.envColors.assign(part.vertices.size(),
+                            Color(128.0F, 128.0F, 128.0F, 128.0F));
+      if (!part.envBag) {
+        part.envInfoBag = std::make_unique<StaPipInfoBag>();
+        part.envInfoBag->model = &model;
+        part.envInfoBag->shadingType = TyraShadingFlat;
+        part.envInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+        part.envInfoBag->fullClipChecks = true;
+        // Coplanar with the base pass: standard GEQUAL test. (TestOnly's
+        // alpha-fail FB_ONLY trick corrupted close-up frames - see below.)
+        part.envInfoBag->zTestType = PipelineZTest_Standard;
+        // GS fog would ADD the fog color through the additive equation
+        // (brightening fogged pixels) - the reflection just stays unfogged.
+        part.envInfoBag->fogDisabled = true;
+        part.envColorBag = std::make_unique<StaPipColorBag>();
+        part.envTexBag = std::make_unique<StaPipTextureBag>();
+        part.envBag = std::make_unique<StaPipBag>();
+        part.envBag->info = part.envInfoBag.get();
+        part.envBag->color = part.envColorBag.get();
+        part.envBag->texture = part.envTexBag.get();
+        part.envBag->lighting = nullptr;
+      }
+      // Additive equation Cv = Cs*FIX/128 + Cd; FIX 128 = full strength.
+      const float fix = envStr * 128.0F + 0.5F;
+      part.envInfoBag->additiveBlendFix =
+          fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
+      part.envColorBag->many = part.envColors.data();
+      part.envTexBag->texture = envTex;
+      // "-rounded" materials: overwrite the captured face normals with
+      // directions radiating from the part centroid - a flat face then
+      // sweeps a gradient of the sphere map instead of showing one uniform
+      // sample (the viewport shader mirrors this via uReflRounded).
+      const bool envRounded = o.data.type == 5
+                                  ? gm->parts[pi].reflRounded
+                                  : (gmat && gmat->reflRounded);
+      if (envRounded && !part.vertices.empty()) {
+        const u32 nv = static_cast<u32>(part.vertices.size());
+        float cx = 0.0F, cy = 0.0F, cz = 0.0F;
+        for (u32 vi = 0; vi < nv; ++vi) {
+          cx += part.vertices[vi].x;
+          cy += part.vertices[vi].y;
+          cz += part.vertices[vi].z;
+        }
+        cx /= (float)nv, cy /= (float)nv, cz /= (float)nv;
+        for (u32 vi = 0; vi < nv; ++vi) {
+          float dx = part.vertices[vi].x - cx;
+          float dy = part.vertices[vi].y - cy;
+          float dz = part.vertices[vi].z - cz;
+          const float l = sqrtf(dx * dx + dy * dy + dz * dz);
+          if (l > 0.0001F)
+            dx /= l, dy /= l, dz /= l;
+          else
+            dx = 0.0F, dy = 1.0F, dz = 0.0F;
+          part.envNormals[vi].set(dx, dy, dz, 0.0F);
+        }
+      }
+      // The normals ride in the ST slot and the TCE programs (cull/as_is/
+      // clip) compute the matcap ST from the per-mesh camera basis - zero
+      // EE per-vertex work, no pipeline barriers, in both clipping modes.
+      part.envTexBag->coordinates = part.envNormals.data();
+      part.envTexBag->coordinatesAreNormals = true;
+      part.envBag->vertices = part.vertices.data();
+      part.envBag->count = static_cast<u32>(part.vertices.size());
+      part.envBag->bboxVersion = part.bag->bboxVersion;
+    } else {
+      part.envBag.reset();
+    }
   }
 }
 
@@ -5034,6 +5391,92 @@ void TerrainGame::renderScene() {
     skyHorizonB = scriptCtx.skyColor.b;
     buildSkyDome();
   }
+  // Reflective materials: camera basis for the sphere-map STs. Matcap UVs
+  // from the camera-space normal - u along the camera's right, v (image
+  // space, 0 = top) against its up. The editor viewport shader and the VU1
+  // CalculateTyraEnvStq macro mirror this formula - keep them in sync.
+  V3 envFwd = {cameraLookAt.x - cameraPosition.x,
+               cameraLookAt.y - cameraPosition.y,
+               cameraLookAt.z - cameraPosition.z};
+  {
+    const float l =
+        sqrtf(envFwd.x * envFwd.x + envFwd.y * envFwd.y + envFwd.z * envFwd.z);
+    if (l > 0.0001F) envFwd.x /= l, envFwd.y /= l, envFwd.z /= l;
+  }
+  V3 envRight = {-envFwd.z, 0.0F, envFwd.x};  // cross(fwd, worldUp)
+  {
+    const float l = sqrtf(envRight.x * envRight.x + envRight.z * envRight.z);
+    if (l > 0.0001F)
+      envRight.x /= l, envRight.z /= l;
+    else
+      envRight = {1.0F, 0.0F, 0.0F};  // looking straight up/down
+  }
+  const V3 envUp = {envRight.y * envFwd.z - envRight.z * envFwd.y,
+                    envRight.z * envFwd.x - envRight.x * envFwd.z,
+                    envRight.x * envFwd.y - envRight.y * envFwd.x};
+
+  // Dynamic env map ("@sky" materials): render the sky dome into the
+  // engine's 128x128 VRAM target from a level wide-FOV view along the
+  // camera forward - the GT3 trick, reflections follow the live sky (script
+  // retints included). Runs before any main-frame 3D so the raster redirect
+  // brackets only the dome submission. Refreshed every SECOND frame (also
+  // the GT3 trick): the target persists in VRAM, and a 25/30 Hz update of
+  // a blurry 128px reflection is imperceptible while the pass costs a
+  // couple of ms per hit on real hardware.
+  static bool envMapTick = false;  // first frame MUST render (fresh VRAM)
+  envMapTick = !envMapTick;
+  if (g_dynamicEnvUsers > 0 && skyDome.bag && envMapTick) {
+    auto& core = engine->renderer.core;
+    skyMat.identity();
+    skyMat.data[12] = cameraPosition.x;
+    skyMat.data[13] = cameraPosition.y;
+    skyMat.data[14] = cameraPosition.z;
+    // Level forward: keeps the sphere map's horizon on its center line.
+    V3 lvl = {envFwd.x, 0.0F, envFwd.z};
+    const float ll = sqrtf(lvl.x * lvl.x + lvl.z * lvl.z);
+    if (ll > 0.0001F)
+      lvl.x /= ll, lvl.z /= ll;
+    else
+      lvl = {1.0F, 0.0F, 0.0F};
+    Vec4 envLook(cameraPosition.x + lvl.x, cameraPosition.y,
+                 cameraPosition.z + lvl.z, 1.0F);
+    core.envMap.begin(Color(scriptCtx.skyColor.r, scriptCtx.skyColor.g,
+                            scriptCtx.skyColor.b, 128.0F));
+    core.renderer3D.pushEnvView(cameraPosition, envLook, 110.0F,
+                                (float)Tyra::RendererCoreEnvMap::size);
+    const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
+    skyDome.infoBag->zTestType = PipelineZTest_AllPass;
+    stapip.core.render(skyDome.bag.get());
+    skyDome.infoBag->zTestType = prevZTest;
+    // "Show in reflections" objects render into the map too - base passes
+    // only (no env pass inside the env pass), depth-tested against the
+    // target's dedicated z-buffer so they occlude each other correctly.
+    for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
+      RuntimeObject& ro = runtimeObjects[ri];
+      if (!ro.active || !ro.visible || !ro.data.reflected) continue;
+      // Skip the object the camera is standing at: it would swamp the whole
+      // map - typically the very reflective surface being inspected, whose
+      // own dark self-reflection reads as ugly patches up close. (Bounding
+      // radius approximated from the scale; unit primitives fit a 1x1x1
+      // cube, so half-diagonal = 0.87 * max scale.)
+      {
+        float half = ro.data.scale[0];
+        if (ro.data.scale[1] > half) half = ro.data.scale[1];
+        if (ro.data.scale[2] > half) half = ro.data.scale[2];
+        const float skipR = 0.87F * half * 1.9F;
+        const float sdx = ro.data.position[0] - cameraPosition.x;
+        const float sdy = ro.data.position[1] - cameraPosition.y;
+        const float sdz = ro.data.position[2] - cameraPosition.z;
+        if (sdx * sdx + sdy * sdy + sdz * sdz < skipR * skipR) continue;
+      }
+      if (ro.dirty) rebuildObjectGeometry(ri);
+      for (GeoPart& part : objectGeometry[ri].parts)
+        if (part.bag) stapip.core.render(part.bag.get());
+    }
+    core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+    core.envMap.end();
+  }
+
   if (skyDome.bag) {
     // Follow the camera: park the dome's centre on the eye so however big the
     // map is, the horizon and zenith always wrap around the player. Only the
@@ -5057,6 +5500,14 @@ void TerrainGame::renderScene() {
   // repaint - two exact-clip passes per frame). OVERLAY mode: the body draws
   // normally in the main pass and the shells are painted ON it afterwards, so
   // it stays in this list only for the shell pass.
+  auto renderEnvPass = [&](GeoPart& part) {
+    if (!part.envBag) return;
+    // TCE programs compute the matcap ST on VU1 - the EE only refreshes the
+    // per-mesh camera basis here.
+    part.envTexBag->envRight.set(envRight.x, envRight.y, envRight.z, 0.0F);
+    part.envTexBag->envUp.set(envUp.x, envUp.y, envUp.z, 0.0F);
+    stapip.core.render(part.envBag.get());
+  };
   int hlList[8];
   float hlListD2[8];
   int hlCount = 0;
@@ -5067,6 +5518,10 @@ void TerrainGame::renderScene() {
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
     if (!runtimeObjects[i].visible) continue;
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
+    // mirrors draw after the scene (copies first, then the blended glass -
+    // see renderMirrors); drawing the quad here would z-write the plane and
+    // reject the reflected geometry behind it
+    if (runtimeObjects[i].data.type == 15) continue;
     if (hlActive && hlCount < 8 && runtimeObjects[i].data.usable &&
         highlightInReach(i)) {
       const float ddx = runtimeObjects[i].data.position[0] - cameraPosition.x;
@@ -5077,11 +5532,17 @@ void TerrainGame::renderScene() {
       if (!hlOverlay) continue;  // rim: defer body; overlay: draw it now
     }
     for (GeoPart& part : objectGeometry[i].parts)
-      if (part.bag) stapip.core.render(part.bag.get());
+      if (part.bag) {
+        stapip.core.render(part.bag.get());
+        renderEnvPass(part);
+      }
   }
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
   updateAndRenderAnimObjects();
+  // Mirrors after the whole scene (including the skinned avatars their
+  // copies re-use): reflected copies first, glass quads blended over them
+  renderMirrors();
   if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - profScene0;
   // Highlight shells after the whole scene so they depth-test against the
   // finished z-buffer and can't be punched through by a later draw. Sorted
@@ -5107,7 +5568,10 @@ void TerrainGame::renderScene() {
       // scene, not highlight overhead.
       const u32 pb = DEBUG_SHOW_PROFILER ? profTicks() : 0;
       for (GeoPart& part : objectGeometry[i].parts)
-        if (part.bag) stapip.core.render(part.bag.get());
+        if (part.bag) {
+          stapip.core.render(part.bag.get());
+          renderEnvPass(part);
+        }
       if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - pb;
     }
   }
@@ -5116,6 +5580,98 @@ void TerrainGame::renderScene() {
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
+}
+
+// Mirror objects (type 15): the PS2-era mirror. Every listed target is
+// submitted a SECOND time under a reflection matrix about the glass plane -
+// VU1 re-transforms the target's live vertex arrays (the same trick as the
+// highlight shells re-submitting under hullMat), so the EE never touches a
+// vertex and moving or animated targets reflect their current frame for
+// free. The copies are real geometry on the far side of the plane: build
+// the mirror into a wall (or give it a backing) so only the glass reveals
+// them. Winding flips under a reflection, but the GS draws both faces, so
+// no triangle reordering is needed. Draw order: copies first (plain
+// z-tested scene geometry), then the tinted glass quad alpha-blends over
+// them; highlight shells and particles still sort on top afterwards.
+void TerrainGame::renderMirrors() {
+  for (int mi = 0; mi < MIRROR_COUNT; ++mi) {
+    const MirrorData& mir = MIRRORS[mi];
+    if (mir.scene != currentScene || mir.object < 0 ||
+        mir.object >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[mir.object];
+    if (!m.active || !m.visible) continue;
+    if (beyondDrawDistance(m.data, cameraPosition)) continue;
+
+    // Householder reflection about the glass plane (normal = the mirror's
+    // rotated +Z, through its live position): x' = x - 2*((x . n) - d) * n
+    V3 n = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+    const float nl = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
+    if (nl > 0.0001F) n.x /= nl, n.y /= nl, n.z /= nl;
+    const float d = n.x * m.data.position[0] + n.y * m.data.position[1] +
+                    n.z * m.data.position[2];
+    mirrorMat.identity();
+    mirrorMat.data[0] = 1.0F - 2.0F * n.x * n.x;
+    mirrorMat.data[1] = -2.0F * n.x * n.y;
+    mirrorMat.data[2] = -2.0F * n.x * n.z;
+    mirrorMat.data[4] = -2.0F * n.x * n.y;
+    mirrorMat.data[5] = 1.0F - 2.0F * n.y * n.y;
+    mirrorMat.data[6] = -2.0F * n.y * n.z;
+    mirrorMat.data[8] = -2.0F * n.x * n.z;
+    mirrorMat.data[9] = -2.0F * n.y * n.z;
+    mirrorMat.data[10] = 1.0F - 2.0F * n.z * n.z;
+    mirrorMat.data[12] = 2.0F * d * n.x;
+    mirrorMat.data[13] = 2.0F * d * n.y;
+    mirrorMat.data[14] = 2.0F * d * n.z;
+
+    for (int t = 0; t < mir.targetCount; ++t)
+      renderMirroredObject(MIRROR_TARGETS[mir.firstTarget + t]);
+    if (mir.reflectPlayer) {
+      // only a visible body reflects: the third-person avatar is a normal
+      // runtime object (visible only in mode 2), so the FPP player - no
+      // body - is skipped by the visibility check inside
+      const int pi = PLAYER_INDEXES[currentScene];
+      if (pi >= 0) renderMirroredObject(pi);
+    }
+
+    // the glass quad itself, alpha-blended over the copies (its vertex
+    // alpha carries the opacity - see rebuildObjectGeometry case 15)
+    for (GeoPart& part : objectGeometry[mir.object].parts)
+      if (part.bag) stapip.core.render(part.bag.get());
+  }
+}
+
+// One reflected copy: re-submit the target's live bags under mirrorMat.
+// Static parts hold world-space vertices (the reflection maps world to
+// world); animated parts hold model-space vertices under animMat, so the
+// copy composes reflection * animMat. The swapped-in matrix pointer is
+// consumed during render() (packets are built synchronously - the highlight
+// shells rewrite hullMat between submits on the same fact), so restoring it
+// right after the call is safe.
+void TerrainGame::renderMirroredObject(int index) {
+  if (index < 0 || index >= (int)runtimeObjects.size()) return;
+  RuntimeObject& o = runtimeObjects[index];
+  // no mirror-in-mirror: a mirror listing another mirror would recurse the
+  // illusion with a matrix that is only valid for the outer plane
+  if (!o.active || !o.visible || o.data.type == 15) return;
+  if (beyondDrawDistance(o.data, cameraPosition)) return;
+  ObjectGeometry& g = objectGeometry[index];
+  for (GeoPart& part : g.parts) {
+    if (!part.bag) continue;
+    part.infoBag->model = &mirrorMat;
+    stapip.core.render(part.bag.get());
+    part.infoBag->model = &model;
+  }
+  if (g.animInfoBag && !g.animParts.empty()) {
+    // The anim bags point at whatever updateAndRenderAnimObjects last
+    // skinned - an on-screen target reflects its exact current pose; a
+    // target that skipped this frame's skinning reflects its held pose.
+    mirrorAnimMat = mirrorMat * g.animMat;
+    g.animInfoBag->model = &mirrorAnimMat;
+    for (ObjectGeometry::AnimPart& ap : g.animParts)
+      if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+    g.animInfoBag->model = &g.animMat;
+  }
 }
 
 // True when the usable object sits inside the highlight distance (same
@@ -6094,6 +6650,7 @@ void TerrainGame::loop() {
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
 {{SCREEN_FX_TOP}}    if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
     updateAndRenderHudTexts();
+    updateAndRenderDynTexts();
     // Cutscene Director widescreen bars + fade-to-black: solid quads over the
     // scene and HUD (texts included), under the pause menus (no-op unless a
     // cutscene draws).
@@ -6803,6 +7360,18 @@ struct ScriptContext {
   float* textDuration = nullptr;
   int textCount = 0;
 
+  // Runtime texts (DYN_TEXTS order, font_data.gen.hpp - one slot per Display
+  // Text node). Same request protocol as textRequest above, but the string is
+  // not baked: write it into dynTextBuf + i * DYN_TEXT_LEN. dynTextOn[i] tells
+  // a script whether its slot is currently on screen, so it only pays for the
+  // refresh while the text is actually visible.
+  signed char* dynTextRequest = nullptr;
+  float* dynTextDuration = nullptr;
+  char* dynTextBuf = nullptr;
+  const unsigned char* dynTextOn = nullptr;
+  int dynTextCount = 0;
+  int dynTextLen = 0;  // stride of dynTextBuf (DYN_TEXT_LEN)
+
   // Camera flashlight master switch (the Player object's "Enabled"). Write 1
   // to turn it on, 0 to turn it off, -1 to leave it unchanged; the game
   // applies and resets it. The optional toggle button still gates the beam.
@@ -6845,7 +7414,8 @@ struct ScriptContext {
 
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes).
   // requestDisplayMode: -1 = leave, else a Tyra::DisplayMode value (0 =
-  // interlaced, 1 = progressive 480p, 2 = 1080i). displayConfirmSec > 0
+  // interlaced, 1 = progressive 480p, 2 = 1080i, 3 = interlaced field
+  // rendering). displayConfirmSec > 0
   // arms the keep-or-revert prompt: the game switches, asks the player to
   // confirm with X and reverts to the previous mode automatically when the
   // timer runs out (a mode the TV can't display would otherwise strand the
@@ -7294,6 +7864,25 @@ docker-compose.yml
 
 static const char* TPL_DIR_KEEP = "*\n!.gitignore\n";
 
+// res/ holds AUTHORED assets - they must reach the repo (the split-object
+// format exists precisely so a team can share a map through git; a teammate
+// without your textures sees "material file missing" on every object). Only
+// build-regenerated bakes are ignored: menus/ is fully rebuilt from the
+// .tyra at build, and .tskl/.tanm are baked from their .glb source. hud/ is
+// NOT ignored - user-imported HUD images land there next to the baked text
+// sprites, and losing imports is worse than committing regenerable bakes.
+static const char* TPL_RES_GITIGNORE =
+    R"(# Authored assets (models, textures, materials, ui, audio, sfx) are
+# checked in - a pulled project must render without missing files. Only
+# build-regenerated output is ignored.
+/menus/
+
+# Baked animated-model output (.glb is the source; .tskl/.tanm are
+# regenerated from it on every build).
+/models/*.tskl
+/models/*.tanm
+)";
+
 // Multi-user collaboration hints, written once at project creation (a new game
 // map is its own repo, separate from the editor). Object bodies are split one
 // file per object so they merge cleanly; the files below cannot be auto-merged
@@ -7487,6 +8076,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "             // 6=player 7=emitter 8=sound 9=point-light 10=save-point\n"
            "             // 11=empty (pure transform, no geometry/collision)\n"
            "             // 12=plane 13=decal 14=camera (cutscene shot marker)\n"
+           "             // 15=mirror (glass quad; reflections via MIRRORS below)\n"
            "  float position[3];\n"
            "  float rotation[3];  // degrees\n"
            "  float scale[3];\n"
@@ -7521,6 +8111,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none\n"
            "  float drawDistance;  // not drawn farther than this from the camera;\n"
            "                       // 0 = unlimited (collision/logic always run)\n"
+           "  int reflected;  // 1 = rendered into the dynamic (\"@sky\") env map\n"
            "  int animModel;  // animated models: index into ANIM_MODEL_PATHS, -1 = none\n"
            "  const char* animClip;  // animated models: starting clip (\"\" = first)\n"
            "  int animAutoplay;      // animated models: 1 = play at scene start\n"
@@ -7544,9 +8135,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << "constexpr SceneObjectData SCENE_" << si << "_OBJECTS["
             << (objs.empty() ? (size_t)1 : objs.size()) << "] = {\n";
         if (objs.empty()) {
+            // Placeholder row so the array is never zero-sized. Field order
+            // must track SceneObjectData - the reflective-models change
+            // added `reflected` here but missed this row (build break for
+            // any project with an empty scene).
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
                    "0, 0, 0.0F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, "
-                   "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, \"\", 1, 1, "
+                   "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, \"\", 1, 1, "
                    "1.0F, 1, -1},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
@@ -7586,7 +8181,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << ", " << floatLit(o.lightBright)
                     << ", " << floatLit(o.lightRadius) << ", " << (o.saveState ? 1 : 0)
                     << ", " << o.collisionMode << ", "
-                    << floatLit(o.drawDistance) << ", " << animModelIndexOf(p, o)
+                    << floatLit(o.drawDistance) << ", " << (o.reflected ? 1 : 0)
+                    << ", " << animModelIndexOf(p, o)
                     << ", \"" << escapeCString(o.animClip) << "\", "
                     << (o.animAutoplay ? 1 : 0) << ", " << (o.animLoop ? 1 : 0)
                     << ", " << floatLit(o.animSpeed) << ", "
@@ -7605,6 +8201,36 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     for (int si = 0; si < sceneCount; ++si)
         out << (si ? ", " : "") << "SCENE_" << si << "_OBJECTS";
     out << "};\n\n";
+
+    // Stable per-object identity for Live Link (docs/live-link.md): FNV-1a 64
+    // of the editor object id, in authored order. The live_link.gen.cpp poller
+    // maps snapshot records onto runtime objects through these, so renames /
+    // reorders in the editor keep addressing the right object. Unused (and
+    // dropped by the compiler) outside debug+Live-Link builds.
+    {
+        char hb[19];
+        for (int si = 0; si < sceneCount; ++si) {
+            const auto& objs = p.scenes[si].objects;
+            out << "constexpr unsigned long long SCENE_" << si
+                << "_OBJECT_ID_HASHES[" << (objs.empty() ? (size_t)1 : objs.size())
+                << "] = {";
+            if (objs.empty()) {
+                out << "0";
+            } else {
+                for (size_t i = 0; i < objs.size(); ++i) {
+                    std::snprintf(hb, sizeof(hb), "0x%016llx",
+                                  (unsigned long long)project::liveLinkIdHash(objs[i]));
+                    out << (i ? ", " : "") << hb << "ULL";
+                }
+            }
+            out << "};\n";
+        }
+        out << "inline const unsigned long long* SCENE_OBJECT_ID_TABLES"
+               "[SCENE_COUNT] = {";
+        for (int si = 0; si < sceneCount; ++si)
+            out << (si ? ", " : "") << "SCENE_" << si << "_OBJECT_ID_HASHES";
+        out << "};\n\n";
+    }
 
     // Streaming layers: per-scene layer count and which layers start resident
     // (rows padded to SCENE_MAX_LAYERS with true). SceneObjectData.layer
@@ -7656,6 +8282,54 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         return l.autoStream ? l.streamRadius : 0.0f;
     });
     out << "\n";
+
+    // Mirror objects (type 15): a flat side-table keyed by (scene, object)
+    // like OBJECT_SCRIPT_ATTACHES, so SceneObjectData stays a fixed POD.
+    // Target names resolve to scene-table indices here; a dangling name (the
+    // object was deleted) is silently dropped and the mirror just shows less.
+    {
+        std::ostringstream infos, targets;
+        int mirrorCount = 0, targetCount = 0;
+        for (int si = 0; si < sceneCount; ++si) {
+            const auto& objs = p.scenes[si].objects;
+            for (size_t oi = 0; oi < objs.size(); ++oi) {
+                const SceneObject& o = objs[oi];
+                if (o.type != PrimitiveType::Mirror) continue;
+                const int first = targetCount;
+                for (const std::string& name : o.mirrorObjects)
+                    for (size_t ti = 0; ti < objs.size(); ++ti) {
+                        if (ti == oi || objs[ti].name != name) continue;
+                        targets << (targetCount ? ", " : "") << ti;
+                        ++targetCount;
+                        break;
+                    }
+                infos << (mirrorCount ? ",\n    " : "    ") << "{" << si << ", "
+                      << oi << ", " << floatLit(o.mirrorOpacity) << ", "
+                      << (o.mirrorReflectPlayer ? 1 : 0) << ", " << first << ", "
+                      << (targetCount - first) << "},  // " << o.name;
+                ++mirrorCount;
+            }
+        }
+        out << "// Mirrors (type 15): each entry re-draws its target objects\n"
+               "// reflected across the mirror plane (renderMirrors in the game\n"
+               "// cpp). Targets index the mirror's own scene object table.\n"
+               "struct MirrorData {\n"
+               "  int scene;          // scene index\n"
+               "  int object;         // the mirror's index in its scene table\n"
+               "  float opacity;      // glass alpha 0..1 (tint = object color)\n"
+               "  int reflectPlayer;  // 1 = also reflect the third-person avatar\n"
+               "  int firstTarget;    // first entry in MIRROR_TARGETS\n"
+               "  int targetCount;\n"
+               "};\n"
+            << "constexpr int MIRROR_COUNT = " << mirrorCount << ";\n"
+            << "constexpr MirrorData MIRRORS[" << (mirrorCount ? mirrorCount : 1)
+            << "] = {\n"
+            << (mirrorCount ? infos.str() : "    {0, -1, 0.0F, 0, 0, 0}")
+            << "\n};\n"
+            << "constexpr int MIRROR_TARGETS["
+            << (targetCount ? targetCount : 1) << "] = {"
+            << (targetCount ? targets.str() : "-1") << "};\n\n";
+    }
 
     // Sound effect samples referenced by sound emitters (SceneObjectData.snd
     // indexes this list; res/sfx/x.wav -> sfx/x.adpcm next to the ELF)
@@ -8261,9 +8935,10 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                                         : st.videoSystem == "ntsc" ? "NTSC"
                                                                    : "Auto");
     s = replaceAll(s, "{{DISPLAY_MODE}}",
-                   st.displayMode == "1080i"         ? "HiDef1080i"
-                   : st.displayMode == "progressive" ? "Progressive480p"
-                                                     : "Interlaced");
+                   st.displayMode == "1080i"              ? "HiDef1080i"
+                   : st.displayMode == "progressive"      ? "Progressive480p"
+                   : st.displayMode == "interlaced-field" ? "InterlacedField"
+                                                          : "Interlaced");
     s = replaceAll(s, "{{WIDESCREEN}}", st.widescreen ? "true" : "false");
     const bool debugProfile = st.buildProfile == "debug";
     s = replaceAll(s, "{{DEBUG_SHOW_FPS}}",
@@ -8756,6 +9431,45 @@ void renderOverlay(Tyra::Engine* engine, const ScriptContext& ctx) {
     return out.str();
 }
 
+// One Display Text node's runtime slot. The slot index is the node's position
+// in a fixed (scene, object, node) walk - both fontDataHeader and
+// flowGraphScript derive it from dynTextSlots(), so the generated tables and
+// the generated script always agree on who owns which slot.
+struct DynTextSlot {
+    int scene = 0;
+    int ownerIdx = 0;
+    int nodeId = 0;
+    int fontSlot = 0;  // index into FONTS (not Project::fonts)
+    float x = 0.5f, y = 0.5f, size = 16.0f;
+};
+
+static std::vector<DynTextSlot> dynTextSlots(const Project& p) {
+    const std::vector<int> atlasFonts = p.atlasFontIndices();
+    std::vector<DynTextSlot> out;
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        const auto& objs = p.scenes[si].objects;
+        for (size_t oi = 0; oi < objs.size(); ++oi)
+            for (const FlowNode& n : objs[oi].flowGraph.nodes) {
+                if (n.type != "DisplayText") continue;
+                DynTextSlot s;
+                s.scene = (int)si;
+                s.ownerIdx = (int)oi;
+                s.nodeId = n.id;
+                // n.str names a Project::fonts entry; FONTS only holds the ones
+                // that actually got an atlas, so remap through atlasFonts.
+                const GameFont* gf = p.findFont(n.str);
+                const int projIdx = gf ? (int)(gf - p.fonts.data()) : 0;
+                for (size_t k = 0; k < atlasFonts.size(); ++k)
+                    if (atlasFonts[k] == projIdx) s.fontSlot = (int)k;
+                s.x = n.num[0];
+                s.y = n.num[1];
+                s.size = n.num[2] > 0.5f ? n.num[2] : 16.0f;
+                out.push_back(s);
+            }
+    }
+    return out;
+}
+
 // ---------------------------------------------------------------------------
 // Flow graph -> C++ script. Object names are resolved to indices at codegen
 // time; unknown names produce a comment instead of code.
@@ -8862,17 +9576,31 @@ std::string flowGraphScript(const Project& p) {
         return -1;
     };
 
+    // Display Text nodes: one runtime slot each, in the same order
+    // fontDataHeader lays out DYN_TEXTS.
+    const std::vector<DynTextSlot> dynSlots = dynTextSlots(p);
+    auto dynTextSlotOf = [&](size_t si, size_t oi, int nodeId) {
+        for (size_t i = 0; i < dynSlots.size(); ++i)
+            if (dynSlots[i].scene == (int)si && dynSlots[i].ownerIdx == (int)oi &&
+                dynSlots[i].nodeId == nodeId)
+                return (int)i;
+        return -1;
+    };
+
     // Text plane (Log inputs, Convert nodes, save texts) only when used -
     // keeps graphs without text nodes free of the string helpers.
     bool anyTextNode = false;
     bool anyRaycast = false;
+    bool anyDynText = false;
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects)
             for (const FlowNode& n : o.flowGraph.nodes) {
                 if (const FlowNodeType* t = flowNodeType(n.type))
                     anyTextNode |= (t->textIn || t->textOut);
                 anyRaycast |= (n.type == "Raycast");
+                anyDynText |= (n.type == "DisplayText");
             }
+    const bool anyNav = anyNavAiNode(p);
 
     std::ostringstream out;
     out << "// Generated by TyraX from the per-object Flow Graphs. Do not\n"
@@ -8882,6 +9610,9 @@ std::string flowGraphScript(const Project& p) {
            "#include \"scripts/flow_nodes.hpp\"  // custom-node C++ bodies\n";
     if (anyRaycast)
         out << "#include \"terrain_heights.gen.hpp\"  // Raycast vs terrain\n";
+    if (anyNav)
+        out << "#include \"scripts/navigation.gen.hpp\"  // AI nodes "
+               "(Patrol/Chase/Flee/On Player Seen)\n";
     out << "\n"
            "#include <math.h>\n"
            "#include <stdio.h>\n\n"
@@ -8976,6 +9707,20 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                "  snprintf(b, sizeof(b), \"(%g, %g, %g)\", (double)x, (double)y, "
                "(double)z);\n"
                "  return std::string(b);\n"
+               "}\n";
+    }
+
+    if (anyDynText) {
+        out << "\n// Display Text: copy a runtime string into its slot's buffer\n"
+               "// (silently truncated - the slot is a fixed DYN_TEXT_LEN).\n"
+               "static inline void flowSetDynText(ScriptContext& ctx, int slot,\n"
+               "                                  const std::string& s) {\n"
+               "  if (!ctx.dynTextBuf || slot < 0 || slot >= ctx.dynTextCount) return;\n"
+               "  char* dst = ctx.dynTextBuf + slot * ctx.dynTextLen;\n"
+               "  int n = (int)s.size();\n"
+               "  if (n > ctx.dynTextLen - 1) n = ctx.dynTextLen - 1;\n"
+               "  for (int i = 0; i < n; ++i) dst[i] = s[i];\n"
+               "  dst[n] = '\\0';\n"
                "}\n";
     }
 
@@ -9110,6 +9855,18 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
             return "";
         };
 
+        // A Get Position node with its exec input wired runs as a sampling
+        // action: it latches the target's position into its posOut member
+        // when the exec fires (see the registry comment in flowgraph.hpp).
+        // Unwired, it keeps the original pure behavior - consumers read the
+        // target's position live.
+        auto getPosLatched = [&](const FlowNode& n) {
+            if (n.type != "GetPosition") return false;
+            for (const FlowLink& l : fg.links)
+                if (l.kind == FlowLinkExec && l.toNode == n.id) return true;
+            return false;
+        };
+
         // XYZ expressions a node's position resolves to: an incoming position
         // link (Get Position reads the source object live; Set Object
         // Position forwards its own resolution) beats the node's own
@@ -9138,11 +9895,12 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                     }
                 }
             }
-            // A custom node's (or Raycast's) runtime position output
-            // (latched member).
+            // A custom node's (or Raycast's / an exec-wired Get Position's)
+            // runtime position output (latched member).
             if (const FlowNodeType* t = flowNodeType(n.type);
                 t && t->posOut &&
-                (flowCustomNode(n.type) || n.type == "Raycast")) {
+                (flowCustomNode(n.type) || n.type == "Raycast" ||
+                 getPosLatched(n))) {
                 const std::string base = "posOut" + std::to_string(n.id) + "[";
                 return {base + "0]", base + "1]", base + "2]"};
             }
@@ -9191,6 +9949,20 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 const int idx = resolveTarget(n);
                 if (idx < 0) return "false";
                 return "(ctx.objects[" + std::to_string(idx) + "].visible)";
+            }
+            if (n.type == "OnPlayerSeen") {
+                // the live "seen right now" condition (the exec output fires
+                // on its rising edge in the trigger scan below)
+                const std::string args = ", " + floatLit(n.num[0]) + ", " +
+                                         floatLit(n.num[1]) + ", " +
+                                         (n.num[2] != 0.0f ? "1" : "0") + ")";
+                const std::string dyn = targetExpr(n);
+                if (!dyn.empty())
+                    return "(" + dyn + " >= 0 && navPlayerSeen(ctx, " + dyn +
+                           args + ")";
+                const int idx = resolveTarget(n);
+                if (idx < 0) return "false";
+                return "navPlayerSeen(ctx, " + std::to_string(idx) + args;
             }
             if (n.type == "IsLayerLoaded") {
                 const int li = layerIndexOf(n.str);
@@ -9344,6 +10116,18 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
             return es;
         };
 
+        // Display Text's string: the node's own prefix (str2) followed by every
+        // wired text input, concatenated. Same shape as Log Message, minus the
+        // spacing - "Score: " + a Get Save Value reads as one label.
+        auto dynTextExpr = [&](const FlowNode& n) -> std::string {
+            const auto es = textInputs(n);
+            std::string s;
+            if (!n.str2.empty() || es.empty())
+                s = "std::string(\"" + escapeCString(n.str2) + "\")";
+            for (const std::string& e : es) s += (s.empty() ? "" : " + ") + e;
+            return s;
+        };
+
         // Sounds referenced by this graph's Play Sound nodes become sfx<i>
         // members loaded once in init().
         std::vector<std::string> usedSounds;
@@ -9357,8 +10141,12 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
             return (int)usedSounds.size() - 1;
         };
 
-        // action node -> inline statements
-        auto actionCode = [&](const FlowNode& n, const std::string& pad) -> std::string {
+        // action node -> inline statements. `pin` is the exec input the link
+        // fired (FlowLink::toPin): a merged node (Set Object Visible's
+        // show/hide/toggle) switches its body on it, every other node ignores
+        // it because it only has pin 0.
+        auto actionCode = [&](const FlowNode& n, const std::string& pad,
+                              int pin) -> std::string {
             std::ostringstream c;
             // dyn: the target is a runtime handle (Spawn Object clone or a
             // custom node's object output); the whole action is then wrapped in
@@ -9387,7 +10175,7 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                     c << pad << "ctx.requestScene = " << target << ";  // \"" << n.str
                       << "\"\n";
                 }
-            } else if (n.type == "LoadLayer" || n.type == "UnloadLayer") {
+            } else if (n.type == "SetLayerLoaded") {
                 const int li = layerIndexOf(n.str);
                 if (li < 0) {
                     c << pad << "// node " << n.id << " (" << n.type
@@ -9395,7 +10183,7 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 } else {
                     c << pad << "if (ctx.layerRequest && " << li
                       << " < ctx.layerCount) ctx.layerRequest[" << li
-                      << "] = " << (n.type == "LoadLayer" ? 1 : 0) << ";  // \""
+                      << "] = " << (pin == 1 ? 0 : 1) << ";  // \""
                       << n.str << "\"\n";
                 }
             } else if (n.type == "SetGrading") {
@@ -9438,12 +10226,13 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 }
             } else if (n.type == "StopSequence") {
                 c << pad << "sequences::stop();\n";
-            } else if (n.type == "ShowObject") {
-                c << pad << obj << ".visible = true;\n";
-            } else if (n.type == "HideObject") {
-                c << pad << obj << ".visible = false;\n";
-            } else if (n.type == "ToggleObject") {
-                c << pad << obj << ".visible = !" << obj << ".visible;\n";
+            } else if (n.type == "SetObjectVisible") {
+                if (pin == 1)
+                    c << pad << obj << ".visible = false;\n";
+                else if (pin == 2)
+                    c << pad << obj << ".visible = !" << obj << ".visible;\n";
+                else
+                    c << pad << obj << ".visible = true;\n";
             } else if (n.type == "MoveObjectBy") {
                 for (int a = 0; a < 3; ++a)
                     if (n.num[a] != 0.0f)
@@ -9593,6 +10382,33 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 const float md = n.num[0] > 0.001f ? n.num[0] : 100.0f;
                 c << pad << "flowRaycast(ctx, " << floatLit(md) << ", &objOut"
                   << n.id << ", posOut" << n.id << ");\n";
+            } else if (n.type == "GetPosition") {
+                // Only reached when its exec input is wired (emitExec): latch
+                // the target's position now, so downstream consumers keep
+                // "where it was when the exec fired" even after the target
+                // moves. posExpr hands them the latched member; an unwired
+                // Get Position never runs and stays a live data source.
+                const std::string id = std::to_string(n.id);
+                const std::string dyn = targetExpr(n);
+                if (!dyn.empty()) {
+                    c << pad << "if (" << dyn << " >= 0) {\n";
+                    for (int a = 0; a < 3; ++a)
+                        c << pad << "  posOut" << id << "[" << a
+                          << "] = ctx.objects[" << dyn << "].data.position[" << a
+                          << "];\n";
+                    c << pad << "}\n";
+                } else {
+                    const int idx = resolveTarget(n);
+                    if (idx < 0) {
+                        c << pad << "// node " << id
+                          << " (GetPosition): unknown object '" << n.str << "'\n";
+                    } else {
+                        for (int a = 0; a < 3; ++a)
+                            c << pad << "posOut" << id << "[" << a
+                              << "] = ctx.objects[" << idx << "].data.position["
+                              << a << "];\n";
+                    }
+                }
             } else if (n.type == "SetStickCurve") {
                 // Stick: 0 left, 1 right, 2 both. Curve: 0 Linear / 1 Exp /
                 // 2 S-Curve. Exponent clamped to >= 1 (only shapes curves 1/2).
@@ -9622,7 +10438,7 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 c << pad << "ctx.rumbleSec = " << floatLit(secs) << ";\n";
             } else if (n.type == "SetDisplayMode") {
                 int mode = (int)n.num[0];
-                mode = mode < 0 ? 0 : mode > 2 ? 2 : mode;
+                mode = mode < 0 ? 0 : mode > 3 ? 3 : mode;
                 float confirm = n.num[1] < 0.0f ? 0.0f : n.num[1];
                 c << pad << "ctx.requestDisplayMode = " << mode << ";\n";
                 c << pad << "ctx.displayConfirmSec = " << floatLit(confirm)
@@ -9630,28 +10446,47 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
             } else if (n.type == "SetWidescreen") {
                 c << pad << "ctx.widescreen = " << (n.num[0] != 0.0f ? "1" : "0")
                   << ";\n";
-            } else if (n.type == "ShowHud") {
-                c << pad << "ctx.hudVisible = true;\n";
-            } else if (n.type == "HideHud") {
-                c << pad << "ctx.hudVisible = false;\n";
-            } else if (n.type == "ToggleHud") {
-                c << pad << "ctx.hudVisible = !ctx.hudVisible;\n";
-            } else if (n.type == "ShowText" || n.type == "HideText") {
+            } else if (n.type == "SetHudVisible") {
+                if (pin == 1)
+                    c << pad << "ctx.hudVisible = false;\n";
+                else if (pin == 2)
+                    c << pad << "ctx.hudVisible = !ctx.hudVisible;\n";
+                else
+                    c << pad << "ctx.hudVisible = true;\n";
+            } else if (n.type == "SetTextVisible") {
                 const int ti = hudTextIndex(n.str);
                 if (ti < 0) {
                     // Texts removed from the project just stop being shown.
                     c << pad << "// node " << n.id << " (" << n.type
                       << "): unknown text '" << n.str << "'\n";
-                } else if (n.type == "ShowText") {
+                } else if (pin == 1) {
+                    c << pad << "ctx.textRequest[" << ti << "] = 0;  // \"" << n.str
+                      << "\"\n";
+                } else {
                     float secs = n.num[0];
                     if (secs < 0.0f) secs = 0.0f;
                     c << pad << "ctx.textRequest[" << ti << "] = 1;  // \"" << n.str
                       << "\"\n"
                       << pad << "ctx.textDuration[" << ti << "] = " << floatLit(secs)
                       << ";\n";
+                }
+            } else if (n.type == "DisplayText") {
+                const int slot = dynTextSlotOf(si, ownerIdx, n.id);
+                if (slot < 0) {
+                    c << pad << "// node " << n.id << " (DisplayText): no slot\n";
+                } else if (pin == 1) {
+                    c << pad << "ctx.dynTextRequest[" << slot << "] = 0;\n";
                 } else {
-                    c << pad << "ctx.textRequest[" << ti << "] = 0;  // \"" << n.str
-                      << "\"\n";
+                    float secs = n.num[3];
+                    if (secs < 0.0f) secs = 0.0f;
+                    c << pad << "ctx.dynTextRequest[" << slot << "] = 1;\n"
+                      << pad << "ctx.dynTextDuration[" << slot << "] = "
+                      << floatLit(secs) << ";\n"
+                      // Fill the buffer now as well as in the per-frame refresh,
+                      // so the first frame shows the right string instead of a
+                      // stale one.
+                      << pad << "flowSetDynText(ctx, " << slot << ", "
+                      << dynTextExpr(n) << ");\n";
                 }
             } else if (n.type == "StopMusic") {
                 c << pad << "ctx.engine->audio.song.stop();\n";
@@ -9731,18 +10566,20 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                     c << pad << "ctx.openMenu = " << mi << ";  // \"" << n.str
                       << "\"\n";
                 }
-            } else if (n.type == "PlayAnimation") {
-                // str = clip name ("" = the model's first clip); Loop 1 = loop,
-                // Speed <= 0 = the authored default (1.0); Fade = crossfade
-                // seconds (0 = instant switch)
-                const float speed = n.num[1] > 0.001f ? n.num[1] : 1.0f;
-                const float fade = n.num[2] > 0.0f ? n.num[2] : 0.0f;
-                c << pad << "playAnimation(ctx, " << objIdx << ", \""
-                  << escapeCString(n.str) << "\", "
-                  << (n.num[0] != 0.0f ? "true" : "false") << ", "
-                  << floatLit(speed) << ", " << floatLit(fade) << ");\n";
-            } else if (n.type == "StopAnimation") {
-                c << pad << "stopAnimation(ctx, " << objIdx << ");\n";
+            } else if (n.type == "Animation") {
+                if (pin == 1) {
+                    c << pad << "stopAnimation(ctx, " << objIdx << ");\n";
+                } else {
+                    // str = clip name ("" = the model's first clip); Loop 1 =
+                    // loop, Speed <= 0 = the authored default (1.0); Fade =
+                    // crossfade seconds (0 = instant switch)
+                    const float speed = n.num[1] > 0.001f ? n.num[1] : 1.0f;
+                    const float fade = n.num[2] > 0.0f ? n.num[2] : 0.0f;
+                    c << pad << "playAnimation(ctx, " << objIdx << ", \""
+                      << escapeCString(n.str) << "\", "
+                      << (n.num[0] != 0.0f ? "true" : "false") << ", "
+                      << floatLit(speed) << ", " << floatLit(fade) << ");\n";
+                }
             } else if (n.type == "SpawnObject") {
                 // objIdx = the TEMPLATE (link > name > self); the clone lands
                 // in this node's handle slot. A linked position beats the
@@ -9758,6 +10595,39 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                   << ");\n";
                 if (!dyn.empty())  // the handle no longer points at a clone
                     c << pad << dyn << " = -1;\n";
+            } else if (n.type == "PatrolWaypoints") {
+                // Waypoints resolve at codegen: objects named <prefix><n>, in
+                // natural order. str = the prefix; the target NPC comes from
+                // the object link (or self), like Play Animation.
+                const auto wps = waypointIndices(sceneObjs, n.str);
+                if (wps.empty()) {
+                    c << pad << "// node " << n.id
+                      << " (PatrolWaypoints): no objects named '" << n.str
+                      << "<n>'\n";
+                } else {
+                    c << pad << "{\n" << pad << "  static const int navWps"
+                      << n.id << "[] = {";
+                    for (size_t i = 0; i < wps.size(); ++i) {
+                        c << (i ? ", " : "") << wps[i];
+                    }
+                    c << "};  //";
+                    for (int wi : wps) c << " " << sceneObjs[wi].name;
+                    c << "\n"
+                      << pad << "  navPatrol(ctx, " << objIdx << ", navWps"
+                      << n.id << ", " << wps.size() << ", " << floatLit(n.num[0])
+                      << ", " << floatLit(n.num[1] > 0.0f ? n.num[1] : 0.0f)
+                      << ", " << (n.num[2] != 0.0f ? 1 : 0) << ");\n"
+                      << pad << "}\n";
+                }
+            } else if (n.type == "ChasePlayer") {
+                c << pad << "navChase(ctx, " << objIdx << ", "
+                  << floatLit(n.num[0]) << ", " << floatLit(n.num[1]) << ", "
+                  << floatLit(n.num[2]) << ");\n";
+            } else if (n.type == "FleePlayer") {
+                c << pad << "navFlee(ctx, " << objIdx << ", "
+                  << floatLit(n.num[0]) << ", " << floatLit(n.num[1]) << ");\n";
+            } else if (n.type == "StopAi") {
+                c << pad << "navStop(ctx, " << objIdx << ");\n";
             } else if (const CustomFlowNode* cn = flowCustomNode(n.type)) {
                 const FlowNodeType* t = &cn->type;
                 c << pad << "// node " << n.id << " (" << n.type << ")\n";
@@ -9847,16 +10717,21 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 if (!m) continue;
                 const FlowNodeType* t = flowNodeType(m->type);
                 if (!t || t->trigger || t->pure) continue;
+                // Keyed on node AND pin: one trigger may legitimately drive two
+                // different branches of the same merged node, which is not a
+                // cycle.
+                const int key = m->id * kFlowMaxExecIn + l.toPin;
                 bool seen = false;
-                for (int v : visited) seen |= (v == m->id);
+                for (int v : visited) seen |= (v == key);
                 if (seen) {
                     c << pad << "// exec cycle at node " << m->id << " skipped\n";
                     continue;
                 }
-                visited.push_back(m->id);
-                c << actionCode(*m, pad);
+                visited.push_back(key);
+                c << actionCode(*m, pad, l.toPin);
                 if (t->execThrough &&
-                    (flowCustomNode(m->type) || m->type == "Raycast"))
+                    (flowCustomNode(m->type) || m->type == "Raycast" ||
+                     m->type == "GetPosition"))
                     c << emitExec(m->id, pad, visited);
             }
             return c.str();
@@ -9909,6 +10784,16 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                 flagResets << "      " << var << " = 0;\n";
                 clsOut << "    if (" << var << " > 0 && --" << var << " == 0) {\n"
                        << linkedActions(n.id, "      ") << "    }\n";
+            } else if (n.type == "DisplayText") {
+                // The wired text is a live value (a save value, a counter), so
+                // re-read it every frame the slot is on - that is what makes
+                // this node different from the baked Set Text Visible. Skipped
+                // while hidden, so an off-screen text costs nothing.
+                const int slot = dynTextSlotOf(si, ownerIdx, n.id);
+                if (slot >= 0)
+                    clsOut << "    if (ctx.dynTextOn && ctx.dynTextOn[" << slot
+                           << "])\n      flowSetDynText(ctx, " << slot << ", "
+                           << dynTextExpr(n) << ");\n";
             } else if (n.type == "MoveObjectTo") {
                 if (!targetExpr(n).empty()) {
                     clsOut << "    // node " << n.id << " (MoveObjectTo): runtime "
@@ -9952,16 +10837,21 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
             }
         }
 
-        // Runtime output latches for C++-backed custom nodes and the built-in
-        // Raycast: members hold the last value each output pin produced, so
-        // downstream nodes read them as plain variables (objOut<id>,
-        // boolOut<id>, posOut<id>[3], textOut<id>). Reset to defaults on
-        // scene (re)load like the other per-node state.
+        // Runtime output latches for C++-backed custom nodes, the built-in
+        // Raycast and exec-wired Get Position nodes: members hold the last
+        // value each output pin produced, so downstream nodes read them as
+        // plain variables (objOut<id>, boolOut<id>, posOut<id>[3],
+        // textOut<id>). Reset to defaults on scene (re)load like the other
+        // per-node state.
         for (const FlowNode& n : fg.nodes) {
             const FlowNodeType* t = flowNodeType(n.type);
-            if (!t || !(flowCustomNode(n.type) || n.type == "Raycast")) continue;
+            if (!t || !(flowCustomNode(n.type) || n.type == "Raycast" ||
+                        getPosLatched(n)))
+                continue;
             const std::string id = std::to_string(n.id);
-            if (t->idOut) {
+            // Get Position latches only its position - its object output
+            // stays the compile-time resolution.
+            if (t->idOut && n.type != "GetPosition") {
                 members << "  int objOut" << id << " = -1;\n";
                 flagResets << "      objOut" << id << " = -1;\n";
             }
@@ -10033,6 +10923,34 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                     << "].data.position[2];\n      const bool isNear = dx * dx + dz * dz < "
                     << floatLit(r * r) << ";\n      if (isNear && !" << flag << ") {\n"
                     << body << "      }\n      " << flag << " = isNear;\n    }\n";
+            } else if (n.type == "OnPlayerSeen") {
+                // rising edge of the vision condition (like NearObject)
+                const std::string dyn = targetExpr(n);
+                std::string idxStr;
+                if (dyn.empty()) {
+                    const int idx = resolveTarget(n);
+                    if (idx < 0) {
+                        clsOut << "    // node " << n.id
+                               << " (OnPlayerSeen): unknown object '" << n.str
+                               << "'\n";
+                        continue;
+                    }
+                    idxStr = std::to_string(idx);
+                } else {
+                    idxStr = dyn;
+                }
+                const std::string flag = "seen" + std::to_string(n.id);
+                members << "  bool " << flag << " = false;\n";
+                flagResets << "      " << flag << " = false;\n";
+                clsOut << "    "
+                       << (dyn.empty() ? "{" : "if (" + dyn + " >= 0) {")
+                       << "\n      const bool isSeen = navPlayerSeen(ctx, "
+                       << idxStr << ", " << floatLit(n.num[0]) << ", "
+                       << floatLit(n.num[1]) << ", "
+                       << (n.num[2] != 0.0f ? 1 : 0) << ");\n"
+                       << "      if (isSeen && !" << flag << ") {\n"
+                       << body << "      }\n      " << flag
+                       << " = isSeen;\n    }\n";
             } else if (n.type == "EverySeconds") {
                 clsOut << "    if (frame % everyFrames(" << floatLit(n.num[0])
                        << ") == 0) {\n" << body << "    }\n";
@@ -10114,6 +11032,270 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
     if (!anyGraph) out << "\n// No object has a flow graph yet.\n";
 
     out << "\n}  // namespace " << ns << "\n\n" << registrations.str();
+    return out.str();
+}
+
+// src/scripts/live_link.gen.cpp - the Live Link poller. Debug builds with the
+// "Live Link" project preference on: the editor mirrors scene edits into the
+// running game by writing livelink.bin next to the ELF, which the game
+// already reaches over host: (PCSX2 Host Filesystem or the ps2link file
+// server - the same mechanism on both, no extra transport). This generated
+// global Script polls that file every few frames; otherwise the file compiles
+// to an empty translation unit. Records address objects by the stable id
+// hash baked into scene_data.hpp (SCENE_*_OBJECT_ID_HASHES), so a session
+// survives renames/reorders, spawns NEWLY ADDED objects through the runtime
+// spawn pool (templateIdx names an equal-recipe authored object to clone) and
+// hides deleted ones (absence from the snapshot = deleted; restored on undo).
+// The editor only streams while bin/livelink.sig (as-built record, stamped by
+// the Runner) says the session is representable. Binary layout v2
+// (little-endian, both sides are LE):
+//   u32 magic 'TXLL', u32 version=2, u32 seq, i32 scene, i32 count, u32 rsvd
+//   count records of 64 bytes:
+//     u64 idHash, i32 templateIdx (-1 = existed at build), u32 pad,
+//     f32 position[3], rotation[3] (deg), scale[3], color[3] (0..1)
+//   u32 footer = seq ^ 0x5A5A5A5A   (guards torn/partial reads)
+static std::string liveLinkScript(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n";
+    if (p.settings.buildProfile != "debug" || !p.settings.liveLink) {
+        out << "// Live Link is compiled only into debug builds with the "
+               "\"Live Link\"\n// preference on (Project > Preferences > "
+               "Build); this build carries no poller.\n";
+        return out.str();
+    }
+
+    size_t maxObjects = 1;
+    for (const SceneData& sc : p.scenes)
+        if (sc.objects.size() > maxObjects) maxObjects = sc.objects.size();
+
+    out << "// Live Link (debug builds): applies editor edits to the running "
+           "game with no\n"
+           "// rebuild. The editor writes livelink.bin next to the ELF; this "
+           "script polls\n"
+           "// it over host:, patches transforms/colors in place, spawns "
+           "newly added\n"
+           "// objects from equal-recipe templates and hides deleted ones.\n"
+           "#include <tyra>\n"
+           "#include <algorithm>\n"
+           "#include <cstdio>\n"
+           "#include <cstring>\n"
+           "#include \"scripts/script.hpp\"\n"
+           "\n"
+           "namespace " << ns << " {\n"
+           "namespace {\n"
+           "\n"
+           "typedef unsigned long long llu64;\n"
+           "constexpr u32 LL_MAGIC = 0x4C4C5854;  // \"TXLL\"\n"
+           "constexpr u32 LL_VERSION = 2;\n"
+           "constexpr int LL_HEADER = 24;\n"
+           "constexpr int LL_STRIDE = 64;  // one record (id + template + 12 "
+           "floats)\n"
+           "// Largest authored object table across scenes - table bounds.\n"
+           "constexpr int LL_MAX_OBJECTS = " << maxObjects << ";\n"
+           "// Live-spawned clones tracked at once; matches the game's\n"
+           "// MAX_SPAWNED_OBJECTS pool (spawnObject fails past it anyway).\n"
+           "constexpr int LL_MAX_SPAWNED = 32;\n"
+           "\n"
+           "class LiveLink : public Script {\n"
+           " public:\n"
+           "  void update(ScriptContext& ctx) override {\n"
+           "    // Scene (re)load resets runtime objects to their baked state: "
+           "rebuild the\n"
+           "    // id lookup and re-apply the latest snapshot (lastSeq_ = 0).\n"
+           "    if (ctx.sceneGeneration != gen_) rebuildTables(ctx);\n"
+           "\n"
+           "    // Over ps2link every fopen is a network round-trip - poll "
+           "sparsely there;\n"
+           "    // PCSX2's Host Filesystem is plain local IO, poll ~10x/s.\n"
+           "    if (--cooldown_ > 0) return;\n"
+           "    cooldown_ = Tyra::IrxLoader::keepIopResident ? 25 : 6;\n"
+           "\n"
+           "    static unsigned char buf[LL_HEADER +\n"
+           "                             (LL_MAX_OBJECTS + LL_MAX_SPAWNED) * "
+           "LL_STRIDE + 4];\n"
+           "    FILE* f = fopen(Tyra::FileUtils::fromCwd(\"livelink.bin\")"
+           ".c_str(), \"rb\");\n"
+           "    if (!f) return;  // no snapshot yet (or shipped without the "
+           "editor)\n"
+           "    const size_t got = fread(buf, 1, sizeof(buf), f);\n"
+           "    fclose(f);\n"
+           "    if (got < LL_HEADER + 4) return;\n"
+           "\n"
+           "    u32 magic, version, seq;\n"
+           "    s32 scene, count;\n"
+           "    memcpy(&magic, buf + 0, 4);\n"
+           "    memcpy(&version, buf + 4, 4);\n"
+           "    memcpy(&seq, buf + 8, 4);\n"
+           "    memcpy(&scene, buf + 12, 4);\n"
+           "    memcpy(&count, buf + 16, 4);\n"
+           "    if (magic != LL_MAGIC || version != LL_VERSION) return;\n"
+           "    if (seq == lastSeq_) return;  // already applied\n"
+           "    if (scene != ctx.scene || count < 0 ||\n"
+           "        count > LL_MAX_OBJECTS + LL_MAX_SPAWNED)\n"
+           "      return;\n"
+           "    // Exact size + footer echo of seq: a torn write fails both.\n"
+           "    if (got != (size_t)(LL_HEADER + count * LL_STRIDE + 4)) return;\n"
+           "    u32 foot;\n"
+           "    memcpy(&foot, buf + LL_HEADER + count * LL_STRIDE, 4);\n"
+           "    if (foot != (seq ^ 0x5A5A5A5AU)) return;\n"
+           "\n"
+           "    bool present[LL_MAX_OBJECTS] = {};\n"
+           "    bool presentSpawn[LL_MAX_SPAWNED] = {};\n"
+           "    for (int i = 0; i < count; ++i) {\n"
+           "      const unsigned char* r = buf + LL_HEADER + i * LL_STRIDE;\n"
+           "      llu64 id;\n"
+           "      s32 tmpl;\n"
+           "      float v[12];\n"
+           "      memcpy(&id, r + 0, 8);\n"
+           "      memcpy(&tmpl, r + 8, 4);\n"
+           "      memcpy(v, r + 16, 48);\n"
+           "\n"
+           "      const int idx = findAuthored(id);\n"
+           "      if (idx >= 0) {\n"
+           "        if (idx < LL_MAX_OBJECTS) present[idx] = true;\n"
+           "        if (idx >= ctx.objectCount) continue;\n"
+           "        RuntimeObject& o = ctx.objects[idx];\n"
+           "        bool changed = patch(o, v);\n"
+           "        if (hiddenByLL_[idx]) {  // deleted then undone: restore\n"
+           "          o.visible = prevVisible_[idx];\n"
+           "          hiddenByLL_[idx] = false;\n"
+           "          changed = true;\n"
+           "        }\n"
+           "        if (changed) o.dirty = true;\n"
+           "        continue;\n"
+           "      }\n"
+           "\n"
+           "      const int s = findSpawned(id);\n"
+           "      if (s >= 0) {\n"
+           "        presentSpawn[s] = true;\n"
+           "        const int slot = spawnedSlot_[s];\n"
+           "        if (slot < ctx.objectCount && ctx.objects[slot].active) {\n"
+           "          RuntimeObject& o = ctx.objects[slot];\n"
+           "          if (patch(o, v)) o.dirty = true;\n"
+           "        }\n"
+           "        continue;\n"
+           "      }\n"
+           "\n"
+           "      // Unknown id = an object added in the editor after the "
+           "build: clone\n"
+           "      // the equal-recipe template the editor picked, then patch "
+           "the clone.\n"
+           "      if (tmpl >= 0 && ctx.spawnObject && spawnedCount_ < "
+           "LL_MAX_SPAWNED) {\n"
+           "        const int slot = ctx.spawnObject(tmpl, v[0], v[1], v[2], "
+           "v[4]);\n"
+           "        if (slot >= 0) {\n"
+           "          spawnedId_[spawnedCount_] = id;\n"
+           "          spawnedSlot_[spawnedCount_] = slot;\n"
+           "          presentSpawn[spawnedCount_] = true;\n"
+           "          ++spawnedCount_;\n"
+           "          if (slot < ctx.objectCount) {\n"
+           "            RuntimeObject& o = ctx.objects[slot];\n"
+           "            patch(o, v);\n"
+           "            o.dirty = true;\n"
+           "          }\n"
+           "        }\n"
+           "      }\n"
+           "    }\n"
+           "\n"
+           "    // Authored objects missing from the snapshot were deleted in "
+           "the editor:\n"
+           "    // hide them (geometry stays baked until a rebuild; collision "
+           "remains -\n"
+           "    // an approximation, exactly like the Hide Object flow node).\n"
+           "    const int authored =\n"
+           "        SCENE_OBJECT_COUNTS[ctx.scene] < LL_MAX_OBJECTS\n"
+           "            ? SCENE_OBJECT_COUNTS[ctx.scene]\n"
+           "            : LL_MAX_OBJECTS;\n"
+           "    for (int i = 0; i < authored && i < ctx.objectCount; ++i) {\n"
+           "      if (present[i] || hiddenByLL_[i]) continue;\n"
+           "      prevVisible_[i] = ctx.objects[i].visible;\n"
+           "      ctx.objects[i].visible = false;\n"
+           "      hiddenByLL_[i] = true;\n"
+           "    }\n"
+           "    // Live-spawned clones missing from the snapshot: despawn "
+           "(frees the slot).\n"
+           "    for (int s = spawnedCount_ - 1; s >= 0; --s) {\n"
+           "      if (presentSpawn[s]) continue;\n"
+           "      if (ctx.despawnObject) ctx.despawnObject(spawnedSlot_[s]);\n"
+           "      --spawnedCount_;\n"
+           "      spawnedId_[s] = spawnedId_[spawnedCount_];\n"
+           "      spawnedSlot_[s] = spawnedSlot_[spawnedCount_];\n"
+           "      presentSpawn[s] = presentSpawn[spawnedCount_];\n"
+           "    }\n"
+           "    lastSeq_ = seq;\n"
+           "  }\n"
+           "\n"
+           " private:\n"
+           "  static bool apply3(float* dst, const float* src) {\n"
+           "    if (dst[0] == src[0] && dst[1] == src[1] && dst[2] == src[2])\n"
+           "      return false;\n"
+           "    dst[0] = src[0], dst[1] = src[1], dst[2] = src[2];\n"
+           "    return true;\n"
+           "  }\n"
+           "  // dirty only on a real change - it costs a geometry rebuild.\n"
+           "  static bool patch(RuntimeObject& o, const float* v) {\n"
+           "    bool changed = false;\n"
+           "    changed |= apply3(o.data.position, v + 0);\n"
+           "    changed |= apply3(o.data.rotation, v + 3);\n"
+           "    changed |= apply3(o.data.scale, v + 6);\n"
+           "    changed |= apply3(o.data.color, v + 9);\n"
+           "    return changed;\n"
+           "  }\n"
+           "\n"
+           "  // Sorted (hash -> authored index) lookup over the baked id "
+           "table.\n"
+           "  void rebuildTables(const ScriptContext& ctx) {\n"
+           "    gen_ = ctx.sceneGeneration;\n"
+           "    lastSeq_ = 0;  // re-apply the latest snapshot after a reload\n"
+           "    spawnedCount_ = 0;  // scene reload despawned every clone\n"
+           "    memset(hiddenByLL_, 0, sizeof(hiddenByLL_));\n"
+           "    n_ = SCENE_OBJECT_COUNTS[ctx.scene] < LL_MAX_OBJECTS\n"
+           "             ? SCENE_OBJECT_COUNTS[ctx.scene]\n"
+           "             : LL_MAX_OBJECTS;\n"
+           "    const llu64* ids = SCENE_OBJECT_ID_TABLES[ctx.scene];\n"
+           "    for (int i = 0; i < n_; ++i) order_[i] = (short)i;\n"
+           "    std::sort(order_, order_ + n_,\n"
+           "              [&](short a, short b) { return ids[a] < ids[b]; });\n"
+           "    for (int i = 0; i < n_; ++i) sorted_[i] = ids[order_[i]];\n"
+           "  }\n"
+           "  int findAuthored(llu64 id) const {\n"
+           "    int lo = 0, hi = n_;\n"
+           "    while (lo < hi) {\n"
+           "      const int mid = (lo + hi) / 2;\n"
+           "      if (sorted_[mid] < id) lo = mid + 1;\n"
+           "      else hi = mid;\n"
+           "    }\n"
+           "    return (lo < n_ && sorted_[lo] == id) ? order_[lo] : -1;\n"
+           "  }\n"
+           "  int findSpawned(llu64 id) const {\n"
+           "    for (int s = 0; s < spawnedCount_; ++s)\n"
+           "      if (spawnedId_[s] == id) return s;\n"
+           "    return -1;\n"
+           "  }\n"
+           "\n"
+           "  int cooldown_ = 1;\n"
+           "  u32 lastSeq_ = 0;\n"
+           "  unsigned int gen_ = 0xFFFFFFFFU;  // forces the first rebuild\n"
+           "  int n_ = 0;\n"
+           "  llu64 sorted_[LL_MAX_OBJECTS];\n"
+           "  short order_[LL_MAX_OBJECTS];\n"
+           "  bool hiddenByLL_[LL_MAX_OBJECTS] = {};\n"
+           "  bool prevVisible_[LL_MAX_OBJECTS] = {};\n"
+           "  llu64 spawnedId_[LL_MAX_SPAWNED];\n"
+           "  int spawnedSlot_[LL_MAX_SPAWNED];\n"
+           "  int spawnedCount_ = 0;\n"
+           "};\n"
+           "\n"
+           "LiveLink g_liveLink;\n"
+           "static const bool g_liveLinkRegistered = []() {\n"
+           "  getScripts().push_back(&g_liveLink);\n"
+           "  return true;\n"
+           "}();\n"
+           "\n"
+           "}  // namespace\n"
+           "}  // namespace " << ns << "\n";
     return out.str();
 }
 
@@ -10284,6 +11466,738 @@ static std::string terrainHeightsHeader(const Project& p) {
         << ns << "\n";
     return out.str();
 }
+// ---------------------------------------------------------------------------
+// NavMesh + NPC AI (docs/navigation-ai.md). The walkable-cell grid is baked
+// on the host (navmesh.cpp) into inc/nav_data.gen.hpp; the runtime -
+// src/scripts/navigation.gen.cpp - runs A* over that bitmap on the EE and
+// ticks every AI agent each frame (the Patrol/Chase/Flee flow nodes only set
+// the agent's state; one shared state per object, so a Chase interrupts a
+// Patrol). Everything below is gated on the AI nodes actually appearing in a
+// flow graph: without them both files are stubs and the game carries zero
+// nav data or code.
+
+static bool anyNavAiNode(const Project& p) {
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            for (const FlowNode& n : o.flowGraph.nodes)
+                if (n.type == "PatrolWaypoints" || n.type == "ChasePlayer" ||
+                    n.type == "FleePlayer" || n.type == "StopAi" ||
+                    n.type == "OnPlayerSeen")
+                    return true;
+    return false;
+}
+
+// Scene-object indices whose names start with `prefix`, in natural order
+// ("wp2" before "wp10"): sorted by the numeric suffix after the prefix, then
+// by name. The Patrol Waypoints node resolves its route with this at codegen.
+static std::vector<int> waypointIndices(const std::vector<SceneObject>& objs,
+                                        const std::string& prefix) {
+    std::vector<std::pair<long, int>> found;  // (numeric suffix, object index)
+    for (size_t i = 0; i < objs.size(); ++i) {
+        const std::string& name = objs[i].name;
+        if (prefix.empty() || name.rfind(prefix, 0) != 0) continue;
+        const std::string tail = name.substr(prefix.size());
+        long num = -1;
+        if (!tail.empty()) {
+            bool digits = true;
+            for (char c : tail) digits &= (c >= '0' && c <= '9');
+            if (!digits) continue;  // "wpX" is not a waypoint of prefix "wp"
+            num = std::atol(tail.c_str());
+        }
+        found.push_back({num, (int)i});
+    }
+    std::stable_sort(found.begin(), found.end(),
+                     [&](const auto& a, const auto& b) {
+                         if (a.first != b.first) return a.first < b.first;
+                         return objs[a.second].name < objs[b.second].name;
+                     });
+    std::vector<int> out;
+    for (const auto& f : found) out.push_back(f.second);
+    return out;
+}
+
+// inc/nav_data.gen.hpp - the baked walkable grid, one bitmap per scene
+static std::string navDataHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    std::ostringstream out;
+    out << "// Generated by TyraX (navmesh bake). Do not edit - regenerated "
+           "on every build.\n"
+           "#pragma once\n\nnamespace "
+        << ns << " {\n\n";
+
+    if (!anyNavAiNode(p)) {
+        out << "// No flow graph uses the AI nodes - no nav data baked.\n"
+               "constexpr int NAV_ENABLED = 0;\n\n}  // namespace "
+            << ns << "\n";
+        return out.str();
+    }
+
+    const int sceneCount = (int)p.scenes.size();
+    std::vector<navmesh::NavGrid> grids(sceneCount);
+    int maxCells = 1;
+    for (int si = 0; si < sceneCount; ++si) {
+        grids[si] = navmesh::bake(p, p.scenes[si]);
+        if (grids[si].w * grids[si].d > maxCells)
+            maxCells = grids[si].w * grids[si].d;
+    }
+
+    size_t maxObjects = 1;
+    for (const SceneData& sc : p.scenes)
+        if (sc.objects.size() > maxObjects) maxObjects = sc.objects.size();
+
+    out << "constexpr int NAV_ENABLED = 1;\n"
+        << "constexpr int NAV_SCENE_COUNT = " << sceneCount << ";\n"
+        << "// A* working arrays are sized to the largest scene grid; agents\n"
+        << "// cover the authored objects plus the runtime spawn pool.\n"
+        << "constexpr int NAV_MAX_CELLS = " << maxCells << ";\n"
+        << "constexpr int NAV_MAX_AGENTS = " << (maxObjects + 32) << ";\n\n";
+
+    auto navIntArr = [&](const char* name, auto get) {
+        out << "constexpr int " << name << "[NAV_SCENE_COUNT] = {";
+        for (int si = 0; si < sceneCount; ++si) out << (si ? ", " : "") << get(si);
+        out << "};\n";
+    };
+    auto navFloatArr = [&](const char* name, auto get) {
+        out << "constexpr float " << name << "[NAV_SCENE_COUNT] = {";
+        for (int si = 0; si < sceneCount; ++si)
+            out << (si ? ", " : "") << floatLit(get(si));
+        out << "};\n";
+    };
+    navIntArr("NAV_WS", [&](int si) { return grids[si].w; });
+    navIntArr("NAV_DS", [&](int si) { return grids[si].d; });
+    navFloatArr("NAV_ORIGIN_XS", [&](int si) { return grids[si].originX; });
+    navFloatArr("NAV_ORIGIN_ZS", [&](int si) { return grids[si].originZ; });
+    navFloatArr("NAV_CELL_WS", [&](int si) { return grids[si].cellW; });
+    navFloatArr("NAV_CELL_DS", [&](int si) { return grids[si].cellD; });
+    out << "\n";
+
+    // Walkable bitmaps, 32 cells per word (cell = z * w + x, LSB first).
+    for (int si = 0; si < sceneCount; ++si) {
+        const navmesh::NavGrid& g = grids[si];
+        const int cells = g.w * g.d;
+        const int words = cells > 0 ? (cells + 31) / 32 : 1;
+        int walkableCount = 0;
+        for (uint8_t c : g.walkable) walkableCount += c;
+        out << "// scene \"" << p.scenes[si].name << "\": " << g.w << "x" << g.d
+            << " cells, " << walkableCount << " walkable\n"
+            << "constexpr unsigned int NAV_" << si << "_CELLS[" << words << "] = {";
+        for (int wI = 0; wI < words; ++wI) {
+            unsigned int word = 0;
+            for (int b = 0; b < 32; ++b) {
+                const int i = wI * 32 + b;
+                if (i < cells && g.walkable[i]) word |= 1u << b;
+            }
+            if (wI % 8 == 0) out << "\n    ";
+            char hb[12];
+            std::snprintf(hb, sizeof(hb), "0x%08x", word);
+            out << hb << (wI + 1 < words ? ", " : "");
+        }
+        out << "\n};\n";
+    }
+    out << "inline const unsigned int* NAV_CELL_TABLES[NAV_SCENE_COUNT] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "") << "NAV_" << si << "_CELLS";
+    out << "};\n\n}  // namespace " << ns << "\n";
+    return out.str();
+}
+
+// inc/scripts/navigation.gen.hpp - the AI API the flow-graph script calls
+static std::string navigationHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\n";
+    if (!anyNavAiNode(p)) {
+        out << "// No flow graph uses the AI nodes - navigation runtime not "
+               "generated.\n";
+        return out.str();
+    }
+    out << "#include \"scripts/script.hpp\"\n\nnamespace " << ns << R"( {
+
+// AI agent commands (the Patrol/Chase/Flee/Stop AI flow nodes). One shared
+// agent state per runtime object - starting a behavior replaces the current
+// one. Movement runs in the generated NavAiScript every frame: A* over the
+// baked nav grid (at most one pathfind per frame, round-robin), terrain
+// snapping, turn-to-face. See src/scripts/navigation.gen.cpp.
+void navPatrol(ScriptContext& ctx, int obj, const int* waypoints, int count,
+               float speed, float pauseSec, int once);
+void navChase(ScriptContext& ctx, int obj, float speed, float stopDist,
+              float giveUpDist);
+void navFlee(ScriptContext& ctx, int obj, float speed, float safeDist);
+void navStop(ScriptContext& ctx, int obj);
+
+// True while `obj` sees the player: within range, inside the vision cone of
+// fovDeg around the object's facing (+Z rotated by its Y rotation), and with
+// needLos != 0 also terrain line-of-sight (hills hide; objects do not).
+bool navPlayerSeen(ScriptContext& ctx, int obj, float range, float fovDeg,
+                   int needLos);
+
+}  // namespace )" << ns
+        << "\n";
+    return out.str();
+}
+
+// src/scripts/navigation.gen.cpp - A* + the per-frame AI agent tick
+static std::string navigationSource(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n";
+    if (!anyNavAiNode(p)) {
+        out << "// No flow graph uses the AI nodes - navigation runtime not "
+               "generated.\n";
+        return out.str();
+    }
+    out << "#include \"scripts/navigation.gen.hpp\"\n"
+           "#include \"nav_data.gen.hpp\"\n"
+           "#include \"terrain_heights.gen.hpp\"\n\n"
+           "#include <math.h>\n"
+           "#include <string.h>\n\n"
+           "namespace "
+        << ns << " {\n";
+    out << R"(
+namespace {
+
+constexpr float NAV_PI = 3.14159265F;
+// Smoothed waypoints an agent carries; longer routes repath on consumption.
+constexpr int NAV_PATH_MAX = 24;
+// A* expansion cap per call - bounds the worst-case EE time of one pathfind.
+constexpr int NAV_MAX_EXPAND = 4096;
+
+inline int navW() { return NAV_WS[g_activeScene]; }
+inline int navD() { return NAV_DS[g_activeScene]; }
+inline float navCellW() { return NAV_CELL_WS[g_activeScene]; }
+inline float navCellD() { return NAV_CELL_DS[g_activeScene]; }
+
+inline bool navWalkableCell(int x, int z) {
+  if (x < 0 || x >= navW() || z < 0 || z >= navD()) return false;
+  const int i = z * navW() + x;
+  return (NAV_CELL_TABLES[g_activeScene][i >> 5] >> (i & 31)) & 1u;
+}
+inline int navCellX(float wx) {
+  return (int)floorf((wx - NAV_ORIGIN_XS[g_activeScene]) / navCellW());
+}
+inline int navCellZ(float wz) {
+  return (int)floorf((wz - NAV_ORIGIN_ZS[g_activeScene]) / navCellD());
+}
+inline float navCenterX(int cx) {
+  return NAV_ORIGIN_XS[g_activeScene] + (cx + 0.5F) * navCellW();
+}
+inline float navCenterZ(int cz) {
+  return NAV_ORIGIN_ZS[g_activeScene] + (cz + 0.5F) * navCellD();
+}
+
+// Nearest walkable cell within maxR rings (the goal - the player, a waypoint
+// - may sit on a blocked cell; walkers still want to get close).
+bool navNearestWalkable(int* cx, int* cz, int maxR) {
+  if (navWalkableCell(*cx, *cz)) return true;
+  for (int r = 1; r <= maxR; ++r)
+    for (int dz = -r; dz <= r; ++dz)
+      for (int dx = -r; dx <= r; ++dx) {
+        if (dx > -r && dx < r && dz > -r && dz < r) continue;  // ring only
+        if (navWalkableCell(*cx + dx, *cz + dz)) {
+          *cx += dx;
+          *cz += dz;
+          return true;
+        }
+      }
+  return false;
+}
+
+// Straight-line walkability (half-cell sampling) - path smoothing and the
+// skip-ahead both use it. Conservative enough at nav-cell resolution.
+bool navLineWalkable(float x0, float z0, float x1, float z1) {
+  const float dx = x1 - x0, dz = z1 - z0;
+  const float dist = sqrtf(dx * dx + dz * dz);
+  const float step = 0.5F * (navCellW() < navCellD() ? navCellW() : navCellD());
+  const int n = (int)(dist / step) + 1;
+  for (int i = 0; i <= n; ++i) {
+    const float t = (float)i / n;
+    if (!navWalkableCell(navCellX(x0 + dx * t), navCellZ(z0 + dz * t)))
+      return false;
+  }
+  return true;
+}
+
+// --- A* over the walkable bitmap (integer costs 10 straight / 14 diagonal,
+// octile heuristic). Static working arrays sized to the largest scene grid;
+// the visit stamp avoids clearing them between searches.
+unsigned short navG[NAV_MAX_CELLS];
+unsigned short navParent[NAV_MAX_CELLS];
+unsigned short navSeen[NAV_MAX_CELLS];
+unsigned char navClosed[NAV_MAX_CELLS];
+unsigned short navHeapCell[NAV_MAX_CELLS];
+unsigned short navHeapF[NAV_MAX_CELLS];
+int navHeapN = 0;
+unsigned short navStampNow = 0;
+
+inline void navHeapPush(unsigned short cell, unsigned short f) {
+  if (navHeapN >= NAV_MAX_CELLS) return;
+  int i = navHeapN++;
+  navHeapCell[i] = cell;
+  navHeapF[i] = f;
+  while (i > 0) {
+    const int up = (i - 1) / 2;
+    if (navHeapF[up] <= navHeapF[i]) break;
+    unsigned short tc = navHeapCell[i], tf = navHeapF[i];
+    navHeapCell[i] = navHeapCell[up]; navHeapF[i] = navHeapF[up];
+    navHeapCell[up] = tc; navHeapF[up] = tf;
+    i = up;
+  }
+}
+inline unsigned short navHeapPop() {
+  const unsigned short top = navHeapCell[0];
+  navHeapN--;
+  navHeapCell[0] = navHeapCell[navHeapN];
+  navHeapF[0] = navHeapF[navHeapN];
+  int i = 0;
+  for (;;) {
+    const int l = i * 2 + 1, r = i * 2 + 2;
+    int best = i;
+    if (l < navHeapN && navHeapF[l] < navHeapF[best]) best = l;
+    if (r < navHeapN && navHeapF[r] < navHeapF[best]) best = r;
+    if (best == i) break;
+    unsigned short tc = navHeapCell[i], tf = navHeapF[i];
+    navHeapCell[i] = navHeapCell[best]; navHeapF[i] = navHeapF[best];
+    navHeapCell[best] = tc; navHeapF[best] = tf;
+    i = best;
+  }
+  return top;
+}
+
+inline unsigned short navHeuristic(int x0, int z0, int x1, int z1) {
+  int dx = x0 > x1 ? x0 - x1 : x1 - x0;
+  int dz = z0 > z1 ? z0 - z1 : z1 - z0;
+  const int mn = dx < dz ? dx : dz;
+  return (unsigned short)(10 * (dx + dz) - 6 * mn);
+}
+
+// One AI agent per runtime object. The flow-node commands fill this in; the
+// per-frame tick below moves the object along its path.
+struct NavAgent {
+  unsigned char mode = 0;  // 0 idle, 1 patrol, 2 chase, 3 flee
+  unsigned char wantPath = 0;
+  unsigned char once = 0;      // patrol: stop after the last waypoint
+  unsigned char pathLen = 0, pathPos = 0;
+  short wpIndex = 0;           // patrol position in the waypoint list
+  int goalCell = -1;           // current A* goal
+  const int* wps = nullptr;    // patrol waypoint object indices (static data)
+  short wpCount = 0;
+  float speed = 2.0F;
+  float p0 = 0.0F, p1 = 0.0F;  // chase: stopDist/giveUp; flee: safeDist;
+                               // patrol: pause seconds
+  float pauseLeft = 0.0F;
+  float yOff = 0.0F;           // authored height above the terrain
+  float repathLeft = 0.0F;     // seconds until the next repath (chase/flee)
+  unsigned short path[NAV_PATH_MAX];
+};
+
+NavAgent navAgents[NAV_MAX_AGENTS];
+unsigned int navGeneration = 0xFFFFFFFFu;
+int navServedLast = 0;  // round-robin cursor of the one-per-frame pathfinder
+
+// Resets every agent once per scene (re)load. Called by BOTH the command
+// entry points and the per-frame tick: script order is undefined, so an On
+// Start trigger's navPatrol can run before the tick has seen the new scene
+// generation - the reset must not wipe that same-frame command.
+inline void navSyncGeneration(ScriptContext& ctx) {
+  if (ctx.sceneGeneration == navGeneration) return;
+  navGeneration = ctx.sceneGeneration;
+  for (int i = 0; i < NAV_MAX_AGENTS; ++i) navAgents[i] = NavAgent{};
+  navServedLast = 0;
+}
+
+// Runs A* from the agent's position to goalCell and fills its (smoothed)
+// waypoint list. Unreachable goals path to the closest reachable cell
+// instead, so a chase pressed against a wall still closes in.
+void navFindPath(NavAgent& a, const RuntimeObject& o) {
+  a.pathLen = a.pathPos = 0;
+  if (a.goalCell < 0) return;
+  int sx = navCellX(o.data.position[0]);
+  int sz = navCellZ(o.data.position[2]);
+  if (!navNearestWalkable(&sx, &sz, 3)) return;  // agent fully off-mesh
+  const int gx = a.goalCell % navW();
+  const int gz = a.goalCell / navW();
+  const int w = navW();
+
+  if (++navStampNow == 0) {
+    memset(navSeen, 0, sizeof(navSeen));
+    navStampNow = 1;
+  }
+  navHeapN = 0;
+  const unsigned short start = (unsigned short)(sz * w + sx);
+  navSeen[start] = navStampNow;
+  navClosed[start] = 0;
+  navG[start] = 0;
+  navParent[start] = start;
+  navHeapPush(start, navHeuristic(sx, sz, gx, gz));
+
+  int bestCell = start;
+  unsigned short bestH = navHeuristic(sx, sz, gx, gz);
+  int expanded = 0;
+  bool reached = false;
+  while (navHeapN > 0 && expanded < NAV_MAX_EXPAND) {
+    const unsigned short cur = navHeapPop();
+    if (navClosed[cur]) continue;  // stale heap duplicate
+    navClosed[cur] = 1;
+    expanded++;
+    const int cx = cur % w, cz = cur / w;
+    const unsigned short h = navHeuristic(cx, cz, gx, gz);
+    if (h < bestH) { bestH = h; bestCell = cur; }
+    if (cx == gx && cz == gz) { reached = true; break; }
+    for (int dz = -1; dz <= 1; ++dz)
+      for (int dx = -1; dx <= 1; ++dx) {
+        if (dx == 0 && dz == 0) continue;
+        const int nx = cx + dx, nz = cz + dz;
+        if (!navWalkableCell(nx, nz)) continue;
+        // no corner cutting: a diagonal needs both orthogonals open
+        if (dx != 0 && dz != 0 &&
+            (!navWalkableCell(cx + dx, cz) || !navWalkableCell(cx, cz + dz)))
+          continue;
+        const unsigned int ng = navG[cur] + ((dx != 0 && dz != 0) ? 14 : 10);
+        if (ng > 60000u) continue;  // path absurdly long - give up this way
+        const unsigned short n = (unsigned short)(nz * w + nx);
+        if (navSeen[n] == navStampNow && navG[n] <= ng) continue;
+        navSeen[n] = navStampNow;
+        navClosed[n] = 0;
+        navG[n] = (unsigned short)ng;
+        navParent[n] = cur;
+        navHeapPush(n, (unsigned short)(ng + navHeuristic(nx, nz, gx, gz)));
+      }
+  }
+  (void)reached;
+
+  // Reconstruct goal -> start into a raw cell list (bounded), then smooth:
+  // emit the farthest cell reachable in a straight line, repeat. Routes
+  // longer than the waypoint buffer repath when the buffer runs out.
+  static unsigned short raw[512];
+  int rawLen = 0;
+  for (unsigned short c = (unsigned short)bestCell; rawLen < 512;
+       c = navParent[c]) {
+    raw[rawLen++] = c;
+    if (c == start) break;
+  }
+  // raw[] is goal..start - walk it backward while string-pulling
+  int cur = rawLen - 1;  // start
+  float fromX = o.data.position[0], fromZ = o.data.position[2];
+  while (cur > 0 && a.pathLen < NAV_PATH_MAX) {
+    int far = cur - 1;
+    // farthest raw cell with a clear straight line (bounded lookahead)
+    for (int j = cur - 1; j >= 0 && j >= cur - 40; --j) {
+      const float jx = navCenterX(raw[j] % w), jz = navCenterZ(raw[j] / w);
+      if (navLineWalkable(fromX, fromZ, jx, jz)) far = j;
+    }
+    a.path[a.pathLen++] = raw[far];
+    fromX = navCenterX(raw[far] % w);
+    fromZ = navCenterZ(raw[far] / w);
+    cur = far;
+  }
+}
+
+// Where the chasers/fleers aim. The Player OBJECT tracks the live player
+// only in third-person mode (the avatar is driven every frame); in FPP
+// walk / noclip the object keeps its authored spawn position forever, so
+// reading it there would leave every NPC watching the spawn point while
+// the real player walks free. Everywhere else the camera IS the player.
+inline void navPlayerPos(ScriptContext& ctx, float* px, float* py, float* pz) {
+  const int pi = PLAYER_INDEXES[ctx.scene];
+  if (pi >= 0 && pi < ctx.objectCount && PLAYER_MODES[ctx.scene] == 2) {
+    const float* p = ctx.objects[pi].data.position;
+    *px = p[0]; *py = p[1]; *pz = p[2];
+    return;
+  }
+  *px = ctx.playerPosition.x;
+  *py = ctx.playerPosition.y - 1.5F;  // camera = the eye; approximate the feet
+  *pz = ctx.playerPosition.z;
+}
+
+inline float navPlanarDist(const RuntimeObject& o, float px, float pz) {
+  const float dx = px - o.data.position[0];
+  const float dz = pz - o.data.position[2];
+  return sqrtf(dx * dx + dz * dz);
+}
+
+// Grabs the agent slot for a fresh command: captures the object's authored
+// height above the terrain so slopes do not swallow floating NPCs.
+NavAgent* navBegin(ScriptContext& ctx, int obj, unsigned char mode,
+                   float speed) {
+  navSyncGeneration(ctx);
+  if (obj < 0 || obj >= ctx.objectCount || obj >= NAV_MAX_AGENTS)
+    return nullptr;
+  NavAgent& a = navAgents[obj];
+  a.mode = mode;
+  a.wantPath = 0;
+  a.pathLen = a.pathPos = 0;
+  a.goalCell = -1;
+  a.speed = speed > 0.001F ? speed : 2.0F;
+  a.pauseLeft = 0.0F;
+  a.repathLeft = 0.0F;
+  const float* p = ctx.objects[obj].data.position;
+  a.yOff = p[1] - terrainHeightAtScene(ctx.scene, p[0], p[2]);
+  return &a;
+}
+
+}  // namespace
+
+void navPatrol(ScriptContext& ctx, int obj, const int* waypoints, int count,
+               float speed, float pauseSec, int once) {
+  NavAgent* a = navBegin(ctx, obj, 1, speed);
+  if (!a || count <= 0) return;
+  a->wps = waypoints;
+  a->wpCount = (short)count;
+  a->wpIndex = 0;
+  a->once = once ? 1 : 0;
+  a->p0 = pauseSec > 0.0F ? pauseSec : 0.0F;
+  // the tick aims at the first waypoint and requests the path
+}
+
+void navChase(ScriptContext& ctx, int obj, float speed, float stopDist,
+              float giveUpDist) {
+  NavAgent* a = navBegin(ctx, obj, 2, speed);
+  if (!a) return;
+  a->p0 = stopDist > 0.01F ? stopDist : 1.5F;
+  a->p1 = giveUpDist > 0.01F ? giveUpDist : 0.0F;
+  // repathLeft = 0 makes the tick route to the player this frame
+}
+
+void navFlee(ScriptContext& ctx, int obj, float speed, float safeDist) {
+  NavAgent* a = navBegin(ctx, obj, 3, speed);
+  if (!a) return;
+  a->p0 = safeDist > 0.01F ? safeDist : 15.0F;
+}
+
+void navStop(ScriptContext& ctx, int obj) {
+  navSyncGeneration(ctx);
+  if (obj < 0 || obj >= ctx.objectCount || obj >= NAV_MAX_AGENTS) return;
+  navAgents[obj].mode = 0;
+}
+
+bool navPlayerSeen(ScriptContext& ctx, int obj, float range, float fovDeg,
+                   int needLos) {
+  if (obj < 0 || obj >= ctx.objectCount) return false;
+  const RuntimeObject& o = ctx.objects[obj];
+  if (!o.active || !o.visible) return false;
+  if (range < 0.01F) range = 15.0F;
+  if (fovDeg < 1.0F) fovDeg = 90.0F;
+  float px, py, pz;
+  navPlayerPos(ctx, &px, &py, &pz);
+  const float dx = px - o.data.position[0];
+  const float dy = py - o.data.position[1];
+  const float dz = pz - o.data.position[2];
+  if (dx * dx + dy * dy + dz * dz > range * range) return false;
+  // vision cone around the facing (+Z rotated by the Y rotation)
+  const float planar = sqrtf(dx * dx + dz * dz);
+  if (planar > 0.05F) {
+    const float yaw = o.data.rotation[1] * NAV_PI / 180.0F;
+    const float dot = (sinf(yaw) * dx + cosf(yaw) * dz) / planar;
+    if (dot < cosf(fovDeg * 0.5F * NAV_PI / 180.0F)) return false;
+  }
+  if (needLos) {
+    // terrain line-of-sight, eye to eye - a hill hides the player
+    const float ex = o.data.position[0];
+    const float ey = o.data.position[1] + 1.5F;
+    const float ez = o.data.position[2];
+    const float ty = py + 1.5F;
+    const float dist = sqrtf(dx * dx + dz * dz);
+    const int steps = (int)dist + 1;
+    for (int i = 1; i < steps; ++i) {
+      const float t = (float)i / steps;
+      if (terrainHeightAtScene(ctx.scene, ex + dx * t, ez + dz * t) >
+          ey + (ty - ey) * t)
+        return false;
+    }
+  }
+  return true;
+}
+
+namespace {
+
+// Advances one agent a frame: follow the waypoint list at `speed`, snap to
+// the terrain (+ the captured height offset), turn to face the motion - the
+// same shortest-arc yaw lerp the third-person avatar uses.
+void navMoveAgent(ScriptContext& ctx, int idx) {
+  NavAgent& a = navAgents[idx];
+  RuntimeObject& o = ctx.objects[idx];
+  if (a.pathPos >= a.pathLen) return;
+  const int w = navW();
+  const unsigned short cell = a.path[a.pathPos];
+  const float tx = navCenterX(cell % w);
+  const float tz = navCenterZ(cell / w);
+  float* pos = o.data.position;
+  const float dx = tx - pos[0];
+  const float dz = tz - pos[2];
+  const float dist = sqrtf(dx * dx + dz * dz);
+  const float step = a.speed * g_frameDt;
+  const float arrive = 0.3F * (navCellW() < navCellD() ? navCellW() : navCellD());
+  if (dist <= (step > arrive ? step : arrive)) {
+    a.pathPos++;
+  }
+  if (dist > 0.0005F) {
+    const float mv = step < dist ? step : dist;
+    pos[0] += dx / dist * mv;
+    pos[2] += dz / dist * mv;
+    pos[1] = terrainHeightAtScene(ctx.scene, pos[0], pos[2]) + a.yOff;
+    // turn toward the motion (degrees, shortest arc)
+    float desired = atan2f(dx, dz) * 180.0F / NAV_PI;
+    float d = desired - o.data.rotation[1];
+    while (d > 180.0F) d -= 360.0F;
+    while (d < -180.0F) d += 360.0F;
+    float k = 0.25F * g_frameScale;
+    if (k > 1.0F) k = 1.0F;
+    o.data.rotation[1] += d * k;
+    o.dirty = true;
+  }
+}
+
+}  // namespace
+
+// The per-frame AI tick, registered like any global Script. Runs in every
+// scene; scenes without live agents fall straight through the mode == 0
+// skips. Menus pause it together with the rest of the scripts.
+class NavAiScript : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    navSyncGeneration(ctx);
+    float px, py, pz;
+    navPlayerPos(ctx, &px, &py, &pz);
+    const int count =
+        ctx.objectCount < NAV_MAX_AGENTS ? ctx.objectCount : NAV_MAX_AGENTS;
+
+    for (int i = 0; i < count; ++i) {
+      NavAgent& a = navAgents[i];
+      if (a.mode == 0) continue;
+      RuntimeObject& o = ctx.objects[i];
+      if (!o.active) {  // despawned / streamed out - the behavior ends
+        a.mode = 0;
+        continue;
+      }
+
+      if (a.mode == 2) {  // chase
+        const float dist = navPlanarDist(o, px, pz);
+        if (a.p1 > 0.0F && dist > a.p1) {
+          a.mode = 0;  // gave up
+          continue;
+        }
+        a.repathLeft -= g_frameDt;
+        if (a.repathLeft <= 0.0F) {  // timer-gated: at most 2 repaths/s
+          int gx = navCellX(px), gz = navCellZ(pz);
+          if (navNearestWalkable(&gx, &gz, 3)) {
+            a.goalCell = gz * navW() + gx;
+            a.wantPath = 1;
+          }
+          a.repathLeft = 0.5F;
+        }
+        if (dist > a.p0) {
+          navMoveAgent(ctx, i);
+        } else {
+          // in reach: stand and face the player
+          const float ddx = px - o.data.position[0];
+          const float ddz = pz - o.data.position[2];
+          if (ddx * ddx + ddz * ddz > 0.0001F) {
+            float desired = atan2f(ddx, ddz) * 180.0F / NAV_PI;
+            float d = desired - o.data.rotation[1];
+            while (d > 180.0F) d -= 360.0F;
+            while (d < -180.0F) d += 360.0F;
+            float k = 0.25F * g_frameScale;
+            if (k > 1.0F) k = 1.0F;
+            o.data.rotation[1] += d * k;
+            o.dirty = true;
+          }
+        }
+      } else if (a.mode == 3) {  // flee
+        const float dist = navPlanarDist(o, px, pz);
+        if (dist >= a.p0) {
+          a.mode = 0;  // safe
+          continue;
+        }
+        a.repathLeft -= g_frameDt;
+        if (a.repathLeft <= 0.0F) {  // timer-gated, like the chase
+          // aim a grid-bounded chunk away from the player, fanning out to
+          // the sides when the straight-away cell is blocked
+          float ax = o.data.position[0] - px, az = o.data.position[2] - pz;
+          const float al = sqrtf(ax * ax + az * az);
+          if (al < 0.01F) { ax = 1.0F; az = 0.0F; }
+          else { ax /= al; az /= al; }
+          const float reach = a.p0 - dist + 2.0F;
+          const float baseAng = atan2f(ax, az);
+          for (int c = 0; c < 7; ++c) {
+            static const float fan[7] = {0.0F, 0.6F, -0.6F, 1.2F, -1.2F,
+                                         1.8F, -1.8F};
+            const float ang = baseAng + fan[c];
+            int gx = navCellX(o.data.position[0] + sinf(ang) * reach);
+            int gz = navCellZ(o.data.position[2] + cosf(ang) * reach);
+            if (navNearestWalkable(&gx, &gz, 2)) {
+              a.goalCell = gz * navW() + gx;
+              a.wantPath = 1;
+              break;
+            }
+          }
+          a.repathLeft = 1.0F;
+        }
+        navMoveAgent(ctx, i);
+      } else if (a.mode == 1) {  // patrol
+        if (!a.wps || a.wpCount <= 0) { a.mode = 0; continue; }
+        if (a.pauseLeft > 0.0F) {
+          a.pauseLeft -= g_frameDt;
+          continue;
+        }
+        if (a.pathPos >= a.pathLen && !a.wantPath) {
+          // arrived (or not yet routed): aim at the current waypoint, or
+          // advance to the next one when already there
+          const int wpObj = a.wps[a.wpIndex];
+          float wx = o.data.position[0], wz = o.data.position[2];
+          if (wpObj >= 0 && wpObj < ctx.objectCount) {
+            wx = ctx.objects[wpObj].data.position[0];
+            wz = ctx.objects[wpObj].data.position[2];
+          }
+          const float ddx = wx - o.data.position[0];
+          const float ddz = wz - o.data.position[2];
+          // "Arrived" must out-tolerance the grid: a path ends at a cell
+          // CENTER, and a waypoint can sit on a cell corner - up to
+          // ~(0.707 + 0.3) cells away. Anything tighter deadlocks the
+          // patrol against the raster.
+          const float arrive =
+              1.1F * (navCellW() > navCellD() ? navCellW() : navCellD());
+          if (ddx * ddx + ddz * ddz <= arrive * arrive) {
+            a.pauseLeft = a.p0;
+            if (a.wpIndex + 1 >= a.wpCount) {
+              if (a.once) { a.mode = 0; continue; }
+              a.wpIndex = 0;
+            } else {
+              a.wpIndex++;
+            }
+          } else {
+            int gx = navCellX(wx), gz = navCellZ(wz);
+            if (navNearestWalkable(&gx, &gz, 3)) {
+              a.goalCell = gz * navW() + gx;
+              a.wantPath = 1;
+            } else {
+              a.mode = 0;  // waypoint unreachable from any nearby cell
+            }
+          }
+        }
+        navMoveAgent(ctx, i);
+      }
+    }
+
+    // Serve at most ONE pathfind per frame (round-robin) - A* on a 128x128
+    // grid is cheap, but not "every agent, every frame" cheap on the EE.
+    for (int k = 1; k <= count; ++k) {
+      const int i = (navServedLast + k) % count;
+      if (!navAgents[i].wantPath || navAgents[i].mode == 0) continue;
+      if (!ctx.objects[i].active) { navAgents[i].wantPath = 0; continue; }
+      navFindPath(navAgents[i], ctx.objects[i]);
+      navAgents[i].wantPath = 0;
+      navServedLast = i;
+      break;
+    }
+  }
+};
+
+}  // namespace )" << ns
+        << "\n\nTYRA_SCRIPT(" << ns << "::NavAiScript);\n";
+    return out.str();
+}
+
 // inc/texture_data.gen.hpp - PNG textures used by the scene
 static std::string textureDataHeader(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
@@ -10334,6 +12248,102 @@ static std::string textureDataHeader(const Project& p) {
     for (size_t si = 0; si < p.scenes.size(); ++si)
         out << (si ? ", " : "") << "{" << floatLit(terrain[si].kd[0]) << ", "
             << floatLit(terrain[si].kd[1]) << ", " << floatLit(terrain[si].kd[2]) << "}";
+    out << "};\n\n}  // namespace " << ns << "\n";
+    return out.str();
+}
+
+// inc/font_data.gen.hpp - glyph atlases for the fonts a Display Text node
+// draws with, plus one runtime slot per such node. Only fonts reachable from a
+// Display Text node appear here: static text is already pixels by build time,
+// so its font costs the game nothing.
+static std::string fontDataHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    const std::vector<int> atlasFonts = p.atlasFontIndices();
+    const std::vector<DynTextSlot> slots = dynTextSlots(p);
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\nnamespace "
+        << ns
+        << " {\n\n"
+           "// A glyph's cell in the atlas and how to lay it down. Mirrors\n"
+           "// menubake::AtlasGlyph - the metrics here and the baked pixels come\n"
+           "// from the same atlasLayout() call, so they cannot drift.\n"
+           "struct FontGlyph {\n"
+           "  short u, v;        // top-left texel in the atlas\n"
+           "  short w, h;        // glyph size (0 = nothing to draw)\n"
+           "  short xoff, yoff;  // pen/line-top -> glyph top-left, at baseSize\n"
+           "  short adv;         // pen step to the next glyph, at baseSize\n"
+           "};\n\n"
+           "struct FontData {\n"
+           "  const char* atlas;  // relative to the game binary\n"
+           "  short texW, texH;\n"
+           "  short lineH;        // baseline pitch at baseSize\n"
+           "  short baseSize;     // size the metrics were baked at\n"
+           "  unsigned char r, g, b;  // tint (glyphs bake white)\n"
+           "  unsigned char shadow;   // 1 = draw a dark 1px offset pass first\n"
+           "  const FontGlyph* glyphs;\n"
+           "};\n\n"
+        << "constexpr int FONT_FIRST_CHAR = " << menubake::kAtlasFirstChar << ";\n"
+        << "constexpr int FONT_CHAR_COUNT = " << menubake::kAtlasCharCount << ";\n"
+        << "constexpr int FONT_COUNT = " << atlasFonts.size() << ";\n\n";
+
+    auto byteLit = [](float v) {
+        int b = (int)(v * 255.0f + 0.5f);
+        return b < 0 ? 0 : b > 255 ? 255 : b;
+    };
+
+    for (size_t k = 0; k < atlasFonts.size(); ++k) {
+        const GameFont& gf = p.fonts[atlasFonts[k]];
+        menubake::AtlasLayout lay;
+        const bool ok = menubake::atlasLayout(gf, p, lay);
+        out << "inline const FontGlyph FONT_GLYPHS_" << k << "[FONT_CHAR_COUNT] = {\n";
+        for (int i = 0; i < menubake::kAtlasCharCount; ++i) {
+            const menubake::AtlasGlyph g =
+                ok ? lay.glyphs[i] : menubake::AtlasGlyph{};
+            out << "    {" << g.u << ", " << g.v << ", " << g.w << ", " << g.h
+                << ", " << g.xoff << ", " << g.yoff << ", " << g.advance << "},\n";
+        }
+        out << "};\n";
+    }
+    out << "\n";
+
+    out << "inline const FontData FONTS[FONT_COUNT > 0 ? FONT_COUNT : 1] = {\n";
+    if (atlasFonts.empty()) {
+        out << "    {\"\", 0, 0, 0, 0, 255, 255, 255, 0, nullptr},\n";
+    } else {
+        for (size_t k = 0; k < atlasFonts.size(); ++k) {
+            const GameFont& gf = p.fonts[atlasFonts[k]];
+            menubake::AtlasLayout lay;
+            const bool ok = menubake::atlasLayout(gf, p, lay);
+            out << "    {\"fonts/" << menubake::atlasFileName(gf.name) << "\", "
+                << (ok ? lay.texW : 8) << ", " << (ok ? lay.texH : 8) << ", "
+                << (ok ? lay.lineH : 8) << ", " << (ok ? lay.baseSize : 8) << ", "
+                << byteLit(gf.color[0]) << ", " << byteLit(gf.color[1]) << ", "
+                << byteLit(gf.color[2]) << ", " << (gf.shadow ? 1 : 0)
+                << ", FONT_GLYPHS_" << k << "},  // " << gf.name << "\n";
+        }
+    }
+    out << "};\n\n";
+
+    out << "// One slot per Display Text node (see DynTextSlot in templates.cpp).\n"
+           "struct DynTextData {\n"
+           "  short font;   // index into FONTS\n"
+           "  float x, y;   // normalized screen position, center anchor\n"
+           "  float size;   // glyph height in pixels\n"
+           "};\n\n"
+        << "constexpr int DYN_TEXT_COUNT = " << slots.size() << ";\n"
+        << "constexpr int DYN_TEXT_LEN = 64;  // per-slot string buffer\n"
+        << "inline const DynTextData DYN_TEXTS[DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT "
+           ": 1] = {\n";
+    if (slots.empty()) {
+        out << "    {0, 0, 0, 0},\n";
+    } else {
+        for (const DynTextSlot& s : slots)
+            out << "    {" << s.fontSlot << ", " << floatLit(s.x) << ", "
+                << floatLit(s.y) << ", " << floatLit(s.size)
+                << "},  // scene " << s.scene << ", object " << s.ownerIdx
+                << ", node " << s.nodeId << "\n";
+    }
     out << "};\n\n}  // namespace " << ns << "\n";
     return out.str();
 }
@@ -10404,7 +12414,7 @@ static std::string hudDataHeader(const Project& p) {
     } else {
         for (const HudText& t : p.hudTexts) {
             int tw = 8, th = 8;  // fallback if no usable font (bake errors out)
-            menubake::textLayout(t, p.dir, tw, th);
+            menubake::textLayout(t, p, tw, th);
             out << "    {\"hud/" << menubake::textFileName(t.name) << "\", "
                 << floatLit(t.pos[0]) << ", " << floatLit(t.pos[1]) << ", " << tw
                 << ", " << th << ", " << (t.visibleAtStart ? 1 : 0) << "},  // "
@@ -10481,7 +12491,7 @@ static std::string loadingDataHeader(const Project& p) {
             HudText copy = t;
             copy.name = "ls-" + std::to_string(si) + "-" + t.name;
             int tw = 8, th = 8;  // fallback if no usable font
-            menubake::textLayout(copy, p.dir, tw, th);
+            menubake::textLayout(copy, p, tw, th);
             txts << "    {\"hud/" << menubake::textFileName(copy.name) << "\", "
                  << floatLit(t.pos[0]) << ", " << floatLit(t.pos[1]) << ", "
                  << tw << ", " << th << "},  // " << ls.name << ": " << t.name
@@ -10707,7 +12717,7 @@ static std::string menuDataHeader(const Project& p) {
                                     : (int)m.entries.size();
             // Layout depends on the custom images (flow blocks push the
             // cursor rows down) - the baker is the single source of truth.
-            const menubake::PanelLayout l = menubake::panelLayout(m, p.dir);
+            const menubake::PanelLayout l = menubake::panelLayout(m, p);
             const menubake::ValueStripLayout vl = menubake::valueStripLayout(m);
             const bool hasValues = menubake::menuHasValueEntries(m);
             out << "    {\"menus/" << menubake::panelFileName(m.name) << "\", "
@@ -11252,8 +13262,12 @@ std::vector<File> generate(const Project& p) {
         {"inc\\scene_data.hpp", sceneDataContent(p, ns)},
         {"inc\\model_data.gen.hpp", modelDataHeader(p)},
         {"inc\\hud_data.gen.hpp", hudDataHeader(p)},
+        {"inc\\font_data.gen.hpp", fontDataHeader(p)},
         {"inc\\loading_data.gen.hpp", loadingDataHeader(p)},
         {"inc\\terrain_heights.gen.hpp", terrainHeightsHeader(p)},
+        {"inc\\nav_data.gen.hpp", navDataHeader(p)},
+        {"inc\\scripts\\navigation.gen.hpp", navigationHeader(p)},
+        {"src\\scripts\\navigation.gen.cpp", navigationSource(p)},
         {"inc\\texture_data.gen.hpp", textureDataHeader(p)},
         {"inc\\decal_data.gen.hpp", decalDataHeader(p)},
         {"inc\\save_system.gen.hpp", saveSystemHeader(p)},
@@ -11264,6 +13278,7 @@ std::vector<File> generate(const Project& p) {
         {"src\\scripts\\sequences.gen.cpp", sequencesScript(p)},
         {"inc\\scripts\\flow_nodes.hpp", fill(TPL_FLOW_NODES_HPP)},
         {"src\\scripts\\flow_graph.gen.cpp", flowGraphScript(p)},
+        {"src\\scripts\\live_link.gen.cpp", liveLinkScript(p)},
         {"inc\\scripts\\screen_fx.gen.hpp", screenFxHeader(p)},
         {"src\\scripts\\screen_fx.gen.cpp", screenFxSource(p)},
         {"src\\scripts\\object_scripts.gen.cpp", objectScriptsSource(p)},
@@ -11276,7 +13291,7 @@ std::vector<File> generate(const Project& p) {
         {".gitignore", fill(TPL_GITIGNORE)},
         {".gitattributes", TPL_GITATTRIBUTES},
         {"COLLABORATION.md", TPL_COLLABORATION},
-        {"res\\.gitignore", TPL_DIR_KEEP},
+        {"res\\.gitignore", TPL_RES_GITIGNORE},
         {"bin\\.gitignore", TPL_DIR_KEEP},
         {"obj\\.gitignore", TPL_DIR_KEEP},
     };

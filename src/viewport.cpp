@@ -172,6 +172,7 @@ uniform vec3 uTint;
 uniform int uUseTex;
 uniform sampler2D uTex;
 uniform int uAlpha;              // 1: honor texture alpha (decal cutout + blend)
+uniform float uOpacity;          // constant alpha multiplier (mirror glass)
 uniform int uLit;                // 0: lines/markers/sky - skip point lights
 uniform int uLightCount;
 uniform vec4 uLightPos[8];       // xyz = world position, w = radius
@@ -187,6 +188,13 @@ uniform vec3 uFlashCol;
 uniform float uFlashInvR2;       // 1/range^2
 uniform float uFlashCut2;        // cos^2(half-angle)
 uniform float uFlashSoft;        // softness/(range^2*(1-cos^2))
+uniform int uReflOn;             // refl pass: 0 off, 1 sphere map, 2 live sky
+uniform sampler2D uRefl;         // sphere map, texture unit 1
+uniform float uReflStrength;     // additive gain, 1.0 = full chrome
+uniform vec3 uReflSkyHorizon;    // "@sky" dynamic env: scene sky colors
+uniform vec3 uReflSkyTop;
+uniform int uReflRounded;        // refl -rounded: centroid-radial normals
+uniform vec3 uReflCenter;        // world-space centroid for the rounded mode
 out vec4 FragColor;
 void main() {
     vec4 texel = uUseTex != 0 ? texture(uTex, vUV) : vec4(1.0);
@@ -229,9 +237,32 @@ void main() {
         float f = clamp((uFogEnd - viewDist) / (uFogEnd - uFogStart), 0.0, 1.0);
         color = mix(uFogColor, color, f);
     }
-    // Decals carry the texture's alpha (cutout above + blend here); everything
-    // else outputs opaque.
-    FragColor = vec4(color, a);
+    if (uReflOn != 0) {
+        // Spherical environment map (refl): matcap UVs from the camera-space
+        // normal, added on top - the GL twin of the PS2's additive second
+        // pass (Cs*FIX + Cd; that bag is fogDisabled, hence after the fog
+        // mix). Flat normals from derivatives, exactly like the PS2 pass
+        // built on the loader's per-face normals - keep the two in sync.
+        // "-rounded": normals radiate from the part centroid instead, so a
+        // flat face sweeps a gradient of the map (PS2 twin: the rebuild
+        // overwrites envNormals with normalize(vertex - centroid)).
+        vec3 n = uReflRounded != 0
+            ? normalize(vWorld - uReflCenter)
+            : normalize(cross(dFdx(vWorld), dFdy(vWorld)));
+        vec3 r = normalize(cross(uFogFwd, vec3(0.0, 1.0, 0.0)));
+        vec3 u = cross(r, uFogFwd);
+        vec2 st = vec2(0.5 + 0.5 * dot(n, r), 0.5 - 0.5 * dot(n, u));
+        // "@sky" dynamic mode: approximate the PS2's per-frame sky-dome
+        // render with the analytic horizon/zenith gradient (st.y 0 = up).
+        vec3 env = uReflOn == 2
+            ? mix(uReflSkyHorizon, uReflSkyTop,
+                  clamp(1.0 - 2.0 * st.y, 0.0, 1.0))
+            : texture(uRefl, st).rgb;
+        color += uReflStrength * env;
+    }
+    // Decals carry the texture's alpha (cutout above + blend here), mirror
+    // glass a constant opacity; everything else outputs opaque.
+    FragColor = vec4(color, a * uOpacity);
 }
 )";
 
@@ -646,6 +677,7 @@ bool Viewport::init() {
     uTint_ = glGetUniformLocation(program_, "uTint");
     uUseTex_ = glGetUniformLocation(program_, "uUseTex");
     uAlpha_ = glGetUniformLocation(program_, "uAlpha");
+    uOpacity_ = glGetUniformLocation(program_, "uOpacity");
     uModel_ = glGetUniformLocation(program_, "uModel");
     uLit_ = glGetUniformLocation(program_, "uLit");
     uLightCount_ = glGetUniformLocation(program_, "uLightCount");
@@ -662,6 +694,16 @@ bool Viewport::init() {
     uFlashInvR2_ = glGetUniformLocation(program_, "uFlashInvR2");
     uFlashCut2_ = glGetUniformLocation(program_, "uFlashCut2");
     uFlashSoft_ = glGetUniformLocation(program_, "uFlashSoft");
+    uReflOn_ = glGetUniformLocation(program_, "uReflOn");
+    uRefl_ = glGetUniformLocation(program_, "uRefl");
+    uReflStrength_ = glGetUniformLocation(program_, "uReflStrength");
+    uReflSkyHorizon_ = glGetUniformLocation(program_, "uReflSkyHorizon");
+    uReflSkyTop_ = glGetUniformLocation(program_, "uReflSkyTop");
+    uReflRounded_ = glGetUniformLocation(program_, "uReflRounded");
+    uReflCenter_ = glGetUniformLocation(program_, "uReflCenter");
+    glUseProgram(program_);
+    glUniform1i(uRefl_, 1);  // sphere map lives on texture unit 1
+    glUseProgram(0);
 
     GLuint gvs = compile(GL_VERTEX_SHADER, GRADE_VS);
     GLuint gfs = compile(GL_FRAGMENT_SHADER, GRADE_FS);
@@ -734,6 +776,7 @@ void Viewport::shutdown() {
     terrainChunkMeshes_.clear();
     for (Mesh& m : terrainLineMeshes_) destroyMesh(m);
     terrainLineMeshes_.clear();
+    destroyMesh(navOverlayMesh_);
     destroyMesh(axes_);
     destroyMesh(box_);
     destroyMesh(sphere_);
@@ -1317,6 +1360,40 @@ void Viewport::setProjectedDecals(
     }
 }
 
+void Viewport::setNavOverlay(const navmesh::NavGrid* grid, uint64_t version) {
+    if (!grid) {
+        navOverlayOn_ = false;
+        return;
+    }
+    navOverlayOn_ = true;
+    if (navOverlayHasVersion_ && version == navOverlayVersion_) return;
+    navOverlayVersion_ = version;
+    navOverlayHasVersion_ = true;
+    destroyMesh(navOverlayMesh_);
+    // One inset quad per walkable cell (the gaps read as a grid), corners
+    // draped on the terrain surface and lifted a touch so slopes don't
+    // z-fight the overlay through the terrain triangles.
+    const float lift = 0.15f;
+    const float insetX = grid->cellW * 0.06f;
+    const float insetZ = grid->cellD * 0.06f;
+    std::vector<float> v;
+    for (int z = 0; z < grid->d; ++z)
+        for (int x = 0; x < grid->w; ++x) {
+            if (!grid->walkable[(size_t)z * grid->w + x]) continue;
+            const float x0 = grid->originX + x * grid->cellW + insetX;
+            const float x1 = grid->originX + (x + 1) * grid->cellW - insetX;
+            const float z0 = grid->originZ + z * grid->cellD + insetZ;
+            const float z1 = grid->originZ + (z + 1) * grid->cellD - insetZ;
+            auto put = [&](float wx, float wz) {
+                v.insert(v.end(), {wx, terrainHeight(wx, wz) + lift, wz, 0.25f,
+                                   0.85f, 0.4f, 0.0f, 0.0f});
+            };
+            put(x0, z0); put(x1, z0); put(x1, z1);
+            put(x0, z0); put(x1, z1); put(x0, z1);
+        }
+    navOverlayMesh_ = uploadMesh(v);
+}
+
 void Viewport::setTerrainMaterial(const std::string& texRelPath, const float kd[3],
                                   bool hasMaterial, const float tile[2]) {
     if (terrainTexture_ == texRelPath && terrainTile_[0] == tile[0] &&
@@ -1416,6 +1493,24 @@ const Viewport::MatPrevModel* Viewport::matPrevModelDraw(
         part.kd[0] = sub.kd[0], part.kd[1] = sub.kd[1], part.kd[2] = sub.kd[2];
         if (!sub.texture.empty())
             part.texRel = (texDir / sub.texture).generic_string();
+        if (!sub.refl.empty()) {
+            if (sub.refl == "@sky")
+                part.reflSky = true;
+            else
+                part.reflRel = (texDir / sub.refl).generic_string();
+            part.reflStrength = sub.reflStrength;
+            part.reflRounded = sub.reflRounded;
+            // Part centroid - the origin the rounded env normals radiate
+            // from (twin of the PS2 rebuild's centroid).
+            const size_t n = sub.verts.size() / 8;
+            for (size_t i = 0; i + 7 < sub.verts.size(); i += 8) {
+                part.centroid[0] += sub.verts[i];
+                part.centroid[1] += sub.verts[i + 1];
+                part.centroid[2] += sub.verts[i + 2];
+            }
+            if (n > 0)
+                for (float& c : part.centroid) c /= (float)n;
+        }
         std::vector<float> interleaved;
         interleaved.reserve(sub.verts.size());
         part.tris.reserve(sub.verts.size() / 8 * 5);
@@ -1483,6 +1578,16 @@ const Viewport::MaterialDraw* Viewport::materialDraw(const std::string& relPath)
             draw.tex = glTexture((std::filesystem::path(relPath).parent_path() /
                                   m.texture)
                                      .generic_string());
+        if (!m.refl.empty()) {
+            if (m.refl == "@sky")
+                draw.reflSky = true;
+            else
+                draw.reflTex = glTexture(
+                    (std::filesystem::path(relPath).parent_path() / m.refl)
+                        .generic_string());
+            draw.reflStrength = m.reflStrength;
+            draw.reflRounded = m.reflRounded;
+        }
     }
     return &materialCache_.emplace(relPath, draw).first->second;
 }
@@ -1524,6 +1629,24 @@ const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
             part.mesh = uploadMesh(interleaved);
             if (!sub.texture.empty())
                 part.tex = glTexture((modelDir / sub.texture).generic_string());
+            if (!sub.refl.empty()) {
+                if (sub.refl == "@sky")
+                    part.reflSky = true;
+                else
+                    part.reflTex =
+                        glTexture((modelDir / sub.refl).generic_string());
+                part.reflStrength = sub.reflStrength;
+                part.reflRounded = sub.reflRounded;
+                // Part centroid (model space) for the rounded env normals.
+                const size_t n = sub.verts.size() / 8;
+                for (size_t i = 0; i + 7 < sub.verts.size(); i += 8) {
+                    part.centroid[0] += sub.verts[i];
+                    part.centroid[1] += sub.verts[i + 1];
+                    part.centroid[2] += sub.verts[i + 2];
+                }
+                if (n > 0)
+                    for (float& c : part.centroid) c /= (float)n;
+            }
             draw.parts.push_back(part);
         }
     }
@@ -1779,6 +1902,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     }
 
     glUseProgram(program_);
+    // uOpacity persists across draws (the sky/outline sites below don't set
+    // it) - reset the mirror pass's leftover so the frame starts opaque.
+    glUniform1f(uOpacity_, 1.0f);
 
     // Sky dome: centered on the camera (an "infinite" sky) and scaled well
     // past the scene but inside the far plane, drawn first with no depth so
@@ -1808,6 +1934,10 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniform1f(uFogEnd_, fogEnd_ > fogStart_ + 1.0f ? fogEnd_ : fogStart_ + 1.0f);
         glUniform3f(uFogEye_, eye.x, eye.y, eye.z);
         glUniform3f(uFogFwd_, fwd.x, fwd.y, fwd.z);
+
+        // "@sky" reflective materials sample the live sky gradient
+        glUniform3f(uReflSkyHorizon_, sky_[0], sky_[1], sky_[2]);
+        glUniform3f(uReflSkyTop_, skyTop_[0], skyTop_[1], skyTop_[2]);
 
         // Camera flashlight preview (same constants the engine derives)
         glUniform1i(uFlashOn_, flashOn_ ? 1 : 0);
@@ -1849,21 +1979,37 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     auto draw = [&](const Mesh& mesh, GLenum mode, const Mat4& mvp, float r, float g,
                     float b, uint32_t texture = 0, const Mat4* model = nullptr,
-                    bool alpha = false) {
+                    bool alpha = false, float opacity = 1.0f,
+                    uint32_t reflTex = 0, float reflStrength = 0.0f,
+                    bool reflSky = false, bool reflRounded = false,
+                    const float* reflCenter = nullptr) {
         glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
         glUniformMatrix4fv(uModel_, 1, GL_FALSE, model ? model->m : identityM.m);
         glUniform1i(uLit_, model ? 1 : 0);  // world matrix given = lit geometry
         glUniform3f(uTint_, r, g, b);
         glUniform1i(uUseTex_, texture ? 1 : 0);
         glUniform1i(uAlpha_, alpha ? 1 : 0);
-        if (alpha) {
+        glUniform1i(uReflOn_, reflSky ? 2 : (reflTex ? 1 : 0));
+        if (reflTex || reflSky) {
+            glUniform1f(uReflStrength_, reflStrength);
+            glUniform1i(uReflRounded_, reflRounded ? 1 : 0);
+            if (reflRounded && reflCenter)
+                glUniform3f(uReflCenter_, reflCenter[0], reflCenter[1],
+                            reflCenter[2]);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, reflTex);
+            glActiveTexture(GL_TEXTURE0);
+        }
+        glUniform1f(uOpacity_, opacity);
+        const bool blend = alpha || opacity < 1.0f;
+        if (blend) {
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         }
         if (texture) glBindTexture(GL_TEXTURE_2D, texture);
         glBindVertexArray(mesh.vao);
         glDrawArrays(mode, 0, mesh.vertexCount);
-        if (alpha) glDisable(GL_BLEND);
+        if (blend) glDisable(GL_BLEND);
     };
 
     auto meshFor = [&](const SceneObject& o) -> const Mesh* {
@@ -1875,6 +2021,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             case PrimitiveType::SavePoint: return &primMesh(o.type, o.primDetail);
             case PrimitiveType::Plane: return &plane_;
             case PrimitiveType::Decal: return &decal_;
+            case PrimitiveType::Mirror: return &decal_;  // glass quad, +Z face
             case PrimitiveType::SpawnPoint: return &spawnMarker_;
             case PrimitiveType::Player: return &playerMarker_;
             case PrimitiveType::SoundEmitter: return &sphere_;  // speaker-ish marker
@@ -1925,6 +2072,10 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                      o.color[2] * dim * tintScale);
                 continue;
             }
+            // Mirrors draw in their own pass after the scene (reflected
+            // copies first, glass blended over them); the wire passes still
+            // outline the quad here so wireframe views show the rectangle.
+            if (o.type == PrimitiveType::Mirror && !asLines) continue;
             const Mat4 model = modelMatrix(o);
             const Mat4 mvp = mul(viewProj, model);
             // the bulb gizmo stays emissive - everything else receives light
@@ -1954,10 +2105,23 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                                       ? modelDraw(o.modelPath, o.materialPath)
                                       : nullptr;
             if (md) {
-                for (const ModelPart& part : md->parts)
+                for (const ModelPart& part : md->parts) {
+                    // rounded env normals radiate from the part centroid -
+                    // transform it to world space with the object matrix
+                    float c[3] = {0, 0, 0};
+                    if (part.reflRounded) {
+                        const float* mm = model.m;
+                        for (int a = 0; a < 3; ++a)
+                            c[a] = mm[a] * part.centroid[0] +
+                                   mm[a + 4] * part.centroid[1] +
+                                   mm[a + 8] * part.centroid[2] + mm[a + 12];
+                    }
                     draw(part.mesh, GL_TRIANGLES, mvp, o.color[0] * tintScale,
                          o.color[1] * tintScale, o.color[2] * tintScale,
-                         asLines ? 0 : part.tex, lit ? &model : nullptr);
+                         asLines ? 0 : part.tex, lit ? &model : nullptr, false,
+                         1.0f, asLines ? 0 : part.reflTex, part.reflStrength,
+                         asLines ? false : part.reflSky, part.reflRounded, c);
+                }
                 continue;
             }
             // primitives: the assigned material's first entry = Kd tint + map_Kd
@@ -1982,9 +2146,15 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                     continue;
                 }
             }
+            // primitives are modeled around their local origin, so the
+            // rounded-normal centre is simply the object's world position
             draw(*meshFor(o), GL_TRIANGLES, mvp, o.color[0] * kr * tintScale,
                  o.color[1] * kg * tintScale, o.color[2] * kb * tintScale,
-                 tex, lit ? &model : nullptr, decalAlpha);
+                 tex, lit ? &model : nullptr, decalAlpha, 1.0f,
+                 (asLines || !mat) ? 0 : mat->reflTex,
+                 mat ? mat->reflStrength : 0.0f,
+                 (asLines || !mat) ? false : mat->reflSky,
+                 mat ? mat->reflRounded : false, o.position);
         }
         if (!asLines) glDisable(GL_POLYGON_OFFSET_FILL);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -1999,10 +2169,111 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         default: scenePass(false, 1.0f); break;
     }
 
+    // Mirror objects: draw the reflected copies first (real geometry behind
+    // the plane, z-tested against the finished scene), then blend the glass
+    // quad over them - the same order the generated game uses. Skipped in
+    // pure wireframe (the wire passes already outline the quad).
+    if (viewMode_ != ViewMode::Wireframe) {
+        // one reflected draw - the static subset of the scene pass (marker
+        // types never make it into a mirror list)
+        auto drawReflected = [&](const SceneObject& t, const Mat4& model) {
+            const Mat4 mvp = mul(viewProj, model);
+            if (t.type == PrimitiveType::Model && isAnimatedModelPath(t.modelPath)) {
+                // pose already advanced by this frame's scene pass - reuse it
+                AnimModelDraw* ad = animModelDraw(t.modelPath);
+                if (ad && ad->ok) {
+                    for (const AnimModelDraw::Part& part : ad->parts)
+                        draw(part.mesh, GL_TRIANGLES, mvp, t.color[0], t.color[1],
+                             t.color[2], part.tex, &model);
+                    return;
+                }
+            }
+            const ModelDraw* md = t.type == PrimitiveType::Model
+                                      ? modelDraw(t.modelPath, t.materialPath)
+                                      : nullptr;
+            if (md) {
+                for (const ModelPart& part : md->parts)
+                    draw(part.mesh, GL_TRIANGLES, mvp, t.color[0], t.color[1],
+                         t.color[2], part.tex, &model);
+                return;
+            }
+            const MaterialDraw* mat =
+                t.type == PrimitiveType::Model ? nullptr : materialDraw(t.materialPath);
+            const float kr = mat ? mat->kd[0] : 1.0f;
+            const float kg = mat ? mat->kd[1] : 1.0f;
+            const float kb = mat ? mat->kd[2] : 1.0f;
+            const uint32_t tex = mat ? mat->tex : 0;
+            const bool decalAlpha = t.type == PrimitiveType::Decal && tex;
+            draw(*meshFor(t), GL_TRIANGLES, mvp, t.color[0] * kr, t.color[1] * kg,
+                 t.color[2] * kb, tex, &model, decalAlpha);
+        };
+        for (size_t mi = 0; mi < objects.size(); ++mi) {
+            const SceneObject& m = objects[mi];
+            if (m.type != PrimitiveType::Mirror || hiddenAt(mi)) continue;
+            const Mat4 mirrorModel = modelMatrix(m);
+            // plane through the mirror position, normal = the rotated +Z face
+            // (third model-matrix column, normalized)
+            Vec3 n = normalize({mirrorModel.m[8], mirrorModel.m[9], mirrorModel.m[10]});
+            if (n.x == 0.0f && n.y == 0.0f && n.z == 0.0f) n = {0, 0, 1};
+            const float d =
+                n.x * m.position[0] + n.y * m.position[1] + n.z * m.position[2];
+            // Householder reflection about the plane: x' = x - 2((x.n) - d) n
+            Mat4 refl = identity();
+            refl.m[0] = 1.0f - 2.0f * n.x * n.x;
+            refl.m[1] = -2.0f * n.x * n.y;
+            refl.m[2] = -2.0f * n.x * n.z;
+            refl.m[4] = -2.0f * n.x * n.y;
+            refl.m[5] = 1.0f - 2.0f * n.y * n.y;
+            refl.m[6] = -2.0f * n.y * n.z;
+            refl.m[8] = -2.0f * n.x * n.z;
+            refl.m[9] = -2.0f * n.y * n.z;
+            refl.m[10] = 1.0f - 2.0f * n.z * n.z;
+            refl.m[12] = 2.0f * d * n.x;
+            refl.m[13] = 2.0f * d * n.y;
+            refl.m[14] = 2.0f * d * n.z;
+            for (const std::string& tname : m.mirrorObjects) {
+                int ti = -1;
+                for (size_t k = 0; k < objects.size(); ++k)
+                    if (objects[k].name == tname) { ti = (int)k; break; }
+                if (ti < 0 || hiddenAt((size_t)ti)) continue;
+                drawReflected(objects[(size_t)ti],
+                              mul(refl, modelMatrix(objects[(size_t)ti])));
+            }
+            // "Reflect player": only a third-person avatar has a body to show
+            // (same rule as the game - an FPP player casts no reflection)
+            if (m.mirrorReflectPlayer) {
+                for (size_t k = 0; k < objects.size(); ++k) {
+                    const SceneObject& p = objects[k];
+                    if (p.type != PrimitiveType::Player || p.playerMode != 2 ||
+                        !isAnimatedModelPath(p.modelPath) || hiddenAt(k))
+                        continue;
+                    AnimModelDraw* ad = animModelDraw(p.modelPath);
+                    if (ad && ad->ok) {
+                        const Mat4 model = mul(refl, modelMatrix(p));
+                        const Mat4 mvp = mul(viewProj, model);
+                        for (const AnimModelDraw::Part& part : ad->parts)
+                            draw(part.mesh, GL_TRIANGLES, mvp, p.color[0],
+                                 p.color[1], p.color[2], part.tex, &model);
+                    }
+                    break;  // first player entity wins, like in the game
+                }
+            }
+            // glass quad last, blended over whatever the copies drew
+            draw(decal_, GL_TRIANGLES, mul(viewProj, mirrorModel), m.color[0],
+                 m.color[1], m.color[2], 0, &mirrorModel, false, m.mirrorOpacity);
+        }
+    }
+
     // Grid lines, axes and the selection outline are unaffected by view mode
     for (const Mesh& chunkLines : terrainLineMeshes_)
         draw(chunkLines, GL_LINES, viewProj, 1.0f, 1.0f, 1.0f);
     draw(axes_, GL_LINES, viewProj, 1.0f, 1.0f, 1.0f);
+
+    // Nav-mesh overlay: translucent green quads over the walkable cells
+    // (View > Nav Mesh Overlay; baked app-side, see setNavOverlay).
+    if (navOverlayOn_ && navOverlayMesh_.vertexCount)
+        draw(navOverlayMesh_, GL_TRIANGLES, viewProj, 1.0f, 1.0f, 1.0f, 0,
+             nullptr, false, 0.4f);
 
     // Point-light reach: a ring sphere at each light, scaled to its radius and
     // tinted with the light color (a rough preview of the lit volume).
@@ -2171,17 +2442,35 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
 
     const Mat4 id = identity();
     auto draw = [&](const Mesh& mesh, const Mat4& mvp, float r, float g, float b,
-                    uint32_t texture) {
+                    uint32_t texture, uint32_t reflTex = 0,
+                    float reflStrength = 0.0f, bool reflSky = false,
+                    bool reflRounded = false,
+                    const float* reflCenter = nullptr) {
         glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
         glUniformMatrix4fv(uModel_, 1, GL_FALSE, id.m);
         glUniform1i(uLit_, 0);
         glUniform3f(uTint_, r, g, b);
         glUniform1i(uUseTex_, texture ? 1 : 0);
         glUniform1i(uAlpha_, 0);
+        glUniform1i(uReflOn_, reflSky ? 2 : (reflTex ? 1 : 0));
+        if (reflTex || reflSky) {
+            glUniform1f(uReflStrength_, reflStrength);
+            glUniform1i(uReflRounded_, reflRounded ? 1 : 0);
+            if (reflRounded && reflCenter)
+                glUniform3f(uReflCenter_, reflCenter[0], reflCenter[1],
+                            reflCenter[2]);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, reflTex);
+            glActiveTexture(GL_TEXTURE0);
+        }
         if (texture) glBindTexture(GL_TEXTURE_2D, texture);
         glBindVertexArray(mesh.vao);
         glDrawArrays(GL_TRIANGLES, 0, mesh.vertexCount);
     };
+    glUniform1i(uFogOn_, 0);  // no fog in the preview scene
+    // "@sky" reflective materials sample the project's sky gradient
+    glUniform3f(uReflSkyHorizon_, sky_[0], sky_[1], sky_[2]);
+    glUniform3f(uReflSkyTop_, skyTop_[0], skyTop_[1], skyTop_[2]);
 
     // backdrop: NDC-space gradient quad, no depth
     glDisable(GL_DEPTH_TEST);
@@ -2209,6 +2498,14 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
                    center.y + dist * std::sin(p),
                    center.z + dist * std::cos(p) * std::sin(a)};
     const Mat4 view = lookAt(eye, center, {0, 1, 0});
+    {
+        // The refl (matcap) shader path derives the camera basis from
+        // uFogEye/uFogFwd - point them at the preview camera (fog itself is
+        // off above).
+        const Vec3 f = normalize(sub(center, eye));
+        glUniform3f(uFogEye_, eye.x, eye.y, eye.z);
+        glUniform3f(uFogFwd_, f.x, f.y, f.z);
+    }
     const float zFar = dist + (model ? model->radius : 1.0f) * 4.0f + 50.0f;
     const Mat4 proj = perspective(45.0f * kPi / 180.0f,
                                   (float)width / (float)height,
@@ -2227,14 +2524,23 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
             const bool staged = part.material == d.entryName;
             const float* kd = staged ? d.kd : part.kd;
             const std::string& tex = staged ? d.texRel : part.texRel;
-            draw(part.mesh, viewProj, kd[0], kd[1], kd[2], glTexture(tex));
+            const std::string& refl = staged ? d.reflRel : part.reflRel;
+            draw(part.mesh, viewProj, kd[0], kd[1], kd[2], glTexture(tex),
+                 glTexture(refl),
+                 staged ? d.reflStrength : part.reflStrength,
+                 staged ? d.reflSky : part.reflSky,
+                 staged ? d.reflRounded : part.reflRounded, part.centroid);
         }
     } else {
+        // unit shapes sit at the origin - that's the rounded-normal centre
+        static const float origin[3] = {0.0f, 0.0f, 0.0f};
         const Mesh* mesh = shape == 0   ? &box_
                            : shape == 2 ? &cylinder_
                            : shape == 3 ? &cone_
                                         : &sphere_;
-        draw(*mesh, viewProj, d.kd[0], d.kd[1], d.kd[2], glTexture(d.texRel));
+        draw(*mesh, viewProj, d.kd[0], d.kd[1], d.kd[2], glTexture(d.texRel),
+             glTexture(d.reflRel), d.reflStrength, d.reflSky, d.reflRounded,
+             origin);
     }
 
     glBindVertexArray(0);
