@@ -8,6 +8,7 @@
 
 #include <imgui.h>  // ImGuiStyle baseStyle_ member (UI scaling)
 
+#include "aigen.hpp"
 #include "camtake.hpp"
 #include "history.hpp"
 #include "isoexport.hpp"
@@ -136,6 +137,7 @@ private:
     void addEmpty();
     void addDecal();
     void addMirror();
+    void addPortal();
     void drawAddObjectMenu();
     // Copies a picked .obj (with its .mtl + textures, references rewritten to
     // the sanitized names) into res/models. Returns the project-relative path
@@ -152,6 +154,9 @@ private:
     // Combo picking an .mtl for the object (primitives: surface; models:
     // override). Returns true when materialPath changed.
     bool drawMaterialCombo(SceneObject& o);
+    // Per-object animation/mesh LOD override rows (animated models + player
+    // avatars). Returns true when a value changed (caller commits).
+    bool drawLodOverrides(SceneObject& o);
     // Creates a scene object for a model already in res/models (no copying)
     void addModelObject(const std::string& relPath);
     // Project-panel section listing res/models + res/textures with the
@@ -160,6 +165,7 @@ private:
     // Files directly under res/<subdir> with the given extension (lowercase
     // compare), names only, sorted by the directory iteration order
     std::vector<std::string> listAssetFiles(const char* subdir, const char* ext);
+    std::vector<std::string> listAnimatedModelFiles();
     // "Pick..." button + popup listing res/textures; true when path changed
     bool pickProjectTexture(const char* popupId, std::string& path);
     // Cached objparser summary of a model (for the properties panel)
@@ -215,9 +221,21 @@ private:
     // the UI Editor's HUD list and the Loading Screen editor). Returns the new
     // index, or -1 on failure.
     int importHudImageInto(std::vector<HudImage>& target);
-    // Shared TTF picker (menus, HUD texts): default chain / project fonts /
-    // stock Windows fonts / import. Returns true when fontPath changed.
-    bool fontCombo(std::string& fontPath);
+    // Picks one of the project's fonts by name (menus, HUD texts, loading
+    // texts). "" = the default entry. Returns true when the reference changed.
+    bool fontCombo(std::string& fontRef);
+    // Picks the TTF behind a Font Manager entry: default chain / fonts already
+    // in the project / stock Windows fonts / import. Returns true when
+    // fontPath changed. Only the Font Manager resolves real files.
+    bool fontSourceCombo(std::string& fontPath);
+    void drawFontManagerWindow();
+    // A Font Manager entry pointing at `relPath` ("res/fonts/x.ttf"), creating
+    // one named after the file stem if none exists. Returns the entry's name -
+    // what a `font` reference stores. Used by the TTF import paths.
+    std::string ensureFontForPath(const std::string& relPath);
+    // Renames a font and follows the reference into every text, menu and
+    // Display Text node, the way HUD text renames do.
+    void renameFont(int index, const std::string& newName);
     void drawMusicSection();
     void importMusicTrack();
     void drawSoundsSection();
@@ -370,6 +388,9 @@ private:
     // Parent folder proposed as the location for new projects (Edit >
     // Preferences). Empty = fall back to ~/TyraProjects.
     std::string globalDefaultProjectsDir_;
+    // AI assistant backend for flow-graph generation (editor.ini; Edit >
+    // Preferences > AI assistant). Model "" = the backend's default.
+    aigen::Config globalAi_;
     // Selection index the orbit pivot was last snapped to; -1 = none. Lets
     // "orbit around selection" re-center only when the selection changes.
     int navFocusedIndex_ = -1;
@@ -457,6 +478,10 @@ private:
     // Clipboard for flow-graph copy/paste: the copied nodes plus the links that
     // connect two of them (dangling links are dropped). nextId is unused.
     FlowGraph flowClipboard_;
+    // Node-description tooltip (FlowNodeType::desc): node the mouse rests on
+    // and since when - shown after a short delay, reset on hover change.
+    int flowDescNode_ = -1;
+    double flowDescSince_ = 0.0;
 
     // Viewport overlays: TV frames (PAL 4:3 and NTSC, which shows a
     // slightly wider slice of the same 512x448 buffer)
@@ -474,9 +499,17 @@ private:
     // HUD text (4, index in selectedText_) or a custom screen effect placement
     // (5, index in selectedFx_ into project_.screenFx).
     bool showUiEditor_ = false;
+    bool showFontManager_ = false;
     int selectedHud_ = -1;
     int uiFxSel_ = 0;
     int selectedText_ = -1;
+    // Font Manager selection (index into Project::fonts).
+    int fontSel_ = 0;
+    // Cached atlas footprint line: measuring it walks all 95 glyphs, so it is
+    // recomputed only when a bake-affecting field changes (see fontAtlasKey_).
+    std::string fontAtlasKey_;
+    std::string fontAtlasInfo_;
+    bool fontAtlasClipped_ = false;
     int selectedFx_ = -1;
     // Baked preview of the selected HUD text (menubake::bakeTextRGBA),
     // re-rasterized whenever its content changes.
@@ -737,6 +770,15 @@ private:
     uint64_t projectedDecalsVersion_ = 0;
     void updateProjectedDecals();
 
+    // Nav-mesh overlay (View > Nav Mesh Overlay): the active scene's baked
+    // walkable grid, recomputed only when its inputs change (same signature
+    // trick as the projected decals). Session state, not persisted.
+    bool showNavOverlay_ = false;
+    navmesh::NavGrid navGrid_;
+    uint64_t navOverlaySig_ = 0;
+    uint64_t navOverlayVersion_ = 0;
+    void updateNavOverlay();
+
     // "New project" modal state
     bool openNewProjectPopup_ = false;
     char newName_[128] = "my-game";
@@ -744,6 +786,10 @@ private:
     int newWidth_ = 64;
     int newDepth_ = 64;
     int newTemplate_ = 0;  // 0 = empty, 1 = fpp
+    // "Add AI support": install the assistant skill files (aisupport.hpp)
+    // into the fresh project. Also available later in Project Preferences.
+    bool newAiClaude_ = false;
+    bool newAiCopilot_ = false;
     std::string newProjectError_;
 
     // "New script" modal state. newScriptAttachTo_ >= 0 = attach the created
@@ -812,6 +858,26 @@ private:
     char prefEmulatorPath_[512] = "";  // PCSX2 exe path (auto-detect if empty)
     char prefPs2Ip_[64] = "";          // ps2link IP for Run on PS2
     char prefDefaultProjectsDir_[512] = "";  // default parent folder for new projects
+    int prefAiBackend_ = 0;            // index into aigen::backendIds()
+    char prefAiModel_[128] = "";       // "" = the backend's default model
+    // Model combo shows "Custom..." + a free-text field when the staged model
+    // is not one of the backend's listed models (or the user picked Custom).
+    bool prefAiCustomModel_ = false;
+    bool prefAiThinking_ = false;
+
+    // "Generate with AI" modal (Flow Graph window). The Generator runs on its
+    // own worker thread; the modal polls it every frame, shows a spinner and a
+    // Cancel button while busy, and applies the parsed graph via commitChange
+    // on success. aiGenTargetObject_ pins the graph owner at request time so a
+    // changed selection can't retarget an in-flight reply.
+    bool openAiGeneratePopup_ = false;
+    char aiPromptBuf_[2048] = "";
+    int aiGenTargetObject_ = -1;
+    bool aiGenInFlight_ = false;    // a started request's result is unconsumed
+    aigen::Generator aiGen_;
+    std::string aiGenError_;        // backend/parse failure shown in the modal
+    std::string aiGenWarnings_;     // non-fatal parse notes (dropped links...)
+    void drawAiGenerateModal();
 
     // "Debug" window: tails a log from disk (reloaded, throttled). Source 0 is
     // the game's own log (bin/log.txt, written by TYRA_LOG); source 1 is the

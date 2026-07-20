@@ -22,6 +22,7 @@ const SPEC = {
     keys: {
       title: { doc: "Display name in the add-menu and node title bar. Defaults to the file name.", kind: "text" },
       category: { doc: "Add-menu submenu the node appears under. Defaults to `Custom`.", kind: "text" },
+      desc: { doc: "One-line behavior description - the node's tooltip in the editor and its entry in the AI flow-graph generator's catalog.", kind: "text" },
       string: { doc: "The string param: `none`, `text`, or `object` (gives the node its target object input).", kind: "enum", values: ["none", "text", "object"] },
       in: { doc: "Extra input pins: any space-separated set of `object position bool text`.", kind: "pins" },
       out: { doc: "Output pins: any of `object position bool text`. Requires `call = fn`.", kind: "pins" },

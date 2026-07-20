@@ -7,6 +7,7 @@
 
 #include <stb_image.h>
 
+#include "menubake.hpp"  // atlasFileName - which res/fonts PNGs are atlases
 #include "objparser.hpp"
 #include "pngquant.hpp"
 #include "stochtile.hpp"
@@ -174,16 +175,33 @@ std::string bake(const Project& p,
     for (const SplashScreen& s : p.splashScreens)
         if (!s.image.imagePath.empty()) hudBake[s.image.imagePath] = &s.image;
 
+    // Font atlases (res/fonts/atlas-<name>.png, baked by refreshGenerated for
+    // the fonts a Display Text node uses): quantized per Font Manager entry
+    // rather than by the project default, because an atlas is white glyphs the
+    // runtime tints - 16 colors usually costs nothing visually and saves ~8x
+    // the VRAM, which matters on a ~1.33 MB texture budget.
+    std::map<std::string, std::string> fontQuant;
+    for (const GameFont& gf : p.fonts)
+        fontQuant["res/fonts/" + menubake::atlasFileName(gf.name)] = gf.quant;
+
     // --- mirror res/ into .res-baked/ --------------------------------------
-    // Editor-only assets never ship: paint brushes (res/brushes) and the
-    // Material Editor's paint-layer sidecars (`<texture>.layers/` dirs) -
-    // the game loads the flattened composite PNG next to them.
+    // Editor-only assets never ship: paint brushes (res/brushes), the Material
+    // Editor's paint-layer sidecars (`<texture>.layers/` dirs - the game loads
+    // the flattened composite PNG next to them), and the source TTFs under
+    // res/fonts. The PS2 never reads a TTF: static text is baked to sprites and
+    // dynamic text to a glyph atlas, both at build. Only the atlas PNGs in that
+    // folder ship.
     auto editorOnly = [](const fs::path& rel) {
         for (const fs::path& part : rel)
             if (part.string().size() > 7 &&
                 part.string().rfind(".layers") == part.string().size() - 7)
                 return true;
-        return rel.begin()->generic_string() == "brushes";
+        const std::string top = rel.begin()->generic_string();
+        if (top == "fonts") {
+            const std::string ext = lowerExt(rel);
+            return ext == ".ttf" || ext == ".otf";
+        }
+        return top == "brushes";
     };
     const std::string defaultQ = p.settings.textureQuant;  // none/8bit/4bit
     int quantized = 0, copied = 0;
@@ -214,12 +232,20 @@ std::string bake(const Project& p,
             }
         }
 
-        const bool quantizable =
+        bool quantizable =
             lowerExt(e.path()) == ".png" &&
             (top == "models" || top == "materials" || top == "textures");
 
         std::string q = defaultQ;
         if (auto it = quality.find(relRes); it != quality.end()) q = it->second;
+        // A font atlas carries its own depth (GameFont::quant) and ignores the
+        // project default.
+        if (top == "fonts" && lowerExt(e.path()) == ".png") {
+            if (auto it = fontQuant.find(relRes); it != fontQuant.end()) {
+                quantizable = true;
+                q = it->second;
+            }
+        }
         const int colors = quantizable ? colorsOf(q) : 0;
 
         // Scene textures must be PS2-valid (power-of-two, max 512 per axis -

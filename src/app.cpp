@@ -15,8 +15,10 @@
 #include <set>
 #include <sstream>
 
+#include "aisupport.hpp"
 #include "decalproj.hpp"
 #include "gl_loader.h"
+#include "fbxparser.hpp"
 #include "glbparser.hpp"
 #include "json.hpp"
 #include "menubake.hpp"
@@ -83,6 +85,10 @@ struct EditorConfig {
     // Parent folder proposed as the location for new projects. Empty = fall
     // back to ~/TyraProjects.
     std::string defaultProjectsDir;
+    // AI assistant backend for flow-graph generation (aigen.hpp). Machine
+    // config, not project data: which CLIs/keys exist is a property of this
+    // PC. The --ai-graph CLI reads the same keys (main.cpp).
+    aigen::Config ai;
 };
 
 static std::filesystem::path editorConfigPath() {
@@ -122,7 +128,11 @@ static EditorConfig loadEditorConfig() {
         else if (match("ps2LinkIp", v)) cfg.ps2LinkIp = v;
         else if (match("errorPopup", v)) cfg.errorPopup = toI(v, 1) != 0;
         else if (match("defaultProjectsDir", v)) cfg.defaultProjectsDir = v;
+        else if (match("aiBackend", v)) cfg.ai.backend = v;
+        else if (match("aiModel", v)) cfg.ai.model = v;
+        else if (match("aiThinking", v)) cfg.ai.thinking = toI(v, 0) != 0;
     }
+    if (cfg.ai.backend.empty()) cfg.ai.backend = "claude";
     return cfg;
 }
 
@@ -146,7 +156,10 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "emulatorPath=" << cfg.emulatorPath << "\n"
       << "ps2LinkIp=" << cfg.ps2LinkIp << "\n"
       << "errorPopup=" << (cfg.errorPopup ? 1 : 0) << "\n"
-      << "defaultProjectsDir=" << cfg.defaultProjectsDir << "\n";
+      << "defaultProjectsDir=" << cfg.defaultProjectsDir << "\n"
+      << "aiBackend=" << cfg.ai.backend << "\n"
+      << "aiModel=" << cfg.ai.model << "\n"
+      << "aiThinking=" << (cfg.ai.thinking ? 1 : 0) << "\n";
 }
 
 // Default parent directory proposed for new projects: the configured global
@@ -195,10 +208,11 @@ static std::string pickPath(PickKind kind) {
                 L"Open Tyra project");
         case PickKind::ObjModel:
             return pickFileLegacy(
-                L"3D model (*.obj, *.glb)\0*.obj;*.glb\0"
+                L"3D model (*.obj, *.glb, *.fbx)\0*.obj;*.glb;*.fbx\0"
                 L"Wavefront model (*.obj)\0*.obj\0"
-                L"Animated glTF binary (*.glb)\0*.glb\0All files (*.*)\0*.*\0",
-                L"Import 3D model (.glb = animated)");
+                L"Animated glTF binary (*.glb)\0*.glb\0"
+                L"Animated FBX (*.fbx)\0*.fbx\0All files (*.*)\0*.*\0",
+                L"Import 3D model (.glb/.fbx = animated)");
         case PickKind::Mtl:
             return pickFileLegacy(
                 L"Material library (*.mtl)\0*.mtl\0All files (*.*)\0*.*\0",
@@ -354,6 +368,7 @@ int App::run(const std::string& initialProjectDir) {
         globalPs2Ip_ = cfg.ps2LinkIp;
         errorPopupEnabled_ = cfg.errorPopup;
         globalDefaultProjectsDir_ = cfg.defaultProjectsDir;
+        globalAi_ = cfg.ai;
     }
     applyUiScale();
 
@@ -517,10 +532,12 @@ void App::drawUI() {
     drawMaterialEditorWindow();
     drawTerrainWindow();
     drawUiEditorWindow();
+    drawFontManagerWindow();
     drawLoadingScreenWindow();
     drawNewProjectModal();
     drawPreferencesModal();
     drawEditorPreferencesModal();
+    drawAiGenerateModal();
     drawErrorModal();
     drawNavigationModal();
     drawScenePreferencesModal();
@@ -617,7 +634,7 @@ void App::applyUiScale() {
 // UI-scale or navigation change.
 void App::saveGlobalConfig() {
     saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_,
-                      errorPopupEnabled_, globalDefaultProjectsDir_});
+                      errorPopupEnabled_, globalDefaultProjectsDir_, globalAi_});
 }
 
 void App::setUiScale(float userScale) {
@@ -661,6 +678,18 @@ void App::drawMenuBar() {
                 snprintf(prefPs2Ip_, sizeof(prefPs2Ip_), "%s", globalPs2Ip_.c_str());
                 snprintf(prefDefaultProjectsDir_, sizeof(prefDefaultProjectsDir_), "%s",
                          globalDefaultProjectsDir_.c_str());
+                prefAiBackend_ = 0;
+                {
+                    const auto ids = aigen::backendIds();
+                    for (int i = 0; i < (int)ids.size(); ++i)
+                        if (globalAi_.backend == ids[i]) prefAiBackend_ = i;
+                }
+                snprintf(prefAiModel_, sizeof(prefAiModel_), "%s",
+                         globalAi_.model.c_str());
+                prefAiCustomModel_ = true;
+                for (const char* m : aigen::modelPresets(globalAi_.backend))
+                    if (globalAi_.model == m) prefAiCustomModel_ = false;
+                prefAiThinking_ = globalAi_.thinking;
                 openEditorPrefsPopup_ = true;
             }
             ImGui::EndMenu();
@@ -708,6 +737,14 @@ void App::drawMenuBar() {
                 ImGui::SetTooltip("Preview the scene's distance fog in the editor. "
                                   "Turn off to see distant geometry - does not "
                                   "affect the generated game.");
+            if (ImGui::MenuItem("Nav mesh overlay", nullptr, showNavOverlay_,
+                                hasProject_))
+                showNavOverlay_ = !showNavOverlay_;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Show the baked navigation grid the AI flow nodes walk on "
+                    "(green = walkable). Tune it in Project > Preferences > "
+                    "AI navigation.");
 
             ImGui::Separator();
             ImGui::TextDisabled("TV safe frame");
@@ -801,6 +838,7 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
             if (ImGui::MenuItem("Cutscene Director...")) showCutsceneEditor_ = true;
             if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
+            if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
             if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
             ImGui::EndMenu();
         }
@@ -1132,6 +1170,45 @@ static float sculptMaxStrength(const Project& p) {
     return s > 0.5f ? s : 0.5f;
 }
 
+void App::updateNavOverlay() {
+    // Nav-mesh preview (View > Nav Mesh Overlay). Signature of everything the
+    // bake depends on - blocking objects, terrain, the nav preferences - so
+    // navmesh::bake only reruns on actual edits (same trick as the projected
+    // decals). Pure host work; the game bakes its own copy at build time.
+    if (!showNavOverlay_) {
+        viewport_.setNavOverlay(nullptr, 0);
+        return;
+    }
+    const SceneData& sc = project_.active();
+    uint64_t sig = 1469598103934665603ull;  // FNV-1a seed
+    auto mix = [&](uint64_t v) { sig = (sig ^ v) * 1099511628211ull; };
+    auto mixf = [&](float f) {
+        uint32_t b;
+        std::memcpy(&b, &f, sizeof(b));
+        mix(b);
+    };
+    mixf(project_.settings.navCellSize);
+    mixf(project_.settings.navMaxSlope);
+    mixf(project_.settings.navAgentRadius);
+    mix((uint64_t)sc.terrain.width);
+    mix((uint64_t)sc.terrain.depth);
+    mix(sc.objects.size());
+    for (const SceneObject& o : sc.objects) {
+        mix((uint64_t)o.type);
+        mix((uint64_t)o.collisionMode);
+        for (int k = 0; k < 3; ++k) { mixf(o.position[k]); mixf(o.scale[k]); }
+        for (char c : o.modelPath) mix((uint8_t)c);
+    }
+    for (float h : sc.heights) mixf(h);
+
+    if (sig != navOverlaySig_) {
+        navOverlaySig_ = sig;
+        navGrid_ = navmesh::bake(project_, sc);
+        ++navOverlayVersion_;
+    }
+    viewport_.setNavOverlay(&navGrid_, navOverlayVersion_);
+}
+
 void App::drawViewportWindow() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     // NoNav: keep ImGui keyboard navigation out of the viewport. Otherwise the
@@ -1232,6 +1309,7 @@ void App::drawViewportWindow() {
             viewport_.setHiddenCameras(std::move(hideCams));
         }
         updateProjectedDecals();
+        updateNavOverlay();
         uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
                                         selection_, selectedObject_);
         // Flip vertically: GL texture origin is bottom-left
@@ -2088,6 +2166,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "material") return &showMaterialEditor_;
     if (key == "terrain") return &showTerrainEditor_;
     if (key == "ui") return &showUiEditor_;
+    if (key == "fonts") return &showFontManager_;
     if (key == "menus") return &showMenusEditor_;
     if (key == "grading") return &showGradingEditor_;
     if (key == "ambience") return &showAmbienceEditor_;
@@ -2100,8 +2179,8 @@ bool* App::showFlagForKey(const std::string& key) {
 // order). Core windows (Viewport/Project/Properties/Flow Graph/Output/Debug)
 // are always drawn and never listed here.
 static const char* const kLayoutWindowKeys[] = {
-    "cutscene", "material", "terrain", "ui",      "menus",
-    "grading",  "ambience", "loading", "disc"};
+    "cutscene", "material", "terrain", "ui",      "fonts",
+    "menus",    "grading",  "ambience", "loading", "disc"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -2803,6 +2882,16 @@ void App::addMirror() {
     o.color[0] = 0.62f, o.color[1] = 0.78f, o.color[2] = 0.88f;
     saveAll("Saved");
 }
+void App::addPortal() {
+    addObject(PrimitiveType::Portal);
+    SceneObject& o = project_.objects().back();
+    // a door-sized upright frame at standing height, warm energy tint
+    o.position[1] = 1.2f;
+    o.scale[0] = 1.6f, o.scale[1] = 2.4f, o.scale[2] = 1.0f;
+    o.color[0] = 0.95f, o.color[1] = 0.55f, o.color[2] = 0.2f;
+    o.collisionMode = 2;  // walk-through surface - the teleport is the "wall"
+    saveAll("Saved");
+}
 void App::addSavePoint() {
     addObject(PrimitiveType::SavePoint);
     SceneObject& o = project_.objects().back();
@@ -2856,9 +2945,10 @@ std::string App::importModelAsset() {
     std::error_code ec;
     std::filesystem::create_directories(destDir, ec);
 
-    // Animated models (.glb) are self-contained (geometry, clips, textures in
-    // one file): plain copy, then a validation bake for early feedback. The
-    // .tanm the game loads is baked from it on every build.
+    // Animated models (.glb/.fbx): copy, then a validation bake for early
+    // feedback. The .tskl the game loads is serialized from the copy on
+    // every build. A .glb is self-contained; an .fbx may reference textures
+    // as separate files, so those are copied next to it.
     if (isAnimatedModelPath(fileName)) {
         std::filesystem::copy_file(srcPath, destDir / fileName,
                                    std::filesystem::copy_options::overwrite_existing, ec);
@@ -2866,9 +2956,11 @@ std::string App::importModelAsset() {
             statusMessage_ = "Model import failed: " + ec.message();
             return "";
         }
+        if (fileName.size() > 4 && fileName.compare(fileName.size() - 4, 4, ".fbx") == 0)
+            fbxparser::copyExternalTextures(srcPath.string(), destDir.string());
         glbparser::Baked baked;
         std::string error;
-        if (!glbparser::bake((destDir / fileName).string(), 12.0f, baked, error)) {
+        if (!animimport::bake((destDir / fileName).string(), 12.0f, baked, error)) {
             statusMessage_ = "Imported " + fileName + " - UNUSABLE: " + error;
             return "res/models/" + fileName;
         }
@@ -2881,8 +2973,8 @@ std::string App::importModelAsset() {
         // frames - parseSkel knows the actual footprint.
         glbparser::Skel skel;
         std::string skelError;
-        const size_t bytes = glbparser::parseSkel((destDir / fileName).string(),
-                                                  skel, skelError)
+        const size_t bytes = animimport::parseSkel((destDir / fileName).string(),
+                                                   skel, skelError)
                                  ? skel.ps2Bytes()
                                  : 0;
         if (bytes > 8u * 1024 * 1024)
@@ -3098,6 +3190,16 @@ std::string App::importMaterialAsset() {
     return "res/materials/" + fileName;
 }
 
+// Every animated-model asset regardless of container (.glb + .fbx), sorted -
+// the combos that offer "animated" models all go through this.
+std::vector<std::string> App::listAnimatedModelFiles() {
+    std::vector<std::string> files = listAssetFiles("models", ".glb");
+    const std::vector<std::string> fbx = listAssetFiles("models", ".fbx");
+    files.insert(files.end(), fbx.begin(), fbx.end());
+    std::sort(files.begin(), files.end());
+    return files;
+}
+
 std::vector<std::string> App::listAssetFiles(const char* subdir, const char* ext) {
     std::vector<std::string> files;
     std::error_code ec;
@@ -3191,7 +3293,7 @@ const App::GlbInfo& App::glbInfo(const std::string& relPath) {
     GlbInfo info;
     glbparser::Baked baked;
     const std::filesystem::path full = std::filesystem::path(project_.dir) / relPath;
-    if (glbparser::bake(full.string(), 12.0f, baked, info.error)) {
+    if (animimport::bake(full.string(), 12.0f, baked, info.error)) {
         info.ok = true;
         for (const auto& c : baked.clips) info.clips.push_back(c.name);
         info.vertexCount = baked.totalVertexCount();
@@ -3337,8 +3439,8 @@ void App::drawAssetsSection() {
     if (ImGui::SmallButton("Import model...")) importModelAsset();
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(".obj = static geometry (+ .mtl/textures)\n"
-                          ".glb = animated model (Blender glTF Binary export;\n"
-                          "clips are baked to PS2 morph frames at build)");
+                          ".glb/.fbx = animated model (Blender/Maya/Max export;\n"
+                          "clips play on the PS2 skeletal runtime)");
     const std::vector<std::string> models = listAssetFiles("models", ".obj");
     for (const std::string& m : models) {
         ImGui::Bullet();
@@ -3367,7 +3469,7 @@ void App::drawAssetsSection() {
             }
         }
     }
-    const std::vector<std::string> animModels = listAssetFiles("models", ".glb");
+    const std::vector<std::string> animModels = listAnimatedModelFiles();
     for (const std::string& m : animModels) {
         ImGui::Bullet();
         ImGui::SameLine();
@@ -3400,7 +3502,7 @@ void App::drawAssetsSection() {
         }
     }
     if (models.empty() && animModels.empty())
-        ImGui::TextDisabled("  none - Import or drop .obj/.glb files there.");
+        ImGui::TextDisabled("  none - Import or drop .obj/.glb/.fbx files there.");
 
     ImGui::TextDisabled("Materials (res/materials)");
     ImGui::SameLine();
@@ -3500,7 +3602,7 @@ void App::drawAddObjectMenu() {
             const std::vector<std::string> models = listAssetFiles("models", ".obj");
             for (const std::string& m : models)
                 if (ImGui::MenuItem(m.c_str())) addModelObject("res/models/" + m);
-            const std::vector<std::string> anim = listAssetFiles("models", ".glb");
+            const std::vector<std::string> anim = listAnimatedModelFiles();
             for (const std::string& m : anim)
                 if (ImGui::MenuItem((m + " (animated)").c_str()))
                     addModelObject("res/models/" + m);
@@ -3518,6 +3620,9 @@ void App::drawAddObjectMenu() {
     }
     if (ImGui::BeginMenu("Gameplay")) {
         if (ImGui::MenuItem("Player")) addObject(PrimitiveType::Player);
+        // Linked pair of surfaces: a live view through to the target portal
+        // plus a walk-through teleport that carries speed and view angle.
+        if (ImGui::MenuItem("Portal")) addPortal();
         if (ImGui::MenuItem("Spawn point")) addObject(PrimitiveType::SpawnPoint);
         if (ImGui::MenuItem("Save point")) addSavePoint();
         // Cutscene Director shot marker (bind camera-track keys to it)
@@ -3974,6 +4079,7 @@ static const char* typeLabel(PrimitiveType t) {
         case PrimitiveType::Empty: return "Empty";
         case PrimitiveType::Camera: return "Camera";
         case PrimitiveType::Mirror: return "Mirror";
+        case PrimitiveType::Portal: return "Portal";
     }
     return "Object";
 }
@@ -4041,6 +4147,13 @@ void App::drawPropertiesWindow() {
                 if (m.type == PrimitiveType::Mirror)
                     for (std::string& t : m.mirrorObjects)
                         if (t == from) t = o.name;
+            // Portal links + view lists likewise.
+            for (SceneObject& m : project_.objects())
+                if (m.type == PrimitiveType::Portal) {
+                    if (m.portalTarget == from) m.portalTarget = o.name;
+                    for (std::string& t : m.portalObjects)
+                        if (t == from) t = o.name;
+                }
         }
     }
 
@@ -4118,7 +4231,7 @@ void App::drawPropertiesWindow() {
                     committed = true;
                 }
             }
-            const std::vector<std::string> anim = listAssetFiles("models", ".glb");
+            const std::vector<std::string> anim = listAnimatedModelFiles();
             for (const std::string& m : anim) {
                 const std::string rel = "res/models/" + m;
                 if (ImGui::Selectable((m + " (animated)").c_str(),
@@ -4190,12 +4303,13 @@ void App::drawPropertiesWindow() {
                 ImGui::DragFloat("Speed", &o.animSpeed, 0.02f, 0.05f, 10.0f,
                                  "%.2fx");
                 committed |= ImGui::IsItemDeactivatedAfterEdit();
+                committed |= drawLodOverrides(o);
                 ImGui::TextDisabled(
                     "Scripts/flow graph: Play Animation, Stop Animation,\n"
                     "On Animation Finished.");
             } else if (!o.modelPath.empty()) {
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                                   "Unusable .glb: %s", info.error.c_str());
+                                   "Unusable model: %s", info.error.c_str());
             }
         } else {
         // materials come from the .obj's MTL file (or the assigned override)
@@ -4231,16 +4345,19 @@ void App::drawPropertiesWindow() {
     // Mirror: transform places the glass rectangle (+Z = the reflective
     // face), color tints it; the mirror-specific block sits further down.
     const bool isMirror = o.type == PrimitiveType::Mirror;
+    // Portal: transform places the surface (+Z = the visible/entry face),
+    // color tints an inactive surface; the portal block sits further down.
+    const bool isPortal = o.type == PrimitiveType::Portal;
 
     ImGui::DragFloat3("Position", o.position, 0.1f);
     committed |= ImGui::IsItemDeactivatedAfterEdit();
     // custom emitters rotate too - the rotation aims the emission direction
-    if (isSolid || isEmpty || isDecal || isCamera || isMirror ||
+    if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal ||
         (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
         ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
-    if (isSolid || isEmpty || isDecal || isMirror ||
+    if (isSolid || isEmpty || isDecal || isMirror || isPortal ||
         o.type == PrimitiveType::Emitter) {
         ImGui::DragFloat3("Scale", o.scale, 0.05f, 0.01f, 1000.0f);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -4248,8 +4365,9 @@ void App::drawPropertiesWindow() {
     // Color: mesh tint for solids, particle tint for emitters, light color
     // for point lights, marker tint + free per-object parameter for empties,
     // texture tint for decals, marker/frustum tint for camera entities, glass
-    // tint for mirrors. The remaining markers draw in fixed colors.
-    if (isSolid || isEmpty || isDecal || isCamera || isMirror ||
+    // tint for mirrors, inactive-surface tint for portals. The remaining
+    // markers draw in fixed colors.
+    if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal ||
         o.type == PrimitiveType::Emitter || o.type == PrimitiveType::PointLight) {
         ImGui::ColorEdit3("Color", o.color);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -4300,7 +4418,23 @@ void App::drawPropertiesWindow() {
         }
     }
     if (isSolid) {
-        if (ImGui::Checkbox("Physics (falls with gravity)", &o.physics)) committed = true;
+        if (ImGui::Checkbox("Physics (rigid body)", &o.physics)) committed = true;
+        if (o.physics) {
+            ImGui::Indent();
+            ImGui::DragFloat("Mass", &o.physMass, 0.05f, 0.05f, 100.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Bounciness", &o.physBounce, 0.01f, 0.0f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Friction", &o.physFriction, 0.01f, 0.0f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::Checkbox("Tumble (impacts add spin)", &o.physTumble))
+                committed = true;
+            ImGui::TextDisabled(
+                "Falls, bounces off slopes and objects, slides with friction\n"
+                "and can be shoved by the player / Apply Impulse nodes.\n"
+                "Mass is relative - it matters only against other bodies.");
+            ImGui::Unindent();
+        }
         if (o.type == PrimitiveType::SavePoint) {
             ImGui::TextDisabled("Always usable - USE opens the save menu.");
         } else if (ImGui::Checkbox("Usable (USE prompt + On Used trigger)", &o.usable)) {
@@ -4430,6 +4564,117 @@ void App::drawPropertiesWindow() {
         }
         if (o.mirrorObjects.empty() && !o.mirrorReflectPlayer)
             ImGui::TextDisabled("Nothing listed - the mirror shows only glass.");
+    }
+
+    if (isPortal) {
+        ImGui::SeparatorText("Portal");
+        // Destination link: another Portal in this scene. One-way by design -
+        // point both portals at each other for a two-way door.
+        const std::string current =
+            o.portalTarget.empty() ? "<none>" : o.portalTarget;
+        bool targetExists = false;
+        for (const SceneObject& t : project_.objects())
+            if (t.type == PrimitiveType::Portal && t.name == o.portalTarget)
+                targetExists = true;
+        if (ImGui::BeginCombo("Target portal", current.c_str())) {
+            if (ImGui::Selectable("<none>", o.portalTarget.empty()) &&
+                !o.portalTarget.empty()) {
+                o.portalTarget.clear();
+                committed = true;
+            }
+            for (const SceneObject& t : project_.objects()) {
+                if (t.type != PrimitiveType::Portal || t.name == o.name) continue;
+                if (ImGui::Selectable(t.name.c_str(), t.name == o.portalTarget) &&
+                    o.portalTarget != t.name) {
+                    o.portalTarget = t.name;
+                    committed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (o.portalTarget.empty())
+            ImGui::TextDisabled(
+                "No target - the surface just shows the tint color.");
+        else if (!targetExists)
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                               "Target portal missing - surface inactive.");
+        else {
+            // convenience: make the pair two-way with one click
+            SceneObject* tgt = nullptr;
+            for (SceneObject& t : project_.objects())
+                if (t.type == PrimitiveType::Portal && t.name == o.portalTarget)
+                    tgt = &t;
+            if (tgt && tgt->portalTarget != o.name) {
+                if (ImGui::SmallButton("Link back (make two-way)")) {
+                    tgt->portalTarget = o.name;
+                    committed = true;
+                }
+            } else {
+                ImGui::TextDisabled("Two-way pair (target links back).");
+            }
+        }
+        if (ImGui::Checkbox("Terrain + sky in view", &o.portalShowTerrain))
+            committed = true;
+        if (ImGui::Checkbox("Teleport physics objects", &o.portalTeleportObjects))
+            committed = true;
+        if (ImGui::Checkbox("All objects in view (experimental)",
+                            &o.portalViewAll))
+            committed = true;
+        if (o.portalViewAll) {
+            ImGui::TextDisabled(
+                "Every scene object renders in the through-view (the list\n"
+                "below is ignored). The virtual camera's frustum culling and\n"
+                "draw distances trim the cost, but big scenes pay a second\n"
+                "submission pass - watch the FPS/profiler before shipping.");
+        } else {
+        ImGui::TextUnformatted("Objects visible through:");
+        int removePortalAt = -1;
+        for (size_t i = 0; i < o.portalObjects.size(); ++i) {
+            ImGui::PushID(1000 + (int)i);
+            if (ImGui::SmallButton("x")) removePortalAt = (int)i;
+            ImGui::SameLine();
+            bool exists = false;
+            for (const SceneObject& t : project_.objects())
+                if (t.name == o.portalObjects[i]) { exists = true; break; }
+            if (exists)
+                ImGui::TextUnformatted(o.portalObjects[i].c_str());
+            else
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                   "%s (missing)", o.portalObjects[i].c_str());
+            ImGui::PopID();
+        }
+        if (removePortalAt >= 0) {
+            o.portalObjects.erase(o.portalObjects.begin() + removePortalAt);
+            committed = true;
+        }
+        if (ImGui::BeginCombo("##portalAdd", "+ Add object...")) {
+            for (const SceneObject& t : project_.objects()) {
+                // same set the mirror can reflect: types the game draws as
+                // static geometry (animated models re-pose in the main view
+                // only; through a portal they would show a stale pose)
+                const bool viewable =
+                    t.type == PrimitiveType::Box || t.type == PrimitiveType::Sphere ||
+                    t.type == PrimitiveType::Cylinder ||
+                    t.type == PrimitiveType::Cone || t.type == PrimitiveType::Plane ||
+                    t.type == PrimitiveType::SavePoint ||
+                    t.type == PrimitiveType::Model || t.type == PrimitiveType::Decal;
+                if (!viewable || t.name == o.name) continue;
+                bool listed = false;
+                for (const std::string& n : o.portalObjects)
+                    if (n == t.name) { listed = true; break; }
+                if (listed) continue;
+                if (ImGui::Selectable(t.name.c_str())) {
+                    o.portalObjects.push_back(t.name);
+                    committed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::TextDisabled(
+            "The view renders listed objects (+ terrain/sky above) from the\n"
+            "target's side every frame - keep the list short. One portal\n"
+            "view renders per frame; the other surfaces show the tint.");
+        }  // !portalViewAll
     }
 
     if (o.type == PrimitiveType::Emitter) {
@@ -4601,7 +4846,29 @@ void App::drawPropertiesWindow() {
             ImGui::DragFloat("Jump speed", &o.playerJumpSpeed, 0.1f, 0.0f, 50.0f, "%.1f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
         }
-        ImGui::TextDisabled("First player in the scene drives the camera in the game.");
+        {
+            // Which player slot this object fills: scene order decides - the
+            // first Player object is P1, the second is P2 (two-player modes,
+            // Preferences > Multiplayer). Any further ones are ignored.
+            int slot = 0, seen = 0;
+            for (const auto& other : project_.objects()) {
+                if (other.type != PrimitiveType::Player) continue;
+                ++seen;
+                if (&other == &o) slot = seen;
+            }
+            if (slot == 1)
+                ImGui::TextDisabled(
+                    "Player 1 (first in the scene) - drives the camera.");
+            else if (slot == 2)
+                ImGui::TextDisabled(
+                    project_.settings.multiplayer != "off"
+                        ? "Player 2 - joins in the two-player modes."
+                        : "Player 2 - inactive until Preferences > Multiplayer "
+                          "is enabled.");
+            else if (slot > 2)
+                ImGui::TextDisabled(
+                    "Extra Player object - the game uses only the first two.");
+        }
         if (o.playerMode == 2)
             ImGui::TextDisabled("Third person: X jumps. The avatar faces where it walks.");
         else
@@ -4619,7 +4886,7 @@ void App::drawPropertiesWindow() {
                     ? "<none>"
                     : std::filesystem::path(o.modelPath).filename().string();
             if (ImGui::BeginCombo("Model", current.c_str())) {
-                const std::vector<std::string> anim = listAssetFiles("models", ".glb");
+                const std::vector<std::string> anim = listAnimatedModelFiles();
                 for (const std::string& m : anim) {
                     const std::string rel = "res/models/" + m;
                     if (ImGui::Selectable((m + " (animated)").c_str(),
@@ -4635,21 +4902,21 @@ void App::drawPropertiesWindow() {
                 }
                 if (anim.empty())
                     ImGui::TextDisabled(
-                        "No animated .glb models - Import one in Project > Assets.");
+                        "No animated models (.glb/.fbx) - Import one in Project > Assets.");
                 ImGui::EndCombo();
             }
             if (o.modelPath.empty()) {
                 ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
-                                   "Pick an animated .glb - the avatar is invisible\n"
+                                   "Pick an animated .glb/.fbx - the avatar is invisible\n"
                                    "without one (only the camera moves).");
             } else if (!isAnimatedModelPath(o.modelPath)) {
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                                   "Third-person bodies must be an animated .glb.");
+                                   "Third-person bodies must be an animated model (.glb/.fbx).");
             } else {
                 const GlbInfo& info = glbInfo(o.modelPath);
                 if (!info.ok) {
                     ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                                       "Unusable .glb: %s", info.error.c_str());
+                                       "Unusable model: %s", info.error.c_str());
                 } else {
                     ImGui::TextDisabled("%d verts, %d clip(s)", info.vertexCount,
                                         (int)info.clips.size());
@@ -4691,6 +4958,10 @@ void App::drawPropertiesWindow() {
                     ImGui::TextDisabled(
                         "Clip auto-selected from real speed; a script/flow\n"
                         "\"Play Animation\" one-shot plays to the end first.");
+                    // Each Player object carries its own LOD overrides - in a
+                    // two-player scene that gives P1 and P2 independent
+                    // avatar LOD settings.
+                    committed |= drawLodOverrides(o);
                 }
             }
 
@@ -4875,7 +5146,8 @@ void App::drawMultiProperties() {
             shape || o.type == PrimitiveType::Model || o.type == PrimitiveType::SavePoint;
         const bool empty = o.type == PrimitiveType::Empty;
         const bool decal = o.type == PrimitiveType::Decal;
-        const bool mirror = o.type == PrimitiveType::Mirror;
+        const bool mirror =
+            o.type == PrimitiveType::Mirror || o.type == PrimitiveType::Portal;
         // Detail (segments/subdivisions) exists for the curved/box-like
         // primitives (SavePoint tessellates as a Box), not for the flat Plane.
         const bool hasDetail = o.type == PrimitiveType::Box ||
@@ -5038,7 +5310,7 @@ void App::drawMultiProperties() {
         multiDragF("Draw distance", &SceneObject::drawDistance, 0.5f, 0.0f, 2000.0f,
                    "%.0f units");
         multiCheck("Show in reflections", &SceneObject::reflected);
-        multiCheck("Physics (falls with gravity)", &SceneObject::physics);
+        multiCheck("Physics (rigid body)", &SceneObject::physics);
         if (!anySavePoint)
             multiCheck("Usable (USE prompt + On Used)", &SceneObject::usable);
         if (allModel) {
@@ -5092,6 +5364,55 @@ void App::drawMultiProperties() {
         return;
     }
     if (committed) commitChange();
+}
+
+// Per-object LOD override rows (animated models + player avatars). Each
+// checkbox flips between "use the project preference" (-1, the default) and
+// an explicit per-object distance; dragging the value to 0 turns that LOD
+// off for this object entirely.
+bool App::drawLodOverrides(SceneObject& o) {
+    bool committed = false;
+    auto row = [&](const char* label, float& v, float projectDefault) {
+        bool ov = v >= 0.0f;
+        const std::string cb = std::string("Override ") + label;
+        if (ImGui::Checkbox(cb.c_str(), &ov)) {
+            v = ov ? (projectDefault > 0.0f ? projectDefault : 30.0f) : -1.0f;
+            committed = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Unchecked = the project preference applies\n"
+                              "(Preferences > Rendering). Checked = this\n"
+                              "object uses its own distance; 0 disables the\n"
+                              "LOD for it.");
+        if (ov) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(scaled(110));
+            float shown = v;
+            if (ImGui::DragFloat((std::string("##ovr") + label).c_str(), &shown,
+                                 0.5f, 0.0f, 2000.0f,
+                                 shown <= 0.0f ? "off" : "%.0f units")) {
+                v = shown < 0.0f ? 0.0f : shown;
+            }
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+    };
+    row("animation LOD", o.animLodOverride, project_.settings.animLodDistance);
+    row("mesh LOD", o.meshLodOverride, project_.settings.meshLodDistance);
+
+    // Content-forward correction: a model authored facing +-X (instead of
+    // the +Z the avatar drive / AI turn-to-face expect) renders turned by
+    // this many degrees while every logic yaw stays pure. Applied between
+    // scale and rotation, mirrored in the viewport preview.
+    ImGui::SetNextItemWidth(scaled(110));
+    ImGui::DragFloat("Model yaw offset", &o.modelYawOffset, 1.0f, -180.0f,
+                     180.0f, "%.0f deg");
+    committed |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Model faces sideways in game? The content was authored\n"
+            "X-forward (common Blender habit: facing the red axis).\n"
+            "Set +90 or -90 - the mesh turns, facing logic stays intact.");
+    return committed;
 }
 
 // Class names registered with TYRA_OBJECT_SCRIPT(...) across src/scripts,
@@ -5252,6 +5573,17 @@ void App::drawFlowGraphWindow() {
                 "Install the Tyra extension (.flownode/.screenfx highlighting)\n"
                 "into VS Code. Reload the VS Code window afterwards.");
         ImGui::EndPopup();
+    }
+
+    // AI generation: describe the logic, get a graph (aigen.hpp). The modal
+    // pins the target object now - selection changes must not retarget an
+    // in-flight request.
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Generate with AI...")) {
+        aiGenTargetObject_ = flowGraphObject_;
+        aiGenError_.clear();
+        aiGenWarnings_.clear();
+        openAiGeneratePopup_ = true;
     }
 
     SceneObject& owner = project_.objects()[flowGraphObject_];
@@ -5463,7 +5795,7 @@ void App::drawFlowGraphWindow() {
                 }
                 ImGui::EndCombo();
             }
-        } else if (n.type == "PlayAnimation") {
+        } else if (n.type == "Animation") {
             // Clip picker when the resolved target is an animated .glb model
             // (explicit object wired/named, or self); free text otherwise.
             const int target = uiResolveTarget(n);
@@ -5498,10 +5830,22 @@ void App::drawFlowGraphWindow() {
                 ImGui::TextDisabled("Target is not an animated\n.glb - type the clip name.");
             }
         } else if (t->strKind == FlowParamKind::Text) {
+            // Patrol Waypoints repurposes the text param as the waypoint
+            // name prefix (the target NPC comes from the object link / self).
+            const bool patrol = n.type == "PatrolWaypoints";
             char buf[128];
             std::snprintf(buf, sizeof(buf), "%s", n.str.c_str());
-            if (ImGui::InputText("Text", buf, sizeof(buf))) n.str = buf;
+            if (ImGui::InputText(patrol ? "Prefix" : "Text", buf, sizeof(buf)))
+                n.str = buf;
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (patrol) {
+                int count = 0;
+                if (!n.str.empty())
+                    for (const SceneObject& o : project_.objects())
+                        if (o.name.rfind(n.str, 0) == 0) ++count;
+                ImGui::TextDisabled("Route: %s1, %s2, ...\n%d found in this scene",
+                                    n.str.c_str(), n.str.c_str(), count);
+            }
         } else if (t->strKind == FlowParamKind::MusicTrack) {
             const std::string current =
                 n.str.empty() ? "<none>"
@@ -5665,6 +6009,32 @@ void App::drawFlowGraphWindow() {
                     ImGui::TextDisabled("Add texts in\nTools > UI Editor (Texts).");
                 ImGui::EndCombo();
             }
+        } else if (t->strKind == FlowParamKind::FontName) {
+            // Empty = the project's first font (project::defaultFontName), so a
+            // fresh Display Text node draws without picking anything.
+            const std::string cur =
+                n.str.empty() ? project_.defaultFontName() : n.str;
+            if (ImGui::BeginCombo("Font", cur.c_str())) {
+                for (const GameFont& gf : project_.fonts) {
+                    if (ImGui::Selectable(gf.name.c_str(), gf.name == cur)) {
+                        n.str = gf.name;
+                        changed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Fonts are managed in Tools > Font Manager.\nColor and drop "
+                    "shadow come from the font entry.");
+            // str2 = a static prefix in front of the wired text ("Score: " +
+            // a Get Save Value), the way Log Message reads.
+            char pbuf[64];
+            std::snprintf(pbuf, sizeof(pbuf), "%s", n.str2.c_str());
+            if (ImGui::InputText("Prefix", pbuf, sizeof(pbuf))) n.str2 = pbuf;
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
         } else if (t->strKind == FlowParamKind::VarName) {
             char buf[64];
             std::snprintf(buf, sizeof(buf), "%s", n.str.c_str());
@@ -5737,11 +6107,13 @@ void App::drawFlowGraphWindow() {
                     "(Tools > UI Editor > Depth of field).");
             }
         } else if (n.type == "SetDisplayMode") {
+            // Order = Tyra::DisplayMode enum values (serialized in num[0]).
             const char* modes[] = {"Interlaced (480i/576i)",
-                                   "Progressive (480p)", "1080i"};
+                                   "Progressive (480p)", "1080i",
+                                   "Field rendering (480i/576i)"};
             int mode = (int)n.num[0];
-            mode = mode < 0 ? 0 : mode > 2 ? 2 : mode;
-            if (ImGui::Combo("Mode", &mode, modes, 3)) {
+            mode = mode < 0 ? 0 : mode > 3 ? 3 : mode;
+            if (ImGui::Combo("Mode", &mode, modes, 4)) {
                 n.num[0] = (float)mode;
                 changed = true;
             }
@@ -5770,12 +6142,38 @@ void App::drawFlowGraphWindow() {
                 ImGui::DragFloat("Exponent", &n.num[2], 0.05f, 1.0f, 6.0f, "%.2f");
                 changed |= ImGui::IsItemDeactivatedAfterEdit();
             }
+        } else if (n.type == "VibratePad") {
+            ImGui::SliderFloat("Big", &n.num[0], 0.0f, 1.0f, "%.2f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            bool small = n.num[1] != 0.0f;
+            if (ImGui::Checkbox("Small", &small)) {
+                n.num[1] = small ? 1.0f : 0.0f;
+                changed = true;
+            }
+            ImGui::DragFloat("Seconds", &n.num[2], 0.05f, 0.0f, 60.0f, "%.2f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::TextDisabled(
+                "Seconds 0 = until the next Vibrate Pad.\n"
+                "Big 0 + Small off stops the vibration.");
+        } else if (n.type == "DisplayText") {
+            // X/Y are a normalized screen position (center anchor), so they need
+            // a much finer step than the generic 0.1 drag.
+            ImGui::DragFloat2("Pos##dyntext", n.num, 0.005f, 0.0f, 1.0f, "%.3f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Size", &n.num[2], 0.2f, 8.0f, 48.0f, "%.0f px");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Seconds", &n.num[3], 0.05f, 0.0f, 60.0f, "%.2f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("0 = stays until the hide pin fires.");
         } else if (t->numKind == FlowParamKind::Color) {
             ImGui::ColorEdit3("Color", n.num, ImGuiColorEditFlags_NoInputs);
             changed |= ImGui::IsItemDeactivatedAfterEdit();
         } else {
             for (int a = firstNum; a < t->numCount; ++a) {
-                const bool isLoop = std::strcmp(t->numLabels[a], "Loop") == 0;
+                const bool isLoop = std::strcmp(t->numLabels[a], "Loop") == 0 ||
+                                    std::strcmp(t->numLabels[a], "Once") == 0 ||
+                                    std::strcmp(t->numLabels[a], "LOS") == 0;
                 const bool isVolume = std::strcmp(t->numLabels[a], "Volume") == 0;
                 const bool isChannel = std::strcmp(t->numLabels[a], "Channel") == 0;
                 if (isChannel) {
@@ -5786,7 +6184,7 @@ void App::drawFlowGraphWindow() {
                     changed |= ImGui::IsItemDeactivatedAfterEdit();
                 } else if (isLoop) {
                     bool loop = n.num[a] != 0.0f;
-                    if (ImGui::Checkbox("Loop", &loop)) {
+                    if (ImGui::Checkbox(t->numLabels[a], &loop)) {
                         n.num[a] = loop ? 1.0f : 0.0f;
                         changed = true;
                     }
@@ -5804,6 +6202,15 @@ void App::drawFlowGraphWindow() {
             ImGui::TextDisabled("Checked every frame - wire the\nbool into On Condition or a gate.");
         if (n.type == "Raycast")
             ImGui::TextDisabled("Casts from the player's eye along\nthe view direction on exec.");
+        if (n.type == "ChasePlayer" || n.type == "FleePlayer" ||
+            n.type == "PatrolWaypoints")
+            ImGui::TextDisabled(
+                "Walks the baked nav grid.\nOne AI state per object -\na new "
+                "command replaces it.");
+        if (n.type == "OnPlayerSeen")
+            ImGui::TextDisabled(
+                "Vision cone from the NPC's\nfacing; LOS: hills block\nsight. "
+                "Bool = seen now.");
         ImGui::PopItemWidth();
         ImGui::PopID();
 
@@ -5850,9 +6257,14 @@ void App::drawFlowGraphWindow() {
                 rightLabel("then", false);
                 ImNodes::EndOutputAttribute();
             } else {
-                ImNodes::BeginInputAttribute(flowInPin(n.id));
-                ImGui::TextUnformatted("> do");
-                ImNodes::EndInputAttribute();
+                // One pin per exec input: a plain action draws the lone
+                // "> do", a merged one a labeled pin per branch (show/hide).
+                const int execIns = t->execInCount < 1 ? 1 : t->execInCount;
+                for (int e = 0; e < execIns; ++e) {
+                    ImNodes::BeginInputAttribute(flowExecInPin(n.id, e));
+                    ImGui::Text("> %s", flowExecInLabel(*t, e));
+                    ImNodes::EndInputAttribute();
+                }
                 if (t->execThrough) {
                     // action that fires its own exec pulse later (Delay)
                     ImNodes::BeginOutputAttribute(flowOutPin(n.id));
@@ -5916,13 +6328,41 @@ void App::drawFlowGraphWindow() {
             ImNodes::Link(l.id, flowTextOutPin(l.fromNode), flowTextInPin(l.toNode));
             ImNodes::PopColorStyle();
         } else {
-            ImNodes::Link(l.id, flowOutPin(l.fromNode), flowInPin(l.toNode));
+            ImNodes::Link(l.id, flowOutPin(l.fromNode),
+                          flowExecInPin(l.toNode, l.toPin));
         }
     }
 
     ImNodes::MiniMap(0.15f, ImNodesMiniMapLocation_BottomRight);
     const bool editorHovered = ImNodes::IsEditorHovered();
     ImNodes::EndNodeEditor();
+
+    // Rest the mouse on a node to get its description (FlowNodeType::desc -
+    // the same text the add-menu tooltips and the AI catalog use). Delayed so
+    // it never flickers while wiring/dragging; any mouse button suppresses it.
+    {
+        int hovered = -1;
+        if (ImNodes::IsNodeHovered(&hovered) && !ImGui::IsAnyMouseDown()) {
+            if (hovered != flowDescNode_) {
+                flowDescNode_ = hovered;
+                flowDescSince_ = ImGui::GetTime();
+            } else if (ImGui::GetTime() - flowDescSince_ > 0.6) {
+                const FlowNodeType* ht = nullptr;
+                for (const FlowNode& n : fg.nodes)
+                    if (n.id == hovered) ht = flowNodeType(n.type);
+                if (ht && ht->desc && *ht->desc) {
+                    ImGui::BeginTooltip();
+                    ImGui::PushTextWrapPos(scaled(340.0f));
+                    ImGui::TextUnformatted(ht->title);
+                    ImGui::TextDisabled("%s", ht->desc);
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndTooltip();
+                }
+            }
+        } else {
+            flowDescNode_ = -1;
+        }
+    }
 
     nstyle = savedStyle;
     ImGui::PopStyleVar(3);
@@ -5959,15 +6399,18 @@ void App::drawFlowGraphWindow() {
     // New link dragged between pins. Pin kinds by id (pin % 16): 0 = object
     // in, 1 = exec out, 2 = exec in, 3 = object out, 4 = position in,
     // 5 = position out, 6 = bool in, 7 = bool out, 8 = text in,
-    // 9 = text out; node = pin / 16.
+    // 9 = text out, 10..15 = the node's 2nd..7th exec in; node = pin / 16.
     int startPin = 0, endPin = 0;
     if (ImNodes::IsLinkCreated(&startPin, &endPin)) {
         const int a = startPin % 16, b = endPin % 16;
         int outPin = -1, inPin = -1;
         int kind = FlowLinkExec;
-        if ((a == 1 && b == 2) || (a == 2 && b == 1)) {
+        int toPin = 0;  // which exec input of the target the link fires
+        const int aExec = flowExecInIndex(a), bExec = flowExecInIndex(b);
+        if ((a == 1 && bExec >= 0) || (aExec >= 0 && b == 1)) {
             outPin = a == 1 ? startPin : endPin;
-            inPin = a == 2 ? startPin : endPin;
+            inPin = a == 1 ? endPin : startPin;
+            toPin = a == 1 ? bExec : aExec;
         } else if ((a == 3 && b == 0) || (a == 0 && b == 3)) {
             outPin = a == 3 ? startPin : endPin;
             inPin = a == 0 ? startPin : endPin;
@@ -5990,6 +6433,7 @@ void App::drawFlowGraphWindow() {
             l.fromNode = outPin / 16;
             l.toNode = inPin / 16;
             l.kind = kind;
+            l.toPin = toPin;
             if (kind == FlowLinkObject || kind == FlowLinkPos) {
                 // a node takes its object/position from at most one link
                 // (bool-in and text-in pins fold over several links - keep them)
@@ -5997,10 +6441,12 @@ void App::drawFlowGraphWindow() {
                     if (fg.links[i].kind == kind && fg.links[i].toNode == l.toNode)
                         fg.links.erase(fg.links.begin() + i);
             }
+            // toPin is part of the identity: the same trigger may drive two
+            // different branches of one merged node.
             bool duplicate = false;
             for (const FlowLink& e : fg.links)
                 duplicate |= (e.kind == l.kind && e.fromNode == l.fromNode &&
-                              e.toNode == l.toNode);
+                              e.toNode == l.toNode && e.toPin == l.toPin);
             if (!duplicate) {
                 l.id = fg.nextId++;
                 fg.links.push_back(l);
@@ -6126,7 +6572,12 @@ void App::drawFlowGraphWindow() {
                     if (std::string(t.key) == "EverySeconds") n.num[0] = 1.0f;
                     if (std::string(t.key) == "Delay") n.num[0] = 1.0f;  // seconds
                     if (std::string(t.key) == "MoveObjectTo") n.num[3] = 2.0f;  // speed
-                    if (std::string(t.key) == "PlayAnimation") n.num[1] = 1.0f;  // speed
+                    if (std::string(t.key) == "Animation") n.num[1] = 1.0f;  // speed
+                    if (std::string(t.key) == "DisplayText") {
+                        n.num[0] = 0.5f;   // centered
+                        n.num[1] = 0.85f;  // near the bottom, like a subtitle
+                        n.num[2] = 16.0f;  // size in px
+                    }
                     if (std::string(t.key) == "PlayMusic") {
                         n.num[0] = 80.0f;  // volume
                         n.num[1] = 1.0f;   // loop
@@ -6145,6 +6596,10 @@ void App::drawFlowGraphWindow() {
                         n.num[2] = 1.0f;   // amount (num[3] mode: 0 = set)
                     }
                     if (std::string(t.key) == "SetStickCurve") n.num[2] = 2.0f;  // exponent
+                    if (std::string(t.key) == "VibratePad") {
+                        n.num[0] = 1.0f;  // big motor at full
+                        n.num[2] = 0.5f;  // a short kick by default
+                    }
                     if (std::string(t.key) == "PlaySound") {
                         n.num[0] = 100.0f;  // volume
                         n.num[1] = -1.0f;   // channel: auto
@@ -6153,6 +6608,17 @@ void App::drawFlowGraphWindow() {
                     fg.nodes.push_back(n);
                     ImNodes::SetNodeScreenSpacePos(n.id, clickPos);
                     changed = true;
+                }
+                // The node's registry description doubles as its add-menu
+                // tooltip (FlowNodeType::desc - custom nodes fill it from
+                // their `desc =` header key).
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) &&
+                    t.desc && *t.desc) {
+                    ImGui::BeginTooltip();
+                    ImGui::PushTextWrapPos(scaled(340.0f));
+                    ImGui::TextUnformatted(t.desc);
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndTooltip();
                 }
             }
             ImGui::EndMenu();
@@ -6299,7 +6765,12 @@ const App::HudTexture* App::builtinUseTexture() {
 // A HUD text as a GL texture for the viewport overlay, re-baked when its
 // content changes (keyed by name; a handful of small textures at most).
 const App::HudTexture* App::hudTextTexture(const HudText& t) {
-    const std::string key = t.text + "\x1f" + t.fontPath + "\x1f" +
+    // The font reference alone is not enough: re-pointing that entry at another
+    // TTF changes the bake without touching the text, so the source path is
+    // part of the key too.
+    const GameFont* gf = project_.findFont(t.font);
+    const std::string key = t.text + "\x1f" + t.font + "\x1f" +
+                            (gf ? gf->fontPath : std::string()) + "\x1f" +
                             std::to_string(t.size) + "\x1f" +
                             std::to_string(t.shadow) + "\x1f" +
                             std::to_string(t.color[0]) + "," +
@@ -6309,7 +6780,7 @@ const App::HudTexture* App::hudTextTexture(const HudText& t) {
     if (entry.tex && entry.key == key) return &entry.hud;
     std::vector<unsigned char> rgba;
     int w = 0, h = 0;
-    if (!menubake::bakeTextRGBA(t, project_.dir, rgba, w, h)) return nullptr;
+    if (!menubake::bakeTextRGBA(t, project_, rgba, w, h)) return nullptr;
     if (!entry.tex) glGenTextures(1, &entry.tex);
     glBindTexture(GL_TEXTURE_2D, entry.tex);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE,
@@ -6324,13 +6795,13 @@ const App::HudTexture* App::hudTextTexture(const HudText& t) {
 // Shared TTF picker combo (menus, HUD texts): default chain / fonts imported
 // into the project (res/fonts) / a curated set of stock Windows fonts
 // (existence-checked) / import a new TTF. Returns true when fontPath changed.
-bool App::fontCombo(std::string& fontPath) {
+bool App::fontSourceCombo(std::string& fontPath) {
     bool changed = false;
     std::string current = "Default (Consolas Bold)";
     if (!fontPath.empty())
         current = std::filesystem::path(fontPath).filename().string();
-    ImGui::SetNextItemWidth(200.0f);
-    if (ImGui::BeginCombo("Font", current.c_str())) {
+    ImGui::SetNextItemWidth(scaled(200.0f));
+    if (ImGui::BeginCombo("Source", current.c_str())) {
         if (ImGui::Selectable("Default (Consolas Bold)", fontPath.empty())) {
             fontPath.clear();
             changed = true;
@@ -6404,10 +6875,266 @@ bool App::fontCombo(std::string& fontPath) {
     ImGui::SameLine();
     ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Rasterized at build time - any TTF works, nothing\n"
-                          "ships to the PS2 but pixels. Project fonts\n"
-                          "(res/fonts) travel with the project; Windows fonts\n"
-                          "depend on this machine.");
+        ImGui::SetTooltip("Fonts imported into the project (res/fonts) travel\n"
+                          "with it; Windows fonts depend on this machine.\n"
+                          "Only the rasterized pixels ever reach the PS2 -\n"
+                          "the TTF itself never ships.");
+    return changed;
+}
+
+std::string App::ensureFontForPath(const std::string& relPath) {
+    for (const GameFont& f : project_.fonts)
+        if (f.fontPath == relPath) return f.name;
+    std::string base = std::filesystem::path(relPath).stem().string();
+    if (base.empty()) base = "font";
+    std::string name = base;
+    for (int n = 2;; ++n) {
+        bool taken = false;
+        for (const GameFont& f : project_.fonts) taken |= (f.name == name);
+        if (!taken) break;
+        name = base + "-" + std::to_string(n);
+    }
+    GameFont f;
+    f.name = name;
+    f.fontPath = relPath;
+    project_.fonts.push_back(f);
+    return name;
+}
+
+void App::renameFont(int index, const std::string& newName) {
+    if (index < 0 || index >= (int)project_.fonts.size()) return;
+    const std::string oldName = project_.fonts[index].name;
+    if (newName == oldName) return;
+    project_.fonts[index].name = newName;
+
+    // References store the name, so follow it everywhere. An empty reference
+    // means "the default entry" and must stay empty - rewriting it would pin
+    // the text to a name and break that fallback.
+    auto follow = [&](std::string& ref) {
+        if (ref == oldName) ref = newName;
+    };
+    for (HudText& t : project_.hudTexts) follow(t.font);
+    for (LoadingScreenDef& ls : project_.loadingScreens)
+        for (HudText& t : ls.texts) follow(t.font);
+    for (GameMenu& m : project_.menus) follow(m.font);
+    for (SceneData& sc : project_.scenes)
+        for (SceneObject& o : sc.objects)
+            for (FlowNode& fn : o.flowGraph.nodes) {
+                const FlowNodeType* ft = flowNodeType(fn.type);
+                if (ft && ft->strKind == FlowParamKind::FontName) follow(fn.str);
+            }
+}
+
+// Tools > Font Manager: the project's typefaces. Every text (HUD texts, menus,
+// loading screens, Display Text nodes) names one of these, so restyling a
+// project is an edit here rather than a hunt through every text.
+//
+// fonts[0] is the fallback for unset references, which is why the last entry
+// can never be deleted.
+void App::drawFontManagerWindow() {
+    if (!showFontManager_ || !hasProject_) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(600.0f), scaled(440.0f)),
+                             ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Font Manager", &showFontManager_)) {
+        ImGui::End();
+        return;
+    }
+    if (project_.fonts.empty()) project_.fonts.push_back(GameFont{});
+    if (fontSel_ < 0 || fontSel_ >= (int)project_.fonts.size()) fontSel_ = 0;
+
+    bool changed = false;
+
+    ImGui::BeginChild("fontlist", ImVec2(scaled(170.0f), 0), true);
+    for (size_t i = 0; i < project_.fonts.size(); ++i) {
+        ImGui::PushID((int)i);
+        std::string label = project_.fonts[i].name;
+        if (i == 0) label += "  [default]";
+        if (ImGui::Selectable(label.c_str(), fontSel_ == (int)i))
+            fontSel_ = (int)i;
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
+
+    ImGui::BeginGroup();
+    GameFont& f = project_.fonts[fontSel_];
+    {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%s", f.name.c_str());
+        ImGui::SetNextItemWidth(scaled(200.0f));
+        if (ImGui::InputText("Name", buf, sizeof(buf))) {
+            std::string want = buf;
+            // Names are the reference key, so they must stay unique and
+            // non-empty; a clash would silently redirect other texts here.
+            bool clash = want.empty();
+            for (size_t i = 0; i < project_.fonts.size(); ++i)
+                if ((int)i != fontSel_ && project_.fonts[i].name == want)
+                    clash = true;
+            if (!clash) renameFont(fontSel_, want);
+        }
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+    }
+    changed |= fontSourceCombo(f.fontPath);
+    if (ImGui::ColorEdit3("Color##font", f.color, ImGuiColorEditFlags_NoInputs))
+        changed = true;
+    ImGui::SameLine();
+    ImGui::TextDisabled("(Display Text only)");
+    if (ImGui::Checkbox("Drop shadow##font", &f.shadow)) changed = true;
+    ImGui::SameLine();
+    ImGui::TextDisabled("(Display Text only)");
+
+    // Everything below only matters to a font a Display Text node draws with -
+    // static text never touches the atlas.
+    const std::vector<int> atlasFonts = project_.atlasFontIndices();
+    const bool usedDynamically =
+        std::find(atlasFonts.begin(), atlasFonts.end(), fontSel_) !=
+        atlasFonts.end();
+
+    ImGui::SeparatorText("Glyph atlas");
+    if (!usedDynamically) {
+        ImGui::TextDisabled(
+            "No Display Text node uses this font, so no atlas is\n"
+            "baked and nothing ships to the PS2. Static texts\n"
+            "rasterize straight from the TTF at build.");
+    }
+    ImGui::SetNextItemWidth(scaled(120.0f));
+    if (ImGui::DragInt("Atlas size", &f.atlasSize, 0.2f, 8, 48, "%d px"))
+        f.atlasSize = f.atlasSize < 8 ? 8 : f.atlasSize > 48 ? 48 : f.atlasSize;
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Height the glyphs are rasterized at. Display Text\n"
+                          "scales from this, so it trades sharpness against\n"
+                          "VRAM - not the on-screen size.");
+    {
+        const char* kQuant[] = {"4bit", "8bit", "none"};
+        int qi = f.quant == "8bit" ? 1 : f.quant == "none" ? 2 : 0;
+        ImGui::SetNextItemWidth(scaled(120.0f));
+        if (ImGui::Combo("Atlas colors", &qi, kQuant, 3)) {
+            f.quant = kQuant[qi];
+            changed = true;
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Palette depth of the baked atlas. Glyphs bake white and\n"
+                "are tinted at runtime, so 16 colors is normally plenty -\n"
+                "and roughly 8x cheaper in VRAM than full color.");
+    }
+
+    // Atlas footprint: the PS2 has ~1.33 MB of texture VRAM once the frame and
+    // z buffers are placed, and a resident atlas never leaves it, so show the
+    // real cost rather than let it surprise someone on hardware.
+    //
+    // Cached on the bake-affecting fields: atlasLayout measures all 95 glyphs
+    // (stbtt box per codepoint), which is not something to redo every frame
+    // just to print one line.
+    {
+        const std::string key = f.fontPath + "\x1f" + std::to_string(f.atlasSize) +
+                                "\x1f" + f.quant;
+        if (key != fontAtlasKey_) {
+            fontAtlasKey_ = key;
+            fontAtlasInfo_.clear();
+            menubake::AtlasLayout lay;
+            if (menubake::atlasLayout(f, project_, lay)) {
+                const int bpp = f.quant == "none" ? 32 : f.quant == "8bit" ? 8 : 4;
+                // +8 KB per allocation (the engine's alignment tax), +CLUT for
+                // the palettized modes.
+                const int kb = (lay.texW * lay.texH * bpp / 8 + 8192 +
+                                (bpp == 32 ? 0 : 8192)) /
+                               1024;
+                char buf[128];
+                std::snprintf(buf, sizeof(buf),
+                              "Atlas: %dx%d, ~%d KB VRAM while shown", lay.texW,
+                              lay.texH, kb);
+                fontAtlasInfo_ = buf;
+                fontAtlasClipped_ = lay.clipped;
+            } else {
+                fontAtlasClipped_ = false;
+            }
+        }
+        if (fontAtlasInfo_.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                               "No usable TTF found for this font.");
+        } else {
+            ImGui::TextUnformatted(fontAtlasInfo_.c_str());
+            if (fontAtlasClipped_)
+                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f),
+                                   "Glyphs past the 512px cap were dropped -\n"
+                                   "lower the atlas size.");
+        }
+    }
+    // Live preview: the exact rasterizer the build uses, so what is on screen
+    // here is what the game gets.
+    {
+        HudText sample;
+        sample.name = "##fontpreview";
+        sample.text = "Sample 0123 gjpq";
+        sample.font = f.name;
+        sample.size = f.atlasSize;
+        sample.shadow = f.shadow;
+        for (int i = 0; i < 3; ++i) sample.color[i] = f.color[i];
+        if (const HudTexture* tex = hudTextTexture(sample))
+            ImGui::Image((ImTextureID)(intptr_t)tex->tex,
+                         ImVec2(scaled((float)tex->w), scaled((float)tex->h)));
+    }
+
+    ImGui::Separator();
+    if (ImGui::Button("+ Add font")) {
+        GameFont nf;
+        std::string base = "font";
+        std::string name = base;
+        for (int n = 2;; ++n) {
+            bool taken = false;
+            for (const GameFont& e : project_.fonts) taken |= (e.name == name);
+            if (!taken) break;
+            name = base + "-" + std::to_string(n);
+        }
+        nf.name = name;
+        project_.fonts.push_back(nf);
+        fontSel_ = (int)project_.fonts.size() - 1;
+        changed = true;
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(project_.fonts.size() <= 1);
+    if (ImGui::Button("Delete font")) {
+        // Texts naming it fall back to the default entry (Project::findFont),
+        // so deleting never breaks a bake.
+        project_.fonts.erase(project_.fonts.begin() + fontSel_);
+        if (fontSel_ >= (int)project_.fonts.size())
+            fontSel_ = (int)project_.fonts.size() - 1;
+        changed = true;
+    }
+    ImGui::EndDisabled();
+    if (project_.fonts.size() <= 1 && ImGui::IsItemHovered())
+        ImGui::SetTooltip("The default font cannot be deleted - it is what\n"
+                          "every unset font reference resolves to.");
+    ImGui::EndGroup();
+
+    if (changed) commitChange();
+    ImGui::End();
+}
+
+// Picks one of the project's Font Manager entries by name. An empty reference
+// means the default entry, so this shows fonts[0] rather than a blank.
+bool App::fontCombo(std::string& fontRef) {
+    bool changed = false;
+    const std::string current =
+        fontRef.empty() ? project_.defaultFontName() : fontRef;
+    ImGui::SetNextItemWidth(scaled(200.0f));
+    if (ImGui::BeginCombo("Font", current.c_str())) {
+        for (const GameFont& gf : project_.fonts) {
+            if (ImGui::Selectable(gf.name.c_str(), gf.name == current)) {
+                fontRef = gf.name;
+                changed = true;
+            }
+        }
+        ImGui::Separator();
+        if (ImGui::Selectable("Manage fonts...")) showFontManager_ = true;
+        ImGui::EndCombo();
+    }
     return changed;
 }
 
@@ -6995,7 +7722,7 @@ void App::drawUiEditorWindow() {
                 t.text = textBuf;
             changed |= ImGui::IsItemDeactivatedAfterEdit();
         }
-        changed |= fontCombo(t.fontPath);
+        changed |= fontCombo(t.font);
         ImGui::SetNextItemWidth(120.0f);
         if (ImGui::DragInt("Font size", &t.size, 0.2f, 8, 48, "%d px"))
             t.size = t.size < 8 ? 8 : t.size > 48 ? 48 : t.size;
@@ -7009,12 +7736,14 @@ void App::drawUiEditorWindow() {
         if (ImGui::Checkbox("Visible at game start", &t.visibleAtStart))
             changed = true;
         ImGui::TextDisabled(
-            "Show/hide from the flow graph: HUD > Show Text (with an\n"
-            "optional auto-hide after N seconds) and Hide Text.");
+            "Show/hide from the flow graph: HUD > Set Text Visible\n"
+            "(the show pin takes an optional auto-hide after N\n"
+            "seconds). This string is baked at build - for one that\n"
+            "changes while the game runs, use a Display Text node.");
 
         // Live preview: the exact sprite the build will bake.
         {
-            std::string key = t.name + "\x1f" + t.text + "\x1f" + t.fontPath +
+            std::string key = t.name + "\x1f" + t.text + "\x1f" + t.font +
                               "\x1f" + std::to_string(t.size) + "\x1f" +
                               std::to_string(t.shadow) + "\x1f" +
                               std::to_string(t.color[0]) + "," +
@@ -7023,7 +7752,7 @@ void App::drawUiEditorWindow() {
             if (key != textPreviewKey_) {
                 std::vector<unsigned char> rgba;
                 int w = 0, h = 0;
-                if (menubake::bakeTextRGBA(t, project_.dir, rgba, w, h)) {
+                if (menubake::bakeTextRGBA(t, project_, rgba, w, h)) {
                     if (!textPreviewTex_) glGenTextures(1, &textPreviewTex_);
                     glBindTexture(GL_TEXTURE_2D, textPreviewTex_);
                     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA,
@@ -7619,7 +8348,7 @@ void App::drawLoadingScreenWindow() {
                 t.text = textBuf;
             changed |= ImGui::IsItemDeactivatedAfterEdit();
         }
-        changed |= fontCombo(t.fontPath);
+        changed |= fontCombo(t.font);
         ImGui::SetNextItemWidth(scaled(120));
         if (ImGui::DragInt("Font size##lstext", &t.size, 0.2f, 8, 48, "%d px"))
             t.size = t.size < 8 ? 8 : t.size > 48 ? 48 : t.size;
@@ -8238,10 +8967,8 @@ void App::handleFileDrop(int count, const char** paths) {
         }
         if (isFont) {
             ++fonts;
-            if (menuTarget) {
-                project_.menus[selectedMenu_].fontPath =
-                    "res/fonts/" + fileName;
-            }
+            const std::string ref = ensureFontForPath("res/fonts/" + fileName);
+            if (menuTarget) project_.menus[selectedMenu_].font = ref;
             continue;
         }
         ++copied;
@@ -11785,9 +12512,11 @@ const OptionBlockSpec kOptionBlocks[] = {
     {"AIM CURVE", MenuEntry::Choice, "opt_stick_curve", 0.0f, MenuEntry::BindStickCurve,
      {"Linear", "Smooth", "Precise"}},
     {"DISPLAY", MenuEntry::Choice, "opt_display", 0.0f, MenuEntry::BindDisplayMode,
-     {"480i", "480p", "1080i"}},
+     {"480i", "480p", "1080i", "480i FIELD"}},
     {"ASPECT", MenuEntry::Toggle, "opt_widescreen", 0.0f, MenuEntry::BindWidescreen,
      {"4:3", "16:9"}},
+    {"PLAYERS", MenuEntry::Choice, "opt_players", 0.0f, MenuEntry::BindPlayerCount,
+     {"1 Player", "2 Players"}},
 };
 constexpr int kOptionBlockCount = (int)(sizeof(kOptionBlocks) / sizeof(kOptionBlocks[0]));
 
@@ -12063,7 +12792,7 @@ void App::drawMenusWindow() {
 
     // Font: default chain / fonts imported into the project / a curated set
     // of stock Windows fonts (existence-checked) / import a new TTF.
-    changed |= fontCombo(m.fontPath);
+    changed |= fontCombo(m.font);
     {
         int sizes[2] = {m.titleSize, m.entrySize};
         ImGui::SetNextItemWidth(scaled(140.0f));
@@ -12329,7 +13058,8 @@ void App::drawMenusWindow() {
             ImGui::SetNextItemWidth(scaled(150.0f));
             if (ImGui::Combo("Bind##optbind", &en.settingBind,
                              "None\0Music volume\0Sound volume\0Deadzone\0"
-                             "Stick curve\0Display mode\0Widescreen\0"))
+                             "Stick curve\0Display mode\0Widescreen\0"
+                             "Player count\0"))
                 changed = true;
             ImGui::SameLine();
             ImGui::TextDisabled("(?)");
@@ -12337,8 +13067,10 @@ void App::drawMenusWindow() {
                 ImGui::SetTooltip(
                     "Drives a built-in setting from this row's option index,\n"
                     "spread evenly across the options: volume 0-100%%, deadzone\n"
-                    "0-0.4, aim curve 1-3, display 480i/480p/1080i, aspect\n"
-                    "4:3/16:9. None = a plain save-value row (flow graphs react).");
+                    "0-0.4, aim curve 1-3, display 480i/480p/1080i/480i FIELD,\n"
+                    "aspect 4:3/16:9, player count 1P/2P (needs a Multiplayer\n"
+                    "mode + a second Player object). None = a plain save-value\n"
+                    "row (flow graphs react).");
             ImGui::Unindent(scaled(46.0f));
         }
         ImGui::PopID();
@@ -12354,11 +13086,13 @@ void App::drawMenusWindow() {
             ImGui::SetTooltip(
                 "Insert a ready-made setting row (backed by a save value):\n"
                 "volume, controller deadzone / aim curve, display mode,\n"
-                "aspect ratio. Restyle and relabel it like any other entry.");
+                "aspect ratio, player count (1P/2P, two-player modes).\n"
+                "Restyle and relabel it like any other entry.");
         if (ImGui::BeginPopup("##optblock")) {
             static const char* kBlockMenu[] = {
                 "Music volume", "Sound volume", "Controller deadzone",
-                "Aim response curve", "Display mode", "Widescreen (aspect)"};
+                "Aim response curve", "Display mode", "Widescreen (aspect)",
+                "Player count (1P/2P)"};
             for (int b = 0; b < kOptionBlockCount; ++b)
                 if (ImGui::Selectable(kBlockMenu[b])) {
                     addOptionBlock(project_, m, b);
@@ -12380,7 +13114,7 @@ void App::drawMenusWindow() {
     {
         std::string key = m.name + "\x1f" + m.title + "\x1f" +
                           std::to_string(m.panelW) + "\x1f" +
-                          std::to_string(m.showTitle) + "\x1f" + m.fontPath +
+                          std::to_string(m.showTitle) + "\x1f" + m.font +
                           "\x1f" + std::to_string(m.titleSize) + "|" +
                           std::to_string(m.entrySize) + "\x1f" +
                           std::to_string(m.accent[0]) + "," +
@@ -12402,7 +13136,7 @@ void App::drawMenusWindow() {
         if (key != menuPreviewKey_) {
             std::vector<unsigned char> rgba;
             int w = 0, h = 0;
-            if (menubake::bakePanelRGBA(m, project_.dir, rgba, w, h)) {
+            if (menubake::bakePanelRGBA(m, project_, rgba, w, h)) {
                 // Composite each Toggle/Choice row's initial option label
                 // where the game draws the value strip cell.
                 std::vector<int> current(m.entries.size(), 0);
@@ -12410,7 +13144,7 @@ void App::drawMenusWindow() {
                     for (const SaveValue& sv : project_.saveValues)
                         if (sv.name == m.entries[e].param)
                             current[e] = (int)sv.value;
-                menubake::overlayValuePreview(m, project_.dir, current, rgba, w, h);
+                menubake::overlayValuePreview(m, project_, current, rgba, w, h);
                 if (!menuPreviewTex_) glGenTextures(1, &menuPreviewTex_);
                 glBindTexture(GL_TEXTURE_2D, menuPreviewTex_);
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA,
@@ -12420,7 +13154,7 @@ void App::drawMenusWindow() {
                 menuPreviewW_ = w;
                 menuPreviewH_ = h;
                 const menubake::PanelLayout lay =
-                    menubake::panelLayout(m, project_.dir);
+                    menubake::panelLayout(m, project_);
                 menuPreviewContentH_ = lay.contentH;
                 menuPreviewClipped_ = lay.clipped;
             }
@@ -13786,6 +14520,17 @@ void App::drawNewProjectModal() {
             "FPP (a single player entity)"};
         ImGui::Combo("Preset", &newTemplate_, presetNames, 2);
 
+        ImGui::SeparatorText("AI support");
+        ImGui::Checkbox("Claude Code", &newAiClaude_);
+        ImGui::SameLine();
+        ImGui::Checkbox("GitHub Copilot", &newAiCopilot_);
+        ImGui::TextDisabled(
+            "Copies assistant guides into the project (.claude/skills/ +\n"
+            "CLAUDE.md, .github/copilot-instructions.md): how the project is\n"
+            "structured, flow graphs, custom scripts and the editor's CLI -\n"
+            "so an AI assistant opened in the project knows what it is doing.\n"
+            "Can also be added later in Project > Preferences.");
+
         ImGui::TextDisabled("Creates: %s\\%s", newLocation_, newName_);
         ImGui::TextDisabled("Default scene \"main\" with a flat %d x %d terrain.%s", newWidth_,
                             newDepth_,
@@ -13801,6 +14546,9 @@ void App::drawNewProjectModal() {
             const char* preset = newTemplate_ == 1 ? "fpp" : "empty";
             std::string err = project::create(p, newName_, newLocation_, t, preset);
             if (err.empty()) {
+                if (newAiClaude_ || newAiCopilot_)
+                    statusMessage_ =
+                        aisupport::install(p.dir, newAiClaude_, newAiCopilot_);
                 project_ = p;
                 hasProject_ = true;
                 applyProjectToViewport();
@@ -14219,22 +14967,32 @@ void App::drawPreferencesModal() {
         "Video signal of the built game (also on exported ISOs). Auto follows\n"
         "the console region. Game speed is normalized - PAL (50 Hz) and NTSC\n"
         "(60 Hz) play at the same wall-clock speed.");
-    int dispMode = prefSettings_.displayMode == "1080i"         ? 2
-                   : prefSettings_.displayMode == "progressive" ? 1
-                                                                : 0;
+    int dispMode = prefSettings_.displayMode == "1080i"              ? 3
+                   : prefSettings_.displayMode == "progressive"      ? 2
+                   : prefSettings_.displayMode == "interlaced-field" ? 1
+                                                                     : 0;
     const char* dispModeNames[] = {"Interlaced (480i/576i)",
+                                   "Interlaced, field rendering (480i/576i)",
                                    "Progressive scan (480p)", "1080i (HD)"};
-    if (ImGui::Combo("Display mode", &dispMode, dispModeNames, 3))
-        prefSettings_.displayMode =
-            dispMode == 2 ? "1080i" : dispMode == 1 ? "progressive" : "interlaced";
+    if (ImGui::Combo("Display mode", &dispMode, dispModeNames, 4))
+        prefSettings_.displayMode = dispMode == 3   ? "1080i"
+                                    : dispMode == 2 ? "progressive"
+                                    : dispMode == 1 ? "interlaced-field"
+                                                    : "interlaced";
     ImGui::TextDisabled(
         "Scan mode of the built game. Interlaced is the stock TV signal and\n"
-        "follows Target system. Progressive (flicker-free 480p) and 1080i\n"
-        "always run at 60 Hz and need component (YPbPr) cables on a real\n"
-        "console - PCSX2 displays every mode. 1080i renders a 448x540 frame\n"
-        "(sharper vertically) and leaves less VRAM for textures. Both can\n"
-        "also be switched at runtime with the Set Display Mode flow node,\n"
-        "which shows a keep-or-revert prompt with an automatic rollback.");
+        "follows Target system; it renders full 512x448 frames and each TV\n"
+        "field shows half the lines of the newest one. Field rendering\n"
+        "sends the same 480i/576i signal but renders a fresh half-height\n"
+        "(512x224) image for EVERY field - 50/60 distinct pictures per\n"
+        "second at full speed, for about half the fill and VRAM cost\n"
+        "(slightly softer static picture). Progressive (flicker-free 480p)\n"
+        "and 1080i always run at 60 Hz and need component (YPbPr) cables on\n"
+        "a real console - PCSX2 displays every mode. 1080i renders a\n"
+        "448x540 frame (sharper vertically) and leaves less VRAM for\n"
+        "textures. All can also be switched at runtime with the Set Display\n"
+        "Mode flow node, which shows a keep-or-revert prompt with an\n"
+        "automatic rollback.");
     ImGui::Checkbox("Widescreen (16:9)", &prefSettings_.widescreen);
     ImGui::TextDisabled(
         "Widens the projection so proportions are correct on a 16:9 TV\n"
@@ -14356,6 +15114,14 @@ void App::drawPreferencesModal() {
         "instances farther than this render the reduced meshes. Costs RAM\n"
         "and .tskl size; the editor viewport always shows the full mesh.");
 
+    ImGui::Checkbox("Static object batching", &prefSettings_.staticBatching);
+    ImGui::TextDisabled(
+        "Merges non-moving primitives sharing a material into combined\n"
+        "draw bags at scene load - each separate object costs ~1 ms of\n"
+        "fixed submit overhead per frame on real hardware, batches pay it\n"
+        "once. Objects with physics, scripts, flow-graph references,\n"
+        "save-state or a streaming layer always stay individual.");
+
     // Texture quantization - the PS2-native "compression" (palettized
     // PSMT8/PSMT4 textures). Applied at build time into .res-baked; per
     // model/material overrides live in the Assets section.
@@ -14378,6 +15144,27 @@ void App::drawPreferencesModal() {
     ImGui::TextDisabled("The material's color tints the terrain; its texture (map_Kd),\n"
                         "if any, tiles across it - set the tiling on the material's\n"
                         "texture in the Material Editor. Import .mtl in the Assets section.");
+
+    ImGui::SeparatorText("AI navigation");
+    ImGui::DragFloat("Nav cell size", &prefSettings_.navCellSize, 0.05f, 0.25f,
+                     16.0f, "%.2f units");
+    if (prefSettings_.navCellSize < 0.25f) prefSettings_.navCellSize = 0.25f;
+    ImGui::DragFloat("Max walkable slope", &prefSettings_.navMaxSlope, 0.5f,
+                     1.0f, 89.0f, "%.0f deg");
+    prefSettings_.navMaxSlope = prefSettings_.navMaxSlope < 1.0f ? 1.0f
+                                : prefSettings_.navMaxSlope > 89.0f
+                                    ? 89.0f
+                                    : prefSettings_.navMaxSlope;
+    ImGui::DragFloat("Agent radius", &prefSettings_.navAgentRadius, 0.05f, 0.0f,
+                     4.0f, "%.2f units");
+    if (prefSettings_.navAgentRadius < 0.0f) prefSettings_.navAgentRadius = 0.0f;
+    ImGui::TextDisabled(
+        "The NPC nav grid, baked at build time from the terrain slope and\n"
+        "blocking objects (grid capped at 128x128 cells - big maps get\n"
+        "bigger cells). Agent radius widens every obstacle so NPCs keep\n"
+        "their distance from walls. Used by the AI flow nodes (Patrol /\n"
+        "Chase / Flee); preview with View > Nav Mesh Overlay. Scenes whose\n"
+        "graphs use no AI nodes carry no nav data at all.");
 
     ImGui::SeparatorText("Post effects");
     ImGui::TextDisabled(
@@ -14437,6 +15224,28 @@ void App::drawPreferencesModal() {
         ImGui::DragFloat("Orbit speed", &prefSettings_.orbitSpeed, 0.05f, 0.0f, 10.0f, "%.2f");
     }
 
+    ImGui::SeparatorText("Multiplayer");
+    {
+        int mpMode = prefSettings_.multiplayer == "shared"  ? 1
+                     : prefSettings_.multiplayer == "split" ? 2
+                                                            : 0;
+        const char* mpNames[] = {"Off (single player)", "Shared screen",
+                                 "Split screen (top / bottom)"};
+        if (ImGui::Combo("Two players", &mpMode, mpNames, 3))
+            prefSettings_.multiplayer =
+                mpMode == 1 ? "shared" : mpMode == 2 ? "split" : "off";
+        if (mpMode != 0) {
+            ImGui::Checkbox("Player 2 joins with Start on pad 2",
+                            &prefSettings_.p2JoinOnStart);
+            ImGui::TextDisabled(
+                "Player 2 exists in scenes that contain a SECOND Player object\n"
+                "(the first is P1, the second P2). Shared screen frames both\n"
+                "with one camera; split screen renders each player's own view.\n"
+                "A menu Toggle bound to 'Player count' can also switch 1P/2P\n"
+                "mid-game (Menu Editor > + Option block).");
+        }
+    }
+
     ImGui::SeparatorText("Input");
     ImGui::SliderFloat("Left stick deadzone", &prefSettings_.stickDeadzoneL, 0.0f, 0.9f,
                        "%.2f");
@@ -14489,6 +15298,29 @@ void App::drawPreferencesModal() {
         ImGui::DragFloat("Jump speed (units/s)", &prefSettings_.jumpSpeed, 0.1f, 0.0f, 50.0f,
                          "%.1f");
     ImGui::TextDisabled("Objects with the 'Physics' flag fall; the FPP player jumps with X.");
+
+    ImGui::SeparatorText("AI support");
+    ImGui::TextDisabled(
+        "Copies assistant guides into the project (.claude/skills/ + CLAUDE.md\n"
+        "for Claude Code, .github/copilot-instructions.md for Copilot): the\n"
+        "project structure, flow-graph format, custom scripting and the\n"
+        "editor's headless CLI. Installing again refreshes the files unless\n"
+        "you took ownership (deleted their marker line). Applied immediately\n"
+        "- these are files on disk, not project settings.");
+    {
+        const bool haveClaude = aisupport::installed(project_.dir, "claude");
+        const bool haveCopilot = aisupport::installed(project_.dir, "copilot");
+        if (ImGui::Button(haveClaude ? "Refresh Claude Code files"
+                                     : "Add Claude Code support"))
+            statusMessage_ = aisupport::install(project_.dir, true, false);
+        ImGui::SameLine();
+        if (ImGui::Button(haveCopilot ? "Refresh Copilot files"
+                                      : "Add Copilot support"))
+            statusMessage_ = aisupport::install(project_.dir, false, true);
+        if (haveClaude || haveCopilot)
+            ImGui::TextDisabled("Installed:%s%s", haveClaude ? " Claude Code" : "",
+                                haveCopilot ? " Copilot" : "");
+    }
 
     ImGui::Separator();
     ImGui::TextDisabled(
@@ -14571,11 +15403,65 @@ void App::drawEditorPreferencesModal() {
         "Run on PS2 (F6): the game boots on the console over ethernet with its\n"
         "assets served from this PC - no ISO, no SMB. Leave empty to disable.");
 
+    ImGui::SeparatorText("AI assistant");
+    {
+        const auto ids = aigen::backendIds();
+        if (prefAiBackend_ < 0 || prefAiBackend_ >= (int)ids.size())
+            prefAiBackend_ = 0;
+        if (ImGui::BeginCombo("Backend", aigen::backendLabel(ids[prefAiBackend_]))) {
+            for (int i = 0; i < (int)ids.size(); ++i)
+                if (ImGui::Selectable(aigen::backendLabel(ids[i]),
+                                      prefAiBackend_ == i))
+                    prefAiBackend_ = i;
+            ImGui::EndCombo();
+        }
+        // Model: a dropdown of the backend's known models plus "Custom..." -
+        // picking Custom opens a free-text field, so brand-new models work
+        // the day they ship. "" = the backend's default model.
+        const auto models = aigen::modelPresets(ids[prefAiBackend_]);
+        auto modelLabel = [](const char* m) {
+            return *m ? m : "Backend default";
+        };
+        // A staged model the list doesn't know (hand-typed earlier, or the
+        // backend just changed) can only be shown as Custom.
+        bool listed = false;
+        for (const char* m : models) listed |= (prefAiModel_ == std::string(m));
+        if (!listed) prefAiCustomModel_ = true;
+        if (ImGui::BeginCombo("Model", prefAiCustomModel_
+                                           ? "Custom..."
+                                           : modelLabel(prefAiModel_))) {
+            for (const char* m : models) {
+                const bool sel =
+                    !prefAiCustomModel_ && prefAiModel_ == std::string(m);
+                if (ImGui::Selectable(modelLabel(m), sel)) {
+                    snprintf(prefAiModel_, sizeof(prefAiModel_), "%s", m);
+                    prefAiCustomModel_ = false;
+                }
+            }
+            if (ImGui::Selectable("Custom...", prefAiCustomModel_))
+                prefAiCustomModel_ = true;
+            ImGui::EndCombo();
+        }
+        if (prefAiCustomModel_)
+            ImGui::InputTextWithHint("Model id", "as the backend expects it",
+                                     prefAiModel_, sizeof(prefAiModel_));
+        ImGui::Checkbox("Thinking", &prefAiThinking_);
+        ImGui::TextDisabled(
+            "Backend used by Flow Graph > Generate with AI (and the --ai-graph\n"
+            "CLI). Claude CLI needs 'claude' on PATH, Copilot CLI 'copilot';\n"
+            "the OpenAI API needs the OPENAI_API_KEY environment variable and\n"
+            "uses curl. Thinking = extended reasoning where the backend\n"
+            "supports it (slower, better on tricky logic).");
+    }
+
     ImGui::Separator();
     if (ImGui::Button("Save", ImVec2(scaled(120), 0))) {
         globalEmulatorPath_ = prefEmulatorPath_;
         globalPs2Ip_ = prefPs2Ip_;
         globalDefaultProjectsDir_ = prefDefaultProjectsDir_;
+        globalAi_.backend = aigen::backendIds()[prefAiBackend_];
+        globalAi_.model = prefAiModel_;
+        globalAi_.thinking = prefAiThinking_;
         saveGlobalConfig();
         // Feed the new values into the open project (the Runner's transport).
         if (hasProject_) {
@@ -14586,6 +15472,134 @@ void App::drawEditorPreferencesModal() {
     }
     ImGui::SameLine();
     if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+}
+
+// "Generate with AI" (Flow Graph window). The Generator runs the backend on a
+// worker thread; this modal polls it each frame - spinner + Cancel while busy,
+// then the parsed graph is applied through commitChange (one undo step, so a
+// bad generation is a Ctrl+Z away).
+void App::drawAiGenerateModal() {
+    if (openAiGeneratePopup_) {
+        ImGui::OpenPopup("Generate Flow Graph with AI");
+        openAiGeneratePopup_ = false;
+    }
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(scaled(620), 0), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal("Generate Flow Graph with AI", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+
+    // The target can vanish mid-request (undo, scene switch, delete).
+    const bool targetOk = hasProject_ && aiGenTargetObject_ >= 0 &&
+                          aiGenTargetObject_ < (int)project_.objects().size();
+    if (!targetOk) {
+        if (aiGen_.busy()) aiGen_.cancel();
+        aiGenInFlight_ = false;
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+    SceneObject& owner = project_.objects()[aiGenTargetObject_];
+
+    // Consume a finished request exactly once.
+    if (aiGenInFlight_ && !aiGen_.busy()) {
+        aiGenInFlight_ = false;
+        if (aiGen_.state() == aigen::Generator::State::Success) {
+            FlowGraph fg;
+            aiGenWarnings_.clear();
+            const std::string err =
+                aigen::parseGraph(aiGen_.reply(), fg, &aiGenWarnings_);
+            if (!err.empty()) {
+                aiGenError_ = err;
+            } else {
+                // The reply is always the complete resulting graph - with an
+                // existing graph the model saw it in the prompt and returned
+                // the updated whole (edits, additions and fresh starts all
+                // land the same way).
+                owner.flowGraph = fg;
+                commitChange();
+                // Show the result: focus this object's graph and push the new
+                // node positions into imnodes.
+                flowGraphObject_ = aiGenTargetObject_;
+                flowPositionsApplied_ = false;
+                statusMessage_ = "AI graph: " + std::to_string(fg.nodes.size()) +
+                                 " nodes, " + std::to_string(fg.links.size()) +
+                                 " links -> " + owner.name +
+                                 (aiGenWarnings_.empty()
+                                      ? ""
+                                      : "  [" + aiGenWarnings_ + "]");
+                ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+                return;
+            }
+        } else {
+            aiGenError_ = aiGen_.error();
+        }
+    }
+
+    const bool busy = aiGen_.busy();
+    const bool hasGraph = !owner.flowGraph.empty();
+    ImGui::Text("Graph of: %s", owner.name.c_str());
+    ImGui::TextDisabled(
+        "%s%s%s%s - change in Edit > Preferences > AI assistant.",
+        aigen::backendLabel(globalAi_.backend),
+        globalAi_.model.empty() ? "" : ", model ",
+        globalAi_.model.c_str(), globalAi_.thinking ? ", thinking" : "");
+
+    ImGui::BeginDisabled(busy);
+    ImGui::TextUnformatted(hasGraph ? "Describe new logic or a change:"
+                                    : "Describe the logic you want:");
+    ImGui::InputTextMultiline("##aiprompt", aiPromptBuf_, sizeof(aiPromptBuf_),
+                              ImVec2(-FLT_MIN, scaled(110)));
+    if (hasGraph)
+        ImGui::TextDisabled(
+            "The AI sees the current graph and decides from your request\n"
+            "whether to change it, extend it, or rebuild it.");
+    ImGui::EndDisabled();
+
+    if (!aiGenError_.empty() && !busy) {
+        ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + scaled(590));
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s",
+                           aiGenError_.c_str());
+        ImGui::PopTextWrapPos();
+    }
+
+    ImGui::Separator();
+    if (busy) {
+        // Spinner: an arc revolving with time, next to the status text.
+        const float r = scaled(8.0f), thick = scaled(3.0f);
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float t = (float)ImGui::GetTime() * 6.0f;
+        dl->PathArcTo(ImVec2(pos.x + r + thick, pos.y + r + thick), r, t,
+                      t + 4.4f, 24);
+        dl->PathStroke(ImGui::GetColorU32(ImGuiCol_ButtonHovered), 0, thick);
+        ImGui::Dummy(ImVec2((r + thick) * 2.0f, (r + thick) * 2.0f));
+        ImGui::SameLine();
+        ImGui::Text("Generating...");
+        ImGui::SameLine(0.0f, scaled(20.0f));
+        if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) aiGen_.cancel();
+    } else {
+        const bool emptyPrompt = aiPromptBuf_[0] == '\0';
+        ImGui::BeginDisabled(emptyPrompt);
+        if (ImGui::Button("Generate", ImVec2(scaled(120), 0))) {
+            aiGenError_.clear();
+            aiGenWarnings_.clear();
+            aiGen_.start(globalAi_,
+                         aigen::systemPrompt(project_, aiGenTargetObject_,
+                                             hasGraph ? &owner.flowGraph
+                                                      : nullptr),
+                         aiPromptBuf_);
+            aiGenInFlight_ = true;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Close", ImVec2(scaled(120), 0)))
+            ImGui::CloseCurrentPopup();
+    }
     ImGui::EndPopup();
 }
 

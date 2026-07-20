@@ -65,6 +65,16 @@ class StaPipQBufferRenderer {
   void setVU1Clipping(const bool& enabled);
   const bool& isVU1ClippingEnabled() const { return vu1Clipping; }
 
+  /**
+   * Modified by TyraX: particle billboards. The resident program set has no
+   * room for the billboard family (the VU1-clipping set fills micro memory
+   * to the brim), so the two billboard programs live in their own small
+   * packet and are swapped in when a billboard bag renders - the same
+   * upload mechanism a StaPip<->DynPip pipeline switch uses every frame.
+   * The main set is lazily restored by the next non-billboard bag.
+   */
+  void ensureProgramSet(const bool& billboard);
+
   void flushBuffers();
 
   void clearLastProgramName();
@@ -106,6 +116,10 @@ class StaPipQBufferRenderer {
   StaPipProgramType getDrawProgramTypeByParams(
       const bool& isLightingEnabled, const bool& isTextureEnabled) const;
   packet2_t* programsPacket;
+  // Modified by TyraX: on-demand billboard program set (see
+  // ensureProgramSet).
+  packet2_t* billboardProgramsPacket;
+  bool billboardSetActive = false;
 
   packet2_t** packets;
   StaPipVU1Program** dBufferPrograms;

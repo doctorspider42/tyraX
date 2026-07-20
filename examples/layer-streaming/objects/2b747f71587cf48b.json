@@ -1,0 +1,1 @@
+{ "id": "2b747f71587cf48b", "name": "a-orb", "type": "sphere", "position": [3.5, 1, -16.5], "rotation": [0, 0, 0], "scale": [2, 2, 2], "color": [0.9, 0.3, 0.25], "physics": false, "layer": "building-a" }

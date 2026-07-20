@@ -1,0 +1,1 @@
+{ "id": "c19b40ea83254a40", "name": "sphere-2", "type": "sphere", "position": [-10, 0.201, 10], "rotation": [0, 0, 0], "scale": [1.6, 1.28, 1.6], "color": [0.42, 0.44, 0.46], "physics": false, "detail": 12, "drawDistance": 82 }
