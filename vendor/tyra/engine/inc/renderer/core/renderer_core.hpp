@@ -176,6 +176,16 @@ class RendererCore {
    */
   void applyCustomPostFx(RendererCorePostFx::CustomFxBuild build, void* user);
 
+  /**
+   * TyraX portals: bracket the in-place through-view render (see
+   * RendererCorePostFx::portalMaskBegin/End). Both drain PATH1
+   * unconditionally - this runs MID-frame (more 3D follows), so the
+   * once-per-frame post-fx drain latch must not be set.
+   */
+  void portalViewBegin(int x0, int y0, int x1, int y1);
+  void portalViewEnd(const float* xy, const u32* z, int count, u8 clearR,
+                     u8 clearG, u8 clearB);
+
   /** VSync and swap frame double buffer. */
   void endFrame();
 

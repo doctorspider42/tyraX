@@ -2758,6 +2758,16 @@ void App::addMirror() {
     o.color[0] = 0.62f, o.color[1] = 0.78f, o.color[2] = 0.88f;
     saveAll("Saved");
 }
+void App::addPortal() {
+    addObject(PrimitiveType::Portal);
+    SceneObject& o = project_.objects().back();
+    // a door-sized upright frame at standing height, warm energy tint
+    o.position[1] = 1.2f;
+    o.scale[0] = 1.6f, o.scale[1] = 2.4f, o.scale[2] = 1.0f;
+    o.color[0] = 0.95f, o.color[1] = 0.55f, o.color[2] = 0.2f;
+    o.collisionMode = 2;  // walk-through surface - the teleport is the "wall"
+    saveAll("Saved");
+}
 void App::addSavePoint() {
     addObject(PrimitiveType::SavePoint);
     SceneObject& o = project_.objects().back();
@@ -3473,6 +3483,9 @@ void App::drawAddObjectMenu() {
     }
     if (ImGui::BeginMenu("Gameplay")) {
         if (ImGui::MenuItem("Player")) addObject(PrimitiveType::Player);
+        // Linked pair of surfaces: a live view through to the target portal
+        // plus a walk-through teleport that carries speed and view angle.
+        if (ImGui::MenuItem("Portal")) addPortal();
         if (ImGui::MenuItem("Spawn point")) addObject(PrimitiveType::SpawnPoint);
         if (ImGui::MenuItem("Save point")) addSavePoint();
         // Cutscene Director shot marker (bind camera-track keys to it)
@@ -3929,6 +3942,7 @@ static const char* typeLabel(PrimitiveType t) {
         case PrimitiveType::Empty: return "Empty";
         case PrimitiveType::Camera: return "Camera";
         case PrimitiveType::Mirror: return "Mirror";
+        case PrimitiveType::Portal: return "Portal";
     }
     return "Object";
 }
@@ -3996,6 +4010,13 @@ void App::drawPropertiesWindow() {
                 if (m.type == PrimitiveType::Mirror)
                     for (std::string& t : m.mirrorObjects)
                         if (t == from) t = o.name;
+            // Portal links + view lists likewise.
+            for (SceneObject& m : project_.objects())
+                if (m.type == PrimitiveType::Portal) {
+                    if (m.portalTarget == from) m.portalTarget = o.name;
+                    for (std::string& t : m.portalObjects)
+                        if (t == from) t = o.name;
+                }
         }
     }
 
@@ -4186,16 +4207,19 @@ void App::drawPropertiesWindow() {
     // Mirror: transform places the glass rectangle (+Z = the reflective
     // face), color tints it; the mirror-specific block sits further down.
     const bool isMirror = o.type == PrimitiveType::Mirror;
+    // Portal: transform places the surface (+Z = the visible/entry face),
+    // color tints an inactive surface; the portal block sits further down.
+    const bool isPortal = o.type == PrimitiveType::Portal;
 
     ImGui::DragFloat3("Position", o.position, 0.1f);
     committed |= ImGui::IsItemDeactivatedAfterEdit();
     // custom emitters rotate too - the rotation aims the emission direction
-    if (isSolid || isEmpty || isDecal || isCamera || isMirror ||
+    if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal ||
         (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
         ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
-    if (isSolid || isEmpty || isDecal || isMirror ||
+    if (isSolid || isEmpty || isDecal || isMirror || isPortal ||
         o.type == PrimitiveType::Emitter) {
         ImGui::DragFloat3("Scale", o.scale, 0.05f, 0.01f, 1000.0f);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -4203,8 +4227,9 @@ void App::drawPropertiesWindow() {
     // Color: mesh tint for solids, particle tint for emitters, light color
     // for point lights, marker tint + free per-object parameter for empties,
     // texture tint for decals, marker/frustum tint for camera entities, glass
-    // tint for mirrors. The remaining markers draw in fixed colors.
-    if (isSolid || isEmpty || isDecal || isCamera || isMirror ||
+    // tint for mirrors, inactive-surface tint for portals. The remaining
+    // markers draw in fixed colors.
+    if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal ||
         o.type == PrimitiveType::Emitter || o.type == PrimitiveType::PointLight) {
         ImGui::ColorEdit3("Color", o.color);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -4385,6 +4410,117 @@ void App::drawPropertiesWindow() {
         }
         if (o.mirrorObjects.empty() && !o.mirrorReflectPlayer)
             ImGui::TextDisabled("Nothing listed - the mirror shows only glass.");
+    }
+
+    if (isPortal) {
+        ImGui::SeparatorText("Portal");
+        // Destination link: another Portal in this scene. One-way by design -
+        // point both portals at each other for a two-way door.
+        const std::string current =
+            o.portalTarget.empty() ? "<none>" : o.portalTarget;
+        bool targetExists = false;
+        for (const SceneObject& t : project_.objects())
+            if (t.type == PrimitiveType::Portal && t.name == o.portalTarget)
+                targetExists = true;
+        if (ImGui::BeginCombo("Target portal", current.c_str())) {
+            if (ImGui::Selectable("<none>", o.portalTarget.empty()) &&
+                !o.portalTarget.empty()) {
+                o.portalTarget.clear();
+                committed = true;
+            }
+            for (const SceneObject& t : project_.objects()) {
+                if (t.type != PrimitiveType::Portal || t.name == o.name) continue;
+                if (ImGui::Selectable(t.name.c_str(), t.name == o.portalTarget) &&
+                    o.portalTarget != t.name) {
+                    o.portalTarget = t.name;
+                    committed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (o.portalTarget.empty())
+            ImGui::TextDisabled(
+                "No target - the surface just shows the tint color.");
+        else if (!targetExists)
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                               "Target portal missing - surface inactive.");
+        else {
+            // convenience: make the pair two-way with one click
+            SceneObject* tgt = nullptr;
+            for (SceneObject& t : project_.objects())
+                if (t.type == PrimitiveType::Portal && t.name == o.portalTarget)
+                    tgt = &t;
+            if (tgt && tgt->portalTarget != o.name) {
+                if (ImGui::SmallButton("Link back (make two-way)")) {
+                    tgt->portalTarget = o.name;
+                    committed = true;
+                }
+            } else {
+                ImGui::TextDisabled("Two-way pair (target links back).");
+            }
+        }
+        if (ImGui::Checkbox("Terrain + sky in view", &o.portalShowTerrain))
+            committed = true;
+        if (ImGui::Checkbox("Teleport physics objects", &o.portalTeleportObjects))
+            committed = true;
+        if (ImGui::Checkbox("All objects in view (experimental)",
+                            &o.portalViewAll))
+            committed = true;
+        if (o.portalViewAll) {
+            ImGui::TextDisabled(
+                "Every scene object renders in the through-view (the list\n"
+                "below is ignored). The virtual camera's frustum culling and\n"
+                "draw distances trim the cost, but big scenes pay a second\n"
+                "submission pass - watch the FPS/profiler before shipping.");
+        } else {
+        ImGui::TextUnformatted("Objects visible through:");
+        int removePortalAt = -1;
+        for (size_t i = 0; i < o.portalObjects.size(); ++i) {
+            ImGui::PushID(1000 + (int)i);
+            if (ImGui::SmallButton("x")) removePortalAt = (int)i;
+            ImGui::SameLine();
+            bool exists = false;
+            for (const SceneObject& t : project_.objects())
+                if (t.name == o.portalObjects[i]) { exists = true; break; }
+            if (exists)
+                ImGui::TextUnformatted(o.portalObjects[i].c_str());
+            else
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                   "%s (missing)", o.portalObjects[i].c_str());
+            ImGui::PopID();
+        }
+        if (removePortalAt >= 0) {
+            o.portalObjects.erase(o.portalObjects.begin() + removePortalAt);
+            committed = true;
+        }
+        if (ImGui::BeginCombo("##portalAdd", "+ Add object...")) {
+            for (const SceneObject& t : project_.objects()) {
+                // same set the mirror can reflect: types the game draws as
+                // static geometry (animated models re-pose in the main view
+                // only; through a portal they would show a stale pose)
+                const bool viewable =
+                    t.type == PrimitiveType::Box || t.type == PrimitiveType::Sphere ||
+                    t.type == PrimitiveType::Cylinder ||
+                    t.type == PrimitiveType::Cone || t.type == PrimitiveType::Plane ||
+                    t.type == PrimitiveType::SavePoint ||
+                    t.type == PrimitiveType::Model || t.type == PrimitiveType::Decal;
+                if (!viewable || t.name == o.name) continue;
+                bool listed = false;
+                for (const std::string& n : o.portalObjects)
+                    if (n == t.name) { listed = true; break; }
+                if (listed) continue;
+                if (ImGui::Selectable(t.name.c_str())) {
+                    o.portalObjects.push_back(t.name);
+                    committed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::TextDisabled(
+            "The view renders listed objects (+ terrain/sky above) from the\n"
+            "target's side every frame - keep the list short. One portal\n"
+            "view renders per frame; the other surfaces show the tint.");
+        }  // !portalViewAll
     }
 
     if (o.type == PrimitiveType::Emitter) {
@@ -4830,7 +4966,8 @@ void App::drawMultiProperties() {
             shape || o.type == PrimitiveType::Model || o.type == PrimitiveType::SavePoint;
         const bool empty = o.type == PrimitiveType::Empty;
         const bool decal = o.type == PrimitiveType::Decal;
-        const bool mirror = o.type == PrimitiveType::Mirror;
+        const bool mirror =
+            o.type == PrimitiveType::Mirror || o.type == PrimitiveType::Portal;
         // Detail (segments/subdivisions) exists for the curved/box-like
         // primitives (SavePoint tessellates as a Box), not for the flat Plane.
         const bool hasDetail = o.type == PrimitiveType::Box ||

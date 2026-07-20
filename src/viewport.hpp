@@ -399,6 +399,8 @@ private:
     float terrainKd_[3] = {1.0f, 1.0f, 1.0f};  // terrain material Kd tint
     bool terrainHasMaterial_ = false;  // false = checker greens fallback
     Mesh wireCube_;  // selection outline (unit cube edges)
+    Mesh segment_;   // unit +Z line segment (portal link line)
+    Mesh portalArrow_;  // +Z line arrow: the portal's entry-side marker
     bool usableHighlight_ = false;  // wire box on usable objects
     float usableHighlightCol_[3] = {1.0f, 0.85f, 0.15f};
 

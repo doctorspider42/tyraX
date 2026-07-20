@@ -92,6 +92,15 @@ class RendererCore3D {
    */
   void pushEnvView(const Vec4& position, const Vec4& lookAt,
                    const float& envFov, const float& size);
+
+  /**
+   * Modified by TyraX: portal through-view - swap ONLY the view matrix (the
+   * projection stays the main screen one; the destination renders in-place
+   * into the real framebuffer) and retarget the frustum planes at the
+   * virtual camera. Restore with popEnvView(main camera info).
+   */
+  void pushPortalView(const Vec4& position, const Vec4& lookAt);
+
   void popEnvView(const CameraInfo3D& cameraInfo);
 
  private:

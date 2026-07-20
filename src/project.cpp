@@ -37,6 +37,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Decal: return "decal";
         case PrimitiveType::Camera: return "camera";
         case PrimitiveType::Mirror: return "mirror";
+        case PrimitiveType::Portal: return "portal";
     }
     return "box";
 }
@@ -57,6 +58,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "decal") return PrimitiveType::Decal;
     if (s == "camera") return PrimitiveType::Camera;
     if (s == "mirror") return PrimitiveType::Mirror;
+    if (s == "portal") return PrimitiveType::Portal;
     return PrimitiveType::Box;
 }
 
@@ -377,6 +379,17 @@ static std::string objectJson(const SceneObject& o) {
                 (o.mirrorReflectPlayer ? "true" : "false") + ", \"objects\": [";
         for (size_t i = 0; i < o.mirrorObjects.size(); ++i)
             json += (i ? ", \"" : "\"") + o.mirrorObjects[i] + "\"";
+        json += "] }";
+    }
+    if (o.type == PrimitiveType::Portal) {
+        json += ", \"portal\": { \"target\": \"" + o.portalTarget +
+                "\", \"showTerrain\": " + (o.portalShowTerrain ? "true" : "false") +
+                ", \"teleportObjects\": " +
+                (o.portalTeleportObjects ? "true" : "false") +
+                ", \"viewAll\": " + (o.portalViewAll ? "true" : "false") +
+                ", \"objects\": [";
+        for (size_t i = 0; i < o.portalObjects.size(); ++i)
+            json += (i ? ", \"" : "\"") + o.portalObjects[i] + "\"";
         json += "] }";
     }
     if (o.type == PrimitiveType::Model && isAnimatedModelPath(o.modelPath)) {
@@ -1536,6 +1549,21 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                         o.mirrorObjects.push_back(s.str);
             }
         }
+        if (const auto* pt = jo.find("portal")) {
+            if (const auto* v = pt->find("target")) o.portalTarget = v->stringOr("");
+            if (const auto* v = pt->find("showTerrain"))
+                o.portalShowTerrain = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (const auto* v = pt->find("teleportObjects"))
+                o.portalTeleportObjects = v->boolOr(false);
+            if (const auto* v = pt->find("viewAll"))
+                o.portalViewAll = v->boolOr(false);
+            if (const auto* v = pt->find("objects");
+                v && v->type == json::Value::Type::Array) {
+                for (const auto& s : v->arr)
+                    if (s.type == json::Value::Type::String && !s.str.empty())
+                        o.portalObjects.push_back(s.str);
+            }
+        }
         if (const auto* an = jo.find("anim")) {
             if (const auto* v = an->find("clip")) o.animClip = v->stringOr("");
             if (const auto* v = an->find("autoplay"))
@@ -2671,6 +2699,11 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     for (const auto& n : o.mirrorObjects) fnvMixS(h, n);
     fnvMix(h, o.mirrorReflectPlayer ? 1 : 0);
     fnvMixF(h, o.mirrorOpacity);
+    // Portal parameters live in a baked side table (PORTALS/PORTAL_VIEW_OBJECTS).
+    fnvMixS(h, o.portalTarget);
+    for (const auto& n : o.portalObjects) fnvMixS(h, n);
+    fnvMix(h, (o.portalShowTerrain ? 1 : 0) | (o.portalTeleportObjects ? 2 : 0) |
+                  (o.portalViewAll ? 4 : 0));
     // Build-time-baked transforms: a projected decal's transform IS the
     // projector, a point light's pose/color/falloff is baked into nearby
     // vertex colors. Folding them into the recipe makes any live edit of
@@ -2696,6 +2729,7 @@ bool liveLinkCanSpawnLive(const SceneObject& o) {
     if (o.type == PrimitiveType::PointLight) return false;
     if (o.type == PrimitiveType::Decal && o.decalProject) return false;
     if (o.type == PrimitiveType::Mirror) return false;
+    if (o.type == PrimitiveType::Portal) return false;  // baked PORTALS side table
     if (!o.flowGraph.nodes.empty() || !o.scripts.empty()) return false;
     return true;
 }

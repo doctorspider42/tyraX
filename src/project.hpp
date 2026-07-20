@@ -68,6 +68,16 @@ enum class PrimitiveType {
     // world" is real geometry behind the plane, so build it into a wall (the
     // wall hides the copies outside the frame). See mirrorObjects below.
     Mirror = 15,
+    // Portal: a rectangle (unit XY quad facing +Z, like a mirror) linked to
+    // another Portal in the same scene. The quad shows a live view "through"
+    // to the target: each frame the game renders the target's surroundings
+    // from a second camera (the player camera mapped through the portal pair)
+    // into a small VRAM render target and projects it onto the quad. Walking
+    // into the front face teleports the player to the target portal with
+    // position, view angle and vertical velocity carried through the same
+    // transform - a seamless corridor between two parts of the map. See
+    // portalTarget / portalObjects below and docs/portals.md.
+    Portal = 16,
 };
 
 // Tessellation detail for the geometry primitives, stored per object in
@@ -280,6 +290,30 @@ struct SceneObject {
     bool mirrorReflectPlayer = false;
     float mirrorOpacity = 0.35f;
 
+    // Portal parameters (used when type == Portal). portalTarget names the
+    // destination Portal in the same scene (renames remap; empty or dangling =
+    // inactive: the quad draws as a tinted surface and nothing teleports).
+    // A one-way link - set both portals' targets at each other for a two-way
+    // door. portalObjects is the explicit list of scene objects rendered in
+    // the through-view (the Mirror philosophy: a hard list instead of a
+    // radius, so the second-render cost is always visible to the author);
+    // terrain + sky have their own switch. portalTeleportObjects also carries
+    // physics-enabled objects that cross the plane through to the target.
+    // The shared `color` field tints the surface of an inactive portal and of
+    // the pair member whose view was not rendered this frame (one live view
+    // per frame - the nearest portal facing the camera wins).
+    std::string portalTarget;
+    std::vector<std::string> portalObjects;
+    bool portalShowTerrain = true;
+    bool portalTeleportObjects = false;
+    // Experimental: render EVERY scene object in the through-view instead
+    // of the explicit portalObjects list (which is ignored while this is
+    // on). The virtual camera's frustum culling and each object's draw
+    // distance still trim the cost, but the whole scene is submitted a
+    // second time when this portal's view is live - measure before
+    // shipping. Mirrors' reflections and particles still don't show.
+    bool portalViewAll = false;
+
     // Animated model parameters (Model objects whose modelPath ends in .glb;
     // the editor bakes the file's clips to morph frames - see glbparser.hpp).
     std::string animClip;       // starting clip name ("" = the file's first)
@@ -356,6 +390,11 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.mirrorObjects == b.mirrorObjects &&
            a.mirrorReflectPlayer == b.mirrorReflectPlayer &&
            a.mirrorOpacity == b.mirrorOpacity &&
+           a.portalTarget == b.portalTarget &&
+           a.portalObjects == b.portalObjects &&
+           a.portalShowTerrain == b.portalShowTerrain &&
+           a.portalTeleportObjects == b.portalTeleportObjects &&
+           a.portalViewAll == b.portalViewAll &&
            a.animClip == b.animClip && a.animAutoplay == b.animAutoplay &&
            a.animLoop == b.animLoop && a.animSpeed == b.animSpeed &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts;
