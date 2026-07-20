@@ -26,6 +26,109 @@ Each finished feature lands as its own commit.
   (hidden) mass, while turning physics on or retuning a physics object's
   mass/bounce/friction/tumble changes it - i.e. the chip now flips to amber
   "rebuild" for exactly those edits.
+- (129) **Pickable review fixes: "PICK UP" prompt + no more inserting the
+  carried object into walls (PR #116 comments).** Two owner reports. (1) A
+  pickable target now shows a **PICK UP** prompt instead of USE: new built-in
+  `res/hud/pickup.png` (128x32, style-matched to use.png, written when
+  missing like the other built-in HUD sprites; `pickPromptPng` in
+  templates.cpp), a second sprite at the same UI-Editor placement, picked per
+  frame by the target's `pickable` flag; `PICK_PROMPT_PATH` baked into
+  hud_data.gen.hpp. (2) The carried object could still be parked *inside* a
+  wall by pressing the face against it: the sweep correctly found the wall
+  but the old `minReach` clamp then pushed the object back OUT past it. Now
+  the carry reach follows the third-person boom's policy (springArm, PR
+  #114): the sweep is the law — **snap in** when blocked (down to a
+  `PICK_MIN_DIST` floor that keeps the object's near face off the clip
+  plane), **ease back out** when the wall clears (`carryDist`, seeded with
+  the object's real distance on grab so a close grab reels out instead of
+  popping). On top, a **carry whisker** (`applyCarryWhisker`, called by all
+  three walkers after `collidePlayer`, carrying player only): the same
+  sphere sweep run horizontally from the eye along the yaw pushes the walker
+  back when the carried object no longer fits at its comfort reach in front
+  of the face — pressing "ryjem" into the wall while carrying is simply
+  blocked (the probe is yaw-only on purpose: with pitch in it, looking down
+  would read the terrain as a wall and freeze the walker). Also from the
+  origin/main merge review: `staticBatchEligible` now excludes pickable
+  objects (they move at runtime; demotion-on-dirty would have caught it, but
+  build-time exclusion skips the first-pickup rebuild hitch). Verified:
+  editor builds clean; scratch fpp project with a pickable crate + usable
+  lever emits the right rows (`pickable=1` vs `usable=1`), pickup.png lands
+  in res/hud, whisker call sites in all three walkers, Docker game build
+  compiles. The wall-press feel still wants a hands-on PCSX2 pad test.
+  Second merge of origin/main afterwards brought **rigid-body physics
+  (#97)**, which rewrote `updateObjectPhysics` into a two-pass sim — the
+  carried/thrown skip was re-applied to BOTH passes (pass 1 world
+  integration and pass 2 body-vs-body impulse exchange; the carry owns
+  those positions, so a crate in your hands must not be shoved by a
+  falling one), and the empty-scene placeholder row was reconciled against
+  the merged struct: physics params after `physics`, pickable/pickThrow
+  after `usable` — the documented (113) trap, checked this time by
+  counting columns against the struct (50 = 50 for both real rows and the
+  placeholder). Also from that merge: `vendor/ufbx` is a new dependency
+  (`setup.ps1` re-run needed after pulling #119) and the Properties
+  physics checkbox is now main's "Physics (rigid body)" label.
+
+- (130) **Pickables vs the rigid-body sim: released objects hung in mid-air
+  and throws ignored physics.** Owner report right after the #97 merge: drop
+  a carried crate in the air and it just hangs there; throw it and it flies
+  a flat, lifeless arc. Root cause is the sim's **sleep contract**, which
+  did not exist before #97: a body with `restFrames >= PHYS_SLEEP_FRAMES` is
+  asleep and skips simulation entirely, and a crate picked up off the ground
+  is asleep *by definition* (that is how it was resting). The carry path
+  moved it by writing `data.position` directly and never touched
+  `restFrames`, so on release the sim kept skipping it — it hung exactly
+  where the hands opened. Fix: a single `releaseCarried(o, vx, vy, vz)`
+  hand-off used by every exit from the hands (drop, throw, despawn/hide
+  mid-carry) that sets the velocity and **wakes** the body (`restFrames =
+  0`). The throw is now handed to the real sim instead of the hand-rolled
+  arc, so a thrown crate bounces, rolls and tumbles with its authored
+  mass/bounce/friction — the old manual integration survives only for
+  pickables *without* Physics, which have no sim to hand off to (and, as
+  documented, hover when dropped). Also: carrying zeroes all three velocity
+  components and the spin (the old code zeroed `velocityY` alone — the
+  pre-#97 field), and catching a body mid-flight kills its tumble instead of
+  leaving it spinning in your hands. Verified: editor + Docker game build
+  clean, generated `releaseCarried` wakes on all three exits, scratch crate
+  authored as a real rigid body (`physics=1, pickable=1, pickThrow=1`).
+  Drop/throw *feel* is the hands-on pad test the owner is running.
+
+- (128) **Pickable objects — pick up, carry in front of the face, drop,
+  experimental throw.** New per-object flags `pickable` + `pickThrow` (solid
+  geometry only, save points excluded). Pressing USE on a pickable object
+  grabs it; each frame it rides `PICK_CARRY_DIST` in front of the eye (in
+  third person: in front of the *avatar's head*, the camera pivot — not the
+  camera floating meters behind), positioned by a **sweep** of its own
+  bounding radius against the world, so the carried object keeps colliding
+  with walls/props and can neither be pushed through geometry nor parked
+  behind it — a blocked reach just brings it closer to the face. The sweep is
+  the old camera `springArm` generalized into `sweepSphere(pos, dir, maxDist,
+  radius, skipIndex)` (AABB slab tests + terrain march, unchanged math);
+  `springArm` is now a thin wrapper passing `CAM_RADIUS` + the carried index,
+  so the boom ignores the box hovering at the face. The carrier stops
+  colliding with its cargo both ways (`collidePlayer` skips `carryIndex` —
+  otherwise the player wedges against their own crate) and `updateObjectPhysics`
+  leaves carried/thrown objects alone. USE drops it in place (already a swept,
+  legal spot; with Physics on it falls and rests via the normal path);
+  `BTN_THROW` (Circle) launches it if **Can throw** — integrated under gravity
+  with a per-frame sweep, stopping on the first hit and handing `velocityY`
+  off to regular physics. Picking eats its own USE press (`carryGrabbed`
+  latch — otherwise the same click reads as an instant drop), use-targeting
+  is disabled while hands are full, a pickable+usable object still fires On
+  Used on the grab press, scene switches open the hands, and a
+  despawned/hidden carried object just releases. Tunables as **#defines** in
+  `controls.hpp` (`PICK_CARRY_DIST`/`PICK_THROW_SPEED`/`BTN_THROW`) with
+  `#ifndef` fallbacks in the game cpp so user-owned `controls.hpp` copies
+  from before this feature still build — and their tuning wins when present
+  (that's why defines, not constexpr: `#ifndef` can't see a constexpr).
+  Full chain: fields + `operator==` + JSON save/load + `liveLinkRecipeHash`
+  bits, Properties + multi-select UI, `SceneObjectData` columns (struct doc,
+  row emission AND the empty-scene placeholder row — the documented (113)
+  trap), both loop call sites. Verified: editor builds clean; scratch project
+  with a pickable+throwable crate round-trips `--resave`, row emits
+  `usable=0, pickable=1, pickThrow=1`, Docker build compiles (=== Build OK
+  ===). The grab/carry/throw *feel* needs a hands-on pad test in PCSX2 (not
+  run this session — a PCSX2 instance from a parallel session was live and
+  the Runner would have killed it).
 
 - (113) **Terrain splat painting - paint a blend of terrain layers, drawn as
   two-pass GS splatting.** Terrain used to wear a single tiled material; now a

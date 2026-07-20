@@ -184,6 +184,10 @@ struct SceneObject {
     float physFriction = 0.5f;  // ground drag 0..1: 0 = ice, 1 = sticky
     bool physTumble = true;     // ground contact converts slide into roll/spin
     bool usable = false;      // shows the USE prompt up close; BTN_USE fires On Used
+    bool pickable = false;    // BTN_USE picks it up: carried in front of the
+                              // camera (swept against the world so it cannot
+                              // be pushed through walls), BTN_USE again drops
+    bool pickThrow = false;   // carried object can be thrown with BTN_THROW
     bool saveState = false;   // position/color/visibility persisted in save slots
     // Player collision: 0 = box (models use their real mesh AABB), 1 = mesh
     // (models only: per-triangle - ramps/stairs are walkable), 2 = none
@@ -398,6 +402,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.physics == b.physics && a.physMass == b.physMass &&
            a.physBounce == b.physBounce && a.physFriction == b.physFriction &&
            a.physTumble == b.physTumble && a.usable == b.usable &&
+           a.pickable == b.pickable && a.pickThrow == b.pickThrow &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
            a.layer == b.layer &&
            a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
