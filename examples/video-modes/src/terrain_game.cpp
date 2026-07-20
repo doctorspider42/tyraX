@@ -5,6 +5,7 @@
 #include "scene_data.hpp"
 #include "model_data.gen.hpp"
 #include "hud_data.gen.hpp"
+#include "font_data.gen.hpp"
 #include "loading_data.gen.hpp"
 #include "menu_data.gen.hpp"
 #include "terrain_heights.gen.hpp"
@@ -68,6 +69,11 @@ int g_stickCurveL = 0;
 int g_stickCurveR = 0;
 float g_stickExpL = 2.0F;
 float g_stickExpR = 2.0F;
+
+// Pad vibration auto-stop: > 0 counts down (real seconds, g_frameDt) to a
+// setActuators(false, 0), armed by a Vibrate Pad request with Seconds > 0.
+// Global runtime state - a running countdown survives a scene switch.
+float g_rumbleTimer = 0.0F;
 
 // Last option index a "Display mode" / "Widescreen" menu block applied. Video
 // switches rebuild VRAM + arm the confirm prompt, so they fire only on change
@@ -527,6 +533,78 @@ void drawHudText(Engine* engine, const char* s, float x, float y) {
 
 float hudTextWidth(const char* s) { return (float)strlen(s) * 14.0F; }
 
+/** Runtime text drawn from a Font Manager glyph atlas (Display Text nodes).
+ *
+ * VRAM: the atlas Texture is only handed to the repository the first time this
+ * font actually draws, and the engine only DMAs a texture to GS VRAM on its
+ * first render - so a font nobody displays costs zero VRAM, and one that is
+ * hidden again keeps costing only its EE-side copy. We deliberately never call
+ * useTexture() eagerly here (unlike the streamed model textures), because that
+ * would pin the sheet before anything asked for it. */
+float fontTextWidth(int fontIdx, const char* s, float size) {
+  const FontData& f = FONTS[fontIdx];
+  if (!f.glyphs) return 0.0F;
+  const float k = size / (float)f.baseSize;
+  float w = 0.0F;
+  for (; *s; ++s) {
+    const int gi = (int)(unsigned char)*s - FONT_FIRST_CHAR;
+    if (gi < 0 || gi >= FONT_CHAR_COUNT) continue;
+    w += (float)f.glyphs[gi].adv * k;
+  }
+  return w;
+}
+
+void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
+                  float cy, float size) {
+  const FontData& f = FONTS[fontIdx];
+  if (!f.glyphs || !f.atlas[0]) return;
+
+  // One sprite per font, kept across frames: the texture link is by sprite id,
+  // so every glyph of a font reuses the same id and the same atlas binding.
+  static Sprite glyph[FONT_COUNT > 0 ? FONT_COUNT : 1];
+  static bool ready[FONT_COUNT > 0 ? FONT_COUNT : 1] = {};
+  if (!ready[fontIdx]) {
+    glyph[fontIdx].mode = SpriteMode::MODE_REPEAT;  // sample a sub-rect
+    auto* texture = engine->renderer.getTextureRepository().add(
+        FileUtils::fromCwd(f.atlas));
+    texture->addLink(glyph[fontIdx].id);
+    ready[fontIdx] = true;
+  }
+
+  Sprite& sp = glyph[fontIdx];
+  const float k = size / (float)f.baseSize;
+  sp.scale = k;
+
+  // Center anchor, like the baked HUD text sprites.
+  const float startX = cx - fontTextWidth(fontIdx, s, size) * 0.5F;
+  const float top = cy - (float)f.lineH * k * 0.5F;
+
+  // Shadow first, then the glyphs: two passes over the same cells, the dark
+  // one offset by a pixel (the baked texts get theirs at bake time instead).
+  for (int pass = f.shadow ? 0 : 1; pass < 2; ++pass) {
+    const float ox = pass == 0 ? 1.0F : 0.0F;
+    if (pass == 0)
+      sp.color = Color(10.0F, 12.0F, 16.0F, 100.0F);
+    else
+      sp.color = Color((float)f.r, (float)f.g, (float)f.b, 128.0F);
+
+    float pen = startX;
+    for (const char* c = s; *c; ++c) {
+      const int gi = (int)(unsigned char)*c - FONT_FIRST_CHAR;
+      if (gi < 0 || gi >= FONT_CHAR_COUNT) continue;
+      const FontGlyph& g = f.glyphs[gi];
+      if (g.w > 0 && g.h > 0) {
+        sp.size = Vec2((float)g.w, (float)g.h);
+        sp.offset = Vec2((float)g.u, (float)g.v);
+        sp.position = Vec2(pen + (float)g.xoff * k + ox,
+                           top + (float)g.yoff * k + ox);
+        engine->renderer.renderer2D.render(sp);
+      }
+      pen += (float)g.adv * k;
+    }
+  }
+}
+
 // Debug frame profiler (Project > Preferences > Build > Show frame profiler).
 // renderScene brackets its three heavy phases with EE COP0-timer reads and
 // adds the elapsed ticks here; drawDebugHud averages them over ~1s and prints
@@ -890,6 +968,11 @@ void TerrainGame::init() {
 
   engine->renderer.setClearScreenColor(Color(SKY_R, SKY_G, SKY_B));
 
+  // Two-player modes: open pad 2 (connector 2). Optional - no controller
+  // there never blocks or asserts; it keeps polling so player 2 can plug in
+  // and join mid-game (Start, see the loop).
+  if (MULTIPLAYER_MODE != 0) pad2.initOptional(1);
+
   cameraLookAt = Vec4(0.0F, 0.0F, 0.0F);
   updateCameraOrbit();
 
@@ -937,6 +1020,8 @@ void TerrainGame::init() {
 
 void TerrainGame::loop() {
   updateFrameClock();  // real dt: frame drops slow the picture, not the game
+  // The engine pumps pad 1; pad 2 is ours (optional - polls for a hot-join).
+  if (MULTIPLAYER_MODE != 0) pad2.update();
 
   // Boot sequence (the engine holds the Tyra logo ~2s before this):
   //   phase 0 - boot splash images, each shown for its duration (in order),
@@ -991,12 +1076,27 @@ void TerrainGame::loop() {
   // setting keeps applying, and before applyVideoRequests so a display switch
   // it requests lands this frame.
   applyMenuBindings();
+  // Portal crossing test: the walker's position before this frame's movement
+  const float portalPrevX = players[0].x, portalPrevY = players[0].y,
+              portalPrevZ = players[0].z;
+
+  // Player 2 hot-join: Start on pad 2, any time gameplay owns the pads.
+  // Leaving goes through a menu "Player count" Toggle (setPlayerTwoActive).
+  if (MULTIPLAYER_MODE != 0 && P2_JOIN_ON_START && !menuOwnsPad &&
+      !playerTwoActive && pad2.getClicked().Start)
+    setPlayerTwoActive(true);
   if (!menuOwnsPad) {
     if (!updatePlayerEntity()) updateCameraOrbit();
     updateUseTarget();
   }
 
   scriptCtx.playerPosition = cameraPosition;
+  scriptCtx.player2Active =
+      MULTIPLAYER_MODE != 0 && playerTwoActive && players[1].objIndex >= 0;
+  scriptCtx.player2Position =
+      scriptCtx.player2Active
+          ? Vec4(players[1].x, players[1].y + PP_EYE_HEIGHT(1), players[1].z)
+          : scriptCtx.playerPosition;
   {
     // View direction for the scripts (Raycast flow node)
     Vec4 look = cameraLookAt - cameraPosition;
@@ -1043,19 +1143,38 @@ void TerrainGame::loop() {
   updateLayerStreaming();
 
   // Flow graph / script teleport request (needs a Player entity - the orbit
-  // camera itself is not teleportable)
+  // camera itself is not teleportable). Teleports P1; an active P2 comes
+  // along, dropped a step to the side so the two don't interpenetrate.
   if (scriptCtx.teleport) {
     scriptCtx.teleport = false;
     if (PLAYER_INDEX >= 0) {
-      entX = scriptCtx.teleportPos.x;
-      entY = scriptCtx.teleportPos.y;
-      entZ = scriptCtx.teleportPos.z;
-      entVelY = 0.0F;
-      entYaw = scriptCtx.teleportYaw * PI / 180.0F;
+      players[0].x = scriptCtx.teleportPos.x;
+      players[0].y = scriptCtx.teleportPos.y;
+      players[0].z = scriptCtx.teleportPos.z;
+      players[0].velY = 0.0F;
+      players[0].yaw = scriptCtx.teleportYaw * PI / 180.0F;
+      if (playerTwoActive && players[1].objIndex >= 0) {
+        players[1].x = players[0].x + 1.2F;
+        players[1].z = players[0].z;
+        players[1].y = PP_MODE(1) == 1 ? players[0].y
+                                       : terrainHeightAt(players[1].x, players[1].z);
+        players[1].velY = 0.0F;
+        players[1].yaw = players[0].yaw;
+      }
     }
   }
 
   if (!menuActive) updateObjectPhysics();
+  // Portal surfaces: carry the player / physics objects that crossed a
+  // linked portal through to its target. After the physics step so object
+  // crossings see this frame's motion; on a player hop the camera is
+  // rebuilt inside, so no frame renders from the departure side.
+  if (PORTAL_COUNT > 0 && !menuActive)
+    updatePortals(portalPrevX, portalPrevY, portalPrevZ,
+                  PLAYER_INDEX >= 0 ? &players[0].x : nullptr, &players[0].y,
+                  &players[0].z, &players[0].yaw, &players[0].pitch,
+                  &players[0].velY,
+                  PLAYER_MODE == 1 ? 0.0F : PLAYER_EYE_HEIGHT);
   updateParticles();
   updateSoundEmitters();
 
@@ -1114,6 +1233,24 @@ void TerrainGame::loop() {
     g_stickExpR = scriptCtx.stickExpR;
     scriptCtx.stickExpR = -1.0F;
   }
+  // Pad vibration (Vibrate Pad flow node / padVibrate() in scripts): a
+  // request drives the DualShock actuators; rumbleSec > 0 arms the auto-stop
+  // countdown (0 = vibrate until the next request). The countdown runs even
+  // while a menu pauses the scripts, so a timed rumble always ends.
+  if (scriptCtx.rumble >= 0) {
+    engine->pad.setActuators(scriptCtx.rumbleSmall != 0, (u8)scriptCtx.rumble);
+    g_rumbleTimer = (scriptCtx.rumble > 0 || scriptCtx.rumbleSmall != 0)
+                        ? scriptCtx.rumbleSec
+                        : 0.0F;
+    scriptCtx.rumble = -1;
+  }
+  if (g_rumbleTimer > 0.0F) {
+    g_rumbleTimer -= g_frameDt;
+    if (g_rumbleTimer <= 0.0F) {
+      g_rumbleTimer = 0.0F;
+      engine->pad.setActuators(false, 0);
+    }
+  }
   // Cutscene camera override: a Cutscene Director sequence with a camera track
   // drives the frame camera (Play/Stop Sequence). Applied after scripts so the
   // sequence player (a global Script) has posed the camera for this frame.
@@ -1125,6 +1262,9 @@ void TerrainGame::loop() {
   // (applied after scripts so the sequence player's flag wins).
   if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2)
     runtimeObjects[PLAYER_INDEX].visible = !scriptCtx.hidePlayer;
+  if (players[1].objIndex >= 0 && PP_MODE(1) == 2)
+    runtimeObjects[players[1].objIndex].visible =
+        !scriptCtx.hidePlayer && playerTwoActive;
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
   // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
   // switch rebuilds the VRAM layout between frames. A switch closes any
@@ -1146,7 +1286,37 @@ void TerrainGame::loop() {
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
-    renderScene();
+    // Split screen (two players): the scene renders twice, top half from
+    // P1's camera and bottom half from P2's (players[1].camPos, written by
+    // its walker). A cutscene camera override takes the whole screen. HUD /
+    // menus / post fx stay full-screen, drawn after splitView.end().
+    const bool splitFrame = MULTIPLAYER_MODE == 2 && playerTwoActive &&
+                            players[1].objIndex >= 0 &&
+                            !scriptCtx.cameraOverride;
+    if (splitFrame) {
+      auto& core = engine->renderer.core;
+      splitPassActive = true;
+      core.splitView.begin(0);
+      renderScene();
+      // Swap the whole camera state to P2: renderScene reads cameraPosition
+      // (sky dome centering, LOD, streaming focus), and the renderer needs
+      // the second half's view matrix + frustum planes.
+      const Vec4 savedPos = cameraPosition, savedLook = cameraLookAt;
+      cameraPosition = players[1].camPos;
+      cameraLookAt = players[1].camLook;
+      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
+      core.splitView.begin(1);
+      splitSecondPass = true;  // reuse this frame's anim poses/skins
+      renderScene();
+      splitSecondPass = false;
+      core.splitView.end();
+      cameraPosition = savedPos;
+      cameraLookAt = savedLook;
+      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
+      splitPassActive = false;
+    } else {
+      renderScene();
+    }
     // Depth of field composites right after the 3D scene, BEFORE any 2D:
     // sprites stamp z = max across their whole rect (transparent margins
     // included), which would punch sharp rectangles into a later z-tested
@@ -1170,6 +1340,7 @@ void TerrainGame::loop() {
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
     updateAndRenderHudTexts();
+    updateAndRenderDynTexts();
     // Cutscene Director widescreen bars + fade-to-black: solid quads over the
     // scene and HUD (texts included), under the pause menus (no-op unless a
     // cutscene draws).
@@ -1338,6 +1509,22 @@ void TerrainGame::buildScene() {
     scriptCtx.textRequest = hudTextReq.data();
     scriptCtx.textDuration = hudTextDur.data();
     scriptCtx.textCount = HUD_TEXT_COUNT;
+
+    // Runtime texts (font_data.gen.hpp). Buffers only - no texture is touched
+    // here: a font atlas reaches the repository (and VRAM) on the first frame
+    // a Display Text using it is actually drawn. See drawFontText.
+    dynTextReq.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, -1);
+    dynTextDur.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0.0F);
+    dynTextOn.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0);
+    dynTextTimer.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0.0F);
+    dynTextBuf.assign((DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1) * DYN_TEXT_LEN,
+                      '\0');
+    scriptCtx.dynTextRequest = dynTextReq.data();
+    scriptCtx.dynTextDuration = dynTextDur.data();
+    scriptCtx.dynTextBuf = dynTextBuf.data();
+    scriptCtx.dynTextOn = dynTextOn.data();
+    scriptCtx.dynTextCount = DYN_TEXT_COUNT;
+    scriptCtx.dynTextLen = DYN_TEXT_LEN;
     if (TITLE_MENU >= 0) {
       gameMenuIndex = TITLE_MENU;
       gameMenuCursor = 0;
@@ -1756,16 +1943,24 @@ void TerrainGame::updateLayerStreaming() {
   // scripts can still override a zone until the next crossing. The unload
   // edge sits a hysteresis band beyond the radius - pacing along the border
   // doesn't thrash. Focus = cameraLookAt (the player in FPP, the terrain
-  // center for orbit showcases).
+  // center for orbit showcases) - and player 2's avatar while active, so a
+  // zone loads when EITHER player enters and unloads only when both leave.
   if ((int)layerAutoInside.size() == lc) {
     const float px = cameraLookAt.x;
     const float pz = cameraLookAt.z;
+    const bool p2 = playerTwoActive && players[1].objIndex >= 0;
     for (int l = 0; l < lc; ++l) {
       const float r = SCENE_LAYER_STREAM_R[l];
       if (r <= 0.0F) continue;
       const float dx = px - SCENE_LAYER_STREAM_X[l];
       const float dz = pz - SCENE_LAYER_STREAM_Z[l];
-      const float d2 = dx * dx + dz * dz;
+      float d2 = dx * dx + dz * dz;
+      if (p2) {
+        const float dx2 = players[1].x - SCENE_LAYER_STREAM_X[l];
+        const float dz2 = players[1].z - SCENE_LAYER_STREAM_Z[l];
+        const float e2 = dx2 * dx2 + dz2 * dz2;
+        if (e2 < d2) d2 = e2;
+      }
       const float rOut = r * 1.15F + 8.0F;
       if (!layerAutoInside[l] && d2 < r * r) {
         layerAutoInside[l] = 1;
@@ -2021,19 +2216,23 @@ void TerrainGame::updateAndRenderAnimObjects() {
 
     if (o.animClip < 0 || o.animClip >= (int)gam.src->clips.size())
       o.animClip = 0;
-    if (o.animRestart) {
-      o.animRestart = false;
-      o.animFinished = false;
-      // animFade > 0 crossfades from the pose currently showing
-      inst->play((u32)o.animClip, o.animLoop, o.animFade);
-      o.animFade = 0.0F;  // consumed by this restart
+    // Playback bookkeeping runs once per FRAME, not once per render pass -
+    // the split screen's second half re-renders the same instant.
+    if (!splitSecondPass) {
+      if (o.animRestart) {
+        o.animRestart = false;
+        o.animFinished = false;
+        // animFade > 0 crossfades from the pose currently showing
+        inst->play((u32)o.animClip, o.animLoop, o.animFade);
+        o.animFade = 0.0F;  // consumed by this restart
+      }
+      inst->setLoop(o.animLoop);
+      // time always advances by wall-clock seconds (speed scales the step),
+      // visible or not - animFinished stays honest for offscreen instances
+      const float step =
+          (o.animPlaying && !g_gameplayPaused) ? g_frameDt * o.animSpeed : 0.0F;
+      o.animFinished = inst->advance(step);
     }
-    inst->setLoop(o.animLoop);
-    // time always advances by wall-clock seconds (speed scales the step),
-    // visible or not - animFinished stays honest for offscreen instances
-    const float step =
-        (o.animPlaying && !g_gameplayPaused) ? g_frameDt * o.animSpeed : 0.0F;
-    o.animFinished = inst->advance(step);
 
     // draw-distance cut-off (same rule as the static path in renderScene);
     // the distance doubles as the LOD tier and the draw-order key below
@@ -2072,7 +2271,7 @@ void TerrainGame::updateAndRenderAnimObjects() {
             [](const VisibleAnim& a, const VisibleAnim& b) {
               return a.dist2 < b.dist2;
             });
-  ++animLodTick;
+  if (!splitSecondPass) ++animLodTick;  // frame counter, not pass counter
 
   // pass 2, nearest first: group equal poses per mesh-LOD tier, gate far
   // skins, submit
@@ -2091,10 +2290,15 @@ void TerrainGame::updateAndRenderAnimObjects() {
     SkelInstance* inst = g.animInst.get();
 
     // mesh LOD tier: which baked variant this instance renders (the .tskl
-    // clamps per part - a file without chains always renders the full mesh)
+    // clamps per part - a file without chains always renders the full mesh).
+    // Per-object override first: -1 = project preference, 0 = never LOD,
+    // > 0 = this object's own distance (each Player object - P1 and P2 of a
+    // two-player scene - carries its own).
+    const float meshLodDist =
+        o.data.meshLod < 0.0F ? MESH_LOD_DISTANCE : o.data.meshLod;
     u8 meshLod = 0;
-    if (MESH_LOD_DISTANCE > 0.0F) {
-      const float m2 = MESH_LOD_DISTANCE * MESH_LOD_DISTANCE;
+    if (meshLodDist > 0.0F) {
+      const float m2 = meshLodDist * meshLodDist;
       meshLod = va.dist2 > m2 * 4.0F ? 2 : va.dist2 > m2 ? 1 : 0;
     }
 
@@ -2112,11 +2316,16 @@ void TerrainGame::updateAndRenderAnimObjects() {
     // animation LOD: a far mesh owner refreshes its pose every 2nd frame
     // (every 4th beyond twice the distance), staggered by object index. An
     // instance that just (re)entered the view skins immediately - its held
-    // pose could be arbitrarily stale.
-    bool allowSkin = true;
-    if (ANIM_LOD_DISTANCE > 0.0F && meshOwner == i &&
+    // pose could be arbitrarily stale. The split screen's second half never
+    // re-skins (same instant, already skinned) - unless this half's camera
+    // distance lands the instance in a different mesh-LOD tier, which the
+    // tier-switch check below still forces into that tier's buffers.
+    bool allowSkin = !splitSecondPass;
+    const float animLodDist =
+        o.data.animLod < 0.0F ? ANIM_LOD_DISTANCE : o.data.animLod;
+    if (allowSkin && animLodDist > 0.0F && meshOwner == i &&
         g.animLastTick != 0 && animLodTick - g.animLastTick <= 4) {
-      const float lod2 = ANIM_LOD_DISTANCE * ANIM_LOD_DISTANCE;
+      const float lod2 = animLodDist * animLodDist;
       if (va.dist2 > lod2 * 4.0F)
         allowSkin = ((animLodTick + (u32)i) & 3) == 0;
       else if (va.dist2 > lod2)
@@ -2178,6 +2387,30 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
         o.data.type == 14)                         // 14 = camera marker
       continue;
     if (o.data.collision == 2) continue;  // none
+    // Portal pass-through (updatePortalPass): while the walker stands in a
+    // linked portal's opening, objects fully behind that portal's plane
+    // stop colliding - the mounting wall becomes a doorway. Exact OBB
+    // extent along the plane normal, same math as the view dead zone.
+    if (portalPassOn) {
+      const V3 pax = rotated({1.0F, 0.0F, 0.0F}, o.data.rotation);
+      const V3 pay = rotated({0.0F, 1.0F, 0.0F}, o.data.rotation);
+      const V3 paz = rotated({0.0F, 0.0F, 1.0F}, o.data.rotation);
+      const float r =
+          fabsf(portalPassPlane[0] * pax.x + portalPassPlane[1] * pax.y +
+                portalPassPlane[2] * pax.z) *
+              0.5F * o.data.scale[0] +
+          fabsf(portalPassPlane[0] * pay.x + portalPassPlane[1] * pay.y +
+                portalPassPlane[2] * pay.z) *
+              0.5F * o.data.scale[1] +
+          fabsf(portalPassPlane[0] * paz.x + portalPassPlane[1] * paz.y +
+                portalPassPlane[2] * paz.z) *
+              0.5F * o.data.scale[2];
+      const float sd = portalPassPlane[0] * o.data.position[0] +
+                       portalPassPlane[1] * o.data.position[1] +
+                       portalPassPlane[2] * o.data.position[2] -
+                       portalPassPlane[3];
+      if (sd < -r + 0.1F) continue;
+    }
 
     const GameModel* gm = nullptr;
     if (o.data.type == 5 && o.data.model >= 0 &&
@@ -2330,6 +2563,8 @@ void TerrainGame::loadScene(int sceneIndex) {
   currentScene = sceneIndex;
   g_activeScene = sceneIndex;
   sceneGeneration++;  // scene scripts see this and reset their state
+  portalLiveFlags.clear(); // stale through-views must not survive the switch
+  portalPrevPos.clear();   // crossing history restarts with the new objects
   // Before any mesh baking: terrain chunks and object geometry shade with
   // this scene's point lights (see collectScenePointLights).
   collectScenePointLights();
@@ -2479,6 +2714,12 @@ void TerrainGame::loadScene(int sceneIndex) {
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
     if (runtimeObjects[i].active) setupAnimObject(i);
 
+  // Static batching: group the batchStatic-flagged objects (material x
+  // coarse world cell). The always-resident assets - materials included -
+  // streamed in above, so the reflective-material opt-out can decide here;
+  // the batches themselves bake lazily on the first renderScene.
+  buildStaticBatchList();
+
   scriptCtx.objects = runtimeObjects.data();
   scriptCtx.objectCount = (int)runtimeObjects.size();
   scriptCtx.scene = currentScene;
@@ -2489,38 +2730,51 @@ void TerrainGame::loadScene(int sceneIndex) {
   scriptCtx.usedObject = -1;
   useTargetIndex = -1;
 
-  // Player entity start state for this scene
-  if (PLAYER_INDEX >= 0 && PLAYER_INDEX < SCENE_OBJECT_COUNT) {
-    entX = SCENE_OBJECTS[PLAYER_INDEX].position[0];
-    entZ = SCENE_OBJECTS[PLAYER_INDEX].position[2];
-    entY = PLAYER_MODE == 1 ? SCENE_OBJECTS[PLAYER_INDEX].position[1]
-                            : terrainHeightAt(entX, entZ);
-    entYaw = SCENE_OBJECTS[PLAYER_INDEX].rotation[1] * PI / 180.0F;
-    entVelY = 0.0F;
-    entPitch = 0.0F;
+  // Player entity start state for this scene. players[0] = the first Player
+  // object (P1), players[1] = the second (P2 of the two-player modes; -1
+  // when the scene has only one). Player 2 stays active across scene
+  // switches as long as the new scene can host it.
+  if (playerTwoActive && PLAYER2_INDEX < 0) {
+    playerTwoActive = false;
+    syncPlayerCountMenuValue();
+  }
+  sharedBoom = 0.0F;
+  for (int pi = 0; pi < 2; ++pi) {
+    PlayerCtl& P = players[pi];
+    P.objIndex = PP_INDEX(pi) < SCENE_OBJECT_COUNT ? PP_INDEX(pi) : -1;
+    if (P.objIndex < 0) continue;
+    P.x = SCENE_OBJECTS[P.objIndex].position[0];
+    P.z = SCENE_OBJECTS[P.objIndex].position[2];
+    P.y = PP_MODE(pi) == 1 ? SCENE_OBJECTS[P.objIndex].position[1]
+                           : terrainHeightAt(P.x, P.z);
+    P.yaw = SCENE_OBJECTS[P.objIndex].rotation[1] * PI / 180.0F;
+    P.velY = 0.0F;
+    P.pitch = 0.0F;
     // Third person: the avatar starts facing its authored yaw and its
     // locomotion clip names resolve to the model's clip indices. The Player
     // object is a rendered avatar only in this mode - in FPP/noclip its model
     // (if any) is never built, so its runtime object stays invisible here.
-    entFaceYaw = entYaw;
-    camBoom = PLAYER_CAM_DIST;  // start fully extended, not easing out from 0
-    runtimeObjects[PLAYER_INDEX].visible = (PLAYER_MODE == 2);
-    if (PLAYER_MODE == 2) {
+    // The P2 avatar shows only while player 2 is actually in the game.
+    P.faceYaw = P.yaw;
+    P.boom = PP_CAM_DIST(pi);  // start fully extended, not easing out from 0
+    runtimeObjects[P.objIndex].visible =
+        PP_MODE(pi) == 2 && (pi == 0 || playerTwoActive);
+    if (PP_MODE(pi) == 2) {
       // Idle/walk fall back to the model's first clip when unset; run/jump are
       // optional, so an empty name stays unmapped (-1) instead of clip 0.
-      playerIdleClip = resolveClipIndex(PLAYER_INDEX, PLAYER_IDLE_CLIP);
-      playerWalkClip = resolveClipIndex(PLAYER_INDEX, PLAYER_WALK_CLIP);
-      playerRunClip =
-          PLAYER_RUN_CLIP[0] ? resolveClipIndex(PLAYER_INDEX, PLAYER_RUN_CLIP) : -1;
-      playerJumpClip =
-          PLAYER_JUMP_CLIP[0] ? resolveClipIndex(PLAYER_INDEX, PLAYER_JUMP_CLIP) : -1;
+      P.idleClip = resolveClipIndex(P.objIndex, PP_IDLE_CLIP(pi));
+      P.walkClip = resolveClipIndex(P.objIndex, PP_WALK_CLIP(pi));
+      P.runClip =
+          PP_RUN_CLIP(pi)[0] ? resolveClipIndex(P.objIndex, PP_RUN_CLIP(pi)) : -1;
+      P.jumpClip =
+          PP_JUMP_CLIP(pi)[0] ? resolveClipIndex(P.objIndex, PP_JUMP_CLIP(pi)) : -1;
       // Start ON the idle clip so drivePlayerAnim recognizes it as a locomotion
       // pose from frame one. Without this, setupAnimObject's default (clip 0)
       // would look like a scripted one-shot when idle isn't clip 0, and a
       // looping clip 0 would wedge locomotion off (animFinished never fires).
-      if (playerIdleClip >= 0 && objectGeometry[PLAYER_INDEX].animInst) {
-        RuntimeObject& body = runtimeObjects[PLAYER_INDEX];
-        body.animClip = playerIdleClip;
+      if (P.idleClip >= 0 && objectGeometry[P.objIndex].animInst) {
+        RuntimeObject& body = runtimeObjects[P.objIndex];
+        body.animClip = P.idleClip;
         body.animLoop = true;
         body.animPlaying = true;
         body.animRestart = true;
@@ -2548,11 +2802,11 @@ void TerrainGame::loadScene(int sceneIndex) {
   // bar can advance between them (breaking if the pool momentarily can't make
   // progress, which the view-rect-sized pool should never hit at load time).
   if (!LOADING_SCREEN) {
-    updateTerrainChunks(lsFocusX, lsFocusZ, 0x7FFFFFFF);
+    updateTerrainChunks(lsFocusX, lsFocusZ, 0.0F, 0.0F, false, 0x7FFFFFFF);
   } else {
     int pending = countPendingChunks(lsFocusX, lsFocusZ);
     while (pending > 0) {
-      updateTerrainChunks(lsFocusX, lsFocusZ, lsStep);
+      updateTerrainChunks(lsFocusX, lsFocusZ, 0.0F, 0.0F, false, lsStep);
       const int now = countPendingChunks(lsFocusX, lsFocusZ);
       if (now >= pending) break;  // no forward progress (pool cap) - bail out
       lsPump(pending - now);
@@ -2642,9 +2896,13 @@ void TerrainGame::updateSoundEmitters() {
 
 // --- Particle emitters ------------------------------------------------
 // 2002-style particles: fixed pools sized at scene load, one cheap LCG,
-// no trig and no allocations in the per-frame path. Camera-facing quads
-// colored per vertex; an emitter with a material carrying a map_Kd draws
-// its quads with that texture (the color then modulates it).
+// no trig and no allocations in the per-frame path. The EE simulates and
+// writes one center + one qword of 2x2 basis weights + one color per
+// particle; the VU1 billboard program (engine StaPipBillboardBag) expands
+// each center into a camera-facing quad in clip space, so the quad
+// building cost never touches the EE. An emitter with a material carrying
+// a map_Kd draws its quads with that texture (the color then modulates
+// it; corner UVs are fixed on VU1).
 // The editor viewport mirrors this simulation (viewport.cpp,
 // simulateEmitter) - keep the per-kind formulas in sync.
 static float prand(unsigned int& s) {  // 0..1
@@ -2667,39 +2925,38 @@ void TerrainGame::buildParticles() {
     ps.vel.assign(n, Vec4(0.0F, 0.0F, 0.0F, 0.0F));
     ps.life.assign(n, 0.0F);  // dead -> staggered respawn over the first frames
     ps.maxLife.assign(n, 1.0F);
-    ps.verts.assign((size_t)n * 6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
-    ps.cols.assign((size_t)n * 6, Color(0.0F, 0.0F, 0.0F, 0.0F));
+    ps.params.assign(n, Vec4(0.0F, 0.0F, 0.0F, 0.0F));
+    ps.cols.assign(n, Color(0.0F, 0.0F, 0.0F, 0.0F));
     ps.infoBag = std::make_unique<StaPipInfoBag>();
     ps.infoBag->model = &model;
     ps.infoBag->shadingType = TyraShadingGouraud;
-    ps.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
-    ps.infoBag->fullClipChecks = true;
+    // VU1 billboard bags cull per quad on VU1 - no EE frustum/clip work.
+    // None is safe for billboard bags only: the VU1 program ADCs any quad
+    // whose corner leaves the GS raster window (ordinary bags must never
+    // use None - see the engine skill's wrap pitfall).
+    ps.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_None;
+    ps.infoBag->fullClipChecks = false;
     ps.colorBag = std::make_unique<StaPipColorBag>();
+    ps.colorBag->many = ps.cols.data();
+    ps.billboardBag = std::make_unique<StaPipBillboardBag>();
     ps.bag = std::make_unique<StaPipBag>();
     ps.bag->info = ps.infoBag.get();
     ps.bag->color = ps.colorBag.get();
-    ps.bag->texture = nullptr;
     ps.bag->lighting = nullptr;
+    ps.bag->billboard = ps.billboardBag.get();
+    ps.bag->vertices = ps.pos.data();
     ps.bag->count = 0;
-    // Textured particles: the emitter's material supplies the map (its Kd is
-    // ignored - the emitter color is the tint). UVs are fixed per quad in the
-    // v0,v1,v2 / v0,v2,v3 vertex order used by updateParticles().
+    // The texture bag is mandatory for billboard bags - its coordinates
+    // channel carries the per-particle basis weights. Textured particles:
+    // the emitter's material supplies the map (its Kd is ignored - the
+    // emitter color is the tint); corner UVs are fixed in the VU1 program.
+    ps.texBag = std::make_unique<StaPipTextureBag>();
+    ps.texBag->texture = nullptr;
+    ps.texBag->coordinates = ps.params.data();
     const int mi = runtimeObjects[i].data.material;  // data copy: spawn slots too
-    if (mi >= 0 && mi < (int)gameMaterials.size() && gameMaterials[mi].texture) {
-      ps.sts.reserve((size_t)n * 6);
-      for (int q = 0; q < n; ++q) {
-        ps.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
-      }
-      ps.texBag = std::make_unique<StaPipTextureBag>();
+    if (mi >= 0 && mi < (int)gameMaterials.size() && gameMaterials[mi].texture)
       ps.texBag->texture = gameMaterials[mi].texture;
-      ps.texBag->coordinates = ps.sts.data();
-      ps.bag->texture = ps.texBag.get();
-    }
+    ps.bag->texture = ps.texBag.get();
     particles.push_back(std::move(ps));
   }
 }
@@ -2711,7 +2968,7 @@ void TerrainGame::updateParticles() {
   if (g_gameplayPaused) return;
   const float dt = g_frameDt;
 
-  // camera right/up shared by every billboard this frame
+  // camera right/up shared by every billboard basis this frame
   Vec4 fwd = cameraLookAt - cameraPosition;
   const float fl = sqrtf(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
   if (fl > 0.0001F) fwd.x /= fl, fwd.y /= fl, fwd.z /= fl;
@@ -2732,6 +2989,14 @@ void TerrainGame::updateParticles() {
     const SceneObjectData& d = o.data;
     const int kind = d.emitKind;
     const int n = (int)ps.life.size();
+
+    // Per-emitter billboard basis for the VU1 expansion. Rain streaks hang
+    // from world-up (vertical quads); everything else faces the camera
+    // plane. A portal pass re-renders these bags with the VIRTUAL camera's
+    // basis swapped in - the centers below are view-independent.
+    ps.billboardBag->right = Vec4(rx, 0.0F, rz, 0.0F);
+    ps.billboardBag->up = kind == 4 ? Vec4(0.0F, 1.0F, 0.0F, 0.0F)
+                                    : Vec4(ux, uy, uz, 0.0F);
 
     // Follow player: the emitter position becomes an offset from the camera
     // (place it at X=0/Z=0 and the height above the player's head) - rain
@@ -2853,47 +3118,28 @@ void TerrainGame::updateParticles() {
         alpha = 110.0F * t;
       }
 
-      // rain streaks stay vertical (world-up quads); everything else is a
-      // full camera-facing billboard. Fog puffs additionally swirl: the
-      // billboard slowly rotates in the camera plane, alternating direction
-      // per puff (the swirling fog roll) - keep in sync with the viewport
-      // preview (drawEmitterPreviews).
-      float brx = rx, bry = 0.0F, brz = rz;
-      float bux = ux, buy = uy, buz = uz;
+      // The quad itself is built on VU1: corner = center +/- (right*m00 +
+      // up*m01) +/- (right*m10 + up*m11). Rain streaks hang from world-up
+      // (the emitter basis above) with an independent half-height; fog
+      // puffs additionally swirl - the billboard slowly rotates in the
+      // camera plane, alternating direction per puff (the swirling fog
+      // roll) - keep in sync with the viewport preview
+      // (drawEmitterPreviews).
+      float m00 = size, m01 = 0.0F, m10 = 0.0F, m11 = size;
       if (kind == 2) {
         const float age = ps.maxLife[i] - ps.life[i];
         const float ang = (float)i * 2.4F + (i & 1 ? 0.3F : -0.3F) * age;
         const float ca = cosf(ang), sa = sinf(ang);
-        brx = rx * ca + ux * sa;
-        bry = uy * sa;
-        brz = rz * ca + uz * sa;
-        bux = ux * ca - rx * sa;
-        buy = uy * ca;
-        buz = uz * ca - rz * sa;
+        m00 = ca * size;
+        m01 = sa * size;
+        m10 = -sa * size;
+        m11 = ca * size;
       }
-      const float Rx = brx * size, Ry = bry * size, Rz = brz * size;
-      const float Ux = sizeUp > 0.0F ? 0.0F : bux * size;
-      const float Uy = sizeUp > 0.0F ? sizeUp : buy * size;
-      const float Uz = sizeUp > 0.0F ? 0.0F : buz * size;
-      const Vec4& P = ps.pos[i];
-      const Vec4 v0(P.x - Rx - Ux, P.y - Ry - Uy, P.z - Rz - Uz, 1.0F);
-      const Vec4 v1(P.x + Rx - Ux, P.y + Ry - Uy, P.z + Rz - Uz, 1.0F);
-      const Vec4 v2(P.x + Rx + Ux, P.y + Ry + Uy, P.z + Rz + Uz, 1.0F);
-      const Vec4 v3(P.x - Rx + Ux, P.y - Ry + Uy, P.z - Rz + Uz, 1.0F);
-      const int b = i * 6;
-      ps.verts[b] = v0;
-      ps.verts[b + 1] = v1;
-      ps.verts[b + 2] = v2;
-      ps.verts[b + 3] = v0;
-      ps.verts[b + 4] = v2;
-      ps.verts[b + 5] = v3;
-      const Color c(cr, cg, cb, alpha);
-      for (int k = 0; k < 6; ++k) ps.cols[b + k] = c;
+      if (sizeUp > 0.0F) m11 = sizeUp;  // rain: thin width, streak height
+      ps.params[i] = Vec4(m00, m01, m10, m11);
+      ps.cols[i] = Color(cr, cg, cb, alpha);
     }
-    ps.colorBag->many = ps.cols.data();
-    ps.bag->vertices = ps.verts.data();
-    ps.bag->count = (u32)ps.verts.size();
-    ps.bag->bboxVersion = ++g_bboxStamp;  // moving cloud - refresh the bbox
+    ps.bag->count = (u32)n;
   }
 }
 // Picks the nearest usable object the camera is close to and looking at
@@ -2999,10 +3245,10 @@ void TerrainGame::doSave(int slot) {
   // otherwise derived from the camera (the FPP template player; the orbit
   // camera simply ignores the restore).
   if (PLAYER_INDEX >= 0) {
-    d.playerPos[0] = entX;
-    d.playerPos[1] = entY;
-    d.playerPos[2] = entZ;
-    d.playerYaw = entYaw * 180.0F / PI;
+    d.playerPos[0] = players[0].x;
+    d.playerPos[1] = players[0].y;
+    d.playerPos[2] = players[0].z;
+    d.playerYaw = players[0].yaw * 180.0F / PI;
   } else {
     d.playerPos[0] = cameraPosition.x;
     d.playerPos[1] = cameraPosition.y - EYE_HEIGHT;
@@ -3282,7 +3528,31 @@ void TerrainGame::applyMenuBindings() {
             scriptCtx.widescreen = idx;
           }
           break;
+        case 7:  // player count (1P / 2P) - edge-triggered, so the pad-2
+          // Start join isn't reverted by the bind on the next frame
+          // (setPlayerTwoActive writes the row's save value back in sync).
+          if (idx != menuPlayerCountPrev) {
+            menuPlayerCountPrev = idx;
+            setPlayerTwoActive(idx >= 1);
+          }
+          break;
       }
+    }
+  }
+}
+
+// Keep a bound "Player count" menu row's save value (and the bind's edge
+// detector) in line with the actual player-2 state, so a pad-2 Start join
+// shows up in the menu instead of fighting it.
+void TerrainGame::syncPlayerCountMenuValue() {
+  const int idx = playerTwoActive ? 1 : 0;
+  menuPlayerCountPrev = idx;
+  for (int mi = 0; mi < MENU_COUNT; ++mi) {
+    const MenuData& m = MENUS[mi];
+    for (int e = 0; e < m.entryCount; ++e) {
+      const MenuEntryData& en = m.entries[e];
+      if (en.bind == 7 && en.param >= 0 && en.param < SAVE_VALUE_COUNT)
+        saveValues[en.param] = (float)idx;
     }
   }
 }
@@ -3339,6 +3609,33 @@ void TerrainGame::updateAndRenderHudTexts() {
       }
     }
     if (hudTextOn[i]) engine->renderer.renderer2D.render(hudTextSprites[i]);
+  }
+}
+
+// Runtime texts: same request/timer protocol as the baked ones, but the string
+// lives in dynTextBuf (refreshed every frame by the owning flow-graph script
+// while the slot is on) and is drawn glyph by glyph from the font's atlas.
+void TerrainGame::updateAndRenderDynTexts() {
+  for (int i = 0; i < DYN_TEXT_COUNT; ++i) {
+    if (scriptCtx.dynTextRequest[i] >= 0) {
+      dynTextOn[i] = scriptCtx.dynTextRequest[i] != 0 ? 1 : 0;
+      dynTextTimer[i] = dynTextOn[i] ? scriptCtx.dynTextDuration[i] : 0.0F;
+      scriptCtx.dynTextRequest[i] = -1;
+    }
+    if (dynTextOn[i] && dynTextTimer[i] > 0.0F) {
+      dynTextTimer[i] -= g_frameDt;
+      if (dynTextTimer[i] <= 0.0F) {
+        dynTextOn[i] = 0;
+        dynTextTimer[i] = 0.0F;
+      }
+    }
+    if (!dynTextOn[i]) continue;
+    const DynTextData& d = DYN_TEXTS[i];
+    const char* s = &dynTextBuf[(size_t)i * DYN_TEXT_LEN];
+    if (!s[0]) continue;
+    const auto& scr = engine->renderer.core.getSettings();
+    drawFontText(engine, d.font, s, d.x * scr.getWidth(), d.y * scr.getHeight(),
+                 d.size);
   }
 }
 
@@ -3470,11 +3767,37 @@ float TerrainGame::springArm(float px, float py, float pz, float dx, float dy,
   return best;
 }
 
+// Dispatcher: walk P1 (and P2 while active) from their pads, then compose the
+// frame camera. Shared screen frames the pair with one camera; split screen
+// keeps each player's own view (the render pass reads players[1].camPos).
 bool TerrainGame::updatePlayerEntity() {
   if (PLAYER_INDEX < 0) return false;
 
-  const auto& leftJoy = engine->pad.getLeftJoyPad();
-  const auto& rightJoy = engine->pad.getRightJoyPad();
+  updatePlayerWalker(players[0], 0, engine->pad);
+  const bool p2 =
+      MULTIPLAYER_MODE != 0 && playerTwoActive && players[1].objIndex >= 0;
+  if (p2) {
+    if (MULTIPLAYER_MODE == 1) {
+      // Shared screen: P2 moves relative to the one camera - its movement
+      // basis mirrors P1's orbit (the walker skips its right stick).
+      players[1].yaw = players[0].yaw;
+      players[1].pitch = players[0].pitch;
+    }
+    updatePlayerWalker(players[1], 1, pad2);
+  }
+
+  if (p2 && MULTIPLAYER_MODE == 1) {
+    updateSharedCamera();
+  } else {
+    cameraPosition = players[0].camPos;
+    cameraLookAt = players[0].camLook;
+  }
+  return true;
+}
+
+void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
+  const auto& leftJoy = pad.getLeftJoyPad();
+  const auto& rightJoy = pad.getRightJoyPad();
   // stickAxis applies the per-stick deadzone (g_deadzoneL/R - Preferences, or a
   // menu "Deadzone" option block) and response curve (g_stickCurve*/g_stickExp*
   // - Preferences > Input / Set Stick Curve node / a menu "Aim curve" block).
@@ -3485,38 +3808,43 @@ bool TerrainGame::updatePlayerEntity() {
     return stickAxis(raw, g_deadzoneR, g_stickCurveR, g_stickExpR);
   };
 
-  // Right stick: look around (stick right = turn right)
-  entYaw -= axisR(rightJoy.h) * 0.05F * PLAYER_LOOK_SPEED * g_frameScale;
-  entPitch -= axisR(rightJoy.v) * 0.035F * PLAYER_LOOK_SPEED * g_frameScale;
-  if (entPitch > 1.35F) entPitch = 1.35F;
-  if (entPitch < -1.35F) entPitch = -1.35F;
+  // Right stick: look around (stick right = turn right). A shared-screen P2
+  // has no camera of its own (the dispatcher mirrors P1's orbit into it), so
+  // only players that own a view read the right stick.
+  const bool ownCamera = pi == 0 || MULTIPLAYER_MODE == 2;
+  if (ownCamera) {
+    P.yaw -= axisR(rightJoy.h) * 0.05F * PP_LOOK_SPEED(pi) * g_frameScale;
+    P.pitch -= axisR(rightJoy.v) * 0.035F * PP_LOOK_SPEED(pi) * g_frameScale;
+    if (P.pitch > 1.35F) P.pitch = 1.35F;
+    if (P.pitch < -1.35F) P.pitch = -1.35F;
+  }
 
-  const float fx = sinf(entYaw);
-  const float fz = cosf(entYaw);
+  const float fx = sinf(P.yaw);
+  const float fz = cosf(P.yaw);
   const float forward = -axisL(leftJoy.v);
   const float strafe = axisL(leftJoy.h);
 
-  if (PLAYER_MODE == 1) {
+  if (PP_MODE(pi) == 1) {
     // Noclip: fly where the camera looks; X up, Square down.
-    const float cp = cosf(entPitch);
-    const float step = PLAYER_WALK_SPEED * g_frameScale;
-    entX += (fx * cp * forward - fz * strafe) * step;
-    entZ += (fz * cp * forward + fx * strafe) * step;
-    entY += sinf(entPitch) * forward * step;
-    if (engine->pad.getPressed().BTN_FLY_UP) entY += step;
-    if (engine->pad.getPressed().BTN_FLY_DOWN) entY -= step;
+    const float cp = cosf(P.pitch);
+    const float step = PP_WALK_SPEED(pi) * g_frameScale;
+    P.x += (fx * cp * forward - fz * strafe) * step;
+    P.z += (fz * cp * forward + fx * strafe) * step;
+    P.y += sinf(P.pitch) * forward * step;
+    if (pad.getPressed().BTN_FLY_UP) P.y += step;
+    if (pad.getPressed().BTN_FLY_DOWN) P.y -= step;
 
-    cameraPosition = Vec4(entX, entY, entZ);
-    cameraLookAt = Vec4(entX + fx * cp, entY + sinf(entPitch), entZ + fz * cp);
-    return true;
+    P.camPos = Vec4(P.x, P.y, P.z);
+    P.camLook = Vec4(P.x + fx * cp, P.y + sinf(P.pitch), P.z + fz * cp);
+    return;
   }
 
-  if (PLAYER_MODE == 2) {
+  if (PP_MODE(pi) == 2) {
     // Third person: the left stick moves the avatar relative to the camera,
     // the avatar turns to face where it walks, and the camera rides a boom
     // behind it. Terrain bounds + object collision + gravity/jump match walk.
-    float nextX = entX + (fx * forward - fz * strafe) * PLAYER_WALK_SPEED * g_frameScale;
-    float nextZ = entZ + (fz * forward + fx * strafe) * PLAYER_WALK_SPEED * g_frameScale;
+    float nextX = P.x + (fx * forward - fz * strafe) * PP_WALK_SPEED(pi) * g_frameScale;
+    float nextZ = P.z + (fz * forward + fx * strafe) * PP_WALK_SPEED(pi) * g_frameScale;
     const float limX = TERRAIN_WIDTH * 0.5F - 1.0F;
     const float limZ = TERRAIN_DEPTH * 0.5F - 1.0F;
     if (nextX > limX) nextX = limX;
@@ -3525,51 +3853,56 @@ bool TerrainGame::updatePlayerEntity() {
     if (nextZ < -limZ) nextZ = -limZ;
 
     float ground = terrainHeightAt(nextX, nextZ);
+    // a linked floor portal underfoot swallows the avatar too
+    if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, P.y, nextZ))
+      ground = -1e30F;
     float ceiling = 1e30F;
-    collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground,
+    updatePortalPass(nextX, P.y, nextZ);  // wall doorways open in collision
+    collidePlayer(P.x, P.z, &nextX, &nextZ, P.y, PP_EYE_HEIGHT(pi), &ground,
                   &ceiling);
-    const float movedX = nextX - entX, movedZ = nextZ - entZ;
-    entX = nextX;
-    entZ = nextZ;
+    portalPassOn = false;
+    const float movedX = nextX - P.x, movedZ = nextZ - P.z;
+    P.x = nextX;
+    P.z = nextZ;
 
-    entVelY -= GRAVITY * g_frameDt * g_frameDt;
-    entY += entVelY;
-    const float maxY = ceiling - PLAYER_EYE_HEIGHT - EYE_CLEARANCE;
-    if (entY > maxY && maxY >= ground) {
-      entY = maxY;
-      if (entVelY > 0.0F) entVelY = 0.0F;
+    P.velY -= GRAVITY * g_frameDt * g_frameDt;
+    P.y += P.velY;
+    const float maxY = ceiling - PP_EYE_HEIGHT(pi) - EYE_CLEARANCE;
+    if (P.y > maxY && maxY >= ground) {
+      P.y = maxY;
+      if (P.velY > 0.0F) P.velY = 0.0F;
     }
     bool grounded = false;
-    if (entY <= ground) {
-      entY = ground;
-      entVelY = 0.0F;
+    if (P.y <= ground) {
+      P.y = ground;
+      P.velY = 0.0F;
       grounded = true;
-      if (PLAYER_CAN_JUMP && engine->pad.getClicked().BTN_JUMP)
-        entVelY = PLAYER_JUMP_SPEED * g_frameDt;
+      if (PP_CAN_JUMP(pi) && pad.getClicked().BTN_JUMP)
+        P.velY = PP_JUMP_SPEED(pi) * g_frameDt;
     }
 
     // Turn the avatar toward its movement direction (shortest-arc lerp).
     const float movedLen = sqrtf(movedX * movedX + movedZ * movedZ);
     if (movedLen > 0.0005F) {
       float desired = atan2f(movedX, movedZ);
-      float d = desired - entFaceYaw;
+      float d = desired - P.faceYaw;
       while (d > PI) d -= 2.0F * PI;
       while (d < -PI) d += 2.0F * PI;
-      float k = PLAYER_TURN_RATE * g_frameScale;
+      float k = PP_TURN_RATE(pi) * g_frameScale;
       if (k > 1.0F) k = 1.0F;
-      entFaceYaw += d * k;
+      P.faceYaw += d * k;
     }
 
-    // Camera boom: the eye rides PLAYER_CAM_DIST behind/above the head along
+    // Camera boom: the eye rides PP_CAM_DIST behind/above the head along
     // the orbit direction. The spring arm shortens the boom to the first thing
     // it hits so the camera never enters geometry or the terrain. Classic
     // spring behavior: pull IN instantly (a late pull-in means a visible clip
     // through a wall) and ease back OUT, so leaving cover doesn't snap.
-    const float headY = entY + PLAYER_CAM_HEIGHT;
-    const float cp = cosf(entPitch);
-    const float boomX = sinf(entYaw) * cp;
-    const float boomZ = cosf(entYaw) * cp;
-    const float boomY = sinf(entPitch);
+    const float headY = P.y + PP_CAM_HEIGHT(pi);
+    const float cp = cosf(P.pitch);
+    const float boomX = sinf(P.yaw) * cp;
+    const float boomZ = cosf(P.yaw) * cp;
+    const float boomY = sinf(P.pitch);
 
     // Over-the-shoulder: slide the WHOLE rig - eye and look-at alike - along
     // the camera's right vector, so the avatar sits off-center in frame.
@@ -3579,53 +3912,53 @@ bool TerrainGame::updatePlayerEntity() {
     // itself spring-armed so a shoulder cam cannot slide into a wall the player
     // is hugging - and this second cast costs nothing at all when the offset is
     // 0, which is the default.
-    const float rx = -cosf(entYaw), rz = sinf(entYaw);
-    float shoulder = PLAYER_CAM_SHOULDER;
+    const float rx = -cosf(P.yaw), rz = sinf(P.yaw);
+    float shoulder = PP_CAM_SHOULDER(pi);
     if (shoulder > 0.0001F || shoulder < -0.0001F) {
       const float s = shoulder < 0.0F ? -1.0F : 1.0F;
-      shoulder = s * springArm(entX, headY, entZ, rx * s, 0.0F, rz * s,
+      shoulder = s * springArm(P.x, headY, P.z, rx * s, 0.0F, rz * s,
                                shoulder * s);
     }
-    const float pivotX = entX + rx * shoulder;
-    const float pivotZ = entZ + rz * shoulder;
+    const float pivotX = P.x + rx * shoulder;
+    const float pivotZ = P.z + rz * shoulder;
 
     float want =
-        springArm(pivotX, headY, pivotZ, -boomX, -boomY, -boomZ, PLAYER_CAM_DIST);
+        springArm(pivotX, headY, pivotZ, -boomX, -boomY, -boomZ, PP_CAM_DIST(pi));
     if (want < CAM_MIN_DIST) want = CAM_MIN_DIST;
-    if (want < camBoom) {
-      camBoom = want;  // blocked: snap in, never clip
+    if (want < P.boom) {
+      P.boom = want;  // blocked: snap in, never clip
     } else {
       float k = 0.06F * g_frameScale;  // ~2 s to close a full-length boom
       if (k > 1.0F) k = 1.0F;
-      camBoom += (want - camBoom) * k;
+      P.boom += (want - P.boom) * k;
     }
-    float eyeX = pivotX - boomX * camBoom;
-    float eyeY = headY - boomY * camBoom;
-    float eyeZ = pivotZ - boomZ * camBoom;
+    float eyeX = pivotX - boomX * P.boom;
+    float eyeY = headY - boomY * P.boom;
+    float eyeZ = pivotZ - boomZ * P.boom;
     // Safety net: the march samples the heightmap discretely, so a sharp ridge
     // between two samples could still leave the eye underground.
     const float minEyeY = terrainHeightAt(eyeX, eyeZ) + 0.4F;
     if (eyeY < minEyeY) eyeY = minEyeY;
-    cameraPosition = Vec4(eyeX, eyeY, eyeZ);
-    cameraLookAt = Vec4(pivotX, headY, pivotZ);
+    P.camPos = Vec4(eyeX, eyeY, eyeZ);
+    P.camLook = Vec4(pivotX, headY, pivotZ);
 
     // Drive the avatar object: stand at the feet, face the walk direction,
     // and auto-select its locomotion clip. updateAndRenderAnimObjects draws it.
-    if (PLAYER_INDEX >= 0 && PLAYER_INDEX < (int)runtimeObjects.size()) {
-      RuntimeObject& body = runtimeObjects[PLAYER_INDEX];
-      body.data.position[0] = entX;
-      body.data.position[1] = entY;
-      body.data.position[2] = entZ;
-      body.data.rotation[1] = entFaceYaw * 180.0F / PI;
-      const float step = PLAYER_WALK_SPEED * g_frameScale;
-      drivePlayerAnim(body, step > 1e-4F ? movedLen / step : 0.0F, grounded);
+    if (P.objIndex >= 0 && P.objIndex < (int)runtimeObjects.size()) {
+      RuntimeObject& body = runtimeObjects[P.objIndex];
+      body.data.position[0] = P.x;
+      body.data.position[1] = P.y;
+      body.data.position[2] = P.z;
+      body.data.rotation[1] = P.faceYaw * 180.0F / PI;
+      const float step = PP_WALK_SPEED(pi) * g_frameScale;
+      drivePlayerAnim(P, body, step > 1e-4F ? movedLen / step : 0.0F, grounded);
     }
-    return true;
+    return;
   }
 
   // Walk mode: terrain bounds, object collision, gravity + jump.
-  float nextX = entX + (fx * forward - fz * strafe) * PLAYER_WALK_SPEED * g_frameScale;
-  float nextZ = entZ + (fz * forward + fx * strafe) * PLAYER_WALK_SPEED * g_frameScale;
+  float nextX = P.x + (fx * forward - fz * strafe) * PP_WALK_SPEED(pi) * g_frameScale;
+  float nextZ = P.z + (fz * forward + fx * strafe) * PP_WALK_SPEED(pi) * g_frameScale;
 
   const float limX = TERRAIN_WIDTH * 0.5F - 1.0F;
   const float limZ = TERRAIN_DEPTH * 0.5F - 1.0F;
@@ -3635,33 +3968,89 @@ bool TerrainGame::updatePlayerEntity() {
   if (nextZ < -limZ) nextZ = -limZ;
 
   float ground = terrainHeightAt(nextX, nextZ);
+  // a linked floor portal underfoot swallows the walker (see
+  // portalSwallowsPlayer) - the terrain stops being the floor there
+  if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, P.y, nextZ))
+    ground = -1e30F;
   float ceiling = 1e30F;
-  collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground,
+  updatePortalPass(nextX, P.y, nextZ);  // wall doorways open in collision
+  collidePlayer(P.x, P.z, &nextX, &nextZ, P.y, PP_EYE_HEIGHT(pi), &ground,
                 &ceiling);
-  entX = nextX;
-  entZ = nextZ;
+  portalPassOn = false;
+  P.x = nextX;
+  P.z = nextZ;
 
-  entVelY -= GRAVITY * g_frameDt * g_frameDt;  // GRAVITY is units/s^2
-  entY += entVelY;
+  P.velY -= GRAVITY * g_frameDt * g_frameDt;  // GRAVITY is units/s^2
+  P.y += P.velY;
   // Jump clamp: keep the eye EYE_CLEARANCE below overhead geometry so the
   // camera never pokes into it (skipped when the gap is too low to stand in)
-  const float maxY = ceiling - PLAYER_EYE_HEIGHT - EYE_CLEARANCE;
-  if (entY > maxY && maxY >= ground) {
-    entY = maxY;
-    if (entVelY > 0.0F) entVelY = 0.0F;
+  const float maxY = ceiling - PP_EYE_HEIGHT(pi) - EYE_CLEARANCE;
+  if (P.y > maxY && maxY >= ground) {
+    P.y = maxY;
+    if (P.velY > 0.0F) P.velY = 0.0F;
   }
-  if (entY <= ground) {
-    entY = ground;
-    entVelY = 0.0F;
-    if (PLAYER_CAN_JUMP && engine->pad.getClicked().BTN_JUMP)
-      entVelY = PLAYER_JUMP_SPEED * g_frameDt;  // units/s
+  if (P.y <= ground) {
+    P.y = ground;
+    P.velY = 0.0F;
+    if (PP_CAN_JUMP(pi) && pad.getClicked().BTN_JUMP)
+      P.velY = PP_JUMP_SPEED(pi) * g_frameDt;  // units/s
   }
 
-  const float eyeY = entY + PLAYER_EYE_HEIGHT;
-  cameraPosition = Vec4(entX, eyeY, entZ);
-  cameraLookAt = Vec4(entX + fx * cosf(entPitch), eyeY + sinf(entPitch),
-                      entZ + fz * cosf(entPitch));
-  return true;
+  const float eyeY = P.y + PP_EYE_HEIGHT(pi);
+  P.camPos = Vec4(P.x, eyeY, P.z);
+  P.camLook = Vec4(P.x + fx * cosf(P.pitch), eyeY + sinf(P.pitch),
+                   P.z + fz * cosf(P.pitch));
+}
+
+// Shared-screen camera: orbit (P1's right stick, mirrored into both players'
+// yaw/pitch by the dispatcher) around the midpoint of the two avatars, with
+// the boom stretched by their separation so the pair stays in frame. The
+// spring arm and terrain safety net match the single-player boom.
+void TerrainGame::updateSharedCamera() {
+  PlayerCtl& A = players[0];
+  PlayerCtl& B = players[1];
+  const float midX = (A.x + B.x) * 0.5F;
+  const float midZ = (A.z + B.z) * 0.5F;
+  const float midY = (A.y + B.y) * 0.5F + PP_CAM_HEIGHT(0);
+  const float dx = A.x - B.x, dy = A.y - B.y, dz = A.z - B.z;
+  const float sep = sqrtf(dx * dx + dy * dy + dz * dz);
+  const float dist = PP_CAM_DIST(0) + sep * 0.7F;
+
+  const float cp = cosf(A.pitch);
+  const float boomX = sinf(A.yaw) * cp;
+  const float boomZ = cosf(A.yaw) * cp;
+  const float boomY = sinf(A.pitch);
+
+  float want = springArm(midX, midY, midZ, -boomX, -boomY, -boomZ, dist);
+  if (want < CAM_MIN_DIST) want = CAM_MIN_DIST;
+  if (want < sharedBoom) {
+    sharedBoom = want;  // blocked: snap in, never clip
+  } else {
+    float k = 0.06F * g_frameScale;
+    if (k > 1.0F) k = 1.0F;
+    sharedBoom += (want - sharedBoom) * k;
+  }
+  float eyeX = midX - boomX * sharedBoom;
+  float eyeY = midY - boomY * sharedBoom;
+  float eyeZ = midZ - boomZ * sharedBoom;
+  const float minEyeY = terrainHeightAt(eyeX, eyeZ) + 0.4F;
+  if (eyeY < minEyeY) eyeY = minEyeY;
+  cameraPosition = Vec4(eyeX, eyeY, eyeZ);
+  cameraLookAt = Vec4(midX, midY, midZ);
+}
+
+// Player 2 join/leave (Start on pad 2, or a menu Toggle bound to "Player
+// count"). Guarded: joining needs a two-player mode and a second Player
+// object in the scene. Shows/hides the P2 third-person avatar and keeps the
+// bound menu row's save value in sync so both entry points agree.
+void TerrainGame::setPlayerTwoActive(bool active) {
+  if (active && (MULTIPLAYER_MODE == 0 || players[1].objIndex < 0)) return;
+  if (playerTwoActive == active) return;
+  playerTwoActive = active;
+  if (players[1].objIndex >= 0 && PP_MODE(1) == 2 &&
+      players[1].objIndex < (int)runtimeObjects.size())
+    runtimeObjects[players[1].objIndex].visible = active;
+  syncPlayerCountMenuValue();
 }
 
 // Locomotion-driven clip selection for the third-person avatar. speedFrac is
@@ -3671,26 +4060,27 @@ bool TerrainGame::updatePlayerEntity() {
 // non-locomotion clip is currently playing (a script/flow "Play Animation"
 // one-shot), locomotion holds off until it finishes, then resumes. This is the
 // whole "third-person for free" story: no state machine, full override.
-void TerrainGame::drivePlayerAnim(RuntimeObject& body, float speedFrac,
-                                  bool grounded) {
-  if (PLAYER_INDEX < 0 || !objectGeometry[PLAYER_INDEX].animInst) return;
+void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
+                                  float speedFrac, bool grounded) {
+  if (P.objIndex < 0 || !objectGeometry[P.objIndex].animInst) return;
+  const int pi = &P == &players[1] ? 1 : 0;
   body.animPlaying = true;
 
   int want;
-  if (!grounded && playerJumpClip >= 0)
-    want = playerJumpClip;
+  if (!grounded && P.jumpClip >= 0)
+    want = P.jumpClip;
   else if (speedFrac < 0.12F)
-    want = playerIdleClip;
-  else if (speedFrac < PLAYER_RUN_THRESHOLD || playerRunClip < 0)
-    want = playerWalkClip;
+    want = P.idleClip;
+  else if (speedFrac < PP_RUN_THRESHOLD(pi) || P.runClip < 0)
+    want = P.walkClip;
   else
-    want = playerRunClip;
-  if (want < 0) want = playerIdleClip;
+    want = P.runClip;
+  if (want < 0) want = P.idleClip;
   if (want < 0) want = 0;  // no clips mapped: hold the model's first clip
 
   const bool locomotion =
-      body.animClip == playerIdleClip || body.animClip == playerWalkClip ||
-      body.animClip == playerRunClip || body.animClip == playerJumpClip;
+      body.animClip == P.idleClip || body.animClip == P.walkClip ||
+      body.animClip == P.runClip || body.animClip == P.jumpClip;
   if (!locomotion && !body.animFinished) return;  // let a one-shot finish
 
   if (body.animClip != want) {
@@ -3702,7 +4092,7 @@ void TerrainGame::drivePlayerAnim(RuntimeObject& body, float speedFrac,
   // Match playback to foot speed on the moving clips (min 0.6x so a slow creep
   // still animates), otherwise the authored speed.
   const float base = body.data.animSpeed;
-  if (want == playerWalkClip || want == playerRunClip)
+  if (want == P.walkClip || want == P.runClip)
     body.animSpeed = base * (speedFrac < 0.6F ? 0.6F : speedFrac);
   else
     body.animSpeed = base;
@@ -3884,6 +4274,15 @@ void TerrainGame::rebuildObjectGeometry(int index) {
         for (Color& c : p0.colors) c.a = opacity * 128.0F;
         break;
       }
+      case 16: {
+        // portal: the tinted "energy surface" quad (decal quad, +Z face,
+        // same +Z nudge). The live through-view is projected over it by
+        // renderPortals; on unlinked/far portals - and on the pair member
+        // that lost this frame's single view slot - this tint is what shows.
+        addDecal(p0.vertices, p0.colors, p0.sts, o.data);
+        for (Color& c : p0.colors) c.a = 70.0F;  // ~55% energy-glass alpha
+        break;
+      }
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
     g_primKd = nullptr;
@@ -4012,17 +4411,229 @@ void TerrainGame::rebuildObjectGeometry(int index) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Static batching (STATIC_BATCHING): every StaPip submit costs ~0.7-1.5 ms
+// of fixed EE overhead on real hardware regardless of vertex count, so a
+// scene of many small primitive objects pays for its object COUNT, not its
+// geometry (twice over in split screen). Objects flagged batchStatic at
+// build time merge into combined world-space bags instead - grouped by
+// material within a coarse world cell so no batch spans the whole map (a
+// map-wide bbox would defeat the engine's whole-bag frustum cut, the same
+// reason the terrain is chunked).
+void TerrainGame::buildStaticBatchList() {
+  staticBatches.clear();
+  objectBatchOf.assign(SCENE_OBJECT_COUNT, -1);
+  if (!STATIC_BATCHING) return;
+  if (!batchInfoBag) {
+    batchInfoBag = std::make_unique<StaPipInfoBag>();
+    batchInfoBag->model = &model;
+    batchInfoBag->shadingType = TyraShadingFlat;
+    // Same rules as the per-object bags: always classify against the
+    // frustum (raw submission wraps the GS raster window) with full clip
+    // checks.
+    batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    batchInfoBag->fullClipChecks = true;
+  }
+  // Cell width: a quarter of the map on big maps (a 2048-unit map gets a
+  // 4x4 grid), but never below 48 units - on a small map a finer grid (or
+  // one straddling the origin) splits a handful of objects into
+  // single-member batches and the merge wins nothing. The grid anchors at
+  // the map corner (terrain is centered on the origin) for the same reason.
+  const float mapW =
+      TERRAIN_WIDTH > TERRAIN_DEPTH ? TERRAIN_WIDTH : TERRAIN_DEPTH;
+  const float cellW = mapW * 0.25F > 48.0F ? mapW * 0.25F : 48.0F;
+  std::vector<int> keyX, keyZ;  // per-batch cell, only needed while grouping
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+    const SceneObjectData& d = SCENE_OBJECTS[i];
+    if (!d.batchStatic) continue;
+    // Materials of always-resident objects are loaded by now; a reflective
+    // one draws a second additive env pass per bag - keep those objects on
+    // the solo path, which already handles the env bag.
+    if (d.material >= 0 && (d.material >= (int)gameMaterials.size() ||
+                            gameMaterials[d.material].reflTexture))
+      continue;
+    const int cx = (int)floorf((d.position[0] + 0.5F * mapW) / cellW);
+    const int cz = (int)floorf((d.position[2] + 0.5F * mapW) / cellW);
+    int bi = -1;
+    for (int b = 0; b < (int)staticBatches.size(); ++b)
+      if (staticBatches[b].material == d.material && keyX[b] == cx &&
+          keyZ[b] == cz) {
+        bi = b;
+        break;
+      }
+    if (bi < 0) {
+      staticBatches.emplace_back();
+      staticBatches.back().material = d.material;
+      keyX.push_back(cx);
+      keyZ.push_back(cz);
+      bi = (int)staticBatches.size() - 1;
+    }
+    staticBatches[bi].members.push_back(i);
+    objectBatchOf[i] = (short)bi;
+    // The scene-load dirty flag is consumed by membership: the batch itself
+    // starts dirty and bakes on the first renderScene. From here on a
+    // member turning dirty means a REAL runtime mutation - the demotion
+    // check in renderStaticBatches keys on exactly that.
+    runtimeObjects[i].dirty = false;
+  }
+  int batched = 0;
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+    if (objectBatchOf[i] >= 0) ++batched;
+  TYRA_LOG("Static batching: ", batched, " objects in ",
+           (int)staticBatches.size(), " batches");
+}
+
+// One batch's bake: re-run the primitive builders for every shown member
+// into the combined arrays - world-space vertices with baked lighting,
+// byte-identical to what the solo path produces for the same object. The
+// heap arrays are reused across rebuilds; the engine's frustum-bbox cache
+// is keyed by (pointer, version), so the bboxVersion bump below is what
+// keeps reused pointers from resurrecting stale boxes.
+void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
+  b.dirty = false;
+  b.vertices.clear();
+  b.colors.clear();
+  b.sts.clear();
+  b.shown.assign(b.members.size(), 0);
+  const GameMaterial* gmat =
+      (b.material >= 0 && b.material < (int)gameMaterials.size())
+          ? &gameMaterials[b.material]
+          : nullptr;
+  g_primKd = gmat ? gmat->kd : nullptr;
+  g_primTextured = gmat && gmat->texture;
+  for (size_t k = 0; k < b.members.size(); ++k) {
+    RuntimeObject& o = runtimeObjects[b.members[k]];
+    // Members are never dirty here: scene load consumes the flag at
+    // grouping time and renderStaticBatches demotes dirtied members before
+    // calling this.
+    const bool show = o.active && o.visible;
+    b.shown[k] = show ? 1 : 0;
+    if (!show) continue;
+    switch (o.data.type) {
+      case 1: addSphere(b.vertices, b.colors, b.sts, o.data); break;
+      case 2: addCylinder(b.vertices, b.colors, b.sts, o.data); break;
+      case 3: addCone(b.vertices, b.colors, b.sts, o.data); break;
+      case 12: addPlane(b.vertices, b.colors, b.sts, o.data); break;
+      default: addBox(b.vertices, b.colors, b.sts, o.data); break;
+    }
+  }
+  g_primKd = nullptr;
+  g_primTextured = false;
+  if (b.vertices.empty()) {
+    b.bag.reset();
+    return;
+  }
+  if (!b.bag) {
+    b.colorBag = std::make_unique<StaPipColorBag>();
+    b.bag = std::make_unique<StaPipBag>();
+    b.bag->info = batchInfoBag.get();
+    b.bag->color = b.colorBag.get();
+    b.bag->texture = nullptr;
+    b.bag->lighting = nullptr;
+  }
+  b.colorBag->many = b.colors.data();
+  b.bag->vertices = b.vertices.data();
+  b.bag->count = static_cast<u32>(b.vertices.size());
+  b.bag->bboxVersion = ++g_bboxStamp;  // geometry changed - fresh boxes
+  if (gmat && gmat->texture) {
+    if (!b.texBag) b.texBag = std::make_unique<StaPipTextureBag>();
+    b.texBag->texture = gmat->texture;
+    b.texBag->coordinates = b.sts.data();
+    b.bag->texture = b.texBag.get();
+  } else {
+    b.bag->texture = nullptr;
+  }
+  // World AABB for the split-screen band cull - the batch analogue of the
+  // terrain chunks' build-time boxes.
+  b.aabbMin[0] = b.aabbMax[0] = b.vertices[0].x;
+  b.aabbMin[1] = b.aabbMax[1] = b.vertices[0].y;
+  b.aabbMin[2] = b.aabbMax[2] = b.vertices[0].z;
+  for (const Vec4& v : b.vertices) {
+    if (v.x < b.aabbMin[0]) b.aabbMin[0] = v.x;
+    if (v.x > b.aabbMax[0]) b.aabbMax[0] = v.x;
+    if (v.y < b.aabbMin[1]) b.aabbMin[1] = v.y;
+    if (v.y > b.aabbMax[1]) b.aabbMax[1] = v.y;
+    if (v.z < b.aabbMin[2]) b.aabbMin[2] = v.z;
+    if (v.z > b.aabbMax[2]) b.aabbMax[2] = v.z;
+  }
+}
+
+// Per-frame batch pass: catch changed members, rebuild whatever changed,
+// then submit. This is the correctness net for the runtime-only mutation
+// channels (Live Link edits, Raycast/custom-node latches fed into object
+// actions, global scripts) that build-time eligibility cannot rule out:
+// - a DIRTIED member (position/color/... actually mutated) is DEMOTED to
+//   the solo path for the rest of the scene - a per-frame-animated member
+//   would otherwise re-bake its whole batch every frame, which is slower
+//   than the pre-batching status quo. The batch rebuilds once without it
+//   and the solo path picks it up this same frame (its dirty stays set).
+// - a visibility/residency flip vs the shown snapshot (hide/show can skip
+//   the dirty flag) only rebuilds the batch in place - the member may well
+//   reappear, and hides are events, not per-frame animation.
+void TerrainGame::renderStaticBatches() {
+  for (StaticBatch& b : staticBatches) {
+    bool stale = b.dirty;
+    for (size_t k = 0; k < b.members.size(); ++k) {
+      const RuntimeObject& o = runtimeObjects[b.members[k]];
+      if (o.dirty) {
+        objectBatchOf[b.members[k]] = -1;  // demote: solo from now on
+        b.members.erase(b.members.begin() + (long)k);
+        b.shown.erase(b.shown.begin() + (long)k);
+        --k;
+        stale = true;
+        continue;
+      }
+      if (!stale &&
+          b.shown[k] != (unsigned char)((o.active && o.visible) ? 1 : 0))
+        stale = true;
+    }
+    if (stale) rebuildStaticBatch(b);
+    if (!b.bag || b.bag->count == 0) continue;
+    // Split halves: same band early-out the terrain chunks use.
+    if (splitBandActive && outsideSplitBand(b.aabbMin, b.aabbMax)) continue;
+    stapip.core.render(b.bag.get());
+  }
+}
+
 void TerrainGame::updateObjectPhysics() {
   // GRAVITY is units/s^2
   const float gravityPerFrame = GRAVITY * g_frameDt * g_frameDt;
   for (RuntimeObject& o : runtimeObjects) {
     if (!o.active || !o.data.physics) continue;
     const float half = 0.5F * o.data.scale[1];
-    const float floorY =
+    float floorY =
         terrainHeightAt(o.data.position[0], o.data.position[2]) + half;
+    // Floor-portal swallowing: an object over a linked, object-teleporting
+    // floor portal ignores the terrain (see portalSwallowZone) - otherwise
+    // it rests on the ground before its center can reach the plane of a
+    // portal lying on (or near) the terrain, and never falls in.
+    for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+      const PortalData& p = PORTALS[pi];
+      if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+      if (!p.teleportObjects) continue;
+      if (p.object >= (int)runtimeObjects.size() ||
+          p.target >= (int)runtimeObjects.size())
+        continue;
+      RuntimeObject& m = runtimeObjects[p.object];
+      if (!m.active || !m.visible || !runtimeObjects[p.target].active)
+        continue;
+      if (&o == &m || &o == &runtimeObjects[p.target]) continue;
+      if (portalSwallowZone(m, 0.5F * m.data.scale[0] + 0.25F,
+                            0.5F * m.data.scale[1] + 0.25F,
+                            o.data.position[0], o.data.position[1],
+                            o.data.position[2])) {
+        floorY = -1e30F;
+        break;
+      }
+    }
     if (o.velocityY == 0.0F && o.data.position[1] <= floorY) continue;  // resting
 
     o.velocityY -= gravityPerFrame;
+    // Terminal velocity (50 u/s): an object in a portal infinite-fall loop
+    // would otherwise accelerate until it clears the whole column in one
+    // frame and the smooth fall turns into blinking. Also era-authentic.
+    const float termV = 50.0F * g_frameDt;
+    if (o.velocityY < -termV) o.velocityY = -termV;
     o.data.position[1] += o.velocityY;
     if (o.data.position[1] <= floorY) {
       o.data.position[1] = floorY;
@@ -4037,6 +4648,10 @@ void TerrainGame::renderScene() {
   // deferred usable bodies, timed separately below). Folded away entirely
   // when DEBUG_SHOW_PROFILER is false. See drawDebugHud.
   const u32 profScene0 = DEBUG_SHOW_PROFILER ? profTicks() : 0;
+  // Split halves: bound the visible vertical band once per pass; the chunk
+  // and static-object submissions below early-out against it.
+  splitBandActive = splitPassActive;
+  if (splitBandActive) computeSplitBand();
   // Scripts changing ctx.skyColor retint the dome horizon
   if (skyDome.bag && (scriptCtx.skyColor.r != skyHorizonR ||
                       scriptCtx.skyColor.g != skyHorizonG ||
@@ -4080,7 +4695,10 @@ void TerrainGame::renderScene() {
   // couple of ms per hit on real hardware.
   static bool envMapTick = false;  // first frame MUST render (fresh VRAM)
   envMapTick = !envMapTick;
-  if (g_dynamicEnvUsers > 0 && skyDome.bag && envMapTick) {
+  // Not inside a split half: the env bracket's end() restores a full-screen
+  // raster, which would undo the half's scissor/offset. Reflections keep the
+  // last rendered map while split-screen is active.
+  if (g_dynamicEnvUsers > 0 && skyDome.bag && envMapTick && !splitPassActive) {
     auto& core = engine->renderer.core;
     skyMat.identity();
     skyMat.data[12] = cameraPosition.x;
@@ -4132,6 +4750,13 @@ void TerrainGame::renderScene() {
     core.envMap.end();
   }
 
+  // Portal through-view: rendered IN-PLACE into the real framebuffer at
+  // full resolution, every frame (the view must stay in lockstep with the
+  // player camera or the surface visibly lags). Must run right after the
+  // frame clear, before any main-scene 3D - the z-carved opening survives
+  // the main scene drawing around it (see renderPortalView).
+  renderPortalView();
+
   if (skyDome.bag) {
     // Follow the camera: park the dome's centre on the eye so however big the
     // map is, the horizon and zenith always wrap around the player. Only the
@@ -4146,8 +4771,20 @@ void TerrainGame::renderScene() {
   // build cost spreads over frames), then submit the built chunks - the
   // engine drops whole out-of-frustum chunks EE-side (main-bbox classify)
   // before any packaging or clipping work happens.
-  updateTerrainChunks(cameraLookAt.x, cameraLookAt.z, 2);
+  // One streaming update per FRAME (the split's second pass reuses it) with
+  // player 2's avatar as a second focus while active - each player keeps the
+  // terrain around them resident even when the pair walks apart.
+  if (!splitSecondPass) {
+    const bool p2Focus = playerTwoActive && players[1].objIndex >= 0;
+    updateTerrainChunks(cameraLookAt.x, cameraLookAt.z,
+                        p2Focus ? players[1].x : 0.0F,
+                        p2Focus ? players[1].z : 0.0F, p2Focus, 2);
+  }
   renderTerrain();
+  // Static batches: one submit per material x cell group of the non-moving
+  // primitives (rebuilt first when a member changed). Opaque z-tested
+  // geometry, so drawing before the solo objects is order-free.
+  renderStaticBatches();
   // Highlighted-in-reach usables get a separate shell pass after the scene.
   // RIM mode (default): the body is deferred out of the main pass and drawn
   // AFTER its shells, erasing the shell wash over the object's own receding
@@ -4170,13 +4807,21 @@ void TerrainGame::renderScene() {
   const bool hlOverlay = HIGHLIGHT_OVERLAY;
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (!runtimeObjects[i].active) continue;  // streamed out with its layer
+    // Batched members render via renderStaticBatches above; their dirty flag
+    // is consumed by the batch rebuild, never by the solo path.
+    if (i < (int)objectBatchOf.size() && objectBatchOf[i] >= 0) continue;
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
     if (!runtimeObjects[i].visible) continue;
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
+    // Split halves: whole objects above/below the visible band skip here.
+    if (splitBandActive && objectOutsideSplitBand(i)) continue;
     // mirrors draw after the scene (copies first, then the blended glass -
     // see renderMirrors); drawing the quad here would z-write the plane and
-    // reject the reflected geometry behind it
-    if (runtimeObjects[i].data.type == 15) continue;
+    // reject the reflected geometry behind it. Portals blend their tinted
+    // surface after the scene too (renderPortals), with the live
+    // through-view projected over it.
+    if (runtimeObjects[i].data.type == 15 || runtimeObjects[i].data.type == 16)
+      continue;
     if (hlActive && hlCount < 8 && runtimeObjects[i].data.usable &&
         highlightInReach(i)) {
       const float ddx = runtimeObjects[i].data.position[0] - cameraPosition.x;
@@ -4198,6 +4843,10 @@ void TerrainGame::renderScene() {
   // Mirrors after the whole scene (including the skinned avatars their
   // copies re-use): reflected copies first, glass quads blended over them
   renderMirrors();
+  // Portals after the mirrors: tinted quads blended over the finished
+  // scene, then the live through-view projected onto the winner's surface
+  // (z-tested against the scene, so walls still occlude the portal).
+  renderPortals();
   if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - profScene0;
   // Highlight shells after the whole scene so they depth-test against the
   // finished z-buffer and can't be punched through by a later draw. Sorted
@@ -4230,8 +4879,32 @@ void TerrainGame::renderScene() {
       if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - pb;
     }
   }
-  // particles last - alpha blended over the scene
+  // particles last - alpha blended over the scene. The second split half
+  // re-faces the quads at ITS camera first - billboards built during the
+  // simulation face player 1's view.
   const u32 profPart0 = DEBUG_SHOW_PROFILER ? profTicks() : 0;
+  // The split's second half re-aims the billboard basis at ITS camera
+  // before submitting - centers are view-independent, so two Vec4 writes
+  // per system replace any re-simulation (the portal through-view trick).
+  if (splitSecondPass && !particles.empty()) {
+    Vec4 fwd = cameraLookAt - cameraPosition;
+    const float fl = sqrtf(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
+    if (fl > 0.0001F) fwd.x /= fl, fwd.y /= fl, fwd.z /= fl;
+    float rx = fwd.z, rz = -fwd.x;
+    const float rl = sqrtf(rx * rx + rz * rz);
+    if (rl > 0.0001F) rx /= rl, rz /= rl;
+    else rx = 1.0F, rz = 0.0F;
+    const float ux = -rz * fwd.y;
+    const float uy = rz * fwd.x - rx * fwd.z;
+    const float uz = rx * fwd.y;
+    for (ParticleSystem& ps : particles) {
+      if (!ps.bag || ps.bag->count == 0) continue;
+      const int kind = runtimeObjects[ps.objectIndex].data.emitKind;
+      ps.billboardBag->right = Vec4(rx, 0.0F, rz, 0.0F);
+      ps.billboardBag->up = kind == 4 ? Vec4(0.0F, 1.0F, 0.0F, 0.0F)
+                                      : Vec4(ux, uy, uz, 0.0F);
+    }
+  }
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
@@ -4327,6 +5000,726 @@ void TerrainGame::renderMirroredObject(int index) {
       if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
     g.animInfoBag->model = &g.animMat;
   }
+}
+
+// Portal objects (type 16): a PS2-honest take on the seamless portal. The
+// through-view is a real second render - the player camera mapped through
+// the pair (so it is always in sync with the player's), drawn into the
+// engine's 128x128 portal VRAM target through the normal VU1 static
+// pipeline (transform/clip on VU1, camera math on the VU0-macro Vec4/M4x4
+// ops). The surface then samples that target with SCREEN-LOCKED UVs: since
+// the virtual camera shares the main camera's fov/aspect, the destination
+// appears in the target exactly where the portal quad sits on screen, so
+// sampling at the fragment's own screen position yields correct
+// parallax - no reprojection per pixel, just one textured fan. Budget: ONE
+// portal view per frame (the nearest linked portal the camera faces);
+// every other portal shows its tinted quad. The teleport (updatePortals)
+// uses the same mapping, so what you see through the surface is exactly
+// where you arrive.
+
+// The player camera mapped through the portal pair: world -> source local
+// frame -> 180 deg flip about local Y (walk INTO the front, come OUT of the
+// target's front) -> target frame -> world.
+bool TerrainGame::portalCamera(int pi, Vec4* outEye, Vec4* outAt) {
+  const PortalData& p = PORTALS[pi];
+  if (p.target < 0 || p.target >= (int)runtimeObjects.size()) return false;
+  RuntimeObject& src = runtimeObjects[p.object];
+  RuntimeObject& dst = runtimeObjects[p.target];
+  if (!dst.active) return false;
+  const V3 sxA = rotated({1.0F, 0.0F, 0.0F}, src.data.rotation);
+  const V3 syA = rotated({0.0F, 1.0F, 0.0F}, src.data.rotation);
+  const V3 szA = rotated({0.0F, 0.0F, 1.0F}, src.data.rotation);
+  const V3 dxA = rotated({1.0F, 0.0F, 0.0F}, dst.data.rotation);
+  const V3 dyA = rotated({0.0F, 1.0F, 0.0F}, dst.data.rotation);
+  const V3 dzA = rotated({0.0F, 0.0F, 1.0F}, dst.data.rotation);
+  auto mapPoint = [&](const Vec4& wp, Vec4* out) {
+    const float rx = wp.x - src.data.position[0];
+    const float ry = wp.y - src.data.position[1];
+    const float rz = wp.z - src.data.position[2];
+    // R^T: project onto the source axes (they are orthonormal)
+    float lx = rx * sxA.x + ry * sxA.y + rz * sxA.z;
+    const float ly = rx * syA.x + ry * syA.y + rz * syA.z;
+    float lz = rx * szA.x + ry * szA.y + rz * szA.z;
+    lx = -lx;  // the 180 deg flip about local Y
+    lz = -lz;
+    out->set(dst.data.position[0] + dxA.x * lx + dyA.x * ly + dzA.x * lz,
+             dst.data.position[1] + dxA.y * lx + dyA.y * ly + dzA.y * lz,
+             dst.data.position[2] + dxA.z * lx + dyA.z * ly + dzA.z * lz,
+             1.0F);
+  };
+  mapPoint(cameraPosition, outEye);
+  mapPoint(cameraLookAt, outAt);
+  return true;
+}
+
+// Render the through-view of the best on-screen portal IN-PLACE: full-res
+// into the real framebuffer, right after the frame clear and before any
+// main-scene 3D. The GS has no stencil, so the shaped opening is carved
+// with the z-buffer instead (RendererCore::portalViewBegin/End): the
+// destination view renders scissored to the quad's screen bbox, then the
+// bbox depths are re-farred, the quad interior is capped at the surface
+// depth (walls in front still occlude the view, the wall behind loses) and
+// the spilled ring outside the opening is repainted with the clear color.
+// The main scene then draws around it and the opening survives - crisp,
+// no texture resample, no seam. Content = sky dome + terrain (portal's
+// showTerrain flag) plus the explicit view-object list - the Mirror
+// philosophy: the second-render cost is always visible to the author.
+// Animated targets re-use their last skinned pose (skinning runs later in
+// the frame).
+void TerrainGame::renderPortalView() {
+  if ((int)portalLiveFlags.size() != PORTAL_COUNT)
+    portalLiveFlags.assign(PORTAL_COUNT ? PORTAL_COUNT : 1, 0);
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) portalLiveFlags[pi] = 0;
+  if (PORTAL_COUNT == 0) return;
+  // Collect the qualifying portals (linked, alive, camera on the front
+  // side), nearest-first, and render up to four views. Carve order is
+  // FARTHEST first: where two openings overlap on screen, the nearer
+  // portal's bbox re-clears the farther's work and wins - the same rule
+  // real occlusion would give.
+  const int kMaxViews = 4;
+  int order[8];
+  float d2s[8];
+  int cnt = 0;
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+    if (p.object >= (int)runtimeObjects.size()) continue;
+    RuntimeObject& m = runtimeObjects[p.object];
+    if (!m.active || !m.visible) continue;
+    if (beyondDrawDistance(m.data, cameraPosition)) continue;
+    if (p.target >= (int)runtimeObjects.size() ||
+        !runtimeObjects[p.target].active)
+      continue;
+    // camera must be on the front (+Z) side - the back face never shows a view
+    const V3 n = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+    const float relX = cameraPosition.x - m.data.position[0];
+    const float relY = cameraPosition.y - m.data.position[1];
+    const float relZ = cameraPosition.z - m.data.position[2];
+    if (relX * n.x + relY * n.y + relZ * n.z <= 0.0F) continue;
+    const float d2 = relX * relX + relY * relY + relZ * relZ;
+    // bounded shortlist (no allocation): keep the 8 nearest candidates
+    if (cnt < 8) {
+      order[cnt] = pi;
+      d2s[cnt] = d2;
+      ++cnt;
+    } else {
+      int worst = 0;
+      for (int i = 1; i < 8; ++i)
+        if (d2s[i] > d2s[worst]) worst = i;
+      if (d2 < d2s[worst]) {
+        order[worst] = pi;
+        d2s[worst] = d2;
+      }
+    }
+  }
+  if (cnt == 0) return;
+  for (int a = 0; a < cnt; ++a)  // nearest-first
+    for (int b = a + 1; b < cnt; ++b)
+      if (d2s[b] < d2s[a]) {
+        const float td = d2s[a];
+        d2s[a] = d2s[b];
+        d2s[b] = td;
+        const int ti = order[a];
+        order[a] = order[b];
+        order[b] = ti;
+      }
+  const int views = cnt < kMaxViews ? cnt : kMaxViews;
+  for (int v = views - 1; v >= 0; --v) {  // farthest of the selected first
+    if (renderOnePortalView(order[v])) portalLiveFlags[order[v]] = 1;
+  }
+}
+
+// One in-place through-view. Returns true when the opening was actually
+// carved (the quad survived the frustum clip and its bbox is on screen).
+bool TerrainGame::renderOnePortalView(int pi) {
+  Vec4 eye, at;
+  if (!portalCamera(pi, &eye, &at)) return false;
+  const PortalData& p = PORTALS[pi];
+  RuntimeObject& m = runtimeObjects[p.object];
+
+  // The quad's screen footprint under the MAIN camera. Corners on the same
+  // +Z-nudged plane as the tint quad (addDecal's 0.02 local nudge), clipped
+  // in clip space against the near plane and the four screen edges
+  // (Sutherland-Hodgman, <=9 verts - a handful of flops on the EE), then
+  // projected to GS screen coordinates and reversed-z depths (the same
+  // mapping the VU1 path writes: near -> 0xFFFFFF).
+  const V3 ax = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+  const V3 ay = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+  const V3 az = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+  const float hx = 0.5F * m.data.scale[0];
+  const float hy = 0.5F * m.data.scale[1];
+  const float nz = 0.02F * m.data.scale[2];
+  const float cx = m.data.position[0] + az.x * nz;
+  const float cy = m.data.position[1] + az.y * nz;
+  const float cz = m.data.position[2] + az.z * nz;
+  const float sgnX[4] = {-1.0F, 1.0F, 1.0F, -1.0F};
+  const float sgnY[4] = {-1.0F, -1.0F, 1.0F, 1.0F};
+  const float fbW = engine->renderer.core.getSettings().getWidth();
+  const float fbH = engine->renderer.core.getSettings().getRenderHeightF();
+  // Heights above are RASTER heights: with field rendering
+  // (InterlacedField) the buffer is half height and the projection's
+  // raster scale is built at getRenderHeightF - screen-space math here
+  // must match it (getHeight would land the mask a field off).
+
+  float xy[24];
+  u32 zz[12];
+  int n = 0;
+  int bx0, by0, bx1, by1;
+
+  // Crossing zone: when the eye is a breath away from the plane, inside
+  // the rectangle and looking INTO the surface, parts of the quad fall
+  // behind the near plane, the clipped fan shrinks and the world behind
+  // the free-standing surface peeks around it for a frame or two - the
+  // "looking through two portals at once" pop right at the crossing
+  // moment. In that zone the opening simply becomes the WHOLE screen at
+  // the nearest depth: the destination fills the view, exactly what
+  // standing in the doorway should look like.
+  {
+    const float relX = cameraPosition.x - m.data.position[0];
+    const float relY = cameraPosition.y - m.data.position[1];
+    const float relZ = cameraPosition.z - m.data.position[2];
+    const float lz = relX * az.x + relY * az.y + relZ * az.z;
+    const float lx = relX * ax.x + relY * ax.y + relZ * ax.z;
+    const float ly = relX * ay.x + relY * ay.y + relZ * ay.z;
+    const float thresh =
+        engine->renderer.core.getSettings().getNear() * 2.0F + 0.45F;
+    Vec4 fwd = cameraLookAt - cameraPosition;
+    const float into = -(fwd.x * az.x + fwd.y * az.y + fwd.z * az.z);
+    if (lz > 0.0F && lz < thresh && lx > -hx - 0.3F && lx < hx + 0.3F &&
+        ly > -hy - 0.3F && ly < hy + 0.3F && into > 0.0F) {
+      n = 4;
+      xy[0] = 0.0F;
+      xy[1] = 0.0F;
+      xy[2] = fbW;
+      xy[3] = 0.0F;
+      xy[4] = fbW;
+      xy[5] = fbH;
+      xy[6] = 0.0F;
+      xy[7] = fbH;
+      for (int i = 0; i < 4; ++i) zz[i] = 0xFFFFFFu;
+      bx0 = 0;
+      by0 = 0;
+      bx1 = (int)fbW;
+      by1 = (int)fbH;
+    }
+  }
+
+  if (n == 0) {
+    const M4x4& vp = engine->renderer.core.renderer3D.getViewProj();
+    Vec4 poly[12], tmp[12];
+    n = 4;
+    for (int i = 0; i < 4; ++i) {
+      const float wx = cx + ax.x * hx * sgnX[i] + ay.x * hy * sgnY[i];
+      const float wy = cy + ax.y * hx * sgnX[i] + ay.y * hy * sgnY[i];
+      const float wz = cz + ax.z * hx * sgnX[i] + ay.z * hy * sgnY[i];
+      poly[i] = vp * Vec4(wx, wy, wz, 1.0F);
+    }
+    // Frustum edges sit at |x| = w * screenW/4096 in this projection (the
+    // VU1 pipeline's fixed 2048 scale), NOT at |x| = w; small margin - the
+    // GS scissor finishes the job.
+    const float xl = fbW / 4096.0F * 1.06F;
+    const float yl = fbH / 4096.0F * 1.06F;
+    const float wMin = engine->renderer.core.getSettings().getNear() * 0.5F;
+    for (int plane = 0; plane < 5 && n >= 3; ++plane) {
+      auto dist = [&](const Vec4& v) -> float {
+        switch (plane) {
+          case 0: return v.w - wMin;
+          case 1: return xl * v.w - v.x;
+          case 2: return xl * v.w + v.x;
+          case 3: return yl * v.w - v.y;
+          default: return yl * v.w + v.y;
+        }
+      };
+      int outN = 0;
+      for (int i = 0; i < n; ++i) {
+        const Vec4& a = poly[i];
+        const Vec4& b = poly[(i + 1) % n];
+        const float da = dist(a);
+        const float db = dist(b);
+        if (da >= 0.0F) tmp[outN++] = a;
+        if ((da >= 0.0F) != (db >= 0.0F)) {
+          const float t = da / (da - db);
+          tmp[outN++] = Vec4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t,
+                             a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t);
+        }
+      }
+      n = outN;
+      for (int i = 0; i < n; ++i) poly[i] = tmp[i];
+    }
+    if (n < 3) return false;
+
+    float minX = 1e30F, minY = 1e30F, maxX = -1e30F, maxY = -1e30F;
+    for (int i = 0; i < n; ++i) {
+      const float inv = 1.0F / poly[i].w;
+      const float sx = fbW * 0.5F + poly[i].x * inv * 2048.0F;
+      const float sy = fbH * 0.5F + poly[i].y * inv * 2048.0F;
+      xy[i * 2] = sx;
+      xy[i * 2 + 1] = sy;
+      if (sx < minX) minX = sx;
+      if (sx > maxX) maxX = sx;
+      if (sy < minY) minY = sy;
+      if (sy > maxY) maxY = sy;
+      float zf = (poly[i].z * inv + 1.0F) * 8388607.5F;
+      if (zf < 0.0F) zf = 0.0F;
+      if (zf > 16777215.0F) zf = 16777215.0F;
+      zz[i] = (u32)zf;
+    }
+    bx0 = (int)minX;
+    by0 = (int)minY;
+    bx1 = (int)maxX + 1;
+    by1 = (int)maxY + 1;
+    if (bx1 <= 0 || by1 <= 0 || bx0 >= (int)fbW || by0 >= (int)fbH)
+      return false;
+  }
+
+  // Dead zone: the virtual camera sits BEHIND the exit plane (the
+  // isometry puts it there), and the PS2 has no oblique near plane to
+  // clip what lies between the two - through a real hole that region is
+  // invisible. Terrain chunks (renderTerrain) and view objects fully on
+  // the camera side of the target plane are skipped.
+  RuntimeObject& tgt = runtimeObjects[p.target];
+  const V3 exitN = rotated({0.0F, 0.0F, 1.0F}, tgt.data.rotation);
+  const float exitD = exitN.x * tgt.data.position[0] +
+                      exitN.y * tgt.data.position[1] +
+                      exitN.z * tgt.data.position[2];
+  portalExitPlane[0] = exitN.x;
+  portalExitPlane[1] = exitN.y;
+  portalExitPlane[2] = exitN.z;
+  portalExitPlane[3] = exitD;
+  portalExitPlaneOn = true;
+
+  auto& core = engine->renderer.core;
+  core.portalViewBegin(bx0, by0, bx1, by1);
+  // Same projection as the screen, only the view swaps to the virtual
+  // camera - the destination lands exactly where the opening is.
+  core.renderer3D.pushPortalView(eye, at);
+  if (p.showTerrain) {
+    if (skyDome.bag) {
+      // dome parked on the VIRTUAL eye; the main pass re-centers it after
+      skyMat.identity();
+      skyMat.data[12] = eye.x;
+      skyMat.data[13] = eye.y;
+      skyMat.data[14] = eye.z;
+      stapip.core.render(skyDome.bag.get());
+    }
+    // resident chunks only - the streaming ring follows the MAIN camera, so
+    // with terrain streaming on, keep the pair inside the streamed radius
+    renderTerrain();
+  }
+  // Billboard basis for THIS view: particles are camera-facing quads
+  // whose centers are view-independent, so the same bags redraw for the
+  // virtual camera once right/up are swapped (the VU1 billboard program
+  // reads them per mesh - see updateParticles). Rain (kind 4) keeps
+  // world-up like the main pass. Each emitter's basis is restored to what
+  // it held (the main-camera basis updateParticles set) right after its
+  // draw, so the frame's final main-pass particle render is unaffected.
+  Vec4 pvFwd = at - eye;
+  {
+    const float l = sqrtf(pvFwd.x * pvFwd.x + pvFwd.y * pvFwd.y +
+                          pvFwd.z * pvFwd.z);
+    if (l > 0.0001F) pvFwd.x /= l, pvFwd.y /= l, pvFwd.z /= l;
+  }
+  float pvRx = pvFwd.z, pvRz = -pvFwd.x;
+  {
+    const float l = sqrtf(pvRx * pvRx + pvRz * pvRz);
+    if (l > 0.0001F) pvRx /= l, pvRz /= l;
+    else pvRx = 1.0F, pvRz = 0.0F;
+  }
+  const Vec4 pvRight(pvRx, 0.0F, pvRz, 0.0F);
+  const Vec4 pvUp(-pvRz * pvFwd.y, pvRz * pvFwd.x - pvRx * pvFwd.z,
+                  pvRx * pvFwd.y, 0.0F);
+
+  // One view object: base bags + (animated) last skinned pose + (emitter)
+  // its particle billboards under the virtual basis. No portal-in-portal:
+  // the recursion would re-carve the very opening being rendered (mirrors
+  // draw only their glass here - the reflected copies are a main-pass
+  // trick that would need its own bracket).
+  auto renderViewObject = [&](int ti) {
+    if (ti < 0 || ti >= (int)runtimeObjects.size()) return;
+    RuntimeObject& ro = runtimeObjects[ti];
+    if (!ro.active || !ro.visible || ro.data.type == 16) return;
+    {
+      // Skip objects entirely behind the exit mouth (dead zone above).
+      // The extent along the plane normal is the exact OBB projection -
+      // a crude max-axis radius made a WIDE thin wall count as "reaching
+      // through" its own thickness (a wall the target portal is mounted
+      // on filled the whole view with its backside; owner report). The
+      // 0.1 slack keeps a flush-mounted wall (portal quad nudged 0.02 in
+      // front of it) classified as behind; geometry genuinely poking
+      // through the plane still renders.
+      const V3 oax = rotated({1.0F, 0.0F, 0.0F}, ro.data.rotation);
+      const V3 oay = rotated({0.0F, 1.0F, 0.0F}, ro.data.rotation);
+      const V3 oaz = rotated({0.0F, 0.0F, 1.0F}, ro.data.rotation);
+      const float r =
+          fabsf(exitN.x * oax.x + exitN.y * oax.y + exitN.z * oax.z) * 0.5F *
+              ro.data.scale[0] +
+          fabsf(exitN.x * oay.x + exitN.y * oay.y + exitN.z * oay.z) * 0.5F *
+              ro.data.scale[1] +
+          fabsf(exitN.x * oaz.x + exitN.y * oaz.y + exitN.z * oaz.z) * 0.5F *
+              ro.data.scale[2];
+      const float sd = exitN.x * ro.data.position[0] +
+                       exitN.y * ro.data.position[1] +
+                       exitN.z * ro.data.position[2] - exitD;
+      if (sd < -r + 0.1F) return;
+    }
+    if (ro.data.type == 7) {
+      // Emitter: redraw its live particle billboards from the virtual
+      // camera. Centers are view-independent; only right/up change.
+      for (ParticleSystem& ps : particles) {
+        if (ps.objectIndex != ti || !ps.bag || ps.bag->count == 0) continue;
+        const Vec4 savedR = ps.billboardBag->right;
+        const Vec4 savedU = ps.billboardBag->up;
+        ps.billboardBag->right = pvRight;
+        ps.billboardBag->up = ro.data.emitKind == 4 ? Vec4(0.0F, 1.0F, 0.0F, 0.0F)
+                                                    : pvUp;
+        stapip.core.render(ps.bag.get());
+        ps.billboardBag->right = savedR;  // main pass draws these again later
+        ps.billboardBag->up = savedU;
+      }
+      return;  // emitters have no geometry/anim parts
+    }
+    if (ro.dirty) rebuildObjectGeometry(ti);
+    ObjectGeometry& g = objectGeometry[ti];
+    for (GeoPart& part : g.parts)
+      if (part.bag) stapip.core.render(part.bag.get());
+    if (g.animInfoBag)
+      for (ObjectGeometry::AnimPart& ap : g.animParts)
+        if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+  };
+  if (p.viewAll) {
+    // Experimental "all objects in view": submit the whole scene a second
+    // time. The pushed frustum planes classify every bag against the
+    // VIRTUAL camera (off-view geometry drops EE-side before packaging)
+    // and draw distances are measured from the virtual eye, so the real
+    // cost is what the destination actually sees - still, big scenes pay
+    // for this; the authored list stays the shipping-quality default.
+    for (int ti = 0; ti < (int)runtimeObjects.size(); ++ti) {
+      if (runtimeObjects[ti].data.type == 15) continue;  // glass-only anyway
+      if (beyondDrawDistance(runtimeObjects[ti].data, eye)) continue;
+      renderViewObject(ti);
+    }
+  } else {
+    for (int v = 0; v < p.viewCount; ++v)
+      renderViewObject(PORTAL_VIEW_OBJECTS[p.firstView + v]);
+  }
+  portalExitPlaneOn = false;
+  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  core.portalViewEnd(xy, zz, n, (u8)scriptCtx.skyColor.r,
+                     (u8)scriptCtx.skyColor.g, (u8)scriptCtx.skyColor.b);
+  return true;
+}
+
+// Blend the tinted quads of every portal EXCEPT the live ones over the
+// finished scene (a live portal's opening already shows the through-view
+// carved by renderPortalView - a tint over it would wash the image).
+void TerrainGame::renderPortals() {
+  if (PORTAL_COUNT == 0) return;
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    if (pi < (int)portalLiveFlags.size() && portalLiveFlags[pi]) continue;
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 ||
+        p.object >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[p.object];
+    if (!m.active || !m.visible) continue;
+    if (beyondDrawDistance(m.data, cameraPosition)) continue;
+    for (GeoPart& part : objectGeometry[p.object].parts)
+      if (part.bag) stapip.core.render(part.bag.get());
+  }
+}
+
+// Floor-portal swallowing (owner's suggestion): while a body touches a
+// linked floor portal (front normal pointing up), it stops colliding with
+// the TERRAIN - the ground clamp would otherwise rest it on the terrain
+// before it can reach the crossing plane, so a portal lying on the ground
+// could never swallow anything. Restricted to floor portals (wall/ceiling
+// surfaces never need it) and to the portal's rectangle footprint; the
+// zone spans a little above the plane (the approach) and below it (the
+// straddle while the crossing probe travels) - the teleport fires long
+// before the body leaves the zone downward.
+bool TerrainGame::portalSwallowZone(const RuntimeObject& m, float hx, float hy,
+                                    float x, float y, float z) {
+  const V3 azS = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+  if (azS.y < 0.5F) return false;  // floor portals only
+  const V3 axS = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+  const V3 ayS = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+  const float rx = x - m.data.position[0];
+  const float ry = y - m.data.position[1];
+  const float rz = z - m.data.position[2];
+  const float lx = rx * axS.x + ry * axS.y + rz * axS.z;
+  const float ly = rx * ayS.x + ry * ayS.y + rz * ayS.z;
+  const float lz = rx * azS.x + ry * azS.y + rz * azS.z;
+  return lz > -0.6F && lz < 2.0F && lx > -hx && lx < hx && ly > -hy &&
+         ly < hy;
+}
+
+bool TerrainGame::portalSwallowsPlayer(float x, float feetY, float z) {
+  if (PORTAL_COUNT == 0) return false;
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+    if (p.object >= (int)runtimeObjects.size() ||
+        p.target >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[p.object];
+    if (!m.active || !m.visible || !runtimeObjects[p.target].active) continue;
+    const float hx = 0.5F * m.data.scale[0] + 0.25F;
+    const float hy = 0.5F * m.data.scale[1] + 0.25F;
+    // feet AND waist: the zone must hold while the body straddles the
+    // plane, or the ground clamp snaps the walker back mid-crossing
+    if (portalSwallowZone(m, hx, hy, x, feetY, z) ||
+        portalSwallowZone(m, hx, hy, x, feetY + 1.0F, z))
+      return true;
+  }
+  return false;
+}
+
+// Publishes the plane of the linked portal whose opening the walker's body
+// column currently sits in (any orientation - wall doorways included; feet
+// and waist probed like the crossing test). collidePlayer then ignores
+// objects fully behind that plane: the mounting wall opens up, geometry in
+// front of or poking through the surface still collides. Off when the
+// column is outside every opening - the same wall blocks normally beside
+// its portal.
+void TerrainGame::updatePortalPass(float x, float feetY, float z) {
+  portalPassOn = false;
+  if (PORTAL_COUNT == 0) return;
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+    if (p.object >= (int)runtimeObjects.size() ||
+        p.target >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[p.object];
+    if (!m.active || !m.visible || !runtimeObjects[p.target].active) continue;
+    const V3 axS = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+    const V3 ayS = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+    const V3 azS = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+    const float hx = 0.5F * m.data.scale[0] + 0.25F;
+    const float hy = 0.5F * m.data.scale[1] + 0.25F;
+    auto inZone = [&](float wy) {
+      const float rx = x - m.data.position[0];
+      const float ry = wy - m.data.position[1];
+      const float rz = z - m.data.position[2];
+      const float lx = rx * axS.x + ry * axS.y + rz * axS.z;
+      const float ly = rx * ayS.x + ry * ayS.y + rz * ayS.z;
+      const float lz = rx * azS.x + ry * azS.y + rz * azS.z;
+      return lz > -0.6F && lz < 1.2F && lx > -hx && lx < hx && ly > -hy &&
+             ly < hy;
+    };
+    if (inZone(feetY) || inZone(feetY + 1.0F)) {
+      portalPassPlane[0] = azS.x;
+      portalPassPlane[1] = azS.y;
+      portalPassPlane[2] = azS.z;
+      portalPassPlane[3] = azS.x * m.data.position[0] +
+                           azS.y * m.data.position[1] +
+                           azS.z * m.data.position[2];
+      portalPassOn = true;
+      return;
+    }
+  }
+}
+
+// Portal crossings. The player probes with TWO segments: a "waist" point
+// (feet + up to 1 unit, capped by eyeH - door-sized wall surfaces trigger
+// naturally, a noclip camera probes its own position) and the FEET (so
+// jumping/dropping into a floor portal triggers even while the waist stays
+// above the plane); physics objects test their center. A crossing = the
+// probe segment pierced the front (+Z) face inside the rectangle this
+// frame. Position, view direction and vertical velocity map through the
+// pair exactly like portalCamera, with NO exit offset - the isometry
+// carries the overshoot past the target plane, so the hop is continuous
+// (an offset read as a one-frame camera pop on hardware). The walkers keep
+// no horizontal velocity state, so a tilted pair carries only the vertical
+// component (yaw-rotated pairs, the common teleporter, lose nothing).
+// Returns true when the player teleported (the frame camera is rebuilt here
+// so no frame ever renders from the departure side).
+bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
+                                float* px, float* py, float* pz, float* pyaw,
+                                float* ppitch, float* pvelY, float eyeH) {
+  if (PORTAL_COUNT == 0) return false;
+  const bool freshPrev =
+      (int)portalPrevPos.size() != (int)runtimeObjects.size() * 3;
+  if (freshPrev) portalPrevPos.resize(runtimeObjects.size() * 3);
+  bool playerTeleported = false;
+  const float probeLift = eyeH > 1.0F ? 1.0F : eyeH;
+
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+    if (p.object >= (int)runtimeObjects.size() ||
+        p.target >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[p.object];
+    RuntimeObject& t = runtimeObjects[p.target];
+    if (!m.active || !m.visible || !t.active) continue;
+
+    const V3 sxA = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+    const V3 syA = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+    const V3 szA = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+    const V3 dxA = rotated({1.0F, 0.0F, 0.0F}, t.data.rotation);
+    const V3 dyA = rotated({0.0F, 1.0F, 0.0F}, t.data.rotation);
+    const V3 dzA = rotated({0.0F, 0.0F, 1.0F}, t.data.rotation);
+    // a little slack around the authored rectangle - brushing the frame
+    // edge should not drop the player onto the wall the portal is built in
+    const float hx = 0.5F * m.data.scale[0] + 0.25F;
+    const float hy = 0.5F * m.data.scale[1] + 0.25F;
+    auto localOf = [&](float wxx, float wyy, float wzz, float* lx, float* ly,
+                       float* lz) {
+      const float rx = wxx - m.data.position[0];
+      const float ry = wyy - m.data.position[1];
+      const float rz = wzz - m.data.position[2];
+      *lx = rx * sxA.x + ry * sxA.y + rz * sxA.z;
+      *ly = rx * syA.x + ry * syA.y + rz * syA.z;
+      *lz = rx * szA.x + ry * szA.y + rz * szA.z;
+    };
+    // segment a->b pierced the front face inside the rectangle?
+    auto crossed = [&](float ax_, float ay_, float az_, float bx_, float by_,
+                       float bz_) -> bool {
+      float l0x, l0y, l0z, l1x, l1y, l1z;
+      localOf(ax_, ay_, az_, &l0x, &l0y, &l0z);
+      localOf(bx_, by_, bz_, &l1x, &l1y, &l1z);
+      if (!(l0z > 0.0F && l1z <= 0.0F)) return false;
+      const float tt = l0z / (l0z - l1z);
+      const float ix = l0x + (l1x - l0x) * tt;
+      const float iy = l0y + (l1y - l0y) * tt;
+      return ix > -hx && ix < hx && iy > -hy && iy < hy;
+    };
+    // world point / direction through the pair (flip about local Y)
+    auto mapPoint = [&](float wxx, float wyy, float wzz, float* ox, float* oy,
+                        float* oz) {
+      float lx, ly, lz;
+      localOf(wxx, wyy, wzz, &lx, &ly, &lz);
+      lx = -lx;
+      lz = -lz;
+      *ox = t.data.position[0] + dxA.x * lx + dyA.x * ly + dzA.x * lz;
+      *oy = t.data.position[1] + dxA.y * lx + dyA.y * ly + dzA.y * lz;
+      *oz = t.data.position[2] + dxA.z * lx + dyA.z * ly + dzA.z * lz;
+    };
+    auto mapDir = [&](float wxx, float wyy, float wzz, float* ox, float* oy,
+                      float* oz) {
+      float lx = wxx * sxA.x + wyy * sxA.y + wzz * sxA.z;
+      const float ly = wxx * syA.x + wyy * syA.y + wzz * syA.z;
+      float lz = wxx * szA.x + wyy * szA.y + wzz * szA.z;
+      lx = -lx;
+      lz = -lz;
+      *ox = dxA.x * lx + dyA.x * ly + dzA.x * lz;
+      *oy = dxA.y * lx + dyA.y * ly + dzA.y * lz;
+      *oz = dxA.z * lx + dyA.z * ly + dzA.z * lz;
+    };
+
+    // --- the player -------------------------------------------------------
+    // Two probe segments: the waist (feet + up to 1 unit - door-sized wall
+    // portals trigger naturally) and the FEET (dropping/jumping into a
+    // floor portal must trigger even while the waist stays above it).
+    const bool waistHit =
+        px && !playerTeleported &&
+        crossed(prevX, prevY + probeLift, prevZ, *px, *py + probeLift, *pz);
+    const bool feetHit = px && !playerTeleported && !waistHit &&
+                         crossed(prevX, prevY, prevZ, *px, *py, *pz);
+    if (waistHit || feetHit) {
+      // Map the feet position directly - the pair transform is an isometry,
+      // so the overshoot past the plane maps to the same overshoot past the
+      // target plane and the crossing is CONTINUOUS. No exit offset: it
+      // read as a one-frame camera pop on hardware, and the arrival already
+      // sits on the target's exit side moving away (a two-way pair can't
+      // re-trigger without genuinely walking back).
+      // vertical motion BEFORE the position is overwritten. Like the
+      // objects below, carry the ACTUAL motion this frame - the walker's
+      // ground clamp can zero velY on the very crossing frame.
+      float vy = *pvelY;
+      const float stepY = *py - prevY;
+      if (fabsf(stepY) > fabsf(vy)) vy = stepY;
+      float nx2, ny2, nz2;
+      mapPoint(*px, *py, *pz, &nx2, &ny2, &nz2);
+      *px = nx2;
+      *py = ny2;
+      *pz = nz2;
+      // view direction through the same mapping (walker convention:
+      // forward = (sin yaw * cos pitch, sin pitch, cos yaw * cos pitch))
+      float ndx, ndy, ndz;
+      mapDir(sinf(*pyaw) * cosf(*ppitch), sinf(*ppitch),
+             cosf(*pyaw) * cosf(*ppitch), &ndx, &ndy, &ndz);
+      *pyaw = atan2f(ndx, ndz);
+      float sp = ndy;
+      if (sp > 1.0F) sp = 1.0F;
+      if (sp < -1.0F) sp = -1.0F;
+      *ppitch = asinf(sp);
+      float nvx, nvy, nvz;
+      mapDir(0.0F, vy, 0.0F, &nvx, &nvy, &nvz);
+      *pvelY = nvy;
+      // rebuild this frame's camera from the arrival state
+      if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2) {
+        // third person: park the camera on the authored boom straight
+        // behind the avatar; the spring arm takes over next frame
+        const float bx = sinf(*pyaw), bz = cosf(*pyaw);
+        cameraPosition = Vec4(*px - bx * PLAYER_CAM_DIST,
+                              *py + PLAYER_CAM_HEIGHT + PLAYER_CAM_DIST * 0.25F,
+                              *pz - bz * PLAYER_CAM_DIST);
+        cameraLookAt = Vec4(*px, *py + PLAYER_CAM_HEIGHT, *pz);
+        players[0].boom = PLAYER_CAM_DIST;
+        players[0].faceYaw = *pyaw;
+      } else {
+        const float eyY = *py + eyeH;
+        cameraPosition = Vec4(*px, eyY, *pz);
+        cameraLookAt = Vec4(*px + sinf(*pyaw) * cosf(*ppitch),
+                            eyY + sinf(*ppitch),
+                            *pz + cosf(*pyaw) * cosf(*ppitch));
+      }
+      playerTeleported = true;
+    }
+
+    // --- physics objects (portal's "Teleport physics objects" flag) --------
+    if (p.teleportObjects && !freshPrev) {
+      for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+        RuntimeObject& ro = runtimeObjects[oi];
+        if (!ro.active || !ro.data.physics) continue;
+        if (oi == p.object || oi == p.target) continue;
+        if (PLAYER_INDEX >= 0 && oi == PLAYER_INDEX) continue;
+        const float* pp = &portalPrevPos[oi * 3];
+        if (pp[0] == ro.data.position[0] && pp[1] == ro.data.position[1] &&
+            pp[2] == ro.data.position[2])
+          continue;  // resting - cheap early out
+        if (!crossed(pp[0], pp[1], pp[2], ro.data.position[0],
+                     ro.data.position[1], ro.data.position[2]))
+          continue;
+        // Carry the object's ACTUAL motion this frame, not just velocityY:
+        // the physics ground clamp may have zeroed velocityY on this very
+        // frame (the step landed below the terrain snap height before this
+        // test ran), and an infinite-fall loop would hitch at the far end
+        // with v = 0 - the position delta still holds the real fall.
+        float vy = ro.velocityY;
+        const float stepY = ro.data.position[1] - pp[1];
+        if (fabsf(stepY) > fabsf(vy)) vy = stepY;
+        float nx2, ny2, nz2;
+        mapPoint(ro.data.position[0], ro.data.position[1],
+                 ro.data.position[2], &nx2, &ny2, &nz2);
+        // no exit offset - the mapped overshoot already sits past the
+        // target plane (continuity); the prev-pos stamp below stops the
+        // reverse link from reading the hop as another crossing
+        ro.data.position[0] = nx2;
+        ro.data.position[1] = ny2;
+        ro.data.position[2] = nz2;
+        float nvx, nvy, nvz;
+        mapDir(0.0F, vy, 0.0F, &nvx, &nvy, &nvz);
+        ro.velocityY = nvy;
+        ro.dirty = true;  // world-space bags rebuild at the arrival
+        // stamp the arrival as this object's new "previous" so the reverse
+        // link of a two-way pair can't see the same hop as a crossing
+        portalPrevPos[oi * 3] = ro.data.position[0];
+        portalPrevPos[oi * 3 + 1] = ro.data.position[1];
+        portalPrevPos[oi * 3 + 2] = ro.data.position[2];
+      }
+    }
+  }
+
+  // refresh the crossing history for the next frame
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    portalPrevPos[oi * 3] = runtimeObjects[oi].data.position[0];
+    portalPrevPos[oi * 3 + 1] = runtimeObjects[oi].data.position[1];
+    portalPrevPos[oi * 3 + 2] = runtimeObjects[oi].data.position[2];
+  }
+  return playerTeleported;
 }
 
 // True when the usable object sits inside the highlight distance (same
@@ -4637,12 +6030,15 @@ void TerrainGame::resetTerrainChunks() {
   int pool = total;
   if (TERRAIN_VIEW_DISTANCE > 0.0F) {
     // The view rect (focus +- view distance) covers at most ceil(2V/span)+1
-    // tiles per axis; +1 more per axis for the eviction hysteresis.
+    // tiles per axis; +1 more per axis for the eviction hysteresis. Scenes
+    // that can host player 2 stream around two foci, so they need room for
+    // two disjoint rects.
     const float spanX = TERRAIN_CHUNK_CELLS * ((float)TERRAIN_WIDTH / cellsX);
     const float spanZ = TERRAIN_CHUNK_CELLS * ((float)TERRAIN_DEPTH / cellsZ);
     const int nx = (int)(2.0F * TERRAIN_VIEW_DISTANCE / spanX) + 3;
     const int nz = (int)(2.0F * TERRAIN_VIEW_DISTANCE / spanZ) + 3;
-    if (nx * nz < pool) pool = nx * nz;
+    const int rects = (MULTIPLAYER_MODE != 0 && PLAYER2_INDEX >= 0) ? 2 : 1;
+    if (nx * nz * rects < pool) pool = nx * nz * rects;
   }
 
   terrainChunks.clear();
@@ -4675,6 +6071,23 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     if (iz > HM_D - 1) iz = HM_D - 1;
     return TERRAIN_HEIGHTS[iz * HM_W + ix];
   };
+  {
+    // Height extent over this chunk's vertex grid - the portal dead-zone
+    // test in renderTerrain does an exact AABB-vs-plane check with it.
+    const int mgx0 = cx * TERRAIN_CHUNK_CELLS;
+    const int mgz0 = cz * TERRAIN_CHUNK_CELLS;
+    const int mgx1 = mgx0 + TERRAIN_CHUNK_CELLS > cellsX ? cellsX
+                                                         : mgx0 + TERRAIN_CHUNK_CELLS;
+    const int mgz1 = mgz0 + TERRAIN_CHUNK_CELLS > cellsZ ? cellsZ
+                                                         : mgz0 + TERRAIN_CHUNK_CELLS;
+    ch.minY = ch.maxY = hAt(mgx0, mgz0);
+    for (int iz = mgz0; iz <= mgz1; ++iz)
+      for (int ix = mgx0; ix <= mgx1; ++ix) {
+        const float h = hAt(ix, iz);
+        if (h < ch.minY) ch.minY = h;
+        if (h > ch.maxY) ch.maxY = h;
+      }
+  }
   auto shadeAt = [&](int ix, int iz) -> V3 {
     V3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0F * (stepX < stepZ ? stepX : stepZ),
             hAt(ix, iz - 1) - hAt(ix, iz + 1)};
@@ -4782,6 +6195,22 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   // Reused slot = same bag pointer with new vertex content: without the bump
   // the engine's bbox cacher would cull this chunk with the old chunk's boxes.
   ch.bag->bboxVersion = ++g_bboxStamp;
+
+  // World AABB of the built mesh - the split-band cull tests it per half.
+  // One pass at build time, nothing per frame.
+  if (!ch.vertices.empty()) {
+    ch.aabbMin[0] = ch.aabbMax[0] = ch.vertices[0].x;
+    ch.aabbMin[1] = ch.aabbMax[1] = ch.vertices[0].y;
+    ch.aabbMin[2] = ch.aabbMax[2] = ch.vertices[0].z;
+    for (const Vec4& v : ch.vertices) {
+      if (v.x < ch.aabbMin[0]) ch.aabbMin[0] = v.x;
+      if (v.x > ch.aabbMax[0]) ch.aabbMax[0] = v.x;
+      if (v.y < ch.aabbMin[1]) ch.aabbMin[1] = v.y;
+      if (v.y > ch.aabbMax[1]) ch.aabbMax[1] = v.y;
+      if (v.z < ch.aabbMin[2]) ch.aabbMin[2] = v.z;
+      if (v.z > ch.aabbMax[2]) ch.aabbMax[2] = v.z;
+    }
+  }
 }
 
 // Unbuilt chunks in the current view rect (the same rect updateTerrainChunks
@@ -4821,7 +6250,9 @@ int TerrainGame::countPendingChunks(float focusX, float focusZ) {
 // tile of hysteresis so walking along a border doesn't rebuild the same ring
 // every frame - and missing ones are built nearest-first, `budget` per call
 // (loadScene passes INT_MAX to drain behind the loading screen).
-void TerrainGame::updateTerrainChunks(float focusX, float focusZ, int budget) {
+void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
+                                      float focus2X, float focus2Z,
+                                      bool twoFoci, int budget) {
   if (terrainChunksX <= 0 || terrainChunksZ <= 0 || !infoBag) return;
   const int cellsX = HM_W - 1;
   const int cellsZ = HM_D - 1;
@@ -4830,23 +6261,43 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ, int budget) {
   const float startX = -TERRAIN_WIDTH * 0.5F;
   const float startZ = -TERRAIN_DEPTH * 0.5F;
 
-  int cx0 = 0, cz0 = 0, cx1 = terrainChunksX - 1, cz1 = terrainChunksZ - 1;
-  if (TERRAIN_VIEW_DISTANCE > 0.0F) {
-    auto clampX = [&](int v) {
-      return v < 0 ? 0 : (v > terrainChunksX - 1 ? terrainChunksX - 1 : v);
-    };
-    auto clampZ = [&](int v) {
-      return v < 0 ? 0 : (v > terrainChunksZ - 1 ? terrainChunksZ - 1 : v);
-    };
-    cx0 = clampX((int)((focusX - TERRAIN_VIEW_DISTANCE - startX) / spanX));
-    cx1 = clampX((int)((focusX + TERRAIN_VIEW_DISTANCE - startX) / spanX));
-    cz0 = clampZ((int)((focusZ - TERRAIN_VIEW_DISTANCE - startZ) / spanZ));
-    cz1 = clampZ((int)((focusZ + TERRAIN_VIEW_DISTANCE - startZ) / spanZ));
+  // One view rect per focus. With two players apart, the rects are disjoint;
+  // a chunk survives if it sits in (a hysteresis ring around) EITHER rect -
+  // evicting on a single rect would make the two split-screen passes throw
+  // out each other's terrain and burn the whole build budget on churn.
+  struct Rect {
+    int cx0, cz0, cx1, cz1;
+    float fx, fz;
+  };
+  Rect rects[2];
+  int rectCount = 0;
+  auto addRect = [&](float fx, float fz) {
+    Rect r = {0, 0, terrainChunksX - 1, terrainChunksZ - 1, fx, fz};
+    if (TERRAIN_VIEW_DISTANCE > 0.0F) {
+      auto clampX = [&](int v) {
+        return v < 0 ? 0 : (v > terrainChunksX - 1 ? terrainChunksX - 1 : v);
+      };
+      auto clampZ = [&](int v) {
+        return v < 0 ? 0 : (v > terrainChunksZ - 1 ? terrainChunksZ - 1 : v);
+      };
+      r.cx0 = clampX((int)((fx - TERRAIN_VIEW_DISTANCE - startX) / spanX));
+      r.cx1 = clampX((int)((fx + TERRAIN_VIEW_DISTANCE - startX) / spanX));
+      r.cz0 = clampZ((int)((fz - TERRAIN_VIEW_DISTANCE - startZ) / spanZ));
+      r.cz1 = clampZ((int)((fz + TERRAIN_VIEW_DISTANCE - startZ) / spanZ));
+    }
+    rects[rectCount++] = r;
+  };
+  addRect(focusX, focusZ);
+  if (twoFoci) addRect(focus2X, focus2Z);
 
+  if (TERRAIN_VIEW_DISTANCE > 0.0F) {
     for (TerrainChunk& ch : terrainChunks) {
       if (ch.cx < 0) continue;
-      if (ch.cx < cx0 - 1 || ch.cx > cx1 + 1 || ch.cz < cz0 - 1 ||
-          ch.cz > cz1 + 1) {
+      bool keep = false;
+      for (int r = 0; r < rectCount && !keep; ++r)
+        keep = ch.cx >= rects[r].cx0 - 1 && ch.cx <= rects[r].cx1 + 1 &&
+               ch.cz >= rects[r].cz0 - 1 && ch.cz <= rects[r].cz1 + 1;
+      if (!keep) {
         terrainChunkSlot[ch.cz * terrainChunksX + ch.cx] = -1;
         ch.cx = ch.cz = -1;  // buffers keep their capacity for the next build
       }
@@ -4854,23 +6305,25 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ, int budget) {
   }
 
   while (budget > 0) {
-    // Nearest unbuilt chunk in the rect. The rect is small (a handful of
-    // tiles across), so a per-call linear scan beats maintaining a build
-    // queue that would need reordering on every focus move.
+    // Nearest unbuilt chunk to its own rect's focus, across both rects. The
+    // rects are small (a handful of tiles across), so a per-call linear scan
+    // beats maintaining a build queue that would need reordering on every
+    // focus move.
     int bestCx = -1, bestCz = -1;
     float bestD = 0.0F;
-    for (int cz = cz0; cz <= cz1; ++cz)
-      for (int cx = cx0; cx <= cx1; ++cx) {
-        if (terrainChunkSlot[cz * terrainChunksX + cx] >= 0) continue;
-        const float dx = startX + (cx + 0.5F) * spanX - focusX;
-        const float dz = startZ + (cz + 0.5F) * spanZ - focusZ;
-        const float d = dx * dx + dz * dz;
-        if (bestCx < 0 || d < bestD) {
-          bestCx = cx;
-          bestCz = cz;
-          bestD = d;
+    for (int r = 0; r < rectCount; ++r)
+      for (int cz = rects[r].cz0; cz <= rects[r].cz1; ++cz)
+        for (int cx = rects[r].cx0; cx <= rects[r].cx1; ++cx) {
+          if (terrainChunkSlot[cz * terrainChunksX + cx] >= 0) continue;
+          const float dx = startX + (cx + 0.5F) * spanX - rects[r].fx;
+          const float dz = startZ + (cz + 0.5F) * spanZ - rects[r].fz;
+          const float d = dx * dx + dz * dz;
+          if (bestCx < 0 || d < bestD) {
+            bestCx = cx;
+            bestCz = cz;
+            bestD = d;
+          }
         }
-      }
     if (bestCx < 0) return;  // everything in view is built
 
     int slot = -1;
@@ -4886,10 +6339,143 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ, int budget) {
   }
 }
 
+// Two planes bounding the CENTRAL half of the full-height projection - the
+// rows a split half can actually show. The raster crop (XYOFFSET + scissor)
+// keeps the projection and the engine's frustum planes full-height, so
+// without this every half transforms ~2x the geometry it displays; anything
+// wholly outside the band skips submission instead. 0.62 instead of the
+// exact 0.5 leaves margin for the clipper's guard band - conservative,
+// never visibly wrong. Degenerate views (looking straight up/down) disable
+// the cull for the pass rather than guess.
+void TerrainGame::computeSplitBand() {
+  Vec4 f = cameraLookAt - cameraPosition;
+  const float fl = sqrtf(f.x * f.x + f.y * f.y + f.z * f.z);
+  if (fl < 0.0001F) {
+    splitBandActive = false;
+    return;
+  }
+  f.x /= fl, f.y /= fl, f.z /= fl;
+  // Roll-free camera up: world up orthonormalized against the forward.
+  float ux = -f.x * f.y, uy = 1.0F - f.y * f.y, uz = -f.z * f.y;
+  const float ul = sqrtf(ux * ux + uy * uy + uz * uz);
+  if (ul < 0.05F) {
+    splitBandActive = false;
+    return;
+  }
+  ux /= ul, uy /= ul, uz /= ul;
+  const float t =
+      0.62F * tanf(engine->renderer.core.renderer3D.getFov() * (PI / 360.0F));
+  const float inv = 1.0F / sqrtf(1.0F + t * t);
+  const float sa = t * inv, ca = inv;
+  splitBandP[0] = cameraPosition.x;
+  splitBandP[1] = cameraPosition.y;
+  splitBandP[2] = cameraPosition.z;
+  splitBandN[0][0] = f.x * sa - ux * ca;  // top edge: inside = below it
+  splitBandN[0][1] = f.y * sa - uy * ca;
+  splitBandN[0][2] = f.z * sa - uz * ca;
+  splitBandN[1][0] = f.x * sa + ux * ca;  // bottom edge: inside = above it
+  splitBandN[1][1] = f.y * sa + uy * ca;
+  splitBandN[1][2] = f.z * sa + uz * ca;
+}
+
+bool TerrainGame::outsideSplitBand(const float mn[3], const float mx[3]) const {
+  const float cx = 0.5F * (mn[0] + mx[0]) - splitBandP[0];
+  const float cy = 0.5F * (mn[1] + mx[1]) - splitBandP[1];
+  const float cz = 0.5F * (mn[2] + mx[2]) - splitBandP[2];
+  const float ex = 0.5F * (mx[0] - mn[0]);
+  const float ey = 0.5F * (mx[1] - mn[1]);
+  const float ez = 0.5F * (mx[2] - mn[2]);
+  for (int p = 0; p < 2; ++p) {
+    const float* n = splitBandN[p];
+    const float r = ex * fabsf(n[0]) + ey * fabsf(n[1]) + ez * fabsf(n[2]);
+    if (cx * n[0] + cy * n[1] + cz * n[2] + r < 0.0F) return true;
+  }
+  return false;
+}
+
+// AABB of a static object, sized like the springArm/box-collision one; a
+// rotated object falls back to its bounding-sphere cube so the test can
+// under-cull but never over-cull.
+bool TerrainGame::objectOutsideSplitBand(int i) const {
+  const RuntimeObject& o = runtimeObjects[i];
+  const GameModel* gm = nullptr;
+  if (o.data.type == 5 && o.data.model >= 0 &&
+      o.data.model < (int)gameModels.size())
+    gm = &gameModels[o.data.model];
+  const SkelModel* anim = nullptr;
+  if (o.data.type == 5 && o.data.animModel >= 0 &&
+      o.data.animModel < (int)gameAnimModels.size())
+    anim = gameAnimModels[o.data.animModel].src.get();
+  float cx = o.data.position[0], cy = o.data.position[1],
+        cz = o.data.position[2];
+  float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
+        ez = 0.5F * o.data.scale[2];
+  float ox = 0.0F, oy = 0.0F, oz = 0.0F;  // local AABB center offset
+  const float* mnp = gm ? gm->mn : (anim ? anim->min : nullptr);
+  const float* mxp = gm ? gm->mx : (anim ? anim->max : nullptr);
+  if (mnp && mxp) {
+    ox = 0.5F * (mnp[0] + mxp[0]) * o.data.scale[0];
+    oy = 0.5F * (mnp[1] + mxp[1]) * o.data.scale[1];
+    oz = 0.5F * (mnp[2] + mxp[2]) * o.data.scale[2];
+    ex = 0.5F * (mxp[0] - mnp[0]) * o.data.scale[0];
+    ey = 0.5F * (mxp[1] - mnp[1]) * o.data.scale[1];
+    ez = 0.5F * (mxp[2] - mnp[2]) * o.data.scale[2];
+  }
+  const float* rot = o.data.rotation;
+  if (rot[0] != 0.0F || rot[1] != 0.0F || rot[2] != 0.0F) {
+    // Rotation moves both the extents and the center offset in world space -
+    // bound everything with the diagonal radius around the position.
+    const float r = sqrtf(ex * ex + ey * ey + ez * ez) +
+                    sqrtf(ox * ox + oy * oy + oz * oz);
+    ex = ey = ez = r;
+    ox = oy = oz = 0.0F;
+  }
+  cx += ox, cy += oy, cz += oz;
+  const float mn[3] = {cx - ex, cy - ey, cz - ez};
+  const float mx[3] = {cx + ex, cy + ey, cz + ez};
+  return outsideSplitBand(mn, mx);
+}
+
 void TerrainGame::renderTerrain() {
-  for (TerrainChunk& ch : terrainChunks)
-    if (ch.cx >= 0 && ch.bag && ch.bag->count > 0)
-      stapip.core.render(ch.bag.get());
+  for (TerrainChunk& ch : terrainChunks) {
+    if (ch.cx < 0 || !ch.bag || ch.bag->count == 0) continue;
+    if (portalExitPlaneOn) {
+      // Portal through-view dead zone: skip chunks fully on the virtual
+      // camera's side of the exit plane - through a real hole that region
+      // is invisible, and with no oblique near plane on the PS2 it would
+      // otherwise render its backside INTO the opening (a floor->ceiling
+      // pair puts the virtual eye underground). Exact AABB-vs-plane check:
+      // the chunk's rect + its built minY/maxY, tested at the p-vertex
+      // (the box corner farthest along the plane normal) - no slope
+      // margin to mis-tune. A straddling chunk still renders whole.
+      const int cellsX = HM_W - 1, cellsZ = HM_D - 1;
+      const float stepX = (float)TERRAIN_WIDTH / cellsX;
+      const float stepZ = (float)TERRAIN_DEPTH / cellsZ;
+      const int gx0 = ch.cx * TERRAIN_CHUNK_CELLS;
+      const int gz0 = ch.cz * TERRAIN_CHUNK_CELLS;
+      const int gx1 = gx0 + TERRAIN_CHUNK_CELLS > cellsX
+                          ? cellsX
+                          : gx0 + TERRAIN_CHUNK_CELLS;
+      const int gz1 = gz0 + TERRAIN_CHUNK_CELLS > cellsZ
+                          ? cellsZ
+                          : gz0 + TERRAIN_CHUNK_CELLS;
+      const float x0w = -TERRAIN_WIDTH * 0.5F + gx0 * stepX;
+      const float x1w = -TERRAIN_WIDTH * 0.5F + gx1 * stepX;
+      const float z0w = -TERRAIN_DEPTH * 0.5F + gz0 * stepZ;
+      const float z1w = -TERRAIN_DEPTH * 0.5F + gz1 * stepZ;
+      const float pvx = portalExitPlane[0] > 0.0F ? x1w : x0w;
+      const float pvy = portalExitPlane[1] > 0.0F ? ch.maxY : ch.minY;
+      const float pvz = portalExitPlane[2] > 0.0F ? z1w : z0w;
+      if (portalExitPlane[0] * pvx + portalExitPlane[1] * pvy +
+              portalExitPlane[2] * pvz - portalExitPlane[3] <
+          -0.05F)
+        continue;
+    }
+    // Split halves: skip chunks entirely above/below the visible band before
+    // the engine's (full-height) frustum classify sees them.
+    if (splitBandActive && outsideSplitBand(ch.aabbMin, ch.aabbMax)) continue;
+    stapip.core.render(ch.bag.get());
+  }
 }
 
 void TerrainGame::updateCameraOrbit() {

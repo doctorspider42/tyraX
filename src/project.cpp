@@ -37,6 +37,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Decal: return "decal";
         case PrimitiveType::Camera: return "camera";
         case PrimitiveType::Mirror: return "mirror";
+        case PrimitiveType::Portal: return "portal";
     }
     return "box";
 }
@@ -57,6 +58,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "decal") return PrimitiveType::Decal;
     if (s == "camera") return PrimitiveType::Camera;
     if (s == "mirror") return PrimitiveType::Mirror;
+    if (s == "portal") return PrimitiveType::Portal;
     return PrimitiveType::Box;
 }
 
@@ -379,12 +381,29 @@ static std::string objectJson(const SceneObject& o) {
             json += (i ? ", \"" : "\"") + o.mirrorObjects[i] + "\"";
         json += "] }";
     }
+    if (o.type == PrimitiveType::Portal) {
+        json += ", \"portal\": { \"target\": \"" + o.portalTarget +
+                "\", \"showTerrain\": " + (o.portalShowTerrain ? "true" : "false") +
+                ", \"teleportObjects\": " +
+                (o.portalTeleportObjects ? "true" : "false") +
+                ", \"viewAll\": " + (o.portalViewAll ? "true" : "false") +
+                ", \"objects\": [";
+        for (size_t i = 0; i < o.portalObjects.size(); ++i)
+            json += (i ? ", \"" : "\"") + o.portalObjects[i] + "\"";
+        json += "] }";
+    }
     if (o.type == PrimitiveType::Model && isAnimatedModelPath(o.modelPath)) {
         json += ", \"anim\": { \"clip\": \"" + o.animClip +
                 "\", \"autoplay\": " + (o.animAutoplay ? "true" : "false") +
                 ", \"loop\": " + (o.animLoop ? "true" : "false") +
                 ", \"speed\": " + fmtFloat(o.animSpeed) + " }";
     }
+    // Per-object LOD overrides (animated models + player avatars); omitted at
+    // the -1 default = "use the project preference".
+    if (o.animLodOverride >= 0.0f)
+        json += ", \"animLod\": " + fmtFloat(o.animLodOverride);
+    if (o.meshLodOverride >= 0.0f)
+        json += ", \"meshLod\": " + fmtFloat(o.meshLodOverride);
     if (!o.scripts.empty()) {
         json += ", \"scripts\": [";
         for (size_t i = 0; i < o.scripts.size(); ++i)
@@ -711,6 +730,8 @@ std::string save(const Project& p) {
          << ",\n"
          << "    \"meshLodDistance\": " << fmtFloat(p.settings.meshLodDistance)
          << ",\n"
+         << "    \"staticBatching\": "
+         << (p.settings.staticBatching ? "true" : "false") << ",\n"
          << "    \"navCellSize\": " << fmtFloat(p.settings.navCellSize) << ",\n"
          << "    \"navMaxSlope\": " << fmtFloat(p.settings.navMaxSlope) << ",\n"
          << "    \"navAgentRadius\": " << fmtFloat(p.settings.navAgentRadius)
@@ -731,6 +752,8 @@ std::string save(const Project& p) {
          << "    \"stickCurveR\": " << p.settings.stickCurveR << ",\n"
          << "    \"stickExpL\": " << fmtFloat(p.settings.stickExpL) << ",\n"
          << "    \"stickExpR\": " << fmtFloat(p.settings.stickExpR) << ",\n"
+         << "    \"multiplayer\": \"" << p.settings.multiplayer << "\",\n"
+         << "    \"p2JoinOnStart\": " << (p.settings.p2JoinOnStart ? "true" : "false") << ",\n"
          << "    \"orbitSpeed\": " << fmtFloat(p.settings.orbitSpeed) << ",\n"
          << "    \"gravity\": " << fmtFloat(p.settings.gravity) << ",\n"
          << "    \"jumpSpeed\": " << fmtFloat(p.settings.jumpSpeed) << ",\n"
@@ -1079,9 +1102,9 @@ std::string save(const Project& p) {
                 json << "]";
             }
             static const char* kMenuBinds[] = {
-                "",           "music-volume", "sfx-volume", "deadzone",
-                "stick-curve", "display-mode", "widescreen"};
-            if (en.settingBind >= 1 && en.settingBind <= 6)
+                "",           "music-volume", "sfx-volume",  "deadzone",
+                "stick-curve", "display-mode", "widescreen", "player-count"};
+            if (en.settingBind >= 1 && en.settingBind <= 7)
                 json << ", \"bind\": \"" << kMenuBinds[en.settingBind] << "\"";
             json << " }";
         }
@@ -1536,6 +1559,21 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                         o.mirrorObjects.push_back(s.str);
             }
         }
+        if (const auto* pt = jo.find("portal")) {
+            if (const auto* v = pt->find("target")) o.portalTarget = v->stringOr("");
+            if (const auto* v = pt->find("showTerrain"))
+                o.portalShowTerrain = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (const auto* v = pt->find("teleportObjects"))
+                o.portalTeleportObjects = v->boolOr(false);
+            if (const auto* v = pt->find("viewAll"))
+                o.portalViewAll = v->boolOr(false);
+            if (const auto* v = pt->find("objects");
+                v && v->type == json::Value::Type::Array) {
+                for (const auto& s : v->arr)
+                    if (s.type == json::Value::Type::String && !s.str.empty())
+                        o.portalObjects.push_back(s.str);
+            }
+        }
         if (const auto* an = jo.find("anim")) {
             if (const auto* v = an->find("clip")) o.animClip = v->stringOr("");
             if (const auto* v = an->find("autoplay"))
@@ -1545,6 +1583,14 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (const auto* v = an->find("speed")) o.animSpeed = (float)v->numberOr(1.0);
             if (o.animSpeed < 0.05f) o.animSpeed = 0.05f;
             if (o.animSpeed > 10.0f) o.animSpeed = 10.0f;
+        }
+        if (const auto* v = jo.find("animLod")) {
+            o.animLodOverride = (float)v->numberOr(-1.0);
+            if (o.animLodOverride < 0.0f) o.animLodOverride = -1.0f;
+        }
+        if (const auto* v = jo.find("meshLod")) {
+            o.meshLodOverride = (float)v->numberOr(-1.0);
+            if (o.meshLodOverride < 0.0f) o.meshLodOverride = -1.0f;
         }
         if (const auto* sc = jo.find("scripts");
             sc && sc->type == json::Value::Type::Array) {
@@ -1674,6 +1720,8 @@ std::string load(Project& out, const std::string& projectDir) {
             st.meshLodDistance = (float)v->numberOr(0.0);
             if (st.meshLodDistance < 0.0f) st.meshLodDistance = 0.0f;
         }
+        if (const auto* v = s->find("staticBatching"))
+            st.staticBatching = v->boolOr(true);
         if (const auto* v = s->find("navCellSize")) {
             st.navCellSize = (float)v->numberOr(1.0);
             if (st.navCellSize < 0.25f) st.navCellSize = 0.25f;
@@ -1721,6 +1769,11 @@ std::string load(Project& out, const std::string& projectDir) {
         if (st.stickCurveR < 0 || st.stickCurveR > 2) st.stickCurveR = 0;
         if (st.stickExpL < 1.0f) st.stickExpL = 1.0f;
         if (st.stickExpR < 1.0f) st.stickExpR = 1.0f;
+        if (const auto* v = s->find("multiplayer")) st.multiplayer = v->stringOr("off");
+        if (st.multiplayer != "off" && st.multiplayer != "shared" &&
+            st.multiplayer != "split")
+            st.multiplayer = "off";
+        if (const auto* v = s->find("p2JoinOnStart")) st.p2JoinOnStart = v->boolOr(true);
         if (const auto* v = s->find("orbitSpeed")) st.orbitSpeed = (float)v->numberOr(1.0);
         if (const auto* v = s->find("gravity")) st.gravity = (float)v->numberOr(9.8);
         if (const auto* v = s->find("jumpSpeed")) st.jumpSpeed = (float)v->numberOr(4.5);
@@ -2417,6 +2470,7 @@ std::string load(Project& out, const std::string& projectDir) {
                             : b == "stick-curve" ? MenuEntry::BindStickCurve
                             : b == "display-mode" ? MenuEntry::BindDisplayMode
                             : b == "widescreen"  ? MenuEntry::BindWidescreen
+                            : b == "player-count" ? MenuEntry::BindPlayerCount
                                                  : MenuEntry::BindNone;
                     }
                     m.entries.push_back(std::move(en));
@@ -2667,10 +2721,16 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMixS(h, o.animClip);
     fnvMix(h, (o.animAutoplay ? 1 : 0) | (o.animLoop ? 2 : 0));
     fnvMixF(h, o.animSpeed);
+    fnvMixF(h, o.animLodOverride), fnvMixF(h, o.meshLodOverride);
     // Mirror parameters live in a baked side table (MIRRORS/MIRROR_TARGETS).
     for (const auto& n : o.mirrorObjects) fnvMixS(h, n);
     fnvMix(h, o.mirrorReflectPlayer ? 1 : 0);
     fnvMixF(h, o.mirrorOpacity);
+    // Portal parameters live in a baked side table (PORTALS/PORTAL_VIEW_OBJECTS).
+    fnvMixS(h, o.portalTarget);
+    for (const auto& n : o.portalObjects) fnvMixS(h, n);
+    fnvMix(h, (o.portalShowTerrain ? 1 : 0) | (o.portalTeleportObjects ? 2 : 0) |
+                  (o.portalViewAll ? 4 : 0));
     // Build-time-baked transforms: a projected decal's transform IS the
     // projector, a point light's pose/color/falloff is baked into nearby
     // vertex colors. Folding them into the recipe makes any live edit of
@@ -2696,6 +2756,7 @@ bool liveLinkCanSpawnLive(const SceneObject& o) {
     if (o.type == PrimitiveType::PointLight) return false;
     if (o.type == PrimitiveType::Decal && o.decalProject) return false;
     if (o.type == PrimitiveType::Mirror) return false;
+    if (o.type == PrimitiveType::Portal) return false;  // baked PORTALS side table
     if (!o.flowGraph.nodes.empty() || !o.scripts.empty()) return false;
     return true;
 }

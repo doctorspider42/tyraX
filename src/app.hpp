@@ -137,6 +137,7 @@ private:
     void addEmpty();
     void addDecal();
     void addMirror();
+    void addPortal();
     void drawAddObjectMenu();
     // Copies a picked .obj (with its .mtl + textures, references rewritten to
     // the sanitized names) into res/models. Returns the project-relative path
@@ -153,6 +154,9 @@ private:
     // Combo picking an .mtl for the object (primitives: surface; models:
     // override). Returns true when materialPath changed.
     bool drawMaterialCombo(SceneObject& o);
+    // Per-object animation/mesh LOD override rows (animated models + player
+    // avatars). Returns true when a value changed (caller commits).
+    bool drawLodOverrides(SceneObject& o);
     // Creates a scene object for a model already in res/models (no copying)
     void addModelObject(const std::string& relPath);
     // Project-panel section listing res/models + res/textures with the

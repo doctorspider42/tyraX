@@ -28,8 +28,10 @@ class StaPipVU1Program : public VU1Program {
 
   const StaPipProgramName& getName() const;
 
-  u16 getMaxVertCount(const bool& singleColorEnabled,
-                      const u16& vu1DBufferSize) const;
+  // Modified by TyraX: virtual - the billboard programs have their own
+  // input/output qword budget (6 GS verts per input center).
+  virtual u16 getMaxVertCount(const bool& singleColorEnabled,
+                              const u16& vu1DBufferSize) const;
 
   void addBufferDataToPacket(packet2_t* packet, StaPipQBuffer* buffer,
                              prim_t* prim);
@@ -41,6 +43,11 @@ class StaPipVU1Program : public VU1Program {
 
   virtual void addProgramQBufferDataToPacket(packet2_t* packet,
                                              StaPipQBuffer* qbuffer) const = 0;
+
+  // Modified by TyraX: GS vertices produced per input vertex - the prim
+  // giftag NLOOP is built from this on the EE. 1:1 for every program
+  // except the billboard family (1 center -> 6 GS vertices).
+  virtual u32 gsVertexCount(const u32& inputCount) const { return inputCount; }
 
  private:
   void addStandardBufferDataToPacket(packet2_t* packet, StaPipQBuffer* buffer,

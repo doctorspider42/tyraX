@@ -68,6 +68,16 @@ enum class PrimitiveType {
     // world" is real geometry behind the plane, so build it into a wall (the
     // wall hides the copies outside the frame). See mirrorObjects below.
     Mirror = 15,
+    // Portal: a rectangle (unit XY quad facing +Z, like a mirror) linked to
+    // another Portal in the same scene. The quad shows a live view "through"
+    // to the target: each frame the game renders the target's surroundings
+    // from a second camera (the player camera mapped through the portal pair)
+    // into a small VRAM render target and projects it onto the quad. Walking
+    // into the front face teleports the player to the target portal with
+    // position, view angle and vertical velocity carried through the same
+    // transform - a seamless corridor between two parts of the map. See
+    // portalTarget / portalObjects below and docs/portals.md.
+    Portal = 16,
 };
 
 // Tessellation detail for the geometry primitives, stored per object in
@@ -280,12 +290,42 @@ struct SceneObject {
     bool mirrorReflectPlayer = false;
     float mirrorOpacity = 0.35f;
 
+    // Portal parameters (used when type == Portal). portalTarget names the
+    // destination Portal in the same scene (renames remap; empty or dangling =
+    // inactive: the quad draws as a tinted surface and nothing teleports).
+    // A one-way link - set both portals' targets at each other for a two-way
+    // door. portalObjects is the explicit list of scene objects rendered in
+    // the through-view (the Mirror philosophy: a hard list instead of a
+    // radius, so the second-render cost is always visible to the author);
+    // terrain + sky have their own switch. portalTeleportObjects also carries
+    // physics-enabled objects that cross the plane through to the target.
+    // The shared `color` field tints the surface of an inactive portal and of
+    // the pair member whose view was not rendered this frame (one live view
+    // per frame - the nearest portal facing the camera wins).
+    std::string portalTarget;
+    std::vector<std::string> portalObjects;
+    bool portalShowTerrain = true;
+    bool portalTeleportObjects = false;
+    // Experimental: render EVERY scene object in the through-view instead
+    // of the explicit portalObjects list (which is ignored while this is
+    // on). The virtual camera's frustum culling and each object's draw
+    // distance still trim the cost, but the whole scene is submitted a
+    // second time when this portal's view is live - measure before
+    // shipping. Mirrors' reflections and particles still don't show.
+    bool portalViewAll = false;
+
     // Animated model parameters (Model objects whose modelPath ends in .glb;
     // the editor bakes the file's clips to morph frames - see glbparser.hpp).
     std::string animClip;       // starting clip name ("" = the file's first)
     bool animAutoplay = true;   // play the starting clip at scene start
     bool animLoop = true;       // starting clip loops
     float animSpeed = 1.0f;     // playback speed multiplier
+    // Per-object LOD overrides (animated models, incl. player avatars - each
+    // of the two Player objects of a two-player scene carries its own set).
+    // -1 = use the project preference (Preferences > Rendering), 0 = LOD off
+    // for this object, > 0 = custom distance in world units.
+    float animLodOverride = -1.0f;  // pose-refresh (animation) LOD distance
+    float meshLodOverride = -1.0f;  // decimated-mesh LOD distance
 
     // Per-object logic. Object-referencing nodes default to this object
     // ("self"), so a copied object brings a working copy of its behavior.
@@ -359,8 +399,15 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.mirrorObjects == b.mirrorObjects &&
            a.mirrorReflectPlayer == b.mirrorReflectPlayer &&
            a.mirrorOpacity == b.mirrorOpacity &&
+           a.portalTarget == b.portalTarget &&
+           a.portalObjects == b.portalObjects &&
+           a.portalShowTerrain == b.portalShowTerrain &&
+           a.portalTeleportObjects == b.portalTeleportObjects &&
+           a.portalViewAll == b.portalViewAll &&
            a.animClip == b.animClip && a.animAutoplay == b.animAutoplay &&
            a.animLoop == b.animLoop && a.animSpeed == b.animSpeed &&
+           a.animLodOverride == b.animLodOverride &&
+           a.meshLodOverride == b.meshLodOverride &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts;
 }
 
@@ -434,6 +481,16 @@ struct ProjectSettings {
     // distance the 25% one. 0 = off (no LODs baked or kept in RAM).
     float meshLodDistance = 0.0f;
 
+    // Static batching: the generated game merges non-moving primitive
+    // objects that share a material into combined world-space bags at scene
+    // load, paying the fixed per-bag submit cost (~1 ms/object on real
+    // hardware) once per batch instead of once per object. Objects with
+    // physics, scripts, flow-graph references, save-state or a streaming
+    // layer stay individual; runtime edits (Live Link, Raycast-driven
+    // actions) trigger a batch rebuild. Off = every object submits its own
+    // bag (pre-batching behavior; the A/B lever for profiling).
+    bool staticBatching = true;
+
     // AI navigation (docs/navigation-ai.md). The nav grid is baked on the
     // host at build time (navmesh.cpp) from the terrain slope + blocking
     // objects; the game runs A* over the baked bitmap on the EE, only in
@@ -481,6 +538,16 @@ struct ProjectSettings {
     int stickCurveR = 0;     // right stick (camera)
     float stickExpL = 2.0f;  // exponent for the L curve (>=1)
     float stickExpR = 2.0f;  // exponent for the R curve (>=1)
+
+    // Two-player support (docs/multiplayer.md). The mode used while player 2
+    // is active: "shared" = both avatars on one screen, the camera frames the
+    // pair; "split" = horizontal split screen (P1 top, P2 bottom). "off"
+    // compiles every 2P path out. Player 2 exists only in scenes that contain
+    // a second Player object (the first one is P1, the second P2).
+    std::string multiplayer = "off";  // "off" | "shared" | "split"
+    // Player 2 can join mid-game by pressing Start on pad 2 (and a menu
+    // Toggle bound to "Player count" can switch 1P/2P at any time).
+    bool p2JoinOnStart = true;
 
     // Orbit template
     float orbitSpeed = 1.0f;  // multiplier
@@ -556,6 +623,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.disableVsync == b.disableVsync &&
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
            a.meshLodDistance == b.meshLodDistance &&
+           a.staticBatching == b.staticBatching &&
            a.navCellSize == b.navCellSize && a.navMaxSlope == b.navMaxSlope &&
            a.navAgentRadius == b.navAgentRadius &&
            a.terrainDetail == b.terrainDetail &&
@@ -568,6 +636,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.stickDeadzoneR == b.stickDeadzoneR &&
            a.stickCurveL == b.stickCurveL && a.stickCurveR == b.stickCurveR &&
            a.stickExpL == b.stickExpL && a.stickExpR == b.stickExpR &&
+           a.multiplayer == b.multiplayer &&
+           a.p2JoinOnStart == b.p2JoinOnStart &&
            a.orbitSpeed == b.orbitSpeed && a.gravity == b.gravity &&
            a.jumpSpeed == b.jumpSpeed && eq3(a.lightDir, b.lightDir) &&
            a.ambient == b.ambient && a.diffuse == b.diffuse &&
@@ -940,6 +1010,7 @@ struct MenuEntry {
         BindStickCurve = 4,   // stick response curve exponent (1..3)
         BindDisplayMode = 5,  // scan mode: interlaced / 480p / 1080i / field
         BindWidescreen = 6,   // aspect ratio: 4:3 / 16:9
+        BindPlayerCount = 7,  // 1 / 2 players (two-player modes; runtime join)
     };
     int settingBind = BindNone;
 };

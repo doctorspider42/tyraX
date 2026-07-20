@@ -41,6 +41,622 @@ Each finished feature lands as its own commit.
   (=== Build OK ===). Pending: an in-PCSX2 visual pass of an .fbx model
   animating (blocked this session by a parallel PCSX2 instance) and a
   GUI import-dialog walkthrough.
+- (122) **examples/two-players: two cats, the sample-man avatar removed, sky-toggle
+  defused; static batching (#120) merged into the branch.** Owner request
+  after the profiling session. P1 is now `player-cat-ginger` - the same
+  `cat.glb` avatar as P2 at scale 3 with the P2 rig (cat-sized boom, Idle
+  mapped to the `EmptyAction` rest pose so the walk cycle no longer plays
+  in place while standing - the root cause of the "avatar turns wrong,
+  camera-dependent" report: unmapped idle fell back to clip 0 = the walk
+  cycle, whose root motion swung the body) and a ginger tint vs P2's gray
+  (object color multiplies the model texture - two distinct cats from one
+  .glb). the old P1 avatar model + its extracted texture deleted from the repo;
+  README/docs mentions rewritten (the 14k-vertex history note in
+  docs/multiplayer.md stays as context). `example_interaction.cpp` no
+  longer registers the press-X-sky-toggle script - the FILE stays as a
+  comment-only stub because refreshGenerated recreates missing files
+  write-if-missing, so deleting it would resurrect the behavior on the
+  next build. Showcase settings restored after the owner's profiling edits
+  (release, vsync on, FPS/MEM HUD off, animLod 0, meshLod 4). PR #120
+  (static batching, stacked on this branch) merged via GitHub +
+  fast-forward pull; owner's uncommitted map edits stash-preserved through
+  the merge and folded into this commit (terrain heights included).
+  Verified: editor rebuilds clean post-merge, example regenerated (both
+  scene rows are cat animModel 0, zero references to the removed model in generated
+  code), Docker build OK, PCSX2 boot clean at 50 FPS with no asserts.
+  The 2P visual pass (two distinct cats in split) still wants a pad.
+
+
+- (122) **Static batching for scene objects - the lever (121) called for.**
+  The generated game now merges non-moving primitive objects that share a
+  material into combined world-space StaPip bags at scene load, so a map of
+  small decor pays the ~0.7-1.5 ms fixed per-bag EE submit cost once per
+  batch instead of once per object (twice over in split screen - (121)
+  measured the two-players map's static loop at 11-17 ms for 8 tiny
+  objects). Pieces: build-time eligibility as a new
+  `SceneObjectData::batchStatic` column (`staticBatchEligible` in
+  templates.cpp: geometry primitives only, no physics / usable / save-state
+  / reflected / draw-distance / streaming layer / own graph or attached
+  scripts, and not referenced by name from any same-scene flow node with an
+  ObjectName param, mirror target list, or cutscene track / camera shot -
+  over-excluding is safe, so readers count too); game-side grouping by
+  material within a coarse world cell (quarter-map, min 48 units, anchored
+  at the map corner - a finer or origin-straddling grid split the
+  two-players decor into single-member batches worth nothing) with a
+  reflective-material opt-out at load; one shared info bag (Precise
+  frustum culling - never raw submission - full clip checks), bboxVersion
+  bumped on every rebuild per the bbox-cache rule; per-batch world AABB
+  wired into the split-screen band cull like terrain chunks. Runtime
+  mutation channels that build time cannot see (Live Link records, Raycast
+  / custom-node latches fed into object actions, global scripts writing
+  ctx.objects) are caught per frame: a dirtied member is DEMOTED to the
+  solo path (batch rebuilds once without it - a per-frame-animated member
+  would otherwise re-bake the batch every frame), a visibility/residency
+  flip only rebuilds in place (caught by a shown-snapshot, since hide/show
+  can skip dirty). New Preferences > Rendering toggle `staticBatching`
+  (default on; the A/B lever), baked as STATIC_BATCHING into
+  terrain_config.hpp; boot logs "Static batching: N objects in M batches".
+  Docs: README bullet, docs/multiplayer.md budget rule updated (N_bags,
+  not N_objects), batching invariants added to the tyra-editor-dev skill;
+  all 12 example projects regenerated. Verified: editor builds clean;
+  two-players codegen flags exactly the 6 primitives (players 0) and
+  merges them into 1 batch; Docker builds clean for the FPP (two-players)
+  and orbit (scratch) variants; PCSX2 software-renderer boots show the
+  title scene and the split halves pixel-plausible at 50 FPS / 100% with
+  no TYRA asserts; a PCSX2 harness (owned scratch copy dirtying one box at
+  frame 300 and toggling another's visibility every 200) logged the exact
+  expected sequence - initial bake of 3, in-place rebuild on the flip,
+  demotion of the mutated member, rebuilds with 2 members after - and kept
+  rendering all boxes. **Real-PS2 A/B still pending**: the measurement
+  copy is staged in %TEMP%\tyra-editor-test\batchab (fresh codegen + the
+  (121) PERF frame/sub-phase instrumentation and teleport sweep, release +
+  vsync off; flip `"staticBatching": false` in the .tyra for the B leg),
+  but ps2link on the console answers neither reset nor execution (pings
+  fine - the same wedged state (121)'s ops note ends with) and needs a
+  power-cycle before `--build <abs> --run-ps2 192.168.100.150` with the
+  MAIN checkout's ps2client can run the sweep.
+
+- (121) **Real-PS2 split-screen profiling: VIF raster switch validated on
+  hardware; the "35 FPS on an empty map" mystery solved (per-bag submit
+  overhead, not a bug).** Owner hit ~35 FPS in split on the two-players map
+  and asked for profiling. Method: scratch copy +
+  padless split harness (title screen off, `opt_players` default 2P) +
+  a teleport sweep script sampling five viewpoints (3 s each, min/avg/max
+  frame dt logged over the `[ps2]` stream), deployed to the real console
+  (192.168.100.150) via `--run-ps2`, then two rounds of owned-copy COP0
+  instrumentation (loop segments, then renderScene sub-phases). Results
+  (PAL, vsync off): config A (owner's debug + meshLod 44) worst view
+  29.2/32.1 ms avg/max = the reported 35 FPS; release + meshLod 4 was THE
+  SAME (29.8 ms - profile and avatar LOD irrelevant here); 1P on the same
+  build = 13-15 ms per view -> split is exactly 2x, no hidden overhead.
+  Sub-phases per frame (both halves): sky 0.5 ms, terrain 0.8-1.0 ms
+  (terrainDetail 16 -> 8 changed ~1.7 ms - not the sink), skeletal avatars
+  4.5-5.7 ms, **static-object loop 11-17 ms = the sink: ~0.7-1.5 ms fixed
+  per-bag submit cost per object on the real EE** (the map's 8 primitives
+  + pillars each pay it, x2 halves; PCSX2's fast EE hides it, which is why
+  (118)'s emulator numbers said 50 FPS locked). Runtime overheads all
+  healthy on hardware: split brackets 0.04-0.14 ms (**the (120) VIF-queued
+  switch validated on the real console** - correct halves, no hang, the
+  brackets are near-free), beginFrame 0.55 ms, endFrame 0.53 ms, 2D/HUD
+  0.005 ms. Conclusion: not a bug - small maps made of many separate
+  primitive objects are the pathological case for per-bag overhead;
+  documented a hardware budget rule in docs/multiplayer.md
+  ((0.5 + N_objects x ~1 ms + anim) x 2 <= 20 ms). The lever worth
+  building next: a static-batching pass (merge non-moving primitives
+  sharing a material into one bag at scene load). Ops note: rapid
+  redeploy cycles (each kills the previous ps2client host) wedged ps2link
+  once - owner power-cycled; the deploy chain otherwise ran A->G unattended
+  over the worktree with the MAIN checkout's ps2client (firewall rules are
+  path-scoped).
+
+- (120) **Split raster switch without CPU stalls + per-object LOD
+  overrides (P1/P2 avatars tune independently).** Two pieces. (1) The
+  review's remaining item, done the era-correct middle way instead of the
+  full GS-second-context rebuild: `RendererCoreSplitView::begin()` no longer
+  costs a `dma_channel_wait` + `draw_wait_finish` round-trip - the per-half
+  XYOFFSET/SCISSOR shift rides the **VIF1 stream** as a prebuilt immutable
+  4-qword packet `[VIF FLUSH, VIF DIRECT -> A+D giftag]`: the FLUSH makes
+  the VIF itself wait for the previous half's microprogram + PATH1/PATH2
+  transfers, DIRECT streams the register writes through PATH2 in-band, and
+  the EE moves straight on to culling/packaging the next half (the wait
+  overlaps real work instead of blocking). The full second-context variant
+  (CTXT bit in PRIM) stays future work - every VU1 GIF tag and each texture
+  send would need a _2 twin. `end()` deliberately keeps its CPU handshake:
+  the HUD/post-fx after it arrive over PATH3, which a VIF-queued restore
+  cannot order against. Giftag NLOOP double-checked against the documented
+  stall pitfall (2 A+D rows, NREG 1, DIRECT counts 3 qwords incl. tag).
+  (2) **Per-object LOD overrides**: the project-wide Animation/Mesh LOD
+  distances (Preferences > Rendering) can now be overridden per object -
+  new `animLodOverride`/`meshLodOverride` on SceneObject (-1 = preference,
+  0 = off for this object, >0 = custom distance; full chain: `operator==`,
+  JSON emit-at-non-default, `liveLinkRecipeHash`, `SceneObjectData` columns
+  + the empty-scene placeholder row, `updateAndRenderAnimObjects` reads the
+  effective per-instance values, and `bakeAnimAssets` bakes .tskl LOD
+  chains when ANY object referencing the model overrides mesh LOD > 0 even
+  with the preference off). Properties UI (`drawLodOverrides`) appears on
+  animated models and on Player avatars - the **two Player objects of a
+  two-player scene each carry their own set**, giving independent main/
+  second-player categories. Verified: editor builds clean; a scratch copy
+  of examples/two-players with overrides on the cat (`animLod 12`,
+  `meshLod 0`) round-trips `--resave` and emits `..., 12.0F, 0.0F, ...` in
+  its object row; Docker build compiles the new engine + game; PCSX2
+  padless split harness (a script flips the menu-bound `opt_players` save
+  value; plus `titleScreen` off and `opt_players` defaulting to 2P so no
+  pad is needed) runs the VIF-queued raster switch every frame: the
+  software-renderer screenshot shows both halves correctly cropped and
+  scissored (P1's FPP view up top, the cat avatar idling in P2's half),
+  full-screen HUD on top, 100% speed, no asserts - a mis-ordered register
+  write would bleed the halves, and the documented undercounted-NLOOP
+  pitfall would hang the GIF at boot. Real-PS2 validation of the VIF path
+  still pending (PCSX2's VIF/GIF model is permissive).
+
+- (119) **Split-screen optimization pass (review follow-ups): band culling,
+  two-focus streaming, per-half particle billboards.** Three findings from
+  the optimization review of the two-player PR, implemented: (1) **Band
+  culling** — the split raster crops via XYOFFSET+scissor and keeps the
+  projection full-height, so the engine's frustum classify let each half
+  transform ~2x the geometry it can show; `computeSplitBand` now derives two
+  extra planes bounding the half's visible vertical band (0.62 margin over
+  the exact 0.5 for the clipper's guard band; disabled on degenerate
+  straight-up/down views) and terrain chunks + static objects wholly outside
+  skip submission before the engine sees them. Chunks got a build-time world
+  AABB for the test; rotated objects fall back to a bounding-sphere cube so
+  the cull can under-cull but never over-cull. (2) **Two-focus terrain/layer
+  streaming** — worse than the review's "streaming ignores P2": with both
+  split passes calling `updateTerrainChunks` under different cameras and one
+  shared pool, the P1 pass evicted P2's chunks and vice versa - permanent
+  rebuild churn once the players walked apart. The chunk ring now streams
+  once per frame around BOTH foci (P1's look-at + P2's avatar; a chunk near
+  either survives, build picks the nearest-to-its-focus across both rects),
+  the pool doubles in scenes that can host P2, and auto-streamed layers use
+  the min distance over both players (load when either enters, unload when
+  both leave). (3) **Particle billboards per half** — quads were built
+  camera-facing once (P1's view), so P2 saw fire/fog sprites edge-on; the
+  quad build is split out of the simulation (`orientParticleQuads`, shape
+  stored per particle) and the second half re-faces the same particles for
+  its own camera. The fourth review item - replacing the split brackets' three
+  CPU stalls with the GS's second drawing context (CTXT bit in PRIM) - is
+  deliberately NOT done: Tyra's VU1 microprograms hardcode context 1 in
+  their GIF tags, so it needs microcode changes + a real-PS2 pass. Verified:
+  editor builds clean; `examples/two-players` regenerated + Docker build
+  compiles; a fresh 1P scratch project also compiles (the paths fold away
+  without a second player); PCSX2 boot of the example is clean (menu +
+  scene render, 50 FPS, no TYRA assert in bin/log.txt). The split-specific
+  paths (band culling actually kicking in, two-focus streaming under two
+  pads) still want the hands-on two-controller session (117)/(118) used.
+
+- (118) **Split-screen perf + correctness: 25 -> locked 50 FPS, cat faces
+  forward.** Owner playtest findings on (117). The real BUG: renderScene
+  runs twice per split frame and the animated path advanced playback AND
+  re-skinned every avatar in BOTH halves - animations played at 2x speed
+  and the P1 avatar's 14k verts were skinned twice. Fixed with
+  `splitSecondPass` (generated game): the second half re-submits the
+  frame's skinned buffers under its own camera/frustum, no advance, no
+  re-skin (a mesh-LOD tier switch still forces the other tier's buffers).
+  Also dropped the split brackets' per-half clear sprite - beginFrame's
+  full-screen clear covers both halves and the scissor clips z-writes, so
+  the copied-from-env-map clear was two half-screen GS fills + FINISH
+  stalls per frame for nothing (engine splitView.begin loses the clearColor
+  param). Profiler-driven (debug Show frame profiler + vsync off, PCSX2 SW,
+  PAL): 1P scene 5.3 ms / frame ~10 ms; split scene was 19.2 ms and the
+  whole frame ~21.5 ms - 1.5 ms over the 20 ms vsync budget = halved to 25.
+  After skin-reuse: scene 16.4. The rest is content: demo tuned with mesh
+  LOD distance 4 (third-person cameras sit ~5 units out -> both avatars
+  render the 50% baked variant nearly always; the old P1 avatar was a PC-grade
+  mesh) + terrain detail 16 -> scene 13.2 ms, frame 18.4 ms, **FPS 50
+  locked with vsync** (F8-verified counter). The cat: the committed
+  cat.glb's root wrap flipped to -90 deg Y (the +90 guess in (117) made it
+  run backwards - owner caught it with two pads); AABB z-range flip
+  verified headlessly, in-game the camera now sees its back. Docs:
+  multiplayer.md Performance section, example README, engine skill
+  (no-clear contract + splitSecondPass).
+- (117) **examples/two-players + oversized-glb-texture clamp.** The committed
+  demo for (116): a 14k-vertex sample humanoid (P1) vs a cat (P2) in a box arena, title menu
+  picks 1P/2P (Player-count option block), pause menu switches mid-game,
+  split-screen third-person cameras per player, Start-on-pad-2 hot-join.
+  Two authoring finds baked into the pipeline/docs: **(a)** the humanoid's
+  1024x1024 embedded texture hit the engine's hard `TYRA_ASSERT` (512 max)
+  and quiet-halted the game on load - glbparser's image extraction now
+  box-downscales oversized embedded textures to <=512 (power-of-two factor,
+  POT sources stay POT) with a build warning, so any Blender-textured
+  avatar Just Works; **(b)** the owner's cat.glb (an FBX re-export) parsed
+  fine but was authored X-forward, which the avatar drive (faceYaw expects
+  Z-forward) would render as a crab-walk - fixed in the committed asset by
+  wrapping the glb scene root in a +90deg-Y rotation node (BIN untouched;
+  the AABB flip confirmed the axis swap headlessly before any boot).
+  Verified: Docker build clean; PCSX2 e2e drives the title menu from the
+  keyboard - 1P full screen, then 2 Players + START = live top/bottom split
+  with both avatars standing and animating (F8 screenshots; earlier
+  frames caught P1 visible in P2's half). PCSX2 launches were flaky
+  post-reboot (Vulkan swapchain / parallel-session clobbering) - the
+  driver script now relaunches and re-verifies per pass.
+- (116) **Two-player games: shared screen + split screen, runtime join/leave.**
+  `ProjectSettings::multiplayer` ("off"/"shared"/"split", *Preferences >
+  Multiplayer*) + `p2JoinOnStart`; player 2 is the scene's **second Player
+  object** (scene order picks the slots; the Player properties panel says
+  which is which). The single-player walker state (`entX/entYaw/...`,
+  `camBoom`, clip indices) is hoisted into a per-player `PlayerCtl` struct
+  and the walker is parameterized (`updatePlayerWalker(PlayerCtl&, pi,
+  Tyra::Pad&)`) - all three modes (walk/noclip/third person) work per
+  player, with per-player tuning from new `PLAYER2_*` scene tables +
+  `PP_*(pi)` selection macros in scene_data.hpp. **Shared screen**: one
+  camera orbits the pair's midpoint (P1's right stick), boom stretched by
+  separation, spring-armed like the solo boom. **Split screen**: new engine
+  `RendererCoreSplitView` (env-map-style raster bracket: PATH1 drain +
+  XYOFFSET shift + SCISSOR + per-half color/z clear - a vertical *crop* of
+  the unchanged full-screen projection, so proportions are exact), camera
+  swapped between halves via `renderer3D.update()` (frustum follows per
+  mesh). Engine `Pad` gains `initOptional(port)` - padInit is once-global,
+  a missing controller no longer blocks/asserts (upstream `update()`
+  busy-waited forever), and it keeps polling: **hot-join**. Runtime switch
+  both ways: Start on pad 2 joins; a new **Player count (1P/2P)** menu
+  option block (bind 7, edge-triggered + write-back so the row and pad-2
+  joins never fight) toggles anytime; scene switches keep P2 while the new
+  scene has a second Player. Cutscene overrides suspend the split; the env
+  map pauses refresh during split halves (its bracket restores a full-screen
+  raster); HUD/menus/post-fx stay full-screen (documented v1 limits in
+  `docs/multiplayer.md`). ScriptContext gains `player2Active/player2Position`
+  (the "nearest player" seam for the NavMesh PR). Verified: editor builds
+  clean; headless harness (scratch project with two Players, split mode, the
+  menu block) round-trips save/load incl. the new fields and
+  `refreshGenerated` emits the PLAYER2 tables / split render path / bind 7
+  row; full Docker build (engine + game) compiles; PCSX2 boots and the
+  keyboard-driven pad-1 menu toggle flips full-screen 1P <-> top/bottom
+  split with both cameras live (F8 screenshots). Pad-2 hot-join and shared
+  mode's feel still want a hands-on two-controller test. Docs: README,
+  `docs/multiplayer.md`, editor + engine + testing skills.
+  *(While here: PROGRESS.md carried a committed, unresolved merge conflict
+  from c96caaa - markers removed; the two (104)-(107) runs below came from
+  parallel branches, both kept as written.)*
+- (127) **Portals: particle emitters show through (VU1 billboard re-render).**
+  Merged main's particle-billboard-VU1 work (their (117)/PR #118: the EE
+  now submits particle CENTERS and a VU1 `billboard` program expands each
+  into a camera-facing quad from a `right`/`up` basis on `StaPipBillboardBag`)
+  and used exactly the seam it was designed for — "swap the basis, re-render
+  the same centers for another view". Portal through-views previously
+  skipped particles (billboards are view-dependent). Now `renderOnePortalView`
+  computes the virtual camera's right/up basis and `renderViewObject` handles
+  emitters (type 7): for each emitter reached (listed, or any with All
+  objects in view), it swaps the bag's basis to the virtual one, renders the
+  same live centers, and restores the saved basis immediately so the frame's
+  final main-pass particle render is untouched. Rain (kind 4) keeps world-up
+  like the main pass. Centers are the sim's own arrays (no copy) and the VU1
+  program does the second expansion, so the added cost is one extra on-VU
+  expansion per visible emitter per live view — no EE vertex work. **Verified
+  (Layer 3, PCSX2 D3D11 HW):** a fire emitter placed at the tower base in
+  examples/portals renders correctly INSIDE portal-a's opening, camera-facing
+  for the virtual camera and animating across frames, at a locked 50 FPS /
+  100% speed; docs/portals.md's "particles don't show through" limitation is
+  gone. Post-merge with main also re-verified (editor + Docker game build
+  clean, boots). Real-PS2 pass pending like every GS-level change.
+
+- (126) **Portals: doorways open in collision — walk through the mounting
+  wall.** The (125) wall-mounted pair looked right but could not be
+  entered: the wall's box collision blocked the walker before the
+  crossing plane. General rule, per the owner's "epic collisions" ask:
+  `updatePortalPass` (called by all three walkers right before
+  collidePlayer, cleared right after) publishes the plane of the linked
+  portal whose opening the body column currently sits in (feet + waist
+  probes, rect +0.25 margin, -0.6..+1.2 around the plane, any
+  orientation); collidePlayer then skips objects fully BEHIND that plane
+  - the exact same OBB-projection extent as the through-view dead zone.
+  Net effect: the mounting wall opens up like a doorway exactly where the
+  portal is (it still blocks beside the opening - the zone requires the
+  column inside the rectangle), geometry in front of or poking through
+  the surface still collides, and an unlinked portal's wall stays solid
+  (the zone requires a live target). Physics objects never collide with
+  objects, so they need no equivalent. **Verified (Layer 3, PCSX2 D3D11
+  HW):** compiles + boots clean on the wall-mounted map, doorway view and
+  infinite fall intact at locked 50 FPS; the actual walk-through is
+  pad-only - that check stays with the owner.
+
+- (125) **Portals: wall-mounted portals — exact OBB extent in the
+  dead-zone test.** Owner mounted both walk-through portals flush on gray
+  wall boxes (their "update portal map" commit) and the opening filled
+  with the far wall's backside — the object dead-zone test used a crude
+  max-axis bounding radius, so a WIDE thin wall (1.98×4.16×1.0) "reached
+  through" by half its WIDTH (needed sd < -1.81 to drop; actual sd was
+  -0.53). The extent along the exit-plane normal is now the exact OBB
+  projection (sum of |dot(normal, object axis)| x half-scale per axis),
+  with 0.1 slack so a flush-mounted wall (the quad sits 0.02 in front of
+  it) classifies as behind; geometry genuinely poking through the plane
+  still renders. Also reconciled examples/portals: the owner's commit
+  carried only generated files, so the source objects/manifest were
+  reconstructed to match their map (walls behind both portals, scripted
+  anchor removed - the demo is pad-driven now, portal-floor terrain view
+  on) and everything regenerated consistently. **Verified (Layer 3, PCSX2
+  D3D11 HW):** looking at the wall-framed portal-a, the opening shows the
+  destination (tower/terrain/sky) with no gray backside anywhere - the
+  Portal look proper; 50 FPS / 100% locked.
+
+- (124) **Portals: entry-side arrow in the editor viewport.** Owner
+  request: the tinted quad alone didn't say which face is the entrance.
+  A new `portalArrow_` line mesh (shaft + 4 head barbs along +Z) draws at
+  every portal, rotated with the object but at a fixed 1.2-unit length
+  (quad-scale-free, like the camera frustum wedge), tinted the portal
+  color brightened toward white. It marks the +Z front - the side that
+  shows the through-view and accepts the crossing. **Verified:** editor
+  builds clean; GUI opened on examples/portals and zoomed in via
+  synthetic wheel input - the arrow reads clearly against the tinted
+  surface (screenshot).
+
+- (123) **Portals: exact chunk extents kill the last "gleba", floor
+  portals swallow.** Round 3 of hardware feedback. (1) (122)'s dead-zone
+  test still let the terrain backside into the ceiling view ("dalej
+  pizdeczka... gleba w górnym"): the corner-sampling used a 1-unit slope
+  margin, and the demo's flat terrain sits only 0.8 under the exit plane
+  — sd = -0.8 never beat the -1.0 cutoff. Lesson recorded: compute, don't
+  guess margins. TerrainChunk now carries its exact minY/maxY (filled in
+  buildTerrainChunk from the heightmap) and renderTerrain does a precise
+  AABB-vs-plane p-vertex test with a 0.05 epsilon - the flat-map chunks
+  drop at any portal height. (2) Owner's own suggestion implemented: a
+  body touching a linked FLOOR portal stops colliding with the terrain
+  ("może w momencie, jak obiekt dotyka portalu, na ten czas nie koliduje
+  z terenem?") - `portalSwallowZone` (floor portals only, front normal
+  up, rectangle footprint, -0.6..+2.0 around the plane) suppresses the
+  ground clamp in updateObjectPhysics (floorY = -inf) and in all three
+  walkers (ground = -inf; feet AND waist probed so the clamp cannot snap
+  the body back mid-straddle). A portal lying ON the ground now swallows
+  the cube (and the player - you drop in like a pit); the demo's floor
+  portal moved from 0.8 down to 0.3 to prove it. **Verified (Layer 3,
+  PCSX2 D3D11 HW):** screenshots catch the cube mid-sink INTO the
+  ground-level portal (center below its old rest height - the clamp is
+  off) and back at the ceiling next shot - the loop closes through a
+  ground portal; both column portals run terrain+sky ON with no backside
+  anywhere; 50 FPS / 100% locked. Pad checks (walking into a ground
+  portal, hardware feel) stay with the owner.
+
+- (122) **Portals: terrain joins the dead-zone test — floor/ceiling pairs
+  keep their sky.** Follow-up to (121)'s "turn the terrain off" caveat,
+  which the owner rightly disliked ("fajnie, jakby w portalach było widać
+  teren"): renderTerrain now honors the through-view's exit plane too.
+  renderOnePortalView publishes the target plane in `portalExitPlane[4]`
+  (+ flag) around the destination render, and renderTerrain drops chunks
+  whose rect corners + center (at their heightmap heights, 1-unit slope
+  margin) all sit on the virtual camera's side — the same "invisible
+  through a real hole" rule the view objects use. A floor→ceiling pair
+  now keeps **Terrain + sky in view** ON: the opening shows the sky-dome
+  gradient and the falling cube instead of the terrain's backside; a
+  chunk straddling the plane still renders whole (cliff-edge caveat in
+  docs/portals.md). Demo ceiling portal flipped back to terrain+sky on.
+  **Verified (Layer 3, PCSX2 D3D11 HW):** with terrain enabled on both
+  column portals, the floor portal's surface shows sky + the cube
+  mid-fall inside it, no ground backside anywhere, walk-through/infinite
+  fall/four views intact at locked 50 FPS.
+
+- (121) **Portals: hardware-feedback round 2 — the doorway moment + the
+  dead zone.** Two more owner reports from the pad. (1) "Skok widać, gdy
+  się jest ryjem dokładnie w centrum portalu, jakby się przez dwa naraz
+  patrzyło": with the eye closer to the plane than the near distance, the
+  quad's frustum-clipped fan shrinks and the world behind the
+  free-standing surface peeks around the opening for a frame or two. Fix:
+  a **crossing zone** — eye within ~near·2+0.45 of the plane, inside the
+  rectangle (+0.3 margin), looking INTO the surface → the carve becomes
+  the WHOLE screen at the nearest depth, so the destination fills the
+  view until the hop lands (renderOnePortalView short-circuits the clip
+  path). (2) "Górny portal ma teksturę ziemi i nie widać jak kostka
+  wpada": the floor↔ceiling pair's isometry puts the ceiling view's
+  virtual camera ~5 units UNDERGROUND looking up, and with no oblique
+  near plane the terrain between the camera and the exit plane renders
+  (double-sided) and occludes everything — the "ground texture". Fix: a
+  general **dead-zone test** — view objects entirely on the camera side
+  of the exit plane are skipped (through a real hole they are invisible;
+  bounding radius like the env-map self-skip) — plus the demo ceiling
+  portal's terrain toggle turned off (terrain has no per-chunk plane
+  test; documented in docs/portals.md). **Verified (Layer 3, PCSX2 D3D11
+  HW):** the ceiling surface no longer shows terrain backside and the
+  cube drops out of it cleanly; walk-through + infinite fall + four live
+  views intact at locked 50 FPS. The doorway-zone carve compiles into the
+  demo but only a pad walk-through exercises it — that check (and whether
+  the hardware pop is gone) stays with the owner.
+
+- (120) **Portals: owner-feedback round — multi-view, jump-in, seamless
+  hop.** Three fixes from playing the demo on hardware: (1) **up to four
+  portal views per frame** instead of one (nearest qualify; carved
+  FARTHEST-first so overlapping openings resolve like occlusion would —
+  `portalMaskBegin` gained a bbox z-clear so an earlier portal's z-cap
+  can't reject a later view's geometry; NLOOP trap re-paid: the new
+  begin-packet giftag said 8 with 7 register writes and the GIF wedged
+  exactly as the engine skill warns — FPS: N/A, frozen frame; count the
+  qwords). The infinite-fall pair now runs viewAll, so standing under the
+  ceiling portal you SEE the cube approaching inside it instead of it
+  "spawning" at the surface. (2) **Feet probe**: the player crossing test
+  runs a second segment at the feet - jumping/dropping into a floor portal
+  teleports (the waist probe alone never dipped below a knee-height
+  plane; "I can't jump into it"). (3) **No exit offset**: the +0.2 arrival
+  nudge read as a one-frame camera pop at the crossing moment on hardware
+  (owner: "ekran delikatnie skacze") - removed; the pair transform is an
+  isometry, the crossing overshoot maps to the same overshoot past the
+  target plane, so the hop is now mathematically continuous (the reverse
+  link can't re-trigger anyway - the arrival moves away from the plane).
+  The player velocity mapping also carries the actual per-frame motion
+  (same ground-clamp race the objects had). **Verified (Layer 3, PCSX2
+  D3D11 HW):** four live views at once (the floor portal's sky-view
+  visible beside the walk-through pair), demo loop + walk-through intact,
+  locked 50 FPS / 100% speed; manual jump-in and the hardware
+  no-pop check want the pad test.
+
+- (119) **Portals: experimental "All objects in view".** Owner request: a
+  per-portal switch (`portalViewAll`, Properties > Portal) that renders
+  EVERY scene object in the through-view instead of the explicit list
+  (ignored while on). Runtime: the viewAll branch walks all runtime
+  objects — the pushed frustum planes classify each bag against the
+  VIRTUAL camera (off-view geometry drops EE-side before packaging) and
+  `beyondDrawDistance` measures from the virtual eye, so the practical
+  cost is what the destination actually sees; mirrors are skipped (glass
+  only — their copies are a main-pass trick) and portals stay excluded
+  (no recursion). Documented squarely as experimental: big scenes pay a
+  second submission pass while the portal's view is live, particles still
+  don't show through, the authored list stays the shipping default. Full
+  chain: field + serialization (`viewAll` in the portal block) + recipe
+  hash, UI checkbox that gates the list UI with a cost warning, a
+  `viewAll` column in PortalData. examples/portals flipped portal-a to
+  viewAll with an EMPTY list (portal-b keeps the classic list) — the demo
+  proves both modes. **Verified (Layer 3, PCSX2 D3D11 HW — Vulkan
+  presentation still wedged):** the tower shows through portal-a with
+  nothing listed, the walk-through and infinite-fall demos unchanged,
+  locked 50 FPS / 100% speed.
+
+- (118) **examples/portals — the Portal object demo.** A committed example
+  for (117): a two-way pair across the map (portal-a in front of the FPP
+  spawn ↔ portal-b by a red landmark tower 25 units away), an Empty with a
+  small flow graph (On Start → Delay 6 s → Spawn Player At) that walks the
+  player through the surface unattended, and the classic **infinite fall**:
+  a floor portal on the ground linked up to a downward-facing ceiling
+  portal, with a physics cube endlessly dropping through the pair in plain
+  view of the spawn (its fall speed carries through every hop by the portal
+  velocity mapping). **Verified in PCSX2 (locked 50 FPS / 100%, EE ~33%):**
+  the through-view shows the tower at full resolution with correct parallax
+  and no visible boundary (screenshotted); the scripted crossing lands the
+  player exactly where the view promised (post-teleport screenshot: same
+  tower, close up, level camera, correct yaw); timed screenshots caught the
+  cube at different column heights — including above its own spawn height,
+  proving it had already looped — and the loop was still running at
+  t=45 s; no TYRA banners in `bin/log.txt`; editor GUI opens the project
+  (viewport + object list screenshot). Two physics fixes fell out of
+  watching the loop: object physics gained a **50 u/s terminal velocity**
+  (updateObjectPhysics — without it a portal infinite-fall accelerates
+  until the cube clears the whole column in one frame and the smooth loop
+  turns into blinking; also era-authentic), and the crossing test now
+  carries the object's **actual per-frame motion, not just `velocityY`**:
+  on the very frame a cube crossed a near-ground floor portal, the physics
+  ground clamp could zero `velocityY` *before* the portal test ran, so the
+  cube arrived at the far end with v=0 and visibly hung before re-falling
+  (the owner spotted the hitch); the position delta still holds the real
+  fall, so the larger of the two maps through the pair.
+
+- (117) **Portal objects — a linked pair of surfaces with a live
+  through-view and a seamless walk-through teleport.**
+  `PrimitiveType::Portal` (16): a rectangle (decal quad, +Z = front) that
+  names another Portal in the scene as its target (one-way by design; a
+  "Link back" button makes pairs two-way). Rendering is a real second view,
+  budgeted the PS2 way: each frame the game picks ONE portal (nearest
+  linked one the camera is in front of) and renders sky + terrain
+  (per-portal toggle) + an explicit view-object list (the Mirror
+  philosophy) **in-place, at full resolution, straight into the
+  framebuffer** — right after the frame clear, before any main-scene 3D,
+  scissored to the quad's screen bbox. The GS has no stencil, so the
+  shaped opening is carved with reversed-z ops
+  (`RendererCore::portalViewBegin/End` → `RendererCorePostFx::portalMask*`,
+  both draining PATH1 without latching the post-fx drain gate): re-far the
+  bbox depths, cap the quad interior with a z-only ALWAYS triangle fan at
+  the surface depth (the 4 corners frustum-clipped on the EE,
+  Sutherland–Hodgman, ≤9 verts — walls in front still occlude the view,
+  the wall behind loses, DoF/particles see a solid surface), then repaint
+  the spilled ring outside the opening via a GEQUAL sprite at z=0 that
+  hits exactly the pixels the reset left at far. The virtual camera is the
+  player camera mapped through the pair (source local frame → 180° flip
+  about local Y → target frame; VU0-macro Vec4/M4x4 math, geometry through
+  the normal VU1 static pipeline) with the SAME projection as the screen —
+  only the view matrix swaps (`RendererCore3D::pushPortalView`) — so the
+  destination lands exactly where the opening sits: correct parallax, no
+  per-pixel work, and the opening is pixel-for-pixel as crisp as the scene
+  around it. (Dead end recorded: v1 rendered the view into a second
+  128×128 env-map-style VRAM target and projected it onto the quad with a
+  screen-locked-UV textured fan — it worked, but the bilinear upscale read
+  as a visibly soft "window" against the crisp scene, the exact seam the
+  in-place render eliminates; the RTT variant also cost +64 KB VRAM.)
+  Every other portal (and unlinked ones) draws as a tinted translucent
+  quad (`rebuildObjectGeometry` case 16, skipped in the main loop like
+  mirrors, blended after them in `renderPortals` — the live portal skips
+  its tint so nothing washes the opening). The **teleport** (`updatePortals`,
+  called from both loop flavors after the physics step) probes the walker's
+  waist segment against the front face each frame and maps position, view
+  yaw/pitch and vertical velocity through the same transform the camera
+  uses — what the surface showed is exactly where you arrive; the frame
+  camera is rebuilt on the hop so no frame renders from the departure side.
+  Physics objects cross too (per-portal switch; per-object prev-pos table,
+  `velocityY` mapped, `dirty` set). Full chain: model + `.tyra`
+  serialization (`portal` block) + live-link recipe/unspawnable rules,
+  Insert > Gameplay > Portal, Properties block (target picker with
+  two-way link button, view-object list, terrain/objects toggles), rename
+  remap, viewport preview (translucent tinted quad + link line to the
+  target via a new unit-segment mesh), PORTALS/PORTAL_VIEW_OBJECTS side
+  tables in `scene_data.hpp` (name → index resolution at codegen), docs
+  (`docs/portals.md`, README, live-link list, engine/editor skills).
+  Limits by design, documented: one live view per frame,
+  no portal-in-portal recursion, tilted pairs carry only vertical velocity
+  (walkers keep no horizontal velocity state), view-listed animated models
+  show their last skinned pose. **Verified (Layer 3):** editor + engine
+  compile clean; `--resave` round-trips the portal block; generated tables
+  correct for a 2-portal scene; in PCSX2 at a locked 50 FPS / 100% speed
+  (EE ~33%): live through-view with correct parallax and NO visible seam
+  (the opening is indistinguishable from the surrounding scene — only the
+  destination landmark gives it away), scripted walk-through arriving
+  exactly where the view promised with the camera rebuilt, and a physics
+  cube teleporting through a flat (floor) portal — the tilted-pair
+  rotation path — all screenshotted; no TYRA banners in `bin/log.txt`.
+  Honesty note on renderers: the RTT rounds ran on the SW renderer; the
+  final in-place build was verified on D3D11 HW because the Vulkan
+  presentation layer wedged mid-session (the known rapid-relaunch
+  swapchain failure) — an SW-renderer pass on the final build plus the
+  hands-on pad test (walking through manually, strafing past the surface
+  edge, portals partially off-screen) still want a human; real-hardware
+  pass pending like every GS-level change. Also fixed in passing: a
+  committed merge-conflict marker pair left in PROGRESS.md by an earlier
+  merge.
+
+- (104) **Gamepad vibration (DualShock rumble) — flow node + scripts.** The
+  engine fork's `Pad` gains `setActuators(smallMotor, bigPower)` (`Modified by
+  TyraX` in pad.hpp/pad.cpp): act-direct control of the two DualShock motors —
+  the on/off buzz engine and the 0–255 heavy motor — using the actuator slots
+  `initPad()` was already aligning (it logged "# of actuators: 2" and then
+  never drove them). On top of that: `ScriptContext` carries a rumble request
+  (`rumble` −1 = leave / 0–255 big-motor power, `rumbleSmall`, `rumbleSec`)
+  plus a `padVibrate(ctx, big01, small, seconds)` helper in the generated
+  `script.hpp`; both game loops (orbit + FPP) apply the request and run a
+  `g_rumbleTimer` auto-stop countdown (Seconds > 0 — it ticks even while a
+  menu pauses the scripts, so a timed rumble always ends; Seconds 0 = vibrate
+  until the next request). A **Vibrate Pad** flow node (Player category; Big
+  0..1 slider, Small checkbox, Seconds; defaults big=1, 0.5 s) compiles to the
+  same request in `actionCode()`. **Verified:** editor builds clean; a scratch
+  FPP project with an injected `On Start → Vibrate Pad` graph emits
+  `ctx.rumble = 204 / ctx.rumbleSmall = 1 / ctx.rumbleSec = 1.5F` in
+  `flow_graph.gen.cpp`; engine + game compile in Docker and boot in PCSX2
+  (pad init logs "# of actuators: 2", the game runs at 50 FPS through the
+  on-start rumble and its 1.5 s auto-stop — no hang, no assert). The actual
+  rumble *feel* needs a physical controller (PCSX2 forwards vibration to the
+  host pad); that hands-on check stays with a human.
+
+- (117) **Particle billboards move from the EE to a VU1 program family.**
+  `updateParticles()` used to both simulate AND expand every particle into a
+  camera-facing quad on the EE — 6 verts + 6 colors (+ 6 STs) written per
+  particle per frame, then pushed through the stock StaPip path. Now the EE
+  keeps only the simulation: each particle is submitted as ONE center vertex
+  (the sim's own `pos` array, no copy), one qword of 2×2 basis weights
+  `(m00,m01,m10,m11)` riding the ST channel, and one color — and a new
+  StaPip **billboard** VU1 program family (`billboard/stapip_billboard_{c,t}`,
+  94/106 instructions) expands each center into 2 triangles in clip space:
+  the camera right/up basis (uploaded per mesh at `VU1_BILLBOARD_BASIS_ADDR`,
+  carried on the new `StaPipBillboardBag`) is transformed by the MVP once per
+  mesh, corners are `C ± (R·m00+U·m01) ± (R·m10+U·m11)` — so rain's world-up
+  streaks (independent half-height) and the fog swirl (per-particle 2D
+  rotation) fold into the same four weights, perspective-exact. Culling is
+  per QUAD on VU1 (one `clipw` judgement per corner against the GS raster
+  window / depth range; any corner out → ADC on all 6 emitted verts), which
+  makes `frustumCulling = None` safe for these bags — the one legitimate
+  use, the program itself is the wrap protection. Micro memory was the
+  design constraint: the VU1-clipping program set measures **2036/~2042**
+  instructions (nm over the .o files), so the two billboard programs are NOT
+  resident — they live in their own prebuilt packet swapped in on demand
+  (`StaPipQBufferRenderer::ensureProgramSet`, the same MPG upload a
+  StaPip↔DynPip switch already does) and the resident set is lazily restored
+  by the next non-billboard bag. The prim giftag NLOOP is built EE-side at
+  6× the input count (`gsVertexCount` override) — the GIF-stall trap from
+  the portal work, dodged by construction. The texture bag is now mandatory
+  for particle bags (it carries the params channel) with a nullable image:
+  a real map selects the textured program (corner UVs are constants in the
+  microcode), no map the untextured one. Verified in PCSX2 (SW renderer,
+  debug + Show FPS + profiler + vsync off, scratch scene with fire 200 /
+  smoke 200 / fog 120 / sparks 200 / rain 256 / custom fountain 256 = 1232
+  particles): **A (EE quads): FPS 137–139, FRAME ~7.03 ms, PART ~1.10 ms;
+  B (VU1 centers): FPS 192–214, FRAME ~5.05 ms, PART ~0.31 ms** — the
+  particle phase's EE cost drops ~72% and the whole frame gains ~2 ms; all
+  six kinds render correctly (vertical rain streaks, swirling fog, fire
+  ramp). Designed for the portal branch to pick up: swapping
+  `billboardBag->right/up` and re-rendering the same bags draws the same
+  centers for a virtual camera, which is exactly what portal through-views
+  need (today they skip particles entirely). Real-PS2 pass pending.
 
 - (116) **NavMesh + NPC AI — Patrol / Chase / Flee / On Player Seen.** NPCs
   can finally go somewhere on their own. Three layers, all
