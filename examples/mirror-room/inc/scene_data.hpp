@@ -9,6 +9,8 @@ struct SceneObjectData {
              // 11=empty (pure transform, no geometry/collision)
              // 12=plane 13=decal 14=camera (cutscene shot marker)
              // 15=mirror (glass quad; reflections via MIRRORS below)
+             // 16=portal (linked surface; through-view + teleport
+             //    via PORTALS below)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -43,28 +45,35 @@ struct SceneObjectData {
   int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none
   float drawDistance;  // not drawn farther than this from the camera;
                        // 0 = unlimited (collision/logic always run)
+  int reflected;  // 1 = rendered into the dynamic ("@sky") env map
   int animModel;  // animated models: index into ANIM_MODEL_PATHS, -1 = none
   const char* animClip;  // animated models: starting clip ("" = first)
   int animAutoplay;      // animated models: 1 = play at scene start
   int animLoop;          // animated models: 1 = starting clip loops
   float animSpeed;       // animated models: playback speed multiplier
+  float animLod;  // per-object animation-LOD distance override:
+                  // -1 = project ANIM_LOD_DISTANCE, 0 = off, >0 = custom
+  float meshLod;  // per-object mesh-LOD distance override (same coding)
   int primDetail;        // segments (curved) or box subdivisions/edge
   int layer;      // streaming layer (SCENE_LAYER_* tables), -1 = none:
                   // always resident, never streamed out
+  int batchStatic; // 1 = may merge into a combined static batch bag
+                   // (build-time verdict: non-moving primitive with
+                   // no physics/logic/graph refs/save-state/layer)
 };
 
 constexpr int SCENE_COUNT = 1;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[8] = {
-    {0, {-4.9F, 1.5F, -6.2F}, {0.0F, 0.0F, 0.0F}, {6.5F, 3.0F, 0.4F}, {0.55F, 0.52F, 0.5F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // wall-left
-    {0, {4.9F, 1.5F, -6.2F}, {0.0F, 0.0F, 0.0F}, {6.5F, 3.0F, 0.4F}, {0.55F, 0.52F, 0.5F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // wall-right
-    {0, {0.0F, 2.85F, -6.2F}, {0.0F, 0.0F, 0.0F}, {3.3F, 0.3F, 0.4F}, {0.55F, 0.52F, 0.5F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // wall-top
-    {0, {2.2F, 0.6F, -3.5F}, {0.0F, 25.0F, 0.0F}, {1.2F, 1.2F, 1.2F}, {0.85F, 0.3F, 0.2F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 1, -1},  // crate
-    {1, {-2.2F, 0.75F, -3.0F}, {0.0F, 0.0F, 0.0F}, {1.5F, 1.5F, 1.5F}, {0.25F, 0.45F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // ball
-    {2, {-3.6F, 1.25F, -4.6F}, {0.0F, 0.0F, 0.0F}, {0.8F, 2.5F, 0.8F}, {0.3F, 0.8F, 0.7F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // pillar
-    {15, {0.0F, 1.35F, -6.0F}, {0.0F, 0.0F, 0.0F}, {3.3F, 2.7F, 1.0F}, {0.62F, 0.78F, 0.88F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, -1, "", 1, 1, 1.0F, 16, -1},  // mirror
-    {6, {0.0F, 0.0F, 1.5F}, {0.0F, 180.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.95F, 0.75F, 0.2F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, "", 1, 1, 1.0F, 16, -1},  // player
+    {0, {-4.9F, 1.5F, -6.2F}, {0.0F, 0.0F, 0.0F}, {6.5F, 3.0F, 0.4F}, {0.55F, 0.52F, 0.5F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 1, -1, 0},  // wall-left
+    {0, {4.9F, 1.5F, -6.2F}, {0.0F, 0.0F, 0.0F}, {6.5F, 3.0F, 0.4F}, {0.55F, 0.52F, 0.5F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 1, -1, 0},  // wall-right
+    {0, {0.0F, 2.85F, -6.2F}, {0.0F, 0.0F, 0.0F}, {3.3F, 0.3F, 0.4F}, {0.55F, 0.52F, 0.5F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 1, -1, 0},  // wall-top
+    {0, {2.2F, 0.6F, -3.5F}, {0.0F, 25.0F, 0.0F}, {1.2F, 1.2F, 1.2F}, {0.85F, 0.3F, 0.2F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 1, -1, 0},  // crate
+    {1, {-2.2F, 0.75F, -3.0F}, {0.0F, 0.0F, 0.0F}, {1.5F, 1.5F, 1.5F}, {0.25F, 0.45F, 0.9F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 16, -1, 0},  // ball
+    {2, {-3.6F, 1.25F, -4.6F}, {0.0F, 0.0F, 0.0F}, {0.8F, 2.5F, 0.8F}, {0.3F, 0.8F, 0.7F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 16, -1, 0},  // pillar
+    {15, {0.0F, 1.35F, -6.0F}, {0.0F, 0.0F, 0.0F}, {3.3F, 2.7F, 1.0F}, {0.62F, 0.78F, 0.88F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 16, -1, 0},  // mirror
+    {6, {0.0F, 0.0F, 1.5F}, {0.0F, 180.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.95F, 0.75F, 0.2F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, 0, "", 1, 1, 1.0F, -1.0F, -1.0F, 16, -1, 0},  // player
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {8};
@@ -97,6 +106,28 @@ constexpr MirrorData MIRRORS[1] = {
 };
 constexpr int MIRROR_TARGETS[6] = {0, 1, 2, 3, 4, 5};
 
+// Portals (type 16): each entry links a surface to its target
+// portal. The game renders the through-view of the nearest one
+// into a VRAM target every frame and teleports whatever crosses
+// the surface (renderPortalView/renderPortals/updatePortals in
+// the game cpp). Indices index the portal's own scene table.
+struct PortalData {
+  int scene;            // scene index
+  int object;           // the portal's index in its scene table
+  int target;           // linked portal's index, -1 = inactive
+  int showTerrain;      // 1 = sky dome + terrain in the view
+  int teleportObjects;  // 1 = physics objects teleport too
+  int viewAll;          // 1 = EVERY object in the view
+                        //     (experimental; list ignored)
+  int firstView;        // first entry in PORTAL_VIEW_OBJECTS
+  int viewCount;
+};
+constexpr int PORTAL_COUNT = 0;
+constexpr PortalData PORTALS[1] = {
+    {0, -1, -1, 0, 0, 0, 0, 0}
+};
+constexpr int PORTAL_VIEW_OBJECTS[1] = {-1};
+
 constexpr int SND_COUNT = 0;
 inline const char* SND_PATHS[1] = {""};
 
@@ -116,6 +147,22 @@ constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_JUMP_CLIPS[SCENE_COUNT] = {""};
+constexpr int PLAYER2_INDEXES[SCENE_COUNT] = {-1};
+constexpr int PLAYER2_MODES[SCENE_COUNT] = {0};
+constexpr float PLAYER2_WALK_SPEEDS[SCENE_COUNT] = {0.4F};
+constexpr float PLAYER2_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
+constexpr float PLAYER2_EYE_HEIGHTS[SCENE_COUNT] = {1.8F};
+constexpr float PLAYER2_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};
+constexpr bool PLAYER2_CAN_JUMPS[SCENE_COUNT] = {true};
+constexpr float PLAYER2_RUN_THRESHOLDS[SCENE_COUNT] = {0.55F};
+constexpr float PLAYER2_CAM_DISTS[SCENE_COUNT] = {6.0F};
+constexpr float PLAYER2_CAM_HEIGHTS[SCENE_COUNT] = {1.6F};
+constexpr float PLAYER2_CAM_SHOULDERS[SCENE_COUNT] = {0.0F};
+constexpr float PLAYER2_TURN_RATES[SCENE_COUNT] = {0.25F};
+constexpr const char* PLAYER2_IDLE_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER2_WALK_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER2_RUN_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER2_JUMP_CLIPS[SCENE_COUNT] = {""};
 
 constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {32.0F};
 constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {32.0F};
@@ -249,6 +296,26 @@ inline int everyFrames(float seconds) {
 #define PLAYER_WALK_CLIP PLAYER_WALK_CLIPS[g_activeScene]
 #define PLAYER_RUN_CLIP PLAYER_RUN_CLIPS[g_activeScene]
 #define PLAYER_JUMP_CLIP PLAYER_JUMP_CLIPS[g_activeScene]
+#define PLAYER2_INDEX PLAYER2_INDEXES[g_activeScene]
+// Per-player table selection for the shared walker (pi: 0 = P1, 1 = P2).
+#define PP_TBL(pi, T) \
+  ((pi) == 0 ? PLAYER_##T[g_activeScene] : PLAYER2_##T[g_activeScene])
+#define PP_INDEX(pi) PP_TBL(pi, INDEXES)
+#define PP_MODE(pi) PP_TBL(pi, MODES)
+#define PP_WALK_SPEED(pi) PP_TBL(pi, WALK_SPEEDS)
+#define PP_LOOK_SPEED(pi) PP_TBL(pi, LOOK_SPEEDS)
+#define PP_EYE_HEIGHT(pi) PP_TBL(pi, EYE_HEIGHTS)
+#define PP_JUMP_SPEED(pi) PP_TBL(pi, JUMP_SPEEDS)
+#define PP_CAN_JUMP(pi) PP_TBL(pi, CAN_JUMPS)
+#define PP_RUN_THRESHOLD(pi) PP_TBL(pi, RUN_THRESHOLDS)
+#define PP_CAM_DIST(pi) PP_TBL(pi, CAM_DISTS)
+#define PP_CAM_HEIGHT(pi) PP_TBL(pi, CAM_HEIGHTS)
+#define PP_CAM_SHOULDER(pi) PP_TBL(pi, CAM_SHOULDERS)
+#define PP_TURN_RATE(pi) PP_TBL(pi, TURN_RATES)
+#define PP_IDLE_CLIP(pi) PP_TBL(pi, IDLE_CLIPS)
+#define PP_WALK_CLIP(pi) PP_TBL(pi, WALK_CLIPS)
+#define PP_RUN_CLIP(pi) PP_TBL(pi, RUN_CLIPS)
+#define PP_JUMP_CLIP(pi) PP_TBL(pi, JUMP_CLIPS)
 #define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
 #define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
 #define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]

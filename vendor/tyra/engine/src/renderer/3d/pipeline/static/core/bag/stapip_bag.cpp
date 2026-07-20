@@ -19,6 +19,7 @@ StaPipBag::StaPipBag() {
   color = nullptr;
   texture = nullptr;
   lighting = nullptr;
+  billboard = nullptr;  // Modified by TyraX: VU1 billboard expansion
   bboxVersion = 0;
 }
 
