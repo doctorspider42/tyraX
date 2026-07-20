@@ -7,6 +7,8 @@
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 # Wellington Carvalho <wellcoj@gmail.com>
+# Modified by TyraX: optional second pad (port parametric, non-blocking,
+# hot-join) for two-player games. padInit() is called once globally.
 */
 
 // Modified by TyraX: setActuators() - runtime DualShock vibration control.
@@ -22,7 +24,14 @@
 namespace Tyra {
 
 /** Init vars, load modules, opens pad port and initializes pad */
-Pad::Pad() {}
+Pad::Pad() {
+  optional = false;
+  opened = false;
+  ready = false;
+  connected = false;
+  oldPad = 0;
+  resetJoys();
+}
 
 Pad::~Pad() {}
 
@@ -30,9 +39,18 @@ Pad::~Pad() {}
 // Methods
 // ----
 
+/** padInit initializes the whole padman library, not a port - it must run
+ * exactly once no matter how many Pad instances open ports. */
+void Pad::ensurePadmanInit() {
+  static bool done = false;
+  if (done) return;
+  padInit(0);
+  done = true;
+}
+
 void Pad::init() {
   this->oldPad = 0;
-  padInit(0);
+  ensurePadmanInit();
   this->port = 0;  // 0 -> Connector 1, 1 -> Connector 2
   this->slot = 0;  // Always zero if not using multitap
 
@@ -40,6 +58,22 @@ void Pad::init() {
   TYRA_ASSERT(this->ret != 0,
               "padPortOpen failed! padPortOpen returned: ", this->ret);
   TYRA_ASSERT(this->initPad(), "initPad failed!");
+  this->opened = true;
+  this->ready = true;
+  this->connected = true;
+}
+
+void Pad::initOptional(const int& t_port, const int& t_slot) {
+  this->oldPad = 0;
+  ensurePadmanInit();
+  this->optional = true;
+  this->port = t_port;
+  this->slot = t_slot;
+  this->ret = padPortOpen(this->port, this->slot, padBuf);
+  this->opened = this->ret != 0;
+  if (!this->opened)
+    printf("Pad(%d, %d) padPortOpen failed (%d) - will retry\n", this->port,
+           this->slot, this->ret);
 }
 
 /** Wait when pad will be ready (stable and ready) */
@@ -64,6 +98,17 @@ int Pad::waitPadReady() {
 
   delete[] stateString;
   return 0;
+}
+
+/** Like waitPadReady, but gives up instead of spinning forever - an optional
+ * pad can be unplugged in the middle of its mode setup. */
+int Pad::waitPadReadyBounded() {
+  for (int i = 0; i < 200000; i++) {
+    int state = padGetState(this->port, this->slot);
+    if (state == PAD_STATE_STABLE || state == PAD_STATE_FINDCTP1) return 0;
+    if (state == PAD_STATE_DISCONN) return -1;
+  }
+  return -1;
 }
 
 /** Initializes and checks type of pad */
@@ -120,6 +165,33 @@ int Pad::initPad() {
   return 1;
 }
 
+/** initPad without the DualShock asserts and with bounded waits, so an
+ * absent/odd controller on an optional port degrades instead of halting.
+ * Returns 1 when the mode setup completed. */
+int Pad::initPadSoft() {
+  if (this->waitPadReadyBounded() != 0) return 0;
+  int modes = padInfoMode(this->port, this->slot, PAD_MODETABLE, -1);
+  if (modes > 0) {
+    padSetMainMode(this->port, this->slot, PAD_MMODE_DUALSHOCK, PAD_MMODE_LOCK);
+    if (this->waitPadReadyBounded() != 0) return 0;
+    padEnterPressMode(this->port, this->slot);
+    if (this->waitPadReadyBounded() != 0) return 0;
+    this->actuators = padInfoAct(this->port, this->slot, -1, 0);
+    if (this->actuators != 0) {
+      this->actAlign[0] = 0;
+      this->actAlign[1] = 1;
+      this->actAlign[2] = 0xff;
+      this->actAlign[3] = 0xff;
+      this->actAlign[4] = 0xff;
+      this->actAlign[5] = 0xff;
+      padSetActAlign(this->port, this->slot, actAlign);
+      if (this->waitPadReadyBounded() != 0) return 0;
+    }
+  }
+  TYRA_LOG("Optional pad initialized (port ", this->port, ")");
+  return 1;
+}
+
 /** Drives the vibration motors via act-direct (slots set up in initPad).
  * padSetActDirect copies the buffer into its own RPC command, so a local is
  * fine. Called only when the requested state changes, never per frame. */
@@ -133,14 +205,39 @@ void Pad::setActuators(const bool& smallMotor, const u8& bigPower) {
 
 /** Updates state of joys/buttons. Called by engine */
 void Pad::update() {
-  int x = 0;
-  this->ret = padGetState(this->port, this->slot);
-  while ((this->ret != PAD_STATE_STABLE) && (this->ret != PAD_STATE_FINDCTP1)) {
-    if (this->ret == PAD_STATE_DISCONN)
-      printf("Pad(%d, %d) is disconnected\n", this->port, this->slot);
+  if (this->optional) {
+    if (!this->opened) {
+      this->ret = padPortOpen(this->port, this->slot, padBuf);
+      this->opened = this->ret != 0;
+      if (!this->opened) return;
+    }
+    int state = padGetState(this->port, this->slot);
+    if (state != PAD_STATE_STABLE && state != PAD_STATE_FINDCTP1) {
+      // No controller (or mid-plug): report a centered, silent pad and keep
+      // polling - this is what makes mid-game hot-join work.
+      this->connected = false;
+      this->ready = false;
+      this->oldPad = 0;
+      this->reset();
+      this->resetJoys();
+      return;
+    }
+    if (!this->ready) {
+      this->ready = this->initPadSoft() != 0;
+      if (!this->ready) return;
+    }
+    this->connected = true;
+  } else {
+    int x = 0;
     this->ret = padGetState(this->port, this->slot);
+    while ((this->ret != PAD_STATE_STABLE) &&
+           (this->ret != PAD_STATE_FINDCTP1)) {
+      if (this->ret == PAD_STATE_DISCONN)
+        printf("Pad(%d, %d) is disconnected\n", this->port, this->slot);
+      this->ret = padGetState(this->port, this->slot);
+    }
+    if (x == 1) TYRA_LOG("Pad: OK!\n");
   }
-  if (x == 1) TYRA_LOG("Pad: OK!\n");
 
   this->ret = padRead(this->port, this->slot, &this->buttons);
 
@@ -237,6 +334,19 @@ void Pad::reset() {
   this->pressed.L2 = 0;
   this->pressed.R1 = 0;
   this->pressed.R2 = 0;
+}
+
+/** Center both sticks - the resting state a game must see for a pad that has
+ * no controller attached (fresh Pad members are otherwise uninitialized). */
+void Pad::resetJoys() {
+  this->leftJoyPad.h = 127;
+  this->leftJoyPad.v = 127;
+  this->leftJoyPad.isCentered = 1;
+  this->leftJoyPad.isMoved = 0;
+  this->rightJoyPad.h = 127;
+  this->rightJoyPad.v = 127;
+  this->rightJoyPad.isCentered = 1;
+  this->rightJoyPad.isMoved = 0;
 }
 
 }  // Namespace Tyra

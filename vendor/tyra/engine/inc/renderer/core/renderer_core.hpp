@@ -23,6 +23,7 @@
 #include "./texture/renderer_core_texture.hpp"
 #include "./postfx/renderer_core_postfx.hpp"
 #include "./envmap/renderer_core_envmap.hpp"
+#include "./splitview/renderer_core_splitview.hpp"
 #include "./paths/path3/path3.hpp"
 #include "./paths/path1/path1.hpp"
 #include "./renderer_core_sync.hpp"
@@ -87,6 +88,9 @@ class RendererCore {
 
   /** Dynamic environment map for reflective materials (TyraX fork). */
   RendererCoreEnvMap envMap;
+
+  /** Split-screen viewports for two-player games (TyraX fork). */
+  RendererCoreSplitView splitView;
 
   /** EE <-> VU1 synchronization */
   RendererCoreSync sync;
