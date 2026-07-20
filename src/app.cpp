@@ -7478,7 +7478,8 @@ void App::drawUiEditorWindow() {
         ImGui::TextWrapped(
             "Shown while the player looks at a usable object up close. "
             "Always draws above the HUD stack (and under menus); cannot be "
-            "deleted.");
+            "deleted. Pickable objects show a \"PICK UP\" variant at the "
+            "same placement (replace res/hud/pickup.png to customize it).");
         ImGui::Spacing();
         ImGui::DragFloat2("Position##use", h.pos, 0.005f, 0.0f, 1.0f, "%.3f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();

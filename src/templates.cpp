@@ -874,11 +874,18 @@ class TerrainGame : public Tyra::Game {
   // (sweepSphere) so it cannot be pushed through or parked behind geometry.
   void updateCarriedObject();
   float objectHalfExtent(const RuntimeObject& o) const;
+  // Blocks the walker from pressing against geometry the carried object no
+  // longer fits in front of (the spring arm's sweep, pushing the walker back
+  // instead of pulling the camera in).
+  void applyCarryWhisker(float* nextX, float* nextZ, float eyeY, float yaw);
   int carryIndex = -1;        // runtimeObjects index being carried, -1 = none
   bool carryGrabbed = false;  // eats the BTN_USE press that picked it up
+  float carryDist = 0;        // smoothed carry reach: snaps in when the sweep
+                              // blocks, eases back out (the boom's policy)
   int thrownIndex = -1;       // launched object still in flight, -1 = none
   float thrownVel[3] = {0, 0, 0};  // units/frame
   Tyra::Sprite usePromptSprite;
+  Tyra::Sprite pickPromptSprite;  // "PICK UP" variant, same placement
 
   // Memory card save menu (save_system.gen.hpp): opened by using a Save
   // point object or the Open Save Menu flow node; gameplay pauses while
@@ -1435,11 +1442,18 @@ class TerrainGame : public Tyra::Game {
   // (sweepSphere) so it cannot be pushed through or parked behind geometry.
   void updateCarriedObject();
   float objectHalfExtent(const RuntimeObject& o) const;
+  // Blocks the walker from pressing against geometry the carried object no
+  // longer fits in front of (the spring arm's sweep, pushing the walker back
+  // instead of pulling the camera in).
+  void applyCarryWhisker(float* nextX, float* nextZ, float eyeY, float yaw);
   int carryIndex = -1;        // runtimeObjects index being carried, -1 = none
   bool carryGrabbed = false;  // eats the BTN_USE press that picked it up
+  float carryDist = 0;        // smoothed carry reach: snaps in when the sweep
+                              // blocks, eases back out (the boom's policy)
   int thrownIndex = -1;       // launched object still in flight, -1 = none
   float thrownVel[3] = {0, 0, 0};  // units/frame
   Tyra::Sprite usePromptSprite;
+  Tyra::Sprite pickPromptSprite;  // "PICK UP" variant, same placement
 
   // Memory card save menu (save_system.gen.hpp): opened by using a Save
   // point object or the Open Save Menu flow node; gameplay pauses while
@@ -1522,6 +1536,9 @@ static const char* TPL_GAME_CPP_PROLOG =
 #endif
 #ifndef PICK_THROW_SPEED
 #define PICK_THROW_SPEED 14.0F
+#endif
+#ifndef PICK_MIN_DIST
+#define PICK_MIN_DIST 0.3F
 #endif
 #include "scene_data.hpp"
 #include "model_data.gen.hpp"
@@ -2532,6 +2549,14 @@ void TerrainGame::init() {
   auto* useTexture = engine->renderer.getTextureRepository().add(
       FileUtils::fromCwd(USE_PROMPT_PATH));
   useTexture->addLink(usePromptSprite.id);
+  // "PICK UP" variant, shown instead when the looked-at object is pickable.
+  // Same placement; its own texture (hud/pickup.png, replace to customize).
+  pickPromptSprite.mode = SpriteMode::MODE_STRETCH;
+  pickPromptSprite.size = usePromptSprite.size;
+  pickPromptSprite.position = usePromptSprite.position;
+  auto* pickTexture = engine->renderer.getTextureRepository().add(
+      FileUtils::fromCwd(PICK_PROMPT_PATH));
+  pickTexture->addLink(pickPromptSprite.id);
 
   // The loading screen (loading_data.gen.hpp) builds its own sprites lazily on
   // first present (loadingscreen::renderFrame), so nothing to set up here.
@@ -2863,7 +2888,10 @@ void TerrainGame::loop() {
     }
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
-{{SCREEN_FX_TOP}}    if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
+{{SCREEN_FX_TOP}}    if (useTargetIndex >= 0)
+      engine->renderer.renderer2D.render(
+          runtimeObjects[useTargetIndex].data.pickable ? pickPromptSprite
+                                                       : usePromptSprite);
     updateAndRenderHudTexts();
     updateAndRenderDynTexts();
     // Cutscene Director widescreen bars + fade-to-black: solid quads over the
@@ -4727,7 +4755,14 @@ void TerrainGame::updateUseTarget() {
       carryIndex = useTargetIndex;
       carryGrabbed = true;  // don't read this same press as "drop"
       if (thrownIndex == carryIndex) thrownIndex = -1;  // caught mid-flight
-      runtimeObjects[carryIndex].velocityY = 0.0F;
+      RuntimeObject& g = runtimeObjects[carryIndex];
+      g.velocityY = 0.0F;
+      // Seed the smoothed reach with the object's current distance: a close
+      // grab reels out to full reach, a far one snaps in (the sweep rule).
+      const float gx = g.data.position[0] - cameraPosition.x;
+      const float gy = g.data.position[1] - cameraPosition.y;
+      const float gz = g.data.position[2] - cameraPosition.z;
+      carryDist = sqrtf(gx * gx + gy * gy + gz * gz);
     }
   }
 
@@ -4763,6 +4798,30 @@ float TerrainGame::objectHalfExtent(const RuntimeObject& o) const {
   if (ez > r) r = ez;
   if (r < 0.05F) r = 0.05F;
   return r;
+}
+
+// Carry whisker: the third-person spring arm's pre-block, turned around.
+// The spring arm pulls the CAMERA in when the boom sweep hits a wall; here
+// the same sweep pushes the WALKER back when the carried object no longer
+// fits in front of the face - so pressing "face first" against a wall while
+// carrying is simply blocked, instead of the object being parked inside the
+// wall. Called by every walker after collidePlayer, on the carrying player
+// only. The probe is horizontal (yaw only): with the look pitch in it, the
+// terrain underfoot would read as a wall whenever the player looks down.
+void TerrainGame::applyCarryWhisker(float* nextX, float* nextZ, float eyeY,
+                                    float yaw) {
+  if (carryIndex < 0) return;
+  const RuntimeObject& o = runtimeObjects[carryIndex];
+  if (!o.active || !o.visible) return;
+  const float r = objectHalfExtent(o);
+  const float need = 0.55F + r;  // the object fully outside the carrier
+  const float hx = sinf(yaw), hz = cosf(yaw);
+  const float d =
+      sweepSphere(*nextX, eyeY, *nextZ, hx, 0.0F, hz, need, r, carryIndex);
+  if (d < need) {
+    *nextX -= hx * (need - d);
+    *nextZ -= hz * (need - d);
+  }
 }
 
 // Carried + thrown pickable objects. The carried one rides PICK_CARRY_DIST in
@@ -4834,10 +4893,27 @@ void TerrainGame::updateCarriedObject() {
   }
 
   const float r = objectHalfExtent(o);
-  float d = sweepSphere(ox, oy, oz, dir.x, dir.y, dir.z, PICK_CARRY_DIST + r,
-                        r, carryIndex);
-  const float minReach = 0.55F + r;  // never inside the carrier
-  if (d < minReach) d = minReach;
+  // Same policy as the third-person camera boom (springArm): the sweep is
+  // the law - a blocked reach pulls the object IN, even past its comfort
+  // distance, and NEVER pushes it back out into geometry (the old
+  // "never inside the carrier" clamp did exactly that: face against a wall,
+  // the object got parked inside the wall). Snap in on a hit, ease back out
+  // when the wall clears, so leaving it doesn't pop. PICK_MIN_DIST keeps the
+  // object's near face off the near clip plane; the walkers' carry whisker
+  // (a springArm-style pre-block) keeps the player from squeezing that far
+  // in the first place.
+  float want = sweepSphere(ox, oy, oz, dir.x, dir.y, dir.z, PICK_CARRY_DIST + r,
+                           r, carryIndex);
+  const float minD = PICK_MIN_DIST + r;
+  if (want < minD) want = minD;
+  if (want < carryDist) {
+    carryDist = want;  // blocked: snap in, never clip into the wall
+  } else {
+    float k = 0.2F * g_frameScale;
+    if (k > 1.0F) k = 1.0F;
+    carryDist += (want - carryDist) * k;
+  }
+  const float d = carryDist;
   o.data.position[0] = ox + dir.x * d;
   o.data.position[1] = oy + dir.y * d;
   o.data.position[2] = oz + dir.z * d;
@@ -5537,6 +5613,8 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     collidePlayer(P.x, P.z, &nextX, &nextZ, P.y, PP_EYE_HEIGHT(pi), &ground,
                   &ceiling);
     portalPassOn = false;
+    if (pi == 0)  // carrying is pad-1 only (updateUseTarget)
+      applyCarryWhisker(&nextX, &nextZ, P.y + PP_CAM_HEIGHT(pi), P.yaw);
     const float movedX = nextX - P.x, movedZ = nextZ - P.z;
     P.x = nextX;
     P.z = nextZ;
@@ -5653,6 +5731,8 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   collidePlayer(P.x, P.z, &nextX, &nextZ, P.y, PP_EYE_HEIGHT(pi), &ground,
                 &ceiling);
   portalPassOn = false;
+  if (pi == 0)  // carrying is pad-1 only (updateUseTarget)
+    applyCarryWhisker(&nextX, &nextZ, P.y + PP_EYE_HEIGHT(pi), P.yaw);
   P.x = nextX;
   P.z = nextZ;
 
@@ -8285,6 +8365,14 @@ void TerrainGame::init() {
   auto* useTexture = engine->renderer.getTextureRepository().add(
       FileUtils::fromCwd(USE_PROMPT_PATH));
   useTexture->addLink(usePromptSprite.id);
+  // "PICK UP" variant, shown instead when the looked-at object is pickable.
+  // Same placement; its own texture (hud/pickup.png, replace to customize).
+  pickPromptSprite.mode = SpriteMode::MODE_STRETCH;
+  pickPromptSprite.size = usePromptSprite.size;
+  pickPromptSprite.position = usePromptSprite.position;
+  auto* pickTexture = engine->renderer.getTextureRepository().add(
+      FileUtils::fromCwd(PICK_PROMPT_PATH));
+  pickTexture->addLink(pickPromptSprite.id);
 
   // The loading screen (loading_data.gen.hpp) builds its own sprites lazily on
   // first present (loadingscreen::renderFrame), so nothing to set up here.
@@ -8649,7 +8737,10 @@ void TerrainGame::loop() {
     }
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
-{{SCREEN_FX_TOP}}    if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
+{{SCREEN_FX_TOP}}    if (useTargetIndex >= 0)
+      engine->renderer.renderer2D.render(
+          runtimeObjects[useTargetIndex].data.pickable ? pickPromptSprite
+                                                       : usePromptSprite);
     updateAndRenderHudTexts();
     updateAndRenderDynTexts();
     // Cutscene Director widescreen bars + fade-to-black: solid quads over the
@@ -8714,6 +8805,7 @@ void TerrainGame::updatePlayer() {
   collidePlayer(playerX, playerZ, &nextX, &nextZ, playerY, EYE_HEIGHT, &ground,
                 &ceiling);
   portalPassOn = false;
+  applyCarryWhisker(&nextX, &nextZ, playerY + EYE_HEIGHT, yaw);
   playerX = nextX;
   playerZ = nextZ;
 
@@ -8824,6 +8916,8 @@ constexpr float USE_LOOK_DOT = 0.92F;  // how directly you must look (cos angle)
 // predates them.
 #define PICK_CARRY_DIST 2.2F    // carry reach in front of the face
 #define PICK_THROW_SPEED 14.0F  // launch speed, units/s
+#define PICK_MIN_DIST 0.3F      // floor for the carry reach: keeps the
+                                // object's near face off the clip plane
 )";
 
 // 64x64 white crosshair, PNG (372 bytes)
@@ -8908,6 +9002,121 @@ const unsigned char* usePromptPng(size_t& size) {
     size = sizeof(data);
     return data;
 }
+
+// 128x32 "PICK UP" prompt, PNG (2026 bytes) - written into res/hud/pickup.png
+// of every project when missing; drawn instead of the USE prompt while the
+// looked-at object is pickable. Same style as use.png (white, black outline).
+const unsigned char* pickPromptPng(size_t& size) {
+    static const unsigned char data[] = {
+        137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,128,0,0,0,32,8,6,
+        0,0,0,218,34,112,37,0,0,7,177,73,68,65,84,120,218,237,154,127,76,84,
+        217,21,199,63,204,2,99,116,144,58,165,160,16,212,46,67,208,110,197,18,
+        82,39,209,168,153,70,165,9,129,110,164,36,141,162,113,88,84,26,71,77,
+        246,15,155,218,214,96,251,7,109,93,99,93,106,90,139,22,109,253,177,
+        245,71,157,154,84,196,193,162,66,141,176,34,6,97,75,250,99,172,6,129,
+        217,65,104,160,128,48,12,183,127,240,222,115,24,134,55,40,172,29,218,
+        247,77,94,114,231,221,115,190,243,222,121,231,222,123,206,185,23,52,
+        104,208,160,65,131,6,13,26,52,104,208,160,225,117,17,6,156,0,250,1,17,
+        224,26,150,250,58,128,58,224,32,240,5,73,87,15,92,2,6,125,228,189,64,
+        53,16,239,247,63,95,5,62,0,26,0,55,48,4,116,74,156,31,0,95,242,147,
+        255,16,232,243,123,150,70,96,153,143,204,18,224,99,96,196,79,174,31,
+        248,13,16,238,199,169,3,126,13,12,248,200,142,0,247,1,147,143,220,70,
+        160,205,143,179,19,40,152,130,173,66,22,153,19,188,140,218,245,47,32,
+        27,120,79,69,230,67,137,127,62,112,101,146,188,191,5,140,192,90,21,
+        153,107,18,239,219,192,179,32,124,91,252,222,245,27,42,178,231,124,6,
+        196,243,9,100,60,83,176,213,180,66,55,141,92,137,0,133,133,133,8,33,
+        198,93,94,175,151,129,129,1,218,219,219,169,168,168,96,195,134,13,0,
+        209,210,200,95,13,80,84,84,164,200,219,237,118,153,119,33,240,14,80,
+        11,188,27,21,21,197,190,125,251,168,174,174,198,237,118,51,52,52,132,
+        219,237,166,170,170,138,61,123,246,48,103,206,28,128,60,224,46,240,
+        101,128,188,188,60,133,183,169,169,201,151,55,1,168,4,226,45,22,11,3,
+        3,3,138,92,71,71,7,38,147,201,119,118,27,247,174,54,155,77,145,175,
+        169,169,241,229,5,152,3,24,13,6,195,24,59,72,156,225,83,176,149,37,84,
+        103,128,66,64,20,22,22,138,201,194,102,179,201,222,253,28,16,69,69,69,
+        74,159,221,110,151,251,254,8,252,3,16,107,214,172,17,46,151,75,149,
+        243,241,227,199,98,217,178,101,178,238,67,64,228,229,229,41,253,77,77,
+        77,114,223,83,224,19,64,152,205,102,209,219,219,171,200,116,119,119,
+        139,212,212,84,89,238,62,16,233,247,174,54,64,216,108,54,69,167,166,
+        166,70,150,151,61,193,0,8,131,193,48,230,249,76,38,147,50,170,95,211,
+        86,127,3,222,10,197,25,224,149,113,248,240,97,18,19,19,145,166,235,
+        137,240,14,240,182,217,108,198,225,112,16,27,27,171,202,185,120,241,
+        98,202,203,203,49,26,141,0,203,131,204,88,75,83,83,83,41,47,47,199,96,
+        48,0,208,223,223,79,102,102,38,141,141,141,0,127,1,190,46,197,25,132,
+        136,173,76,210,51,133,190,3,212,214,214,18,22,22,70,88,88,24,17,17,17,
+        196,199,199,179,127,255,126,165,63,50,50,146,188,188,188,160,75,75,
+        120,120,56,103,207,158,37,50,114,116,32,118,117,117,177,125,251,118,
+        98,99,99,153,61,123,54,233,233,233,92,186,116,73,81,72,72,72,96,215,
+        174,93,65,159,47,57,57,153,27,55,110,48,111,222,60,0,134,134,134,216,
+        184,113,35,119,239,222,5,120,2,172,151,130,182,207,28,175,104,171,53,
+        211,245,191,225,111,202,131,135,135,135,105,111,111,167,184,184,152,
+        181,107,215,146,145,145,1,64,82,82,82,80,39,205,201,201,81,228,60,30,
+        15,235,214,173,163,161,161,65,17,120,240,224,1,185,185,185,92,190,124,
+        25,189,94,207,149,43,87,184,122,245,170,42,233,194,133,11,185,121,243,
+        38,113,113,113,0,140,140,140,176,101,203,22,42,42,42,0,92,192,58,41,
+        56,124,227,152,132,173,18,102,156,3,76,152,59,134,133,5,79,47,50,51,
+        149,182,221,110,151,63,254,63,129,44,192,9,188,15,252,40,39,39,199,95,
+        245,49,240,69,255,155,113,113,113,84,86,86,202,83,42,114,64,118,225,
+        194,5,164,104,123,3,240,247,144,203,179,95,218,234,197,140,115,128,
+        136,136,8,226,226,226,216,182,109,155,28,213,2,208,210,210,18,84,55,
+        61,61,93,105,223,185,115,71,110,254,2,144,67,250,98,41,157,251,38,240,
+        87,192,46,165,140,105,82,74,168,192,96,48,224,112,56,72,78,78,86,238,
+        213,213,213,81,90,90,42,255,124,79,170,19,252,215,48,9,91,181,206,8,7,
+        48,155,205,8,33,38,236,239,239,239,231,252,249,243,65,121,98,98,98,
+        148,182,203,229,242,29,221,50,188,64,190,116,249,34,205,159,107,209,
+        162,69,227,248,87,172,88,65,110,110,46,23,47,94,68,226,248,253,155,
+        254,232,175,104,171,242,25,159,5,120,189,94,118,238,220,73,107,107,43,
+        82,181,108,98,47,13,127,233,167,58,157,110,218,158,189,167,167,71,105,
+        151,148,148,200,153,67,38,176,57,136,170,0,84,63,216,68,24,25,25,153,
+        170,173,62,150,106,34,51,203,1,132,16,244,245,245,225,116,58,57,119,
+        238,28,102,179,153,51,103,206,0,252,27,248,131,154,238,243,231,207,
+        149,246,130,5,11,240,169,224,249,98,31,208,3,60,2,126,8,124,69,141,
+        243,244,233,211,172,92,185,18,143,199,163,196,5,71,142,28,145,187,127,
+        22,164,244,58,44,7,107,1,156,244,45,223,217,213,215,121,253,117,94,
+        211,86,249,161,90,9,84,77,109,116,58,29,6,131,129,164,164,36,54,111,
+        222,76,125,125,189,156,106,89,128,79,213,120,164,156,28,128,213,171,
+        87,203,77,43,144,2,204,2,118,0,63,1,162,164,234,223,15,24,221,43,248,
+        126,32,190,178,178,50,242,243,243,105,110,110,230,232,209,163,202,253,
+        173,91,183,202,17,119,140,79,9,58,16,250,0,122,123,123,149,27,209,209,
+        209,190,17,250,231,228,61,140,185,115,231,142,155,202,167,104,171,166,
+        25,227,0,254,179,159,100,184,39,192,117,224,219,140,110,194,220,15,
+        166,120,237,218,53,165,157,149,149,69,90,90,26,64,50,208,194,232,134,
+        204,113,128,210,210,82,28,14,7,133,133,133,204,159,63,31,201,65,198,
+        192,233,116,82,80,80,160,76,197,7,15,30,164,173,237,229,10,116,252,
+        248,113,185,40,244,45,41,203,8,132,79,1,218,219,219,149,27,41,41,41,
+        114,96,153,8,116,3,205,242,218,46,195,227,241,208,213,213,165,44,33,
+        159,133,173,66,170,20,124,239,222,61,185,124,121,47,136,110,145,74,41,
+        120,68,175,215,139,214,214,86,165,175,179,179,83,88,173,86,97,52,26,
+        197,172,89,179,196,242,229,203,69,89,89,217,152,210,233,161,67,135,
+        148,146,235,4,165,224,102,224,50,32,54,109,218,52,70,183,164,164,68,
+        150,105,149,106,240,227,98,73,64,24,141,70,225,241,120,20,189,150,150,
+        22,177,126,253,122,17,21,21,37,162,163,163,69,118,118,182,232,232,232,
+        80,250,107,107,107,101,94,215,20,108,245,127,231,0,207,0,97,177,88,
+        198,24,91,13,46,151,75,196,196,196,4,115,128,38,233,67,246,3,226,214,
+        173,91,138,140,215,235,21,171,86,173,146,229,126,53,193,51,55,0,227,
+        28,79,13,5,5,5,50,103,101,168,56,128,110,6,56,86,35,208,86,85,85,69,
+        86,86,22,221,221,221,170,194,79,159,62,37,35,35,131,206,206,78,38,145,
+        207,63,145,106,8,236,222,189,91,9,208,116,58,29,39,78,156,64,175,215,
+        195,232,222,125,160,29,184,31,3,236,221,187,151,234,234,234,160,47,
+        113,234,212,41,78,158,60,9,163,103,30,170,67,197,184,51,193,1,6,165,
+        181,216,117,253,250,117,76,38,19,69,69,69,212,215,215,211,211,211,195,
+        139,23,47,112,58,157,56,28,14,172,86,43,75,151,46,229,225,195,135,72,
+        241,193,47,39,193,255,83,192,249,232,209,35,142,29,59,166,220,92,178,
+        100,9,7,14,28,144,183,130,223,15,160,247,59,224,84,79,79,15,22,139,
+        133,29,59,118,112,251,246,109,220,110,55,94,175,151,193,193,65,218,
+        218,218,176,219,237,100,103,103,99,181,90,229,180,241,59,210,18,240,
+        63,7,181,3,33,23,130,232,78,230,64,200,34,192,49,201,195,19,31,49,249,
+        3,33,72,14,166,198,119,85,101,0,21,51,186,91,56,153,3,29,249,211,96,
+        171,144,133,14,56,25,224,152,84,67,160,104,220,15,122,41,32,243,63,18,
+        246,231,0,71,194,190,38,141,236,79,36,163,122,164,243,4,242,145,48,
+        255,252,255,231,1,142,132,53,49,246,72,24,192,247,128,174,0,31,164,65,
+        138,192,213,144,34,253,119,29,163,187,135,30,201,14,207,128,63,1,223,
+        5,62,63,77,182,210,160,65,131,6,13,26,52,104,208,160,65,131,134,41,
+        224,63,218,97,91,227,58,15,90,186,0,0,0,0,73,69,78,68,174,66,96,130,
+    };
+    size = sizeof(data);
+    return data;
+}
+
 
 // 512x16 glyph strip for the in-game HUD text (debug overlays + the video
 // mode confirm prompt), rendered from an embedded 8x8 pixel font and
@@ -14582,7 +14791,10 @@ static std::string hudDataHeader(const Project& p) {
         << "constexpr float USE_PROMPT_Y = " << floatLit(p.usePrompt.pos[1]) << ";\n"
         << "constexpr float USE_PROMPT_W = " << floatLit(p.usePrompt.size[0])
         << ";  // on-screen pixels\n"
-        << "constexpr float USE_PROMPT_H = " << floatLit(p.usePrompt.size[1]) << ";\n";
+        << "constexpr float USE_PROMPT_H = " << floatLit(p.usePrompt.size[1]) << ";\n"
+        << "// The \"PICK UP\" variant, shown instead for pickable objects\n"
+           "// (same placement; replace res/hud/pickup.png to customize)\n"
+           "constexpr const char* PICK_PROMPT_PATH = \"hud/pickup.png\";\n";
 
     // On-screen texts, baked to res/hud/text-*.png sprites by the editor
     // (menubake). Shown/hidden by the Show Text / Hide Text flow nodes.

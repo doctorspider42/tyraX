@@ -2903,6 +2903,17 @@ std::string refreshGenerated(const Project& p) {
         }
     }
     {
+        const fs::path pickPng = fs::path(p.dir) / "res" / "hud" / "pickup.png";
+        std::error_code ec;
+        if (!fs::exists(pickPng, ec)) {
+            size_t n = 0;
+            const unsigned char* png = templates::pickPromptPng(n);
+            fs::create_directories(pickPng.parent_path(), ec);
+            std::ofstream f(pickPng, std::ios::binary);
+            if (f) f.write(reinterpret_cast<const char*>(png), (std::streamsize)n);
+        }
+    }
+    {
         const fs::path loadPng = fs::path(p.dir) / "res" / "hud" / "loading.png";
         std::error_code ec;
         if (!fs::exists(loadPng, ec)) {

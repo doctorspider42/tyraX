@@ -9,6 +9,36 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (129) **Pickable review fixes: "PICK UP" prompt + no more inserting the
+  carried object into walls (PR #116 comments).** Two owner reports. (1) A
+  pickable target now shows a **PICK UP** prompt instead of USE: new built-in
+  `res/hud/pickup.png` (128x32, style-matched to use.png, written when
+  missing like the other built-in HUD sprites; `pickPromptPng` in
+  templates.cpp), a second sprite at the same UI-Editor placement, picked per
+  frame by the target's `pickable` flag; `PICK_PROMPT_PATH` baked into
+  hud_data.gen.hpp. (2) The carried object could still be parked *inside* a
+  wall by pressing the face against it: the sweep correctly found the wall
+  but the old `minReach` clamp then pushed the object back OUT past it. Now
+  the carry reach follows the third-person boom's policy (springArm, PR
+  #114): the sweep is the law — **snap in** when blocked (down to a
+  `PICK_MIN_DIST` floor that keeps the object's near face off the clip
+  plane), **ease back out** when the wall clears (`carryDist`, seeded with
+  the object's real distance on grab so a close grab reels out instead of
+  popping). On top, a **carry whisker** (`applyCarryWhisker`, called by all
+  three walkers after `collidePlayer`, carrying player only): the same
+  sphere sweep run horizontally from the eye along the yaw pushes the walker
+  back when the carried object no longer fits at its comfort reach in front
+  of the face — pressing "ryjem" into the wall while carrying is simply
+  blocked (the probe is yaw-only on purpose: with pitch in it, looking down
+  would read the terrain as a wall and freeze the walker). Also from the
+  origin/main merge review: `staticBatchEligible` now excludes pickable
+  objects (they move at runtime; demotion-on-dirty would have caught it, but
+  build-time exclusion skips the first-pickup rebuild hitch). Verified:
+  editor builds clean; scratch fpp project with a pickable crate + usable
+  lever emits the right rows (`pickable=1` vs `usable=1`), pickup.png lands
+  in res/hud, whisker call sites in all three walkers, Docker game build
+  compiles. The wall-press feel still wants a hands-on PCSX2 pad test.
+
 - (128) **Pickable objects — pick up, carry in front of the face, drop,
   experimental throw.** New per-object flags `pickable` + `pickThrow` (solid
   geometry only, save points excluded). Pressing USE on a pickable object
