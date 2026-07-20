@@ -191,8 +191,21 @@ budget - two are **per-project preferences**, one is **per object**:
 | **Mesh LOD distance** | Project > Preferences > **Rendering** | per project | The build bakes ~50% and ~25%-vertex variants of every animated model into the `.tskl` (quadric-error decimation; skin weights and uvs are preserved, never blended). Instances render the 50% mesh beyond the distance and the 25% one beyond twice the distance. `off` (0) = no LODs baked or kept in RAM. |
 
 Both preferences live in the project file (`.tyra`), so every project tunes
-its own values; there are no per-scene overrides. Distances are world units
-from the camera to the object center, the same units as object positions.
+its own values. Distances are world units from the camera to the object
+center, the same units as object positions.
+
+**Per-object overrides:** any animated object (and any Player avatar) can
+override either preference in its Properties - **Override animation LOD** /
+**Override mesh LOD** next to the playback fields. Unchecked (the default)
+the project preference applies; checked, the object uses its own distance,
+and dragging the value to `0` turns that LOD off for this object entirely
+(a hero character that must never decimate next to a crowd that always
+does). A mesh-LOD override > 0 also makes the build bake the decimated
+chains for that object's model even when the project preference is `off`.
+In a **two-player** scene the two Player objects each carry their own set,
+so the P1 and P2 avatars tune independently - e.g. keep both full-detail
+in split screen (each is small in the *other* player's half anyway), or
+decimate only the second player's avatar.
 
 Tuning guidance:
 

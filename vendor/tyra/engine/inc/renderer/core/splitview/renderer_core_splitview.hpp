@@ -41,8 +41,15 @@ namespace Tyra {
  *   core.splitView.end();                   // drain + restore full-screen raster
  *   ... 2D / HUD / post fx as usual (full screen) ...
  *
- * Every begin()/end() drains in-flight PATH1 work first - the raster redirect
- * is global GS state (same discipline as RendererCoreEnvMap).
+ * Ordering: begin() does NOT stall the EE. The raster shift is queued on the
+ * VIF1 stream behind the previous half's 3D as [VIF FLUSH, VIF DIRECT ->
+ * XYOFFSET_1 + SCISSOR_1]: the VIF itself waits for the running microprogram
+ * and in-flight PATH1/PATH2 transfers, then streams the register writes
+ * through PATH2 - the same in-band discipline as the per-mesh ALPHA qwords,
+ * and the CPU never spin-waits (the first version cost three
+ * draw_wait_finish stalls per split frame). end() stays synchronous: the 2D
+ * that follows it arrives over PATH3, which a VIF-queued restore could not
+ * order against.
  */
 class RendererCoreSplitView {
  public:
@@ -54,20 +61,22 @@ class RendererCoreSplitView {
             RendererCoreSync* sync, Path1* path1);
 
   /**
-   * Drain PATH1 and shift XYOFFSET/SCISSOR to the given half (0 = top,
-   * 1 = bottom).
+   * Queue the raster shift to the given half (0 = top, 1 = bottom) on the
+   * VIF1 stream - ordered behind all previously submitted 3D, no CPU stall.
    */
   void begin(const int& half);
 
-  /** Drain PATH1 and restore the full-screen raster window. */
+  /** Drain everything and restore the full-screen raster window. */
   void end();
 
  private:
+  void prepareBeginPackets();
+
   RendererSettings* settings = nullptr;
   RendererCoreGS* gs = nullptr;
   RendererCoreSync* sync = nullptr;
   Path1* path1 = nullptr;
-  packet2_t* beginPacket = nullptr;
+  packet2_t* beginPackets[2] = {nullptr, nullptr};  // immutable once built
   packet2_t* endPacket = nullptr;
 };
 

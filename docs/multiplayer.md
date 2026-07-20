@@ -90,6 +90,13 @@ already does for you:
   skinning.
 - The split brackets don't clear anything: beginFrame's full-screen clear
   covers both halves and the scissor clips z-writes, so no per-half GS fills.
+- **No CPU stalls on the half switch**: the per-half XYOFFSET/SCISSOR shift
+  rides the VIF1 stream as `[FLUSH, DIRECT]` - the VIF itself waits for the
+  previous half's in-flight VU1 work and then streams the register writes
+  through PATH2, so the EE never spin-waits in `splitView.begin()` (the first
+  version paid three `draw_wait_finish` round-trips per frame). Only the
+  final full-screen restore in `end()` stays a CPU handshake - the HUD that
+  follows arrives over PATH3, which a VIF-queued write cannot order against.
 - **Band culling**: the raster crop keeps the projection full-height, so the
   engine's frustum planes alone would let each half transform ~2x the
   geometry it can show. Two extra planes bound the half's visible vertical

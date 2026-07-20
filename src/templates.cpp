@@ -3585,10 +3585,15 @@ void TerrainGame::updateAndRenderAnimObjects() {
     SkelInstance* inst = g.animInst.get();
 
     // mesh LOD tier: which baked variant this instance renders (the .tskl
-    // clamps per part - a file without chains always renders the full mesh)
+    // clamps per part - a file without chains always renders the full mesh).
+    // Per-object override first: -1 = project preference, 0 = never LOD,
+    // > 0 = this object's own distance (each Player object - P1 and P2 of a
+    // two-player scene - carries its own).
+    const float meshLodDist =
+        o.data.meshLod < 0.0F ? MESH_LOD_DISTANCE : o.data.meshLod;
     u8 meshLod = 0;
-    if (MESH_LOD_DISTANCE > 0.0F) {
-      const float m2 = MESH_LOD_DISTANCE * MESH_LOD_DISTANCE;
+    if (meshLodDist > 0.0F) {
+      const float m2 = meshLodDist * meshLodDist;
       meshLod = va.dist2 > m2 * 4.0F ? 2 : va.dist2 > m2 ? 1 : 0;
     }
 
@@ -3611,9 +3616,11 @@ void TerrainGame::updateAndRenderAnimObjects() {
     // distance lands the instance in a different mesh-LOD tier, which the
     // tier-switch check below still forces into that tier's buffers.
     bool allowSkin = !splitSecondPass;
-    if (allowSkin && ANIM_LOD_DISTANCE > 0.0F && meshOwner == i &&
+    const float animLodDist =
+        o.data.animLod < 0.0F ? ANIM_LOD_DISTANCE : o.data.animLod;
+    if (allowSkin && animLodDist > 0.0F && meshOwner == i &&
         g.animLastTick != 0 && animLodTick - g.animLastTick <= 4) {
-      const float lod2 = ANIM_LOD_DISTANCE * ANIM_LOD_DISTANCE;
+      const float lod2 = animLodDist * animLodDist;
       if (va.dist2 > lod2 * 4.0F)
         allowSkin = ((animLodTick + (u32)i) & 3) == 0;
       else if (va.dist2 > lod2)
@@ -8631,6 +8638,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int animAutoplay;      // animated models: 1 = play at scene start\n"
            "  int animLoop;          // animated models: 1 = starting clip loops\n"
            "  float animSpeed;       // animated models: playback speed multiplier\n"
+           "  float animLod;  // per-object animation-LOD distance override:\n"
+           "                  // -1 = project ANIM_LOD_DISTANCE, 0 = off, >0 = custom\n"
+           "  float meshLod;  // per-object mesh-LOD distance override (same coding)\n"
            "  int primDetail;        // segments (curved) or box subdivisions/edge\n"
            "  int layer;      // streaming layer (SCENE_LAYER_* tables), -1 = none:\n"
            "                  // always resident, never streamed out\n"
@@ -8656,7 +8666,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
                    "0, 0, 0.0F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, "
                    "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, \"\", 1, 1, "
-                   "1.0F, 1, -1},\n";
+                   "1.0F, -1.0F, -1.0F, 1, -1},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
                 for (size_t i = 0; i < p.sounds.size(); ++i)
@@ -8700,6 +8710,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << ", \"" << escapeCString(o.animClip) << "\", "
                     << (o.animAutoplay ? 1 : 0) << ", " << (o.animLoop ? 1 : 0)
                     << ", " << floatLit(o.animSpeed) << ", "
+                    << floatLit(o.animLodOverride) << ", "
+                    << floatLit(o.meshLodOverride) << ", "
                     << clampPrimDetail(o.type, o.primDetail) << ", "
                     << layerIndexIn(o.layer) << "},  // " << o.name << "\n";
             }
@@ -13631,10 +13643,17 @@ std::vector<File> bakeAnimAssets(const Project& p,
             continue;
         }
         for (const std::string& w : skel.warnings) warn(relPath + ": " + w);
-        // Distance LODs ride in the .tskl only when the project uses them -
+        // Distance LODs ride in the .tskl only when something uses them -
         // the engine keeps every loaded LOD (plus per-instance skinning
         // buffers) in the PS2's 32 MB, so an unused chain is pure waste.
-        if (p.settings.meshLodDistance > 0.0f) glbparser::generateSkelLods(skel);
+        // "Uses" = the project preference, or any object referencing this
+        // model with a per-object mesh-LOD override > 0.
+        bool lodWanted = p.settings.meshLodDistance > 0.0f;
+        for (const SceneData& sc : p.scenes)
+            for (const SceneObject& obj : sc.objects)
+                if (obj.meshLodOverride > 0.0f && obj.modelPath == relPath)
+                    lodWanted = true;
+        if (lodWanted) glbparser::generateSkelLods(skel);
 
         // Extracted textures land next to the .tskl, prefixed with the model
         // stem so two models' equally-named images cannot collide. The game

@@ -286,6 +286,12 @@ struct SceneObject {
     bool animAutoplay = true;   // play the starting clip at scene start
     bool animLoop = true;       // starting clip loops
     float animSpeed = 1.0f;     // playback speed multiplier
+    // Per-object LOD overrides (animated models, incl. player avatars - each
+    // of the two Player objects of a two-player scene carries its own set).
+    // -1 = use the project preference (Preferences > Rendering), 0 = LOD off
+    // for this object, > 0 = custom distance in world units.
+    float animLodOverride = -1.0f;  // pose-refresh (animation) LOD distance
+    float meshLodOverride = -1.0f;  // decimated-mesh LOD distance
 
     // Per-object logic. Object-referencing nodes default to this object
     // ("self"), so a copied object brings a working copy of its behavior.
@@ -358,6 +364,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.mirrorOpacity == b.mirrorOpacity &&
            a.animClip == b.animClip && a.animAutoplay == b.animAutoplay &&
            a.animLoop == b.animLoop && a.animSpeed == b.animSpeed &&
+           a.animLodOverride == b.animLodOverride &&
+           a.meshLodOverride == b.meshLodOverride &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts;
 }
 

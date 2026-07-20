@@ -385,6 +385,12 @@ static std::string objectJson(const SceneObject& o) {
                 ", \"loop\": " + (o.animLoop ? "true" : "false") +
                 ", \"speed\": " + fmtFloat(o.animSpeed) + " }";
     }
+    // Per-object LOD overrides (animated models + player avatars); omitted at
+    // the -1 default = "use the project preference".
+    if (o.animLodOverride >= 0.0f)
+        json += ", \"animLod\": " + fmtFloat(o.animLodOverride);
+    if (o.meshLodOverride >= 0.0f)
+        json += ", \"meshLod\": " + fmtFloat(o.meshLodOverride);
     if (!o.scripts.empty()) {
         json += ", \"scripts\": [";
         for (size_t i = 0; i < o.scripts.size(); ++i)
@@ -1548,6 +1554,14 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (o.animSpeed < 0.05f) o.animSpeed = 0.05f;
             if (o.animSpeed > 10.0f) o.animSpeed = 10.0f;
         }
+        if (const auto* v = jo.find("animLod")) {
+            o.animLodOverride = (float)v->numberOr(-1.0);
+            if (o.animLodOverride < 0.0f) o.animLodOverride = -1.0f;
+        }
+        if (const auto* v = jo.find("meshLod")) {
+            o.meshLodOverride = (float)v->numberOr(-1.0);
+            if (o.meshLodOverride < 0.0f) o.meshLodOverride = -1.0f;
+        }
         if (const auto* sc = jo.find("scripts");
             sc && sc->type == json::Value::Type::Array) {
             for (const auto& s : sc->arr)
@@ -2675,6 +2689,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMixS(h, o.animClip);
     fnvMix(h, (o.animAutoplay ? 1 : 0) | (o.animLoop ? 2 : 0));
     fnvMixF(h, o.animSpeed);
+    fnvMixF(h, o.animLodOverride), fnvMixF(h, o.meshLodOverride);
     // Mirror parameters live in a baked side table (MIRRORS/MIRROR_TARGETS).
     for (const auto& n : o.mirrorObjects) fnvMixS(h, n);
     fnvMix(h, o.mirrorReflectPlayer ? 1 : 0);

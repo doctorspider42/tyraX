@@ -9,6 +9,47 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (120) **Split raster switch without CPU stalls + per-object LOD
+  overrides (P1/P2 avatars tune independently).** Two pieces. (1) The
+  review's remaining item, done the era-correct middle way instead of the
+  full GS-second-context rebuild: `RendererCoreSplitView::begin()` no longer
+  costs a `dma_channel_wait` + `draw_wait_finish` round-trip - the per-half
+  XYOFFSET/SCISSOR shift rides the **VIF1 stream** as a prebuilt immutable
+  4-qword packet `[VIF FLUSH, VIF DIRECT -> A+D giftag]`: the FLUSH makes
+  the VIF itself wait for the previous half's microprogram + PATH1/PATH2
+  transfers, DIRECT streams the register writes through PATH2 in-band, and
+  the EE moves straight on to culling/packaging the next half (the wait
+  overlaps real work instead of blocking). The full second-context variant
+  (CTXT bit in PRIM) stays future work - every VU1 GIF tag and each texture
+  send would need a _2 twin. `end()` deliberately keeps its CPU handshake:
+  the HUD/post-fx after it arrive over PATH3, which a VIF-queued restore
+  cannot order against. Giftag NLOOP double-checked against the documented
+  stall pitfall (2 A+D rows, NREG 1, DIRECT counts 3 qwords incl. tag).
+  (2) **Per-object LOD overrides**: the project-wide Animation/Mesh LOD
+  distances (Preferences > Rendering) can now be overridden per object -
+  new `animLodOverride`/`meshLodOverride` on SceneObject (-1 = preference,
+  0 = off for this object, >0 = custom distance; full chain: `operator==`,
+  JSON emit-at-non-default, `liveLinkRecipeHash`, `SceneObjectData` columns
+  + the empty-scene placeholder row, `updateAndRenderAnimObjects` reads the
+  effective per-instance values, and `bakeAnimAssets` bakes .tskl LOD
+  chains when ANY object referencing the model overrides mesh LOD > 0 even
+  with the preference off). Properties UI (`drawLodOverrides`) appears on
+  animated models and on Player avatars - the **two Player objects of a
+  two-player scene each carry their own set**, giving independent main/
+  second-player categories. Verified: editor builds clean; a scratch copy
+  of examples/two-players with overrides on the cat (`animLod 12`,
+  `meshLod 0`) round-trips `--resave` and emits `..., 12.0F, 0.0F, ...` in
+  its object row; Docker build compiles the new engine + game; PCSX2
+  padless split harness (a script flips the menu-bound `opt_players` save
+  value; plus `titleScreen` off and `opt_players` defaulting to 2P so no
+  pad is needed) runs the VIF-queued raster switch every frame: the
+  software-renderer screenshot shows both halves correctly cropped and
+  scissored (P1's FPP view up top, the cat avatar idling in P2's half),
+  full-screen HUD on top, 100% speed, no asserts - a mis-ordered register
+  write would bleed the halves, and the documented undercounted-NLOOP
+  pitfall would hang the GIF at boot. Real-PS2 validation of the VIF path
+  still pending (PCSX2's VIF/GIF model is permissive).
+
 - (119) **Split-screen optimization pass (review follow-ups): band culling,
   two-focus streaming, per-half particle billboards.** Three findings from
   the optimization review of the two-player PR, implemented: (1) **Band

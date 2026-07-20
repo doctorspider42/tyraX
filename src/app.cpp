@@ -4145,6 +4145,7 @@ void App::drawPropertiesWindow() {
                 ImGui::DragFloat("Speed", &o.animSpeed, 0.02f, 0.05f, 10.0f,
                                  "%.2fx");
                 committed |= ImGui::IsItemDeactivatedAfterEdit();
+                committed |= drawLodOverrides(o);
                 ImGui::TextDisabled(
                     "Scripts/flow graph: Play Animation, Stop Animation,\n"
                     "On Animation Finished.");
@@ -4668,6 +4669,10 @@ void App::drawPropertiesWindow() {
                     ImGui::TextDisabled(
                         "Clip auto-selected from real speed; a script/flow\n"
                         "\"Play Animation\" one-shot plays to the end first.");
+                    // Each Player object carries its own LOD overrides - in a
+                    // two-player scene that gives P1 and P2 independent
+                    // avatar LOD settings.
+                    committed |= drawLodOverrides(o);
                 }
             }
 
@@ -5069,6 +5074,41 @@ void App::drawMultiProperties() {
         return;
     }
     if (committed) commitChange();
+}
+
+// Per-object LOD override rows (animated models + player avatars). Each
+// checkbox flips between "use the project preference" (-1, the default) and
+// an explicit per-object distance; dragging the value to 0 turns that LOD
+// off for this object entirely.
+bool App::drawLodOverrides(SceneObject& o) {
+    bool committed = false;
+    auto row = [&](const char* label, float& v, float projectDefault) {
+        bool ov = v >= 0.0f;
+        const std::string cb = std::string("Override ") + label;
+        if (ImGui::Checkbox(cb.c_str(), &ov)) {
+            v = ov ? (projectDefault > 0.0f ? projectDefault : 30.0f) : -1.0f;
+            committed = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Unchecked = the project preference applies\n"
+                              "(Preferences > Rendering). Checked = this\n"
+                              "object uses its own distance; 0 disables the\n"
+                              "LOD for it.");
+        if (ov) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(scaled(110));
+            float shown = v;
+            if (ImGui::DragFloat((std::string("##ovr") + label).c_str(), &shown,
+                                 0.5f, 0.0f, 2000.0f,
+                                 shown <= 0.0f ? "off" : "%.0f units")) {
+                v = shown < 0.0f ? 0.0f : shown;
+            }
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+    };
+    row("animation LOD", o.animLodOverride, project_.settings.animLodDistance);
+    row("mesh LOD", o.meshLodOverride, project_.settings.meshLodDistance);
+    return committed;
 }
 
 // Class names registered with TYRA_OBJECT_SCRIPT(...) across src/scripts,
