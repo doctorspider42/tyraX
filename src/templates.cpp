@@ -949,6 +949,9 @@ class TerrainGame : public Tyra::Game {
   // rides a fixed reach in front of the camera, swept against the world
   // (sweepSphere) so it cannot be pushed through or parked behind geometry.
   void updateCarriedObject();
+  // Hands a dropped/thrown object back to the physics sim (waking it), or
+  // returns false when it has no rigid body to hand off to.
+  bool releaseCarried(RuntimeObject& o, float vx, float vy, float vz);
   float objectHalfExtent(const RuntimeObject& o) const;
   // Blocks the walker from pressing against geometry the carried object no
   // longer fits in front of (the spring arm's sweep, pushing the walker back
@@ -1563,6 +1566,9 @@ class TerrainGame : public Tyra::Game {
   // rides a fixed reach in front of the camera, swept against the world
   // (sweepSphere) so it cannot be pushed through or parked behind geometry.
   void updateCarriedObject();
+  // Hands a dropped/thrown object back to the physics sim (waking it), or
+  // returns false when it has no rigid body to hand off to.
+  bool releaseCarried(RuntimeObject& o, float vx, float vy, float vz);
   float objectHalfExtent(const RuntimeObject& o) const;
   // Blocks the walker from pressing against geometry the carried object no
   // longer fits in front of (the spring arm's sweep, pushing the walker back
@@ -4916,7 +4922,10 @@ void TerrainGame::updateUseTarget() {
       carryGrabbed = true;  // don't read this same press as "drop"
       if (thrownIndex == carryIndex) thrownIndex = -1;  // caught mid-flight
       RuntimeObject& g = runtimeObjects[carryIndex];
-      g.velocityY = 0.0F;
+      // Catching a body kills its momentum and its tumble (a crate caught
+      // mid-flight must not keep spinning in your hands).
+      g.velocityX = g.velocityY = g.velocityZ = 0.0F;
+      g.spin[0] = g.spin[1] = g.spin[2] = 0.0F;
       // Seed the smoothed reach with the object's current distance: a close
       // grab reels out to full reach, a far one snaps in (the sweep rule).
       const float gx = g.data.position[0] - cameraPosition.x;
@@ -4992,7 +5001,10 @@ void TerrainGame::applyCarryWhisker(float* nextX, float* nextZ, float eyeY,
 // BTN_USE drops it in place - already a swept, legal spot - and BTN_THROW
 // launches it when the object allows that.
 void TerrainGame::updateCarriedObject() {
-  // In-flight object: integrate under gravity, sweep each step, stop on hit.
+  // In-flight object: only objects WITHOUT a rigid body reach this path -
+  // a thrown physics object is handed straight to updateObjectPhysics
+  // (releaseCarried), which already sweeps, bounces, rolls and tumbles it.
+  // Integrate under gravity, sweep each step, stop on hit.
   if (thrownIndex >= 0) {
     RuntimeObject& o = runtimeObjects[thrownIndex];
     if (!o.active || !o.visible) {
@@ -5025,7 +5037,7 @@ void TerrainGame::updateCarriedObject() {
       }
       o.dirty = true;
       if (stop) {
-        o.velocityY = 0.0F;  // physics objects settle from here
+        o.velocityX = o.velocityY = o.velocityZ = 0.0F;
         thrownIndex = -1;
       }
     }
@@ -5033,8 +5045,10 @@ void TerrainGame::updateCarriedObject() {
 
   if (carryIndex < 0) return;
   RuntimeObject& o = runtimeObjects[carryIndex];
-  // Despawned or hidden mid-carry (flow graph): the hands just open.
+  // Despawned or hidden mid-carry (flow graph): the hands just open, and the
+  // body wakes so it resumes falling if it is shown again mid-air.
   if (!o.active || !o.visible) {
+    releaseCarried(o, 0.0F, 0.0F, 0.0F);
     carryIndex = -1;
     return;
   }
@@ -5077,21 +5091,52 @@ void TerrainGame::updateCarriedObject() {
   o.data.position[0] = ox + dir.x * d;
   o.data.position[1] = oy + dir.y * d;
   o.data.position[2] = oz + dir.z * d;
-  o.velocityY = 0.0F;
+  // In the hands the body has no momentum of its own: zero every component
+  // (not just Y - the rigid-body sim reads all three) so a release starts
+  // from rest instead of resuming whatever it was doing before the grab.
+  o.velocityX = o.velocityY = o.velocityZ = 0.0F;
+  o.spin[0] = o.spin[1] = o.spin[2] = 0.0F;
   o.dirty = true;
 
   const auto& clicked = engine->pad.getClicked();
   if (carryGrabbed) {
     carryGrabbed = false;  // the press that grabbed it is not a drop
   } else if (clicked.BTN_USE) {
+    releaseCarried(runtimeObjects[carryIndex], 0.0F, 0.0F, 0.0F);
     carryIndex = -1;
   } else if (o.data.pickThrow && clicked.BTN_THROW) {
-    thrownIndex = carryIndex;
+    const int idx = carryIndex;
     carryIndex = -1;
-    thrownVel[0] = dir.x * PICK_THROW_SPEED * g_frameDt;
-    thrownVel[1] = dir.y * PICK_THROW_SPEED * g_frameDt;
-    thrownVel[2] = dir.z * PICK_THROW_SPEED * g_frameDt;
+    const float vx = dir.x * PICK_THROW_SPEED * g_frameDt;
+    const float vy = dir.y * PICK_THROW_SPEED * g_frameDt;
+    const float vz = dir.z * PICK_THROW_SPEED * g_frameDt;
+    if (!releaseCarried(runtimeObjects[idx], vx, vy, vz)) {
+      // No rigid body to hand off to: fly the hand-rolled arc instead.
+      thrownIndex = idx;
+      thrownVel[0] = vx;
+      thrownVel[1] = vy;
+      thrownVel[2] = vz;
+    }
   }
+}
+
+// Hands a released object back to whatever moves it. A rigid body (Physics
+// on) simply takes the velocity and WAKES: the sim sleeps settled bodies
+// (restFrames >= PHYS_SLEEP_FRAMES) and skips them entirely, and an object
+// picked up off the ground is asleep by definition - without this it would
+// hang in mid-air where it was dropped, and a throw would ignore bounce,
+// friction and tumble. Returns false for a non-physics object, which has no
+// simulation to hand off to (it stays put on a drop; a throw flies the
+// hand-rolled arc in updateCarriedObject).
+bool TerrainGame::releaseCarried(RuntimeObject& o, float vx, float vy,
+                                 float vz) {
+  o.dirty = true;
+  if (!o.data.physics) return false;
+  o.velocityX = vx;
+  o.velocityY = vy;
+  o.velocityZ = vz;
+  o.restFrames = 0;  // wake - see the RuntimeObject sleep contract
+  return true;
 }
 
 // --- Memory card save menu ----------------------------------------------

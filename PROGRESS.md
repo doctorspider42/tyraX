@@ -51,6 +51,30 @@ Each finished feature lands as its own commit.
   (`setup.ps1` re-run needed after pulling #119) and the Properties
   physics checkbox is now main's "Physics (rigid body)" label.
 
+- (130) **Pickables vs the rigid-body sim: released objects hung in mid-air
+  and throws ignored physics.** Owner report right after the #97 merge: drop
+  a carried crate in the air and it just hangs there; throw it and it flies
+  a flat, lifeless arc. Root cause is the sim's **sleep contract**, which
+  did not exist before #97: a body with `restFrames >= PHYS_SLEEP_FRAMES` is
+  asleep and skips simulation entirely, and a crate picked up off the ground
+  is asleep *by definition* (that is how it was resting). The carry path
+  moved it by writing `data.position` directly and never touched
+  `restFrames`, so on release the sim kept skipping it — it hung exactly
+  where the hands opened. Fix: a single `releaseCarried(o, vx, vy, vz)`
+  hand-off used by every exit from the hands (drop, throw, despawn/hide
+  mid-carry) that sets the velocity and **wakes** the body (`restFrames =
+  0`). The throw is now handed to the real sim instead of the hand-rolled
+  arc, so a thrown crate bounces, rolls and tumbles with its authored
+  mass/bounce/friction — the old manual integration survives only for
+  pickables *without* Physics, which have no sim to hand off to (and, as
+  documented, hover when dropped). Also: carrying zeroes all three velocity
+  components and the spin (the old code zeroed `velocityY` alone — the
+  pre-#97 field), and catching a body mid-flight kills its tumble instead of
+  leaving it spinning in your hands. Verified: editor + Docker game build
+  clean, generated `releaseCarried` wakes on all three exits, scratch crate
+  authored as a real rigid body (`physics=1, pickable=1, pickThrow=1`).
+  Drop/throw *feel* is the hands-on pad test the owner is running.
+
 - (128) **Pickable objects — pick up, carry in front of the face, drop,
   experimental throw.** New per-object flags `pickable` + `pickThrow` (solid
   geometry only, save points excluded). Pressing USE on a pickable object
