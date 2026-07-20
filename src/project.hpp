@@ -439,6 +439,16 @@ struct ProjectSettings {
     // distance the 25% one. 0 = off (no LODs baked or kept in RAM).
     float meshLodDistance = 0.0f;
 
+    // Static batching: the generated game merges non-moving primitive
+    // objects that share a material into combined world-space bags at scene
+    // load, paying the fixed per-bag submit cost (~1 ms/object on real
+    // hardware) once per batch instead of once per object. Objects with
+    // physics, scripts, flow-graph references, save-state or a streaming
+    // layer stay individual; runtime edits (Live Link, Raycast-driven
+    // actions) trigger a batch rebuild. Off = every object submits its own
+    // bag (pre-batching behavior; the A/B lever for profiling).
+    bool staticBatching = true;
+
     // AI navigation (docs/navigation-ai.md). The nav grid is baked on the
     // host at build time (navmesh.cpp) from the terrain slope + blocking
     // objects; the game runs A* over the baked bitmap on the EE, only in
@@ -571,6 +581,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.disableVsync == b.disableVsync &&
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
            a.meshLodDistance == b.meshLodDistance &&
+           a.staticBatching == b.staticBatching &&
            a.navCellSize == b.navCellSize && a.navMaxSlope == b.navMaxSlope &&
            a.navAgentRadius == b.navAgentRadius &&
            a.terrainDetail == b.terrainDetail &&

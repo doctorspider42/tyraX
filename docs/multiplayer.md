@@ -113,6 +113,15 @@ already does for you:
   quads facing P1's view; the second half re-faces the same particles for its
   camera before submitting (`orientParticleQuads`), so big fire/fog sprites
   don't show up edge-on to player 2.
+- **Static batching** (*Preferences > Rendering > Static object batching*,
+  on by default): non-moving primitive objects sharing a material merge into
+  combined world-space bags at scene load, so a cluster of decor pays the
+  fixed ~1 ms per-bag submit cost once per batch instead of once per object
+  — in both halves. Objects with physics, scripts, flow-graph references,
+  save-state or a streaming layer stay individual; a batched object mutated
+  at runtime (Live Link, Raycast-driven actions, global scripts) drops back
+  to the solo path automatically. The boot log line
+  `Static batching: N objects in M batches` shows what merged.
 
 **Real-hardware numbers (2026-07-20, PAL, vsync off, the two-players example
 at release + mesh LOD 4):** one view of the map costs ~9-11.5 ms of EE time,
@@ -124,9 +133,11 @@ ms of fixed per-bag submit cost per object on the real EE (sky 0.5 ms,
 terrain 1.0 ms, both avatars' skeletal pass 4.5-5.7 ms per frame - shared
 across the halves). PCSX2's fast EE hides per-bag overhead almost entirely,
 so budget split scenes against hardware, not the emulator: roughly
-**(0.5 + N_objects x ~1 ms + anim) x 2 <= 20 ms**. Small maps with many
-separate primitive objects are the worst case - merging decor into fewer
-objects (or a future static-batching pass) is the lever.
+**(0.5 + N_bags x ~1 ms + anim) x 2 <= 20 ms**. Small maps with many
+separate primitive objects were the worst case; the static-batching pass
+above now collapses their N to the batch count, so the rule bites mainly
+for objects batching must leave solo (scripted/physical/streamed ones and
+models).
 
 What's on you: vertex counts. A PC-grade avatar (the demo's Cesium Man is
 14k vertices) skinned and submitted per half eats the 20 ms PAL budget fast.

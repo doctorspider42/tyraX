@@ -235,6 +235,37 @@ class TerrainGame : public Tyra::Game {
   std::vector<int> streamQueue;            // (kind << 16) | asset index
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
+  // Static batching (STATIC_BATCHING, Preferences > Rendering): authored
+  // objects flagged batchStatic at build time merge into combined
+  // world-space bags at scene load, grouped by material + a coarse world
+  // cell - one StaPip submit per batch instead of per object (the fixed
+  // ~1 ms per-bag EE cost on real hardware dominates scenes made of many
+  // small primitives). Members keep their runtimeObjects entry (collision,
+  // raycasts and scripts read data as always) but skip the per-object draw
+  // path. Runtime mutation of a member (Live Link edits, Raycast-driven
+  // actions, global scripts - all set dirty) DEMOTES it to the solo path
+  // and rebuilds the batch once without it; a visibility/residency flip
+  // (caught by the shown snapshot - hide/show can skip the dirty flag)
+  // only rebuilds the batch in place.
+  struct StaticBatch {
+    int material = -1;                 // group key (-1 = plain color)
+    std::vector<int> members;          // authored object indices
+    std::vector<unsigned char> shown;  // per member: baked as visible?
+    std::vector<Tyra::Vec4> vertices;  // world-space baked, like terrain
+    std::vector<Tyra::Color> colors;
+    std::vector<Tyra::Vec4> sts;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};  // band culling
+    bool dirty = true;
+  };
+  std::vector<StaticBatch> staticBatches;
+  std::vector<short> objectBatchOf;  // authored index -> batch, -1 = solo
+  std::unique_ptr<Tyra::StaPipInfoBag> batchInfoBag;  // shared by all batches
+  void buildStaticBatchList();
+  void rebuildStaticBatch(StaticBatch& b);
+  void renderStaticBatches();
   GeoPart skyDome;
   // Re-centered on the camera every frame (renderScene) so a large map can
   // never let the player walk (or climb) out from under the sky. The dome

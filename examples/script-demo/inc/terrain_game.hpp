@@ -23,7 +23,11 @@ class TerrainGame : public Tyra::Game {
   void buildScene();
   void resetTerrainChunks();
   void buildTerrainChunk(int slot, int cx, int cz);
-  void updateTerrainChunks(float focusX, float focusZ, int budget);
+  // Streams the chunk ring around one or two view foci (two-player modes:
+  // P2's avatar is the second focus) - a chunk near EITHER focus stays
+  // resident, so the split halves stop evicting each other's terrain.
+  void updateTerrainChunks(float focusX, float focusZ, float focus2X,
+                           float focus2Z, bool twoFoci, int budget);
   int countPendingChunks(float focusX, float focusZ);
   void renderTerrain();
   void updatePlayer();
@@ -47,6 +51,7 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     Tyra::StaPipTextureBag texBag;
     int cx = -1, cz = -1;  // chunk coords; -1 = free pool slot
+    float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};  // band culling
   };
   std::vector<TerrainChunk> terrainChunks;  // slot pool
   std::vector<short> terrainChunkSlot;      // chunk index -> slot, -1 = unbuilt
@@ -231,6 +236,37 @@ class TerrainGame : public Tyra::Game {
   std::vector<int> streamQueue;            // (kind << 16) | asset index
   std::vector<RuntimeObject> runtimeObjects;
   std::vector<ObjectGeometry> objectGeometry;
+  // Static batching (STATIC_BATCHING, Preferences > Rendering): authored
+  // objects flagged batchStatic at build time merge into combined
+  // world-space bags at scene load, grouped by material + a coarse world
+  // cell - one StaPip submit per batch instead of per object (the fixed
+  // ~1 ms per-bag EE cost on real hardware dominates scenes made of many
+  // small primitives). Members keep their runtimeObjects entry (collision,
+  // raycasts and scripts read data as always) but skip the per-object draw
+  // path. Runtime mutation of a member (Live Link edits, Raycast-driven
+  // actions, global scripts - all set dirty) DEMOTES it to the solo path
+  // and rebuilds the batch once without it; a visibility/residency flip
+  // (caught by the shown snapshot - hide/show can skip the dirty flag)
+  // only rebuilds the batch in place.
+  struct StaticBatch {
+    int material = -1;                 // group key (-1 = plain color)
+    std::vector<int> members;          // authored object indices
+    std::vector<unsigned char> shown;  // per member: baked as visible?
+    std::vector<Tyra::Vec4> vertices;  // world-space baked, like terrain
+    std::vector<Tyra::Color> colors;
+    std::vector<Tyra::Vec4> sts;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};  // band culling
+    bool dirty = true;
+  };
+  std::vector<StaticBatch> staticBatches;
+  std::vector<short> objectBatchOf;  // authored index -> batch, -1 = solo
+  std::unique_ptr<Tyra::StaPipInfoBag> batchInfoBag;  // shared by all batches
+  void buildStaticBatchList();
+  void rebuildStaticBatch(StaticBatch& b);
+  void renderStaticBatches();
   GeoPart skyDome;
   // Re-centered on the camera every frame (renderScene) so a large map can
   // never let the player walk (or climb) out from under the sky. The dome
@@ -278,24 +314,76 @@ class TerrainGame : public Tyra::Game {
   std::unique_ptr<Tyra::StaPipInfoBag> apronInfoBag;
   std::unique_ptr<Tyra::StaPipColorBag> apronColorBag;
 
-  // Player entity (PLAYER_INDEXES in scene_data.hpp); overrides the template
-  // camera when present. Returns false when the scene has no player.
+  // Player entities (PLAYER_INDEXES / PLAYER2_INDEXES in scene_data.hpp);
+  // override the template camera when present. players[0] is the scene's
+  // first Player object (P1), players[1] the second (P2 - only meaningful
+  // with MULTIPLAYER_MODE != 0, see docs/multiplayer.md).
+  struct PlayerCtl {
+    int objIndex = -1;  // scene object index, -1 = this player doesn't exist
+    float x = 0, y = 0, z = 0, velY = 0, yaw = 0, pitch = 0;
+    // Third-person only: yaw/pitch orbit the camera, faceYaw is the avatar's
+    // own facing (turns toward the walk direction). Clip indices are resolved
+    // from the model's clip table at scene load; -1 = unmapped.
+    float faceYaw = 0;
+    int idleClip = -1, walkClip = -1, runClip = -1, jumpClip = -1;
+    // Smoothed spring-arm boom length - snaps in on a hit, eases back out.
+    float boom = 0;
+    // This player's own view; the dispatcher (or the split-screen render
+    // pass) picks which of these drives the frame camera.
+    Tyra::Vec4 camPos, camLook;
+  };
+  PlayerCtl players[2];
+  // Dispatcher: walks P1 (and P2 while active), then composes the frame
+  // camera. Returns false when the scene has no player.
   bool updatePlayerEntity();
-  float entX = 0, entY = 0, entZ = 0, entVelY = 0, entYaw = 0, entPitch = 0;
-  // Third-person only: entYaw/entPitch orbit the camera, entFaceYaw is the
-  // avatar's own facing (turns toward the walk direction). Clip indices are
-  // resolved from the model's clip table at scene load; -1 = unmapped.
-  float entFaceYaw = 0;
-  int playerIdleClip = -1, playerWalkClip = -1, playerRunClip = -1, playerJumpClip = -1;
+  // Walks one player from its pad and writes its camera into camPos/camLook.
+  void updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad);
+  // Shared-screen camera: orbits (P1's right stick) around the midpoint of
+  // both players, boom stretched by their separation. Writes cameraPosition.
+  void updateSharedCamera();
+  float sharedBoom = 0;
+  // Player 2 join/leave, both mid-game: Start on pad 2 (P2_JOIN_ON_START) or
+  // a menu Toggle bound to "Player count". Shows/hides the P2 avatar.
+  void setPlayerTwoActive(bool active);
+  void syncPlayerCountMenuValue();
+  bool playerTwoActive = false;
+  Tyra::Pad pad2;              // connector 2; optional, hot-join friendly
+  int menuPlayerCountPrev = -2;  // edge detect for the menu bind
+  // True while renderScene runs inside a split-screen half: the dynamic
+  // env-map bracket restores a FULL-screen raster on end(), which would
+  // break the active half, so the env pass pauses during split rendering
+  // (the VRAM target keeps its last content).
+  bool splitPassActive = false;
+  // True during the SECOND split half's renderScene: animation playback and
+  // skinning already ran this frame (first half), so the animated pass
+  // must not advance time again (2x playback speed) nor re-skin the same
+  // pose (Cesium-Man-sized avatars cost real EE ms) - it re-submits the
+  // frame's skinned buffers under the second camera instead.
+  bool splitSecondPass = false;
+  // Split-band culling: the split raster shows only the CENTRAL half of the
+  // full-height projection, but the frustum planes the engine classifies
+  // against stay full-height - so each half would transform ~2x the geometry
+  // it can show. Two extra planes bound the visible vertical band; chunks and
+  // static objects entirely outside skip submission before the engine ever
+  // sees them. Recomputed per half from the live camera + projection FOV.
+  void computeSplitBand();
+  bool outsideSplitBand(const float mn[3], const float mx[3]) const;
+  bool objectOutsideSplitBand(int i) const;
+  bool splitBandActive = false;
+  float splitBandN[2][3];  // inward top/bottom plane normals (apex = camera)
+  float splitBandP[3];     // the apex
+  // Rebuilds the particle billboard quads from the stored per-particle state
+  // (pos/size/life) to face the CURRENT camera - the split screen's second
+  // half must not show quads angled at the other player's view.
+  void orientParticleQuads();
   // Picks the third-person avatar's locomotion clip from its planar speed
   // (fraction of full walk speed) and grounded state, cross-fading on change.
-  void drivePlayerAnim(RuntimeObject& body, float speedFrac, bool grounded);
+  void drivePlayerAnim(PlayerCtl& P, RuntimeObject& body, float speedFrac,
+                       bool grounded);
   // Spring arm: the distance down the boom (from the head, along d) at which
-  // the camera would enter geometry or the terrain. camBoom is the smoothed
-  // boom length actually used - it snaps in on a hit and eases back out.
+  // the camera would enter geometry or the terrain.
   float springArm(float px, float py, float pz, float dx, float dy, float dz,
                   float maxDist) const;
-  float camBoom = 0;
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
@@ -320,6 +408,9 @@ class TerrainGame : public Tyra::Game {
     unsigned int rng = 1;
     std::vector<Tyra::Vec4> pos, vel;
     std::vector<float> life, maxLife;
+    std::vector<float> size, sizeUp;  // per-particle quad shape this frame -
+                                      // kept so orientParticleQuads can
+                                      // re-face the quads for another camera
     std::vector<Tyra::Vec4> verts;
     std::vector<Tyra::Color> cols;
     std::vector<Tyra::Vec4> sts;  // fixed per-quad UVs (textured emitters)
