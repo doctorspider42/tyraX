@@ -326,6 +326,12 @@ struct SceneObject {
     // for this object, > 0 = custom distance in world units.
     float animLodOverride = -1.0f;  // pose-refresh (animation) LOD distance
     float meshLodOverride = -1.0f;  // decimated-mesh LOD distance
+    // Content-forward correction, degrees around the model's own Y, applied
+    // between scale and the (authored or runtime) rotation. For models
+    // authored facing +-X instead of the avatar/AI convention's +Z: set
+    // +-90 and the runtime facing (walker faceYaw, NPC turn-to-face) stays
+    // pure logic while the mesh renders turned. Applies to animated models.
+    float modelYawOffset = 0.0f;
 
     // Per-object logic. Object-referencing nodes default to this object
     // ("self"), so a copied object brings a working copy of its behavior.
@@ -408,6 +414,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.animLoop == b.animLoop && a.animSpeed == b.animSpeed &&
            a.animLodOverride == b.animLodOverride &&
            a.meshLodOverride == b.meshLodOverride &&
+           a.modelYawOffset == b.modelYawOffset &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts;
 }
 

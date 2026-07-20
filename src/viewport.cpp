@@ -100,9 +100,13 @@ Mat4 rotZ(float a) {
 }
 
 // Same composition as the generated PS2 code: scale -> rotX -> rotY -> rotZ -> translate
+// (+ the animated-model content-forward correction between scale and rotation,
+// mirroring the game's modelYaw pre-rotation - keep the two in sync).
 Mat4 modelMatrix(const SceneObject& o) {
     const float d2r = kPi / 180.0f;
     Mat4 m = scaleM(o.scale[0], o.scale[1], o.scale[2]);
+    if (o.modelYawOffset != 0.0f && isAnimatedModelPath(o.modelPath))
+        m = mul(rotY(o.modelYawOffset * d2r), m);  // avatars included
     m = mul(rotX(o.rotation[0] * d2r), m);
     m = mul(rotY(o.rotation[1] * d2r), m);
     m = mul(rotZ(o.rotation[2] * d2r), m);

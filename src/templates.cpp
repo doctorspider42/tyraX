@@ -3733,11 +3733,28 @@ void TerrainGame::updateAndRenderAnimObjects() {
         dist2 > o.data.drawDistance * o.data.drawDistance)
       continue;
 
-    // model matrix straight from the object data: T * R(X,Y,Z) * S, the
-    // same transform the static path bakes through pushVert()/rotated()
-    const V3 bx = rotated({o.data.scale[0], 0.0F, 0.0F}, o.data.rotation);
-    const V3 by = rotated({0.0F, o.data.scale[1], 0.0F}, o.data.rotation);
-    const V3 bz = rotated({0.0F, 0.0F, o.data.scale[2]}, o.data.rotation);
+    // model matrix straight from the object data: T * R(X,Y,Z) * Ryaw * S -
+    // the same transform the static path bakes through pushVert()/rotated(),
+    // plus the content-forward correction (modelYaw) as a pre-rotation
+    // around the model's own Y, so an X-forward-authored mesh renders
+    // turned while the LOGIC yaw (walker faceYaw, AI turn-to-face, authored
+    // rotation) stays convention-pure.
+    V3 sx = {o.data.scale[0], 0.0F, 0.0F};
+    V3 sy = {0.0F, o.data.scale[1], 0.0F};
+    V3 sz = {0.0F, 0.0F, o.data.scale[2]};
+    if (o.data.modelYaw != 0.0F) {
+      const float ya = o.data.modelYaw * (PI / 180.0F);
+      const float yc = cosf(ya), ys = sinf(ya);
+      auto preYaw = [&](const V3& v) {
+        return V3{v.x * yc + v.z * ys, v.y, -v.x * ys + v.z * yc};
+      };
+      sx = preYaw(sx);
+      sy = preYaw(sy);
+      sz = preYaw(sz);
+    }
+    const V3 bx = rotated(sx, o.data.rotation);
+    const V3 by = rotated(sy, o.data.rotation);
+    const V3 bz = rotated(sz, o.data.rotation);
     M4x4& m = g.animMat;  // the info bag and light matrix point here
     m.identity();
     m.data[0] = bx.x, m.data[1] = bx.y, m.data[2] = bx.z;
@@ -7911,7 +7928,8 @@ bool TerrainGame::objectOutsideSplitBand(int i) const {
     ez = 0.5F * (mxp[2] - mnp[2]) * o.data.scale[2];
   }
   const float* rot = o.data.rotation;
-  if (rot[0] != 0.0F || rot[1] != 0.0F || rot[2] != 0.0F) {
+  if (rot[0] != 0.0F || rot[1] != 0.0F || rot[2] != 0.0F ||
+      o.data.modelYaw != 0.0F) {
     // Rotation moves both the extents and the center offset in world space -
     // bound everything with the diagonal radius around the position.
     const float r = sqrtf(ex * ex + ey * ey + ez * ez) +
@@ -10000,6 +10018,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  float animLod;  // per-object animation-LOD distance override:\n"
            "                  // -1 = project ANIM_LOD_DISTANCE, 0 = off, >0 = custom\n"
            "  float meshLod;  // per-object mesh-LOD distance override (same coding)\n"
+           "  float modelYaw; // content-forward correction (deg around model Y),\n"
+           "                  // between scale and rotation - X-forward-authored models\n"
+           "                  // set +-90; runtime facing (faceYaw/AI) stays pure\n"
            "  int primDetail;        // segments (curved) or box subdivisions/edge\n"
            "  int layer;      // streaming layer (SCENE_LAYER_* tables), -1 = none:\n"
            "                  // always resident, never streamed out\n"
@@ -10028,7 +10049,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             out << "    {0, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, {1, 1, 1}, 0, -1, -1, 0, "
                    "0, 0, 0.0F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, "
                    "-1, 0, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, \"\", 1, 1, "
-                   "1.0F, -1.0F, -1.0F, 1, -1, 0},\n";
+                   "1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},\n";
         } else {
             auto soundIndexOf = [&](const std::string& path) {
                 for (size_t i = 0; i < p.sounds.size(); ++i)
@@ -10076,6 +10097,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << ", " << floatLit(o.animSpeed) << ", "
                     << floatLit(o.animLodOverride) << ", "
                     << floatLit(o.meshLodOverride) << ", "
+                    << floatLit(o.modelYawOffset) << ", "
                     << clampPrimDetail(o.type, o.primDetail) << ", "
                     << layerIndexIn(o.layer) << ", "
                     << (staticBatchEligible(o, blocked) ? 1 : 0) << "},  // "

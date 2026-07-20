@@ -33,15 +33,19 @@ constexpr double kSampleFps = 24.0;
 
 ufbx_scene* loadScene(const std::string& path, std::string& error) {
     // Normalize every FBX to the .glb convention the whole pipeline assumes:
-    // right-handed Y-up, meters. Geometry transforms (Maya pivots) and the
-    // unit/axis conversion are baked into the vertex data, so the node
-    // hierarchy stays a plain TRS chain the PS2 runtime can lerp.
+    // right-handed Y-up, meters. ADJUST_TRANSFORMS (not MODIFY_GEOMETRY!)
+    // for both conversions: geometry-modifying variants leave the ANIMATION
+    // CURVES in the original space, so sampled poses came out unit-scaled
+    // against the converted bind pose (a cm-authored cat's clip union blew
+    // up 5x and the skinned result never matched the mesh - measured on
+    // real content). ADJUST keeps bind and animation in one space; helper
+    // nodes carry Maya geometry pivots losslessly for animated scenes.
     ufbx_load_opts opts = {};
     opts.target_axes = ufbx_axes_right_handed_y_up;
     opts.target_unit_meters = 1.0f;
-    opts.space_conversion = UFBX_SPACE_CONVERSION_MODIFY_GEOMETRY;
+    opts.space_conversion = UFBX_SPACE_CONVERSION_ADJUST_TRANSFORMS;
     opts.geometry_transform_handling =
-        UFBX_GEOMETRY_TRANSFORM_HANDLING_MODIFY_GEOMETRY;
+        UFBX_GEOMETRY_TRANSFORM_HANDLING_HELPER_NODES;
     opts.generate_missing_normals = true;
 
     ufbx_error err;

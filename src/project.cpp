@@ -404,6 +404,8 @@ static std::string objectJson(const SceneObject& o) {
         json += ", \"animLod\": " + fmtFloat(o.animLodOverride);
     if (o.meshLodOverride >= 0.0f)
         json += ", \"meshLod\": " + fmtFloat(o.meshLodOverride);
+    if (o.modelYawOffset != 0.0f)
+        json += ", \"modelYaw\": " + fmtFloat(o.modelYawOffset);
     if (!o.scripts.empty()) {
         json += ", \"scripts\": [";
         for (size_t i = 0; i < o.scripts.size(); ++i)
@@ -1592,6 +1594,9 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             o.meshLodOverride = (float)v->numberOr(-1.0);
             if (o.meshLodOverride < 0.0f) o.meshLodOverride = -1.0f;
         }
+        if (const auto* v = jo.find("modelYaw")) {
+            o.modelYawOffset = (float)v->numberOr(0.0);
+        }
         if (const auto* sc = jo.find("scripts");
             sc && sc->type == json::Value::Type::Array) {
             for (const auto& s : sc->arr)
@@ -2722,6 +2727,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, (o.animAutoplay ? 1 : 0) | (o.animLoop ? 2 : 0));
     fnvMixF(h, o.animSpeed);
     fnvMixF(h, o.animLodOverride), fnvMixF(h, o.meshLodOverride);
+    fnvMixF(h, o.modelYawOffset);
     // Mirror parameters live in a baked side table (MIRRORS/MIRROR_TARGETS).
     for (const auto& n : o.mirrorObjects) fnvMixS(h, n);
     fnvMix(h, o.mirrorReflectPlayer ? 1 : 0);

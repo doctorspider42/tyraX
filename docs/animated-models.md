@@ -111,6 +111,7 @@ what ships.
 | **Speed** | Playback multiplier (1.00x = authored speed). |
 | **Color** | Multiplies the model's material colors (tint), like on primitives. |
 | **Collision** | Box from the model's all-clips pose AABB, or none. Per-triangle mesh collision is a static-model (.obj) feature. |
+| **Model yaw offset** | Content-forward correction in degrees around the model's own Y, applied between scale and rotation (viewport preview matches). A model authored facing **±X** (a common Blender habit — facing the red axis; both the glTF and FBX exporters treat Blender's **-Y** as front) walks sideways as an avatar or AI agent; set **±90** here and the mesh renders turned while the authored rotation, the avatar's turn-to-face and AI facing stay convention-pure. |
 
 Material (.mtl) overrides do not apply to .glb models - their materials come
 from the file itself.

@@ -9,6 +9,42 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (122) **Model yaw offset (content-forward correction) + FBX orientation
+  investigation on real user content.** Owner's imported cat
+  (`character.fbx`) faced 90 deg sideways as a third-person avatar.
+  Diagnosis chain, each step measured: (1) the RAW file (before any
+  importer conversion) already has its content long along +-X while
+  declaring front=+Z - the import preserves orientation byte-faithfully;
+  (2) the repo's working `cat.glb` is the same rig whose root was
+  hand-wrapped into Z-forward back in the two-player work - same disease,
+  same source convention (models authored facing Blender's red +X axis;
+  both exporters map Blender's -Y to the engine's forward); (3) a host
+  replica of TsklLoader's full validation passes the fbx-baked .tskl, and
+  in-game instrumentation showed the model loading, skinning and animating
+  correctly - the "invisible avatar" red herring during verification was
+  the idle clip resolving to the fbx's `EmptyAction` (a REAL animated take
+  on the Armature that flings the cat off-camera; the rest pose is
+  `reference|EmptyAction`, matching how the .glb rig is authored).
+  Fix shipped: **`modelYawOffset`** on SceneObject (degrees around the
+  model's own Y, applied between scale and rotation in the generated
+  game's anim-matrix build AND the viewport's `modelMatrix` - the two are
+  documented twins), so an X-forward model renders turned while the
+  walker's faceYaw, AI turn-to-face and authored rotation stay
+  convention-pure. Full chain: field + `==`, JSON (`modelYaw`, omitted at
+  0), `liveLinkRecipeHash`, `SceneObjectData` column + placeholder row,
+  band-cull rotated-object check includes the offset, Properties UI row
+  (with the Blender-habit tooltip) on animated models and avatars.
+  Also switched the ufbx load to `SPACE_CONVERSION_ADJUST_TRANSFORMS` +
+  `GEOMETRY_TRANSFORM_HANDLING_HELPER_NODES` (the geometry-modifying
+  variants are documented as animation-lossy; sausage-rig regression
+  identical). Verified in PCSX2: the fbx cat renders sideways at offset 0
+  and tail-to-camera at +90 (screenshots), sausage harness byte-identical,
+  scratch project codegen + Docker build clean. Root-motion note for
+  authoring: the fbx walk take carries ~1.3 m of real root travel - as an
+  avatar clip that reads as sliding; export locomotion in place.
+
+
+
 - (121) **FBX import for animated models (.fbx next to .glb).** Feasibility
   answered with a yes: the vendored [ufbx](https://github.com/ufbx/ufbx)
   single-source reader (MIT; `vendor/ufbx`, cloned by setup.ps1 like the

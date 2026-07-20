@@ -5260,6 +5260,20 @@ bool App::drawLodOverrides(SceneObject& o) {
     };
     row("animation LOD", o.animLodOverride, project_.settings.animLodDistance);
     row("mesh LOD", o.meshLodOverride, project_.settings.meshLodDistance);
+
+    // Content-forward correction: a model authored facing +-X (instead of
+    // the +Z the avatar drive / AI turn-to-face expect) renders turned by
+    // this many degrees while every logic yaw stays pure. Applied between
+    // scale and rotation, mirrored in the viewport preview.
+    ImGui::SetNextItemWidth(scaled(110));
+    ImGui::DragFloat("Model yaw offset", &o.modelYawOffset, 1.0f, -180.0f,
+                     180.0f, "%.0f deg");
+    committed |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Model faces sideways in game? The content was authored\n"
+            "X-forward (common Blender habit: facing the red axis).\n"
+            "Set +90 or -90 - the mesh turns, facing logic stays intact.");
     return committed;
 }
 
