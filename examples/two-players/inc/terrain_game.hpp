@@ -23,7 +23,11 @@ class TerrainGame : public Tyra::Game {
   void buildScene();
   void resetTerrainChunks();
   void buildTerrainChunk(int slot, int cx, int cz);
-  void updateTerrainChunks(float focusX, float focusZ, int budget);
+  // Streams the chunk ring around one or two view foci (two-player modes:
+  // P2's avatar is the second focus) - a chunk near EITHER focus stays
+  // resident, so the split halves stop evicting each other's terrain.
+  void updateTerrainChunks(float focusX, float focusZ, float focus2X,
+                           float focus2Z, bool twoFoci, int budget);
   int countPendingChunks(float focusX, float focusZ);
   void renderTerrain();
   void updateCameraOrbit();
@@ -46,6 +50,7 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     Tyra::StaPipTextureBag texBag;
     int cx = -1, cz = -1;  // chunk coords; -1 = free pool slot
+    float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};  // band culling
   };
   std::vector<TerrainChunk> terrainChunks;  // slot pool
   std::vector<short> terrainChunkSlot;      // chunk index -> slot, -1 = unbuilt
@@ -323,6 +328,22 @@ class TerrainGame : public Tyra::Game {
   // pose (Cesium-Man-sized avatars cost real EE ms) - it re-submits the
   // frame's skinned buffers under the second camera instead.
   bool splitSecondPass = false;
+  // Split-band culling: the split raster shows only the CENTRAL half of the
+  // full-height projection, but the frustum planes the engine classifies
+  // against stay full-height - so each half would transform ~2x the geometry
+  // it can show. Two extra planes bound the visible vertical band; chunks and
+  // static objects entirely outside skip submission before the engine ever
+  // sees them. Recomputed per half from the live camera + projection FOV.
+  void computeSplitBand();
+  bool outsideSplitBand(const float mn[3], const float mx[3]) const;
+  bool objectOutsideSplitBand(int i) const;
+  bool splitBandActive = false;
+  float splitBandN[2][3];  // inward top/bottom plane normals (apex = camera)
+  float splitBandP[3];     // the apex
+  // Rebuilds the particle billboard quads from the stored per-particle state
+  // (pos/size/life) to face the CURRENT camera - the split screen's second
+  // half must not show quads angled at the other player's view.
+  void orientParticleQuads();
   // Picks the third-person avatar's locomotion clip from its planar speed
   // (fraction of full walk speed) and grounded state, cross-fading on change.
   void drivePlayerAnim(PlayerCtl& P, RuntimeObject& body, float speedFrac,
@@ -355,6 +376,9 @@ class TerrainGame : public Tyra::Game {
     unsigned int rng = 1;
     std::vector<Tyra::Vec4> pos, vel;
     std::vector<float> life, maxLife;
+    std::vector<float> size, sizeUp;  // per-particle quad shape this frame -
+                                      // kept so orientParticleQuads can
+                                      // re-face the quads for another camera
     std::vector<Tyra::Vec4> verts;
     std::vector<Tyra::Color> cols;
     std::vector<Tyra::Vec4> sts;  // fixed per-quad UVs (textured emitters)
