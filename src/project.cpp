@@ -727,6 +727,11 @@ std::string save(const Project& p) {
         }
         if (sc.terrainBaseStochastic)
             json << ",\n      \"terrainBaseStochastic\": true";
+        if (sc.terrainTintVariation > 0.0f)
+            json << ",\n      \"terrainTintVariation\": "
+                 << fmtFloat(sc.terrainTintVariation)
+                 << ",\n      \"terrainTintScale\": "
+                 << fmtFloat(sc.terrainTintScale);
         // Ordered ids only - each object's body is a separate objects/<id>.json
         // file (written below). Order is significant (first Player / SpawnPoint
         // wins, draw order), so it is preserved by the list.
@@ -1910,6 +1915,12 @@ std::string load(Project& out, const std::string& projectDir) {
                     readTerrainLayersArray(*tl, sc.terrainLayers);
                 if (const auto* v = js.find("terrainBaseStochastic"))
                     sc.terrainBaseStochastic = v->boolOr(false);
+                if (const auto* v = js.find("terrainTintVariation"))
+                    sc.terrainTintVariation = (float)v->numberOr(0.0);
+                if (const auto* v = js.find("terrainTintScale")) {
+                    sc.terrainTintScale = (float)v->numberOr(24.0);
+                    if (sc.terrainTintScale < 1.0f) sc.terrainTintScale = 1.0f;
+                }
                 if (const auto* objs = js.find("objects"))
                     readSceneObjects(out, *objs, sc.objects);
                 if (const auto* t = js.find("terrain")) {
@@ -2627,6 +2638,10 @@ std::string saveHistory(const Project& p, const History& h) {
             }
             if (sc.terrainBaseStochastic)
                 json << ", \"terrainBaseStochastic\": true";
+            if (sc.terrainTintVariation > 0.0f)
+                json << ", \"terrainTintVariation\": "
+                     << fmtFloat(sc.terrainTintVariation)
+                     << ", \"terrainTintScale\": " << fmtFloat(sc.terrainTintScale);
             json << ", \"objects\": ";
             writeObjectsArray(json, sc.objects, "        ");
             json << " }";
@@ -2666,6 +2681,12 @@ std::string loadHistory(const Project& p, History& h) {
                     readTerrainLayersArray(*tl, sc.terrainLayers);
                 if (const auto* v = js.find("terrainBaseStochastic"))
                     sc.terrainBaseStochastic = v->boolOr(false);
+                if (const auto* v = js.find("terrainTintVariation"))
+                    sc.terrainTintVariation = (float)v->numberOr(0.0);
+                if (const auto* v = js.find("terrainTintScale")) {
+                    sc.terrainTintScale = (float)v->numberOr(24.0);
+                    if (sc.terrainTintScale < 1.0f) sc.terrainTintScale = 1.0f;
+                }
                 if (const auto* objs = js.find("objects"))
                     readObjectsArray(*objs, sc.objects);
                 if (const auto* t = js.find("terrain")) {

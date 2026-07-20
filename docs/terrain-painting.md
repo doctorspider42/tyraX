@@ -38,17 +38,25 @@ imports are safe: the PS2 caps textures at 512x512, and the build bake resizes
 any bigger (or non-power-of-two) material texture down automatically - the
 full-resolution source stays in `res/` for the editor.
 
-In the Terrain Editor each layer row has an **active** radio (the layer
-the brush paints), a name, a material picker, reorder arrows and a remove
-button, plus a **Size** below it - how large that layer's texture pattern
-appears on the ground (a multiplier on the material's own tiling: `2.00x` makes
-the pattern twice as big / repeat half as often) - and a **Stochastic** toggle
-(see below). Size lets you tune the look without editing the `.mtl`; it has no
-effect on a flat, textureless layer. `+ Add layer` appends one - and puts the
-paint brush straight in hand, since a fresh layer is there to be painted. The
-base terrain material has its own **Stochastic tiling** toggle at the top of
-the list. A scene with **no layers behaves exactly as before** - the single
-terrain material, tiled, one draw pass.
+The Terrain Editor shows the layers as a **Photoshop-style stack**: the top
+row paints over everything below it, and the **base** (the terrain material,
+picked from a combo right here - it sets the scene's own material if the scene
+overrides the project default, otherwise the project default - with its own
+**Stochastic tiling** toggle) sits at the bottom. Everything about the terrain
+surface lives in this one window; you no longer have to open Scene Preferences
+to set the base material.
+`+ Add layer` lives at the top and drops the new layer **on top of the stack**
+- and puts the paint brush straight in hand, since a fresh layer is there to
+be painted. The reorder arrows raise/lower a layer in that hierarchy.
+
+Each layer row has an **active** radio (the layer the brush paints), a name, a
+material picker, the reorder arrows and a remove button, plus a **Size** below
+it - how large that layer's texture pattern appears on the ground (a
+multiplier on the material's own tiling: `2.00x` makes the pattern twice as
+big / repeat half as often) - and a **Stochastic** toggle (see below). Size
+lets you tune the look without editing the `.mtl`; it has no effect on a flat,
+textureless layer. A scene with **no layers behaves exactly as before** - the
+single terrain material, tiled, one draw pass.
 
 ## Stochastic tiling (breaking the grid)
 
@@ -73,6 +81,30 @@ size), so the tell-tale grid leaves the visible range.
 - Cost is VRAM (one ≤512² texture per stochastic terrain texture) and a little
   detail on very large source textures (a source bigger than 256px is sampled
   down so at least a 2x2 arrangement fits the 512 cap).
+
+## Macro variation (breaking uniformity at the group-of-tiles scale)
+
+The supertile itself still repeats every 2-8 tiles - the GS texture cap is a
+hard 512. The **Variation** section adds a third, *unbounded* scale on top:
+large soft patches of lighter and darker ground, driven by deterministic
+world-position value noise **multiplied into the terrain vertex shade while
+chunks bake**. Because it rides the vertex colors:
+
+- **zero runtime cost** (the colors are computed at chunk build anyway) and an
+  **infinite period** - it never repeats, breaking even the supertile's
+  second-order grid;
+- it tints the base and every painted layer **together** (they all shade
+  through the same per-vertex value), so a dark patch dims grass and the dirt
+  path across it coherently - it reads as ground lighting, not an overlay;
+- Gouraud interpolation keeps the patch edges perfectly smooth.
+
+**Amount** (0 = off, up to ±50% brightness at 1.0) and **Patch size** (world
+units) live in the Terrain Editor. The editor viewport and the game compute
+the identical noise (a twin - `tintNoise2` in viewport.cpp and the generated
+`terrain_game.cpp`). The stochastic supertile generator additionally sprinkles
+a few large, low-amplitude brightness blotches *inside* the supertile, so the
+three scales compose: micro (bombing), mid (supertile blotches), macro (vertex
+noise).
 
 ## Painting
 

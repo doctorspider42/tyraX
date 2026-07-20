@@ -1017,6 +1017,34 @@ void Viewport::buildTerrainMesh() {
     axes_ = uploadMesh(lines);
 }
 
+// Macro ground variation: deterministic world-position value noise (two
+// smoothstepped octaves) multiplied into the vertex shade. Twin of
+// tintHash/tintValue/tintNoise2 in the generated game (templates.cpp,
+// above buildTerrainChunk) - keep the formulas in sync.
+static float tintHash(int ix, int iz) {
+    unsigned h = (unsigned)ix * 73856093u ^ (unsigned)iz * 19349663u;
+    h ^= h >> 13;
+    h *= 0x85EBCA6Bu;
+    h ^= h >> 16;
+    return (float)(h & 0xFFFFu) / 65535.0f;
+}
+static float tintValue(float x, float z, float scale) {
+    const float gx = x / scale, gz = z / scale;
+    const float fxf = std::floor(gx), fzf = std::floor(gz);
+    const int ix = (int)fxf, iz = (int)fzf;
+    float fx = gx - fxf, fz = gz - fzf;
+    fx = fx * fx * (3.0f - 2.0f * fx);
+    fz = fz * fz * (3.0f - 2.0f * fz);
+    const float a = tintHash(ix, iz), b = tintHash(ix + 1, iz);
+    const float c = tintHash(ix, iz + 1), d = tintHash(ix + 1, iz + 1);
+    return (a * (1.0f - fx) + b * fx) * (1.0f - fz) +
+           (c * (1.0f - fx) + d * fx) * fz;
+}
+static float tintNoise2(float x, float z, float scale) {
+    return tintValue(x, z, scale) * 0.7f +
+           tintValue(x + 191.0f, z - 353.0f, scale * 0.37f) * 0.3f;
+}
+
 // One terrain chunk (kTerrainChunkCells^2 cells at most): triangles + grid
 // lines. The vertex emission matches the generated PS2 game exactly - when
 // changing the shading here, change buildTerrainChunk in templates.cpp too.
@@ -1042,7 +1070,19 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
     auto shadeAt = [&](int ix, int iz) -> Vec3 {
         Vec3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0f * (sx < sz ? sx : sz),
                   hAt(ix, iz - 1) - hAt(ix, iz + 1)};
-        return shadeOf(normalize(n));
+        Vec3 s = shadeOf(normalize(n));
+        // Macro ground variation - the game applies the same tint in
+        // buildTerrainChunk (base + layer passes shade through one place).
+        if (tintVariation_ > 0.0f) {
+            const float tv =
+                1.0f + tintVariation_ * (tintNoise2(x0 + ix * sx, z0 + iz * sz,
+                                                    tintScale_) -
+                                         0.5f);
+            s.x = std::min(s.x * tv, 1.0f);
+            s.y = std::min(s.y * tv, 1.0f);
+            s.z = std::min(s.z * tv, 1.0f);
+        }
+        return s;
     };
 
     // With a material every cell takes its Kd tint (the shader modulates the
@@ -1473,6 +1513,14 @@ void Viewport::setTerrainLayers(const std::vector<TerrainLayerDraw>& layers,
     // switches, both of which want the rebuild anyway.
     terrainLayers_ = layers;
     splat_ = weights;
+    if (program_) buildTerrainMesh();
+}
+
+void Viewport::setTerrainTint(float variation, float scaleWorld) {
+    if (scaleWorld < 1.0f) scaleWorld = 1.0f;
+    if (tintVariation_ == variation && tintScale_ == scaleWorld) return;
+    tintVariation_ = variation;
+    tintScale_ = scaleWorld;
     if (program_) buildTerrainMesh();
 }
 

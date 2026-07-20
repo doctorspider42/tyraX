@@ -5904,6 +5904,36 @@ void TerrainGame::resetTerrainChunks() {
   terrainChunkSlot.assign(total, -1);
 }
 
+// Macro ground variation (docs/terrain-painting.md): deterministic value
+// noise over WORLD position - two smoothstepped octaves - multiplied into the
+// vertex shade below. Large soft patches of lighter/darker ground at zero
+// runtime cost, with an infinite period (breaks even the stochastic
+// supertile's second-order repetition). Twin of tintNoise2 in the editor
+// viewport (viewport.cpp buildTerrainChunkMesh) - keep the formulas in sync.
+static float tintHash(int ix, int iz) {
+  unsigned h = (unsigned)ix * 73856093u ^ (unsigned)iz * 19349663u;
+  h ^= h >> 13;
+  h *= 0x85EBCA6Bu;
+  h ^= h >> 16;
+  return (float)(h & 0xFFFFu) / 65535.0F;
+}
+static float tintValue(float x, float z, float scale) {
+  const float gx = x / scale, gz = z / scale;
+  const float fxf = floorf(gx), fzf = floorf(gz);
+  const int ix = (int)fxf, iz = (int)fzf;
+  float fx = gx - fxf, fz = gz - fzf;
+  fx = fx * fx * (3.0F - 2.0F * fx);  // smoothstep = soft round patches
+  fz = fz * fz * (3.0F - 2.0F * fz);
+  const float a = tintHash(ix, iz), b = tintHash(ix + 1, iz);
+  const float c = tintHash(ix, iz + 1), d = tintHash(ix + 1, iz + 1);
+  return (a * (1.0F - fx) + b * fx) * (1.0F - fz) +
+         (c * (1.0F - fx) + d * fx) * fz;
+}
+static float tintNoise2(float x, float z, float scale) {
+  return tintValue(x, z, scale) * 0.7F +
+         tintValue(x + 191.0F, z - 353.0F, scale * 0.37F) * 0.3F;
+}
+
 // Fills a pool slot with the mesh of chunk (cx, cz): the same vertex layout,
 // checker colors and baked shading the old whole-map build used - a chunk
 // streamed in later is pixel-identical to one built at scene load.
@@ -5938,6 +5968,14 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     const V3 wp = {startX + ix * stepX, hAt(ix, iz), startZ + iz * stepZ};
     const V3 pl = pointLightAt(wp, n);
     s.x += pl.x, s.y += pl.y, s.z += pl.z;
+    // Macro ground variation: base and layer passes both shade through here,
+    // so a darker patch darkens grass and painted path together.
+    if (TERRAIN_TINT_VARIATION > 0.0F) {
+      const float tv =
+          1.0F + TERRAIN_TINT_VARIATION *
+                     (tintNoise2(wp.x, wp.z, TERRAIN_TINT_SCALE) - 0.5F);
+      s.x *= tv, s.y *= tv, s.z *= tv;
+    }
     if (s.x > 1.0F) s.x = 1.0F;
     if (s.y > 1.0F) s.y = 1.0F;
     if (s.z > 1.0F) s.z = 1.0F;
@@ -8692,6 +8730,8 @@ inline int everyFrames(float seconds) {
 #define TERRAIN_TINT_R TERRAIN_TINTS[g_activeScene][0]
 #define TERRAIN_TINT_G TERRAIN_TINTS[g_activeScene][1]
 #define TERRAIN_TINT_B TERRAIN_TINTS[g_activeScene][2]
+#define TERRAIN_TINT_VARIATION TERRAIN_TINT_VARIATIONS[g_activeScene]
+#define TERRAIN_TINT_SCALE TERRAIN_TINT_SCALES[g_activeScene]
 // Per-scene sky / clipping / post-FX / usable-highlight (Scene > Preferences)
 #define CLIP_PRECISE CLIP_PRECISES[g_activeScene]
 #define CLIP_VU1 CLIP_VU1S[g_activeScene]
@@ -11273,6 +11313,19 @@ static std::string textureDataHeader(const Project& p) {
     for (size_t si = 0; si < p.scenes.size(); ++si)
         out << (si ? ", " : "") << "{" << floatLit(terrain[si].kd[0]) << ", "
             << floatLit(terrain[si].kd[1]) << ", " << floatLit(terrain[si].kd[2]) << "}";
+    out << "};\n"
+        // Macro ground variation (docs/terrain-painting.md): value-noise tint
+        // multiplied into the vertex shade while chunks bake. 0 = off.
+        << "constexpr float TERRAIN_TINT_VARIATIONS[" << p.scenes.size() << "] = {";
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        out << (si ? ", " : "") << floatLit(p.scenes[si].terrainTintVariation);
+    out << "};\n"
+        << "constexpr float TERRAIN_TINT_SCALES[" << p.scenes.size() << "] = {";
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        out << (si ? ", " : "")
+            << floatLit(p.scenes[si].terrainTintScale > 1.0f
+                            ? p.scenes[si].terrainTintScale
+                            : 1.0f);
     out << "};\n";
 
     // Painted terrain layers (docs/terrain-painting.md): per scene, each

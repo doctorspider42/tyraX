@@ -851,6 +851,14 @@ struct SceneData {
     // Stochastic tiling for the BASE terrain material (the layers carry their
     // own flag). See TerrainLayer::stochastic.
     bool terrainBaseStochastic = false;
+    // Macro ground variation (docs/terrain-painting.md): large soft patches of
+    // lighter/darker ground, world-position value noise multiplied into the
+    // terrain vertex shade while chunks bake - base AND layer passes together,
+    // so it reads as ground lighting, not an overlay. Zero runtime cost;
+    // infinite period (breaks even the supertile's second-order repetition).
+    // variation = amplitude 0..1 (0 = off), scale = patch size in world units.
+    float terrainTintVariation = 0.0f;
+    float terrainTintScale = 24.0f;
 
     // Per-scene overrides of the project's scene-visual settings. `settings`
     // holds this scene's values; `overrides` says which categories are active.
@@ -879,6 +887,8 @@ inline bool operator==(const SceneData& a, const SceneData& b) {
            a.terrainLayers == b.terrainLayers && a.splat == b.splat &&
            a.splatW == b.splatW && a.splatD == b.splatD &&
            a.terrainBaseStochastic == b.terrainBaseStochastic &&
+           a.terrainTintVariation == b.terrainTintVariation &&
+           a.terrainTintScale == b.terrainTintScale &&
            a.overrides == b.overrides && a.settings == b.settings &&
            a.ambiencePreset == b.ambiencePreset &&
            a.loadingScreen == b.loadingScreen;

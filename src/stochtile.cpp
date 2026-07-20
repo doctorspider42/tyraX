@@ -131,6 +131,31 @@ std::vector<uint8_t> generate(const std::string& srcFullPath,
             }
         }
     }
+
+    // Mid-scale variety: a few large, soft, low-amplitude brightness blotches
+    // (multi-tile diameter) so the supertile also varies BETWEEN its cells,
+    // not only within them. Torus-wrapped like the stamps above.
+    for (int k = 0; k < factor; ++k) {
+        const int cx = (int)(rnd() % S), cy = (int)(rnd() % S);
+        const int r = cell + (int)(rnd() % (cell * 2));       // 1..3 cells
+        const float amp = 0.06f + (rnd() % 100) * 0.0008f;    // 6..14%
+        const float sign = (rnd() & 1) ? 1.0f : -1.0f;
+        for (int dy = -r; dy <= r; ++dy) {
+            for (int dx = -r; dx <= r; ++dx) {
+                const float dist = std::sqrt((float)(dx * dx + dy * dy));
+                if (dist >= r) continue;
+                const float m = 0.5f + 0.5f * std::cos(dist / r * kPi);
+                const float t = 1.0f + sign * amp * m;
+                const int px_ = (((cx + dx) % S) + S) % S;
+                const int py_ = (((cy + dy) % S) + S) % S;
+                uint8_t* o = &out[((size_t)py_ * S + px_) * 4];
+                for (int c = 0; c < 3; ++c) {
+                    const float v = o[c] * t;
+                    o[c] = (uint8_t)(v < 0.0f ? 0.0f : (v > 255.0f ? 255.0f : v));
+                }
+            }
+        }
+    }
     return out;
 }
 

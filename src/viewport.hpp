@@ -89,6 +89,11 @@ public:
     void updateSplatRegion(const std::vector<uint8_t>& weights, float worldX,
                            float worldZ, float radius);
 
+    // Macro ground variation (docs/terrain-painting.md): world-noise tint
+    // multiplied into the terrain vertex shade (base + layer passes). Rebuilds
+    // the terrain when the values change. variation 0 = off.
+    void setTerrainTint(float variation, float scaleWorld);
+
     // "Highlight usable objects" preference: marks usable objects with a wire
     // box in the highlight color (proximity is a game-runtime condition)
     void setUsableHighlight(bool enabled, const float* rgb);
@@ -311,6 +316,8 @@ private:
     std::vector<Mesh> terrainLayerMeshes_;
     std::vector<TerrainLayerDraw> terrainLayers_;
     std::vector<uint8_t> splat_;  // hmW_*hmD_*layers, layer-interleaved
+    float tintVariation_ = 0.0f;  // macro ground variation amplitude (0 = off)
+    float tintScale_ = 24.0f;     // patch size, world units
     int tcChunksX_ = 0, tcChunksZ_ = 0;
     int tcCellsX_ = 0, tcCellsZ_ = 0;
     void buildTerrainChunkMesh(int cx, int cz);

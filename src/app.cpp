@@ -13838,6 +13838,9 @@ void App::applyProjectToViewport() {
     }
     viewport_.setTerrain(sc.terrain, project_.settings.terrainDetail, sc.heights, sc.hmW,
                          sc.hmD);
+    // Macro ground variation rides the vertex shade - set it before the layer
+    // meshes build so one rebuild covers both.
+    viewport_.setTerrainTint(sc.terrainTintVariation, sc.terrainTintScale);
     // Painted terrain layers: push the resolved layer set + weights (empty
     // layers = the plain single-material terrain above).
     rebakeSplatPreview();
@@ -13955,31 +13958,27 @@ void App::drawTerrainWindow() {
     }
 
     // --- Layers ---
+    // Shown as a Photoshop-style stack: the TOP row draws over everything
+    // below it, new layers land on top, and the base sits at the bottom.
+    // Storage order is unchanged (higher index = drawn later = higher in the
+    // stack); only the presentation is reversed.
     ImGui::SeparatorText("Layers");
-    {
-        const ProjectSettings rs = project::resolvedSettings(project_, sc);
-        std::string base = rs.terrainMaterial.empty()
-                               ? std::string("flat green")
-                               : std::filesystem::path(rs.terrainMaterial)
-                                     .filename()
-                                     .string();
-        ImGui::BulletText("Base: %s", base.c_str());
-        ImGui::SameLine();
-        ImGui::TextDisabled("(scene terrain material)");
-        if (ImGui::Checkbox("Stochastic tiling##base", &sc.terrainBaseStochastic)) {
-            commitChange();
-            applyProjectToViewport();  // base texture path lives on setTerrainMaterial
-        }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Break the tiled-grid repetition of the base texture by baking\n"
-                "a larger non-repeating supertile at build (zero runtime cost).\n"
-                "Best on organic textures; leave off for bricks/tiles.");
-    }
 
     int removeIdx = -1, moveIdx = -1, moveDir = 0;
     bool layersChanged = false;
-    for (int i = 0; i < (int)sc.terrainLayers.size(); ++i) {
+
+    if (ImGui::SmallButton("+ Add layer")) {
+        project::addTerrainLayer(project_, "Layer", "");
+        paintLayer_ = (int)sc.terrainLayers.size() - 1;  // new = top of the stack
+        // Adding a layer means you're about to paint it - put the brush in
+        // hand (unless the sculpt tool is deliberately held).
+        if (!sculptMode_) paintMode_ = true;
+        layersChanged = true;
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("top layer paints over the ones below");
+
+    for (int i = (int)sc.terrainLayers.size() - 1; i >= 0; --i) {
         ImGui::PushID(i);
         TerrainLayer& L = sc.terrainLayers[i];
 
@@ -13998,18 +13997,19 @@ void App::drawTerrainWindow() {
         ImGui::SetNextItemWidth(scaled(120));
         if (drawTerrainMaterialCombo("##mat", L.material)) layersChanged = true;
 
+        // Up = raise in the stack = drawn later = HIGHER storage index.
         ImGui::SameLine();
-        ImGui::BeginDisabled(i == 0);
+        ImGui::BeginDisabled(i == (int)sc.terrainLayers.size() - 1);
         if (ImGui::ArrowButton("##up", ImGuiDir_Up)) {
             moveIdx = i;
-            moveDir = -1;
+            moveDir = 1;
         }
         ImGui::EndDisabled();
         ImGui::SameLine(0.0f, scaled(2));
-        ImGui::BeginDisabled(i == (int)sc.terrainLayers.size() - 1);
+        ImGui::BeginDisabled(i == 0);
         if (ImGui::ArrowButton("##down", ImGuiDir_Down)) {
             moveIdx = i;
-            moveDir = 1;
+            moveDir = -1;
         }
         ImGui::EndDisabled();
         ImGui::SameLine(0.0f, scaled(6));
@@ -14028,24 +14028,60 @@ void App::drawTerrainWindow() {
                 "How large this layer's texture looks on the ground\n"
                 "(bigger = larger pattern). No effect on a flat layer.");
         ImGui::SameLine(0.0f, scaled(12));
+        const bool layerHasTex =
+            !project::resolveTerrainMaterial(project_, L.material).texture.empty();
+        ImGui::BeginDisabled(!layerHasTex);
         if (ImGui::Checkbox("Stochastic", &L.stochastic)) layersChanged = true;
-        if (ImGui::IsItemHovered())
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip(
-                "Break the tiled-grid repetition by baking a larger\n"
-                "non-repeating supertile at build (zero runtime cost).\n"
-                "Best on organic textures; leave off for bricks/tiles.");
+                layerHasTex
+                    ? "Break the tiled-grid repetition by baking a larger\n"
+                      "non-repeating supertile at build (zero runtime cost).\n"
+                      "Best on organic textures; leave off for bricks/tiles."
+                    : "Pick a material with a texture first -\nstochastic tiling "
+                      "scrambles the texture, so a\nflat color has nothing to work "
+                      "on.");
         ImGui::Unindent(scaled(22));
 
         ImGui::PopID();
     }
 
-    if (ImGui::SmallButton("+ Add layer")) {
-        project::addTerrainLayer(project_, "Layer", "");
-        paintLayer_ = (int)sc.terrainLayers.size() - 1;
-        // Adding a layer means you're about to paint it - put the brush in
-        // hand (unless the sculpt tool is deliberately held).
-        if (!sculptMode_) paintMode_ = true;
-        layersChanged = true;
+    // The base is the bottom of the stack - everything above blends over it.
+    // Edit its material right here: the scene's own when it overrides the
+    // project default, otherwise the project default (so a single-scene
+    // project just sets its terrain material without leaving this window).
+    {
+        std::string& baseMat = sc.overrides.terrainMat
+                                   ? sc.settings.terrainMaterial
+                                   : project_.settings.terrainMaterial;
+        ImGui::BulletText("Base");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(150));
+        if (drawTerrainMaterialCombo("##basemat", baseMat)) {
+            commitChange();
+            applyProjectToViewport();
+        }
+        const bool baseHasTex =
+            !project::resolveTerrainMaterial(project_, baseMat).texture.empty();
+        ImGui::Indent(scaled(22));
+        ImGui::BeginDisabled(!baseHasTex);
+        if (ImGui::Checkbox("Stochastic tiling##base", &sc.terrainBaseStochastic)) {
+            commitChange();
+            applyProjectToViewport();  // base texture path lives on setTerrainMaterial
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                baseHasTex
+                    ? "Break the tiled-grid repetition of the base texture by "
+                      "baking\na larger non-repeating supertile at build (zero "
+                      "runtime cost).\nBest on organic textures; leave off for "
+                      "bricks/tiles."
+                    : "Assign a base material with a texture first -\nstochastic "
+                      "tiling scrambles the texture, so a flat\ncolor has nothing "
+                      "to work on.");
+        ImGui::Unindent(scaled(22));
     }
 
     // Apply deferred structural edits (one at a time), then commit + refresh.
@@ -14060,6 +14096,26 @@ void App::drawTerrainWindow() {
         if (paintLayer_ == moveIdx) paintLayer_ = moveIdx + moveDir;
         else if (paintLayer_ == moveIdx + moveDir) paintLayer_ = moveIdx;
         layersChanged = true;
+    }
+
+    // --- Macro ground variation ---
+    ImGui::SeparatorText("Variation");
+    {
+        ImGui::SetNextItemWidth(scaled(200));
+        if (ImGui::SliderFloat("Amount", &sc.terrainTintVariation, 0.0f, 1.0f,
+                               "%.2f"))
+            viewport_.setTerrainTint(sc.terrainTintVariation, sc.terrainTintScale);
+        if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Large soft patches of lighter/darker ground - breaks the\n"
+                "uniform 'carpet' look at zero runtime cost. Tints the base\n"
+                "and the painted layers together, like real ground lighting.");
+        ImGui::SetNextItemWidth(scaled(200));
+        if (ImGui::SliderFloat("Patch size", &sc.terrainTintScale, 4.0f, 200.0f,
+                               "%.0f units", ImGuiSliderFlags_Logarithmic))
+            viewport_.setTerrainTint(sc.terrainTintVariation, sc.terrainTintScale);
+        if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
     }
 
     // --- How it ships ---

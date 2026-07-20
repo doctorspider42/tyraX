@@ -255,7 +255,9 @@ still-running game already applied.
   under a blending-enabled info bag) AND in `buildTerrainChunkMesh`
   (viewport.cpp, 9-float layer meshes drawn with the particle shader) - the
   weights themselves are per-vertex `SceneData::splat` on the heightmap grid,
-  so both sides consume identical data with no resampling.
+  so both sides consume identical data with no resampling. The **macro ground
+  variation** noise (`tintNoise2`) is another such twin: templates.cpp (above
+  `buildTerrainChunk`) and viewport.cpp - change one, change both.
 - **DPI/zoom: wrap literal pixel sizes in `App::scaled(px)`.** `applyUiScale()`
   scales fonts (`FontScaleMain`) and style spacing (`ScaleAllSizes`) but NOT the
   pixel literals you pass to ImGui. So a hardcoded `SetNextItemWidth(180)`,
