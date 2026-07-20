@@ -4166,6 +4166,7 @@ void App::drawPropertiesWindow() {
                 ImGui::DragFloat("Speed", &o.animSpeed, 0.02f, 0.05f, 10.0f,
                                  "%.2fx");
                 committed |= ImGui::IsItemDeactivatedAfterEdit();
+                committed |= drawLodOverrides(o);
                 ImGui::TextDisabled(
                     "Scripts/flow graph: Play Animation, Stop Animation,\n"
                     "On Animation Finished.");
@@ -4708,7 +4709,29 @@ void App::drawPropertiesWindow() {
             ImGui::DragFloat("Jump speed", &o.playerJumpSpeed, 0.1f, 0.0f, 50.0f, "%.1f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
         }
-        ImGui::TextDisabled("First player in the scene drives the camera in the game.");
+        {
+            // Which player slot this object fills: scene order decides - the
+            // first Player object is P1, the second is P2 (two-player modes,
+            // Preferences > Multiplayer). Any further ones are ignored.
+            int slot = 0, seen = 0;
+            for (const auto& other : project_.objects()) {
+                if (other.type != PrimitiveType::Player) continue;
+                ++seen;
+                if (&other == &o) slot = seen;
+            }
+            if (slot == 1)
+                ImGui::TextDisabled(
+                    "Player 1 (first in the scene) - drives the camera.");
+            else if (slot == 2)
+                ImGui::TextDisabled(
+                    project_.settings.multiplayer != "off"
+                        ? "Player 2 - joins in the two-player modes."
+                        : "Player 2 - inactive until Preferences > Multiplayer "
+                          "is enabled.");
+            else if (slot > 2)
+                ImGui::TextDisabled(
+                    "Extra Player object - the game uses only the first two.");
+        }
         if (o.playerMode == 2)
             ImGui::TextDisabled("Third person: X jumps. The avatar faces where it walks.");
         else
@@ -4798,6 +4821,10 @@ void App::drawPropertiesWindow() {
                     ImGui::TextDisabled(
                         "Clip auto-selected from real speed; a script/flow\n"
                         "\"Play Animation\" one-shot plays to the end first.");
+                    // Each Player object carries its own LOD overrides - in a
+                    // two-player scene that gives P1 and P2 independent
+                    // avatar LOD settings.
+                    committed |= drawLodOverrides(o);
                 }
             }
 
@@ -5200,6 +5227,41 @@ void App::drawMultiProperties() {
         return;
     }
     if (committed) commitChange();
+}
+
+// Per-object LOD override rows (animated models + player avatars). Each
+// checkbox flips between "use the project preference" (-1, the default) and
+// an explicit per-object distance; dragging the value to 0 turns that LOD
+// off for this object entirely.
+bool App::drawLodOverrides(SceneObject& o) {
+    bool committed = false;
+    auto row = [&](const char* label, float& v, float projectDefault) {
+        bool ov = v >= 0.0f;
+        const std::string cb = std::string("Override ") + label;
+        if (ImGui::Checkbox(cb.c_str(), &ov)) {
+            v = ov ? (projectDefault > 0.0f ? projectDefault : 30.0f) : -1.0f;
+            committed = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Unchecked = the project preference applies\n"
+                              "(Preferences > Rendering). Checked = this\n"
+                              "object uses its own distance; 0 disables the\n"
+                              "LOD for it.");
+        if (ov) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(scaled(110));
+            float shown = v;
+            if (ImGui::DragFloat((std::string("##ovr") + label).c_str(), &shown,
+                                 0.5f, 0.0f, 2000.0f,
+                                 shown <= 0.0f ? "off" : "%.0f units")) {
+                v = shown < 0.0f ? 0.0f : shown;
+            }
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+    };
+    row("animation LOD", o.animLodOverride, project_.settings.animLodDistance);
+    row("mesh LOD", o.meshLodOverride, project_.settings.meshLodDistance);
+    return committed;
 }
 
 // Class names registered with TYRA_OBJECT_SCRIPT(...) across src/scripts,
@@ -12302,6 +12364,8 @@ const OptionBlockSpec kOptionBlocks[] = {
      {"480i", "480p", "1080i", "480i FIELD"}},
     {"ASPECT", MenuEntry::Toggle, "opt_widescreen", 0.0f, MenuEntry::BindWidescreen,
      {"4:3", "16:9"}},
+    {"PLAYERS", MenuEntry::Choice, "opt_players", 0.0f, MenuEntry::BindPlayerCount,
+     {"1 Player", "2 Players"}},
 };
 constexpr int kOptionBlockCount = (int)(sizeof(kOptionBlocks) / sizeof(kOptionBlocks[0]));
 
@@ -12843,7 +12907,8 @@ void App::drawMenusWindow() {
             ImGui::SetNextItemWidth(scaled(150.0f));
             if (ImGui::Combo("Bind##optbind", &en.settingBind,
                              "None\0Music volume\0Sound volume\0Deadzone\0"
-                             "Stick curve\0Display mode\0Widescreen\0"))
+                             "Stick curve\0Display mode\0Widescreen\0"
+                             "Player count\0"))
                 changed = true;
             ImGui::SameLine();
             ImGui::TextDisabled("(?)");
@@ -12852,8 +12917,9 @@ void App::drawMenusWindow() {
                     "Drives a built-in setting from this row's option index,\n"
                     "spread evenly across the options: volume 0-100%%, deadzone\n"
                     "0-0.4, aim curve 1-3, display 480i/480p/1080i/480i FIELD,\n"
-                    "aspect 4:3/16:9. None = a plain save-value row (flow\n"
-                    "graphs react).");
+                    "aspect 4:3/16:9, player count 1P/2P (needs a Multiplayer\n"
+                    "mode + a second Player object). None = a plain save-value\n"
+                    "row (flow graphs react).");
             ImGui::Unindent(scaled(46.0f));
         }
         ImGui::PopID();
@@ -12869,11 +12935,13 @@ void App::drawMenusWindow() {
             ImGui::SetTooltip(
                 "Insert a ready-made setting row (backed by a save value):\n"
                 "volume, controller deadzone / aim curve, display mode,\n"
-                "aspect ratio. Restyle and relabel it like any other entry.");
+                "aspect ratio, player count (1P/2P, two-player modes).\n"
+                "Restyle and relabel it like any other entry.");
         if (ImGui::BeginPopup("##optblock")) {
             static const char* kBlockMenu[] = {
                 "Music volume", "Sound volume", "Controller deadzone",
-                "Aim response curve", "Display mode", "Widescreen (aspect)"};
+                "Aim response curve", "Display mode", "Widescreen (aspect)",
+                "Player count (1P/2P)"};
             for (int b = 0; b < kOptionBlockCount; ++b)
                 if (ImGui::Selectable(kBlockMenu[b])) {
                     addOptionBlock(project_, m, b);
@@ -14555,6 +14623,14 @@ void App::drawPreferencesModal() {
         "instances farther than this render the reduced meshes. Costs RAM\n"
         "and .tskl size; the editor viewport always shows the full mesh.");
 
+    ImGui::Checkbox("Static object batching", &prefSettings_.staticBatching);
+    ImGui::TextDisabled(
+        "Merges non-moving primitives sharing a material into combined\n"
+        "draw bags at scene load - each separate object costs ~1 ms of\n"
+        "fixed submit overhead per frame on real hardware, batches pay it\n"
+        "once. Objects with physics, scripts, flow-graph references,\n"
+        "save-state or a streaming layer always stay individual.");
+
     // Texture quantization - the PS2-native "compression" (palettized
     // PSMT8/PSMT4 textures). Applied at build time into .res-baked; per
     // model/material overrides live in the Assets section.
@@ -14655,6 +14731,28 @@ void App::drawPreferencesModal() {
     } else {
         ImGui::SeparatorText("Orbit camera");
         ImGui::DragFloat("Orbit speed", &prefSettings_.orbitSpeed, 0.05f, 0.0f, 10.0f, "%.2f");
+    }
+
+    ImGui::SeparatorText("Multiplayer");
+    {
+        int mpMode = prefSettings_.multiplayer == "shared"  ? 1
+                     : prefSettings_.multiplayer == "split" ? 2
+                                                            : 0;
+        const char* mpNames[] = {"Off (single player)", "Shared screen",
+                                 "Split screen (top / bottom)"};
+        if (ImGui::Combo("Two players", &mpMode, mpNames, 3))
+            prefSettings_.multiplayer =
+                mpMode == 1 ? "shared" : mpMode == 2 ? "split" : "off";
+        if (mpMode != 0) {
+            ImGui::Checkbox("Player 2 joins with Start on pad 2",
+                            &prefSettings_.p2JoinOnStart);
+            ImGui::TextDisabled(
+                "Player 2 exists in scenes that contain a SECOND Player object\n"
+                "(the first is P1, the second P2). Shared screen frames both\n"
+                "with one camera; split screen renders each player's own view.\n"
+                "A menu Toggle bound to 'Player count' can also switch 1P/2P\n"
+                "mid-game (Menu Editor > + Option block).");
+        }
     }
 
     ImGui::SeparatorText("Input");

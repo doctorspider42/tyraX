@@ -170,6 +170,13 @@ Notes:
   meter on the PCSX2 process (e.g. via `AudioMeterInformation`) — silence vs
   bursts at expected times proved music/sfx features before; a by-ear speaker
   check stays with the human.
+- **Two-player modes** (docs/multiplayer.md): the split/shared toggle is
+  testable with ONE keyboard: give the scene two Player objects and a pause
+  menu with the "Player count" option block, then drive pad 1 via PostMessage
+  (Start=Return opens the menu, Cross=K cycles the row) and screenshot — the
+  frame visibly flips between full-screen and the top/bottom split (or the
+  pulled-back shared camera). Pad-2 hot-join (Start on pad 2) needs a second
+  pad configured in PCSX2's Pad2 slot — that part stays a hands-on test.
 - **Flow-graph / gameplay logic**: wire the behavior to an unattended trigger
   (`On Start`, `Every N Seconds`) so it fires without a pad; note in
   PROGRESS.md when the interactive path (pad buttons, mouse feel) still needs

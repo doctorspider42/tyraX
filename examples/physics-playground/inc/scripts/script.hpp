@@ -52,6 +52,11 @@ struct ScriptContext {
   Tyra::Engine* engine = nullptr;  // pad, renderer, audio, ...
   Tyra::Vec4 playerPosition;       // camera/player position this frame
   Tyra::Vec4 playerLook;           // normalized view direction this frame
+  // Two-player modes (docs/multiplayer.md): player 2's eye position while
+  // active; equals playerPosition otherwise, so "nearest player" logic can
+  // read it unconditionally.
+  Tyra::Vec4 player2Position;
+  bool player2Active = false;
   RuntimeObject* objects = nullptr;  // mutable scene objects
   int objectCount = 0;
   Tyra::Color skyColor;  // write to change the clear color

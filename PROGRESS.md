@@ -100,6 +100,273 @@ Each finished feature lands as its own commit.
   type of `TerrainGame`, so they must be static members (the PS2 gcc error
   cascade "cannot convert GameModel* to const int*" means exactly this).
 
+- (122) **examples/two-players: two cats, the sample-man avatar removed, sky-toggle
+  defused; static batching (#120) merged into the branch.** Owner request
+  after the profiling session. P1 is now `player-cat-ginger` - the same
+  `cat.glb` avatar as P2 at scale 3 with the P2 rig (cat-sized boom, Idle
+  mapped to the `EmptyAction` rest pose so the walk cycle no longer plays
+  in place while standing - the root cause of the "avatar turns wrong,
+  camera-dependent" report: unmapped idle fell back to clip 0 = the walk
+  cycle, whose root motion swung the body) and a ginger tint vs P2's gray
+  (object color multiplies the model texture - two distinct cats from one
+  .glb). the old P1 avatar model + its extracted texture deleted from the repo;
+  README/docs mentions rewritten (the 14k-vertex history note in
+  docs/multiplayer.md stays as context). `example_interaction.cpp` no
+  longer registers the press-X-sky-toggle script - the FILE stays as a
+  comment-only stub because refreshGenerated recreates missing files
+  write-if-missing, so deleting it would resurrect the behavior on the
+  next build. Showcase settings restored after the owner's profiling edits
+  (release, vsync on, FPS/MEM HUD off, animLod 0, meshLod 4). PR #120
+  (static batching, stacked on this branch) merged via GitHub +
+  fast-forward pull; owner's uncommitted map edits stash-preserved through
+  the merge and folded into this commit (terrain heights included).
+  Verified: editor rebuilds clean post-merge, example regenerated (both
+  scene rows are cat animModel 0, zero references to the removed model in generated
+  code), Docker build OK, PCSX2 boot clean at 50 FPS with no asserts.
+  The 2P visual pass (two distinct cats in split) still wants a pad.
+
+
+- (122) **Static batching for scene objects - the lever (121) called for.**
+  The generated game now merges non-moving primitive objects that share a
+  material into combined world-space StaPip bags at scene load, so a map of
+  small decor pays the ~0.7-1.5 ms fixed per-bag EE submit cost once per
+  batch instead of once per object (twice over in split screen - (121)
+  measured the two-players map's static loop at 11-17 ms for 8 tiny
+  objects). Pieces: build-time eligibility as a new
+  `SceneObjectData::batchStatic` column (`staticBatchEligible` in
+  templates.cpp: geometry primitives only, no physics / usable / save-state
+  / reflected / draw-distance / streaming layer / own graph or attached
+  scripts, and not referenced by name from any same-scene flow node with an
+  ObjectName param, mirror target list, or cutscene track / camera shot -
+  over-excluding is safe, so readers count too); game-side grouping by
+  material within a coarse world cell (quarter-map, min 48 units, anchored
+  at the map corner - a finer or origin-straddling grid split the
+  two-players decor into single-member batches worth nothing) with a
+  reflective-material opt-out at load; one shared info bag (Precise
+  frustum culling - never raw submission - full clip checks), bboxVersion
+  bumped on every rebuild per the bbox-cache rule; per-batch world AABB
+  wired into the split-screen band cull like terrain chunks. Runtime
+  mutation channels that build time cannot see (Live Link records, Raycast
+  / custom-node latches fed into object actions, global scripts writing
+  ctx.objects) are caught per frame: a dirtied member is DEMOTED to the
+  solo path (batch rebuilds once without it - a per-frame-animated member
+  would otherwise re-bake the batch every frame), a visibility/residency
+  flip only rebuilds in place (caught by a shown-snapshot, since hide/show
+  can skip dirty). New Preferences > Rendering toggle `staticBatching`
+  (default on; the A/B lever), baked as STATIC_BATCHING into
+  terrain_config.hpp; boot logs "Static batching: N objects in M batches".
+  Docs: README bullet, docs/multiplayer.md budget rule updated (N_bags,
+  not N_objects), batching invariants added to the tyra-editor-dev skill;
+  all 12 example projects regenerated. Verified: editor builds clean;
+  two-players codegen flags exactly the 6 primitives (players 0) and
+  merges them into 1 batch; Docker builds clean for the FPP (two-players)
+  and orbit (scratch) variants; PCSX2 software-renderer boots show the
+  title scene and the split halves pixel-plausible at 50 FPS / 100% with
+  no TYRA asserts; a PCSX2 harness (owned scratch copy dirtying one box at
+  frame 300 and toggling another's visibility every 200) logged the exact
+  expected sequence - initial bake of 3, in-place rebuild on the flip,
+  demotion of the mutated member, rebuilds with 2 members after - and kept
+  rendering all boxes. **Real-PS2 A/B still pending**: the measurement
+  copy is staged in %TEMP%\tyra-editor-test\batchab (fresh codegen + the
+  (121) PERF frame/sub-phase instrumentation and teleport sweep, release +
+  vsync off; flip `"staticBatching": false` in the .tyra for the B leg),
+  but ps2link on the console answers neither reset nor execution (pings
+  fine - the same wedged state (121)'s ops note ends with) and needs a
+  power-cycle before `--build <abs> --run-ps2 192.168.100.150` with the
+  MAIN checkout's ps2client can run the sweep.
+
+- (121) **Real-PS2 split-screen profiling: VIF raster switch validated on
+  hardware; the "35 FPS on an empty map" mystery solved (per-bag submit
+  overhead, not a bug).** Owner hit ~35 FPS in split on the two-players map
+  and asked for profiling. Method: scratch copy +
+  padless split harness (title screen off, `opt_players` default 2P) +
+  a teleport sweep script sampling five viewpoints (3 s each, min/avg/max
+  frame dt logged over the `[ps2]` stream), deployed to the real console
+  (192.168.100.150) via `--run-ps2`, then two rounds of owned-copy COP0
+  instrumentation (loop segments, then renderScene sub-phases). Results
+  (PAL, vsync off): config A (owner's debug + meshLod 44) worst view
+  29.2/32.1 ms avg/max = the reported 35 FPS; release + meshLod 4 was THE
+  SAME (29.8 ms - profile and avatar LOD irrelevant here); 1P on the same
+  build = 13-15 ms per view -> split is exactly 2x, no hidden overhead.
+  Sub-phases per frame (both halves): sky 0.5 ms, terrain 0.8-1.0 ms
+  (terrainDetail 16 -> 8 changed ~1.7 ms - not the sink), skeletal avatars
+  4.5-5.7 ms, **static-object loop 11-17 ms = the sink: ~0.7-1.5 ms fixed
+  per-bag submit cost per object on the real EE** (the map's 8 primitives
+  + pillars each pay it, x2 halves; PCSX2's fast EE hides it, which is why
+  (118)'s emulator numbers said 50 FPS locked). Runtime overheads all
+  healthy on hardware: split brackets 0.04-0.14 ms (**the (120) VIF-queued
+  switch validated on the real console** - correct halves, no hang, the
+  brackets are near-free), beginFrame 0.55 ms, endFrame 0.53 ms, 2D/HUD
+  0.005 ms. Conclusion: not a bug - small maps made of many separate
+  primitive objects are the pathological case for per-bag overhead;
+  documented a hardware budget rule in docs/multiplayer.md
+  ((0.5 + N_objects x ~1 ms + anim) x 2 <= 20 ms). The lever worth
+  building next: a static-batching pass (merge non-moving primitives
+  sharing a material into one bag at scene load). Ops note: rapid
+  redeploy cycles (each kills the previous ps2client host) wedged ps2link
+  once - owner power-cycled; the deploy chain otherwise ran A->G unattended
+  over the worktree with the MAIN checkout's ps2client (firewall rules are
+  path-scoped).
+
+- (120) **Split raster switch without CPU stalls + per-object LOD
+  overrides (P1/P2 avatars tune independently).** Two pieces. (1) The
+  review's remaining item, done the era-correct middle way instead of the
+  full GS-second-context rebuild: `RendererCoreSplitView::begin()` no longer
+  costs a `dma_channel_wait` + `draw_wait_finish` round-trip - the per-half
+  XYOFFSET/SCISSOR shift rides the **VIF1 stream** as a prebuilt immutable
+  4-qword packet `[VIF FLUSH, VIF DIRECT -> A+D giftag]`: the FLUSH makes
+  the VIF itself wait for the previous half's microprogram + PATH1/PATH2
+  transfers, DIRECT streams the register writes through PATH2 in-band, and
+  the EE moves straight on to culling/packaging the next half (the wait
+  overlaps real work instead of blocking). The full second-context variant
+  (CTXT bit in PRIM) stays future work - every VU1 GIF tag and each texture
+  send would need a _2 twin. `end()` deliberately keeps its CPU handshake:
+  the HUD/post-fx after it arrive over PATH3, which a VIF-queued restore
+  cannot order against. Giftag NLOOP double-checked against the documented
+  stall pitfall (2 A+D rows, NREG 1, DIRECT counts 3 qwords incl. tag).
+  (2) **Per-object LOD overrides**: the project-wide Animation/Mesh LOD
+  distances (Preferences > Rendering) can now be overridden per object -
+  new `animLodOverride`/`meshLodOverride` on SceneObject (-1 = preference,
+  0 = off for this object, >0 = custom distance; full chain: `operator==`,
+  JSON emit-at-non-default, `liveLinkRecipeHash`, `SceneObjectData` columns
+  + the empty-scene placeholder row, `updateAndRenderAnimObjects` reads the
+  effective per-instance values, and `bakeAnimAssets` bakes .tskl LOD
+  chains when ANY object referencing the model overrides mesh LOD > 0 even
+  with the preference off). Properties UI (`drawLodOverrides`) appears on
+  animated models and on Player avatars - the **two Player objects of a
+  two-player scene each carry their own set**, giving independent main/
+  second-player categories. Verified: editor builds clean; a scratch copy
+  of examples/two-players with overrides on the cat (`animLod 12`,
+  `meshLod 0`) round-trips `--resave` and emits `..., 12.0F, 0.0F, ...` in
+  its object row; Docker build compiles the new engine + game; PCSX2
+  padless split harness (a script flips the menu-bound `opt_players` save
+  value; plus `titleScreen` off and `opt_players` defaulting to 2P so no
+  pad is needed) runs the VIF-queued raster switch every frame: the
+  software-renderer screenshot shows both halves correctly cropped and
+  scissored (P1's FPP view up top, the cat avatar idling in P2's half),
+  full-screen HUD on top, 100% speed, no asserts - a mis-ordered register
+  write would bleed the halves, and the documented undercounted-NLOOP
+  pitfall would hang the GIF at boot. Real-PS2 validation of the VIF path
+  still pending (PCSX2's VIF/GIF model is permissive).
+
+- (119) **Split-screen optimization pass (review follow-ups): band culling,
+  two-focus streaming, per-half particle billboards.** Three findings from
+  the optimization review of the two-player PR, implemented: (1) **Band
+  culling** — the split raster crops via XYOFFSET+scissor and keeps the
+  projection full-height, so the engine's frustum classify let each half
+  transform ~2x the geometry it can show; `computeSplitBand` now derives two
+  extra planes bounding the half's visible vertical band (0.62 margin over
+  the exact 0.5 for the clipper's guard band; disabled on degenerate
+  straight-up/down views) and terrain chunks + static objects wholly outside
+  skip submission before the engine sees them. Chunks got a build-time world
+  AABB for the test; rotated objects fall back to a bounding-sphere cube so
+  the cull can under-cull but never over-cull. (2) **Two-focus terrain/layer
+  streaming** — worse than the review's "streaming ignores P2": with both
+  split passes calling `updateTerrainChunks` under different cameras and one
+  shared pool, the P1 pass evicted P2's chunks and vice versa - permanent
+  rebuild churn once the players walked apart. The chunk ring now streams
+  once per frame around BOTH foci (P1's look-at + P2's avatar; a chunk near
+  either survives, build picks the nearest-to-its-focus across both rects),
+  the pool doubles in scenes that can host P2, and auto-streamed layers use
+  the min distance over both players (load when either enters, unload when
+  both leave). (3) **Particle billboards per half** — quads were built
+  camera-facing once (P1's view), so P2 saw fire/fog sprites edge-on; the
+  quad build is split out of the simulation (`orientParticleQuads`, shape
+  stored per particle) and the second half re-faces the same particles for
+  its own camera. The fourth review item - replacing the split brackets' three
+  CPU stalls with the GS's second drawing context (CTXT bit in PRIM) - is
+  deliberately NOT done: Tyra's VU1 microprograms hardcode context 1 in
+  their GIF tags, so it needs microcode changes + a real-PS2 pass. Verified:
+  editor builds clean; `examples/two-players` regenerated + Docker build
+  compiles; a fresh 1P scratch project also compiles (the paths fold away
+  without a second player); PCSX2 boot of the example is clean (menu +
+  scene render, 50 FPS, no TYRA assert in bin/log.txt). The split-specific
+  paths (band culling actually kicking in, two-focus streaming under two
+  pads) still want the hands-on two-controller session (117)/(118) used.
+
+- (118) **Split-screen perf + correctness: 25 -> locked 50 FPS, cat faces
+  forward.** Owner playtest findings on (117). The real BUG: renderScene
+  runs twice per split frame and the animated path advanced playback AND
+  re-skinned every avatar in BOTH halves - animations played at 2x speed
+  and the P1 avatar's 14k verts were skinned twice. Fixed with
+  `splitSecondPass` (generated game): the second half re-submits the
+  frame's skinned buffers under its own camera/frustum, no advance, no
+  re-skin (a mesh-LOD tier switch still forces the other tier's buffers).
+  Also dropped the split brackets' per-half clear sprite - beginFrame's
+  full-screen clear covers both halves and the scissor clips z-writes, so
+  the copied-from-env-map clear was two half-screen GS fills + FINISH
+  stalls per frame for nothing (engine splitView.begin loses the clearColor
+  param). Profiler-driven (debug Show frame profiler + vsync off, PCSX2 SW,
+  PAL): 1P scene 5.3 ms / frame ~10 ms; split scene was 19.2 ms and the
+  whole frame ~21.5 ms - 1.5 ms over the 20 ms vsync budget = halved to 25.
+  After skin-reuse: scene 16.4. The rest is content: demo tuned with mesh
+  LOD distance 4 (third-person cameras sit ~5 units out -> both avatars
+  render the 50% baked variant nearly always; the old P1 avatar was a PC-grade
+  mesh) + terrain detail 16 -> scene 13.2 ms, frame 18.4 ms, **FPS 50
+  locked with vsync** (F8-verified counter). The cat: the committed
+  cat.glb's root wrap flipped to -90 deg Y (the +90 guess in (117) made it
+  run backwards - owner caught it with two pads); AABB z-range flip
+  verified headlessly, in-game the camera now sees its back. Docs:
+  multiplayer.md Performance section, example README, engine skill
+  (no-clear contract + splitSecondPass).
+- (117) **examples/two-players + oversized-glb-texture clamp.** The committed
+  demo for (116): a 14k-vertex sample humanoid (P1) vs a cat (P2) in a box arena, title menu
+  picks 1P/2P (Player-count option block), pause menu switches mid-game,
+  split-screen third-person cameras per player, Start-on-pad-2 hot-join.
+  Two authoring finds baked into the pipeline/docs: **(a)** the humanoid's
+  1024x1024 embedded texture hit the engine's hard `TYRA_ASSERT` (512 max)
+  and quiet-halted the game on load - glbparser's image extraction now
+  box-downscales oversized embedded textures to <=512 (power-of-two factor,
+  POT sources stay POT) with a build warning, so any Blender-textured
+  avatar Just Works; **(b)** the owner's cat.glb (an FBX re-export) parsed
+  fine but was authored X-forward, which the avatar drive (faceYaw expects
+  Z-forward) would render as a crab-walk - fixed in the committed asset by
+  wrapping the glb scene root in a +90deg-Y rotation node (BIN untouched;
+  the AABB flip confirmed the axis swap headlessly before any boot).
+  Verified: Docker build clean; PCSX2 e2e drives the title menu from the
+  keyboard - 1P full screen, then 2 Players + START = live top/bottom split
+  with both avatars standing and animating (F8 screenshots; earlier
+  frames caught P1 visible in P2's half). PCSX2 launches were flaky
+  post-reboot (Vulkan swapchain / parallel-session clobbering) - the
+  driver script now relaunches and re-verifies per pass.
+- (116) **Two-player games: shared screen + split screen, runtime join/leave.**
+  `ProjectSettings::multiplayer` ("off"/"shared"/"split", *Preferences >
+  Multiplayer*) + `p2JoinOnStart`; player 2 is the scene's **second Player
+  object** (scene order picks the slots; the Player properties panel says
+  which is which). The single-player walker state (`entX/entYaw/...`,
+  `camBoom`, clip indices) is hoisted into a per-player `PlayerCtl` struct
+  and the walker is parameterized (`updatePlayerWalker(PlayerCtl&, pi,
+  Tyra::Pad&)`) - all three modes (walk/noclip/third person) work per
+  player, with per-player tuning from new `PLAYER2_*` scene tables +
+  `PP_*(pi)` selection macros in scene_data.hpp. **Shared screen**: one
+  camera orbits the pair's midpoint (P1's right stick), boom stretched by
+  separation, spring-armed like the solo boom. **Split screen**: new engine
+  `RendererCoreSplitView` (env-map-style raster bracket: PATH1 drain +
+  XYOFFSET shift + SCISSOR + per-half color/z clear - a vertical *crop* of
+  the unchanged full-screen projection, so proportions are exact), camera
+  swapped between halves via `renderer3D.update()` (frustum follows per
+  mesh). Engine `Pad` gains `initOptional(port)` - padInit is once-global,
+  a missing controller no longer blocks/asserts (upstream `update()`
+  busy-waited forever), and it keeps polling: **hot-join**. Runtime switch
+  both ways: Start on pad 2 joins; a new **Player count (1P/2P)** menu
+  option block (bind 7, edge-triggered + write-back so the row and pad-2
+  joins never fight) toggles anytime; scene switches keep P2 while the new
+  scene has a second Player. Cutscene overrides suspend the split; the env
+  map pauses refresh during split halves (its bracket restores a full-screen
+  raster); HUD/menus/post-fx stay full-screen (documented v1 limits in
+  `docs/multiplayer.md`). ScriptContext gains `player2Active/player2Position`
+  (the "nearest player" seam for the NavMesh PR). Verified: editor builds
+  clean; headless harness (scratch project with two Players, split mode, the
+  menu block) round-trips save/load incl. the new fields and
+  `refreshGenerated` emits the PLAYER2 tables / split render path / bind 7
+  row; full Docker build (engine + game) compiles; PCSX2 boots and the
+  keyboard-driven pad-1 menu toggle flips full-screen 1P <-> top/bottom
+  split with both cameras live (F8 screenshots). Pad-2 hot-join and shared
+  mode's feel still want a hands-on two-controller test. Docs: README,
+  `docs/multiplayer.md`, editor + engine + testing skills.
+  *(While here: PROGRESS.md carried a committed, unresolved merge conflict
+  from c96caaa - markers removed; the two (104)-(107) runs below came from
+  parallel branches, both kept as written.)*
 - (127) **Portals: particle emitters show through (VU1 billboard re-render).**
   Merged main's particle-billboard-VU1 work (their (117)/PR #118: the EE
   now submits particle CENTERS and a VU1 `billboard` program expands each

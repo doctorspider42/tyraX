@@ -116,6 +116,19 @@ at their default) → properties UI in app.cpp (+ `commitChange()`) →
 `terrain_game.cpp` template (`TPL_*` strings in templates.cpp) → viewport
 rendering if it's visual.
 
+**Static batching invariants** (the generated game merges non-moving
+primitives into combined bags — `staticBatchEligible`/`batchBlockedNames` in
+templates.cpp, `buildStaticBatchList`/`rebuildStaticBatch` in the game
+template): (1) any runtime code path that mutates a rendered object property
+must set `RuntimeObject::dirty` — that flag is what demotes a batched member
+back to its own bag, and a mutation without it silently doesn't render
+(visibility flips are the one exception, caught by a snapshot); (2) a new
+*reference kind* that can move/hide/re-submit objects at runtime (the way
+sequences and mirror target lists do) must be added to `batchBlockedNames()`
+— flow nodes are covered generically via `strKind == ObjectName`; (3) a new
+exclusion-worthy per-object property (a new special draw path, a new
+streaming mechanism) must be added to `staticBatchEligible()`.
+
 **New object type** → `PrimitiveType` enum (0–16 used so far; keep values stable,
 they're serialized) → mesh/marker in viewport.cpp → insert menu in app.cpp →
 codegen + runtime as above. If the type needs per-object variable-length data
@@ -179,6 +192,18 @@ Flee / Stop AI / On Player Seen) compile to calls into the generated
 agent state, movement and A* already exist. Anything that changes what blocks
 walkability must update `navmesh::bake` (host) — there is no game-side twin,
 the game only reads the baked bitmap.)
+
+**Player / two-player work** (docs/multiplayer.md): the generated game's
+walker state is a per-player `PlayerCtl` struct (`players[2]` in the game hpp
+templates) and the walker is `updatePlayerWalker(PlayerCtl&, pi, Tyra::Pad&)`
+in `TPL_GAME_CPP_SCENE` — NOT the old loose `entX/entYaw/...` members. The
+scene tables come in pairs (`PLAYER_*` / `PLAYER2_*`, first/second Player
+object per scene) selected via the `PP_*(pi)` macros in scene_data.hpp; a new
+per-player Player-object property must be added to the paired table emitter
+(one loop emits both prefixes) and read through a new `PP_` macro.
+`ProjectSettings::multiplayer` ("off"/"shared"/"split") + `p2JoinOnStart`
+gate everything; menu bind 7 = Player count (edge-triggered +
+`syncPlayerCountMenuValue` write-back).
 
 **New project preference** (travels with the `.tyra`, part of the game) →
 `ProjectSettings` → save/load in project.cpp → the *Project* Preferences dialog
