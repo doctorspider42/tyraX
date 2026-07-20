@@ -5,6 +5,7 @@
 #include "scene_data.hpp"
 #include "model_data.gen.hpp"
 #include "hud_data.gen.hpp"
+#include "font_data.gen.hpp"
 #include "loading_data.gen.hpp"
 #include "menu_data.gen.hpp"
 #include "terrain_heights.gen.hpp"
@@ -68,6 +69,11 @@ int g_stickCurveL = 0;
 int g_stickCurveR = 0;
 float g_stickExpL = 2.0F;
 float g_stickExpR = 2.0F;
+
+// Pad vibration auto-stop: > 0 counts down (real seconds, g_frameDt) to a
+// setActuators(false, 0), armed by a Vibrate Pad request with Seconds > 0.
+// Global runtime state - a running countdown survives a scene switch.
+float g_rumbleTimer = 0.0F;
 
 // Last option index a "Display mode" / "Widescreen" menu block applied. Video
 // switches rebuild VRAM + arm the confirm prompt, so they fire only on change
@@ -269,6 +275,20 @@ V3 pointLightAt(const V3& wp, const V3& n) {
 // explicitly via the kd/textured parameters instead.
 const float* g_primKd = nullptr;
 bool g_primTextured = false;
+// Physics fast path: push LOCAL-space positions (scale baked, rotation and
+// translation left to ObjectGeometry::objMat). Shading still bakes from the
+// full wake pose, so the switch itself never pops a color.
+bool g_bakeLocal = false;
+
+// Reflective materials: while non-null, pushVert also captures the rotated
+// (world-space) normal of every emitted vertex - the per-frame sphere-map ST
+// computation needs them (see renderScene). Staged per part like g_primKd.
+std::vector<Vec4>* g_envNormals = nullptr;
+
+// Loaded materials/model parts using the "@sky" dynamic env map. While > 0,
+// renderScene renders the sky dome into the engine's env-map target each
+// frame (the GT3 trick - reflections follow the live sky).
+int g_dynamicEnvUsers = 0;
 
 // Every rebuilt vertex buffer gets a process-unique bbox version. The
 // engine's frustum-bbox cache is keyed by (vertex pointer, version); layer
@@ -309,6 +329,7 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   const float* kd = kdArg ? kdArg : g_primKd;
   const bool textured = texturedArg || g_primTextured;
   p.x *= o.scale[0], p.y *= o.scale[1], p.z *= o.scale[2];
+  const V3 lp = p;  // local (scaled) position - what g_bakeLocal pushes
   p = rotated(p, o.rotation);
   n = rotated(n, o.rotation);
   const V3 wp = {p.x + o.position[0], p.y + o.position[1], p.z + o.position[2]};
@@ -319,7 +340,8 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
   if (shade.y > 1.0F) shade.y = 1.0F;
   if (shade.z > 1.0F) shade.z = 1.0F;
   if (kd) shade.x *= kd[0], shade.y *= kd[1], shade.z *= kd[2];
-  verts.push_back(Vec4(wp.x, wp.y, wp.z, 1.0F));
+  verts.push_back(g_bakeLocal ? Vec4(lp.x, lp.y, lp.z, 1.0F)
+                              : Vec4(wp.x, wp.y, wp.z, 1.0F));
   // In textured mode the color modulates the texture (128 = 1.0). Kd may
   // exceed 1 (material brightness) - cap at the GS's 255 so untextured
   // colors cannot wrap.
@@ -329,6 +351,7 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
                        c255(o.color[1] * scale * shade.y),
                        c255(o.color[2] * scale * shade.z), 128.0F));
   sts.push_back(Vec4(u, v, 1.0F, 0.0F));
+  if (g_envNormals) g_envNormals->push_back(Vec4(n.x, n.y, n.z, 0.0F));
 }
 
 void pushQuad(std::vector<Vec4>& verts, std::vector<Color>& cols,
@@ -515,6 +538,78 @@ void drawHudText(Engine* engine, const char* s, float x, float y) {
 }
 
 float hudTextWidth(const char* s) { return (float)strlen(s) * 14.0F; }
+
+/** Runtime text drawn from a Font Manager glyph atlas (Display Text nodes).
+ *
+ * VRAM: the atlas Texture is only handed to the repository the first time this
+ * font actually draws, and the engine only DMAs a texture to GS VRAM on its
+ * first render - so a font nobody displays costs zero VRAM, and one that is
+ * hidden again keeps costing only its EE-side copy. We deliberately never call
+ * useTexture() eagerly here (unlike the streamed model textures), because that
+ * would pin the sheet before anything asked for it. */
+float fontTextWidth(int fontIdx, const char* s, float size) {
+  const FontData& f = FONTS[fontIdx];
+  if (!f.glyphs) return 0.0F;
+  const float k = size / (float)f.baseSize;
+  float w = 0.0F;
+  for (; *s; ++s) {
+    const int gi = (int)(unsigned char)*s - FONT_FIRST_CHAR;
+    if (gi < 0 || gi >= FONT_CHAR_COUNT) continue;
+    w += (float)f.glyphs[gi].adv * k;
+  }
+  return w;
+}
+
+void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
+                  float cy, float size) {
+  const FontData& f = FONTS[fontIdx];
+  if (!f.glyphs || !f.atlas[0]) return;
+
+  // One sprite per font, kept across frames: the texture link is by sprite id,
+  // so every glyph of a font reuses the same id and the same atlas binding.
+  static Sprite glyph[FONT_COUNT > 0 ? FONT_COUNT : 1];
+  static bool ready[FONT_COUNT > 0 ? FONT_COUNT : 1] = {};
+  if (!ready[fontIdx]) {
+    glyph[fontIdx].mode = SpriteMode::MODE_REPEAT;  // sample a sub-rect
+    auto* texture = engine->renderer.getTextureRepository().add(
+        FileUtils::fromCwd(f.atlas));
+    texture->addLink(glyph[fontIdx].id);
+    ready[fontIdx] = true;
+  }
+
+  Sprite& sp = glyph[fontIdx];
+  const float k = size / (float)f.baseSize;
+  sp.scale = k;
+
+  // Center anchor, like the baked HUD text sprites.
+  const float startX = cx - fontTextWidth(fontIdx, s, size) * 0.5F;
+  const float top = cy - (float)f.lineH * k * 0.5F;
+
+  // Shadow first, then the glyphs: two passes over the same cells, the dark
+  // one offset by a pixel (the baked texts get theirs at bake time instead).
+  for (int pass = f.shadow ? 0 : 1; pass < 2; ++pass) {
+    const float ox = pass == 0 ? 1.0F : 0.0F;
+    if (pass == 0)
+      sp.color = Color(10.0F, 12.0F, 16.0F, 100.0F);
+    else
+      sp.color = Color((float)f.r, (float)f.g, (float)f.b, 128.0F);
+
+    float pen = startX;
+    for (const char* c = s; *c; ++c) {
+      const int gi = (int)(unsigned char)*c - FONT_FIRST_CHAR;
+      if (gi < 0 || gi >= FONT_CHAR_COUNT) continue;
+      const FontGlyph& g = f.glyphs[gi];
+      if (g.w > 0 && g.h > 0) {
+        sp.size = Vec2((float)g.w, (float)g.h);
+        sp.offset = Vec2((float)g.u, (float)g.v);
+        sp.position = Vec2(pen + (float)g.xoff * k + ox,
+                           top + (float)g.yoff * k + ox);
+        engine->renderer.renderer2D.render(sp);
+      }
+      pen += (float)g.adv * k;
+    }
+  }
+}
 
 // Debug frame profiler (Project > Preferences > Build > Show frame profiler).
 // renderScene brackets its three heavy phases with EE COP0-timer reads and
@@ -961,7 +1056,7 @@ void TerrainGame::loop() {
       bootPhase = 1;
       if (LOADING_SCREEN) {
         loadingTarget = 0;
-        loadingFrames = everyFrames(0.7F);
+        loadingFrames = loadingTotal = everyFrames(0.7F);
       }
     }
     if (bootPhase == 1) {
@@ -970,10 +1065,10 @@ void TerrainGame::loop() {
         bootPhase = 2;
       } else {
         if (loadingFrames > 0) {
-          const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
+          const bool preLoad = loadingFrames > loadingTotal - 5;
           loadingscreen::renderFrame(engine, 0, preLoad ? 0.0F : 1.0F);
           --loadingFrames;
-          if (loadingFrames == everyFrames(0.7F) - 5) bootFirstScene();
+          if (loadingFrames == loadingTotal - 5) bootFirstScene();
           return;
         }
         bootPhase = 2;
@@ -996,6 +1091,12 @@ void TerrainGame::loop() {
   // setting keeps applying, and before applyVideoRequests so a display switch
   // it requests lands this frame.
   applyMenuBindings();
+  // Portal crossing test: the walker's position before this frame's movement
+  // (Player entity when the scene has one, the built-in FPP walker otherwise)
+  const bool portalEnt = PLAYER_INDEX >= 0;
+  const float portalPrevX = portalEnt ? entX : playerX;
+  const float portalPrevY = portalEnt ? entY : playerY;
+  const float portalPrevZ = portalEnt ? entZ : playerZ;
   if (!menuOwnsPad) {
     if (!updatePlayerEntity()) updatePlayer();
     updateUseTarget();
@@ -1027,7 +1128,7 @@ void TerrainGame::loop() {
     scriptCtx.requestScene = -1;
     if (LOADING_SCREEN) {
       loadingTarget = target;
-      loadingFrames = everyFrames(0.7F);  // ~0.7s hold
+      loadingFrames = loadingTotal = everyFrames(0.7F);  // ~0.7s hold
     } else {
       loadScene(target);
       fppSpawnPending = true;
@@ -1036,10 +1137,10 @@ void TerrainGame::loop() {
   if (loadingFrames > 0) {
     // A few frames at 0% before the (blocking) load, which pumps the bar from
     // 0 to 1 itself, then the remaining frames at 100%.
-    const bool preLoad = loadingFrames > everyFrames(0.7F) - 5;
+    const bool preLoad = loadingFrames > loadingTotal - 5;
     loadingscreen::renderFrame(engine, loadingTarget, preLoad ? 0.0F : 1.0F);
     --loadingFrames;
-    if (loadingFrames == everyFrames(0.7F) - 5) {  // a few frames shown first
+    if (loadingFrames == loadingTotal - 5) {  // a few frames shown first
       loadScene(loadingTarget);
       fppSpawnPending = true;
     }
@@ -1088,6 +1189,20 @@ void TerrainGame::loop() {
   }
 
   if (!menuActive) updateObjectPhysics();
+  // Portal surfaces: carry the player / physics objects that crossed a
+  // linked portal through to its target. After the physics step so object
+  // crossings see this frame's motion; on a player hop the camera is
+  // rebuilt inside, so no frame renders from the departure side.
+  if (PORTAL_COUNT > 0 && !menuActive) {
+    if (portalEnt)
+      updatePortals(portalPrevX, portalPrevY, portalPrevZ, &entX, &entY,
+                    &entZ, &entYaw, &entPitch, &entVelY,
+                    PLAYER_MODE == 1 ? 0.0F : PLAYER_EYE_HEIGHT);
+    else
+      updatePortals(portalPrevX, portalPrevY, portalPrevZ, &playerX,
+                    &playerY, &playerZ, &yaw, &pitch, &playerVelY,
+                    EYE_HEIGHT);
+  }
   updateParticles();
   updateSoundEmitters();
 
@@ -1146,6 +1261,24 @@ void TerrainGame::loop() {
     g_stickExpR = scriptCtx.stickExpR;
     scriptCtx.stickExpR = -1.0F;
   }
+  // Pad vibration (Vibrate Pad flow node / padVibrate() in scripts): a
+  // request drives the DualShock actuators; rumbleSec > 0 arms the auto-stop
+  // countdown (0 = vibrate until the next request). The countdown runs even
+  // while a menu pauses the scripts, so a timed rumble always ends.
+  if (scriptCtx.rumble >= 0) {
+    engine->pad.setActuators(scriptCtx.rumbleSmall != 0, (u8)scriptCtx.rumble);
+    g_rumbleTimer = (scriptCtx.rumble > 0 || scriptCtx.rumbleSmall != 0)
+                        ? scriptCtx.rumbleSec
+                        : 0.0F;
+    scriptCtx.rumble = -1;
+  }
+  if (g_rumbleTimer > 0.0F) {
+    g_rumbleTimer -= g_frameDt;
+    if (g_rumbleTimer <= 0.0F) {
+      g_rumbleTimer = 0.0F;
+      engine->pad.setActuators(false, 0);
+    }
+  }
   // Cutscene camera override: a Cutscene Director sequence with a camera track
   // drives the frame camera (Play/Stop Sequence). Applied after scripts so the
   // sequence player (a global Script) has posed the camera for this frame.
@@ -1153,6 +1286,10 @@ void TerrainGame::loop() {
     cameraPosition = scriptCtx.cameraEye;
     cameraLookAt = scriptCtx.cameraAt;
   }
+  // Cutscene "Hide player": drop the third-person avatar for this frame
+  // (applied after scripts so the sequence player's flag wins).
+  if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2)
+    runtimeObjects[PLAYER_INDEX].visible = !scriptCtx.hidePlayer;
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
   // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
   // switch rebuilds the VRAM layout between frames. A switch closes any
@@ -1198,6 +1335,7 @@ void TerrainGame::loop() {
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
     if (useTargetIndex >= 0) engine->renderer.renderer2D.render(usePromptSprite);
     updateAndRenderHudTexts();
+    updateAndRenderDynTexts();
     // Cutscene Director widescreen bars + fade-to-black: solid quads over the
     // scene and HUD (texts included), under the pause menus (no-op unless a
     // cutscene draws).
@@ -1366,6 +1504,22 @@ void TerrainGame::buildScene() {
     scriptCtx.textRequest = hudTextReq.data();
     scriptCtx.textDuration = hudTextDur.data();
     scriptCtx.textCount = HUD_TEXT_COUNT;
+
+    // Runtime texts (font_data.gen.hpp). Buffers only - no texture is touched
+    // here: a font atlas reaches the repository (and VRAM) on the first frame
+    // a Display Text using it is actually drawn. See drawFontText.
+    dynTextReq.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, -1);
+    dynTextDur.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0.0F);
+    dynTextOn.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0);
+    dynTextTimer.assign(DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1, 0.0F);
+    dynTextBuf.assign((DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1) * DYN_TEXT_LEN,
+                      '\0');
+    scriptCtx.dynTextRequest = dynTextReq.data();
+    scriptCtx.dynTextDuration = dynTextDur.data();
+    scriptCtx.dynTextBuf = dynTextBuf.data();
+    scriptCtx.dynTextOn = dynTextOn.data();
+    scriptCtx.dynTextCount = DYN_TEXT_COUNT;
+    scriptCtx.dynTextLen = DYN_TEXT_LEN;
     if (TITLE_MENU >= 0) {
       gameMenuIndex = TITLE_MENU;
       gameMenuCursor = 0;
@@ -1461,6 +1615,20 @@ void TerrainGame::loadModelAsset(int i) {
       part.texture = acquireTexture(path);
       gm.texPaths.push_back(path);
     }
+    if (mat.reflTextureName == "@sky") {
+      // Dynamic env map: the engine-owned VRAM target, re-rendered from the
+      // sky dome every frame (renderScene).
+      part.reflTexture = engine->renderer.core.envMap.getTexture();
+      part.reflStrength = mat.reflStrength;
+      part.reflDynamic = true;
+      ++g_dynamicEnvUsers;
+    } else if (!mat.reflTextureName.empty()) {
+      const std::string path = dir + mat.reflTextureName;
+      part.reflTexture = acquireTexture(path);
+      part.reflStrength = mat.reflStrength;
+      gm.texPaths.push_back(path);
+    }
+    part.reflRounded = mat.reflRounded;
     gm.parts.push_back(std::move(part));
   }
   if (MODEL_NEEDS_COLLIDER[i]) {
@@ -1478,6 +1646,8 @@ void TerrainGame::freeModelAsset(int i) {
   if (i < 0 || i >= MODEL_COUNT || !modelLoaded[i]) return;
   GameModel& gm = gameModels[i];
   for (const std::string& path : gm.texPaths) releaseTexture(path);
+  for (const GameModelPart& part : gm.parts)
+    if (part.reflDynamic) --g_dynamicEnvUsers;
   gm = GameModel();
   modelLoaded[i] = 0;
 }
@@ -1495,18 +1665,33 @@ void TerrainGame::loadMaterialAsset(int i) {
   gmat.kd[0] = mat.kd[0];
   gmat.kd[1] = mat.kd[1];
   gmat.kd[2] = mat.kd[2];
-  if (mat.textureName.empty()) return;
   std::string dir = MATERIAL_PATHS[i];
   const size_t slash = dir.find_last_of('/');
   dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
-  gmat.texPath = dir + mat.textureName;
-  gmat.texture = acquireTexture(gmat.texPath);
+  if (!mat.textureName.empty()) {
+    gmat.texPath = dir + mat.textureName;
+    gmat.texture = acquireTexture(gmat.texPath);
+  }
+  if (mat.reflTextureName == "@sky") {
+    // Dynamic env map (see loadModelAsset).
+    gmat.reflTexture = engine->renderer.core.envMap.getTexture();
+    gmat.reflStrength = mat.reflStrength;
+    gmat.reflDynamic = true;
+    ++g_dynamicEnvUsers;
+  } else if (!mat.reflTextureName.empty()) {
+    gmat.reflTexPath = dir + mat.reflTextureName;
+    gmat.reflTexture = acquireTexture(gmat.reflTexPath);
+    gmat.reflStrength = mat.reflStrength;
+  }
+  gmat.reflRounded = mat.reflRounded;
 }
 
 void TerrainGame::freeMaterialAsset(int i) {
   if (i < 0 || i >= MATERIAL_COUNT || !materialLoaded[i]) return;
   GameMaterial& gmat = gameMaterials[i];
   if (!gmat.texPath.empty()) releaseTexture(gmat.texPath);
+  if (!gmat.reflTexPath.empty()) releaseTexture(gmat.reflTexPath);
+  if (gmat.reflDynamic) --g_dynamicEnvUsers;
   gmat = GameMaterial();
   materialLoaded[i] = 0;
 }
@@ -1865,7 +2050,8 @@ void TerrainGame::setupAnimObject(int index) {
   g.animParts.clear();  // bags point into the instance - drop them together
   g.animInfoBag.reset();
   g.animLastTick = 0;  // fresh instance skins on its first in-view frame
-  if (o.data.type != 5 || o.data.animModel < 0 ||
+  // type 5 = animated Model, type 6 = a third-person Player avatar (same path)
+  if ((o.data.type != 5 && o.data.type != 6) || o.data.animModel < 0 ||
       o.data.animModel >= (int)gameAnimModels.size())
     return;
   GameAnimModel& gam = gameAnimModels[o.data.animModel];
@@ -2174,6 +2360,30 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
         o.data.type == 14)                         // 14 = camera marker
       continue;
     if (o.data.collision == 2) continue;  // none
+    // Portal pass-through (updatePortalPass): while the walker stands in a
+    // linked portal's opening, objects fully behind that portal's plane
+    // stop colliding - the mounting wall becomes a doorway. Exact OBB
+    // extent along the plane normal, same math as the view dead zone.
+    if (portalPassOn) {
+      const V3 pax = rotated({1.0F, 0.0F, 0.0F}, o.data.rotation);
+      const V3 pay = rotated({0.0F, 1.0F, 0.0F}, o.data.rotation);
+      const V3 paz = rotated({0.0F, 0.0F, 1.0F}, o.data.rotation);
+      const float r =
+          fabsf(portalPassPlane[0] * pax.x + portalPassPlane[1] * pax.y +
+                portalPassPlane[2] * pax.z) *
+              0.5F * o.data.scale[0] +
+          fabsf(portalPassPlane[0] * pay.x + portalPassPlane[1] * pay.y +
+                portalPassPlane[2] * pay.z) *
+              0.5F * o.data.scale[1] +
+          fabsf(portalPassPlane[0] * paz.x + portalPassPlane[1] * paz.y +
+                portalPassPlane[2] * paz.z) *
+              0.5F * o.data.scale[2];
+      const float sd = portalPassPlane[0] * o.data.position[0] +
+                       portalPassPlane[1] * o.data.position[1] +
+                       portalPassPlane[2] * o.data.position[2] -
+                       portalPassPlane[3];
+      if (sd < -r + 0.1F) continue;
+    }
 
     const GameModel* gm = nullptr;
     if (o.data.type == 5 && o.data.model >= 0 &&
@@ -2326,6 +2536,8 @@ void TerrainGame::loadScene(int sceneIndex) {
   currentScene = sceneIndex;
   g_activeScene = sceneIndex;
   sceneGeneration++;  // scene scripts see this and reset their state
+  portalLiveFlags.clear(); // stale through-views must not survive the switch
+  portalPrevPos.clear();   // crossing history restarts with the new objects
   // Before any mesh baking: terrain chunks and object geometry shade with
   // this scene's point lights (see collectScenePointLights).
   collectScenePointLights();
@@ -2494,6 +2706,34 @@ void TerrainGame::loadScene(int sceneIndex) {
     entYaw = SCENE_OBJECTS[PLAYER_INDEX].rotation[1] * PI / 180.0F;
     entVelY = 0.0F;
     entPitch = 0.0F;
+    // Third person: the avatar starts facing its authored yaw and its
+    // locomotion clip names resolve to the model's clip indices. The Player
+    // object is a rendered avatar only in this mode - in FPP/noclip its model
+    // (if any) is never built, so its runtime object stays invisible here.
+    entFaceYaw = entYaw;
+    camBoom = PLAYER_CAM_DIST;  // start fully extended, not easing out from 0
+    runtimeObjects[PLAYER_INDEX].visible = (PLAYER_MODE == 2);
+    if (PLAYER_MODE == 2) {
+      // Idle/walk fall back to the model's first clip when unset; run/jump are
+      // optional, so an empty name stays unmapped (-1) instead of clip 0.
+      playerIdleClip = resolveClipIndex(PLAYER_INDEX, PLAYER_IDLE_CLIP);
+      playerWalkClip = resolveClipIndex(PLAYER_INDEX, PLAYER_WALK_CLIP);
+      playerRunClip =
+          PLAYER_RUN_CLIP[0] ? resolveClipIndex(PLAYER_INDEX, PLAYER_RUN_CLIP) : -1;
+      playerJumpClip =
+          PLAYER_JUMP_CLIP[0] ? resolveClipIndex(PLAYER_INDEX, PLAYER_JUMP_CLIP) : -1;
+      // Start ON the idle clip so drivePlayerAnim recognizes it as a locomotion
+      // pose from frame one. Without this, setupAnimObject's default (clip 0)
+      // would look like a scripted one-shot when idle isn't clip 0, and a
+      // looping clip 0 would wedge locomotion off (animFinished never fires).
+      if (playerIdleClip >= 0 && objectGeometry[PLAYER_INDEX].animInst) {
+        RuntimeObject& body = runtimeObjects[PLAYER_INDEX];
+        body.animClip = playerIdleClip;
+        body.animLoop = true;
+        body.animPlaying = true;
+        body.animRestart = true;
+      }
+    }
   }
 
   buildParticles();
@@ -2610,9 +2850,13 @@ void TerrainGame::updateSoundEmitters() {
 
 // --- Particle emitters ------------------------------------------------
 // 2002-style particles: fixed pools sized at scene load, one cheap LCG,
-// no trig and no allocations in the per-frame path. Camera-facing quads
-// colored per vertex; an emitter with a material carrying a map_Kd draws
-// its quads with that texture (the color then modulates it).
+// no trig and no allocations in the per-frame path. The EE simulates and
+// writes one center + one qword of 2x2 basis weights + one color per
+// particle; the VU1 billboard program (engine StaPipBillboardBag) expands
+// each center into a camera-facing quad in clip space, so the quad
+// building cost never touches the EE. An emitter with a material carrying
+// a map_Kd draws its quads with that texture (the color then modulates
+// it; corner UVs are fixed on VU1).
 // The editor viewport mirrors this simulation (viewport.cpp,
 // simulateEmitter) - keep the per-kind formulas in sync.
 static float prand(unsigned int& s) {  // 0..1
@@ -2635,39 +2879,38 @@ void TerrainGame::buildParticles() {
     ps.vel.assign(n, Vec4(0.0F, 0.0F, 0.0F, 0.0F));
     ps.life.assign(n, 0.0F);  // dead -> staggered respawn over the first frames
     ps.maxLife.assign(n, 1.0F);
-    ps.verts.assign((size_t)n * 6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
-    ps.cols.assign((size_t)n * 6, Color(0.0F, 0.0F, 0.0F, 0.0F));
+    ps.params.assign(n, Vec4(0.0F, 0.0F, 0.0F, 0.0F));
+    ps.cols.assign(n, Color(0.0F, 0.0F, 0.0F, 0.0F));
     ps.infoBag = std::make_unique<StaPipInfoBag>();
     ps.infoBag->model = &model;
     ps.infoBag->shadingType = TyraShadingGouraud;
-    ps.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
-    ps.infoBag->fullClipChecks = true;
+    // VU1 billboard bags cull per quad on VU1 - no EE frustum/clip work.
+    // None is safe for billboard bags only: the VU1 program ADCs any quad
+    // whose corner leaves the GS raster window (ordinary bags must never
+    // use None - see the engine skill's wrap pitfall).
+    ps.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_None;
+    ps.infoBag->fullClipChecks = false;
     ps.colorBag = std::make_unique<StaPipColorBag>();
+    ps.colorBag->many = ps.cols.data();
+    ps.billboardBag = std::make_unique<StaPipBillboardBag>();
     ps.bag = std::make_unique<StaPipBag>();
     ps.bag->info = ps.infoBag.get();
     ps.bag->color = ps.colorBag.get();
-    ps.bag->texture = nullptr;
     ps.bag->lighting = nullptr;
+    ps.bag->billboard = ps.billboardBag.get();
+    ps.bag->vertices = ps.pos.data();
     ps.bag->count = 0;
-    // Textured particles: the emitter's material supplies the map (its Kd is
-    // ignored - the emitter color is the tint). UVs are fixed per quad in the
-    // v0,v1,v2 / v0,v2,v3 vertex order used by updateParticles().
+    // The texture bag is mandatory for billboard bags - its coordinates
+    // channel carries the per-particle basis weights. Textured particles:
+    // the emitter's material supplies the map (its Kd is ignored - the
+    // emitter color is the tint); corner UVs are fixed in the VU1 program.
+    ps.texBag = std::make_unique<StaPipTextureBag>();
+    ps.texBag->texture = nullptr;
+    ps.texBag->coordinates = ps.params.data();
     const int mi = runtimeObjects[i].data.material;  // data copy: spawn slots too
-    if (mi >= 0 && mi < (int)gameMaterials.size() && gameMaterials[mi].texture) {
-      ps.sts.reserve((size_t)n * 6);
-      for (int q = 0; q < n; ++q) {
-        ps.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
-      }
-      ps.texBag = std::make_unique<StaPipTextureBag>();
+    if (mi >= 0 && mi < (int)gameMaterials.size() && gameMaterials[mi].texture)
       ps.texBag->texture = gameMaterials[mi].texture;
-      ps.texBag->coordinates = ps.sts.data();
-      ps.bag->texture = ps.texBag.get();
-    }
+    ps.bag->texture = ps.texBag.get();
     particles.push_back(std::move(ps));
   }
 }
@@ -2700,6 +2943,14 @@ void TerrainGame::updateParticles() {
     const SceneObjectData& d = o.data;
     const int kind = d.emitKind;
     const int n = (int)ps.life.size();
+
+    // Per-emitter billboard basis for the VU1 expansion. Rain streaks hang
+    // from world-up (vertical quads); everything else faces the camera
+    // plane. A portal pass re-renders these bags with the VIRTUAL camera's
+    // basis swapped in - the centers below are view-independent.
+    ps.billboardBag->right = Vec4(rx, 0.0F, rz, 0.0F);
+    ps.billboardBag->up = kind == 4 ? Vec4(0.0F, 1.0F, 0.0F, 0.0F)
+                                    : Vec4(ux, uy, uz, 0.0F);
 
     // Follow player: the emitter position becomes an offset from the camera
     // (place it at X=0/Z=0 and the height above the player's head) - rain
@@ -2821,47 +3072,28 @@ void TerrainGame::updateParticles() {
         alpha = 110.0F * t;
       }
 
-      // rain streaks stay vertical (world-up quads); everything else is a
-      // full camera-facing billboard. Fog puffs additionally swirl: the
-      // billboard slowly rotates in the camera plane, alternating direction
-      // per puff (the swirling fog roll) - keep in sync with the viewport
-      // preview (drawEmitterPreviews).
-      float brx = rx, bry = 0.0F, brz = rz;
-      float bux = ux, buy = uy, buz = uz;
+      // The quad itself is built on VU1: corner = center +/- (right*m00 +
+      // up*m01) +/- (right*m10 + up*m11). Rain streaks hang from world-up
+      // (the emitter basis above) with an independent half-height; fog
+      // puffs additionally swirl - the billboard slowly rotates in the
+      // camera plane, alternating direction per puff (the swirling fog
+      // roll) - keep in sync with the viewport preview
+      // (drawEmitterPreviews).
+      float m00 = size, m01 = 0.0F, m10 = 0.0F, m11 = size;
       if (kind == 2) {
         const float age = ps.maxLife[i] - ps.life[i];
         const float ang = (float)i * 2.4F + (i & 1 ? 0.3F : -0.3F) * age;
         const float ca = cosf(ang), sa = sinf(ang);
-        brx = rx * ca + ux * sa;
-        bry = uy * sa;
-        brz = rz * ca + uz * sa;
-        bux = ux * ca - rx * sa;
-        buy = uy * ca;
-        buz = uz * ca - rz * sa;
+        m00 = ca * size;
+        m01 = sa * size;
+        m10 = -sa * size;
+        m11 = ca * size;
       }
-      const float Rx = brx * size, Ry = bry * size, Rz = brz * size;
-      const float Ux = sizeUp > 0.0F ? 0.0F : bux * size;
-      const float Uy = sizeUp > 0.0F ? sizeUp : buy * size;
-      const float Uz = sizeUp > 0.0F ? 0.0F : buz * size;
-      const Vec4& P = ps.pos[i];
-      const Vec4 v0(P.x - Rx - Ux, P.y - Ry - Uy, P.z - Rz - Uz, 1.0F);
-      const Vec4 v1(P.x + Rx - Ux, P.y + Ry - Uy, P.z + Rz - Uz, 1.0F);
-      const Vec4 v2(P.x + Rx + Ux, P.y + Ry + Uy, P.z + Rz + Uz, 1.0F);
-      const Vec4 v3(P.x - Rx + Ux, P.y - Ry + Uy, P.z - Rz + Uz, 1.0F);
-      const int b = i * 6;
-      ps.verts[b] = v0;
-      ps.verts[b + 1] = v1;
-      ps.verts[b + 2] = v2;
-      ps.verts[b + 3] = v0;
-      ps.verts[b + 4] = v2;
-      ps.verts[b + 5] = v3;
-      const Color c(cr, cg, cb, alpha);
-      for (int k = 0; k < 6; ++k) ps.cols[b + k] = c;
+      if (sizeUp > 0.0F) m11 = sizeUp;  // rain: thin width, streak height
+      ps.params[i] = Vec4(m00, m01, m10, m11);
+      ps.cols[i] = Color(cr, cg, cb, alpha);
     }
-    ps.colorBag->many = ps.cols.data();
-    ps.bag->vertices = ps.verts.data();
-    ps.bag->count = (u32)ps.verts.size();
-    ps.bag->bboxVersion = ++g_bboxStamp;  // moving cloud - refresh the bbox
+    ps.bag->count = (u32)n;
   }
 }
 // Picks the nearest usable object the camera is close to and looking at
@@ -3035,7 +3267,9 @@ void TerrainGame::applySavedObjects() {
     for (int a = 0; a < 3; ++a) o.data.position[a] = st.position[a];
     for (int a = 0; a < 3; ++a) o.data.color[a] = st.color[a];
     o.visible = st.visible != 0;
-    o.velocityY = 0.0F;
+    o.velocityX = o.velocityY = o.velocityZ = 0.0F;
+    o.spin[0] = o.spin[1] = o.spin[2] = 0.0F;
+    o.restFrames = 0;  // wake: the restored position may be mid-air
     o.dirty = true;
   }
   pendingObjState.clear();
@@ -3237,7 +3471,7 @@ void TerrainGame::applyMenuBindings() {
           g_stickExpL = g_stickExpR = 2.0F;
           break;
         }
-        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0/1/2)
+        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0..3)
           if (idx != g_menuDispOpt) {
             g_menuDispOpt = idx;
             scriptCtx.requestDisplayMode = idx;
@@ -3310,6 +3544,161 @@ void TerrainGame::updateAndRenderHudTexts() {
   }
 }
 
+// Runtime texts: same request/timer protocol as the baked ones, but the string
+// lives in dynTextBuf (refreshed every frame by the owning flow-graph script
+// while the slot is on) and is drawn glyph by glyph from the font's atlas.
+void TerrainGame::updateAndRenderDynTexts() {
+  for (int i = 0; i < DYN_TEXT_COUNT; ++i) {
+    if (scriptCtx.dynTextRequest[i] >= 0) {
+      dynTextOn[i] = scriptCtx.dynTextRequest[i] != 0 ? 1 : 0;
+      dynTextTimer[i] = dynTextOn[i] ? scriptCtx.dynTextDuration[i] : 0.0F;
+      scriptCtx.dynTextRequest[i] = -1;
+    }
+    if (dynTextOn[i] && dynTextTimer[i] > 0.0F) {
+      dynTextTimer[i] -= g_frameDt;
+      if (dynTextTimer[i] <= 0.0F) {
+        dynTextOn[i] = 0;
+        dynTextTimer[i] = 0.0F;
+      }
+    }
+    if (!dynTextOn[i]) continue;
+    const DynTextData& d = DYN_TEXTS[i];
+    const char* s = &dynTextBuf[(size_t)i * DYN_TEXT_LEN];
+    if (!s[0]) continue;
+    const auto& scr = engine->renderer.core.getSettings();
+    drawFontText(engine, d.font, s, d.x * scr.getWidth(), d.y * scr.getHeight(),
+                 d.size);
+  }
+}
+
+// Spring arm (third person only): how far the camera may sit down the boom
+// before it would end up inside geometry or under the terrain. Casts the boom
+// from the pivot (the avatar's head) toward the desired eye and returns the
+// first blocked distance, so the caller can pull the camera to the collision
+// point instead of letting it punch through walls.
+//
+// Budget-driven shape - this runs every frame, so:
+//  - AABB only, even for mesh-collision objects. Camera collision needs no
+//    triangle precision (stopping a few cm early is invisible), and a slab
+//    test is a few compares with no sqrt, vs walking a collider's triangles.
+//  - The boom is short (PLAYER_CAM_DIST), so a 6-compare broad phase (boom
+//    segment AABB vs object AABB) rejects nearly every object before any
+//    division happens; only real candidates reach the slab test.
+//  - Objects marked collision "none" and the markers/visual-only types are
+//    skipped - including the avatar itself (type 6), which must never block
+//    its own camera.
+//  - The terrain march is a fixed 8 steps + 4 bisections over the distance
+//    that SURVIVED the object pass (constant cost, and shorter once an object
+//    already pulled the camera in).
+constexpr float CAM_RADIUS = 0.3F;    // eye clearance kept off surfaces; must
+                                      // exceed the 0.15 near clip
+constexpr float CAM_MIN_DIST = 0.6F;  // never pull closer than this to the head
+float TerrainGame::springArm(float px, float py, float pz, float dx, float dy,
+                             float dz, float maxDist) const {
+  const float r = CAM_RADIUS;
+  float best = maxDist;
+
+  // Broad-phase key: the boom segment's AABB, expanded by the camera radius.
+  const float qx = px + dx * maxDist, qy = py + dy * maxDist,
+              qz = pz + dz * maxDist;
+  const float sminX = (px < qx ? px : qx) - r, smaxX = (px > qx ? px : qx) + r;
+  const float sminY = (py < qy ? py : qy) - r, smaxY = (py > qy ? py : qy) + r;
+  const float sminZ = (pz < qz ? pz : qz) - r, smaxZ = (pz > qz ? pz : qz) + r;
+
+  for (const RuntimeObject& o : runtimeObjects) {
+    if (!o.active || !o.visible) continue;
+    const int ty = o.data.type;
+    if (ty == 4 || ty == 6 || ty == 7 || ty == 8 || ty == 9 || ty == 11 ||
+        ty == 13 || ty == 14)
+      continue;  // markers / emitters / decals / the avatar - not blockers
+    if (o.data.collision == 2) continue;  // "none": the camera passes through
+
+    // World AABB, sized exactly like box-mode player collision (the real mesh
+    // or baked anim AABB when the object has one, else the unit scale box).
+    const GameModel* gm = nullptr;
+    if (ty == 5 && o.data.model >= 0 && o.data.model < (int)gameModels.size())
+      gm = &gameModels[o.data.model];
+    const SkelModel* anim = nullptr;
+    if (ty == 5 && o.data.animModel >= 0 &&
+        o.data.animModel < (int)gameAnimModels.size())
+      anim = gameAnimModels[o.data.animModel].src.get();
+    float cx = o.data.position[0], cy = o.data.position[1],
+          cz = o.data.position[2];
+    float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
+          ez = 0.5F * o.data.scale[2];
+    const float* mn = gm ? gm->mn : (anim ? anim->min : nullptr);
+    const float* mx = gm ? gm->mx : (anim ? anim->max : nullptr);
+    if (mn && mx) {
+      cx += 0.5F * (mn[0] + mx[0]) * o.data.scale[0];
+      cy += 0.5F * (mn[1] + mx[1]) * o.data.scale[1];
+      cz += 0.5F * (mn[2] + mx[2]) * o.data.scale[2];
+      ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
+      ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
+      ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
+    }
+    const float bminX = cx - ex - r, bmaxX = cx + ex + r;
+    const float bminY = cy - ey - r, bmaxY = cy + ey + r;
+    const float bminZ = cz - ez - r, bmaxZ = cz + ez + r;
+    if (bmaxX < sminX || bminX > smaxX || bmaxY < sminY || bminY > smaxY ||
+        bmaxZ < sminZ || bminZ > smaxZ)
+      continue;  // broad phase: nowhere near the boom
+
+    // Slab test against the expanded box.
+    float t0 = 0.0F, t1 = best;
+    bool miss = false;
+    auto slab = [&](float o1, float d1, float lo1, float hi1) {
+      if (miss) return;
+      if (d1 > 1e-6F || d1 < -1e-6F) {
+        const float inv = 1.0F / d1;
+        float ta = (lo1 - o1) * inv, tb = (hi1 - o1) * inv;
+        if (ta > tb) {
+          const float s = ta;
+          ta = tb;
+          tb = s;
+        }
+        if (ta > t0) t0 = ta;
+        if (tb < t1) t1 = tb;
+      } else if (o1 < lo1 || o1 > hi1) {
+        miss = true;  // parallel and outside the slab
+      }
+    };
+    slab(px, dx, bminX, bmaxX);
+    slab(py, dy, bminY, bmaxY);
+    slab(pz, dz, bminZ, bmaxZ);
+    if (miss || t0 > t1) continue;
+    // t0 < 0 = the pivot is already inside this (inflated) box - e.g. the
+    // player brushing a wall. Ignore it rather than collapse the camera onto
+    // the head; a box we are standing in cannot usefully block the boom.
+    if (t0 < 0.0F) continue;
+    if (t0 < best) best = t0;
+  }
+
+  // Terrain: march the surviving distance, then bisect to tighten the hit.
+  // `- r` keeps the eye a radius clear of the ground, and `lo` (the last
+  // known-free sample) is the conservative answer.
+  const float step = best * 0.125F;
+  if (step > 1e-4F) {
+    float prev = 0.0F;
+    for (int i = 1; i <= 8; ++i) {
+      const float t = step * i;
+      if (py + dy * t - r <= terrainHeightAt(px + dx * t, pz + dz * t)) {
+        float lo = prev, hi = t;
+        for (int k = 0; k < 4; ++k) {
+          const float mid = (lo + hi) * 0.5F;
+          if (py + dy * mid - r <= terrainHeightAt(px + dx * mid, pz + dz * mid))
+            hi = mid;
+          else
+            lo = mid;
+        }
+        best = lo;
+        break;
+      }
+      prev = t;
+    }
+  }
+  return best;
+}
+
 bool TerrainGame::updatePlayerEntity() {
   if (PLAYER_INDEX < 0) return false;
 
@@ -3351,6 +3740,125 @@ bool TerrainGame::updatePlayerEntity() {
     return true;
   }
 
+  if (PLAYER_MODE == 2) {
+    // Third person: the left stick moves the avatar relative to the camera,
+    // the avatar turns to face where it walks, and the camera rides a boom
+    // behind it. Terrain bounds + object collision + gravity/jump match walk.
+    float nextX = entX + (fx * forward - fz * strafe) * PLAYER_WALK_SPEED * g_frameScale;
+    float nextZ = entZ + (fz * forward + fx * strafe) * PLAYER_WALK_SPEED * g_frameScale;
+    const float limX = TERRAIN_WIDTH * 0.5F - 1.0F;
+    const float limZ = TERRAIN_DEPTH * 0.5F - 1.0F;
+    if (nextX > limX) nextX = limX;
+    if (nextX < -limX) nextX = -limX;
+    if (nextZ > limZ) nextZ = limZ;
+    if (nextZ < -limZ) nextZ = -limZ;
+
+    float ground = terrainHeightAt(nextX, nextZ);
+    // a linked floor portal underfoot swallows the avatar too
+    if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, entY, nextZ))
+      ground = -1e30F;
+    float ceiling = 1e30F;
+    // The avatar shoves physics bodies exactly like the FPP walkers do.
+    pushPhysicsBodies(entX, entZ, nextX, nextZ, entY, PLAYER_EYE_HEIGHT);
+    updatePortalPass(nextX, entY, nextZ);  // wall doorways open in collision
+    collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground,
+                  &ceiling);
+    portalPassOn = false;
+    const float movedX = nextX - entX, movedZ = nextZ - entZ;
+    entX = nextX;
+    entZ = nextZ;
+
+    entVelY -= GRAVITY * g_frameDt * g_frameDt;
+    entY += entVelY;
+    const float maxY = ceiling - PLAYER_EYE_HEIGHT - EYE_CLEARANCE;
+    if (entY > maxY && maxY >= ground) {
+      entY = maxY;
+      if (entVelY > 0.0F) entVelY = 0.0F;
+    }
+    bool grounded = false;
+    if (entY <= ground) {
+      entY = ground;
+      entVelY = 0.0F;
+      grounded = true;
+      if (PLAYER_CAN_JUMP && engine->pad.getClicked().BTN_JUMP)
+        entVelY = PLAYER_JUMP_SPEED * g_frameDt;
+    }
+
+    // Turn the avatar toward its movement direction (shortest-arc lerp).
+    const float movedLen = sqrtf(movedX * movedX + movedZ * movedZ);
+    if (movedLen > 0.0005F) {
+      float desired = atan2f(movedX, movedZ);
+      float d = desired - entFaceYaw;
+      while (d > PI) d -= 2.0F * PI;
+      while (d < -PI) d += 2.0F * PI;
+      float k = PLAYER_TURN_RATE * g_frameScale;
+      if (k > 1.0F) k = 1.0F;
+      entFaceYaw += d * k;
+    }
+
+    // Camera boom: the eye rides PLAYER_CAM_DIST behind/above the head along
+    // the orbit direction. The spring arm shortens the boom to the first thing
+    // it hits so the camera never enters geometry or the terrain. Classic
+    // spring behavior: pull IN instantly (a late pull-in means a visible clip
+    // through a wall) and ease back OUT, so leaving cover doesn't snap.
+    const float headY = entY + PLAYER_CAM_HEIGHT;
+    const float cp = cosf(entPitch);
+    const float boomX = sinf(entYaw) * cp;
+    const float boomZ = cosf(entYaw) * cp;
+    const float boomY = sinf(entPitch);
+
+    // Over-the-shoulder: slide the WHOLE rig - eye and look-at alike - along
+    // the camera's right vector, so the avatar sits off-center in frame.
+    // (Offsetting only the eye would just angle the camera back at the player
+    // and keep them centered - that is not an over-the-shoulder shot.) The
+    // right vector matches the walkers' own strafe convention. The offset is
+    // itself spring-armed so a shoulder cam cannot slide into a wall the player
+    // is hugging - and this second cast costs nothing at all when the offset is
+    // 0, which is the default.
+    const float rx = -cosf(entYaw), rz = sinf(entYaw);
+    float shoulder = PLAYER_CAM_SHOULDER;
+    if (shoulder > 0.0001F || shoulder < -0.0001F) {
+      const float s = shoulder < 0.0F ? -1.0F : 1.0F;
+      shoulder = s * springArm(entX, headY, entZ, rx * s, 0.0F, rz * s,
+                               shoulder * s);
+    }
+    const float pivotX = entX + rx * shoulder;
+    const float pivotZ = entZ + rz * shoulder;
+
+    float want =
+        springArm(pivotX, headY, pivotZ, -boomX, -boomY, -boomZ, PLAYER_CAM_DIST);
+    if (want < CAM_MIN_DIST) want = CAM_MIN_DIST;
+    if (want < camBoom) {
+      camBoom = want;  // blocked: snap in, never clip
+    } else {
+      float k = 0.06F * g_frameScale;  // ~2 s to close a full-length boom
+      if (k > 1.0F) k = 1.0F;
+      camBoom += (want - camBoom) * k;
+    }
+    float eyeX = pivotX - boomX * camBoom;
+    float eyeY = headY - boomY * camBoom;
+    float eyeZ = pivotZ - boomZ * camBoom;
+    // Safety net: the march samples the heightmap discretely, so a sharp ridge
+    // between two samples could still leave the eye underground.
+    const float minEyeY = terrainHeightAt(eyeX, eyeZ) + 0.4F;
+    if (eyeY < minEyeY) eyeY = minEyeY;
+    cameraPosition = Vec4(eyeX, eyeY, eyeZ);
+    cameraLookAt = Vec4(pivotX, headY, pivotZ);
+
+    // Drive the avatar object: stand at the feet, face the walk direction,
+    // and auto-select its locomotion clip. updateAndRenderAnimObjects draws it.
+    if (PLAYER_INDEX >= 0 && PLAYER_INDEX < (int)runtimeObjects.size()) {
+      RuntimeObject& body = runtimeObjects[PLAYER_INDEX];
+      body.data.position[0] = entX;
+      body.data.position[1] = entY;
+      body.data.position[2] = entZ;
+      body.data.rotation[1] = entFaceYaw * 180.0F / PI;
+      const float step = PLAYER_WALK_SPEED * g_frameScale;
+      drivePlayerAnim(body, step > 1e-4F ? movedLen / step : 0.0F, grounded);
+    }
+    return true;
+  }
+
   // Walk mode: terrain bounds, object collision, gravity + jump.
   float nextX = entX + (fx * forward - fz * strafe) * PLAYER_WALK_SPEED * g_frameScale;
   float nextZ = entZ + (fz * forward + fx * strafe) * PLAYER_WALK_SPEED * g_frameScale;
@@ -3363,9 +3871,19 @@ bool TerrainGame::updatePlayerEntity() {
   if (nextZ < -limZ) nextZ = -limZ;
 
   float ground = terrainHeightAt(nextX, nextZ);
+  // a linked floor portal underfoot swallows the walker (see
+  // portalSwallowsPlayer) - the terrain stops being the floor there
+  if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, entY, nextZ))
+    ground = -1e30F;
   float ceiling = 1e30F;
+  // Shove physics bodies with the attempted step first - collidePlayer may
+  // cancel the move against the (still solid) body, the push moves it away
+  // over the next frames.
+  pushPhysicsBodies(entX, entZ, nextX, nextZ, entY, PLAYER_EYE_HEIGHT);
+  updatePortalPass(nextX, entY, nextZ);  // wall doorways open in collision
   collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground,
                 &ceiling);
+  portalPassOn = false;
   entX = nextX;
   entZ = nextZ;
 
@@ -3390,6 +3908,50 @@ bool TerrainGame::updatePlayerEntity() {
   cameraLookAt = Vec4(entX + fx * cosf(entPitch), eyeY + sinf(entPitch),
                       entZ + fz * cosf(entPitch));
   return true;
+}
+
+// Locomotion-driven clip selection for the third-person avatar. speedFrac is
+// the planar speed as a fraction of full walk speed. The mapping is trivial -
+// idle / walk / run by speed, jump while airborne - and the avatar's playback
+// speed tracks the real speed so the feet don't slide. The escape hatch: if a
+// non-locomotion clip is currently playing (a script/flow "Play Animation"
+// one-shot), locomotion holds off until it finishes, then resumes. This is the
+// whole "third-person for free" story: no state machine, full override.
+void TerrainGame::drivePlayerAnim(RuntimeObject& body, float speedFrac,
+                                  bool grounded) {
+  if (PLAYER_INDEX < 0 || !objectGeometry[PLAYER_INDEX].animInst) return;
+  body.animPlaying = true;
+
+  int want;
+  if (!grounded && playerJumpClip >= 0)
+    want = playerJumpClip;
+  else if (speedFrac < 0.12F)
+    want = playerIdleClip;
+  else if (speedFrac < PLAYER_RUN_THRESHOLD || playerRunClip < 0)
+    want = playerWalkClip;
+  else
+    want = playerRunClip;
+  if (want < 0) want = playerIdleClip;
+  if (want < 0) want = 0;  // no clips mapped: hold the model's first clip
+
+  const bool locomotion =
+      body.animClip == playerIdleClip || body.animClip == playerWalkClip ||
+      body.animClip == playerRunClip || body.animClip == playerJumpClip;
+  if (!locomotion && !body.animFinished) return;  // let a one-shot finish
+
+  if (body.animClip != want) {
+    body.animClip = want;
+    body.animLoop = true;
+    body.animRestart = true;
+    body.animFade = 0.18F;  // cross-fade from the outgoing pose
+  }
+  // Match playback to foot speed on the moving clips (min 0.6x so a slow creep
+  // still animates), otherwise the authored speed.
+  const float base = body.data.animSpeed;
+  if (want == playerWalkClip || want == playerRunClip)
+    body.animSpeed = base * (speedFrac < 0.6F ? 0.6F : speedFrac);
+  else
+    body.animSpeed = base;
 }
 
 void TerrainGame::buildSkyDome() {
@@ -3462,10 +4024,13 @@ void TerrainGame::buildSkyDome() {
   skyDome.bag->bboxVersion = ++g_bboxStamp;  // dome rebuilds on retint
 }
 
-void TerrainGame::rebuildObjectGeometry(int index) {
+void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
   o.dirty = false;
+  g.matrixMode = localSpace;
+  g_bakeLocal = localSpace;
+  if (localSpace) updateObjMat(index);
   g.apronVerts.clear();  // position/size changed - the highlight ring follows
   g.hullProxyVerts.clear();  // and the shell proxy re-bakes the transform
 
@@ -3482,6 +4047,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     part.vertices.clear();
     part.colors.clear();
     part.sts.clear();
+    part.envNormals.clear();
   }
 
   // primitives: the assigned material (first entry of its .mtl) supplies
@@ -3496,6 +4062,7 @@ void TerrainGame::rebuildObjectGeometry(int index) {
       const GameModelPart& src = gm->parts[pi];
       GeoPart& part = g.parts[pi];
       const bool textured = src.texture != nullptr;
+      g_envNormals = src.reflTexture ? &part.envNormals : nullptr;
       for (size_t i = 0; i + 7 < src.verts.size(); i += 8) {
         const float* v = &src.verts[i];
         pushVert(part.vertices, part.colors, part.sts, o.data,
@@ -3503,9 +4070,12 @@ void TerrainGame::rebuildObjectGeometry(int index) {
                  textured);
       }
     }
+    g_envNormals = nullptr;
   } else {
     g_primKd = gmat ? gmat->kd : nullptr;
     g_primTextured = gmat && gmat->texture;
+    g_envNormals =
+        (gmat && gmat->reflTexture) ? &g.parts[0].envNormals : nullptr;
     GeoPart& p0 = g.parts[0];
     switch (o.data.type) {
       case 1: addSphere(p0.vertices, p0.colors, p0.sts, o.data); break;
@@ -3547,11 +4117,38 @@ void TerrainGame::rebuildObjectGeometry(int index) {
         break;
       }
       case 14: break;  // camera - cutscene shot marker, no geometry
+      case 15: {
+        // mirror: only the glass quad is geometry (the reflected copies are
+        // re-submitted per frame by renderMirrors). Reuses the decal quad
+        // (+Z face, slight +Z nudge keeps it off a backing wall), then
+        // rewrites the vertex alpha with the authored glass opacity - the
+        // GS alpha-blends it over the copies drawn just before it.
+        addDecal(p0.vertices, p0.colors, p0.sts, o.data);
+        float opacity = 0.35F;
+        for (int mi = 0; mi < MIRROR_COUNT; ++mi)
+          if (MIRRORS[mi].scene == currentScene && MIRRORS[mi].object == index) {
+            opacity = MIRRORS[mi].opacity;
+            break;
+          }
+        for (Color& c : p0.colors) c.a = opacity * 128.0F;
+        break;
+      }
+      case 16: {
+        // portal: the tinted "energy surface" quad (decal quad, +Z face,
+        // same +Z nudge). The live through-view is projected over it by
+        // renderPortals; on unlinked/far portals - and on the pair member
+        // that lost this frame's single view slot - this tint is what shows.
+        addDecal(p0.vertices, p0.colors, p0.sts, o.data);
+        for (Color& c : p0.colors) c.a = 70.0F;  // ~55% energy-glass alpha
+        break;
+      }
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
     g_primKd = nullptr;
     g_primTextured = false;
+    g_envNormals = nullptr;
   }
+  g_bakeLocal = false;
 
   for (int pi = 0; pi < partCount; ++pi) {
     GeoPart& part = g.parts[pi];
@@ -3580,6 +4177,10 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     part.bag->vertices = part.vertices.data();
     part.bag->count = static_cast<u32>(part.vertices.size());
     part.bag->bboxVersion = ++g_bboxStamp;  // geometry changed - fresh boxes
+    // Fast-path bodies render local vertices under objMat; everything else
+    // sits in world space under the shared identity. Reset on every rebuild
+    // (the bag may have been created under the other mode).
+    part.infoBag->model = g.matrixMode ? &g.objMat : &model;
 
     // models: the part's own map_Kd; primitives: the assigned material's
     Texture* tex =
@@ -3592,26 +4193,570 @@ void TerrainGame::rebuildObjectGeometry(int index) {
     } else {
       part.bag->texture = nullptr;
     }
+
+    // Reflective material (refl): the additive sphere-map second pass. The
+    // env bag reuses this part's vertex array and bboxVersion; all-white
+    // "many" colors keep its VU1 program shape identical to a textured base
+    // bag, so the frustum-bbox cache entry is shared, not recomputed.
+    Texture* envTex = o.data.type == 5 ? gm->parts[pi].reflTexture
+                                       : (gmat ? gmat->reflTexture : nullptr);
+    const float envStr = o.data.type == 5
+                             ? gm->parts[pi].reflStrength
+                             : (gmat ? gmat->reflStrength : 0.0F);
+    if (envTex && envStr > 0.004F &&
+        part.envNormals.size() == part.vertices.size()) {
+      part.envColors.assign(part.vertices.size(),
+                            Color(128.0F, 128.0F, 128.0F, 128.0F));
+      if (!part.envBag) {
+        part.envInfoBag = std::make_unique<StaPipInfoBag>();
+        part.envInfoBag->model = &model;
+        part.envInfoBag->shadingType = TyraShadingFlat;
+        part.envInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+        part.envInfoBag->fullClipChecks = true;
+        // Coplanar with the base pass: standard GEQUAL test. (TestOnly's
+        // alpha-fail FB_ONLY trick corrupted close-up frames - see below.)
+        part.envInfoBag->zTestType = PipelineZTest_Standard;
+        // GS fog would ADD the fog color through the additive equation
+        // (brightening fogged pixels) - the reflection just stays unfogged.
+        part.envInfoBag->fogDisabled = true;
+        part.envColorBag = std::make_unique<StaPipColorBag>();
+        part.envTexBag = std::make_unique<StaPipTextureBag>();
+        part.envBag = std::make_unique<StaPipBag>();
+        part.envBag->info = part.envInfoBag.get();
+        part.envBag->color = part.envColorBag.get();
+        part.envBag->texture = part.envTexBag.get();
+        part.envBag->lighting = nullptr;
+      }
+      // Additive equation Cv = Cs*FIX/128 + Cd; FIX 128 = full strength.
+      const float fix = envStr * 128.0F + 0.5F;
+      part.envInfoBag->additiveBlendFix =
+          fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
+      part.envColorBag->many = part.envColors.data();
+      part.envTexBag->texture = envTex;
+      // "-rounded" materials: overwrite the captured face normals with
+      // directions radiating from the part centroid - a flat face then
+      // sweeps a gradient of the sphere map instead of showing one uniform
+      // sample (the viewport shader mirrors this via uReflRounded).
+      const bool envRounded = o.data.type == 5
+                                  ? gm->parts[pi].reflRounded
+                                  : (gmat && gmat->reflRounded);
+      if (envRounded && !part.vertices.empty()) {
+        const u32 nv = static_cast<u32>(part.vertices.size());
+        float cx = 0.0F, cy = 0.0F, cz = 0.0F;
+        for (u32 vi = 0; vi < nv; ++vi) {
+          cx += part.vertices[vi].x;
+          cy += part.vertices[vi].y;
+          cz += part.vertices[vi].z;
+        }
+        cx /= (float)nv, cy /= (float)nv, cz /= (float)nv;
+        for (u32 vi = 0; vi < nv; ++vi) {
+          float dx = part.vertices[vi].x - cx;
+          float dy = part.vertices[vi].y - cy;
+          float dz = part.vertices[vi].z - cz;
+          const float l = sqrtf(dx * dx + dy * dy + dz * dz);
+          if (l > 0.0001F)
+            dx /= l, dy /= l, dz /= l;
+          else
+            dx = 0.0F, dy = 1.0F, dz = 0.0F;
+          part.envNormals[vi].set(dx, dy, dz, 0.0F);
+        }
+      }
+      // The normals ride in the ST slot and the TCE programs (cull/as_is/
+      // clip) compute the matcap ST from the per-mesh camera basis - zero
+      // EE per-vertex work, no pipeline barriers, in both clipping modes.
+      part.envTexBag->coordinates = part.envNormals.data();
+      part.envTexBag->coordinatesAreNormals = true;
+      part.envBag->vertices = part.vertices.data();
+      part.envBag->count = static_cast<u32>(part.vertices.size());
+      part.envBag->bboxVersion = part.bag->bboxVersion;
+    } else {
+      part.envBag.reset();
+    }
   }
 }
 
-void TerrainGame::updateObjectPhysics() {
-  // GRAVITY is units/s^2
-  const float gravityPerFrame = GRAVITY * g_frameDt * g_frameDt;
-  for (RuntimeObject& o : runtimeObjects) {
-    if (!o.active || !o.data.physics) continue;
-    const float half = 0.5F * o.data.scale[1];
-    const float floorY =
-        terrainHeightAt(o.data.position[0], o.data.position[2]) + half;
-    if (o.velocityY == 0.0F && o.data.position[1] <= floorY) continue;  // resting
+// --- object physics: rigid-body-lite ---------------------------------------
+// Every data.physics object is a body: full 3D velocity, restitution bounces
+// off the terrain (real slope normals from the heightfield), friction that
+// turns falls into slides and slides into stops, ground contact converting
+// slide into tumble, momentum exchange between bodies and AABB contacts
+// against static solids. Near-rest bodies fall asleep (restFrames) and cost
+// one branch per frame until something wakes them, so a settled scene pays
+// nothing. The vector work runs on VU0: Tyra::Vec4's operators, innerProduct,
+// cross and normalize are VU0 macro-mode assembly.
+constexpr float PHYS_REST_SPEED2 = 0.00025F;  // (units/frame)^2 = "not moving"
+constexpr float PHYS_REST_SPIN = 0.75F;       // deg/frame = "not spinning"
+constexpr float PHYS_MAX_SPEED = 3.0F;        // units/frame velocity clamp
+constexpr float PHYS_PUSH = 0.55F;            // player shove gain (scaled 1/mass)
 
-    o.velocityY -= gravityPerFrame;
-    o.data.position[1] += o.velocityY;
-    if (o.data.position[1] <= floorY) {
-      o.data.position[1] = floorY;
-      o.velocityY = 0.0F;
+// World-space AABB half-extents + center offset from data.position of a solid
+// object - models use their mesh AABB, exactly like collidePlayer.
+void TerrainGame::physExtents(const SceneObjectData& d, const GameModel* gm,
+                              const SkelModel* anim, float* cOff, float* ext) {
+  cOff[0] = cOff[1] = cOff[2] = 0.0F;
+  for (int a = 0; a < 3; ++a) ext[a] = 0.5F * d.scale[a];
+  const float* mn = gm ? gm->mn : (anim ? anim->min : nullptr);
+  const float* mx = gm ? gm->mx : (anim ? anim->max : nullptr);
+  if (mn && mx) {
+    for (int a = 0; a < 3; ++a) {
+      cOff[a] = 0.5F * (mn[a] + mx[a]) * d.scale[a];
+      ext[a] = 0.5F * (mx[a] - mn[a]) * d.scale[a];
+      if (ext[a] < 0.01F) ext[a] = 0.01F;
     }
-    o.dirty = true;
+  }
+}
+
+// A moving body renders through objMat (local vertices, VU1 applies the
+// motion) unless a consumer of its vertex arrays assumes world space: the
+// usable-highlight hull/apron and reflective matcap normals both do, and
+// animated models already ride their own animMat.
+bool TerrainGame::physFastPathEligible(int index) const {
+  const RuntimeObject& o = runtimeObjects[index];
+  const int t = o.data.type;
+  if (t != 0 && t != 1 && t != 2 && t != 3 && t != 5 && t != 12) return false;
+  if (o.data.usable) return false;
+  if (t == 5) {
+    if (o.data.animModel >= 0) return false;
+    if (o.data.model < 0 || o.data.model >= (int)gameModels.size())
+      return false;
+    for (const GameModelPart& mp : gameModels[o.data.model].parts)
+      if (mp.reflTexture) return false;
+  } else if (o.data.material >= 0 &&
+             o.data.material < (int)gameMaterials.size() &&
+             gameMaterials[o.data.material].reflTexture) {
+    return false;
+  }
+  return true;
+}
+
+// Rotation columns come from the same rotated() the vertex bake uses, so the
+// matrix path and the bake path can never disagree on the Euler order. Scale
+// is baked into the local vertices - the basis stays unit-length.
+void TerrainGame::updateObjMat(int index) {
+  const RuntimeObject& o = runtimeObjects[index];
+  M4x4& m = objectGeometry[index].objMat;
+  const V3 bx = rotated({1.0F, 0.0F, 0.0F}, o.data.rotation);
+  const V3 by = rotated({0.0F, 1.0F, 0.0F}, o.data.rotation);
+  const V3 bz = rotated({0.0F, 0.0F, 1.0F}, o.data.rotation);
+  m.identity();
+  m.data[0] = bx.x, m.data[1] = bx.y, m.data[2] = bx.z;
+  m.data[4] = by.x, m.data[5] = by.y, m.data[6] = by.z;
+  m.data[8] = bz.x, m.data[9] = bz.y, m.data[10] = bz.z;
+  m.data[12] = o.data.position[0];
+  m.data[13] = o.data.position[1];
+  m.data[14] = o.data.position[2];
+}
+
+// Solid enough to block/bump a physics body (matches collidePlayer's list).
+bool TerrainGame::physObstacle(const SceneObjectData& d) {
+  if (d.collision == 2) return false;
+  const int t = d.type;
+  return t != 4 && t != 6 && t != 7 && t != 8 && t != 9 && t != 11 &&
+         t != 13 && t != 14;
+}
+
+void TerrainGame::updateObjectPhysics() {
+  // GRAVITY is units/s^2; velocities are per-frame displacements.
+  const float gravityPerFrame = GRAVITY * g_frameDt * g_frameDt;
+  const float microBounce2 = gravityPerFrame * gravityPerFrame * 6.25F;
+  const int count = (int)runtimeObjects.size();
+
+  // Pass 1: integrate each awake body against the world (terrain, bounds,
+  // static solids - sleeping bodies included, they are static this frame).
+  for (int i = 0; i < count; ++i) {
+    RuntimeObject& o = runtimeObjects[i];
+    if (!o.active || !o.data.physics) continue;
+    if (o.restFrames >= PHYS_SLEEP_FRAMES) continue;  // asleep
+
+    const GameModel* gm = nullptr;
+    const SkelModel* anim = nullptr;
+    if (o.data.type == 5) {
+      if (o.data.model >= 0 && o.data.model < (int)gameModels.size())
+        gm = &gameModels[o.data.model];
+      if (o.data.animModel >= 0 &&
+          o.data.animModel < (int)gameAnimModels.size())
+        anim = gameAnimModels[o.data.animModel].src.get();
+    }
+    float cOff[3], ext[3];
+    physExtents(o.data, gm, anim, cOff, ext);
+    const float radius = ext[0] > ext[2] ? ext[0] : ext[2];
+    const float bounce = o.data.physBounce;
+
+    Vec4 vel(o.velocityX, o.velocityY, o.velocityZ, 0.0F);
+    vel.y -= gravityPerFrame;
+    const float clampSp2 = vel.innerProduct(vel);
+    if (clampSp2 > PHYS_MAX_SPEED * PHYS_MAX_SPEED)
+      vel *= PHYS_MAX_SPEED / sqrtf(clampSp2);
+    Vec4 pos(o.data.position[0], o.data.position[1], o.data.position[2], 1.0F);
+    const Vec4 prevPos = pos;
+    pos += vel;
+
+    bool grounded = false;
+    Vec4 slideTan(0.0F, 0.0F, 0.0F, 0.0F);
+
+    // Terrain contact. The response uses the real slope normal (central
+    // differences on the heightfield) so bodies kick sideways off hills and
+    // slide/roll downhill instead of stopping dead inside the slope.
+    const float bottomY = pos.y + cOff[1] - ext[1];
+    float groundY = terrainHeightAt(pos.x, pos.z);
+    // Floor-portal swallowing: a body over a linked, object-teleporting floor
+    // portal ignores the terrain (see portalSwallowZone) - otherwise it rests
+    // on the ground before its center can reach the plane of a portal lying on
+    // (or near) the terrain, and never falls in.
+    for (int pi = 0; PORTAL_COUNT > 0 && pi < PORTAL_COUNT; ++pi) {
+      const PortalData& p = PORTALS[pi];
+      if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+      if (!p.teleportObjects) continue;
+      if (p.object >= count || p.target >= count) continue;
+      RuntimeObject& m = runtimeObjects[p.object];
+      if (!m.active || !m.visible || !runtimeObjects[p.target].active) continue;
+      if (&o == &m || &o == &runtimeObjects[p.target]) continue;
+      if (portalSwallowZone(m, 0.5F * m.data.scale[0] + 0.25F,
+                            0.5F * m.data.scale[1] + 0.25F, pos.x, pos.y,
+                            pos.z)) {
+        groundY = -1e30F;
+        break;
+      }
+    }
+    if (bottomY <= groundY) {
+      pos.y += groundY - bottomY;
+      const float hs = radius > 0.35F ? radius : 0.35F;
+      Vec4 nrm(terrainHeightAt(pos.x - hs, pos.z) -
+                   terrainHeightAt(pos.x + hs, pos.z),
+               2.0F * hs,
+               terrainHeightAt(pos.x, pos.z - hs) -
+                   terrainHeightAt(pos.x, pos.z + hs),
+               0.0F);
+      nrm.normalize();
+      const float vn = vel.innerProduct(nrm);
+      if (vn < 0.0F) {
+        const Vec4 vNorm = nrm * vn;
+        Vec4 vTan = vel - vNorm;
+        vTan *= 1.0F - o.data.physFriction * 0.18F;
+        Vec4 vBounce = vNorm * -bounce;
+        // kill micro-bounces so bodies settle instead of buzzing forever
+        if (vBounce.innerProduct(vBounce) < microBounce2)
+          vBounce = Vec4(0.0F, 0.0F, 0.0F, 0.0F);
+        slideTan = vTan;
+        vel = vTan + vBounce;
+      }
+      grounded = true;
+    }
+
+    // Terrain edges are walls: reflect instead of clamping dead.
+    const float wallX = TERRAIN_WIDTH * 0.5F - 0.5F;
+    const float wallZ = TERRAIN_DEPTH * 0.5F - 0.5F;
+    if (pos.x > wallX) {
+      pos.x = wallX;
+      if (vel.x > 0.0F) vel.x = -vel.x * bounce;
+    } else if (pos.x < -wallX) {
+      pos.x = -wallX;
+      if (vel.x < 0.0F) vel.x = -vel.x * bounce;
+    }
+    if (pos.z > wallZ) {
+      pos.z = wallZ;
+      if (vel.z > 0.0F) vel.z = -vel.z * bounce;
+    } else if (pos.z < -wallZ) {
+      pos.z = -wallZ;
+      if (vel.z < 0.0F) vel.z = -vel.z * bounce;
+    }
+
+    // Static solids (and sleeping bodies): AABB vs AABB, resolved along the
+    // axis of least penetration. Crates rest on platforms, balls bounce off
+    // walls. Awake-vs-awake pairs are handled by the impulse pass below.
+    const float movedX = pos.x - prevPos.x, movedZ = pos.z - prevPos.z;
+    const bool movedXZ =
+        movedX * movedX + movedZ * movedZ > 1e-10F;
+    for (int j = 0; j < count; ++j) {
+      if (j == i) continue;
+      RuntimeObject& s = runtimeObjects[j];
+      if (!s.active || !physObstacle(s.data)) continue;
+      const bool sSleeping =
+          s.data.physics && s.restFrames >= PHYS_SLEEP_FRAMES;
+      if (s.data.physics && !sSleeping) continue;  // impulse pass handles it
+
+      const GameModel* sgm = nullptr;
+      const SkelModel* sanim = nullptr;
+      if (s.data.type == 5) {
+        if (s.data.model >= 0 && s.data.model < (int)gameModels.size())
+          sgm = &gameModels[s.data.model];
+        if (s.data.animModel >= 0 &&
+            s.data.animModel < (int)gameAnimModels.size())
+          sanim = gameAnimModels[s.data.animModel].src.get();
+      }
+      float sOff[3], sExt[3];
+      physExtents(s.data, sgm, sanim, sOff, sExt);
+
+      const float dx = (s.data.position[0] + sOff[0]) - (pos.x + cOff[0]);
+      const float px = sExt[0] + ext[0] - (dx < 0.0F ? -dx : dx);
+      if (px <= 0.0F) {
+        // A sleeping body riding on this one loses its support when we slide
+        // out from under it - wake it so it falls (checked while separated
+        // in X; the Z branch below never runs for those).
+        if (sSleeping && movedXZ) {
+          const float sb = s.data.position[1] + sOff[1] - sExt[1];
+          const float myTop = prevPos.y + cOff[1] + ext[1];
+          if (sb > myTop - 0.1F && sb < myTop + 0.1F &&
+              px > -(radius + 0.2F)) {
+            s.restFrames = 0;
+            s.dirty = true;
+          }
+        }
+        continue;
+      }
+      const float dy = (s.data.position[1] + sOff[1]) - (pos.y + cOff[1]);
+      const float py = sExt[1] + ext[1] - (dy < 0.0F ? -dy : dy);
+      if (py <= 0.0F) continue;
+      const float dz = (s.data.position[2] + sOff[2]) - (pos.z + cOff[2]);
+      const float pz = sExt[2] + ext[2] - (dz < 0.0F ? -dz : dz);
+      if (pz <= 0.0F) continue;
+
+      if (sSleeping && movedXZ) {
+        // still overlapping in XZ but sliding: keep the rider awake too
+        const float sb = s.data.position[1] + sOff[1] - sExt[1];
+        const float myTop = pos.y + cOff[1] + ext[1];
+        if (sb > myTop - 0.1F && sb < myTop + 0.1F) s.restFrames = 0;
+      }
+
+      if (py <= px && py <= pz) {
+        const float dir = dy > 0.0F ? -1.0F : 1.0F;  // push away from s
+        pos.y += dir * py;
+        if (vel.y * dir < 0.0F) {
+          vel.y = -vel.y * bounce;
+          if (vel.y * vel.y < microBounce2) vel.y = 0.0F;
+          if (dir > 0.0F) {  // landed on top of s
+            grounded = true;
+            slideTan = Vec4(vel.x, 0.0F, vel.z, 0.0F);
+            vel.x *= 1.0F - o.data.physFriction * 0.18F;
+            vel.z *= 1.0F - o.data.physFriction * 0.18F;
+          }
+        }
+      } else if (px <= pz) {
+        const float dir = dx > 0.0F ? -1.0F : 1.0F;
+        pos.x += dir * px;
+        if (vel.x * dir < 0.0F) vel.x = -vel.x * bounce;
+      } else {
+        const float dir = dz > 0.0F ? -1.0F : 1.0F;
+        pos.z += dir * pz;
+        if (vel.z * dir < 0.0F) vel.z = -vel.z * bounce;
+      }
+    }
+
+    // Tumble: rolling without slipping (w = v / r) about the horizontal axis
+    // perpendicular to the slide direction; friction bleeds it off with the
+    // slide itself. Euler-added per axis - visually right, era-appropriate.
+    if (o.data.physTumble) {
+      if (grounded) {
+        const float ts2 = slideTan.innerProduct(slideTan);
+        if (ts2 > 1e-8F) {
+          const float ts = sqrtf(ts2);
+          const float r = radius > 0.05F ? radius : 0.05F;
+          const float degPerFrame = ts / r * 57.29578F;
+          o.spin[0] = -slideTan.z / ts * degPerFrame;
+          o.spin[2] = slideTan.x / ts * degPerFrame;
+        } else {
+          o.spin[0] *= 0.8F;
+          o.spin[1] *= 0.8F;
+          o.spin[2] *= 0.8F;
+        }
+      } else {
+        for (int a = 0; a < 3; ++a) o.spin[a] *= 0.995F;  // air drag
+      }
+    }
+
+    // Rest bookkeeping: near-still on the ground long enough -> sleep.
+    const float speed2 = vel.innerProduct(vel);
+    const float spinMag =
+        fabsf(o.spin[0]) + fabsf(o.spin[1]) + fabsf(o.spin[2]);
+    if (grounded && speed2 < PHYS_REST_SPEED2 && spinMag < PHYS_REST_SPIN) {
+      if (o.restFrames < PHYS_SLEEP_FRAMES) ++o.restFrames;
+      if (o.restFrames >= PHYS_SLEEP_FRAMES) {
+        vel = Vec4(0.0F, 0.0F, 0.0F, 0.0F);
+        o.spin[0] = o.spin[1] = o.spin[2] = 0.0F;
+        // settle: one world-space rebuild restores rest-pose shading and
+        // hands the vertex arrays back to the world-space consumers
+        if (objectGeometry[i].matrixMode) o.dirty = true;
+      }
+    } else {
+      o.restFrames = 0;
+    }
+
+    // Write back; rebuild geometry only when the transform actually changed.
+    const float dPos = fabsf(pos.x - o.data.position[0]) +
+                       fabsf(pos.y - o.data.position[1]) +
+                       fabsf(pos.z - o.data.position[2]);
+    o.data.position[0] = pos.x;
+    o.data.position[1] = pos.y;
+    o.data.position[2] = pos.z;
+    o.velocityX = vel.x;
+    o.velocityY = vel.y;
+    o.velocityZ = vel.z;
+    if (spinMag > 0.001F) {
+      for (int a = 0; a < 3; ++a) {
+        o.data.rotation[a] += o.spin[a];
+        if (o.data.rotation[a] > 360.0F) o.data.rotation[a] -= 720.0F;
+        if (o.data.rotation[a] < -360.0F) o.data.rotation[a] += 720.0F;
+      }
+    }
+    if (dPos > 1e-5F || spinMag > 0.001F) {
+      // Moving: eligible bodies get ONE local-space bake and ride objMat
+      // from then on (refreshed in renderScene - no EE re-bake per frame);
+      // the rest fall back to the legacy world-space rebuild.
+      ObjectGeometry& g = objectGeometry[i];
+      if (!g.matrixMode && !o.dirty && physFastPathEligible(i))
+        rebuildObjectGeometry(i, true);
+      if (!g.matrixMode) o.dirty = true;
+    }
+  }
+
+  // Pass 2: momentum exchange between bodies. Upright-cylinder contacts (XZ
+  // circle + Y interval) resolved along the axis of least penetration,
+  // impulses split by mass; hitting a sleeping body wakes it. Pairs where
+  // both sleep are skipped, so settled stacks stay free.
+  for (int i = 0; i < count; ++i) {
+    RuntimeObject& a = runtimeObjects[i];
+    if (!a.active || !a.data.physics || !physObstacle(a.data)) continue;
+    for (int j = i + 1; j < count; ++j) {
+      RuntimeObject& b = runtimeObjects[j];
+      if (!b.active || !b.data.physics || !physObstacle(b.data)) continue;
+      if (a.restFrames >= PHYS_SLEEP_FRAMES &&
+          b.restFrames >= PHYS_SLEEP_FRAMES)
+        continue;
+
+      float aOff[3], aExt[3], bOff[3], bExt[3];
+      const GameModel* gm = nullptr;
+      const SkelModel* anim = nullptr;
+      if (a.data.type == 5) {
+        if (a.data.model >= 0 && a.data.model < (int)gameModels.size())
+          gm = &gameModels[a.data.model];
+        if (a.data.animModel >= 0 &&
+            a.data.animModel < (int)gameAnimModels.size())
+          anim = gameAnimModels[a.data.animModel].src.get();
+      }
+      physExtents(a.data, gm, anim, aOff, aExt);
+      gm = nullptr;
+      anim = nullptr;
+      if (b.data.type == 5) {
+        if (b.data.model >= 0 && b.data.model < (int)gameModels.size())
+          gm = &gameModels[b.data.model];
+        if (b.data.animModel >= 0 &&
+            b.data.animModel < (int)gameAnimModels.size())
+          anim = gameAnimModels[b.data.animModel].src.get();
+      }
+      physExtents(b.data, gm, anim, bOff, bExt);
+
+      const float dy = (b.data.position[1] + bOff[1]) -
+                       (a.data.position[1] + aOff[1]);
+      const float ph = aExt[1] + bExt[1] - (dy < 0.0F ? -dy : dy);
+      if (ph <= 0.0F) continue;
+      const float rA = aExt[0] > aExt[2] ? aExt[0] : aExt[2];
+      const float rB = bExt[0] > bExt[2] ? bExt[0] : bExt[2];
+      float dx = b.data.position[0] - a.data.position[0];
+      float dz = b.data.position[2] - a.data.position[2];
+      const float d2 = dx * dx + dz * dz;
+      const float rSum = rA + rB;
+      if (d2 >= rSum * rSum) continue;
+
+      const float invMa = 1.0F / (a.data.physMass < 0.05F ? 0.05F : a.data.physMass);
+      const float invMb = 1.0F / (b.data.physMass < 0.05F ? 0.05F : b.data.physMass);
+      const float invSum = invMa + invMb;
+      const float e = a.data.physBounce > b.data.physBounce ? a.data.physBounce
+                                                            : b.data.physBounce;
+      const float dist = sqrtf(d2 > 1e-8F ? d2 : 1e-8F);
+      const float pr = rSum - dist;
+
+      float nx, ny, nz;  // contact normal, a -> b
+      float pen;
+      if (ph < pr) {  // vertical contact (landing on / popping out from under)
+        nx = 0.0F;
+        ny = dy >= 0.0F ? 1.0F : -1.0F;
+        nz = 0.0F;
+        pen = ph;
+      } else {  // side contact
+        if (d2 > 1e-8F) {
+          nx = dx / dist;
+          nz = dz / dist;
+        } else {  // dead center overlap: split along X deterministically
+          nx = 1.0F;
+          nz = 0.0F;
+        }
+        ny = 0.0F;
+        pen = pr;
+      }
+
+      // separate the pair, then trade momentum along the normal
+      const float sepA = pen * (invMa / invSum), sepB = pen * (invMb / invSum);
+      a.data.position[0] -= nx * sepA;
+      a.data.position[1] -= ny * sepA;
+      a.data.position[2] -= nz * sepA;
+      b.data.position[0] += nx * sepB;
+      b.data.position[1] += ny * sepB;
+      b.data.position[2] += nz * sepB;
+
+      const float relN = (b.velocityX - a.velocityX) * nx +
+                         (b.velocityY - a.velocityY) * ny +
+                         (b.velocityZ - a.velocityZ) * nz;
+      if (relN < 0.0F) {  // approaching
+        const float jImp = -(1.0F + e) * relN / invSum;
+        a.velocityX -= nx * jImp * invMa;
+        a.velocityY -= ny * jImp * invMa;
+        a.velocityZ -= nz * jImp * invMa;
+        b.velocityX += nx * jImp * invMb;
+        b.velocityY += ny * jImp * invMb;
+        b.velocityZ += nz * jImp * invMb;
+      }
+      a.restFrames = 0;
+      b.restFrames = 0;
+      // Fast-path bodies pick the separation up through objMat next render;
+      // forcing dirty would throw away their local bake every contact frame.
+      if (!objectGeometry[i].matrixMode) a.dirty = true;
+      if (!objectGeometry[j].matrixMode) b.dirty = true;
+    }
+  }
+}
+
+void TerrainGame::pushPhysicsBodies(float prevX, float prevZ, float nextX,
+                                    float nextZ, float feetY,
+                                    float eyeHeight) {
+  const float mx = nextX - prevX, mz = nextZ - prevZ;
+  const float m2 = mx * mx + mz * mz;
+  if (m2 < 1e-10F) return;
+  const int count = (int)runtimeObjects.size();
+  for (int i = 0; i < count; ++i) {
+    RuntimeObject& o = runtimeObjects[i];
+    if (!o.active || !o.data.physics || !physObstacle(o.data)) continue;
+
+    const GameModel* gm = nullptr;
+    const SkelModel* anim = nullptr;
+    if (o.data.type == 5) {
+      if (o.data.model >= 0 && o.data.model < (int)gameModels.size())
+        gm = &gameModels[o.data.model];
+      if (o.data.animModel >= 0 &&
+          o.data.animModel < (int)gameAnimModels.size())
+        anim = gameAnimModels[o.data.animModel].src.get();
+    }
+    float cOff[3], ext[3];
+    physExtents(o.data, gm, anim, cOff, ext);
+
+    // capsule overlap in Y (a body under our feet is floor, not a shove)
+    const float top = o.data.position[1] + cOff[1] + ext[1];
+    const float bottom = o.data.position[1] + cOff[1] - ext[1];
+    if (bottom > feetY + eyeHeight || top < feetY + 0.15F) continue;
+
+    const float radius = ext[0] > ext[2] ? ext[0] : ext[2];
+    const float dx = o.data.position[0] - nextX;
+    const float dz = o.data.position[2] - nextZ;
+    const float reach = radius + 0.45F;  // player radius + a skin
+    const float d2 = dx * dx + dz * dz;
+    if (d2 > reach * reach) continue;
+    if (dx * mx + dz * mz <= 0.0F) continue;  // walking away from it
+
+    const float inv = 1.0F / sqrtf(d2 > 1e-8F ? d2 : 1e-8F);
+    const float mass = o.data.physMass < 0.05F ? 0.05F : o.data.physMass;
+    const float push = sqrtf(m2) * PHYS_PUSH / mass;
+    o.velocityX += dx * inv * push;
+    o.velocityZ += dz * inv * push;
+    o.restFrames = 0;  // velocity-only change: the physics pass moves it
   }
 }
 
@@ -3629,6 +4774,100 @@ void TerrainGame::renderScene() {
     skyHorizonB = scriptCtx.skyColor.b;
     buildSkyDome();
   }
+  // Reflective materials: camera basis for the sphere-map STs. Matcap UVs
+  // from the camera-space normal - u along the camera's right, v (image
+  // space, 0 = top) against its up. The editor viewport shader and the VU1
+  // CalculateTyraEnvStq macro mirror this formula - keep them in sync.
+  V3 envFwd = {cameraLookAt.x - cameraPosition.x,
+               cameraLookAt.y - cameraPosition.y,
+               cameraLookAt.z - cameraPosition.z};
+  {
+    const float l =
+        sqrtf(envFwd.x * envFwd.x + envFwd.y * envFwd.y + envFwd.z * envFwd.z);
+    if (l > 0.0001F) envFwd.x /= l, envFwd.y /= l, envFwd.z /= l;
+  }
+  V3 envRight = {-envFwd.z, 0.0F, envFwd.x};  // cross(fwd, worldUp)
+  {
+    const float l = sqrtf(envRight.x * envRight.x + envRight.z * envRight.z);
+    if (l > 0.0001F)
+      envRight.x /= l, envRight.z /= l;
+    else
+      envRight = {1.0F, 0.0F, 0.0F};  // looking straight up/down
+  }
+  const V3 envUp = {envRight.y * envFwd.z - envRight.z * envFwd.y,
+                    envRight.z * envFwd.x - envRight.x * envFwd.z,
+                    envRight.x * envFwd.y - envRight.y * envFwd.x};
+
+  // Dynamic env map ("@sky" materials): render the sky dome into the
+  // engine's 128x128 VRAM target from a level wide-FOV view along the
+  // camera forward - the GT3 trick, reflections follow the live sky (script
+  // retints included). Runs before any main-frame 3D so the raster redirect
+  // brackets only the dome submission. Refreshed every SECOND frame (also
+  // the GT3 trick): the target persists in VRAM, and a 25/30 Hz update of
+  // a blurry 128px reflection is imperceptible while the pass costs a
+  // couple of ms per hit on real hardware.
+  static bool envMapTick = false;  // first frame MUST render (fresh VRAM)
+  envMapTick = !envMapTick;
+  if (g_dynamicEnvUsers > 0 && skyDome.bag && envMapTick) {
+    auto& core = engine->renderer.core;
+    skyMat.identity();
+    skyMat.data[12] = cameraPosition.x;
+    skyMat.data[13] = cameraPosition.y;
+    skyMat.data[14] = cameraPosition.z;
+    // Level forward: keeps the sphere map's horizon on its center line.
+    V3 lvl = {envFwd.x, 0.0F, envFwd.z};
+    const float ll = sqrtf(lvl.x * lvl.x + lvl.z * lvl.z);
+    if (ll > 0.0001F)
+      lvl.x /= ll, lvl.z /= ll;
+    else
+      lvl = {1.0F, 0.0F, 0.0F};
+    Vec4 envLook(cameraPosition.x + lvl.x, cameraPosition.y,
+                 cameraPosition.z + lvl.z, 1.0F);
+    core.envMap.begin(Color(scriptCtx.skyColor.r, scriptCtx.skyColor.g,
+                            scriptCtx.skyColor.b, 128.0F));
+    core.renderer3D.pushEnvView(cameraPosition, envLook, 110.0F,
+                                (float)Tyra::RendererCoreEnvMap::size);
+    const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
+    skyDome.infoBag->zTestType = PipelineZTest_AllPass;
+    stapip.core.render(skyDome.bag.get());
+    skyDome.infoBag->zTestType = prevZTest;
+    // "Show in reflections" objects render into the map too - base passes
+    // only (no env pass inside the env pass), depth-tested against the
+    // target's dedicated z-buffer so they occlude each other correctly.
+    for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
+      RuntimeObject& ro = runtimeObjects[ri];
+      if (!ro.active || !ro.visible || !ro.data.reflected) continue;
+      // Skip the object the camera is standing at: it would swamp the whole
+      // map - typically the very reflective surface being inspected, whose
+      // own dark self-reflection reads as ugly patches up close. (Bounding
+      // radius approximated from the scale; unit primitives fit a 1x1x1
+      // cube, so half-diagonal = 0.87 * max scale.)
+      {
+        float half = ro.data.scale[0];
+        if (ro.data.scale[1] > half) half = ro.data.scale[1];
+        if (ro.data.scale[2] > half) half = ro.data.scale[2];
+        const float skipR = 0.87F * half * 1.9F;
+        const float sdx = ro.data.position[0] - cameraPosition.x;
+        const float sdy = ro.data.position[1] - cameraPosition.y;
+        const float sdz = ro.data.position[2] - cameraPosition.z;
+        if (sdx * sdx + sdy * sdy + sdz * sdz < skipR * skipR) continue;
+      }
+      if (ro.dirty) rebuildObjectGeometry(ri);
+      if (objectGeometry[ri].matrixMode) updateObjMat(ri);
+      for (GeoPart& part : objectGeometry[ri].parts)
+        if (part.bag) stapip.core.render(part.bag.get());
+    }
+    core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+    core.envMap.end();
+  }
+
+  // Portal through-view: rendered IN-PLACE into the real framebuffer at
+  // full resolution, every frame (the view must stay in lockstep with the
+  // player camera or the surface visibly lags). Must run right after the
+  // frame clear, before any main-scene 3D - the z-carved opening survives
+  // the main scene drawing around it (see renderPortalView).
+  renderPortalView();
+
   if (skyDome.bag) {
     // Follow the camera: park the dome's centre on the eye so however big the
     // map is, the horizon and zenith always wrap around the player. Only the
@@ -3652,6 +4891,14 @@ void TerrainGame::renderScene() {
   // repaint - two exact-clip passes per frame). OVERLAY mode: the body draws
   // normally in the main pass and the shells are painted ON it afterwards, so
   // it stays in this list only for the shell pass.
+  auto renderEnvPass = [&](GeoPart& part) {
+    if (!part.envBag) return;
+    // TCE programs compute the matcap ST on VU1 - the EE only refreshes the
+    // per-mesh camera basis here.
+    part.envTexBag->envRight.set(envRight.x, envRight.y, envRight.z, 0.0F);
+    part.envTexBag->envUp.set(envUp.x, envUp.y, envUp.z, 0.0F);
+    stapip.core.render(part.envBag.get());
+  };
   int hlList[8];
   float hlListD2[8];
   int hlCount = 0;
@@ -3660,8 +4907,19 @@ void TerrainGame::renderScene() {
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (!runtimeObjects[i].active) continue;  // streamed out with its layer
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
+    // Fast-path bodies: this matrix refresh is their whole per-frame render
+    // cost - it also folds in pass-2 separations and player pushes applied
+    // after the physics integration wrote the matrix.
+    if (objectGeometry[i].matrixMode) updateObjMat(i);
     if (!runtimeObjects[i].visible) continue;
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
+    // mirrors draw after the scene (copies first, then the blended glass -
+    // see renderMirrors); drawing the quad here would z-write the plane and
+    // reject the reflected geometry behind it. Portals blend their tinted
+    // surface after the scene too (renderPortals), with the live
+    // through-view projected over it.
+    if (runtimeObjects[i].data.type == 15 || runtimeObjects[i].data.type == 16)
+      continue;
     if (hlActive && hlCount < 8 && runtimeObjects[i].data.usable &&
         highlightInReach(i)) {
       const float ddx = runtimeObjects[i].data.position[0] - cameraPosition.x;
@@ -3672,11 +4930,21 @@ void TerrainGame::renderScene() {
       if (!hlOverlay) continue;  // rim: defer body; overlay: draw it now
     }
     for (GeoPart& part : objectGeometry[i].parts)
-      if (part.bag) stapip.core.render(part.bag.get());
+      if (part.bag) {
+        stapip.core.render(part.bag.get());
+        renderEnvPass(part);
+      }
   }
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
   updateAndRenderAnimObjects();
+  // Mirrors after the whole scene (including the skinned avatars their
+  // copies re-use): reflected copies first, glass quads blended over them
+  renderMirrors();
+  // Portals after the mirrors: tinted quads blended over the finished
+  // scene, then the live through-view projected onto the winner's surface
+  // (z-tested against the scene, so walls still occlude the portal).
+  renderPortals();
   if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - profScene0;
   // Highlight shells after the whole scene so they depth-test against the
   // finished z-buffer and can't be punched through by a later draw. Sorted
@@ -3702,7 +4970,10 @@ void TerrainGame::renderScene() {
       // scene, not highlight overhead.
       const u32 pb = DEBUG_SHOW_PROFILER ? profTicks() : 0;
       for (GeoPart& part : objectGeometry[i].parts)
-        if (part.bag) stapip.core.render(part.bag.get());
+        if (part.bag) {
+          stapip.core.render(part.bag.get());
+          renderEnvPass(part);
+        }
       if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - pb;
     }
   }
@@ -3711,6 +4982,821 @@ void TerrainGame::renderScene() {
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
+}
+
+// Mirror objects (type 15): the PS2-era mirror. Every listed target is
+// submitted a SECOND time under a reflection matrix about the glass plane -
+// VU1 re-transforms the target's live vertex arrays (the same trick as the
+// highlight shells re-submitting under hullMat), so the EE never touches a
+// vertex and moving or animated targets reflect their current frame for
+// free. The copies are real geometry on the far side of the plane: build
+// the mirror into a wall (or give it a backing) so only the glass reveals
+// them. Winding flips under a reflection, but the GS draws both faces, so
+// no triangle reordering is needed. Draw order: copies first (plain
+// z-tested scene geometry), then the tinted glass quad alpha-blends over
+// them; highlight shells and particles still sort on top afterwards.
+void TerrainGame::renderMirrors() {
+  for (int mi = 0; mi < MIRROR_COUNT; ++mi) {
+    const MirrorData& mir = MIRRORS[mi];
+    if (mir.scene != currentScene || mir.object < 0 ||
+        mir.object >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[mir.object];
+    if (!m.active || !m.visible) continue;
+    if (beyondDrawDistance(m.data, cameraPosition)) continue;
+
+    // Householder reflection about the glass plane (normal = the mirror's
+    // rotated +Z, through its live position): x' = x - 2*((x . n) - d) * n
+    V3 n = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+    const float nl = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
+    if (nl > 0.0001F) n.x /= nl, n.y /= nl, n.z /= nl;
+    const float d = n.x * m.data.position[0] + n.y * m.data.position[1] +
+                    n.z * m.data.position[2];
+    mirrorMat.identity();
+    mirrorMat.data[0] = 1.0F - 2.0F * n.x * n.x;
+    mirrorMat.data[1] = -2.0F * n.x * n.y;
+    mirrorMat.data[2] = -2.0F * n.x * n.z;
+    mirrorMat.data[4] = -2.0F * n.x * n.y;
+    mirrorMat.data[5] = 1.0F - 2.0F * n.y * n.y;
+    mirrorMat.data[6] = -2.0F * n.y * n.z;
+    mirrorMat.data[8] = -2.0F * n.x * n.z;
+    mirrorMat.data[9] = -2.0F * n.y * n.z;
+    mirrorMat.data[10] = 1.0F - 2.0F * n.z * n.z;
+    mirrorMat.data[12] = 2.0F * d * n.x;
+    mirrorMat.data[13] = 2.0F * d * n.y;
+    mirrorMat.data[14] = 2.0F * d * n.z;
+
+    for (int t = 0; t < mir.targetCount; ++t)
+      renderMirroredObject(MIRROR_TARGETS[mir.firstTarget + t]);
+    if (mir.reflectPlayer) {
+      // only a visible body reflects: the third-person avatar is a normal
+      // runtime object (visible only in mode 2), so the FPP player - no
+      // body - is skipped by the visibility check inside
+      const int pi = PLAYER_INDEXES[currentScene];
+      if (pi >= 0) renderMirroredObject(pi);
+    }
+
+    // the glass quad itself, alpha-blended over the copies (its vertex
+    // alpha carries the opacity - see rebuildObjectGeometry case 15)
+    for (GeoPart& part : objectGeometry[mir.object].parts)
+      if (part.bag) stapip.core.render(part.bag.get());
+  }
+}
+
+// One reflected copy: re-submit the target's live bags under mirrorMat.
+// Static parts hold world-space vertices (the reflection maps world to
+// world); animated parts hold model-space vertices under animMat, so the
+// copy composes reflection * animMat. The swapped-in matrix pointer is
+// consumed during render() (packets are built synchronously - the highlight
+// shells rewrite hullMat between submits on the same fact), so restoring it
+// right after the call is safe.
+void TerrainGame::renderMirroredObject(int index) {
+  if (index < 0 || index >= (int)runtimeObjects.size()) return;
+  RuntimeObject& o = runtimeObjects[index];
+  // no mirror-in-mirror: a mirror listing another mirror would recurse the
+  // illusion with a matrix that is only valid for the outer plane
+  if (!o.active || !o.visible || o.data.type == 15) return;
+  if (beyondDrawDistance(o.data, cameraPosition)) return;
+  ObjectGeometry& g = objectGeometry[index];
+  // Fast-path bodies hold local vertices under objMat - the copy composes
+  // reflection * objMat, exactly like the animated path right below.
+  if (g.matrixMode) mirrorObjMat = mirrorMat * g.objMat;
+  for (GeoPart& part : g.parts) {
+    if (!part.bag) continue;
+    part.infoBag->model = g.matrixMode ? &mirrorObjMat : &mirrorMat;
+    stapip.core.render(part.bag.get());
+    part.infoBag->model = g.matrixMode ? &g.objMat : &model;
+  }
+  if (g.animInfoBag && !g.animParts.empty()) {
+    // The anim bags point at whatever updateAndRenderAnimObjects last
+    // skinned - an on-screen target reflects its exact current pose; a
+    // target that skipped this frame's skinning reflects its held pose.
+    mirrorAnimMat = mirrorMat * g.animMat;
+    g.animInfoBag->model = &mirrorAnimMat;
+    for (ObjectGeometry::AnimPart& ap : g.animParts)
+      if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+    g.animInfoBag->model = &g.animMat;
+  }
+}
+
+// Portal objects (type 16): a PS2-honest take on the seamless portal. The
+// through-view is a real second render - the player camera mapped through
+// the pair (so it is always in sync with the player's), drawn into the
+// engine's 128x128 portal VRAM target through the normal VU1 static
+// pipeline (transform/clip on VU1, camera math on the VU0-macro Vec4/M4x4
+// ops). The surface then samples that target with SCREEN-LOCKED UVs: since
+// the virtual camera shares the main camera's fov/aspect, the destination
+// appears in the target exactly where the portal quad sits on screen, so
+// sampling at the fragment's own screen position yields correct
+// parallax - no reprojection per pixel, just one textured fan. Budget: ONE
+// portal view per frame (the nearest linked portal the camera faces);
+// every other portal shows its tinted quad. The teleport (updatePortals)
+// uses the same mapping, so what you see through the surface is exactly
+// where you arrive.
+
+// The player camera mapped through the portal pair: world -> source local
+// frame -> 180 deg flip about local Y (walk INTO the front, come OUT of the
+// target's front) -> target frame -> world.
+bool TerrainGame::portalCamera(int pi, Vec4* outEye, Vec4* outAt) {
+  const PortalData& p = PORTALS[pi];
+  if (p.target < 0 || p.target >= (int)runtimeObjects.size()) return false;
+  RuntimeObject& src = runtimeObjects[p.object];
+  RuntimeObject& dst = runtimeObjects[p.target];
+  if (!dst.active) return false;
+  const V3 sxA = rotated({1.0F, 0.0F, 0.0F}, src.data.rotation);
+  const V3 syA = rotated({0.0F, 1.0F, 0.0F}, src.data.rotation);
+  const V3 szA = rotated({0.0F, 0.0F, 1.0F}, src.data.rotation);
+  const V3 dxA = rotated({1.0F, 0.0F, 0.0F}, dst.data.rotation);
+  const V3 dyA = rotated({0.0F, 1.0F, 0.0F}, dst.data.rotation);
+  const V3 dzA = rotated({0.0F, 0.0F, 1.0F}, dst.data.rotation);
+  auto mapPoint = [&](const Vec4& wp, Vec4* out) {
+    const float rx = wp.x - src.data.position[0];
+    const float ry = wp.y - src.data.position[1];
+    const float rz = wp.z - src.data.position[2];
+    // R^T: project onto the source axes (they are orthonormal)
+    float lx = rx * sxA.x + ry * sxA.y + rz * sxA.z;
+    const float ly = rx * syA.x + ry * syA.y + rz * syA.z;
+    float lz = rx * szA.x + ry * szA.y + rz * szA.z;
+    lx = -lx;  // the 180 deg flip about local Y
+    lz = -lz;
+    out->set(dst.data.position[0] + dxA.x * lx + dyA.x * ly + dzA.x * lz,
+             dst.data.position[1] + dxA.y * lx + dyA.y * ly + dzA.y * lz,
+             dst.data.position[2] + dxA.z * lx + dyA.z * ly + dzA.z * lz,
+             1.0F);
+  };
+  mapPoint(cameraPosition, outEye);
+  mapPoint(cameraLookAt, outAt);
+  return true;
+}
+
+// Render the through-view of the best on-screen portal IN-PLACE: full-res
+// into the real framebuffer, right after the frame clear and before any
+// main-scene 3D. The GS has no stencil, so the shaped opening is carved
+// with the z-buffer instead (RendererCore::portalViewBegin/End): the
+// destination view renders scissored to the quad's screen bbox, then the
+// bbox depths are re-farred, the quad interior is capped at the surface
+// depth (walls in front still occlude the view, the wall behind loses) and
+// the spilled ring outside the opening is repainted with the clear color.
+// The main scene then draws around it and the opening survives - crisp,
+// no texture resample, no seam. Content = sky dome + terrain (portal's
+// showTerrain flag) plus the explicit view-object list - the Mirror
+// philosophy: the second-render cost is always visible to the author.
+// Animated targets re-use their last skinned pose (skinning runs later in
+// the frame).
+void TerrainGame::renderPortalView() {
+  if ((int)portalLiveFlags.size() != PORTAL_COUNT)
+    portalLiveFlags.assign(PORTAL_COUNT ? PORTAL_COUNT : 1, 0);
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) portalLiveFlags[pi] = 0;
+  if (PORTAL_COUNT == 0) return;
+  // Collect the qualifying portals (linked, alive, camera on the front
+  // side), nearest-first, and render up to four views. Carve order is
+  // FARTHEST first: where two openings overlap on screen, the nearer
+  // portal's bbox re-clears the farther's work and wins - the same rule
+  // real occlusion would give.
+  const int kMaxViews = 4;
+  int order[8];
+  float d2s[8];
+  int cnt = 0;
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+    if (p.object >= (int)runtimeObjects.size()) continue;
+    RuntimeObject& m = runtimeObjects[p.object];
+    if (!m.active || !m.visible) continue;
+    if (beyondDrawDistance(m.data, cameraPosition)) continue;
+    if (p.target >= (int)runtimeObjects.size() ||
+        !runtimeObjects[p.target].active)
+      continue;
+    // camera must be on the front (+Z) side - the back face never shows a view
+    const V3 n = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+    const float relX = cameraPosition.x - m.data.position[0];
+    const float relY = cameraPosition.y - m.data.position[1];
+    const float relZ = cameraPosition.z - m.data.position[2];
+    if (relX * n.x + relY * n.y + relZ * n.z <= 0.0F) continue;
+    const float d2 = relX * relX + relY * relY + relZ * relZ;
+    // bounded shortlist (no allocation): keep the 8 nearest candidates
+    if (cnt < 8) {
+      order[cnt] = pi;
+      d2s[cnt] = d2;
+      ++cnt;
+    } else {
+      int worst = 0;
+      for (int i = 1; i < 8; ++i)
+        if (d2s[i] > d2s[worst]) worst = i;
+      if (d2 < d2s[worst]) {
+        order[worst] = pi;
+        d2s[worst] = d2;
+      }
+    }
+  }
+  if (cnt == 0) return;
+  for (int a = 0; a < cnt; ++a)  // nearest-first
+    for (int b = a + 1; b < cnt; ++b)
+      if (d2s[b] < d2s[a]) {
+        const float td = d2s[a];
+        d2s[a] = d2s[b];
+        d2s[b] = td;
+        const int ti = order[a];
+        order[a] = order[b];
+        order[b] = ti;
+      }
+  const int views = cnt < kMaxViews ? cnt : kMaxViews;
+  for (int v = views - 1; v >= 0; --v) {  // farthest of the selected first
+    if (renderOnePortalView(order[v])) portalLiveFlags[order[v]] = 1;
+  }
+}
+
+// One in-place through-view. Returns true when the opening was actually
+// carved (the quad survived the frustum clip and its bbox is on screen).
+bool TerrainGame::renderOnePortalView(int pi) {
+  Vec4 eye, at;
+  if (!portalCamera(pi, &eye, &at)) return false;
+  const PortalData& p = PORTALS[pi];
+  RuntimeObject& m = runtimeObjects[p.object];
+
+  // The quad's screen footprint under the MAIN camera. Corners on the same
+  // +Z-nudged plane as the tint quad (addDecal's 0.02 local nudge), clipped
+  // in clip space against the near plane and the four screen edges
+  // (Sutherland-Hodgman, <=9 verts - a handful of flops on the EE), then
+  // projected to GS screen coordinates and reversed-z depths (the same
+  // mapping the VU1 path writes: near -> 0xFFFFFF).
+  const V3 ax = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+  const V3 ay = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+  const V3 az = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+  const float hx = 0.5F * m.data.scale[0];
+  const float hy = 0.5F * m.data.scale[1];
+  const float nz = 0.02F * m.data.scale[2];
+  const float cx = m.data.position[0] + az.x * nz;
+  const float cy = m.data.position[1] + az.y * nz;
+  const float cz = m.data.position[2] + az.z * nz;
+  const float sgnX[4] = {-1.0F, 1.0F, 1.0F, -1.0F};
+  const float sgnY[4] = {-1.0F, -1.0F, 1.0F, 1.0F};
+  const float fbW = engine->renderer.core.getSettings().getWidth();
+  const float fbH = engine->renderer.core.getSettings().getRenderHeightF();
+  // Heights above are RASTER heights: with field rendering
+  // (InterlacedField) the buffer is half height and the projection's
+  // raster scale is built at getRenderHeightF - screen-space math here
+  // must match it (getHeight would land the mask a field off).
+
+  float xy[24];
+  u32 zz[12];
+  int n = 0;
+  int bx0, by0, bx1, by1;
+
+  // Crossing zone: when the eye is a breath away from the plane, inside
+  // the rectangle and looking INTO the surface, parts of the quad fall
+  // behind the near plane, the clipped fan shrinks and the world behind
+  // the free-standing surface peeks around it for a frame or two - the
+  // "looking through two portals at once" pop right at the crossing
+  // moment. In that zone the opening simply becomes the WHOLE screen at
+  // the nearest depth: the destination fills the view, exactly what
+  // standing in the doorway should look like.
+  {
+    const float relX = cameraPosition.x - m.data.position[0];
+    const float relY = cameraPosition.y - m.data.position[1];
+    const float relZ = cameraPosition.z - m.data.position[2];
+    const float lz = relX * az.x + relY * az.y + relZ * az.z;
+    const float lx = relX * ax.x + relY * ax.y + relZ * ax.z;
+    const float ly = relX * ay.x + relY * ay.y + relZ * ay.z;
+    const float thresh =
+        engine->renderer.core.getSettings().getNear() * 2.0F + 0.45F;
+    Vec4 fwd = cameraLookAt - cameraPosition;
+    const float into = -(fwd.x * az.x + fwd.y * az.y + fwd.z * az.z);
+    if (lz > 0.0F && lz < thresh && lx > -hx - 0.3F && lx < hx + 0.3F &&
+        ly > -hy - 0.3F && ly < hy + 0.3F && into > 0.0F) {
+      n = 4;
+      xy[0] = 0.0F;
+      xy[1] = 0.0F;
+      xy[2] = fbW;
+      xy[3] = 0.0F;
+      xy[4] = fbW;
+      xy[5] = fbH;
+      xy[6] = 0.0F;
+      xy[7] = fbH;
+      for (int i = 0; i < 4; ++i) zz[i] = 0xFFFFFFu;
+      bx0 = 0;
+      by0 = 0;
+      bx1 = (int)fbW;
+      by1 = (int)fbH;
+    }
+  }
+
+  if (n == 0) {
+    const M4x4& vp = engine->renderer.core.renderer3D.getViewProj();
+    Vec4 poly[12], tmp[12];
+    n = 4;
+    for (int i = 0; i < 4; ++i) {
+      const float wx = cx + ax.x * hx * sgnX[i] + ay.x * hy * sgnY[i];
+      const float wy = cy + ax.y * hx * sgnX[i] + ay.y * hy * sgnY[i];
+      const float wz = cz + ax.z * hx * sgnX[i] + ay.z * hy * sgnY[i];
+      poly[i] = vp * Vec4(wx, wy, wz, 1.0F);
+    }
+    // Frustum edges sit at |x| = w * screenW/4096 in this projection (the
+    // VU1 pipeline's fixed 2048 scale), NOT at |x| = w; small margin - the
+    // GS scissor finishes the job.
+    const float xl = fbW / 4096.0F * 1.06F;
+    const float yl = fbH / 4096.0F * 1.06F;
+    const float wMin = engine->renderer.core.getSettings().getNear() * 0.5F;
+    for (int plane = 0; plane < 5 && n >= 3; ++plane) {
+      auto dist = [&](const Vec4& v) -> float {
+        switch (plane) {
+          case 0: return v.w - wMin;
+          case 1: return xl * v.w - v.x;
+          case 2: return xl * v.w + v.x;
+          case 3: return yl * v.w - v.y;
+          default: return yl * v.w + v.y;
+        }
+      };
+      int outN = 0;
+      for (int i = 0; i < n; ++i) {
+        const Vec4& a = poly[i];
+        const Vec4& b = poly[(i + 1) % n];
+        const float da = dist(a);
+        const float db = dist(b);
+        if (da >= 0.0F) tmp[outN++] = a;
+        if ((da >= 0.0F) != (db >= 0.0F)) {
+          const float t = da / (da - db);
+          tmp[outN++] = Vec4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t,
+                             a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t);
+        }
+      }
+      n = outN;
+      for (int i = 0; i < n; ++i) poly[i] = tmp[i];
+    }
+    if (n < 3) return false;
+
+    float minX = 1e30F, minY = 1e30F, maxX = -1e30F, maxY = -1e30F;
+    for (int i = 0; i < n; ++i) {
+      const float inv = 1.0F / poly[i].w;
+      const float sx = fbW * 0.5F + poly[i].x * inv * 2048.0F;
+      const float sy = fbH * 0.5F + poly[i].y * inv * 2048.0F;
+      xy[i * 2] = sx;
+      xy[i * 2 + 1] = sy;
+      if (sx < minX) minX = sx;
+      if (sx > maxX) maxX = sx;
+      if (sy < minY) minY = sy;
+      if (sy > maxY) maxY = sy;
+      float zf = (poly[i].z * inv + 1.0F) * 8388607.5F;
+      if (zf < 0.0F) zf = 0.0F;
+      if (zf > 16777215.0F) zf = 16777215.0F;
+      zz[i] = (u32)zf;
+    }
+    bx0 = (int)minX;
+    by0 = (int)minY;
+    bx1 = (int)maxX + 1;
+    by1 = (int)maxY + 1;
+    if (bx1 <= 0 || by1 <= 0 || bx0 >= (int)fbW || by0 >= (int)fbH)
+      return false;
+  }
+
+  // Dead zone: the virtual camera sits BEHIND the exit plane (the
+  // isometry puts it there), and the PS2 has no oblique near plane to
+  // clip what lies between the two - through a real hole that region is
+  // invisible. Terrain chunks (renderTerrain) and view objects fully on
+  // the camera side of the target plane are skipped.
+  RuntimeObject& tgt = runtimeObjects[p.target];
+  const V3 exitN = rotated({0.0F, 0.0F, 1.0F}, tgt.data.rotation);
+  const float exitD = exitN.x * tgt.data.position[0] +
+                      exitN.y * tgt.data.position[1] +
+                      exitN.z * tgt.data.position[2];
+  portalExitPlane[0] = exitN.x;
+  portalExitPlane[1] = exitN.y;
+  portalExitPlane[2] = exitN.z;
+  portalExitPlane[3] = exitD;
+  portalExitPlaneOn = true;
+
+  auto& core = engine->renderer.core;
+  core.portalViewBegin(bx0, by0, bx1, by1);
+  // Same projection as the screen, only the view swaps to the virtual
+  // camera - the destination lands exactly where the opening is.
+  core.renderer3D.pushPortalView(eye, at);
+  if (p.showTerrain) {
+    if (skyDome.bag) {
+      // dome parked on the VIRTUAL eye; the main pass re-centers it after
+      skyMat.identity();
+      skyMat.data[12] = eye.x;
+      skyMat.data[13] = eye.y;
+      skyMat.data[14] = eye.z;
+      stapip.core.render(skyDome.bag.get());
+    }
+    // resident chunks only - the streaming ring follows the MAIN camera, so
+    // with terrain streaming on, keep the pair inside the streamed radius
+    renderTerrain();
+  }
+  // Billboard basis for THIS view: particles are camera-facing quads
+  // whose centers are view-independent, so the same bags redraw for the
+  // virtual camera once right/up are swapped (the VU1 billboard program
+  // reads them per mesh - see updateParticles). Rain (kind 4) keeps
+  // world-up like the main pass. Each emitter's basis is restored to what
+  // it held (the main-camera basis updateParticles set) right after its
+  // draw, so the frame's final main-pass particle render is unaffected.
+  Vec4 pvFwd = at - eye;
+  {
+    const float l = sqrtf(pvFwd.x * pvFwd.x + pvFwd.y * pvFwd.y +
+                          pvFwd.z * pvFwd.z);
+    if (l > 0.0001F) pvFwd.x /= l, pvFwd.y /= l, pvFwd.z /= l;
+  }
+  float pvRx = pvFwd.z, pvRz = -pvFwd.x;
+  {
+    const float l = sqrtf(pvRx * pvRx + pvRz * pvRz);
+    if (l > 0.0001F) pvRx /= l, pvRz /= l;
+    else pvRx = 1.0F, pvRz = 0.0F;
+  }
+  const Vec4 pvRight(pvRx, 0.0F, pvRz, 0.0F);
+  const Vec4 pvUp(-pvRz * pvFwd.y, pvRz * pvFwd.x - pvRx * pvFwd.z,
+                  pvRx * pvFwd.y, 0.0F);
+
+  // One view object: base bags + (animated) last skinned pose + (emitter)
+  // its particle billboards under the virtual basis. No portal-in-portal:
+  // the recursion would re-carve the very opening being rendered (mirrors
+  // draw only their glass here - the reflected copies are a main-pass
+  // trick that would need its own bracket).
+  auto renderViewObject = [&](int ti) {
+    if (ti < 0 || ti >= (int)runtimeObjects.size()) return;
+    RuntimeObject& ro = runtimeObjects[ti];
+    if (!ro.active || !ro.visible || ro.data.type == 16) return;
+    {
+      // Skip objects entirely behind the exit mouth (dead zone above).
+      // The extent along the plane normal is the exact OBB projection -
+      // a crude max-axis radius made a WIDE thin wall count as "reaching
+      // through" its own thickness (a wall the target portal is mounted
+      // on filled the whole view with its backside; owner report). The
+      // 0.1 slack keeps a flush-mounted wall (portal quad nudged 0.02 in
+      // front of it) classified as behind; geometry genuinely poking
+      // through the plane still renders.
+      const V3 oax = rotated({1.0F, 0.0F, 0.0F}, ro.data.rotation);
+      const V3 oay = rotated({0.0F, 1.0F, 0.0F}, ro.data.rotation);
+      const V3 oaz = rotated({0.0F, 0.0F, 1.0F}, ro.data.rotation);
+      const float r =
+          fabsf(exitN.x * oax.x + exitN.y * oax.y + exitN.z * oax.z) * 0.5F *
+              ro.data.scale[0] +
+          fabsf(exitN.x * oay.x + exitN.y * oay.y + exitN.z * oay.z) * 0.5F *
+              ro.data.scale[1] +
+          fabsf(exitN.x * oaz.x + exitN.y * oaz.y + exitN.z * oaz.z) * 0.5F *
+              ro.data.scale[2];
+      const float sd = exitN.x * ro.data.position[0] +
+                       exitN.y * ro.data.position[1] +
+                       exitN.z * ro.data.position[2] - exitD;
+      if (sd < -r + 0.1F) return;
+    }
+    if (ro.data.type == 7) {
+      // Emitter: redraw its live particle billboards from the virtual
+      // camera. Centers are view-independent; only right/up change.
+      for (ParticleSystem& ps : particles) {
+        if (ps.objectIndex != ti || !ps.bag || ps.bag->count == 0) continue;
+        const Vec4 savedR = ps.billboardBag->right;
+        const Vec4 savedU = ps.billboardBag->up;
+        ps.billboardBag->right = pvRight;
+        ps.billboardBag->up = ro.data.emitKind == 4 ? Vec4(0.0F, 1.0F, 0.0F, 0.0F)
+                                                    : pvUp;
+        stapip.core.render(ps.bag.get());
+        ps.billboardBag->right = savedR;  // main pass draws these again later
+        ps.billboardBag->up = savedU;
+      }
+      return;  // emitters have no geometry/anim parts
+    }
+    if (ro.dirty) rebuildObjectGeometry(ti);
+    ObjectGeometry& g = objectGeometry[ti];
+    for (GeoPart& part : g.parts)
+      if (part.bag) stapip.core.render(part.bag.get());
+    if (g.animInfoBag)
+      for (ObjectGeometry::AnimPart& ap : g.animParts)
+        if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+  };
+  if (p.viewAll) {
+    // Experimental "all objects in view": submit the whole scene a second
+    // time. The pushed frustum planes classify every bag against the
+    // VIRTUAL camera (off-view geometry drops EE-side before packaging)
+    // and draw distances are measured from the virtual eye, so the real
+    // cost is what the destination actually sees - still, big scenes pay
+    // for this; the authored list stays the shipping-quality default.
+    for (int ti = 0; ti < (int)runtimeObjects.size(); ++ti) {
+      if (runtimeObjects[ti].data.type == 15) continue;  // glass-only anyway
+      if (beyondDrawDistance(runtimeObjects[ti].data, eye)) continue;
+      renderViewObject(ti);
+    }
+  } else {
+    for (int v = 0; v < p.viewCount; ++v)
+      renderViewObject(PORTAL_VIEW_OBJECTS[p.firstView + v]);
+  }
+  portalExitPlaneOn = false;
+  core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt));
+  core.portalViewEnd(xy, zz, n, (u8)scriptCtx.skyColor.r,
+                     (u8)scriptCtx.skyColor.g, (u8)scriptCtx.skyColor.b);
+  return true;
+}
+
+// Blend the tinted quads of every portal EXCEPT the live ones over the
+// finished scene (a live portal's opening already shows the through-view
+// carved by renderPortalView - a tint over it would wash the image).
+void TerrainGame::renderPortals() {
+  if (PORTAL_COUNT == 0) return;
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    if (pi < (int)portalLiveFlags.size() && portalLiveFlags[pi]) continue;
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 ||
+        p.object >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[p.object];
+    if (!m.active || !m.visible) continue;
+    if (beyondDrawDistance(m.data, cameraPosition)) continue;
+    for (GeoPart& part : objectGeometry[p.object].parts)
+      if (part.bag) stapip.core.render(part.bag.get());
+  }
+}
+
+// Floor-portal swallowing (owner's suggestion): while a body touches a
+// linked floor portal (front normal pointing up), it stops colliding with
+// the TERRAIN - the ground clamp would otherwise rest it on the terrain
+// before it can reach the crossing plane, so a portal lying on the ground
+// could never swallow anything. Restricted to floor portals (wall/ceiling
+// surfaces never need it) and to the portal's rectangle footprint; the
+// zone spans a little above the plane (the approach) and below it (the
+// straddle while the crossing probe travels) - the teleport fires long
+// before the body leaves the zone downward.
+bool TerrainGame::portalSwallowZone(const RuntimeObject& m, float hx, float hy,
+                                    float x, float y, float z) {
+  const V3 azS = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+  if (azS.y < 0.5F) return false;  // floor portals only
+  const V3 axS = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+  const V3 ayS = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+  const float rx = x - m.data.position[0];
+  const float ry = y - m.data.position[1];
+  const float rz = z - m.data.position[2];
+  const float lx = rx * axS.x + ry * axS.y + rz * axS.z;
+  const float ly = rx * ayS.x + ry * ayS.y + rz * ayS.z;
+  const float lz = rx * azS.x + ry * azS.y + rz * azS.z;
+  return lz > -0.6F && lz < 2.0F && lx > -hx && lx < hx && ly > -hy &&
+         ly < hy;
+}
+
+bool TerrainGame::portalSwallowsPlayer(float x, float feetY, float z) {
+  if (PORTAL_COUNT == 0) return false;
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+    if (p.object >= (int)runtimeObjects.size() ||
+        p.target >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[p.object];
+    if (!m.active || !m.visible || !runtimeObjects[p.target].active) continue;
+    const float hx = 0.5F * m.data.scale[0] + 0.25F;
+    const float hy = 0.5F * m.data.scale[1] + 0.25F;
+    // feet AND waist: the zone must hold while the body straddles the
+    // plane, or the ground clamp snaps the walker back mid-crossing
+    if (portalSwallowZone(m, hx, hy, x, feetY, z) ||
+        portalSwallowZone(m, hx, hy, x, feetY + 1.0F, z))
+      return true;
+  }
+  return false;
+}
+
+// Publishes the plane of the linked portal whose opening the walker's body
+// column currently sits in (any orientation - wall doorways included; feet
+// and waist probed like the crossing test). collidePlayer then ignores
+// objects fully behind that plane: the mounting wall opens up, geometry in
+// front of or poking through the surface still collides. Off when the
+// column is outside every opening - the same wall blocks normally beside
+// its portal.
+void TerrainGame::updatePortalPass(float x, float feetY, float z) {
+  portalPassOn = false;
+  if (PORTAL_COUNT == 0) return;
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+    if (p.object >= (int)runtimeObjects.size() ||
+        p.target >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[p.object];
+    if (!m.active || !m.visible || !runtimeObjects[p.target].active) continue;
+    const V3 axS = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+    const V3 ayS = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+    const V3 azS = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+    const float hx = 0.5F * m.data.scale[0] + 0.25F;
+    const float hy = 0.5F * m.data.scale[1] + 0.25F;
+    auto inZone = [&](float wy) {
+      const float rx = x - m.data.position[0];
+      const float ry = wy - m.data.position[1];
+      const float rz = z - m.data.position[2];
+      const float lx = rx * axS.x + ry * axS.y + rz * axS.z;
+      const float ly = rx * ayS.x + ry * ayS.y + rz * ayS.z;
+      const float lz = rx * azS.x + ry * azS.y + rz * azS.z;
+      return lz > -0.6F && lz < 1.2F && lx > -hx && lx < hx && ly > -hy &&
+             ly < hy;
+    };
+    if (inZone(feetY) || inZone(feetY + 1.0F)) {
+      portalPassPlane[0] = azS.x;
+      portalPassPlane[1] = azS.y;
+      portalPassPlane[2] = azS.z;
+      portalPassPlane[3] = azS.x * m.data.position[0] +
+                           azS.y * m.data.position[1] +
+                           azS.z * m.data.position[2];
+      portalPassOn = true;
+      return;
+    }
+  }
+}
+
+// Portal crossings. The player probes with TWO segments: a "waist" point
+// (feet + up to 1 unit, capped by eyeH - door-sized wall surfaces trigger
+// naturally, a noclip camera probes its own position) and the FEET (so
+// jumping/dropping into a floor portal triggers even while the waist stays
+// above the plane); physics objects test their center. A crossing = the
+// probe segment pierced the front (+Z) face inside the rectangle this
+// frame. Position, view direction and vertical velocity map through the
+// pair exactly like portalCamera, with NO exit offset - the isometry
+// carries the overshoot past the target plane, so the hop is continuous
+// (an offset read as a one-frame camera pop on hardware). The walkers keep
+// no horizontal velocity state, so a tilted pair carries only the vertical
+// component (yaw-rotated pairs, the common teleporter, lose nothing).
+// Returns true when the player teleported (the frame camera is rebuilt here
+// so no frame ever renders from the departure side).
+bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
+                                float* px, float* py, float* pz, float* pyaw,
+                                float* ppitch, float* pvelY, float eyeH) {
+  if (PORTAL_COUNT == 0) return false;
+  const bool freshPrev =
+      (int)portalPrevPos.size() != (int)runtimeObjects.size() * 3;
+  if (freshPrev) portalPrevPos.resize(runtimeObjects.size() * 3);
+  bool playerTeleported = false;
+  const float probeLift = eyeH > 1.0F ? 1.0F : eyeH;
+
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    const PortalData& p = PORTALS[pi];
+    if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+    if (p.object >= (int)runtimeObjects.size() ||
+        p.target >= (int)runtimeObjects.size())
+      continue;
+    RuntimeObject& m = runtimeObjects[p.object];
+    RuntimeObject& t = runtimeObjects[p.target];
+    if (!m.active || !m.visible || !t.active) continue;
+
+    const V3 sxA = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+    const V3 syA = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+    const V3 szA = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+    const V3 dxA = rotated({1.0F, 0.0F, 0.0F}, t.data.rotation);
+    const V3 dyA = rotated({0.0F, 1.0F, 0.0F}, t.data.rotation);
+    const V3 dzA = rotated({0.0F, 0.0F, 1.0F}, t.data.rotation);
+    // a little slack around the authored rectangle - brushing the frame
+    // edge should not drop the player onto the wall the portal is built in
+    const float hx = 0.5F * m.data.scale[0] + 0.25F;
+    const float hy = 0.5F * m.data.scale[1] + 0.25F;
+    auto localOf = [&](float wxx, float wyy, float wzz, float* lx, float* ly,
+                       float* lz) {
+      const float rx = wxx - m.data.position[0];
+      const float ry = wyy - m.data.position[1];
+      const float rz = wzz - m.data.position[2];
+      *lx = rx * sxA.x + ry * sxA.y + rz * sxA.z;
+      *ly = rx * syA.x + ry * syA.y + rz * syA.z;
+      *lz = rx * szA.x + ry * szA.y + rz * szA.z;
+    };
+    // segment a->b pierced the front face inside the rectangle?
+    auto crossed = [&](float ax_, float ay_, float az_, float bx_, float by_,
+                       float bz_) -> bool {
+      float l0x, l0y, l0z, l1x, l1y, l1z;
+      localOf(ax_, ay_, az_, &l0x, &l0y, &l0z);
+      localOf(bx_, by_, bz_, &l1x, &l1y, &l1z);
+      if (!(l0z > 0.0F && l1z <= 0.0F)) return false;
+      const float tt = l0z / (l0z - l1z);
+      const float ix = l0x + (l1x - l0x) * tt;
+      const float iy = l0y + (l1y - l0y) * tt;
+      return ix > -hx && ix < hx && iy > -hy && iy < hy;
+    };
+    // world point / direction through the pair (flip about local Y)
+    auto mapPoint = [&](float wxx, float wyy, float wzz, float* ox, float* oy,
+                        float* oz) {
+      float lx, ly, lz;
+      localOf(wxx, wyy, wzz, &lx, &ly, &lz);
+      lx = -lx;
+      lz = -lz;
+      *ox = t.data.position[0] + dxA.x * lx + dyA.x * ly + dzA.x * lz;
+      *oy = t.data.position[1] + dxA.y * lx + dyA.y * ly + dzA.y * lz;
+      *oz = t.data.position[2] + dxA.z * lx + dyA.z * ly + dzA.z * lz;
+    };
+    auto mapDir = [&](float wxx, float wyy, float wzz, float* ox, float* oy,
+                      float* oz) {
+      float lx = wxx * sxA.x + wyy * sxA.y + wzz * sxA.z;
+      const float ly = wxx * syA.x + wyy * syA.y + wzz * syA.z;
+      float lz = wxx * szA.x + wyy * szA.y + wzz * szA.z;
+      lx = -lx;
+      lz = -lz;
+      *ox = dxA.x * lx + dyA.x * ly + dzA.x * lz;
+      *oy = dxA.y * lx + dyA.y * ly + dzA.y * lz;
+      *oz = dxA.z * lx + dyA.z * ly + dzA.z * lz;
+    };
+
+    // --- the player -------------------------------------------------------
+    // Two probe segments: the waist (feet + up to 1 unit - door-sized wall
+    // portals trigger naturally) and the FEET (dropping/jumping into a
+    // floor portal must trigger even while the waist stays above it).
+    const bool waistHit =
+        px && !playerTeleported &&
+        crossed(prevX, prevY + probeLift, prevZ, *px, *py + probeLift, *pz);
+    const bool feetHit = px && !playerTeleported && !waistHit &&
+                         crossed(prevX, prevY, prevZ, *px, *py, *pz);
+    if (waistHit || feetHit) {
+      // Map the feet position directly - the pair transform is an isometry,
+      // so the overshoot past the plane maps to the same overshoot past the
+      // target plane and the crossing is CONTINUOUS. No exit offset: it
+      // read as a one-frame camera pop on hardware, and the arrival already
+      // sits on the target's exit side moving away (a two-way pair can't
+      // re-trigger without genuinely walking back).
+      // vertical motion BEFORE the position is overwritten. Like the
+      // objects below, carry the ACTUAL motion this frame - the walker's
+      // ground clamp can zero velY on the very crossing frame.
+      float vy = *pvelY;
+      const float stepY = *py - prevY;
+      if (fabsf(stepY) > fabsf(vy)) vy = stepY;
+      float nx2, ny2, nz2;
+      mapPoint(*px, *py, *pz, &nx2, &ny2, &nz2);
+      *px = nx2;
+      *py = ny2;
+      *pz = nz2;
+      // view direction through the same mapping (walker convention:
+      // forward = (sin yaw * cos pitch, sin pitch, cos yaw * cos pitch))
+      float ndx, ndy, ndz;
+      mapDir(sinf(*pyaw) * cosf(*ppitch), sinf(*ppitch),
+             cosf(*pyaw) * cosf(*ppitch), &ndx, &ndy, &ndz);
+      *pyaw = atan2f(ndx, ndz);
+      float sp = ndy;
+      if (sp > 1.0F) sp = 1.0F;
+      if (sp < -1.0F) sp = -1.0F;
+      *ppitch = asinf(sp);
+      float nvx, nvy, nvz;
+      mapDir(0.0F, vy, 0.0F, &nvx, &nvy, &nvz);
+      *pvelY = nvy;
+      // rebuild this frame's camera from the arrival state
+      if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2) {
+        // third person: park the camera on the authored boom straight
+        // behind the avatar; the spring arm takes over next frame
+        const float bx = sinf(*pyaw), bz = cosf(*pyaw);
+        cameraPosition = Vec4(*px - bx * PLAYER_CAM_DIST,
+                              *py + PLAYER_CAM_HEIGHT + PLAYER_CAM_DIST * 0.25F,
+                              *pz - bz * PLAYER_CAM_DIST);
+        cameraLookAt = Vec4(*px, *py + PLAYER_CAM_HEIGHT, *pz);
+        camBoom = PLAYER_CAM_DIST;
+        entFaceYaw = *pyaw;
+      } else {
+        const float eyY = *py + eyeH;
+        cameraPosition = Vec4(*px, eyY, *pz);
+        cameraLookAt = Vec4(*px + sinf(*pyaw) * cosf(*ppitch),
+                            eyY + sinf(*ppitch),
+                            *pz + cosf(*pyaw) * cosf(*ppitch));
+      }
+      playerTeleported = true;
+    }
+
+    // --- physics objects (portal's "Teleport physics objects" flag) --------
+    if (p.teleportObjects && !freshPrev) {
+      for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+        RuntimeObject& ro = runtimeObjects[oi];
+        if (!ro.active || !ro.data.physics) continue;
+        if (oi == p.object || oi == p.target) continue;
+        if (PLAYER_INDEX >= 0 && oi == PLAYER_INDEX) continue;
+        const float* pp = &portalPrevPos[oi * 3];
+        if (pp[0] == ro.data.position[0] && pp[1] == ro.data.position[1] &&
+            pp[2] == ro.data.position[2])
+          continue;  // resting - cheap early out
+        if (!crossed(pp[0], pp[1], pp[2], ro.data.position[0],
+                     ro.data.position[1], ro.data.position[2]))
+          continue;
+        // Carry the object's ACTUAL motion this frame, not just velocityY:
+        // the physics ground clamp may have zeroed velocityY on this very
+        // frame (the step landed below the terrain snap height before this
+        // test ran), and an infinite-fall loop would hitch at the far end
+        // with v = 0 - the position delta still holds the real fall.
+        float vy = ro.velocityY;
+        const float stepY = ro.data.position[1] - pp[1];
+        if (fabsf(stepY) > fabsf(vy)) vy = stepY;
+        float nx2, ny2, nz2;
+        mapPoint(ro.data.position[0], ro.data.position[1],
+                 ro.data.position[2], &nx2, &ny2, &nz2);
+        // no exit offset - the mapped overshoot already sits past the
+        // target plane (continuity); the prev-pos stamp below stops the
+        // reverse link from reading the hop as another crossing
+        ro.data.position[0] = nx2;
+        ro.data.position[1] = ny2;
+        ro.data.position[2] = nz2;
+        float nvx, nvy, nvz;
+        mapDir(0.0F, vy, 0.0F, &nvx, &nvy, &nvz);
+        ro.velocityY = nvy;
+        ro.dirty = true;  // world-space bags rebuild at the arrival
+        // stamp the arrival as this object's new "previous" so the reverse
+        // link of a two-way pair can't see the same hop as a crossing
+        portalPrevPos[oi * 3] = ro.data.position[0];
+        portalPrevPos[oi * 3 + 1] = ro.data.position[1];
+        portalPrevPos[oi * 3 + 2] = ro.data.position[2];
+      }
+    }
+  }
+
+  // refresh the crossing history for the next frame
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    portalPrevPos[oi * 3] = runtimeObjects[oi].data.position[0];
+    portalPrevPos[oi * 3 + 1] = runtimeObjects[oi].data.position[1];
+    portalPrevPos[oi * 3 + 2] = runtimeObjects[oi].data.position[2];
+  }
+  return playerTeleported;
 }
 
 // True when the usable object sits inside the highlight distance (same
@@ -4059,6 +6145,23 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     if (iz > HM_D - 1) iz = HM_D - 1;
     return TERRAIN_HEIGHTS[iz * HM_W + ix];
   };
+  {
+    // Height extent over this chunk's vertex grid - the portal dead-zone
+    // test in renderTerrain does an exact AABB-vs-plane check with it.
+    const int mgx0 = cx * TERRAIN_CHUNK_CELLS;
+    const int mgz0 = cz * TERRAIN_CHUNK_CELLS;
+    const int mgx1 = mgx0 + TERRAIN_CHUNK_CELLS > cellsX ? cellsX
+                                                         : mgx0 + TERRAIN_CHUNK_CELLS;
+    const int mgz1 = mgz0 + TERRAIN_CHUNK_CELLS > cellsZ ? cellsZ
+                                                         : mgz0 + TERRAIN_CHUNK_CELLS;
+    ch.minY = ch.maxY = hAt(mgx0, mgz0);
+    for (int iz = mgz0; iz <= mgz1; ++iz)
+      for (int ix = mgx0; ix <= mgx1; ++ix) {
+        const float h = hAt(ix, iz);
+        if (h < ch.minY) ch.minY = h;
+        if (h > ch.maxY) ch.maxY = h;
+      }
+  }
   auto shadeAt = [&](int ix, int iz) -> V3 {
     V3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0F * (stepX < stepZ ? stepX : stepZ),
             hAt(ix, iz - 1) - hAt(ix, iz + 1)};
@@ -4271,9 +6374,42 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ, int budget) {
 }
 
 void TerrainGame::renderTerrain() {
-  for (TerrainChunk& ch : terrainChunks)
-    if (ch.cx >= 0 && ch.bag && ch.bag->count > 0)
-      stapip.core.render(ch.bag.get());
+  for (TerrainChunk& ch : terrainChunks) {
+    if (ch.cx < 0 || !ch.bag || ch.bag->count == 0) continue;
+    if (portalExitPlaneOn) {
+      // Portal through-view dead zone: skip chunks fully on the virtual
+      // camera's side of the exit plane - through a real hole that region
+      // is invisible, and with no oblique near plane on the PS2 it would
+      // otherwise render its backside INTO the opening (a floor->ceiling
+      // pair puts the virtual eye underground). Exact AABB-vs-plane check:
+      // the chunk's rect + its built minY/maxY, tested at the p-vertex
+      // (the box corner farthest along the plane normal) - no slope
+      // margin to mis-tune. A straddling chunk still renders whole.
+      const int cellsX = HM_W - 1, cellsZ = HM_D - 1;
+      const float stepX = (float)TERRAIN_WIDTH / cellsX;
+      const float stepZ = (float)TERRAIN_DEPTH / cellsZ;
+      const int gx0 = ch.cx * TERRAIN_CHUNK_CELLS;
+      const int gz0 = ch.cz * TERRAIN_CHUNK_CELLS;
+      const int gx1 = gx0 + TERRAIN_CHUNK_CELLS > cellsX
+                          ? cellsX
+                          : gx0 + TERRAIN_CHUNK_CELLS;
+      const int gz1 = gz0 + TERRAIN_CHUNK_CELLS > cellsZ
+                          ? cellsZ
+                          : gz0 + TERRAIN_CHUNK_CELLS;
+      const float x0w = -TERRAIN_WIDTH * 0.5F + gx0 * stepX;
+      const float x1w = -TERRAIN_WIDTH * 0.5F + gx1 * stepX;
+      const float z0w = -TERRAIN_DEPTH * 0.5F + gz0 * stepZ;
+      const float z1w = -TERRAIN_DEPTH * 0.5F + gz1 * stepZ;
+      const float pvx = portalExitPlane[0] > 0.0F ? x1w : x0w;
+      const float pvy = portalExitPlane[1] > 0.0F ? ch.maxY : ch.minY;
+      const float pvz = portalExitPlane[2] > 0.0F ? z1w : z0w;
+      if (portalExitPlane[0] * pvx + portalExitPlane[1] * pvy +
+              portalExitPlane[2] * pvz - portalExitPlane[3] <
+          -0.05F)
+        continue;
+    }
+    stapip.core.render(ch.bag.get());
+  }
 }
 
 void TerrainGame::updatePlayer() {
@@ -4315,9 +6451,19 @@ void TerrainGame::updatePlayer() {
   // + standing on top of them. Player can step ~0.5 units up.
   // The floor is the sculpted terrain.
   float ground = terrainHeightAt(nextX, nextZ);
+  // a linked floor portal underfoot swallows the walker (see
+  // portalSwallowsPlayer) - the terrain stops being the floor there
+  if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, playerY, nextZ))
+    ground = -1e30F;
   float ceiling = 1e30F;
+  // Shove physics bodies with the attempted step first - collidePlayer may
+  // cancel the move against the (still solid) body, the push moves it away
+  // over the next frames.
+  pushPhysicsBodies(playerX, playerZ, nextX, nextZ, playerY, EYE_HEIGHT);
+  updatePortalPass(nextX, playerY, nextZ);  // wall doorways open in collision
   collidePlayer(playerX, playerZ, &nextX, &nextZ, playerY, EYE_HEIGHT, &ground,
                 &ceiling);
+  portalPassOn = false;
   playerX = nextX;
   playerZ = nextZ;
 

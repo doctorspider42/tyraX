@@ -9,6 +9,8 @@
 # Wellington Carvalho <wellcoj@gmail.com>
 */
 
+// Modified by TyraX: setActuators() - runtime DualShock vibration control.
+
 #include <kernel.h>
 #include <libpad.h>
 
@@ -33,6 +35,11 @@ class Pad {
 
   void init();
   void update();
+
+  /** Drives the DualShock vibration motors. smallMotor is the on/off buzz
+   * engine, bigPower the heavy motor's strength (0 = off, 255 = full).
+   * The state persists until the next call; no-op without actuators. */
+  void setActuators(const bool& smallMotor, const u8& bigPower);
 
   inline const PadButtons& getClicked() const { return clicked; }
   inline const PadButtons& getPressed() const { return pressed; }

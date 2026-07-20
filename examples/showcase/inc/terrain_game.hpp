@@ -47,6 +47,9 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     Tyra::StaPipTextureBag texBag;
     int cx = -1, cz = -1;  // chunk coords; -1 = free pool slot
+    // Height extent of this chunk's cells, filled at build - the portal
+    // through-view's exact AABB-vs-exit-plane dead-zone test reads it.
+    float minY = 0.0F, maxY = 0.0F;
   };
   std::vector<TerrainChunk> terrainChunks;  // slot pool
   std::vector<short> terrainChunkSlot;      // chunk index -> slot, -1 = unbuilt
@@ -65,9 +68,31 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    // Reflective material (refl in the .mtl): the additive sphere-map second
+    // pass. World-space normals are captured at rebuild and ride in the ST
+    // slot; the TCE VU1 programs compute the matcap ST from the per-mesh
+    // camera basis (refreshed every frame in renderScene). The env bag shares
+    // this part's vertex array and bboxVersion and mirrors the base bag's
+    // shape (texture + many colors), so both passes share one frustum-bbox
+    // cache entry.
+    std::vector<Tyra::Vec4> envNormals;
+    std::vector<Tyra::Color> envColors;  // all-white 128 = unmodulated texel
+    std::unique_ptr<Tyra::StaPipBag> envBag;
+    std::unique_ptr<Tyra::StaPipInfoBag> envInfoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> envColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> envTexBag;
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    // Physics fast path (awake bodies): parts hold LOCAL-space vertices
+    // (scale baked in, shading frozen at the wake pose) and every
+    // part.infoBag->model points at objMat, rebuilt from position/rotation
+    // each frame - VU1 applies the motion, the EE stops re-tessellating and
+    // re-shading mid-flight. Any full rebuild (rebuildObjectGeometry default
+    // = world-space bake) turns it off; going to sleep forces one, so a
+    // settled body gets correct rest-pose shading back.
+    Tyra::M4x4 objMat;
+    bool matrixMode = false;
     // Animated models (.glb): this object's skeletal instance (own
     // playback state + skinned output mesh, samples the shared SkelModel).
     std::unique_ptr<Tyra::SkelInstance> animInst;
@@ -116,6 +141,13 @@ class TerrainGame : public Tyra::Game {
     std::vector<float> verts;  // 8 floats per vertex: x,y,z,nx,ny,nz,u,v
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
+    // refl: spherical environment map (nullptr = not reflective).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
+    // reflRounded = "-rounded": env normals radiate from the part centroid.
+    Tyra::Texture* reflTexture = nullptr;
+    float reflStrength = 0.0F;
+    bool reflDynamic = false;
+    bool reflRounded = false;
   };
   struct GameModel {
     std::vector<GameModelPart> parts;  // empty = missing/unparseable model
@@ -167,6 +199,14 @@ class TerrainGame : public Tyra::Game {
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
     std::string texPath;  // texture-cache ref held ("" = untextured)
+    // refl: spherical environment map (nullptr = not reflective).
+    // reflDynamic = the "@sky" dynamic env map (engine-owned VRAM texture);
+    // reflRounded = "-rounded": env normals radiate from the part centroid.
+    Tyra::Texture* reflTexture = nullptr;
+    float reflStrength = 0.0F;
+    bool reflDynamic = false;
+    bool reflRounded = false;
+    std::string reflTexPath;  // texture-cache ref held ("" = none)
   };
   std::vector<GameMaterial> gameMaterials;
   void loadMaterialAsset(int index);
@@ -213,7 +253,13 @@ class TerrainGame : public Tyra::Game {
   std::vector<Tyra::Sprite> hudSprites;
 
   void buildSkyDome();
-  void rebuildObjectGeometry(int index);
+  // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
+  void rebuildObjectGeometry(int index, bool localSpace = false);
+  // A moving body takes the matrix fast path unless another consumer assumes
+  // world-space vertex arrays (usable highlight hull, reflective matcap
+  // normals) or it is an animated model (animMat already drives those).
+  bool physFastPathEligible(int index) const;
+  void updateObjMat(int index);
   // Player-vs-objects collision shared by both walkers: box (scale box or
   // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision.
   // ceiling receives the lowest overhead surface so the walkers can keep the
@@ -222,7 +268,68 @@ class TerrainGame : public Tyra::Game {
                      float feetY, float eyeHeight, float* ground,
                      float* ceiling);
   void updateObjectPhysics();
+  // Physics bodies in a walking player's path get shoved along the attempted
+  // move (impulse scaled by 1/mass) and woken; called before collidePlayer so
+  // a blocked step still transfers its push into the crate.
+  void pushPhysicsBodies(float prevX, float prevZ, float nextX, float nextZ,
+                         float feetY, float eyeHeight);
+  // Physics helpers: world-space AABB half-extents + center offset (models
+  // use their mesh AABB, like collidePlayer) and the "solid enough to
+  // block/bump a body" filter.
+  static void physExtents(const SceneObjectData& d, const GameModel* gm,
+                          const Tyra::SkelModel* anim, float* cOff, float* ext);
+  static bool physObstacle(const SceneObjectData& d);
   void renderScene();
+  // Mirror objects (type 15): re-submit each listed target's live bags
+  // under a reflection matrix about the glass plane, then blend the quad
+  // over the copies. mirrorMat holds the reflection for the mirror being
+  // drawn; mirrorAnimMat composes it with an animated target's animMat.
+  void renderMirrors();
+  void renderMirroredObject(int index);
+  Tyra::M4x4 mirrorMat;
+  Tyra::M4x4 mirrorObjMat;  // reflection * objMat for fast-path bodies
+  Tyra::M4x4 mirrorAnimMat;
+  // Portal objects (type 16): a linked pair of surfaces. renderPortalView
+  // renders the through-view of the best on-screen portal into the engine's
+  // portal render target (the player camera mapped through the pair, so the
+  // second camera stays in lockstep with the player's); renderPortals blends
+  // every portal's tinted quad after the scene and projects the live view
+  // onto the winner's surface; updatePortals teleports the player / physics
+  // objects that cross a linked surface, carrying position, view angle and
+  // vertical velocity through the same mapping - the view and the arrival
+  // line up exactly, so stepping through is seamless. Up to four portal
+  // views render per frame (nearest qualify, carved farthest-first);
+  // portalLiveFlags marks the PORTALS entries whose opening is live.
+  void renderPortalView();
+  bool renderOnePortalView(int pi);
+  void renderPortals();
+  bool portalCamera(int pi, Tyra::Vec4* outEye, Tyra::Vec4* outAt);
+  bool updatePortals(float prevX, float prevY, float prevZ, float* px,
+                     float* py, float* pz, float* pyaw, float* ppitch,
+                     float* pvelY, float eyeH);
+  // True when the walker's body column at (x, z) sits inside a linked
+  // FLOOR portal's rectangle near its plane - the walkers suppress the
+  // terrain ground clamp there, so a portal lying on the ground swallows
+  // them (the clamp would otherwise rest the feet on the terrain before
+  // the crossing plane is ever reached).
+  bool portalSwallowsPlayer(float x, float feetY, float z);
+  bool portalSwallowZone(const RuntimeObject& m, float hx, float hy, float x,
+                         float y, float z);
+  // Portal pass-through for the walkers: when the body column sits inside
+  // a linked portal's opening near its plane, updatePortalPass publishes
+  // that portal's plane and collidePlayer stops colliding with objects
+  // fully BEHIND it (exact OBB extent) - the wall a portal is mounted on
+  // opens up like a doorway while everything else keeps blocking.
+  void updatePortalPass(float x, float feetY, float z);
+  float portalPassPlane[4] = {0, 0, 0, 0};
+  bool portalPassOn = false;
+  std::vector<unsigned char> portalLiveFlags;  // per PORTALS entry: view drawn
+  std::vector<float> portalPrevPos;  // 3 floats per runtime object (crossings)
+  // Exit-plane of the through-view being rendered (nx, ny, nz, d) - set
+  // around the destination render so renderTerrain can drop chunks in the
+  // dead zone between the virtual camera and the target portal's plane.
+  float portalExitPlane[4] = {0, 0, 0, 0};
+  bool portalExitPlaneOn = false;
   void renderHighlightHull(int index);
   void buildHighlightApron(int index, float half);
   void buildHighlightProxy(int index);
@@ -246,6 +353,20 @@ class TerrainGame : public Tyra::Game {
   // camera when present. Returns false when the scene has no player.
   bool updatePlayerEntity();
   float entX = 0, entY = 0, entZ = 0, entVelY = 0, entYaw = 0, entPitch = 0;
+  // Third-person only: entYaw/entPitch orbit the camera, entFaceYaw is the
+  // avatar's own facing (turns toward the walk direction). Clip indices are
+  // resolved from the model's clip table at scene load; -1 = unmapped.
+  float entFaceYaw = 0;
+  int playerIdleClip = -1, playerWalkClip = -1, playerRunClip = -1, playerJumpClip = -1;
+  // Picks the third-person avatar's locomotion clip from its planar speed
+  // (fraction of full walk speed) and grounded state, cross-fading on change.
+  void drivePlayerAnim(RuntimeObject& body, float speedFrac, bool grounded);
+  // Spring arm: the distance down the boom (from the head, along d) at which
+  // the camera would enter geometry or the terrain. camBoom is the smoothed
+  // boom length actually used - it snaps in on a hit and eases back out.
+  float springArm(float px, float py, float pz, float dx, float dy, float dz,
+                  float maxDist) const;
+  float camBoom = 0;
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
@@ -263,20 +384,25 @@ class TerrainGame : public Tyra::Game {
   unsigned int sceneGeneration = 0;
 
   // Particle emitters (type 7): fixed pools sized at scene load, zero
-  // per-frame allocations; camera-facing quads (textured when the emitter
-  // has a material with a map_Kd), one bag per emitter.
+  // per-frame allocations. The EE only SIMULATES; each particle is
+  // submitted as a single center vertex plus one qword of 2x2 basis
+  // weights and one color, and the VU1 billboard program expands it into
+  // a camera-facing quad (textured when the emitter has a material with a
+  // map_Kd). One bag per emitter; the camera basis rides on the billboard
+  // bag, so another view (a portal pass) can re-render the same centers
+  // after swapping billboardBag->right/up.
   struct ParticleSystem {
     int objectIndex = -1;
     unsigned int rng = 1;
     std::vector<Tyra::Vec4> pos, vel;
     std::vector<float> life, maxLife;
-    std::vector<Tyra::Vec4> verts;
-    std::vector<Tyra::Color> cols;
-    std::vector<Tyra::Vec4> sts;  // fixed per-quad UVs (textured emitters)
+    std::vector<Tyra::Vec4> params;  // per-particle (m00, m01, m10, m11)
+    std::vector<Tyra::Color> cols;   // one RGBA per particle
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBillboardBag> billboardBag;
   };
   std::vector<ParticleSystem> particles;
   void buildParticles();
@@ -290,6 +416,10 @@ class TerrainGame : public Tyra::Game {
   // Scene switch target held across the loading-screen frames (the screen
   // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
   int loadingFrames = 0, loadingTarget = -1;
+  // Snapshot of the armed hold length: everyFrames() tracks the measured
+  // frame time now, so re-evaluating it in a == comparison against the
+  // counter could miss its frame at uncapped FPS.
+  int loadingTotal = 0;
 
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
   void updateUseTarget();
@@ -330,14 +460,23 @@ class TerrainGame : public Tyra::Game {
   // value strip (menu_data.gen.hpp; only menus with such entries have one).
   std::vector<Tyra::Sprite> menuValueSprites;
 
-  // On-screen texts (hud_data.gen.hpp): baked text sprites the Show Text /
-  // Hide Text flow nodes flip via ScriptContext; a positive timer auto-hides.
+  // On-screen texts (hud_data.gen.hpp): baked text sprites the Set Text
+  // Visible flow node flips via ScriptContext; a positive timer auto-hides.
   void updateAndRenderHudTexts();
   std::vector<Tyra::Sprite> hudTextSprites;
   std::vector<signed char> hudTextReq;   // ScriptContext::textRequest
   std::vector<float> hudTextDur;         // ScriptContext::textDuration
   std::vector<unsigned char> hudTextOn;  // visible this frame
   std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
+
+  // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
+  // glyph by glyph from a font atlas because the string is only known now.
+  void updateAndRenderDynTexts();
+  std::vector<signed char> dynTextReq;   // ScriptContext::dynTextRequest
+  std::vector<float> dynTextDur;         // ScriptContext::dynTextDuration
+  std::vector<char> dynTextBuf;          // DYN_TEXT_COUNT * DYN_TEXT_LEN
+  std::vector<unsigned char> dynTextOn;  // visible this frame
+  std::vector<float> dynTextTimer;
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;

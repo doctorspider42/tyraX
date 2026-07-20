@@ -57,6 +57,12 @@ whatever the change affected.
   boots (see `tyra-testing`). Don't force one for a small tweak; do offer it
   whenever a feature is big enough that a user would want to see it in action.
 
+- **`ai-support/`** — the assistant guides installed into generated projects
+  ("Add AI support"; embedded into the exe at build). They document the
+  generated-project layout, the ownership markers, the flow-graph model and
+  the editor CLI — when any of those change, update the affected files under
+  `ai-support/` too (see `docs/ai-support.md`).
+
 - **`CLAUDE.md`** — only when a project-wide, always-on rule changes (it is the
   always-loaded instruction file; keep it tiny).
 
