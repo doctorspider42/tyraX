@@ -9,6 +9,23 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (123) **Live Link: the physics material is part of the recipe hash.**
+  `liveLinkRecipeHash` mixed the `physics` flag but not the four material
+  fields (113) added next to it - `physMass`, `physBounce`, `physFriction`,
+  `physTumble`. All four are compile-time constants in `SCENE_OBJECTS` (see
+  the `SceneObjectData` rows in templates.cpp), the live snapshot record
+  carries only id/template/position/rotation/scale/color, and a live-spawned
+  clone copies its whole row from the template - so retuning bounciness on a
+  running game silently did nothing while the chip stayed green LIVE, and a
+  clone could inherit a template's physics instead of its own. They are now
+  hashed next to `drawDistance`, but only **while `physics` is on**: every
+  runtime read is guarded by `data.physics`, so stale values left behind by
+  toggling physics off must not force a spurious rebuild. No other field
+  (113)/(114) introduced touches `SceneObject`. Verified: editor builds
+  clean; the hash of an object with physics off is unchanged by editing its
+  (hidden) mass, while turning physics on or retuning a physics object's
+  mass/bounce/friction/tumble changes it - i.e. the chip now flips to amber
+  "rebuild" for exactly those edits.
 - (129) **Pickable review fixes: "PICK UP" prompt + no more inserting the
   carried object into walls (PR #116 comments).** Two owner reports. (1) A
   pickable target now shows a **PICK UP** prompt instead of USE: new built-in
