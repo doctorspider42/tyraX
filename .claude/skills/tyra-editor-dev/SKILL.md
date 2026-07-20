@@ -116,6 +116,19 @@ at their default) → properties UI in app.cpp (+ `commitChange()`) →
 `terrain_game.cpp` template (`TPL_*` strings in templates.cpp) → viewport
 rendering if it's visual.
 
+**Static batching invariants** (the generated game merges non-moving
+primitives into combined bags — `staticBatchEligible`/`batchBlockedNames` in
+templates.cpp, `buildStaticBatchList`/`rebuildStaticBatch` in the game
+template): (1) any runtime code path that mutates a rendered object property
+must set `RuntimeObject::dirty` — that flag is what demotes a batched member
+back to its own bag, and a mutation without it silently doesn't render
+(visibility flips are the one exception, caught by a snapshot); (2) a new
+*reference kind* that can move/hide/re-submit objects at runtime (the way
+sequences and mirror target lists do) must be added to `batchBlockedNames()`
+— flow nodes are covered generically via `strKind == ObjectName`; (3) a new
+exclusion-worthy per-object property (a new special draw path, a new
+streaming mechanism) must be added to `staticBatchEligible()`.
+
 **New object type** → `PrimitiveType` enum (0–15 used so far; keep values stable,
 they're serialized) → mesh/marker in viewport.cpp → insert menu in app.cpp →
 codegen + runtime as above. If the type needs per-object variable-length data

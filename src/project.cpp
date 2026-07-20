@@ -717,6 +717,8 @@ std::string save(const Project& p) {
          << ",\n"
          << "    \"meshLodDistance\": " << fmtFloat(p.settings.meshLodDistance)
          << ",\n"
+         << "    \"staticBatching\": "
+         << (p.settings.staticBatching ? "true" : "false") << ",\n"
          << "    \"navCellSize\": " << fmtFloat(p.settings.navCellSize) << ",\n"
          << "    \"navMaxSlope\": " << fmtFloat(p.settings.navMaxSlope) << ",\n"
          << "    \"navAgentRadius\": " << fmtFloat(p.settings.navAgentRadius)
@@ -1690,6 +1692,8 @@ std::string load(Project& out, const std::string& projectDir) {
             st.meshLodDistance = (float)v->numberOr(0.0);
             if (st.meshLodDistance < 0.0f) st.meshLodDistance = 0.0f;
         }
+        if (const auto* v = s->find("staticBatching"))
+            st.staticBatching = v->boolOr(true);
         if (const auto* v = s->find("navCellSize")) {
             st.navCellSize = (float)v->numberOr(1.0);
             if (st.navCellSize < 0.25f) st.navCellSize = 0.25f;

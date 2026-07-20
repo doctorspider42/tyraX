@@ -2253,10 +2253,15 @@ void TerrainGame::updateAndRenderAnimObjects() {
     SkelInstance* inst = g.animInst.get();
 
     // mesh LOD tier: which baked variant this instance renders (the .tskl
-    // clamps per part - a file without chains always renders the full mesh)
+    // clamps per part - a file without chains always renders the full mesh).
+    // Per-object override first: -1 = project preference, 0 = never LOD,
+    // > 0 = this object's own distance (each Player object - P1 and P2 of a
+    // two-player scene - carries its own).
+    const float meshLodDist =
+        o.data.meshLod < 0.0F ? MESH_LOD_DISTANCE : o.data.meshLod;
     u8 meshLod = 0;
-    if (MESH_LOD_DISTANCE > 0.0F) {
-      const float m2 = MESH_LOD_DISTANCE * MESH_LOD_DISTANCE;
+    if (meshLodDist > 0.0F) {
+      const float m2 = meshLodDist * meshLodDist;
       meshLod = va.dist2 > m2 * 4.0F ? 2 : va.dist2 > m2 ? 1 : 0;
     }
 
@@ -2279,9 +2284,11 @@ void TerrainGame::updateAndRenderAnimObjects() {
     // distance lands the instance in a different mesh-LOD tier, which the
     // tier-switch check below still forces into that tier's buffers.
     bool allowSkin = !splitSecondPass;
-    if (allowSkin && ANIM_LOD_DISTANCE > 0.0F && meshOwner == i &&
+    const float animLodDist =
+        o.data.animLod < 0.0F ? ANIM_LOD_DISTANCE : o.data.animLod;
+    if (allowSkin && animLodDist > 0.0F && meshOwner == i &&
         g.animLastTick != 0 && animLodTick - g.animLastTick <= 4) {
-      const float lod2 = ANIM_LOD_DISTANCE * ANIM_LOD_DISTANCE;
+      const float lod2 = animLodDist * animLodDist;
       if (va.dist2 > lod2 * 4.0F)
         allowSkin = ((animLodTick + (u32)i) & 3) == 0;
       else if (va.dist2 > lod2)
@@ -2643,6 +2650,12 @@ void TerrainGame::loadScene(int sceneIndex) {
   // Animated models: fresh per-object mesh instances + playback defaults
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
     if (runtimeObjects[i].active) setupAnimObject(i);
+
+  // Static batching: group the batchStatic-flagged objects (material x
+  // coarse world cell). The always-resident assets - materials included -
+  // streamed in above, so the reflective-material opt-out can decide here;
+  // the batches themselves bake lazily on the first renderScene.
+  buildStaticBatchList();
 
   scriptCtx.objects = runtimeObjects.data();
   scriptCtx.objectCount = (int)runtimeObjects.size();
@@ -4348,6 +4361,190 @@ void TerrainGame::rebuildObjectGeometry(int index) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Static batching (STATIC_BATCHING): every StaPip submit costs ~0.7-1.5 ms
+// of fixed EE overhead on real hardware regardless of vertex count, so a
+// scene of many small primitive objects pays for its object COUNT, not its
+// geometry (twice over in split screen). Objects flagged batchStatic at
+// build time merge into combined world-space bags instead - grouped by
+// material within a coarse world cell so no batch spans the whole map (a
+// map-wide bbox would defeat the engine's whole-bag frustum cut, the same
+// reason the terrain is chunked).
+void TerrainGame::buildStaticBatchList() {
+  staticBatches.clear();
+  objectBatchOf.assign(SCENE_OBJECT_COUNT, -1);
+  if (!STATIC_BATCHING) return;
+  if (!batchInfoBag) {
+    batchInfoBag = std::make_unique<StaPipInfoBag>();
+    batchInfoBag->model = &model;
+    batchInfoBag->shadingType = TyraShadingFlat;
+    // Same rules as the per-object bags: always classify against the
+    // frustum (raw submission wraps the GS raster window) with full clip
+    // checks.
+    batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    batchInfoBag->fullClipChecks = true;
+  }
+  // Cell width: a quarter of the map on big maps (a 2048-unit map gets a
+  // 4x4 grid), but never below 48 units - on a small map a finer grid (or
+  // one straddling the origin) splits a handful of objects into
+  // single-member batches and the merge wins nothing. The grid anchors at
+  // the map corner (terrain is centered on the origin) for the same reason.
+  const float mapW =
+      TERRAIN_WIDTH > TERRAIN_DEPTH ? TERRAIN_WIDTH : TERRAIN_DEPTH;
+  const float cellW = mapW * 0.25F > 48.0F ? mapW * 0.25F : 48.0F;
+  std::vector<int> keyX, keyZ;  // per-batch cell, only needed while grouping
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+    const SceneObjectData& d = SCENE_OBJECTS[i];
+    if (!d.batchStatic) continue;
+    // Materials of always-resident objects are loaded by now; a reflective
+    // one draws a second additive env pass per bag - keep those objects on
+    // the solo path, which already handles the env bag.
+    if (d.material >= 0 && (d.material >= (int)gameMaterials.size() ||
+                            gameMaterials[d.material].reflTexture))
+      continue;
+    const int cx = (int)floorf((d.position[0] + 0.5F * mapW) / cellW);
+    const int cz = (int)floorf((d.position[2] + 0.5F * mapW) / cellW);
+    int bi = -1;
+    for (int b = 0; b < (int)staticBatches.size(); ++b)
+      if (staticBatches[b].material == d.material && keyX[b] == cx &&
+          keyZ[b] == cz) {
+        bi = b;
+        break;
+      }
+    if (bi < 0) {
+      staticBatches.emplace_back();
+      staticBatches.back().material = d.material;
+      keyX.push_back(cx);
+      keyZ.push_back(cz);
+      bi = (int)staticBatches.size() - 1;
+    }
+    staticBatches[bi].members.push_back(i);
+    objectBatchOf[i] = (short)bi;
+    // The scene-load dirty flag is consumed by membership: the batch itself
+    // starts dirty and bakes on the first renderScene. From here on a
+    // member turning dirty means a REAL runtime mutation - the demotion
+    // check in renderStaticBatches keys on exactly that.
+    runtimeObjects[i].dirty = false;
+  }
+  int batched = 0;
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+    if (objectBatchOf[i] >= 0) ++batched;
+  TYRA_LOG("Static batching: ", batched, " objects in ",
+           (int)staticBatches.size(), " batches");
+}
+
+// One batch's bake: re-run the primitive builders for every shown member
+// into the combined arrays - world-space vertices with baked lighting,
+// byte-identical to what the solo path produces for the same object. The
+// heap arrays are reused across rebuilds; the engine's frustum-bbox cache
+// is keyed by (pointer, version), so the bboxVersion bump below is what
+// keeps reused pointers from resurrecting stale boxes.
+void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
+  b.dirty = false;
+  b.vertices.clear();
+  b.colors.clear();
+  b.sts.clear();
+  b.shown.assign(b.members.size(), 0);
+  const GameMaterial* gmat =
+      (b.material >= 0 && b.material < (int)gameMaterials.size())
+          ? &gameMaterials[b.material]
+          : nullptr;
+  g_primKd = gmat ? gmat->kd : nullptr;
+  g_primTextured = gmat && gmat->texture;
+  for (size_t k = 0; k < b.members.size(); ++k) {
+    RuntimeObject& o = runtimeObjects[b.members[k]];
+    // Members are never dirty here: scene load consumes the flag at
+    // grouping time and renderStaticBatches demotes dirtied members before
+    // calling this.
+    const bool show = o.active && o.visible;
+    b.shown[k] = show ? 1 : 0;
+    if (!show) continue;
+    switch (o.data.type) {
+      case 1: addSphere(b.vertices, b.colors, b.sts, o.data); break;
+      case 2: addCylinder(b.vertices, b.colors, b.sts, o.data); break;
+      case 3: addCone(b.vertices, b.colors, b.sts, o.data); break;
+      case 12: addPlane(b.vertices, b.colors, b.sts, o.data); break;
+      default: addBox(b.vertices, b.colors, b.sts, o.data); break;
+    }
+  }
+  g_primKd = nullptr;
+  g_primTextured = false;
+  if (b.vertices.empty()) {
+    b.bag.reset();
+    return;
+  }
+  if (!b.bag) {
+    b.colorBag = std::make_unique<StaPipColorBag>();
+    b.bag = std::make_unique<StaPipBag>();
+    b.bag->info = batchInfoBag.get();
+    b.bag->color = b.colorBag.get();
+    b.bag->texture = nullptr;
+    b.bag->lighting = nullptr;
+  }
+  b.colorBag->many = b.colors.data();
+  b.bag->vertices = b.vertices.data();
+  b.bag->count = static_cast<u32>(b.vertices.size());
+  b.bag->bboxVersion = ++g_bboxStamp;  // geometry changed - fresh boxes
+  if (gmat && gmat->texture) {
+    if (!b.texBag) b.texBag = std::make_unique<StaPipTextureBag>();
+    b.texBag->texture = gmat->texture;
+    b.texBag->coordinates = b.sts.data();
+    b.bag->texture = b.texBag.get();
+  } else {
+    b.bag->texture = nullptr;
+  }
+  // World AABB for the split-screen band cull - the batch analogue of the
+  // terrain chunks' build-time boxes.
+  b.aabbMin[0] = b.aabbMax[0] = b.vertices[0].x;
+  b.aabbMin[1] = b.aabbMax[1] = b.vertices[0].y;
+  b.aabbMin[2] = b.aabbMax[2] = b.vertices[0].z;
+  for (const Vec4& v : b.vertices) {
+    if (v.x < b.aabbMin[0]) b.aabbMin[0] = v.x;
+    if (v.x > b.aabbMax[0]) b.aabbMax[0] = v.x;
+    if (v.y < b.aabbMin[1]) b.aabbMin[1] = v.y;
+    if (v.y > b.aabbMax[1]) b.aabbMax[1] = v.y;
+    if (v.z < b.aabbMin[2]) b.aabbMin[2] = v.z;
+    if (v.z > b.aabbMax[2]) b.aabbMax[2] = v.z;
+  }
+}
+
+// Per-frame batch pass: catch changed members, rebuild whatever changed,
+// then submit. This is the correctness net for the runtime-only mutation
+// channels (Live Link edits, Raycast/custom-node latches fed into object
+// actions, global scripts) that build-time eligibility cannot rule out:
+// - a DIRTIED member (position/color/... actually mutated) is DEMOTED to
+//   the solo path for the rest of the scene - a per-frame-animated member
+//   would otherwise re-bake its whole batch every frame, which is slower
+//   than the pre-batching status quo. The batch rebuilds once without it
+//   and the solo path picks it up this same frame (its dirty stays set).
+// - a visibility/residency flip vs the shown snapshot (hide/show can skip
+//   the dirty flag) only rebuilds the batch in place - the member may well
+//   reappear, and hides are events, not per-frame animation.
+void TerrainGame::renderStaticBatches() {
+  for (StaticBatch& b : staticBatches) {
+    bool stale = b.dirty;
+    for (size_t k = 0; k < b.members.size(); ++k) {
+      const RuntimeObject& o = runtimeObjects[b.members[k]];
+      if (o.dirty) {
+        objectBatchOf[b.members[k]] = -1;  // demote: solo from now on
+        b.members.erase(b.members.begin() + (long)k);
+        b.shown.erase(b.shown.begin() + (long)k);
+        --k;
+        stale = true;
+        continue;
+      }
+      if (!stale &&
+          b.shown[k] != (unsigned char)((o.active && o.visible) ? 1 : 0))
+        stale = true;
+    }
+    if (stale) rebuildStaticBatch(b);
+    if (!b.bag || b.bag->count == 0) continue;
+    // Split halves: same band early-out the terrain chunks use.
+    if (splitBandActive && outsideSplitBand(b.aabbMin, b.aabbMax)) continue;
+    stapip.core.render(b.bag.get());
+  }
+}
+
 void TerrainGame::updateObjectPhysics() {
   // GRAVITY is units/s^2
   const float gravityPerFrame = GRAVITY * g_frameDt * g_frameDt;
@@ -4499,6 +4696,10 @@ void TerrainGame::renderScene() {
                         p2Focus ? players[1].z : 0.0F, p2Focus, 2);
   }
   renderTerrain();
+  // Static batches: one submit per material x cell group of the non-moving
+  // primitives (rebuilt first when a member changed). Opaque z-tested
+  // geometry, so drawing before the solo objects is order-free.
+  renderStaticBatches();
   // Highlighted-in-reach usables get a separate shell pass after the scene.
   // RIM mode (default): the body is deferred out of the main pass and drawn
   // AFTER its shells, erasing the shell wash over the object's own receding
@@ -4521,6 +4722,9 @@ void TerrainGame::renderScene() {
   const bool hlOverlay = HIGHLIGHT_OVERLAY;
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (!runtimeObjects[i].active) continue;  // streamed out with its layer
+    // Batched members render via renderStaticBatches above; their dirty flag
+    // is consumed by the batch rebuild, never by the solo path.
+    if (i < (int)objectBatchOf.size() && objectBatchOf[i] >= 0) continue;
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
     if (!runtimeObjects[i].visible) continue;
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;

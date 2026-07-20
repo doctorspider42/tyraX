@@ -970,6 +970,11 @@ void TerrainGame::init() {
 
   engine->renderer.setClearScreenColor(Color(SKY_R, SKY_G, SKY_B));
 
+  // Two-player modes: open pad 2 (connector 2). Optional - no controller
+  // there never blocks or asserts; it keeps polling so player 2 can plug in
+  // and join mid-game (Start, see the loop).
+  if (MULTIPLAYER_MODE != 0) pad2.initOptional(1);
+
   // Player start: the first spawn point in the scene (if any)
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     if (SCENE_OBJECTS[i].type == 4) {
@@ -1026,6 +1031,8 @@ void TerrainGame::init() {
 
 void TerrainGame::loop() {
   updateFrameClock();  // real dt: frame drops slow the picture, not the game
+  // The engine pumps pad 1; pad 2 is ours (optional - polls for a hot-join).
+  if (MULTIPLAYER_MODE != 0) pad2.update();
 
   // Boot sequence (the engine holds the Tyra logo ~2s before this):
   //   phase 0 - boot splash images, each shown for its duration (in order),
@@ -1080,12 +1087,23 @@ void TerrainGame::loop() {
   // setting keeps applying, and before applyVideoRequests so a display switch
   // it requests lands this frame.
   applyMenuBindings();
+  // Player 2 hot-join: Start on pad 2, any time gameplay owns the pads.
+  // Leaving goes through a menu "Player count" Toggle (setPlayerTwoActive).
+  if (MULTIPLAYER_MODE != 0 && P2_JOIN_ON_START && !menuOwnsPad &&
+      !playerTwoActive && pad2.getClicked().Start)
+    setPlayerTwoActive(true);
   if (!menuOwnsPad) {
     if (!updatePlayerEntity()) updatePlayer();
     updateUseTarget();
   }
 
   scriptCtx.playerPosition = cameraPosition;
+  scriptCtx.player2Active =
+      MULTIPLAYER_MODE != 0 && playerTwoActive && players[1].objIndex >= 0;
+  scriptCtx.player2Position =
+      scriptCtx.player2Active
+          ? Vec4(players[1].x, players[1].y + PP_EYE_HEIGHT(1), players[1].z)
+          : scriptCtx.playerPosition;
   {
     // View direction for the scripts (Raycast flow node)
     Vec4 look = cameraLookAt - cameraPosition;
@@ -1153,15 +1171,24 @@ void TerrainGame::loop() {
   updateLayerStreaming();
 
   // Flow graph / script teleport request: move the Player entity when the
-  // scene has one, the built-in FPP player otherwise.
+  // scene has one, the built-in FPP player otherwise. Teleports P1; an
+  // active P2 comes along, dropped a step to the side.
   if (scriptCtx.teleport) {
     scriptCtx.teleport = false;
     if (PLAYER_INDEX >= 0) {
-      entX = scriptCtx.teleportPos.x;
-      entY = scriptCtx.teleportPos.y;
-      entZ = scriptCtx.teleportPos.z;
-      entVelY = 0.0F;
-      entYaw = scriptCtx.teleportYaw * PI / 180.0F;
+      players[0].x = scriptCtx.teleportPos.x;
+      players[0].y = scriptCtx.teleportPos.y;
+      players[0].z = scriptCtx.teleportPos.z;
+      players[0].velY = 0.0F;
+      players[0].yaw = scriptCtx.teleportYaw * PI / 180.0F;
+      if (playerTwoActive && players[1].objIndex >= 0) {
+        players[1].x = players[0].x + 1.2F;
+        players[1].z = players[0].z;
+        players[1].y = PP_MODE(1) == 1 ? players[0].y
+                                       : terrainHeightAt(players[1].x, players[1].z);
+        players[1].velY = 0.0F;
+        players[1].yaw = players[0].yaw;
+      }
     } else {
       playerX = scriptCtx.teleportPos.x;
       playerY = scriptCtx.teleportPos.y;
@@ -1241,6 +1268,9 @@ void TerrainGame::loop() {
   // (applied after scripts so the sequence player's flag wins).
   if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2)
     runtimeObjects[PLAYER_INDEX].visible = !scriptCtx.hidePlayer;
+  if (players[1].objIndex >= 0 && PP_MODE(1) == 2)
+    runtimeObjects[players[1].objIndex].visible =
+        !scriptCtx.hidePlayer && playerTwoActive;
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
   // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
   // switch rebuilds the VRAM layout between frames. A switch closes any
@@ -1262,7 +1292,37 @@ void TerrainGame::loop() {
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
-    renderScene();
+    // Split screen (two players): the scene renders twice, top half from
+    // P1's camera and bottom half from P2's (players[1].camPos, written by
+    // its walker). A cutscene camera override takes the whole screen. HUD /
+    // menus / post fx stay full-screen, drawn after splitView.end().
+    const bool splitFrame = MULTIPLAYER_MODE == 2 && playerTwoActive &&
+                            players[1].objIndex >= 0 &&
+                            !scriptCtx.cameraOverride;
+    if (splitFrame) {
+      auto& core = engine->renderer.core;
+      splitPassActive = true;
+      core.splitView.begin(0);
+      renderScene();
+      // Swap the whole camera state to P2: renderScene reads cameraPosition
+      // (sky dome centering, LOD, streaming focus), and the renderer needs
+      // the second half's view matrix + frustum planes.
+      const Vec4 savedPos = cameraPosition, savedLook = cameraLookAt;
+      cameraPosition = players[1].camPos;
+      cameraLookAt = players[1].camLook;
+      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
+      core.splitView.begin(1);
+      splitSecondPass = true;  // reuse this frame's anim poses/skins
+      renderScene();
+      splitSecondPass = false;
+      core.splitView.end();
+      cameraPosition = savedPos;
+      cameraLookAt = savedLook;
+      core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt));
+      splitPassActive = false;
+    } else {
+      renderScene();
+    }
     // Depth of field composites right after the 3D scene, BEFORE any 2D:
     // sprites stamp z = max across their whole rect (transparent margins
     // included), which would punch sharp rectangles into a later z-tested
@@ -1889,16 +1949,24 @@ void TerrainGame::updateLayerStreaming() {
   // scripts can still override a zone until the next crossing. The unload
   // edge sits a hysteresis band beyond the radius - pacing along the border
   // doesn't thrash. Focus = cameraLookAt (the player in FPP, the terrain
-  // center for orbit showcases).
+  // center for orbit showcases) - and player 2's avatar while active, so a
+  // zone loads when EITHER player enters and unloads only when both leave.
   if ((int)layerAutoInside.size() == lc) {
     const float px = cameraLookAt.x;
     const float pz = cameraLookAt.z;
+    const bool p2 = playerTwoActive && players[1].objIndex >= 0;
     for (int l = 0; l < lc; ++l) {
       const float r = SCENE_LAYER_STREAM_R[l];
       if (r <= 0.0F) continue;
       const float dx = px - SCENE_LAYER_STREAM_X[l];
       const float dz = pz - SCENE_LAYER_STREAM_Z[l];
-      const float d2 = dx * dx + dz * dz;
+      float d2 = dx * dx + dz * dz;
+      if (p2) {
+        const float dx2 = players[1].x - SCENE_LAYER_STREAM_X[l];
+        const float dz2 = players[1].z - SCENE_LAYER_STREAM_Z[l];
+        const float e2 = dx2 * dx2 + dz2 * dz2;
+        if (e2 < d2) d2 = e2;
+      }
       const float rOut = r * 1.15F + 8.0F;
       if (!layerAutoInside[l] && d2 < r * r) {
         layerAutoInside[l] = 1;
@@ -2154,19 +2222,23 @@ void TerrainGame::updateAndRenderAnimObjects() {
 
     if (o.animClip < 0 || o.animClip >= (int)gam.src->clips.size())
       o.animClip = 0;
-    if (o.animRestart) {
-      o.animRestart = false;
-      o.animFinished = false;
-      // animFade > 0 crossfades from the pose currently showing
-      inst->play((u32)o.animClip, o.animLoop, o.animFade);
-      o.animFade = 0.0F;  // consumed by this restart
+    // Playback bookkeeping runs once per FRAME, not once per render pass -
+    // the split screen's second half re-renders the same instant.
+    if (!splitSecondPass) {
+      if (o.animRestart) {
+        o.animRestart = false;
+        o.animFinished = false;
+        // animFade > 0 crossfades from the pose currently showing
+        inst->play((u32)o.animClip, o.animLoop, o.animFade);
+        o.animFade = 0.0F;  // consumed by this restart
+      }
+      inst->setLoop(o.animLoop);
+      // time always advances by wall-clock seconds (speed scales the step),
+      // visible or not - animFinished stays honest for offscreen instances
+      const float step =
+          (o.animPlaying && !g_gameplayPaused) ? g_frameDt * o.animSpeed : 0.0F;
+      o.animFinished = inst->advance(step);
     }
-    inst->setLoop(o.animLoop);
-    // time always advances by wall-clock seconds (speed scales the step),
-    // visible or not - animFinished stays honest for offscreen instances
-    const float step =
-        (o.animPlaying && !g_gameplayPaused) ? g_frameDt * o.animSpeed : 0.0F;
-    o.animFinished = inst->advance(step);
 
     // draw-distance cut-off (same rule as the static path in renderScene);
     // the distance doubles as the LOD tier and the draw-order key below
@@ -2205,7 +2277,7 @@ void TerrainGame::updateAndRenderAnimObjects() {
             [](const VisibleAnim& a, const VisibleAnim& b) {
               return a.dist2 < b.dist2;
             });
-  ++animLodTick;
+  if (!splitSecondPass) ++animLodTick;  // frame counter, not pass counter
 
   // pass 2, nearest first: group equal poses per mesh-LOD tier, gate far
   // skins, submit
@@ -2224,10 +2296,15 @@ void TerrainGame::updateAndRenderAnimObjects() {
     SkelInstance* inst = g.animInst.get();
 
     // mesh LOD tier: which baked variant this instance renders (the .tskl
-    // clamps per part - a file without chains always renders the full mesh)
+    // clamps per part - a file without chains always renders the full mesh).
+    // Per-object override first: -1 = project preference, 0 = never LOD,
+    // > 0 = this object's own distance (each Player object - P1 and P2 of a
+    // two-player scene - carries its own).
+    const float meshLodDist =
+        o.data.meshLod < 0.0F ? MESH_LOD_DISTANCE : o.data.meshLod;
     u8 meshLod = 0;
-    if (MESH_LOD_DISTANCE > 0.0F) {
-      const float m2 = MESH_LOD_DISTANCE * MESH_LOD_DISTANCE;
+    if (meshLodDist > 0.0F) {
+      const float m2 = meshLodDist * meshLodDist;
       meshLod = va.dist2 > m2 * 4.0F ? 2 : va.dist2 > m2 ? 1 : 0;
     }
 
@@ -2245,11 +2322,16 @@ void TerrainGame::updateAndRenderAnimObjects() {
     // animation LOD: a far mesh owner refreshes its pose every 2nd frame
     // (every 4th beyond twice the distance), staggered by object index. An
     // instance that just (re)entered the view skins immediately - its held
-    // pose could be arbitrarily stale.
-    bool allowSkin = true;
-    if (ANIM_LOD_DISTANCE > 0.0F && meshOwner == i &&
+    // pose could be arbitrarily stale. The split screen's second half never
+    // re-skins (same instant, already skinned) - unless this half's camera
+    // distance lands the instance in a different mesh-LOD tier, which the
+    // tier-switch check below still forces into that tier's buffers.
+    bool allowSkin = !splitSecondPass;
+    const float animLodDist =
+        o.data.animLod < 0.0F ? ANIM_LOD_DISTANCE : o.data.animLod;
+    if (allowSkin && animLodDist > 0.0F && meshOwner == i &&
         g.animLastTick != 0 && animLodTick - g.animLastTick <= 4) {
-      const float lod2 = ANIM_LOD_DISTANCE * ANIM_LOD_DISTANCE;
+      const float lod2 = animLodDist * animLodDist;
       if (va.dist2 > lod2 * 4.0F)
         allowSkin = ((animLodTick + (u32)i) & 3) == 0;
       else if (va.dist2 > lod2)
@@ -2612,6 +2694,12 @@ void TerrainGame::loadScene(int sceneIndex) {
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
     if (runtimeObjects[i].active) setupAnimObject(i);
 
+  // Static batching: group the batchStatic-flagged objects (material x
+  // coarse world cell). The always-resident assets - materials included -
+  // streamed in above, so the reflective-material opt-out can decide here;
+  // the batches themselves bake lazily on the first renderScene.
+  buildStaticBatchList();
+
   scriptCtx.objects = runtimeObjects.data();
   scriptCtx.objectCount = (int)runtimeObjects.size();
   scriptCtx.scene = currentScene;
@@ -2622,38 +2710,51 @@ void TerrainGame::loadScene(int sceneIndex) {
   scriptCtx.usedObject = -1;
   useTargetIndex = -1;
 
-  // Player entity start state for this scene
-  if (PLAYER_INDEX >= 0 && PLAYER_INDEX < SCENE_OBJECT_COUNT) {
-    entX = SCENE_OBJECTS[PLAYER_INDEX].position[0];
-    entZ = SCENE_OBJECTS[PLAYER_INDEX].position[2];
-    entY = PLAYER_MODE == 1 ? SCENE_OBJECTS[PLAYER_INDEX].position[1]
-                            : terrainHeightAt(entX, entZ);
-    entYaw = SCENE_OBJECTS[PLAYER_INDEX].rotation[1] * PI / 180.0F;
-    entVelY = 0.0F;
-    entPitch = 0.0F;
+  // Player entity start state for this scene. players[0] = the first Player
+  // object (P1), players[1] = the second (P2 of the two-player modes; -1
+  // when the scene has only one). Player 2 stays active across scene
+  // switches as long as the new scene can host it.
+  if (playerTwoActive && PLAYER2_INDEX < 0) {
+    playerTwoActive = false;
+    syncPlayerCountMenuValue();
+  }
+  sharedBoom = 0.0F;
+  for (int pi = 0; pi < 2; ++pi) {
+    PlayerCtl& P = players[pi];
+    P.objIndex = PP_INDEX(pi) < SCENE_OBJECT_COUNT ? PP_INDEX(pi) : -1;
+    if (P.objIndex < 0) continue;
+    P.x = SCENE_OBJECTS[P.objIndex].position[0];
+    P.z = SCENE_OBJECTS[P.objIndex].position[2];
+    P.y = PP_MODE(pi) == 1 ? SCENE_OBJECTS[P.objIndex].position[1]
+                           : terrainHeightAt(P.x, P.z);
+    P.yaw = SCENE_OBJECTS[P.objIndex].rotation[1] * PI / 180.0F;
+    P.velY = 0.0F;
+    P.pitch = 0.0F;
     // Third person: the avatar starts facing its authored yaw and its
     // locomotion clip names resolve to the model's clip indices. The Player
     // object is a rendered avatar only in this mode - in FPP/noclip its model
     // (if any) is never built, so its runtime object stays invisible here.
-    entFaceYaw = entYaw;
-    camBoom = PLAYER_CAM_DIST;  // start fully extended, not easing out from 0
-    runtimeObjects[PLAYER_INDEX].visible = (PLAYER_MODE == 2);
-    if (PLAYER_MODE == 2) {
+    // The P2 avatar shows only while player 2 is actually in the game.
+    P.faceYaw = P.yaw;
+    P.boom = PP_CAM_DIST(pi);  // start fully extended, not easing out from 0
+    runtimeObjects[P.objIndex].visible =
+        PP_MODE(pi) == 2 && (pi == 0 || playerTwoActive);
+    if (PP_MODE(pi) == 2) {
       // Idle/walk fall back to the model's first clip when unset; run/jump are
       // optional, so an empty name stays unmapped (-1) instead of clip 0.
-      playerIdleClip = resolveClipIndex(PLAYER_INDEX, PLAYER_IDLE_CLIP);
-      playerWalkClip = resolveClipIndex(PLAYER_INDEX, PLAYER_WALK_CLIP);
-      playerRunClip =
-          PLAYER_RUN_CLIP[0] ? resolveClipIndex(PLAYER_INDEX, PLAYER_RUN_CLIP) : -1;
-      playerJumpClip =
-          PLAYER_JUMP_CLIP[0] ? resolveClipIndex(PLAYER_INDEX, PLAYER_JUMP_CLIP) : -1;
+      P.idleClip = resolveClipIndex(P.objIndex, PP_IDLE_CLIP(pi));
+      P.walkClip = resolveClipIndex(P.objIndex, PP_WALK_CLIP(pi));
+      P.runClip =
+          PP_RUN_CLIP(pi)[0] ? resolveClipIndex(P.objIndex, PP_RUN_CLIP(pi)) : -1;
+      P.jumpClip =
+          PP_JUMP_CLIP(pi)[0] ? resolveClipIndex(P.objIndex, PP_JUMP_CLIP(pi)) : -1;
       // Start ON the idle clip so drivePlayerAnim recognizes it as a locomotion
       // pose from frame one. Without this, setupAnimObject's default (clip 0)
       // would look like a scripted one-shot when idle isn't clip 0, and a
       // looping clip 0 would wedge locomotion off (animFinished never fires).
-      if (playerIdleClip >= 0 && objectGeometry[PLAYER_INDEX].animInst) {
-        RuntimeObject& body = runtimeObjects[PLAYER_INDEX];
-        body.animClip = playerIdleClip;
+      if (P.idleClip >= 0 && objectGeometry[P.objIndex].animInst) {
+        RuntimeObject& body = runtimeObjects[P.objIndex];
+        body.animClip = P.idleClip;
         body.animLoop = true;
         body.animPlaying = true;
         body.animRestart = true;
@@ -2681,11 +2782,11 @@ void TerrainGame::loadScene(int sceneIndex) {
   // bar can advance between them (breaking if the pool momentarily can't make
   // progress, which the view-rect-sized pool should never hit at load time).
   if (!LOADING_SCREEN) {
-    updateTerrainChunks(lsFocusX, lsFocusZ, 0x7FFFFFFF);
+    updateTerrainChunks(lsFocusX, lsFocusZ, 0.0F, 0.0F, false, 0x7FFFFFFF);
   } else {
     int pending = countPendingChunks(lsFocusX, lsFocusZ);
     while (pending > 0) {
-      updateTerrainChunks(lsFocusX, lsFocusZ, lsStep);
+      updateTerrainChunks(lsFocusX, lsFocusZ, 0.0F, 0.0F, false, lsStep);
       const int now = countPendingChunks(lsFocusX, lsFocusZ);
       if (now >= pending) break;  // no forward progress (pool cap) - bail out
       lsPump(pending - now);
@@ -2800,6 +2901,8 @@ void TerrainGame::buildParticles() {
     ps.vel.assign(n, Vec4(0.0F, 0.0F, 0.0F, 0.0F));
     ps.life.assign(n, 0.0F);  // dead -> staggered respawn over the first frames
     ps.maxLife.assign(n, 1.0F);
+    ps.size.assign(n, 0.0F);
+    ps.sizeUp.assign(n, 0.0F);
     ps.verts.assign((size_t)n * 6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
     ps.cols.assign((size_t)n * 6, Color(0.0F, 0.0F, 0.0F, 0.0F));
     ps.infoBag = std::make_unique<StaPipInfoBag>();
@@ -2843,18 +2946,6 @@ void TerrainGame::updateParticles() {
   // scene render still draws them, so particles hang frozen behind the menu.
   if (g_gameplayPaused) return;
   const float dt = g_frameDt;
-
-  // camera right/up shared by every billboard this frame
-  Vec4 fwd = cameraLookAt - cameraPosition;
-  const float fl = sqrtf(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
-  if (fl > 0.0001F) fwd.x /= fl, fwd.y /= fl, fwd.z /= fl;
-  float rx = fwd.z, rz = -fwd.x;
-  const float rl = sqrtf(rx * rx + rz * rz);
-  if (rl > 0.0001F) rx /= rl, rz /= rl;
-  else rx = 1.0F, rz = 0.0F;
-  const float ux = -rz * fwd.y;
-  const float uy = rz * fwd.x - rx * fwd.z;
-  const float uz = rx * fwd.y;
 
   for (ParticleSystem& ps : particles) {
     const RuntimeObject& o = runtimeObjects[ps.objectIndex];
@@ -2986,11 +3077,51 @@ void TerrainGame::updateParticles() {
         alpha = 110.0F * t;
       }
 
-      // rain streaks stay vertical (world-up quads); everything else is a
-      // full camera-facing billboard. Fog puffs additionally swirl: the
-      // billboard slowly rotates in the camera plane, alternating direction
-      // per puff (the swirling fog roll) - keep in sync with the viewport
-      // preview (drawEmitterPreviews).
+      // Quad shape is stored, not baked into vertices: orientParticleQuads
+      // below faces the quads at the camera, and the split screen's second
+      // half re-faces the SAME particles for its own camera.
+      ps.size[i] = size;
+      ps.sizeUp[i] = sizeUp;
+      const Color c(cr, cg, cb, alpha);
+      const int b = i * 6;
+      for (int k = 0; k < 6; ++k) ps.cols[b + k] = c;
+    }
+    ps.colorBag->many = ps.cols.data();
+    ps.bag->vertices = ps.verts.data();
+    ps.bag->count = (u32)ps.verts.size();
+  }
+  orientParticleQuads();  // face this frame's (first) camera
+}
+
+// Rebuilds every live particle quad from the stored per-particle state
+// (pos/size/life) to face the CURRENT camera. Rain streaks stay vertical
+// (world-up quads); everything else is a full camera-facing billboard. Fog
+// puffs additionally swirl: the billboard slowly rotates in the camera
+// plane, alternating direction per puff (the swirling fog roll) - keep in
+// sync with the viewport preview (drawEmitterPreviews). Split from the
+// simulation so the split screen's second half can call it alone.
+void TerrainGame::orientParticleQuads() {
+  if (particles.empty() || !g_particlesOn) return;
+
+  // camera right/up shared by every billboard
+  Vec4 fwd = cameraLookAt - cameraPosition;
+  const float fl = sqrtf(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
+  if (fl > 0.0001F) fwd.x /= fl, fwd.y /= fl, fwd.z /= fl;
+  float rx = fwd.z, rz = -fwd.x;
+  const float rl = sqrtf(rx * rx + rz * rz);
+  if (rl > 0.0001F) rx /= rl, rz /= rl;
+  else rx = 1.0F, rz = 0.0F;
+  const float ux = -rz * fwd.y;
+  const float uy = rz * fwd.x - rx * fwd.z;
+  const float uz = rx * fwd.y;
+
+  for (ParticleSystem& ps : particles) {
+    if (!ps.bag || ps.bag->count == 0) continue;  // hidden emitter
+    const int kind = runtimeObjects[ps.objectIndex].data.emitKind;
+    const int n = (int)ps.life.size();
+    for (int i = 0; i < n; ++i) {
+      const float size = ps.size[i];
+      const float sizeUp = ps.sizeUp[i];
       float brx = rx, bry = 0.0F, brz = rz;
       float bux = ux, buy = uy, buz = uz;
       if (kind == 2) {
@@ -3020,12 +3151,7 @@ void TerrainGame::updateParticles() {
       ps.verts[b + 3] = v0;
       ps.verts[b + 4] = v2;
       ps.verts[b + 5] = v3;
-      const Color c(cr, cg, cb, alpha);
-      for (int k = 0; k < 6; ++k) ps.cols[b + k] = c;
     }
-    ps.colorBag->many = ps.cols.data();
-    ps.bag->vertices = ps.verts.data();
-    ps.bag->count = (u32)ps.verts.size();
     ps.bag->bboxVersion = ++g_bboxStamp;  // moving cloud - refresh the bbox
   }
 }
@@ -3132,10 +3258,10 @@ void TerrainGame::doSave(int slot) {
   // otherwise derived from the camera (the FPP template player; the orbit
   // camera simply ignores the restore).
   if (PLAYER_INDEX >= 0) {
-    d.playerPos[0] = entX;
-    d.playerPos[1] = entY;
-    d.playerPos[2] = entZ;
-    d.playerYaw = entYaw * 180.0F / PI;
+    d.playerPos[0] = players[0].x;
+    d.playerPos[1] = players[0].y;
+    d.playerPos[2] = players[0].z;
+    d.playerYaw = players[0].yaw * 180.0F / PI;
   } else {
     d.playerPos[0] = cameraPosition.x;
     d.playerPos[1] = cameraPosition.y - EYE_HEIGHT;
@@ -3415,7 +3541,31 @@ void TerrainGame::applyMenuBindings() {
             scriptCtx.widescreen = idx;
           }
           break;
+        case 7:  // player count (1P / 2P) - edge-triggered, so the pad-2
+          // Start join isn't reverted by the bind on the next frame
+          // (setPlayerTwoActive writes the row's save value back in sync).
+          if (idx != menuPlayerCountPrev) {
+            menuPlayerCountPrev = idx;
+            setPlayerTwoActive(idx >= 1);
+          }
+          break;
       }
+    }
+  }
+}
+
+// Keep a bound "Player count" menu row's save value (and the bind's edge
+// detector) in line with the actual player-2 state, so a pad-2 Start join
+// shows up in the menu instead of fighting it.
+void TerrainGame::syncPlayerCountMenuValue() {
+  const int idx = playerTwoActive ? 1 : 0;
+  menuPlayerCountPrev = idx;
+  for (int mi = 0; mi < MENU_COUNT; ++mi) {
+    const MenuData& m = MENUS[mi];
+    for (int e = 0; e < m.entryCount; ++e) {
+      const MenuEntryData& en = m.entries[e];
+      if (en.bind == 7 && en.param >= 0 && en.param < SAVE_VALUE_COUNT)
+        saveValues[en.param] = (float)idx;
     }
   }
 }
@@ -3630,11 +3780,37 @@ float TerrainGame::springArm(float px, float py, float pz, float dx, float dy,
   return best;
 }
 
+// Dispatcher: walk P1 (and P2 while active) from their pads, then compose the
+// frame camera. Shared screen frames the pair with one camera; split screen
+// keeps each player's own view (the render pass reads players[1].camPos).
 bool TerrainGame::updatePlayerEntity() {
   if (PLAYER_INDEX < 0) return false;
 
-  const auto& leftJoy = engine->pad.getLeftJoyPad();
-  const auto& rightJoy = engine->pad.getRightJoyPad();
+  updatePlayerWalker(players[0], 0, engine->pad);
+  const bool p2 =
+      MULTIPLAYER_MODE != 0 && playerTwoActive && players[1].objIndex >= 0;
+  if (p2) {
+    if (MULTIPLAYER_MODE == 1) {
+      // Shared screen: P2 moves relative to the one camera - its movement
+      // basis mirrors P1's orbit (the walker skips its right stick).
+      players[1].yaw = players[0].yaw;
+      players[1].pitch = players[0].pitch;
+    }
+    updatePlayerWalker(players[1], 1, pad2);
+  }
+
+  if (p2 && MULTIPLAYER_MODE == 1) {
+    updateSharedCamera();
+  } else {
+    cameraPosition = players[0].camPos;
+    cameraLookAt = players[0].camLook;
+  }
+  return true;
+}
+
+void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
+  const auto& leftJoy = pad.getLeftJoyPad();
+  const auto& rightJoy = pad.getRightJoyPad();
   // stickAxis applies the per-stick deadzone (g_deadzoneL/R - Preferences, or a
   // menu "Deadzone" option block) and response curve (g_stickCurve*/g_stickExp*
   // - Preferences > Input / Set Stick Curve node / a menu "Aim curve" block).
@@ -3645,38 +3821,43 @@ bool TerrainGame::updatePlayerEntity() {
     return stickAxis(raw, g_deadzoneR, g_stickCurveR, g_stickExpR);
   };
 
-  // Right stick: look around (stick right = turn right)
-  entYaw -= axisR(rightJoy.h) * 0.05F * PLAYER_LOOK_SPEED * g_frameScale;
-  entPitch -= axisR(rightJoy.v) * 0.035F * PLAYER_LOOK_SPEED * g_frameScale;
-  if (entPitch > 1.35F) entPitch = 1.35F;
-  if (entPitch < -1.35F) entPitch = -1.35F;
+  // Right stick: look around (stick right = turn right). A shared-screen P2
+  // has no camera of its own (the dispatcher mirrors P1's orbit into it), so
+  // only players that own a view read the right stick.
+  const bool ownCamera = pi == 0 || MULTIPLAYER_MODE == 2;
+  if (ownCamera) {
+    P.yaw -= axisR(rightJoy.h) * 0.05F * PP_LOOK_SPEED(pi) * g_frameScale;
+    P.pitch -= axisR(rightJoy.v) * 0.035F * PP_LOOK_SPEED(pi) * g_frameScale;
+    if (P.pitch > 1.35F) P.pitch = 1.35F;
+    if (P.pitch < -1.35F) P.pitch = -1.35F;
+  }
 
-  const float fx = sinf(entYaw);
-  const float fz = cosf(entYaw);
+  const float fx = sinf(P.yaw);
+  const float fz = cosf(P.yaw);
   const float forward = -axisL(leftJoy.v);
   const float strafe = axisL(leftJoy.h);
 
-  if (PLAYER_MODE == 1) {
+  if (PP_MODE(pi) == 1) {
     // Noclip: fly where the camera looks; X up, Square down.
-    const float cp = cosf(entPitch);
-    const float step = PLAYER_WALK_SPEED * g_frameScale;
-    entX += (fx * cp * forward - fz * strafe) * step;
-    entZ += (fz * cp * forward + fx * strafe) * step;
-    entY += sinf(entPitch) * forward * step;
-    if (engine->pad.getPressed().BTN_FLY_UP) entY += step;
-    if (engine->pad.getPressed().BTN_FLY_DOWN) entY -= step;
+    const float cp = cosf(P.pitch);
+    const float step = PP_WALK_SPEED(pi) * g_frameScale;
+    P.x += (fx * cp * forward - fz * strafe) * step;
+    P.z += (fz * cp * forward + fx * strafe) * step;
+    P.y += sinf(P.pitch) * forward * step;
+    if (pad.getPressed().BTN_FLY_UP) P.y += step;
+    if (pad.getPressed().BTN_FLY_DOWN) P.y -= step;
 
-    cameraPosition = Vec4(entX, entY, entZ);
-    cameraLookAt = Vec4(entX + fx * cp, entY + sinf(entPitch), entZ + fz * cp);
-    return true;
+    P.camPos = Vec4(P.x, P.y, P.z);
+    P.camLook = Vec4(P.x + fx * cp, P.y + sinf(P.pitch), P.z + fz * cp);
+    return;
   }
 
-  if (PLAYER_MODE == 2) {
+  if (PP_MODE(pi) == 2) {
     // Third person: the left stick moves the avatar relative to the camera,
     // the avatar turns to face where it walks, and the camera rides a boom
     // behind it. Terrain bounds + object collision + gravity/jump match walk.
-    float nextX = entX + (fx * forward - fz * strafe) * PLAYER_WALK_SPEED * g_frameScale;
-    float nextZ = entZ + (fz * forward + fx * strafe) * PLAYER_WALK_SPEED * g_frameScale;
+    float nextX = P.x + (fx * forward - fz * strafe) * PP_WALK_SPEED(pi) * g_frameScale;
+    float nextZ = P.z + (fz * forward + fx * strafe) * PP_WALK_SPEED(pi) * g_frameScale;
     const float limX = TERRAIN_WIDTH * 0.5F - 1.0F;
     const float limZ = TERRAIN_DEPTH * 0.5F - 1.0F;
     if (nextX > limX) nextX = limX;
@@ -3686,50 +3867,50 @@ bool TerrainGame::updatePlayerEntity() {
 
     float ground = terrainHeightAt(nextX, nextZ);
     float ceiling = 1e30F;
-    collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground,
+    collidePlayer(P.x, P.z, &nextX, &nextZ, P.y, PP_EYE_HEIGHT(pi), &ground,
                   &ceiling);
-    const float movedX = nextX - entX, movedZ = nextZ - entZ;
-    entX = nextX;
-    entZ = nextZ;
+    const float movedX = nextX - P.x, movedZ = nextZ - P.z;
+    P.x = nextX;
+    P.z = nextZ;
 
-    entVelY -= GRAVITY * g_frameDt * g_frameDt;
-    entY += entVelY;
-    const float maxY = ceiling - PLAYER_EYE_HEIGHT - EYE_CLEARANCE;
-    if (entY > maxY && maxY >= ground) {
-      entY = maxY;
-      if (entVelY > 0.0F) entVelY = 0.0F;
+    P.velY -= GRAVITY * g_frameDt * g_frameDt;
+    P.y += P.velY;
+    const float maxY = ceiling - PP_EYE_HEIGHT(pi) - EYE_CLEARANCE;
+    if (P.y > maxY && maxY >= ground) {
+      P.y = maxY;
+      if (P.velY > 0.0F) P.velY = 0.0F;
     }
     bool grounded = false;
-    if (entY <= ground) {
-      entY = ground;
-      entVelY = 0.0F;
+    if (P.y <= ground) {
+      P.y = ground;
+      P.velY = 0.0F;
       grounded = true;
-      if (PLAYER_CAN_JUMP && engine->pad.getClicked().BTN_JUMP)
-        entVelY = PLAYER_JUMP_SPEED * g_frameDt;
+      if (PP_CAN_JUMP(pi) && pad.getClicked().BTN_JUMP)
+        P.velY = PP_JUMP_SPEED(pi) * g_frameDt;
     }
 
     // Turn the avatar toward its movement direction (shortest-arc lerp).
     const float movedLen = sqrtf(movedX * movedX + movedZ * movedZ);
     if (movedLen > 0.0005F) {
       float desired = atan2f(movedX, movedZ);
-      float d = desired - entFaceYaw;
+      float d = desired - P.faceYaw;
       while (d > PI) d -= 2.0F * PI;
       while (d < -PI) d += 2.0F * PI;
-      float k = PLAYER_TURN_RATE * g_frameScale;
+      float k = PP_TURN_RATE(pi) * g_frameScale;
       if (k > 1.0F) k = 1.0F;
-      entFaceYaw += d * k;
+      P.faceYaw += d * k;
     }
 
-    // Camera boom: the eye rides PLAYER_CAM_DIST behind/above the head along
+    // Camera boom: the eye rides PP_CAM_DIST behind/above the head along
     // the orbit direction. The spring arm shortens the boom to the first thing
     // it hits so the camera never enters geometry or the terrain. Classic
     // spring behavior: pull IN instantly (a late pull-in means a visible clip
     // through a wall) and ease back OUT, so leaving cover doesn't snap.
-    const float headY = entY + PLAYER_CAM_HEIGHT;
-    const float cp = cosf(entPitch);
-    const float boomX = sinf(entYaw) * cp;
-    const float boomZ = cosf(entYaw) * cp;
-    const float boomY = sinf(entPitch);
+    const float headY = P.y + PP_CAM_HEIGHT(pi);
+    const float cp = cosf(P.pitch);
+    const float boomX = sinf(P.yaw) * cp;
+    const float boomZ = cosf(P.yaw) * cp;
+    const float boomY = sinf(P.pitch);
 
     // Over-the-shoulder: slide the WHOLE rig - eye and look-at alike - along
     // the camera's right vector, so the avatar sits off-center in frame.
@@ -3739,53 +3920,53 @@ bool TerrainGame::updatePlayerEntity() {
     // itself spring-armed so a shoulder cam cannot slide into a wall the player
     // is hugging - and this second cast costs nothing at all when the offset is
     // 0, which is the default.
-    const float rx = -cosf(entYaw), rz = sinf(entYaw);
-    float shoulder = PLAYER_CAM_SHOULDER;
+    const float rx = -cosf(P.yaw), rz = sinf(P.yaw);
+    float shoulder = PP_CAM_SHOULDER(pi);
     if (shoulder > 0.0001F || shoulder < -0.0001F) {
       const float s = shoulder < 0.0F ? -1.0F : 1.0F;
-      shoulder = s * springArm(entX, headY, entZ, rx * s, 0.0F, rz * s,
+      shoulder = s * springArm(P.x, headY, P.z, rx * s, 0.0F, rz * s,
                                shoulder * s);
     }
-    const float pivotX = entX + rx * shoulder;
-    const float pivotZ = entZ + rz * shoulder;
+    const float pivotX = P.x + rx * shoulder;
+    const float pivotZ = P.z + rz * shoulder;
 
     float want =
-        springArm(pivotX, headY, pivotZ, -boomX, -boomY, -boomZ, PLAYER_CAM_DIST);
+        springArm(pivotX, headY, pivotZ, -boomX, -boomY, -boomZ, PP_CAM_DIST(pi));
     if (want < CAM_MIN_DIST) want = CAM_MIN_DIST;
-    if (want < camBoom) {
-      camBoom = want;  // blocked: snap in, never clip
+    if (want < P.boom) {
+      P.boom = want;  // blocked: snap in, never clip
     } else {
       float k = 0.06F * g_frameScale;  // ~2 s to close a full-length boom
       if (k > 1.0F) k = 1.0F;
-      camBoom += (want - camBoom) * k;
+      P.boom += (want - P.boom) * k;
     }
-    float eyeX = pivotX - boomX * camBoom;
-    float eyeY = headY - boomY * camBoom;
-    float eyeZ = pivotZ - boomZ * camBoom;
+    float eyeX = pivotX - boomX * P.boom;
+    float eyeY = headY - boomY * P.boom;
+    float eyeZ = pivotZ - boomZ * P.boom;
     // Safety net: the march samples the heightmap discretely, so a sharp ridge
     // between two samples could still leave the eye underground.
     const float minEyeY = terrainHeightAt(eyeX, eyeZ) + 0.4F;
     if (eyeY < minEyeY) eyeY = minEyeY;
-    cameraPosition = Vec4(eyeX, eyeY, eyeZ);
-    cameraLookAt = Vec4(pivotX, headY, pivotZ);
+    P.camPos = Vec4(eyeX, eyeY, eyeZ);
+    P.camLook = Vec4(pivotX, headY, pivotZ);
 
     // Drive the avatar object: stand at the feet, face the walk direction,
     // and auto-select its locomotion clip. updateAndRenderAnimObjects draws it.
-    if (PLAYER_INDEX >= 0 && PLAYER_INDEX < (int)runtimeObjects.size()) {
-      RuntimeObject& body = runtimeObjects[PLAYER_INDEX];
-      body.data.position[0] = entX;
-      body.data.position[1] = entY;
-      body.data.position[2] = entZ;
-      body.data.rotation[1] = entFaceYaw * 180.0F / PI;
-      const float step = PLAYER_WALK_SPEED * g_frameScale;
-      drivePlayerAnim(body, step > 1e-4F ? movedLen / step : 0.0F, grounded);
+    if (P.objIndex >= 0 && P.objIndex < (int)runtimeObjects.size()) {
+      RuntimeObject& body = runtimeObjects[P.objIndex];
+      body.data.position[0] = P.x;
+      body.data.position[1] = P.y;
+      body.data.position[2] = P.z;
+      body.data.rotation[1] = P.faceYaw * 180.0F / PI;
+      const float step = PP_WALK_SPEED(pi) * g_frameScale;
+      drivePlayerAnim(P, body, step > 1e-4F ? movedLen / step : 0.0F, grounded);
     }
-    return true;
+    return;
   }
 
   // Walk mode: terrain bounds, object collision, gravity + jump.
-  float nextX = entX + (fx * forward - fz * strafe) * PLAYER_WALK_SPEED * g_frameScale;
-  float nextZ = entZ + (fz * forward + fx * strafe) * PLAYER_WALK_SPEED * g_frameScale;
+  float nextX = P.x + (fx * forward - fz * strafe) * PP_WALK_SPEED(pi) * g_frameScale;
+  float nextZ = P.z + (fz * forward + fx * strafe) * PP_WALK_SPEED(pi) * g_frameScale;
 
   const float limX = TERRAIN_WIDTH * 0.5F - 1.0F;
   const float limZ = TERRAIN_DEPTH * 0.5F - 1.0F;
@@ -3796,32 +3977,82 @@ bool TerrainGame::updatePlayerEntity() {
 
   float ground = terrainHeightAt(nextX, nextZ);
   float ceiling = 1e30F;
-  collidePlayer(entX, entZ, &nextX, &nextZ, entY, PLAYER_EYE_HEIGHT, &ground,
+  collidePlayer(P.x, P.z, &nextX, &nextZ, P.y, PP_EYE_HEIGHT(pi), &ground,
                 &ceiling);
-  entX = nextX;
-  entZ = nextZ;
+  P.x = nextX;
+  P.z = nextZ;
 
-  entVelY -= GRAVITY * g_frameDt * g_frameDt;  // GRAVITY is units/s^2
-  entY += entVelY;
+  P.velY -= GRAVITY * g_frameDt * g_frameDt;  // GRAVITY is units/s^2
+  P.y += P.velY;
   // Jump clamp: keep the eye EYE_CLEARANCE below overhead geometry so the
   // camera never pokes into it (skipped when the gap is too low to stand in)
-  const float maxY = ceiling - PLAYER_EYE_HEIGHT - EYE_CLEARANCE;
-  if (entY > maxY && maxY >= ground) {
-    entY = maxY;
-    if (entVelY > 0.0F) entVelY = 0.0F;
+  const float maxY = ceiling - PP_EYE_HEIGHT(pi) - EYE_CLEARANCE;
+  if (P.y > maxY && maxY >= ground) {
+    P.y = maxY;
+    if (P.velY > 0.0F) P.velY = 0.0F;
   }
-  if (entY <= ground) {
-    entY = ground;
-    entVelY = 0.0F;
-    if (PLAYER_CAN_JUMP && engine->pad.getClicked().BTN_JUMP)
-      entVelY = PLAYER_JUMP_SPEED * g_frameDt;  // units/s
+  if (P.y <= ground) {
+    P.y = ground;
+    P.velY = 0.0F;
+    if (PP_CAN_JUMP(pi) && pad.getClicked().BTN_JUMP)
+      P.velY = PP_JUMP_SPEED(pi) * g_frameDt;  // units/s
   }
 
-  const float eyeY = entY + PLAYER_EYE_HEIGHT;
-  cameraPosition = Vec4(entX, eyeY, entZ);
-  cameraLookAt = Vec4(entX + fx * cosf(entPitch), eyeY + sinf(entPitch),
-                      entZ + fz * cosf(entPitch));
-  return true;
+  const float eyeY = P.y + PP_EYE_HEIGHT(pi);
+  P.camPos = Vec4(P.x, eyeY, P.z);
+  P.camLook = Vec4(P.x + fx * cosf(P.pitch), eyeY + sinf(P.pitch),
+                   P.z + fz * cosf(P.pitch));
+}
+
+// Shared-screen camera: orbit (P1's right stick, mirrored into both players'
+// yaw/pitch by the dispatcher) around the midpoint of the two avatars, with
+// the boom stretched by their separation so the pair stays in frame. The
+// spring arm and terrain safety net match the single-player boom.
+void TerrainGame::updateSharedCamera() {
+  PlayerCtl& A = players[0];
+  PlayerCtl& B = players[1];
+  const float midX = (A.x + B.x) * 0.5F;
+  const float midZ = (A.z + B.z) * 0.5F;
+  const float midY = (A.y + B.y) * 0.5F + PP_CAM_HEIGHT(0);
+  const float dx = A.x - B.x, dy = A.y - B.y, dz = A.z - B.z;
+  const float sep = sqrtf(dx * dx + dy * dy + dz * dz);
+  const float dist = PP_CAM_DIST(0) + sep * 0.7F;
+
+  const float cp = cosf(A.pitch);
+  const float boomX = sinf(A.yaw) * cp;
+  const float boomZ = cosf(A.yaw) * cp;
+  const float boomY = sinf(A.pitch);
+
+  float want = springArm(midX, midY, midZ, -boomX, -boomY, -boomZ, dist);
+  if (want < CAM_MIN_DIST) want = CAM_MIN_DIST;
+  if (want < sharedBoom) {
+    sharedBoom = want;  // blocked: snap in, never clip
+  } else {
+    float k = 0.06F * g_frameScale;
+    if (k > 1.0F) k = 1.0F;
+    sharedBoom += (want - sharedBoom) * k;
+  }
+  float eyeX = midX - boomX * sharedBoom;
+  float eyeY = midY - boomY * sharedBoom;
+  float eyeZ = midZ - boomZ * sharedBoom;
+  const float minEyeY = terrainHeightAt(eyeX, eyeZ) + 0.4F;
+  if (eyeY < minEyeY) eyeY = minEyeY;
+  cameraPosition = Vec4(eyeX, eyeY, eyeZ);
+  cameraLookAt = Vec4(midX, midY, midZ);
+}
+
+// Player 2 join/leave (Start on pad 2, or a menu Toggle bound to "Player
+// count"). Guarded: joining needs a two-player mode and a second Player
+// object in the scene. Shows/hides the P2 third-person avatar and keeps the
+// bound menu row's save value in sync so both entry points agree.
+void TerrainGame::setPlayerTwoActive(bool active) {
+  if (active && (MULTIPLAYER_MODE == 0 || players[1].objIndex < 0)) return;
+  if (playerTwoActive == active) return;
+  playerTwoActive = active;
+  if (players[1].objIndex >= 0 && PP_MODE(1) == 2 &&
+      players[1].objIndex < (int)runtimeObjects.size())
+    runtimeObjects[players[1].objIndex].visible = active;
+  syncPlayerCountMenuValue();
 }
 
 // Locomotion-driven clip selection for the third-person avatar. speedFrac is
@@ -3831,26 +4062,27 @@ bool TerrainGame::updatePlayerEntity() {
 // non-locomotion clip is currently playing (a script/flow "Play Animation"
 // one-shot), locomotion holds off until it finishes, then resumes. This is the
 // whole "third-person for free" story: no state machine, full override.
-void TerrainGame::drivePlayerAnim(RuntimeObject& body, float speedFrac,
-                                  bool grounded) {
-  if (PLAYER_INDEX < 0 || !objectGeometry[PLAYER_INDEX].animInst) return;
+void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
+                                  float speedFrac, bool grounded) {
+  if (P.objIndex < 0 || !objectGeometry[P.objIndex].animInst) return;
+  const int pi = &P == &players[1] ? 1 : 0;
   body.animPlaying = true;
 
   int want;
-  if (!grounded && playerJumpClip >= 0)
-    want = playerJumpClip;
+  if (!grounded && P.jumpClip >= 0)
+    want = P.jumpClip;
   else if (speedFrac < 0.12F)
-    want = playerIdleClip;
-  else if (speedFrac < PLAYER_RUN_THRESHOLD || playerRunClip < 0)
-    want = playerWalkClip;
+    want = P.idleClip;
+  else if (speedFrac < PP_RUN_THRESHOLD(pi) || P.runClip < 0)
+    want = P.walkClip;
   else
-    want = playerRunClip;
-  if (want < 0) want = playerIdleClip;
+    want = P.runClip;
+  if (want < 0) want = P.idleClip;
   if (want < 0) want = 0;  // no clips mapped: hold the model's first clip
 
   const bool locomotion =
-      body.animClip == playerIdleClip || body.animClip == playerWalkClip ||
-      body.animClip == playerRunClip || body.animClip == playerJumpClip;
+      body.animClip == P.idleClip || body.animClip == P.walkClip ||
+      body.animClip == P.runClip || body.animClip == P.jumpClip;
   if (!locomotion && !body.animFinished) return;  // let a one-shot finish
 
   if (body.animClip != want) {
@@ -3862,7 +4094,7 @@ void TerrainGame::drivePlayerAnim(RuntimeObject& body, float speedFrac,
   // Match playback to foot speed on the moving clips (min 0.6x so a slow creep
   // still animates), otherwise the authored speed.
   const float base = body.data.animSpeed;
-  if (want == playerWalkClip || want == playerRunClip)
+  if (want == P.walkClip || want == P.runClip)
     body.animSpeed = base * (speedFrac < 0.6F ? 0.6F : speedFrac);
   else
     body.animSpeed = base;
@@ -4172,6 +4404,190 @@ void TerrainGame::rebuildObjectGeometry(int index) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Static batching (STATIC_BATCHING): every StaPip submit costs ~0.7-1.5 ms
+// of fixed EE overhead on real hardware regardless of vertex count, so a
+// scene of many small primitive objects pays for its object COUNT, not its
+// geometry (twice over in split screen). Objects flagged batchStatic at
+// build time merge into combined world-space bags instead - grouped by
+// material within a coarse world cell so no batch spans the whole map (a
+// map-wide bbox would defeat the engine's whole-bag frustum cut, the same
+// reason the terrain is chunked).
+void TerrainGame::buildStaticBatchList() {
+  staticBatches.clear();
+  objectBatchOf.assign(SCENE_OBJECT_COUNT, -1);
+  if (!STATIC_BATCHING) return;
+  if (!batchInfoBag) {
+    batchInfoBag = std::make_unique<StaPipInfoBag>();
+    batchInfoBag->model = &model;
+    batchInfoBag->shadingType = TyraShadingFlat;
+    // Same rules as the per-object bags: always classify against the
+    // frustum (raw submission wraps the GS raster window) with full clip
+    // checks.
+    batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    batchInfoBag->fullClipChecks = true;
+  }
+  // Cell width: a quarter of the map on big maps (a 2048-unit map gets a
+  // 4x4 grid), but never below 48 units - on a small map a finer grid (or
+  // one straddling the origin) splits a handful of objects into
+  // single-member batches and the merge wins nothing. The grid anchors at
+  // the map corner (terrain is centered on the origin) for the same reason.
+  const float mapW =
+      TERRAIN_WIDTH > TERRAIN_DEPTH ? TERRAIN_WIDTH : TERRAIN_DEPTH;
+  const float cellW = mapW * 0.25F > 48.0F ? mapW * 0.25F : 48.0F;
+  std::vector<int> keyX, keyZ;  // per-batch cell, only needed while grouping
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+    const SceneObjectData& d = SCENE_OBJECTS[i];
+    if (!d.batchStatic) continue;
+    // Materials of always-resident objects are loaded by now; a reflective
+    // one draws a second additive env pass per bag - keep those objects on
+    // the solo path, which already handles the env bag.
+    if (d.material >= 0 && (d.material >= (int)gameMaterials.size() ||
+                            gameMaterials[d.material].reflTexture))
+      continue;
+    const int cx = (int)floorf((d.position[0] + 0.5F * mapW) / cellW);
+    const int cz = (int)floorf((d.position[2] + 0.5F * mapW) / cellW);
+    int bi = -1;
+    for (int b = 0; b < (int)staticBatches.size(); ++b)
+      if (staticBatches[b].material == d.material && keyX[b] == cx &&
+          keyZ[b] == cz) {
+        bi = b;
+        break;
+      }
+    if (bi < 0) {
+      staticBatches.emplace_back();
+      staticBatches.back().material = d.material;
+      keyX.push_back(cx);
+      keyZ.push_back(cz);
+      bi = (int)staticBatches.size() - 1;
+    }
+    staticBatches[bi].members.push_back(i);
+    objectBatchOf[i] = (short)bi;
+    // The scene-load dirty flag is consumed by membership: the batch itself
+    // starts dirty and bakes on the first renderScene. From here on a
+    // member turning dirty means a REAL runtime mutation - the demotion
+    // check in renderStaticBatches keys on exactly that.
+    runtimeObjects[i].dirty = false;
+  }
+  int batched = 0;
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+    if (objectBatchOf[i] >= 0) ++batched;
+  TYRA_LOG("Static batching: ", batched, " objects in ",
+           (int)staticBatches.size(), " batches");
+}
+
+// One batch's bake: re-run the primitive builders for every shown member
+// into the combined arrays - world-space vertices with baked lighting,
+// byte-identical to what the solo path produces for the same object. The
+// heap arrays are reused across rebuilds; the engine's frustum-bbox cache
+// is keyed by (pointer, version), so the bboxVersion bump below is what
+// keeps reused pointers from resurrecting stale boxes.
+void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
+  b.dirty = false;
+  b.vertices.clear();
+  b.colors.clear();
+  b.sts.clear();
+  b.shown.assign(b.members.size(), 0);
+  const GameMaterial* gmat =
+      (b.material >= 0 && b.material < (int)gameMaterials.size())
+          ? &gameMaterials[b.material]
+          : nullptr;
+  g_primKd = gmat ? gmat->kd : nullptr;
+  g_primTextured = gmat && gmat->texture;
+  for (size_t k = 0; k < b.members.size(); ++k) {
+    RuntimeObject& o = runtimeObjects[b.members[k]];
+    // Members are never dirty here: scene load consumes the flag at
+    // grouping time and renderStaticBatches demotes dirtied members before
+    // calling this.
+    const bool show = o.active && o.visible;
+    b.shown[k] = show ? 1 : 0;
+    if (!show) continue;
+    switch (o.data.type) {
+      case 1: addSphere(b.vertices, b.colors, b.sts, o.data); break;
+      case 2: addCylinder(b.vertices, b.colors, b.sts, o.data); break;
+      case 3: addCone(b.vertices, b.colors, b.sts, o.data); break;
+      case 12: addPlane(b.vertices, b.colors, b.sts, o.data); break;
+      default: addBox(b.vertices, b.colors, b.sts, o.data); break;
+    }
+  }
+  g_primKd = nullptr;
+  g_primTextured = false;
+  if (b.vertices.empty()) {
+    b.bag.reset();
+    return;
+  }
+  if (!b.bag) {
+    b.colorBag = std::make_unique<StaPipColorBag>();
+    b.bag = std::make_unique<StaPipBag>();
+    b.bag->info = batchInfoBag.get();
+    b.bag->color = b.colorBag.get();
+    b.bag->texture = nullptr;
+    b.bag->lighting = nullptr;
+  }
+  b.colorBag->many = b.colors.data();
+  b.bag->vertices = b.vertices.data();
+  b.bag->count = static_cast<u32>(b.vertices.size());
+  b.bag->bboxVersion = ++g_bboxStamp;  // geometry changed - fresh boxes
+  if (gmat && gmat->texture) {
+    if (!b.texBag) b.texBag = std::make_unique<StaPipTextureBag>();
+    b.texBag->texture = gmat->texture;
+    b.texBag->coordinates = b.sts.data();
+    b.bag->texture = b.texBag.get();
+  } else {
+    b.bag->texture = nullptr;
+  }
+  // World AABB for the split-screen band cull - the batch analogue of the
+  // terrain chunks' build-time boxes.
+  b.aabbMin[0] = b.aabbMax[0] = b.vertices[0].x;
+  b.aabbMin[1] = b.aabbMax[1] = b.vertices[0].y;
+  b.aabbMin[2] = b.aabbMax[2] = b.vertices[0].z;
+  for (const Vec4& v : b.vertices) {
+    if (v.x < b.aabbMin[0]) b.aabbMin[0] = v.x;
+    if (v.x > b.aabbMax[0]) b.aabbMax[0] = v.x;
+    if (v.y < b.aabbMin[1]) b.aabbMin[1] = v.y;
+    if (v.y > b.aabbMax[1]) b.aabbMax[1] = v.y;
+    if (v.z < b.aabbMin[2]) b.aabbMin[2] = v.z;
+    if (v.z > b.aabbMax[2]) b.aabbMax[2] = v.z;
+  }
+}
+
+// Per-frame batch pass: catch changed members, rebuild whatever changed,
+// then submit. This is the correctness net for the runtime-only mutation
+// channels (Live Link edits, Raycast/custom-node latches fed into object
+// actions, global scripts) that build-time eligibility cannot rule out:
+// - a DIRTIED member (position/color/... actually mutated) is DEMOTED to
+//   the solo path for the rest of the scene - a per-frame-animated member
+//   would otherwise re-bake its whole batch every frame, which is slower
+//   than the pre-batching status quo. The batch rebuilds once without it
+//   and the solo path picks it up this same frame (its dirty stays set).
+// - a visibility/residency flip vs the shown snapshot (hide/show can skip
+//   the dirty flag) only rebuilds the batch in place - the member may well
+//   reappear, and hides are events, not per-frame animation.
+void TerrainGame::renderStaticBatches() {
+  for (StaticBatch& b : staticBatches) {
+    bool stale = b.dirty;
+    for (size_t k = 0; k < b.members.size(); ++k) {
+      const RuntimeObject& o = runtimeObjects[b.members[k]];
+      if (o.dirty) {
+        objectBatchOf[b.members[k]] = -1;  // demote: solo from now on
+        b.members.erase(b.members.begin() + (long)k);
+        b.shown.erase(b.shown.begin() + (long)k);
+        --k;
+        stale = true;
+        continue;
+      }
+      if (!stale &&
+          b.shown[k] != (unsigned char)((o.active && o.visible) ? 1 : 0))
+        stale = true;
+    }
+    if (stale) rebuildStaticBatch(b);
+    if (!b.bag || b.bag->count == 0) continue;
+    // Split halves: same band early-out the terrain chunks use.
+    if (splitBandActive && outsideSplitBand(b.aabbMin, b.aabbMax)) continue;
+    stapip.core.render(b.bag.get());
+  }
+}
+
 void TerrainGame::updateObjectPhysics() {
   // GRAVITY is units/s^2
   const float gravityPerFrame = GRAVITY * g_frameDt * g_frameDt;
@@ -4197,6 +4613,10 @@ void TerrainGame::renderScene() {
   // deferred usable bodies, timed separately below). Folded away entirely
   // when DEBUG_SHOW_PROFILER is false. See drawDebugHud.
   const u32 profScene0 = DEBUG_SHOW_PROFILER ? profTicks() : 0;
+  // Split halves: bound the visible vertical band once per pass; the chunk
+  // and static-object submissions below early-out against it.
+  splitBandActive = splitPassActive;
+  if (splitBandActive) computeSplitBand();
   // Scripts changing ctx.skyColor retint the dome horizon
   if (skyDome.bag && (scriptCtx.skyColor.r != skyHorizonR ||
                       scriptCtx.skyColor.g != skyHorizonG ||
@@ -4240,7 +4660,10 @@ void TerrainGame::renderScene() {
   // couple of ms per hit on real hardware.
   static bool envMapTick = false;  // first frame MUST render (fresh VRAM)
   envMapTick = !envMapTick;
-  if (g_dynamicEnvUsers > 0 && skyDome.bag && envMapTick) {
+  // Not inside a split half: the env bracket's end() restores a full-screen
+  // raster, which would undo the half's scissor/offset. Reflections keep the
+  // last rendered map while split-screen is active.
+  if (g_dynamicEnvUsers > 0 && skyDome.bag && envMapTick && !splitPassActive) {
     auto& core = engine->renderer.core;
     skyMat.identity();
     skyMat.data[12] = cameraPosition.x;
@@ -4306,8 +4729,20 @@ void TerrainGame::renderScene() {
   // build cost spreads over frames), then submit the built chunks - the
   // engine drops whole out-of-frustum chunks EE-side (main-bbox classify)
   // before any packaging or clipping work happens.
-  updateTerrainChunks(cameraLookAt.x, cameraLookAt.z, 2);
+  // One streaming update per FRAME (the split's second pass reuses it) with
+  // player 2's avatar as a second focus while active - each player keeps the
+  // terrain around them resident even when the pair walks apart.
+  if (!splitSecondPass) {
+    const bool p2Focus = playerTwoActive && players[1].objIndex >= 0;
+    updateTerrainChunks(cameraLookAt.x, cameraLookAt.z,
+                        p2Focus ? players[1].x : 0.0F,
+                        p2Focus ? players[1].z : 0.0F, p2Focus, 2);
+  }
   renderTerrain();
+  // Static batches: one submit per material x cell group of the non-moving
+  // primitives (rebuilt first when a member changed). Opaque z-tested
+  // geometry, so drawing before the solo objects is order-free.
+  renderStaticBatches();
   // Highlighted-in-reach usables get a separate shell pass after the scene.
   // RIM mode (default): the body is deferred out of the main pass and drawn
   // AFTER its shells, erasing the shell wash over the object's own receding
@@ -4330,9 +4765,14 @@ void TerrainGame::renderScene() {
   const bool hlOverlay = HIGHLIGHT_OVERLAY;
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (!runtimeObjects[i].active) continue;  // streamed out with its layer
+    // Batched members render via renderStaticBatches above; their dirty flag
+    // is consumed by the batch rebuild, never by the solo path.
+    if (i < (int)objectBatchOf.size() && objectBatchOf[i] >= 0) continue;
     if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
     if (!runtimeObjects[i].visible) continue;
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
+    // Split halves: whole objects above/below the visible band skip here.
+    if (splitBandActive && objectOutsideSplitBand(i)) continue;
     // mirrors draw after the scene (copies first, then the blended glass -
     // see renderMirrors); drawing the quad here would z-write the plane and
     // reject the reflected geometry behind it
@@ -4390,8 +4830,11 @@ void TerrainGame::renderScene() {
       if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - pb;
     }
   }
-  // particles last - alpha blended over the scene
+  // particles last - alpha blended over the scene. The second split half
+  // re-faces the quads at ITS camera first - billboards built during the
+  // simulation face player 1's view.
   const u32 profPart0 = DEBUG_SHOW_PROFILER ? profTicks() : 0;
+  if (splitSecondPass) orientParticleQuads();
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
@@ -4797,12 +5240,15 @@ void TerrainGame::resetTerrainChunks() {
   int pool = total;
   if (TERRAIN_VIEW_DISTANCE > 0.0F) {
     // The view rect (focus +- view distance) covers at most ceil(2V/span)+1
-    // tiles per axis; +1 more per axis for the eviction hysteresis.
+    // tiles per axis; +1 more per axis for the eviction hysteresis. Scenes
+    // that can host player 2 stream around two foci, so they need room for
+    // two disjoint rects.
     const float spanX = TERRAIN_CHUNK_CELLS * ((float)TERRAIN_WIDTH / cellsX);
     const float spanZ = TERRAIN_CHUNK_CELLS * ((float)TERRAIN_DEPTH / cellsZ);
     const int nx = (int)(2.0F * TERRAIN_VIEW_DISTANCE / spanX) + 3;
     const int nz = (int)(2.0F * TERRAIN_VIEW_DISTANCE / spanZ) + 3;
-    if (nx * nz < pool) pool = nx * nz;
+    const int rects = (MULTIPLAYER_MODE != 0 && PLAYER2_INDEX >= 0) ? 2 : 1;
+    if (nx * nz * rects < pool) pool = nx * nz * rects;
   }
 
   terrainChunks.clear();
@@ -4942,6 +5388,22 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   // Reused slot = same bag pointer with new vertex content: without the bump
   // the engine's bbox cacher would cull this chunk with the old chunk's boxes.
   ch.bag->bboxVersion = ++g_bboxStamp;
+
+  // World AABB of the built mesh - the split-band cull tests it per half.
+  // One pass at build time, nothing per frame.
+  if (!ch.vertices.empty()) {
+    ch.aabbMin[0] = ch.aabbMax[0] = ch.vertices[0].x;
+    ch.aabbMin[1] = ch.aabbMax[1] = ch.vertices[0].y;
+    ch.aabbMin[2] = ch.aabbMax[2] = ch.vertices[0].z;
+    for (const Vec4& v : ch.vertices) {
+      if (v.x < ch.aabbMin[0]) ch.aabbMin[0] = v.x;
+      if (v.x > ch.aabbMax[0]) ch.aabbMax[0] = v.x;
+      if (v.y < ch.aabbMin[1]) ch.aabbMin[1] = v.y;
+      if (v.y > ch.aabbMax[1]) ch.aabbMax[1] = v.y;
+      if (v.z < ch.aabbMin[2]) ch.aabbMin[2] = v.z;
+      if (v.z > ch.aabbMax[2]) ch.aabbMax[2] = v.z;
+    }
+  }
 }
 
 // Unbuilt chunks in the current view rect (the same rect updateTerrainChunks
@@ -4981,7 +5443,9 @@ int TerrainGame::countPendingChunks(float focusX, float focusZ) {
 // tile of hysteresis so walking along a border doesn't rebuild the same ring
 // every frame - and missing ones are built nearest-first, `budget` per call
 // (loadScene passes INT_MAX to drain behind the loading screen).
-void TerrainGame::updateTerrainChunks(float focusX, float focusZ, int budget) {
+void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
+                                      float focus2X, float focus2Z,
+                                      bool twoFoci, int budget) {
   if (terrainChunksX <= 0 || terrainChunksZ <= 0 || !infoBag) return;
   const int cellsX = HM_W - 1;
   const int cellsZ = HM_D - 1;
@@ -4990,23 +5454,43 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ, int budget) {
   const float startX = -TERRAIN_WIDTH * 0.5F;
   const float startZ = -TERRAIN_DEPTH * 0.5F;
 
-  int cx0 = 0, cz0 = 0, cx1 = terrainChunksX - 1, cz1 = terrainChunksZ - 1;
-  if (TERRAIN_VIEW_DISTANCE > 0.0F) {
-    auto clampX = [&](int v) {
-      return v < 0 ? 0 : (v > terrainChunksX - 1 ? terrainChunksX - 1 : v);
-    };
-    auto clampZ = [&](int v) {
-      return v < 0 ? 0 : (v > terrainChunksZ - 1 ? terrainChunksZ - 1 : v);
-    };
-    cx0 = clampX((int)((focusX - TERRAIN_VIEW_DISTANCE - startX) / spanX));
-    cx1 = clampX((int)((focusX + TERRAIN_VIEW_DISTANCE - startX) / spanX));
-    cz0 = clampZ((int)((focusZ - TERRAIN_VIEW_DISTANCE - startZ) / spanZ));
-    cz1 = clampZ((int)((focusZ + TERRAIN_VIEW_DISTANCE - startZ) / spanZ));
+  // One view rect per focus. With two players apart, the rects are disjoint;
+  // a chunk survives if it sits in (a hysteresis ring around) EITHER rect -
+  // evicting on a single rect would make the two split-screen passes throw
+  // out each other's terrain and burn the whole build budget on churn.
+  struct Rect {
+    int cx0, cz0, cx1, cz1;
+    float fx, fz;
+  };
+  Rect rects[2];
+  int rectCount = 0;
+  auto addRect = [&](float fx, float fz) {
+    Rect r = {0, 0, terrainChunksX - 1, terrainChunksZ - 1, fx, fz};
+    if (TERRAIN_VIEW_DISTANCE > 0.0F) {
+      auto clampX = [&](int v) {
+        return v < 0 ? 0 : (v > terrainChunksX - 1 ? terrainChunksX - 1 : v);
+      };
+      auto clampZ = [&](int v) {
+        return v < 0 ? 0 : (v > terrainChunksZ - 1 ? terrainChunksZ - 1 : v);
+      };
+      r.cx0 = clampX((int)((fx - TERRAIN_VIEW_DISTANCE - startX) / spanX));
+      r.cx1 = clampX((int)((fx + TERRAIN_VIEW_DISTANCE - startX) / spanX));
+      r.cz0 = clampZ((int)((fz - TERRAIN_VIEW_DISTANCE - startZ) / spanZ));
+      r.cz1 = clampZ((int)((fz + TERRAIN_VIEW_DISTANCE - startZ) / spanZ));
+    }
+    rects[rectCount++] = r;
+  };
+  addRect(focusX, focusZ);
+  if (twoFoci) addRect(focus2X, focus2Z);
 
+  if (TERRAIN_VIEW_DISTANCE > 0.0F) {
     for (TerrainChunk& ch : terrainChunks) {
       if (ch.cx < 0) continue;
-      if (ch.cx < cx0 - 1 || ch.cx > cx1 + 1 || ch.cz < cz0 - 1 ||
-          ch.cz > cz1 + 1) {
+      bool keep = false;
+      for (int r = 0; r < rectCount && !keep; ++r)
+        keep = ch.cx >= rects[r].cx0 - 1 && ch.cx <= rects[r].cx1 + 1 &&
+               ch.cz >= rects[r].cz0 - 1 && ch.cz <= rects[r].cz1 + 1;
+      if (!keep) {
         terrainChunkSlot[ch.cz * terrainChunksX + ch.cx] = -1;
         ch.cx = ch.cz = -1;  // buffers keep their capacity for the next build
       }
@@ -5014,23 +5498,25 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ, int budget) {
   }
 
   while (budget > 0) {
-    // Nearest unbuilt chunk in the rect. The rect is small (a handful of
-    // tiles across), so a per-call linear scan beats maintaining a build
-    // queue that would need reordering on every focus move.
+    // Nearest unbuilt chunk to its own rect's focus, across both rects. The
+    // rects are small (a handful of tiles across), so a per-call linear scan
+    // beats maintaining a build queue that would need reordering on every
+    // focus move.
     int bestCx = -1, bestCz = -1;
     float bestD = 0.0F;
-    for (int cz = cz0; cz <= cz1; ++cz)
-      for (int cx = cx0; cx <= cx1; ++cx) {
-        if (terrainChunkSlot[cz * terrainChunksX + cx] >= 0) continue;
-        const float dx = startX + (cx + 0.5F) * spanX - focusX;
-        const float dz = startZ + (cz + 0.5F) * spanZ - focusZ;
-        const float d = dx * dx + dz * dz;
-        if (bestCx < 0 || d < bestD) {
-          bestCx = cx;
-          bestCz = cz;
-          bestD = d;
+    for (int r = 0; r < rectCount; ++r)
+      for (int cz = rects[r].cz0; cz <= rects[r].cz1; ++cz)
+        for (int cx = rects[r].cx0; cx <= rects[r].cx1; ++cx) {
+          if (terrainChunkSlot[cz * terrainChunksX + cx] >= 0) continue;
+          const float dx = startX + (cx + 0.5F) * spanX - rects[r].fx;
+          const float dz = startZ + (cz + 0.5F) * spanZ - rects[r].fz;
+          const float d = dx * dx + dz * dz;
+          if (bestCx < 0 || d < bestD) {
+            bestCx = cx;
+            bestCz = cz;
+            bestD = d;
+          }
         }
-      }
     if (bestCx < 0) return;  // everything in view is built
 
     int slot = -1;
@@ -5046,10 +5532,111 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ, int budget) {
   }
 }
 
+// Two planes bounding the CENTRAL half of the full-height projection - the
+// rows a split half can actually show. The raster crop (XYOFFSET + scissor)
+// keeps the projection and the engine's frustum planes full-height, so
+// without this every half transforms ~2x the geometry it displays; anything
+// wholly outside the band skips submission instead. 0.62 instead of the
+// exact 0.5 leaves margin for the clipper's guard band - conservative,
+// never visibly wrong. Degenerate views (looking straight up/down) disable
+// the cull for the pass rather than guess.
+void TerrainGame::computeSplitBand() {
+  Vec4 f = cameraLookAt - cameraPosition;
+  const float fl = sqrtf(f.x * f.x + f.y * f.y + f.z * f.z);
+  if (fl < 0.0001F) {
+    splitBandActive = false;
+    return;
+  }
+  f.x /= fl, f.y /= fl, f.z /= fl;
+  // Roll-free camera up: world up orthonormalized against the forward.
+  float ux = -f.x * f.y, uy = 1.0F - f.y * f.y, uz = -f.z * f.y;
+  const float ul = sqrtf(ux * ux + uy * uy + uz * uz);
+  if (ul < 0.05F) {
+    splitBandActive = false;
+    return;
+  }
+  ux /= ul, uy /= ul, uz /= ul;
+  const float t =
+      0.62F * tanf(engine->renderer.core.renderer3D.getFov() * (PI / 360.0F));
+  const float inv = 1.0F / sqrtf(1.0F + t * t);
+  const float sa = t * inv, ca = inv;
+  splitBandP[0] = cameraPosition.x;
+  splitBandP[1] = cameraPosition.y;
+  splitBandP[2] = cameraPosition.z;
+  splitBandN[0][0] = f.x * sa - ux * ca;  // top edge: inside = below it
+  splitBandN[0][1] = f.y * sa - uy * ca;
+  splitBandN[0][2] = f.z * sa - uz * ca;
+  splitBandN[1][0] = f.x * sa + ux * ca;  // bottom edge: inside = above it
+  splitBandN[1][1] = f.y * sa + uy * ca;
+  splitBandN[1][2] = f.z * sa + uz * ca;
+}
+
+bool TerrainGame::outsideSplitBand(const float mn[3], const float mx[3]) const {
+  const float cx = 0.5F * (mn[0] + mx[0]) - splitBandP[0];
+  const float cy = 0.5F * (mn[1] + mx[1]) - splitBandP[1];
+  const float cz = 0.5F * (mn[2] + mx[2]) - splitBandP[2];
+  const float ex = 0.5F * (mx[0] - mn[0]);
+  const float ey = 0.5F * (mx[1] - mn[1]);
+  const float ez = 0.5F * (mx[2] - mn[2]);
+  for (int p = 0; p < 2; ++p) {
+    const float* n = splitBandN[p];
+    const float r = ex * fabsf(n[0]) + ey * fabsf(n[1]) + ez * fabsf(n[2]);
+    if (cx * n[0] + cy * n[1] + cz * n[2] + r < 0.0F) return true;
+  }
+  return false;
+}
+
+// AABB of a static object, sized like the springArm/box-collision one; a
+// rotated object falls back to its bounding-sphere cube so the test can
+// under-cull but never over-cull.
+bool TerrainGame::objectOutsideSplitBand(int i) const {
+  const RuntimeObject& o = runtimeObjects[i];
+  const GameModel* gm = nullptr;
+  if (o.data.type == 5 && o.data.model >= 0 &&
+      o.data.model < (int)gameModels.size())
+    gm = &gameModels[o.data.model];
+  const SkelModel* anim = nullptr;
+  if (o.data.type == 5 && o.data.animModel >= 0 &&
+      o.data.animModel < (int)gameAnimModels.size())
+    anim = gameAnimModels[o.data.animModel].src.get();
+  float cx = o.data.position[0], cy = o.data.position[1],
+        cz = o.data.position[2];
+  float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
+        ez = 0.5F * o.data.scale[2];
+  float ox = 0.0F, oy = 0.0F, oz = 0.0F;  // local AABB center offset
+  const float* mnp = gm ? gm->mn : (anim ? anim->min : nullptr);
+  const float* mxp = gm ? gm->mx : (anim ? anim->max : nullptr);
+  if (mnp && mxp) {
+    ox = 0.5F * (mnp[0] + mxp[0]) * o.data.scale[0];
+    oy = 0.5F * (mnp[1] + mxp[1]) * o.data.scale[1];
+    oz = 0.5F * (mnp[2] + mxp[2]) * o.data.scale[2];
+    ex = 0.5F * (mxp[0] - mnp[0]) * o.data.scale[0];
+    ey = 0.5F * (mxp[1] - mnp[1]) * o.data.scale[1];
+    ez = 0.5F * (mxp[2] - mnp[2]) * o.data.scale[2];
+  }
+  const float* rot = o.data.rotation;
+  if (rot[0] != 0.0F || rot[1] != 0.0F || rot[2] != 0.0F) {
+    // Rotation moves both the extents and the center offset in world space -
+    // bound everything with the diagonal radius around the position.
+    const float r = sqrtf(ex * ex + ey * ey + ez * ez) +
+                    sqrtf(ox * ox + oy * oy + oz * oz);
+    ex = ey = ez = r;
+    ox = oy = oz = 0.0F;
+  }
+  cx += ox, cy += oy, cz += oz;
+  const float mn[3] = {cx - ex, cy - ey, cz - ez};
+  const float mx[3] = {cx + ex, cy + ey, cz + ez};
+  return outsideSplitBand(mn, mx);
+}
+
 void TerrainGame::renderTerrain() {
-  for (TerrainChunk& ch : terrainChunks)
-    if (ch.cx >= 0 && ch.bag && ch.bag->count > 0)
-      stapip.core.render(ch.bag.get());
+  for (TerrainChunk& ch : terrainChunks) {
+    if (ch.cx < 0 || !ch.bag || ch.bag->count == 0) continue;
+    // Split halves: skip chunks entirely above/below the visible band before
+    // the engine's (full-height) frustum classify sees them.
+    if (splitBandActive && outsideSplitBand(ch.aabbMin, ch.aabbMax)) continue;
+    stapip.core.render(ch.bag.get());
+  }
 }
 
 void TerrainGame::updatePlayer() {
