@@ -108,6 +108,8 @@ constexpr float HM_STEP_XS[SCENE_COUNT] = {1.25F};
 constexpr float HM_STEP_ZS[SCENE_COUNT] = {1.25F};
 inline const float* TERRAIN_HEIGHTS_TABLES[SCENE_COUNT] = {HM_0_HEIGHTS};
 
+inline const unsigned char* TERRAIN_SPLAT_TABLES[SCENE_COUNT] = {nullptr};
+
 /** Bilinear terrain height at world coordinates in a scene. The
  * game maps terrainHeightAt(x, z) to the active scene. */
 inline float terrainHeightAtScene(int scene, float x, float z) {

@@ -20,6 +20,10 @@ enum StaPipProgramType {
   // Modified by TyraX: env (matcap) - texture + color, ST computed on VU1
   // from normals in the ST slot (reflective materials).
   StaPipVU1TextureEnvColor,
+  // Modified by TyraX: particle billboards - centers expanded to quads on
+  // VU1 (see StaPipBillboardBag).
+  StaPipVU1BillboardColor,
+  StaPipVU1BillboardTexture,
 };
 
 }  // namespace Tyra

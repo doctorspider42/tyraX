@@ -1,9 +1,10 @@
 # video-modes — display mode / widescreen test bed
 
-A minimal project for testing the **video output features**: the three scan
-modes (interlaced 480i/576i, progressive 480p, 1080i), the **16:9 widescreen**
-switch, and the **runtime mode switching with the keep-or-revert prompt** —
-all driven from a proper in-game menu.
+A minimal project for testing the **video output features**: the four scan
+modes (interlaced 480i/576i, interlaced with **true field rendering**,
+progressive 480p, 1080i), the **16:9 widescreen** switch, and the **runtime
+mode switching with the keep-or-revert prompt** — all driven from a proper
+in-game menu.
 
 Open `video-modes.tyra` in the editor and Build & Run (F5), or headless:
 
@@ -22,6 +23,7 @@ select with **X**, back out with **Triangle**:
 | INTERLACED 480I | Switch to the stock interlaced mode |
 | PROGRESSIVE 480P | Switch to progressive 480p |
 | HD 1080I | Switch to 1080i |
+| 480I FIELD RENDER | Switch to interlaced **field rendering** (a fresh half-height 512x224 image every field — 50/60 distinct pictures per second for ~half the fill/VRAM) |
 | STANDARD 4:3 / WIDESCREEN 16:9 | Aspect-ratio switch (applies instantly) |
 | CLOSE | Dismiss the menu |
 
@@ -51,5 +53,9 @@ blind.
 - 480p and 1080i output **only over component (YPbPr) cables**; on RGB/composite
   the screen goes dark until the auto-revert kicks in (that is the prompt's
   whole point). PCSX2 displays every mode regardless.
-- The interlaced mode follows Preferences > Build > Target system (PAL/NTSC/
-  auto); the DTV modes always run at 60 Hz.
+- The interlaced modes (stock and field rendering) follow Preferences > Build >
+  Target system (PAL/NTSC/auto); the DTV modes always run at 60 Hz.
+- Field rendering outputs the same 480i/576i signal as the stock mode, so it
+  works on any cable/TV; expect a slightly softer static picture (each field
+  is a half-height image) and judge the motion smoothness on a real CRT —
+  PCSX2's deinterlacing hides most of the difference.

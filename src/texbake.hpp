@@ -18,10 +18,16 @@
 //    wins (full > 8-bit > 4-bit) - important textures stay sharp
 //  - unreferenced PNGs under res/models|materials|textures follow the
 //    project-wide ProjectSettings::textureQuant
+//  - any res/models|materials|textures PNG whose dimensions are not PS2-valid
+//    (power of two, max 512 per axis) is RESIZED into the bake - a "1k"
+//    texture import can no longer assert the engine at load; res/ sources
+//    keep their full resolution for the editor viewport
 //  - editor-only assets never ship: res/brushes (Material Editor paint
 //    brushes) and `<texture>.layers/` paint-layer sidecars are skipped
 //    (and scrubbed from an older bake)
-//  - res/fonts is never touched (UI legibility)
+//  - res/fonts: the source TTFs never ship (the PS2 reads no fonts - text is
+//    baked to sprites/atlases at build). The glyph atlases baked into that
+//    folder do ship, quantized per Font Manager entry (GameFont::quant)
 //  - res/hud PNGs referenced by a Project::hud entry are resized to a
 //    PS2-valid power-of-two (HudImage::texW/texH; 0 = nearest) and optionally
 //    palette-quantized (HudImage::texQuant), so a mis-sized import can no

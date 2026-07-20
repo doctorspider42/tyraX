@@ -1,0 +1,770 @@
+#include "aigen.hpp"
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+#include <algorithm>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <map>
+#include <sstream>
+
+#include "json.hpp"
+#include "project.hpp"
+
+namespace fs = std::filesystem;
+
+namespace aigen {
+
+// ---------------------------------------------------------------------------
+// Backend / model catalogs (UI + command building)
+// ---------------------------------------------------------------------------
+
+const char* backendLabel(const std::string& backend) {
+    if (backend == "copilot") return "GitHub Copilot CLI";
+    if (backend == "openai") return "OpenAI API";
+    return "Claude CLI";
+}
+
+std::vector<const char*> backendIds() { return {"claude", "copilot", "openai"}; }
+
+std::vector<const char*> modelPresets(const std::string& backend) {
+    // Presets are a convenience, not a whitelist - the preferences dialog also
+    // takes free text, so new models work the day they ship.
+    if (backend == "copilot")
+        return {"", "claude-sonnet-4.5", "gpt-5.1"};
+    if (backend == "openai")
+        return {"gpt-5.1", "gpt-5", "gpt-5-mini", "gpt-4.1"};
+    return {"", "opus", "sonnet", "haiku"};
+}
+
+// ---------------------------------------------------------------------------
+// System prompt
+// ---------------------------------------------------------------------------
+
+static std::string jsonEsc(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    for (unsigned char c : s) {
+        switch (c) {
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                if (c < 0x20) {
+                    char buf[8];
+                    std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+                    out += buf;
+                } else {
+                    out += (char)c;
+                }
+        }
+    }
+    return out;
+}
+
+// What a FlowParamKind's str slot means, plus where its legal values come from.
+static std::string strKindDesc(FlowParamKind k) {
+    switch (k) {
+        case FlowParamKind::Text: return "free text";
+        case FlowParamKind::ObjectName:
+            return "target object name (\"\" = self / the graph owner)";
+        case FlowParamKind::Button:
+            return "pad button: Cross, Circle, Square, Triangle, DpadUp, "
+                   "DpadDown, DpadLeft, DpadRight, L1, L2, L3, R1, R2, R3, "
+                   "Start, Select";
+        case FlowParamKind::Color: return "";
+        case FlowParamKind::MusicTrack: return "music track path (see context)";
+        case FlowParamKind::SoundTrack: return "sound effect path (see context)";
+        case FlowParamKind::SceneName: return "scene name (see context)";
+        case FlowParamKind::SaveValue: return "save value name (see context)";
+        case FlowParamKind::MenuName: return "menu name (see context)";
+        case FlowParamKind::VarName:
+            return "variable name (free text; created on first use)";
+        case FlowParamKind::SaveText: return "save text name (see context)";
+        case FlowParamKind::GradingName:
+            return "color grading preset name (see context; \"\" = off)";
+        case FlowParamKind::AmbienceName:
+            return "ambience preset name (see context)";
+        case FlowParamKind::LayerName: return "streaming layer name (see context)";
+        case FlowParamKind::SequenceName: return "sequence name (see context)";
+        case FlowParamKind::HudTextName:
+            return "on-screen text name (see context)";
+        default: return "";
+    }
+}
+
+// One catalog line per node type, derived from the live registry so custom
+// .flownode nodes and future built-ins document themselves.
+static std::string nodeCatalogLine(const FlowNodeType& t) {
+    std::ostringstream o;
+    o << "- " << t.key << " (\"" << t.title << "\", " << t.category << "). ";
+    // pins
+    std::vector<std::string> in, out;
+    if (t.trigger) {
+        out.push_back("exec");
+    } else if (!t.pure) {
+        in.push_back("exec");
+        if (t.execThrough) out.push_back("exec (fires later - see doc)");
+    }
+    if (t.idIn) in.push_back("object");
+    if (t.idOut) out.push_back("object");
+    if (t.posIn) in.push_back("position");
+    if (t.posOut) out.push_back("position");
+    if (t.boolIn) in.push_back("bool (accepts several links)");
+    if (t.boolOut) out.push_back("bool");
+    if (t.textIn) in.push_back("text (accepts several links)");
+    if (t.textOut) out.push_back("text");
+    auto join = [](const std::vector<std::string>& v) {
+        std::string s;
+        for (size_t i = 0; i < v.size(); ++i) s += (i ? ", " : "") + v[i];
+        return s;
+    };
+    o << "Inputs: " << (in.empty() ? "none" : join(in))
+      << ". Outputs: " << (out.empty() ? "none" : join(out)) << ".";
+    // params
+    const std::string sd = strKindDesc(t.strKind);
+    if (!sd.empty()) o << " str = " << sd << ".";
+    if (t.numKind == FlowParamKind::Color) {
+        o << " num[0..2] = RGB color, each 0..1.";
+    } else if (t.numCount > 0) {
+        o << " num params:";
+        for (int i = 0; i < t.numCount && i < 4; ++i)
+            o << " num[" << i << "]="
+              << (t.numLabels[i] && *t.numLabels[i] ? t.numLabels[i] : "value");
+        o << ".";
+    }
+    if (t.desc && *t.desc) o << " " << t.desc;
+    return o.str();
+}
+
+// Comma-joined name list, or "" when empty (caller skips the line).
+template <typename T, typename F>
+static std::string nameList(const std::vector<T>& v, F name) {
+    std::string s;
+    for (const T& e : v) {
+        const std::string n = name(e);
+        if (n.empty()) continue;
+        if (!s.empty()) s += ", ";
+        s += "\"" + n + "\"";
+    }
+    return s;
+}
+
+// A graph in the REPLY schema ("kind" strings), for the edit-mode prompt -
+// the model sees its input in exactly the shape it must answer in. (The
+// project-file serializer uses bool flags instead; parseGraph reads both.)
+static std::string graphPromptJson(const FlowGraph& fg) {
+    std::ostringstream o;
+    o << "{ \"nodes\": [";
+    for (size_t i = 0; i < fg.nodes.size(); ++i) {
+        const FlowNode& n = fg.nodes[i];
+        o << (i ? ", " : "") << "{ \"id\": " << n.id << ", \"type\": \"" << n.type
+          << "\", \"pos\": [" << (int)n.pos[0] << ", " << (int)n.pos[1] << "]";
+        if (!n.str.empty()) o << ", \"str\": \"" << jsonEsc(n.str) << "\"";
+        if (!n.str2.empty()) o << ", \"str2\": \"" << jsonEsc(n.str2) << "\"";
+        o << ", \"num\": [" << n.num[0] << ", " << n.num[1] << ", " << n.num[2]
+          << ", " << n.num[3] << "] }";
+    }
+    o << "], \"links\": [";
+    for (size_t i = 0; i < fg.links.size(); ++i) {
+        const FlowLink& l = fg.links[i];
+        const char* kind = l.kind == FlowLinkObject ? "object"
+                           : l.kind == FlowLinkPos  ? "pos"
+                           : l.kind == FlowLinkBool ? "bool"
+                           : l.kind == FlowLinkText ? "text"
+                                                    : "exec";
+        o << (i ? ", " : "") << "{ \"from\": " << l.fromNode
+          << ", \"to\": " << l.toNode << ", \"kind\": \"" << kind << "\" }";
+    }
+    o << "] }";
+    return o.str();
+}
+
+std::string systemPrompt(const Project& p, int ownerIndex,
+                         const FlowGraph* editing) {
+    const SceneData& sc = p.active();
+    std::ostringstream o;
+    o << "You are a flow-graph author for TyraX, an editor that generates "
+         "PlayStation 2 games. A flow graph is a visual logic script owned by "
+         "one scene object. You will receive a request describing desired "
+         "gameplay logic; respond with a flow graph implementing it.\n"
+         "\n"
+         "OUTPUT FORMAT - reply with EXACTLY ONE JSON object and nothing "
+         "else. No markdown fences, no commentary. Schema:\n"
+         "{\n"
+         "  \"nodes\": [ { \"id\": 1, \"type\": \"OnStart\", \"pos\": [x, y],"
+         " \"str\": \"\", \"str2\": \"\", \"num\": [0, 0, 0, 0] } ],\n"
+         "  \"links\": [ { \"from\": 1, \"to\": 2, \"kind\": \"exec\" } ]\n"
+         "}\n"
+         "Node ids are positive integers, unique within the graph. \"pos\" is "
+         "the node's editor canvas position in pixels: lay the graph out "
+         "left-to-right (triggers in the left column, actions to the right; "
+         "about 280 px between columns, 140 px between rows, no overlaps). "
+         "Omit \"str\"/\"str2\"/\"num\" when unused.\n"
+         "\n"
+         "LINK KINDS (\"kind\"):\n"
+         "- \"exec\": execution flow, from a trigger's exec output (or a "
+         "'fires later' exec output like Delay's) to an action's exec input. "
+         "Pure nodes have no exec pins.\n"
+         "- \"object\": passes an object reference from an object output to "
+         "an object input.\n"
+         "- \"pos\": passes XYZ coordinates from a position output to a "
+         "position input.\n"
+         "- \"bool\": per-frame boolean from a bool output to a bool input "
+         "(logic gates fold over ALL their wired bool inputs).\n"
+         "- \"text\": a text value from a text output to a text input.\n"
+         "\n"
+         "SEMANTICS:\n"
+         "- Triggers fire their exec output; every action wired from it runs "
+         "that frame. Ordinary actions have NO exec output - to run several "
+         "actions, wire EACH of them directly from the trigger (they run in "
+         "link order). The only exec outputs besides triggers are the 'fires "
+         "later' ones (Delay's after-timeout, Raycast's after-cast) - use "
+         "Delay to sequence actions over time.\n"
+         "- Nodes with an object input resolve their target in this order: "
+         "incoming object link, then their \"str\" object name, then the "
+         "graph's owner object (self). An empty str on an object param means "
+         "self.\n"
+         "- Pure nodes (logic gates, getters, converters) have no exec pins; "
+         "they are evaluated on demand every frame.\n"
+         "- To run actions when a condition BECOMES true, wire bool sources "
+         "through logic gates into On Condition (fires on the rising edge) "
+         "and chain actions from it.\n"
+         "- A position link into a node with X/Y/Z params overrides those "
+         "params.\n"
+         "- Keep graphs minimal: no unused nodes, no redundant links.\n"
+         "\n"
+         "NODE CATALOG (the ONLY valid \"type\" values):\n";
+    for (const FlowNodeType* t : flowAllNodeTypes()) o << nodeCatalogLine(*t) << "\n";
+
+    o << "\nPROJECT CONTEXT (reference these exact names):\n";
+    if (ownerIndex >= 0 && ownerIndex < (int)sc.objects.size())
+        o << "- This graph's OWNER object (self): \""
+          << sc.objects[ownerIndex].name << "\"\n";
+    o << "- Active scene: \"" << sc.name << "\"\n";
+    o << "- Objects in this scene:\n";
+    for (const SceneObject& obj : sc.objects) {
+        o << "  - \"" << obj.name << "\" (" << primitiveTypeName(obj.type);
+        if (obj.usable) o << ", usable";
+        if (!obj.modelPath.empty() &&
+            obj.modelPath.size() > 4 &&
+            obj.modelPath.substr(obj.modelPath.size() - 4) == ".glb")
+            o << ", animated model";
+        o << ", at " << obj.position[0] << "," << obj.position[1] << ","
+          << obj.position[2] << ")\n";
+    }
+    auto ctxLine = [&o](const char* label, const std::string& list) {
+        if (!list.empty()) o << "- " << label << ": " << list << "\n";
+    };
+    auto id = [](const std::string& s) { return s; };
+    ctxLine("Scenes", nameList(p.scenes, [](const SceneData& s) { return s.name; }));
+    ctxLine("Streaming layers (this scene)",
+            nameList(sc.layers, [](const SceneLayer& l) { return l.name; }));
+    ctxLine("Music tracks", nameList(p.music, id));
+    ctxLine("Sound effects", nameList(p.sounds, id));
+    ctxLine("Save values",
+            nameList(p.saveValues, [](const SaveValue& v) { return v.name; }));
+    ctxLine("Save texts",
+            nameList(p.saveTexts, [](const SaveTextValue& v) { return v.name; }));
+    ctxLine("Menus", nameList(p.menus, [](const GameMenu& m) { return m.name; }));
+    {
+        // Flow event names reachable from menu entries (On Menu Event's str).
+        std::vector<std::string> events;
+        for (const GameMenu& m : p.menus)
+            for (const MenuEntry& e : m.entries)
+                if (e.action == MenuEntry::FlowEvent && !e.param.empty())
+                    events.push_back(e.param);
+        ctxLine("Menu flow events", nameList(events, id));
+    }
+    ctxLine("On-screen texts",
+            nameList(p.hudTexts, [](const HudText& t) { return t.name; }));
+    ctxLine("Color grading presets",
+            nameList(p.gradings, [](const ColorGradingPreset& g) { return g.name; }));
+    ctxLine("Ambience presets",
+            nameList(p.ambiencePresets,
+                     [](const AmbiencePreset& a) { return a.name; }));
+    ctxLine("Sequences (cutscenes)",
+            nameList(p.sequences, [](const Sequence& s) { return s.name; }));
+
+    o << "\nIf the request references something that does not exist in the "
+         "project context, prefer the closest existing name; only invent "
+         "names for variables (Set Int / Set Bool / Set Position), which are "
+         "created on first use.\n";
+
+    if (editing && !editing->empty()) {
+        o << "\nCURRENT GRAPH: this object ALREADY HAS the flow graph below "
+             "(same JSON schema as your reply). Judge from the request what "
+             "is wanted: change or extend this graph (the usual case), or "
+             "build something fresh if the request clearly asks to start "
+             "over. Either way reply with the COMPLETE graph that should "
+             "exist afterwards - every node and link, not a diff; anything "
+             "you leave out is DELETED. Keep the ids, positions and "
+             "parameter values of nodes you are not changing exactly as they "
+             "are; give new nodes fresh unused ids and place them near the "
+             "nodes they relate to without overlapping.\n"
+          << graphPromptJson(*editing) << "\n";
+    }
+    return o.str();
+}
+
+// ---------------------------------------------------------------------------
+// Reply parsing
+// ---------------------------------------------------------------------------
+
+// The first balanced top-level {...} in `text` (string-aware), or "".
+static std::string extractJsonObject(const std::string& text) {
+    const size_t start = text.find('{');
+    if (start == std::string::npos) return "";
+    int depth = 0;
+    bool inStr = false, esc = false;
+    for (size_t i = start; i < text.size(); ++i) {
+        const char c = text[i];
+        if (inStr) {
+            if (esc)
+                esc = false;
+            else if (c == '\\')
+                esc = true;
+            else if (c == '"')
+                inStr = false;
+            continue;
+        }
+        if (c == '"') inStr = true;
+        else if (c == '{') ++depth;
+        else if (c == '}') {
+            if (--depth == 0) return text.substr(start, i - start + 1);
+        }
+    }
+    return "";
+}
+
+std::string parseGraph(const std::string& reply, FlowGraph& out,
+                       std::string* warnings) {
+    const std::string doc = extractJsonObject(reply);
+    if (doc.empty())
+        return "The reply contains no JSON object. Reply head: " +
+               reply.substr(0, 200);
+    json::Value root;
+    if (!json::parse(doc, root))
+        return "The reply's JSON is malformed. Head: " + doc.substr(0, 200);
+
+    const json::Value* nodes = root.find("nodes");
+    if (!nodes || nodes->type != json::Value::Type::Array || nodes->arr.empty())
+        return "The reply has no \"nodes\" array.";
+
+    FlowGraph fg;
+    std::string unknownTypes;
+    int maxId = 0;
+    for (const json::Value& jn : nodes->arr) {
+        FlowNode n;
+        if (const auto* v = jn.find("id")) n.id = (int)v->numberOr(0);
+        if (const auto* v = jn.find("type")) n.type = v->stringOr("");
+        if (const auto* v = jn.find("pos");
+            v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+            n.pos[0] = (float)v->arr[0].numberOr(0);
+            n.pos[1] = (float)v->arr[1].numberOr(0);
+        }
+        if (const auto* v = jn.find("str")) n.str = v->stringOr("");
+        if (const auto* v = jn.find("str2")) n.str2 = v->stringOr("");
+        if (const auto* v = jn.find("num"); v && v->type == json::Value::Type::Array)
+            for (size_t i = 0; i < 4 && i < v->arr.size(); ++i)
+                n.num[i] = (float)v->arr[i].numberOr(0);
+        if (!flowNodeType(n.type)) {
+            if (!unknownTypes.empty()) unknownTypes += ", ";
+            unknownTypes += "\"" + n.type + "\"";
+            continue;
+        }
+        if (n.id <= 0) n.id = maxId + 1;
+        for (const FlowNode& seen : fg.nodes)
+            if (seen.id == n.id)
+                return "Duplicate node id " + std::to_string(n.id) + ".";
+        maxId = std::max(maxId, n.id);
+        fg.nodes.push_back(n);
+    }
+    if (!unknownTypes.empty())
+        return "Unknown node type(s): " + unknownTypes +
+               ". Only types from the catalog are valid.";
+    if (fg.nodes.empty()) return "No valid nodes in the reply.";
+
+    auto typeOf = [&fg](int nodeId) -> const FlowNodeType* {
+        for (const FlowNode& n : fg.nodes)
+            if (n.id == nodeId) return flowNodeType(n.type);
+        return nullptr;
+    };
+
+    int dropped = 0;
+    if (const json::Value* links = root.find("links");
+        links && links->type == json::Value::Type::Array) {
+        for (const json::Value& jl : links->arr) {
+            FlowLink l;
+            if (const auto* v = jl.find("from")) l.fromNode = (int)v->numberOr(0);
+            if (const auto* v = jl.find("to")) l.toNode = (int)v->numberOr(0);
+            // Prompt schema: "kind" string. Project-file schema: bool flags.
+            if (const auto* v = jl.find("kind")) {
+                const std::string k = v->stringOr("exec");
+                l.kind = k == "object" ? FlowLinkObject
+                         : k == "pos"  ? FlowLinkPos
+                         : k == "bool" ? FlowLinkBool
+                         : k == "text" ? FlowLinkText
+                                       : FlowLinkExec;
+            } else {
+                auto flag = [&jl](const char* key) {
+                    const auto* v = jl.find(key);
+                    return v && v->type == json::Value::Type::Bool && v->boolean;
+                };
+                l.kind = flag("data")  ? FlowLinkObject
+                         : flag("pos") ? FlowLinkPos
+                         : flag("bool") ? FlowLinkBool
+                         : flag("text") ? FlowLinkText
+                                        : FlowLinkExec;
+            }
+            // Same validity rules the graph editor prunes by.
+            const FlowNodeType* from = typeOf(l.fromNode);
+            const FlowNodeType* to = typeOf(l.toNode);
+            bool ok = from && to;
+            if (ok) {
+                switch (l.kind) {
+                    case FlowLinkExec:
+                        ok = (from->trigger || from->execThrough) && !to->trigger &&
+                             !to->pure;
+                        break;
+                    case FlowLinkObject: ok = from->idOut && to->idIn; break;
+                    case FlowLinkPos: ok = from->posOut && to->posIn; break;
+                    case FlowLinkBool: ok = from->boolOut && to->boolIn; break;
+                    case FlowLinkText: ok = from->textOut && to->textIn; break;
+                    default: ok = false; break;
+                }
+            }
+            if (!ok) {
+                ++dropped;
+                continue;
+            }
+            l.id = ++maxId;
+            fg.links.push_back(l);
+        }
+    }
+    if (dropped && warnings)
+        *warnings += "Dropped " + std::to_string(dropped) +
+                     " invalid link(s) (bad endpoints or pin kinds). ";
+
+    // Auto-layout when the model skipped positions: more than one node parked
+    // at the origin means the layout is unusable, not authored.
+    int atOrigin = 0;
+    for (const FlowNode& n : fg.nodes)
+        if (n.pos[0] == 0.0f && n.pos[1] == 0.0f) ++atOrigin;
+    if (atOrigin > 1) {
+        // Column = longest link path from any source (over every link kind,
+        // data links flow left-to-right too); row = order within the column.
+        std::map<int, int> depth;
+        for (const FlowNode& n : fg.nodes) depth[n.id] = 0;
+        for (size_t pass = 0; pass < fg.nodes.size(); ++pass) {
+            bool changed = false;
+            for (const FlowLink& l : fg.links) {
+                if (depth[l.toNode] < depth[l.fromNode] + 1) {
+                    depth[l.toNode] = depth[l.fromNode] + 1;
+                    changed = true;
+                }
+            }
+            if (!changed) break;  // cycles: passes are capped by node count
+        }
+        std::map<int, int> rowInCol;
+        for (FlowNode& n : fg.nodes) {
+            const int col = depth[n.id];
+            n.pos[0] = 40.0f + 280.0f * (float)col;
+            // Param-heavy nodes run ~180 px tall - 200 keeps rows clear.
+            n.pos[1] = 40.0f + 200.0f * (float)rowInCol[col]++;
+        }
+        if (warnings) *warnings += "Applied automatic layout. ";
+    }
+
+    fg.nextId = maxId + 1;
+    out = std::move(fg);
+    return "";
+}
+
+void appendGraph(FlowGraph& dst, FlowGraph add) {
+    // Shift ids past everything dst already uses (node AND link ids share the
+    // nextId counter), and drop the new nodes below the existing layout.
+    const int idShift = dst.nextId;
+    float lowest = 0.0f;
+    for (const FlowNode& n : dst.nodes) lowest = std::max(lowest, n.pos[1]);
+    const float yShift = dst.nodes.empty() ? 0.0f : lowest + 200.0f;
+    int maxId = dst.nextId - 1;
+    for (FlowNode n : add.nodes) {
+        n.id += idShift;
+        n.pos[1] += yShift;
+        maxId = std::max(maxId, n.id);
+        dst.nodes.push_back(n);
+    }
+    for (FlowLink l : add.links) {
+        l.id += idShift;
+        l.fromNode += idShift;
+        l.toNode += idShift;
+        maxId = std::max(maxId, l.id);
+        dst.links.push_back(l);
+    }
+    dst.nextId = maxId + 1;
+}
+
+// ---------------------------------------------------------------------------
+// Generator (backend execution)
+// ---------------------------------------------------------------------------
+
+Generator::~Generator() {
+    cancel();
+    if (thread_.joinable()) thread_.join();
+}
+
+std::string Generator::reply() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return reply_;
+}
+
+std::string Generator::error() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return error_;
+}
+
+void Generator::finish(State s, const std::string& reply, const std::string& error) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        reply_ = reply;
+        error_ = error;
+    }
+    state_ = s;
+}
+
+void Generator::cancel() {
+    if (!busy()) return;
+    cancelRequested_ = true;
+    std::lock_guard<std::mutex> lock(jobMutex_);
+    // Closing a kill-on-close job terminates every process in it - the cmd.exe
+    // wrapper AND the node/curl children (TerminateProcess on cmd alone would
+    // orphan a token-burning backend).
+    if (job_) {
+        TerminateJobObject((HANDLE)job_, 1);
+    }
+}
+
+// Writes `content` to a fresh file in the system temp dir; returns its path
+// ("" on failure). Prompts never travel on the command line: they hold
+// newlines and can exceed the 32k limit.
+static std::string writeTempFile(const char* tag, const std::string& content) {
+    std::error_code ec;
+    const fs::path dir = fs::temp_directory_path(ec);
+    if (ec) return "";
+    static std::atomic<int> counter{0};
+    const fs::path path = dir / ("tyrax-ai-" + std::to_string(GetCurrentProcessId()) +
+                                 "-" + std::to_string(++counter) + "-" + tag);
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    if (!f) return "";
+    f << content;
+    return path.string();
+}
+
+void Generator::start(const Config& cfg, const std::string& systemPrompt,
+                      const std::string& userPrompt) {
+    if (busy()) return;
+    if (thread_.joinable()) thread_.join();
+    cancelRequested_ = false;
+    state_ = State::Running;
+
+    thread_ = std::thread([this, cfg, systemPrompt, userPrompt] {
+        std::vector<std::string> tempFiles;
+        auto cleanup = [&tempFiles] {
+            std::error_code ec;
+            for (const std::string& f : tempFiles) fs::remove(f, ec);
+        };
+
+        std::string cmdline;
+        const bool openai = cfg.backend == "openai";
+        if (openai) {
+            const char* key = getenv("OPENAI_API_KEY");
+            if (!key || !*key) {
+                finish(State::Failed, "",
+                       "OPENAI_API_KEY is not set. Set the environment "
+                       "variable and restart the editor.");
+                return;
+            }
+            const std::string model = cfg.model.empty() ? "gpt-5.1" : cfg.model;
+            std::string body = "{ \"model\": \"" + jsonEsc(model) +
+                               "\", \"messages\": [ { \"role\": \"system\", "
+                               "\"content\": \"" +
+                               jsonEsc(systemPrompt) +
+                               "\" }, { \"role\": \"user\", \"content\": \"" +
+                               jsonEsc(userPrompt) + "\" } ]";
+            // reasoning_effort is only sent when Thinking is on - reasoning
+            // models default sensibly and non-reasoning models reject it.
+            if (cfg.thinking) body += ", \"reasoning_effort\": \"high\"";
+            body += " }";
+            const std::string bodyFile = writeTempFile("body.json", body);
+            // The API key goes into a curl config file, not the command line
+            // (process command lines are world-readable on Windows).
+            const std::string cfgFile = writeTempFile(
+                "curl.cfg",
+                "url = \"https://api.openai.com/v1/chat/completions\"\n"
+                "silent\nshow-error\n"
+                "header = \"Content-Type: application/json\"\n"
+                "header = \"Authorization: Bearer " + std::string(key) + "\"\n"
+                "data = \"@" + bodyFile + "\"\n");
+            if (bodyFile.empty() || cfgFile.empty()) {
+                finish(State::Failed, "", "Could not write temp files.");
+                cleanup();
+                return;
+            }
+            tempFiles = {bodyFile, cfgFile};
+            cmdline = "curl.exe --config \"" + cfgFile + "\"";
+        } else {
+            // CLI backends read the whole prompt (instructions + request)
+            // from stdin via a redirect.
+            const std::string prompt =
+                systemPrompt + "\n\nREQUEST:\n" + userPrompt + "\n";
+            const std::string promptFile = writeTempFile("prompt.txt", prompt);
+            if (promptFile.empty()) {
+                finish(State::Failed, "", "Could not write the prompt file.");
+                return;
+            }
+            tempFiles = {promptFile};
+            if (cfg.backend == "copilot") {
+                cmdline = "copilot -p \"Follow the instructions piped on "
+                          "stdin. Reply with only the JSON they describe.\"";
+                if (!cfg.model.empty()) cmdline += " --model \"" + cfg.model + "\"";
+                cmdline += " < \"" + promptFile + "\"";
+            } else {  // claude
+                cmdline.clear();
+                // Extended thinking in the claude CLI is budget-driven.
+                if (cfg.thinking) cmdline += "set MAX_THINKING_TOKENS=16000&& ";
+                cmdline += "claude -p --output-format text --max-turns 1";
+                if (!cfg.model.empty()) cmdline += " --model \"" + cfg.model + "\"";
+                cmdline += " < \"" + promptFile + "\"";
+            }
+        }
+
+        // --- spawn through cmd.exe (the CLIs are .cmd shims), stdout piped,
+        // stderr to a temp file so interleaving can't corrupt the reply ------
+        SECURITY_ATTRIBUTES sa{};
+        sa.nLength = sizeof(sa);
+        sa.bInheritHandle = TRUE;
+        HANDLE readPipe = nullptr, writePipe = nullptr;
+        if (!CreatePipe(&readPipe, &writePipe, &sa, 0)) {
+            finish(State::Failed, "", "Could not create an output pipe.");
+            cleanup();
+            return;
+        }
+        SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0);
+        const std::string errFile = writeTempFile("stderr.txt", "");
+        tempFiles.push_back(errFile);
+        HANDLE errHandle = CreateFileA(errFile.c_str(), GENERIC_WRITE,
+                                       FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
+                                       CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+                                       nullptr);
+
+        STARTUPINFOA si{};
+        si.cb = sizeof(si);
+        si.dwFlags = STARTF_USESTDHANDLES;
+        si.hStdOutput = writePipe;
+        si.hStdError = errHandle != INVALID_HANDLE_VALUE ? errHandle : writePipe;
+        si.hStdInput = INVALID_HANDLE_VALUE;
+
+        HANDLE job = CreateJobObjectA(nullptr, nullptr);
+        if (job) {
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION info{};
+            info.BasicLimitInformation.LimitFlags =
+                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            SetInformationJobObject(job, JobObjectExtendedLimitInformation, &info,
+                                    sizeof(info));
+        }
+
+        PROCESS_INFORMATION pi{};
+        std::string full = "cmd.exe /S /C \"" + cmdline + "\"";
+        BOOL ok = CreateProcessA(nullptr, full.data(), nullptr, nullptr, TRUE,
+                                 CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr,
+                                 nullptr, &si, &pi);
+        CloseHandle(writePipe);
+        if (errHandle != INVALID_HANDLE_VALUE) CloseHandle(errHandle);
+        if (!ok) {
+            CloseHandle(readPipe);
+            if (job) CloseHandle(job);
+            finish(State::Failed, "", "Could not start the backend command: " + cmdline);
+            cleanup();
+            return;
+        }
+        if (job) AssignProcessToJobObject(job, pi.hProcess);
+        {
+            std::lock_guard<std::mutex> lock(jobMutex_);
+            job_ = job;
+        }
+        ResumeThread(pi.hThread);
+
+        std::string output;
+        char buf[4096];
+        DWORD n = 0;
+        while (ReadFile(readPipe, buf, sizeof(buf), &n, nullptr) && n > 0)
+            output.append(buf, n);
+        CloseHandle(readPipe);
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        DWORD code = 1;
+        GetExitCodeProcess(pi.hProcess, &code);
+        {
+            std::lock_guard<std::mutex> lock(jobMutex_);
+            job_ = nullptr;
+        }
+        if (job) CloseHandle(job);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+
+        std::string errText;
+        {
+            std::ifstream ef(errFile, std::ios::binary);
+            std::ostringstream ss;
+            ss << ef.rdbuf();
+            errText = ss.str();
+        }
+        cleanup();
+
+        if (cancelRequested_) {
+            finish(State::Failed, "", "Cancelled.");
+            return;
+        }
+        if (code != 0) {
+            std::string msg = "Backend exited with code " + std::to_string(code) + ".";
+            if (!errText.empty()) msg += "\n" + errText.substr(0, 1000);
+            else if (!output.empty()) msg += "\n" + output.substr(0, 1000);
+            finish(State::Failed, "", msg);
+            return;
+        }
+
+        if (openai) {
+            // Chat Completions envelope -> the assistant message text.
+            json::Value root;
+            if (!json::parse(output, root)) {
+                finish(State::Failed, "",
+                       "OpenAI reply is not JSON: " + output.substr(0, 500));
+                return;
+            }
+            if (const json::Value* err = root.find("error")) {
+                const json::Value* m = err->find("message");
+                finish(State::Failed, "",
+                       "OpenAI error: " + (m ? m->stringOr("") : output.substr(0, 500)));
+                return;
+            }
+            const json::Value* choices = root.find("choices");
+            if (!choices || choices->type != json::Value::Type::Array ||
+                choices->arr.empty()) {
+                finish(State::Failed, "",
+                       "OpenAI reply has no choices: " + output.substr(0, 500));
+                return;
+            }
+            const json::Value* msg = choices->arr[0].find("message");
+            const json::Value* content = msg ? msg->find("content") : nullptr;
+            finish(State::Success, content ? content->stringOr("") : "", "");
+            return;
+        }
+        finish(State::Success, output, "");
+    });
+}
+
+}  // namespace aigen

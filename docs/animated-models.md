@@ -1,7 +1,10 @@
-# Animated models (.glb)
+# Animated models (.glb, .fbx)
 
 The editor plays skeletal animations authored in Blender (or any glTF
-exporter) on the PS2 - with a real skeletal runtime. At build time the
+exporter) on the PS2 - with a real skeletal runtime. **FBX files import
+too** - see [Importing FBX](#importing-fbx) below; everything in this
+document applies to them identically, because an imported .fbx is parsed
+into the exact same data the .glb path produces. At build time the
 model's node hierarchy, skin (inverse bind matrices, per-vertex joints and
 weights), bind-pose mesh and raw keyframe tracks are serialized to a compact
 `.tskl` file. The game evaluates the pose on the EE every frame (keyframe
@@ -108,9 +111,35 @@ what ships.
 | **Speed** | Playback multiplier (1.00x = authored speed). |
 | **Color** | Multiplies the model's material colors (tint), like on primitives. |
 | **Collision** | Box from the model's all-clips pose AABB, or none. Per-triangle mesh collision is a static-model (.obj) feature. |
+| **Model yaw offset** | Content-forward correction in degrees around the model's own Y, applied between scale and rotation (viewport preview matches). A model authored facing **±X** (a common Blender habit — facing the red axis; both the glTF and FBX exporters treat Blender's **-Y** as front) walks sideways as an avatar or AI agent; set **±90** here and the mesh renders turned while the authored rotation, the avatar's turn-to-face and AI facing stay convention-pure. |
 
 Material (.mtl) overrides do not apply to .glb models - their materials come
 from the file itself.
+
+## Importing FBX
+
+**Project > Assets > Import model...** accepts `.fbx` next to `.glb` - both
+land in `res/models/` and flow through the same pipeline (`.tskl`
+serialization, viewport preview, LODs, locomotion mapping). The reader is the
+vendored [ufbx](https://github.com/ufbx/ufbx) library, so binary and ASCII
+FBX from Blender, Maya and 3ds Max all load. Differences from `.glb` worth
+knowing:
+
+- **Axes and units are auto-normalized** to the glTF convention
+  (right-handed Y-up, meters): a Maya/Max rig authored in centimeters
+  imports at the same size as its .glb twin. Geometry transforms (Maya
+  pivots) are baked into the vertices.
+- **Animation curves are resampled**, not translated: each FBX take is
+  sampled at 24 Hz and keyframe-reduced per channel (RDP), which sidesteps
+  the FBX curve soup (rotation orders, pre/post rotations, pivots) while
+  keeping any authored pose within half a frame. Takes named
+  `Armature|Walk` shorten to `Walk` (the full name is kept on a collision).
+- **External textures are copied in**: a .glb embeds its textures, an .fbx
+  often references image files - import copies the referenced files next to
+  the copied .fbx so the project stays self-contained (non-PNG images are
+  transcoded; power-of-two still required, like every PS2 texture).
+- **Not supported** (imports with a warning, piece skipped): blend
+  shapes/morph targets, procedural textures.
 
 ## Third-person player avatars
 
@@ -202,8 +231,21 @@ budget - two are **per-project preferences**, one is **per object**:
 | **Mesh LOD distance** | Project > Preferences > **Rendering** | per project | The build bakes ~50% and ~25%-vertex variants of every animated model into the `.tskl` (quadric-error decimation; skin weights and uvs are preserved, never blended). Instances render the 50% mesh beyond the distance and the 25% one beyond twice the distance. `off` (0) = no LODs baked or kept in RAM. |
 
 Both preferences live in the project file (`.tyra`), so every project tunes
-its own values; there are no per-scene overrides. Distances are world units
-from the camera to the object center, the same units as object positions.
+its own values. Distances are world units from the camera to the object
+center, the same units as object positions.
+
+**Per-object overrides:** any animated object (and any Player avatar) can
+override either preference in its Properties - **Override animation LOD** /
+**Override mesh LOD** next to the playback fields. Unchecked (the default)
+the project preference applies; checked, the object uses its own distance,
+and dragging the value to `0` turns that LOD off for this object entirely
+(a hero character that must never decimate next to a crowd that always
+does). A mesh-LOD override > 0 also makes the build bake the decimated
+chains for that object's model even when the project preference is `off`.
+In a **two-player** scene the two Player objects each carry their own set,
+so the P1 and P2 avatars tune independently - e.g. keep both full-detail
+in split screen (each is small in the *other* player's half anyway), or
+decimate only the second player's avatar.
 
 Tuning guidance:
 
@@ -227,7 +269,7 @@ Tuning guidance:
 
 Three nodes (Add node > **Animation** / **Triggers**):
 
-- **Play Animation** (action) - starts a clip on the target object.
+- **Animation** (action), **play** pin - starts a clip on the target object.
   - *Clip* (text): the clip name; empty = the model's first clip. Unknown
     names are ignored at runtime (a TYRA_WARN lands in the game log).
   - *Loop*: 1 = loop, 0 = play once.
@@ -236,8 +278,8 @@ Three nodes (Add node > **Animation** / **Triggers**):
     is currently showing instead of snapping. 0 = instant switch.
   - Target: an incoming **object link**, otherwise **self** (the node's
     text field holds the clip, not an object name - wire the target in).
-- **Stop Animation** (action) - freezes the target on its current pose.
-  Play Animation resumes/restarts it.
+- **Animation** (action), **stop** pin - freezes the target on its current
+  pose (the params are ignored). The play pin resumes/restarts it.
 - **On Animation Finished** (trigger) - fires the frame the watched
   object's clip reaches its last frame: **once** for a non-looping clip,
   **every wrap** for a looping one. Also usable as a bool source for the
@@ -246,9 +288,9 @@ Three nodes (Add node > **Animation** / **Triggers**):
 Typical patterns:
 
 ```
-On Used ──▶ Play Animation ("open", loop 0)      a door that opens on USE
-On Animation Finished ──▶ Hide Object            despawn after a death clip
-Near Object ──▶ Play Animation ("wave")          greet the approaching player
+On Used ──▶ Animation ▸play ("open", loop 0)     a door that opens on USE
+On Animation Finished ──▶ Set Object Visible ▸hide   hide after a death clip
+Near Object ──▶ Animation ▸play ("wave")         greet the approaching player
 ```
 
 ## Triggering from scripts
@@ -298,7 +340,7 @@ need no special handling in version control (they regenerate on build).
 | Model invisible in-game, `TsklLoader: cannot read` in log | The `.tskl` was not written (check the build log's `[anim bake]` lines for the reason). |
 | Texture renders as flat color, `Model texture missing` warning | Extracted PNG missing next to the `.tskl`, or non-POT texture (see the import warning). |
 | Clip does not switch | Clip name typo - names are case-sensitive; check the Assets tooltip for the exact list. |
-| Clip switch pops | Give Play Animation a *Fade* (or `playAnimation(..., fade)`) - 0.2-0.4 s covers most transitions. |
+| Clip switch pops | Give the Animation node a *Fade* (or `playAnimation(..., fade)`) - 0.2-0.4 s covers most transitions. |
 | Animation too fast/slow on NTSC vs PAL | It isn't - playback is wall-clock normalized. Compare against a stopwatch, not frames. |
 | `matrix-palette slots` error on import/build | The file needs more than 256 bones + rigid mesh nodes - simplify the rig. |
 | Point lights don't light the model | By design: point lights are baked into static vertex colors. Animated models receive the scene's directional light + ambient. |

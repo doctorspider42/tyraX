@@ -61,8 +61,8 @@ Needs a build — the chip flips to amber instead of applying something wrong:
   of the same recipe existed at build time), or an object that can't be
   faithfully spawned at runtime: **point lights** (baked into vertex colors),
   **projecting decals** (baked host projection), **mirrors** (baked reflection
-  table), or objects carrying a **flow graph / attached scripts** (compiled
-  per authored object);
+  table), **portals** (baked PORTALS link table), or objects carrying a
+  **flow graph / attached scripts** (compiled per authored object);
 - editing an existing point light / projecting decal (their transforms are
   baked at build);
 - streaming-layer definitions, scene add/remove.

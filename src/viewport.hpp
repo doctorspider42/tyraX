@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "glbparser.hpp"
+#include "navmesh.hpp"
 #include "project.hpp"
 
 // 3D preview of the project terrain and scene objects, rendered into an
@@ -71,6 +72,29 @@ public:
     void setTerrainMaterial(const std::string& texRelPath, const float kd[3],
                             bool hasMaterial, const float tile[2]);
 
+    // Terrain splat painting preview (docs/terrain-painting.md): the same
+    // two-pass blending the PS2 does - the base terrain draws as usual, then
+    // every painted layer alpha-blends over it as a second pass of the same
+    // grid (tiled layer texture, Gouraud vertex alpha = the painted weight).
+    struct TerrainLayerDraw {
+        std::string texture;  // res-relative map_Kd ("" = flat color)
+        float kd[3] = {0.6f, 0.6f, 0.6f};
+        float tile[2] = {1.0f, 1.0f};  // repeats per world unit (incl. Size)
+    };
+    // weights: hmW*hmD*layers bytes, layer-interleaved per vertex (the
+    // project's SceneData::splat). Rebuilds the terrain meshes.
+    void setTerrainLayers(const std::vector<TerrainLayerDraw>& layers,
+                          const std::vector<uint8_t>& weights);
+    // Cheap during-a-stroke update: new weights, rebuild only the chunks under
+    // the brush (the paint twin of updateTerrainRegion).
+    void updateSplatRegion(const std::vector<uint8_t>& weights, float worldX,
+                           float worldZ, float radius);
+
+    // Macro ground variation (docs/terrain-painting.md): world-noise tint
+    // multiplied into the terrain vertex shade (base + layer passes). Rebuilds
+    // the terrain when the values change. variation 0 = off.
+    void setTerrainTint(float variation, float scaleWorld);
+
     // "Highlight usable objects" preference: marks usable objects with a wire
     // box in the highlight color (proximity is a game-runtime condition)
     void setUsableHighlight(bool enabled, const float* rgb);
@@ -84,6 +108,12 @@ public:
     // the objects vector) are skipped by render() and pick(). The app
     // rebuilds the mask each frame from the scene's layer eye toggles.
     void setHiddenMask(std::vector<char> mask) { hiddenMask_ = std::move(mask); }
+
+    // Nav-mesh overlay (View > Nav Mesh Overlay): translucent green quads
+    // over the walkable cells of the app-baked grid (navmesh::bake - the app
+    // owns the Project). The GL mesh is rebuilt only when `version` changes,
+    // so this can be called every frame cheaply; pass nullptr to hide.
+    void setNavOverlay(const navmesh::NavGrid* grid, uint64_t version);
 
     // Projected-decal preview meshes, computed app-side (decalproj) because the
     // app owns the Project. Keyed by object id; each value is a world-space
@@ -209,12 +239,20 @@ private:
     void buildTerrainMesh();
     void buildPrimitiveMeshes();
     Mesh uploadMesh(const std::vector<float>& interleaved);  // pos3 + color3
+    // pos3 + color4 + uv2 (the particle-shader layout) - terrain layer passes
+    Mesh uploadMesh9(const std::vector<float>& interleaved);
     void destroyMesh(Mesh& m);
 
     TerrainConfig terrain_;
     int maxCells_ = 32;
     std::vector<float> heights_;
     int hmW_ = 0, hmD_ = 0;
+
+    // Nav-mesh overlay mesh (see setNavOverlay)
+    bool navOverlayOn_ = false;
+    uint64_t navOverlayVersion_ = 0;
+    bool navOverlayHasVersion_ = false;
+    Mesh navOverlayMesh_;
 
     // Projected-decal GL meshes (see setProjectedDecals), keyed by object id;
     // rebuilt only when projectedDecalVersion_ changes.
@@ -286,6 +324,13 @@ private:
     static constexpr int kTerrainFullGridCells = 128 * 128;
     std::vector<Mesh> terrainChunkMeshes_;  // tcChunksX_ * tcChunksZ_, row-major
     std::vector<Mesh> terrainLineMeshes_;
+    // Painted-layer passes: [layer * chunkCount + chunk]; an empty Mesh where a
+    // layer has no weight on that chunk. Drawn blended after the base chunks.
+    std::vector<Mesh> terrainLayerMeshes_;
+    std::vector<TerrainLayerDraw> terrainLayers_;
+    std::vector<uint8_t> splat_;  // hmW_*hmD_*layers, layer-interleaved
+    float tintVariation_ = 0.0f;  // macro ground variation amplitude (0 = off)
+    float tintScale_ = 24.0f;     // patch size, world units
     int tcChunksX_ = 0, tcChunksZ_ = 0;
     int tcCellsX_ = 0, tcCellsZ_ = 0;
     void buildTerrainChunkMesh(int cx, int cz);
@@ -386,6 +431,8 @@ private:
     float terrainKd_[3] = {1.0f, 1.0f, 1.0f};  // terrain material Kd tint
     bool terrainHasMaterial_ = false;  // false = checker greens fallback
     Mesh wireCube_;  // selection outline (unit cube edges)
+    Mesh segment_;   // unit +Z line segment (portal link line)
+    Mesh portalArrow_;  // +Z line arrow: the portal's entry-side marker
     bool usableHighlight_ = false;  // wire box on usable objects
     float usableHighlightCol_[3] = {1.0f, 0.85f, 0.15f};
 

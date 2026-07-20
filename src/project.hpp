@@ -16,6 +16,32 @@ struct TerrainConfig {
     int depth = 64;   // world units, Z axis
 };
 
+// One paintable terrain layer above the base (the scene's terrain material).
+// `material` is a res-relative .mtl, resolved through project::resolveTerrainMaterial
+// so a layer inherits the same texture / Kd tint / tiling as the base terrain.
+// The painted per-texel weight of each layer lives in SceneData::splat; the base
+// (index -1) gets the remaining weight. See docs/terrain-painting.md.
+struct TerrainLayer {
+    std::string name = "Layer";
+    std::string material;  // res-relative .mtl ("" = flat, uses its own name only)
+    // Texture "size": how large the layer's tiled pattern appears on the ground.
+    // Multiplies the pattern size on top of the material's own tiling (2 = twice
+    // as big / half the repeats), so you can tune it without editing the .mtl.
+    // No effect on a flat (textureless) layer.
+    float scale = 1.0f;
+    // Stochastic tiling ("texture bombing", docs/terrain-painting.md): bake a
+    // larger non-repeating supertile from this layer's texture at build so the
+    // grid repetition leaves the visible range. Zero runtime cost. Best on
+    // organic textures (grass/sand/rock); leave off for anything with fixed
+    // seams (bricks, tiles). No effect on a flat layer.
+    bool stochastic = false;
+};
+
+inline bool operator==(const TerrainLayer& a, const TerrainLayer& b) {
+    return a.name == b.name && a.material == b.material && a.scale == b.scale &&
+           a.stochastic == b.stochastic;
+}
+
 enum class PrimitiveType {
     Box = 0,
     Sphere = 1,
@@ -68,6 +94,16 @@ enum class PrimitiveType {
     // world" is real geometry behind the plane, so build it into a wall (the
     // wall hides the copies outside the frame). See mirrorObjects below.
     Mirror = 15,
+    // Portal: a rectangle (unit XY quad facing +Z, like a mirror) linked to
+    // another Portal in the same scene. The quad shows a live view "through"
+    // to the target: each frame the game renders the target's surroundings
+    // from a second camera (the player camera mapped through the portal pair)
+    // into a small VRAM render target and projects it onto the quad. Walking
+    // into the front face teleports the player to the target portal with
+    // position, view angle and vertical velocity carried through the same
+    // transform - a seamless corridor between two parts of the map. See
+    // portalTarget / portalObjects below and docs/portals.md.
+    Portal = 16,
 };
 
 // Tessellation detail for the geometry primitives, stored per object in
@@ -138,7 +174,15 @@ struct SceneObject {
     float rotation[3] = {0.0f, 0.0f, 0.0f};  // degrees
     float scale[3] = {1.0f, 1.0f, 1.0f};
     float color[3] = {0.6f, 0.6f, 0.6f};  // neutral gray (specialized types override)
-    bool physics = false;     // falls with gravity in the game
+    bool physics = false;     // simulated as a rigid body in the game: gravity,
+                              // bounces off slopes/objects, tumbles, can be
+                              // pushed by the player and Apply Impulse nodes
+    // Physics material (read when physics == true). Mass is relative - it only
+    // matters where bodies trade momentum (collisions, player pushes).
+    float physMass = 1.0f;      // relative mass; heavier = harder to push
+    float physBounce = 0.35f;   // restitution 0..1: 0 = thud, 1 = superball
+    float physFriction = 0.5f;  // ground drag 0..1: 0 = ice, 1 = sticky
+    bool physTumble = true;     // ground contact converts slide into roll/spin
     bool usable = false;      // shows the USE prompt up close; BTN_USE fires On Used
     bool saveState = false;   // position/color/visibility persisted in save slots
     // Player collision: 0 = box (models use their real mesh AABB), 1 = mesh
@@ -290,12 +334,48 @@ struct SceneObject {
     bool mirrorReflectPlayer = false;
     float mirrorOpacity = 0.35f;
 
+    // Portal parameters (used when type == Portal). portalTarget names the
+    // destination Portal in the same scene (renames remap; empty or dangling =
+    // inactive: the quad draws as a tinted surface and nothing teleports).
+    // A one-way link - set both portals' targets at each other for a two-way
+    // door. portalObjects is the explicit list of scene objects rendered in
+    // the through-view (the Mirror philosophy: a hard list instead of a
+    // radius, so the second-render cost is always visible to the author);
+    // terrain + sky have their own switch. portalTeleportObjects also carries
+    // physics-enabled objects that cross the plane through to the target.
+    // The shared `color` field tints the surface of an inactive portal and of
+    // the pair member whose view was not rendered this frame (one live view
+    // per frame - the nearest portal facing the camera wins).
+    std::string portalTarget;
+    std::vector<std::string> portalObjects;
+    bool portalShowTerrain = true;
+    bool portalTeleportObjects = false;
+    // Experimental: render EVERY scene object in the through-view instead
+    // of the explicit portalObjects list (which is ignored while this is
+    // on). The virtual camera's frustum culling and each object's draw
+    // distance still trim the cost, but the whole scene is submitted a
+    // second time when this portal's view is live - measure before
+    // shipping. Mirrors' reflections and particles still don't show.
+    bool portalViewAll = false;
+
     // Animated model parameters (Model objects whose modelPath ends in .glb;
     // the editor bakes the file's clips to morph frames - see glbparser.hpp).
     std::string animClip;       // starting clip name ("" = the file's first)
     bool animAutoplay = true;   // play the starting clip at scene start
     bool animLoop = true;       // starting clip loops
     float animSpeed = 1.0f;     // playback speed multiplier
+    // Per-object LOD overrides (animated models, incl. player avatars - each
+    // of the two Player objects of a two-player scene carries its own set).
+    // -1 = use the project preference (Preferences > Rendering), 0 = LOD off
+    // for this object, > 0 = custom distance in world units.
+    float animLodOverride = -1.0f;  // pose-refresh (animation) LOD distance
+    float meshLodOverride = -1.0f;  // decimated-mesh LOD distance
+    // Content-forward correction, degrees around the model's own Y, applied
+    // between scale and the (authored or runtime) rotation. For models
+    // authored facing +-X instead of the avatar/AI convention's +Z: set
+    // +-90 and the runtime facing (walker faceYaw, NPC turn-to-face) stays
+    // pure logic while the mesh renders turned. Applies to animated models.
+    float modelYawOffset = 0.0f;
 
     // Per-object logic. Object-referencing nodes default to this object
     // ("self"), so a copied object brings a working copy of its behavior.
@@ -310,10 +390,13 @@ struct SceneObject {
 
 const char* primitiveTypeName(PrimitiveType t);
 
-// Animated models are .glb files (baked to morph frames at build); static
-// models are .obj. Decides which import/render/codegen path an object takes.
+// Animated models are .glb or .fbx files (serialized to .tskl at build);
+// static models are .obj. Decides which import/render/codegen path an object
+// takes.
 inline bool isAnimatedModelPath(const std::string& path) {
-    return path.size() > 4 && path.compare(path.size() - 4, 4, ".glb") == 0;
+    if (path.size() <= 4) return false;
+    const std::string ext = path.substr(path.size() - 4);
+    return ext == ".glb" || ext == ".fbx";
 }
 
 inline bool operator==(const SceneObject& a, const SceneObject& b) {
@@ -322,7 +405,9 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
     };
     return a.id == b.id && a.name == b.name && a.type == b.type && eq3(a.position, b.position) &&
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
-           a.physics == b.physics && a.usable == b.usable &&
+           a.physics == b.physics && a.physMass == b.physMass &&
+           a.physBounce == b.physBounce && a.physFriction == b.physFriction &&
+           a.physTumble == b.physTumble && a.usable == b.usable &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
            a.layer == b.layer &&
            a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
@@ -370,8 +455,16 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.mirrorObjects == b.mirrorObjects &&
            a.mirrorReflectPlayer == b.mirrorReflectPlayer &&
            a.mirrorOpacity == b.mirrorOpacity &&
+           a.portalTarget == b.portalTarget &&
+           a.portalObjects == b.portalObjects &&
+           a.portalShowTerrain == b.portalShowTerrain &&
+           a.portalTeleportObjects == b.portalTeleportObjects &&
+           a.portalViewAll == b.portalViewAll &&
            a.animClip == b.animClip && a.animAutoplay == b.animAutoplay &&
            a.animLoop == b.animLoop && a.animSpeed == b.animSpeed &&
+           a.animLodOverride == b.animLodOverride &&
+           a.meshLodOverride == b.meshLodOverride &&
+           a.modelYawOffset == b.modelYawOffset &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts;
 }
 
@@ -387,10 +480,14 @@ struct ProjectSettings {
     std::string buildProfile = "release";  // "release" | "debug"
 
     // Output scan mode. "interlaced" is the stock 480i/576i signal (follows
-    // videoSystem). "progressive" outputs flicker-free 480p, "1080i" a
+    // videoSystem). "interlaced-field" is the same signal with true field
+    // rendering: half-height buffers, a fresh image every field (50/60
+    // distinct pictures per second at full speed) for about half the fill
+    // and VRAM cost. "progressive" outputs flicker-free 480p, "1080i" a
     // pillarboxed HD signal - both need component cables on a real console
     // (PCSX2 shows every mode) and always run at 60 Hz.
-    std::string displayMode = "interlaced";  // "interlaced" | "progressive" | "1080i"
+    std::string displayMode =
+        "interlaced";  // "interlaced" | "interlaced-field" | "progressive" | "1080i"
 
     // 16:9 anamorphic output: widens the projection so proportions are
     // correct on a widescreen TV (the framebuffer stays the same; in 1080i
@@ -441,6 +538,24 @@ struct ProjectSettings {
     // distance the 25% one. 0 = off (no LODs baked or kept in RAM).
     float meshLodDistance = 0.0f;
 
+    // Static batching: the generated game merges non-moving primitive
+    // objects that share a material into combined world-space bags at scene
+    // load, paying the fixed per-bag submit cost (~1 ms/object on real
+    // hardware) once per batch instead of once per object. Objects with
+    // physics, scripts, flow-graph references, save-state or a streaming
+    // layer stay individual; runtime edits (Live Link, Raycast-driven
+    // actions) trigger a batch rebuild. Off = every object submits its own
+    // bag (pre-batching behavior; the A/B lever for profiling).
+    bool staticBatching = true;
+
+    // AI navigation (docs/navigation-ai.md). The nav grid is baked on the
+    // host at build time (navmesh.cpp) from the terrain slope + blocking
+    // objects; the game runs A* over the baked bitmap on the EE, only in
+    // scenes whose flow graphs use the AI nodes - other scenes cost nothing.
+    float navCellSize = 1.0f;     // world units per nav cell (grid capped 128x128)
+    float navMaxSlope = 40.0f;    // degrees; steeper terrain is unwalkable
+    float navAgentRadius = 0.4f;  // obstacle inflation around blockers, world units
+
     int terrainDetail = 32;  // max terrain grid cells per axis (quality vs perf)
 
     // Terrain streaming: the generated game builds the terrain in 16x16-cell
@@ -480,6 +595,16 @@ struct ProjectSettings {
     int stickCurveR = 0;     // right stick (camera)
     float stickExpL = 2.0f;  // exponent for the L curve (>=1)
     float stickExpR = 2.0f;  // exponent for the R curve (>=1)
+
+    // Two-player support (docs/multiplayer.md). The mode used while player 2
+    // is active: "shared" = both avatars on one screen, the camera frames the
+    // pair; "split" = horizontal split screen (P1 top, P2 bottom). "off"
+    // compiles every 2P path out. Player 2 exists only in scenes that contain
+    // a second Player object (the first one is P1, the second P2).
+    std::string multiplayer = "off";  // "off" | "shared" | "split"
+    // Player 2 can join mid-game by pressing Start on pad 2 (and a menu
+    // Toggle bound to "Player count" can switch 1P/2P at any time).
+    bool p2JoinOnStart = true;
 
     // Orbit template
     float orbitSpeed = 1.0f;  // multiplier
@@ -555,6 +680,9 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.disableVsync == b.disableVsync &&
            a.clipping == b.clipping && a.animLodDistance == b.animLodDistance &&
            a.meshLodDistance == b.meshLodDistance &&
+           a.staticBatching == b.staticBatching &&
+           a.navCellSize == b.navCellSize && a.navMaxSlope == b.navMaxSlope &&
+           a.navAgentRadius == b.navAgentRadius &&
            a.terrainDetail == b.terrainDetail &&
            a.terrainViewDistance == b.terrainViewDistance &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
@@ -565,6 +693,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.stickDeadzoneR == b.stickDeadzoneR &&
            a.stickCurveL == b.stickCurveL && a.stickCurveR == b.stickCurveR &&
            a.stickExpL == b.stickExpL && a.stickExpR == b.stickExpR &&
+           a.multiplayer == b.multiplayer &&
+           a.p2JoinOnStart == b.p2JoinOnStart &&
            a.orbitSpeed == b.orbitSpeed && a.gravity == b.gravity &&
            a.jumpSpeed == b.jumpSpeed && eq3(a.lightDir, b.lightDir) &&
            a.ambient == b.ambient && a.diffuse == b.diffuse &&
@@ -652,18 +782,58 @@ inline HudImage defaultUsePrompt() {
     return h;
 }
 
+// A typeface the project can draw with (Tools > Font Manager). Everything that
+// references a font does so by `name`, so swapping a project's look is one
+// edit here rather than a hunt through every text and menu.
+//
+// Two very different costs hang off one entry:
+//  - Static text (HUD texts, menus, loading screens) is rasterized straight
+//    from the TTF into a sprite at BUILD time, so the font itself never
+//    reaches the PS2 - only the pixels of that one string.
+//  - A font referenced by a Display Text node also bakes a glyph atlas
+//    (res/fonts/atlas-<name>.png) the runtime samples glyph by glyph, because
+//    that node's string is only known while the game runs. That atlas is the
+//    only case where font pixels ship, and it is loaded lazily - see
+//    templates.cpp's drawFontText.
+struct GameFont {
+    std::string name = "Default";
+    // Source TTF: "" = the built-in default (the Consolas Bold fallback chain
+    // in menubake::resolveFontPath), "res/fonts/x.ttf" = a font imported into
+    // the project (travels with it), bare "impact.ttf" = a Windows font (that
+    // machine only). This is the one place the editor resolves a real file.
+    std::string fontPath;
+    // Glyph height the atlas is rasterized at. Display Text scales from this,
+    // so it trades atlas sharpness against VRAM, and is NOT the on-screen size.
+    // Only matters to fonts a Display Text node actually uses.
+    int atlasSize = 16;
+    // Applied to the glyphs at runtime (the atlas itself bakes white, so one
+    // atlas serves every color). Static baked text keeps its own per-text color.
+    float color[3] = {1.0f, 1.0f, 1.0f};
+    bool shadow = true;  // 1px dark offset behind the glyphs
+    // Atlas palette depth: "4bit" (16 colors - plenty for white glyphs the
+    // runtime tints, and ~8x cheaper in VRAM), "8bit", "none" = full color.
+    std::string quant = "4bit";
+};
+
+inline bool operator==(const GameFont& a, const GameFont& b) {
+    return a.name == b.name && a.fontPath == b.fontPath &&
+           a.atlasSize == b.atlasSize && a.color[0] == b.color[0] &&
+           a.color[1] == b.color[1] && a.color[2] == b.color[2] &&
+           a.shadow == b.shadow && a.quant == b.quant;
+}
+
 // An on-screen text (Tools > UI Editor > Texts): baked to a PNG sprite at
 // build (res/hud/text-<name>.png - the engine has no font), shown/hidden at
-// runtime by the Show Text / Hide Text flow nodes. Multi-line on '\n'.
+// runtime by the Set Text Visible flow node. Multi-line on '\n'. The string is
+// frozen at build; for a runtime-varying one use a Display Text node instead.
 struct HudText {
     std::string name = "text";
     std::string text = "New text";
     float pos[2] = {0.5f, 0.8f};   // normalized screen position (center anchor)
     int size = 16;                 // font pixel height
     float color[3] = {1.0f, 1.0f, 1.0f};
-    // Baked text font, GameMenu::fontPath semantics: "" = default (Consolas
-    // Bold chain), "res/fonts/x.ttf" = project font, bare name = Windows font.
-    std::string fontPath;
+    // Which Project::fonts entry to rasterize with ("" = the default entry).
+    std::string font;
     bool shadow = true;           // 1px dark offset behind the glyphs
     bool visibleAtStart = false;  // shown when the scene starts
 };
@@ -672,7 +842,7 @@ inline bool operator==(const HudText& a, const HudText& b) {
     return a.name == b.name && a.text == b.text && a.pos[0] == b.pos[0] &&
            a.pos[1] == b.pos[1] && a.size == b.size &&
            a.color[0] == b.color[0] && a.color[1] == b.color[1] &&
-           a.color[2] == b.color[2] && a.fontPath == b.fontPath &&
+           a.color[2] == b.color[2] && a.font == b.font &&
            a.shadow == b.shadow && a.visibleAtStart == b.visibleAtStart;
 }
 
@@ -824,6 +994,30 @@ struct SceneData {
     std::vector<float> heights;
     int hmW = 0, hmD = 0;
 
+    // Terrain layer painting (docs/terrain-painting.md). `terrainLayers` are the
+    // paintable layers ABOVE the base terrain material (index 0 = first extra
+    // layer). `splat` holds their per-VERTEX weight on the terrain render grid
+    // (splatW x splatD == hmW x hmD - the blend is drawn as Gouraud vertex
+    // alpha, so vertex resolution IS the blend resolution),
+    // terrainLayers.size() bytes per vertex (row-major:
+    // [z*splatW + x]*N + layer), 0..255; the base gets the remaining weight.
+    // Empty layers => all base = the single-material terrain. Persisted in
+    // <project>/terrain-<scene>.splat.
+    std::vector<TerrainLayer> terrainLayers;
+    std::vector<uint8_t> splat;
+    int splatW = 0, splatD = 0;
+    // Stochastic tiling for the BASE terrain material (the layers carry their
+    // own flag). See TerrainLayer::stochastic.
+    bool terrainBaseStochastic = false;
+    // Macro ground variation (docs/terrain-painting.md): large soft patches of
+    // lighter/darker ground, world-position value noise multiplied into the
+    // terrain vertex shade while chunks bake - base AND layer passes together,
+    // so it reads as ground lighting, not an overlay. Zero runtime cost;
+    // infinite period (breaks even the supertile's second-order repetition).
+    // variation = amplitude 0..1 (0 = off), scale = patch size in world units.
+    float terrainTintVariation = 0.0f;
+    float terrainTintScale = 24.0f;
+
     // Per-scene overrides of the project's scene-visual settings. `settings`
     // holds this scene's values; `overrides` says which categories are active.
     // Inactive categories inherit Project::settings - resolve with
@@ -848,6 +1042,11 @@ inline bool operator==(const SceneData& a, const SceneData& b) {
     return a.name == b.name && a.objects == b.objects && a.layers == b.layers &&
            a.terrain.width == b.terrain.width && a.terrain.depth == b.terrain.depth &&
            a.heights == b.heights && a.hmW == b.hmW && a.hmD == b.hmD &&
+           a.terrainLayers == b.terrainLayers && a.splat == b.splat &&
+           a.splatW == b.splatW && a.splatD == b.splatD &&
+           a.terrainBaseStochastic == b.terrainBaseStochastic &&
+           a.terrainTintVariation == b.terrainTintVariation &&
+           a.terrainTintScale == b.terrainTintScale &&
            a.overrides == b.overrides && a.settings == b.settings &&
            a.ambiencePreset == b.ambiencePreset &&
            a.loadingScreen == b.loadingScreen;
@@ -895,8 +1094,9 @@ struct MenuEntry {
         BindSfxVolume = 2,    // master sound-effect volume (0..100)
         BindDeadzone = 3,     // analog stick deadzone, both sticks (0..0.4)
         BindStickCurve = 4,   // stick response curve exponent (1..3)
-        BindDisplayMode = 5,  // scan mode: interlaced / 480p / 1080i
+        BindDisplayMode = 5,  // scan mode: interlaced / 480p / 1080i / field
         BindWidescreen = 6,   // aspect ratio: 4:3 / 16:9
+        BindPlayerCount = 7,  // 1 / 2 players (two-player modes; runtime join)
     };
     int settingBind = BindNone;
 };
@@ -953,9 +1153,10 @@ struct GameMenu {
     int panelW = 256;  // 128 / 256 / 512
     float screenPos[2] = {0.5f, 0.45f};
     bool showTitle = true;  // off = logo-only menus (skips title + separator)
-    // Baked text: "" = default (Consolas Bold chain), "res/fonts/x.ttf" = a
-    // font imported into the project, bare "impact.ttf" = a Windows font.
-    std::string fontPath;
+    // Which Project::fonts entry the panel is baked with ("" = the default
+    // entry). Only the typeface is taken from it - the panel's colors come
+    // from `accent` and the bake itself.
+    std::string font;
     int titleSize = 18;  // px; entrySize also drives the row pitch (and the
     int entrySize = 15;  // cursor geometry) through menubake::panelLayout.
     std::vector<MenuEntry> entries;
@@ -968,7 +1169,7 @@ inline bool operator==(const GameMenu& a, const GameMenu& b) {
            a.accent[1] == b.accent[1] && a.accent[2] == b.accent[2] &&
            a.images == b.images && a.panelW == b.panelW &&
            a.screenPos[0] == b.screenPos[0] && a.screenPos[1] == b.screenPos[1] &&
-           a.showTitle == b.showTitle && a.fontPath == b.fontPath &&
+           a.showTitle == b.showTitle && a.font == b.font &&
            a.titleSize == b.titleSize && a.entrySize == b.entrySize &&
            a.entries == b.entries;
 }
@@ -1015,6 +1216,29 @@ struct Project {
     }
     std::vector<SceneObject>& objects() { return active().objects; }
     const std::vector<SceneObject>& objects() const { return active().objects; }
+
+    // Name of the fallback font (what an empty `font` reference means).
+    std::string defaultFontName() const {
+        return fonts.empty() ? std::string() : fonts.front().name;
+    }
+    // Indices into `fonts` that some Display Text node draws with - the only
+    // fonts that need a glyph atlas baked and shipped (static text rasterizes
+    // straight from the TTF at build). Sorted, no duplicates.
+    std::vector<int> atlasFontIndices() const;
+    // Font by name; an empty or stale name resolves to the default entry, so
+    // deleting a font never breaks the texts still pointing at it.
+    const GameFont* findFont(const std::string& name) const {
+        if (fonts.empty()) return nullptr;
+        for (const GameFont& f : fonts)
+            if (f.name == name) return &f;
+        return &fonts.front();
+    }
+
+    // Typefaces the project draws with (Tools > Font Manager). Never empty:
+    // fonts[0] is the default every text falls back to, and the Font Manager
+    // refuses to delete the last entry - so an empty `font` reference always
+    // resolves. Replace fonts[0] to restyle the whole project at once.
+    std::vector<GameFont> fonts{GameFont{}};
 
     std::vector<HudImage> hud;
     // The USE prompt as an overridable HUD element (see defaultUsePrompt).
@@ -1194,6 +1418,11 @@ std::string load(Project& out, const std::string& projectDir);
 // gizmo, view mode) and the window layout are taken from the Project fields.
 std::string save(const Project& p);
 
+// A flow graph as the project-file JSON ("nodes"/"links"/"nextId" - the same
+// shape stored inside objects/<id>.json). Used by the headless --dump-graph
+// CLI so AI agents can read a graph without parsing the whole object file.
+std::string flowGraphToJson(const FlowGraph& fg);
+
 // --- Terrain heightmap -------------------------------------------------------
 
 // Vertex grid dimensions for the ACTIVE scene terrain size + detail cap.
@@ -1215,6 +1444,29 @@ void flattenHeightmap(Project& p, float worldX, float worldZ, float radius, floa
 
 std::string saveHeights(const Project& p);
 void loadHeights(Project& p);  // silent no-op when the file is absent
+
+// --- Terrain splatmap --------------------------------------------------------
+
+// Makes every scene splatmap match its layer count and the terrain render grid
+// (the splat stores per-VERTEX weights - splatW/splatD track hmW/hmD):
+// zero-fills a fresh map, resamples an existing one when the grid changed, and
+// grows/shrinks the per-vertex layer stride when layers are added/removed.
+// A scene with no terrainLayers keeps an empty splat.
+void ensureSplatmap(Project& p);
+
+// Paints the active layer under a world-space brush (cosine falloff). `delta`
+// > 0 adds the layer's weight, < 0 erases it (toward the base). Clamped 0..255.
+void paintSplat(Project& p, int layer, float worldX, float worldZ, float radius,
+                float delta);
+
+// Active-scene terrain layer edits that keep the interleaved splat columns in
+// sync (the splat stores terrainLayers.size() bytes per texel, in layer order).
+void addTerrainLayer(Project& p, const std::string& name, const std::string& material);
+void removeTerrainLayer(Project& p, int idx);       // drops its splat column
+void moveTerrainLayer(Project& p, int idx, int dir);  // dir = -1 up / +1 down; swaps columns
+
+std::string saveSplat(const Project& p);
+void loadSplat(Project& p);  // silent no-op when the file is absent
 
 // --- History file (<name>.history) ------------------------------------------
 // The undo history (up to History::kMaxEntries scene snapshots), kept next to

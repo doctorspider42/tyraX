@@ -2,12 +2,15 @@
 
 #include <filesystem>
 #include <map>
+#include <set>
 #include <vector>
 
 #include <stb_image.h>
 
+#include "menubake.hpp"  // atlasFileName - which res/fonts PNGs are atlases
 #include "objparser.hpp"
 #include "pngquant.hpp"
+#include "stochtile.hpp"
 
 namespace fs = std::filesystem;
 
@@ -172,16 +175,33 @@ std::string bake(const Project& p,
     for (const SplashScreen& s : p.splashScreens)
         if (!s.image.imagePath.empty()) hudBake[s.image.imagePath] = &s.image;
 
+    // Font atlases (res/fonts/atlas-<name>.png, baked by refreshGenerated for
+    // the fonts a Display Text node uses): quantized per Font Manager entry
+    // rather than by the project default, because an atlas is white glyphs the
+    // runtime tints - 16 colors usually costs nothing visually and saves ~8x
+    // the VRAM, which matters on a ~1.33 MB texture budget.
+    std::map<std::string, std::string> fontQuant;
+    for (const GameFont& gf : p.fonts)
+        fontQuant["res/fonts/" + menubake::atlasFileName(gf.name)] = gf.quant;
+
     // --- mirror res/ into .res-baked/ --------------------------------------
-    // Editor-only assets never ship: paint brushes (res/brushes) and the
-    // Material Editor's paint-layer sidecars (`<texture>.layers/` dirs) -
-    // the game loads the flattened composite PNG next to them.
+    // Editor-only assets never ship: paint brushes (res/brushes), the Material
+    // Editor's paint-layer sidecars (`<texture>.layers/` dirs - the game loads
+    // the flattened composite PNG next to them), and the source TTFs under
+    // res/fonts. The PS2 never reads a TTF: static text is baked to sprites and
+    // dynamic text to a glyph atlas, both at build. Only the atlas PNGs in that
+    // folder ship.
     auto editorOnly = [](const fs::path& rel) {
         for (const fs::path& part : rel)
             if (part.string().size() > 7 &&
                 part.string().rfind(".layers") == part.string().size() - 7)
                 return true;
-        return rel.begin()->generic_string() == "brushes";
+        const std::string top = rel.begin()->generic_string();
+        if (top == "fonts") {
+            const std::string ext = lowerExt(rel);
+            return ext == ".ttf" || ext == ".otf";
+        }
+        return top == "brushes";
     };
     const std::string defaultQ = p.settings.textureQuant;  // none/8bit/4bit
     int quantized = 0, copied = 0;
@@ -212,13 +232,57 @@ std::string bake(const Project& p,
             }
         }
 
-        const bool quantizable =
+        bool quantizable =
             lowerExt(e.path()) == ".png" &&
             (top == "models" || top == "materials" || top == "textures");
 
         std::string q = defaultQ;
         if (auto it = quality.find(relRes); it != quality.end()) q = it->second;
+        // A font atlas carries its own depth (GameFont::quant) and ignores the
+        // project default.
+        if (top == "fonts" && lowerExt(e.path()) == ".png") {
+            if (auto it = fontQuant.find(relRes); it != fontQuant.end()) {
+                quantizable = true;
+                q = it->second;
+            }
+        }
         const int colors = quantizable ? colorsOf(q) : 0;
+
+        // Scene textures must be PS2-valid (power-of-two, max 512 per axis -
+        // the engine asserts otherwise). An oversized/odd import (a "1k"
+        // download, say) is resized INTO THE BAKE like HUD sprites are; the
+        // source in res/ keeps its full resolution for the editor viewport.
+        if (quantizable) {
+            int sw = 0, sh = 0, comp = 0;
+            if (stbi_info(e.path().string().c_str(), &sw, &sh, &comp) &&
+                (sw != nearestValidDim(sw) || sh != nearestValidDim(sh))) {
+                const int tw = nearestValidDim(sw), th = nearestValidDim(sh);
+                unsigned char* px =
+                    stbi_load(e.path().string().c_str(), &sw, &sh, &comp, 4);
+                if (px) {
+                    std::vector<unsigned char> buf =
+                        pngquant::resizeRGBA(px, sw, sh, tw, th);
+                    stbi_image_free(px);
+                    std::string err;
+                    const bool ok =
+                        colors > 0 ? pngquant::quantizeRGBA(dst.string(), buf.data(),
+                                                            tw, th, colors, err)
+                                   : pngquant::writePngRGBA(dst.string(), buf.data(),
+                                                            tw, th, err);
+                    if (ok) {
+                        log("[editor] texture bake: " + relRes + ": " +
+                            std::to_string(sw) + "x" + std::to_string(sh) +
+                            " resized to PS2-valid " + std::to_string(tw) + "x" +
+                            std::to_string(th));
+                        ++quantized;
+                        continue;
+                    }
+                    log("[editor] texture bake: " + relRes + ": " + err +
+                        " - copied at original size (the game may reject it)");
+                }
+                // decode/write failed - fall through to the plain paths below
+            }
+        }
 
         if (colors > 0) {
             std::string err;
@@ -247,11 +311,60 @@ std::string bake(const Project& p,
     for (const auto& e : fs::recursive_directory_iterator(baked, ec)) {
         if (!e.is_regular_file()) continue;
         const fs::path rel = fs::relative(e.path(), baked, ec);
+        // stoch/ holds generated supertiles with no res/ source - regenerated
+        // wholesale below, so leave them out of the vanished-source sweep.
+        if (rel.begin()->generic_string() == "stoch") continue;
         std::error_code sec;
         if (!fs::exists(res / rel, sec) || editorOnly(rel))
             stale.push_back(e.path());
     }
     for (const fs::path& s : stale) fs::remove(s, ec);
+
+    // Stochastic-tiling supertiles (docs/terrain-painting.md): one
+    // non-repeating supertile per stochastic terrain texture, generated into
+    // .res-baked/stoch (never mirrored from res/) and quantized like its
+    // source. Regenerated wholesale so un-toggled layers leave nothing behind.
+    fs::remove_all(baked / "stoch", ec);
+    {
+        std::set<std::string> done;  // a texture shared by layers bakes once
+        int stochCount = 0;
+        auto genStoch = [&](const std::string& srcRel) {
+            if (srcRel.empty() || !done.insert(srcRel).second) return;
+            int w = 0, h = 0, factor = 1;
+            std::vector<unsigned char> px = stochtile::generate(
+                (res.parent_path() / srcRel).string(), srcRel, w, h, factor);
+            if (px.empty()) {
+                log("[editor] stochastic tiling: cannot read " + srcRel);
+                return;
+            }
+            const fs::path dst = baked / stochtile::bakedBinPath(srcRel);
+            fs::create_directories(dst.parent_path(), ec);
+            std::string q = defaultQ;
+            if (auto it = quality.find(srcRel); it != quality.end()) q = it->second;
+            const int cols = colorsOf(q);
+            std::string err;
+            const bool ok =
+                cols > 0
+                    ? pngquant::quantizeRGBA(dst.string(), px.data(), w, h, cols, err)
+                    : pngquant::writePngRGBA(dst.string(), px.data(), w, h, err);
+            if (ok)
+                ++stochCount;
+            else
+                log("[editor] stochastic tiling: " + srcRel + ": " + err);
+        };
+        for (const SceneData& sc : p.scenes) {
+            if (sc.terrainBaseStochastic)
+                genStoch(project::resolveTerrainMaterial(
+                             p, project::resolvedSettings(p, sc).terrainMaterial)
+                             .texture);
+            for (const TerrainLayer& l : sc.terrainLayers)
+                if (l.stochastic)
+                    genStoch(project::resolveTerrainMaterial(p, l.material).texture);
+        }
+        if (stochCount)
+            log("[editor] Stochastic tiling: baked " + std::to_string(stochCount) +
+                " supertile(s)");
+    }
 
     if (quantized || !stale.empty())
         log("[editor] Texture bake: " + std::to_string(quantized) +

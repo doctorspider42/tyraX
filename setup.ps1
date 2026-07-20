@@ -7,6 +7,7 @@ $deps = @(
     @{ Url = 'https://github.com/CedricGuillemet/ImGuizmo.git'; Branch = 'master'; Dir = 'vendor/imguizmo' },
     @{ Url = 'https://github.com/Nelarius/imnodes.git'; Branch = 'master'; Dir = 'vendor/imnodes' },
     @{ Url = 'https://github.com/nothings/stb.git';  Branch = 'master';  Dir = 'vendor/stb' },
+    @{ Url = 'https://github.com/ufbx/ufbx.git';     Branch = 'master';  Dir = 'vendor/ufbx' },
     @{ Url = 'https://github.com/h4570/tyra.git';    Branch = 'master';  Dir = 'vendor/tyra' }
 )
 

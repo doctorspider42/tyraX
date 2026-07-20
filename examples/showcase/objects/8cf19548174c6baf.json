@@ -1,0 +1,1 @@
+{ "id": "8cf19548174c6baf", "name": "cylinder-10", "type": "cylinder", "position": [18, 1.1284, -18], "rotation": [0, 0, 0], "scale": [0.35, 1.89, 0.35], "color": [0.33, 0.22, 0.12], "physics": false, "layer": "forest", "detail": 8, "drawDistance": 84 }

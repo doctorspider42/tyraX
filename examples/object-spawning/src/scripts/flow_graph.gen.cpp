@@ -28,6 +28,7 @@ class FlowGraphScript_0_3 : public Script {
       started = false;
       flowSpawned[0] = -1;
       delay4 = 0;
+      every1 = 1;
     }
     frame++;
     if (delay4 > 0 && --delay4 == 0) {
@@ -36,7 +37,8 @@ class FlowGraphScript_0_3 : public Script {
       flowSpawned[0] = -1;
       }
     }
-    if (frame % everyFrames(5.0F) == 0) {
+    if (--every1 <= 0) {
+      every1 = everyFrames(5.0F);
       flowSpawned[0] = ctx.spawnObject ? ctx.spawnObject(1, ctx.objects[2].data.position[0], ctx.objects[2].data.position[1], ctx.objects[2].data.position[2], 0.0F) : -1;
       delay4 = everyFrames(3.0F);
     }
@@ -47,6 +49,7 @@ class FlowGraphScript_0_3 : public Script {
   int frame = 0;
   bool started = false;
   int delay4 = 0;
+  int every1 = 1;
 };
 
 }  // namespace Object_spawning

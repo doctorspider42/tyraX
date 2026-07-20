@@ -77,7 +77,9 @@ the editor's custom screen effects, `docs/custom-screen-effects.md`; the effect
 body appends GS primitives through the now-public `blit()`/`flatQuad()` and the
 framebuffer/noise/scratch-buffer accessors, and the engine wraps the state
 setup/teardown + DMA kick), WAV-header-aware song
-player, `bboxVersion` on `StaPipBag` for moving geometry, `LeanObjLoader`
+player, `bboxVersion` on `StaPipBag` for moving geometry, `Pad::setActuators` (act-direct DualShock rumble —
+the on/off buzz motor + 0-255 heavy motor — behind the Vibrate Pad flow node /
+`padVibrate()` script helper), `LeanObjLoader`
 (OBJ+MTL, host:/cdrom0:-safe; parsing semantics mirror the editor's
 `src/objparser.cpp` — keep the two in sync; parses the `refl` sphere-map
 statement for reflective materials incl. the TyraX `-rounded` flag:
@@ -91,17 +93,62 @@ superseded by the in-band per-mesh ALPHA qword: `VU1_ALPHA_ADDR` +
 equation, no barriers; dynpip keeps the original 7/5-qword macros), the
 StaPip `TCE` env program family (matcap ST from normals in the ST slot +
 `StaPipTextureBag::coordinatesAreNormals` + the camera basis at
-`VU1_ENV_BASIS_ADDR`), `RendererCoreEnvMap` (128×128 VRAM render target for
+`VU1_ENV_BASIS_ADDR`), the StaPip `billboard` program family
+(`StaPipBillboardBag`: the vertex slot carries PARTICLE CENTERS, the ST slot
+one qword of 2×2 basis weights per particle, colors one per particle; VU1
+expands each center into a camera-facing quad — 6 GS vertices — from the
+camera right/up basis at `VU1_BILLBOARD_BASIS_ADDR` transformed by the MVP
+once per mesh, and culls per QUAD with one `clipw` judgement per corner.
+The two programs are NOT resident: the VU1-clipping program set fills micro
+memory to ~2036/2042, so they live in their own packet swapped in on demand
+(`StaPipQBufferRenderer::ensureProgramSet`) and the resident set is lazily
+restored by the next non-billboard bag. The C++ side must keep the prim
+giftag NLOOP at 6× the input count (`gsVertexCount`) — an undercounting
+NLOOP stalls the GIF. Billboard bags require multi-color, no lighting,
+frustum culling `None` + no clip checks (the one legitimate `None` — the
+program's per-quad ADC replaces the wrap protection), and a texture bag whose image may
+be null — it carries the params channel; swapping `right`/`up` on the bag
+and re-rendering draws the same centers for another view, which is what a
+portal through-view pass needs), `RendererCoreEnvMap` (128×128 VRAM render target for
 GT3-style dynamic reflections: FRAME/SCISSOR/XYOFFSET/ZBUF redirect bracket
 with a dedicated 128×128 z-buffer — "reflected" scene objects submitted
 inside the bracket occlude correctly — + `RendererCore3D::pushEnvView/
 popEnvView`; exposed as a VRAM-resident `Texture::vramResident` that
 `useTexture` binds without a PATH3 upload — see
-`docs/reflective-materials.md`), `physics/CollisionMesh` (XZ-grid
+`docs/reflective-materials.md`), the TyraX portal through-view machinery
+(`RendererCore3D::pushPortalView` — view-matrix-only swap, main projection
+kept, exact frustum planes at the virtual camera — plus
+`RendererCore::portalViewBegin/End` → `RendererCorePostFx::portalMask*`:
+the destination scene renders IN-PLACE into the real framebuffer right
+after the frame clear, scissored to the quad's screen bbox, and the shaped
+opening is carved with reversed-z ops since the GS has no stencil: re-far
+the bbox z, cap the quad interior with a z-only ALWAYS fan at the surface
+depth, repaint the still-far ring via a GEQUAL sprite at z=0 that hits
+exactly the reset pixels; both wrappers drain PATH1 unconditionally and do
+NOT latch the post-fx drain gate; maskEnd's NLOOP is 13 + fan verts; see
+`docs/portals.md`), `physics/CollisionMesh` (XZ-grid
 triangle collider) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
 TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot),
 `renderer/models/unique_id.hpp` (`generateUniqueId()`) replacing upstream's
-`rand() % 1000000` object ids (see the pitfall below), and a **quiet-halt
+`rand() % 1000000` object ids (see the pitfall below), **two-player support**
+(docs/multiplayer.md): `Pad::initOptional(port, slot)` (padInit is now
+once-global; an optional pad never blocks or asserts on a missing controller —
+upstream `update()` busy-waited forever on DISCONN — and keeps polling for a
+hot-join; sticks are centered while disconnected) plus
+`RendererCoreSplitView` (`renderer/core/splitview/`, public
+`RendererCore::splitView`): the split-screen raster bracket modeled on the
+env-map redirect — per half it drains PATH1 and shifts XYOFFSET so the
+CENTRAL h/2 rows of the *unchanged* full-screen projection land on that half
+(a vertical crop; no projection change, proportions stay exact), scissored to
+the half. Deliberately NO per-half clear: beginFrame's full-screen clear
+covers both halves and the scissor clips every raster write (z included) —
+the first version copied the env map's clear sprite and paid two half-screen
+GS fills + FINISH stalls per frame for nothing. The game swaps cameras
+between halves with `renderer3D.update(cam2)` (the pipelines read
+view/frustum lazily per mesh) and must run animation advance/skinning only
+in the FIRST half (see the generated game's `splitSecondPass`). Mind the
+interplay: any bracket that restores a full-screen raster (env map!) must
+not run inside a split half. And a **quiet-halt
 assert** (`debug/debug.hpp` `TyraDebug::trap`): a failed `TYRA_ASSERT` /
 `TYRA_TRAP` no longer runs upstream's `init_scr()` + infinite `scr_printf` loop
 that seized the whole screen; it still prints the dump to the console / host
@@ -188,7 +235,25 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
   (interlaced FRAME mode + MagV--) **hard-crashes PCSX2 v2.3.205** (the
   process dies seconds after SetGsCrt, no crash dialog); 1080i in FIELD
   mode with MAGV=2x is visually equivalent (both fields step through every
-  buffer line) and works.
+  buffer line) and works. That crash is 1080i-specific: SDTV interlaced
+  FRAME (the `InterlacedField` half-height mode below) is fine.
+- **True field rendering (`DisplayMode::InterlacedField`)**: 480i/576i with
+  half-height 512x224 frame/z buffers scanned at SMODE2.FFMD=FRAME — a
+  fresh image per field, half the fill/VRAM of stock interlaced. The
+  DISPLAY window must stay IDENTICAL to the stock FIELD mode (full 448
+  frame-line window; ps2sdk's `graph_set_screen` mis-programs DY/DH for
+  the interlaced+FRAME case — `programDisplay` writes the registers via
+  `setDtvDisplay` instead), no flicker filter. The game-facing coordinate
+  space stays 512x448: the projection is built at
+  `RendererSettings::getRenderHeightF()` (raster scale only — frustum
+  planes come from fov+aspect and are untouched), `RendererCore2D` halves
+  sprite y, and clears / post-fx / env-map restores all use the render
+  height. Anything that sizes or addresses the PHYSICAL framebuffer must
+  use `getRenderHeightF()`, game-facing layout keeps `getHeight()` — miss
+  that split and one mode or the other draws half-off-screen. Per-field
+  half-line alignment lives in `flipBuffers` (CSR.FIELD read after vsync,
+  inverted — the frame being rendered displays one field later — then an
+  XYOFFSET +8 on odd fields appended to the flip packet).
 - **Runtime display switching**: `RendererCore::setDisplayOutput(mode, ws)`
   (TyraX fork) switches the scan mode / widescreen between frames.
   A mode change resets the whole VRAM bump allocator (`vram.reset()`),

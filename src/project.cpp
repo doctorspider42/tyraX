@@ -1,5 +1,6 @@
 #include "project.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -36,6 +37,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Decal: return "decal";
         case PrimitiveType::Camera: return "camera";
         case PrimitiveType::Mirror: return "mirror";
+        case PrimitiveType::Portal: return "portal";
     }
     return "box";
 }
@@ -56,7 +58,26 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "decal") return PrimitiveType::Decal;
     if (s == "camera") return PrimitiveType::Camera;
     if (s == "mirror") return PrimitiveType::Mirror;
+    if (s == "portal") return PrimitiveType::Portal;
     return PrimitiveType::Box;
+}
+
+std::vector<int> Project::atlasFontIndices() const {
+    std::vector<int> out;
+    auto want = [&](const std::string& ref) {
+        const GameFont* gf = findFont(ref);  // "" / stale -> the default entry
+        if (!gf) return;
+        const int idx = (int)(gf - fonts.data());
+        for (int e : out)
+            if (e == idx) return;
+        out.push_back(idx);
+    };
+    for (const SceneData& sc : scenes)
+        for (const SceneObject& o : sc.objects)
+            for (const FlowNode& n : o.flowGraph.nodes)
+                if (n.type == "DisplayText") want(n.str);
+    std::sort(out.begin(), out.end());
+    return out;
 }
 
 namespace project {
@@ -146,12 +167,66 @@ static std::string flowGraphJson(const FlowGraph& fg) {
                 (l.kind == FlowLinkObject ? ", \"data\": true" : "") +
                 (l.kind == FlowLinkPos ? ", \"pos\": true" : "") +
                 (l.kind == FlowLinkBool ? ", \"bool\": true" : "") +
-                (l.kind == FlowLinkText ? ", \"text\": true" : "") + " }";
+                (l.kind == FlowLinkText ? ", \"text\": true" : "") +
+                (l.toPin ? ", \"pin\": " + std::to_string(l.toPin) : "") + " }";
     }
     return json + "] }";
 }
 
+// Public wrapper (project.hpp) - the whole file already sits in namespace
+// project, flowGraphJson above is the private serializer.
+std::string flowGraphToJson(const FlowGraph& fg) { return flowGraphJson(fg); }
+
+// Pre-Font-Manager projects stored a raw TTF path on every text and menu
+// ("res/fonts/x.ttf", "impact.ttf"). Those fields now name a Project::fonts
+// entry, so fold each distinct legacy path into one entry and rewrite the
+// references to its name. A value that is already a name is left alone.
+static void migrateFontRefs(Project& out) {
+    auto looksLikePath = [](const std::string& s) {
+        if (s.find('/') != std::string::npos || s.find('\\') != std::string::npos)
+            return true;
+        if (s.size() < 4) return false;
+        std::string ext = s.substr(s.size() - 4);
+        for (char& c : ext) c = (char)tolower((unsigned char)c);
+        return ext == ".ttf" || ext == ".otf";
+    };
+    auto entryFor = [&](const std::string& path) -> std::string {
+        for (const GameFont& f : out.fonts)
+            if (f.fontPath == path) return f.name;
+        std::string base = fs::path(path).stem().string();
+        if (base.empty()) base = "font";
+        std::string name = base;
+        for (int n = 2;; ++n) {
+            bool taken = false;
+            for (const GameFont& f : out.fonts) taken |= (f.name == name);
+            if (!taken) break;
+            name = base + "-" + std::to_string(n);
+        }
+        GameFont f;
+        f.name = name;
+        f.fontPath = path;
+        out.fonts.push_back(f);
+        return name;
+    };
+    auto fix = [&](std::string& ref) {
+        if (!ref.empty() && looksLikePath(ref)) ref = entryFor(ref);
+    };
+    for (HudText& t : out.hudTexts) fix(t.font);
+    for (LoadingScreenDef& ls : out.loadingScreens)
+        for (HudText& t : ls.texts) fix(t.font);
+    for (GameMenu& m : out.menus) fix(m.font);
+}
+
 static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
+    // Pre-merge graphs name a node per branch (ShowObject / HideObject / ...);
+    // those types are gone, so each one becomes its merged type and every exec
+    // link landing on it is retargeted to the branch's pin (flowLegacyNodes).
+    struct Retarget {
+        int nodeId;
+        int pin;
+    };
+    std::vector<Retarget> retargets;
+
     if (const auto* v = jg.find("nextId")) fg.nextId = (int)v->numberOr(1);
     if (const auto* nodes = jg.find("nodes");
         nodes && nodes->type == json::Value::Type::Array) {
@@ -170,6 +245,10 @@ static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
                 v && v->type == json::Value::Type::Array)
                 for (size_t i = 0; i < 4 && i < v->arr.size(); ++i)
                     n.num[i] = (float)v->arr[i].numberOr(0);
+            if (const FlowLegacyNode* m = flowLegacyNode(n.type)) {
+                n.type = m->to;
+                if (m->pin) retargets.push_back({n.id, m->pin});
+            }
             if (n.id > 0 && flowNodeType(n.type)) fg.nodes.push_back(n);
         }
     }
@@ -192,6 +271,10 @@ static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
             if (const auto* v = jl.find("text");
                 v && v->type == json::Value::Type::Bool && v->boolean)
                 l.kind = FlowLinkText;
+            if (const auto* v = jl.find("pin")) l.toPin = (int)v->numberOr(0);
+            if (l.kind == FlowLinkExec && !l.toPin)
+                for (const Retarget& r : retargets)
+                    if (r.nodeId == l.toNode) l.toPin = r.pin;
             if (l.id > 0) fg.links.push_back(l);
         }
     }
@@ -205,6 +288,12 @@ static std::string objectJson(const SceneObject& o) {
         ", \"rotation\": " + fmtVec3(o.rotation) + ", \"scale\": " + fmtVec3(o.scale) +
         ", \"color\": " + fmtVec3(o.color) +
         ", \"physics\": " + (o.physics ? "true" : "false") +
+        // the physics material block only where it means something
+        (o.physics ? ", \"physMass\": " + fmtFloat(o.physMass) +
+                         ", \"physBounce\": " + fmtFloat(o.physBounce) +
+                         ", \"physFriction\": " + fmtFloat(o.physFriction) +
+                         ", \"physTumble\": " + (o.physTumble ? "true" : "false")
+                   : "") +
         (o.usable ? ", \"usable\": true" : "") +
         (o.saveState ? ", \"saveState\": true" : "") +
         // collision: box is the default and stays implicit
@@ -310,12 +399,31 @@ static std::string objectJson(const SceneObject& o) {
             json += (i ? ", \"" : "\"") + o.mirrorObjects[i] + "\"";
         json += "] }";
     }
+    if (o.type == PrimitiveType::Portal) {
+        json += ", \"portal\": { \"target\": \"" + o.portalTarget +
+                "\", \"showTerrain\": " + (o.portalShowTerrain ? "true" : "false") +
+                ", \"teleportObjects\": " +
+                (o.portalTeleportObjects ? "true" : "false") +
+                ", \"viewAll\": " + (o.portalViewAll ? "true" : "false") +
+                ", \"objects\": [";
+        for (size_t i = 0; i < o.portalObjects.size(); ++i)
+            json += (i ? ", \"" : "\"") + o.portalObjects[i] + "\"";
+        json += "] }";
+    }
     if (o.type == PrimitiveType::Model && isAnimatedModelPath(o.modelPath)) {
         json += ", \"anim\": { \"clip\": \"" + o.animClip +
                 "\", \"autoplay\": " + (o.animAutoplay ? "true" : "false") +
                 ", \"loop\": " + (o.animLoop ? "true" : "false") +
                 ", \"speed\": " + fmtFloat(o.animSpeed) + " }";
     }
+    // Per-object LOD overrides (animated models + player avatars); omitted at
+    // the -1 default = "use the project preference".
+    if (o.animLodOverride >= 0.0f)
+        json += ", \"animLod\": " + fmtFloat(o.animLodOverride);
+    if (o.meshLodOverride >= 0.0f)
+        json += ", \"meshLod\": " + fmtFloat(o.meshLodOverride);
+    if (o.modelYawOffset != 0.0f)
+        json += ", \"modelYaw\": " + fmtFloat(o.modelYawOffset);
     if (!o.scripts.empty()) {
         json += ", \"scripts\": [";
         for (size_t i = 0; i < o.scripts.size(); ++i)
@@ -369,6 +477,37 @@ static void readLayersArray(const json::Value& arr, std::vector<SceneLayer>& lay
             if (l.streamRadius < 1.0f) l.streamRadius = 1.0f;
         }
         if (!l.name.empty()) layers.push_back(l);
+    }
+}
+
+// Paintable terrain layers (docs/terrain-painting.md). The per-texel splat
+// weights live in the terrain-<scene>.splat sidecar; only the layer list (a
+// name + .mtl material each) travels in the project / history JSON.
+static void writeTerrainLayersArray(std::ostream& json,
+                                    const std::vector<TerrainLayer>& layers) {
+    json << "[";
+    for (size_t i = 0; i < layers.size(); ++i) {
+        json << (i ? ", " : "") << "{ \"name\": \"" << layers[i].name
+             << "\", \"material\": \"" << layers[i].material << "\", \"scale\": "
+             << fmtFloat(layers[i].scale);
+        if (layers[i].stochastic) json << ", \"stochastic\": true";
+        json << " }";
+    }
+    json << "]";
+}
+
+static void readTerrainLayersArray(const json::Value& arr,
+                                   std::vector<TerrainLayer>& layers) {
+    layers.clear();
+    if (arr.type != json::Value::Type::Array) return;
+    for (const auto& jl : arr.arr) {
+        TerrainLayer l;
+        if (const auto* v = jl.find("name")) l.name = v->stringOr("Layer");
+        if (const auto* v = jl.find("material")) l.material = v->stringOr("");
+        if (const auto* v = jl.find("scale")) l.scale = (float)v->numberOr(1.0);
+        if (l.scale <= 0.0f) l.scale = 1.0f;
+        if (const auto* v = jl.find("stochastic")) l.stochastic = v->boolOr(false);
+        layers.push_back(l);
     }
 }
 
@@ -642,6 +781,12 @@ std::string save(const Project& p) {
          << ",\n"
          << "    \"meshLodDistance\": " << fmtFloat(p.settings.meshLodDistance)
          << ",\n"
+         << "    \"staticBatching\": "
+         << (p.settings.staticBatching ? "true" : "false") << ",\n"
+         << "    \"navCellSize\": " << fmtFloat(p.settings.navCellSize) << ",\n"
+         << "    \"navMaxSlope\": " << fmtFloat(p.settings.navMaxSlope) << ",\n"
+         << "    \"navAgentRadius\": " << fmtFloat(p.settings.navAgentRadius)
+         << ",\n"
          << "    \"terrainDetail\": " << p.settings.terrainDetail << ",\n"
          << "    \"terrainViewDistance\": " << fmtFloat(p.settings.terrainViewDistance)
          << ",\n"
@@ -658,6 +803,8 @@ std::string save(const Project& p) {
          << "    \"stickCurveR\": " << p.settings.stickCurveR << ",\n"
          << "    \"stickExpL\": " << fmtFloat(p.settings.stickExpL) << ",\n"
          << "    \"stickExpR\": " << fmtFloat(p.settings.stickExpR) << ",\n"
+         << "    \"multiplayer\": \"" << p.settings.multiplayer << "\",\n"
+         << "    \"p2JoinOnStart\": " << (p.settings.p2JoinOnStart ? "true" : "false") << ",\n"
          << "    \"orbitSpeed\": " << fmtFloat(p.settings.orbitSpeed) << ",\n"
          << "    \"gravity\": " << fmtFloat(p.settings.gravity) << ",\n"
          << "    \"jumpSpeed\": " << fmtFloat(p.settings.jumpSpeed) << ",\n"
@@ -702,6 +849,17 @@ std::string save(const Project& p) {
             json << ",\n      \"layers\": ";
             writeLayersArray(json, sc.layers);
         }
+        if (!sc.terrainLayers.empty()) {
+            json << ",\n      \"terrainLayers\": ";
+            writeTerrainLayersArray(json, sc.terrainLayers);
+        }
+        if (sc.terrainBaseStochastic)
+            json << ",\n      \"terrainBaseStochastic\": true";
+        if (sc.terrainTintVariation > 0.0f)
+            json << ",\n      \"terrainTintVariation\": "
+                 << fmtFloat(sc.terrainTintVariation)
+                 << ",\n      \"terrainTintScale\": "
+                 << fmtFloat(sc.terrainTintScale);
         // Ordered ids only - each object's body is a separate objects/<id>.json
         // file (written below). Order is significant (first Player / SpawnPoint
         // wins, draw order), so it is preserved by the list.
@@ -712,6 +870,16 @@ std::string save(const Project& p) {
         json << " }";
     }
     json << "\n  ]";
+    json << ",\n  \"fonts\": [";
+    for (size_t i = 0; i < p.fonts.size(); ++i) {
+        const GameFont& f = p.fonts[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << jsonEscape(f.name)
+             << "\", \"path\": \"" << jsonEscape(f.fontPath)
+             << "\", \"atlasSize\": " << f.atlasSize << ", \"color\": "
+             << fmtVec3(f.color) << ", \"shadow\": " << (f.shadow ? "true" : "false")
+             << ", \"quant\": \"" << f.quant << "\" }";
+    }
+    json << (p.fonts.empty() ? "]" : "\n  ]");
     json << ",\n  \"hud\": [";
     for (size_t i = 0; i < p.hud.size(); ++i) {
         const HudImage& h = p.hud[i];
@@ -736,7 +904,7 @@ std::string save(const Project& p) {
              << "\", \"text\": \"" << jsonEscape(t.text) << "\", \"pos\": ["
              << fmtFloat(t.pos[0]) << ", " << fmtFloat(t.pos[1]) << "], \"size\": "
              << t.size << ", \"color\": " << fmtVec3(t.color)
-             << (t.fontPath.empty() ? "" : ", \"font\": \"" + t.fontPath + "\"")
+             << (t.font.empty() ? "" : ", \"font\": \"" + jsonEscape(t.font) + "\"")
              << ", \"shadow\": " << (t.shadow ? "true" : "false")
              << ", \"visibleAtStart\": " << (t.visibleAtStart ? "true" : "false")
              << " }";
@@ -852,7 +1020,7 @@ std::string save(const Project& p) {
                  << jsonEscape(t.name) << "\", \"text\": \"" << jsonEscape(t.text)
                  << "\", \"pos\": [" << fmtFloat(t.pos[0]) << ", " << fmtFloat(t.pos[1])
                  << "], \"size\": " << t.size << ", \"color\": " << fmtVec3(t.color)
-                 << (t.fontPath.empty() ? "" : ", \"font\": \"" + t.fontPath + "\"")
+                 << (t.font.empty() ? "" : ", \"font\": \"" + jsonEscape(t.font) + "\"")
                  << ", \"shadow\": " << (t.shadow ? "true" : "false") << " }";
         }
         json << (ls.texts.empty() ? "]" : "\n      ]") << ",\n      \"bars\": [";
@@ -952,7 +1120,7 @@ std::string save(const Project& p) {
              << (m.pauseMenu ? ", \"pauseMenu\": true" : "")
              << (m.panelW != 256 ? ", \"panelW\": " + std::to_string(m.panelW) : "")
              << (m.showTitle ? "" : ", \"showTitle\": false")
-             << (m.fontPath.empty() ? "" : ", \"font\": \"" + m.fontPath + "\"")
+             << (m.font.empty() ? "" : ", \"font\": \"" + jsonEscape(m.font) + "\"")
              << (m.titleSize != 18 ? ", \"titleSize\": " + std::to_string(m.titleSize)
                                    : "")
              << (m.entrySize != 15 ? ", \"entrySize\": " + std::to_string(m.entrySize)
@@ -996,9 +1164,9 @@ std::string save(const Project& p) {
                 json << "]";
             }
             static const char* kMenuBinds[] = {
-                "",           "music-volume", "sfx-volume", "deadzone",
-                "stick-curve", "display-mode", "widescreen"};
-            if (en.settingBind >= 1 && en.settingBind <= 6)
+                "",           "music-volume", "sfx-volume",  "deadzone",
+                "stick-curve", "display-mode", "widescreen", "player-count"};
+            if (en.settingBind >= 1 && en.settingBind <= 7)
                 json << ", \"bind\": \"" << kMenuBinds[en.settingBind] << "\"";
             json << " }";
         }
@@ -1291,6 +1459,202 @@ void loadHeights(Project& p) {
     }
     ensureHeightmap(p);  // resample if the grid config changed meanwhile
 }
+
+// --- Terrain splatmap --------------------------------------------------------
+
+static void ensureSceneSplatmap(const Project& p, SceneData& s) {
+    const int n = (int)s.terrainLayers.size();
+    if (n == 0) {  // no layers -> the single-material terrain, no splat
+        s.splat.clear();
+        s.splatW = s.splatD = 0;
+        return;
+    }
+    // Per-VERTEX weights on the terrain render grid: the blend ships as
+    // Gouraud vertex alpha, so vertex resolution IS the blend resolution.
+    int vw = 0, vd = 0;
+    sceneGridDims(p, s, vw, vd);
+    if (s.splatW == vw && s.splatD == vd && (int)s.splat.size() == vw * vd * n)
+        return;  // already matches
+
+    // Resample the existing map (nearest) into the new grid/stride. Layers keep
+    // their index, so adding a layer at the end leaves a fresh empty column and
+    // a terrain-detail change preserves the painted shape (same policy as
+    // ensureSceneHeightmap). Mid-list add/remove is handled by the caller
+    // shifting the byte columns before this runs.
+    const int oldN =
+        (s.splatW > 0 && s.splatD > 0)
+            ? (int)(s.splat.size() / ((size_t)s.splatW * s.splatD))
+            : 0;
+    std::vector<uint8_t> next((size_t)vw * vd * n, 0);
+    if (oldN > 0 && (int)s.splat.size() == s.splatW * s.splatD * oldN) {
+        const int copyN = n < oldN ? n : oldN;
+        for (int z = 0; z < vd; ++z)
+            for (int x = 0; x < vw; ++x) {
+                const int sx = (int)((float)x / (vw - 1) * (s.splatW - 1) + 0.5f);
+                const int sz = (int)((float)z / (vd - 1) * (s.splatD - 1) + 0.5f);
+                const uint8_t* src =
+                    &s.splat[((size_t)sz * s.splatW + sx) * oldN];
+                uint8_t* dst = &next[((size_t)z * vw + x) * n];
+                for (int l = 0; l < copyN; ++l) dst[l] = src[l];
+            }
+    }
+    s.splat = std::move(next);
+    s.splatW = vw;
+    s.splatD = vd;
+}
+
+void ensureSplatmap(Project& p) {
+    for (SceneData& s : p.scenes) ensureSceneSplatmap(p, s);
+}
+
+void paintSplat(Project& p, int layer, float worldX, float worldZ, float radius,
+                float delta) {
+    SceneData& s = p.active();
+    const int n = (int)s.terrainLayers.size();
+    if (n == 0 || layer < 0 || layer >= n) return;
+    if (s.splatW < 1 || s.splatD < 1 ||
+        (int)s.splat.size() != s.splatW * s.splatD * n)
+        ensureSceneSplatmap(p, s);
+    if (s.splatW < 1 || radius <= 0.0f) return;
+
+    const float w = (float)s.terrain.width, d = (float)s.terrain.depth;
+    // Vertex positions on the render grid - the same lattice sculptHeightmap
+    // brushes, since the weights live on the terrain vertices.
+    const float stepX = w / (s.splatW - 1), stepZ = d / (s.splatD - 1);
+    const bool erase = delta < 0.0f;
+    const float mag = std::fabs(delta);
+
+    for (int z = 0; z < s.splatD; ++z) {
+        for (int x = 0; x < s.splatW; ++x) {
+            const float vx = -w * 0.5f + x * stepX;
+            const float vz = -d * 0.5f + z * stepZ;
+            const float dx = vx - worldX, dz = vz - worldZ;
+            const float dist = std::sqrt(dx * dx + dz * dz);
+            if (dist >= radius) continue;
+            const float t = dist / radius;
+            const float falloff = 0.5f + 0.5f * std::cos(t * 3.14159265f);
+            const float amt = mag * falloff * 255.0f;
+            uint8_t* cell = &s.splat[((size_t)z * s.splatW + x) * n];
+            auto clamp8 = [](float v) {
+                return (uint8_t)(v < 0.0f ? 0.0f : (v > 255.0f ? 255.0f : v));
+            };
+            if (erase) {
+                cell[layer] = clamp8(cell[layer] - amt);  // reveal what's below
+            } else {
+                cell[layer] = clamp8(cell[layer] + amt);
+                // Painting a layer pushes the OTHER extra layers back (and the
+                // base fills the remainder), so a stroke reads as "replace".
+                for (int l = 0; l < n; ++l)
+                    if (l != layer) cell[l] = clamp8(cell[l] - amt);
+            }
+        }
+    }
+}
+
+void addTerrainLayer(Project& p, const std::string& name,
+                     const std::string& material) {
+    SceneData& s = p.active();
+    TerrainLayer l;
+    l.name = name;
+    l.material = material;
+    s.terrainLayers.push_back(l);
+    ensureSceneSplatmap(p, s);  // grows the stride, new column zero-filled
+}
+
+void removeTerrainLayer(Project& p, int idx) {
+    SceneData& s = p.active();
+    const int n = (int)s.terrainLayers.size();
+    if (idx < 0 || idx >= n) return;
+    // Drop the layer's byte column from the interleaved splat before erasing it.
+    if (n > 1 && s.splatW > 0 && s.splatD > 0 &&
+        (int)s.splat.size() == s.splatW * s.splatD * n) {
+        std::vector<uint8_t> next((size_t)s.splatW * s.splatD * (n - 1));
+        const size_t texels = (size_t)s.splatW * s.splatD;
+        for (size_t t = 0; t < texels; ++t) {
+            const uint8_t* src = &s.splat[t * n];
+            uint8_t* dst = &next[t * (n - 1)];
+            int w = 0;
+            for (int l = 0; l < n; ++l)
+                if (l != idx) dst[w++] = src[l];
+        }
+        s.splat = std::move(next);
+    } else if (n == 1) {
+        s.splat.clear();
+        s.splatW = s.splatD = 0;
+    }
+    s.terrainLayers.erase(s.terrainLayers.begin() + idx);
+    ensureSceneSplatmap(p, s);
+}
+
+void moveTerrainLayer(Project& p, int idx, int dir) {
+    SceneData& s = p.active();
+    const int n = (int)s.terrainLayers.size();
+    const int j = idx + dir;
+    if (idx < 0 || idx >= n || j < 0 || j >= n) return;
+    std::swap(s.terrainLayers[idx], s.terrainLayers[j]);
+    if (s.splatW > 0 && s.splatD > 0 &&
+        (int)s.splat.size() == s.splatW * s.splatD * n) {
+        const size_t texels = (size_t)s.splatW * s.splatD;
+        for (size_t t = 0; t < texels; ++t) {
+            uint8_t* cell = &s.splat[t * n];
+            std::swap(cell[idx], cell[j]);
+        }
+    }
+}
+
+// One splat sidecar per scene: terrain-<scene>.splat. Binary (a 256x256 map is
+// far too big for the text format heights use): "TXSP", int32 w/h/layers,
+// then w*h*layers weight bytes (row-major, layer-interleaved).
+static fs::path splatPath(const Project& p, const SceneData& s) {
+    return fs::path(p.dir) / ("terrain-" + s.name + ".splat");
+}
+
+std::string saveSplat(const Project& p) {
+    for (const SceneData& s : p.scenes) {
+        const int n = (int)s.terrainLayers.size();
+        if (n == 0 || s.splat.empty()) {  // no layers -> drop any stale sidecar
+            std::error_code ec;
+            fs::remove(splatPath(p, s), ec);
+            continue;
+        }
+        std::string buf;
+        buf.reserve(16 + s.splat.size());
+        buf.append("TXSP", 4);
+        auto putI = [&](int32_t v) {
+            buf.append(reinterpret_cast<const char*>(&v), sizeof(v));
+        };
+        putI(s.splatW);
+        putI(s.splatD);
+        putI(n);
+        buf.append(reinterpret_cast<const char*>(s.splat.data()), s.splat.size());
+        if (auto err = writeFile(splatPath(p, s), buf); !err.empty()) return err;
+    }
+    return "";
+}
+
+void loadSplat(Project& p) {
+    for (SceneData& s : p.scenes) {
+        std::ifstream f(splatPath(p, s), std::ios::binary);
+        if (!f) continue;
+        char magic[4] = {0};
+        f.read(magic, 4);
+        if (std::string(magic, 4) != "TXSP") continue;
+        int32_t w = 0, h = 0, n = 0;
+        f.read(reinterpret_cast<char*>(&w), sizeof(w));
+        f.read(reinterpret_cast<char*>(&h), sizeof(h));
+        f.read(reinterpret_cast<char*>(&n), sizeof(n));
+        if (!f || w < 2 || h < 2 || w > 1024 || h > 1024 || n < 1 || n > 64)
+            continue;
+        std::vector<uint8_t> data((size_t)w * h * n);
+        f.read(reinterpret_cast<char*>(data.data()), (std::streamsize)data.size());
+        if (!f) continue;
+        s.splat = std::move(data);
+        s.splatW = w;
+        s.splatD = h;
+    }
+    ensureSplatmap(p);  // reconcile with the current layer count / resolution
+}
+
 static void readVec3(const json::Value* v, float* out) {
     if (!v || v->type != json::Value::Type::Array || v->arr.size() < 3) return;
     for (int i = 0; i < 3; ++i) out[i] = (float)v->arr[i].numberOr(out[i]);
@@ -1312,6 +1676,18 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         readVec3(jo.find("color"), o.color);
         if (const auto* v = jo.find("physics"))
             o.physics = v->type == json::Value::Type::Bool && v->boolean;
+        if (const auto* v = jo.find("physMass")) o.physMass = (float)v->numberOr(1.0);
+        if (o.physMass < 0.05f) o.physMass = 0.05f;
+        if (const auto* v = jo.find("physBounce"))
+            o.physBounce = (float)v->numberOr(0.35);
+        if (o.physBounce < 0.0f) o.physBounce = 0.0f;
+        if (o.physBounce > 1.0f) o.physBounce = 1.0f;
+        if (const auto* v = jo.find("physFriction"))
+            o.physFriction = (float)v->numberOr(0.5);
+        if (o.physFriction < 0.0f) o.physFriction = 0.0f;
+        if (o.physFriction > 1.0f) o.physFriction = 1.0f;
+        if (const auto* v = jo.find("physTumble"))
+            o.physTumble = !(v->type == json::Value::Type::Bool && !v->boolean);
         if (const auto* v = jo.find("usable"))
             o.usable = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = jo.find("saveState"))
@@ -1466,6 +1842,21 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                         o.mirrorObjects.push_back(s.str);
             }
         }
+        if (const auto* pt = jo.find("portal")) {
+            if (const auto* v = pt->find("target")) o.portalTarget = v->stringOr("");
+            if (const auto* v = pt->find("showTerrain"))
+                o.portalShowTerrain = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (const auto* v = pt->find("teleportObjects"))
+                o.portalTeleportObjects = v->boolOr(false);
+            if (const auto* v = pt->find("viewAll"))
+                o.portalViewAll = v->boolOr(false);
+            if (const auto* v = pt->find("objects");
+                v && v->type == json::Value::Type::Array) {
+                for (const auto& s : v->arr)
+                    if (s.type == json::Value::Type::String && !s.str.empty())
+                        o.portalObjects.push_back(s.str);
+            }
+        }
         if (const auto* an = jo.find("anim")) {
             if (const auto* v = an->find("clip")) o.animClip = v->stringOr("");
             if (const auto* v = an->find("autoplay"))
@@ -1475,6 +1866,17 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (const auto* v = an->find("speed")) o.animSpeed = (float)v->numberOr(1.0);
             if (o.animSpeed < 0.05f) o.animSpeed = 0.05f;
             if (o.animSpeed > 10.0f) o.animSpeed = 10.0f;
+        }
+        if (const auto* v = jo.find("animLod")) {
+            o.animLodOverride = (float)v->numberOr(-1.0);
+            if (o.animLodOverride < 0.0f) o.animLodOverride = -1.0f;
+        }
+        if (const auto* v = jo.find("meshLod")) {
+            o.meshLodOverride = (float)v->numberOr(-1.0);
+            if (o.meshLodOverride < 0.0f) o.meshLodOverride = -1.0f;
+        }
+        if (const auto* v = jo.find("modelYaw")) {
+            o.modelYawOffset = (float)v->numberOr(0.0);
         }
         if (const auto* sc = jo.find("scripts");
             sc && sc->type == json::Value::Type::Array) {
@@ -1564,8 +1966,10 @@ std::string load(Project& out, const std::string& projectDir) {
         }
         if (const auto* v = s->find("displayMode")) {
             const std::string dm = v->stringOr("interlaced");
-            st.displayMode =
-                (dm == "progressive" || dm == "1080i") ? dm : "interlaced";
+            st.displayMode = (dm == "progressive" || dm == "1080i" ||
+                              dm == "interlaced-field")
+                                 ? dm
+                                 : "interlaced";
         }
         if (const auto* v = s->find("widescreen"))
             st.widescreen = v->boolOr(false);
@@ -1602,6 +2006,21 @@ std::string load(Project& out, const std::string& projectDir) {
             st.meshLodDistance = (float)v->numberOr(0.0);
             if (st.meshLodDistance < 0.0f) st.meshLodDistance = 0.0f;
         }
+        if (const auto* v = s->find("staticBatching"))
+            st.staticBatching = v->boolOr(true);
+        if (const auto* v = s->find("navCellSize")) {
+            st.navCellSize = (float)v->numberOr(1.0);
+            if (st.navCellSize < 0.25f) st.navCellSize = 0.25f;
+        }
+        if (const auto* v = s->find("navMaxSlope")) {
+            st.navMaxSlope = (float)v->numberOr(40.0);
+            if (st.navMaxSlope < 1.0f) st.navMaxSlope = 1.0f;
+            if (st.navMaxSlope > 89.0f) st.navMaxSlope = 89.0f;
+        }
+        if (const auto* v = s->find("navAgentRadius")) {
+            st.navAgentRadius = (float)v->numberOr(0.4);
+            if (st.navAgentRadius < 0.0f) st.navAgentRadius = 0.0f;
+        }
         if (const auto* v = s->find("terrainDetail"))
             st.terrainDetail = (int)v->numberOr(32);
         if (st.terrainDetail < 4) st.terrainDetail = 4;
@@ -1636,6 +2055,11 @@ std::string load(Project& out, const std::string& projectDir) {
         if (st.stickCurveR < 0 || st.stickCurveR > 2) st.stickCurveR = 0;
         if (st.stickExpL < 1.0f) st.stickExpL = 1.0f;
         if (st.stickExpR < 1.0f) st.stickExpR = 1.0f;
+        if (const auto* v = s->find("multiplayer")) st.multiplayer = v->stringOr("off");
+        if (st.multiplayer != "off" && st.multiplayer != "shared" &&
+            st.multiplayer != "split")
+            st.multiplayer = "off";
+        if (const auto* v = s->find("p2JoinOnStart")) st.p2JoinOnStart = v->boolOr(true);
         if (const auto* v = s->find("orbitSpeed")) st.orbitSpeed = (float)v->numberOr(1.0);
         if (const auto* v = s->find("gravity")) st.gravity = (float)v->numberOr(9.8);
         if (const auto* v = s->find("jumpSpeed")) st.jumpSpeed = (float)v->numberOr(4.5);
@@ -1698,6 +2122,16 @@ std::string load(Project& out, const std::string& projectDir) {
                 SceneData sc;
                 if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
                 if (const auto* ls = js.find("layers")) readLayersArray(*ls, sc.layers);
+                if (const auto* tl = js.find("terrainLayers"))
+                    readTerrainLayersArray(*tl, sc.terrainLayers);
+                if (const auto* v = js.find("terrainBaseStochastic"))
+                    sc.terrainBaseStochastic = v->boolOr(false);
+                if (const auto* v = js.find("terrainTintVariation"))
+                    sc.terrainTintVariation = (float)v->numberOr(0.0);
+                if (const auto* v = js.find("terrainTintScale")) {
+                    sc.terrainTintScale = (float)v->numberOr(24.0);
+                    if (sc.terrainTintScale < 1.0f) sc.terrainTintScale = 1.0f;
+                }
                 if (const auto* objs = js.find("objects"))
                     readSceneObjects(out, *objs, sc.objects);
                 if (const auto* t = js.find("terrain")) {
@@ -1737,6 +2171,25 @@ std::string load(Project& out, const std::string& projectDir) {
     // project (loadHistory compares against out.scenes). Pre-id projects get
     // theirs here; they are written back on the next save.
     ensureObjectIds(out);
+
+    if (const auto* fonts = root.find("fonts");
+        fonts && fonts->type == json::Value::Type::Array && !fonts->arr.empty()) {
+        out.fonts.clear();
+        for (const auto& jf : fonts->arr) {
+            GameFont f;
+            if (const auto* v = jf.find("name")) f.name = v->stringOr("Default");
+            if (const auto* v = jf.find("path")) f.fontPath = v->stringOr("");
+            if (const auto* v = jf.find("atlasSize"))
+                f.atlasSize = (int)v->numberOr(16);
+            f.atlasSize = f.atlasSize < 8 ? 8 : f.atlasSize > 48 ? 48 : f.atlasSize;
+            if (const auto* v = jf.find("color");
+                v && v->type == json::Value::Type::Array && v->arr.size() >= 3)
+                for (int i = 0; i < 3; ++i) f.color[i] = (float)v->arr[i].numberOr(1);
+            if (const auto* v = jf.find("shadow")) f.shadow = v->boolOr(true);
+            if (const auto* v = jf.find("quant")) f.quant = v->stringOr("4bit");
+            out.fonts.push_back(f);
+        }
+    }
 
     if (const auto* hud = root.find("hud"); hud && hud->type == json::Value::Type::Array) {
         for (const auto& jh : hud->arr) {
@@ -1802,7 +2255,7 @@ std::string load(Project& out, const std::string& projectDir) {
             if (t.size < 8) t.size = 8;
             if (t.size > 48) t.size = 48;
             readVec3(jt.find("color"), t.color);
-            if (const auto* v = jt.find("font")) t.fontPath = v->stringOr("");
+            if (const auto* v = jt.find("font")) t.font = v->stringOr("");
             if (const auto* v = jt.find("shadow"))
                 t.shadow = !(v->type == json::Value::Type::Bool && !v->boolean);
             if (const auto* v = jt.find("visibleAtStart"))
@@ -2007,7 +2460,7 @@ std::string load(Project& out, const std::string& projectDir) {
                     if (t.size < 8) t.size = 8;
                     if (t.size > 48) t.size = 48;
                     readVec3(jt.find("color"), t.color);
-                    if (const auto* v = jt.find("font")) t.fontPath = v->stringOr("");
+                    if (const auto* v = jt.find("font")) t.font = v->stringOr("");
                     if (const auto* v = jt.find("shadow"))
                         t.shadow = !(v->type == json::Value::Type::Bool && !v->boolean);
                     if (!t.name.empty()) ls.texts.push_back(std::move(t));
@@ -2227,7 +2680,7 @@ std::string load(Project& out, const std::string& projectDir) {
             }
             if (const auto* v = jm.find("showTitle"))
                 m.showTitle = !(v->type == json::Value::Type::Bool && !v->boolean);
-            if (const auto* v = jm.find("font")) m.fontPath = v->stringOr("");
+            if (const auto* v = jm.find("font")) m.font = v->stringOr("");
             if (const auto* v = jm.find("titleSize"))
                 m.titleSize = (int)v->numberOr(18);
             if (m.titleSize < 10) m.titleSize = 10;
@@ -2313,6 +2766,7 @@ std::string load(Project& out, const std::string& projectDir) {
                             : b == "stick-curve" ? MenuEntry::BindStickCurve
                             : b == "display-mode" ? MenuEntry::BindDisplayMode
                             : b == "widescreen"  ? MenuEntry::BindWidescreen
+                            : b == "player-count" ? MenuEntry::BindPlayerCount
                                                  : MenuEntry::BindNone;
                     }
                     m.entries.push_back(std::move(en));
@@ -2324,6 +2778,7 @@ std::string load(Project& out, const std::string& projectDir) {
 
     loadHeights(out);
     ensureHeightmap(out);
+    loadSplat(out);  // reads <scene>.splat sidecars + reconciles with the layers
 
     // Legacy project-level flow graph (pre per-object graphs): adopt it into
     // the first object so old projects keep working. It is written back in
@@ -2382,6 +2837,11 @@ std::string load(Project& out, const std::string& projectDir) {
     if (out.activeLayout < 0 || out.activeLayout >= (int)out.windowLayouts.size())
         out.activeLayout = 0;
 
+    // Same contract as the layouts: fonts[0] is the fallback every empty font
+    // reference resolves to, so the list must never be empty.
+    if (out.fonts.empty()) out.fonts.push_back(GameFont{});
+    migrateFontRefs(out);
+
     return "";
 }
 
@@ -2408,6 +2868,16 @@ std::string saveHistory(const Project& p, const History& h) {
                 json << ", \"layers\": ";
                 writeLayersArray(json, sc.layers);
             }
+            if (!sc.terrainLayers.empty()) {
+                json << ", \"terrainLayers\": ";
+                writeTerrainLayersArray(json, sc.terrainLayers);
+            }
+            if (sc.terrainBaseStochastic)
+                json << ", \"terrainBaseStochastic\": true";
+            if (sc.terrainTintVariation > 0.0f)
+                json << ", \"terrainTintVariation\": "
+                     << fmtFloat(sc.terrainTintVariation)
+                     << ", \"terrainTintScale\": " << fmtFloat(sc.terrainTintScale);
             json << ", \"objects\": ";
             writeObjectsArray(json, sc.objects, "        ");
             json << " }";
@@ -2443,6 +2913,16 @@ std::string loadHistory(const Project& p, History& h) {
                 SceneData sc;
                 if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
                 if (const auto* ls = js.find("layers")) readLayersArray(*ls, sc.layers);
+                if (const auto* tl = js.find("terrainLayers"))
+                    readTerrainLayersArray(*tl, sc.terrainLayers);
+                if (const auto* v = js.find("terrainBaseStochastic"))
+                    sc.terrainBaseStochastic = v->boolOr(false);
+                if (const auto* v = js.find("terrainTintVariation"))
+                    sc.terrainTintVariation = (float)v->numberOr(0.0);
+                if (const auto* v = js.find("terrainTintScale")) {
+                    sc.terrainTintScale = (float)v->numberOr(24.0);
+                    if (sc.terrainTintScale < 1.0f) sc.terrainTintScale = 1.0f;
+                }
                 if (const auto* objs = js.find("objects"))
                     readObjectsArray(*objs, sc.objects);
                 if (const auto* t = js.find("terrain")) {
@@ -2561,10 +3041,17 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMixS(h, o.animClip);
     fnvMix(h, (o.animAutoplay ? 1 : 0) | (o.animLoop ? 2 : 0));
     fnvMixF(h, o.animSpeed);
+    fnvMixF(h, o.animLodOverride), fnvMixF(h, o.meshLodOverride);
+    fnvMixF(h, o.modelYawOffset);
     // Mirror parameters live in a baked side table (MIRRORS/MIRROR_TARGETS).
     for (const auto& n : o.mirrorObjects) fnvMixS(h, n);
     fnvMix(h, o.mirrorReflectPlayer ? 1 : 0);
     fnvMixF(h, o.mirrorOpacity);
+    // Portal parameters live in a baked side table (PORTALS/PORTAL_VIEW_OBJECTS).
+    fnvMixS(h, o.portalTarget);
+    for (const auto& n : o.portalObjects) fnvMixS(h, n);
+    fnvMix(h, (o.portalShowTerrain ? 1 : 0) | (o.portalTeleportObjects ? 2 : 0) |
+                  (o.portalViewAll ? 4 : 0));
     // Build-time-baked transforms: a projected decal's transform IS the
     // projector, a point light's pose/color/falloff is baked into nearby
     // vertex colors. Folding them into the recipe makes any live edit of
@@ -2590,6 +3077,7 @@ bool liveLinkCanSpawnLive(const SceneObject& o) {
     if (o.type == PrimitiveType::PointLight) return false;
     if (o.type == PrimitiveType::Decal && o.decalProject) return false;
     if (o.type == PrimitiveType::Mirror) return false;
+    if (o.type == PrimitiveType::Portal) return false;  // baked PORTALS side table
     if (!o.flowGraph.nodes.empty() || !o.scripts.empty()) return false;
     return true;
 }
@@ -2656,8 +3144,12 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "src\\scripts\\sequences.gen.cpp" ||
             f.relativePath == "inc\\model_data.gen.hpp" ||
             f.relativePath == "inc\\hud_data.gen.hpp" ||
+            f.relativePath == "inc\\font_data.gen.hpp" ||
             f.relativePath == "inc\\loading_data.gen.hpp" ||
             f.relativePath == "inc\\terrain_heights.gen.hpp" ||
+            f.relativePath == "inc\\nav_data.gen.hpp" ||
+            f.relativePath == "inc\\scripts\\navigation.gen.hpp" ||
+            f.relativePath == "src\\scripts\\navigation.gen.cpp" ||
             f.relativePath == "inc\\texture_data.gen.hpp" ||
             f.relativePath == "inc\\decal_data.gen.hpp" ||
             f.relativePath == "inc\\save_system.gen.hpp" ||
@@ -2764,7 +3256,7 @@ std::string refreshGenerated(const Project& p) {
     // ALWAYS rebaked - unlike the replaceable save-menu sprites above.
     for (const GameMenu& m : p.menus) {
         std::vector<unsigned char> png;
-        if (!menubake::bakePanelPNG(m, p.dir, png))
+        if (!menubake::bakePanelPNG(m, p, png))
             return "Menu bake failed (no usable TTF font found in Windows\\Fonts)";
         const fs::path path =
             fs::path(p.dir) / "res" / "menus" / menubake::panelFileName(m.name);
@@ -2777,7 +3269,7 @@ std::string refreshGenerated(const Project& p) {
         // Toggle/Choice value labels ride in a second per-menu strip texture.
         if (menubake::menuHasValueEntries(m)) {
             std::vector<unsigned char> strip;
-            if (!menubake::bakeValueStripPNG(m, p.dir, strip))
+            if (!menubake::bakeValueStripPNG(m, p, strip))
                 return "Menu value bake failed (no usable TTF font found)";
             const fs::path vpath = fs::path(p.dir) / "res" / "menus" /
                                    menubake::valueStripFileName(m.name);
@@ -2788,11 +3280,50 @@ std::string refreshGenerated(const Project& p) {
         }
     }
 
+    // Glyph atlases for the fonts a Display Text node draws with. Only those:
+    // a font used solely by static text never ships (its strings are already
+    // pixels). Always rebaked - the metrics in font_data.gen.hpp are computed
+    // from the same atlasLayout, and a stale sheet would misplace every glyph.
+    std::vector<std::string> wantedAtlases;
+    for (int fi : p.atlasFontIndices()) {
+        const GameFont& gf = p.fonts[fi];
+        std::vector<unsigned char> png;
+        if (!menubake::bakeAtlasPNG(gf, p, png))
+            return "Font atlas bake failed for \"" + gf.name +
+                   "\" (no usable TTF font found)";
+        const std::string fileName = menubake::atlasFileName(gf.name);
+        wantedAtlases.push_back(fileName);
+        const fs::path path = fs::path(p.dir) / "res" / "fonts" / fileName;
+        std::error_code ec;
+        fs::create_directories(path.parent_path(), ec);
+        std::ofstream f(path, std::ios::binary);
+        if (!f) return "Cannot write font atlas: " + path.string();
+        f.write(reinterpret_cast<const char*>(png.data()), (std::streamsize)png.size());
+    }
+    // Prune atlases we no longer generate (font renamed/deleted, or its last
+    // Display Text node removed). res/ ships, so a leftover sheet would be
+    // copied into the game and onto the ISO forever - the same reason save()
+    // prunes orphaned objects/<id>.json. Only ever touches our own atlas-*.png.
+    {
+        const fs::path fontsDir = fs::path(p.dir) / "res" / "fonts";
+        std::error_code ec;
+        if (fs::exists(fontsDir, ec)) {
+            for (const auto& e : fs::directory_iterator(fontsDir, ec)) {
+                if (!e.is_regular_file()) continue;
+                const std::string fn = e.path().filename().string();
+                if (fn.rfind("atlas-", 0) != 0) continue;
+                bool wanted = false;
+                for (const std::string& w : wantedAtlases) wanted |= (w == fn);
+                if (!wanted) fs::remove(e.path(), ec);
+            }
+        }
+    }
+
     // HUD texts: baked text sprites, always rebaked (derived from project
     // data like the menu panels).
     for (const HudText& t : p.hudTexts) {
         std::vector<unsigned char> png;
-        if (!menubake::bakeTextPNG(t, p.dir, png))
+        if (!menubake::bakeTextPNG(t, p, png))
             return "HUD text bake failed (no usable TTF font found)";
         const fs::path path =
             fs::path(p.dir) / "res" / "hud" / menubake::textFileName(t.name);
@@ -2811,7 +3342,7 @@ std::string refreshGenerated(const Project& p) {
             HudText copy = t;
             copy.name = "ls-" + std::to_string(si) + "-" + t.name;
             std::vector<unsigned char> png;
-            if (!menubake::bakeTextPNG(copy, p.dir, png))
+            if (!menubake::bakeTextPNG(copy, p, png))
                 return "Loading text bake failed (no usable TTF font found)";
             const fs::path path =
                 fs::path(p.dir) / "res" / "hud" / menubake::textFileName(copy.name);

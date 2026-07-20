@@ -1,0 +1,1 @@
+{ "id": "b799761606889755", "name": "b-wall-back", "type": "box", "position": [0, 1.5, 19], "rotation": [0, 0, 0], "scale": [12.5, 3, 0.5], "color": [0.6, 0.68, 0.78], "physics": false, "layer": "building-b" }
