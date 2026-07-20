@@ -520,6 +520,7 @@ void App::drawUI() {
     drawCutsceneWindow();
     drawMaterialEditorWindow();
     drawUiEditorWindow();
+    drawFontManagerWindow();
     drawLoadingScreenWindow();
     drawNewProjectModal();
     drawPreferencesModal();
@@ -724,6 +725,14 @@ void App::drawMenuBar() {
                 ImGui::SetTooltip("Preview the scene's distance fog in the editor. "
                                   "Turn off to see distant geometry - does not "
                                   "affect the generated game.");
+            if (ImGui::MenuItem("Nav mesh overlay", nullptr, showNavOverlay_,
+                                hasProject_))
+                showNavOverlay_ = !showNavOverlay_;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Show the baked navigation grid the AI flow nodes walk on "
+                    "(green = walkable). Tune it in Project > Preferences > "
+                    "AI navigation.");
 
             ImGui::Separator();
             ImGui::TextDisabled("TV safe frame");
@@ -816,6 +825,7 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
             if (ImGui::MenuItem("Cutscene Director...")) showCutsceneEditor_ = true;
             if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
+            if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
             if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
             ImGui::EndMenu();
         }
@@ -1130,6 +1140,45 @@ void App::updateProjectedDecals() {
     viewport_.setProjectedDecals(projectedDecals_, projectedDecalsVersion_);
 }
 
+void App::updateNavOverlay() {
+    // Nav-mesh preview (View > Nav Mesh Overlay). Signature of everything the
+    // bake depends on - blocking objects, terrain, the nav preferences - so
+    // navmesh::bake only reruns on actual edits (same trick as the projected
+    // decals). Pure host work; the game bakes its own copy at build time.
+    if (!showNavOverlay_) {
+        viewport_.setNavOverlay(nullptr, 0);
+        return;
+    }
+    const SceneData& sc = project_.active();
+    uint64_t sig = 1469598103934665603ull;  // FNV-1a seed
+    auto mix = [&](uint64_t v) { sig = (sig ^ v) * 1099511628211ull; };
+    auto mixf = [&](float f) {
+        uint32_t b;
+        std::memcpy(&b, &f, sizeof(b));
+        mix(b);
+    };
+    mixf(project_.settings.navCellSize);
+    mixf(project_.settings.navMaxSlope);
+    mixf(project_.settings.navAgentRadius);
+    mix((uint64_t)sc.terrain.width);
+    mix((uint64_t)sc.terrain.depth);
+    mix(sc.objects.size());
+    for (const SceneObject& o : sc.objects) {
+        mix((uint64_t)o.type);
+        mix((uint64_t)o.collisionMode);
+        for (int k = 0; k < 3; ++k) { mixf(o.position[k]); mixf(o.scale[k]); }
+        for (char c : o.modelPath) mix((uint8_t)c);
+    }
+    for (float h : sc.heights) mixf(h);
+
+    if (sig != navOverlaySig_) {
+        navOverlaySig_ = sig;
+        navGrid_ = navmesh::bake(project_, sc);
+        ++navOverlayVersion_;
+    }
+    viewport_.setNavOverlay(&navGrid_, navOverlayVersion_);
+}
+
 void App::drawViewportWindow() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     // NoNav: keep ImGui keyboard navigation out of the viewport. Otherwise the
@@ -1230,6 +1279,7 @@ void App::drawViewportWindow() {
             viewport_.setHiddenCameras(std::move(hideCams));
         }
         updateProjectedDecals();
+        updateNavOverlay();
         uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
                                         selection_, selectedObject_);
         // Flip vertically: GL texture origin is bottom-left
@@ -1992,6 +2042,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "cutscene") return &showCutsceneEditor_;
     if (key == "material") return &showMaterialEditor_;
     if (key == "ui") return &showUiEditor_;
+    if (key == "fonts") return &showFontManager_;
     if (key == "menus") return &showMenusEditor_;
     if (key == "grading") return &showGradingEditor_;
     if (key == "ambience") return &showAmbienceEditor_;
@@ -2003,8 +2054,9 @@ bool* App::showFlagForKey(const std::string& key) {
 // The optional windows a layout can carry, in a stable order (also the capture
 // order). Core windows (Viewport/Project/Properties/Flow Graph/Output/Debug)
 // are always drawn and never listed here.
-static const char* const kLayoutWindowKeys[] = {
-    "cutscene", "material", "ui", "menus", "grading", "ambience", "loading", "disc"};
+static const char* const kLayoutWindowKeys[] = {"cutscene", "material", "ui",      "fonts",
+                                              "menus",    "grading",  "ambience", "loading",
+                                              "disc"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -5399,7 +5451,7 @@ void App::drawFlowGraphWindow() {
                 }
                 ImGui::EndCombo();
             }
-        } else if (n.type == "PlayAnimation") {
+        } else if (n.type == "Animation") {
             // Clip picker when the resolved target is an animated .glb model
             // (explicit object wired/named, or self); free text otherwise.
             const int target = uiResolveTarget(n);
@@ -5434,10 +5486,22 @@ void App::drawFlowGraphWindow() {
                 ImGui::TextDisabled("Target is not an animated\n.glb - type the clip name.");
             }
         } else if (t->strKind == FlowParamKind::Text) {
+            // Patrol Waypoints repurposes the text param as the waypoint
+            // name prefix (the target NPC comes from the object link / self).
+            const bool patrol = n.type == "PatrolWaypoints";
             char buf[128];
             std::snprintf(buf, sizeof(buf), "%s", n.str.c_str());
-            if (ImGui::InputText("Text", buf, sizeof(buf))) n.str = buf;
+            if (ImGui::InputText(patrol ? "Prefix" : "Text", buf, sizeof(buf)))
+                n.str = buf;
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (patrol) {
+                int count = 0;
+                if (!n.str.empty())
+                    for (const SceneObject& o : project_.objects())
+                        if (o.name.rfind(n.str, 0) == 0) ++count;
+                ImGui::TextDisabled("Route: %s1, %s2, ...\n%d found in this scene",
+                                    n.str.c_str(), n.str.c_str(), count);
+            }
         } else if (t->strKind == FlowParamKind::MusicTrack) {
             const std::string current =
                 n.str.empty() ? "<none>"
@@ -5601,6 +5665,32 @@ void App::drawFlowGraphWindow() {
                     ImGui::TextDisabled("Add texts in\nTools > UI Editor (Texts).");
                 ImGui::EndCombo();
             }
+        } else if (t->strKind == FlowParamKind::FontName) {
+            // Empty = the project's first font (project::defaultFontName), so a
+            // fresh Display Text node draws without picking anything.
+            const std::string cur =
+                n.str.empty() ? project_.defaultFontName() : n.str;
+            if (ImGui::BeginCombo("Font", cur.c_str())) {
+                for (const GameFont& gf : project_.fonts) {
+                    if (ImGui::Selectable(gf.name.c_str(), gf.name == cur)) {
+                        n.str = gf.name;
+                        changed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Fonts are managed in Tools > Font Manager.\nColor and drop "
+                    "shadow come from the font entry.");
+            // str2 = a static prefix in front of the wired text ("Score: " +
+            // a Get Save Value), the way Log Message reads.
+            char pbuf[64];
+            std::snprintf(pbuf, sizeof(pbuf), "%s", n.str2.c_str());
+            if (ImGui::InputText("Prefix", pbuf, sizeof(pbuf))) n.str2 = pbuf;
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
         } else if (t->strKind == FlowParamKind::VarName) {
             char buf[64];
             std::snprintf(buf, sizeof(buf), "%s", n.str.c_str());
@@ -5708,12 +5798,25 @@ void App::drawFlowGraphWindow() {
                 ImGui::DragFloat("Exponent", &n.num[2], 0.05f, 1.0f, 6.0f, "%.2f");
                 changed |= ImGui::IsItemDeactivatedAfterEdit();
             }
+        } else if (n.type == "DisplayText") {
+            // X/Y are a normalized screen position (center anchor), so they need
+            // a much finer step than the generic 0.1 drag.
+            ImGui::DragFloat2("Pos##dyntext", n.num, 0.005f, 0.0f, 1.0f, "%.3f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Size", &n.num[2], 0.2f, 8.0f, 48.0f, "%.0f px");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Seconds", &n.num[3], 0.05f, 0.0f, 60.0f, "%.2f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("0 = stays until the hide pin fires.");
         } else if (t->numKind == FlowParamKind::Color) {
             ImGui::ColorEdit3("Color", n.num, ImGuiColorEditFlags_NoInputs);
             changed |= ImGui::IsItemDeactivatedAfterEdit();
         } else {
             for (int a = firstNum; a < t->numCount; ++a) {
-                const bool isLoop = std::strcmp(t->numLabels[a], "Loop") == 0;
+                const bool isLoop = std::strcmp(t->numLabels[a], "Loop") == 0 ||
+                                    std::strcmp(t->numLabels[a], "Once") == 0 ||
+                                    std::strcmp(t->numLabels[a], "LOS") == 0;
                 const bool isVolume = std::strcmp(t->numLabels[a], "Volume") == 0;
                 const bool isChannel = std::strcmp(t->numLabels[a], "Channel") == 0;
                 if (isChannel) {
@@ -5724,7 +5827,7 @@ void App::drawFlowGraphWindow() {
                     changed |= ImGui::IsItemDeactivatedAfterEdit();
                 } else if (isLoop) {
                     bool loop = n.num[a] != 0.0f;
-                    if (ImGui::Checkbox("Loop", &loop)) {
+                    if (ImGui::Checkbox(t->numLabels[a], &loop)) {
                         n.num[a] = loop ? 1.0f : 0.0f;
                         changed = true;
                     }
@@ -5742,6 +5845,15 @@ void App::drawFlowGraphWindow() {
             ImGui::TextDisabled("Checked every frame - wire the\nbool into On Condition or a gate.");
         if (n.type == "Raycast")
             ImGui::TextDisabled("Casts from the player's eye along\nthe view direction on exec.");
+        if (n.type == "ChasePlayer" || n.type == "FleePlayer" ||
+            n.type == "PatrolWaypoints")
+            ImGui::TextDisabled(
+                "Walks the baked nav grid.\nOne AI state per object -\na new "
+                "command replaces it.");
+        if (n.type == "OnPlayerSeen")
+            ImGui::TextDisabled(
+                "Vision cone from the NPC's\nfacing; LOS: hills block\nsight. "
+                "Bool = seen now.");
         ImGui::PopItemWidth();
         ImGui::PopID();
 
@@ -5788,9 +5900,14 @@ void App::drawFlowGraphWindow() {
                 rightLabel("then", false);
                 ImNodes::EndOutputAttribute();
             } else {
-                ImNodes::BeginInputAttribute(flowInPin(n.id));
-                ImGui::TextUnformatted("> do");
-                ImNodes::EndInputAttribute();
+                // One pin per exec input: a plain action draws the lone
+                // "> do", a merged one a labeled pin per branch (show/hide).
+                const int execIns = t->execInCount < 1 ? 1 : t->execInCount;
+                for (int e = 0; e < execIns; ++e) {
+                    ImNodes::BeginInputAttribute(flowExecInPin(n.id, e));
+                    ImGui::Text("> %s", flowExecInLabel(*t, e));
+                    ImNodes::EndInputAttribute();
+                }
                 if (t->execThrough) {
                     // action that fires its own exec pulse later (Delay)
                     ImNodes::BeginOutputAttribute(flowOutPin(n.id));
@@ -5854,7 +5971,8 @@ void App::drawFlowGraphWindow() {
             ImNodes::Link(l.id, flowTextOutPin(l.fromNode), flowTextInPin(l.toNode));
             ImNodes::PopColorStyle();
         } else {
-            ImNodes::Link(l.id, flowOutPin(l.fromNode), flowInPin(l.toNode));
+            ImNodes::Link(l.id, flowOutPin(l.fromNode),
+                          flowExecInPin(l.toNode, l.toPin));
         }
     }
 
@@ -5924,15 +6042,18 @@ void App::drawFlowGraphWindow() {
     // New link dragged between pins. Pin kinds by id (pin % 16): 0 = object
     // in, 1 = exec out, 2 = exec in, 3 = object out, 4 = position in,
     // 5 = position out, 6 = bool in, 7 = bool out, 8 = text in,
-    // 9 = text out; node = pin / 16.
+    // 9 = text out, 10..15 = the node's 2nd..7th exec in; node = pin / 16.
     int startPin = 0, endPin = 0;
     if (ImNodes::IsLinkCreated(&startPin, &endPin)) {
         const int a = startPin % 16, b = endPin % 16;
         int outPin = -1, inPin = -1;
         int kind = FlowLinkExec;
-        if ((a == 1 && b == 2) || (a == 2 && b == 1)) {
+        int toPin = 0;  // which exec input of the target the link fires
+        const int aExec = flowExecInIndex(a), bExec = flowExecInIndex(b);
+        if ((a == 1 && bExec >= 0) || (aExec >= 0 && b == 1)) {
             outPin = a == 1 ? startPin : endPin;
-            inPin = a == 2 ? startPin : endPin;
+            inPin = a == 1 ? endPin : startPin;
+            toPin = a == 1 ? bExec : aExec;
         } else if ((a == 3 && b == 0) || (a == 0 && b == 3)) {
             outPin = a == 3 ? startPin : endPin;
             inPin = a == 0 ? startPin : endPin;
@@ -5955,6 +6076,7 @@ void App::drawFlowGraphWindow() {
             l.fromNode = outPin / 16;
             l.toNode = inPin / 16;
             l.kind = kind;
+            l.toPin = toPin;
             if (kind == FlowLinkObject || kind == FlowLinkPos) {
                 // a node takes its object/position from at most one link
                 // (bool-in and text-in pins fold over several links - keep them)
@@ -5962,10 +6084,12 @@ void App::drawFlowGraphWindow() {
                     if (fg.links[i].kind == kind && fg.links[i].toNode == l.toNode)
                         fg.links.erase(fg.links.begin() + i);
             }
+            // toPin is part of the identity: the same trigger may drive two
+            // different branches of one merged node.
             bool duplicate = false;
             for (const FlowLink& e : fg.links)
                 duplicate |= (e.kind == l.kind && e.fromNode == l.fromNode &&
-                              e.toNode == l.toNode);
+                              e.toNode == l.toNode && e.toPin == l.toPin);
             if (!duplicate) {
                 l.id = fg.nextId++;
                 fg.links.push_back(l);
@@ -6091,7 +6215,12 @@ void App::drawFlowGraphWindow() {
                     if (std::string(t.key) == "EverySeconds") n.num[0] = 1.0f;
                     if (std::string(t.key) == "Delay") n.num[0] = 1.0f;  // seconds
                     if (std::string(t.key) == "MoveObjectTo") n.num[3] = 2.0f;  // speed
-                    if (std::string(t.key) == "PlayAnimation") n.num[1] = 1.0f;  // speed
+                    if (std::string(t.key) == "Animation") n.num[1] = 1.0f;  // speed
+                    if (std::string(t.key) == "DisplayText") {
+                        n.num[0] = 0.5f;   // centered
+                        n.num[1] = 0.85f;  // near the bottom, like a subtitle
+                        n.num[2] = 16.0f;  // size in px
+                    }
                     if (std::string(t.key) == "PlayMusic") {
                         n.num[0] = 80.0f;  // volume
                         n.num[1] = 1.0f;   // loop
@@ -6275,7 +6404,12 @@ const App::HudTexture* App::builtinUseTexture() {
 // A HUD text as a GL texture for the viewport overlay, re-baked when its
 // content changes (keyed by name; a handful of small textures at most).
 const App::HudTexture* App::hudTextTexture(const HudText& t) {
-    const std::string key = t.text + "\x1f" + t.fontPath + "\x1f" +
+    // The font reference alone is not enough: re-pointing that entry at another
+    // TTF changes the bake without touching the text, so the source path is
+    // part of the key too.
+    const GameFont* gf = project_.findFont(t.font);
+    const std::string key = t.text + "\x1f" + t.font + "\x1f" +
+                            (gf ? gf->fontPath : std::string()) + "\x1f" +
                             std::to_string(t.size) + "\x1f" +
                             std::to_string(t.shadow) + "\x1f" +
                             std::to_string(t.color[0]) + "," +
@@ -6285,7 +6419,7 @@ const App::HudTexture* App::hudTextTexture(const HudText& t) {
     if (entry.tex && entry.key == key) return &entry.hud;
     std::vector<unsigned char> rgba;
     int w = 0, h = 0;
-    if (!menubake::bakeTextRGBA(t, project_.dir, rgba, w, h)) return nullptr;
+    if (!menubake::bakeTextRGBA(t, project_, rgba, w, h)) return nullptr;
     if (!entry.tex) glGenTextures(1, &entry.tex);
     glBindTexture(GL_TEXTURE_2D, entry.tex);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE,
@@ -6300,13 +6434,13 @@ const App::HudTexture* App::hudTextTexture(const HudText& t) {
 // Shared TTF picker combo (menus, HUD texts): default chain / fonts imported
 // into the project (res/fonts) / a curated set of stock Windows fonts
 // (existence-checked) / import a new TTF. Returns true when fontPath changed.
-bool App::fontCombo(std::string& fontPath) {
+bool App::fontSourceCombo(std::string& fontPath) {
     bool changed = false;
     std::string current = "Default (Consolas Bold)";
     if (!fontPath.empty())
         current = std::filesystem::path(fontPath).filename().string();
-    ImGui::SetNextItemWidth(200.0f);
-    if (ImGui::BeginCombo("Font", current.c_str())) {
+    ImGui::SetNextItemWidth(scaled(200.0f));
+    if (ImGui::BeginCombo("Source", current.c_str())) {
         if (ImGui::Selectable("Default (Consolas Bold)", fontPath.empty())) {
             fontPath.clear();
             changed = true;
@@ -6380,10 +6514,266 @@ bool App::fontCombo(std::string& fontPath) {
     ImGui::SameLine();
     ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Rasterized at build time - any TTF works, nothing\n"
-                          "ships to the PS2 but pixels. Project fonts\n"
-                          "(res/fonts) travel with the project; Windows fonts\n"
-                          "depend on this machine.");
+        ImGui::SetTooltip("Fonts imported into the project (res/fonts) travel\n"
+                          "with it; Windows fonts depend on this machine.\n"
+                          "Only the rasterized pixels ever reach the PS2 -\n"
+                          "the TTF itself never ships.");
+    return changed;
+}
+
+std::string App::ensureFontForPath(const std::string& relPath) {
+    for (const GameFont& f : project_.fonts)
+        if (f.fontPath == relPath) return f.name;
+    std::string base = std::filesystem::path(relPath).stem().string();
+    if (base.empty()) base = "font";
+    std::string name = base;
+    for (int n = 2;; ++n) {
+        bool taken = false;
+        for (const GameFont& f : project_.fonts) taken |= (f.name == name);
+        if (!taken) break;
+        name = base + "-" + std::to_string(n);
+    }
+    GameFont f;
+    f.name = name;
+    f.fontPath = relPath;
+    project_.fonts.push_back(f);
+    return name;
+}
+
+void App::renameFont(int index, const std::string& newName) {
+    if (index < 0 || index >= (int)project_.fonts.size()) return;
+    const std::string oldName = project_.fonts[index].name;
+    if (newName == oldName) return;
+    project_.fonts[index].name = newName;
+
+    // References store the name, so follow it everywhere. An empty reference
+    // means "the default entry" and must stay empty - rewriting it would pin
+    // the text to a name and break that fallback.
+    auto follow = [&](std::string& ref) {
+        if (ref == oldName) ref = newName;
+    };
+    for (HudText& t : project_.hudTexts) follow(t.font);
+    for (LoadingScreenDef& ls : project_.loadingScreens)
+        for (HudText& t : ls.texts) follow(t.font);
+    for (GameMenu& m : project_.menus) follow(m.font);
+    for (SceneData& sc : project_.scenes)
+        for (SceneObject& o : sc.objects)
+            for (FlowNode& fn : o.flowGraph.nodes) {
+                const FlowNodeType* ft = flowNodeType(fn.type);
+                if (ft && ft->strKind == FlowParamKind::FontName) follow(fn.str);
+            }
+}
+
+// Tools > Font Manager: the project's typefaces. Every text (HUD texts, menus,
+// loading screens, Display Text nodes) names one of these, so restyling a
+// project is an edit here rather than a hunt through every text.
+//
+// fonts[0] is the fallback for unset references, which is why the last entry
+// can never be deleted.
+void App::drawFontManagerWindow() {
+    if (!showFontManager_ || !hasProject_) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(600.0f), scaled(440.0f)),
+                             ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Font Manager", &showFontManager_)) {
+        ImGui::End();
+        return;
+    }
+    if (project_.fonts.empty()) project_.fonts.push_back(GameFont{});
+    if (fontSel_ < 0 || fontSel_ >= (int)project_.fonts.size()) fontSel_ = 0;
+
+    bool changed = false;
+
+    ImGui::BeginChild("fontlist", ImVec2(scaled(170.0f), 0), true);
+    for (size_t i = 0; i < project_.fonts.size(); ++i) {
+        ImGui::PushID((int)i);
+        std::string label = project_.fonts[i].name;
+        if (i == 0) label += "  [default]";
+        if (ImGui::Selectable(label.c_str(), fontSel_ == (int)i))
+            fontSel_ = (int)i;
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
+
+    ImGui::BeginGroup();
+    GameFont& f = project_.fonts[fontSel_];
+    {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%s", f.name.c_str());
+        ImGui::SetNextItemWidth(scaled(200.0f));
+        if (ImGui::InputText("Name", buf, sizeof(buf))) {
+            std::string want = buf;
+            // Names are the reference key, so they must stay unique and
+            // non-empty; a clash would silently redirect other texts here.
+            bool clash = want.empty();
+            for (size_t i = 0; i < project_.fonts.size(); ++i)
+                if ((int)i != fontSel_ && project_.fonts[i].name == want)
+                    clash = true;
+            if (!clash) renameFont(fontSel_, want);
+        }
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+    }
+    changed |= fontSourceCombo(f.fontPath);
+    if (ImGui::ColorEdit3("Color##font", f.color, ImGuiColorEditFlags_NoInputs))
+        changed = true;
+    ImGui::SameLine();
+    ImGui::TextDisabled("(Display Text only)");
+    if (ImGui::Checkbox("Drop shadow##font", &f.shadow)) changed = true;
+    ImGui::SameLine();
+    ImGui::TextDisabled("(Display Text only)");
+
+    // Everything below only matters to a font a Display Text node draws with -
+    // static text never touches the atlas.
+    const std::vector<int> atlasFonts = project_.atlasFontIndices();
+    const bool usedDynamically =
+        std::find(atlasFonts.begin(), atlasFonts.end(), fontSel_) !=
+        atlasFonts.end();
+
+    ImGui::SeparatorText("Glyph atlas");
+    if (!usedDynamically) {
+        ImGui::TextDisabled(
+            "No Display Text node uses this font, so no atlas is\n"
+            "baked and nothing ships to the PS2. Static texts\n"
+            "rasterize straight from the TTF at build.");
+    }
+    ImGui::SetNextItemWidth(scaled(120.0f));
+    if (ImGui::DragInt("Atlas size", &f.atlasSize, 0.2f, 8, 48, "%d px"))
+        f.atlasSize = f.atlasSize < 8 ? 8 : f.atlasSize > 48 ? 48 : f.atlasSize;
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Height the glyphs are rasterized at. Display Text\n"
+                          "scales from this, so it trades sharpness against\n"
+                          "VRAM - not the on-screen size.");
+    {
+        const char* kQuant[] = {"4bit", "8bit", "none"};
+        int qi = f.quant == "8bit" ? 1 : f.quant == "none" ? 2 : 0;
+        ImGui::SetNextItemWidth(scaled(120.0f));
+        if (ImGui::Combo("Atlas colors", &qi, kQuant, 3)) {
+            f.quant = kQuant[qi];
+            changed = true;
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Palette depth of the baked atlas. Glyphs bake white and\n"
+                "are tinted at runtime, so 16 colors is normally plenty -\n"
+                "and roughly 8x cheaper in VRAM than full color.");
+    }
+
+    // Atlas footprint: the PS2 has ~1.33 MB of texture VRAM once the frame and
+    // z buffers are placed, and a resident atlas never leaves it, so show the
+    // real cost rather than let it surprise someone on hardware.
+    //
+    // Cached on the bake-affecting fields: atlasLayout measures all 95 glyphs
+    // (stbtt box per codepoint), which is not something to redo every frame
+    // just to print one line.
+    {
+        const std::string key = f.fontPath + "\x1f" + std::to_string(f.atlasSize) +
+                                "\x1f" + f.quant;
+        if (key != fontAtlasKey_) {
+            fontAtlasKey_ = key;
+            fontAtlasInfo_.clear();
+            menubake::AtlasLayout lay;
+            if (menubake::atlasLayout(f, project_, lay)) {
+                const int bpp = f.quant == "none" ? 32 : f.quant == "8bit" ? 8 : 4;
+                // +8 KB per allocation (the engine's alignment tax), +CLUT for
+                // the palettized modes.
+                const int kb = (lay.texW * lay.texH * bpp / 8 + 8192 +
+                                (bpp == 32 ? 0 : 8192)) /
+                               1024;
+                char buf[128];
+                std::snprintf(buf, sizeof(buf),
+                              "Atlas: %dx%d, ~%d KB VRAM while shown", lay.texW,
+                              lay.texH, kb);
+                fontAtlasInfo_ = buf;
+                fontAtlasClipped_ = lay.clipped;
+            } else {
+                fontAtlasClipped_ = false;
+            }
+        }
+        if (fontAtlasInfo_.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                               "No usable TTF found for this font.");
+        } else {
+            ImGui::TextUnformatted(fontAtlasInfo_.c_str());
+            if (fontAtlasClipped_)
+                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f),
+                                   "Glyphs past the 512px cap were dropped -\n"
+                                   "lower the atlas size.");
+        }
+    }
+    // Live preview: the exact rasterizer the build uses, so what is on screen
+    // here is what the game gets.
+    {
+        HudText sample;
+        sample.name = "##fontpreview";
+        sample.text = "Sample 0123 gjpq";
+        sample.font = f.name;
+        sample.size = f.atlasSize;
+        sample.shadow = f.shadow;
+        for (int i = 0; i < 3; ++i) sample.color[i] = f.color[i];
+        if (const HudTexture* tex = hudTextTexture(sample))
+            ImGui::Image((ImTextureID)(intptr_t)tex->tex,
+                         ImVec2(scaled((float)tex->w), scaled((float)tex->h)));
+    }
+
+    ImGui::Separator();
+    if (ImGui::Button("+ Add font")) {
+        GameFont nf;
+        std::string base = "font";
+        std::string name = base;
+        for (int n = 2;; ++n) {
+            bool taken = false;
+            for (const GameFont& e : project_.fonts) taken |= (e.name == name);
+            if (!taken) break;
+            name = base + "-" + std::to_string(n);
+        }
+        nf.name = name;
+        project_.fonts.push_back(nf);
+        fontSel_ = (int)project_.fonts.size() - 1;
+        changed = true;
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(project_.fonts.size() <= 1);
+    if (ImGui::Button("Delete font")) {
+        // Texts naming it fall back to the default entry (Project::findFont),
+        // so deleting never breaks a bake.
+        project_.fonts.erase(project_.fonts.begin() + fontSel_);
+        if (fontSel_ >= (int)project_.fonts.size())
+            fontSel_ = (int)project_.fonts.size() - 1;
+        changed = true;
+    }
+    ImGui::EndDisabled();
+    if (project_.fonts.size() <= 1 && ImGui::IsItemHovered())
+        ImGui::SetTooltip("The default font cannot be deleted - it is what\n"
+                          "every unset font reference resolves to.");
+    ImGui::EndGroup();
+
+    if (changed) commitChange();
+    ImGui::End();
+}
+
+// Picks one of the project's Font Manager entries by name. An empty reference
+// means the default entry, so this shows fonts[0] rather than a blank.
+bool App::fontCombo(std::string& fontRef) {
+    bool changed = false;
+    const std::string current =
+        fontRef.empty() ? project_.defaultFontName() : fontRef;
+    ImGui::SetNextItemWidth(scaled(200.0f));
+    if (ImGui::BeginCombo("Font", current.c_str())) {
+        for (const GameFont& gf : project_.fonts) {
+            if (ImGui::Selectable(gf.name.c_str(), gf.name == current)) {
+                fontRef = gf.name;
+                changed = true;
+            }
+        }
+        ImGui::Separator();
+        if (ImGui::Selectable("Manage fonts...")) showFontManager_ = true;
+        ImGui::EndCombo();
+    }
     return changed;
 }
 
@@ -6971,7 +7361,7 @@ void App::drawUiEditorWindow() {
                 t.text = textBuf;
             changed |= ImGui::IsItemDeactivatedAfterEdit();
         }
-        changed |= fontCombo(t.fontPath);
+        changed |= fontCombo(t.font);
         ImGui::SetNextItemWidth(120.0f);
         if (ImGui::DragInt("Font size", &t.size, 0.2f, 8, 48, "%d px"))
             t.size = t.size < 8 ? 8 : t.size > 48 ? 48 : t.size;
@@ -6985,12 +7375,14 @@ void App::drawUiEditorWindow() {
         if (ImGui::Checkbox("Visible at game start", &t.visibleAtStart))
             changed = true;
         ImGui::TextDisabled(
-            "Show/hide from the flow graph: HUD > Show Text (with an\n"
-            "optional auto-hide after N seconds) and Hide Text.");
+            "Show/hide from the flow graph: HUD > Set Text Visible\n"
+            "(the show pin takes an optional auto-hide after N\n"
+            "seconds). This string is baked at build - for one that\n"
+            "changes while the game runs, use a Display Text node.");
 
         // Live preview: the exact sprite the build will bake.
         {
-            std::string key = t.name + "\x1f" + t.text + "\x1f" + t.fontPath +
+            std::string key = t.name + "\x1f" + t.text + "\x1f" + t.font +
                               "\x1f" + std::to_string(t.size) + "\x1f" +
                               std::to_string(t.shadow) + "\x1f" +
                               std::to_string(t.color[0]) + "," +
@@ -6999,7 +7391,7 @@ void App::drawUiEditorWindow() {
             if (key != textPreviewKey_) {
                 std::vector<unsigned char> rgba;
                 int w = 0, h = 0;
-                if (menubake::bakeTextRGBA(t, project_.dir, rgba, w, h)) {
+                if (menubake::bakeTextRGBA(t, project_, rgba, w, h)) {
                     if (!textPreviewTex_) glGenTextures(1, &textPreviewTex_);
                     glBindTexture(GL_TEXTURE_2D, textPreviewTex_);
                     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA,
@@ -7595,7 +7987,7 @@ void App::drawLoadingScreenWindow() {
                 t.text = textBuf;
             changed |= ImGui::IsItemDeactivatedAfterEdit();
         }
-        changed |= fontCombo(t.fontPath);
+        changed |= fontCombo(t.font);
         ImGui::SetNextItemWidth(scaled(120));
         if (ImGui::DragInt("Font size##lstext", &t.size, 0.2f, 8, 48, "%d px"))
             t.size = t.size < 8 ? 8 : t.size > 48 ? 48 : t.size;
@@ -8214,10 +8606,8 @@ void App::handleFileDrop(int count, const char** paths) {
         }
         if (isFont) {
             ++fonts;
-            if (menuTarget) {
-                project_.menus[selectedMenu_].fontPath =
-                    "res/fonts/" + fileName;
-            }
+            const std::string ref = ensureFontForPath("res/fonts/" + fileName);
+            if (menuTarget) project_.menus[selectedMenu_].font = ref;
             continue;
         }
         ++copied;
@@ -12041,7 +12431,7 @@ void App::drawMenusWindow() {
 
     // Font: default chain / fonts imported into the project / a curated set
     // of stock Windows fonts (existence-checked) / import a new TTF.
-    changed |= fontCombo(m.fontPath);
+    changed |= fontCombo(m.font);
     {
         int sizes[2] = {m.titleSize, m.entrySize};
         ImGui::SetNextItemWidth(scaled(140.0f));
@@ -12363,7 +12753,7 @@ void App::drawMenusWindow() {
     {
         std::string key = m.name + "\x1f" + m.title + "\x1f" +
                           std::to_string(m.panelW) + "\x1f" +
-                          std::to_string(m.showTitle) + "\x1f" + m.fontPath +
+                          std::to_string(m.showTitle) + "\x1f" + m.font +
                           "\x1f" + std::to_string(m.titleSize) + "|" +
                           std::to_string(m.entrySize) + "\x1f" +
                           std::to_string(m.accent[0]) + "," +
@@ -12385,7 +12775,7 @@ void App::drawMenusWindow() {
         if (key != menuPreviewKey_) {
             std::vector<unsigned char> rgba;
             int w = 0, h = 0;
-            if (menubake::bakePanelRGBA(m, project_.dir, rgba, w, h)) {
+            if (menubake::bakePanelRGBA(m, project_, rgba, w, h)) {
                 // Composite each Toggle/Choice row's initial option label
                 // where the game draws the value strip cell.
                 std::vector<int> current(m.entries.size(), 0);
@@ -12393,7 +12783,7 @@ void App::drawMenusWindow() {
                     for (const SaveValue& sv : project_.saveValues)
                         if (sv.name == m.entries[e].param)
                             current[e] = (int)sv.value;
-                menubake::overlayValuePreview(m, project_.dir, current, rgba, w, h);
+                menubake::overlayValuePreview(m, project_, current, rgba, w, h);
                 if (!menuPreviewTex_) glGenTextures(1, &menuPreviewTex_);
                 glBindTexture(GL_TEXTURE_2D, menuPreviewTex_);
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA,
@@ -12403,7 +12793,7 @@ void App::drawMenusWindow() {
                 menuPreviewW_ = w;
                 menuPreviewH_ = h;
                 const menubake::PanelLayout lay =
-                    menubake::panelLayout(m, project_.dir);
+                    menubake::panelLayout(m, project_);
                 menuPreviewContentH_ = lay.contentH;
                 menuPreviewClipped_ = lay.clipped;
             }
@@ -14045,6 +14435,27 @@ void App::drawPreferencesModal() {
     ImGui::TextDisabled("The material's color tints the terrain; its texture (map_Kd),\n"
                         "if any, tiles across it - set the tiling on the material's\n"
                         "texture in the Material Editor. Import .mtl in the Assets section.");
+
+    ImGui::SeparatorText("AI navigation");
+    ImGui::DragFloat("Nav cell size", &prefSettings_.navCellSize, 0.05f, 0.25f,
+                     16.0f, "%.2f units");
+    if (prefSettings_.navCellSize < 0.25f) prefSettings_.navCellSize = 0.25f;
+    ImGui::DragFloat("Max walkable slope", &prefSettings_.navMaxSlope, 0.5f,
+                     1.0f, 89.0f, "%.0f deg");
+    prefSettings_.navMaxSlope = prefSettings_.navMaxSlope < 1.0f ? 1.0f
+                                : prefSettings_.navMaxSlope > 89.0f
+                                    ? 89.0f
+                                    : prefSettings_.navMaxSlope;
+    ImGui::DragFloat("Agent radius", &prefSettings_.navAgentRadius, 0.05f, 0.0f,
+                     4.0f, "%.2f units");
+    if (prefSettings_.navAgentRadius < 0.0f) prefSettings_.navAgentRadius = 0.0f;
+    ImGui::TextDisabled(
+        "The NPC nav grid, baked at build time from the terrain slope and\n"
+        "blocking objects (grid capped at 128x128 cells - big maps get\n"
+        "bigger cells). Agent radius widens every obstacle so NPCs keep\n"
+        "their distance from walls. Used by the AI flow nodes (Patrol /\n"
+        "Chase / Flee); preview with View > Nav Mesh Overlay. Scenes whose\n"
+        "graphs use no AI nodes carry no nav data at all.");
 
     ImGui::SeparatorText("Post effects");
     ImGui::TextDisabled(

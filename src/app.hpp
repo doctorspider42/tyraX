@@ -216,9 +216,21 @@ private:
     // the UI Editor's HUD list and the Loading Screen editor). Returns the new
     // index, or -1 on failure.
     int importHudImageInto(std::vector<HudImage>& target);
-    // Shared TTF picker (menus, HUD texts): default chain / project fonts /
-    // stock Windows fonts / import. Returns true when fontPath changed.
-    bool fontCombo(std::string& fontPath);
+    // Picks one of the project's fonts by name (menus, HUD texts, loading
+    // texts). "" = the default entry. Returns true when the reference changed.
+    bool fontCombo(std::string& fontRef);
+    // Picks the TTF behind a Font Manager entry: default chain / fonts already
+    // in the project / stock Windows fonts / import. Returns true when
+    // fontPath changed. Only the Font Manager resolves real files.
+    bool fontSourceCombo(std::string& fontPath);
+    void drawFontManagerWindow();
+    // A Font Manager entry pointing at `relPath` ("res/fonts/x.ttf"), creating
+    // one named after the file stem if none exists. Returns the entry's name -
+    // what a `font` reference stores. Used by the TTF import paths.
+    std::string ensureFontForPath(const std::string& relPath);
+    // Renames a font and follows the reference into every text, menu and
+    // Display Text node, the way HUD text renames do.
+    void renameFont(int index, const std::string& newName);
     void drawMusicSection();
     void importMusicTrack();
     void drawSoundsSection();
@@ -463,9 +475,17 @@ private:
     // HUD text (4, index in selectedText_) or a custom screen effect placement
     // (5, index in selectedFx_ into project_.screenFx).
     bool showUiEditor_ = false;
+    bool showFontManager_ = false;
     int selectedHud_ = -1;
     int uiFxSel_ = 0;
     int selectedText_ = -1;
+    // Font Manager selection (index into Project::fonts).
+    int fontSel_ = 0;
+    // Cached atlas footprint line: measuring it walks all 95 glyphs, so it is
+    // recomputed only when a bake-affecting field changes (see fontAtlasKey_).
+    std::string fontAtlasKey_;
+    std::string fontAtlasInfo_;
+    bool fontAtlasClipped_ = false;
     int selectedFx_ = -1;
     // Baked preview of the selected HUD text (menubake::bakeTextRGBA),
     // re-rasterized whenever its content changes.
@@ -724,6 +744,15 @@ private:
     uint64_t projectedDecalsSig_ = 0;
     uint64_t projectedDecalsVersion_ = 0;
     void updateProjectedDecals();
+
+    // Nav-mesh overlay (View > Nav Mesh Overlay): the active scene's baked
+    // walkable grid, recomputed only when its inputs change (same signature
+    // trick as the projected decals). Session state, not persisted.
+    bool showNavOverlay_ = false;
+    navmesh::NavGrid navGrid_;
+    uint64_t navOverlaySig_ = 0;
+    uint64_t navOverlayVersion_ = 0;
+    void updateNavOverlay();
 
     // "New project" modal state
     bool openNewProjectPopup_ = false;
