@@ -9,6 +9,35 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (133) **Throws fly through portals + the lost terminal velocity.** Owner
+  request ("could a thrown object fly through a portal?") plus an owner
+  report: the infinite-fall cube now accelerates absurdly - and indeed the
+  old portal-branch 50 u/s terminal-fall cap died in the #97 sim rewrite
+  (PHYS_MAX_SPEED alone allows 3 u/frame = 150 u/s, and after (131)
+  unhitched the loop nothing ever slowed the cube down). Changes, all in
+  the game template:
+  - **Terminal fall restored**: `vel.y` capped at `50 * g_frameDt` per
+    frame in `updateObjectPhysics` (real-time-correct on PAL and NTSC) and
+    the same cap on the thrown arc, which previously had no clamp at all.
+  - **Thrown objects hop through**: `portalCarryAim` (which linked,
+    teleport-objects portal does the motion segment pierce front-to-back?)
+    + `portalCarryCrossing` (position + FULL velocity vector mapped by the
+    same flip-about-local-Y isometry updatePortals uses). Wired into the
+    non-physics thrown arc in `updateCarriedObject`; thrown rigid bodies
+    already ride `updatePortals`' physics path.
+  - **Doorway rule for objects**: while a throw or a falling body is aimed
+    into an opening, obstacles fully behind that portal's plane are
+    excluded from `sweepSphere` (new `sweepPass*` state) and from the
+    physics static-solid resolution - without this the mounting wall
+    stopped/bounced the object ~r short of the plane and the crossing
+    never fired (the walkers' `updatePortalPass` rule, applied per body).
+  - Thrown arc also skips the terrain ground-rest inside a swallowing
+    floor portal's zone (swept test, same as the walkers/physics).
+  Verified: editor builds clean; regenerated portals example compiles in
+  Docker (exit 0); generated code shows the cap, the carry-crossing calls
+  and both doorway filters. Throw feel + wall-portal crossing want a
+  hands-on PCSX2 pad test (owner has the live session).
+
 - (132) **Portal viewAll: the mounting wall's backside filled the
   through-view (hotfix on main).** Owner report right after (131) merged:
   a portal mounted on a wall showed that wall through itself. (131)'s

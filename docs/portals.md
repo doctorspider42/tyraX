@@ -36,15 +36,20 @@ between distant parts of the map.
    through-view: a merged bag can't drop just the members behind the
    destination's exit plane, and the wall the target portal is mounted on
    would fill the view with its backside.)
-4. Optional: **Teleport physics objects** carries physics-enabled objects
-   that cross the surface too (the player always teleports). Vertical
-   velocity maps through the pair, so a floor portal linked to a
+4. Optional: **Teleport physics objects** carries objects that cross the
+   surface too (the player always teleports): rigid bodies map their
+   vertical velocity through the pair, and a **thrown pickable** — physics
+   or not — hops through with its full velocity vector, exiting the target
+   with the matching motion. While a throw or a falling body is aimed into
+   the opening, the wall the portal is mounted on stops colliding for it
+   (the same doorway rule the walkers use), so wall portals swallow throws
+   instead of bouncing them back. A floor portal linked to a
    downward-facing ceiling portal makes the classic **infinite fall** — see
-   `examples/portals`. (The rigid-body sim clamps velocity at 3 units/frame,
-   so the loop stays smooth instead of accelerating forever; the portal's
-   swallow zone is tested against the whole frame-to-frame motion segment,
-   so even a terminal-velocity faller cannot skip over it and snag on the
-   terrain.)
+   `examples/portals`. Falls are capped at a 50 u/s terminal velocity
+   (restored after the rigid-body sim rewrite briefly lost it), so the
+   loop stays smooth instead of accelerating forever; the portal's swallow
+   zone is tested against the whole frame-to-frame motion segment, so even
+   a terminal-velocity faller cannot skip over it and snag on the terrain.
 
 The editor viewport draws the surface as a translucent tinted quad, a
 **bright arrow out of the entry face** (the +Z front — the side that shows
