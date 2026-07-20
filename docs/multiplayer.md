@@ -114,6 +114,20 @@ already does for you:
   camera before submitting (`orientParticleQuads`), so big fire/fog sprites
   don't show up edge-on to player 2.
 
+**Real-hardware numbers (2026-07-20, PAL, vsync off, the two-players example
+at release + mesh LOD 4):** one view of the map costs ~9-11.5 ms of EE time,
+so split lands at 20-30 ms (~35-50 FPS) - the halves are exactly 2x, with
+the runtime's own overheads measured at: split raster brackets 0.04-0.14 ms
+(the VIF-queued switch), beginFrame 0.55 ms, endFrame 0.53 ms, 2D/HUD
+0.005 ms. The per-view sink on THIS map is the static-object loop: ~0.7-1.5
+ms of fixed per-bag submit cost per object on the real EE (sky 0.5 ms,
+terrain 1.0 ms, both avatars' skeletal pass 4.5-5.7 ms per frame - shared
+across the halves). PCSX2's fast EE hides per-bag overhead almost entirely,
+so budget split scenes against hardware, not the emulator: roughly
+**(0.5 + N_objects x ~1 ms + anim) x 2 <= 20 ms**. Small maps with many
+separate primitive objects are the worst case - merging decor into fewer
+objects (or a future static-batching pass) is the lever.
+
 What's on you: vertex counts. A PC-grade avatar (the demo's Cesium Man is
 14k vertices) skinned and submitted per half eats the 20 ms PAL budget fast.
 The demo gets from 25 to a locked 50 FPS with two knobs — **mesh LOD**
