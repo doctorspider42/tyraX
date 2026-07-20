@@ -90,6 +90,22 @@ already does for you:
   skinning.
 - The split brackets don't clear anything: beginFrame's full-screen clear
   covers both halves and the scissor clips z-writes, so no per-half GS fills.
+- **Band culling**: the raster crop keeps the projection full-height, so the
+  engine's frustum planes alone would let each half transform ~2x the
+  geometry it can show. Two extra planes bound the half's visible vertical
+  band, and terrain chunks / static objects wholly outside skip submission
+  before the engine even classifies them (`computeSplitBand` in the
+  generated game; margin-padded, disabled while looking straight up/down).
+- **Terrain + layer streaming follow both players**: the chunk ring streams
+  around two foci (P1's view and P2's avatar) — with a single focus the two
+  passes would evict each other's terrain every frame and burn the whole
+  build budget on churn — and auto-streamed layers load when *either* player
+  enters the zone, unloading only when both leave. The chunk pool doubles in
+  scenes that can host P2 (only with a view distance set).
+- **Particle billboards face each half's own camera**: the simulation builds
+  quads facing P1's view; the second half re-faces the same particles for its
+  camera before submitting (`orientParticleQuads`), so big fire/fog sprites
+  don't show up edge-on to player 2.
 
 What's on you: vertex counts. A PC-grade avatar (the demo's Cesium Man is
 14k vertices) skinned and submitted per half eats the 20 ms PAL budget fast.

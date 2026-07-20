@@ -9,6 +9,41 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (119) **Split-screen optimization pass (review follow-ups): band culling,
+  two-focus streaming, per-half particle billboards.** Three findings from
+  the optimization review of the two-player PR, implemented: (1) **Band
+  culling** — the split raster crops via XYOFFSET+scissor and keeps the
+  projection full-height, so the engine's frustum classify let each half
+  transform ~2x the geometry it can show; `computeSplitBand` now derives two
+  extra planes bounding the half's visible vertical band (0.62 margin over
+  the exact 0.5 for the clipper's guard band; disabled on degenerate
+  straight-up/down views) and terrain chunks + static objects wholly outside
+  skip submission before the engine sees them. Chunks got a build-time world
+  AABB for the test; rotated objects fall back to a bounding-sphere cube so
+  the cull can under-cull but never over-cull. (2) **Two-focus terrain/layer
+  streaming** — worse than the review's "streaming ignores P2": with both
+  split passes calling `updateTerrainChunks` under different cameras and one
+  shared pool, the P1 pass evicted P2's chunks and vice versa - permanent
+  rebuild churn once the players walked apart. The chunk ring now streams
+  once per frame around BOTH foci (P1's look-at + P2's avatar; a chunk near
+  either survives, build picks the nearest-to-its-focus across both rects),
+  the pool doubles in scenes that can host P2, and auto-streamed layers use
+  the min distance over both players (load when either enters, unload when
+  both leave). (3) **Particle billboards per half** — quads were built
+  camera-facing once (P1's view), so P2 saw fire/fog sprites edge-on; the
+  quad build is split out of the simulation (`orientParticleQuads`, shape
+  stored per particle) and the second half re-faces the same particles for
+  its own camera. The fourth review item - replacing the split brackets' three
+  CPU stalls with the GS's second drawing context (CTXT bit in PRIM) - is
+  deliberately NOT done: Tyra's VU1 microprograms hardcode context 1 in
+  their GIF tags, so it needs microcode changes + a real-PS2 pass. Verified:
+  editor builds clean; `examples/two-players` regenerated + Docker build
+  compiles; a fresh 1P scratch project also compiles (the paths fold away
+  without a second player); PCSX2 boot of the example is clean (menu +
+  scene render, 50 FPS, no TYRA assert in bin/log.txt). The split-specific
+  paths (band culling actually kicking in, two-focus streaming under two
+  pads) still want the hands-on two-controller session (117)/(118) used.
+
 - (118) **Split-screen perf + correctness: 25 -> locked 50 FPS, cat faces
   forward.** Owner playtest findings on (117). The real BUG: renderScene
   runs twice per split frame and the animated path advanced playback AND
