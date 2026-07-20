@@ -9,6 +9,41 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (131) **Portals vs the merge wave: empty through-views + the infinite-fall
+  hitch.** Owner report after #110/#118/#120 landed: through a portal only
+  particle effects were visible, standing in the opening briefly read as
+  "looking through two portals at once", and the falling cube in the portal
+  map sometimes stopped dead. Two independent regressions, neither in the
+  portal code itself (byte-identical since #113):
+  (1) **Static batching (#120) ate the through-view.** `renderPortalView`
+  re-submits view objects via their per-object solo bags, but a batched
+  member's geometry lives only in the merged batch bags — no solo bag, so
+  every batchStatic primitive silently vanished from the view (particles
+  survived on their dedicated redraw path; the missing wall around the
+  target portal is what read as seeing through two portals). Portals are the
+  same reference kind as mirror lists and were missed when #120 built
+  `batchBlockedNames`: portal view lists now block batching for their
+  members (codegen), and the **All objects in view** mode — which has no
+  list to block by — re-submits the merged batch bags themselves in
+  `renderOnePortalView`, with the exit-plane dead zone applied per batch
+  AABB (one-frame lag on a scene's very first frame: batches bake in
+  `renderStaticBatches`, which runs after the portal pass).
+  (2) **The rigid-body sim (#97) can tunnel the floor-portal swallow zone.**
+  The zone spans 2.0 units above the plane, the old portal-branch fall code
+  was capped at 1 u/frame, but PHYS_MAX_SPEED is 3 u/frame — a
+  terminal-velocity faller can step clean over the zone between two frames,
+  the point-sampled test misses, the terrain clamp fires and kills the
+  fall, and the cube visibly parks on the ground over the portal until
+  gravity re-accelerates it into the plane. `portalSwallowSwept` now tests
+  both frame endpoints plus the segment's plane-crossing point (exact for
+  the vertical fall that is the only motion fast enough to tunnel).
+  Docs: portals.md (batching interplay + the stale "50 u/s terminal
+  velocity" claim), README's batching bullet. Verified: editor builds
+  clean; scratch project with two linked portals + a batchable box on the
+  view list emits `batchStatic=0` for the listed box (and 1 when unlisted);
+  the generated game compiles the swept test + viewAll batch submit.
+  PCSX2 eyes-on pass on the portal map still pending.
+
 - (123) **Live Link: the physics material is part of the recipe hash.**
   `liveLinkRecipeHash` mixed the `physics` flag but not the four material
   fields (113) added next to it - `physMass`, `physBounce`, `physFriction`,
