@@ -15,6 +15,10 @@
     "clipping": "vu1",
     "animLodDistance": 0,
     "meshLodDistance": 4,
+    "staticBatching": true,
+    "navCellSize": 1,
+    "navMaxSlope": 40,
+    "navAgentRadius": 0.4,
     "terrainDetail": 16,
     "terrainViewDistance": 0,
     "skyColor": [0.25, 0.55, 0.78],
@@ -65,6 +69,9 @@
       "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "vu1", "terrainMaterial": "", "postfx": { "bloom": 0, "grain": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
       "objects": ["05fac9a398cd382d", "1bf9e68cbf104684", "1978d596da2a8218", "e8be64aadbda83c6", "b31eeb3214590e23", "c911274569e15003", "0903d23f721680a8", "7c3834dae27f65fd"] }
   ],
+  "fonts": [
+    { "name": "Default", "path": "", "atlasSize": 16, "color": [1, 1, 1], "shadow": true, "quant": "4bit" }
+  ],
   "hud": [],
   "usePrompt": { "image": "", "pos": [0.5, 0.755714], "size": [128, 32], "texW": 0, "texH": 0, "texQuant": "" },
   "hudTexts": [],
@@ -98,10 +105,10 @@
         { "label": "CLOSE", "action": "close" }
       ] }
   ],
-  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0 },
+  "editor": { "selectedObject": 7, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0 },
   "activeLayout": 0,
   "layouts": [
-    { "name": "Default", "recipe": 0, "open": [], "ini": "[Window][Project]\nPos=0,47\nSize=920,1902\nCollapsed=0\nDockId=0x00000001,0\nLastUsed=20260719\n\n[Window][Properties]\nPos=3083,47\nSize=757,1902\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260719\n\n[Window][Output]\nPos=925,1443\nSize=2153,506\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260719\n\n[Window][Debug]\nPos=925,1443\nSize=2153,506\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260719\n\n[Window][Flow Graph]\nPos=925,47\nSize=2153,1391\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260719\n\n[Window][Viewport]\nPos=925,47\nSize=2153,1391\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260719\n\n[Window][WindowOverViewport_11111111]\nPos=0,47\nSize=3840,1902\nCollapsed=0\nLastUsed=20260719\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260719\n\n[Docking][Data]\nDockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,47 Size=3840,1902 Split=X\n  DockNode      ID=0x00000001 Parent=0x08BD597D SizeRef=920,1949 Selected=0x9C21DE82\n  DockNode      ID=0x00000002 Parent=0x08BD597D SizeRef=2915,1949 Split=X\n    DockNode    ID=0x00000003 Parent=0x00000002 SizeRef=2153,1949 Split=Y\n      DockNode  ID=0x00000005 Parent=0x00000003 SizeRef=2153,1438 CentralNode=1 Selected=0xC450F867\n      DockNode  ID=0x00000006 Parent=0x00000003 SizeRef=2153,506 Selected=0x6BCC3585\n    DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=757,1949 Selected=0x8C72BEA8\n\n" },
+    { "name": "Default", "recipe": 0, "open": [], "ini": "[Window][Project]\nPos=0,19\nSize=355,998\nCollapsed=0\nDockId=0x00000001,0\nLastUsed=20260720\n\n[Window][Properties]\nPos=1665,19\nSize=255,998\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260720\n\n[Window][Output]\nPos=357,545\nSize=1306,472\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260720\n\n[Window][Debug]\nPos=357,545\nSize=1306,472\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260720\n\n[Window][Flow Graph]\nPos=357,19\nSize=1306,524\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260720\n\n[Window][Viewport]\nPos=357,19\nSize=1306,524\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260720\n\n[Window][WindowOverViewport_11111111]\nPos=0,19\nSize=1920,998\nCollapsed=0\nLastUsed=20260720\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260720\n\n[Window][Editor Preferences]\nPos=710,263\nSize=499,491\nCollapsed=0\nLastUsed=20260720\n\n[Window][Project Preferences]\nPos=693,12\nSize=534,992\nCollapsed=0\nLastUsed=20260720\n\n[Window][##MainMenuBar]\nPos=0,0\nSize=1920,19\nCollapsed=0\nLastUsed=20260720\n\n[Docking][Data]\nDockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,19 Size=1920,998 Split=X\n  DockNode      ID=0x00000001 Parent=0x08BD597D SizeRef=355,1949 Selected=0x9C21DE82\n  DockNode      ID=0x00000002 Parent=0x08BD597D SizeRef=1563,1949 Split=X\n    DockNode    ID=0x00000003 Parent=0x00000002 SizeRef=1306,1949 Split=Y\n      DockNode  ID=0x00000005 Parent=0x00000003 SizeRef=2153,524 CentralNode=1 Selected=0xC450F867\n      DockNode  ID=0x00000006 Parent=0x00000003 SizeRef=2153,472 Selected=0x1E7E18E3\n    DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=255,1949 Selected=0x8C72BEA8\n\n" },
     { "name": "Director", "recipe": 1, "open": ["cutscene"], "ini": "" },
     { "name": "Material Designer", "recipe": 2, "open": ["material"], "ini": "" }
   ]

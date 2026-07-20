@@ -9,6 +9,32 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (122) **examples/two-players: two cats, Cesium Man removed, sky-toggle
+  defused; static batching (#120) merged into the branch.** Owner request
+  after the profiling session. P1 is now `player-cat-ginger` - the same
+  `cat.glb` avatar as P2 at scale 3 with the P2 rig (cat-sized boom, Idle
+  mapped to the `EmptyAction` rest pose so the walk cycle no longer plays
+  in place while standing - the root cause of the "avatar turns wrong,
+  camera-dependent" report: unmapped idle fell back to clip 0 = the walk
+  cycle, whose root motion swung the body) and a ginger tint vs P2's gray
+  (object color multiplies the model texture - two distinct cats from one
+  .glb). `cesium_man.glb` + its extracted texture deleted from the repo;
+  README/docs mentions rewritten (the 14k-vertex history note in
+  docs/multiplayer.md stays as context). `example_interaction.cpp` no
+  longer registers the press-X-sky-toggle script - the FILE stays as a
+  comment-only stub because refreshGenerated recreates missing files
+  write-if-missing, so deleting it would resurrect the behavior on the
+  next build. Showcase settings restored after the owner's profiling edits
+  (release, vsync on, FPS/MEM HUD off, animLod 0, meshLod 4). PR #120
+  (static batching, stacked on this branch) merged via GitHub +
+  fast-forward pull; owner's uncommitted map edits stash-preserved through
+  the merge and folded into this commit (terrain heights included).
+  Verified: editor rebuilds clean post-merge, example regenerated (both
+  scene rows are cat animModel 0, zero cesium references in generated
+  code), Docker build OK, PCSX2 boot clean at 50 FPS with no asserts.
+  The 2P visual pass (two distinct cats in split) still wants a pad.
+
+
 - (122) **Static batching for scene objects - the lever (121) called for.**
   The generated game now merges non-moving primitive objects that share a
   material into combined world-space StaPip bags at scene load, so a map of

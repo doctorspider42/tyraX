@@ -70,8 +70,8 @@ constexpr SceneObjectData SCENE_0_OBJECTS[8] = {
     {0, {-10.0F, 1.5F, -10.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 3.0F, 1.0F}, {0.3F, 0.85F, 0.4F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 16, -1, 1},  // pillar-sw
     {0, {0.0F, 0.75F, 0.0F}, {0.0F, 0.0F, 0.0F}, {6.0F, 1.5F, 0.8F}, {0.6F, 0.6F, 0.65F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 16, -1, 1},  // wall-mid
     {0, {6.0F, 0.4F, -4.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 0.8F, 2.0F}, {0.7F, 0.45F, 0.85F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 16, -1, 1},  // step-e
-    {6, {-2.0F, 0.0F, 6.0F}, {0.0F, 180.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, 0, "", 1, 1, 1.0F, -1.0F, -1.0F, 16, -1, 0},  // player-man
-    {6, {2.0F, 0.0F, 6.0F}, {0.0F, 180.0F, 0.0F}, {3.0F, 3.0F, 3.0F}, {0.6F, 0.6F, 0.6F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, 1, "", 1, 1, 1.0F, -1.0F, -1.0F, 16, -1, 0},  // player-cat
+    {6, {-2.0F, 0.0F, 6.0F}, {0.0F, 180.0F, 0.0F}, {3.0F, 3.0F, 3.0F}, {0.9F, 0.55F, 0.35F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, 0, "", 1, 1, 1.0F, -1.0F, -1.0F, 16, -1, 0},  // player-cat-ginger
+    {6, {2.0F, 0.0F, 6.0F}, {0.0F, 180.0F, 0.0F}, {3.0F, 3.0F, 3.0F}, {0.6F, 0.6F, 0.6F}, 0, -1, -1, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, 0, "", 1, 1, 1.0F, -1.0F, -1.0F, 16, -1, 0},  // player-cat
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {8};
@@ -109,17 +109,17 @@ inline const char* SND_PATHS[1] = {""};
 
 constexpr int PLAYER_INDEXES[SCENE_COUNT] = {6};
 constexpr int PLAYER_MODES[SCENE_COUNT] = {2};
-constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {0.11F};
+constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {0.05F};
 constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
-constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {1.6F};
+constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {0.8F};
 constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};
 constexpr bool PLAYER_CAN_JUMPS[SCENE_COUNT] = {true};
 constexpr float PLAYER_RUN_THRESHOLDS[SCENE_COUNT] = {0.55F};
-constexpr float PLAYER_CAM_DISTS[SCENE_COUNT] = {5.0F};
-constexpr float PLAYER_CAM_HEIGHTS[SCENE_COUNT] = {1.8F};
+constexpr float PLAYER_CAM_DISTS[SCENE_COUNT] = {4.0F};
+constexpr float PLAYER_CAM_HEIGHTS[SCENE_COUNT] = {1.0F};
 constexpr float PLAYER_CAM_SHOULDERS[SCENE_COUNT] = {0.0F};
 constexpr float PLAYER_TURN_RATES[SCENE_COUNT] = {0.25F};
-constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {"reference|reference|EmptyAction"};
 constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_JUMP_CLIPS[SCENE_COUNT] = {""};

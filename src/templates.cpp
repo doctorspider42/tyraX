@@ -744,7 +744,7 @@ class TerrainGame : public Tyra::Game {
   // True during the SECOND split half's renderScene: animation playback and
   // skinning already ran this frame (first half), so the animated pass
   // must not advance time again (2x playback speed) nor re-skin the same
-  // pose (Cesium-Man-sized avatars cost real EE ms) - it re-submits the
+  // pose (PC-grade avatars cost real EE ms) - it re-submits the
   // frame's skinned buffers under the second camera instead.
   bool splitSecondPass = false;
   // Split-band culling: the split raster shows only the CENTRAL half of the
@@ -1249,7 +1249,7 @@ class TerrainGame : public Tyra::Game {
   // True during the SECOND split half's renderScene: animation playback and
   // skinning already ran this frame (first half), so the animated pass
   // must not advance time again (2x playback speed) nor re-skin the same
-  // pose (Cesium-Man-sized avatars cost real EE ms) - it re-submits the
+  // pose (PC-grade avatars cost real EE ms) - it re-submits the
   // frame's skinned buffers under the second camera instead.
   bool splitSecondPass = false;
   // Split-band culling: the split raster shows only the CENTRAL half of the

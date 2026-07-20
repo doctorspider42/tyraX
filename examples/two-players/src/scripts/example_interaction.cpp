@@ -1,26 +1,7 @@
-// Example TyraX script. This file is yours - it is never regenerated.
-// Press X on the pad: the sky changes color (and a message lands in the
-// PCSX2 log via TYRA_LOG).
 #include "scripts/script.hpp"
-#include "terrain_config.hpp"
 
-namespace Two_players {
-
-class ExampleInteraction : public Script {
- public:
-  void update(ScriptContext& ctx) override {
-    if (ctx.engine->pad.getClicked().Cross) {
-      toggled = !toggled;
-      TYRA_LOG("X pressed! Sky toggled: ", (int)toggled);
-      ctx.skyColor = toggled ? Tyra::Color(230.0F, 120.0F, 60.0F)
-                             : Tyra::Color(SKY_R, SKY_G, SKY_B);
-    }
-  }
-
- private:
-  bool toggled = false;
-};
-
-}  // namespace Two_players
-
-TYRA_SCRIPT(Two_players::ExampleInteraction);
+// This file intentionally registers no script. It used to be the seeded
+// "press X to toggle the sky color" example, which reads as a glitch in a
+// two-player demo (X is also the jump button). The file itself stays so the
+// build's write-if-missing pass does not recreate the old behavior; replace
+// it with your own scripts, or add new files next to it (docs/object-scripts.md).

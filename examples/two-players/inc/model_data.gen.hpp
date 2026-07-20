@@ -13,9 +13,8 @@ inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
 };
 constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false};
 
-constexpr int ANIM_MODEL_COUNT = 2;
+constexpr int ANIM_MODEL_COUNT = 1;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {
-    "models/cesium_man.tskl",
     "models/cat.tskl",
 };
 
