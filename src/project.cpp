@@ -295,6 +295,8 @@ static std::string objectJson(const SceneObject& o) {
                          ", \"physTumble\": " + (o.physTumble ? "true" : "false")
                    : "") +
         (o.usable ? ", \"usable\": true" : "") +
+        (o.pickable ? ", \"pickable\": true" : "") +
+        (o.pickThrow ? ", \"pickThrow\": true" : "") +
         (o.saveState ? ", \"saveState\": true" : "") +
         // collision: box is the default and stays implicit
         (o.collisionMode == 1 ? ", \"collision\": \"mesh\""
@@ -1678,6 +1680,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             o.physTumble = !(v->type == json::Value::Type::Bool && !v->boolean);
         if (const auto* v = jo.find("usable"))
             o.usable = v->type == json::Value::Type::Bool && v->boolean;
+        if (const auto* v = jo.find("pickable")) o.pickable = v->boolOr(false);
+        if (const auto* v = jo.find("pickThrow")) o.pickThrow = v->boolOr(false);
         if (const auto* v = jo.find("saveState"))
             o.saveState = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = jo.find("collision")) {
@@ -2976,6 +2980,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     uint64_t h = kFnvSeed;
     fnvMix(h, (uint64_t)o.type);
     fnvMix(h, (o.physics ? 1 : 0) | (o.usable ? 2 : 0) | (o.saveState ? 4 : 0) |
+                  (o.pickable ? 32 : 0) | (o.pickThrow ? 64 : 0) |
                   (o.decalProject ? 8 : 0));
     fnvMix(h, (uint64_t)o.collisionMode);
     fnvMixS(h, o.layer);
@@ -3187,6 +3192,17 @@ std::string refreshGenerated(const Project& p) {
             const unsigned char* png = templates::usePromptPng(n);
             fs::create_directories(usePng.parent_path(), ec);
             std::ofstream f(usePng, std::ios::binary);
+            if (f) f.write(reinterpret_cast<const char*>(png), (std::streamsize)n);
+        }
+    }
+    {
+        const fs::path pickPng = fs::path(p.dir) / "res" / "hud" / "pickup.png";
+        std::error_code ec;
+        if (!fs::exists(pickPng, ec)) {
+            size_t n = 0;
+            const unsigned char* png = templates::pickPromptPng(n);
+            fs::create_directories(pickPng.parent_path(), ec);
+            std::ofstream f(pickPng, std::ios::binary);
             if (f) f.write(reinterpret_cast<const char*>(png), (std::streamsize)n);
         }
     }

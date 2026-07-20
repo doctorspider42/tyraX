@@ -4440,6 +4440,25 @@ void App::drawPropertiesWindow() {
         } else if (ImGui::Checkbox("Usable (USE prompt + On Used trigger)", &o.usable)) {
             committed = true;
         }
+        if (o.type != PrimitiveType::SavePoint) {
+            if (ImGui::Checkbox("Pickable (USE picks it up)", &o.pickable))
+                committed = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "The player carries it a short reach in front of the face,\n"
+                    "swept against the world - it cannot be pushed through or\n"
+                    "left behind other geometry. USE again drops it.");
+            if (o.pickable) {
+                ImGui::SameLine();
+                if (ImGui::Checkbox("Can throw", &o.pickThrow)) committed = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("BTN_THROW (Circle, see controls.hpp) launches\n"
+                                      "the carried object. Experimental.");
+                if (!o.physics)
+                    ImGui::TextDisabled(
+                        "Tip: enable Physics so it falls when dropped.");
+            }
+        }
     }
     // Show/Hide Object nodes toggle emitters/sounds too - their on/off state
     // is worth saving; empties can be moved around by scripts. Lights are
@@ -5311,8 +5330,10 @@ void App::drawMultiProperties() {
                    "%.0f units");
         multiCheck("Show in reflections", &SceneObject::reflected);
         multiCheck("Physics (rigid body)", &SceneObject::physics);
-        if (!anySavePoint)
+        if (!anySavePoint) {
             multiCheck("Usable (USE prompt + On Used)", &SceneObject::usable);
+            multiCheck("Pickable (USE picks it up)", &SceneObject::pickable);
+        }
         if (allModel) {
             const char* modes[] = {"Box (mesh AABB)", "Mesh (walkable triangles)", "None"};
             multiCombo("Collision", &SceneObject::collisionMode, modes, 3);
@@ -7624,7 +7645,8 @@ void App::drawUiEditorWindow() {
         ImGui::TextWrapped(
             "Shown while the player looks at a usable object up close. "
             "Always draws above the HUD stack (and under menus); cannot be "
-            "deleted.");
+            "deleted. Pickable objects show a \"PICK UP\" variant at the "
+            "same placement (replace res/hud/pickup.png to customize it).");
         ImGui::Spacing();
         ImGui::DragFloat2("Position##use", h.pos, 0.005f, 0.0f, 1.0f, "%.3f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
