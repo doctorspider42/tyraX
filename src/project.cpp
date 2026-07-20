@@ -2981,6 +2981,16 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMixS(h, o.layer);
     fnvMix(h, (uint64_t)o.primDetail);
     fnvMixF(h, o.drawDistance);
+    // Physics material: baked into SCENE_OBJECTS, never live-patched (the
+    // snapshot record carries only transform + color), and copied wholesale
+    // by a spawned clone. Only meaningful while `physics` is on - the runtime
+    // reads none of it otherwise - so stale values on a non-physics object
+    // must not force a rebuild.
+    if (o.physics) {
+        fnvMixF(h, o.physMass), fnvMixF(h, o.physBounce);
+        fnvMixF(h, o.physFriction);
+        fnvMix(h, o.physTumble ? 1 : 0);
+    }
     fnvMixS(h, o.modelPath);
     fnvMixS(h, o.materialPath);
     // Player entity tunables (markers in the world, but baked per scene).
