@@ -50,6 +50,18 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     Tyra::StaPipTextureBag texBag;
+    // Painted terrain layers: one extra alpha-blended pass over the base per
+    // layer with any weight in this chunk. Shares the chunk's vertices; own
+    // tiled STs + shade colors whose alpha carries the painted weight.
+    struct LayerPass {
+      std::vector<Tyra::Color> colors;
+      std::vector<Tyra::Vec4> sts;
+      std::unique_ptr<Tyra::StaPipBag> bag;
+      std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+      Tyra::StaPipTextureBag texBag;
+      int layer = -1;
+    };
+    std::vector<LayerPass> layerPasses;
     int cx = -1, cz = -1;  // chunk coords; -1 = free pool slot
     float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};  // band culling
     // Height extent of this chunk's cells, filled at build - the portal
@@ -62,6 +74,9 @@ class TerrainGame : public Tyra::Game {
 
   Tyra::M4x4 model;
   std::unique_ptr<Tyra::StaPipInfoBag> infoBag;  // shared by all chunk bags
+  // Same render settings as infoBag but with GS blending on - shared by every
+  // chunk's layer passes (the base pass must stay opaque).
+  std::unique_ptr<Tyra::StaPipInfoBag> layerInfoBag;
 
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])
@@ -89,6 +104,15 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    // Physics fast path (awake bodies): parts hold LOCAL-space vertices
+    // (scale baked in, shading frozen at the wake pose) and every
+    // part.infoBag->model points at objMat, rebuilt from position/rotation
+    // each frame - VU1 applies the motion, the EE stops re-tessellating and
+    // re-shading mid-flight. Any full rebuild (rebuildObjectGeometry default
+    // = world-space bake) turns it off; going to sleep forces one, so a
+    // settled body gets correct rest-pose shading back.
+    Tyra::M4x4 objMat;
+    bool matrixMode = false;
     // Animated models (.glb): this object's skeletal instance (own
     // playback state + skinned output mesh, samples the shared SkelModel).
     std::unique_ptr<Tyra::SkelInstance> animInst;
@@ -280,7 +304,13 @@ class TerrainGame : public Tyra::Game {
   std::vector<Tyra::Sprite> hudSprites;
 
   void buildSkyDome();
-  void rebuildObjectGeometry(int index);
+  // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
+  void rebuildObjectGeometry(int index, bool localSpace = false);
+  // A moving body takes the matrix fast path unless another consumer assumes
+  // world-space vertex arrays (usable highlight hull, reflective matcap
+  // normals) or it is an animated model (animMat already drives those).
+  bool physFastPathEligible(int index) const;
+  void updateObjMat(int index);
   // Player-vs-objects collision shared by both walkers: box (scale box or
   // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision.
   // ceiling receives the lowest overhead surface so the walkers can keep the
@@ -289,6 +319,17 @@ class TerrainGame : public Tyra::Game {
                      float feetY, float eyeHeight, float* ground,
                      float* ceiling);
   void updateObjectPhysics();
+  // Physics bodies in a walking player's path get shoved along the attempted
+  // move (impulse scaled by 1/mass) and woken; called before collidePlayer so
+  // a blocked step still transfers its push into the crate.
+  void pushPhysicsBodies(float prevX, float prevZ, float nextX, float nextZ,
+                         float feetY, float eyeHeight);
+  // Physics helpers: world-space AABB half-extents + center offset (models
+  // use their mesh AABB, like collidePlayer) and the "solid enough to
+  // block/bump a body" filter.
+  static void physExtents(const SceneObjectData& d, const GameModel* gm,
+                          const Tyra::SkelModel* anim, float* cOff, float* ext);
+  static bool physObstacle(const SceneObjectData& d);
   void renderScene();
   // Mirror objects (type 15): re-submit each listed target's live bags
   // under a reflection matrix about the glass plane, then blend the quad
@@ -297,6 +338,7 @@ class TerrainGame : public Tyra::Game {
   void renderMirrors();
   void renderMirroredObject(int index);
   Tyra::M4x4 mirrorMat;
+  Tyra::M4x4 mirrorObjMat;  // reflection * objMat for fast-path bodies
   Tyra::M4x4 mirrorAnimMat;
   // Portal objects (type 16): a linked pair of surfaces. renderPortalView
   // renders the through-view of the best on-screen portal into the engine's
@@ -324,6 +366,13 @@ class TerrainGame : public Tyra::Game {
   bool portalSwallowsPlayer(float x, float feetY, float z);
   bool portalSwallowZone(const RuntimeObject& m, float hx, float hy, float x,
                          float y, float z);
+  // Swept variant for physics bodies: a faller at PHYS_MAX_SPEED (3 u/frame)
+  // can step clean over the 2-unit approach zone in one frame - the endpoint
+  // test misses, the terrain clamp kills the fall and the infinite-fall loop
+  // visibly hangs on the ground before it re-swallows. Tests both frame
+  // endpoints plus the segment's plane-crossing point.
+  bool portalSwallowSwept(const RuntimeObject& m, float hx, float hy,
+                          const Tyra::Vec4& a, const Tyra::Vec4& b);
   // Portal pass-through for the walkers: when the body column sits inside
   // a linked portal's opening near its plane, updatePortalPass publishes
   // that portal's plane and collidePlayer stops colliding with objects
@@ -424,6 +473,11 @@ class TerrainGame : public Tyra::Game {
   // the camera would enter geometry or the terrain.
   float springArm(float px, float py, float pz, float dx, float dy, float dz,
                   float maxDist) const;
+  // The general sweep behind springArm: first blocked distance along d for a
+  // sphere of `radius`, vs object AABBs + the terrain; skipIndex is excluded
+  // (the swept object itself). Also carries/throws pickable objects.
+  float sweepSphere(float px, float py, float pz, float dx, float dy, float dz,
+                    float maxDist, float radius, int skipIndex) const;
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
@@ -473,11 +527,34 @@ class TerrainGame : public Tyra::Game {
   // Scene switch target held across the loading-screen frames (the screen
   // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
   int loadingFrames = 0, loadingTarget = -1;
+  // Snapshot of the armed hold length: everyFrames() tracks the measured
+  // frame time now, so re-evaluating it in a == comparison against the
+  // counter could miss its frame at uncapped FPS.
+  int loadingTotal = 0;
 
   // "Use" interaction: nearest usable object the camera looks at (controls.hpp)
   void updateUseTarget();
   int useTargetIndex = -1;
+  // Pickable objects: at most one carried + one in flight. The carried object
+  // rides a fixed reach in front of the camera, swept against the world
+  // (sweepSphere) so it cannot be pushed through or parked behind geometry.
+  void updateCarriedObject();
+  // Hands a dropped/thrown object back to the physics sim (waking it), or
+  // returns false when it has no rigid body to hand off to.
+  bool releaseCarried(RuntimeObject& o, float vx, float vy, float vz);
+  float objectHalfExtent(const RuntimeObject& o) const;
+  // Blocks the walker from pressing against geometry the carried object no
+  // longer fits in front of (the spring arm's sweep, pushing the walker back
+  // instead of pulling the camera in).
+  void applyCarryWhisker(float* nextX, float* nextZ, float eyeY, float yaw);
+  int carryIndex = -1;        // runtimeObjects index being carried, -1 = none
+  bool carryGrabbed = false;  // eats the BTN_USE press that picked it up
+  float carryDist = 0;        // smoothed carry reach: snaps in when the sweep
+                              // blocks, eases back out (the boom's policy)
+  int thrownIndex = -1;       // launched object still in flight, -1 = none
+  float thrownVel[3] = {0, 0, 0};  // units/frame
   Tyra::Sprite usePromptSprite;
+  Tyra::Sprite pickPromptSprite;  // "PICK UP" variant, same placement
 
   // Memory card save menu (save_system.gen.hpp): opened by using a Save
   // point object or the Open Save Menu flow node; gameplay pauses while

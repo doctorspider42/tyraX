@@ -27,12 +27,20 @@ between distant parts of the map.
    what the destination actually sees — but a big scene pays a second
    submission pass whenever that portal's view is live; watch the
    FPS/profiler before shipping, and prefer the list for release builds.
+   Static batching interplay: objects on a portal's view list are
+   **excluded from static batching** at build (like a Mirror's list — the
+   through-view re-submits them as solo bags), and the **All objects**
+   mode additionally re-submits the merged static-batch bags themselves,
+   so batched decor shows through the portal either way.
 4. Optional: **Teleport physics objects** carries physics-enabled objects
    that cross the surface too (the player always teleports). Vertical
    velocity maps through the pair, so a floor portal linked to a
    downward-facing ceiling portal makes the classic **infinite fall** — see
-   `examples/portals`. (Object physics clamps falls at a 50 u/s terminal
-   velocity, so the loop stays smooth instead of accelerating forever.)
+   `examples/portals`. (The rigid-body sim clamps velocity at 3 units/frame,
+   so the loop stays smooth instead of accelerating forever; the portal's
+   swallow zone is tested against the whole frame-to-frame motion segment,
+   so even a terminal-velocity faller cannot skip over it and snag on the
+   terrain.)
 
 The editor viewport draws the surface as a translucent tinted quad, a
 **bright arrow out of the entry face** (the +Z front — the side that shows

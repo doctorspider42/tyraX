@@ -783,6 +783,13 @@ class TerrainGame : public Tyra::Game {
   bool portalSwallowsPlayer(float x, float feetY, float z);
   bool portalSwallowZone(const RuntimeObject& m, float hx, float hy, float x,
                          float y, float z);
+  // Swept variant for physics bodies: a faller at PHYS_MAX_SPEED (3 u/frame)
+  // can step clean over the 2-unit approach zone in one frame - the endpoint
+  // test misses, the terrain clamp kills the fall and the infinite-fall loop
+  // visibly hangs on the ground before it re-swallows. Tests both frame
+  // endpoints plus the segment's plane-crossing point.
+  bool portalSwallowSwept(const RuntimeObject& m, float hx, float hy,
+                          const Tyra::Vec4& a, const Tyra::Vec4& b);
   // Portal pass-through for the walkers: when the body column sits inside
   // a linked portal's opening near its plane, updatePortalPass publishes
   // that portal's plane and collidePlayer stops colliding with objects
@@ -1400,6 +1407,13 @@ class TerrainGame : public Tyra::Game {
   bool portalSwallowsPlayer(float x, float feetY, float z);
   bool portalSwallowZone(const RuntimeObject& m, float hx, float hy, float x,
                          float y, float z);
+  // Swept variant for physics bodies: a faller at PHYS_MAX_SPEED (3 u/frame)
+  // can step clean over the 2-unit approach zone in one frame - the endpoint
+  // test misses, the terrain clamp kills the fall and the infinite-fall loop
+  // visibly hangs on the ground before it re-swallows. Tests both frame
+  // endpoints plus the segment's plane-crossing point.
+  bool portalSwallowSwept(const RuntimeObject& m, float hx, float hy,
+                          const Tyra::Vec4& a, const Tyra::Vec4& b);
   // Portal pass-through for the walkers: when the body column sits inside
   // a linked portal's opening near its plane, updatePortalPass publishes
   // that portal's plane and collidePlayer stops colliding with objects
@@ -6710,9 +6724,13 @@ void TerrainGame::updateObjectPhysics() {
       RuntimeObject& m = runtimeObjects[p.object];
       if (!m.active || !m.visible || !runtimeObjects[p.target].active) continue;
       if (&o == &m || &o == &runtimeObjects[p.target]) continue;
-      if (portalSwallowZone(m, 0.5F * m.data.scale[0] + 0.25F,
-                            0.5F * m.data.scale[1] + 0.25F, pos.x, pos.y,
-                            pos.z)) {
+      // Swept, not point-sampled: a terminal-velocity faller crosses the
+      // whole approach zone between two frames and the endpoint test would
+      // let the terrain clamp stop it dead over the portal (a post-#97
+      // hitch - the old portal fall code was capped at 1 u/frame and could
+      // not tunnel).
+      if (portalSwallowSwept(m, 0.5F * m.data.scale[0] + 0.25F,
+                             0.5F * m.data.scale[1] + 0.25F, prevPos, pos)) {
         groundY = -1e30F;
         break;
       }
@@ -7819,6 +7837,23 @@ bool TerrainGame::renderOnePortalView(int pi) {
     // and draw distances are measured from the virtual eye, so the real
     // cost is what the destination actually sees - still, big scenes pay
     // for this; the authored list stays the shipping-quality default.
+    // Static batches first: batched members have no solo bags (their
+    // geometry lives only in the merged world-space bags), so without this
+    // submit every batchStatic primitive is missing from the through-view.
+    // Same exit-plane dead zone as the solo objects, per batch AABB.
+    for (StaticBatch& b : staticBatches) {
+      if (!b.bag || b.bag->count == 0) continue;
+      const float sd =
+          exitN.x * 0.5F * (b.aabbMin[0] + b.aabbMax[0]) +
+          exitN.y * 0.5F * (b.aabbMin[1] + b.aabbMax[1]) +
+          exitN.z * 0.5F * (b.aabbMin[2] + b.aabbMax[2]) - exitD;
+      const float rr =
+          fabsf(exitN.x) * 0.5F * (b.aabbMax[0] - b.aabbMin[0]) +
+          fabsf(exitN.y) * 0.5F * (b.aabbMax[1] - b.aabbMin[1]) +
+          fabsf(exitN.z) * 0.5F * (b.aabbMax[2] - b.aabbMin[2]);
+      if (sd < -rr + 0.1F) continue;
+      stapip.core.render(b.bag.get());
+    }
     for (int ti = 0; ti < (int)runtimeObjects.size(); ++ti) {
       if (runtimeObjects[ti].data.type == 15) continue;  // glass-only anyway
       if (beyondDrawDistance(runtimeObjects[ti].data, eye)) continue;
@@ -7877,6 +7912,28 @@ bool TerrainGame::portalSwallowZone(const RuntimeObject& m, float hx, float hy,
   const float lz = rx * azS.x + ry * azS.y + rz * azS.z;
   return lz > -0.6F && lz < 2.0F && lx > -hx && lx < hx && ly > -hy &&
          ly < hy;
+}
+
+// Both endpoints of this frame's motion, plus the point where the segment
+// pierces the portal plane - exact for a vertical fall, which is the only
+// motion fast enough (PHYS_MAX_SPEED) to tunnel the zone's 2-unit height.
+bool TerrainGame::portalSwallowSwept(const RuntimeObject& m, float hx,
+                                     float hy, const Vec4& a, const Vec4& b) {
+  if (portalSwallowZone(m, hx, hy, b.x, b.y, b.z) ||
+      portalSwallowZone(m, hx, hy, a.x, a.y, a.z))
+    return true;
+  const V3 azS = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
+  if (azS.y < 0.5F) return false;  // floor portals only
+  const float lza = (a.x - m.data.position[0]) * azS.x +
+                    (a.y - m.data.position[1]) * azS.y +
+                    (a.z - m.data.position[2]) * azS.z;
+  const float lzb = (b.x - m.data.position[0]) * azS.x +
+                    (b.y - m.data.position[1]) * azS.y +
+                    (b.z - m.data.position[2]) * azS.z;
+  if (!(lza > 0.0F && lzb < 0.0F)) return false;  // must pierce downward
+  const float t = lza / (lza - lzb);
+  return portalSwallowZone(m, hx, hy, a.x + (b.x - a.x) * t,
+                           a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
 }
 
 bool TerrainGame::portalSwallowsPlayer(float x, float feetY, float z) {
@@ -11124,7 +11181,8 @@ static std::string decalDataHeader(const Project& p) {
 // Object names referenced anywhere that can move, hide, re-target or
 // re-submit an object at runtime: same-scene flow-graph nodes with an
 // object-name param (writers and readers alike - over-excluding is safe,
-// the cost is one solo bag), mirror target lists, and cutscene tracks /
+// the cost is one solo bag), mirror target lists, portal view lists, and
+// cutscene tracks /
 // camera-shot bindings (project-wide, they apply to whatever scene is
 // active). Patrol waypoint PREFIXES are deliberately not expanded: the AI
 // only reads waypoint positions, it never mutates the waypoint object.
@@ -11139,6 +11197,13 @@ static std::set<std::string> batchBlockedNames(const Project& p,
         }
         if (o.type == PrimitiveType::Mirror)
             for (const std::string& m : o.mirrorObjects) refs.insert(m);
+        // Portal view lists re-submit their objects through renderPortalView's
+        // per-object solo bags - a batched member has no solo bag and simply
+        // vanishes from the through-view (only particles survived; the missing
+        // wall around the target portal then read as seeing through two
+        // portals at once).
+        if (o.type == PrimitiveType::Portal)
+            for (const std::string& m : o.portalObjects) refs.insert(m);
     }
     for (const Sequence& s : p.sequences) {
         for (const SeqTrack& tr : s.tracks) refs.insert(tr.target);
