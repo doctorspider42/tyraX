@@ -9,7 +9,7 @@
 #include "save_system.gen.hpp"
 #include "scripts/script.hpp"
 
-namespace Showcase {
+namespace Physics_playground {
 
 class TerrainGame : public Tyra::Game {
  public:
@@ -572,4 +572,4 @@ class TerrainGame : public Tyra::Game {
   ScriptContext scriptCtx;
 };
 
-}  // namespace Showcase
+}  // namespace Physics_playground

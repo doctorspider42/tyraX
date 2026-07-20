@@ -208,6 +208,12 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "Glides the target toward X/Y/Z (or a linked position, "
                  "re-read every frame) at num[3] (Speed) units/s until it "
                  "arrives."},
+        {.key = "PushObject", .title = "Apply Impulse", .category = "Object",
+         .strKind = FlowParamKind::ObjectName, .numCount = 3,
+         .numLabels = {"X", "Y", "Z"}, .idIn = true, .idOut = true,
+         .desc = "Physics: adds velocity (units/s) to a rigid body and wakes "
+                 "it. num[0..2] = X/Y/Z impulse. On a non-physics object it "
+                 "only nudges the stored velocity - harmless."},
         {.key = "SetObjectColor", .title = "Set Object Color",
          .category = "Object", .strKind = FlowParamKind::ObjectName,
          .numCount = 3, .numKind = FlowParamKind::Color, .idIn = true,

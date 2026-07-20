@@ -148,7 +148,15 @@ struct SceneObject {
     float rotation[3] = {0.0f, 0.0f, 0.0f};  // degrees
     float scale[3] = {1.0f, 1.0f, 1.0f};
     float color[3] = {0.6f, 0.6f, 0.6f};  // neutral gray (specialized types override)
-    bool physics = false;     // falls with gravity in the game
+    bool physics = false;     // simulated as a rigid body in the game: gravity,
+                              // bounces off slopes/objects, tumbles, can be
+                              // pushed by the player and Apply Impulse nodes
+    // Physics material (read when physics == true). Mass is relative - it only
+    // matters where bodies trade momentum (collisions, player pushes).
+    float physMass = 1.0f;      // relative mass; heavier = harder to push
+    float physBounce = 0.35f;   // restitution 0..1: 0 = thud, 1 = superball
+    float physFriction = 0.5f;  // ground drag 0..1: 0 = ice, 1 = sticky
+    bool physTumble = true;     // ground contact converts slide into roll/spin
     bool usable = false;      // shows the USE prompt up close; BTN_USE fires On Used
     bool saveState = false;   // position/color/visibility persisted in save slots
     // Player collision: 0 = box (models use their real mesh AABB), 1 = mesh
@@ -352,7 +360,9 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
     };
     return a.id == b.id && a.name == b.name && a.type == b.type && eq3(a.position, b.position) &&
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) && eq3(a.color, b.color) &&
-           a.physics == b.physics && a.usable == b.usable &&
+           a.physics == b.physics && a.physMass == b.physMass &&
+           a.physBounce == b.physBounce && a.physFriction == b.physFriction &&
+           a.physTumble == b.physTumble && a.usable == b.usable &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
            a.layer == b.layer &&
            a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
