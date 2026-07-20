@@ -9,6 +9,119 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (113) **Terrain splat painting - paint a blend of terrain layers, drawn as
+  two-pass GS splatting.** Terrain used to wear a single tiled material; now a
+  scene can carry extra **terrain layers** (each an existing `.mtl`, so they
+  inherit texture + Kd tint + tiling) and you **paint their blend straight onto
+  the terrain in the 3D viewport** with a brush (a paint mode alongside sculpt,
+  sharing the same raycast + ring; Shift or the Erase toggle removes). A
+  unified **Terrain Editor** window (Tools > Terrain Editor) hosts BOTH terrain
+  brushes - Sculpt and Paint as switchable tools (viewport toolbar + keys 4/6;
+  grabbing a tool opens the window; one brush in hand at a time) - plus the
+  layer stack (Photoshop-style: top row paints over those below, "+ Add layer"
+  at the top drops the new layer on top, base at the bottom;
+  add/rename/pick material/reorder/remove, active-layer radio, and
+  a per-layer **Size** = how big that layer's texture pattern looks on the
+  ground, a multiplier on its material tiling) and the per-tool brush settings;
+  compact brush sliders float in the viewport while a tool is active (same
+  variables, never disagree) and `[`/`]` resize the brush from the keys.
+  **Brush ranges scale with the map** (radius up to half the map, sculpt
+  strength up to dim/100, logarithmic sliders): the old fixed 30/0.5 caps made
+  the brush useless on a 2000x2000 world (verified by GUI script - radius
+  reaches ~1000 on a 2000-map, overlay and window stay in sync).
+  **Runtime = era-correct two-pass vertex-alpha splatting** (the first cut
+  baked the blend into ONE whole-terrain composite - zero runtime cost, but the
+  GS's 512-texel texture cap made it embarrassingly blurry up close, dead end
+  documented in docs/terrain-painting.md): weights live per VERTEX on the
+  heightmap grid (`SceneData::splat`, sidecar `terrain-<scene>.splat`, resample
+  policy identical to heights), codegen bakes them into
+  `terrain_heights.gen.hpp` + layer descriptors into `texture_data.gen.hpp`,
+  and `buildTerrainChunk` adds one StaPip bag per layer present in a chunk
+  (shared vertices, tiled layer STs, shade-lit colors with alpha = weight)
+  under a blending-enabled info bag - the in-band per-mesh ALPHA qword (105)
+  already defaults to alpha-over, so no engine change was needed. The editor
+  viewport draws the same two passes (particle shader, 9-float mesh, LEQUAL
+  no-depth-write blend after the base chunks) - editor and PS2 agree by
+  construction. **Verified end-to-end**: headless harness (30 checks: grid
+  coupling, round-trip, undo equality, layer column ops, detail-change
+  resample, codegen tables incl. the no-layers null case); generated game
+  compiles clean in Docker; PCSX2 SW-renderer boot shows the tiled dirt path +
+  rock zone crisply blended over textured grass with soft Gouraud edges, no
+  TYRA asserts; **A/B benchmark** (same scene, layers stripped): 50 FPS / EE
+  36% / VU 2% unpainted vs 50 FPS / EE 36% / VU 3% with two painted layers -
+  the extra passes only exist where painted. Editor GUI screenshot confirms
+  the viewport twin matches the PS2 output. **Follow-up fix caught by the
+  owner's first real map**: layer textures ship to the game directly now, so a
+  1024x1024 material texture hit the engine's "512x512 max" assert at load
+  (v1's composite had masked oversize imports; a 1280x720 fog texture in the
+  same project was a pre-existing landmine on ANY object). texbake now resizes
+  every res/models|materials|textures PNG with non-PS2-valid dimensions
+  (power-of-two, max 512) into the bake, exactly like HUD sprites - sources
+  stay full-res for the viewport. Verified on the owner's project: three
+  textures auto-resized (2x 1024x1024, 1x 1280x720), game boots with zero
+  asserts.
+- (114) **Stochastic tiling (texture bombing) for terrain - kill the
+  tiled-grid "checkerboard".** A tiled terrain texture repeats on a visible
+  grid the moment the camera pulls back; PS2 has no pixel shaders to randomize
+  it per-fragment, so the randomization happens **at build time, in pixels**.
+  New per-base / per-layer **Stochastic** toggle in the Terrain Editor: the
+  build bakes that texture into one larger, still-perfectly-tileable
+  "supertile" (up to 512x512) whose interior scatters randomly rotated /
+  flipped / offset, feathered patches of the source, wrapped on the torus so
+  it tiles seamlessly. The game tiles the supertile like any texture - **same
+  single pass, zero runtime cost** - but the repetition period is 2-8x longer
+  (by source size), so the grid leaves the visible range. New host module
+  `src/stochtile.{hpp,cpp}` is the single source of truth (`generate` +
+  `factorFor` + `bakedBinPath`), deterministic from the source path: texbake
+  generates the supertiles into `.res-baked/stoch` (never mirrored from res/,
+  regenerated wholesale, exempt from the vanished-source sweep) quantized like
+  the source, and the editor viewport uploads the same pixels - so preview ==
+  build. Codegen points the terrain texture table + tiling at the supertile
+  (repeats-per-unit divided by the factor so the on-ground size is unchanged).
+  Best on organic textures; off by default; a scene without it is byte-for-byte
+  unchanged. **Verified**: headless harness (13 checks: factor math, 512²
+  output, torus wrap-seam not a hard discontinuity, bombing actually perturbs
+  the tiled base, determinism, bakedBinPath sanitize, codegen path + divided
+  tiling); PCSX2 SW-renderer A/B on a 256x256 map with a deliberately
+  grid-heavy 128px source - OFF shows identical blobs locked to a perfect grid,
+  ON scatters them at varied positions/sizes; both 50 FPS / EE 37% / GS 7%
+  (zero runtime cost confirmed). texbake logs "baked N supertile(s)".
+  New files `src/stochtile.{hpp,cpp}`.
+- (115) **Macro ground variation - light/dark patches at the group-of-tiles
+  scale.** The stochastic supertile (114) still repeats every 2-8 tiles (the
+  GS 512 texture cap is hard); this adds an *unbounded* third scale: a
+  per-scene **Variation** (Amount + Patch size, Terrain Editor) multiplies
+  deterministic world-position value noise (two smoothstepped octaves,
+  integer-hash lattice, no trig) into the terrain vertex shade while chunks
+  bake. Zero runtime cost (vertex colors are computed at build anyway),
+  infinite period, and it tints base + painted layers TOGETHER (all shading
+  flows through shadeAt), so patches read as ground lighting, not an overlay;
+  Gouraud keeps edges smooth. Twin formula in the generated game
+  (templates.cpp `tintNoise2` above buildTerrainChunk) and the viewport
+  (viewport.cpp) - identical inputs, kept in sync. The supertile generator
+  also gained a few large low-amplitude brightness blotches (mid scale), so
+  micro/mid/macro compose. Fields on SceneData (in undo, manifest + history
+  JSON, emitted as TERRAIN_TINT_VARIATIONS/SCALES). **Verified**: harness
+  round-trip + codegen checks (34 total now); PCSX2 SW renderer shows soft
+  multi-tile light/dark patches over the stochastic scatter at 50 FPS / EE
+  35% (same as without - zero cost); editor GUI shows the Variation section
+  and the viewport crop shows the same patches over the checker (twin
+  confirmed both sides).
+- (116) **Terrain Editor polish: base material combo + stochastic no-op hint.**
+  Two friction points from real use. (1) The base terrain material could only
+  be set in Scene Preferences, away from where you paint - now there's a
+  material combo on the base row of the Terrain Editor's layer stack; it edits
+  the scene's own material when the scene overrides the project default,
+  otherwise the project default (so a single-scene project just sets it in
+  place). (2) "Stochastic tiling did nothing" - because it scrambles a texture,
+  and the base (or a layer) with no texture assigned had nothing to work on,
+  silently. The Stochastic toggles are now disabled (greyed) whenever the
+  base/layer has no texture, with a tooltip saying to assign one first;
+  codegen was already a no-op there, so this is purely communicative. Verified
+  by GUI: assigned a base material from the Terrain Editor combo (flat green ->
+  tiled ground), the checkbox re-enabled, and ticking it visibly broke the
+  tiled grid in the viewport preview.
+
 - (122) **Model yaw offset (content-forward correction) + FBX orientation
   investigation on real user content.** Owner's imported cat
   (`character.fbx`) faced 90 deg sideways as a third-person avatar.
