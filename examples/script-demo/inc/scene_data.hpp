@@ -9,6 +9,8 @@ struct SceneObjectData {
              // 11=empty (pure transform, no geometry/collision)
              // 12=plane 13=decal 14=camera (cutscene shot marker)
              // 15=mirror (glass quad; reflections via MIRRORS below)
+             // 16=portal (linked surface; through-view + teleport
+             //    via PORTALS below)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -71,7 +73,7 @@ constexpr SceneObjectData SCENE_0_OBJECTS[2] = {
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {2};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
-constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[2] = {0xe595f1deb3868c2aULL, 0x0187013ae4b6db9cULL};
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[2] = {0x1b43a3798e80ce83ULL, 0xc9019bb8292b6453ULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
@@ -97,6 +99,28 @@ constexpr MirrorData MIRRORS[1] = {
     {0, -1, 0.0F, 0, 0, 0}
 };
 constexpr int MIRROR_TARGETS[1] = {-1};
+
+// Portals (type 16): each entry links a surface to its target
+// portal. The game renders the through-view of the nearest one
+// into a VRAM target every frame and teleports whatever crosses
+// the surface (renderPortalView/renderPortals/updatePortals in
+// the game cpp). Indices index the portal's own scene table.
+struct PortalData {
+  int scene;            // scene index
+  int object;           // the portal's index in its scene table
+  int target;           // linked portal's index, -1 = inactive
+  int showTerrain;      // 1 = sky dome + terrain in the view
+  int teleportObjects;  // 1 = physics objects teleport too
+  int viewAll;          // 1 = EVERY object in the view
+                        //     (experimental; list ignored)
+  int firstView;        // first entry in PORTAL_VIEW_OBJECTS
+  int viewCount;
+};
+constexpr int PORTAL_COUNT = 0;
+constexpr PortalData PORTALS[1] = {
+    {0, -1, -1, 0, 0, 0, 0, 0}
+};
+constexpr int PORTAL_VIEW_OBJECTS[1] = {-1};
 
 constexpr int SND_COUNT = 0;
 inline const char* SND_PATHS[1] = {""};

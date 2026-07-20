@@ -328,6 +328,12 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "Changes the analog stick response curve live. num[0] "
                  "Stick: 0 left, 1 right, 2 both. num[1] Curve: 0 Linear, 1 "
                  "Exponential, 2 S-Curve. num[2] Exponent >= 1."},
+        {.key = "VibratePad", .title = "Vibrate Pad", .category = "Player",
+         .numCount = 3, .numLabels = {"Big", "Small", "Seconds"},
+         .desc = "Vibrates the DualShock pad. num[0] Big: heavy-motor "
+                 "strength 0..1. num[1] Small: the on/off buzz motor (!= 0 = "
+                 "on). num[2] Seconds > 0 auto-stops after that long, 0 = "
+                 "vibrate until the next Vibrate Pad. Big 0 + Small off stops."},
         // Scene
         {.key = "SetSky", .title = "Set Sky Color", .category = "Scene",
          .numCount = 3, .numKind = FlowParamKind::Color,

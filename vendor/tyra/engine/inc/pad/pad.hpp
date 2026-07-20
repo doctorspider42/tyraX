@@ -11,6 +11,8 @@
 # hot-join) for two-player games.
 */
 
+// Modified by TyraX: setActuators() - runtime DualShock vibration control.
+
 #include <kernel.h>
 #include <libpad.h>
 
@@ -47,6 +49,11 @@ class Pad {
   /** Modified by TyraX: false while an optional pad has no controller. */
   inline bool isConnected() const { return connected; }
   inline int getPort() const { return port; }
+
+  /** Drives the DualShock vibration motors. smallMotor is the on/off buzz
+   * engine, bigPower the heavy motor's strength (0 = off, 255 = full).
+   * The state persists until the next call; no-op without actuators. */
+  void setActuators(const bool& smallMotor, const u8& bigPower);
 
   inline const PadButtons& getClicked() const { return clicked; }
   inline const PadButtons& getPressed() const { return pressed; }

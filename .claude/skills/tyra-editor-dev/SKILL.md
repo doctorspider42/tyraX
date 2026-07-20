@@ -129,7 +129,7 @@ sequences and mirror target lists do) must be added to `batchBlockedNames()`
 exclusion-worthy per-object property (a new special draw path, a new
 streaming mechanism) must be added to `staticBatchEligible()`.
 
-**New object type** → `PrimitiveType` enum (0–15 used so far; keep values stable,
+**New object type** → `PrimitiveType` enum (0–16 used so far; keep values stable,
 they're serialized) → mesh/marker in viewport.cpp → insert menu in app.cpp →
 codegen + runtime as above. If the type needs per-object variable-length data
 (like Mirror's reflected-object list), don't grow the fixed `SceneObjectData`

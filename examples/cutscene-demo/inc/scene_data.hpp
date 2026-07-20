@@ -9,6 +9,8 @@ struct SceneObjectData {
              // 11=empty (pure transform, no geometry/collision)
              // 12=plane 13=decal 14=camera (cutscene shot marker)
              // 15=mirror (glass quad; reflections via MIRRORS below)
+             // 16=portal (linked surface; through-view + teleport
+             //    via PORTALS below)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -81,7 +83,7 @@ constexpr SceneObjectData SCENE_0_OBJECTS[12] = {
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {12};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
-constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[12] = {0xb3d88f86c1584653ULL, 0xff5ffe1cb211f8dfULL, 0x1c184c248142dff8ULL, 0x0bea421a1dc5b9faULL, 0x13b8e598b1c82de2ULL, 0x80666552262f4ea3ULL, 0x5058bb97e8307891ULL, 0xccafdd7ff5c8c57bULL, 0x843518e84b7bc75dULL, 0x6a39ada093b9001cULL, 0xe47f9b5f91a3cdc6ULL, 0x2d8730452e9fced8ULL};
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[12] = {0x2240e778e71f821cULL, 0x6288774ccdc4d14fULL, 0x0c784642b22b7822ULL, 0xdb40149ab101af28ULL, 0xbdae8710c35c4b4bULL, 0xb780bbb7cb55c596ULL, 0x23f2fa95f46ec03bULL, 0x65a9ff7b7daa72f1ULL, 0xe1d2085b65ec7bd1ULL, 0x20779af7f721622eULL, 0x2a2e9789bda7ad27ULL, 0x2afb8b1ad80ca97dULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
@@ -107,6 +109,28 @@ constexpr MirrorData MIRRORS[1] = {
     {0, -1, 0.0F, 0, 0, 0}
 };
 constexpr int MIRROR_TARGETS[1] = {-1};
+
+// Portals (type 16): each entry links a surface to its target
+// portal. The game renders the through-view of the nearest one
+// into a VRAM target every frame and teleports whatever crosses
+// the surface (renderPortalView/renderPortals/updatePortals in
+// the game cpp). Indices index the portal's own scene table.
+struct PortalData {
+  int scene;            // scene index
+  int object;           // the portal's index in its scene table
+  int target;           // linked portal's index, -1 = inactive
+  int showTerrain;      // 1 = sky dome + terrain in the view
+  int teleportObjects;  // 1 = physics objects teleport too
+  int viewAll;          // 1 = EVERY object in the view
+                        //     (experimental; list ignored)
+  int firstView;        // first entry in PORTAL_VIEW_OBJECTS
+  int viewCount;
+};
+constexpr int PORTAL_COUNT = 0;
+constexpr PortalData PORTALS[1] = {
+    {0, -1, -1, 0, 0, 0, 0, 0}
+};
+constexpr int PORTAL_VIEW_OBJECTS[1] = {-1};
 
 constexpr int SND_COUNT = 0;
 inline const char* SND_PATHS[1] = {""};

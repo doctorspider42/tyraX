@@ -11,6 +11,8 @@
 # hot-join) for two-player games. padInit() is called once globally.
 */
 
+// Modified by TyraX: setActuators() - runtime DualShock vibration control.
+
 #include <tamtypes.h>
 #include <loadfile.h>
 #include <sifrpc.h>
@@ -188,6 +190,17 @@ int Pad::initPadSoft() {
   }
   TYRA_LOG("Optional pad initialized (port ", this->port, ")");
   return 1;
+}
+
+/** Drives the vibration motors via act-direct (slots set up in initPad).
+ * padSetActDirect copies the buffer into its own RPC command, so a local is
+ * fine. Called only when the requested state changes, never per frame. */
+void Pad::setActuators(const bool& smallMotor, const u8& bigPower) {
+  if (this->actuators == 0) return;
+  char actDirect[6] = {0, 0, 0, 0, 0, 0};
+  actDirect[0] = smallMotor ? 1 : 0;         // small engine: on/off
+  actDirect[1] = static_cast<char>(bigPower);  // big engine: 0-255
+  padSetActDirect(this->port, this->slot, actDirect);
 }
 
 /** Updates state of joys/buttons. Called by engine */

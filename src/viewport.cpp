@@ -791,6 +791,8 @@ void Viewport::shutdown() {
     destroyMesh(wireSphere_);
     destroyMesh(cameraBody_);
     destroyMesh(cameraFrustum_);
+    destroyMesh(segment_);
+    destroyMesh(portalArrow_);
     clearPrimMeshCache();
     destroyMesh(skyQuad_);
     destroyMesh(prevBg_);
@@ -916,6 +918,8 @@ void Viewport::buildPrimitiveMeshes() {
     destroyMesh(wireSphere_);
     destroyMesh(cameraBody_);
     destroyMesh(cameraFrustum_);
+    destroyMesh(segment_);
+    destroyMesh(portalArrow_);
     box_ = uploadMesh(unitBox());
     sphere_ = uploadMesh(unitSphere());
     cylinder_ = uploadMesh(unitCylinder());
@@ -929,6 +933,32 @@ void Viewport::buildPrimitiveMeshes() {
     wireSphere_ = uploadMesh(unitWireSphere());
     cameraBody_ = uploadMesh(unitCameraBody());
     cameraFrustum_ = uploadMesh(unitCameraFrustum());
+    {
+        // unit +Z segment - stretched onto arbitrary endpoints for the
+        // portal link line (only the third matrix column + translation
+        // matter: the two vertices sit at z=0 and z=1).
+        std::vector<float> seg;
+        pushVertexColor(seg, 0, 0, 0, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(seg, 0, 0, 1.0f, 1.0f, 1.0f, 1.0f);
+        segment_ = uploadMesh(seg);
+    }
+    {
+        // +Z arrow (shaft + 4 head barbs): marks the portal's ENTRY side -
+        // the front face that shows the view and accepts the crossing.
+        std::vector<float> ar;
+        pushVertexColor(ar, 0, 0, 0, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, 0, 0, 1.0f, 1.0f, 1.0f, 1.0f);
+        const float b = 0.12f, zb = 0.78f;
+        pushVertexColor(ar, 0, 0, 1.0f, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, b, 0, zb, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, 0, 0, 1.0f, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, -b, 0, zb, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, 0, 0, 1.0f, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, 0, b, zb, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, 0, 0, 1.0f, 1.0f, 1.0f, 1.0f);
+        pushVertexColor(ar, 0, -b, zb, 1.0f, 1.0f, 1.0f);
+        portalArrow_ = uploadMesh(ar);
+    }
 }
 
 const Viewport::Mesh& Viewport::primMesh(PrimitiveType type, int detail) {
@@ -2022,6 +2052,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             case PrimitiveType::Plane: return &plane_;
             case PrimitiveType::Decal: return &decal_;
             case PrimitiveType::Mirror: return &decal_;  // glass quad, +Z face
+            case PrimitiveType::Portal: return &decal_;  // surface quad, +Z face
             case PrimitiveType::SpawnPoint: return &spawnMarker_;
             case PrimitiveType::Player: return &playerMarker_;
             case PrimitiveType::SoundEmitter: return &sphere_;  // speaker-ish marker
@@ -2073,9 +2104,12 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 continue;
             }
             // Mirrors draw in their own pass after the scene (reflected
-            // copies first, glass blended over them); the wire passes still
-            // outline the quad here so wireframe views show the rectangle.
-            if (o.type == PrimitiveType::Mirror && !asLines) continue;
+            // copies first, glass blended over them); portals blend their
+            // surface after the scene too. The wire passes still outline
+            // both quads here so wireframe views show the rectangle.
+            if ((o.type == PrimitiveType::Mirror ||
+                 o.type == PrimitiveType::Portal) && !asLines)
+                continue;
             const Mat4 model = modelMatrix(o);
             const Mat4 mvp = mul(viewProj, model);
             // the bulb gizmo stays emissive - everything else receives light
@@ -2264,6 +2298,36 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         }
     }
 
+    // Portal surfaces: the editor has no live through-view (that is the
+    // game's in-place render), so the quad blends as a translucent energy
+    // surface in the object color - linked pairs read via the link line
+    // drawn with the other gizmos below. The entry-side arrow (out of the
+    // +Z front face - the side that shows the view and teleports) draws in
+    // every view mode: authoring needs the orientation at a glance.
+    if (viewMode_ != ViewMode::Wireframe) {
+        for (size_t pi = 0; pi < objects.size(); ++pi) {
+            const SceneObject& p = objects[pi];
+            if (p.type != PrimitiveType::Portal || hiddenAt(pi)) continue;
+            const Mat4 model = modelMatrix(p);
+            draw(decal_, GL_TRIANGLES, mul(viewProj, model), p.color[0],
+                 p.color[1], p.color[2], 0, &model, false, 0.7f);
+        }
+    }
+    for (size_t pi = 0; pi < objects.size(); ++pi) {
+        const SceneObject& p = objects[pi];
+        if (p.type != PrimitiveType::Portal || hiddenAt(pi)) continue;
+        const float d2r = kPi / 180.0f;
+        Mat4 m = scaleM(1.2f, 1.2f, 1.2f);  // fixed length, quad-scale-free
+        m = mul(rotX(p.rotation[0] * d2r), m);
+        m = mul(rotY(p.rotation[1] * d2r), m);
+        m = mul(rotZ(p.rotation[2] * d2r), m);
+        m = mul(translation(p.position[0], p.position[1], p.position[2]), m);
+        // brightened toward white so it pops against the tinted surface
+        draw(portalArrow_, GL_LINES, mul(viewProj, m),
+             0.5f + 0.5f * p.color[0], 0.5f + 0.5f * p.color[1],
+             0.5f + 0.5f * p.color[2]);
+    }
+
     // Grid lines, axes and the selection outline are unaffected by view mode
     for (const Mesh& chunkLines : terrainLineMeshes_)
         draw(chunkLines, GL_LINES, viewProj, 1.0f, 1.0f, 1.0f);
@@ -2302,6 +2366,31 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         m = mul(rotZ(o.rotation[2] * d2r), m);
         m = mul(translation(o.position[0], o.position[1], o.position[2]), m);
         draw(cameraFrustum_, GL_LINES, mul(viewProj, m), o.color[0], o.color[1],
+             o.color[2]);
+    }
+
+    // Portal link line: portal -> its target portal, in the portal's color.
+    // Only the segment's third matrix column and translation matter (the
+    // mesh's two vertices sit at local z=0 and z=1).
+    for (size_t oi = 0; oi < objects.size(); ++oi) {
+        const SceneObject& o = objects[oi];
+        if (o.type != PrimitiveType::Portal || hiddenAt(oi)) continue;
+        if (o.portalTarget.empty()) continue;
+        const SceneObject* tgt = nullptr;
+        for (const SceneObject& t : objects)
+            if (t.type == PrimitiveType::Portal && t.name == o.portalTarget) {
+                tgt = &t;
+                break;
+            }
+        if (!tgt) continue;
+        Mat4 seg = identity();
+        seg.m[8] = tgt->position[0] - o.position[0];
+        seg.m[9] = tgt->position[1] - o.position[1];
+        seg.m[10] = tgt->position[2] - o.position[2];
+        seg.m[12] = o.position[0];
+        seg.m[13] = o.position[1];
+        seg.m[14] = o.position[2];
+        draw(segment_, GL_LINES, mul(viewProj, seg), o.color[0], o.color[1],
              o.color[2]);
     }
 

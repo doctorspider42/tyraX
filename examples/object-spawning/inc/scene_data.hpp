@@ -9,6 +9,8 @@ struct SceneObjectData {
              // 11=empty (pure transform, no geometry/collision)
              // 12=plane 13=decal 14=camera (cutscene shot marker)
              // 15=mirror (glass quad; reflections via MIRRORS below)
+             // 16=portal (linked surface; through-view + teleport
+             //    via PORTALS below)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -73,7 +75,7 @@ constexpr SceneObjectData SCENE_0_OBJECTS[4] = {
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {4};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
-constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[4] = {0x45a69fdf7382e3ebULL, 0x1271a88732f18bb2ULL, 0x0786ae830be0b088ULL, 0xf7974114edfcdf0fULL};
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[4] = {0x95ece96a88c7681fULL, 0x9bb4fa9a8a19d8b1ULL, 0x5ae94b342e5f1f4aULL, 0x329173dab8d13f70ULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
@@ -99,6 +101,28 @@ constexpr MirrorData MIRRORS[1] = {
     {0, -1, 0.0F, 0, 0, 0}
 };
 constexpr int MIRROR_TARGETS[1] = {-1};
+
+// Portals (type 16): each entry links a surface to its target
+// portal. The game renders the through-view of the nearest one
+// into a VRAM target every frame and teleports whatever crosses
+// the surface (renderPortalView/renderPortals/updatePortals in
+// the game cpp). Indices index the portal's own scene table.
+struct PortalData {
+  int scene;            // scene index
+  int object;           // the portal's index in its scene table
+  int target;           // linked portal's index, -1 = inactive
+  int showTerrain;      // 1 = sky dome + terrain in the view
+  int teleportObjects;  // 1 = physics objects teleport too
+  int viewAll;          // 1 = EVERY object in the view
+                        //     (experimental; list ignored)
+  int firstView;        // first entry in PORTAL_VIEW_OBJECTS
+  int viewCount;
+};
+constexpr int PORTAL_COUNT = 0;
+constexpr PortalData PORTALS[1] = {
+    {0, -1, -1, 0, 0, 0, 0, 0}
+};
+constexpr int PORTAL_VIEW_OBJECTS[1] = {-1};
 
 constexpr int SND_COUNT = 0;
 inline const char* SND_PATHS[1] = {""};

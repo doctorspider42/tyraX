@@ -123,6 +123,7 @@ The same context global scripts receive; the fields you will actually use:
 | `ctx.usedObject` | Index of the object USEd this frame (-1 none) - `onUsed` is the ergonomic form. |
 | `ctx.saveValues`, `ctx.saveTexts` | Named values persisted in memory-card saves. |
 | `ctx.openMenu`, `ctx.menuEvent` | Open a game menu / react to a menu entry's flow event. |
+| `ctx.rumble*` | Pad vibration request — prefer the `padVibrate(ctx, big, small, seconds)` helper (big = heavy motor 0..1, small = the buzz motor, seconds > 0 auto-stops, 0 = until the next call). |
 | `ctx.scene`, `ctx.requestScene` | Active scene index; write an index to switch scenes after this frame. |
 | `ctx.sceneGeneration` | Bumps on every scene (re)load - object scripts rarely need it (their lifetime already tracks it). |
 
