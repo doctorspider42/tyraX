@@ -9,6 +9,74 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (122) **Model yaw offset (content-forward correction) + FBX orientation
+  investigation on real user content.** Owner's imported cat
+  (`character.fbx`) faced 90 deg sideways as a third-person avatar.
+  Diagnosis chain, each step measured: (1) the RAW file (before any
+  importer conversion) already has its content long along +-X while
+  declaring front=+Z - the import preserves orientation byte-faithfully;
+  (2) the repo's working `cat.glb` is the same rig whose root was
+  hand-wrapped into Z-forward back in the two-player work - same disease,
+  same source convention (models authored facing Blender's red +X axis;
+  both exporters map Blender's -Y to the engine's forward); (3) a host
+  replica of TsklLoader's full validation passes the fbx-baked .tskl, and
+  in-game instrumentation showed the model loading, skinning and animating
+  correctly - the "invisible avatar" red herring during verification was
+  the idle clip resolving to the fbx's `EmptyAction` (a REAL animated take
+  on the Armature that flings the cat off-camera; the rest pose is
+  `reference|EmptyAction`, matching how the .glb rig is authored).
+  Fix shipped: **`modelYawOffset`** on SceneObject (degrees around the
+  model's own Y, applied between scale and rotation in the generated
+  game's anim-matrix build AND the viewport's `modelMatrix` - the two are
+  documented twins), so an X-forward model renders turned while the
+  walker's faceYaw, AI turn-to-face and authored rotation stay
+  convention-pure. Full chain: field + `==`, JSON (`modelYaw`, omitted at
+  0), `liveLinkRecipeHash`, `SceneObjectData` column + placeholder row,
+  band-cull rotated-object check includes the offset, Properties UI row
+  (with the Blender-habit tooltip) on animated models and avatars.
+  Also switched the ufbx load to `SPACE_CONVERSION_ADJUST_TRANSFORMS` +
+  `GEOMETRY_TRANSFORM_HANDLING_HELPER_NODES` (the geometry-modifying
+  variants are documented as animation-lossy; sausage-rig regression
+  identical). Verified in PCSX2: the fbx cat renders sideways at offset 0
+  and tail-to-camera at +90 (screenshots), sausage harness byte-identical,
+  scratch project codegen + Docker build clean. Root-motion note for
+  authoring: the fbx walk take carries ~1.3 m of real root travel - as an
+  avatar clip that reads as sliding; export locomotion in place.
+
+
+
+- (121) **FBX import for animated models (.fbx next to .glb).** Feasibility
+  answered with a yes: the vendored [ufbx](https://github.com/ufbx/ufbx)
+  single-source reader (MIT; `vendor/ufbx`, cloned by setup.ps1 like the
+  other deps, compiled into the editor) reads binary+ASCII FBX from
+  Blender/Maya/Max. New `src/fbxparser.cpp/.hpp` fills the SAME
+  `glbparser::Baked`/`Skel` structures the .glb path produces, so
+  everything downstream — `.tskl` serialization, LODs, viewport preview,
+  import validation, codegen, the third-person locomotion mapping — is
+  untouched and format-agnostic; call sites now go through a tiny
+  `animimport::bake/parseSkel` extension dispatch. Design choices: axes/
+  units normalized to the glTF convention (right-handed Y-up, meters -
+  Maya centimeter rigs import at the right size), geometry transforms
+  (pivots) baked into vertices, FBX animation curves NOT translated but
+  **resampled at 24 Hz and RDP keyframe-reduced per channel** (sidesteps
+  rotation orders/pre-post rotations/pivot curves entirely; quaternion
+  hemisphere continuity enforced for the runtime's lerp), take names
+  `Armature|Walk` shortened to `Walk` (full name kept on collision),
+  weights capped to the 4 strongest and renormalized to 255, external
+  texture files copied next to the imported .fbx (a .glb embeds them, an
+  .fbx usually does not; non-PNG transcoded). `isAnimatedModelPath` now
+  accepts .fbx; import dialog, model combos (via a merged
+  `listAnimatedModelFiles`) and UI texts updated. Verified: editor builds
+  clean; a scratchpad harness on ufbx's skinned test rig
+  (`blender_279_sausage_7400_binary.fbx`) shows 3 named clips, 1728 verts,
+  3-bone palette, all weight sums == 255, real vertex motion across baked
+  frames, 126 keys after reduction, 58 KB .tskl; composing the exported
+  node TRS hierarchy reproduces ufbx's own `node_to_world` to 2.4e-7;
+  full e2e: scratch project with the .fbx as a Model object `--refresh-gen`
+  bakes `res/models/sausage.tskl` and the Docker game build compiles
+  (=== Build OK ===). Pending: an in-PCSX2 visual pass of an .fbx model
+  animating (blocked this session by a parallel PCSX2 instance) and a
+  GUI import-dialog walkthrough.
 - (114) **Physics perf: moving bodies render through a VU1 model matrix
   (28-body bench 14 → 156 FPS) + frame-counter timers made wall-clock true
   under disableVsync.** Profiling the (113) physics with bodies scattered

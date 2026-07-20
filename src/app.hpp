@@ -165,6 +165,7 @@ private:
     // Files directly under res/<subdir> with the given extension (lowercase
     // compare), names only, sorted by the directory iteration order
     std::vector<std::string> listAssetFiles(const char* subdir, const char* ext);
+    std::vector<std::string> listAnimatedModelFiles();
     // "Pick..." button + popup listing res/textures; true when path changed
     bool pickProjectTexture(const char* popupId, std::string& path);
     // Cached objparser summary of a model (for the properties panel)

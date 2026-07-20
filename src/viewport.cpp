@@ -1,5 +1,7 @@
 #include "viewport.hpp"
 
+#include "fbxparser.hpp"
+
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -98,9 +100,13 @@ Mat4 rotZ(float a) {
 }
 
 // Same composition as the generated PS2 code: scale -> rotX -> rotY -> rotZ -> translate
+// (+ the animated-model content-forward correction between scale and rotation,
+// mirroring the game's modelYaw pre-rotation - keep the two in sync).
 Mat4 modelMatrix(const SceneObject& o) {
     const float d2r = kPi / 180.0f;
     Mat4 m = scaleM(o.scale[0], o.scale[1], o.scale[2]);
+    if (o.modelYawOffset != 0.0f && isAnimatedModelPath(o.modelPath))
+        m = mul(rotY(o.modelYawOffset * d2r), m);  // avatars included
     m = mul(rotX(o.rotation[0] * d2r), m);
     m = mul(rotY(o.rotation[1] * d2r), m);
     m = mul(rotZ(o.rotation[2] * d2r), m);
@@ -1695,7 +1701,7 @@ Viewport::AnimModelDraw* Viewport::animModelDraw(const std::string& relPath) {
     AnimModelDraw draw;
     std::string error;
     const std::string full = (std::filesystem::path(projectDir_) / relPath).string();
-    if (glbparser::bake(full, 12.0f, draw.baked, error)) {
+    if (animimport::bake(full, 12.0f, draw.baked, error)) {
         draw.ok = true;
         std::vector<uint32_t> imageTex(draw.baked.images.size(), 0);
         for (size_t i = 0; i < draw.baked.images.size(); ++i) {
