@@ -77,7 +77,9 @@ the editor's custom screen effects, `docs/custom-screen-effects.md`; the effect
 body appends GS primitives through the now-public `blit()`/`flatQuad()` and the
 framebuffer/noise/scratch-buffer accessors, and the engine wraps the state
 setup/teardown + DMA kick), WAV-header-aware song
-player, `bboxVersion` on `StaPipBag` for moving geometry, `LeanObjLoader`
+player, `bboxVersion` on `StaPipBag` for moving geometry, `Pad::setActuators` (act-direct DualShock rumble —
+the on/off buzz motor + 0-255 heavy motor — behind the Vibrate Pad flow node /
+`padVibrate()` script helper), `LeanObjLoader`
 (OBJ+MTL, host:/cdrom0:-safe; parsing semantics mirror the editor's
 `src/objparser.cpp` — keep the two in sync; parses the `refl` sphere-map
 statement for reflective materials incl. the TyraX `-rounded` flag:

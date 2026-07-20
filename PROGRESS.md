@@ -9,6 +9,28 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (104) **Gamepad vibration (DualShock rumble) — flow node + scripts.** The
+  engine fork's `Pad` gains `setActuators(smallMotor, bigPower)` (`Modified by
+  TyraX` in pad.hpp/pad.cpp): act-direct control of the two DualShock motors —
+  the on/off buzz engine and the 0–255 heavy motor — using the actuator slots
+  `initPad()` was already aligning (it logged "# of actuators: 2" and then
+  never drove them). On top of that: `ScriptContext` carries a rumble request
+  (`rumble` −1 = leave / 0–255 big-motor power, `rumbleSmall`, `rumbleSec`)
+  plus a `padVibrate(ctx, big01, small, seconds)` helper in the generated
+  `script.hpp`; both game loops (orbit + FPP) apply the request and run a
+  `g_rumbleTimer` auto-stop countdown (Seconds > 0 — it ticks even while a
+  menu pauses the scripts, so a timed rumble always ends; Seconds 0 = vibrate
+  until the next request). A **Vibrate Pad** flow node (Player category; Big
+  0..1 slider, Small checkbox, Seconds; defaults big=1, 0.5 s) compiles to the
+  same request in `actionCode()`. **Verified:** editor builds clean; a scratch
+  FPP project with an injected `On Start → Vibrate Pad` graph emits
+  `ctx.rumble = 204 / ctx.rumbleSmall = 1 / ctx.rumbleSec = 1.5F` in
+  `flow_graph.gen.cpp`; engine + game compile in Docker and boot in PCSX2
+  (pad init logs "# of actuators: 2", the game runs at 50 FPS through the
+  on-start rumble and its 1.5 s auto-stop — no hang, no assert). The actual
+  rumble *feel* needs a physical controller (PCSX2 forwards vibration to the
+  host pad); that hands-on check stays with a human.
+
 - (117) **Particle billboards move from the EE to a VU1 program family.**
   `updateParticles()` used to both simulate AND expand every particle into a
   camera-facing quad on the EE — 6 verts + 6 colors (+ 6 STs) written per
