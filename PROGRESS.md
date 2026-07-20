@@ -9,7 +9,7 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (122) **examples/two-players: two cats, Cesium Man removed, sky-toggle
+- (122) **examples/two-players: two cats, the sample-man avatar removed, sky-toggle
   defused; static batching (#120) merged into the branch.** Owner request
   after the profiling session. P1 is now `player-cat-ginger` - the same
   `cat.glb` avatar as P2 at scale 3 with the P2 rig (cat-sized boom, Idle
@@ -18,7 +18,7 @@ Each finished feature lands as its own commit.
   camera-dependent" report: unmapped idle fell back to clip 0 = the walk
   cycle, whose root motion swung the body) and a ginger tint vs P2's gray
   (object color multiplies the model texture - two distinct cats from one
-  .glb). `cesium_man.glb` + its extracted texture deleted from the repo;
+  .glb). the old P1 avatar model + its extracted texture deleted from the repo;
   README/docs mentions rewritten (the 14k-vertex history note in
   docs/multiplayer.md stays as context). `example_interaction.cpp` no
   longer registers the press-X-sky-toggle script - the FILE stays as a
@@ -30,7 +30,7 @@ Each finished feature lands as its own commit.
   fast-forward pull; owner's uncommitted map edits stash-preserved through
   the merge and folded into this commit (terrain heights included).
   Verified: editor rebuilds clean post-merge, example regenerated (both
-  scene rows are cat animModel 0, zero cesium references in generated
+  scene rows are cat animModel 0, zero references to the removed model in generated
   code), Docker build OK, PCSX2 boot clean at 50 FPS with no asserts.
   The 2P visual pass (two distinct cats in split) still wants a pad.
 
@@ -197,7 +197,7 @@ Each finished feature lands as its own commit.
   forward.** Owner playtest findings on (117). The real BUG: renderScene
   runs twice per split frame and the animated path advanced playback AND
   re-skinned every avatar in BOTH halves - animations played at 2x speed
-  and Cesium Man's 14k verts were skinned twice. Fixed with
+  and the P1 avatar's 14k verts were skinned twice. Fixed with
   `splitSecondPass` (generated game): the second half re-submits the
   frame's skinned buffers under its own camera/frustum, no advance, no
   re-skin (a mesh-LOD tier switch still forces the other tier's buffers).
@@ -210,7 +210,7 @@ Each finished feature lands as its own commit.
   whole frame ~21.5 ms - 1.5 ms over the 20 ms vsync budget = halved to 25.
   After skin-reuse: scene 16.4. The rest is content: demo tuned with mesh
   LOD distance 4 (third-person cameras sit ~5 units out -> both avatars
-  render the 50% baked variant nearly always; Cesium Man is a PC-grade
+  render the 50% baked variant nearly always; the old P1 avatar was a PC-grade
   mesh) + terrain detail 16 -> scene 13.2 ms, frame 18.4 ms, **FPS 50
   locked with vsync** (F8-verified counter). The cat: the committed
   cat.glb's root wrap flipped to -90 deg Y (the +90 guess in (117) made it
@@ -219,10 +219,10 @@ Each finished feature lands as its own commit.
   multiplayer.md Performance section, example README, engine skill
   (no-clear contract + splitSecondPass).
 - (117) **examples/two-players + oversized-glb-texture clamp.** The committed
-  demo for (116): Cesium Man (P1) vs a cat (P2) in a box arena, title menu
+  demo for (116): a 14k-vertex sample humanoid (P1) vs a cat (P2) in a box arena, title menu
   picks 1P/2P (Player-count option block), pause menu switches mid-game,
   split-screen third-person cameras per player, Start-on-pad-2 hot-join.
-  Two authoring finds baked into the pipeline/docs: **(a)** Cesium Man's
+  Two authoring finds baked into the pipeline/docs: **(a)** the humanoid's
   1024x1024 embedded texture hit the engine's hard `TYRA_ASSERT` (512 max)
   and quiet-halted the game on load - glbparser's image extraction now
   box-downscales oversized embedded textures to <=512 (power-of-two factor,

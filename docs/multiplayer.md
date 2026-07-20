@@ -139,10 +139,10 @@ above now collapses their N to the batch count, so the rule bites mainly
 for objects batching must leave solo (scripted/physical/streamed ones and
 models).
 
-What's on you: vertex counts and object counts. A PC-grade avatar (the
-demo's original Cesium Man avatar was 14k vertices before the example
-switched to two cats) skinned and submitted per half eats the 20 ms PAL
-budget fast - and so does a large count of separate small objects, through
+What's on you: vertex counts and object counts. A PC-grade avatar (an
+early revision of the demo was tested with a 14k-vertex sample model
+before switching to the two cats) skinned and submitted per half eats the
+20 ms PAL budget fast - and so does a large count of separate small objects, through
 the per-bag submit cost above.
 The demo gets from 25 to a locked 50 FPS with two knobs — **mesh LOD**
 (*Preferences > Rendering > Mesh LOD distance* ~4: third-person cameras sit
