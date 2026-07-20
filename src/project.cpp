@@ -288,6 +288,12 @@ static std::string objectJson(const SceneObject& o) {
         ", \"rotation\": " + fmtVec3(o.rotation) + ", \"scale\": " + fmtVec3(o.scale) +
         ", \"color\": " + fmtVec3(o.color) +
         ", \"physics\": " + (o.physics ? "true" : "false") +
+        // the physics material block only where it means something
+        (o.physics ? ", \"physMass\": " + fmtFloat(o.physMass) +
+                         ", \"physBounce\": " + fmtFloat(o.physBounce) +
+                         ", \"physFriction\": " + fmtFloat(o.physFriction) +
+                         ", \"physTumble\": " + (o.physTumble ? "true" : "false")
+                   : "") +
         (o.usable ? ", \"usable\": true" : "") +
         (o.saveState ? ", \"saveState\": true" : "") +
         // collision: box is the default and stays implicit
@@ -1420,6 +1426,18 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         readVec3(jo.find("color"), o.color);
         if (const auto* v = jo.find("physics"))
             o.physics = v->type == json::Value::Type::Bool && v->boolean;
+        if (const auto* v = jo.find("physMass")) o.physMass = (float)v->numberOr(1.0);
+        if (o.physMass < 0.05f) o.physMass = 0.05f;
+        if (const auto* v = jo.find("physBounce"))
+            o.physBounce = (float)v->numberOr(0.35);
+        if (o.physBounce < 0.0f) o.physBounce = 0.0f;
+        if (o.physBounce > 1.0f) o.physBounce = 1.0f;
+        if (const auto* v = jo.find("physFriction"))
+            o.physFriction = (float)v->numberOr(0.5);
+        if (o.physFriction < 0.0f) o.physFriction = 0.0f;
+        if (o.physFriction > 1.0f) o.physFriction = 1.0f;
+        if (const auto* v = jo.find("physTumble"))
+            o.physTumble = !(v->type == json::Value::Type::Bool && !v->boolean);
         if (const auto* v = jo.find("usable"))
             o.usable = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = jo.find("saveState"))

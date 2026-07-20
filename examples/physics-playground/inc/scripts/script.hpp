@@ -5,7 +5,7 @@
 #include <vector>
 #include "scene_data.hpp"
 
-namespace Showcase {
+namespace Physics_playground {
 
 /** Frames of near-rest ground contact after which a physics body falls
  * asleep (a sleeping body costs one branch per frame until woken). */
@@ -354,14 +354,14 @@ inline std::vector<ObjectScriptFactory>& getObjectScriptFactories() {
   return factories;
 }
 
-}  // namespace Showcase
+}  // namespace Physics_playground
 
 /** Registers a script class. Put TYRA_SCRIPT(MyScript); at file scope. */
 #define TYRA_SCRIPT_CONCAT_INNER(a, b) a##b
 #define TYRA_SCRIPT_CONCAT(a, b) TYRA_SCRIPT_CONCAT_INNER(a, b)
 #define TYRA_SCRIPT(ClassName)                                             \
   static const bool TYRA_SCRIPT_CONCAT(_tyraScript_, __COUNTER__) = []() { \
-    Showcase::getScripts().push_back(new ClassName());            \
+    Physics_playground::getScripts().push_back(new ClassName());            \
     return true;                                                           \
   }()
 
@@ -370,8 +370,8 @@ inline std::vector<ObjectScriptFactory>& getObjectScriptFactories() {
  * TYRA_OBJECT_SCRIPT(MyScript); at file scope INSIDE your namespace. */
 #define TYRA_OBJECT_SCRIPT(ClassName)                                         \
   static const bool TYRA_SCRIPT_CONCAT(_tyraObjScript_, __COUNTER__) = []() { \
-    Showcase::getObjectScriptFactories().push_back(                  \
-        {#ClassName, []() -> Showcase::ObjectScript* {               \
+    Physics_playground::getObjectScriptFactories().push_back(                  \
+        {#ClassName, []() -> Physics_playground::ObjectScript* {               \
           return new ClassName();                                             \
         }});                                                                  \
     return true;                                                              \
