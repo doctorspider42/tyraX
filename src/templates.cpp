@@ -725,20 +725,25 @@ class TerrainGame : public Tyra::Game {
   unsigned int sceneGeneration = 0;
 
   // Particle emitters (type 7): fixed pools sized at scene load, zero
-  // per-frame allocations; camera-facing quads (textured when the emitter
-  // has a material with a map_Kd), one bag per emitter.
+  // per-frame allocations. The EE only SIMULATES; each particle is
+  // submitted as a single center vertex plus one qword of 2x2 basis
+  // weights and one color, and the VU1 billboard program expands it into
+  // a camera-facing quad (textured when the emitter has a material with a
+  // map_Kd). One bag per emitter; the camera basis rides on the billboard
+  // bag, so another view (a portal pass) can re-render the same centers
+  // after swapping billboardBag->right/up.
   struct ParticleSystem {
     int objectIndex = -1;
     unsigned int rng = 1;
     std::vector<Tyra::Vec4> pos, vel;
     std::vector<float> life, maxLife;
-    std::vector<Tyra::Vec4> verts;
-    std::vector<Tyra::Color> cols;
-    std::vector<Tyra::Vec4> sts;  // fixed per-quad UVs (textured emitters)
+    std::vector<Tyra::Vec4> params;  // per-particle (m00, m01, m10, m11)
+    std::vector<Tyra::Color> cols;   // one RGBA per particle
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBillboardBag> billboardBag;
   };
   std::vector<ParticleSystem> particles;
   void buildParticles();
@@ -1183,20 +1188,25 @@ class TerrainGame : public Tyra::Game {
   unsigned int sceneGeneration = 0;
 
   // Particle emitters (type 7): fixed pools sized at scene load, zero
-  // per-frame allocations; camera-facing quads (textured when the emitter
-  // has a material with a map_Kd), one bag per emitter.
+  // per-frame allocations. The EE only SIMULATES; each particle is
+  // submitted as a single center vertex plus one qword of 2x2 basis
+  // weights and one color, and the VU1 billboard program expands it into
+  // a camera-facing quad (textured when the emitter has a material with a
+  // map_Kd). One bag per emitter; the camera basis rides on the billboard
+  // bag, so another view (a portal pass) can re-render the same centers
+  // after swapping billboardBag->right/up.
   struct ParticleSystem {
     int objectIndex = -1;
     unsigned int rng = 1;
     std::vector<Tyra::Vec4> pos, vel;
     std::vector<float> life, maxLife;
-    std::vector<Tyra::Vec4> verts;
-    std::vector<Tyra::Color> cols;
-    std::vector<Tyra::Vec4> sts;  // fixed per-quad UVs (textured emitters)
+    std::vector<Tyra::Vec4> params;  // per-particle (m00, m01, m10, m11)
+    std::vector<Tyra::Color> cols;   // one RGBA per particle
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBillboardBag> billboardBag;
   };
   std::vector<ParticleSystem> particles;
   void buildParticles();
@@ -1354,6 +1364,11 @@ int g_stickCurveL = 0;
 int g_stickCurveR = 0;
 float g_stickExpL = 2.0F;
 float g_stickExpR = 2.0F;
+
+// Pad vibration auto-stop: > 0 counts down (real seconds, g_frameDt) to a
+// setActuators(false, 0), armed by a Vibrate Pad request with Seconds > 0.
+// Global runtime state - a running countdown survives a scene switch.
+float g_rumbleTimer = 0.0F;
 
 // Last option index a "Display mode" / "Widescreen" menu block applied. Video
 // switches rebuild VRAM + arm the confirm prompt, so they fire only on change
@@ -2485,6 +2500,24 @@ void TerrainGame::loop() {
   if (scriptCtx.stickExpR >= 1.0F) {
     g_stickExpR = scriptCtx.stickExpR;
     scriptCtx.stickExpR = -1.0F;
+  }
+  // Pad vibration (Vibrate Pad flow node / padVibrate() in scripts): a
+  // request drives the DualShock actuators; rumbleSec > 0 arms the auto-stop
+  // countdown (0 = vibrate until the next request). The countdown runs even
+  // while a menu pauses the scripts, so a timed rumble always ends.
+  if (scriptCtx.rumble >= 0) {
+    engine->pad.setActuators(scriptCtx.rumbleSmall != 0, (u8)scriptCtx.rumble);
+    g_rumbleTimer = (scriptCtx.rumble > 0 || scriptCtx.rumbleSmall != 0)
+                        ? scriptCtx.rumbleSec
+                        : 0.0F;
+    scriptCtx.rumble = -1;
+  }
+  if (g_rumbleTimer > 0.0F) {
+    g_rumbleTimer -= g_frameDt;
+    if (g_rumbleTimer <= 0.0F) {
+      g_rumbleTimer = 0.0F;
+      engine->pad.setActuators(false, 0);
+    }
   }
   // Cutscene camera override: a Cutscene Director sequence with a camera track
   // drives the frame camera (Play/Stop Sequence). Applied after scripts so the
@@ -4060,9 +4093,13 @@ void TerrainGame::updateSoundEmitters() {
 
 // --- Particle emitters ------------------------------------------------
 // 2002-style particles: fixed pools sized at scene load, one cheap LCG,
-// no trig and no allocations in the per-frame path. Camera-facing quads
-// colored per vertex; an emitter with a material carrying a map_Kd draws
-// its quads with that texture (the color then modulates it).
+// no trig and no allocations in the per-frame path. The EE simulates and
+// writes one center + one qword of 2x2 basis weights + one color per
+// particle; the VU1 billboard program (engine StaPipBillboardBag) expands
+// each center into a camera-facing quad in clip space, so the quad
+// building cost never touches the EE. An emitter with a material carrying
+// a map_Kd draws its quads with that texture (the color then modulates
+// it; corner UVs are fixed on VU1).
 // The editor viewport mirrors this simulation (viewport.cpp,
 // simulateEmitter) - keep the per-kind formulas in sync.
 static float prand(unsigned int& s) {  // 0..1
@@ -4085,39 +4122,38 @@ void TerrainGame::buildParticles() {
     ps.vel.assign(n, Vec4(0.0F, 0.0F, 0.0F, 0.0F));
     ps.life.assign(n, 0.0F);  // dead -> staggered respawn over the first frames
     ps.maxLife.assign(n, 1.0F);
-    ps.verts.assign((size_t)n * 6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
-    ps.cols.assign((size_t)n * 6, Color(0.0F, 0.0F, 0.0F, 0.0F));
+    ps.params.assign(n, Vec4(0.0F, 0.0F, 0.0F, 0.0F));
+    ps.cols.assign(n, Color(0.0F, 0.0F, 0.0F, 0.0F));
     ps.infoBag = std::make_unique<StaPipInfoBag>();
     ps.infoBag->model = &model;
     ps.infoBag->shadingType = TyraShadingGouraud;
-    ps.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
-    ps.infoBag->fullClipChecks = true;
+    // VU1 billboard bags cull per quad on VU1 - no EE frustum/clip work.
+    // None is safe for billboard bags only: the VU1 program ADCs any quad
+    // whose corner leaves the GS raster window (ordinary bags must never
+    // use None - see the engine skill's wrap pitfall).
+    ps.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_None;
+    ps.infoBag->fullClipChecks = false;
     ps.colorBag = std::make_unique<StaPipColorBag>();
+    ps.colorBag->many = ps.cols.data();
+    ps.billboardBag = std::make_unique<StaPipBillboardBag>();
     ps.bag = std::make_unique<StaPipBag>();
     ps.bag->info = ps.infoBag.get();
     ps.bag->color = ps.colorBag.get();
-    ps.bag->texture = nullptr;
     ps.bag->lighting = nullptr;
+    ps.bag->billboard = ps.billboardBag.get();
+    ps.bag->vertices = ps.pos.data();
     ps.bag->count = 0;
-    // Textured particles: the emitter's material supplies the map (its Kd is
-    // ignored - the emitter color is the tint). UVs are fixed per quad in the
-    // v0,v1,v2 / v0,v2,v3 vertex order used by updateParticles().
+    // The texture bag is mandatory for billboard bags - its coordinates
+    // channel carries the per-particle basis weights. Textured particles:
+    // the emitter's material supplies the map (its Kd is ignored - the
+    // emitter color is the tint); corner UVs are fixed in the VU1 program.
+    ps.texBag = std::make_unique<StaPipTextureBag>();
+    ps.texBag->texture = nullptr;
+    ps.texBag->coordinates = ps.params.data();
     const int mi = runtimeObjects[i].data.material;  // data copy: spawn slots too
-    if (mi >= 0 && mi < (int)gameMaterials.size() && gameMaterials[mi].texture) {
-      ps.sts.reserve((size_t)n * 6);
-      for (int q = 0; q < n; ++q) {
-        ps.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
-        ps.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
-      }
-      ps.texBag = std::make_unique<StaPipTextureBag>();
+    if (mi >= 0 && mi < (int)gameMaterials.size() && gameMaterials[mi].texture)
       ps.texBag->texture = gameMaterials[mi].texture;
-      ps.texBag->coordinates = ps.sts.data();
-      ps.bag->texture = ps.texBag.get();
-    }
+    ps.bag->texture = ps.texBag.get();
     particles.push_back(std::move(ps));
   }
 }
@@ -4150,6 +4186,14 @@ void TerrainGame::updateParticles() {
     const SceneObjectData& d = o.data;
     const int kind = d.emitKind;
     const int n = (int)ps.life.size();
+
+    // Per-emitter billboard basis for the VU1 expansion. Rain streaks hang
+    // from world-up (vertical quads); everything else faces the camera
+    // plane. A portal pass re-renders these bags with the VIRTUAL camera's
+    // basis swapped in - the centers below are view-independent.
+    ps.billboardBag->right = Vec4(rx, 0.0F, rz, 0.0F);
+    ps.billboardBag->up = kind == 4 ? Vec4(0.0F, 1.0F, 0.0F, 0.0F)
+                                    : Vec4(ux, uy, uz, 0.0F);
 
     // Follow player: the emitter position becomes an offset from the camera
     // (place it at X=0/Z=0 and the height above the player's head) - rain
@@ -4271,47 +4315,28 @@ void TerrainGame::updateParticles() {
         alpha = 110.0F * t;
       }
 
-      // rain streaks stay vertical (world-up quads); everything else is a
-      // full camera-facing billboard. Fog puffs additionally swirl: the
-      // billboard slowly rotates in the camera plane, alternating direction
-      // per puff (the swirling fog roll) - keep in sync with the viewport
-      // preview (drawEmitterPreviews).
-      float brx = rx, bry = 0.0F, brz = rz;
-      float bux = ux, buy = uy, buz = uz;
+      // The quad itself is built on VU1: corner = center +/- (right*m00 +
+      // up*m01) +/- (right*m10 + up*m11). Rain streaks hang from world-up
+      // (the emitter basis above) with an independent half-height; fog
+      // puffs additionally swirl - the billboard slowly rotates in the
+      // camera plane, alternating direction per puff (the swirling fog
+      // roll) - keep in sync with the viewport preview
+      // (drawEmitterPreviews).
+      float m00 = size, m01 = 0.0F, m10 = 0.0F, m11 = size;
       if (kind == 2) {
         const float age = ps.maxLife[i] - ps.life[i];
         const float ang = (float)i * 2.4F + (i & 1 ? 0.3F : -0.3F) * age;
         const float ca = cosf(ang), sa = sinf(ang);
-        brx = rx * ca + ux * sa;
-        bry = uy * sa;
-        brz = rz * ca + uz * sa;
-        bux = ux * ca - rx * sa;
-        buy = uy * ca;
-        buz = uz * ca - rz * sa;
+        m00 = ca * size;
+        m01 = sa * size;
+        m10 = -sa * size;
+        m11 = ca * size;
       }
-      const float Rx = brx * size, Ry = bry * size, Rz = brz * size;
-      const float Ux = sizeUp > 0.0F ? 0.0F : bux * size;
-      const float Uy = sizeUp > 0.0F ? sizeUp : buy * size;
-      const float Uz = sizeUp > 0.0F ? 0.0F : buz * size;
-      const Vec4& P = ps.pos[i];
-      const Vec4 v0(P.x - Rx - Ux, P.y - Ry - Uy, P.z - Rz - Uz, 1.0F);
-      const Vec4 v1(P.x + Rx - Ux, P.y + Ry - Uy, P.z + Rz - Uz, 1.0F);
-      const Vec4 v2(P.x + Rx + Ux, P.y + Ry + Uy, P.z + Rz + Uz, 1.0F);
-      const Vec4 v3(P.x - Rx + Ux, P.y - Ry + Uy, P.z - Rz + Uz, 1.0F);
-      const int b = i * 6;
-      ps.verts[b] = v0;
-      ps.verts[b + 1] = v1;
-      ps.verts[b + 2] = v2;
-      ps.verts[b + 3] = v0;
-      ps.verts[b + 4] = v2;
-      ps.verts[b + 5] = v3;
-      const Color c(cr, cg, cb, alpha);
-      for (int k = 0; k < 6; ++k) ps.cols[b + k] = c;
+      if (sizeUp > 0.0F) m11 = sizeUp;  // rain: thin width, streak height
+      ps.params[i] = Vec4(m00, m01, m10, m11);
+      ps.cols[i] = Color(cr, cg, cb, alpha);
     }
-    ps.colorBag->many = ps.cols.data();
-    ps.bag->vertices = ps.verts.data();
-    ps.bag->count = (u32)ps.verts.size();
-    ps.bag->bboxVersion = ++g_bboxStamp;  // moving cloud - refresh the bbox
+    ps.bag->count = (u32)n;
   }
 }
 // Picks the nearest usable object the camera is close to and looking at
@@ -6140,10 +6165,34 @@ bool TerrainGame::renderOnePortalView(int pi) {
     // with terrain streaming on, keep the pair inside the streamed radius
     renderTerrain();
   }
-  // One view object: base bags + (animated) last skinned pose. No
-  // portal-in-portal: the recursion would re-carve the very opening being
-  // rendered (mirrors draw only their glass here - the reflected copies
-  // are a main-pass trick that would need its own bracket).
+  // Billboard basis for THIS view: particles are camera-facing quads
+  // whose centers are view-independent, so the same bags redraw for the
+  // virtual camera once right/up are swapped (the VU1 billboard program
+  // reads them per mesh - see updateParticles). Rain (kind 4) keeps
+  // world-up like the main pass. Each emitter's basis is restored to what
+  // it held (the main-camera basis updateParticles set) right after its
+  // draw, so the frame's final main-pass particle render is unaffected.
+  Vec4 pvFwd = at - eye;
+  {
+    const float l = sqrtf(pvFwd.x * pvFwd.x + pvFwd.y * pvFwd.y +
+                          pvFwd.z * pvFwd.z);
+    if (l > 0.0001F) pvFwd.x /= l, pvFwd.y /= l, pvFwd.z /= l;
+  }
+  float pvRx = pvFwd.z, pvRz = -pvFwd.x;
+  {
+    const float l = sqrtf(pvRx * pvRx + pvRz * pvRz);
+    if (l > 0.0001F) pvRx /= l, pvRz /= l;
+    else pvRx = 1.0F, pvRz = 0.0F;
+  }
+  const Vec4 pvRight(pvRx, 0.0F, pvRz, 0.0F);
+  const Vec4 pvUp(-pvRz * pvFwd.y, pvRz * pvFwd.x - pvRx * pvFwd.z,
+                  pvRx * pvFwd.y, 0.0F);
+
+  // One view object: base bags + (animated) last skinned pose + (emitter)
+  // its particle billboards under the virtual basis. No portal-in-portal:
+  // the recursion would re-carve the very opening being rendered (mirrors
+  // draw only their glass here - the reflected copies are a main-pass
+  // trick that would need its own bracket).
   auto renderViewObject = [&](int ti) {
     if (ti < 0 || ti >= (int)runtimeObjects.size()) return;
     RuntimeObject& ro = runtimeObjects[ti];
@@ -6171,6 +6220,22 @@ bool TerrainGame::renderOnePortalView(int pi) {
                        exitN.y * ro.data.position[1] +
                        exitN.z * ro.data.position[2] - exitD;
       if (sd < -r + 0.1F) return;
+    }
+    if (ro.data.type == 7) {
+      // Emitter: redraw its live particle billboards from the virtual
+      // camera. Centers are view-independent; only right/up change.
+      for (ParticleSystem& ps : particles) {
+        if (ps.objectIndex != ti || !ps.bag || ps.bag->count == 0) continue;
+        const Vec4 savedR = ps.billboardBag->right;
+        const Vec4 savedU = ps.billboardBag->up;
+        ps.billboardBag->right = pvRight;
+        ps.billboardBag->up = ro.data.emitKind == 4 ? Vec4(0.0F, 1.0F, 0.0F, 0.0F)
+                                                    : pvUp;
+        stapip.core.render(ps.bag.get());
+        ps.billboardBag->right = savedR;  // main pass draws these again later
+        ps.billboardBag->up = savedU;
+      }
+      return;  // emitters have no geometry/anim parts
     }
     if (ro.dirty) rebuildObjectGeometry(ti);
     ObjectGeometry& g = objectGeometry[ti];
@@ -7488,6 +7553,24 @@ void TerrainGame::loop() {
     g_stickExpR = scriptCtx.stickExpR;
     scriptCtx.stickExpR = -1.0F;
   }
+  // Pad vibration (Vibrate Pad flow node / padVibrate() in scripts): a
+  // request drives the DualShock actuators; rumbleSec > 0 arms the auto-stop
+  // countdown (0 = vibrate until the next request). The countdown runs even
+  // while a menu pauses the scripts, so a timed rumble always ends.
+  if (scriptCtx.rumble >= 0) {
+    engine->pad.setActuators(scriptCtx.rumbleSmall != 0, (u8)scriptCtx.rumble);
+    g_rumbleTimer = (scriptCtx.rumble > 0 || scriptCtx.rumbleSmall != 0)
+                        ? scriptCtx.rumbleSec
+                        : 0.0F;
+    scriptCtx.rumble = -1;
+  }
+  if (g_rumbleTimer > 0.0F) {
+    g_rumbleTimer -= g_frameDt;
+    if (g_rumbleTimer <= 0.0F) {
+      g_rumbleTimer = 0.0F;
+      engine->pad.setActuators(false, 0);
+    }
+  }
   // Cutscene camera override: a Cutscene Director sequence with a camera track
   // drives the frame camera (Play/Stop Sequence). Applied after scripts so the
   // sequence player (a global Script) has posed the camera for this frame.
@@ -8303,6 +8386,15 @@ struct ScriptContext {
   float stickExpL = -1.0F;
   float stickExpR = -1.0F;
 
+  // Pad vibration (Vibrate Pad flow node / padVibrate() below). rumble: -1 =
+  // leave, else the DualShock big-motor power 0..255 (0 = off); rumbleSmall:
+  // the on/off buzz motor. rumbleSec > 0 auto-stops the vibration after that
+  // many seconds, 0 = vibrate until the next request. The game applies the
+  // request to the pad actuators and resets rumble to -1.
+  int rumble = -1;
+  int rumbleSmall = 0;
+  float rumbleSec = 0.0F;
+
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes).
   // requestDisplayMode: -1 = leave, else a Tyra::DisplayMode value (0 =
   // interlaced, 1 = progressive 480p, 2 = 1080i, 3 = interlaced field
@@ -8421,6 +8513,17 @@ inline void playAnimation(ScriptContext& ctx, int objectIndex,
 inline void stopAnimation(ScriptContext& ctx, int objectIndex) {
   if (objectIndex < 0 || objectIndex >= ctx.objectCount) return;
   ctx.objects[objectIndex].animPlaying = false;
+}
+
+/** Vibrates the DualShock pad: big = heavy-motor strength 0..1, small = the
+ * on/off buzz motor. seconds > 0 auto-stops after that long, 0 = vibrate
+ * until the next call. padVibrate(ctx, 0.0F) stops immediately. */
+inline void padVibrate(ScriptContext& ctx, float big, bool small = false,
+                       float seconds = 0.0F) {
+  const int power = (int)(big * 255.0F + 0.5F);
+  ctx.rumble = power < 0 ? 0 : power > 255 ? 255 : power;
+  ctx.rumbleSmall = small ? 1 : 0;
+  ctx.rumbleSec = seconds < 0.0F ? 0.0F : seconds;
 }
 
 /** True the frame an object's clip reached its last frame (one-shots: once;
@@ -11370,6 +11473,17 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                     c << pad << "ctx.stickCurveR = " << curve << ";\n";
                     c << pad << "ctx.stickExpR = " << floatLit(e) << ";\n";
                 }
+            } else if (n.type == "VibratePad") {
+                // Big: heavy motor 0..1 -> 0..255. Small: on/off buzz motor.
+                // Seconds > 0 auto-stops (0 = until the next Vibrate Pad).
+                float big = n.num[0] < 0.0f ? 0.0f : n.num[0] > 1.0f ? 1.0f
+                                                                     : n.num[0];
+                float secs = n.num[2] < 0.0f ? 0.0f : n.num[2];
+                c << pad << "ctx.rumble = " << (int)(big * 255.0f + 0.5f)
+                  << ";\n";
+                c << pad << "ctx.rumbleSmall = "
+                  << (n.num[1] != 0.0f ? 1 : 0) << ";\n";
+                c << pad << "ctx.rumbleSec = " << floatLit(secs) << ";\n";
             } else if (n.type == "SetDisplayMode") {
                 int mode = (int)n.num[0];
                 mode = mode < 0 ? 0 : mode > 3 ? 3 : mode;

@@ -5913,6 +5913,19 @@ void App::drawFlowGraphWindow() {
                 ImGui::DragFloat("Exponent", &n.num[2], 0.05f, 1.0f, 6.0f, "%.2f");
                 changed |= ImGui::IsItemDeactivatedAfterEdit();
             }
+        } else if (n.type == "VibratePad") {
+            ImGui::SliderFloat("Big", &n.num[0], 0.0f, 1.0f, "%.2f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            bool small = n.num[1] != 0.0f;
+            if (ImGui::Checkbox("Small", &small)) {
+                n.num[1] = small ? 1.0f : 0.0f;
+                changed = true;
+            }
+            ImGui::DragFloat("Seconds", &n.num[2], 0.05f, 0.0f, 60.0f, "%.2f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::TextDisabled(
+                "Seconds 0 = until the next Vibrate Pad.\n"
+                "Big 0 + Small off stops the vibration.");
         } else if (n.type == "DisplayText") {
             // X/Y are a normalized screen position (center anchor), so they need
             // a much finer step than the generic 0.1 drag.
@@ -6354,6 +6367,10 @@ void App::drawFlowGraphWindow() {
                         n.num[2] = 1.0f;   // amount (num[3] mode: 0 = set)
                     }
                     if (std::string(t.key) == "SetStickCurve") n.num[2] = 2.0f;  // exponent
+                    if (std::string(t.key) == "VibratePad") {
+                        n.num[0] = 1.0f;  // big motor at full
+                        n.num[2] = 0.5f;  // a short kick by default
+                    }
                     if (std::string(t.key) == "PlaySound") {
                         n.num[0] = 100.0f;  // volume
                         n.num[1] = -1.0f;   // channel: auto

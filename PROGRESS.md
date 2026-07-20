@@ -9,6 +9,28 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (127) **Portals: particle emitters show through (VU1 billboard re-render).**
+  Merged main's particle-billboard-VU1 work (their (117)/PR #118: the EE
+  now submits particle CENTERS and a VU1 `billboard` program expands each
+  into a camera-facing quad from a `right`/`up` basis on `StaPipBillboardBag`)
+  and used exactly the seam it was designed for — "swap the basis, re-render
+  the same centers for another view". Portal through-views previously
+  skipped particles (billboards are view-dependent). Now `renderOnePortalView`
+  computes the virtual camera's right/up basis and `renderViewObject` handles
+  emitters (type 7): for each emitter reached (listed, or any with All
+  objects in view), it swaps the bag's basis to the virtual one, renders the
+  same live centers, and restores the saved basis immediately so the frame's
+  final main-pass particle render is untouched. Rain (kind 4) keeps world-up
+  like the main pass. Centers are the sim's own arrays (no copy) and the VU1
+  program does the second expansion, so the added cost is one extra on-VU
+  expansion per visible emitter per live view — no EE vertex work. **Verified
+  (Layer 3, PCSX2 D3D11 HW):** a fire emitter placed at the tower base in
+  examples/portals renders correctly INSIDE portal-a's opening, camera-facing
+  for the virtual camera and animating across frames, at a locked 50 FPS /
+  100% speed; docs/portals.md's "particles don't show through" limitation is
+  gone. Post-merge with main also re-verified (editor + Docker game build
+  clean, boots). Real-PS2 pass pending like every GS-level change.
+
 - (126) **Portals: doorways open in collision — walk through the mounting
   wall.** The (125) wall-mounted pair looked right but could not be
   entered: the wall's box collision blocked the walker before the
@@ -274,6 +296,68 @@ Each finished feature lands as its own commit.
   pass pending like every GS-level change. Also fixed in passing: a
   committed merge-conflict marker pair left in PROGRESS.md by an earlier
   merge.
+
+- (104) **Gamepad vibration (DualShock rumble) — flow node + scripts.** The
+  engine fork's `Pad` gains `setActuators(smallMotor, bigPower)` (`Modified by
+  TyraX` in pad.hpp/pad.cpp): act-direct control of the two DualShock motors —
+  the on/off buzz engine and the 0–255 heavy motor — using the actuator slots
+  `initPad()` was already aligning (it logged "# of actuators: 2" and then
+  never drove them). On top of that: `ScriptContext` carries a rumble request
+  (`rumble` −1 = leave / 0–255 big-motor power, `rumbleSmall`, `rumbleSec`)
+  plus a `padVibrate(ctx, big01, small, seconds)` helper in the generated
+  `script.hpp`; both game loops (orbit + FPP) apply the request and run a
+  `g_rumbleTimer` auto-stop countdown (Seconds > 0 — it ticks even while a
+  menu pauses the scripts, so a timed rumble always ends; Seconds 0 = vibrate
+  until the next request). A **Vibrate Pad** flow node (Player category; Big
+  0..1 slider, Small checkbox, Seconds; defaults big=1, 0.5 s) compiles to the
+  same request in `actionCode()`. **Verified:** editor builds clean; a scratch
+  FPP project with an injected `On Start → Vibrate Pad` graph emits
+  `ctx.rumble = 204 / ctx.rumbleSmall = 1 / ctx.rumbleSec = 1.5F` in
+  `flow_graph.gen.cpp`; engine + game compile in Docker and boot in PCSX2
+  (pad init logs "# of actuators: 2", the game runs at 50 FPS through the
+  on-start rumble and its 1.5 s auto-stop — no hang, no assert). The actual
+  rumble *feel* needs a physical controller (PCSX2 forwards vibration to the
+  host pad); that hands-on check stays with a human.
+
+- (117) **Particle billboards move from the EE to a VU1 program family.**
+  `updateParticles()` used to both simulate AND expand every particle into a
+  camera-facing quad on the EE — 6 verts + 6 colors (+ 6 STs) written per
+  particle per frame, then pushed through the stock StaPip path. Now the EE
+  keeps only the simulation: each particle is submitted as ONE center vertex
+  (the sim's own `pos` array, no copy), one qword of 2×2 basis weights
+  `(m00,m01,m10,m11)` riding the ST channel, and one color — and a new
+  StaPip **billboard** VU1 program family (`billboard/stapip_billboard_{c,t}`,
+  94/106 instructions) expands each center into 2 triangles in clip space:
+  the camera right/up basis (uploaded per mesh at `VU1_BILLBOARD_BASIS_ADDR`,
+  carried on the new `StaPipBillboardBag`) is transformed by the MVP once per
+  mesh, corners are `C ± (R·m00+U·m01) ± (R·m10+U·m11)` — so rain's world-up
+  streaks (independent half-height) and the fog swirl (per-particle 2D
+  rotation) fold into the same four weights, perspective-exact. Culling is
+  per QUAD on VU1 (one `clipw` judgement per corner against the GS raster
+  window / depth range; any corner out → ADC on all 6 emitted verts), which
+  makes `frustumCulling = None` safe for these bags — the one legitimate
+  use, the program itself is the wrap protection. Micro memory was the
+  design constraint: the VU1-clipping program set measures **2036/~2042**
+  instructions (nm over the .o files), so the two billboard programs are NOT
+  resident — they live in their own prebuilt packet swapped in on demand
+  (`StaPipQBufferRenderer::ensureProgramSet`, the same MPG upload a
+  StaPip↔DynPip switch already does) and the resident set is lazily restored
+  by the next non-billboard bag. The prim giftag NLOOP is built EE-side at
+  6× the input count (`gsVertexCount` override) — the GIF-stall trap from
+  the portal work, dodged by construction. The texture bag is now mandatory
+  for particle bags (it carries the params channel) with a nullable image:
+  a real map selects the textured program (corner UVs are constants in the
+  microcode), no map the untextured one. Verified in PCSX2 (SW renderer,
+  debug + Show FPS + profiler + vsync off, scratch scene with fire 200 /
+  smoke 200 / fog 120 / sparks 200 / rain 256 / custom fountain 256 = 1232
+  particles): **A (EE quads): FPS 137–139, FRAME ~7.03 ms, PART ~1.10 ms;
+  B (VU1 centers): FPS 192–214, FRAME ~5.05 ms, PART ~0.31 ms** — the
+  particle phase's EE cost drops ~72% and the whole frame gains ~2 ms; all
+  six kinds render correctly (vertical rain streaks, swirling fog, fire
+  ramp). Designed for the portal branch to pick up: swapping
+  `billboardBag->right/up` and re-rendering the same bags draws the same
+  centers for a virtual camera, which is exactly what portal through-views
+  need (today they skip particles entirely). Real-PS2 pass pending.
 
 - (116) **NavMesh + NPC AI — Patrol / Chase / Flee / On Player Seen.** NPCs
   can finally go somewhere on their own. Three layers, all

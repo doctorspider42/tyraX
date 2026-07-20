@@ -77,7 +77,9 @@ the editor's custom screen effects, `docs/custom-screen-effects.md`; the effect
 body appends GS primitives through the now-public `blit()`/`flatQuad()` and the
 framebuffer/noise/scratch-buffer accessors, and the engine wraps the state
 setup/teardown + DMA kick), WAV-header-aware song
-player, `bboxVersion` on `StaPipBag` for moving geometry, `LeanObjLoader`
+player, `bboxVersion` on `StaPipBag` for moving geometry, `Pad::setActuators` (act-direct DualShock rumble —
+the on/off buzz motor + 0-255 heavy motor — behind the Vibrate Pad flow node /
+`padVibrate()` script helper), `LeanObjLoader`
 (OBJ+MTL, host:/cdrom0:-safe; parsing semantics mirror the editor's
 `src/objparser.cpp` — keep the two in sync; parses the `refl` sphere-map
 statement for reflective materials incl. the TyraX `-rounded` flag:
@@ -91,7 +93,23 @@ superseded by the in-band per-mesh ALPHA qword: `VU1_ALPHA_ADDR` +
 equation, no barriers; dynpip keeps the original 7/5-qword macros), the
 StaPip `TCE` env program family (matcap ST from normals in the ST slot +
 `StaPipTextureBag::coordinatesAreNormals` + the camera basis at
-`VU1_ENV_BASIS_ADDR`), `RendererCoreEnvMap` (128×128 VRAM render target for
+`VU1_ENV_BASIS_ADDR`), the StaPip `billboard` program family
+(`StaPipBillboardBag`: the vertex slot carries PARTICLE CENTERS, the ST slot
+one qword of 2×2 basis weights per particle, colors one per particle; VU1
+expands each center into a camera-facing quad — 6 GS vertices — from the
+camera right/up basis at `VU1_BILLBOARD_BASIS_ADDR` transformed by the MVP
+once per mesh, and culls per QUAD with one `clipw` judgement per corner.
+The two programs are NOT resident: the VU1-clipping program set fills micro
+memory to ~2036/2042, so they live in their own packet swapped in on demand
+(`StaPipQBufferRenderer::ensureProgramSet`) and the resident set is lazily
+restored by the next non-billboard bag. The C++ side must keep the prim
+giftag NLOOP at 6× the input count (`gsVertexCount`) — an undercounting
+NLOOP stalls the GIF. Billboard bags require multi-color, no lighting,
+frustum culling `None` + no clip checks (the one legitimate `None` — the
+program's per-quad ADC replaces the wrap protection), and a texture bag whose image may
+be null — it carries the params channel; swapping `right`/`up` on the bag
+and re-rendering draws the same centers for another view, which is what a
+portal through-view pass needs), `RendererCoreEnvMap` (128×128 VRAM render target for
 GT3-style dynamic reflections: FRAME/SCISSOR/XYOFFSET/ZBUF redirect bracket
 with a dedicated 128×128 z-buffer — "reflected" scene objects submitted
 inside the bracket occlude correctly — + `RendererCore3D::pushEnvView/

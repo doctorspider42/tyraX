@@ -15,11 +15,14 @@ What's in the scene:
   behind the far portal never shows its backside in the opening: the
   dead-zone test projects each object's exact OBB extent onto the exit
   plane, so flush-mounted walls count as behind.
-- **box-red** — the landmark tower at the far end. portal-a runs the
+- **box-red** — the landmark tower at the far end, with **fire-b**, a fire
+  emitter burning at its base. Both show live through portal-a — the fire's
+  billboards re-expand on VU1 to face the portal viewer, so particles come
+  through the opening, not just solid geometry. portal-a runs the
   experimental **All objects in view** switch (its view list is empty —
-  the tower shows up anyway because everything does); portal-b uses the
-  classic explicit list (the render budget, like a Mirror's
-  reflected-object list) so the demo shows both modes.
+  everything on the far side shows up); portal-b uses the classic explicit
+  list (the render budget, like a Mirror's reflected-object list) so the
+  demo shows both modes.
 - **The infinite fall**: **portal-floor** (purple, lying flat ON the ground
   — the floor-portal swallow rule lets bodies sink into it instead of
   resting on the terrain) linked up to **portal-ceiling** (green, hovering

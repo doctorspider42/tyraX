@@ -123,9 +123,13 @@ wall) and a link line to the target; the live view exists only in the game
   pairs — the common teleporter — preserve movement perfectly.
 - Animated models in the through-view render their last skinned pose
   (one frame stale).
-- Even with **All objects in view**: particles don't show through (they
-  are camera-facing quads simulated for the main view) and mirrors show
-  only their glass (the reflected copies are a main-pass trick).
+- **Particle emitters show through** (fire, smoke, fog, rain, …): the VU1
+  billboard program re-expands the same particle centers from the virtual
+  camera's basis, so an emitter in the view (listed, or any emitter with
+  **All objects in view**) faces the portal viewer correctly — the same
+  simulation, a second cheap on-VU expansion. Mirrors, on the other hand,
+  show only their glass through a portal (their reflected copies are a
+  main-pass trick that would need its own bracket).
 - With **terrain streaming** on, the view renders only resident chunks —
   keep both portals inside the streamed radius or turn the portal's terrain
   toggle off and list objects instead.
