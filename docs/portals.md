@@ -36,20 +36,21 @@ between distant parts of the map.
    through-view: a merged bag can't drop just the members behind the
    destination's exit plane, and the wall the target portal is mounted on
    would fill the view with its backside.)
-4. Optional: **Teleport physics objects** carries objects that cross the
-   surface too (the player always teleports): rigid bodies map their
-   vertical velocity through the pair, and a **thrown pickable** — physics
-   or not — hops through with its full velocity vector, exiting the target
-   with the matching motion. While a throw or a falling body is aimed into
-   the opening, the wall the portal is mounted on stops colliding for it
-   (the same doorway rule the walkers use), so wall portals swallow throws
-   instead of bouncing them back. A floor portal linked to a
-   downward-facing ceiling portal makes the classic **infinite fall** — see
-   `examples/portals`. Falls are capped at a 50 u/s terminal velocity
-   (restored after the rigid-body sim rewrite briefly lost it), so the
-   loop stays smooth instead of accelerating forever; the portal's swallow
-   zone is tested against the whole frame-to-frame motion segment, so even
-   a terminal-velocity faller cannot skip over it and snag on the terrain.
+4. **A thrown (or dropped) pickable flies through any linked portal**, like
+   the player does — no flag needed. The hop maps position and the full
+   velocity vector through the pair, so it exits the target with the
+   matching motion, and while the flight is aimed into an opening the wall
+   the portal is mounted on stops colliding for it (the walkers' doorway
+   rule) — wall portals swallow throws instead of bouncing them back. The
+   released body stays "portal-free" until it settles to rest.
+   Optional: **Teleport physics objects** extends the crossing to *ambient*
+   rigid bodies — anything that falls or rolls in on its own. A floor
+   portal linked to a downward-facing ceiling portal makes the classic
+   **infinite fall** — see `examples/portals`. Falls are capped at a
+   15 u/s terminal velocity, so the loop stays fast but readable instead
+   of accelerating into a strobing blur; the portal's swallow zone is
+   tested against the whole frame-to-frame motion segment, so a
+   terminal-velocity faller cannot skip over it and snag on the terrain.
 
 The editor viewport draws the surface as a translucent tinted quad, a
 **bright arrow out of the entry face** (the +Z front — the side that shows

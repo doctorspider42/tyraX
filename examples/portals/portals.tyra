@@ -15,6 +15,7 @@
     "clipping": "vu1",
     "animLodDistance": 0,
     "meshLodDistance": 0,
+    "staticBatching": true,
     "navCellSize": 1,
     "navMaxSlope": 40,
     "navAgentRadius": 0.4,
@@ -33,6 +34,8 @@
     "stickCurveR": 0,
     "stickExpL": 2,
     "stickExpR": 2,
+    "multiplayer": "off",
+    "p2JoinOnStart": true,
     "orbitSpeed": 1,
     "gravity": 9.8,
     "jumpSpeed": 4.5,
@@ -64,7 +67,7 @@
     { "name": "main",
       "terrain": { "width": 64, "depth": 64 },
       "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "vu1", "terrainMaterial": "", "postfx": { "bloom": 0, "grain": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
-      "objects": ["15d587b11de394e4", "aaaaaaaa00000001", "aaaaaaaa00000002", "aaaaaaaa00000003", "aaaaaaaa00000004", "aaaaaaaa00000006", "aaaaaaaa00000007", "aaaaaaaa00000008", "aaaaaaaa0000000a", "aaaaaaaa0000000b", "aaaaaaaa0000000c"] }
+      "objects": ["15d587b11de394e4", "aaaaaaaa00000001", "aaaaaaaa00000002", "aaaaaaaa00000003", "aaaaaaaa00000004", "aaaaaaaa00000006", "aaaaaaaa00000007", "aaaaaaaa00000008", "aaaaaaaa0000000a", "aaaaaaaa0000000b", "aaaaaaaa0000000c", "59204fffafbbfe98"] }
   ],
   "fonts": [
     { "name": "Default", "path": "", "atlasSize": 16, "color": [1, 1, 1], "shadow": true, "quant": "4bit" }
@@ -89,10 +92,10 @@
   "splashScreens": [],
   "sequences": [],
   "menus": [],
-  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0 },
+  "editor": { "selectedObject": 11, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0 },
   "activeLayout": 0,
   "layouts": [
-    { "name": "Default", "recipe": 0, "open": [], "ini": "" },
+    { "name": "Default", "recipe": 0, "open": [], "ini": "[Window][Project]\nPos=0,19\nSize=460,998\nCollapsed=0\nDockId=0x00000001,0\nLastUsed=20260721\n\n[Window][Properties]\nPos=1541,19\nSize=379,998\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260721\n\n[Window][Output]\nPos=462,753\nSize=1077,264\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260721\n\n[Window][Debug]\nPos=462,753\nSize=1077,264\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260721\n\n[Window][Flow Graph]\nPos=462,19\nSize=1077,732\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260721\n\n[Window][Viewport]\nPos=462,19\nSize=1077,732\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260721\n\n[Window][WindowOverViewport_11111111]\nPos=0,19\nSize=1920,998\nCollapsed=0\nLastUsed=20260721\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260721\n\n[Window][##MainMenuBar]\nPos=0,0\nSize=1920,19\nCollapsed=0\nLastUsed=20260721\n\n[Docking][Data]\nDockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,19 Size=1920,998 Split=X\n  DockNode      ID=0x00000001 Parent=0x08BD597D SizeRef=460,1017 Selected=0x9C21DE82\n  DockNode      ID=0x00000002 Parent=0x08BD597D SizeRef=1458,1017 Split=X\n    DockNode    ID=0x00000003 Parent=0x00000002 SizeRef=1077,1017 Split=Y\n      DockNode  ID=0x00000005 Parent=0x00000003 SizeRef=1077,751 CentralNode=1 Selected=0xC450F867\n      DockNode  ID=0x00000006 Parent=0x00000003 SizeRef=1077,264 Selected=0x6BCC3585\n    DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=379,1017 Selected=0x8C72BEA8\n\n" },
     { "name": "Director", "recipe": 1, "open": ["cutscene"], "ini": "" },
     { "name": "Material Designer", "recipe": 2, "open": ["material"], "ini": "" }
   ]

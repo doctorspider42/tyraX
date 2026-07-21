@@ -2681,6 +2681,7 @@ void TerrainGame::loadScene(int sceneIndex) {
   g_activeScene = sceneIndex;
   sceneGeneration++;  // scene scripts see this and reset their state
   carryIndex = thrownIndex = -1;  // carried objects stay in their old scene
+  thrownFreeIndex = -1;           // and so does the portal-free latch
   portalLiveFlags.clear(); // stale through-views must not survive the switch
   portalPrevPos.clear();   // crossing history restarts with the new objects
   // Before any mesh baking: terrain chunks and object geometry shade with
@@ -3403,10 +3404,10 @@ void TerrainGame::updateCarriedObject() {
     } else {
       const float r = objectHalfExtent(o);
       thrownVel[1] -= GRAVITY * g_frameDt * g_frameDt;
-      // Terminal fall (50 u/s real time): a throw that enters a portal
-      // infinite-fall loop keeps flying on this path and would otherwise
-      // accelerate without bound.
-      const float termFall = 50.0F * g_frameDt;
+      // Terminal fall (15 u/s real time, matching the rigid-body sim): a
+      // throw that enters a portal infinite-fall loop keeps flying on this
+      // path and would otherwise accelerate without bound.
+      const float termFall = 15.0F * g_frameDt;
       if (thrownVel[1] < -termFall) thrownVel[1] = -termFall;
       const float stepLen =
           sqrtf(thrownVel[0] * thrownVel[0] + thrownVel[1] * thrownVel[1] +
@@ -3425,7 +3426,7 @@ void TerrainGame::updateCarriedObject() {
           const float want[3] = {prevT[0] + thrownVel[0],
                                  prevT[1] + thrownVel[1],
                                  prevT[2] + thrownVel[2]};
-          const int aim = portalCarryAim(prevT, want);
+          const int aim = portalCarryAim(prevT, want, false);
           if (aim >= 0) {
             const RuntimeObject& pm = runtimeObjects[PORTALS[aim].object];
             const V3 pn = rotated({0.0F, 0.0F, 1.0F}, pm.data.rotation);
@@ -3466,7 +3467,7 @@ void TerrainGame::updateCarriedObject() {
           const PortalData& p = PORTALS[pi];
           if (p.scene != currentScene || p.object < 0 || p.target < 0)
             continue;
-          if (!p.teleportObjects) continue;
+          // player-released flight: any linked floor portal swallows it
           if (p.object >= (int)runtimeObjects.size() ||
               p.target >= (int)runtimeObjects.size())
             continue;
@@ -3591,6 +3592,9 @@ bool TerrainGame::releaseCarried(RuntimeObject& o, float vx, float vy,
   o.velocityY = vy;
   o.velocityZ = vz;
   o.restFrames = 0;  // wake - see the RuntimeObject sleep contract
+  // Player-released: portal-free (crosses any linked portal, like the
+  // player) until it settles - updatePortals clears the latch on sleep.
+  thrownFreeIndex = (int)(&o - runtimeObjects.data());
   return true;
 }
 
@@ -5161,12 +5165,13 @@ void TerrainGame::updateObjectPhysics() {
 
     Vec4 vel(o.velocityX, o.velocityY, o.velocityZ, 0.0F);
     vel.y -= gravityPerFrame;
-    // Terminal fall velocity, 50 u/s real time (the pre-#97 portal fall
-    // cap, lost in the sim rewrite): PHYS_MAX_SPEED alone allows 3 u/frame
-    // = 150 u/s, which a portal infinite-fall loop actually reaches once
-    // nothing hitches it - visually a blur, and fast enough to make every
-    // point-sampled zone test in its path unreliable.
-    const float termFall = 50.0F * g_frameDt;
+    // Terminal fall velocity, 15 u/s real time. The pre-#97 portal cap was
+    // 50 u/s, but its loop was constantly hitching and never actually got
+    // there; sustained 50 u/s in a door-sized infinite-fall loop reads as
+    // a strobing blur (owner report), and PHYS_MAX_SPEED alone allows
+    // 150 u/s. 15 u/s (~54 km/h) crosses the example's 7.7-unit column in
+    // ~half a second - fast, still readable.
+    const float termFall = 15.0F * g_frameDt;
     if (vel.y < -termFall) vel.y = -termFall;
     const float clampSp2 = vel.innerProduct(vel);
     if (clampSp2 > PHYS_MAX_SPEED * PHYS_MAX_SPEED)
@@ -5190,7 +5195,8 @@ void TerrainGame::updateObjectPhysics() {
     for (int pi = 0; PORTAL_COUNT > 0 && pi < PORTAL_COUNT; ++pi) {
       const PortalData& p = PORTALS[pi];
       if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
-      if (!p.teleportObjects) continue;
+      // ambient bodies need the flag; a player-released body is portal-free
+      if (!p.teleportObjects && i != thrownFreeIndex) continue;
       if (p.object >= count || p.target >= count) continue;
       RuntimeObject& m = runtimeObjects[p.object];
       if (!m.active || !m.visible || !runtimeObjects[p.target].active) continue;
@@ -5264,7 +5270,7 @@ void TerrainGame::updateObjectPhysics() {
     if (PORTAL_COUNT > 0) {
       const float a3[3] = {prevPos.x, prevPos.y, prevPos.z};
       const float b3[3] = {pos.x, pos.y, pos.z};
-      const int aim = portalCarryAim(a3, b3);
+      const int aim = portalCarryAim(a3, b3, i != thrownFreeIndex);
       if (aim >= 0) {
         const RuntimeObject& pm = runtimeObjects[PORTALS[aim].object];
         const V3 pn = rotated({0.0F, 0.0F, 1.0F}, pm.data.rotation);
@@ -6457,11 +6463,12 @@ bool TerrainGame::portalSwallowSwept(const RuntimeObject& m, float hx,
 // The linked, object-teleporting portal whose opening the motion segment
 // a->b pierces front-to-back (authored rectangle + the crossing slack), or
 // -1. Shared by the thrown-object flight and the physics pass-through.
-int TerrainGame::portalCarryAim(const float* a, const float* b) {
+int TerrainGame::portalCarryAim(const float* a, const float* b,
+                                bool needFlag) {
   for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
     const PortalData& p = PORTALS[pi];
     if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
-    if (!p.teleportObjects) continue;
+    if (needFlag && !p.teleportObjects) continue;
     if (p.object >= (int)runtimeObjects.size() ||
         p.target >= (int)runtimeObjects.size())
       continue;
@@ -6497,7 +6504,8 @@ int TerrainGame::portalCarryAim(const float* a, const float* b) {
 // applies to the player/physics bodies, so a sideways throw exits the
 // target with the matching sideways motion and the crossing is continuous.
 bool TerrainGame::portalCarryCrossing(const float* a, float* pos, float* vel) {
-  const int pi = portalCarryAim(a, pos);
+  // Thrown-arc objects are player-released - any linked portal carries them
+  const int pi = portalCarryAim(a, pos, false);
   if (pi < 0) return false;
   const PortalData& p = PORTALS[pi];
   RuntimeObject& m = runtimeObjects[p.object];
@@ -6618,6 +6626,11 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
   const bool freshPrev =
       (int)portalPrevPos.size() != (int)runtimeObjects.size() * 3;
   if (freshPrev) portalPrevPos.resize(runtimeObjects.size() * 3);
+  // A released body stays portal-free only until it settles to sleep.
+  if (thrownFreeIndex >= 0 &&
+      (thrownFreeIndex >= (int)runtimeObjects.size() ||
+       runtimeObjects[thrownFreeIndex].restFrames >= PHYS_SLEEP_FRAMES))
+    thrownFreeIndex = -1;
   bool playerTeleported = false;
   const float probeLift = eyeH > 1.0F ? 1.0F : eyeH;
 
@@ -6746,12 +6759,16 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
       playerTeleported = true;
     }
 
-    // --- physics objects (portal's "Teleport physics objects" flag) --------
-    if (p.teleportObjects && !freshPrev) {
+    // --- physics objects (portal's "Teleport physics objects" flag; a
+    // player-released body - thrownFreeIndex - crosses flagless portals
+    // too, like the player) --------------------------------------------
+    if ((p.teleportObjects || thrownFreeIndex >= 0) && !freshPrev) {
       for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
         RuntimeObject& ro = runtimeObjects[oi];
         if (!ro.active || !ro.data.physics) continue;
+        if (!p.teleportObjects && oi != thrownFreeIndex) continue;
         if (oi == p.object || oi == p.target) continue;
+        if (oi == carryIndex) continue;  // in the hands - the carry owns it
         if (PLAYER_INDEX >= 0 && oi == PLAYER_INDEX) continue;
         const float* pp = &portalPrevPos[oi * 3];
         if (pp[0] == ro.data.position[0] && pp[1] == ro.data.position[1] &&

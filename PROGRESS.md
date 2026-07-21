@@ -9,6 +9,34 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (134) **Throw-through-portals rework after the owner's live test: flag
+  semantics + terminal velocity tuning.** (133) shipped but the owner's
+  test failed on both counts, for two distinct reasons. (1) The test
+  sphere is a *physics* pickable, so it never touches the thrown-arc code
+  - it rides the rigid-body path, and every portal hop there was gated on
+  the portal's Teleport-physics-objects flag, which the wall portals in
+  the example do not set (the player teleports through any linked portal;
+  gating a deliberate throw on an ambient-objects flag was the wrong
+  semantic). New rule: a **player-released body (throw OR drop) is
+  "portal-free"** - crosses any linked portal - until it settles to
+  sleep. Implemented as `thrownFreeIndex`, stamped in `releaseCarried`
+  (index from `&o - runtimeObjects.data()`), cleared on sleep at the top
+  of `updatePortals` and on scene reset; `portalCarryAim` gained a
+  `needFlag` param (ambient physics keeps requiring the flag, the thrown
+  arc and the freed body do not), and the updatePortals object loop,
+  physics pass-1 aim plane + floor-swallow suppression all honor the
+  latch. Carried objects are now explicitly skipped by the object
+  teleport (`oi == carryIndex`) - the carry owns their motion. (2) The
+  "cube accelerates to superluminal" report survived the (133) cap
+  because the cap was working exactly as the pre-#97 one did: 50 u/s.
+  The old loop was constantly hitching and never sustained it; the
+  unhitched loop does, and 50 u/s across a 7.7-unit column is a 6.5 Hz
+  strobe. Terminal fall is now **15 u/s** in both integrators (~0.5 s per
+  column leg - fast, readable). Verified: editor builds clean, portals
+  example regenerated + Docker game build exit 0; generated code shows
+  the latch wiring and both 15 u/s caps. The owner's pad test is the real
+  verdict.
+
 - (133) **Throws fly through portals + the lost terminal velocity.** Owner
   request ("could a thrown object fly through a portal?") plus an owner
   report: the infinite-fall cube now accelerates absurdly - and indeed the

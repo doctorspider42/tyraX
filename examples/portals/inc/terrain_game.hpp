@@ -382,18 +382,24 @@ class TerrainGame : public Tyra::Game {
   float portalPassPlane[4] = {0, 0, 0, 0};
   bool portalPassOn = false;
   // Thrown objects fly through portals too. portalCarryAim finds the
-  // linked, object-teleporting portal whose opening the motion segment
-  // a->b pierces (front face, authored rectangle + slack); -1 = none.
+  // linked portal whose opening the motion segment a->b pierces (front
+  // face, authored rectangle + slack); -1 = none. needFlag restricts it
+  // to Teleport-physics-objects portals - ambient bodies use that, a
+  // player-released body crosses ANY linked portal like the player does.
   // portalCarryCrossing maps position + full velocity through that pair
   // (the same isometry updatePortals applies). While a flight segment
   // aims into an opening, sweepPass* excludes obstacles fully behind that
   // portal's plane from sweepSphere, and the physics pass applies the
   // same exclusion to its static-solid resolution - the mounting wall
   // must not stop a body's center r short of the crossing plane.
-  int portalCarryAim(const float* a, const float* b);
+  int portalCarryAim(const float* a, const float* b, bool needFlag);
   bool portalCarryCrossing(const float* a, float* pos, float* vel);
   float sweepPassPlane[4] = {0, 0, 0, 0};
   bool sweepPassOn = false;
+  // The last player-released rigid body (throw OR drop): portal-free -
+  // crosses any linked portal, flag or not - until it settles to sleep.
+  // -1 = none. The non-physics thrown arc (thrownIndex) is always free.
+  int thrownFreeIndex = -1;
   std::vector<unsigned char> portalLiveFlags;  // per PORTALS entry: view drawn
   std::vector<float> portalPrevPos;  // 3 floats per runtime object (crossings)
   // Exit-plane of the through-view being rendered (nx, ny, nz, d) - set
