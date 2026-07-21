@@ -9,6 +9,35 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (135) **Portal crossing, round three (owner's second live test): the
+  radius bug, the visibility rule, 30 u/s, and the carry-whisker wall
+  tunnel.** Four changes:
+  (1) **The doorway never opened - the radius bug.** (134)'s aim test
+  armed the wall exclusion only when the CENTER's motion segment pierced
+  the plane in that same frame - but the collision (sweep or AABB
+  resolution) stops the body half an extent BEFORE the plane, so the
+  center never got there and every throw bounced off the mounting wall
+  (owner repro). The aim segment ends are now padded by the body's extent
+  (+0.1), in both the thrown arc and physics pass 1 - the doorway opens
+  the frame contact WOULD happen, which is exactly when it must.
+  (2) **The visibility rule (owner's design):** whatever a portal SHOWS
+  can also go through it. New `portalCanCross(p, oi)`: teleportObjects
+  OR viewAll OR view-list membership OR the player-released latch. Used
+  by the updatePortals object loop, the pass-1 aim and the floor-swallow
+  suppression; `portalCarryAim` takes the object index (-1 =
+  unconditional, the released-flight path). The example's wall portals
+  are viewAll, so every rigid body crosses them now - flag not needed.
+  (3) **Terminal fall 15 -> 30 u/s** (owner: 15 too floaty, x2 request).
+  (4) **Carry whisker could shove the walker through a wall** (owner
+  find): the whisker's pushback runs AFTER collidePlayer and was never
+  collision-checked, so carrying an object toward blocking geometry while
+  a wall stands at your back pushed you clean through it. The pushback
+  now re-runs collidePlayer from the pre-push position (signature gained
+  feetY/eyeHeight; all three walker call sites updated).
+  Verified: editor builds clean, portals example regenerated + Docker
+  build exit 0; generated code shows the padded aim segments, the
+  portalCanCross wiring and the whisker re-collide. Owner pad test next.
+
 - (134) **Throw-through-portals rework after the owner's live test: flag
   semantics + terminal velocity tuning.** (133) shipped but the owner's
   test failed on both counts, for two distinct reasons. (1) The test

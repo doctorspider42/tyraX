@@ -3369,8 +3369,8 @@ float TerrainGame::objectHalfExtent(const RuntimeObject& o) const {
 // wall. Called by every walker after collidePlayer, on the carrying player
 // only. The probe is horizontal (yaw only): with the look pitch in it, the
 // terrain underfoot would read as a wall whenever the player looks down.
-void TerrainGame::applyCarryWhisker(float* nextX, float* nextZ, float eyeY,
-                                    float yaw) {
+void TerrainGame::applyCarryWhisker(float* nextX, float* nextZ, float probeY,
+                                    float yaw, float feetY, float eyeHeight) {
   if (carryIndex < 0) return;
   const RuntimeObject& o = runtimeObjects[carryIndex];
   if (!o.active || !o.visible) return;
@@ -3378,10 +3378,17 @@ void TerrainGame::applyCarryWhisker(float* nextX, float* nextZ, float eyeY,
   const float need = 0.55F + r;  // the object fully outside the carrier
   const float hx = sinf(yaw), hz = cosf(yaw);
   const float d =
-      sweepSphere(*nextX, eyeY, *nextZ, hx, 0.0F, hz, need, r, carryIndex);
+      sweepSphere(*nextX, probeY, *nextZ, hx, 0.0F, hz, need, r, carryIndex);
   if (d < need) {
+    const float px = *nextX, pz = *nextZ;
     *nextX -= hx * (need - d);
     *nextZ -= hz * (need - d);
+    // The pushback is a displacement collidePlayer never saw - unswept it
+    // shoves the walker clean through whatever stands at their back (owner
+    // repro: carry + reverse into a wall = teleported behind it). Re-run
+    // the collision from the pre-push spot; ground/ceiling are discarded.
+    float g2 = -1e30F, c2 = 1e30F;
+    collidePlayer(px, pz, nextX, nextZ, feetY, eyeHeight, &g2, &c2);
   }
 }
 
@@ -3404,10 +3411,10 @@ void TerrainGame::updateCarriedObject() {
     } else {
       const float r = objectHalfExtent(o);
       thrownVel[1] -= GRAVITY * g_frameDt * g_frameDt;
-      // Terminal fall (15 u/s real time, matching the rigid-body sim): a
+      // Terminal fall (30 u/s real time, matching the rigid-body sim): a
       // throw that enters a portal infinite-fall loop keeps flying on this
       // path and would otherwise accelerate without bound.
-      const float termFall = 15.0F * g_frameDt;
+      const float termFall = 30.0F * g_frameDt;
       if (thrownVel[1] < -termFall) thrownVel[1] = -termFall;
       const float stepLen =
           sqrtf(thrownVel[0] * thrownVel[0] + thrownVel[1] * thrownVel[1] +
@@ -3423,10 +3430,15 @@ void TerrainGame::updateCarriedObject() {
         // sweep - without this the mounting wall stops the center ~r
         // short of the crossing plane and the throw can never cross.
         if (PORTAL_COUNT > 0) {
-          const float want[3] = {prevT[0] + thrownVel[0],
-                                 prevT[1] + thrownVel[1],
-                                 prevT[2] + thrownVel[2]};
-          const int aim = portalCarryAim(prevT, want, false);
+          // Pad the aim segment by the object's extent: the sweep stops the
+          // CENTER ~r short of a wall sitting at the plane, so an unpadded
+          // center segment never reaches it and the doorway never opens
+          // (owner repro: every throw bounced off the mounting wall).
+          const float pad = 1.0F + (r + 0.1F) / stepLen;
+          const float want[3] = {prevT[0] + thrownVel[0] * pad,
+                                 prevT[1] + thrownVel[1] * pad,
+                                 prevT[2] + thrownVel[2] * pad};
+          const int aim = portalCarryAim(prevT, want, -1);
           if (aim >= 0) {
             const RuntimeObject& pm = runtimeObjects[PORTALS[aim].object];
             const V3 pn = rotated({0.0F, 0.0F, 1.0F}, pm.data.rotation);
@@ -4305,7 +4317,8 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
                   &ceiling);
     portalPassOn = false;
     if (pi == 0)  // carrying is pad-1 only (updateUseTarget)
-      applyCarryWhisker(&nextX, &nextZ, P.y + PP_CAM_HEIGHT(pi), P.yaw);
+      applyCarryWhisker(&nextX, &nextZ, P.y + PP_CAM_HEIGHT(pi), P.yaw, P.y,
+                        PP_EYE_HEIGHT(pi));
     const float movedX = nextX - P.x, movedZ = nextZ - P.z;
     P.x = nextX;
     P.z = nextZ;
@@ -4427,7 +4440,8 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
                 &ceiling);
   portalPassOn = false;
   if (pi == 0)  // carrying is pad-1 only (updateUseTarget)
-    applyCarryWhisker(&nextX, &nextZ, P.y + PP_EYE_HEIGHT(pi), P.yaw);
+    applyCarryWhisker(&nextX, &nextZ, P.y + PP_EYE_HEIGHT(pi), P.yaw, P.y,
+                      PP_EYE_HEIGHT(pi));
   P.x = nextX;
   P.z = nextZ;
 
@@ -5165,13 +5179,10 @@ void TerrainGame::updateObjectPhysics() {
 
     Vec4 vel(o.velocityX, o.velocityY, o.velocityZ, 0.0F);
     vel.y -= gravityPerFrame;
-    // Terminal fall velocity, 15 u/s real time. The pre-#97 portal cap was
-    // 50 u/s, but its loop was constantly hitching and never actually got
-    // there; sustained 50 u/s in a door-sized infinite-fall loop reads as
-    // a strobing blur (owner report), and PHYS_MAX_SPEED alone allows
-    // 150 u/s. 15 u/s (~54 km/h) crosses the example's 7.7-unit column in
-    // ~half a second - fast, still readable.
-    const float termFall = 15.0F * g_frameDt;
+    // Terminal fall velocity, 30 u/s real time (owner-tuned: 50 read as a
+    // strobing blur in a door-sized infinite-fall loop, 15 as too floaty;
+    // PHYS_MAX_SPEED alone would allow 150).
+    const float termFall = 30.0F * g_frameDt;
     if (vel.y < -termFall) vel.y = -termFall;
     const float clampSp2 = vel.innerProduct(vel);
     if (clampSp2 > PHYS_MAX_SPEED * PHYS_MAX_SPEED)
@@ -5195,8 +5206,7 @@ void TerrainGame::updateObjectPhysics() {
     for (int pi = 0; PORTAL_COUNT > 0 && pi < PORTAL_COUNT; ++pi) {
       const PortalData& p = PORTALS[pi];
       if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
-      // ambient bodies need the flag; a player-released body is portal-free
-      if (!p.teleportObjects && i != thrownFreeIndex) continue;
+      if (!portalCanCross(p, i)) continue;
       if (p.object >= count || p.target >= count) continue;
       RuntimeObject& m = runtimeObjects[p.object];
       if (!m.active || !m.visible || !runtimeObjects[p.target].active) continue;
@@ -5269,8 +5279,18 @@ void TerrainGame::updateObjectPhysics() {
     bool aimOn = false;
     if (PORTAL_COUNT > 0) {
       const float a3[3] = {prevPos.x, prevPos.y, prevPos.z};
-      const float b3[3] = {pos.x, pos.y, pos.z};
-      const int aim = portalCarryAim(a3, b3, i != thrownFreeIndex);
+      // Segment end padded by the body's extent: the AABB resolution stops
+      // the CENTER ~r short of a wall at the plane, so an unpadded center
+      // segment never pierces and the doorway never opens.
+      Vec4 mv = pos - prevPos;
+      const float mvLen = sqrtf(mv.innerProduct(mv));
+      float bodyR = ext[0];
+      if (ext[1] > bodyR) bodyR = ext[1];
+      if (ext[2] > bodyR) bodyR = ext[2];
+      const float pad = mvLen > 1e-6F ? 1.0F + (bodyR + 0.1F) / mvLen : 1.0F;
+      const float b3[3] = {prevPos.x + mv.x * pad, prevPos.y + mv.y * pad,
+                           prevPos.z + mv.z * pad};
+      const int aim = portalCarryAim(a3, b3, i);
       if (aim >= 0) {
         const RuntimeObject& pm = runtimeObjects[PORTALS[aim].object];
         const V3 pn = rotated({0.0F, 0.0F, 1.0F}, pm.data.rotation);
@@ -6463,12 +6483,23 @@ bool TerrainGame::portalSwallowSwept(const RuntimeObject& m, float hx,
 // The linked, object-teleporting portal whose opening the motion segment
 // a->b pierces front-to-back (authored rectangle + the crossing slack), or
 // -1. Shared by the thrown-object flight and the physics pass-through.
-int TerrainGame::portalCarryAim(const float* a, const float* b,
-                                bool needFlag) {
+// The owner's crossing rule: whatever a portal SHOWS can also go through
+// it. teleportObjects and viewAll open it to every rigid body, a view-list
+// member is eligible by being visible, and the player-released body
+// (thrownFreeIndex) crosses like the player regardless.
+bool TerrainGame::portalCanCross(const PortalData& p, int oi) {
+  if (p.teleportObjects || p.viewAll) return true;
+  if (oi >= 0 && oi == thrownFreeIndex) return true;
+  for (int v = 0; v < p.viewCount; ++v)
+    if (PORTAL_VIEW_OBJECTS[p.firstView + v] == oi) return true;
+  return false;
+}
+
+int TerrainGame::portalCarryAim(const float* a, const float* b, int forObj) {
   for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
     const PortalData& p = PORTALS[pi];
     if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
-    if (needFlag && !p.teleportObjects) continue;
+    if (forObj >= 0 && !portalCanCross(p, forObj)) continue;
     if (p.object >= (int)runtimeObjects.size() ||
         p.target >= (int)runtimeObjects.size())
       continue;
@@ -6505,7 +6536,7 @@ int TerrainGame::portalCarryAim(const float* a, const float* b,
 // target with the matching sideways motion and the crossing is continuous.
 bool TerrainGame::portalCarryCrossing(const float* a, float* pos, float* vel) {
   // Thrown-arc objects are player-released - any linked portal carries them
-  const int pi = portalCarryAim(a, pos, false);
+  const int pi = portalCarryAim(a, pos, -1);
   if (pi < 0) return false;
   const PortalData& p = PORTALS[pi];
   RuntimeObject& m = runtimeObjects[p.object];
@@ -6759,14 +6790,13 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
       playerTeleported = true;
     }
 
-    // --- physics objects (portal's "Teleport physics objects" flag; a
-    // player-released body - thrownFreeIndex - crosses flagless portals
-    // too, like the player) --------------------------------------------
-    if ((p.teleportObjects || thrownFreeIndex >= 0) && !freshPrev) {
+    // --- physics objects: portalCanCross decides per body (the flag, the
+    // whatever-the-portal-shows rule, or the player-released latch) ------
+    if (!freshPrev) {
       for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
         RuntimeObject& ro = runtimeObjects[oi];
         if (!ro.active || !ro.data.physics) continue;
-        if (!p.teleportObjects && oi != thrownFreeIndex) continue;
+        if (!portalCanCross(p, oi)) continue;
         if (oi == p.object || oi == p.target) continue;
         if (oi == carryIndex) continue;  // in the hands - the carry owns it
         if (PLAYER_INDEX >= 0 && oi == PLAYER_INDEX) continue;
@@ -7764,7 +7794,8 @@ void TerrainGame::updatePlayer() {
   collidePlayer(playerX, playerZ, &nextX, &nextZ, playerY, EYE_HEIGHT, &ground,
                 &ceiling);
   portalPassOn = false;
-  applyCarryWhisker(&nextX, &nextZ, playerY + EYE_HEIGHT, yaw);
+  applyCarryWhisker(&nextX, &nextZ, playerY + EYE_HEIGHT, yaw, playerY,
+                    EYE_HEIGHT);
   playerX = nextX;
   playerZ = nextZ;
 

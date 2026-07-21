@@ -43,14 +43,18 @@ between distant parts of the map.
    the portal is mounted on stops colliding for it (the walkers' doorway
    rule) — wall portals swallow throws instead of bouncing them back. The
    released body stays "portal-free" until it settles to rest.
-   Optional: **Teleport physics objects** extends the crossing to *ambient*
-   rigid bodies — anything that falls or rolls in on its own. A floor
-   portal linked to a downward-facing ceiling portal makes the classic
-   **infinite fall** — see `examples/portals`. Falls are capped at a
-   15 u/s terminal velocity, so the loop stays fast but readable instead
-   of accelerating into a strobing blur; the portal's swallow zone is
-   tested against the whole frame-to-frame motion segment, so a
-   terminal-velocity faller cannot skip over it and snag on the terrain.
+   For *ambient* rigid bodies — anything that falls or rolls in on its
+   own — the rule is **whatever the portal shows can also go through it**:
+   an object on the portal's view list crosses, **All objects in view**
+   opens the crossing to every rigid body, and the **Teleport physics
+   objects** flag does the same when you want crossings without the
+   through-view cost. A floor portal linked to a downward-facing ceiling
+   portal makes the classic **infinite fall** — see `examples/portals`.
+   Falls are capped at a 30 u/s terminal velocity, so the loop stays fast
+   but readable instead of accelerating into a strobing blur; the portal's
+   swallow zone is tested against the whole frame-to-frame motion segment,
+   so a terminal-velocity faller cannot skip over it and snag on the
+   terrain.
 
 The editor viewport draws the surface as a translucent tinted quad, a
 **bright arrow out of the entry face** (the +Z front — the side that shows

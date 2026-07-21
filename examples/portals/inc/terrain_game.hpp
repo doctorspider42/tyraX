@@ -383,16 +383,20 @@ class TerrainGame : public Tyra::Game {
   bool portalPassOn = false;
   // Thrown objects fly through portals too. portalCarryAim finds the
   // linked portal whose opening the motion segment a->b pierces (front
-  // face, authored rectangle + slack); -1 = none. needFlag restricts it
-  // to Teleport-physics-objects portals - ambient bodies use that, a
-  // player-released body crosses ANY linked portal like the player does.
+  // face, authored rectangle + slack); -1 = none. forObj gates it through
+  // portalCanCross for that object; forObj == -1 is unconditional (the
+  // player-released flight). portalCanCross is the owner's rule: whatever
+  // a portal SHOWS can also go through it - teleportObjects, viewAll, a
+  // view-list member, or the player-released body all qualify.
   // portalCarryCrossing maps position + full velocity through that pair
   // (the same isometry updatePortals applies). While a flight segment
   // aims into an opening, sweepPass* excludes obstacles fully behind that
   // portal's plane from sweepSphere, and the physics pass applies the
   // same exclusion to its static-solid resolution - the mounting wall
-  // must not stop a body's center r short of the crossing plane.
-  int portalCarryAim(const float* a, const float* b, bool needFlag);
+  // must not stop a body's center r short of the crossing plane (callers
+  // pad the segment end by the body's extent for exactly that reason).
+  bool portalCanCross(const PortalData& p, int oi);
+  int portalCarryAim(const float* a, const float* b, int forObj);
   bool portalCarryCrossing(const float* a, float* pos, float* vel);
   float sweepPassPlane[4] = {0, 0, 0, 0};
   bool sweepPassOn = false;
@@ -565,7 +569,8 @@ class TerrainGame : public Tyra::Game {
   // Blocks the walker from pressing against geometry the carried object no
   // longer fits in front of (the spring arm's sweep, pushing the walker back
   // instead of pulling the camera in).
-  void applyCarryWhisker(float* nextX, float* nextZ, float eyeY, float yaw);
+  void applyCarryWhisker(float* nextX, float* nextZ, float probeY, float yaw,
+                         float feetY, float eyeHeight);
   int carryIndex = -1;        // runtimeObjects index being carried, -1 = none
   bool carryGrabbed = false;  // eats the BTN_USE press that picked it up
   float carryDist = 0;        // smoothed carry reach: snaps in when the sweep
