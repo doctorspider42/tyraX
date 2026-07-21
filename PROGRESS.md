@@ -9,6 +9,24 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (142) **Carried object no longer pins on a portal's mounting wall.**
+  Owner narrowed it perfectly: a free-standing portal carries the object
+  through fine, a wall-mounted one stops it. The doorway that makes the
+  carry sweep ignore the mounting wall works for a wall fully behind the
+  plane, but the example wall's front face is flush WITH the portal plane,
+  so the sweep still clipped `want` a hair short - and any shortfall below
+  `bendT` stops the portal-bend from triggering, leaving the object pinned
+  on the surface. Fix: when the carry ray aims through a portal that will
+  render the object on the far side (`bendShows` - viewAll or view list),
+  `want` is now FORCED to the full carry reach, overriding the sweep, so
+  `d > bendT` always holds and the object flies through regardless of the
+  wall. Teleport-only portals (can't show the object past the plane) still
+  clamp to the surface. Known remaining nit: standing right at a portal and
+  looking to the SIDE shows the between-portals dead zone (inherent to the
+  single-render PS2 portal - no oblique near plane); looking through it is
+  clean. Verified: editor builds clean, portals example regenerated +
+  Docker build exit 0. Owner pad test next.
+
 - (141) **Portal crossing mask: physical near-plane test, not a distance
   threshold (fixes "objects vanish near a portal").** (139)/(140) forced
   the full-screen crossing mask whenever the eye was within a fraction of

@@ -3632,9 +3632,20 @@ void TerrainGame::updateCarriedObject() {
       bendShows = portalShowsObject(pi, carryIndex);
     }
   }
-  // A non-rendering portal clamps the object to its plane (can't show it
-  // through); a rendering one lets the reach run full so it flies on out.
-  if (bendPi >= 0 && !bendShows && bendT > 0.0F && bendT < want) want = bendT;
+  // Aiming through a portal that will render the object on the far side:
+  // FORCE the full carry reach, overriding whatever the sweep returned. The
+  // doorway is supposed to make the sweep ignore the mounting wall, but a
+  // wall that straddles the plane (front face flush with it) can still clip
+  // `want` a hair short - and any shortfall below bendT stops the bend from
+  // triggering, so the object pins on the wall (owner: carries fine through
+  // a free-standing portal, stops when there's a wall). Full reach here
+  // guarantees d > bendT and the object flies on through. A portal that will
+  // NOT render the object can't show it past the plane, so there it still
+  // clamps to the surface (half-in slice) as the best available.
+  if (bendPi >= 0 && bendShows)
+    want = PICK_CARRY_DIST + r;
+  else if (bendPi >= 0 && !bendShows && bendT > 0.0F && bendT < want)
+    want = bendT;
   const float minD = PICK_MIN_DIST + r;
   if (want < minD) want = minD;
   if (want < carryDist) {
