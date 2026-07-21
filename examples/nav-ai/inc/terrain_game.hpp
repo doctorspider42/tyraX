@@ -511,7 +511,9 @@ class TerrainGame : public Tyra::Game {
   void drivePlayerAnim(PlayerCtl& P, RuntimeObject& body, float speedFrac,
                        bool grounded);
   // Spring arm: the distance down the boom (from the head, along d) at which
-  // the camera would enter geometry or the terrain.
+  // the camera would enter geometry or the terrain. camBoom is the smoothed
+  // boom length actually used - whisker casts ease it in ahead of a hit, a
+  // hard clamp keeps it out of geometry, and it eases back out.
   float springArm(float px, float py, float pz, float dx, float dy, float dz,
                   float maxDist) const;
   // The general sweep behind springArm: first blocked distance along d for a

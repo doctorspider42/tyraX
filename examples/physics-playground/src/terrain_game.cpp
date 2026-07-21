@@ -2758,28 +2758,57 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     if (o.data.type == 5 && o.data.animModel >= 0 &&
         o.data.animModel < (int)gameAnimModels.size())
       anim = gameAnimModels[o.data.animModel].src.get();
-    float cx = o.data.position[0], cy = o.data.position[1],
-          cz = o.data.position[2];
     float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
           ez = 0.5F * o.data.scale[2];
+    V3 localCenter = {0.0F, 0.0F, 0.0F};  // box center in the object's own frame
     const float* mn = gm ? gm->mn : (anim ? anim->min : nullptr);
     const float* mx = gm ? gm->mx : (anim ? anim->max : nullptr);
     if (mn && mx) {
-      cx += 0.5F * (mn[0] + mx[0]) * o.data.scale[0];
-      cy += 0.5F * (mn[1] + mx[1]) * o.data.scale[1];
-      cz += 0.5F * (mn[2] + mx[2]) * o.data.scale[2];
+      localCenter = {0.5F * (mn[0] + mx[0]) * o.data.scale[0],
+                     0.5F * (mn[1] + mx[1]) * o.data.scale[1],
+                     0.5F * (mn[2] + mx[2]) * o.data.scale[2]};
       ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
       ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
       ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
     }
+    // World box center: the model-AABB offset lives in the object's own frame,
+    // so it rotates with the object (a primitive's offset is 0, so this is
+    // just its position).
+    const V3 cWorld = rotated(localCenter, o.data.rotation);
+    const float cx = o.data.position[0] + cWorld.x;
+    const float cy = o.data.position[1] + cWorld.y;
+    const float cz = o.data.position[2] + cWorld.z;
     const float hx = ex + playerRadius;
     const float hz = ez + playerRadius;
     const float top = cy + ey;
     const float bottom = cy - ey;
 
-    const bool nextInside = *nextX > cx - hx && *nextX < cx + hx &&
-                            *nextZ > cz - hz && *nextZ < cz + hz;
+    // Footprint test in the box's OWN horizontal frame, so a yaw-rotated box
+    // blocks along its real (rotated) faces instead of an axis-aligned bound
+    // that juts into empty space at the corners. Vertical (top/bottom) stays
+    // world-space: a yaw does not tilt the box, and box mode does not model a
+    // tilted top - a pitched/rolled box still collides upright, as before
+    // (mesh collision is the escape hatch for those). Reduces exactly to the
+    // old AABB test when the object is unrotated.
+    auto toLocalXZ = [&](float wx, float wz, float& lx, float& lz) {
+      const V3 l = invRotated({wx - cx, 0.0F, wz - cz}, o.data.rotation);
+      lx = l.x, lz = l.z;
+    };
+    float lnx, lnz, lpx, lpz;
+    toLocalXZ(*nextX, *nextZ, lnx, lnz);
+    toLocalXZ(prevX, prevZ, lpx, lpz);
+
+    const bool nextInside = lnx > -hx && lnx < hx && lnz > -hz && lnz < hz;
     if (!nextInside) continue;
+
+    const bool wasInsideX = lpx > -hx && lpx < hx;
+    const bool wasInsideZ = lpz > -hz && lpz < hz;
+    // Re-projects a (possibly axis-cancelled) local target back to world.
+    auto commitLocal = [&](float lx, float lz) {
+      const V3 w = rotated({lx, 0.0F, lz}, o.data.rotation);
+      *nextX = cx + w.x;
+      *nextZ = cz + w.z;
+    };
 
     if (feetY + 0.5F >= top) {
       // low enough to walk onto - candidate floor
@@ -2790,26 +2819,20 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
       if (bottom < feetY + eyeHeight + EYE_CLEARANCE) {
         // walking under would leave the eye closer than the clip plane -
         // block, unless the player is already under it (let them walk out)
-        const bool wasInsideX = prevX > cx - hx && prevX < cx + hx;
-        const bool wasInsideZ = prevZ > cz - hz && prevZ < cz + hz;
-        if (!wasInsideX || !wasInsideZ) {
-          if (!wasInsideX) *nextX = prevX;
-          if (!wasInsideZ) *nextZ = prevZ;
-        }
+        if (!wasInsideX || !wasInsideZ)
+          commitLocal(wasInsideX ? lnx : lpx, wasInsideZ ? lnz : lpz);
       }
     } else if (feetY < top) {
       // vertical overlap: also the lowest surface overhead when the box sank
       // onto the player (moving platforms) - lets the clamp push them out
       if (bottom >= feetY && bottom < *ceiling) *ceiling = bottom;
-      // blocked - cancel the axes that entered the box this frame
-      const bool wasInsideX = prevX > cx - hx && prevX < cx + hx;
-      const bool wasInsideZ = prevZ > cz - hz && prevZ < cz + hz;
-      if (!wasInsideX) *nextX = prevX;
-      if (!wasInsideZ) *nextZ = prevZ;
-      if (wasInsideX && wasInsideZ) {
-        *nextX = prevX;
-        *nextZ = prevZ;
-      }
+      // blocked - cancel the local axes that entered the box this frame, so
+      // the residual slide runs along the (rotated) wall. Already inside on
+      // both axes = a full stop.
+      if (wasInsideX && wasInsideZ)
+        commitLocal(lpx, lpz);
+      else
+        commitLocal(wasInsideX ? lnx : lpx, wasInsideZ ? lnz : lpz);
     }
   }
 }
@@ -4431,8 +4454,11 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
       if (sd < -re + 0.1F) continue;
     }
 
-    // World AABB, sized exactly like box-mode player collision (the real mesh
-    // or baked anim AABB when the object has one, else the unit scale box).
+    // Oriented box, sized exactly like box-mode player collision (the real
+    // mesh or baked anim AABB when the object has one, else the unit scale
+    // box) - and cast in the box's OWN frame, so a yaw-rotated block stops the
+    // boom at its real faces instead of leaking through the corners of an
+    // axis-aligned stand-in.
     const GameModel* gm = nullptr;
     if (ty == 5 && o.data.model >= 0 && o.data.model < (int)gameModels.size())
       gm = &gameModels[o.data.model];
@@ -4440,28 +4466,43 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
     if (ty == 5 && o.data.animModel >= 0 &&
         o.data.animModel < (int)gameAnimModels.size())
       anim = gameAnimModels[o.data.animModel].src.get();
-    float cx = o.data.position[0], cy = o.data.position[1],
-          cz = o.data.position[2];
     float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
           ez = 0.5F * o.data.scale[2];
+    V3 localCenter = {0.0F, 0.0F, 0.0F};
     const float* mn = gm ? gm->mn : (anim ? anim->min : nullptr);
     const float* mx = gm ? gm->mx : (anim ? anim->max : nullptr);
     if (mn && mx) {
-      cx += 0.5F * (mn[0] + mx[0]) * o.data.scale[0];
-      cy += 0.5F * (mn[1] + mx[1]) * o.data.scale[1];
-      cz += 0.5F * (mn[2] + mx[2]) * o.data.scale[2];
+      localCenter = {0.5F * (mn[0] + mx[0]) * o.data.scale[0],
+                     0.5F * (mn[1] + mx[1]) * o.data.scale[1],
+                     0.5F * (mn[2] + mx[2]) * o.data.scale[2]};
       ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
       ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
       ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
     }
-    const float bminX = cx - ex - r, bmaxX = cx + ex + r;
-    const float bminY = cy - ey - r, bmaxY = cy + ey + r;
-    const float bminZ = cz - ez - r, bmaxZ = cz + ez + r;
-    if (bmaxX < sminX || bminX > smaxX || bmaxY < sminY || bminY > smaxY ||
-        bmaxZ < sminZ || bminZ > smaxZ)
+    const V3 cW = rotated(localCenter, o.data.rotation);
+    const float cx = o.data.position[0] + cW.x;
+    const float cy = o.data.position[1] + cW.y;
+    const float cz = o.data.position[2] + cW.z;
+
+    // Broad phase: the OBB's own world AABB (rotated half-extent vectors summed
+    // per axis), inflated by r, vs the boom segment AABB. Conservative - it
+    // never rejects an object the local slab test could still hit (the old
+    // scale-box AABB was too small for a rotated block and leaked candidates).
+    const V3 hxv = rotated({ex, 0.0F, 0.0F}, o.data.rotation);
+    const V3 hyv = rotated({0.0F, ey, 0.0F}, o.data.rotation);
+    const V3 hzv = rotated({0.0F, 0.0F, ez}, o.data.rotation);
+    const float wex = fabsf(hxv.x) + fabsf(hyv.x) + fabsf(hzv.x);
+    const float wey = fabsf(hxv.y) + fabsf(hyv.y) + fabsf(hzv.y);
+    const float wez = fabsf(hxv.z) + fabsf(hyv.z) + fabsf(hzv.z);
+    if (cx + wex + r < sminX || cx - wex - r > smaxX ||
+        cy + wey + r < sminY || cy - wey - r > smaxY ||
+        cz + wez + r < sminZ || cz - wez - r > smaxZ)
       continue;  // broad phase: nowhere near the boom
 
-    // Slab test against the expanded box.
+    // Narrow phase: slab test in the box's local frame. invRotated is
+    // orthonormal, so the hit parameter t is still a world-space distance.
+    const V3 lo = invRotated({px - cx, py - cy, pz - cz}, o.data.rotation);
+    const V3 ld = invRotated({dx, dy, dz}, o.data.rotation);
     float t0 = 0.0F, t1 = best;
     bool miss = false;
     auto slab = [&](float o1, float d1, float lo1, float hi1) {
@@ -4480,9 +4521,9 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
         miss = true;  // parallel and outside the slab
       }
     };
-    slab(px, dx, bminX, bmaxX);
-    slab(py, dy, bminY, bmaxY);
-    slab(pz, dz, bminZ, bmaxZ);
+    slab(lo.x, ld.x, -ex - r, ex + r);
+    slab(lo.y, ld.y, -ey - r, ey + r);
+    slab(lo.z, ld.z, -ez - r, ez + r);
     if (miss || t0 > t1) continue;
     // t0 < 0 = the pivot is already inside this (inflated) box - e.g. the
     // player brushing a wall. Ignore it rather than collapse the camera onto
@@ -4682,13 +4723,35 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     float want =
         springArm(pivotX, headY, pivotZ, -boomX, -boomY, -boomZ, PP_CAM_DIST(pi));
     if (want < CAM_MIN_DIST) want = CAM_MIN_DIST;
-    if (want < P.boom) {
-      P.boom = want;  // blocked: snap in, never clip
-    } else {
-      float k = 0.06F * g_frameScale;  // ~2 s to close a full-length boom
-      if (k > 1.0F) k = 1.0F;
-      P.boom += (want - P.boom) * k;
+
+    // Whisker anticipation: two extra casts splayed ~20 deg to either side of
+    // the boom spot walls the camera is about to sweep behind and start easing
+    // the boom in before the straight ray is blocked. A whisker hit is
+    // off-axis - a hint, not the true obstruction - so it only pulls the
+    // target partway toward its own distance. The want-clamp below remains the
+    // never-clip guarantee; whiskers just mean it usually fires from a boom
+    // that is already most of the way in, so the residual jump is small.
+    float target = want;
+    const float wcos = 0.94F, wsin = 0.342F;
+    for (int s = -1; s <= 1; s += 2) {
+      const float wx = -boomX * wcos + (-boomZ) * (wsin * s);
+      const float wz = boomX * (wsin * s) - boomZ * wcos;
+      const float d =
+          springArm(pivotX, headY, pivotZ, wx, -boomY, wz, PP_CAM_DIST(pi));
+      const float soft = d + (want - d) * 0.4F;
+      if (soft < target) target = soft;
     }
+    if (target < CAM_MIN_DIST) target = CAM_MIN_DIST;
+
+    // Ease toward the anticipated length: briskly in (a few frames), gently
+    // back out (~2 s for a full boom), and never past the straight-ray hit -
+    // blocked mid-ease still clamps so the camera cannot enter geometry.
+    const float rate = target < P.boom ? 0.30F : 0.06F;
+    float k = rate * g_frameScale;
+    if (k > 1.0F) k = 1.0F;
+    P.boom += (target - P.boom) * k;
+    if (P.boom > want) P.boom = want;
+    if (P.boom < CAM_MIN_DIST) P.boom = CAM_MIN_DIST;
     float eyeX = pivotX - boomX * P.boom;
     float eyeY = headY - boomY * P.boom;
     float eyeZ = pivotZ - boomZ * P.boom;
