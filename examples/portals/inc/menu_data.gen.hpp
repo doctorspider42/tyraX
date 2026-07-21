@@ -36,17 +36,41 @@ struct MenuData {
   int valueCellW, valueCellH, valuePitch, valueX;
 };
 
-constexpr int MENU_COUNT = 0;
+constexpr int MENU_COUNT = 4;
 
-constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F, 0, -1, 0}};
+// menu "options-audio"
+constexpr MenuEntryData MENU_0_ENTRIES[2] = {
+    {8, 0, 0.0F, 5, 0, 1},  // MUSIC
+    {8, 1, 0.0F, 5, 5, 2},  // SOUND
+};
+// menu "options-controls"
+constexpr MenuEntryData MENU_1_ENTRIES[2] = {
+    {8, 2, 0.0F, 5, 0, 3},  // DEADZONE
+    {8, 3, 0.0F, 3, 5, 4},  // AIM CURVE
+};
+// menu "options-display"
+constexpr MenuEntryData MENU_2_ENTRIES[2] = {
+    {8, 4, 0.0F, 5, 0, 5},  // DISPLAY
+    {7, 5, 0.0F, 2, 5, 6},  // ASPECT
+};
+// menu "options"
+constexpr MenuEntryData MENU_3_ENTRIES[4] = {
+    {3, 0, 0.0F, 0, -1, 0},  // AUDIO
+    {3, 1, 0.0F, 0, -1, 0},  // CONTROLS
+    {3, 2, 0.0F, 0, -1, 0},  // DISPLAY
+    {0, -1, 0.0F, 0, -1, 0},  // CLOSE
+};
 
 inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
-    {"", 0, 0, 0, 0, 0, 0, MENU_0_ENTRIES, 0, 0, 0.5F, 0.45F, "", 0, 0, 0, 0},
+    {"menus/options-audio.png", 256, 128, 114, 44, 24, 2, MENU_0_ENTRIES, 0, 1, 0.5F, 0.45F, "menus/options-audio-values.png", 128, 24, 32, 104},  // options-audio
+    {"menus/options-controls.png", 256, 128, 114, 44, 24, 2, MENU_1_ENTRIES, 0, 1, 0.5F, 0.45F, "menus/options-controls-values.png", 128, 24, 32, 104},  // options-controls
+    {"menus/options-display.png", 256, 128, 114, 44, 24, 2, MENU_2_ENTRIES, 0, 1, 0.5F, 0.45F, "menus/options-display-values.png", 128, 24, 32, 104},  // options-display
+    {"menus/options.png", 256, 256, 162, 44, 24, 4, MENU_3_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0},  // options
 };
 
 constexpr int TITLE_MENU = -1;
 // The Start button opens/closes this menu in-game (-1 = none)
-constexpr int PAUSE_MENU = -1;
+constexpr int PAUSE_MENU = 3;
 
 constexpr int MENU_EVENT_COUNT = 0;
 // Names of the "Flow event" entry actions (menuEvent indexes this)

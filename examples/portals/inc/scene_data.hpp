@@ -75,24 +75,25 @@ struct SceneObjectData {
 constexpr int SCENE_COUNT = 1;
 
 // scene "main"
-constexpr SceneObjectData SCENE_0_OBJECTS[11] = {
+constexpr SceneObjectData SCENE_0_OBJECTS[12] = {
     {6, {0.0F, 0.0F, 3.0F}, {0.0F, 180.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // player-1
-    {16, {0.0F, 1.2F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.8F, 2.4F, 1.0F}, {0.95F, 0.55F, 0.2F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // portal-a
-    {16, {20.0F, 1.2F, -15.0F}, {0.0F, 0.0F, 0.0F}, {1.8F, 2.4F, 1.0F}, {0.2F, 0.75F, 0.95F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // portal-b
+    {16, {0.0F, 1.2F, 0.0223163F}, {0.0F, -0.0F, 0.0F}, {1.8F, 2.4F, 1.0F}, {0.95F, 0.55F, 0.2F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // portal-a
+    {16, {20.0F, 1.2F, -15.0445F}, {0.0F, -0.0F, 0.0F}, {1.8F, 2.4F, 1.0F}, {0.2F, 0.75F, 0.95F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // portal-b
     {0, {20.0F, 1.5F, -10.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 3.0F, 2.0F}, {0.9F, 0.15F, 0.1F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // box-red
     {0, {2.5F, 0.75F, 0.5F}, {0.0F, 0.0F, 0.0F}, {1.5F, 1.5F, 1.5F}, {0.15F, 0.8F, 0.25F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // box-green
     {16, {4.0F, 0.3F, -6.0F}, {-90.0F, 0.0F, 0.0F}, {2.5F, 2.5F, 1.0F}, {0.6F, 0.3F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // portal-floor
     {0, {4.0F, 5.0F, -6.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.85F, 0.2F, 0.85F}, 1, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // box-drop
     {16, {4.0F, 8.0F, -6.0F}, {90.0F, 0.0F, 0.0F}, {2.5F, 2.5F, 1.0F}, {0.3F, 0.85F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // portal-ceiling
-    {0, {0.0F, 0.5F, -0.499317F}, {0.0F, 0.0F, 0.0F}, {1.98341F, 4.15589F, 1.0F}, {0.196078F, 0.196078F, 0.196078F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // box-1
-    {0, {19.9781F, 0.5F, -15.5279F}, {0.0F, 0.0F, 0.0F}, {1.98341F, 4.15589F, 1.0F}, {0.196078F, 0.196078F, 0.196078F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // box-1-copy
     {7, {20.0F, 0.2F, -11.5F}, {0.0F, 0.0F, 0.0F}, {1.2F, 1.0F, 1.2F}, {1.0F, 0.55F, 0.1F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 40, 0.7F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 2, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // fire-b
+    {1, {0.0F, 0.5F, 1.38306F}, {0.0F, -0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 1, 0.75F, 0.47F, 0.5F, 1, -1, -1, 0, 1, 1, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // sphere-1
+    {0, {-0.00845912F, 0.468486F, -0.155458F}, {0.0F, -0.0F, 0.0F}, {2.3789F, 4.32145F, 0.37668F}, {0.196078F, 0.196078F, 0.196078F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // box-1-copy2
+    {0, {19.9289F, 0.468504F, -15.2373F}, {0.0F, -0.0F, 0.0F}, {2.3789F, 4.32145F, 0.37668F}, {0.196078F, 0.196078F, 0.196078F}, 0, 1.0F, 0.35F, 0.5F, 1, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // box-1-copy2-copy
 };
 
-constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {11};
+constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {12};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
-constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[11] = {0x1027c09ee2b6099cULL, 0x23f00b58caf86d05ULL, 0x23fa0b58cb00c18aULL, 0x23f60b58cafcd8b3ULL, 0x24020b58cb089338ULL, 0x24080b58cb0cfee6ULL, 0x24040b58cb09160fULL, 0x23d80b58cae3db24ULL, 0x25000b58cbdfa035ULL, 0x250a0b58cbe7f4baULL, 0x25060b58cbe40be3ULL};
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[12] = {0x1027c09ee2b6099cULL, 0x23f00b58caf86d05ULL, 0x23fa0b58cb00c18aULL, 0x23f60b58cafcd8b3ULL, 0x24020b58cb089338ULL, 0x24080b58cb0cfee6ULL, 0x24040b58cb09160fULL, 0x23d80b58cae3db24ULL, 0x25060b58cbe40be3ULL, 0x2a21dd99d618317bULL, 0x347b89da5aa82b39ULL, 0x486d709a7a20d4f2ULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
@@ -138,7 +139,7 @@ struct PortalData {
 constexpr int PORTAL_COUNT = 4;
 constexpr PortalData PORTALS[4] = {
     {0, 1, 2, 1, 0, 1, 0, 0},  // portal-a,
-    {0, 2, 1, 1, 0, 0, 0, 1},  // portal-b,
+    {0, 2, 1, 1, 0, 1, 0, 1},  // portal-b,
     {0, 5, 7, 1, 1, 1, 1, 0},  // portal-floor,
     {0, 7, 5, 1, 0, 1, 1, 0},  // portal-ceiling
 };
@@ -149,7 +150,7 @@ inline const char* SND_PATHS[1] = {""};
 
 constexpr int PLAYER_INDEXES[SCENE_COUNT] = {0};
 constexpr int PLAYER_MODES[SCENE_COUNT] = {0};
-constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {0.4F};
+constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {0.12F};
 constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
 constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {1.8F};
 constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};
@@ -247,14 +248,14 @@ inline void applySceneGrading(TEngine* engine, int index) {
       GRADING_MIX_COLORS[index], GRADING_MIX_AMTS[index]);
 }
 
-constexpr int SAVE_VALUE_COUNT = 0;
-inline const char* SAVE_VALUE_NAMES[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {""};
-constexpr float SAVE_VALUE_DEFAULTS[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {0.0F};
+constexpr int SAVE_VALUE_COUNT = 6;
+inline const char* SAVE_VALUE_NAMES[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {"opt_music_vol", "opt_sfx_vol", "opt_deadzone", "opt_stick_curve", "opt_display", "opt_widescreen"};
+constexpr float SAVE_VALUE_DEFAULTS[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {4.0F, 4.0F, 2.0F, 0.0F, 0.0F, 0.0F};
 constexpr int SAVE_TEXT_COUNT = 0;
 constexpr int SAVE_TEXT_LEN = 32;  // incl. the terminating NUL
 inline const char* SAVE_TEXT_NAMES[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
 inline const char* SAVE_TEXT_DEFAULTS[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
-constexpr int SAVE_OBJECT_MAX = 11;
+constexpr int SAVE_OBJECT_MAX = 12;
 
 }  // namespace Portals
 

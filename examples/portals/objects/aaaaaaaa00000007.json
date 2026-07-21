@@ -1,1 +1,1 @@
-{ "id": "aaaaaaaa00000007", "name": "box-drop", "type": "box", "position": [4, 5, -6], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.85, 0.2, 0.85], "physics": true }
+{ "id": "aaaaaaaa00000007", "name": "box-drop", "type": "box", "position": [4, 5, -6], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.85, 0.2, 0.85], "physics": true, "physMass": 1, "physBounce": 0.35, "physFriction": 0.5, "physTumble": true }
