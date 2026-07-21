@@ -753,6 +753,7 @@ std::string save(const Project& p) {
          << "  \"settings\": {\n"
          << "    \"videoSystem\": \"" << p.settings.videoSystem << "\",\n"
          << "    \"displayMode\": \"" << p.settings.displayMode << "\",\n"
+         << (p.settings.palFullHeight ? "    \"palFullHeight\": true,\n" : "")
          << "    \"widescreen\": " << (p.settings.widescreen ? "true" : "false")
          << ",\n"
          << "    \"buildProfile\": \"" << p.settings.buildProfile << "\",\n"
@@ -1100,7 +1101,8 @@ std::string save(const Project& p) {
     json << ",\n  \"menus\": [";
     static const char* kMenuActions[] = {"close",     "scene",     "save-menu",
                                          "menu",      "set-value", "add-value",
-                                         "event",     "toggle",    "choice"};
+                                         "event",     "toggle",    "choice",
+                                         "apply-video"};
     for (size_t i = 0; i < p.menus.size(); ++i) {
         const GameMenu& m = p.menus[i];
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << m.name
@@ -1141,7 +1143,7 @@ std::string save(const Project& p) {
         json << ",\n      \"entries\": [";
         for (size_t e = 0; e < m.entries.size(); ++e) {
             const MenuEntry& en = m.entries[e];
-            const int a = (en.action >= 0 && en.action <= 8) ? en.action : 0;
+            const int a = (en.action >= 0 && en.action <= 9) ? en.action : 0;
             json << (e ? ",\n        " : "\n        ") << "{ \"label\": \""
                  << en.label << "\", \"action\": \"" << kMenuActions[a] << "\""
                  << (en.param.empty() ? "" : ", \"param\": \"" + en.param + "\"")
@@ -1151,6 +1153,12 @@ std::string save(const Project& p) {
                 for (size_t o = 0; o < en.options.size(); ++o)
                     json << (o ? ", " : "") << "\"" << jsonEscape(en.options[o])
                          << "\"";
+                json << "]";
+            }
+            if (!en.optionModes.empty()) {
+                json << ", \"optionModes\": [";
+                for (size_t o = 0; o < en.optionModes.size(); ++o)
+                    json << (o ? ", " : "") << en.optionModes[o];
                 json << "]";
             }
             static const char* kMenuBinds[] = {
@@ -1946,10 +1954,12 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = s->find("displayMode")) {
             const std::string dm = v->stringOr("interlaced");
             st.displayMode = (dm == "progressive" || dm == "1080i" ||
-                              dm == "interlaced-field")
+                              dm == "interlaced-field" || dm == "pal576")
                                  ? dm
                                  : "interlaced";
         }
+        if (const auto* v = s->find("palFullHeight"))
+            st.palFullHeight = v->boolOr(false);
         if (const auto* v = s->find("widescreen"))
             st.widescreen = v->boolOr(false);
         if (const auto* v = s->find("buildProfile"))
@@ -2724,6 +2734,7 @@ std::string load(Project& out, const std::string& projectDir) {
                                     : a == "event"     ? MenuEntry::FlowEvent
                                     : a == "toggle"    ? MenuEntry::Toggle
                                     : a == "choice"    ? MenuEntry::Choice
+                                    : a == "apply-video" ? MenuEntry::ApplyVideo
                                                        : MenuEntry::Close;
                     }
                     if (const auto* v = je.find("param")) en.param = v->stringOr("");
@@ -2734,6 +2745,16 @@ std::string load(Project& out, const std::string& projectDir) {
                         for (const auto& jo : v->arr) {
                             const std::string s = jo.stringOr("");
                             if (!s.empty()) en.options.push_back(s);
+                        }
+                    }
+                    if (const auto* v = je.find("optionModes");
+                        v && v->type == json::Value::Type::Array) {
+                        for (const auto& jo : v->arr) {
+                            int m = (int)jo.numberOr(0.0);
+                            // Tyra::DisplayMode range; -1 = project default
+                            if (m < -1) m = -1;
+                            if (m > 4) m = 4;
+                            en.optionModes.push_back(m);
                         }
                     }
                     if (const auto* v = je.find("bind")) {

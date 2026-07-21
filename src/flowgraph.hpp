@@ -391,7 +391,8 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .numLabels = {"Mode", "Confirm s"},
          .desc = "Switches the scan mode. num[0] Mode: 0 interlaced, 1 "
                  "progressive 480p, 2 1080i, 3 interlaced field rendering "
-                 "(a fresh half-height image every field). num[1] Confirm "
+                 "(a fresh half-height image every field), 4 full-height "
+                 "PAL 576i (always 50 Hz). num[1] Confirm "
                  "seconds > 0 shows a keep-or-revert prompt with automatic "
                  "rollback."},
         {.key = "SetWidescreen", .title = "Set Widescreen", .category = "Scene",
