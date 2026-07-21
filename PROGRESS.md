@@ -9,8 +9,8 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (135) **Region-aware default display mode: the "PAL picture" preference +
-  a DEFAULT menu option.** Owner follow-up on (134): a project should ship
+- (147) **Region-aware default display mode: the "PAL picture" preference +
+  a DEFAULT menu option.** Owner follow-up on (146): a project should ship
   ONE build that boots the right mode per region - 480i on NTSC, the
   author's chosen PAL flavor (letterboxed NTSC-size vs full-height 576i)
   on PAL - and the in-game display row should offer "default" as a
@@ -37,8 +37,8 @@ Each finished feature lands as its own commit.
   NTSC and videoSystem is forced pal). Auto-region promotion on a real
   PAL BIOS + the pad-driven menu pass remain hands-on checks.
 
-- (134) **True PAL: DisplayMode::Pal576i, the full-height 512-line frame.**
-  Owner follow-up on (133): our "PAL" was the NTSC-sized picture (512x448
+- (146) **True PAL: DisplayMode::Pal576i, the full-height 512-line frame.**
+  Owner follow-up on (145): our "PAL" was the NTSC-sized picture (512x448
   buffer) output at 50 Hz - the letterboxed port look. The new mode renders
   a 512x512 frame and scans it as the classic 576i FIELD signal (512 of
   the raster's ~576 visible lines - what full-PAL European releases did).
@@ -67,7 +67,7 @@ Each finished feature lands as its own commit.
   to read the real GS buffer size; the default window-size screenshots
   are DAR-corrected and hide it.
 
-- (133) **Display-mode menu row: stage-then-APPLY + a scan-mode dropdown per
+- (145) **Display-mode menu row: stage-then-APPLY + a scan-mode dropdown per
   option.** Owner reports: cycling the in-game "Display mode" option block
   switched the scan mode on every press (VRAM rebuild, menu force-closed,
   confirm prompt armed), so the option list could not even be browsed; and
@@ -101,6 +101,273 @@ Each finished feature lands as its own commit.
   touching generated types (MenuEntryData) must go after it (first Docker
   build failed exactly there; GCC's error recovery made it look like the
   param type collapsed to `const int&`).
+- (144) **Portal crossing: stop the full-screen mask erasing the mounting
+  wall.** Owner: at the crossing the wall vanishes and reveals the trick.
+  Cause: the full-screen crossing mask (repaints the WHOLE screen with the
+  destination at the nearest depth, so nothing redraws over it) fired
+  whenever the quad clipped the near plane (`nearClipped`), which off-axis
+  triggers while the opening does NOT yet fill the view - erasing the still
+  visible wall. It is now used ONLY as a last resort, when the clipped fan
+  has fully **degenerated** (`!carved` - the eye is on the surface, no
+  valid opening polygon exists), i.e. the single unavoidable frame right at
+  the plane (the walker teleports the same instant). Every approach frame
+  keeps a valid fan, so the crisp carved WINDOW is drawn and the wall stays
+  around it. `nearClipped` removed. Known residual: a free-standing portal
+  (no wall) can still show the world just past it in that degenerate frame -
+  inherent to the single-render PS2 portal (no oblique near plane). Verified:
+  editor builds clean, portals example regenerated + Docker build exit 0.
+  Owner pad test next.
+
+- (143) **Two-sided carried-object rendering through a portal (owner's
+  architectural call).** The owner reasoned the fix out: don't just NOT
+  draw the object - draw it, and clip out only the part inside the portal
+  frame. That is exactly right, and it is how a real portal renders. The
+  previous approach mapped the whole carried object to the far side and
+  drew it ONLY in the through-view, so with a wall it read as clipped to
+  the opening (the parts that would fall over the wall vanished) and looked
+  like it stalled. Now the object rides straight ahead at its REAL position
+  and is drawn NORMALLY in the main pass - the portal's z-cap clips the
+  half past the surface inside the opening, a wall around the opening
+  occludes the rest - while that portal's through-view draws a COPY mapped
+  to the exit (`carryPortalPi` + a save/`portalMapPoint`/restore around the
+  view-object loop in renderOnePortalView). The two halves meet at the
+  plane, so the object physically straddles the portal, near half this
+  side and far half coming out the other - no pin, no bend, no vanish, wall
+  or not. renderViewObject's exit-plane dead zone keeps the mapped copy
+  hidden until the object's centre reaches the surface, so it appears only
+  as it emerges. Verified: editor builds clean, portals example regenerated
+  + Docker build exit 0. Owner pad test next.
+
+- (142) **Carried object no longer pins on a portal's mounting wall.**
+  Owner narrowed it perfectly: a free-standing portal carries the object
+  through fine, a wall-mounted one stops it. The doorway that makes the
+  carry sweep ignore the mounting wall works for a wall fully behind the
+  plane, but the example wall's front face is flush WITH the portal plane,
+  so the sweep still clipped `want` a hair short - and any shortfall below
+  `bendT` stops the portal-bend from triggering, leaving the object pinned
+  on the surface. Fix: when the carry ray aims through a portal that will
+  render the object on the far side (`bendShows` - viewAll or view list),
+  `want` is now FORCED to the full carry reach, overriding the sweep, so
+  `d > bendT` always holds and the object flies through regardless of the
+  wall. Teleport-only portals (can't show the object past the plane) still
+  clamp to the surface. Known remaining nit: standing right at a portal and
+  looking to the SIDE shows the between-portals dead zone (inherent to the
+  single-render PS2 portal - no oblique near plane); looking through it is
+  clean. Verified: editor builds clean, portals example regenerated +
+  Docker build exit 0. Owner pad test next.
+
+- (141) **Portal crossing mask: physical near-plane test, not a distance
+  threshold (fixes "objects vanish near a portal").** (139)/(140) forced
+  the full-screen crossing mask whenever the eye was within a fraction of
+  the crossing-zone depth of the plane (`zoneClose`, ~1 m out). That
+  repaints the WHOLE screen with the destination, so standing that close to
+  a portal erased every near-side object (owner report + screenshots). The
+  mask now fires only when the quad actually **clips the near plane**
+  (`nearClipped` - a corner projects behind `wMin`), which is the literal
+  "eye a breath from the surface" moment the mask exists for; every frame
+  before that shows the crisp carved window with the near scene intact.
+  Also reverted (140)'s behind-the-plane selection band (it let a portal
+  render its back face and ghost/erase geometry as you stood behind it);
+  the loop-order fix (carried object positioned after the portal teleport)
+  is kept. Verified: editor builds clean, portals example regenerated +
+  Docker build exit 0. Owner pad test next.
+
+- (140) **Carrying through a portal, the dead-centre take two: keep the
+  through-view alive across the plane.** (139) still left the object
+  snapping at the exact centre and a "between the portals" flash (owner
+  screenshots). Root cause: `renderPortalView` only selected a portal
+  while the camera was strictly in FRONT (`rel·n > 0`), so at the plane the
+  portal dropped out entirely - no through-view, so the bent carried object
+  (skipped in the main pass) had nowhere to draw and the crossing zone's
+  full-screen mask never engaged, exposing the wall behind. Fixes: (a)
+  portal selection now keeps a portal live for a short band JUST behind the
+  plane while the eye is inside the opening rectangle (the crossing frames
+  before the walker teleports) - outside the rectangle the back face still
+  shows nothing; (b) the crossing-zone test's lower bound drops to
+  `lz > -0.6` to match, so `zoneClose` forces the full mask through the
+  exact centre; (c) `updateCarriedObject` moved AFTER `updatePortals` in
+  both loops - on the teleport frame the camera is already rebuilt to the
+  arrival side, so the object anchors there instead of holding one frame at
+  the departure side and blinking. Verified: editor builds clean, portals
+  example regenerated + Docker build exit 0. Owner pad test next.
+
+- (139) **Carrying through a portal, the dead-centre polish.** With the
+  portal-aware carry (138) working, the owner found the object still
+  snapped onto the mounting wall at the exact CENTRE of the opening, and
+  the "two portals at once" flash returned there for a frame. Both are the
+  eye sitting right ON the plane: (a) the carry sweep's doorway
+  (`armSweepPass`) only arms when its probe starts in FRONT of the plane,
+  so dead centre it failed, the sweep caught the wall and yanked the object
+  onto it - the probe now starts backed up behind the eye (-1.2 along dir)
+  so it always straddles; the bend detection likewise tolerates the plane
+  sitting slightly behind the eye (`t` down to `-(r+0.6)`) so the object
+  stays mapped through instead of un-bending for a frame. (b) The
+  crossing-zone full-screen mask (from round four) engaged only once the
+  quad's screen BBOX stopped covering, but the quad POLYGON stops reaching
+  the corners a touch earlier once the near plane clips it - a new
+  `zoneClose` (eye within the last half of the crossing zone) forces the
+  full mask there, closing the corner-peek. Verified: editor builds clean,
+  portals example regenerated + Docker build exit 0. Owner pad test next.
+
+- (138) **Carrying through a portal, take two: the object flies through
+  instead of pinning.** (137) clamped the carried object's center to the
+  portal plane to stop it vanishing - but any clamp PINS the object's
+  forward motion, so it froze on the surface while the player walked the
+  last stretch (owner: still stops like a wall, half-in slice or not). The
+  clamp was the wrong model. Now the carry is **portal-aware**: if the
+  carry ray pierces a portal whose through-view renders the object
+  (`portalShowsObject` = viewAll or on the view list), the object flies on
+  THROUGH - its placement is mapped to the far side (`portalMapPoint`, the
+  teleport isometry) in front of the target, where that portal's
+  through-view already draws it, so you see it just beyond the opening as
+  it crosses. It is skipped in the near main pass
+  (`carryMappedThroughPortal`) so it doesn't also show as a distant double
+  at the target. On-screen the hand-off is continuous: near-side (main
+  pass) and far-side (through-view) both land the object in the portal
+  opening. A teleport-only portal (no through-view of the object) can't
+  show it on the far side, so there it still clamps to the plane as the
+  best available. Verified: editor builds clean, portals example
+  regenerated + Docker build exit 0. Owner pad test next.
+
+- (137) **Carrying an object through a portal (owner's fourth live test).**
+  Throwing was "perfect"; carrying had two faults. (1) **The carried
+  object vanished at the seam.** Once its center passed the portal surface
+  plane it rendered BEHIND the portal - renderPortalView carves the
+  opening and caps it at the surface depth, so anything past the plane
+  z-fails and disappears (it re-appeared only after the player crossed,
+  via the through-view). Fix: `updateCarriedObject` now clamps the carry
+  reach so the object's center rides at any portal plane the carry ray
+  pierces (rectangle + slack) - half-in / half-out, the classic "entering
+  the portal" slice (an earlier revision clamped it SHORT of the plane and
+  it pinned flat against the surface like a wall; owner follow-up) - and
+  it re-anchors to the new camera the instant the player teleports
+  through. (2) **The player couldn't walk through while carrying.** The
+  carry whisker (pushes the walker back when the object no longer fits in
+  front of the face) re-derived its portal doorway from a FORWARD probe,
+  which stops piercing the moment the eye reaches the plane - so the
+  doorway slammed shut exactly at the crossing and the whisker bounced the
+  player back out. The whisker now takes `portalPassOn`/`portalPassPlane`
+  (already published by `updatePortalPass`: "the body column is in the
+  opening") as the authoritative doorway, falling back to the forward
+  probe only for the approach; the three walkers reset `portalPassOn`
+  AFTER the whisker instead of before (so its internal re-collide keeps
+  the wall open too). Verified: editor builds clean, portals example
+  regenerated + Docker build exit 0. Owner pad test next.
+
+- (136) **Portal crossing, round four (owner's third live test): only
+  backwards worked, the thrown sphere "freaked out", and the residual
+  standing-in-the-opening pop.** Three fixes:
+  (1) **Forwards carry was blocked by the carry whisker.** Walking a
+  carried object toward a wall portal, the whisker (which pushes the
+  walker back when the object no longer fits in front of the face) read
+  the mounting wall as solid and shoved the player off the portal - so it
+  could only be entered backwards (the whisker probes forward only). The
+  carry sweep AND the whisker now arm the same portal doorway
+  (`armSweepPass` factored out of the thrown-arc code): obstacles behind
+  the aimed portal's plane stop blocking while carrying into an opening.
+  (2) **The thrown rigid body careened between the portals.** The physics
+  object teleport mapped only the VERTICAL velocity through the pair and
+  wrote only `velocityY`, dropping horizontal entirely - fine for a
+  straight-down faller, but a thrown sphere exited with world-space X/Z
+  that no longer matched the rotated target and shot off sideways. It now
+  maps the full velocity vector (the vertical keeps its position-delta
+  fallback for the fall loop). Added a 6-frame per-object hop cooldown
+  (`portalHopCool`) so rect-edge jitter / resolution kicks can't re-hop
+  every frame (the example's legit fall re-crosses every ~13 frames).
+  (3) **The residual crossing pop.** The full-screen crossing-zone mask
+  triggered on distance alone, flipping the screen corners wall->
+  destination a frame before the quad grew to fill them. It now fires only
+  when the carved quad no longer covers the whole screen (near-plane
+  clipping ate it) - the fan hands off to the mask with nothing visibly
+  changing.
+  Verified: editor builds clean, portals example regenerated + Docker
+  build exit 0. Owner pad test next.
+
+- (135) **Portal crossing, round three (owner's second live test): the
+  radius bug, the visibility rule, 30 u/s, and the carry-whisker wall
+  tunnel.** Four changes:
+  (1) **The doorway never opened - the radius bug.** (134)'s aim test
+  armed the wall exclusion only when the CENTER's motion segment pierced
+  the plane in that same frame - but the collision (sweep or AABB
+  resolution) stops the body half an extent BEFORE the plane, so the
+  center never got there and every throw bounced off the mounting wall
+  (owner repro). The aim segment ends are now padded by the body's extent
+  (+0.1), in both the thrown arc and physics pass 1 - the doorway opens
+  the frame contact WOULD happen, which is exactly when it must.
+  (2) **The visibility rule (owner's design):** whatever a portal SHOWS
+  can also go through it. New `portalCanCross(p, oi)`: teleportObjects
+  OR viewAll OR view-list membership OR the player-released latch. Used
+  by the updatePortals object loop, the pass-1 aim and the floor-swallow
+  suppression; `portalCarryAim` takes the object index (-1 =
+  unconditional, the released-flight path). The example's wall portals
+  are viewAll, so every rigid body crosses them now - flag not needed.
+  (3) **Terminal fall 15 -> 30 u/s** (owner: 15 too floaty, x2 request).
+  (4) **Carry whisker could shove the walker through a wall** (owner
+  find): the whisker's pushback runs AFTER collidePlayer and was never
+  collision-checked, so carrying an object toward blocking geometry while
+  a wall stands at your back pushed you clean through it. The pushback
+  now re-runs collidePlayer from the pre-push position (signature gained
+  feetY/eyeHeight; all three walker call sites updated).
+  Verified: editor builds clean, portals example regenerated + Docker
+  build exit 0; generated code shows the padded aim segments, the
+  portalCanCross wiring and the whisker re-collide. Owner pad test next.
+
+- (134) **Throw-through-portals rework after the owner's live test: flag
+  semantics + terminal velocity tuning.** (133) shipped but the owner's
+  test failed on both counts, for two distinct reasons. (1) The test
+  sphere is a *physics* pickable, so it never touches the thrown-arc code
+  - it rides the rigid-body path, and every portal hop there was gated on
+  the portal's Teleport-physics-objects flag, which the wall portals in
+  the example do not set (the player teleports through any linked portal;
+  gating a deliberate throw on an ambient-objects flag was the wrong
+  semantic). New rule: a **player-released body (throw OR drop) is
+  "portal-free"** - crosses any linked portal - until it settles to
+  sleep. Implemented as `thrownFreeIndex`, stamped in `releaseCarried`
+  (index from `&o - runtimeObjects.data()`), cleared on sleep at the top
+  of `updatePortals` and on scene reset; `portalCarryAim` gained a
+  `needFlag` param (ambient physics keeps requiring the flag, the thrown
+  arc and the freed body do not), and the updatePortals object loop,
+  physics pass-1 aim plane + floor-swallow suppression all honor the
+  latch. Carried objects are now explicitly skipped by the object
+  teleport (`oi == carryIndex`) - the carry owns their motion. (2) The
+  "cube accelerates to superluminal" report survived the (133) cap
+  because the cap was working exactly as the pre-#97 one did: 50 u/s.
+  The old loop was constantly hitching and never sustained it; the
+  unhitched loop does, and 50 u/s across a 7.7-unit column is a 6.5 Hz
+  strobe. Terminal fall is now **15 u/s** in both integrators (~0.5 s per
+  column leg - fast, readable). Verified: editor builds clean, portals
+  example regenerated + Docker game build exit 0; generated code shows
+  the latch wiring and both 15 u/s caps. The owner's pad test is the real
+  verdict.
+
+- (133) **Throws fly through portals + the lost terminal velocity.** Owner
+  request ("could a thrown object fly through a portal?") plus an owner
+  report: the infinite-fall cube now accelerates absurdly - and indeed the
+  old portal-branch 50 u/s terminal-fall cap died in the #97 sim rewrite
+  (PHYS_MAX_SPEED alone allows 3 u/frame = 150 u/s, and after (131)
+  unhitched the loop nothing ever slowed the cube down). Changes, all in
+  the game template:
+  - **Terminal fall restored**: `vel.y` capped at `50 * g_frameDt` per
+    frame in `updateObjectPhysics` (real-time-correct on PAL and NTSC) and
+    the same cap on the thrown arc, which previously had no clamp at all.
+  - **Thrown objects hop through**: `portalCarryAim` (which linked,
+    teleport-objects portal does the motion segment pierce front-to-back?)
+    + `portalCarryCrossing` (position + FULL velocity vector mapped by the
+    same flip-about-local-Y isometry updatePortals uses). Wired into the
+    non-physics thrown arc in `updateCarriedObject`; thrown rigid bodies
+    already ride `updatePortals`' physics path.
+  - **Doorway rule for objects**: while a throw or a falling body is aimed
+    into an opening, obstacles fully behind that portal's plane are
+    excluded from `sweepSphere` (new `sweepPass*` state) and from the
+    physics static-solid resolution - without this the mounting wall
+    stopped/bounced the object ~r short of the plane and the crossing
+    never fired (the walkers' `updatePortalPass` rule, applied per body).
+  - Thrown arc also skips the terrain ground-rest inside a swallowing
+    floor portal's zone (swept test, same as the walkers/physics).
+  Verified: editor builds clean; regenerated portals example compiles in
+  Docker (exit 0); generated code shows the cap, the carry-crossing calls
+  and both doorway filters. Throw feel + wall-portal crossing want a
+  hands-on PCSX2 pad test (owner has the live session).
 
 - (132) **Portal viewAll: the mounting wall's backside filled the
   through-view (hotfix on main).** Owner report right after (131) merged:

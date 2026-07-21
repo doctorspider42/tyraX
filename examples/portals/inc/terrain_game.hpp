@@ -381,8 +381,46 @@ class TerrainGame : public Tyra::Game {
   void updatePortalPass(float x, float feetY, float z);
   float portalPassPlane[4] = {0, 0, 0, 0};
   bool portalPassOn = false;
+  // Thrown objects fly through portals too. portalCarryAim finds the
+  // linked portal whose opening the motion segment a->b pierces (front
+  // face, authored rectangle + slack); -1 = none. forObj gates it through
+  // portalCanCross for that object; forObj == -1 is unconditional (the
+  // player-released flight). portalCanCross is the owner's rule: whatever
+  // a portal SHOWS can also go through it - teleportObjects, viewAll, a
+  // view-list member, or the player-released body all qualify.
+  // portalCarryCrossing maps position + full velocity through that pair
+  // (the same isometry updatePortals applies). While a flight segment
+  // aims into an opening, sweepPass* excludes obstacles fully behind that
+  // portal's plane from sweepSphere, and the physics pass applies the
+  // same exclusion to its static-solid resolution - the mounting wall
+  // must not stop a body's center r short of the crossing plane (callers
+  // pad the segment end by the body's extent for exactly that reason).
+  bool portalCanCross(const PortalData& p, int oi);
+  // True when portal pi's through-view actually DRAWS object oi (viewAll, or
+  // oi is on its explicit view list) - a carried object may only be mapped
+  // through a portal that will render it on the far side.
+  bool portalShowsObject(int pi, int oi);
+  // Map a world point through portal pi's pair (source local -> flip about
+  // local Y -> target world), the same isometry as the teleport/camera.
+  void portalMapPoint(int pi, float& x, float& y, float& z);
+  int portalCarryAim(const float* a, const float* b, int forObj);
+  bool portalCarryCrossing(const float* a, float* pos, float* vel);
+  // Arms sweepPass* when segment a->b pierces a linked opening (pad the
+  // end by the swept body's extent). Pair with sweepPassOn = false after
+  // the sweep.
+  bool armSweepPass(const float* a, const float* b);
+  float sweepPassPlane[4] = {0, 0, 0, 0};
+  bool sweepPassOn = false;
+  // The last player-released rigid body (throw OR drop): portal-free -
+  // crosses any linked portal, flag or not - until it settles to sleep.
+  // -1 = none. The non-physics thrown arc (thrownIndex) is always free.
+  int thrownFreeIndex = -1;
   std::vector<unsigned char> portalLiveFlags;  // per PORTALS entry: view drawn
   std::vector<float> portalPrevPos;  // 3 floats per runtime object (crossings)
+  // Per object: frames until it may hop again (set on every hop). Damps
+  // frame-scale re-hop jitter (rect-edge bounces, resolution kicks) without
+  // touching legit loops - the example's fall re-crosses every ~13 frames.
+  std::vector<unsigned char> portalHopCool;
   // Exit-plane of the through-view being rendered (nx, ny, nz, d) - set
   // around the destination render so renderTerrain can drop chunks in the
   // dead zone between the virtual camera and the target portal's plane.
@@ -546,8 +584,18 @@ class TerrainGame : public Tyra::Game {
   // Blocks the walker from pressing against geometry the carried object no
   // longer fits in front of (the spring arm's sweep, pushing the walker back
   // instead of pulling the camera in).
-  void applyCarryWhisker(float* nextX, float* nextZ, float eyeY, float yaw);
+  void applyCarryWhisker(float* nextX, float* nextZ, float probeY, float yaw,
+                         float feetY, float eyeHeight);
   int carryIndex = -1;        // runtimeObjects index being carried, -1 = none
+  // The portal the carried object is currently passing THROUGH (its carry ray
+  // pierces the opening and that portal renders the object in its
+  // through-view), or -1. The object is drawn NORMALLY in the main pass at
+  // its real position - the portal's z-cap clips the part inside the opening
+  // that is past the surface, and a wall around the opening occludes the
+  // rest - while that portal's through-view draws a copy mapped to the far
+  // side, so the portion "through" the opening appears coming out the other
+  // end. Two-sided, like a real portal; recomputed each carry frame.
+  int carryPortalPi = -1;
   bool carryGrabbed = false;  // eats the BTN_USE press that picked it up
   float carryDist = 0;        // smoothed carry reach: snaps in when the sweep
                               // blocks, eases back out (the boom's policy)
