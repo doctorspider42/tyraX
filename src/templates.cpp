@@ -269,6 +269,7 @@ services:
 static const char* TPL_MAIN_CPP = R"(#include <tyra>
 #include <cstdio>
 #include <cstring>
+#include <graph.h>  // graph_get_region - the PAL-picture promotion below
 #include "terrain_game.hpp"
 
 int main(int argc, char** argv) {
@@ -308,10 +309,22 @@ int main(int argc, char** argv) {
   // region, NTSC forces 60 Hz, PAL forces 50 Hz.
   options.videoMode = Tyra::VideoMode::{{VIDEO_MODE}};
   // Scan mode (Project > Preferences > Build > Display mode): interlaced
-  // 480i/576i (whole frames or true field rendering), progressive 480p, or
-  // 1080i. The DTV modes need component cables on a real console and always
-  // run at 60 Hz.
+  // 480i/576i (whole frames or true field rendering), progressive 480p,
+  // 1080i, or the full-height PAL 576i frame (always 50 Hz). The DTV modes
+  // need component cables on a real console and always run at 60 Hz.
   options.displayMode = Tyra::DisplayMode::{{DISPLAY_MODE}};
+  // PAL picture (Preferences > Build > PAL picture): with the
+  // region-following interlaced mode, a PAL console (or a forced-PAL
+  // target system) boots the full-height 512-line 576i frame instead of
+  // the letterboxed NTSC-size picture. Resolved here, before engine init,
+  // so the whole boot (logo, loading screen) already runs in it; the menu
+  // "DEFAULT" display option maps back to whatever this resolves to.
+  if ({{PAL_FULL_HEIGHT}} &&
+      options.displayMode == Tyra::DisplayMode::Interlaced &&
+      (options.videoMode == Tyra::VideoMode::PAL ||
+       (options.videoMode == Tyra::VideoMode::Auto &&
+        graph_get_region() == GRAPH_MODE_PAL)))
+    options.displayMode = Tyra::DisplayMode::Pal576i;
   // 16:9 anamorphic output (Preferences > Build > Widescreen).
   options.widescreen = {{WIDESCREEN}};
   Tyra::Engine engine(options);
@@ -1858,6 +1871,12 @@ float g_rumbleTimer = 0.0F;
 int g_menuDispOpt = -1;
 int g_menuWideOpt = -1;
 
+// The project-default display mode: whatever main.cpp resolved the boot
+// mode to (fixed preference, or region + the PAL-picture choice). Captured
+// in buildScene before any runtime switch can happen; a display row's
+// "DEFAULT" option (optModes -1) maps to it.
+int g_defaultDispMode = 0;
+
 // Maps a pad axis byte (128 = center) to a signed -1..1 value: it reads 0
 // below the deadzone, rescales from the deadzone edge so there is no step,
 // then shapes the magnitude by the per-stick response curve. Both the FPP
@@ -1906,6 +1925,23 @@ using namespace Tyra;
 namespace {
 
 constexpr float PI = 3.14159265358979F;
+
+// Display-mode option rows (bind 5): the engine mode an option drives, and
+// the option a mode shows as. Rows without an explicit optModes table keep
+// the positional mapping (option index == Tyra::DisplayMode); a table entry
+// of -1 is the "DEFAULT" option - the project-default boot mode.
+int displayOptionMode(const MenuEntryData& en, int idx) {
+  if (en.optModes && idx >= 0 && idx < en.optionCount) {
+    const int m = en.optModes[idx];
+    return m < 0 ? g_defaultDispMode : m;
+  }
+  return idx;
+}
+int displayOptionIndexOf(const MenuEntryData& en, int mode) {
+  for (int i = 0; i < en.optionCount; ++i)
+    if (displayOptionMode(en, i) == mode) return i;
+  return -1;
+}
 
 /** The texture repository asserts (crashes) on a missing file - probe first
  * so a missing PNG degrades to an untextured draw with a warning. */
@@ -3215,16 +3251,32 @@ void TerrainGame::buildScene() {
   // curve globals (g_stickCurve*/g_stickExp*) are seeded separately in init().
   g_deadzoneL = ANALOG_DEADZONE_L;
   g_deadzoneR = ANALOG_DEADZONE_R;
+  // The boot display mode IS the project default (main.cpp resolved it,
+  // nothing can have switched it yet) - latch it for the menu "DEFAULT"
+  // display option before any option lookup below resolves that sentinel.
+  g_defaultDispMode = (int)engine->renderer.core.getSettings().getDisplayMode();
   // Seed the display/widescreen option-block trackers from the current saved
   // option so applyMenuBindings does not fire a scan-mode switch (+ confirm
   // prompt) at boot: the game boots in the project's compiled display mode,
   // and a menu row only switches when the player moves it (or loads a save
-  // that changed it).
+  // that changed it). With an "apply video mode" row in the project the
+  // display row is a staging UI instead - align it to the actual boot mode
+  // so a title-screen menu opens showing (and its APPLY row seeing) reality.
   for (int mi = 0; mi < MENU_COUNT; ++mi)
     for (int e = 0; e < MENUS[mi].entryCount; ++e) {
       const MenuEntryData& en = MENUS[mi].entries[e];
       if (en.param < 0 || en.param >= SAVE_VALUE_COUNT) continue;
-      if (en.bind == 5) g_menuDispOpt = (int)saveValues[en.param];
+      if (en.bind == 5) {
+        g_menuDispOpt = (int)saveValues[en.param];
+        if (MENU_HAS_APPLY_VIDEO) {
+          const int live = displayOptionIndexOf(
+              en, (int)engine->renderer.core.getSettings().getDisplayMode());
+          if (live >= 0) {
+            saveValues[en.param] = (float)live;
+            g_menuDispOpt = live;
+          }
+        }
+      }
       if (en.bind == 6) g_menuWideOpt = (int)saveValues[en.param];
     }
   saveTexts.assign((SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1) * SAVE_TEXT_LEN, '\0');
@@ -5713,6 +5765,30 @@ bool TerrainGame::updateGameMenu() {
       case 8:  // choice
         cycleValue(e, 1);
         break;
+      case 9:  // apply video mode: commit the display row's staged selection
+        // (a scan-mode switch closes the menu - see applyVideoRequests'
+        // caller - so the player judges the new picture unobstructed).
+        for (int vmi = 0; vmi < MENU_COUNT; ++vmi) {
+          for (int vei = 0; vei < MENUS[vmi].entryCount; ++vei) {
+            const MenuEntryData& row = MENUS[vmi].entries[vei];
+            if (row.bind != 5 || row.param < 0 ||
+                row.param >= SAVE_VALUE_COUNT || row.optionCount <= 0)
+              continue;
+            int idx = (int)saveValues[row.param];
+            if (idx < 0) idx = 0;
+            if (idx >= row.optionCount) idx = row.optionCount - 1;
+            const int mode = displayOptionMode(row, idx);
+            if (mode !=
+                (int)engine->renderer.core.getSettings().getDisplayMode()) {
+              scriptCtx.requestDisplayMode = mode;
+              scriptCtx.displayConfirmSec = 8.0F;  // keep-or-revert net
+              g_menuDispOpt = idx;
+            }
+            vmi = MENU_COUNT;  // first display row wins
+            break;
+          }
+        }
+        break;
     }
   }
   return pausing();
@@ -5726,7 +5802,11 @@ bool TerrainGame::updateGameMenu() {
 // / curve are idempotent (re-applied each frame, cheap). Display mode and
 // widescreen rebuild VRAM / arm the confirm prompt, so they fire only when the
 // option actually changes, routed through the same scriptCtx video requests
-// the Set Display Mode / Set Widescreen flow nodes use.
+// the Set Display Mode / Set Widescreen flow nodes use. When the project has
+// an "apply video mode" row (MENU_HAS_APPLY_VIDEO) the display row defers
+// instead: cycling it only stages a selection the APPLY row commits (case 9
+// in updateGameMenu), so the player can browse the option list without the
+// screen switching under them.
 void TerrainGame::applyMenuBindings() {
   for (int mi = 0; mi < MENU_COUNT; ++mi) {
     const MenuData& m = MENUS[mi];
@@ -5762,10 +5842,22 @@ void TerrainGame::applyMenuBindings() {
           g_stickExpL = g_stickExpR = 2.0F;
           break;
         }
-        case 5:  // display / scan mode (idx = Tyra::DisplayMode 0..3)
-          if (idx != g_menuDispOpt) {
+        case 5:  // display / scan mode (option -> mode via displayOptionMode)
+          if (MENU_HAS_APPLY_VIDEO) {
+            // Deferred: the row only stages a selection while a menu is on
+            // screen; the "apply video mode" row commits it. With no menu
+            // open, snap the row back to the live mode - a browsed-but-
+            // unapplied selection (or a reverted confirm) never lies.
+            if (gameMenuIndex < 0 && en.param >= 0 &&
+                en.param < SAVE_VALUE_COUNT) {
+              const int live = displayOptionIndexOf(
+                  en,
+                  (int)engine->renderer.core.getSettings().getDisplayMode());
+              if (live >= 0 && live != idx) saveValues[en.param] = (float)live;
+            }
+          } else if (idx != g_menuDispOpt) {
             g_menuDispOpt = idx;
-            scriptCtx.requestDisplayMode = idx;
+            scriptCtx.requestDisplayMode = displayOptionMode(en, idx);
             scriptCtx.displayConfirmSec = 8.0F;  // keep-or-revert safety net
           }
           break;
@@ -11100,7 +11192,7 @@ struct ScriptContext {
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes).
   // requestDisplayMode: -1 = leave, else a Tyra::DisplayMode value (0 =
   // interlaced, 1 = progressive 480p, 2 = 1080i, 3 = interlaced field
-  // rendering). displayConfirmSec > 0
+  // rendering, 4 = full-height PAL 576i). displayConfirmSec > 0
   // arms the keep-or-revert prompt: the game switches, asks the player to
   // confirm with X and reverts to the previous mode automatically when the
   // timer runs out (a mode the TV can't display would otherwise strand the
@@ -12823,7 +12915,10 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                    st.displayMode == "1080i"              ? "HiDef1080i"
                    : st.displayMode == "progressive"      ? "Progressive480p"
                    : st.displayMode == "interlaced-field" ? "InterlacedField"
+                   : st.displayMode == "pal576"           ? "Pal576i"
                                                           : "Interlaced");
+    s = replaceAll(s, "{{PAL_FULL_HEIGHT}}",
+                   st.palFullHeight ? "true" : "false");
     s = replaceAll(s, "{{WIDESCREEN}}", st.widescreen ? "true" : "false");
     const bool debugProfile = st.buildProfile == "debug";
     s = replaceAll(s, "{{DEBUG_SHOW_FPS}}",
@@ -16693,8 +16788,9 @@ static std::string menuDataHeader(const Project& p) {
            "// Menu entry actions: 0 close, 1 switch scene, 2 open save menu,\n"
            "// 3 open menu (submenu), 4 set save value, 5 add to save value,\n"
            "// 6 fire flow event, 7 toggle, 8 choice (7/8: param = the save\n"
-           "// value holding the option index). param = resolved index, -1 =\n"
-           "// unknown target.\n"
+           "// value holding the option index), 9 apply video mode (commits\n"
+           "// the display-mode row's staged selection). param = resolved\n"
+           "// index, -1 = unknown target.\n"
            "struct MenuEntryData {\n"
            "  int action;\n"
            "  int param;\n"
@@ -16704,6 +16800,10 @@ static std::string menuDataHeader(const Project& p) {
            "  int bind;         // option-block binding (applyMenuBindings):\n"
            "                    // 0 none, 1 music vol, 2 sfx vol, 3 deadzone,\n"
            "                    // 4 stick curve, 5 display mode, 6 widescreen\n"
+           "  // bind 5 only: the Tyra::DisplayMode each option drives\n"
+           "  // (optionCount ints; -1 = the project-default boot mode).\n"
+           "  // Null = the option index itself.\n"
+           "  const int* optModes;\n"
            "};\n\n"
            "struct MenuData {\n"
            "  const char* panel;  // baked panel sprite, relative to the ELF\n"
@@ -16729,11 +16829,34 @@ static std::string menuDataHeader(const Project& p) {
                                 ? menubake::kMaxEntries
                                 : (int)m.entries.size();
         const menubake::ValueStripLayout vl = menubake::valueStripLayout(m);
-        out << "// menu \"" << m.name << "\"\n"
-            << "constexpr MenuEntryData MENU_" << mi << "_ENTRIES["
+        out << "// menu \"" << m.name << "\"\n";
+        // Explicit option->mode tables for display-mode rows (see
+        // MenuEntryData::optModes); rows without one keep the positional map.
+        for (int e = 0; e < entries; ++e) {
+            const MenuEntry& en = m.entries[e];
+            const bool stateful = en.action == MenuEntry::Toggle ||
+                                  en.action == MenuEntry::Choice;
+            if (!stateful || en.settingBind != MenuEntry::BindDisplayMode ||
+                en.optionModes.empty())
+                continue;
+            const int optionCount = (int)menubake::entryOptionLabels(en).size();
+            if (optionCount <= 0) continue;
+            out << "constexpr int MENU_" << mi << "_E" << e << "_MODES["
+                << optionCount << "] = {";
+            for (int o = 0; o < optionCount; ++o) {
+                int mode = o < (int)en.optionModes.size() ? en.optionModes[o]
+                                                          : (o < 4 ? o : 4);
+                // Tyra::DisplayMode range; -1 = the project-default option
+                if (mode < -1) mode = -1;
+                if (mode > 4) mode = 4;
+                out << (o ? ", " : "") << mode;
+            }
+            out << "};\n";
+        }
+        out << "constexpr MenuEntryData MENU_" << mi << "_ENTRIES["
             << (entries > 0 ? entries : 1) << "] = {\n";
         if (entries == 0) {
-            out << "    {0, -1, 0.0F, 0, -1, 0},\n";
+            out << "    {0, -1, 0.0F, 0, -1, 0, nullptr},\n";
         } else {
             for (int e = 0; e < entries; ++e) {
                 const MenuEntry& en = m.entries[e];
@@ -16756,15 +16879,22 @@ static std::string menuDataHeader(const Project& p) {
                                   en.action == MenuEntry::Choice)
                                      ? en.settingBind
                                      : 0;
+                const bool hasModes = bind == MenuEntry::BindDisplayMode &&
+                                      !en.optionModes.empty() && optionCount > 0;
                 out << "    {" << en.action << ", " << param << ", "
                     << floatLit(en.amount) << ", " << optionCount << ", " << cell
-                    << ", " << bind << "},  // " << en.label << "\n";
+                    << ", " << bind << ", ";
+                if (hasModes)
+                    out << "MENU_" << mi << "_E" << e << "_MODES";
+                else
+                    out << "nullptr";
+                out << "},  // " << en.label << "\n";
             }
         }
         out << "};\n";
     }
     if (p.menus.empty())
-        out << "constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F, 0, -1, 0}};\n";
+        out << "constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F, 0, -1, 0, nullptr}};\n";
 
     int titleMenu = -1;
     for (size_t mi = 0; mi < p.menus.size(); ++mi)
@@ -16805,10 +16935,25 @@ static std::string menuDataHeader(const Project& p) {
             out << "},  // " << m.name << "\n";
         }
     }
+    bool hasApplyVideo = false;
+    for (const GameMenu& m : p.menus) {
+        const int entries = (int)m.entries.size() > menubake::kMaxEntries
+                                ? menubake::kMaxEntries
+                                : (int)m.entries.size();
+        for (int e = 0; e < entries; ++e)
+            hasApplyVideo |= m.entries[e].action == MenuEntry::ApplyVideo;
+    }
+
     out << "};\n\n"
         << "constexpr int TITLE_MENU = " << titleMenu << ";\n"
         << "// The Start button opens/closes this menu in-game (-1 = none)\n"
-        << "constexpr int PAUSE_MENU = " << pauseMenu << ";\n\n"
+        << "constexpr int PAUSE_MENU = " << pauseMenu << ";\n"
+        << "// True when any menu carries an \"apply video mode\" row (action\n"
+        << "// 9): display-mode rows then only stage a selection and that row\n"
+        << "// commits it; without one they switch on change (the classic\n"
+        << "// behavior).\n"
+        << "constexpr bool MENU_HAS_APPLY_VIDEO = "
+        << (hasApplyVideo ? "true" : "false") << ";\n\n"
         << "constexpr int MENU_EVENT_COUNT = " << events.size() << ";\n"
         << "// Names of the \"Flow event\" entry actions (menuEvent indexes this)\n"
         << "inline const char* MENU_EVENTS[MENU_EVENT_COUNT > 0 ? "

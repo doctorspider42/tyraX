@@ -476,9 +476,20 @@ struct ProjectSettings {
     // distinct pictures per second at full speed) for about half the fill
     // and VRAM cost. "progressive" outputs flicker-free 480p, "1080i" a
     // pillarboxed HD signal - both need component cables on a real console
-    // (PCSX2 shows every mode) and always run at 60 Hz.
+    // (PCSX2 shows every mode) and always run at 60 Hz. "pal576" is the
+    // full-height PAL frame (true 576i, 512 rendered lines, always 50 Hz
+    // regardless of videoSystem) - the "full PAL" of European releases;
+    // costs ~380 KB of GS VRAM over "interlaced".
     std::string displayMode =
-        "interlaced";  // "interlaced" | "interlaced-field" | "progressive" | "1080i"
+        "interlaced";  // "interlaced" | "interlaced-field" | "progressive" |
+                       // "1080i" | "pal576"
+
+    // PAL handling of the region-following "interlaced" mode: false = the
+    // letterboxed NTSC-size picture (stock), true = a PAL console (or a
+    // forced-PAL videoSystem) boots the full-height 576i frame instead
+    // (DisplayMode::Pal576i). Resolved in the generated main.cpp before
+    // engine init; fixed display modes ignore it.
+    bool palFullHeight = false;
 
     // 16:9 anamorphic output: widens the projection so proportions are
     // correct on a widescreen TV (the framebuffer stays the same; in 1080i
@@ -664,7 +675,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
         return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
     };
     return a.videoSystem == b.videoSystem && a.buildProfile == b.buildProfile &&
-           a.displayMode == b.displayMode && a.widescreen == b.widescreen &&
+           a.displayMode == b.displayMode &&
+           a.palFullHeight == b.palFullHeight && a.widescreen == b.widescreen &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler &&
            a.liveLink == b.liveLink &&
@@ -1065,6 +1077,13 @@ struct MenuEntry {
         // on the row from the baked value strip (menubake).
         Toggle = 7,      // two options, "Off"/"On" unless customized
         Choice = 8,      // one of `options`, cycled in order
+        // Commits the display-mode selection staged by a BindDisplayMode
+        // row. While any menu in the project has such a row, the display
+        // row only cycles its save value (the player browses freely); this
+        // row fires the actual scan-mode switch (+ the keep-or-revert
+        // confirm). Without one, display rows keep the classic
+        // switch-on-change behavior.
+        ApplyVideo = 9,
     };
     int action = Close;
     std::string param;
@@ -1072,6 +1091,12 @@ struct MenuEntry {
     // Toggle/Choice option labels (value = index into this list). Toggle
     // treats an empty list as {"Off", "On"}.
     std::vector<std::string> options;
+    // BindDisplayMode rows only: the Tyra::DisplayMode each option drives
+    // (parallel to `options`, values 0..4; -1 = the project-default mode,
+    // resolved at boot on the player's console - region + the PAL-picture
+    // preference). Empty = the option index itself (the legacy positional
+    // mapping), so old projects behave unchanged.
+    std::vector<int> optionModes;
     // Ready-made "option block" binding (Menu Editor > Insert option block).
     // On a Toggle/Choice row this makes the generated game map the row's
     // option index (held in the bound save value) straight onto a built-in
@@ -1086,6 +1111,7 @@ struct MenuEntry {
         BindDeadzone = 3,     // analog stick deadzone, both sticks (0..0.4)
         BindStickCurve = 4,   // stick response curve exponent (1..3)
         BindDisplayMode = 5,  // scan mode: interlaced / 480p / 1080i / field
+                              // / PAL 576i (see MenuEntry::optionModes)
         BindWidescreen = 6,   // aspect ratio: 4:3 / 16:9
         BindPlayerCount = 7,  // 1 / 2 players (two-player modes; runtime join)
     };
@@ -1095,7 +1121,7 @@ struct MenuEntry {
 inline bool operator==(const MenuEntry& a, const MenuEntry& b) {
     return a.label == b.label && a.action == b.action && a.param == b.param &&
            a.amount == b.amount && a.options == b.options &&
-           a.settingBind == b.settingBind;
+           a.optionModes == b.optionModes && a.settingBind == b.settingBind;
 }
 
 // One image composited into a menu's baked panel (see GameMenu::images).

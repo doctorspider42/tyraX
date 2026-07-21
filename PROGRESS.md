@@ -9,6 +9,98 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (147) **Region-aware default display mode: the "PAL picture" preference +
+  a DEFAULT menu option.** Owner follow-up on (146): a project should ship
+  ONE build that boots the right mode per region - 480i on NTSC, the
+  author's chosen PAL flavor (letterboxed NTSC-size vs full-height 576i)
+  on PAL - and the in-game display row should offer "default" as a
+  first-class option next to explicit overrides like 480p/1080i. Two
+  pieces, no engine change: (1) `ProjectSettings::palFullHeight`
+  ("palFullHeight" JSON, a "PAL picture" combo under Preferences > Display
+  mode, shown for the region-following "interlaced" mode): the generated
+  main.cpp promotes Interlaced -> Pal576i before engine init when the
+  effective region is PAL (forced videoSystem, or `graph_get_region()` on
+  auto), so the whole boot already runs full-height. (2) The display row's
+  optionModes gained a **-1 sentinel** = "project default": the game
+  latches `g_defaultDispMode` from the engine settings at init (the boot
+  mode IS the resolved default - nothing can have switched yet) and
+  `displayOptionMode` resolves -1 to it, so APPLY on the DEFAULT option
+  returns the player to the per-region default. Menu Editor: the dropdown
+  gained "Default (project)" (combo index = mode + 1), the "+ Option
+  block" DISPLAY preset is now DEFAULT/480p/1080i (modes -1/1/2, the spec
+  carries the table), clamps widened to -1..4 (load/emit/UI). Verified:
+  editor builds clean; scratch project (videoSystem pal + interlaced +
+  palFullHeight + a DEFAULT/480p/1080i row) emits the main.cpp promotion
+  guard, `MENU_0_E0_MODES[3] = {-1, 1, 2}` and the g_defaultDispMode
+  latch/resolve; Docker build links; PCSX2 boots it in PAL with a native
+  512x512 F8 screenshot (the promotion path, since the BIOS region is
+  NTSC and videoSystem is forced pal). Auto-region promotion on a real
+  PAL BIOS + the pad-driven menu pass remain hands-on checks.
+
+- (146) **True PAL: DisplayMode::Pal576i, the full-height 512-line frame.**
+  Owner follow-up on (145): our "PAL" was the NTSC-sized picture (512x448
+  buffer) output at 50 Hz - the letterboxed port look. The new mode renders
+  a 512x512 frame and scans it as the classic 576i FIELD signal (512 of
+  the raster's ~576 visible lines - what full-PAL European releases did).
+  Engine (vendor/tyra): enum value appended (serialized - append only),
+  `RendererSettings::updateGeometry` 512x512 case, `getRefreshRate` pins it
+  to 50 Hz like the DTV modes pin 60, `programDisplay` reuses the stock
+  interlaced default case with the signal forced to GRAPH_MODE_PAL (512
+  lines is ps2sdk's own full PAL frame - `graph_set_screen` copes, no
+  setDtvDisplay needed), flicker filter kept (`presentFrameBuffer`).
+  Projection aspect needs NO change: the formula is buffer-shape-agnostic
+  (4:3 window baseline). Cost: ~380 KB more GS VRAM (three 512-line
+  buffers), texture budget ~1 MB. Editor: `displayMode` "pal576"
+  (Preferences combo + tooltip), {{DISPLAY_MODE}} -> Pal576i, Set Display
+  Mode flow node mode 4 (combo + desc), Menu Editor display-row dropdown
+  gained "576i" (clamps/seeds 0..3 -> 0..4 in project.cpp load, the
+  menu_data emitter and app.cpp). Verified: editor builds clean; scratch
+  project with "pal576" + a 4-option display row (modes 0/2/1/4)
+  round-trips and emits `Tyra::DisplayMode::Pal576i` in main.cpp +
+  `MENU_0_E0_MODES[4] = {0, 2, 1, 4}`; full Docker build (libtyra rebuild
+  included) compiles and links; PCSX2 boot: emulog logs "Mode Changed to
+  PAL" on an NTSC-region BIOS (the forced-PAL path is live), the scene
+  renders a clean full 4:3 frame, and an F8 screenshot with
+  `ScreenshotSize = 2` (uncorrected internal size) on the software
+  renderer is exactly **512x512** - the full-height buffer on screen
+  (stock interlaced is 512x448). That ScreenshotSize=2 trick is the way
+  to read the real GS buffer size; the default window-size screenshots
+  are DAR-corrected and hide it.
+
+- (145) **Display-mode menu row: stage-then-APPLY + a scan-mode dropdown per
+  option.** Owner reports: cycling the in-game "Display mode" option block
+  switched the scan mode on every press (VRAM rebuild, menu force-closed,
+  confirm prompt armed), so the option list could not even be browsed; and
+  the Menu Editor edited the row's options as free text while their meaning
+  was silently positional (option index == Tyra::DisplayMode - no way to
+  offer e.g. just 480i + 1080i, and a mislabeled option lied). Two changes:
+  (1) **Apply video mode row** (`MenuEntry::ApplyVideo`, action 9,
+  serialized "apply-video"): while any menu in the project has one
+  (codegen'd `MENU_HAS_APPLY_VIDEO`), the bind-5 row only stages its save
+  value and the APPLY row commits it (`updateGameMenu` case 9 → the same
+  scriptCtx video request + 8 s keep-or-revert net); with no menu on screen
+  the row **snaps back to the live mode** each frame, so a browsed-but-
+  unapplied selection or a reverted confirm never lies, and the boot seed
+  aligns the row to the compiled mode so a title-screen menu opens honest.
+  Projects without the row keep the classic switch-on-change behavior
+  (MENU_HAS_APPLY_VIDEO=false compiles the old path). (2) **Explicit
+  option→mode table** (`MenuEntry::optionModes`, "optionModes" JSON,
+  `MenuEntryData::optModes`, null = legacy positional): the Menu Editor
+  edits each display option as a dropdown of the four scan modes + a
+  free-text label (rename "480i" to "576i" for PAL), so any subset in any
+  order works. The "+ Options menu" scaffold's DISPLAY page and the option-
+  block popup gained the APPLY row. Verified: editor builds clean; scratch
+  project with a shuffled 3-option row (480i/1080i/480p → modes 0/2/1) +
+  APPLY round-trips through --resave, --refresh-gen emits
+  `MENU_0_E0_MODES[3] = {0, 2, 1}`, `MENU_HAS_APPLY_VIDEO = true`, the
+  deferred bind-5 branch and updateGameMenu case 9; full Docker PS2 build
+  of the project compiles clean (Build OK, ELF present). A pad-in-hand
+  PCSX2 pass (browse the row, APPLY, confirm/revert) is pending - the
+  harness has no pad automation. Gotcha logged for next time: PROLOG
+  globals sit BEFORE `namespace {{NAME_UPPER_NS}}` opens - a helper
+  touching generated types (MenuEntryData) must go after it (first Docker
+  build failed exactly there; GCC's error recovery made it look like the
+  param type collapsed to `const int&`).
 - (144) **Portal crossing: stop the full-screen mask erasing the mounting
   wall.** Owner: at the crossing the wall vanishes and reveals the trick.
   Cause: the full-screen crossing mask (repaints the WHOLE screen with the
