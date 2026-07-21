@@ -9,6 +9,23 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (144) **Portal crossing: stop the full-screen mask erasing the mounting
+  wall.** Owner: at the crossing the wall vanishes and reveals the trick.
+  Cause: the full-screen crossing mask (repaints the WHOLE screen with the
+  destination at the nearest depth, so nothing redraws over it) fired
+  whenever the quad clipped the near plane (`nearClipped`), which off-axis
+  triggers while the opening does NOT yet fill the view - erasing the still
+  visible wall. It is now used ONLY as a last resort, when the clipped fan
+  has fully **degenerated** (`!carved` - the eye is on the surface, no
+  valid opening polygon exists), i.e. the single unavoidable frame right at
+  the plane (the walker teleports the same instant). Every approach frame
+  keeps a valid fan, so the crisp carved WINDOW is drawn and the wall stays
+  around it. `nearClipped` removed. Known residual: a free-standing portal
+  (no wall) can still show the world just past it in that degenerate frame -
+  inherent to the single-render PS2 portal (no oblique near plane). Verified:
+  editor builds clean, portals example regenerated + Docker build exit 0.
+  Owner pad test next.
+
 - (143) **Two-sided carried-object rendering through a portal (owner's
   architectural call).** The owner reasoned the fix out: don't just NOT
   draw the object - draw it, and clip out only the part inside the portal

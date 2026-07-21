@@ -7978,19 +7978,9 @@ bool TerrainGame::renderOnePortalView(int pi) {
   int n = 0;
   int bx0 = 0, by0 = 0, bx1 = 0, by1 = 0;
 
-  // Crossing zone: when the eye is a breath away from the plane, inside
-  // the rectangle and looking INTO the surface, parts of the quad fall
-  // behind the near plane, the clipped fan shrinks and the world behind
-  // the free-standing surface peeks around it for a frame or two - the
-  // "looking through two portals at once" pop right at the crossing
-  // moment. In that zone the opening may become the WHOLE screen at the
-  // nearest depth - but only when the quad carve no longer covers the
-  // screen by itself: switching on distance alone flipped the screen
-  // corners from the surrounding wall to the destination in one frame
-  // (the subtle pop while standing in the opening; owner report).
   // "Looking into the opening from close, roughly head-on" - the gate for
-  // the full-screen crossing mask below. The mask itself only actually fires
-  // when the quad clips the near plane (nearClipped), computed in the fan.
+  // the last-resort full-screen crossing mask below (used only on the one
+  // frame the eye is on the surface and the fan degenerates; see there).
   bool zone = false;
   {
     const float relX = cameraPosition.x - m.data.position[0];
@@ -8008,7 +7998,6 @@ bool TerrainGame::renderOnePortalView(int pi) {
   }
 
   bool carved = false;
-  bool nearClipped = false;  // the quad crosses the near plane (crossing it)
   {
     const M4x4& vp = engine->renderer.core.renderer3D.getViewProj();
     Vec4 poly[12], tmp[12];
@@ -8025,13 +8014,6 @@ bool TerrainGame::renderOnePortalView(int pi) {
     const float xl = fbW / 4096.0F * 1.06F;
     const float yl = fbH / 4096.0F * 1.06F;
     const float wMin = engine->renderer.core.getSettings().getNear() * 0.5F;
-    // A corner behind the near plane means the eye is right at the surface
-    // and the fan is about to shrink - the exact moment the full-screen
-    // crossing mask is needed. This is a physical test (the quad actually
-    // clips), so it never fires while the portal is still a window a metre
-    // off, which a distance threshold did - erasing the near scene (owner).
-    for (int i = 0; i < 4; ++i)
-      if (poly[i].w < wMin) nearClipped = true;
     for (int plane = 0; plane < 5 && n >= 3; ++plane) {
       auto dist = [&](const Vec4& v) -> float {
         switch (plane) {
@@ -8083,15 +8065,17 @@ bool TerrainGame::renderOnePortalView(int pi) {
     }
   }
 
-  // Full-screen crossing mask: fire ONLY when the quad actually clips the
-  // near plane (nearClipped) while the eye is in the opening looking in
-  // (zone) - the exact frames the eye is a breath from the surface and the
-  // clipped fan shrinks, letting the wall peek in the corners. A distance
-  // threshold instead fired while the portal was still a window a metre off
-  // and repainted the whole screen with the destination, erasing the near
-  // scene (owner: objects vanish when close to a portal). The plain carve
-  // (a crisp window) handles every frame before that.
-  if (zone && nearClipped) {
+  // Full-screen crossing mask: ONLY as a last resort, when the eye is so
+  // close to the surface that the clipped fan has degenerated (`!carved`) -
+  // there is no valid opening polygon to carve, so the destination fills the
+  // screen for that single frame right at the plane (the walker teleports
+  // the same instant). Every approach frame keeps a valid fan, so the crisp
+  // carved WINDOW is used and the mounting wall stays drawn AROUND it - the
+  // full mask paints the whole screen with the destination and erases that
+  // wall, breaking the illusion (owner: "the wall disappears"). Gating it on
+  // fan-degeneracy alone keeps that to the one unavoidable frame instead of
+  // the whole near approach.
+  if (zone && !carved) {
     n = 4;
     xy[0] = 0.0F;
     xy[1] = 0.0F;
