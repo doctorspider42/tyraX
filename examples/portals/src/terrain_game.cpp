@@ -3377,8 +3377,17 @@ void TerrainGame::applyCarryWhisker(float* nextX, float* nextZ, float probeY,
   const float r = objectHalfExtent(o);
   const float need = 0.55F + r;  // the object fully outside the carrier
   const float hx = sinf(yaw), hz = cosf(yaw);
+  // Walking a carried object INTO a portal opening must not read the
+  // mounting wall as a blocker - same doorway as the carry sweep.
+  {
+    const float reach = need + r + 0.1F;
+    const float a0[3] = {*nextX, probeY, *nextZ};
+    const float b0[3] = {*nextX + hx * reach, probeY, *nextZ + hz * reach};
+    armSweepPass(a0, b0);
+  }
   const float d =
       sweepSphere(*nextX, probeY, *nextZ, hx, 0.0F, hz, need, r, carryIndex);
+  sweepPassOn = false;
   if (d < need) {
     const float px = *nextX, pz = *nextZ;
     *nextX -= hx * (need - d);
@@ -3429,27 +3438,16 @@ void TerrainGame::updateCarriedObject() {
         // obstacles fully behind that portal's plane stop blocking the
         // sweep - without this the mounting wall stops the center ~r
         // short of the crossing plane and the throw can never cross.
-        if (PORTAL_COUNT > 0) {
-          // Pad the aim segment by the object's extent: the sweep stops the
-          // CENTER ~r short of a wall sitting at the plane, so an unpadded
-          // center segment never reaches it and the doorway never opens
-          // (owner repro: every throw bounced off the mounting wall).
+        // Pad the aim segment by the object's extent: the sweep stops the
+        // CENTER ~r short of a wall sitting at the plane, so an unpadded
+        // center segment never reaches it and the doorway never opens
+        // (owner repro: every throw bounced off the mounting wall).
+        {
           const float pad = 1.0F + (r + 0.1F) / stepLen;
           const float want[3] = {prevT[0] + thrownVel[0] * pad,
                                  prevT[1] + thrownVel[1] * pad,
                                  prevT[2] + thrownVel[2] * pad};
-          const int aim = portalCarryAim(prevT, want, -1);
-          if (aim >= 0) {
-            const RuntimeObject& pm = runtimeObjects[PORTALS[aim].object];
-            const V3 pn = rotated({0.0F, 0.0F, 1.0F}, pm.data.rotation);
-            sweepPassPlane[0] = pn.x;
-            sweepPassPlane[1] = pn.y;
-            sweepPassPlane[2] = pn.z;
-            sweepPassPlane[3] = pn.x * pm.data.position[0] +
-                                pn.y * pm.data.position[1] +
-                                pn.z * pm.data.position[2];
-            sweepPassOn = true;
-          }
+          armSweepPass(prevT, want);
         }
         const float d = sweepSphere(
             o.data.position[0], o.data.position[1], o.data.position[2],
@@ -3463,9 +3461,13 @@ void TerrainGame::updateCarriedObject() {
         // Crossed a linked opening: hop through, position and the full
         // velocity vector mapped by the pair isometry; keep flying.
         if (PORTAL_COUNT > 0 &&
+            (thrownIndex >= (int)portalHopCool.size() ||
+             portalHopCool[thrownIndex] == 0) &&
             portalCarryCrossing(prevT, o.data.position, thrownVel)) {
           stop = false;
           hopped = true;
+          if (thrownIndex < (int)portalHopCool.size())
+            portalHopCool[thrownIndex] = 6;
         }
       }
       // Ground rest matches updateObjectPhysics, so the handoff is
@@ -3544,8 +3546,20 @@ void TerrainGame::updateCarriedObject() {
   // object's near face off the near clip plane; the walkers' carry whisker
   // (a springArm-style pre-block) keeps the player from squeezing that far
   // in the first place.
+  // Carrying into a portal opening: obstacles fully behind that portal's
+  // plane stop blocking the carry sweep - without this the mounting wall
+  // pinned the object at the face and the whisker below shoved the walker
+  // back, so a wall portal could only be crossed BACKWARDS (owner report).
+  {
+    const float reach = PICK_CARRY_DIST + r * 2.0F + 0.1F;
+    const float a0[3] = {ox, oy, oz};
+    const float b0[3] = {ox + dir.x * reach, oy + dir.y * reach,
+                         oz + dir.z * reach};
+    armSweepPass(a0, b0);
+  }
   float want = sweepSphere(ox, oy, oz, dir.x, dir.y, dir.z, PICK_CARRY_DIST + r,
                            r, carryIndex);
+  sweepPassOn = false;
   const float minD = PICK_MIN_DIST + r;
   if (want < minD) want = minD;
   if (want < carryDist) {
@@ -6146,16 +6160,19 @@ bool TerrainGame::renderOnePortalView(int pi) {
   float xy[24];
   u32 zz[12];
   int n = 0;
-  int bx0, by0, bx1, by1;
+  int bx0 = 0, by0 = 0, bx1 = 0, by1 = 0;
 
   // Crossing zone: when the eye is a breath away from the plane, inside
   // the rectangle and looking INTO the surface, parts of the quad fall
   // behind the near plane, the clipped fan shrinks and the world behind
   // the free-standing surface peeks around it for a frame or two - the
   // "looking through two portals at once" pop right at the crossing
-  // moment. In that zone the opening simply becomes the WHOLE screen at
-  // the nearest depth: the destination fills the view, exactly what
-  // standing in the doorway should look like.
+  // moment. In that zone the opening may become the WHOLE screen at the
+  // nearest depth - but only when the quad carve no longer covers the
+  // screen by itself: switching on distance alone flipped the screen
+  // corners from the surrounding wall to the destination in one frame
+  // (the subtle pop while standing in the opening; owner report).
+  bool zone = false;
   {
     const float relX = cameraPosition.x - m.data.position[0];
     const float relY = cameraPosition.y - m.data.position[1];
@@ -6167,26 +6184,12 @@ bool TerrainGame::renderOnePortalView(int pi) {
         engine->renderer.core.getSettings().getNear() * 2.0F + 0.45F;
     Vec4 fwd = cameraLookAt - cameraPosition;
     const float into = -(fwd.x * az.x + fwd.y * az.y + fwd.z * az.z);
-    if (lz > 0.0F && lz < thresh && lx > -hx - 0.3F && lx < hx + 0.3F &&
-        ly > -hy - 0.3F && ly < hy + 0.3F && into > 0.0F) {
-      n = 4;
-      xy[0] = 0.0F;
-      xy[1] = 0.0F;
-      xy[2] = fbW;
-      xy[3] = 0.0F;
-      xy[4] = fbW;
-      xy[5] = fbH;
-      xy[6] = 0.0F;
-      xy[7] = fbH;
-      for (int i = 0; i < 4; ++i) zz[i] = 0xFFFFFFu;
-      bx0 = 0;
-      by0 = 0;
-      bx1 = (int)fbW;
-      by1 = (int)fbH;
-    }
+    zone = lz > 0.0F && lz < thresh && lx > -hx - 0.3F && lx < hx + 0.3F &&
+           ly > -hy - 0.3F && ly < hy + 0.3F && into > 0.0F;
   }
 
-  if (n == 0) {
+  bool carved = false;
+  {
     const M4x4& vp = engine->renderer.core.renderer3D.getViewProj();
     Vec4 poly[12], tmp[12];
     n = 4;
@@ -6228,30 +6231,57 @@ bool TerrainGame::renderOnePortalView(int pi) {
       n = outN;
       for (int i = 0; i < n; ++i) poly[i] = tmp[i];
     }
-    if (n < 3) return false;
-
-    float minX = 1e30F, minY = 1e30F, maxX = -1e30F, maxY = -1e30F;
-    for (int i = 0; i < n; ++i) {
-      const float inv = 1.0F / poly[i].w;
-      const float sx = fbW * 0.5F + poly[i].x * inv * 2048.0F;
-      const float sy = fbH * 0.5F + poly[i].y * inv * 2048.0F;
-      xy[i * 2] = sx;
-      xy[i * 2 + 1] = sy;
-      if (sx < minX) minX = sx;
-      if (sx > maxX) maxX = sx;
-      if (sy < minY) minY = sy;
-      if (sy > maxY) maxY = sy;
-      float zf = (poly[i].z * inv + 1.0F) * 8388607.5F;
-      if (zf < 0.0F) zf = 0.0F;
-      if (zf > 16777215.0F) zf = 16777215.0F;
-      zz[i] = (u32)zf;
+    if (n >= 3) {
+      float minX = 1e30F, minY = 1e30F, maxX = -1e30F, maxY = -1e30F;
+      for (int i = 0; i < n; ++i) {
+        const float inv = 1.0F / poly[i].w;
+        const float sx = fbW * 0.5F + poly[i].x * inv * 2048.0F;
+        const float sy = fbH * 0.5F + poly[i].y * inv * 2048.0F;
+        xy[i * 2] = sx;
+        xy[i * 2 + 1] = sy;
+        if (sx < minX) minX = sx;
+        if (sx > maxX) maxX = sx;
+        if (sy < minY) minY = sy;
+        if (sy > maxY) maxY = sy;
+        float zf = (poly[i].z * inv + 1.0F) * 8388607.5F;
+        if (zf < 0.0F) zf = 0.0F;
+        if (zf > 16777215.0F) zf = 16777215.0F;
+        zz[i] = (u32)zf;
+      }
+      bx0 = (int)minX;
+      by0 = (int)minY;
+      bx1 = (int)maxX + 1;
+      by1 = (int)maxY + 1;
+      carved = !(bx1 <= 0 || by1 <= 0 || bx0 >= (int)fbW || by0 >= (int)fbH);
     }
-    bx0 = (int)minX;
-    by0 = (int)minY;
-    bx1 = (int)maxX + 1;
-    by1 = (int)maxY + 1;
-    if (bx1 <= 0 || by1 <= 0 || bx0 >= (int)fbW || by0 >= (int)fbH)
-      return false;
+  }
+
+  // Full-screen fallback for the crossing zone: only when the carved quad
+  // no longer covers the whole screen (near-plane clipping ate into it).
+  // The old code went full-screen on distance alone, which flipped the
+  // screen corners from the surrounding wall to the destination a frame
+  // before the quad grew to fill them - the subtle pop while standing in
+  // the opening (owner report). Deferring it to "the quad stopped covering"
+  // hands the fan off to the full mask with nothing visibly changing.
+  const bool covers = carved && bx0 <= 0 && by0 <= 0 && bx1 >= (int)fbW &&
+                      by1 >= (int)fbH;
+  if (zone && !covers) {
+    n = 4;
+    xy[0] = 0.0F;
+    xy[1] = 0.0F;
+    xy[2] = fbW;
+    xy[3] = 0.0F;
+    xy[4] = fbW;
+    xy[5] = fbH;
+    xy[6] = 0.0F;
+    xy[7] = fbH;
+    for (int i = 0; i < 4; ++i) zz[i] = 0xFFFFFFu;
+    bx0 = 0;
+    by0 = 0;
+    bx1 = (int)fbW;
+    by1 = (int)fbH;
+  } else if (!carved) {
+    return false;
   }
 
   // Dead zone: the virtual camera sits BEHIND the exit plane (the
@@ -6495,6 +6525,23 @@ bool TerrainGame::portalCanCross(const PortalData& p, int oi) {
   return false;
 }
 
+bool TerrainGame::armSweepPass(const float* a, const float* b) {
+  sweepPassOn = false;
+  if (PORTAL_COUNT == 0) return false;
+  const int aim = portalCarryAim(a, b, -1);
+  if (aim < 0) return false;
+  const RuntimeObject& pm = runtimeObjects[PORTALS[aim].object];
+  const V3 pn = rotated({0.0F, 0.0F, 1.0F}, pm.data.rotation);
+  sweepPassPlane[0] = pn.x;
+  sweepPassPlane[1] = pn.y;
+  sweepPassPlane[2] = pn.z;
+  sweepPassPlane[3] = pn.x * pm.data.position[0] +
+                      pn.y * pm.data.position[1] +
+                      pn.z * pm.data.position[2];
+  sweepPassOn = true;
+  return true;
+}
+
 int TerrainGame::portalCarryAim(const float* a, const float* b, int forObj) {
   for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
     const PortalData& p = PORTALS[pi];
@@ -6656,7 +6703,10 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
   if (PORTAL_COUNT == 0) return false;
   const bool freshPrev =
       (int)portalPrevPos.size() != (int)runtimeObjects.size() * 3;
-  if (freshPrev) portalPrevPos.resize(runtimeObjects.size() * 3);
+  if (freshPrev) {
+    portalPrevPos.resize(runtimeObjects.size() * 3);
+    portalHopCool.assign(runtimeObjects.size(), 0);
+  }
   // A released body stays portal-free only until it settles to sleep.
   if (thrownFreeIndex >= 0 &&
       (thrownFreeIndex >= (int)runtimeObjects.size() ||
@@ -6800,6 +6850,7 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
         if (oi == p.object || oi == p.target) continue;
         if (oi == carryIndex) continue;  // in the hands - the carry owns it
         if (PLAYER_INDEX >= 0 && oi == PLAYER_INDEX) continue;
+        if (portalHopCool[oi] > 0) continue;  // just hopped - settle first
         const float* pp = &portalPrevPos[oi * 3];
         if (pp[0] == ro.data.position[0] && pp[1] == ro.data.position[1] &&
             pp[2] == ro.data.position[2])
@@ -6807,11 +6858,16 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
         if (!crossed(pp[0], pp[1], pp[2], ro.data.position[0],
                      ro.data.position[1], ro.data.position[2]))
           continue;
-        // Carry the object's ACTUAL motion this frame, not just velocityY:
-        // the physics ground clamp may have zeroed velocityY on this very
-        // frame (the step landed below the terrain snap height before this
-        // test ran), and an infinite-fall loop would hitch at the far end
-        // with v = 0 - the position delta still holds the real fall.
+        // Carry the object's ACTUAL motion this frame through the pair -
+        // the WHOLE velocity vector, not just Y. The vertical component
+        // gets a position-delta fallback: the physics ground clamp may
+        // have zeroed velocityY on the very crossing frame (an
+        // infinite-fall loop would otherwise hitch at the far end with
+        // v = 0), and the step still holds the real fall. The horizontal
+        // components MUST map through the pair too - dropping them left a
+        // thrown object exiting with world-space X/Z that no longer match
+        // the rotated target, so it careened sideways (owner: the thrown
+        // sphere "freaks out" between the portals).
         float vy = ro.velocityY;
         const float stepY = ro.data.position[1] - pp[1];
         if (fabsf(stepY) > fabsf(vy)) vy = stepY;
@@ -6825,9 +6881,12 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
         ro.data.position[1] = ny2;
         ro.data.position[2] = nz2;
         float nvx, nvy, nvz;
-        mapDir(0.0F, vy, 0.0F, &nvx, &nvy, &nvz);
+        mapDir(ro.velocityX, vy, ro.velocityZ, &nvx, &nvy, &nvz);
+        ro.velocityX = nvx;
         ro.velocityY = nvy;
+        ro.velocityZ = nvz;
         ro.dirty = true;  // world-space bags rebuild at the arrival
+        portalHopCool[oi] = 6;
         // stamp the arrival as this object's new "previous" so the reverse
         // link of a two-way pair can't see the same hop as a crossing
         portalPrevPos[oi * 3] = ro.data.position[0];
@@ -6842,6 +6901,7 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
     portalPrevPos[oi * 3] = runtimeObjects[oi].data.position[0];
     portalPrevPos[oi * 3 + 1] = runtimeObjects[oi].data.position[1];
     portalPrevPos[oi * 3 + 2] = runtimeObjects[oi].data.position[2];
+    if (portalHopCool[oi] > 0) --portalHopCool[oi];
   }
   return playerTeleported;
 }

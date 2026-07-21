@@ -9,6 +9,35 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (136) **Portal crossing, round four (owner's third live test): only
+  backwards worked, the thrown sphere "freaked out", and the residual
+  standing-in-the-opening pop.** Three fixes:
+  (1) **Forwards carry was blocked by the carry whisker.** Walking a
+  carried object toward a wall portal, the whisker (which pushes the
+  walker back when the object no longer fits in front of the face) read
+  the mounting wall as solid and shoved the player off the portal - so it
+  could only be entered backwards (the whisker probes forward only). The
+  carry sweep AND the whisker now arm the same portal doorway
+  (`armSweepPass` factored out of the thrown-arc code): obstacles behind
+  the aimed portal's plane stop blocking while carrying into an opening.
+  (2) **The thrown rigid body careened between the portals.** The physics
+  object teleport mapped only the VERTICAL velocity through the pair and
+  wrote only `velocityY`, dropping horizontal entirely - fine for a
+  straight-down faller, but a thrown sphere exited with world-space X/Z
+  that no longer matched the rotated target and shot off sideways. It now
+  maps the full velocity vector (the vertical keeps its position-delta
+  fallback for the fall loop). Added a 6-frame per-object hop cooldown
+  (`portalHopCool`) so rect-edge jitter / resolution kicks can't re-hop
+  every frame (the example's legit fall re-crosses every ~13 frames).
+  (3) **The residual crossing pop.** The full-screen crossing-zone mask
+  triggered on distance alone, flipping the screen corners wall->
+  destination a frame before the quad grew to fill them. It now fires only
+  when the carved quad no longer covers the whole screen (near-plane
+  clipping ate it) - the fan hands off to the mask with nothing visibly
+  changing.
+  Verified: editor builds clean, portals example regenerated + Docker
+  build exit 0. Owner pad test next.
+
 - (135) **Portal crossing, round three (owner's second live test): the
   radius bug, the visibility rule, 30 u/s, and the carry-whisker wall
   tunnel.** Four changes:

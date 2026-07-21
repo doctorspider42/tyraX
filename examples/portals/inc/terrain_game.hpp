@@ -398,6 +398,10 @@ class TerrainGame : public Tyra::Game {
   bool portalCanCross(const PortalData& p, int oi);
   int portalCarryAim(const float* a, const float* b, int forObj);
   bool portalCarryCrossing(const float* a, float* pos, float* vel);
+  // Arms sweepPass* when segment a->b pierces a linked opening (pad the
+  // end by the swept body's extent). Pair with sweepPassOn = false after
+  // the sweep.
+  bool armSweepPass(const float* a, const float* b);
   float sweepPassPlane[4] = {0, 0, 0, 0};
   bool sweepPassOn = false;
   // The last player-released rigid body (throw OR drop): portal-free -
@@ -406,6 +410,10 @@ class TerrainGame : public Tyra::Game {
   int thrownFreeIndex = -1;
   std::vector<unsigned char> portalLiveFlags;  // per PORTALS entry: view drawn
   std::vector<float> portalPrevPos;  // 3 floats per runtime object (crossings)
+  // Per object: frames until it may hop again (set on every hop). Damps
+  // frame-scale re-hop jitter (rect-edge bounces, resolution kicks) without
+  // touching legit loops - the example's fall re-crosses every ~13 frames.
+  std::vector<unsigned char> portalHopCool;
   // Exit-plane of the through-view being rendered (nx, ny, nz, d) - set
   // around the destination render so renderTerrain can drop chunks in the
   // dead zone between the virtual camera and the target portal's plane.
