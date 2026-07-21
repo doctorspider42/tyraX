@@ -2616,6 +2616,16 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         }
     }
 
+    // Session peers' selections first (their color), so the local outline
+    // below always draws on top when both select the same object.
+    for (const PeerSel& ps : peerSels_) {
+        for (int idx : ps.indices) {
+            if (idx < 0 || idx >= (int)objects.size() || hiddenAt((size_t)idx)) continue;
+            const Mat4 mvp = mul(viewProj, modelMatrix(objects[idx]));
+            draw(wireCube_, GL_LINES, mvp, ps.color[0], ps.color[1], ps.color[2]);
+        }
+    }
+
     // Every selected object gets an amber outline; the primary is drawn in a
     // brighter yellow so it's clear which object's values seed the multi-editor.
     // Objects on a hidden layer are skipped (they aren't drawn or picked).

@@ -75,12 +75,14 @@ add_executable(tyrax-editor
     src/navmesh.cpp
     src/project.cpp
     src/screenfx.cpp
+    src/session.cpp
     src/stochtile.cpp
     src/texbake.cpp
     src/save_assets.cpp
     src/templates.cpp
     src/viewport.cpp
     src/wavconvert.cpp
+    src/wire.cpp
     src/runner.cpp
     vendor/imguizmo/src/ImGuizmo.cpp
     vendor/imnodes/imnodes.cpp
@@ -90,7 +92,8 @@ add_executable(tyrax-editor
 )
 target_include_directories(tyrax-editor PRIVATE src vendor/imguizmo/src vendor/imnodes vendor/stb vendor/ufbx ${CMAKE_BINARY_DIR}/generated)
 target_compile_definitions(tyrax-editor PRIVATE GLFW_INCLUDE_NONE)
-target_link_libraries(tyrax-editor PRIVATE imgui glfw opengl32 shell32 ole32 uuid)
+# ws2_32: the collaboration transport (src/wire.cpp) uses Winsock2 sockets.
+target_link_libraries(tyrax-editor PRIVATE imgui glfw opengl32 shell32 ole32 uuid ws2_32)
 
 if(MINGW)
     # Self-contained exe: don't depend on libstdc++/libgcc/libwinpthread DLLs

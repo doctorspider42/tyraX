@@ -130,6 +130,16 @@ public:
     uint32_t render(int width, int height, const std::vector<SceneObject>& objects,
                     const std::vector<int>& selection, int primary);
 
+    // Collaboration presence: other participants' selections in the ACTIVE
+    // scene, outlined in each peer's color under the local selection (local
+    // amber always reads on top). The app resolves object ids to indices per
+    // frame; empty vector = no session / nothing selected remotely.
+    struct PeerSel {
+        float color[3] = {1.0f, 1.0f, 1.0f};
+        std::vector<int> indices;
+    };
+    void setPeerSelections(std::vector<PeerSel> sels) { peerSels_ = std::move(sels); }
+
     // Material Editor live preview: a lit primitive OR one of the project's
     // .obj models over a checker floor, rendered into its own framebuffer
     // (render() resizes the main one to the viewport every frame).
@@ -431,6 +441,7 @@ private:
     float terrainKd_[3] = {1.0f, 1.0f, 1.0f};  // terrain material Kd tint
     bool terrainHasMaterial_ = false;  // false = checker greens fallback
     Mesh wireCube_;  // selection outline (unit cube edges)
+    std::vector<PeerSel> peerSels_;  // session peers' selections (see above)
     Mesh segment_;   // unit +Z line segment (portal link line)
     Mesh portalArrow_;  // +Z line arrow: the portal's entry-side marker
     bool usableHighlight_ = false;  // wire box on usable objects

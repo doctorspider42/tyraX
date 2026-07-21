@@ -9,6 +9,7 @@
 #include <fstream>
 #include <random>
 #include <sstream>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "history.hpp"
@@ -280,9 +281,9 @@ static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
     }
 }
 
-static std::string objectJson(const SceneObject& o) {
+std::string objectJson(const SceneObject& o) {
     std::string json =
-        "{ \"id\": \"" + o.id + "\", \"name\": \"" + o.name +
+        "{ \"id\": \"" + jsonEscape(o.id) + "\", \"name\": \"" + jsonEscape(o.name) +
         "\", \"type\": \"" + primitiveTypeName(o.type) +
         "\", \"position\": " + fmtVec3(o.position) +
         ", \"rotation\": " + fmtVec3(o.rotation) + ", \"scale\": " + fmtVec3(o.scale) +
@@ -301,7 +302,7 @@ static std::string objectJson(const SceneObject& o) {
         // collision: box is the default and stays implicit
         (o.collisionMode == 1 ? ", \"collision\": \"mesh\""
                               : o.collisionMode == 2 ? ", \"collision\": \"none\"" : "") +
-        (o.layer.empty() ? "" : ", \"layer\": \"" + o.layer + "\"") +
+        (o.layer.empty() ? "" : ", \"layer\": \"" + jsonEscape(o.layer) + "\"") +
         // geometry primitives only; the type's default detail stays implicit
         (((o.type == PrimitiveType::Box || o.type == PrimitiveType::Sphere ||
            o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone ||
@@ -315,8 +316,9 @@ static std::string objectJson(const SceneObject& o) {
              : "") +
         // rendered into the dynamic env map; default (false) stays implicit
         (o.reflected ? std::string(", \"reflected\": true") : "") +
-        (o.modelPath.empty() ? "" : ", \"model\": \"" + o.modelPath + "\"") +
-        (o.materialPath.empty() ? "" : ", \"material\": \"" + o.materialPath + "\"") +
+        (o.modelPath.empty() ? "" : ", \"model\": \"" + jsonEscape(o.modelPath) + "\"") +
+        (o.materialPath.empty() ? ""
+                                : ", \"material\": \"" + jsonEscape(o.materialPath) + "\"") +
         // decal projection: off (flat quad) stays implicit
         (o.decalProject ? ", \"decalProject\": true" : "");
     if (o.type == PrimitiveType::Player) {
@@ -344,7 +346,7 @@ static std::string objectJson(const SceneObject& o) {
                 fmtVec3(o.flashlightColor) + ", \"range\": " +
                 fmtFloat(o.flashlightRange) + ", \"angle\": " +
                 fmtFloat(o.flashlightAngle) + ", \"toggle\": \"" +
-                o.flashlightToggleButton + "\" }" + " }";
+                jsonEscape(o.flashlightToggleButton) + "\" }" + " }";
     }
     if (o.type == PrimitiveType::Emitter) {
         static const char* kinds[] = {"fire", "smoke", "fog", "sparks", "rain",
@@ -368,7 +370,7 @@ static std::string objectJson(const SceneObject& o) {
         json += " }";
     }
     if (o.type == PrimitiveType::SoundEmitter) {
-        json += ", \"sound\": { \"path\": \"" + o.soundPath +
+        json += ", \"sound\": { \"path\": \"" + jsonEscape(o.soundPath) +
                 "\", \"autoplay\": " + (o.soundAuto ? "true" : "false") +
                 ", \"range\": " + fmtFloat(o.soundRange) +
                 ", \"interval\": " + fmtFloat(o.soundInterval) +
@@ -386,7 +388,7 @@ static std::string objectJson(const SceneObject& o) {
                 ", \"reflectPlayer\": " +
                 (o.mirrorReflectPlayer ? "true" : "false") + ", \"objects\": [";
         for (size_t i = 0; i < o.mirrorObjects.size(); ++i)
-            json += (i ? ", \"" : "\"") + o.mirrorObjects[i] + "\"";
+            json += (i ? ", \"" : "\"") + jsonEscape(o.mirrorObjects[i]) + "\"";
         json += "] }";
     }
     if (o.type == PrimitiveType::Portal) {
@@ -401,7 +403,7 @@ static std::string objectJson(const SceneObject& o) {
         json += "] }";
     }
     if (o.type == PrimitiveType::Model && isAnimatedModelPath(o.modelPath)) {
-        json += ", \"anim\": { \"clip\": \"" + o.animClip +
+        json += ", \"anim\": { \"clip\": \"" + jsonEscape(o.animClip) +
                 "\", \"autoplay\": " + (o.animAutoplay ? "true" : "false") +
                 ", \"loop\": " + (o.animLoop ? "true" : "false") +
                 ", \"speed\": " + fmtFloat(o.animSpeed) + " }";
@@ -417,7 +419,7 @@ static std::string objectJson(const SceneObject& o) {
     if (!o.scripts.empty()) {
         json += ", \"scripts\": [";
         for (size_t i = 0; i < o.scripts.size(); ++i)
-            json += (i ? ", \"" : "\"") + o.scripts[i] + "\"";
+            json += (i ? ", \"" : "\"") + jsonEscape(o.scripts[i]) + "\"";
         json += "]";
     }
     if (!o.flowGraph.empty()) json += ", \"flowGraph\": " + flowGraphJson(o.flowGraph);
@@ -745,12 +747,16 @@ TerrainMaterial resolveTerrainMaterial(const Project& p, const std::string& matR
     return out;
 }
 
-std::string save(const Project& p) {
-    std::ostringstream json;
-    json << "{\n"
-         << "  \"name\": \"" << p.name << "\",\n"
-         << "  \"template\": \"" << p.gameTemplate << "\",\n"
-         << "  \"settings\": {\n"
+// --- Manifest section writers -------------------------------------------------
+// Each writes its group of top-level .tyra keys WITHOUT the leading ",\n  "
+// separator (the composers below add it), preserving the exact historical byte
+// layout of the manifest. sectionJson() wraps the same bytes in braces to form
+// a standalone JSON object - the collaboration wire format for project-wide
+// data. New manifest keys must join one of these writers (or become a new
+// Section) so they reach both the file and the wire.
+
+static void writeSettingsSection(std::ostream& json, const Project& p) {
+    json << "\"settings\": {\n"
          << "    \"videoSystem\": \"" << p.settings.videoSystem << "\",\n"
          << "    \"displayMode\": \"" << p.settings.displayMode << "\",\n"
          << (p.settings.palFullHeight ? "    \"palFullHeight\": true,\n" : "")
@@ -828,8 +834,14 @@ std::string save(const Project& p) {
          << (p.settings.highlightOverlay ? "true" : "false") << ",\n"
          << "    \"loadingScreen\": " << (p.settings.loadingScreen ? "true" : "false")
          << "\n"
-         << "  },\n"
-         << "  \"scenes\": [";
+         << "  }";
+}
+
+// The scene table: names + per-scene meta + ordered object-id lists. Not a
+// Section - the collaboration layer ships it as its own message (per-object
+// bodies live in objects/<id>.json).
+static void writeScenesTable(std::ostream& json, const Project& p) {
+    json << "\"scenes\": [";
     for (size_t i = 0; i < p.scenes.size(); ++i) {
         const SceneData& sc = p.scenes[i];
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << sc.name
@@ -861,7 +873,12 @@ std::string save(const Project& p) {
         json << " }";
     }
     json << "\n  ]";
-    json << ",\n  \"fonts\": [";
+}
+
+// Fonts ride in the Hud section (HUD text + menus reference them), so they
+// travel over the collaboration wire as part of that section's blob.
+static void writeHudSection(std::ostream& json, const Project& p) {
+    json << "\"fonts\": [";
     for (size_t i = 0; i < p.fonts.size(); ++i) {
         const GameFont& f = p.fonts[i];
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << jsonEscape(f.name)
@@ -916,9 +933,12 @@ std::string save(const Project& p) {
         }
         json << "\n  ]";
     }
-    json << ",\n  \"music\": [";
+}
+
+static void writeAudioSection(std::ostream& json, const Project& p) {
+    json << "\"music\": [";
     for (size_t i = 0; i < p.music.size(); ++i)
-        json << (i ? ", " : "") << "\"" << p.music[i] << "\"";
+        json << (i ? ", " : "") << "\"" << jsonEscape(p.music[i]) << "\"";
     json << "]";
     {
         bool first = true;
@@ -933,18 +953,26 @@ std::string save(const Project& p) {
     }
     json << ",\n  \"sounds\": [";
     for (size_t i = 0; i < p.sounds.size(); ++i)
-        json << (i ? ", " : "") << "\"" << p.sounds[i] << "\"";
+        json << (i ? ", " : "") << "\"" << jsonEscape(p.sounds[i]) << "\"";
     json << "]";
-    if (!p.textureQuality.empty()) {
-        json << ",\n  \"textureQuality\": {";
-        bool first = true;
-        for (const auto& [asset, q] : p.textureQuality) {
-            json << (first ? " " : ", ") << "\"" << asset << "\": \"" << q << "\"";
-            first = false;
-        }
-        json << " }";
+}
+
+// Empty (no keys) when there are no overrides - the composers skip it then,
+// matching the manifest's historical conditional emission.
+static void writeTexQualitySection(std::ostream& json, const Project& p) {
+    if (p.textureQuality.empty()) return;
+    json << "\"textureQuality\": {";
+    bool first = true;
+    for (const auto& [asset, q] : p.textureQuality) {
+        json << (first ? " " : ", ") << "\"" << jsonEscape(asset) << "\": \"" << q
+             << "\"";
+        first = false;
     }
-    json << ",\n  \"saveValues\": [";
+    json << " }";
+}
+
+static void writeSaveDataSection(std::ostream& json, const Project& p) {
+    json << "\"saveValues\": [";
     for (size_t i = 0; i < p.saveValues.size(); ++i)
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << p.saveValues[i].name
              << "\", \"default\": " << fmtFloat(p.saveValues[i].value) << " }";
@@ -955,7 +983,10 @@ std::string save(const Project& p) {
              << jsonEscape(p.saveTexts[i].name) << "\", \"default\": \""
              << jsonEscape(p.saveTexts[i].value) << "\" }";
     json << (p.saveTexts.empty() ? "]" : "\n  ]");
-    json << ",\n  \"gradings\": [";
+}
+
+static void writeGradingsSection(std::ostream& json, const Project& p) {
+    json << "\"gradings\": [";
     for (size_t i = 0; i < p.gradings.size(); ++i) {
         const ColorGradingPreset& g = p.gradings[i];
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \""
@@ -970,7 +1001,10 @@ std::string save(const Project& p) {
     }
     json << (p.gradings.empty() ? "]" : "\n  ]");
     json << ",\n  \"defaultGrading\": " << p.defaultGrading;
-    json << ",\n  \"ambience\": [";
+}
+
+static void writeAmbienceSection(std::ostream& json, const Project& p) {
+    json << "\"ambience\": [";
     for (size_t i = 0; i < p.ambiencePresets.size(); ++i) {
         const AmbiencePreset& a = p.ambiencePresets[i];
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << jsonEscape(a.name)
@@ -990,7 +1024,10 @@ std::string save(const Project& p) {
     }
     json << (p.ambiencePresets.empty() ? "]" : "\n  ]");
     json << ",\n  \"defaultAmbience\": " << p.defaultAmbience;
-    json << ",\n  \"loadingScreens\": [";
+}
+
+static void writeLoadingScreensSection(std::ostream& json, const Project& p) {
+    json << "\"loadingScreens\": [";
     for (size_t i = 0; i < p.loadingScreens.size(); ++i) {
         const LoadingScreenDef& ls = p.loadingScreens[i];
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << jsonEscape(ls.name)
@@ -1036,7 +1073,10 @@ std::string save(const Project& p) {
     }
     json << (p.loadingScreens.empty() ? "]" : "\n  ]");
     json << ",\n  \"defaultLoadingScreen\": " << p.defaultLoadingScreen;
-    json << ",\n  \"splashScreens\": [";
+}
+
+static void writeSplashSection(std::ostream& json, const Project& p) {
+    json << "\"splashScreens\": [";
     for (size_t i = 0; i < p.splashScreens.size(); ++i) {
         const SplashScreen& s = p.splashScreens[i];
         const HudImage& h = s.image;
@@ -1050,7 +1090,10 @@ std::string save(const Project& p) {
              << h.texQuant << "\" } }";
     }
     json << (p.splashScreens.empty() ? "]" : "\n  ]");
-    json << ",\n  \"sequences\": [";
+}
+
+static void writeSequencesSection(std::ostream& json, const Project& p) {
+    json << "\"sequences\": [";
     for (size_t i = 0; i < p.sequences.size(); ++i) {
         const Sequence& s = p.sequences[i];
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << jsonEscape(s.name)
@@ -1098,7 +1141,10 @@ std::string save(const Project& p) {
         json << "] }";
     }
     json << (p.sequences.empty() ? "]" : "\n  ]");
-    json << ",\n  \"menus\": [";
+}
+
+static void writeMenusSection(std::ostream& json, const Project& p) {
+    json << "\"menus\": [";
     static const char* kMenuActions[] = {"close",     "scene",     "save-menu",
                                          "menu",      "set-value", "add-value",
                                          "event",     "toggle",    "choice",
@@ -1171,6 +1217,70 @@ std::string save(const Project& p) {
         json << (m.entries.empty() ? "]" : "\n      ]") << " }";
     }
     json << (p.menus.empty() ? "]" : "\n  ]");
+}
+
+// The wire form of one section: its manifest keys, no wrapping braces. Empty
+// for a conditional section with nothing to emit (TexQuality with no entries).
+static std::string sectionBody(const Project& p, Section s) {
+    std::ostringstream ss;
+    switch (s) {
+        case Section::Settings: writeSettingsSection(ss, p); break;
+        case Section::Hud: writeHudSection(ss, p); break;
+        case Section::Audio: writeAudioSection(ss, p); break;
+        case Section::TexQuality: writeTexQualitySection(ss, p); break;
+        case Section::SaveData: writeSaveDataSection(ss, p); break;
+        case Section::Gradings: writeGradingsSection(ss, p); break;
+        case Section::Ambience: writeAmbienceSection(ss, p); break;
+        case Section::LoadingScreens: writeLoadingScreensSection(ss, p); break;
+        case Section::Splash: writeSplashSection(ss, p); break;
+        case Section::Sequences: writeSequencesSection(ss, p); break;
+        case Section::Menus: writeMenusSection(ss, p); break;
+    }
+    return ss.str();
+}
+
+const char* sectionName(Section s) {
+    switch (s) {
+        case Section::Settings: return "settings";
+        case Section::Hud: return "hud";
+        case Section::Audio: return "audio";
+        case Section::TexQuality: return "texQuality";
+        case Section::SaveData: return "saveData";
+        case Section::Gradings: return "gradings";
+        case Section::Ambience: return "ambience";
+        case Section::LoadingScreens: return "loadingScreens";
+        case Section::Splash: return "splash";
+        case Section::Sequences: return "sequences";
+        case Section::Menus: return "menus";
+    }
+    return "unknown";
+}
+
+std::string sectionJson(const Project& p, Section s) {
+    const std::string body = sectionBody(p, s);
+    return body.empty() ? "{ }" : "{ " + body + " }";
+}
+
+// The whole .tyra manifest as one string - save() writes it to disk,
+// manifestFiles() ships the same bytes over the collaboration wire.
+static std::string manifestJson(const Project& p) {
+    std::ostringstream json;
+    json << "{\n"
+         << "  \"name\": \"" << jsonEscape(p.name) << "\",\n"
+         << "  \"template\": \"" << p.gameTemplate << "\"";
+    // Omitted while empty so a project never born through ensureProjectId
+    // round-trips unchanged (and the golden byte layout predates the key).
+    if (!p.projectId.empty())
+        json << ",\n  \"projectId\": \"" << jsonEscape(p.projectId) << "\"";
+    json << ",\n  ";
+    writeSettingsSection(json, p);
+    json << ",\n  ";
+    writeScenesTable(json, p);
+    for (int s = 0; s < kSectionCount; ++s) {
+        if ((Section)s == Section::Settings) continue;  // already emitted above
+        const std::string body = sectionBody(p, (Section)s);
+        if (!body.empty()) json << ",\n  " << body;
+    }
     // Editor-side state + window layout: the .tyra file is the whole project.
     json << ",\n  \"editor\": { \"selectedObject\": " << p.selectedObject
          << ", \"gizmo\": " << p.gizmoOp << ", \"gizmoSpace\": " << p.gizmoSpace
@@ -1192,7 +1302,10 @@ std::string save(const Project& p) {
     }
     json << (p.windowLayouts.empty() ? "]" : "\n  ]");
     json << "\n}\n";
+    return json.str();
+}
 
+std::string save(const Project& p) {
     // One file per object. Write every live object, then prune objects/*.json
     // whose object no longer exists (deleted, or moved out on a previous save).
     // Ids are guaranteed present here: every path that reaches save() runs
@@ -1212,7 +1325,7 @@ std::string save(const Project& p) {
         if (!live.count(entry.path().stem().string())) fs::remove(entry.path(), ec);
     }
 
-    return writeFile(projectPath(p), json.str());
+    return writeFile(projectPath(p), manifestJson(p));
 }
 
 std::string newObjectId() {
@@ -1223,6 +1336,12 @@ std::string newObjectId() {
     char buf[17];
     std::snprintf(buf, sizeof(buf), "%016llx", (unsigned long long)rng());
     return buf;
+}
+
+void ensureProjectId(Project& p) {
+    // Same id shape as objects (16 hex chars of 64-bit randomness); projects
+    // and objects never share a namespace, so reusing the generator is fine.
+    if (p.projectId.empty()) p.projectId = newObjectId();
 }
 
 void ensureObjectIds(Project& p) {
@@ -1299,6 +1418,7 @@ std::string create(Project& out, const std::string& name, const std::string& par
         out.scenes[0].objects.push_back(player);
     }
 
+    ensureProjectId(out);
     ensureObjectIds(out);
     ensureHeightmap(out);
 
@@ -1421,20 +1541,132 @@ static fs::path heightsPath(const Project& p, const SceneData& s) {
     return fs::path(p.dir) / ("terrain-" + s.name + ".heights");
 }
 
+// The terrain-<scene>.heights file body (shared by saveHeights and the
+// collaboration manifestFiles).
+static std::string heightsText(const SceneData& s) {
+    std::ostringstream out;
+    out << s.hmW << " " << s.hmD << "\n";
+    for (int z = 0; z < s.hmD; ++z) {
+        for (int x = 0; x < s.hmW; ++x) {
+            if (x) out << " ";
+            out << fmtFloat(s.heights[(size_t)z * s.hmW + x]);
+        }
+        out << "\n";
+    }
+    return out.str();
+}
+
 std::string saveHeights(const Project& p) {
     for (const SceneData& s : p.scenes) {
-        std::ostringstream out;
-        out << s.hmW << " " << s.hmD << "\n";
-        for (int z = 0; z < s.hmD; ++z) {
-            for (int x = 0; x < s.hmW; ++x) {
-                if (x) out << " ";
-                out << fmtFloat(s.heights[(size_t)z * s.hmW + x]);
-            }
-            out << "\n";
-        }
-        if (auto err = writeFile(heightsPath(p, s), out.str()); !err.empty()) return err;
+        if (auto err = writeFile(heightsPath(p, s), heightsText(s)); !err.empty())
+            return err;
     }
     return "";
+}
+
+std::string scenesLayoutJson(const Project& p) {
+    std::ostringstream j;
+    j << "{ ";
+    writeScenesTable(j, p);
+    j << " }";
+    return j.str();
+}
+
+bool applyScenesLayout(Project& p, const std::string& body) {
+    json::Value root;
+    if (!json::parse(body, root) || root.type != json::Value::Type::Object)
+        return false;
+    const auto* scenes = root.find("scenes");
+    if (!scenes || scenes->type != json::Value::Type::Array) return false;
+
+    // Pool every current object by id, so a reorder / cross-scene move keeps
+    // the object's live body (only membership + order come from the layout).
+    std::unordered_map<std::string, SceneObject> pool;
+    for (SceneData& s : p.scenes)
+        for (SceneObject& o : s.objects)
+            if (!o.id.empty()) pool.emplace(o.id, std::move(o));
+
+    // Old per-index bulk terrain data (heightmap + paint splat), preserved
+    // across a layout that only renames / reorders: heights arrive as their
+    // own message, and the splat weights are not carried in a scene-layout at
+    // all, so a structural sync must not wipe the receiver's painted terrain.
+    struct Grid {
+        std::vector<float> h;
+        int w = 0, d = 0;
+        std::vector<uint8_t> splat;
+        int splatW = 0, splatD = 0;
+    };
+    std::vector<Grid> oldGrids;
+    for (const SceneData& s : p.scenes)
+        oldGrids.push_back({s.heights, s.hmW, s.hmD, s.splat, s.splatW, s.splatD});
+
+    std::vector<SceneData> next;
+    for (const auto& js : scenes->arr) {
+        SceneData sc;
+        if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
+        if (const auto* ls = js.find("layers")) readLayersArray(*ls, sc.layers);
+        if (const auto* tl = js.find("terrainLayers"))
+            readTerrainLayersArray(*tl, sc.terrainLayers);
+        if (const auto* v = js.find("terrainBaseStochastic"))
+            sc.terrainBaseStochastic = v->boolOr(false);
+        if (const auto* v = js.find("terrainTintVariation"))
+            sc.terrainTintVariation = (float)v->numberOr(0.0);
+        if (const auto* v = js.find("terrainTintScale")) {
+            sc.terrainTintScale = (float)v->numberOr(24.0);
+            if (sc.terrainTintScale < 1.0f) sc.terrainTintScale = 1.0f;
+        }
+        if (const auto* t = js.find("terrain")) {
+            if (const auto* v = t->find("width")) sc.terrain.width = (int)v->numberOr(64);
+            if (const auto* v = t->find("depth")) sc.terrain.depth = (int)v->numberOr(64);
+        }
+        readSceneVisuals(js, sc);
+        if (const auto* objs = js.find("objects");
+            objs && objs->type == json::Value::Type::Array) {
+            for (const auto& jid : objs->arr) {
+                const std::string id = jid.stringOr("");
+                if (id.empty()) continue;
+                auto it = pool.find(id);
+                if (it != pool.end()) {
+                    sc.objects.push_back(std::move(it->second));
+                    pool.erase(it);
+                }
+                // An id with no current body is SKIPPED, never turned into an
+                // empty placeholder: fabricating one would diverge from a peer
+                // that still holds the real object (a delete-vs-keep race). In
+                // normal flow the body's upsert always precedes this layout in
+                // the same batch, so the id is in the pool.
+            }
+        }
+        const size_t idx = next.size();
+        if (idx < oldGrids.size()) {
+            sc.heights = std::move(oldGrids[idx].h);
+            sc.hmW = oldGrids[idx].w;
+            sc.hmD = oldGrids[idx].d;
+            sc.splat = std::move(oldGrids[idx].splat);
+            sc.splatW = oldGrids[idx].splatW;
+            sc.splatD = oldGrids[idx].splatD;
+        }
+        next.push_back(std::move(sc));
+    }
+    if (next.empty()) next.push_back(SceneData{});
+    p.scenes = std::move(next);
+    if (p.activeScene < 0 || p.activeScene >= (int)p.scenes.size()) p.activeScene = 0;
+    ensureHeightmap(p);
+    return true;
+}
+
+std::vector<VirtualFile> manifestFiles(const Project& p) {
+    // Exactly the bytes save()/saveHeights() would write, without touching
+    // disk - the live in-memory model, which on a dirty host is NEWER than the
+    // saved files. Forward-slash relative paths (wire paths).
+    std::vector<VirtualFile> out;
+    out.push_back({p.name + ".tyra", manifestJson(p)});
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            out.push_back({"objects/" + o.id + ".json", objectJson(o) + "\n"});
+    for (const SceneData& s : p.scenes)
+        out.push_back({"terrain-" + s.name + ".heights", heightsText(s)});
+    return out;
 }
 
 void loadHeights(Project& p) {
@@ -1876,6 +2108,21 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
     }
 }
 
+bool parseObject(const std::string& body, SceneObject& out) {
+    json::Value ov;
+    if (!json::parse(body, ov) || ov.type != json::Value::Type::Object) return false;
+    // Reuse readObjectsArray by wrapping the single body in a one-element
+    // array (json::Value is a plain struct - cheap to build).
+    json::Value arr;
+    arr.type = json::Value::Type::Array;
+    arr.arr.push_back(std::move(ov));
+    std::vector<SceneObject> objs;
+    readObjectsArray(arr, objs);
+    if (objs.empty()) return false;
+    out = std::move(objs.front());
+    return true;
+}
+
 // A scene's "objects" manifest field. New (split) layout: an array of id
 // strings, each loaded from objects/<id>.json in list order. Legacy layout: an
 // array of inline object bodies. The two are told apart by the first element's
@@ -1907,44 +2154,14 @@ static void readSceneObjects(const Project& p, const json::Value& objs,
     }
 }
 
-std::string load(Project& out, const std::string& projectDir) {
-    // The project is defined by a single <name>.tyra file in the directory.
-    fs::path tyraPath;
-    std::error_code ec;
-    for (const auto& entry : fs::directory_iterator(projectDir, ec)) {
-        if (entry.is_regular_file(ec) && entry.path().extension() == ".tyra") {
-            tyraPath = entry.path();
-            break;
-        }
-    }
-    if (tyraPath.empty())
-        return "Not a TyraX project (no .tyra file): " + projectDir;
-    std::ifstream f(tyraPath, std::ios::binary);
-    if (!f) return "Cannot open project file: " + tyraPath.string();
-    std::stringstream ss;
-    ss << f.rdbuf();
+// --- Manifest section readers -------------------------------------------------
+// The mirror of the section writers above: each replaces its group of fields
+// from a parsed manifest (or a sectionJson() wire blob). A section blob is
+// total, not a patch - every reader resets its fields to defaults first, so
+// keys absent from the blob land on their defaults exactly like a fresh load.
 
-    json::Value root;
-    if (!json::parse(ss.str(), root) || root.type != json::Value::Type::Object)
-        return tyraPath.filename().string() + " is malformed";
-
-    out = Project{};
-    out.dir = fs::path(projectDir).string();
-    // Register the project's custom flow nodes BEFORE the graphs are parsed:
-    // readFlowGraph drops any node whose type is unknown (line ~156), so a
-    // "custom:*" node only survives the load if its .flownode file is present.
-    flownode::loadForProject(out.dir);
-    // Same for custom screen effects: their placements below reference a
-    // screen-effects/*.screenfx file by key, and a placement whose file is
-    // missing is dropped (so a moved .tyra cannot silently keep a dead effect).
-    screenfx::loadForProject(out.dir);
-    if (const auto* v = root.find("name")) out.name = v->stringOr("");
-    if (out.name.empty())
-        return tyraPath.filename().string() + " is malformed (no name)";
-
-    if (const auto* v = root.find("template"))
-        out.gameTemplate = v->stringOr("orbit") == "fpp" ? "fpp" : "orbit";
-
+static void readSettingsSection(const json::Value& root, Project& out) {
+    out.settings = ProjectSettings{};
     if (const auto* s = root.find("settings")) {
         ProjectSettings& st = out.settings;
         if (const auto* v = s->find("videoSystem")) {
@@ -2100,70 +2317,14 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = s->find("loadingScreen"))
             st.loadingScreen = !(v->type == json::Value::Type::Bool && !v->boolean);
     }
+}
 
-    // Scenes. New format: [{ "name", "objects" }]; legacy: an array of scene
-    // name strings plus a project-level "objects" array (single scene).
-    if (const auto* scenes = root.find("scenes");
-        scenes && scenes->type == json::Value::Type::Array && !scenes->arr.empty()) {
-        if (scenes->arr[0].type == json::Value::Type::Object) {
-            out.scenes.clear();
-            for (const auto& js : scenes->arr) {
-                SceneData sc;
-                if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
-                if (const auto* ls = js.find("layers")) readLayersArray(*ls, sc.layers);
-                if (const auto* tl = js.find("terrainLayers"))
-                    readTerrainLayersArray(*tl, sc.terrainLayers);
-                if (const auto* v = js.find("terrainBaseStochastic"))
-                    sc.terrainBaseStochastic = v->boolOr(false);
-                if (const auto* v = js.find("terrainTintVariation"))
-                    sc.terrainTintVariation = (float)v->numberOr(0.0);
-                if (const auto* v = js.find("terrainTintScale")) {
-                    sc.terrainTintScale = (float)v->numberOr(24.0);
-                    if (sc.terrainTintScale < 1.0f) sc.terrainTintScale = 1.0f;
-                }
-                if (const auto* objs = js.find("objects"))
-                    readSceneObjects(out, *objs, sc.objects);
-                if (const auto* t = js.find("terrain")) {
-                    if (const auto* v = t->find("width"))
-                        sc.terrain.width = (int)v->numberOr(64);
-                    if (const auto* v = t->find("depth"))
-                        sc.terrain.depth = (int)v->numberOr(64);
-                }
-                readSceneVisuals(js, sc);
-                out.scenes.push_back(std::move(sc));
-            }
-        } else {
-            out.scenes.clear();
-            for (const auto& s : scenes->arr)
-                out.scenes.push_back(SceneData{s.stringOr("main"), {}});
-        }
-    }
-    if (out.scenes.empty()) out.scenes.push_back(SceneData{});
-
-    // Legacy project-level terrain size: copy into every scene. Legacy
-    // project-level lighting / terrain texture live in out.settings (read
-    // above) and reach scenes through inheritance (project::resolvedSettings),
-    // so no per-scene copy is needed here.
-    if (const auto* terrain = root.find("terrain")) {
-        TerrainConfig t;
-        if (const auto* v = terrain->find("width")) t.width = (int)v->numberOr(64);
-        if (const auto* v = terrain->find("depth")) t.depth = (int)v->numberOr(64);
-        for (SceneData& sc : out.scenes) sc.terrain = t;
-    }
-
-    if (const auto* objects = root.find("objects");
-        objects && objects->type == json::Value::Type::Array) {
-        readObjectsArray(*objects, out.scenes[0].objects);  // legacy single scene
-    }
-
-    // Every scene object must carry a stable id before the caller snapshots the
-    // project (loadHistory compares against out.scenes). Pre-id projects get
-    // theirs here; they are written back on the next save.
-    ensureObjectIds(out);
-
+static void readHudSection(const json::Value& root, Project& out) {
+    // Fonts ride in the Hud section (see writeHudSection). Total-replace like
+    // every section reader.
+    out.fonts.clear();
     if (const auto* fonts = root.find("fonts");
-        fonts && fonts->type == json::Value::Type::Array && !fonts->arr.empty()) {
-        out.fonts.clear();
+        fonts && fonts->type == json::Value::Type::Array) {
         for (const auto& jf : fonts->arr) {
             GameFont f;
             if (const auto* v = jf.find("name")) f.name = v->stringOr("Default");
@@ -2179,7 +2340,10 @@ std::string load(Project& out, const std::string& projectDir) {
             out.fonts.push_back(f);
         }
     }
-
+    out.hud.clear();
+    out.usePrompt = defaultUsePrompt();
+    out.hudTexts.clear();
+    out.screenFx.clear();
     if (const auto* hud = root.find("hud"); hud && hud->type == json::Value::Type::Array) {
         for (const auto& jh : hud->arr) {
             HudImage h;
@@ -2292,7 +2456,12 @@ std::string load(Project& out, const std::string& projectDir) {
             out.screenFx.push_back(std::move(f));
         }
     }
+}
 
+static void readAudioSection(const json::Value& root, Project& out) {
+    out.music.clear();
+    out.musicBuild.clear();
+    out.sounds.clear();
     if (const auto* music = root.find("music");
         music && music->type == json::Value::Type::Array) {
         for (const auto& m : music->arr) {
@@ -2321,7 +2490,10 @@ std::string load(Project& out, const std::string& projectDir) {
             if (!path.empty()) out.sounds.push_back(path);
         }
     }
+}
 
+static void readTexQualitySection(const json::Value& root, Project& out) {
+    out.textureQuality.clear();
     if (const auto* tq = root.find("textureQuality");
         tq && tq->type == json::Value::Type::Object) {
         for (const auto& [asset, v] : tq->obj) {
@@ -2330,7 +2502,11 @@ std::string load(Project& out, const std::string& projectDir) {
                 out.textureQuality[asset] = q;
         }
     }
+}
 
+static void readSaveDataSection(const json::Value& root, Project& out) {
+    out.saveValues.clear();
+    out.saveTexts.clear();
     if (const auto* values = root.find("saveValues");
         values && values->type == json::Value::Type::Array) {
         for (const auto& jv : values->arr) {
@@ -2350,7 +2526,11 @@ std::string load(Project& out, const std::string& projectDir) {
             if (!v.name.empty()) out.saveTexts.push_back(std::move(v));
         }
     }
+}
 
+static void readGradingsSection(const json::Value& root, Project& out) {
+    out.gradings.clear();
+    out.defaultGrading = -1;
     if (const auto* gradings = root.find("gradings");
         gradings && gradings->type == json::Value::Type::Array) {
         for (const auto& jg : gradings->arr) {
@@ -2377,7 +2557,11 @@ std::string load(Project& out, const std::string& projectDir) {
     if (out.defaultGrading < -1 ||
         out.defaultGrading >= (int)out.gradings.size())
         out.defaultGrading = -1;
+}
 
+static void readAmbienceSection(const json::Value& root, Project& out) {
+    out.ambiencePresets.clear();
+    out.defaultAmbience = -1;
     if (const auto* amb = root.find("ambience");
         amb && amb->type == json::Value::Type::Array) {
         for (const auto& ja : amb->arr) {
@@ -2402,7 +2586,14 @@ std::string load(Project& out, const std::string& projectDir) {
     }
     if (const auto* v = root.find("defaultAmbience"))
         out.defaultAmbience = (int)v->numberOr(-1.0);
+    if (out.defaultAmbience < -1 ||
+        out.defaultAmbience >= (int)out.ambiencePresets.size())
+        out.defaultAmbience = -1;
+}
 
+static void readLoadingScreensSection(const json::Value& root, Project& out) {
+    out.loadingScreens.clear();
+    out.defaultLoadingScreen = -1;
     if (const auto* lss = root.find("loadingScreens");
         lss && lss->type == json::Value::Type::Array) {
         for (const auto& jl : lss->arr) {
@@ -2501,7 +2692,10 @@ std::string load(Project& out, const std::string& projectDir) {
     if (out.defaultLoadingScreen < -1 ||
         out.defaultLoadingScreen >= (int)out.loadingScreens.size())
         out.defaultLoadingScreen = -1;
+}
 
+static void readSplashSection(const json::Value& root, Project& out) {
+    out.splashScreens.clear();
     if (const auto* sps = root.find("splashScreens");
         sps && sps->type == json::Value::Type::Array) {
         for (const auto& jsp : sps->arr) {
@@ -2534,7 +2728,10 @@ std::string load(Project& out, const std::string& projectDir) {
             if (!s.image.imagePath.empty()) out.splashScreens.push_back(std::move(s));
         }
     }
+}
 
+static void readSequencesSection(const json::Value& root, Project& out) {
+    out.sequences.clear();
     if (const auto* seqs = root.find("sequences");
         seqs && seqs->type == json::Value::Type::Array) {
         for (const auto& js : seqs->arr) {
@@ -2601,56 +2798,10 @@ std::string load(Project& out, const std::string& projectDir) {
             if (!s.name.empty()) out.sequences.push_back(std::move(s));
         }
     }
+}
 
-    // Migrate projects authored before the Ambience Editor: sky/lighting/fog
-    // used to live in Preferences (global + per-scene overrides). Fold them
-    // into presets so the same values keep driving the scene now that those
-    // controls have moved. Only runs when the project has no presets yet.
-    if (out.ambiencePresets.empty()) {
-        auto uniqueName = [&](std::string base) {
-            if (base.empty()) base = "Ambience";
-            std::string n = base;
-            for (int k = 2;; ++k) {
-                bool taken = false;
-                for (const auto& a : out.ambiencePresets) taken |= (a.name == n);
-                if (!taken) return n;
-                n = base + "-" + std::to_string(k);
-            }
-        };
-        auto fromSettings = [](const ProjectSettings& s, const std::string& name) {
-            AmbiencePreset a;
-            a.name = name;
-            for (int i = 0; i < 3; ++i) {
-                a.skyColor[i] = s.skyColor[i];
-                a.skyTopColor[i] = s.skyTopColor[i];
-                a.lightDir[i] = s.lightDir[i];
-                a.lightColor[i] = s.lightColor[i];
-                a.fogColor[i] = s.fogColor[i];
-            }
-            a.skyDome = s.skyDome;
-            a.zenithSize = s.zenithSize;
-            a.ambient = s.ambient, a.diffuse = s.diffuse, a.brightness = s.brightness;
-            a.fogEnabled = s.fogEnabled, a.fogStart = s.fogStart, a.fogEnd = s.fogEnd;
-            return a;
-        };
-        // Default at index 0. Keep defaultAmbience = -1 during the per-scene
-        // loop so resolvedSettings() below sees NO preset overlay and captures
-        // each scene's own overridden sky/lighting/fog, not the default's.
-        out.ambiencePresets.push_back(fromSettings(out.settings, uniqueName("Default")));
-        for (SceneData& sc : out.scenes) {
-            if (!(sc.overrides.sky || sc.overrides.lighting || sc.overrides.fog))
-                continue;
-            AmbiencePreset a = fromSettings(resolvedSettings(out, sc), uniqueName(sc.name));
-            sc.ambiencePreset = a.name;
-            sc.overrides.sky = sc.overrides.lighting = sc.overrides.fog = false;
-            out.ambiencePresets.push_back(std::move(a));
-        }
-        out.defaultAmbience = 0;
-    }
-    if (out.defaultAmbience < -1 ||
-        out.defaultAmbience >= (int)out.ambiencePresets.size())
-        out.defaultAmbience = -1;
-
+static void readMenusSection(const json::Value& root, Project& out) {
+    out.menus.clear();
     if (const auto* menus = root.find("menus");
         menus && menus->type == json::Value::Type::Array) {
         for (const auto& jm : menus->arr) {
@@ -2775,6 +2926,199 @@ std::string load(Project& out, const std::string& projectDir) {
             if (!m.name.empty()) out.menus.push_back(std::move(m));
         }
     }
+}
+
+bool applySectionJson(Project& p, Section s, const std::string& body) {
+    json::Value root;
+    if (!json::parse(body, root) || root.type != json::Value::Type::Object)
+        return false;
+    switch (s) {
+        case Section::Settings: readSettingsSection(root, p); break;
+        case Section::Hud: readHudSection(root, p); break;
+        case Section::Audio: readAudioSection(root, p); break;
+        case Section::TexQuality: readTexQualitySection(root, p); break;
+        case Section::SaveData: readSaveDataSection(root, p); break;
+        case Section::Gradings: readGradingsSection(root, p); break;
+        case Section::Ambience: readAmbienceSection(root, p); break;
+        case Section::LoadingScreens: readLoadingScreensSection(root, p); break;
+        case Section::Splash: readSplashSection(root, p); break;
+        case Section::Sequences: readSequencesSection(root, p); break;
+        case Section::Menus: readMenusSection(root, p); break;
+    }
+    return true;
+}
+
+std::string load(Project& out, const std::string& projectDir) {
+    // The project is defined by a single <name>.tyra file in the directory.
+    fs::path tyraPath;
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(projectDir, ec)) {
+        if (entry.is_regular_file(ec) && entry.path().extension() == ".tyra") {
+            tyraPath = entry.path();
+            break;
+        }
+    }
+    if (tyraPath.empty())
+        return "Not a TyraX project (no .tyra file): " + projectDir;
+    std::ifstream f(tyraPath, std::ios::binary);
+    if (!f) return "Cannot open project file: " + tyraPath.string();
+    std::stringstream ss;
+    ss << f.rdbuf();
+
+    json::Value root;
+    if (!json::parse(ss.str(), root) || root.type != json::Value::Type::Object)
+        return tyraPath.filename().string() + " is malformed";
+
+    out = Project{};
+    out.dir = fs::path(projectDir).string();
+    // Register the project's custom flow nodes BEFORE the graphs are parsed:
+    // readFlowGraph drops any node whose type is unknown (line ~156), so a
+    // "custom:*" node only survives the load if its .flownode file is present.
+    flownode::loadForProject(out.dir);
+    // Same for custom screen effects: their placements below reference a
+    // screen-effects/*.screenfx file by key, and a placement whose file is
+    // missing is dropped (so a moved .tyra cannot silently keep a dead effect).
+    screenfx::loadForProject(out.dir);
+    if (const auto* v = root.find("name")) out.name = v->stringOr("");
+    if (out.name.empty())
+        return tyraPath.filename().string() + " is malformed (no name)";
+
+    if (const auto* v = root.find("template"))
+        out.gameTemplate = v->stringOr("orbit") == "fpp" ? "fpp" : "orbit";
+
+    if (const auto* v = root.find("projectId")) out.projectId = v->stringOr("");
+    ensureProjectId(out);  // backfill projects born before project ids
+
+    readSettingsSection(root, out);
+
+    // Scenes. New format: [{ "name", "objects" }]; legacy: an array of scene
+    // name strings plus a project-level "objects" array (single scene).
+    if (const auto* scenes = root.find("scenes");
+        scenes && scenes->type == json::Value::Type::Array && !scenes->arr.empty()) {
+        if (scenes->arr[0].type == json::Value::Type::Object) {
+            out.scenes.clear();
+            for (const auto& js : scenes->arr) {
+                SceneData sc;
+                if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
+                if (const auto* ls = js.find("layers")) readLayersArray(*ls, sc.layers);
+                if (const auto* tl = js.find("terrainLayers"))
+                    readTerrainLayersArray(*tl, sc.terrainLayers);
+                if (const auto* v = js.find("terrainBaseStochastic"))
+                    sc.terrainBaseStochastic = v->boolOr(false);
+                if (const auto* v = js.find("terrainTintVariation"))
+                    sc.terrainTintVariation = (float)v->numberOr(0.0);
+                if (const auto* v = js.find("terrainTintScale")) {
+                    sc.terrainTintScale = (float)v->numberOr(24.0);
+                    if (sc.terrainTintScale < 1.0f) sc.terrainTintScale = 1.0f;
+                }
+                if (const auto* objs = js.find("objects"))
+                    readSceneObjects(out, *objs, sc.objects);
+                if (const auto* t = js.find("terrain")) {
+                    if (const auto* v = t->find("width"))
+                        sc.terrain.width = (int)v->numberOr(64);
+                    if (const auto* v = t->find("depth"))
+                        sc.terrain.depth = (int)v->numberOr(64);
+                }
+                readSceneVisuals(js, sc);
+                out.scenes.push_back(std::move(sc));
+            }
+        } else {
+            out.scenes.clear();
+            for (const auto& s : scenes->arr)
+                out.scenes.push_back(SceneData{s.stringOr("main"), {}});
+        }
+    }
+    if (out.scenes.empty()) out.scenes.push_back(SceneData{});
+
+    // Legacy project-level terrain size: copy into every scene. Legacy
+    // project-level lighting / terrain texture live in out.settings (read
+    // above) and reach scenes through inheritance (project::resolvedSettings),
+    // so no per-scene copy is needed here.
+    if (const auto* terrain = root.find("terrain")) {
+        TerrainConfig t;
+        if (const auto* v = terrain->find("width")) t.width = (int)v->numberOr(64);
+        if (const auto* v = terrain->find("depth")) t.depth = (int)v->numberOr(64);
+        for (SceneData& sc : out.scenes) sc.terrain = t;
+    }
+
+    if (const auto* objects = root.find("objects");
+        objects && objects->type == json::Value::Type::Array) {
+        readObjectsArray(*objects, out.scenes[0].objects);  // legacy single scene
+    }
+
+    // Every scene object must carry a stable id before the caller snapshots the
+    // project (loadHistory compares against out.scenes). Pre-id projects get
+    // theirs here; they are written back on the next save.
+    ensureObjectIds(out);
+
+    readHudSection(root, out);
+
+    readAudioSection(root, out);
+
+    readTexQualitySection(root, out);
+
+    readSaveDataSection(root, out);
+
+    readGradingsSection(root, out);
+
+    readAmbienceSection(root, out);
+
+    readLoadingScreensSection(root, out);
+
+    readSplashSection(root, out);
+
+    readSequencesSection(root, out);
+
+    // Migrate projects authored before the Ambience Editor: sky/lighting/fog
+    // used to live in Preferences (global + per-scene overrides). Fold them
+    // into presets so the same values keep driving the scene now that those
+    // controls have moved. Only runs when the project has no presets yet.
+    if (out.ambiencePresets.empty()) {
+        auto uniqueName = [&](std::string base) {
+            if (base.empty()) base = "Ambience";
+            std::string n = base;
+            for (int k = 2;; ++k) {
+                bool taken = false;
+                for (const auto& a : out.ambiencePresets) taken |= (a.name == n);
+                if (!taken) return n;
+                n = base + "-" + std::to_string(k);
+            }
+        };
+        auto fromSettings = [](const ProjectSettings& s, const std::string& name) {
+            AmbiencePreset a;
+            a.name = name;
+            for (int i = 0; i < 3; ++i) {
+                a.skyColor[i] = s.skyColor[i];
+                a.skyTopColor[i] = s.skyTopColor[i];
+                a.lightDir[i] = s.lightDir[i];
+                a.lightColor[i] = s.lightColor[i];
+                a.fogColor[i] = s.fogColor[i];
+            }
+            a.skyDome = s.skyDome;
+            a.zenithSize = s.zenithSize;
+            a.ambient = s.ambient, a.diffuse = s.diffuse, a.brightness = s.brightness;
+            a.fogEnabled = s.fogEnabled, a.fogStart = s.fogStart, a.fogEnd = s.fogEnd;
+            return a;
+        };
+        // Default at index 0. Keep defaultAmbience = -1 during the per-scene
+        // loop so resolvedSettings() below sees NO preset overlay and captures
+        // each scene's own overridden sky/lighting/fog, not the default's.
+        out.ambiencePresets.push_back(fromSettings(out.settings, uniqueName("Default")));
+        for (SceneData& sc : out.scenes) {
+            if (!(sc.overrides.sky || sc.overrides.lighting || sc.overrides.fog))
+                continue;
+            AmbiencePreset a = fromSettings(resolvedSettings(out, sc), uniqueName(sc.name));
+            sc.ambiencePreset = a.name;
+            sc.overrides.sky = sc.overrides.lighting = sc.overrides.fog = false;
+            out.ambiencePresets.push_back(std::move(a));
+        }
+        out.defaultAmbience = 0;
+    }
+    if (out.defaultAmbience < -1 ||
+        out.defaultAmbience >= (int)out.ambiencePresets.size())
+        out.defaultAmbience = -1;
+
+    readMenusSection(root, out);
 
     loadHeights(out);
     ensureHeightmap(out);

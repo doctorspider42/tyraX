@@ -1216,6 +1216,11 @@ inline bool operator==(const SaveTextValue& a, const SaveTextValue& b) {
 struct Project {
     std::string name;
     std::string dir;  // absolute path to project root
+    // Stable, opaque project identity (16 hex chars), persisted in the .tyra
+    // manifest. Distinguishes projects independently of name/path - the remote
+    // collaboration cache keys downloaded projects on it. Generated at create,
+    // backfilled on load for older projects (see project::ensureProjectId).
+    std::string projectId;
     std::string gameTemplate = "orbit";  // "orbit" | "fpp"
     ProjectSettings settings;
     std::vector<SceneData> scenes{SceneData{}};
@@ -1395,6 +1400,85 @@ std::string newObjectId();
 // object already has a distinct id. Called on load, on create, and from the
 // editor's commitChange() so no object is ever persisted without an id.
 void ensureObjectIds(Project& p);
+
+// Assigns Project::projectId when it is empty (fresh create or a project from
+// before project ids existed). Idempotent; persisted on the next save.
+void ensureProjectId(Project& p);
+
+// --- Per-object / per-section (de)serialization ------------------------------
+// The building blocks of both the on-disk format and the collaboration wire
+// format: an object body is the exact JSON written to objects/<id>.json, a
+// section is a group of project-wide manifest keys serialized as one JSON
+// object. Both directions work purely in memory.
+
+// One scene object as a standalone JSON object string (the objects/<id>.json
+// body, without the trailing newline).
+std::string objectJson(const SceneObject& o);
+
+// Parses a standalone object body produced by objectJson. Returns false when
+// the string is not a JSON object; unknown/missing keys take their defaults
+// (same reader the project load uses).
+bool parseObject(const std::string& body, SceneObject& out);
+
+// Project-wide manifest sections (everything in the .tyra except the scene
+// table, the per-object bodies and the editor-side state). Each serializes
+// independently so the collaboration layer can diff and ship them one at a
+// time; save()/load() are recomposed from the same writers/readers.
+enum class Section {
+    Settings = 0,    // "settings" (project preferences)
+    Hud,             // "hud", "usePrompt", "hudTexts", bloom/grain layers, "screenFx"
+    Audio,           // "music", "musicBuild", "sounds"
+    TexQuality,      // "textureQuality" (per-asset overrides)
+    SaveData,        // "saveValues", "saveTexts"
+    Gradings,        // "gradings", "defaultGrading"
+    Ambience,        // "ambience", "defaultAmbience"
+    LoadingScreens,  // "loadingScreens", "defaultLoadingScreen"
+    Splash,          // "splashScreens"
+    Sequences,       // "sequences"
+    Menus,           // "menus"
+};
+constexpr int kSectionCount = 11;
+
+// Stable lowercase identifier for a section (wire format / diagnostics).
+const char* sectionName(Section s);
+
+// The section as one standalone JSON object string (its manifest keys wrapped
+// in braces). Deterministic: equal project state = equal string.
+std::string sectionJson(const Project& p, Section s);
+
+// Replaces the section's fields in `p` from a sectionJson() string. Fields the
+// blob does not carry reset to their defaults (a section blob is total, not a
+// patch). Returns false when the string is not a JSON object.
+bool applySectionJson(Project& p, Section s, const std::string& body);
+
+// An in-memory image of one project-model file. relativePath uses forward
+// slashes (a wire path, not an OS path).
+struct VirtualFile {
+    std::string relativePath;
+    std::string content;
+};
+
+// Byte images of every model file exactly as save()/saveHeights() would write
+// them: the <name>.tyra manifest, one objects/<id>.json per live object and
+// one terrain-<scene>.heights per scene - WITHOUT touching disk. The
+// collaboration host ships these so a joining client sees the live (possibly
+// unsaved) model, not the last saved state.
+std::vector<VirtualFile> manifestFiles(const Project& p);
+
+// The scene table WITHOUT the per-object bodies: each scene's name, terrain
+// size, scene-visual settings/overrides, ambience/loading refs, layers, and
+// its ordered list of object ids. This is the collaboration "scene-layout"
+// message - the structural skeleton; object bodies travel separately as
+// objectJson. Deterministic (equal state = equal string).
+std::string scenesLayoutJson(const Project& p);
+
+// Rebuilds p.scenes from a scenesLayoutJson() string: scene count / names /
+// meta / ordered membership. Objects are pulled BY ID out of p's current
+// scenes into the new arrangement (so a move/reorder keeps the object's body);
+// an id with no current object gets a default placeholder (a matching
+// objectJson upsert is expected to have arrived first). Per-scene heightmaps
+// are preserved by scene index. Returns false when the string is malformed.
+bool applyScenesLayout(Project& p, const std::string& body);
 
 // The effective settings for a scene: the project defaults with each scene
 // category (lighting, sky, clipping, terrain material, post-FX, highlight)

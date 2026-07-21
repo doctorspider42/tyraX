@@ -14,6 +14,7 @@
 #include "isoexport.hpp"
 #include "project.hpp"
 #include "runner.hpp"
+#include "session.hpp"
 #include "viewport.hpp"
 
 struct GLFWwindow;
@@ -340,12 +341,29 @@ private:
     // Guarded actions that would discard unsaved edits (Exit / Open / New).
     // When the project is dirty they open a confirm modal instead of running
     // immediately; the modal's Save/Discard buttons then run the pending one.
-    enum class PendingAction { None, Exit, Open, New };
+    enum class PendingAction { None, Exit, Open, New, JoinSession };
     void requestExit();
     void requestOpenProject();
     void requestNewProject();
     void performPendingAction();
     void drawDiscardModal();
+
+    // --- Collaboration session (docs/collaboration.md) ----------------------
+    // Live LAN sessions: this editor hosts its open project or joins another
+    // editor's. Session (session.hpp) runs the network side on a worker
+    // thread; sessionTick() drains its events once per frame on the UI thread
+    // and is the ONLY place session state meets project_/ImGui.
+    void sessionTick();
+    void requestJoinSession();  // dirty-guarded like Open/New
+    void startHostSession();    // reads the session* input fields
+    void closeSession();        // host: ends for everyone; client: leaves
+    // Open the freshly synced remote project from its cache directory,
+    // keeping the session alive across attachProject().
+    void openRemoteProject(const std::string& dir);
+    void drawHostSessionModal();
+    void drawJoinSessionModal();
+    void drawSessionEndedModal();
+    void drawSessionWindow();
     void copyObject();
     void pasteObject();
 
@@ -388,6 +406,10 @@ private:
     // Parent folder proposed as the location for new projects (Edit >
     // Preferences). Empty = fall back to ~/TyraProjects.
     std::string globalDefaultProjectsDir_;
+    // Collaboration (editor.ini): the name other session participants see
+    // (empty = USERNAME) and the remote-project cache root (empty = default).
+    std::string globalDisplayName_;
+    std::string globalSessionCacheDir_;
     // AI assistant backend for flow-graph generation (editor.ini; Edit >
     // Preferences > AI assistant). Model "" = the backend's default.
     aigen::Config globalAi_;
@@ -401,14 +423,52 @@ private:
     // discard-confirmation guard). Layout/docking changes do not set this -
     // they fold into the .tyra only when the user saves the project.
     bool dirty_ = false;
-    bool titleShowsDirty_ = false;  // last title state pushed to GLFW
-    std::string titleName_;         // project name currently in the title
+    bool titleShowsDirty_ = false;   // last title state pushed to GLFW
+    bool titleShowsJoined_ = false;  // last session-client marker in the title
+    std::string titleName_;          // project name currently in the title
     // Discard guard (Exit/Open/New while dirty). pendingAction_ is what runs
     // once the user resolves the modal; exitConfirmed_ lets the main loop close
     // after a confirmed Exit without re-prompting.
     PendingAction pendingAction_ = PendingAction::None;
     bool openDiscardPopup_ = false;
     bool exitConfirmed_ = false;
+
+    // Collaboration session state (see the method block above). The Session
+    // owns the worker thread; these are the UI-side latches and input buffers.
+    session::Session session_;
+    // Live model sync. modelEditSerial_ is bumped by every mutation path
+    // (commitChange / applySnapshot / setDirty-true); sessionTick diffs the
+    // model against sessionShadow_ whenever it moves past what it last
+    // scanned, and mirrors inbound edits into the same shadow (so an echo of
+    // our own edit re-diffs to nothing). Seeded when a session goes live.
+    session::ModelShadow sessionShadow_;
+    uint64_t modelEditSerial_ = 0;
+    uint64_t sessionScannedSerial_ = 0;
+    bool showSessionWindow_ = false;
+    bool openHostSessionPopup_ = false;
+    bool openJoinSessionPopup_ = false;
+    bool openSessionEndedPopup_ = false;
+    bool joinModalVisible_ = false;   // Ended errors go inline while it shows
+    bool sessionAttachKeep_ = false;  // openRemoteProject: don't close on attach
+    char sessionName_[48] = "";
+    char sessionAddr_[128] = "";
+    int sessionPort_ = 7797;
+    char sessionCode_[16] = "";
+    std::string sessionError_;      // inline error in the join modal
+    std::string sessionEndedText_;  // reason shown by the session-ended popup
+    std::vector<session::PeerView> sessionPeers_;
+    // Presence: what each OTHER participant has selected (object ids + the
+    // scene index they are editing), keyed by peer id. Rendered as per-peer
+    // outlines in the viewport and dots in the object list. Our own selection
+    // is broadcast throttled whenever it changes.
+    struct PeerPresence {
+        int scene = 0;
+        std::vector<std::string> sel;  // object ids
+    };
+    std::map<int, PeerPresence> peerPresence_;
+    std::vector<std::string> presenceSentSel_;
+    int presenceSentScene_ = -1;
+    double presenceNextSend_ = 0.0;
     // Set by attachProject()/switchLayout(): load the active layout's saved ini
     // at the next frame boundary (ImGui cannot reload settings between NewFrame
     // and EndFrame). Recipe-built layouts use recipeRebuildPending_ instead.
@@ -858,6 +918,8 @@ private:
     char prefEmulatorPath_[512] = "";  // PCSX2 exe path (auto-detect if empty)
     char prefPs2Ip_[64] = "";          // ps2link IP for Run on PS2
     char prefDefaultProjectsDir_[512] = "";  // default parent folder for new projects
+    char prefDisplayName_[48] = "";          // session display name (editor.ini)
+    char prefSessionCacheDir_[512] = "";     // remote-project cache root override
     int prefAiBackend_ = 0;            // index into aigen::backendIds()
     char prefAiModel_[128] = "";       // "" = the backend's default model
     // Model combo shows "Custom..." + a free-text field when the staged model

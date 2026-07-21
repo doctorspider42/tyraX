@@ -5,10 +5,194 @@ Each finished feature lands as its own commit.
 
 ## In progress
 
-- (nothing - the feature marathon batch is complete; see Backlog for next steps)
+- (nothing — remote collaboration v1 (113-118) is complete; internet
+  exposure for sessions is deliberately deferred, see Backlog)
 
 ## Also done after the marathon
 
+- (118) **Collaboration polish: mid-session file refresh, session prefs,
+  docs.** Closes out remote-collaboration v1. **Refresh project files**
+  (client, Session window): re-runs the join-time manifest diff mid-session -
+  the host rescans its disk, the client fetches only new/changed files through
+  the same chunk pipeline (hash cache makes an unchanged project a no-op),
+  then drops every disk-derived cache (`Viewport::invalidateAssets`, model/
+  wav caches) and rescans assets. This is how assets the host imported
+  mid-session reach clients - scene edits never need it (they stream live);
+  clients' own disk-writing edits (Material Editor paint) stay a documented
+  v1 limitation. **Prefs (editor.ini):** `displayName=` (name shown to peers;
+  seeded from USERNAME, remembered from the last session modal) and
+  `sessionCacheDir=` (remote-project cache root override) - both editable in
+  *Edit > Preferences > Collaboration sessions*. **Docs:**
+  `docs/collaboration.md` (usage, sync/conflict semantics, cache layout,
+  trust model, v1 limitations), README feature bullet + docs index, testing
+  skill gains the headless-session + two-instance recipes. **Verified:**
+  headless harness - a file written into the host's res/ mid-session arrives
+  at the client via requestRefresh (exactly 1 file fetched) and the
+  `Refreshed` event fires; all earlier session/convergence harnesses re-pass;
+  editor builds clean.
+
+- (117) **Session presence + client-mode UX.** The "who is doing what" layer
+  and the participant-facing polish. **Presence:** every editor broadcasts its
+  selection (stable object ids + the scene index) as a `presence` frame,
+  throttled to 5 Hz and only on change; the host relays to everyone else.
+  Remote selections render as **wire outlines in each peer's color** in the
+  viewport (drawn under the local amber so local always reads on top;
+  `Viewport::setPeerSelections`, ids resolved to indices per frame), as
+  **colored dots** on the object rows in the Project panel, and as "- <scene>"
+  next to each participant in the Session window. **Client-mode gating:** a
+  joined client's Save is disabled everywhere (File menu with an explanatory
+  tooltip, Ctrl+S, the toolbar floppy) - the HOST owns saving/committing; the
+  title bar shows `[joined]` while in a session and drops it on leave/kick/
+  close. Presence state resets on session start and clears on end. **Verified**
+  (two editor instances over 127.0.0.1, synthetic input + screenshots): the
+  client's selection shows on the host as a blue dot on that object's row and
+  the Session window lists "papaj - main <ip:port>" with a Kick button;
+  kicking pops the client's "You were removed from the session by the host /
+  the project stays open as a local copy" modal, the `[joined]` title marker
+  disappears and the synced project stays open; the client's title showed
+  `sesstest [joined]` and its participants list exactly two entries.
+
+- (116) **Live model sync - simultaneous editing with per-object last-write-
+  wins.** The heart of the collaboration feature: everyone in a session edits
+  at once and every editor converges on the same model. Engine
+  (session.hpp/.cpp, pure `Project&` in / frames out - fully headless-
+  testable): `ModelShadow` is the last-broadcast view of the model;
+  `diffModel()` compares the live project against it and emits one frame per
+  changed unit - `obj-upsert` (the objectJson body; emitted BEFORE the
+  layout), `scene-layout` (the whole scene table: names/meta/ordered id
+  lists - covers scene add/remove/rename/reorder + object add/delete/move/
+  reorder in one LWW unit; `project::scenesLayoutJson`/`applyScenesLayout`
+  re-home objects BY ID so a move keeps its live body), `heights` (raw float
+  grid in the binary trailer) and `section` (the Phase-113 blobs).
+  `applyEdit()` folds an inbound frame into the project AND the shadow, so
+  the echo of your own edit re-diffs to nothing. **Convergence rule: the host
+  is the total order** - it applies every client frame and rebroadcasts it to
+  ALL peers including the origin; TCP preserves that order per client.
+  Editor integration: `modelEditSerial_` bumped in `commitChange`,
+  `applySnapshot` (undo/redo broadcasts!) and `setDirty(true)` (the UI-Editor
+  / layout paths that bypass commitChange) - **any new mutation path must hit
+  one of those or the session silently misses it**; `sessionTick` diffs when
+  the serial moved and applies inbound batches (then: selection prune,
+  viewport push, one history anchor per batch so undo rewinds remote edits
+  batch-wise, host marks dirty + refreshes the joiner snapshot via
+  `setModelFiles` so a late joiner gets the CURRENT model, not the
+  host-start state). Two subtle bugs found by the property test and fixed:
+  (a) `applyScenesLayout` fabricated an empty placeholder for an unknown id -
+  a delete-vs-keep race then diverged; unknown ids are now skipped (the body
+  upsert always precedes the layout in a batch); (b) applying a remote
+  `scene-layout` used to copy `p.scenes` into the shadow wholesale, which
+  captured this peer's not-yet-broadcast local edits as "already sent" - a
+  reorder from one peer silently swallowed a concurrent recolor from the
+  other; the shadow now mirrors the structural change onto its OWN bodies.
+  Also fixed: the client duplicated itself in the participants list (the
+  host's welcome already includes the joiner). **Verified.** Headless
+  property test: host+client replicas, 6 seeds x 6000 rounds of concurrent
+  random edits (add/delete/move/recolor/rename/reorder objects, scene
+  add/remove/rename, cross-scene moves, terrain sculpts, section edits)
+  through the real engine + relay rule -> byte-identical models after every
+  round (whole-model FNV hash over layout+bodies+heights+sections), plus a
+  shadow-vs-fresh-shadow drift probe each round; all Phase 113-115 harnesses
+  re-pass. Interactive (two editor instances over 127.0.0.1, driven by
+  synthetic input, screenshots): host adds an Empty via Scene>Add -> it
+  appears in the client's object list + viewport within a second; client
+  adds one -> it appears on the host (auto-named `empty-2` against the
+  synced state) and the host titlebar gains the dirty `*`; participants
+  list shows host + client with address and a Kick button.
+
+- (115) **Collaboration session: host / join / full transfer + local cache
+  (src/session.hpp/.cpp).** The connection layer of the live sessions.
+  `Session` owns one worker thread (Runner idiom: `std::atomic` state +
+  mutex-guarded queues; the UI thread drains `drainEvents()` once per frame in
+  `App::sessionTick()` and is the ONLY place session data meets `project_` /
+  ImGui). Host: hashes/scans the project (excludes bin/ obj/ .git/ .res-baked/
+  *.history; the .tyra + objects/*.json + terrain-*.heights come from the LIVE
+  in-memory model via `manifestFiles()`), listens, and on each join sends
+  `welcome` + a content-hash `manifest`; the client diffs against its cache,
+  `need`s only the misses, receives chunked `file` frames (256 KiB, per-peer
+  backlog-capped so one slow peer can't balloon host RAM) and `sync-done`,
+  then opens the materialized project. Remote projects live under
+  `%LOCALAPPDATA%\tyra-editor\remote-cache\<projectId>\project`; `cache.json`
+  (size+hash+mtime) makes a re-join of an unchanged project fetch **zero**
+  files and a one-asset change fetch **exactly one**. Host-side hashing is
+  memoized across sessions (`hash-cache.json`) so hosting a big project never
+  rehashes unchanged assets twice. Handshake gates: protocol-version and
+  6-digit join-code mismatch → `deny`, session-full → `deny`, 5 s ping /
+  15 s timeout keepalive, host `kick` and `close` broadcast `bye`. Path safety:
+  the client rejects any manifest path that is absolute / has a drive / climbs
+  `..`. `wire::Transport` stays the swappable seam (LAN TCP today).
+  UI: a **Session** top-level menu (Host / Join / Session Window / Close-Leave),
+  the Host and Join modals (display name, port, join code, local host IPs, a
+  firewall hint; the Join modal shows a live transfer progress bar and inline
+  errors), a Session window (participants with per-peer color dots + Kick), a
+  session-ended modal, and a toolbar **SESSION chip** cloned from the LIVE chip
+  (green "SESSION (n)" hosting / blue "JOINED" / amber "SYNC"). A project
+  switch (`attachProject`) tears the session down, except the join handoff
+  which keeps it alive. **Verified.** Headless harness (host+client `Session`
+  in one process over 127.0.0.1, real sockets): a join transfers the whole
+  scratch project (40 files / 615 KB incl. a 300 KB binary asset) and the
+  client's loaded model is byte-identical to the host - `scenes ==`, every one
+  of the 11 sections' `sectionJson` equal, asset bytes equal, `projectId`
+  equal; a re-join of the unchanged project fetches 0 files; changing one asset
+  fetches exactly 1 and its new bytes arrive; a wrong join code is denied with
+  the code-specific message; a kicked client sees the removal message; the host
+  sees PeerJoined / PeerLeft. GUI (editor, screenshots): the Session menu, the
+  Host modal (name=USERNAME, port 7797, generated join code, three LAN IPs),
+  the green SESSION (0) toolbar chip, and the Session window (participant
+  "papaj (host)" + Close button) all render; starting the host raised the
+  Windows Firewall prompt the modal warns about.
+
+- (114) **Collaboration wire transport (src/wire.hpp/.cpp).** The byte layer
+  under the upcoming live sessions, deliberately independent of the project
+  model. Frames are `[u32 jsonLen][u32 binLen][json][bin]` (LE): JSON carries
+  the message, the raw binary trailer carries bulk payloads (file chunks,
+  heightmap grids) so bytes never pass through json.cpp (which collapses
+  `\u` escapes). Hard caps (4 MiB json / 16 MiB bin per frame) kill a
+  malformed/hostile connection instead of ballooning memory; the incremental
+  `FrameDecoder` survives arbitrary short reads. The `wire::Transport`
+  interface (`listen/connect/poll/send/sendBacklog/kick/close`, single-thread
+  contract, `Event` stream of Connected/Disconnected/Frame) is **the seam a
+  future internet transport plugs into** (WebSocket-through-tunnel etc. -
+  session code never sees sockets); `makeTcpTransport()` is the LAN
+  implementation: Winsock2 non-blocking sockets + `WSAPoll`, TCP_NODELAY,
+  no SO_REUSEADDR (a second host must get "port is already in use", not
+  steal the socket), per-peer send queues drained on poll. Plus
+  `wire::fnv1a64`/`hashFile` (streamed content hash for the transfer cache)
+  and `localIPv4()` for the host UI. CMake links `ws2_32`. **Verified**
+  (headless harness, single process pumping host+client transports on
+  127.0.0.1): codec reassembles frames from 1-byte feeds and round-trips
+  empty json/bin; oversized header latches error; 1000 small frames arrive
+  in order; an 8 MiB binary round-trips byte-exact; client close surfaces
+  Disconnected on the host and kick() surfaces it on the client; connect to
+  a dead port errors; double-listen and port-in-use report cleanly;
+  hashFile == fnv1a64 on known bytes and false on a missing file.
+
+- (113) **Collaboration groundwork: manifest sections, projectId, in-memory
+  model files, objectJson escaping fix.** The serialization layer learns the
+  shapes the upcoming live-session wire format needs, with the .tyra byte
+  layout unchanged. `save()`/`load()` are recomposed from per-section
+  writers/readers (`project::Section`: Settings / Hud / Audio / TexQuality /
+  SaveData / Gradings / Ambience / LoadingScreens / Splash / Sequences /
+  Menus); `project::sectionJson()` / `applySectionJson()` expose each group of
+  manifest keys as one standalone JSON blob (apply is total-replace with
+  reset-to-defaults, not a patch - the LWW unit for project-wide data).
+  `project::objectJson()` / `parseObject()` are now public - one object as a
+  wire string and back (the objects/<id>.json body). `Project::projectId`
+  (16-hex, `ensureProjectId`; stamped at create, backfilled on load, omitted
+  from the manifest while empty) gives the remote-project cache a stable key.
+  `project::manifestFiles()` returns byte images of the .tyra + every
+  objects/<id>.json + terrain-*.heights straight from the live in-memory
+  model (a dirty host must ship its live state, not the last save).
+  Fixed in passing: `objectJson` wrote name/layer/model/material/sound paths,
+  mirror-target names, script names and anim clips **without `jsonEscape`** -
+  a `"` in an object name corrupted the saved file; likewise music/sound
+  paths and textureQuality keys in the manifest. **Verified** (headless
+  harness vs .obj files, all 10 examples/): golden byte-diff of load->save
+  output pre/post refactor is identical after id canonicalization except the
+  intended `projectId` line; per-section `sectionJson -> applySectionJson ->
+  sectionJson` string-equal both onto a copy and onto a field-clobbered
+  project; `manifestFiles()` bytes == the files `save()`/`saveHeights()`
+  write; every object round-trips `objectJson -> parseObject` (`operator==`),
+  plus an escaping regression case with quotes/backslashes/newlines.
 - (148) **Seeded example script no longer recolors the sky on every X.**
   Owner: the scaffolded `src/scripts/example_interaction.cpp` toggled
   `ctx.skyColor` whenever Cross was clicked (near the box in FPP, anywhere in
@@ -1993,6 +2177,9 @@ Each finished feature lands as its own commit.
   Old entries keep their numbers; the sequence continues from (113) up top.)*
 
 - (107) **Live Link v2 — per-project on/off + live add/delete of objects.**
+  *(Numbering note: entries 104-107 appear twice — the reflections marathon
+  above and the Live Link/mirror line below landed from parallel branches
+  with the same numbers; both are kept.)*
   Two follow-ups to (106). First, the on/off is now a **project setting**
   (`ProjectSettings::liveLink`, default on; *Project > Preferences > Build*,
   *Build > Live Link*, and the toolbar **LIVE chip itself is the switch** —
@@ -7098,6 +7285,15 @@ Each finished feature lands as its own commit.
   (VU1-clipping toggle, data-driven USE prompt, menu value strips).
 
 ## Backlog (rough order)
+
+- **Session internet exposure** — today sessions are LAN (or any mesh VPN:
+  Tailscale/ZeroTier make remote peers look local, zero code). The researched
+  built-in options, in preference order: a Cloudflare quick tunnel
+  (`cloudflared`, free, no account, random URL per session = invite link;
+  needs a WebSocket `wire::Transport` impl - client side via native WinHTTP,
+  no OpenSSL), playit.gg (free TCP tunnels, account required), UPnP
+  (miniupnpc, best-effort, dies on CGNAT). The `wire::Transport` interface is
+  the only integration point - protocol/session code never sees sockets.
 
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)
 - Object physics vs objects (stacking), player physics polish (pad feel)
