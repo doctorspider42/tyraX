@@ -9,6 +9,25 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (140) **Carrying through a portal, the dead-centre take two: keep the
+  through-view alive across the plane.** (139) still left the object
+  snapping at the exact centre and a "between the portals" flash (owner
+  screenshots). Root cause: `renderPortalView` only selected a portal
+  while the camera was strictly in FRONT (`rel·n > 0`), so at the plane the
+  portal dropped out entirely - no through-view, so the bent carried object
+  (skipped in the main pass) had nowhere to draw and the crossing zone's
+  full-screen mask never engaged, exposing the wall behind. Fixes: (a)
+  portal selection now keeps a portal live for a short band JUST behind the
+  plane while the eye is inside the opening rectangle (the crossing frames
+  before the walker teleports) - outside the rectangle the back face still
+  shows nothing; (b) the crossing-zone test's lower bound drops to
+  `lz > -0.6` to match, so `zoneClose` forces the full mask through the
+  exact centre; (c) `updateCarriedObject` moved AFTER `updatePortals` in
+  both loops - on the teleport frame the camera is already rebuilt to the
+  arrival side, so the object anchors there instead of holding one frame at
+  the departure side and blinking. Verified: editor builds clean, portals
+  example regenerated + Docker build exit 0. Owner pad test next.
+
 - (139) **Carrying through a portal, the dead-centre polish.** With the
   portal-aware carry (138) working, the owner found the object still
   snapped onto the mounting wall at the exact CENTRE of the opening, and

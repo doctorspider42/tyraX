@@ -1134,7 +1134,6 @@ void TerrainGame::loop() {
   if (!menuOwnsPad) {
     if (!updatePlayerEntity()) updatePlayer();
     updateUseTarget();
-    updateCarriedObject();
   }
 
   scriptCtx.playerPosition = cameraPosition;
@@ -1253,6 +1252,12 @@ void TerrainGame::loop() {
                     &playerY, &playerZ, &yaw, &pitch, &playerVelY,
                     EYE_HEIGHT);
   }
+  // The carried object is positioned AFTER the portal step: on the frame the
+  // player teleports, updatePortals rebuilds the camera to the arrival side,
+  // so placing the object here anchors it in front of the ARRIVAL camera -
+  // otherwise it holds one frame at the departure side and blinks as it
+  // crosses (owner).
+  if (!menuOwnsPad) updateCarriedObject();
   updateParticles();
   updateSoundEmitters();
 
@@ -6177,7 +6182,23 @@ void TerrainGame::renderPortalView() {
     const float relX = cameraPosition.x - m.data.position[0];
     const float relY = cameraPosition.y - m.data.position[1];
     const float relZ = cameraPosition.z - m.data.position[2];
-    if (relX * n.x + relY * n.y + relZ * n.z <= 0.0F) continue;
+    const float lzsel = relX * n.x + relY * n.y + relZ * n.z;
+    if (lzsel <= 0.0F) {
+      // Keep the view alive for a short band JUST behind the plane while the
+      // eye is inside the opening rectangle - the crossing frames, where the
+      // full-screen mask needs the destination to render as you step through
+      // and a carried object bent to the far side must stay visible. Outside
+      // the rectangle (walking around the back) the back face shows nothing.
+      const V3 axsel = rotated({1.0F, 0.0F, 0.0F}, m.data.rotation);
+      const V3 aysel = rotated({0.0F, 1.0F, 0.0F}, m.data.rotation);
+      const float lxsel = relX * axsel.x + relY * axsel.y + relZ * axsel.z;
+      const float lysel = relX * aysel.x + relY * aysel.y + relZ * aysel.z;
+      const float hxsel = 0.5F * m.data.scale[0] + 0.3F;
+      const float hysel = 0.5F * m.data.scale[1] + 0.3F;
+      if (!(lzsel > -0.6F && lxsel > -hxsel && lxsel < hxsel &&
+            lysel > -hysel && lysel < hysel))
+        continue;
+    }
     const float d2 = relX * relX + relY * relY + relZ * relZ;
     // bounded shortlist (no allocation): keep the 8 nearest candidates
     if (cnt < 8) {
@@ -6271,7 +6292,11 @@ bool TerrainGame::renderOnePortalView(int pi) {
         engine->renderer.core.getSettings().getNear() * 2.0F + 0.45F;
     Vec4 fwd = cameraLookAt - cameraPosition;
     const float into = -(fwd.x * az.x + fwd.y * az.y + fwd.z * az.z);
-    zone = lz > 0.0F && lz < thresh && lx > -hx - 0.3F && lx < hx + 0.3F &&
+    // lz down to a small NEGATIVE too: the eye steps a hair past the plane
+    // before the walker teleports, and the mask must hold through those
+    // frames or the surrounding wall flashes back (owner: the "between
+    // portals" moment right at the centre).
+    zone = lz > -0.6F && lz < thresh && lx > -hx - 0.3F && lx < hx + 0.3F &&
            ly > -hy - 0.3F && ly < hy + 0.3F && into > 0.0F;
     // Dead-centre approach: within the last stretch before the plane, force
     // the full-screen mask even if the quad's bbox still nominally covers -

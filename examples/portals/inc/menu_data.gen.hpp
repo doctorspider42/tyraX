@@ -36,12 +36,15 @@ struct MenuData {
   int valueCellW, valueCellH, valuePitch, valueX;
 };
 
-constexpr int MENU_COUNT = 0;
+constexpr int MENU_COUNT = 1;
 
-constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F, 0, -1, 0}};
+// menu "menu-1"
+constexpr MenuEntryData MENU_0_ENTRIES[1] = {
+    {0, -1, 0.0F, 0, -1, 0},  // Continue
+};
 
 inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
-    {"", 0, 0, 0, 0, 0, 0, MENU_0_ENTRIES, 0, 0, 0.5F, 0.45F, "", 0, 0, 0, 0},
+    {"menus/menu-1.png", 256, 128, 90, 44, 24, 1, MENU_0_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0},  // menu-1
 };
 
 constexpr int TITLE_MENU = -1;
